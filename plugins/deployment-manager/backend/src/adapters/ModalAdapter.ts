@@ -7,15 +7,9 @@ import type {
   ProviderStatus,
   HealthResult,
 } from '../types/index.js';
+import { gwFetch } from '../lib/gwFetch.js';
 
-const GATEWAY_BASE = process.env.SHELL_URL || 'http://localhost:3000';
-
-async function gwFetch(path: string, options: RequestInit = {}): Promise<Response> {
-  return fetch(`${GATEWAY_BASE}/api/v1/gw/modal${path}`, {
-    ...options,
-    headers: { 'Content-Type': 'application/json', ...options.headers },
-  });
-}
+const CONNECTOR_SLUG = 'modal';
 
 export class ModalAdapter implements IProviderAdapter {
   readonly slug = 'modal';
@@ -38,15 +32,16 @@ export class ModalAdapter implements IProviderAdapter {
   }
 
   async deploy(config: DeployConfig): Promise<ProviderDeployment> {
-    const res = await gwFetch('/apps', {
+    const res = await gwFetch(CONNECTOR_SLUG, '/apps', {
       method: 'POST',
       body: JSON.stringify({
         name: config.name,
         image: config.dockerImage,
         gpu: config.gpuModel,
         gpu_count: config.gpuCount,
+        env: config.envVars || {},
         min_containers: 0,
-        max_containers: 5,
+        max_containers: config.concurrency || 5,
         timeout: 300,
       }),
     });
@@ -63,7 +58,7 @@ export class ModalAdapter implements IProviderAdapter {
   }
 
   async getStatus(providerDeploymentId: string): Promise<ProviderStatus> {
-    const res = await gwFetch(`/apps/${providerDeploymentId}`);
+    const res = await gwFetch(CONNECTOR_SLUG, `/apps/${providerDeploymentId}`);
     if (!res.ok) return { status: 'FAILED' };
 
     const data = await res.json();
@@ -78,7 +73,7 @@ export class ModalAdapter implements IProviderAdapter {
   }
 
   async destroy(providerDeploymentId: string): Promise<void> {
-    const res = await gwFetch(`/apps/${providerDeploymentId}`, { method: 'DELETE' });
+    const res = await gwFetch(CONNECTOR_SLUG, `/apps/${providerDeploymentId}`, { method: 'DELETE' });
     if (!res.ok && res.status !== 404) throw new Error(`Modal destroy failed (${res.status})`);
   }
 
@@ -87,7 +82,7 @@ export class ModalAdapter implements IProviderAdapter {
     if (config.dockerImage) body.image = config.dockerImage;
     if (config.gpuModel) body.gpu = config.gpuModel;
 
-    const res = await gwFetch(`/apps/${providerDeploymentId}`, {
+    const res = await gwFetch(CONNECTOR_SLUG, `/apps/${providerDeploymentId}`, {
       method: 'PUT',
       body: JSON.stringify(body),
     });
@@ -106,7 +101,7 @@ export class ModalAdapter implements IProviderAdapter {
   async healthCheck(providerDeploymentId: string): Promise<HealthResult> {
     try {
       const start = Date.now();
-      const res = await gwFetch(`/apps/${providerDeploymentId}`);
+      const res = await gwFetch(CONNECTOR_SLUG, `/apps/${providerDeploymentId}`);
       const responseTimeMs = Date.now() - start;
 
       if (!res.ok) return { healthy: false, status: 'RED', responseTimeMs, statusCode: res.status };

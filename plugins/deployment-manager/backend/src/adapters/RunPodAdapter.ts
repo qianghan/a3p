@@ -7,19 +7,9 @@ import type {
   ProviderStatus,
   HealthResult,
 } from '../types/index.js';
+import { gwFetch } from '../lib/gwFetch.js';
 
-const GATEWAY_BASE = process.env.SHELL_URL || 'http://localhost:3000';
-
-async function gwFetch(path: string, options: RequestInit = {}): Promise<Response> {
-  const url = `${GATEWAY_BASE}/api/v1/gw/runpod-serverless${path}`;
-  return fetch(url, {
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...options.headers,
-    },
-  });
-}
+const CONNECTOR_SLUG = 'runpod-serverless';
 
 export class RunPodAdapter implements IProviderAdapter {
   readonly slug = 'runpod';
@@ -32,7 +22,7 @@ export class RunPodAdapter implements IProviderAdapter {
 
   async getGpuOptions(): Promise<GpuOption[]> {
     try {
-      const res = await gwFetch('/gpu-types');
+      const res = await gwFetch(CONNECTOR_SLUG, '/gpu-types');
       if (!res.ok) return this.fallbackGpuOptions();
       const data = await res.json();
       if (Array.isArray(data)) {
@@ -52,7 +42,7 @@ export class RunPodAdapter implements IProviderAdapter {
   }
 
   async deploy(config: DeployConfig): Promise<ProviderDeployment> {
-    const res = await gwFetch('/endpoints', {
+    const res = await gwFetch(CONNECTOR_SLUG, '/endpoints', {
       method: 'POST',
       body: JSON.stringify({
         name: config.name,
@@ -63,9 +53,9 @@ export class RunPodAdapter implements IProviderAdapter {
         volumeInGb: 20,
         containerDiskInGb: 20,
         minWorkers: 0,
-        maxWorkers: 1,
+        maxWorkers: config.concurrency || 1,
         idleTimeout: 300,
-        env: config.artifactConfig || {},
+        env: { ...config.artifactConfig, ...config.envVars },
       }),
     });
 
@@ -84,7 +74,7 @@ export class RunPodAdapter implements IProviderAdapter {
   }
 
   async getStatus(providerDeploymentId: string): Promise<ProviderStatus> {
-    const res = await gwFetch(`/endpoints/${providerDeploymentId}`);
+    const res = await gwFetch(CONNECTOR_SLUG, `/endpoints/${providerDeploymentId}`);
     if (!res.ok) {
       return { status: 'FAILED' };
     }
@@ -103,7 +93,7 @@ export class RunPodAdapter implements IProviderAdapter {
   }
 
   async destroy(providerDeploymentId: string): Promise<void> {
-    const res = await gwFetch(`/endpoints/${providerDeploymentId}`, { method: 'DELETE' });
+    const res = await gwFetch(CONNECTOR_SLUG, `/endpoints/${providerDeploymentId}`, { method: 'DELETE' });
     if (!res.ok && res.status !== 404) {
       const error = await res.text();
       throw new Error(`RunPod destroy failed (${res.status}): ${error}`);
@@ -116,7 +106,7 @@ export class RunPodAdapter implements IProviderAdapter {
     if (config.gpuModel) body.gpuTypeId = config.gpuModel;
     if (config.gpuCount) body.gpuCount = config.gpuCount;
 
-    const res = await gwFetch(`/endpoints/${providerDeploymentId}`, {
+    const res = await gwFetch(CONNECTOR_SLUG, `/endpoints/${providerDeploymentId}`, {
       method: 'PUT',
       body: JSON.stringify(body),
     });
@@ -138,7 +128,7 @@ export class RunPodAdapter implements IProviderAdapter {
   async healthCheck(providerDeploymentId: string): Promise<HealthResult> {
     try {
       const start = Date.now();
-      const res = await gwFetch(`/endpoints/${providerDeploymentId}/health`);
+      const res = await gwFetch(CONNECTOR_SLUG, `/endpoints/${providerDeploymentId}/health`);
       const responseTimeMs = Date.now() - start;
 
       if (!res.ok) {

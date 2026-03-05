@@ -7,6 +7,8 @@ import { GpuConfigForm } from '../components/GpuConfigForm';
 import { TemplateSelector } from '../components/TemplateSelector';
 import { HealthIndicator } from '../components/HealthIndicator';
 import { DeploymentLogs } from '../components/DeploymentLogs';
+import { CostPreview } from '../components/CostPreview';
+import { EnvVarsEditor } from '../components/EnvVarsEditor';
 
 const API_BASE = '/api/v1/deployment-manager';
 
@@ -49,6 +51,8 @@ export const DeploymentWizard: React.FC = () => {
     healthPort: 8080,
     healthEndpoint: '/health',
     customImage: '',
+    envVars: {} as Record<string, string>,
+    concurrency: 1,
   });
 
   const [sshTestResult, setSshTestResult] = useState<{ success: boolean; message: string } | null>(null);
@@ -155,6 +159,8 @@ export const DeploymentWizard: React.FC = () => {
       sshPort: isSSH ? form.sshPort : undefined,
       sshUsername: isSSH ? form.sshUsername : undefined,
       templateId: selectedTemplate?.id,
+      envVars: form.envVars,
+      concurrency: form.concurrency,
     };
 
     try {
@@ -293,8 +299,43 @@ export const DeploymentWizard: React.FC = () => {
             }}
             onGpuCountChange={(count) => updateForm('gpuCount', count)}
           />
+          <CostPreview
+            providerSlug={form.providerSlug || null}
+            gpuModel={form.gpuModel || null}
+            gpuCount={form.gpuCount}
+          />
         </div>
       )}
+
+      <div style={{ marginBottom: '1.5rem' }}>
+        <label style={{ fontSize: '0.875rem', fontWeight: 500, display: 'block', marginBottom: '0.25rem' }}>
+          Concurrency
+        </label>
+        <input
+          type="number"
+          min={1}
+          max={32}
+          value={form.concurrency}
+          onChange={(e) => updateForm('concurrency', Math.max(1, parseInt(e.target.value, 10) || 1))}
+          style={{
+            width: '100px',
+            padding: '0.5rem 0.75rem',
+            border: '1px solid #d1d5db',
+            borderRadius: '0.375rem',
+            fontSize: '0.875rem',
+          }}
+        />
+        <p style={{ fontSize: '0.75rem', color: '#9ca3af', marginTop: '0.25rem' }}>
+          Max concurrent requests per replica.
+        </p>
+      </div>
+
+      <div style={{ marginBottom: '1.5rem' }}>
+        <EnvVarsEditor
+          envVars={form.envVars}
+          onChange={(envVars) => updateForm('envVars', envVars)}
+        />
+      </div>
     </div>
   );
 
@@ -320,11 +361,19 @@ export const DeploymentWizard: React.FC = () => {
             <div><strong>GPU:</strong> {form.gpuModel} x{form.gpuCount}</div>
             <div><strong>Version:</strong> {isCustom ? 'latest' : form.artifactVersion}</div>
             {isSSH && <div><strong>Host:</strong> {form.sshHost}:{form.sshPort}</div>}
+            <div><strong>Concurrency:</strong> {form.concurrency}</div>
+            <div><strong>Env Vars:</strong> {Object.keys(form.envVars).length} configured</div>
             <div style={{ gridColumn: '1 / -1' }}>
               <strong>Image:</strong> <code style={{ fontSize: '0.8rem' }}>{dockerImage}</code>
             </div>
           </div>
         </div>
+
+        <CostPreview
+          providerSlug={form.providerSlug || null}
+          gpuModel={form.gpuModel || null}
+          gpuCount={form.gpuCount}
+        />
 
         {/* Deploy button or status */}
         {!hasDeployed ? (

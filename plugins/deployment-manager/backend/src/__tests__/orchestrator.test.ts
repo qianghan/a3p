@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { DeploymentOrchestrator } from '../services/DeploymentOrchestrator.js';
 import { ProviderAdapterRegistry } from '../services/ProviderAdapterRegistry.js';
 import { AuditService } from '../services/AuditService.js';
+import { InMemoryDeploymentStore } from '../store/InMemoryDeploymentStore.js';
 import type { IProviderAdapter } from '../adapters/IProviderAdapter.js';
 import type { DeployConfig, ProviderDeployment, ProviderStatus, HealthResult, GpuOption, UpdateConfig } from '../types/index.js';
 
@@ -71,7 +72,7 @@ describe('DeploymentOrchestrator', () => {
     mockAdapter = new MockAdapter();
     registry.register(mockAdapter);
     audit = new AuditService();
-    orchestrator = new DeploymentOrchestrator(registry, audit);
+    orchestrator = new DeploymentOrchestrator(registry, audit, new InMemoryDeploymentStore());
   });
 
   it('should create a deployment in PENDING state', async () => {
@@ -132,7 +133,7 @@ describe('DeploymentOrchestrator', () => {
   it('should record status history', async () => {
     const deployment = await orchestrator.create(baseConfig, 'user-1');
     await orchestrator.deploy(deployment.id, 'user-1');
-    const history = orchestrator.getStatusHistory(deployment.id);
+    const history = await orchestrator.getStatusHistory(deployment.id);
     // PENDING -> DEPLOYING -> VALIDATING -> ONLINE = 4 entries
     expect(history.length).toBeGreaterThanOrEqual(4);
   });
@@ -150,7 +151,7 @@ describe('DeploymentOrchestrator', () => {
     const record = await orchestrator.get(deployment.id);
     expect(record?.status).toBe('ONLINE');
 
-    orchestrator.updateHealthStatus(deployment.id, 'RED');
+    await orchestrator.updateHealthStatus(deployment.id, 'RED');
     const updated = await orchestrator.get(deployment.id);
     expect(updated?.status).toBe('ONLINE');
     expect(updated?.healthStatus).toBe('RED');

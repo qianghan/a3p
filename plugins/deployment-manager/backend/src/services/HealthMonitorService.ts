@@ -89,7 +89,7 @@ export class HealthMonitorService {
     // Evict old logs (keep last 1000 per deployment)
     this.evictOldLogs(deployment.id, 1000);
 
-    this.orchestrator.updateHealthStatus(deployment.id, computedStatus);
+    await this.orchestrator.updateHealthStatus(deployment.id, computedStatus);
     return result;
   }
 

@@ -1,0 +1,101 @@
+import { describe, it, expect, beforeEach } from 'vitest';
+import { DeploymentOrchestrator } from '../../services/DeploymentOrchestrator.js';
+import { ProviderAdapterRegistry } from '../../services/ProviderAdapterRegistry.js';
+import { AuditService } from '../../services/AuditService.js';
+import { InMemoryDeploymentStore } from '../../store/InMemoryDeploymentStore.js';
+import type { IProviderAdapter } from '../../adapters/IProviderAdapter.js';
+import type { DeployConfig, UpdateConfig, HealthResult } from '../../types/index.js';
+
+class MockAdapter implements IProviderAdapter {
+  readonly slug = 'mock';
+  readonly displayName = 'Mock';
+  readonly connectorSlug = 'mock';
+  readonly mode = 'serverless' as const;
+  readonly icon = '🧪';
+  readonly description = 'Mock';
+  readonly authMethod = 'api-key';
+  shouldFail = false;
+  healthResult: HealthResult = { healthy: true, status: 'GREEN', responseTimeMs: 50 };
+  deployCallCount = 0;
+
+  async getGpuOptions() { return [{ id: 'gpu', name: 'GPU', vramGb: 80, available: true }]; }
+  async deploy(config: DeployConfig) {
+    this.deployCallCount++;
+    if (this.shouldFail) throw new Error('Mock deploy failure');
+    return { providerDeploymentId: 'mock-123', endpointUrl: 'https://mock/endpoint', status: 'DEPLOYING' as const };
+  }
+  async getStatus() { return { status: 'ONLINE' as const }; }
+  async destroy() {}
+  async update(_id: string, _config: UpdateConfig) { return { providerDeploymentId: 'mock-123', status: 'UPDATING' as const }; }
+  async healthCheck() { return this.healthResult; }
+}
+
+const baseConfig: DeployConfig = {
+  name: 'test', providerSlug: 'mock', gpuModel: 'A100', gpuVramGb: 80, gpuCount: 1,
+  artifactType: 'ai-runner', artifactVersion: 'v1.0.0', dockerImage: 'livepeer/ai-runner:v1.0.0',
+};
+
+describe('Feature: Full Deployment Lifecycle', () => {
+  let orchestrator: DeploymentOrchestrator;
+  let registry: ProviderAdapterRegistry;
+  let audit: AuditService;
+  let adapter: MockAdapter;
+
+  beforeEach(() => {
+    registry = new ProviderAdapterRegistry();
+    adapter = new MockAdapter();
+    registry.register(adapter);
+    audit = new AuditService();
+    orchestrator = new DeploymentOrchestrator(registry, audit, new InMemoryDeploymentStore());
+  });
+
+  it('Given a valid deploy config, When the operator deploys, Then the deployment transitions PENDING -> DEPLOYING -> VALIDATING -> ONLINE', async () => {
+    // Given
+    const deployment = await orchestrator.create(baseConfig, 'user-1');
+    expect(deployment.status).toBe('PENDING');
+
+    // When
+    const result = await orchestrator.deploy(deployment.id, 'user-1');
+
+    // Then
+    expect(result.status).toBe('ONLINE');
+    expect(result.healthStatus).toBe('GREEN');
+    expect(result.providerDeploymentId).toBe('mock-123');
+    expect(result.endpointUrl).toBe('https://mock/endpoint');
+    expect(result.deployedAt).toBeInstanceOf(Date);
+    expect(adapter.deployCallCount).toBe(1);
+
+    const history = await orchestrator.getStatusHistory(deployment.id);
+    const statuses = history.map((h) => h.toStatus);
+    expect(statuses).toHaveLength(4);
+    expect(statuses).toContain('PENDING');
+    expect(statuses).toContain('DEPLOYING');
+    expect(statuses).toContain('VALIDATING');
+    expect(statuses).toContain('ONLINE');
+  });
+
+  it('Given an adapter that returns an unhealthy health check, When the operator deploys, Then the deployment reaches FAILED status', async () => {
+    // Given
+    adapter.healthResult = { healthy: false, status: 'RED', responseTimeMs: 100 };
+    const deployment = await orchestrator.create(baseConfig, 'user-1');
+
+    // When
+    const result = await orchestrator.deploy(deployment.id, 'user-1');
+
+    // Then
+    expect(result.status).toBe('FAILED');
+    expect(result.healthStatus).toBe('RED');
+
+    const history = await orchestrator.getStatusHistory(deployment.id);
+    const statuses = history.map((h) => h.toStatus);
+    expect(statuses).toHaveLength(4);
+    expect(statuses).toContain('PENDING');
+    expect(statuses).toContain('DEPLOYING');
+    expect(statuses).toContain('VALIDATING');
+    expect(statuses).toContain('FAILED');
+
+    const auditLogs = await audit.query({ deploymentId: deployment.id });
+    expect(auditLogs.data.some((l) => l.action === 'CREATE')).toBe(true);
+    expect(auditLogs.data.some((l) => l.action === 'DEPLOY')).toBe(true);
+  });
+});

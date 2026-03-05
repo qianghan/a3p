@@ -7,19 +7,9 @@ import type {
   ProviderStatus,
   HealthResult,
 } from '../types/index.js';
+import { gwFetch } from '../lib/gwFetch.js';
 
-const GATEWAY_BASE = process.env.SHELL_URL || 'http://localhost:3000';
-
-async function gwFetch(path: string, options: RequestInit = {}): Promise<Response> {
-  const url = `${GATEWAY_BASE}/api/v1/gw/ssh-bridge${path}`;
-  return fetch(url, {
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...options.headers,
-    },
-  });
-}
+const CONNECTOR_SLUG = 'ssh-bridge';
 
 export class SshBridgeAdapter implements IProviderAdapter {
   readonly slug = 'ssh-bridge';
@@ -50,7 +40,7 @@ export class SshBridgeAdapter implements IProviderAdapter {
       throw new Error('SSH host and username are required for SSH Bridge deployments');
     }
 
-    const connectRes = await gwFetch('/connect', {
+    const connectRes = await gwFetch(CONNECTOR_SLUG, '/connect', {
       method: 'POST',
       body: JSON.stringify({
         host: config.sshHost,
@@ -67,6 +57,10 @@ export class SshBridgeAdapter implements IProviderAdapter {
     const containerName = config.containerName || `naap-${config.artifactType}-${Date.now()}`;
     const healthPort = config.healthPort || 8080;
     const healthEndpoint = config.healthEndpoint || '/health';
+
+    const envFlags = Object.entries(config.envVars || {})
+      .map(([k, v]) => `  -e ${k}="${v}"`)
+      .join(' \\\n');
 
     const deployScript = [
       '#!/bin/bash',
@@ -86,6 +80,7 @@ export class SshBridgeAdapter implements IProviderAdapter {
       `echo "=== Starting ${containerName} ==="`,
       `docker run -d --name ${containerName} \\`,
       '  --gpus all --restart unless-stopped \\',
+      ...(envFlags ? [`${envFlags} \\`] : []),
       `  -p ${healthPort}:${healthPort} \\`,
       `  ${config.dockerImage}`,
       '',
@@ -103,7 +98,7 @@ export class SshBridgeAdapter implements IProviderAdapter {
       'exit 1',
     ].join('\n');
 
-    const scriptRes = await gwFetch('/exec/script', {
+    const scriptRes = await gwFetch(CONNECTOR_SLUG, '/exec/script', {
       method: 'POST',
       body: JSON.stringify({
         host: config.sshHost,
@@ -139,7 +134,7 @@ export class SshBridgeAdapter implements IProviderAdapter {
 
     if (jobId) {
       try {
-        const res = await gwFetch(`/jobs/${jobId}`);
+        const res = await gwFetch(CONNECTOR_SLUG, `/jobs/${jobId}`);
         if (res.ok) {
           const data = await res.json();
           const jobStatus = data.data?.status || data.status;
@@ -169,7 +164,7 @@ export class SshBridgeAdapter implements IProviderAdapter {
     const host = parts[0];
     const containerName = parts[1];
 
-    const res = await gwFetch('/exec', {
+    const res = await gwFetch(CONNECTOR_SLUG, '/exec', {
       method: 'POST',
       body: JSON.stringify({
         host,
@@ -197,6 +192,10 @@ export class SshBridgeAdapter implements IProviderAdapter {
       throw new Error('dockerImage is required for SSH Bridge updates');
     }
 
+    const updateEnvFlags = Object.entries(config.envVars || {})
+      .map(([k, v]) => `  -e ${k}="${v}"`)
+      .join(' \\\n');
+
     const updateScript = [
       '#!/bin/bash',
       'set -euo pipefail',
@@ -208,6 +207,7 @@ export class SshBridgeAdapter implements IProviderAdapter {
       `echo "=== Starting updated ${containerName} ==="`,
       `docker run -d --name ${containerName} \\`,
       '  --gpus all --restart unless-stopped \\',
+      ...(updateEnvFlags ? [`${updateEnvFlags} \\`] : []),
       `  -p ${healthPort}:${healthPort} \\`,
       `  ${newImage}`,
       'for i in $(seq 1 30); do',
@@ -221,7 +221,7 @@ export class SshBridgeAdapter implements IProviderAdapter {
       'exit 1',
     ].join('\n');
 
-    const res = await gwFetch('/exec/script', {
+    const res = await gwFetch(CONNECTOR_SLUG, '/exec/script', {
       method: 'POST',
       body: JSON.stringify({
         host,
@@ -261,7 +261,7 @@ export class SshBridgeAdapter implements IProviderAdapter {
 
     try {
       const start = Date.now();
-      const res = await gwFetch('/exec', {
+      const res = await gwFetch(CONNECTOR_SLUG, '/exec', {
         method: 'POST',
         body: JSON.stringify({
           host,

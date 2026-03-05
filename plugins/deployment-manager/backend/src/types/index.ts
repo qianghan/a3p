@@ -38,6 +38,9 @@ export interface DeployConfig {
   sshUsername?: string;
   containerName?: string;
   templateId?: string;
+  envVars?: Record<string, string>;
+  concurrency?: number;
+  estimatedCostPerHour?: number;
 }
 
 export interface UpdateConfig {
@@ -47,6 +50,8 @@ export interface UpdateConfig {
   gpuVramGb?: number;
   gpuCount?: number;
   artifactConfig?: Record<string, unknown>;
+  envVars?: Record<string, string>;
+  concurrency?: number;
 }
 
 export interface ProviderDeployment {
@@ -96,4 +101,20 @@ export interface DeploymentTemplate {
   category: 'curated' | 'custom';
   githubOwner?: string;
   githubRepo?: string;
+}
+
+export interface CostEstimate {
+  gpuCostPerHour: number;
+  totalCostPerHour: number;
+  totalCostPerDay: number;
+  totalCostPerMonth: number;
+  currency: string;
+  breakdown: {
+    gpu: number;
+    storage?: number;
+    network?: number;
+  };
+  providerSlug: string;
+  gpuModel: string;
+  gpuCount: number;
 }

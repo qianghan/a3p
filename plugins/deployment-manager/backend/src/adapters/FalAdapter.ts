@@ -7,15 +7,9 @@ import type {
   ProviderStatus,
   HealthResult,
 } from '../types/index.js';
+import { gwFetch } from '../lib/gwFetch.js';
 
-const GATEWAY_BASE = process.env.SHELL_URL || 'http://localhost:3000';
-
-async function gwFetch(path: string, options: RequestInit = {}): Promise<Response> {
-  return fetch(`${GATEWAY_BASE}/api/v1/gw/fal-ai${path}`, {
-    ...options,
-    headers: { 'Content-Type': 'application/json', ...options.headers },
-  });
-}
+const CONNECTOR_SLUG = 'fal-ai';
 
 export class FalAdapter implements IProviderAdapter {
   readonly slug = 'fal-ai';
@@ -38,14 +32,15 @@ export class FalAdapter implements IProviderAdapter {
   }
 
   async deploy(config: DeployConfig): Promise<ProviderDeployment> {
-    const res = await gwFetch('/applications', {
+    const res = await gwFetch(CONNECTOR_SLUG, '/applications', {
       method: 'POST',
       body: JSON.stringify({
         name: config.name,
         image: config.dockerImage,
         machine_type: config.gpuModel,
+        env: config.envVars || {},
         min_concurrency: 0,
-        max_concurrency: 5,
+        max_concurrency: config.concurrency || 5,
       }),
     });
 
@@ -64,7 +59,7 @@ export class FalAdapter implements IProviderAdapter {
   }
 
   async getStatus(providerDeploymentId: string): Promise<ProviderStatus> {
-    const res = await gwFetch(`/applications/${providerDeploymentId}`);
+    const res = await gwFetch(CONNECTOR_SLUG, `/applications/${providerDeploymentId}`);
     if (!res.ok) return { status: 'FAILED' };
 
     const data = await res.json();
@@ -79,7 +74,7 @@ export class FalAdapter implements IProviderAdapter {
   }
 
   async destroy(providerDeploymentId: string): Promise<void> {
-    const res = await gwFetch(`/applications/${providerDeploymentId}`, { method: 'DELETE' });
+    const res = await gwFetch(CONNECTOR_SLUG, `/applications/${providerDeploymentId}`, { method: 'DELETE' });
     if (!res.ok && res.status !== 404) {
       throw new Error(`fal.ai destroy failed (${res.status})`);
     }
@@ -89,7 +84,7 @@ export class FalAdapter implements IProviderAdapter {
     const body: Record<string, unknown> = {};
     if (config.dockerImage) body.image = config.dockerImage;
 
-    const res = await gwFetch(`/applications/${providerDeploymentId}`, {
+    const res = await gwFetch(CONNECTOR_SLUG, `/applications/${providerDeploymentId}`, {
       method: 'PUT',
       body: JSON.stringify(body),
     });
@@ -108,7 +103,7 @@ export class FalAdapter implements IProviderAdapter {
   async healthCheck(providerDeploymentId: string, endpointUrl?: string): Promise<HealthResult> {
     try {
       const start = Date.now();
-      const res = await gwFetch(`/applications/${providerDeploymentId}`);
+      const res = await gwFetch(CONNECTOR_SLUG, `/applications/${providerDeploymentId}`);
       const responseTimeMs = Date.now() - start;
 
       if (!res.ok) return { healthy: false, status: 'RED', responseTimeMs, statusCode: res.status };

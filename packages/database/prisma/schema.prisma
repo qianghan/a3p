@@ -1886,6 +1886,9 @@ model ServerlessDeployment {
   healthEndpoint        String?
   templateId            String?
   artifactConfig        Json?
+  envVars               Json?
+  concurrency           Int?
+  estimatedCostPerHour  Float?
   status                DmDeploymentStatus @default(PENDING)
   healthStatus          DmHealthStatus     @default(UNKNOWN)
   providerDeploymentId  String?

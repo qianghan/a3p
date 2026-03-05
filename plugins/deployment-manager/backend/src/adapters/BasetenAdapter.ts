@@ -7,15 +7,9 @@ import type {
   ProviderStatus,
   HealthResult,
 } from '../types/index.js';
+import { gwFetch } from '../lib/gwFetch.js';
 
-const GATEWAY_BASE = process.env.SHELL_URL || 'http://localhost:3000';
-
-async function gwFetch(path: string, options: RequestInit = {}): Promise<Response> {
-  return fetch(`${GATEWAY_BASE}/api/v1/gw/baseten${path}`, {
-    ...options,
-    headers: { 'Content-Type': 'application/json', ...options.headers },
-  });
-}
+const CONNECTOR_SLUG = 'baseten';
 
 export class BasetenAdapter implements IProviderAdapter {
   readonly slug = 'baseten';
@@ -37,14 +31,15 @@ export class BasetenAdapter implements IProviderAdapter {
   }
 
   async deploy(config: DeployConfig): Promise<ProviderDeployment> {
-    const res = await gwFetch('/models', {
+    const res = await gwFetch(CONNECTOR_SLUG, '/models', {
       method: 'POST',
       body: JSON.stringify({
         name: config.name,
         docker_image: config.dockerImage,
         gpu: config.gpuModel,
+        env: config.envVars || {},
         min_replica: 0,
-        max_replica: 3,
+        max_replica: config.concurrency || 3,
         autoscaling_window: 300,
       }),
     });
@@ -61,7 +56,7 @@ export class BasetenAdapter implements IProviderAdapter {
   }
 
   async getStatus(providerDeploymentId: string): Promise<ProviderStatus> {
-    const res = await gwFetch(`/models/${providerDeploymentId}`);
+    const res = await gwFetch(CONNECTOR_SLUG, `/models/${providerDeploymentId}`);
     if (!res.ok) return { status: 'FAILED' };
 
     const data = await res.json();
@@ -76,7 +71,7 @@ export class BasetenAdapter implements IProviderAdapter {
   }
 
   async destroy(providerDeploymentId: string): Promise<void> {
-    const res = await gwFetch(`/models/${providerDeploymentId}`, { method: 'DELETE' });
+    const res = await gwFetch(CONNECTOR_SLUG, `/models/${providerDeploymentId}`, { method: 'DELETE' });
     if (!res.ok && res.status !== 404) throw new Error(`Baseten destroy failed (${res.status})`);
   }
 
@@ -84,7 +79,7 @@ export class BasetenAdapter implements IProviderAdapter {
     const body: Record<string, unknown> = {};
     if (config.dockerImage) body.docker_image = config.dockerImage;
 
-    const res = await gwFetch(`/models/${providerDeploymentId}`, {
+    const res = await gwFetch(CONNECTOR_SLUG, `/models/${providerDeploymentId}`, {
       method: 'PATCH',
       body: JSON.stringify(body),
     });
@@ -103,7 +98,7 @@ export class BasetenAdapter implements IProviderAdapter {
   async healthCheck(providerDeploymentId: string): Promise<HealthResult> {
     try {
       const start = Date.now();
-      const res = await gwFetch(`/models/${providerDeploymentId}`);
+      const res = await gwFetch(CONNECTOR_SLUG, `/models/${providerDeploymentId}`);
       const responseTimeMs = Date.now() - start;
 
       if (!res.ok) return { healthy: false, status: 'RED', responseTimeMs, statusCode: res.status };

@@ -16,6 +16,12 @@ import { createDeploymentsRouter } from './routes/deployments.js';
 import { createTemplatesRouter } from './routes/templates.js';
 import { createHealthRouter } from './routes/health.js';
 import { createAuditRouter } from './routes/audit.js';
+import { setAuthContext } from './lib/gwFetch.js';
+import { PrismaDeploymentStore } from './store/PrismaDeploymentStore.js';
+import { InMemoryDeploymentStore } from './store/InMemoryDeploymentStore.js';
+import type { IDeploymentStore } from './store/IDeploymentStore.js';
+import { CostEstimationService } from './services/CostEstimationService.js';
+import { createCostRouter } from './routes/cost.js';
 
 const PORT = parseInt(process.env.PORT || '4117', 10);
 const API_PREFIX = '/api/v1/deployment-manager';
@@ -30,7 +36,17 @@ registry.register(new ReplicateAdapter());
 
 const audit = new AuditService();
 const templateRegistry = new TemplateRegistry();
-const orchestrator = new DeploymentOrchestrator(registry, audit);
+
+let store: IDeploymentStore;
+try {
+  store = new PrismaDeploymentStore();
+  console.log('[deployment-manager] Using Prisma persistent storage');
+} catch {
+  store = new InMemoryDeploymentStore();
+  console.log('[deployment-manager] Using in-memory storage (no database available)');
+}
+
+const orchestrator = new DeploymentOrchestrator(registry, audit, store);
 const healthMonitor = new HealthMonitorService(registry, orchestrator, {
   intervalMs: parseInt(process.env.HEALTH_CHECK_INTERVAL || '60000', 10),
   degradedThresholdMs: parseInt(process.env.HEALTH_DEGRADED_THRESHOLD || '5000', 10),
@@ -42,8 +58,19 @@ const versionChecker = new VersionCheckerService(
   parseInt(process.env.VERSION_CHECK_INTERVAL || '1800000', 10),
 );
 
+const costService = new CostEstimationService(registry);
+
 const app = express();
 app.use(express.json());
+
+app.use((req, _res, next) => {
+  setAuthContext({
+    authorization: req.headers.authorization,
+    cookie: req.headers.cookie,
+    teamId: req.headers['x-team-id'] as string | undefined,
+  });
+  next();
+});
 
 app.get('/healthz', (_req, res) => {
   res.json({
@@ -60,6 +87,7 @@ app.use(`${API_PREFIX}/deployments`, createDeploymentsRouter(orchestrator));
 app.use(`${API_PREFIX}/templates`, createTemplatesRouter(templateRegistry));
 app.use(`${API_PREFIX}/health`, createHealthRouter(healthMonitor, orchestrator));
 app.use(`${API_PREFIX}/audit`, createAuditRouter(audit));
+app.use(`${API_PREFIX}/cost`, createCostRouter(costService));
 
 app.get(`${API_PREFIX}/status`, async (_req, res) => {
   const all = await orchestrator.list();

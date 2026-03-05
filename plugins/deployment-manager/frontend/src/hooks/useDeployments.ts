@@ -37,7 +37,8 @@ export function useDeployments() {
       if (data.success) {
         setDeployments(data.data);
       } else {
-        setError(data.error);
+        const err = data.error;
+        setError(typeof err === 'string' ? err : err?.message || 'Request failed');
       }
     } catch (err: any) {
       setError(err.message);

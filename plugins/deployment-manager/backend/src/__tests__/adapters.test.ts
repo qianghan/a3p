@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { ProviderAdapterRegistry } from '../services/ProviderAdapterRegistry.js';
 import { RunPodAdapter } from '../adapters/RunPodAdapter.js';
 import { SshBridgeAdapter } from '../adapters/SshBridgeAdapter.js';
@@ -6,6 +6,8 @@ import { FalAdapter } from '../adapters/FalAdapter.js';
 import { BasetenAdapter } from '../adapters/BasetenAdapter.js';
 import { ModalAdapter } from '../adapters/ModalAdapter.js';
 import { ReplicateAdapter } from '../adapters/ReplicateAdapter.js';
+
+const originalFetch = global.fetch;
 
 describe('ProviderAdapterRegistry', () => {
   it('should register and retrieve adapters', () => {
@@ -47,6 +49,13 @@ describe('ProviderAdapterRegistry', () => {
 });
 
 describe('Adapter GPU options', () => {
+  beforeEach(() => {
+    global.fetch = vi.fn().mockRejectedValue(new Error('no network'));
+  });
+  afterEach(() => {
+    global.fetch = originalFetch;
+  });
+
   it('RunPod should return fallback GPU options', async () => {
     const adapter = new RunPodAdapter();
     const options = await adapter.getGpuOptions();

@@ -3,6 +3,7 @@ import { HealthMonitorService } from '../services/HealthMonitorService.js';
 import { ProviderAdapterRegistry } from '../services/ProviderAdapterRegistry.js';
 import { DeploymentOrchestrator } from '../services/DeploymentOrchestrator.js';
 import { AuditService } from '../services/AuditService.js';
+import { InMemoryDeploymentStore } from '../store/InMemoryDeploymentStore.js';
 import type { IProviderAdapter } from '../adapters/IProviderAdapter.js';
 import type { DeployConfig, ProviderDeployment, ProviderStatus, HealthResult, GpuOption, UpdateConfig } from '../types/index.js';
 
@@ -39,7 +40,7 @@ describe('HealthMonitorService', () => {
     adapter = new HealthTestAdapter();
     registry.register(adapter);
     const audit = new AuditService();
-    orchestrator = new DeploymentOrchestrator(registry, audit);
+    orchestrator = new DeploymentOrchestrator(registry, audit, new InMemoryDeploymentStore());
     monitor = new HealthMonitorService(registry, orchestrator, {
       intervalMs: 1000,
       degradedThresholdMs: 100,

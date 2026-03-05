@@ -18,6 +18,9 @@ export const CreateDeploymentSchema = z.object({
   sshUsername: z.string().optional(),
   containerName: z.string().optional(),
   templateId: z.string().optional(),
+  envVars: z.record(z.string(), z.string()).optional(),
+  concurrency: z.number().int().min(1).max(100).optional(),
+  estimatedCostPerHour: z.number().min(0).optional(),
 });
 
 export const UpdateDeploymentSchema = z.object({
@@ -27,6 +30,8 @@ export const UpdateDeploymentSchema = z.object({
   gpuVramGb: z.number().int().min(1).optional(),
   gpuCount: z.number().int().min(1).max(8).optional(),
   artifactConfig: z.record(z.unknown()).optional(),
+  envVars: z.record(z.string(), z.string()).optional(),
+  concurrency: z.number().int().min(1).max(100).optional(),
 });
 
 export type CreateDeploymentInput = z.infer<typeof CreateDeploymentSchema>;

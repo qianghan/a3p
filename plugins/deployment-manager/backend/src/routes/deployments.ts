@@ -38,9 +38,9 @@ export function createDeploymentsRouter(orchestrator: DeploymentOrchestrator): R
     }
   });
 
-  router.get('/:id/history', (req, res) => {
+  router.get('/:id/history', async (req, res) => {
     try {
-      const history = orchestrator.getStatusHistory(req.params.id);
+      const history = await orchestrator.getStatusHistory(req.params.id);
       res.json({ success: true, data: history });
     } catch (err: any) {
       res.status(500).json({ success: false, error: err.message });
