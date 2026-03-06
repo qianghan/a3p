@@ -28,6 +28,9 @@
     "app/api/v1/gw/**": {
       "maxDuration": 60
     },
+    "app/api/v1/deployment-manager/**": {
+      "maxDuration": 60
+    },
     "app/api/v1/[plugin]/**": {
       "maxDuration": 30
     }
@@ -102,6 +105,8 @@
   ],
   "redirects": [],
   "crons": [
-    { "path": "/api/v1/gw/admin/health/check", "schedule": "*/5 * * * *" }
+    { "path": "/api/v1/gw/admin/health/check", "schedule": "*/5 * * * *" },
+    { "path": "/api/v1/deployment-manager/health/check-all", "schedule": "*/5 * * * *" },
+    { "path": "/api/v1/deployment-manager/versions/check", "schedule": "0 * * * *" }
   ]
 }
