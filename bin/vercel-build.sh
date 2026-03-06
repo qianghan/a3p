@@ -61,10 +61,12 @@ fi
 # NOTE: prisma generate is NOT needed here — it already ran during
 # npm install via packages/database postinstall hook.
 #
-# Runs on both production and preview. Preview deployments may share the
-# production database, so only additive schema changes (new tables/columns)
-# are safe from feature branches. Destructive changes (column drops/renames)
-# must follow expand/contract discipline and merge to main first.
+# Runs for both production and preview environments:
+#   - Production: pushes to the Neon "main" branch (via production-scoped DATABASE_URL)
+#   - Preview: pushes to the Neon "preview" branch (via preview-scoped DATABASE_URL)
+# Each Vercel environment has its own DATABASE_URL pointing to the correct
+# Neon branch, so there is no risk of preview schema changes affecting production.
+# The preview branch is automatically reset after each production deploy.
 if [ "${VERCEL_ENV}" = "production" ] || [ "${VERCEL_ENV}" = "preview" ]; then
   echo "[3/6] Prisma db push (${VERCEL_ENV})..."
   cd packages/database || { echo "ERROR: Failed to cd to packages/database"; exit 1; }
