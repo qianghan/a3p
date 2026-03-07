@@ -44,13 +44,12 @@ describe('TemplateRegistry', () => {
     (registry as any).github = makeMockGithub();
   });
 
-  it('should list 3 built-in templates', () => {
+  it('should list 2 built-in templates', () => {
     const templates = registry.getTemplates();
-    expect(templates).toHaveLength(3);
+    expect(templates).toHaveLength(2);
     const ids = templates.map((t) => t.id);
     expect(ids).toContain('ai-runner');
     expect(ids).toContain('scope');
-    expect(ids).toContain('livepeer-inference');
   });
 
   it('should get template by known id', () => {
@@ -84,7 +83,7 @@ describe('TemplateRegistry', () => {
     expect(custom.id).toBe('my-custom');
 
     const templates = registry.getTemplates();
-    expect(templates).toHaveLength(4);
+    expect(templates).toHaveLength(3);
     expect(registry.getTemplate('my-custom')).toBeDefined();
   });
 

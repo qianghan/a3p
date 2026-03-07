@@ -2,7 +2,6 @@ import type { ProviderAdapterRegistry } from './ProviderAdapterRegistry';
 import type { DeploymentOrchestrator } from './DeploymentOrchestrator';
 import type { HealthStatus, HealthResult, DeploymentRecord } from '../types';
 import { prisma } from '@/lib/db';
-import { setCurrentUserId } from '../provider-fetch';
 
 export class HealthMonitorService {
   private degradedThresholdMs: number;
@@ -27,13 +26,10 @@ export class HealthMonitorService {
   async checkOne(deployment: DeploymentRecord): Promise<HealthResult> {
     const adapter = this.registry.get(deployment.providerSlug);
     let result: HealthResult;
-    setCurrentUserId(deployment.ownerUserId);
     try {
       result = await adapter.healthCheck(deployment.providerDeploymentId || '', deployment.endpointUrl || undefined);
     } catch {
       result = { healthy: false, status: 'RED' };
-    } finally {
-      setCurrentUserId(null);
     }
 
     const computedStatus = this.computeStatus(deployment.id, result);
