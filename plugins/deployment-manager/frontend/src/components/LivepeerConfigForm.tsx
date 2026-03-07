@@ -1,4 +1,5 @@
 import React from 'react';
+import { ModelPresetPicker, getPresetsForProvider, getSelfHostedPresets, type ModelPreset } from './ModelPresets';
 
 export type LivepeerTopology = 'all-in-one' | 'all-on-provider' | 'split-cpu-serverless';
 
@@ -125,15 +126,19 @@ export const LivepeerConfigForm: React.FC<LivepeerConfigFormProps> = ({ config, 
           {config.serverlessProvider && !isCustomProvider && (
             <>
               <div style={{ marginBottom: '1rem' }}>
-                <label style={labelStyle}>Model ID *</label>
-                <input
-                  type="text"
+                <label style={labelStyle}>Model *</label>
+                <ModelPresetPicker
+                  presets={getPresetsForProvider(config.serverlessProvider)}
                   value={config.serverlessModelId}
-                  onChange={(e) => onChange('serverlessModelId', e.target.value)}
-                  placeholder="e.g. fal-ai/flux/dev"
-                  data-testid="serverless-model-id"
-                  style={inputStyle}
+                  onSelect={(preset: ModelPreset) => onChange('serverlessModelId', preset.modelId)}
+                  onCustomValue={(v) => onChange('serverlessModelId', v)}
+                  placeholder="Search models or type a custom model ID..."
                 />
+                {config.serverlessModelId && (
+                  <div style={{ fontSize: '0.7rem', color: 'var(--dm-text-tertiary)', marginTop: '0.25rem', fontFamily: 'monospace' }}>
+                    {config.serverlessModelId}
+                  </div>
+                )}
               </div>
               <div style={{ marginBottom: '1rem' }}>
                 <label style={labelStyle}>API Key *</label>
@@ -181,7 +186,25 @@ export const LivepeerConfigForm: React.FC<LivepeerConfigFormProps> = ({ config, 
       {needsModel && (
         <div style={{ padding: '1rem', background: 'var(--dm-bg-secondary)', borderRadius: '0.5rem', marginBottom: '1.5rem' }}>
           <div style={{ marginBottom: '1rem' }}>
-            <label style={labelStyle}>Model Docker Image *</label>
+            <label style={labelStyle}>Model *</label>
+            <ModelPresetPicker
+              presets={getSelfHostedPresets()}
+              value={config.serverlessModelId}
+              onSelect={(preset: ModelPreset) => {
+                onChange('serverlessModelId', preset.modelId);
+                if (preset.dockerImage) onChange('modelImage', preset.dockerImage);
+              }}
+              onCustomValue={(v) => onChange('serverlessModelId', v)}
+              placeholder="Search models or type a custom model ID..."
+            />
+            {config.serverlessModelId && (
+              <div style={{ fontSize: '0.7rem', color: 'var(--dm-text-tertiary)', marginTop: '0.25rem', fontFamily: 'monospace' }}>
+                {config.serverlessModelId}
+              </div>
+            )}
+          </div>
+          <div style={{ marginBottom: '1rem' }}>
+            <label style={labelStyle}>Docker Image {config.modelImage ? '' : '*'}</label>
             <input
               type="text"
               value={config.modelImage}
@@ -190,16 +213,11 @@ export const LivepeerConfigForm: React.FC<LivepeerConfigFormProps> = ({ config, 
               data-testid="model-image"
               style={inputStyle}
             />
-          </div>
-          <div style={{ marginBottom: '1rem' }}>
-            <label style={labelStyle}>Model ID</label>
-            <input
-              type="text"
-              value={config.serverlessModelId}
-              onChange={(e) => onChange('serverlessModelId', e.target.value)}
-              placeholder="meta-llama/Llama-3.1-70B-Instruct"
-              style={inputStyle}
-            />
+            {config.modelImage && (
+              <div style={{ fontSize: '0.7rem', color: 'var(--dm-text-tertiary)', marginTop: '0.25rem' }}>
+                Auto-filled from preset. Override if needed.
+              </div>
+            )}
           </div>
         </div>
       )}
