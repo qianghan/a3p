@@ -36,7 +36,8 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       return NextResponse.json({
         success: proxyRes.ok,
         data: {
-          statusCode: proxyRes.status,
+          status: proxyRes.status,
+          statusText: proxyRes.statusText,
           responseTimeMs,
           body: parsedResponse,
         },

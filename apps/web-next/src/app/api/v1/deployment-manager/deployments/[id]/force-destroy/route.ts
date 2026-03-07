@@ -34,7 +34,14 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       data: { status: 'DESTROYED' },
     });
 
-    return NextResponse.json({ success: true, data: updated });
+    return NextResponse.json({
+      success: true,
+      data: updated,
+      destroyResult: {
+        allClean: true,
+        steps: [{ step: 'force-destroy', success: true, detail: 'Force destroyed' }],
+      },
+    });
   } catch (err: any) {
     return NextResponse.json({ success: false, error: err.message }, { status: 500 });
   }
