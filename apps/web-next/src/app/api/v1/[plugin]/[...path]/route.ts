@@ -86,21 +86,28 @@ async function handleRequest(
     );
   }
 
-  // On Vercel (production), localhost services are not available.
-  // Every plugin endpoint should have a dedicated Next.js route handler.
-  // If a request reaches this catch-all, it means the route is missing.
+  // Every plugin endpoint should have a dedicated Next.js route handler so it
+  // works on both local dev and Vercel. If a request reaches this catch-all,
+  // it means a route handler is missing.
   const isVercel = process.env.VERCEL === '1';
-  if (isVercel && serviceUrl.includes('localhost')) {
+  const routePath = `/api/v1/${plugin}/${path.join('/')}`;
+
+  if (serviceUrl.includes('localhost')) {
+    // Always warn — in local dev this proxies silently, hiding missing routes
+    // that will break on Vercel. The warning makes it visible during development.
     console.warn(
-      `[proxy] Vercel: unhandled route /api/v1/${plugin}/${path.join('/')} (${request.method}). ` +
-      `Add a dedicated Next.js route handler for this endpoint.`
+      `[proxy] ${isVercel ? 'Vercel' : 'Local'}: catch-all proxy handling ${request.method} ${routePath}. ` +
+      `Add a dedicated Next.js route handler under apps/web-next/src/app/api/v1/${plugin}/ for this endpoint.`
     );
+  }
+
+  if (isVercel && serviceUrl.includes('localhost')) {
     return NextResponse.json(
       {
         success: false,
         error: {
           code: 'NOT_IMPLEMENTED',
-          message: `Endpoint /api/v1/${plugin}/${path.join('/')} is not yet available in this environment. ` +
+          message: `Endpoint ${routePath} is not yet available in this environment. ` +
             `A dedicated Next.js route handler is needed.`,
         },
         meta: { timestamp: new Date().toISOString() },

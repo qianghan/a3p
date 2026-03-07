@@ -103,7 +103,8 @@ export async function saveCredentials(
     if (data.success) {
       return { success: true, message: data.data?.message || 'Credentials saved' };
     }
-    return { success: false, message: data.error || 'Failed to save credentials' };
+    const errorMsg = typeof data.error === 'string' ? data.error : data.error?.message || 'Failed to save credentials';
+    return { success: false, message: errorMsg };
   } catch (err: any) {
     return { success: false, message: err.message };
   }

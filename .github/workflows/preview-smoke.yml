@@ -1,0 +1,160 @@
+# =============================================================================
+# Preview Smoke Tests — After Vercel Preview Deployment
+# =============================================================================
+# Runs after Vercel deploys a preview for a PR. Hits key API routes to verify
+# they return valid responses (not 501 / NOT_IMPLEMENTED). This catches missing
+# Next.js route handlers that work locally via the Express proxy catch-all but
+# fail on Vercel where localhost backends are unavailable.
+#
+# Requires: VERCEL_TOKEN and VERCEL_PROJECT_ID secrets.
+# =============================================================================
+
+name: Preview Smoke
+
+on:
+  pull_request:
+    types: [synchronize, opened, reopened]
+
+concurrency:
+  group: smoke-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: '20'
+
+jobs:
+  smoke-test:
+    name: API Smoke Test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Wait for Vercel preview deployment
+        id: preview
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+        run: |
+          echo "Waiting for Vercel preview deployment..."
+          COMMIT_SHA="${{ github.event.pull_request.head.sha }}"
+          MAX_ATTEMPTS=30
+          ATTEMPT=0
+
+          while [ $ATTEMPT -lt $MAX_ATTEMPTS ]; do
+            ATTEMPT=$((ATTEMPT + 1))
+            echo "Attempt ${ATTEMPT}/${MAX_ATTEMPTS}..."
+
+            DEPLOYMENTS=$(curl -s \
+              -H "Authorization: Bearer ${VERCEL_TOKEN}" \
+              "https://api.vercel.com/v6/deployments?projectId=${VERCEL_PROJECT_ID}&meta-githubCommitSha=${COMMIT_SHA}&limit=1")
+
+            STATE=$(echo "$DEPLOYMENTS" | jq -r '.deployments[0].state // "not_found"')
+            URL=$(echo "$DEPLOYMENTS" | jq -r '.deployments[0].url // ""')
+
+            if [ "$STATE" = "READY" ] && [ -n "$URL" ]; then
+              echo "Preview ready: https://${URL}"
+              echo "preview_url=https://${URL}" >> $GITHUB_OUTPUT
+              exit 0
+            fi
+
+            echo "  State: ${STATE}. Waiting 20s..."
+            sleep 20
+          done
+
+          echo "::warning::Timed out waiting for Vercel preview. Skipping smoke tests."
+          echo "preview_url=" >> $GITHUB_OUTPUT
+
+      - name: Smoke test API routes
+        if: steps.preview.outputs.preview_url != ''
+        env:
+          PREVIEW_URL: ${{ steps.preview.outputs.preview_url }}
+        run: |
+          echo "=== Preview Smoke Tests ==="
+          echo "Target: ${PREVIEW_URL}"
+          echo ""
+
+          FAILED=0
+          TOTAL=0
+          PASSED=0
+
+          smoke_check() {
+            local method="$1"
+            local path="$2"
+            local expect_status="${3:-200}"
+            local description="$4"
+            TOTAL=$((TOTAL + 1))
+
+            HTTP_STATUS=$(curl -s -o /tmp/smoke-response.json -w "%{http_code}" \
+              -X "$method" \
+              "${PREVIEW_URL}${path}" \
+              -H "Content-Type: application/json" \
+              --max-time 15 || echo "000")
+
+            if [ "$HTTP_STATUS" = "501" ]; then
+              echo "::error::FAIL [501 NOT_IMPLEMENTED] ${method} ${path} — missing Next.js route handler"
+              echo "  Response: $(cat /tmp/smoke-response.json | jq -r '.error.message // .error // "unknown"' 2>/dev/null)"
+              FAILED=$((FAILED + 1))
+            elif [ "$HTTP_STATUS" = "000" ]; then
+              echo "::warning::TIMEOUT ${method} ${path} — request timed out"
+              FAILED=$((FAILED + 1))
+            elif [ "$HTTP_STATUS" = "401" ] || [ "$HTTP_STATUS" = "403" ]; then
+              # Auth-protected routes returning 401/403 means the route handler exists
+              echo "  OK   [${HTTP_STATUS}] ${method} ${path} (auth-protected, route exists)"
+              PASSED=$((PASSED + 1))
+            elif [ "$HTTP_STATUS" -ge 200 ] && [ "$HTTP_STATUS" -lt 500 ]; then
+              echo "  OK   [${HTTP_STATUS}] ${method} ${path}"
+              PASSED=$((PASSED + 1))
+            else
+              echo "::warning::WARN [${HTTP_STATUS}] ${method} ${path}"
+              PASSED=$((PASSED + 1))
+            fi
+          }
+
+          echo "--- Health ---"
+          smoke_check GET "/api/health"
+          smoke_check GET "/api/v1/deployment-manager/healthz"
+
+          echo ""
+          echo "--- Deployment Manager: Core ---"
+          smoke_check GET "/api/v1/deployment-manager/templates"
+          smoke_check GET "/api/v1/deployment-manager/providers"
+          smoke_check GET "/api/v1/deployment-manager/artifacts"
+          smoke_check GET "/api/v1/deployment-manager/deployments"
+          smoke_check GET "/api/v1/deployment-manager/status"
+
+          echo ""
+          echo "--- Deployment Manager: Credentials ---"
+          smoke_check GET "/api/v1/deployment-manager/credentials/runpod/credential-status"
+          smoke_check GET "/api/v1/deployment-manager/credentials/fal-ai/credential-status"
+          smoke_check GET "/api/v1/deployment-manager/credentials/modal/credential-status"
+          smoke_check GET "/api/v1/deployment-manager/credentials/replicate/credential-status"
+          smoke_check GET "/api/v1/deployment-manager/credentials/baseten/credential-status"
+
+          echo ""
+          echo "--- Deployment Manager: Providers ---"
+          smoke_check GET "/api/v1/deployment-manager/providers/runpod"
+          smoke_check GET "/api/v1/deployment-manager/providers/runpod/gpu-options"
+
+          echo ""
+          echo "--- Service Gateway ---"
+          smoke_check GET "/api/v1/gw/admin/connectors"
+          smoke_check GET "/api/v1/gw/admin/status"
+
+          echo ""
+          echo "=== Results: ${PASSED}/${TOTAL} passed, ${FAILED} failed ==="
+
+          if [ "$FAILED" -gt 0 ]; then
+            echo ""
+            echo "::error::${FAILED} route(s) returned 501 (NOT_IMPLEMENTED). These routes need dedicated Next.js handlers."
+            exit 1
+          fi
+
+      - name: Post summary
+        if: always() && steps.preview.outputs.preview_url != ''
+        env:
+          PREVIEW_URL: ${{ steps.preview.outputs.preview_url }}
+        run: |
+          echo "## Preview Smoke Tests" >> $GITHUB_STEP_SUMMARY
+          echo "- **Preview URL:** ${PREVIEW_URL}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Status:** ${{ job.status }}" >> $GITHUB_STEP_SUMMARY
