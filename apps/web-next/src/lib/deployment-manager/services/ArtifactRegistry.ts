@@ -1,7 +1,7 @@
 import { GithubReleasesAdapter } from '../adapters/GithubReleasesAdapter';
 
 export interface ArtifactDefinition {
-  type: 'ai-runner' | 'scope';
+  type: 'ai-runner' | 'scope' | 'livepeer-inference';
   displayName: string;
   description: string;
   dockerImage: string;
@@ -29,6 +29,16 @@ const ARTIFACTS: ArtifactDefinition[] = [
     githubRepo: 'ai-runner',
     healthEndpoint: '/health',
     defaultPort: 8080,
+  },
+  {
+    type: 'livepeer-inference',
+    displayName: 'Livepeer Inference Adapter',
+    description: 'Bring any AI inference service on-chain. Supports fal.ai, Replicate, RunPod, self-hosted, or any HTTP endpoint.',
+    dockerImage: 'livepeer/inference-adapter',
+    githubOwner: 'livepeer',
+    githubRepo: 'go-livepeer',
+    healthEndpoint: '/health',
+    defaultPort: 9090,
   },
   {
     type: 'scope',

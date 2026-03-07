@@ -127,7 +127,7 @@ describe('DeploymentOrchestrator', () => {
     const record = await orchestrator.get(deployment.id);
     expect(record?.status).toBe('ONLINE');
     const destroyed = await orchestrator.destroy(deployment.id, 'user-1');
-    expect(destroyed.status).toBe('DESTROYED');
+    expect(destroyed.record.status).toBe('DESTROYED');
   });
 
   it('should record status history', async () => {

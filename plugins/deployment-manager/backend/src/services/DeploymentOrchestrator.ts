@@ -192,7 +192,7 @@ export class DeploymentOrchestrator {
       resource: 'deployment',
       resourceId: id,
       userId,
-      status: cleanupPending ? 'partial' : 'success',
+      status: cleanupPending ? 'failure' : 'success',
       details: destroyResult ? { steps: destroyResult.steps } : undefined,
     });
 
@@ -235,7 +235,7 @@ export class DeploymentOrchestrator {
       resource: 'deployment',
       resourceId: id,
       userId,
-      status: cleanupPending ? 'partial' : 'success',
+      status: cleanupPending ? 'failure' : 'success',
       details: destroyResult ? { steps: destroyResult.steps } : undefined,
     });
 
@@ -283,7 +283,7 @@ export class DeploymentOrchestrator {
       resource: 'deployment',
       resourceId: id,
       userId,
-      status: cleanupPending ? 'partial' : 'success',
+      status: cleanupPending ? 'failure' : 'success',
       details: destroyResult ? { steps: destroyResult.steps } : undefined,
     });
 

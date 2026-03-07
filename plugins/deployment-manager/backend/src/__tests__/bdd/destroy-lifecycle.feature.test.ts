@@ -61,7 +61,7 @@ describe('Feature: Deployment Destruction', () => {
     const destroyed = await orchestrator.destroy(deployment.id, 'user-1');
 
     // Then
-    expect(destroyed.status).toBe('DESTROYED');
+    expect(destroyed.record.status).toBe('DESTROYED');
     expect(adapter.destroyCalled).toBe(true);
 
     const history = await orchestrator.getStatusHistory(deployment.id);
