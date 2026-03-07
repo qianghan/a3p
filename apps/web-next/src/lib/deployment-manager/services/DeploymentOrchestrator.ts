@@ -14,15 +14,15 @@ import { setCurrentUserId } from '../provider-fetch';
 
 const VALID_TRANSITIONS: Record<DeploymentStatus, DeploymentStatus[]> = {
   PENDING: ['PROVISIONING', 'DESTROYING'],
-  PROVISIONING: ['DEPLOYING', 'FAILED'],
-  DEPLOYING: ['VALIDATING', 'FAILED'],
-  VALIDATING: ['ONLINE', 'FAILED'],
+  PROVISIONING: ['DEPLOYING', 'FAILED', 'DESTROYING'],
+  DEPLOYING: ['VALIDATING', 'ONLINE', 'FAILED', 'DESTROYING'],
+  VALIDATING: ['ONLINE', 'FAILED', 'DESTROYING'],
   ONLINE: ['DEGRADED', 'OFFLINE', 'UPDATING', 'DESTROYING'],
   DEGRADED: ['ONLINE', 'OFFLINE', 'DESTROYING'],
   OFFLINE: ['ONLINE', 'DESTROYING'],
-  UPDATING: ['VALIDATING', 'FAILED'],
+  UPDATING: ['VALIDATING', 'FAILED', 'DESTROYING'],
   FAILED: ['PROVISIONING', 'DESTROYING'],
-  DESTROYING: ['DESTROYED'],
+  DESTROYING: ['DESTROYED', 'FAILED'],
   DESTROYED: [],
 };
 
@@ -281,6 +281,57 @@ export class DeploymentOrchestrator {
     } catch (err: any) {
       await this.transition(record, 'FAILED', `Validation error: ${err.message}`, userId);
       throw err;
+    } finally {
+      setCurrentUserId(null);
+    }
+  }
+
+  /**
+   * Polls the provider for the actual deployment state and reconciles it with
+   * NaaP's internal state. Call this for DEPLOYING / PROVISIONING deployments
+   * so the UI reflects what's actually happening on the provider side.
+   */
+  async syncStatus(id: string, userId: string): Promise<DeploymentRecord> {
+    const record = await this.getOrThrow(id);
+
+    if (!record.providerDeploymentId) return record;
+
+    const inProgressStates: DeploymentStatus[] = ['PROVISIONING', 'DEPLOYING', 'VALIDATING'];
+    if (!inProgressStates.includes(record.status)) return record;
+
+    const adapter = this.registry.get(record.providerSlug);
+    setCurrentUserId(userId);
+    try {
+      const providerStatus = await adapter.getStatus(record.providerDeploymentId);
+
+      if (providerStatus.status === 'ONLINE') {
+        const updated = await prisma.dmDeployment.update({
+          where: { id },
+          data: {
+            status: 'ONLINE',
+            healthStatus: 'GREEN',
+            lastHealthCheck: new Date(),
+            endpointUrl: providerStatus.endpointUrl || record.endpointUrl,
+          },
+        });
+        await this.recordTransition(id, record.status, 'ONLINE', 'Provider reports ready', userId);
+        return toRecord(updated);
+      }
+
+      if (providerStatus.status === 'FAILED') {
+        const detail = (providerStatus.metadata as any)?.error || 'Provider reports deployment failed';
+        const updated = await prisma.dmDeployment.update({
+          where: { id },
+          data: { status: 'FAILED', healthStatus: 'RED' },
+        });
+        await this.recordTransition(id, record.status, 'FAILED', detail, userId);
+        return toRecord(updated);
+      }
+
+      return record;
+    } catch (err: any) {
+      console.warn(`[syncStatus] Failed to sync ${id}: ${err.message}`);
+      return record;
     } finally {
       setCurrentUserId(null);
     }

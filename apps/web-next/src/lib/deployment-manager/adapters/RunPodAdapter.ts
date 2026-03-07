@@ -92,8 +92,26 @@ export class RunPodAdapter implements IProviderAdapter {
 
   async getStatus(providerDeploymentId: string): Promise<ProviderStatus> {
     const res = await this.fetch(`/endpoints/${providerDeploymentId}`);
-    if (!res.ok) return { status: 'FAILED' };
+    if (!res.ok) {
+      return { status: 'FAILED', metadata: { error: `RunPod API returned ${res.status}` } };
+    }
     const data = await res.json();
+
+    if (data.status === 'INITIALIZING' && data.workersTotal > 0) {
+      const hasRunning = (data.workersRunning || 0) > 0;
+      if (!hasRunning) {
+        const createdAt = data.createdAt ? new Date(data.createdAt).getTime() : 0;
+        const ageMinutes = createdAt ? (Date.now() - createdAt) / 60_000 : 0;
+        if (ageMinutes > 10) {
+          return {
+            status: 'FAILED',
+            endpointUrl: `https://api.runpod.ai/v2/${providerDeploymentId}`,
+            metadata: { ...data, error: 'Stuck initializing for >10 minutes — likely image pull failure. Check the Docker image name and tag.' },
+          };
+        }
+      }
+    }
+
     const statusMap: Record<string, ProviderStatus['status']> = {
       READY: 'ONLINE',
       INITIALIZING: 'DEPLOYING',

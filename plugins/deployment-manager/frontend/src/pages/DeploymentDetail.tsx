@@ -189,7 +189,7 @@ export const DeploymentDetail: React.FC<DeploymentDetailProps> = ({ deploymentId
                 <ArrowUpCircle size={14} /> Update
               </button>
             )}
-            {['ONLINE', 'DEPLOYING', 'VALIDATING'].includes(d.status) && (
+            {!['DESTROYED', 'DESTROYING'].includes(d.status) && (
               <button
                 onClick={handleDestroy}
                 disabled={destroying}

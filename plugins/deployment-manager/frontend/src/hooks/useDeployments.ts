@@ -1,6 +1,8 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 
 const API_BASE = '/api/v1/deployment-manager';
+
+const IN_PROGRESS_STATES = ['PROVISIONING', 'DEPLOYING', 'VALIDATING', 'DESTROYING'];
 
 export interface Deployment {
   id: string;
@@ -55,6 +57,7 @@ export function useDeployments() {
 export function useDeployment(id: string) {
   const [deployment, setDeployment] = useState<Deployment | null>(null);
   const [loading, setLoading] = useState(true);
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const refresh = useCallback(async () => {
     try {
@@ -70,6 +73,33 @@ export function useDeployment(id: string) {
   }, [id]);
 
   useEffect(() => { refresh(); }, [refresh]);
+
+  useEffect(() => {
+    if (!deployment || !IN_PROGRESS_STATES.includes(deployment.status)) {
+      if (timerRef.current) clearInterval(timerRef.current);
+      timerRef.current = null;
+      return;
+    }
+
+    const poll = async () => {
+      try {
+        const syncRes = await fetch(`${API_BASE}/deployments/${id}/sync-status`, { method: 'POST' });
+        const syncData = await syncRes.json();
+        if (syncData.success && syncData.data) {
+          setDeployment(syncData.data);
+          if (!IN_PROGRESS_STATES.includes(syncData.data.status)) {
+            if (timerRef.current) clearInterval(timerRef.current);
+            timerRef.current = null;
+          }
+        }
+      } catch {
+        // ignore — will retry on next interval
+      }
+    };
+
+    timerRef.current = setInterval(poll, 10_000);
+    return () => { if (timerRef.current) clearInterval(timerRef.current); };
+  }, [deployment?.status, id]);
 
   return { deployment, loading, refresh };
 }

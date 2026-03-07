@@ -55,6 +55,10 @@ export class ArtifactRegistry {
     return ARTIFACTS.find((a) => a.type === type);
   }
 
+  private toDockerTag(tagName: string): string {
+    return tagName.replace(/^v/, '');
+  }
+
   async getVersions(type: string): Promise<ArtifactVersion[]> {
     const artifact = this.getArtifact(type);
     if (!artifact) throw new Error(`Unknown artifact type: ${type}`);
@@ -72,7 +76,7 @@ export class ArtifactRegistry {
         publishedAt: r.publishedAt,
         prerelease: r.prerelease,
         releaseUrl: r.htmlUrl,
-        dockerImage: `${artifact.dockerImage}:${r.tagName}`,
+        dockerImage: `${artifact.dockerImage}:${this.toDockerTag(r.tagName)}`,
       }));
 
     this.versionCache.set(type, { versions, cachedAt: Date.now() });
@@ -91,13 +95,13 @@ export class ArtifactRegistry {
       publishedAt: release.publishedAt,
       prerelease: release.prerelease,
       releaseUrl: release.htmlUrl,
-      dockerImage: `${artifact.dockerImage}:${release.tagName}`,
+      dockerImage: `${artifact.dockerImage}:${this.toDockerTag(release.tagName)}`,
     };
   }
 
   buildDockerImage(type: string, version: string): string {
     const artifact = this.getArtifact(type);
     if (!artifact) throw new Error(`Unknown artifact type: ${type}`);
-    return `${artifact.dockerImage}:${version}`;
+    return `${artifact.dockerImage}:${this.toDockerTag(version)}`;
   }
 }

@@ -8,13 +8,16 @@ export type { DeploymentRecord } from '../store/IDeploymentStore.js';
 import type { DeploymentRecord } from '../store/IDeploymentStore.js';
 
 const VALID_TRANSITIONS: Record<DeploymentStatus, DeploymentStatus[]> = {
-  PENDING: ['DEPLOYING', 'DESTROYED'],
-  DEPLOYING: ['VALIDATING', 'FAILED'],
-  VALIDATING: ['ONLINE', 'FAILED'],
-  ONLINE: ['UPDATING', 'DESTROYED'],
-  UPDATING: ['VALIDATING', 'FAILED'],
-  FAILED: ['DEPLOYING', 'DESTROYED'],
-  DESTROYED: ['DESTROYED'],
+  PENDING: ['DEPLOYING', 'DESTROYING', 'DESTROYED'],
+  DEPLOYING: ['VALIDATING', 'ONLINE', 'FAILED', 'DESTROYING', 'DESTROYED'],
+  VALIDATING: ['ONLINE', 'FAILED', 'DESTROYING', 'DESTROYED'],
+  ONLINE: ['DEGRADED', 'OFFLINE', 'UPDATING', 'DESTROYING', 'DESTROYED'],
+  DEGRADED: ['ONLINE', 'OFFLINE', 'DESTROYING', 'DESTROYED'],
+  OFFLINE: ['ONLINE', 'DESTROYING', 'DESTROYED'],
+  UPDATING: ['VALIDATING', 'FAILED', 'DESTROYING', 'DESTROYED'],
+  FAILED: ['DEPLOYING', 'DESTROYING', 'DESTROYED'],
+  DESTROYING: ['DESTROYED', 'FAILED'],
+  DESTROYED: [],
 };
 
 export class DeploymentOrchestrator {
@@ -351,6 +354,41 @@ export class DeploymentOrchestrator {
 
     const adapter = this.registry.get(record.providerSlug);
     return this.runValidation(record, adapter, userId);
+  }
+
+  async syncStatus(id: string, userId: string): Promise<DeploymentRecord> {
+    let record = await this.getOrThrow(id);
+
+    if (!record.providerDeploymentId) return record;
+
+    const inProgressStates = ['PROVISIONING', 'DEPLOYING', 'VALIDATING'];
+    if (!inProgressStates.includes(record.status)) return record;
+
+    const adapter = this.registry.get(record.providerSlug);
+    try {
+      const providerStatus = await adapter.getStatus(record.providerDeploymentId);
+
+      if (providerStatus.status === 'ONLINE') {
+        record = await this.transition(record, 'ONLINE', 'Provider reports ready', userId);
+        record = await this.store.update(id, {
+          healthStatus: 'GREEN',
+          lastHealthCheck: new Date(),
+          endpointUrl: providerStatus.endpointUrl || record.endpointUrl,
+        });
+        return record;
+      }
+
+      if (providerStatus.status === 'FAILED') {
+        const detail = (providerStatus.metadata as any)?.error || 'Provider reports deployment failed';
+        record = await this.transition(record, 'FAILED', detail, userId);
+        return record;
+      }
+
+      return record;
+    } catch (err: any) {
+      console.warn(`[syncStatus] Failed to sync ${id}: ${err.message}`);
+      return record;
+    }
   }
 
   async retry(id: string, userId: string): Promise<DeploymentRecord> {

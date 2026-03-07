@@ -55,6 +55,15 @@ export class ArtifactRegistry {
     return ARTIFACTS.find((a) => a.type === type);
   }
 
+  /**
+   * Docker registries often use bare semver tags (e.g. `0.1.6`) while GitHub
+   * releases use a `v` prefix (e.g. `v0.1.6`). Strip the prefix so the image
+   * reference matches what's actually pushed to the registry.
+   */
+  private toDockerTag(tagName: string): string {
+    return tagName.replace(/^v/, '');
+  }
+
   async getVersions(type: string): Promise<ArtifactVersion[]> {
     const artifact = this.getArtifact(type);
     if (!artifact) throw new Error(`Unknown artifact type: ${type}`);
@@ -68,7 +77,7 @@ export class ArtifactRegistry {
       publishedAt: r.publishedAt,
       prerelease: r.prerelease,
       releaseUrl: r.htmlUrl,
-      dockerImage: `${artifact.dockerImage}:${r.tagName}`,
+      dockerImage: `${artifact.dockerImage}:${this.toDockerTag(r.tagName)}`,
     }));
 
     this.versionCache.set(type, { versions, cachedAt: Date.now() });
@@ -85,13 +94,13 @@ export class ArtifactRegistry {
       publishedAt: release.publishedAt,
       prerelease: release.prerelease,
       releaseUrl: release.htmlUrl,
-      dockerImage: `${artifact.dockerImage}:${release.tagName}`,
+      dockerImage: `${artifact.dockerImage}:${this.toDockerTag(release.tagName)}`,
     };
   }
 
   buildDockerImage(type: string, version: string): string {
     const artifact = this.getArtifact(type);
     if (!artifact) throw new Error(`Unknown artifact type: ${type}`);
-    return `${artifact.dockerImage}:${version}`;
+    return `${artifact.dockerImage}:${this.toDockerTag(version)}`;
   }
 }
