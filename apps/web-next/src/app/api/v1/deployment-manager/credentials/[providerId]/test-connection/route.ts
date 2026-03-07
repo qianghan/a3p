@@ -37,6 +37,7 @@ export async function POST(
     setCurrentUserId(user.id);
     try {
       const testPath = adapter.apiConfig.healthCheckPath || '/';
+      const start = Date.now();
       const res = await fetch(
         `${adapter.apiConfig.upstreamBaseUrl}${testPath}`,
         {
@@ -50,31 +51,31 @@ export async function POST(
           signal: AbortSignal.timeout(15000),
         },
       );
+      const latencyMs = Date.now() - start;
 
-      if (res.ok || res.status === 401 || res.status === 403) {
-        const connected = res.ok;
-        return NextResponse.json({
-          success: true,
-          data: {
-            connected,
-            provider: providerId,
-            statusCode: res.status,
-            message: connected ? 'Connection successful' : 'Authentication failed — check your API key',
-          },
-        });
-      }
+      const isAuthError = res.status === 401 || res.status === 403;
 
       return NextResponse.json({
-        success: false,
-        error: `Provider returned ${res.status}`,
-        data: { connected: false, provider: providerId, statusCode: res.status },
-      }, { status: 400 });
+        success: true,
+        data: {
+          success: res.ok,
+          statusCode: res.status,
+          latencyMs,
+          provider: adapter.displayName,
+          error: isAuthError
+            ? 'Authentication failed — check that your API key is correct.'
+            : !res.ok ? `Provider returned ${res.status}` : undefined,
+        },
+      });
     } catch (err: any) {
       return NextResponse.json({
-        success: false,
-        error: `Connection failed: ${err.message}`,
-        data: { connected: false, provider: providerId },
-      }, { status: 400 });
+        success: true,
+        data: {
+          success: false,
+          provider: adapter.displayName,
+          error: err.name === 'TimeoutError' ? 'Connection timed out (15s)' : err.message,
+        },
+      });
     } finally {
       setCurrentUserId(null);
     }

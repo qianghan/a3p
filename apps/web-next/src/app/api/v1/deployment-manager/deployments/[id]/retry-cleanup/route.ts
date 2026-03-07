@@ -12,8 +12,16 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
 
     const { id } = await params;
     const { orchestrator } = getServices();
-    const deployment = await orchestrator.destroy(id, user.id);
-    return NextResponse.json({ success: true, data: deployment });
+    const record = await orchestrator.destroy(id, user.id);
+    const allClean = record.status === 'DESTROYED';
+    return NextResponse.json({
+      success: true,
+      data: record,
+      destroyResult: {
+        allClean,
+        steps: [{ step: 'retry-cleanup', success: allClean, detail: allClean ? 'Cleanup complete' : record.statusMessage }],
+      },
+    });
   } catch (err: any) {
     return NextResponse.json({ success: false, error: err.message }, { status: 400 });
   }

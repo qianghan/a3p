@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Shield, Check, X, Wifi, Loader, AlertTriangle, KeyRound, Pencil } from 'lucide-react';
 import {
   useCredentialStatus,
@@ -30,11 +30,14 @@ export const ProviderCredentialConfig: React.FC<ProviderCredentialConfigProps> =
 
   const isConfigured = credentialStatus?.configured ?? false;
 
+  const onStatusChangeRef = useRef(onStatusChange);
+  onStatusChangeRef.current = onStatusChange;
+
   useEffect(() => {
-    if (onStatusChange && credentialStatus) {
-      onStatusChange(credentialStatus.configured);
+    if (onStatusChangeRef.current && credentialStatus) {
+      onStatusChangeRef.current(credentialStatus.configured);
     }
-  }, [credentialStatus?.configured, onStatusChange]);
+  }, [credentialStatus?.configured]);
 
   // Auto-show edit form when no credentials exist
   useEffect(() => {

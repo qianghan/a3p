@@ -34,16 +34,24 @@ export async function GET(request: NextRequest) {
     const providerPricing = GPU_PRICING[provider] || {};
     const hourlyRate = providerPricing[gpu] ?? providerPricing['default'] ?? null;
 
+    const gpuCostPerHour = hourlyRate != null ? hourlyRate * count : null;
+
     return NextResponse.json({
       success: true,
       data: {
-        provider,
+        providerSlug: provider,
         gpuModel: gpu,
         gpuCount: count,
-        hourlyRate,
-        dailyEstimate: hourlyRate != null ? hourlyRate * 24 * count : null,
-        monthlyEstimate: hourlyRate != null ? hourlyRate * 24 * 30 * count : null,
+        gpuCostPerHour: hourlyRate,
+        totalCostPerHour: gpuCostPerHour,
+        totalCostPerDay: gpuCostPerHour != null ? gpuCostPerHour * 24 : null,
+        totalCostPerMonth: gpuCostPerHour != null ? gpuCostPerHour * 24 * 30 : null,
         currency: 'USD',
+        breakdown: {
+          gpu: gpuCostPerHour,
+          storage: 0,
+          network: 0,
+        },
         note: hourlyRate == null ? 'Pricing unavailable for this GPU model' : undefined,
       },
     });

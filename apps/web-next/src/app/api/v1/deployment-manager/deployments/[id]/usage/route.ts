@@ -11,10 +11,27 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     if (!user) return NextResponse.json({ success: false, error: 'Invalid session' }, { status: 401 });
 
     const { id } = await params;
-    const period = (request.nextUrl.searchParams.get('period') as 'hour' | 'day') || 'hour';
+    const range = request.nextUrl.searchParams.get('range') || request.nextUrl.searchParams.get('period') || 'hour';
+    const period = (range === 'day' ? 'day' : 'hour') as 'hour' | 'day';
     const { usageService } = getServices();
     const stats = await usageService.getStats(id, period);
-    return NextResponse.json({ success: true, data: stats });
+
+    const totalCompleted = stats.buckets.reduce((s, b) => s + b.completed, 0);
+    const totalFailed = stats.buckets.reduce((s, b) => s + b.failed, 0);
+    const totalRetried = stats.buckets.reduce((s, b) => s + b.retried, 0);
+    const totalRequests = totalCompleted + totalFailed + totalRetried;
+
+    return NextResponse.json({
+      success: true,
+      data: {
+        ...stats,
+        totalRequests,
+        totalCompleted,
+        totalFailed,
+        totalRetried,
+        avgResponseTimeMs: 0,
+      },
+    });
   } catch (err: any) {
     return NextResponse.json({ success: false, error: err.message }, { status: 500 });
   }
