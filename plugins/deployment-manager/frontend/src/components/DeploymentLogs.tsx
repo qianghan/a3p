@@ -12,9 +12,10 @@ interface DestroyStep {
 
 interface LogEntry {
   createdAt: string;
+  fromStatus?: string;
   toStatus: string;
   reason?: string;
-  metadata?: { steps?: DestroyStep[]; allClean?: boolean };
+  metadata?: Record<string, unknown>;
 }
 
 interface DeploymentLogsProps {
@@ -28,6 +29,41 @@ const stepIcon = (status: string) => {
   if (status === 'ok') return { symbol: '✓', color: '#4ade80' };
   if (status === 'failed') return { symbol: '✗', color: '#f87171' };
   return { symbol: '–', color: '#6b7280' };
+};
+
+const statusColor = (status: string) => {
+  if (status === 'ONLINE') return '#4ade80';
+  if (status === 'FAILED') return '#f87171';
+  if (status === 'DESTROYED') return '#6b7280';
+  if (['DEPLOYING', 'PROVISIONING', 'VALIDATING', 'DESTROYING'].includes(status)) return '#facc15';
+  return '#e5e7eb';
+};
+
+const ProviderMetaLine: React.FC<{ meta: Record<string, unknown> }> = ({ meta }) => {
+  const parts: string[] = [];
+
+  if (meta.providerReportedStatus) parts.push(`status=${meta.providerReportedStatus}`);
+  if (meta.dockerImage) parts.push(`image=${meta.dockerImage}`);
+  if (meta.gpuModel) parts.push(`gpu=${meta.gpuModel}${meta.gpuCount ? `×${meta.gpuCount}` : ''}`);
+
+  const workers = meta.workers as Record<string, number> | undefined;
+  const running = meta.workersRunning ?? workers?.running;
+  const total = meta.workersTotal ?? workers?.total;
+  if (running != null && total != null) parts.push(`workers=${running}/${total}`);
+
+  if (meta.providerDeploymentId) parts.push(`endpoint=${meta.providerDeploymentId}`);
+  if (meta.endpointUrl) parts.push(`url=${meta.endpointUrl}`);
+
+  const error = meta.error as string | undefined;
+  if (error) parts.push(`error="${error}"`);
+
+  if (parts.length === 0) return null;
+
+  return (
+    <div style={{ color: '#9ca3af', paddingLeft: '1.5rem' }}>
+      {'  └ '}{parts.join(' | ')}
+    </div>
+  );
 };
 
 export const DeploymentLogs: React.FC<DeploymentLogsProps> = ({ deploymentId, autoScroll = true }) => {
@@ -60,6 +96,8 @@ export const DeploymentLogs: React.FC<DeploymentLogsProps> = ({ deploymentId, au
     }
   }, [entries, autoScroll]);
 
+  const steps = (meta: Record<string, unknown>) => meta.steps as DestroyStep[] | undefined;
+
   return (
     <div>
       <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.75rem' }}>
@@ -86,11 +124,20 @@ export const DeploymentLogs: React.FC<DeploymentLogsProps> = ({ deploymentId, au
           entries.map((entry, i) => (
             <div key={i}>
               <div>
-                [{new Date(entry.createdAt).toLocaleTimeString()}] {entry.toStatus}: {entry.reason || ''}
+                <span style={{ color: '#6b7280' }}>[{new Date(entry.createdAt).toLocaleTimeString()}]</span>
+                {' '}
+                <span style={{ color: statusColor(entry.toStatus), fontWeight: 600 }}>{entry.toStatus}</span>
+                {entry.fromStatus && entry.fromStatus !== entry.toStatus && (
+                  <span style={{ color: '#6b7280' }}>{' ← '}{entry.fromStatus}</span>
+                )}
+                {entry.reason && <span>{': '}{entry.reason}</span>}
               </div>
-              {entry.metadata?.steps && (
+              {entry.metadata && !steps(entry.metadata) && (
+                <ProviderMetaLine meta={entry.metadata} />
+              )}
+              {entry.metadata && steps(entry.metadata) && (
                 <div style={{ paddingLeft: '1.5rem' }}>
-                  {entry.metadata.steps.map((step: DestroyStep, j: number) => {
+                  {steps(entry.metadata)!.map((step, j) => {
                     const icon = stepIcon(step.status);
                     return (
                       <div key={j} style={{ color: icon.color }}>

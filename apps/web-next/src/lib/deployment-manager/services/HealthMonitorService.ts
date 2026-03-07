@@ -53,7 +53,7 @@ export class HealthMonitorService {
       console.error('[health-monitor] Failed to persist health log:', err);
     }
 
-    this.orchestrator.updateHealthStatus(deployment.id, computedStatus);
+    this.orchestrator.updateHealthStatus(deployment.id, computedStatus, result.details);
     return result;
   }
 
@@ -74,6 +74,8 @@ export class HealthMonitorService {
   private computeStatus(deploymentId: string, result: HealthResult): HealthStatus {
     if (result.healthy) {
       this.consecutiveFailures.set(deploymentId, 0);
+      // Preserve adapter-assigned ORANGE (e.g., serverless idle) instead of overriding to GREEN
+      if (result.status === 'ORANGE') return 'ORANGE';
       if (result.responseTimeMs && result.responseTimeMs > this.degradedThresholdMs) return 'ORANGE';
       return 'GREEN';
     }

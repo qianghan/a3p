@@ -77,7 +77,7 @@ function toStatusLogEntry(row: any): StatusLogEntry {
 export class PrismaDeploymentStore implements IDeploymentStore {
   async create(record: DeploymentRecord): Promise<DeploymentRecord> {
     const prisma = await getPrisma();
-    const row = await prisma.serverlessDeployment.create({
+    const row = await prisma.dmDeployment.create({
       data: {
         id: record.id,
         name: record.name,
@@ -120,7 +120,7 @@ export class PrismaDeploymentStore implements IDeploymentStore {
 
   async get(id: string): Promise<DeploymentRecord | undefined> {
     const prisma = await getPrisma();
-    const row = await prisma.serverlessDeployment.findUnique({ where: { id } });
+    const row = await prisma.dmDeployment.findUnique({ where: { id } });
     return row ? toRecord(row) : undefined;
   }
 
@@ -133,7 +133,7 @@ export class PrismaDeploymentStore implements IDeploymentStore {
     if (filters?.status) where.status = filters.status;
     if (filters?.providerSlug) where.providerSlug = filters.providerSlug;
 
-    const rows = await prisma.serverlessDeployment.findMany({
+    const rows = await prisma.dmDeployment.findMany({
       where,
       orderBy: { createdAt: 'desc' },
     });
@@ -178,7 +178,7 @@ export class PrismaDeploymentStore implements IDeploymentStore {
     if (data.lastHealthCheck !== undefined) updateData.lastHealthCheck = data.lastHealthCheck ?? null;
     if (data.deployedAt !== undefined) updateData.deployedAt = data.deployedAt ?? null;
 
-    const row = await prisma.serverlessDeployment.update({
+    const row = await prisma.dmDeployment.update({
       where: { id },
       data: updateData,
     });
@@ -188,7 +188,7 @@ export class PrismaDeploymentStore implements IDeploymentStore {
   async remove(id: string): Promise<boolean> {
     const prisma = await getPrisma();
     try {
-      await prisma.serverlessDeployment.delete({ where: { id } });
+      await prisma.dmDeployment.delete({ where: { id } });
       return true;
     } catch {
       return false;

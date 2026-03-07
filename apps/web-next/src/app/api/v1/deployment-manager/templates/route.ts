@@ -6,6 +6,7 @@ import type { ArtifactDefinition } from '@/lib/deployment-manager/services/Artif
 
 const ARTIFACT_ICONS: Record<string, string> = {
   'ai-runner': '\u{1F916}',
+  'livepeer-inference': '\u{1F517}',
   scope: '\u{1F52D}',
 };
 

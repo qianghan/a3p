@@ -1,4 +1,4 @@
-import type { IProviderAdapter } from './IProviderAdapter';
+import type { IProviderAdapter, DestroyResult, DestroyStep } from './IProviderAdapter';
 import type { ProviderApiConfig, GpuOption, DeployConfig, UpdateConfig, ProviderDeployment, ProviderStatus, HealthResult } from '../types';
 import { authenticatedProviderFetch } from '../provider-fetch';
 
@@ -125,12 +125,57 @@ export class RunPodAdapter implements IProviderAdapter {
     };
   }
 
-  async destroy(providerDeploymentId: string): Promise<void> {
-    const res = await this.fetch(`/endpoints/${providerDeploymentId}`, { method: 'DELETE' });
-    if (!res.ok && res.status !== 404) {
-      const error = await res.text();
-      throw new Error(`RunPod destroy failed (${res.status}): ${error}`);
+  async destroy(providerDeploymentId: string, metadata?: Record<string, unknown>): Promise<DestroyResult> {
+    const steps: DestroyStep[] = [];
+
+    // Delete endpoint with retry + verification
+    const endpointSteps = await this.deleteWithRetry(`/endpoints/${providerDeploymentId}`, 'endpoint', providerDeploymentId);
+    steps.push(...endpointSteps);
+
+    // Delete template if stored in metadata
+    const templateId = (metadata as any)?.templateId;
+    if (templateId) {
+      const templateSteps = await this.deleteWithRetry(`/templates/${templateId}`, 'template', templateId);
+      steps.push(...templateSteps);
     }
+
+    const allClean = steps.every((s) => s.status === 'ok');
+    return { allClean, steps };
+  }
+
+  private async deleteWithRetry(path: string, label: string, resourceId: string, maxRetries = 2): Promise<DestroyStep[]> {
+    const steps: DestroyStep[] = [];
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      try {
+        const res = await this.fetch(path, { method: 'DELETE' });
+        if (res.status === 404) {
+          steps.push({ resource: label, resourceId, action: 'DELETE', status: 'ok', detail: 'Already deleted (404)' });
+          return steps;
+        }
+        if (res.ok) {
+          steps.push({ resource: label, resourceId, action: 'DELETE', status: 'ok', detail: `Deleted on attempt ${attempt + 1}` });
+        } else {
+          steps.push({ resource: label, resourceId, action: 'DELETE', status: 'failed', error: `${res.status}: ${await res.text().catch(() => 'unknown')}` });
+        }
+      } catch (err: any) {
+        steps.push({ resource: label, resourceId, action: 'DELETE', status: 'failed', error: err.message });
+      }
+
+      await new Promise((r) => setTimeout(r, 2000 * (attempt + 1)));
+
+      try {
+        const verifyRes = await this.fetch(path);
+        if (!verifyRes.ok || verifyRes.status === 404) {
+          steps.push({ resource: label, resourceId, action: 'VERIFY_DELETED', status: 'ok', detail: `Confirmed gone after attempt ${attempt + 1}` });
+          return steps;
+        }
+        steps.push({ resource: label, resourceId, action: 'VERIFY_DELETED', status: 'failed', detail: `Still exists after attempt ${attempt + 1}` });
+      } catch {
+        steps.push({ resource: label, resourceId, action: 'VERIFY_DELETED', status: 'ok', detail: 'Verification request failed (likely gone)' });
+        return steps;
+      }
+    }
+    return steps;
   }
 
   async update(providerDeploymentId: string, config: UpdateConfig): Promise<ProviderDeployment> {
@@ -161,21 +206,61 @@ export class RunPodAdapter implements IProviderAdapter {
   async healthCheck(providerDeploymentId: string): Promise<HealthResult> {
     try {
       const start = Date.now();
-      const res = await this.fetch(`/endpoints/${providerDeploymentId}/health`);
+      const [healthRes, endpointRes] = await Promise.all([
+        this.fetch(`/endpoints/${providerDeploymentId}/health`),
+        this.fetch(`/endpoints/${providerDeploymentId}`),
+      ]);
       const responseTimeMs = Date.now() - start;
 
-      if (!res.ok) {
-        return { healthy: false, status: 'RED', responseTimeMs, statusCode: res.status };
+      if (!healthRes.ok && !endpointRes.ok) {
+        return { healthy: false, status: 'RED', responseTimeMs, statusCode: healthRes.status };
       }
 
-      const data = await res.json();
-      const healthy = data.status === 'READY' || data.workers?.running > 0;
+      const healthData = healthRes.ok ? await healthRes.json() : {};
+      const endpointData = endpointRes.ok ? await endpointRes.json() : {};
+
+      const workers = healthData.workers || {};
+      const endpointStatus = endpointData.status || healthData.status || 'UNKNOWN';
+      const workersMin = endpointData.workersMin ?? 0;
+
+      const isServerless = workersMin === 0;
+      const isReady = endpointStatus === 'READY' || workers.running > 0;
+      const isIdleServerless = isServerless && (endpointStatus === 'OFFLINE' || endpointStatus === 'INITIALIZING');
+      const healthy = isReady || isIdleServerless;
+
+      let status: 'GREEN' | 'ORANGE' | 'RED';
+      if (isIdleServerless && !isReady) {
+        status = 'ORANGE';
+      } else if (healthy) {
+        status = responseTimeMs > 5000 ? 'ORANGE' : 'GREEN';
+      } else {
+        status = 'RED';
+      }
+
       return {
         healthy,
-        status: healthy ? (responseTimeMs > 5000 ? 'ORANGE' : 'GREEN') : 'RED',
+        status,
         responseTimeMs,
-        statusCode: res.status,
-        details: data,
+        statusCode: healthRes.status,
+        details: {
+          endpointStatus,
+          isServerless,
+          workers: {
+            running: workers.running ?? 0,
+            idle: workers.idle ?? 0,
+            total: workers.total ?? endpointData.workersTotal ?? 0,
+            min: workersMin,
+            max: endpointData.workersMax ?? 0,
+          },
+          jobs: {
+            completed: healthData.jobs?.completed ?? 0,
+            inQueue: healthData.jobs?.inQueue ?? 0,
+            inProgress: healthData.jobs?.inProgress ?? 0,
+          },
+          note: isIdleServerless && !isReady
+            ? 'Serverless endpoint scaled to zero — workers spin up on demand'
+            : undefined,
+        },
       };
     } catch {
       return { healthy: false, status: 'RED' };

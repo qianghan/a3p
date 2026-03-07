@@ -129,13 +129,26 @@ export class DeploymentOrchestrator {
         deployedAt: new Date(),
       });
 
+      const deployMeta: Record<string, unknown> = {
+        providerDeploymentId: result.providerDeploymentId,
+        endpointUrl: result.endpointUrl,
+        dockerImage: record.dockerImage,
+        gpuModel: record.gpuModel,
+        gpuCount: record.gpuCount,
+        providerSlug: record.providerSlug,
+        ...(result.metadata || {}),
+      };
+      await this.recordTransitionWithMetadata(
+        id, 'DEPLOYING', 'DEPLOYING', 'Provider accepted deployment', userId, deployMeta,
+      );
+
       await this.audit.log({
         deploymentId: id,
         action: 'DEPLOY',
         resource: 'deployment',
         resourceId: id,
         userId,
-        details: { providerDeploymentId: result.providerDeploymentId, endpointUrl: result.endpointUrl },
+        details: deployMeta,
         status: 'success',
       });
 
@@ -195,7 +208,7 @@ export class DeploymentOrchestrator {
       resource: 'deployment',
       resourceId: id,
       userId,
-      status: cleanupPending ? 'partial' : 'success',
+      status: cleanupPending ? 'failure' : 'success',
       details: destroyResult ? { steps: destroyResult.steps } : undefined,
     });
 
@@ -238,7 +251,7 @@ export class DeploymentOrchestrator {
       resource: 'deployment',
       resourceId: id,
       userId,
-      status: cleanupPending ? 'partial' : 'success',
+      status: cleanupPending ? 'failure' : 'success',
       details: destroyResult ? { steps: destroyResult.steps } : undefined,
     });
 
@@ -286,7 +299,7 @@ export class DeploymentOrchestrator {
       resource: 'deployment',
       resourceId: id,
       userId,
-      status: cleanupPending ? 'partial' : 'success',
+      status: cleanupPending ? 'failure' : 'success',
       details: destroyResult ? { steps: destroyResult.steps } : undefined,
     });
 
@@ -358,18 +371,26 @@ export class DeploymentOrchestrator {
 
   async syncStatus(id: string, userId: string): Promise<DeploymentRecord> {
     let record = await this.getOrThrow(id);
-
     if (!record.providerDeploymentId) return record;
 
-    const inProgressStates = ['PROVISIONING', 'DEPLOYING', 'VALIDATING'];
+    const inProgressStates: DeploymentStatus[] = ['PROVISIONING', 'DEPLOYING', 'VALIDATING'];
     if (!inProgressStates.includes(record.status)) return record;
 
     const adapter = this.registry.get(record.providerSlug);
     try {
       const providerStatus = await adapter.getStatus(record.providerDeploymentId);
+      const providerMeta: Record<string, unknown> = {
+        providerDeploymentId: record.providerDeploymentId,
+        providerSlug: record.providerSlug,
+        providerReportedStatus: providerStatus.status,
+        ...(providerStatus.metadata || {}),
+      };
 
       if (providerStatus.status === 'ONLINE') {
-        record = await this.transition(record, 'ONLINE', 'Provider reports ready', userId);
+        record = await this.transitionWithMetadata(record, 'ONLINE', 'Provider reports ready', userId, {
+          ...providerMeta,
+          endpointUrl: providerStatus.endpointUrl || record.endpointUrl,
+        });
         record = await this.store.update(id, {
           healthStatus: 'GREEN',
           lastHealthCheck: new Date(),
@@ -380,9 +401,15 @@ export class DeploymentOrchestrator {
 
       if (providerStatus.status === 'FAILED') {
         const detail = (providerStatus.metadata as any)?.error || 'Provider reports deployment failed';
-        record = await this.transition(record, 'FAILED', detail, userId);
+        record = await this.transitionWithMetadata(record, 'FAILED', detail, userId, providerMeta);
         return record;
       }
+
+      await this.recordTransitionWithMetadata(
+        id, record.status, record.status,
+        `Provider status: ${providerStatus.status}`, 'system',
+        providerMeta,
+      );
 
       return record;
     } catch (err: any) {

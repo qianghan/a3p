@@ -26,7 +26,7 @@ export const DeploymentDetail: React.FC<DeploymentDetailProps> = ({ deploymentId
   const { id: routeId } = useParams<{ id: string }>();
   const id = propId || routeId || '';
   const { deployment, loading, refresh } = useDeployment(id);
-  const { healthStatus } = useHealthPolling(id, 30000);
+  const { healthStatus, healthDetails } = useHealthPolling(id, 30000);
   const [activeTab, setActiveTab] = useState<TabId>('overview');
   const [showUpdateDialog, setShowUpdateDialog] = useState(false);
   const [newVersion, setNewVersion] = useState('');
@@ -369,6 +369,74 @@ export const DeploymentDetail: React.FC<DeploymentDetailProps> = ({ deploymentId
           <p style={{ fontSize: '0.8rem', color: 'var(--dm-text-tertiary)', marginTop: '0.5rem' }}>
             Last checked: {d.lastHealthCheck ? new Date(d.lastHealthCheck).toLocaleString() : 'Never'}
           </p>
+          {healthDetails && (
+            <div style={{
+              marginTop: '1rem', padding: '1rem', background: 'var(--dm-bg-secondary)',
+              borderRadius: '0.5rem', fontSize: '0.8rem',
+            }}>
+              <h4 style={{ margin: '0 0 0.75rem', fontWeight: 600, color: 'var(--dm-text-primary)' }}>
+                Provider Health Details
+              </h4>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '0.75rem' }}>
+                {healthDetails.endpointStatus && (
+                  <div>
+                    <div style={{ color: 'var(--dm-text-tertiary)', fontSize: '0.72rem' }}>Endpoint Status</div>
+                    <div style={{ fontWeight: 600, color: 'var(--dm-text-primary)' }}>{healthDetails.endpointStatus}</div>
+                  </div>
+                )}
+                {healthDetails.workers && (
+                  <>
+                    <div>
+                      <div style={{ color: 'var(--dm-text-tertiary)', fontSize: '0.72rem' }}>Workers Running</div>
+                      <div style={{ fontWeight: 600, color: 'var(--dm-text-primary)' }}>
+                        {healthDetails.workers.running} / {healthDetails.workers.total}
+                      </div>
+                    </div>
+                    <div>
+                      <div style={{ color: 'var(--dm-text-tertiary)', fontSize: '0.72rem' }}>Workers Idle</div>
+                      <div style={{ fontWeight: 600, color: 'var(--dm-text-primary)' }}>{healthDetails.workers.idle}</div>
+                    </div>
+                    <div>
+                      <div style={{ color: 'var(--dm-text-tertiary)', fontSize: '0.72rem' }}>Min / Max Workers</div>
+                      <div style={{ fontWeight: 600, color: 'var(--dm-text-primary)' }}>
+                        {healthDetails.workers.min} / {healthDetails.workers.max}
+                      </div>
+                    </div>
+                  </>
+                )}
+                {healthDetails.jobs && (
+                  <>
+                    <div>
+                      <div style={{ color: 'var(--dm-text-tertiary)', fontSize: '0.72rem' }}>Jobs Completed</div>
+                      <div style={{ fontWeight: 600, color: 'var(--dm-text-primary)' }}>{healthDetails.jobs.completed}</div>
+                    </div>
+                    <div>
+                      <div style={{ color: 'var(--dm-text-tertiary)', fontSize: '0.72rem' }}>Jobs In Queue</div>
+                      <div style={{ fontWeight: 600, color: 'var(--dm-text-primary)' }}>{healthDetails.jobs.inQueue}</div>
+                    </div>
+                    <div>
+                      <div style={{ color: 'var(--dm-text-tertiary)', fontSize: '0.72rem' }}>Jobs In Progress</div>
+                      <div style={{ fontWeight: 600, color: 'var(--dm-text-primary)' }}>{healthDetails.jobs.inProgress}</div>
+                    </div>
+                  </>
+                )}
+              </div>
+              {healthDetails.note && (
+                <div style={{
+                  marginTop: '0.75rem', padding: '0.5rem 0.75rem',
+                  background: '#fffbeb', border: '1px solid #fde68a',
+                  borderRadius: '0.375rem', fontSize: '0.75rem', color: '#92400e',
+                }}>
+                  {healthDetails.note}
+                </div>
+              )}
+              {healthDetails.isServerless && (
+                <div style={{ marginTop: '0.5rem', fontSize: '0.72rem', color: 'var(--dm-text-tertiary)' }}>
+                  Serverless endpoint — workers scale to zero when idle and spin up on demand
+                </div>
+              )}
+            </div>
+          )}
         </div>
       )}
       {activeTab === 'audit' && <AuditTable deploymentId={id} />}

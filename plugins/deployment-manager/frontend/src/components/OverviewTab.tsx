@@ -28,44 +28,48 @@ const LANGUAGES: { id: Language; label: string }[] = [
   { id: 'go', label: 'Go' },
 ];
 
-function getAuthEnvVar(providerSlug: string): string {
-  const map: Record<string, string> = {
-    runpod: 'RUNPOD_API_KEY',
-    'fal-ai': 'FAL_KEY',
-    replicate: 'REPLICATE_API_TOKEN',
-    baseten: 'BASETEN_API_KEY',
-    modal: 'MODAL_TOKEN_ID',
+interface AuthInfo { envVar: string; prefix: string }
+
+function getAuthInfo(providerSlug: string): AuthInfo {
+  const map: Record<string, AuthInfo> = {
+    runpod:    { envVar: 'RUNPOD_API_KEY',       prefix: 'Bearer' },
+    'fal-ai':  { envVar: 'FAL_KEY',              prefix: 'Key' },
+    replicate: { envVar: 'REPLICATE_API_TOKEN',  prefix: 'Bearer' },
+    baseten:   { envVar: 'BASETEN_API_KEY',      prefix: 'Bearer' },
+    modal:     { envVar: 'MODAL_TOKEN_ID',       prefix: 'Bearer' },
   };
-  return map[providerSlug] || 'API_KEY';
+  return map[providerSlug] || { envVar: 'API_KEY', prefix: 'Bearer' };
 }
 
 function getRunUrl(deployment: Deployment): string {
-  if (deployment.providerSlug === 'runpod' && deployment.endpointUrl) {
-    return `${deployment.endpointUrl}/run`;
+  if (deployment.providerSlug === 'runpod') {
+    if (deployment.endpointUrl) return `${deployment.endpointUrl}/run`;
+    if (deployment.providerDeploymentId) return `https://api.runpod.ai/v2/${deployment.providerDeploymentId}/run`;
   }
   return deployment.endpointUrl || 'https://api.example.com/run';
 }
 
 function generateSnippet(deployment: Deployment, lang: Language): string {
   const url = getRunUrl(deployment);
-  const envVar = getAuthEnvVar(deployment.providerSlug);
+  const { envVar, prefix } = getAuthInfo(deployment.providerSlug);
   const body = '{"input": {"prompt": "Hello, world!"}}';
+  const isSsh = deployment.providerSlug === 'ssh-bridge' || deployment.providerSlug === 'ssh-compose';
+  const authHeader = isSsh ? '' : `${prefix} $${envVar}`;
 
   switch (lang) {
     case 'curl':
-      return `curl -X POST "${url}" \\
-  -H "Content-Type: application/json" \\
-  -H "Authorization: Bearer $${envVar}" \\
-  -d '${body}'`;
+      return isSsh
+        ? `curl -X POST "${url}" \\\n  -H "Content-Type: application/json" \\\n  -d '${body}'`
+        : `curl -X POST "${url}" \\\n  -H "Content-Type: application/json" \\\n  -H "Authorization: ${authHeader}" \\\n  -d '${body}'`;
 
     case 'python':
-      return `import requests
+      return `import os
+import requests
 
 response = requests.post(
     "${url}",
     headers={
-        "Content-Type": "application/json",
-        "Authorization": f"Bearer {os.environ['${envVar}']}"
+        "Content-Type": "application/json",${isSsh ? '' : `\n        "Authorization": f"${prefix} {os.environ['${envVar}']}"`}
     },
     json={"input": {"prompt": "Hello, world!"}}
 )
@@ -76,8 +80,7 @@ print(response.json())`;
       return `const response = await fetch("${url}", {
   method: "POST",
   headers: {
-    "Content-Type": "application/json",
-    "Authorization": \`Bearer \${process.env.${envVar}}\`
+    "Content-Type": "application/json",${isSsh ? '' : `\n    "Authorization": \`${prefix} \${process.env.${envVar}}\``}
   },
   body: JSON.stringify({ input: { prompt: "Hello, world!" } })
 });
@@ -92,8 +95,7 @@ import (
     "bytes"
     "encoding/json"
     "fmt"
-    "net/http"
-    "os"
+    "net/http"${isSsh ? '' : '\n    "os"'}
 )
 
 func main() {
@@ -102,8 +104,7 @@ func main() {
     })
 
     req, _ := http.NewRequest("POST", "${url}", bytes.NewBuffer(body))
-    req.Header.Set("Content-Type", "application/json")
-    req.Header.Set("Authorization", "Bearer "+os.Getenv("${envVar}"))
+    req.Header.Set("Content-Type", "application/json")${isSsh ? '' : `\n    req.Header.Set("Authorization", "${prefix} "+os.Getenv("${envVar}"))`}
 
     resp, err := http.DefaultClient.Do(req)
     if err != nil {
@@ -137,7 +138,7 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({ deployment }) => {
         gap: '0.75rem', marginBottom: '1.5rem',
       }}>
         {[
-          { icon: <Globe size={14} />, label: 'Endpoint', value: deployment.endpointUrl || 'N/A' },
+          { icon: <Globe size={14} />, label: 'Endpoint', value: getRunUrl(deployment) },
           { icon: <Server size={14} />, label: 'Docker Image', value: deployment.dockerImage },
           { icon: <Cpu size={14} />, label: 'GPU', value: `${deployment.gpuModel} (${deployment.gpuVramGb}GB) x${deployment.gpuCount}` },
           { icon: <Clock size={14} />, label: 'Created', value: new Date(deployment.createdAt).toLocaleDateString() },

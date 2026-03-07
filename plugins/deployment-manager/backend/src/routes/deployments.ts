@@ -117,6 +117,16 @@ export function createDeploymentsRouter(orchestrator: DeploymentOrchestrator, re
     }
   });
 
+  router.post('/:id/sync-status', async (req, res) => {
+    try {
+      const userId = (req as any).user?.id || 'anonymous';
+      const record = await orchestrator.syncStatus(req.params.id, userId);
+      res.json({ success: true, data: record });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
   router.post('/:id/retry', async (req, res) => {
     try {
       const userId = (req as any).user?.id || 'anonymous';

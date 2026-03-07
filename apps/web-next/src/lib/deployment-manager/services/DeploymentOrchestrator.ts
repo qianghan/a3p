@@ -162,7 +162,15 @@ export class DeploymentOrchestrator {
           status: 'DEPLOYING',
         },
       });
-      await this.recordTransition(id, 'PROVISIONING', 'DEPLOYING', 'Provider accepted deployment', userId);
+      await this.recordTransition(id, 'PROVISIONING', 'DEPLOYING', 'Provider accepted deployment', userId, {
+        providerDeploymentId: result.providerDeploymentId,
+        endpointUrl: result.endpointUrl,
+        dockerImage: record.dockerImage,
+        gpuModel: record.gpuModel,
+        gpuCount: record.gpuCount,
+        providerSlug: record.providerSlug,
+        ...(result.metadata || {}),
+      });
 
       await this.audit.log({
         deploymentId: id, action: 'DEPLOY', resource: 'deployment', resourceId: id, userId,
@@ -172,7 +180,9 @@ export class DeploymentOrchestrator {
 
       return toRecord(updated);
     } catch (err: any) {
-      await this.transition(record, 'FAILED', err.message, userId);
+      await this.transition(record, 'FAILED', err.message, userId, {
+        error: err.message, providerSlug: record.providerSlug,
+      });
       await this.audit.log({
         deploymentId: id, action: 'DEPLOY', resource: 'deployment', resourceId: id, userId,
         status: 'failure', errorMsg: err.message,
@@ -192,21 +202,90 @@ export class DeploymentOrchestrator {
 
     setCurrentUserId(userId);
     try {
+      const destroyMeta: Record<string, unknown> = {
+        providerDeploymentId: record.providerDeploymentId,
+        providerSlug: record.providerSlug,
+      };
       if (record.providerDeploymentId) {
-        await adapter.destroy(record.providerDeploymentId);
+        const result = await adapter.destroy(record.providerDeploymentId, record.providerConfig);
+        if (result && typeof result === 'object' && 'steps' in result) {
+          Object.assign(destroyMeta, { steps: result.steps, allClean: result.allClean });
+        }
       }
-      record = await this.transition(record, 'DESTROYED', 'Destroyed', userId);
+      record = await this.transition(record, 'DESTROYED', 'Destroyed', userId, destroyMeta);
       await this.audit.log({
-        deploymentId: id, action: 'DESTROY', resource: 'deployment', resourceId: id, userId, status: 'success',
+        deploymentId: id, action: 'DESTROY', resource: 'deployment', resourceId: id, userId,
+        status: 'success', details: destroyMeta,
       });
       return record;
     } catch (err: any) {
-      record = await this.transition(record, 'FAILED', err.message, userId);
+      record = await this.transition(record, 'FAILED', err.message, userId, {
+        providerDeploymentId: record.providerDeploymentId, error: err.message,
+      });
       await this.audit.log({
         deploymentId: id, action: 'DESTROY', resource: 'deployment', resourceId: id, userId,
         status: 'failure', errorMsg: err.message,
       });
       throw err;
+    } finally {
+      setCurrentUserId(null);
+    }
+  }
+
+  async syncStatus(id: string, userId: string): Promise<DeploymentRecord> {
+    const record = await this.getOrThrow(id);
+    if (!record.providerDeploymentId) return record;
+
+    const inProgressStates: DeploymentStatus[] = ['PROVISIONING', 'DEPLOYING', 'VALIDATING'];
+    if (!inProgressStates.includes(record.status)) return record;
+
+    const adapter = this.registry.get(record.providerSlug);
+    setCurrentUserId(userId);
+    try {
+      const providerStatus = await adapter.getStatus(record.providerDeploymentId);
+      const providerMeta: Record<string, unknown> = {
+        providerDeploymentId: record.providerDeploymentId,
+        providerSlug: record.providerSlug,
+        providerReportedStatus: providerStatus.status,
+        ...(providerStatus.metadata || {}),
+      };
+
+      if (providerStatus.status === 'ONLINE') {
+        const updated = await prisma.dmDeployment.update({
+          where: { id },
+          data: {
+            status: 'ONLINE',
+            healthStatus: 'GREEN',
+            lastHealthCheck: new Date(),
+            endpointUrl: providerStatus.endpointUrl || record.endpointUrl,
+          },
+        });
+        await this.recordTransition(id, record.status, 'ONLINE', 'Provider reports ready', userId, {
+          ...providerMeta, endpointUrl: providerStatus.endpointUrl || record.endpointUrl,
+        });
+        return toRecord(updated);
+      }
+
+      if (providerStatus.status === 'FAILED') {
+        const detail = (providerStatus.metadata as any)?.error || 'Provider reports deployment failed';
+        const updated = await prisma.dmDeployment.update({
+          where: { id },
+          data: { status: 'FAILED', healthStatus: 'RED' },
+        });
+        await this.recordTransition(id, record.status, 'FAILED', detail, userId, providerMeta);
+        return toRecord(updated);
+      }
+
+      // Still in progress — record snapshot so logs show provider state
+      await this.recordTransition(
+        id, record.status, record.status,
+        `Provider status: ${providerStatus.status}`, 'system', providerMeta,
+      );
+
+      return record;
+    } catch (err: any) {
+      console.warn(`[syncStatus] Failed to sync ${id}: ${err.message}`);
+      return record;
     } finally {
       setCurrentUserId(null);
     }
@@ -363,13 +442,17 @@ export class DeploymentOrchestrator {
     }));
   }
 
-  async updateHealthStatus(id: string, healthStatus: HealthStatus): Promise<void> {
+  async updateHealthStatus(id: string, healthStatus: HealthStatus, healthDetails?: Record<string, unknown>): Promise<void> {
     const record = await this.get(id);
     if (!record) return;
 
     const data: any = { healthStatus, lastHealthCheck: new Date() };
 
-    if (record.status === 'ONLINE' && healthStatus === 'ORANGE') {
+    // Serverless endpoints report ORANGE when idle (scaled to zero) — this is
+    // normal and should not trigger a DEGRADED transition.
+    const isServerlessIdle = healthDetails?.isServerless === true && healthDetails?.note != null;
+
+    if (record.status === 'ONLINE' && healthStatus === 'ORANGE' && !isServerlessIdle) {
       data.status = 'DEGRADED';
       await this.recordTransition(id, 'ONLINE', 'DEGRADED', 'Health degraded', 'system');
     } else if (record.status === 'ONLINE' && healthStatus === 'RED') {
@@ -401,13 +484,14 @@ export class DeploymentOrchestrator {
     to: DeploymentStatus,
     reason: string,
     initiatedBy: string,
+    metadata?: Record<string, unknown>,
   ): Promise<DeploymentRecord> {
     const from = record.status;
     const updated = await prisma.dmDeployment.update({
       where: { id: record.id },
       data: { status: to },
     });
-    await this.recordTransition(record.id, from, to, reason, initiatedBy);
+    await this.recordTransition(record.id, from, to, reason, initiatedBy, metadata);
     return toRecord(updated);
   }
 
@@ -417,6 +501,7 @@ export class DeploymentOrchestrator {
     to: DeploymentStatus | string,
     reason: string,
     initiatedBy: string,
+    metadata?: Record<string, unknown>,
   ): Promise<void> {
     await prisma.dmStatusLog.create({
       data: {
@@ -425,6 +510,7 @@ export class DeploymentOrchestrator {
         toStatus: to,
         reason,
         initiatedBy,
+        metadata: metadata ?? undefined,
       },
     });
   }
