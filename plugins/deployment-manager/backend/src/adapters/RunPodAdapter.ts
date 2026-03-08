@@ -30,6 +30,7 @@ export class RunPodAdapter implements IProviderAdapter {
   }
 
   async deploy(config: DeployConfig): Promise<ProviderDeployment> {
+    console.log(`[RunPodAdapter.deploy] Creating template for "${config.name}" with image ${config.dockerImage}`);
     const templateRes = await authenticatedProviderFetch(this.slug, this.apiConfig, '/templates', {
       method: 'POST',
       body: JSON.stringify({
@@ -49,13 +50,16 @@ export class RunPodAdapter implements IProviderAdapter {
 
     const template = await templateRes.json();
     const templateId = template.id;
+    console.log(`[RunPodAdapter.deploy] Template created: ${templateId}`);
 
+    const gpuTypeIds = config.gpuModel ? [config.gpuModel] : ['NVIDIA GeForce RTX 4090'];
+    console.log(`[RunPodAdapter.deploy] Creating serverless endpoint with GPU=${gpuTypeIds[0]}, workers=0-${config.concurrency || 1}`);
     const endpointRes = await authenticatedProviderFetch(this.slug, this.apiConfig, '/endpoints', {
       method: 'POST',
       body: JSON.stringify({
         name: config.name,
         templateId,
-        gpuTypeIds: config.gpuModel ? [config.gpuModel] : ['NVIDIA GeForce RTX 4090'],
+        gpuTypeIds,
         gpuCount: config.gpuCount || 1,
         workersMin: 0,
         workersMax: config.concurrency || 1,
@@ -69,11 +73,19 @@ export class RunPodAdapter implements IProviderAdapter {
     }
 
     const data = await endpointRes.json();
+    console.log(`[RunPodAdapter.deploy] Endpoint created: ${data.id}, status=${data.status || 'unknown'}`);
     return {
       providerDeploymentId: data.id,
       endpointUrl: `https://api.runpod.ai/v2/${data.id}`,
       status: 'DEPLOYING',
-      metadata: { ...data, templateId },
+      metadata: {
+        ...data,
+        templateId,
+        steps: [
+          { step: 'template', status: 'created', templateId },
+          { step: 'endpoint', status: 'created', endpointId: data.id },
+        ],
+      },
     };
   }
 

@@ -40,28 +40,56 @@ const statusColor = (status: string) => {
 };
 
 const ProviderMetaLine: React.FC<{ meta: Record<string, unknown> }> = ({ meta }) => {
-  const parts: string[] = [];
+  const lines: string[][] = [];
+  const line1: string[] = [];
+  const line2: string[] = [];
 
-  if (meta.providerReportedStatus) parts.push(`status=${meta.providerReportedStatus}`);
-  if (meta.dockerImage) parts.push(`image=${meta.dockerImage}`);
-  if (meta.gpuModel) parts.push(`gpu=${meta.gpuModel}${meta.gpuCount ? `\u00d7${meta.gpuCount}` : ''}`);
+  if (meta.providerReportedStatus) line1.push(`status=${meta.providerReportedStatus}`);
+  if (meta.providerStatus) line1.push(`provider=${meta.providerStatus}`);
+  if (meta.dockerImage) line1.push(`image=${meta.dockerImage}`);
+  if (meta.gpuModel) line1.push(`gpu=${meta.gpuModel}${meta.gpuCount ? `\u00d7${meta.gpuCount}` : ''}`);
+  if (meta.providerSlug) line1.push(`provider=${meta.providerSlug}`);
+  if (meta.providerMode) line1.push(`mode=${meta.providerMode}`);
 
   const workers = meta.workers as Record<string, number> | undefined;
   const running = meta.workersRunning ?? workers?.running;
   const total = meta.workersTotal ?? workers?.total;
-  if (running != null && total != null) parts.push(`workers=${running}/${total}`);
+  if (running != null && total != null) line1.push(`workers=${running}/${total}`);
 
-  if (meta.providerDeploymentId) parts.push(`endpoint=${meta.providerDeploymentId}`);
-  if (meta.endpointUrl) parts.push(`url=${meta.endpointUrl}`);
+  if (meta.providerDeploymentId) line2.push(`endpoint=${meta.providerDeploymentId}`);
+  if (meta.endpointUrl) line2.push(`url=${meta.endpointUrl}`);
+  if (meta.healthStatus) line2.push(`health=${meta.healthStatus}`);
+  if (meta.responseTimeMs) line2.push(`latency=${meta.responseTimeMs}ms`);
 
   const error = meta.error as string | undefined;
-  if (error) parts.push(`error="${error}"`);
+  if (error) line2.push(`error="${error}"`);
 
-  if (parts.length === 0) return null;
+  if (line1.length > 0) lines.push(line1);
+  if (line2.length > 0) lines.push(line2);
+
+  // Show deploy steps from provider metadata
+  const metaSteps = meta.steps as Array<{ step: string; status: string; templateId?: string; endpointId?: string }> | undefined;
+  const healthDetails = meta.healthDetails as Record<string, unknown> | undefined;
+  const details = meta.details as Record<string, unknown> | undefined;
+
+  if (lines.length === 0 && !metaSteps && !healthDetails && !details) return null;
 
   return (
     <div className="text-gray-400 pl-6">
-      {'  \u2514 '}{parts.join(' | ')}
+      {lines.map((parts, i) => (
+        <div key={i}>{'  \u2514 '}{parts.join(' | ')}</div>
+      ))}
+      {metaSteps && metaSteps.map((s, i) => (
+        <div key={`step-${i}`} style={{ color: s.status === 'created' || s.status === 'ok' ? '#4ade80' : '#facc15' }}>
+          {'  \u2514 '}{s.step}: {s.status}{s.templateId ? ` (${s.templateId})` : ''}{s.endpointId ? ` (${s.endpointId})` : ''}
+        </div>
+      ))}
+      {healthDetails && (
+        <div>{'  \u2514 '}health: {JSON.stringify(healthDetails)}</div>
+      )}
+      {details && !metaSteps && (
+        <div>{'  \u2514 '}details: {typeof details === 'object' ? JSON.stringify(details) : String(details)}</div>
+      )}
     </div>
   );
 };
@@ -111,12 +139,14 @@ export const DeploymentLogs: React.FC<DeploymentLogsProps> = ({ deploymentId, au
         {entries.length === 0 ? (
           <span className="text-gray-500">Waiting for logs...</span>
         ) : (
-          entries.map((entry, i) => (
+          entries.map((entry, i) => {
+            const isNoOp = entry.fromStatus === entry.toStatus;
+            return (
             <div key={i}>
-              <div>
+              <div className={isNoOp ? 'opacity-70' : ''}>
                 <span className="text-gray-500">[{new Date(entry.createdAt).toLocaleTimeString()}]</span>
                 {' '}
-                <span className="font-semibold" style={{ color: statusColor(entry.toStatus) }}>{entry.toStatus}</span>
+                <span className={isNoOp ? '' : 'font-semibold'} style={{ color: statusColor(entry.toStatus) }}>{entry.toStatus}</span>
                 {entry.fromStatus && entry.fromStatus !== entry.toStatus && (
                   <span className="text-gray-500">{' \u2190 '}{entry.fromStatus}</span>
                 )}
@@ -141,7 +171,7 @@ export const DeploymentLogs: React.FC<DeploymentLogsProps> = ({ deploymentId, au
                 </div>
               )}
             </div>
-          ))
+          );})
         )}
       </div>
     </div>

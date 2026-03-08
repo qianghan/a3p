@@ -9,6 +9,7 @@ import type { DeploymentRecord } from '../store/IDeploymentStore.js';
 
 const VALID_TRANSITIONS: Record<DeploymentStatus, DeploymentStatus[]> = {
   PENDING: ['DEPLOYING', 'DESTROYING', 'DESTROYED'],
+  PROVISIONING: ['DEPLOYING', 'FAILED', 'DESTROYING', 'DESTROYED'],
   DEPLOYING: ['VALIDATING', 'ONLINE', 'FAILED', 'DESTROYING', 'DESTROYED'],
   VALIDATING: ['ONLINE', 'FAILED', 'DESTROYING', 'DESTROYED'],
   ONLINE: ['DEGRADED', 'OFFLINE', 'UPDATING', 'DESTROYING', 'DESTROYED'],
@@ -101,6 +102,11 @@ export class DeploymentOrchestrator {
     record = await this.transition(record, 'DEPLOYING', 'Deploy initiated', userId);
 
     try {
+      await this.recordTransitionWithMetadata(
+        id, 'DEPLOYING', 'DEPLOYING', 'Sending deployment request to provider', userId,
+        { providerSlug: record.providerSlug, dockerImage: record.dockerImage, gpuModel: record.gpuModel },
+      );
+
       const result = await adapter.deploy({
         name: record.name,
         providerSlug: record.providerSlug,
@@ -158,6 +164,11 @@ export class DeploymentOrchestrator {
       } else {
         record = await this.transition(record, 'VALIDATING', 'Validating deployment', userId);
       }
+
+      await this.recordTransitionWithMetadata(
+        id, 'VALIDATING', 'VALIDATING', 'Running health check against endpoint', userId,
+        { endpointUrl: record.endpointUrl, providerMode: record.providerMode },
+      );
 
       return await this.runValidation(record, adapter, userId);
     } catch (err: any) {
@@ -391,15 +402,23 @@ export class DeploymentOrchestrator {
         ...(providerStatus.metadata || {}),
       };
 
-      if (providerStatus.status === 'ONLINE') {
-        record = await this.transitionWithMetadata(record, 'ONLINE', 'Provider reports ready', userId, {
+      // Update endpoint URL if provider reports one
+      if (providerStatus.endpointUrl && providerStatus.endpointUrl !== record.endpointUrl) {
+        record = await this.store.update(id, { endpointUrl: providerStatus.endpointUrl });
+      }
+
+      if (providerStatus.status === 'ONLINE' || providerStatus.status === 'DEGRADED') {
+        const healthStatus = providerStatus.status === 'ONLINE' ? 'GREEN' as HealthStatus : 'ORANGE' as HealthStatus;
+        const reason = providerStatus.status === 'ONLINE'
+          ? 'Provider reports ready'
+          : `Provider reports ${providerStatus.status} (endpoint exists)`;
+        record = await this.transitionWithMetadata(record, 'ONLINE', reason, userId, {
           ...providerMeta,
-          endpointUrl: providerStatus.endpointUrl || record.endpointUrl,
+          endpointUrl: record.endpointUrl,
         });
         record = await this.store.update(id, {
-          healthStatus: 'GREEN',
+          healthStatus,
           lastHealthCheck: new Date(),
-          endpointUrl: providerStatus.endpointUrl || record.endpointUrl,
         });
         console.log(`[syncStatus] ${id}: transitioned to ONLINE`);
         return record;
@@ -411,19 +430,33 @@ export class DeploymentOrchestrator {
         return record;
       }
 
-      if (providerStatus.status === 'DEGRADED') {
-        record = await this.transitionWithMetadata(record, 'ONLINE', `Provider reports ${providerStatus.status} (endpoint exists)`, userId, providerMeta);
-        record = await this.store.update(id, {
-          healthStatus: 'ORANGE',
-          lastHealthCheck: new Date(),
-          endpointUrl: providerStatus.endpointUrl || record.endpointUrl,
-        });
-        return record;
+      // Provider still reports DEPLOYING — try a health check to see if it's actually reachable.
+      // Serverless endpoints (workersMin=0) can be idle but ready for cold-start requests.
+      try {
+        const health = await adapter.healthCheck(
+          record.providerDeploymentId!,
+          record.endpointUrl || undefined,
+        );
+        if (health.healthy) {
+          record = await this.transitionWithMetadata(
+            record, 'ONLINE',
+            `Health check passed while provider reports ${providerStatus.status}`,
+            userId, { ...providerMeta, healthDetails: health.details },
+          );
+          record = await this.store.update(id, {
+            healthStatus: health.status === 'GREEN' ? 'GREEN' : 'ORANGE',
+            lastHealthCheck: new Date(),
+          });
+          console.log(`[syncStatus] ${id}: health check passed, transitioned to ONLINE`);
+          return record;
+        }
+      } catch {
+        // Health check failed — endpoint not ready yet, continue waiting
       }
 
       await this.recordTransitionWithMetadata(
         id, record.status, record.status,
-        `Provider status: ${providerStatus.status}`, 'system',
+        `Still deploying — provider status: ${providerStatus.status}`, 'system',
         providerMeta,
       );
 
@@ -465,42 +498,63 @@ export class DeploymentOrchestrator {
     adapter: IProviderAdapter,
     userId: string,
   ): Promise<DeploymentRecord> {
+    let health;
     try {
-      const health = await adapter.healthCheck(
+      health = await adapter.healthCheck(
         record.providerDeploymentId || '',
         record.endpointUrl || undefined,
       );
+    } catch (err: any) {
+      console.warn(`[runValidation] ${record.id}: healthCheck threw: ${err.message}`);
+      health = { healthy: false, status: 'RED' as const, details: { error: err.message } };
+    }
 
-      if (health.healthy) {
-        record = await this.transition(record, 'ONLINE', 'Validation passed', userId);
-        record = await this.store.update(record.id, {
-          healthStatus: 'GREEN',
-          lastHealthCheck: new Date(),
-        });
-      } else if (record.providerMode === 'serverless') {
-        // Serverless endpoints with workersMin=0 have no running workers until
-        // a request arrives — treat "endpoint exists but idle" as ONLINE.
+    if (health.healthy) {
+      const hStatus = health.status === 'GREEN' ? 'GREEN' : 'ORANGE';
+      record = await this.transitionWithMetadata(record, 'ONLINE', 'Validation passed — health check OK', userId, {
+        healthStatus: hStatus, responseTimeMs: health.responseTimeMs, details: health.details,
+      });
+      record = await this.store.update(record.id, {
+        healthStatus: hStatus,
+        lastHealthCheck: new Date(),
+      });
+      return record;
+    }
+
+    // Health check failed — for serverless providers, the endpoint may be idle (workersMin=0)
+    // but still ready to accept cold-start requests.
+    if (record.providerMode === 'serverless') {
+      try {
         const status = await adapter.getStatus(record.providerDeploymentId || '');
-        if (status.status === 'ONLINE' || status.status === 'DEPLOYING') {
-          record = await this.transition(record, 'ONLINE', 'Serverless endpoint deployed (cold-start ready)', userId);
+        if (status.status === 'ONLINE' || status.status === 'DEPLOYING' || status.status === 'DEGRADED') {
+          record = await this.transitionWithMetadata(
+            record, 'ONLINE', 'Serverless endpoint deployed (cold-start ready)', userId,
+            { providerStatus: status.status, details: status.metadata },
+          );
           record = await this.store.update(record.id, {
             healthStatus: 'ORANGE',
             lastHealthCheck: new Date(),
+            endpointUrl: status.endpointUrl || record.endpointUrl,
           });
-        } else {
-          record = await this.transition(record, 'FAILED', `Validation failed: provider status=${status.status}`, userId);
-          record = await this.store.update(record.id, { healthStatus: 'RED' });
+          return record;
         }
-      } else {
-        record = await this.transition(record, 'FAILED', 'Validation failed: health check returned unhealthy', userId);
-        record = await this.store.update(record.id, { healthStatus: 'RED' });
+        record = await this.transitionWithMetadata(
+          record, 'FAILED', `Validation failed: provider status=${status.status}`, userId,
+          { providerStatus: status.status, details: status.metadata },
+        );
+      } catch (err: any) {
+        record = await this.transition(record, 'FAILED', `Validation error: ${err.message}`, userId);
       }
-
+      record = await this.store.update(record.id, { healthStatus: 'RED' });
       return record;
-    } catch (err: any) {
-      await this.transition(record, 'FAILED', `Validation error: ${err.message}`, userId);
-      throw err;
     }
+
+    record = await this.transitionWithMetadata(
+      record, 'FAILED', 'Validation failed: health check returned unhealthy', userId,
+      { healthDetails: health.details },
+    );
+    record = await this.store.update(record.id, { healthStatus: 'RED' });
+    return record;
   }
 
   private async pollUntilReady(
