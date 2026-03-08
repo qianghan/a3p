@@ -159,18 +159,26 @@ export class DeploymentOrchestrator {
       });
 
       if (record.providerMode === 'ssh-bridge' && record.providerDeploymentId) {
+        // SSH deployments: poll until provider reports ready, then validate
         record = await this.pollUntilReady(adapter, record, userId);
         if (record.status === 'FAILED') return record;
-      } else {
-        record = await this.transition(record, 'VALIDATING', 'Validating deployment', userId);
+        await this.recordTransitionWithMetadata(
+          id, 'VALIDATING', 'VALIDATING', 'Running health check against endpoint', userId,
+          { endpointUrl: record.endpointUrl, providerMode: record.providerMode },
+        );
+        return await this.runValidation(record, adapter, userId);
       }
 
+      // Serverless providers (RunPod, etc.): the endpoint was just created and
+      // needs time to initialize. Stay in DEPLOYING — the frontend polls
+      // syncStatus every 5s which will advance to ONLINE once the provider is ready.
       await this.recordTransitionWithMetadata(
-        id, 'VALIDATING', 'VALIDATING', 'Running health check against endpoint', userId,
+        id, 'DEPLOYING', 'DEPLOYING',
+        'Endpoint created — waiting for provider to finish initializing',
+        userId,
         { endpointUrl: record.endpointUrl, providerMode: record.providerMode },
       );
-
-      return await this.runValidation(record, adapter, userId);
+      return record;
     } catch (err: any) {
       await this.transition(record, 'FAILED', err.message, userId);
       await this.audit.log({

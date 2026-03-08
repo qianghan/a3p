@@ -94,7 +94,12 @@ export class RunPodAdapter implements IProviderAdapter {
     if (!res.ok) {
       const body = await res.text().catch(() => '');
       console.error(`[RunPodAdapter.getStatus] API returned ${res.status} for ${providerDeploymentId}: ${body}`);
-      return { status: 'FAILED', metadata: { error: `RunPod API returned ${res.status}`, body } };
+      // 404/5xx on a newly created endpoint is transient — don't mark as FAILED.
+      // Only 410 (Gone) or explicit deletion should be FAILED.
+      if (res.status === 410) {
+        return { status: 'FAILED', metadata: { error: 'Endpoint has been deleted (410 Gone)', body } };
+      }
+      return { status: 'DEPLOYING', metadata: { error: `RunPod API returned ${res.status} (transient)`, body, httpStatus: res.status } };
     }
     const data = await res.json();
     const rawStatus = data.status || 'UNKNOWN';
