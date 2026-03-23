@@ -10,14 +10,8 @@ import type { NextRequest } from 'next/server';
 const PLUGIN_ROUTE_MAP: Record<string, string> = {
   '/wallet': 'myWallet',
   '/gateway': 'serviceGateway',
-  '/capacity': 'capacityPlanner',
   '/forum': 'community',
-  '/developers': 'developerApi',
   '/publish': 'pluginPublisher',
-  '/daydream': 'daydreamVideo',
-  '/intelligent-dashboard': 'intelligentDashboard',
-  '/deployments': 'deploymentManager',
-  '/lightning-client': 'lightningClient',
 };
 
 // CSP configuration for plugin pages
@@ -56,16 +50,9 @@ const PLUGIN_CSP_SOURCES = {
     'wss://*.naap.io',
     'http://localhost:*',
     'ws://localhost:*',
-    // Livepeer / Daydream: WHIP/WHEP WebRTC ingest + API
-    'https://*.livepeer.com',
-    'https://ai.livepeer.com',
-    'https://api.daydream.live',
   ],
   frame: [
     "'self'",
-    // Livepeer playback player
-    'https://lvpr.tv',
-    'https://*.lvpr.tv',
   ],
 };
 

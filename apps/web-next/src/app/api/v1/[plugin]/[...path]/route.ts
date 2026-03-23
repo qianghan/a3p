@@ -17,22 +17,17 @@ import { PLUGIN_PORTS, DEFAULT_PORT } from '@/lib/plugin-ports';
 
 /** Mapping from plugin kebab-name to its env-var override key. */
 const PLUGIN_ENV_MAP: Record<string, string> = {
-  'capacity-planner': 'CAPACITY_PLANNER_URL',
   'marketplace': 'MARKETPLACE_URL',
   'community': 'COMMUNITY_URL',
   'my-wallet': 'WALLET_URL',
-  'my-dashboard': 'DASHBOARD_URL',
-  'daydream-video': 'DAYDREAM_VIDEO_URL',
-  'developer-api': 'DEVELOPER_API_URL',
   'plugin-publisher': 'PLUGIN_PUBLISHER_URL',
+  'service-gateway': 'SERVICE_GATEWAY_URL',
 };
 
 /** Short aliases so both `/api/v1/wallet/...` and `/api/v1/my-wallet/...` resolve. */
 const SHORT_ALIASES: Record<string, string> = {
-  'capacity': 'capacity-planner',
   'wallet': 'my-wallet',
-  'dashboard': 'my-dashboard',
-  'daydream': 'daydream-video',
+  'gateway': 'service-gateway',
 };
 
 function buildPluginServices(): Record<string, string> {
