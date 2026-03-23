@@ -45,6 +45,9 @@ export class EscalationRouter {
   private handlers: Map<EscalationDeliveryChannel, EscalationHandler> = new Map();
   private defaultTimeout = 48 * 60 * 60 * 1000; // 48 hours
   private reminderTimeout = 24 * 60 * 60 * 1000; // 24 hours
+  private pendingEscalations: Map<string, Escalation> = new Map();
+  private resolvedEscalations: Map<string, Escalation> = new Map();
+  private continuationHandlers: Map<string, (escalation: Escalation, modification?: Record<string, unknown>) => Promise<void>> = new Map();
 
   /**
    * Register a delivery channel handler (e.g., Telegram bot, web notification).
@@ -91,7 +94,54 @@ export class EscalationRouter {
     resolvedBy: string,
     modification?: Record<string, unknown>,
   ): Promise<Escalation | null> {
-    // TODO: Look up escalation from database, update status, trigger continuation
-    return null;
+    const escalation = this.pendingEscalations.get(escalationId);
+    if (!escalation) return null;
+
+    escalation.status = decision === 'approve' ? 'approved' : 'rejected';
+    escalation.resolved_at = new Date().toISOString();
+    escalation.resolved_by = resolvedBy;
+    escalation.resolution = decision;
+
+    this.pendingEscalations.delete(escalationId);
+    this.resolvedEscalations.set(escalationId, escalation);
+
+    // Notify continuation handlers
+    const handler = this.continuationHandlers.get(escalationId);
+    if (handler) {
+      await handler(escalation, modification);
+      this.continuationHandlers.delete(escalationId);
+    }
+
+    return escalation;
+  }
+
+  /**
+   * Create a pending escalation and optionally register a continuation.
+   */
+  async createEscalation(
+    escalation: Escalation,
+    actions: EscalationAction[],
+    onResolution?: (escalation: Escalation, modification?: Record<string, unknown>) => Promise<void>,
+  ): Promise<void> {
+    this.pendingEscalations.set(escalation.id, escalation);
+    if (onResolution) {
+      this.continuationHandlers.set(escalation.id, onResolution);
+    }
+    await this.escalate(escalation, actions);
+  }
+
+  /**
+   * Get a pending escalation by ID.
+   */
+  getPending(escalationId: string): Escalation | undefined {
+    return this.pendingEscalations.get(escalationId);
+  }
+
+  /**
+   * List all pending escalations for a tenant.
+   */
+  listPending(tenantId: string): Escalation[] {
+    return Array.from(this.pendingEscalations.values())
+      .filter(e => e.tenant_id === tenantId);
   }
 }

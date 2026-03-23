@@ -18,3 +18,4 @@ export { EventEmitter, type ExecutionEvent } from './event-emitter.js';
 export { ProactiveEngine } from './proactive-engine.js';
 export { CalendarEngine, type CalendarEvent, type CalendarProvider } from './calendar-engine.js';
 export { type Intent, type ToolResult, type DAGPlan } from './types.js';
+export { LLMBudgetTracker, type LLMUsageRecord } from './llm-budget.js';
