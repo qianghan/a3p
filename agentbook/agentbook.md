@@ -65,13 +65,87 @@ ProactiveEngine/
   └── engagement-tracker.ts  # Tracks which notifications user acts on (feedback loop for relevance)
 ```
 
-**Three trigger types:**
+**Four trigger types:**
 
 | Trigger | Example | Mechanism |
 |---------|---------|-----------|
-| **Scheduled** | Weekly financial summary, quarterly tax reminder | Cron job per tenant (timezone-aware) |
+| **Scheduled** | Weekly financial summary, daily pulse | Cron job per tenant (timezone-aware) |
+| **Calendar-driven** | Tax deadline, fiscal quarter close, year-end | Calendar & Deadline Engine (see below) |
 | **Event-driven** | Payment received, bank transaction imported, invoice overdue | Kafka consumer on `agentbooks.execution_events` |
 | **Analysis-driven** | Cash flow warning, deduction opportunity, spending anomaly | Periodic LLM analysis of tenant ledger data |
+
+### Calendar & Deadline Engine (always on the clock)
+
+The agent maintains a **living calendar** of every date that matters for each tenant's financial life. This is not a static config or hardcoded reminder list — deadlines, holidays, and critical dates are **discovered and populated by skills and tools**, the same way the agent learns everything else. Skills can add, update, and remove calendar events dynamically as data changes.
+
+**Calendar is populated by skills (not config):**
+
+Each skill that knows about dates registers a `CalendarProvider` tool. The calendar engine calls all registered providers periodically and on relevant events to keep the calendar current.
+
+```typescript
+// Skills register calendar providers — the engine discovers dates via tools, not config
+interface CalendarProvider {
+  name: string;                    // "us-tax-deadlines" | "invoice-due-dates" | "pattern-renewals"
+  skill: string;                   // which skill owns this provider
+  getEvents(tenant: TenantContext, dateRange: DateRange): CalendarEvent[];
+}
+
+// The jurisdiction pack skill registers its calendar provider
+// Example: US pack's tax deadline skill
+{
+  "name": "us-tax-calendar",
+  "skill": "jurisdiction-us",
+  "tool": "get_tax_deadlines",     // standard tool interface, callable like any other tool
+  "refresh": "daily"               // how often the engine re-queries this provider
+}
+```
+
+**Skill-provided calendar sources:**
+
+| Skill | Events Provided | Refresh |
+|-------|----------------|---------|
+| **jurisdiction-us** (tax deadline tool) | Apr 15 annual, Jun/Sep/Jan quarterly, Jan 31 1099 filing, state-specific deadlines | Daily + on tax year change |
+| **jurisdiction-ca** (tax deadline tool) | Apr 30 annual, Mar/Jun/Sep/Dec installments, Feb 28 T4A, RRSP deadline Mar 1 | Daily + on tax year change |
+| **jurisdiction-{x}** (sales tax tool) | Sales tax filing deadlines per state/province | Daily |
+| **invoice-creation** (due date tool) | All outstanding invoice due dates, projected payment dates from client patterns | On invoice create/pay/edit |
+| **expense-recording** (recurring tool) | Subscription renewal dates, recurring charge expected dates | On pattern detection |
+| **bank-reconciliation** (cash flow tool) | Projected dates where balance drops below threshold | On bank sync |
+| **market-calendar** skill | Bank holidays (Fed Reserve / Bank of Canada), Stripe payout schedule, market close dates | Weekly sync from public APIs |
+| **seasonal-awareness** skill | Tax season (Feb-Apr), year-end planning (Nov), RRSP season (Jan-Mar for CA) | Annual seed |
+
+**Why skills, not config:**
+- A new jurisdiction pack automatically brings its deadlines — no manual calendar setup
+- When an invoice is created, the invoice skill adds the due date — no separate reminder system
+- When a recurring pattern is detected, the expense skill projects the next date — the calendar self-maintains
+- When market holidays change, the market-calendar skill fetches updated data — no code deploys
+- Custom user dates ("remind me to invoice Acme on the 1st of each month") are just another skill adding events
+
+**Calendar event model:**
+```
+ab_calendar_events (
+  id, tenant_id,
+  event_type,                    -- tax_deadline | filing_deadline | quarter_close | market_holiday | invoice_due | renewal | cash_crunch | custom
+  title_key,                     -- i18n key: "calendar.q2_estimated_tax_due"
+  date, time,
+  lead_time_days,                -- when to start alerting (e.g., [7, 3, 1, 0] = alert at 7d, 3d, 1d, day-of)
+  urgency,                       -- critical | important | informational
+  action_url,                    -- deep link: IRS Direct Pay, CRA My Account, etc.
+  action_label_key,              -- i18n key: "calendar.action_pay_now"
+  recurrence,                    -- annual | quarterly | monthly | once
+  source_skill,                  -- which skill created this event
+  source_entity_id,              -- invoice_id, pattern_id, etc. (for updates/deletes)
+  status                         -- upcoming | alerted | acted_on | missed | snoozed
+)
+```
+
+**How it works:**
+1. On tenant onboarding, the jurisdiction pack skill's `get_tax_deadlines` tool is called — seeds all government deadlines
+2. As invoices are created, the invoice skill's calendar provider adds due dates
+3. As patterns are detected, the expense skill projects renewal/charge dates
+4. As bank data flows, the cash flow skill calculates crunch dates
+5. The proactive engine queries the calendar every hour, fires alerts at configured lead times
+6. New tax year -> jurisdiction skill auto-seeds next year's deadlines via the same tool
+7. If a skill is updated (new deadline added to jurisdiction pack), the calendar self-updates on next refresh
 
 **Proactive message categories (what the agent initiates):**
 
@@ -107,6 +181,116 @@ ab_engagement_log (
 )
 ```
 The engine learns: "This tenant acts on invoice reminders within 2 hours but ignores spending anomaly alerts. Increase invoice reminder priority, reduce anomaly alert frequency."
+
+---
+
+## Internationalization (i18n) — Built Into the Core
+
+### Design Principle
+Every string the user sees — Telegram messages, web dashboard labels, proactive alerts, PDF reports, error messages, inline keyboard buttons — goes through the i18n layer. **No hardcoded English strings in business logic or UI components.** This is enforced from Phase 0, not retrofitted later.
+
+### Architecture
+```
+i18n/
+  ├── core.ts                  # i18n runtime: t() function, locale resolution, pluralization
+  ├── locales/
+  │   ├── en/                  # English (default)
+  │   │   ├── common.json      # Shared: buttons, labels, errors, units
+  │   │   ├── expense.json     # "Receipt saved", "Category: {category}", etc.
+  │   │   ├── invoice.json     # "Invoice #{number} sent to {client}"
+  │   │   ├── tax.json         # "Quarterly tax due: {amount}", "Deduction found: {description}"
+  │   │   ├── proactive.json   # "Daily pulse: {in} in, {out} out", "Acme is {days} days overdue"
+  │   │   └── reports.json     # P&L headers, balance sheet labels, column names
+  │   ├── fr/                  # French (Canadian French for MVP)
+  │   │   ├── common.json
+  │   │   ├── expense.json
+  │   │   └── ...
+  │   └── _template/           # Copy to add a new language
+  │       └── README.md
+  ├── types.ts                 # TypeScript type-safe i18n keys (compile-time checking)
+  └── middleware.ts             # Resolves locale from tenant config for every request
+```
+
+### How it works
+
+**1. Every user-facing string uses a translation key:**
+```typescript
+// WRONG — hardcoded string
+await telegram.send("Receipt saved. Journal entry posted.");
+
+// CORRECT — i18n key with interpolation
+await telegram.send(t('expense.receipt_saved', { amount: formatCurrency(4500, locale) }));
+// en: "Receipt saved. $45.00 recorded."
+// fr: "Recu enregistre. 45,00 $ enregistre."
+```
+
+**2. Currency, date, and number formatting is locale-aware:**
+```typescript
+formatCurrency(4500, 'en-US')  // "$45.00"
+formatCurrency(4500, 'en-CA')  // "$45.00"  (CAD symbol same, but context differs)
+formatCurrency(4500, 'fr-CA')  // "45,00 $"  (comma decimal, symbol after)
+
+formatDate(date, 'en-US')      // "Mar 22, 2026"
+formatDate(date, 'fr-CA')      // "22 mars 2026"
+
+formatNumber(1234.56, 'en')    // "1,234.56"
+formatNumber(1234.56, 'fr')    // "1 234,56"
+```
+
+**3. Telegram inline keyboard buttons are i18n'd:**
+```typescript
+// Buttons use translation keys
+const keyboard = [
+  [{ text: t('common.correct'), callback_data: 'confirm' }],
+  [{ text: t('expense.change_category'), callback_data: 'change_cat' }],
+  [{ text: t('expense.mark_personal'), callback_data: 'personal' }],
+];
+// en: [Correct] [Change category] [Mark personal]
+// fr: [Correct] [Changer la categorie] [Marquer personnel]
+```
+
+**4. PDF reports and tax forms use locale-aware templates:**
+- Invoice PDFs: locale determines date format, currency format, column headers
+- P&L reports: account names from jurisdiction pack (already localized), column labels from i18n
+- Tax forms: generated by jurisdiction pack which includes locale-specific field labels
+
+**5. Proactive messages are fully i18n'd:**
+```json
+// proactive.json (en)
+{
+  "daily_pulse": "Today: {income} in, {expenses} out. Cash balance: {balance}. {action_count} items need attention.",
+  "invoice_overdue": "{client} is {days} days overdue on {amount}. Send a reminder?",
+  "tax_deadline": "Quarterly tax payment due in {days} days. I calculated {amount} for {quarter}."
+}
+
+// proactive.json (fr)
+{
+  "daily_pulse": "Aujourd'hui : {income} entrant, {expenses} sortant. Solde : {balance}. {action_count} elements necessitent votre attention.",
+  "invoice_overdue": "{client} a {days} jours de retard sur {amount}. Envoyer un rappel ?",
+  "tax_deadline": "Paiement d'impot trimestriel du dans {days} jours. J'ai calcule {amount} pour {quarter}."
+}
+```
+
+**6. Locale resolution chain:**
+1. Tenant config `locale` field (e.g., `fr-CA`) — primary
+2. User browser `Accept-Language` header — fallback for web
+3. Telegram user `language_code` — fallback for Telegram
+4. Default: `en`
+
+### MVP languages
+- **`en`** — English (US + CA, default)
+- **`fr`** — French (Canadian French, for Quebec users)
+
+### Adding a new language
+1. Copy `i18n/locales/_template/` to `i18n/locales/{lang}/`
+2. Translate all JSON files (can be LLM-assisted with human review)
+3. Register in locale config
+4. No code changes — the i18n runtime discovers new locales automatically
+
+### Compile-time safety
+TypeScript types are auto-generated from the `en` locale files. If a translation key is missing in any locale, the build warns. If code references a non-existent key, it fails at compile time.
+
+---
 
 ### Skill System (evolves independently)
 ```
@@ -498,6 +682,23 @@ Interface Layer (Telegram bot / Web API)
 - [ ] **P0-T27** Web dashboard: receipt upload via drag-and-drop (same OCR pipeline as Telegram)
 - [ ] **P0-T28** Web dashboard: recent expenses list with receipt thumbnail preview
 
+**i18n Foundation (Phase 0 — no hardcoded strings from day one)**
+- [ ] **P0-T42** i18n runtime: `t()` function, locale resolution chain, pluralization engine
+- [ ] **P0-T43** Locale files: `en/common.json`, `en/expense.json`, `en/proactive.json`, `en/calendar.json`
+- [ ] **P0-T44** Locale files: `fr/` (Canadian French) — all Phase 0 strings translated
+- [ ] **P0-T45** Locale-aware formatters: `formatCurrency()`, `formatDate()`, `formatNumber()` per tenant locale
+- [ ] **P0-T46** TypeScript type-safe i18n keys — compile-time error if key missing or misspelled
+- [ ] **P0-T47** Telegram inline keyboard buttons use i18n keys, not hardcoded strings
+- [ ] **P0-T48** i18n middleware: resolves locale from tenant config on every request
+- [ ] **P0-T49** `_template/` locale directory with README for adding new languages
+
+**Calendar & Deadline Engine (Phase 0 — skill-driven, always on the clock)**
+- [ ] **P0-T50** Calendar engine: `ab_calendar_events` table, CalendarProvider tool interface
+- [ ] **P0-T51** Jurisdiction pack calendar providers: US tax deadlines tool, CA tax deadlines tool
+- [ ] **P0-T52** Calendar event lifecycle: upcoming -> alerted -> acted_on/missed/snoozed
+- [ ] **P0-T53** Proactive engine calendar integration: query calendar hourly, fire alerts at lead times
+- [ ] **P0-T54** Market calendar skill: bank holidays (US Fed Reserve + CA Bank of Canada), sync from public APIs
+
 **Proactive Engagement Engine (Phase 0 — core architecture, not a bolt-on)**
 - [ ] **P0-T34** Proactive engine: scheduler (cron per tenant, timezone-aware) + event watcher (Kafka consumer)
 - [ ] **P0-T35** Daily pulse message: "Today: $X in, $Y out. Cash balance: $Z. N items need attention."
@@ -587,6 +788,15 @@ Agent: 📧 Found your Amazon order:
 - [ ] **P0-TEST-21** Proactive engine: quiet hours respected (no messages outside 8am-9pm tenant TZ)
 - [ ] **P0-TEST-22** Proactive engine: engagement tracking logs sent/opened/acted_on correctly
 - [ ] **P0-TEST-23** Proactive engine: snooze delays next reminder by configured interval
+- [ ] **P0-TEST-24** i18n: all Telegram messages render correctly in `en` and `fr` locales
+- [ ] **P0-TEST-25** i18n: `formatCurrency(4500, 'fr-CA')` produces "45,00 $", `en-US` produces "$45.00"
+- [ ] **P0-TEST-26** i18n: `formatDate()` produces locale-correct format (en: "Mar 22, 2026", fr: "22 mars 2026")
+- [ ] **P0-TEST-27** i18n: TypeScript build fails if a translation key is referenced but doesn't exist in `en`
+- [ ] **P0-TEST-28** i18n: adding a mock `es/` locale works without code changes — runtime discovers it
+- [ ] **P0-TEST-29** Calendar: US jurisdiction skill seeds correct tax deadlines for 2025/2026
+- [ ] **P0-TEST-30** Calendar: CA jurisdiction skill seeds correct tax deadlines including RRSP
+- [ ] **P0-TEST-31** Calendar: proactive engine fires alert at correct lead times (7d, 3d, day-of)
+- [ ] **P0-TEST-32** Calendar: event titles use i18n keys, render correctly in `en` and `fr`
 
 ### Quality Gates
 - [ ] **P0-QG-01** Code review using `/code-review` plugin on all PRs
@@ -613,6 +823,11 @@ Agent: 📧 Found your Amazon order:
 - [ ] Receipt reminder fires when bank transactions lack receipts
 - [ ] Proactive messages have one-tap action buttons (no typing needed)
 - [ ] Snooze works: snoozed reminders come back at the right time
+- [ ] All user-facing strings come from i18n — zero hardcoded English in business logic
+- [ ] French Canadian user sees all Telegram messages and buttons in French
+- [ ] Currency/date/number formatting correct for en-US, en-CA, fr-CA
+- [ ] Calendar auto-populated with jurisdiction tax deadlines on tenant onboarding
+- [ ] Calendar deadline alert fires 7 days before Q2 estimated tax (US) / installment (CA)
 - [ ] Zero lint errors, zero type errors
 
 ### Phase 0 Assessment (100 points)
@@ -993,8 +1208,11 @@ This scorecard is evaluated at each phase gate. Target: exceed 80 by Phase 2, ex
 | **Proactive deduction hunting** | **None** | **None** | **Agent finds savings you missed** | **2** |
 | **Proactive cash flow warnings** | **None** | **None** | **Warns before balance drops** | **3** |
 | **Proactive year-end planning** | **None** | **None** | **November optimization report** | **4** |
+| **Deadline-aware calendar** | **None** | **None** | **Auto-populated from jurisdiction skills: tax, fiscal, market, seasonal** | **0** |
+| **Multi-language UI** | **English only** | **English only** | **i18n from core: en + fr-CA in MVP, add languages without code changes** | **0** |
 | Configurable LLM backend | N/A | N/A | Via service-gateway, swap providers without code change | 0 |
 | Add new country | N/A | N/A | New jurisdiction pack, zero framework changes | 5+ |
+| Add new language | N/A | N/A | New locale files, zero code changes | 5+ |
 
 ---
 
