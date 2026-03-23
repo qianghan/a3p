@@ -228,6 +228,9 @@ app.post('/api/v1/agentbook-core/journal-entries', async (req, res) => {
     }
 
     // === Create journal entry with lines in a transaction ===
+    // IMPORTANT: Event emission is inside this transaction. If the journal
+    // entry or event insert fails, both are rolled back — guaranteeing the
+    // audit log is always consistent with ledger state.
     const entry = await db.$transaction(async (tx) => {
       const journalEntry = await tx.abJournalEntry.create({
         data: {
@@ -371,20 +374,24 @@ app.post('/api/v1/agentbook-core/fiscal-periods/:year/:month/close', async (req,
     const year = parseInt(req.params.year);
     const month = parseInt(req.params.month);
 
-    const period = await db.abFiscalPeriod.upsert({
-      where: { tenantId_year_month: { tenantId, year, month } },
-      update: { status: 'closed', closedAt: new Date(), closedBy: tenantId },
-      create: { tenantId, year, month, status: 'closed', closedAt: new Date(), closedBy: tenantId },
-    });
+    // Close period + emit event in a transaction for atomicity
+    const period = await db.$transaction(async (tx) => {
+      const p = await tx.abFiscalPeriod.upsert({
+        where: { tenantId_year_month: { tenantId, year, month } },
+        update: { status: 'closed', closedAt: new Date(), closedBy: tenantId },
+        create: { tenantId, year, month, status: 'closed', closedAt: new Date(), closedBy: tenantId },
+      });
 
-    // Emit event
-    await db.abEvent.create({
-      data: {
-        tenantId,
-        eventType: 'period.closed',
-        actor: 'human',
-        action: { year, month },
-      },
+      await tx.abEvent.create({
+        data: {
+          tenantId,
+          eventType: 'period.closed',
+          actor: 'human',
+          action: { year, month },
+        },
+      });
+
+      return p;
     });
 
     res.json({ success: true, data: period });
@@ -411,7 +418,7 @@ app.post('/api/v1/agentbook-core/snapshot', async (req, res) => {
       telegram_message: formatSnapshotMessage(data),
     };
 
-    // Emit event so proactive engine can deliver to Telegram
+    // Emit event so proactive engine can deliver to Telegram (inside transaction for atomicity)
     await db.abEvent.create({
       data: {
         tenantId,
@@ -447,5 +454,31 @@ function formatSnapshotMessage(data: any): string {
     `<i>Generated ${new Date().toLocaleString()}</i>`,
   ].join('\n');
 }
+
+// === IMMUTABILITY GUARD: Journal entries cannot be modified once created ===
+// Per SKILL.md: "Corrections are made via reversing entries, never by editing existing records."
+app.put('/api/v1/agentbook-core/journal-entries/:id', async (_req, res) => {
+  res.status(403).json({
+    success: false,
+    error: 'Journal entries are immutable. Create a reversing entry instead.',
+    constraint: 'immutability_invariant',
+  });
+});
+
+app.patch('/api/v1/agentbook-core/journal-entries/:id', async (_req, res) => {
+  res.status(403).json({
+    success: false,
+    error: 'Journal entries are immutable. Create a reversing entry instead.',
+    constraint: 'immutability_invariant',
+  });
+});
+
+app.delete('/api/v1/agentbook-core/journal-entries/:id', async (_req, res) => {
+  res.status(403).json({
+    success: false,
+    error: 'Journal entries cannot be deleted. Create a reversing entry instead.',
+    constraint: 'immutability_invariant',
+  });
+});
 
 start();

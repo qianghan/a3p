@@ -75,23 +75,28 @@ app.post('/clients', async (req: Request, res: Response) => {
       return res.status(400).json({ success: false, error: 'name is required' });
     }
 
-    const client = await db.abClient.create({
-      data: {
-        tenantId,
-        name,
-        email: email || null,
-        address: address || null,
-        defaultTerms: defaultTerms || 'net-30',
-      },
-    });
+    // Create client + emit event in a transaction for atomicity
+    const client = await db.$transaction(async (tx) => {
+      const c = await tx.abClient.create({
+        data: {
+          tenantId,
+          name,
+          email: email || null,
+          address: address || null,
+          defaultTerms: defaultTerms || 'net-30',
+        },
+      });
 
-    await db.abEvent.create({
-      data: {
-        tenantId,
-        eventType: 'client.created',
-        actor: 'agent',
-        action: { clientId: client.id, name },
-      },
+      await tx.abEvent.create({
+        data: {
+          tenantId,
+          eventType: 'client.created',
+          actor: 'agent',
+          action: { clientId: c.id, name },
+        },
+      });
+
+      return c;
     });
 
     res.status(201).json({ success: true, data: client });
@@ -173,23 +178,28 @@ app.put('/clients/:id', async (req: Request, res: Response) => {
       return res.status(404).json({ success: false, error: 'Client not found' });
     }
 
-    const client = await db.abClient.update({
-      where: { id: req.params.id },
-      data: {
-        ...(name !== undefined && { name }),
-        ...(email !== undefined && { email }),
-        ...(address !== undefined && { address }),
-        ...(defaultTerms !== undefined && { defaultTerms }),
-      },
-    });
+    // Update client + emit event in a transaction for atomicity
+    const client = await db.$transaction(async (tx) => {
+      const c = await tx.abClient.update({
+        where: { id: req.params.id },
+        data: {
+          ...(name !== undefined && { name }),
+          ...(email !== undefined && { email }),
+          ...(address !== undefined && { address }),
+          ...(defaultTerms !== undefined && { defaultTerms }),
+        },
+      });
 
-    await db.abEvent.create({
-      data: {
-        tenantId,
-        eventType: 'client.updated',
-        actor: 'agent',
-        action: { clientId: client.id, changes: req.body },
-      },
+      await tx.abEvent.create({
+        data: {
+          tenantId,
+          eventType: 'client.updated',
+          actor: 'agent',
+          action: { clientId: c.id, changes: req.body },
+        },
+      });
+
+      return c;
     });
 
     res.json({ success: true, data: client });
@@ -257,7 +267,9 @@ app.post('/invoices', async (req: Request, res: Response) => {
       });
     }
 
-    // Create invoice, lines, journal entry, and update client in a transaction
+    // Create invoice, lines, journal entry, and update client in a transaction.
+    // IMPORTANT: Event emission is inside this transaction. If any step fails,
+    // everything rolls back — guaranteeing audit log consistency with ledger state.
     const invoice = await db.$transaction(async (tx) => {
       // Create journal entry: debit AR, credit Revenue
       const journalEntry = await tx.abJournalEntry.create({
@@ -428,18 +440,23 @@ app.post('/invoices/:id/send', async (req: Request, res: Response) => {
       return res.status(422).json({ success: false, error: 'Invoice is already paid' });
     }
 
-    const updated = await db.abInvoice.update({
-      where: { id: req.params.id },
-      data: { status: 'sent' },
-    });
+    // Update status + emit event in a transaction for atomicity
+    const updated = await db.$transaction(async (tx) => {
+      const inv = await tx.abInvoice.update({
+        where: { id: req.params.id },
+        data: { status: 'sent' },
+      });
 
-    await db.abEvent.create({
-      data: {
-        tenantId,
-        eventType: 'invoice.sent',
-        actor: 'agent',
-        action: { invoiceId: invoice.id, number: invoice.number },
-      },
+      await tx.abEvent.create({
+        data: {
+          tenantId,
+          eventType: 'invoice.sent',
+          actor: 'agent',
+          action: { invoiceId: invoice.id, number: invoice.number },
+        },
+      });
+
+      return inv;
     });
 
     // TODO: integrate email sending service
@@ -845,23 +862,28 @@ app.post('/estimates', async (req: Request, res: Response) => {
       ? new Date(validUntil)
       : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
 
-    const estimate = await db.abEstimate.create({
-      data: {
-        tenantId,
-        clientId,
-        amountCents,
-        description,
-        validUntil: expiryDate,
-      },
-    });
+    // Create estimate + emit event in a transaction for atomicity
+    const estimate = await db.$transaction(async (tx) => {
+      const est = await tx.abEstimate.create({
+        data: {
+          tenantId,
+          clientId,
+          amountCents,
+          description,
+          validUntil: expiryDate,
+        },
+      });
 
-    await db.abEvent.create({
-      data: {
-        tenantId,
-        eventType: 'estimate.created',
-        actor: 'agent',
-        action: { estimateId: estimate.id, clientId, amountCents },
-      },
+      await tx.abEvent.create({
+        data: {
+          tenantId,
+          eventType: 'estimate.created',
+          actor: 'agent',
+          action: { estimateId: est.id, clientId, amountCents },
+        },
+      });
+
+      return est;
     });
 
     res.status(201).json({ success: true, data: estimate });

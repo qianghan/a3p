@@ -21,3 +21,24 @@ CREATE SCHEMA IF NOT EXISTS plugin_agentbook_core;
 CREATE SCHEMA IF NOT EXISTS plugin_agentbook_expense;
 CREATE SCHEMA IF NOT EXISTS plugin_agentbook_invoice;
 CREATE SCHEMA IF NOT EXISTS plugin_agentbook_tax;
+
+-- ============================================================
+-- Row Level Security Policies (defense-in-depth)
+-- Application code ALSO filters by tenant_id on every query.
+-- RLS is the database-layer safety net.
+-- ============================================================
+
+-- Note: RLS requires the app to SET the current tenant context.
+-- This is done via: SET app.current_tenant_id = '<tenant_id>';
+-- before each request's queries.
+
+-- For development, RLS is documented but not enforced.
+-- Enable in production by uncommenting the ALTER TABLE lines below.
+
+-- Example policy pattern (apply to all agentbook tables):
+-- ALTER TABLE plugin_agentbook_core."AbJournalEntry" ENABLE ROW LEVEL SECURITY;
+-- CREATE POLICY tenant_isolation ON plugin_agentbook_core."AbJournalEntry"
+--   USING ("tenantId" = current_setting('app.current_tenant_id', true));
+
+-- Production RLS will be enabled in Phase 2 after connection pooling
+-- compatibility with SET commands is verified on Neon/PgBouncer.

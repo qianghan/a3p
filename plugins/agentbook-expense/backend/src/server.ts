@@ -80,36 +80,43 @@ app.post('/api/v1/agentbook-expense/expenses', async (req, res) => {
       }
     }
 
-    // Create expense
-    const expense = await db.abExpense.create({
-      data: {
-        tenantId,
-        amountCents,
-        vendorId: vendorRecord?.id,
-        categoryId: resolvedCategoryId,
-        date: new Date(date || Date.now()),
-        description: description || vendor || 'Expense',
-        receiptUrl,
-        confidence: resolvedConfidence,
-        isPersonal: isPersonal || false,
-      },
-    });
-
-    // Emit event
-    await db.abEvent.create({
-      data: {
-        tenantId,
-        eventType: 'expense.recorded',
-        actor: 'agent',
-        action: {
-          expense_id: expense.id,
+    // === Create expense + emit event in a single transaction ===
+    // Event emission MUST be inside the transaction so that if either
+    // the expense insert or the event insert fails, both are rolled back.
+    // This guarantees the audit log is always consistent with the data.
+    const expense = await db.$transaction(async (tx) => {
+      const exp = await tx.abExpense.create({
+        data: {
+          tenantId,
           amountCents,
-          vendor: vendor || null,
+          vendorId: vendorRecord?.id,
           categoryId: resolvedCategoryId,
+          date: new Date(date || Date.now()),
+          description: description || vendor || 'Expense',
+          receiptUrl,
+          confidence: resolvedConfidence,
           isPersonal: isPersonal || false,
-          hasReceipt: !!receiptUrl,
         },
-      },
+      });
+
+      // Emit event inside transaction for atomicity
+      await tx.abEvent.create({
+        data: {
+          tenantId,
+          eventType: 'expense.recorded',
+          actor: 'agent',
+          action: {
+            expense_id: exp.id,
+            amountCents,
+            vendor: vendor || null,
+            categoryId: resolvedCategoryId,
+            isPersonal: isPersonal || false,
+            hasReceipt: !!receiptUrl,
+          },
+        },
+      });
+
+      return exp;
     });
 
     res.status(201).json({
