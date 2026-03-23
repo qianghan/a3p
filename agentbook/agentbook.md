@@ -709,6 +709,19 @@ Interface Layer (Telegram bot / Web API)
 - [ ] **P0-T40** One-tap action buttons on every proactive message (no typing required to respond)
 - [ ] **P0-T41** Snooze/dismiss: [Remind me tomorrow] [Don't remind me about this] on all proactive messages
 
+**Deployment & Infrastructure (Phase 0 — works locally AND on Vercel from day one)**
+- [ ] **P0-T55** Add AgentBook schemas to Prisma datasource block and `docker/init-schemas.sql`
+- [ ] **P0-T56** AgentBook Prisma models with `@@schema("plugin_agentbook_*")` decorators
+- [ ] **P0-T57** Dual-mode event bus: Kafka (local) / DB table + polling (Vercel), same `emitEvent()` interface
+- [ ] **P0-T58** Telegram webhook API route: `/api/v1/agentbook/telegram/webhook` (serverless-compatible)
+- [ ] **P0-T59** Vercel cron route: `/api/v1/agentbook/cron/daily-pulse` + vercel.json cron config
+- [ ] **P0-T60** Vercel cron route: `/api/v1/agentbook/cron/calendar-check` (hourly)
+- [ ] **P0-T61** AgentBook API routes under `apps/web-next/src/app/api/v1/agentbook/` (serverless handlers)
+- [ ] **P0-T62** Receipt storage abstraction: Vercel Blob (production) / local filesystem (dev), same interface
+- [ ] **P0-T63** Update `apps/web-next/src/lib/plugin-ports.ts` with AgentBook plugin ports
+- [ ] **P0-T64** Verify `prisma db push` works on both local Docker and Neon (Vercel Postgres)
+- [ ] **P0-T65** Update `vercel.json` with AgentBook cron jobs and function timeouts
+
 **End-to-End Flows**
 - [ ] **P0-T29** E2E US text: user types "I spent $20 on coffee" in Telegram -> expense + journal entry in USD
 - [ ] **P0-T30** E2E CA text: user types "I spent $20 on coffee" in Telegram -> expense + journal entry in CAD
@@ -797,6 +810,13 @@ Agent: 📧 Found your Amazon order:
 - [ ] **P0-TEST-30** Calendar: CA jurisdiction skill seeds correct tax deadlines including RRSP
 - [ ] **P0-TEST-31** Calendar: proactive engine fires alert at correct lead times (7d, 3d, day-of)
 - [ ] **P0-TEST-32** Calendar: event titles use i18n keys, render correctly in `en` and `fr`
+- [ ] **P0-TEST-33** Deployment: `prisma db push` succeeds on local Docker PostgreSQL with all 7 schemas
+- [ ] **P0-TEST-34** Deployment: `prisma db push` succeeds on Neon (Vercel Postgres) with pooled + unpooled URLs
+- [ ] **P0-TEST-35** Deployment: Telegram webhook route processes text and photo messages in serverless
+- [ ] **P0-TEST-36** Deployment: Vercel cron daily-pulse route executes and sends Telegram messages
+- [ ] **P0-TEST-37** Deployment: event bus dual-mode — same test passes with Kafka backend and DB backend
+- [ ] **P0-TEST-38** Deployment: `vercel build` completes successfully with AgentBook plugins included
+- [ ] **P0-TEST-39** Deployment: receipt upload works with both local filesystem and Vercel Blob
 
 ### Quality Gates
 - [ ] **P0-QG-01** Code review using `/code-review` plugin on all PRs
@@ -1116,6 +1136,222 @@ Agent: 📧 Found your Amazon order:
 
 ---
 
+## Deployment Architecture (Local Dev + Vercel + Serverless DB)
+
+### Design Principle
+AgentBook follows the same deployment model as the rest of A3P: **Next.js on Vercel for the frontend and API routes, Docker for local dev infrastructure, Vercel Postgres (Neon) for the serverless database.** All AgentBook plugin logic runs as **Next.js API routes (serverless functions)** on Vercel — there are no separate backend processes to host in production.
+
+### Database: Prisma Multi-Schema, Single DB
+
+AgentBook adds 4 new schemas to the existing A3P unified Prisma schema. All schemas share a single PostgreSQL database — no separate databases to manage.
+
+**Updated `packages/database/prisma/schema.prisma` datasource:**
+```prisma
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")          // Pooled (PgBouncer) for queries
+  directUrl = env("DATABASE_URL_UNPOOLED") // Direct for migrations
+  schemas   = [
+    "public",                    // Core A3P platform
+    "plugin_community",          // Community Hub
+    "plugin_service_gateway",    // Service Gateway
+    // AgentBook schemas (new)
+    "plugin_agentbook_core",     // Ledger, chart of accounts, tenant config
+    "plugin_agentbook_expense",  // Expenses, vendors, patterns, receipts
+    "plugin_agentbook_invoice",  // Invoices, clients, payments, estimates
+    "plugin_agentbook_tax",      // Tax estimates, quarterly payments, deductions, sales tax
+  ]
+}
+```
+
+**Updated `docker/init-schemas.sql`:**
+```sql
+-- Existing
+CREATE SCHEMA IF NOT EXISTS plugin_community;
+CREATE SCHEMA IF NOT EXISTS plugin_service_gateway;
+-- AgentBook (new)
+CREATE SCHEMA IF NOT EXISTS plugin_agentbook_core;
+CREATE SCHEMA IF NOT EXISTS plugin_agentbook_expense;
+CREATE SCHEMA IF NOT EXISTS plugin_agentbook_invoice;
+CREATE SCHEMA IF NOT EXISTS plugin_agentbook_tax;
+```
+
+**Key constraints:**
+- All models use `@@schema("plugin_agentbook_*")` — Prisma multiSchema preview feature (already enabled in A3P)
+- Amounts stored as `Int` (cents) — Prisma `Int` maps to PostgreSQL `INTEGER`, no float issues
+- Balance CHECK constraint: `CREATE CONSTRAINT ... CHECK (debit_total = credit_total)` via Prisma raw SQL migration
+- Cross-schema relations: AgentBook models can reference `public.User` via userId (same DB, same Prisma client)
+- `DATABASE_URL` with `?pgbouncer=true&connection_limit=10` for Vercel serverless connection pooling
+- `DATABASE_URL_UNPOOLED` for `prisma db push` and `prisma migrate deploy` (Neon requirement)
+
+### Local Development (Docker + Node.js)
+
+```
+docker-compose up -d                    # PostgreSQL 16 + Kafka
+./bin/start.sh                          # Starts all services:
+  ├── Next.js shell (port 3000)
+  ├── base-svc (port 4000)
+  ├── plugin-server (port 3100)
+  ├── Plugin frontends (Vite HMR: 3005, 3006, ...)
+  ├── Plugin backends (Express: 4005, 4006, ...)
+  ├── AgentBook backends (Express: 4050-4053)
+  ├── Telegram bot (webhook via ngrok/localtunnel for dev)
+  └── Proactive engine (local cron scheduler)
+```
+
+**AgentBook plugin ports (added to plugin.json manifests):**
+
+| Plugin | Frontend devPort | Backend devPort |
+|--------|-----------------|----------------|
+| agentbook-core | 3050 | 4050 |
+| agentbook-expense | 3051 | 4051 |
+| agentbook-invoice | 3052 | 4052 |
+| agentbook-tax | 3053 | 4053 |
+
+**Local database:** Docker PostgreSQL at `postgresql://postgres:postgres@localhost:5432/naap`
+- `prisma db push` creates all schemas and tables
+- `init-schemas.sql` creates schemas on first container start
+- All 7 schemas (3 existing + 4 AgentBook) in one database
+
+**Kafka (local only):** Used for event bus (`agentbooks.execution_events`). Proactive engine, audit log, pattern learning all consume from Kafka topics locally.
+
+### Vercel Deployment (Production/Preview)
+
+On Vercel, AgentBook has **no separate backend processes**. Everything runs as Next.js API routes (serverless functions).
+
+**How each component maps to Vercel:**
+
+| Component | Local Dev | Vercel Production |
+|-----------|-----------|------------------|
+| **AgentBook API routes** | Express on ports 4050-4053 | Next.js API routes at `/api/v1/agentbook/*` |
+| **Agent framework** | Imported as library by API routes | Same — imported as library, runs in serverless function |
+| **Constraint engine** | Same | Same — pure TypeScript, no dependencies |
+| **Skill registry** | File-based discovery from `skills/` | Bundled at build time, same skill manifests |
+| **Database** | Docker PostgreSQL | Vercel Postgres (Neon) with PgBouncer pooling |
+| **Telegram bot** | Webhook via ngrok | Webhook API route: `/api/v1/agentbook/telegram/webhook` |
+| **Proactive engine (scheduler)** | Local cron process | **Vercel Cron Jobs** (vercel.json `crons` config) |
+| **Proactive engine (events)** | Kafka consumer | **Database polling** + Vercel cron (no Kafka on Vercel) |
+| **Receipt storage** | Local S3/MinIO | Vercel Blob Storage (BLOB_READ_WRITE_TOKEN) |
+| **Event bus** | Kafka | Database-backed event table (append-only) with polling |
+| **LLM calls** | Via service-gateway API | Same — service-gateway has its own Vercel API routes |
+| **Calendar engine** | Hourly cron | Vercel cron: `/api/v1/agentbook/cron/calendar-check` |
+| **i18n** | Same | Same — JSON files bundled at build time |
+
+**Vercel-specific API routes (added to `apps/web-next/src/app/api/v1/agentbook/`):**
+```
+api/v1/agentbook/
+  ├── telegram/
+  │   └── webhook/route.ts       # Telegram bot webhook (receives all messages)
+  ├── cron/
+  │   ├── daily-pulse/route.ts   # Vercel cron: daily pulse for all tenants
+  │   ├── calendar-check/route.ts # Vercel cron: check deadlines, fire alerts
+  │   ├── weekly-review/route.ts  # Vercel cron: weekly financial summary
+  │   └── bank-sync/route.ts     # Vercel cron: Plaid daily sync trigger
+  ├── expense/
+  │   ├── record/route.ts         # Record expense (text/photo/document)
+  │   ├── categorize/route.ts     # Re-categorize expense
+  │   └── [...path]/route.ts      # CRUD catch-all
+  ├── invoice/
+  │   └── [...path]/route.ts
+  ├── tax/
+  │   └── [...path]/route.ts
+  ├── reports/
+  │   └── [...path]/route.ts
+  └── core/
+      └── [...path]/route.ts      # Ledger, chart of accounts
+```
+
+**Vercel cron jobs (added to `vercel.json`):**
+```json
+{
+  "crons": [
+    { "path": "/api/v1/agentbook/cron/daily-pulse", "schedule": "0 13 * * *" },
+    { "path": "/api/v1/agentbook/cron/calendar-check", "schedule": "0 * * * *" },
+    { "path": "/api/v1/agentbook/cron/weekly-review", "schedule": "0 14 * * 1" },
+    { "path": "/api/v1/agentbook/cron/bank-sync", "schedule": "0 6 * * *" }
+  ]
+}
+```
+Note: Vercel cron fires in UTC. The cron handler resolves per-tenant timezone and delivers at the correct local time (e.g., daily pulse at 8am tenant TZ, not 8am UTC).
+
+**Event bus on Vercel (no Kafka):**
+
+Kafka is not available in Vercel serverless. The event bus has a **dual-mode implementation:**
+- **Local dev:** Kafka producer/consumer (full event streaming)
+- **Vercel:** Database-backed append-only event table + polling
+  - Events written to `ab_events` table (same Neon DB, `plugin_agentbook_core` schema)
+  - Cron jobs poll for unprocessed events and trigger consumers
+  - Pattern memory, audit log, and analytics read from the event table
+  - The interface is identical — skills emit events the same way regardless of backend
+
+```typescript
+// Event emission — same interface, different backend
+import { emitEvent } from '@agentbook/event-bus';
+
+await emitEvent({
+  type: 'expense.recorded',
+  tenant_id: context.tenant_id,
+  payload: { expense_id, amount_cents, category_id },
+});
+// Local: produces to Kafka topic
+// Vercel: inserts into ab_events table
+```
+
+**Telegram bot on Vercel:**
+
+The Telegram bot runs as a **webhook**, not polling. This is serverless-compatible:
+1. Register webhook URL with Telegram: `https://app.example.com/api/v1/agentbook/telegram/webhook`
+2. Telegram sends POST to this URL on every message
+3. The API route handler processes the message, calls the agent framework, responds
+4. Proactive messages (daily pulse, reminders) are sent via Telegram Bot API from cron handlers
+
+### Build Pipeline (vercel-build.sh integration)
+
+AgentBook plugins are built as part of the existing `vercel-build.sh` pipeline:
+
+1. **Plugin UMD bundles built** (existing step) — includes AgentBook frontend plugins
+2. **Bundles copied to `apps/web-next/public/cdn/plugins/`** (existing step)
+3. **`prisma db push`** (existing step) — now includes AgentBook schemas
+4. **Plugin registry sync** (existing step) — discovers AgentBook plugins from plugin.json
+5. **Next.js build** (existing step) — includes AgentBook API routes
+
+No new build steps required. AgentBook integrates into the existing pipeline.
+
+### Environment Variables (added for AgentBook)
+
+```env
+# AgentBook — Telegram Bot
+TELEGRAM_BOT_TOKEN=<bot token from @BotFather>
+TELEGRAM_WEBHOOK_SECRET=<random secret for webhook verification>
+
+# AgentBook — Receipt Storage
+# Uses existing BLOB_READ_WRITE_TOKEN (Vercel Blob)
+
+# AgentBook — LLM (via service-gateway, no direct keys needed)
+# LLM keys are configured in service-gateway plugin settings
+
+# AgentBook — Cron Authentication
+# Uses existing CRON_SECRET for Vercel cron job verification
+```
+
+### Deployment Parity Checklist
+
+Every feature must work identically in both environments:
+
+| Feature | Local Dev | Vercel | Parity Strategy |
+|---------|-----------|--------|----------------|
+| Expense recording | Express route | Next.js API route | Shared handler function, different route wrappers |
+| Receipt OCR | LLM via service-gateway | Same | Service-gateway has own Vercel routes |
+| Telegram bot | Webhook via ngrok | Webhook via Vercel URL | Same Grammy handler, different webhook URL |
+| Daily pulse | Local cron | Vercel cron | Same handler, different trigger mechanism |
+| Calendar alerts | Local hourly cron | Vercel hourly cron | Same handler |
+| Event bus | Kafka | DB table + polling | Same `emitEvent()` interface, env-switched backend |
+| Database | Docker PostgreSQL | Neon PostgreSQL | Same Prisma schema, different connection URL |
+| Receipt storage | Local filesystem/MinIO | Vercel Blob | Same storage interface, env-switched backend |
+| i18n | JSON files | Bundled at build | Same runtime, files in bundle |
+
+---
+
 ## Technical Decisions
 
 ### All amounts stored as integer cents
@@ -1127,8 +1363,8 @@ The LLM proposes; the constraint engine validates. Per SKILL.md: "Never put acco
 ### Verification is a separate pass
 Per architecture.md: "The executor and the verifier are separate reasoning passes with separate prompts." The verifier's prompt is adversarial: "Your job is to find errors."
 
-### Plugin-specific Prisma schemas
-Each plugin owns its own PostgreSQL schema for clean isolation while sharing the same database.
+### Plugin-specific Prisma schemas (single DB, multi-schema, serverless-compatible)
+Each plugin owns its own PostgreSQL schema (`plugin_agentbook_core`, `plugin_agentbook_expense`, etc.) within the single A3P database. Prisma `multiSchema` preview feature handles schema routing. The same Prisma client works on local Docker PostgreSQL and Vercel Postgres (Neon) with PgBouncer connection pooling. Cross-schema relations (e.g., expense -> `public.User`) work natively since all schemas are in the same database.
 
 ### Agent framework / skill decoupling
 The agent framework is generic orchestration. All domain knowledge lives in skills. Skills are versioned, hot-reloadable, and independently testable. IRS rate changes = skill update, not framework change.
