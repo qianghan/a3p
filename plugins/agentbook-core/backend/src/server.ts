@@ -393,4 +393,59 @@ app.post('/api/v1/agentbook-core/fiscal-periods/:year/:month/close', async (req,
   }
 });
 
+// === Dashboard Snapshot (for Telegram sharing) ===
+app.post('/api/v1/agentbook-core/snapshot', async (req, res) => {
+  try {
+    const tenantId = (req as any).tenantId;
+    const { type, data } = req.body;
+
+    // Generate a text-based financial highlight summary
+    // In Phase 3+, this will render an actual image via Puppeteer/Playwright
+    const highlight = {
+      type: type || 'dashboard_highlight',
+      tenant_id: tenantId,
+      generated_at: new Date().toISOString(),
+      summary: data,
+      // The proactive engine can pick this up and send to Telegram
+      // as a formatted message or rendered image
+      telegram_message: formatSnapshotMessage(data),
+    };
+
+    // Emit event so proactive engine can deliver to Telegram
+    await db.abEvent.create({
+      data: {
+        tenantId,
+        eventType: 'snapshot.requested',
+        actor: 'human',
+        action: highlight,
+      },
+    });
+
+    res.json({ success: true, data: highlight });
+  } catch (err) {
+    res.status(500).json({ success: false, error: String(err) });
+  }
+});
+
+function formatSnapshotMessage(data: any): string {
+  const fmt = (cents: number) => {
+    const amount = Math.abs(cents || 0) / 100;
+    const sign = (cents || 0) < 0 ? '-' : '';
+    return `${sign}$${amount.toLocaleString('en-US', { minimumFractionDigits: 2 })}`;
+  };
+
+  return [
+    `📊 <b>Financial Snapshot</b>`,
+    ``,
+    `🏦 Cash: <b>${fmt(data?.assets)}</b>`,
+    `📈 Revenue: ${fmt(data?.revenue)}`,
+    `📉 Expenses: ${fmt(data?.expenses)}`,
+    `💰 Net Income: <b>${fmt(data?.netIncome)}</b>`,
+    ``,
+    data?.balanced ? `✅ Books balanced` : `⚠️ Books out of balance`,
+    ``,
+    `<i>Generated ${new Date().toLocaleString()}</i>`,
+  ].join('\n');
+}
+
 start();
