@@ -27,7 +27,11 @@ const pluginConfig = JSON.parse(
 // SERVER SETUP
 // ============================================
 
-const { app, start } = createPluginServer(pluginConfig);
+const { app, start } = createPluginServer({
+  ...pluginConfig,
+  requireAuth: process.env.NODE_ENV === 'production',
+  publicRoutes: ['/healthz', '/api/v1/agentbook-invoice'],
+});
 
 // ============================================
 // TENANT MIDDLEWARE

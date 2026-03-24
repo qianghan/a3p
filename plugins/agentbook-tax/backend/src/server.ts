@@ -156,7 +156,8 @@ const server = createPluginServer({
   name: 'agentbook-tax',
   port: parseInt(process.env.PORT || String(pluginConfig.backend?.devPort || 4053), 10),
   prisma: db,
-  publicRoutes: ['/healthz'],
+  requireAuth: process.env.NODE_ENV === 'production',
+  publicRoutes: ['/healthz', '/api/v1/agentbook-tax'],
 });
 
 const { router } = server;

@@ -12,7 +12,13 @@ const pluginConfig = JSON.parse(
   readFileSync(new URL('../../plugin.json', import.meta.url), 'utf8')
 );
 
-const { app, start } = createPluginServer(pluginConfig);
+const { app, start } = createPluginServer({
+  ...pluginConfig,
+  // In development, make API routes publicly accessible for testing.
+  // In production, auth is enforced by the Next.js proxy layer.
+  requireAuth: process.env.NODE_ENV === 'production',
+  publicRoutes: ['/healthz', '/api/v1/agentbook-core'],
+});
 
 // === Middleware ===
 app.use((req, res, next) => {

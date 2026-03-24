@@ -11,7 +11,11 @@ const pluginConfig = JSON.parse(
   readFileSync(new URL('../../plugin.json', import.meta.url), 'utf8')
 );
 
-const { app, start } = createPluginServer(pluginConfig);
+const { app, start } = createPluginServer({
+  ...pluginConfig,
+  requireAuth: process.env.NODE_ENV === 'production',
+  publicRoutes: ['/healthz', '/api/v1/agentbook-expense'],
+});
 
 app.use((req, res, next) => {
   (req as any).tenantId = req.headers['x-tenant-id'] as string || 'default';
