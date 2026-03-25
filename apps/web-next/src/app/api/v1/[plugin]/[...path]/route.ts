@@ -99,8 +99,10 @@ async function handleRequest(
   }
 
   // Build the proxy URL
+  // Resolve the canonical plugin name (alias -> canonical)
+  const canonicalPlugin = SHORT_ALIASES[plugin] || plugin;
   const pathString = path.join('/');
-  const targetUrl = `${serviceUrl}/api/v1/${pathString}${request.nextUrl.search}`;
+  const targetUrl = `${serviceUrl}/api/v1/${canonicalPlugin}/${pathString}${request.nextUrl.search}`;
 
   // Build headers for the proxy request
   const headers = new Headers();

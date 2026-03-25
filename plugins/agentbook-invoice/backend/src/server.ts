@@ -70,7 +70,7 @@ async function getAccountByCode(tenantId: string, code: string) {
 // ============================================
 
 // POST /clients — create client
-app.post('/clients', async (req: Request, res: Response) => {
+app.post('/api/v1/agentbook-invoice/clients', async (req: Request, res: Response) => {
   try {
     const tenantId = (req as any).tenantId;
     const { name, email, address, defaultTerms } = req.body;
@@ -110,7 +110,7 @@ app.post('/clients', async (req: Request, res: Response) => {
 });
 
 // GET /clients — list clients for tenant
-app.get('/clients', async (req: Request, res: Response) => {
+app.get('/api/v1/agentbook-invoice/clients', async (req: Request, res: Response) => {
   try {
     const tenantId = (req as any).tenantId;
     const clients = await db.abClient.findMany({
@@ -124,7 +124,7 @@ app.get('/clients', async (req: Request, res: Response) => {
 });
 
 // GET /clients/:id — get client with stats
-app.get('/clients/:id', async (req: Request, res: Response) => {
+app.get('/api/v1/agentbook-invoice/clients/:id', async (req: Request, res: Response) => {
   try {
     const tenantId = (req as any).tenantId;
     const client = await db.abClient.findFirst({
@@ -169,7 +169,7 @@ app.get('/clients/:id', async (req: Request, res: Response) => {
 });
 
 // PUT /clients/:id — update client
-app.put('/clients/:id', async (req: Request, res: Response) => {
+app.put('/api/v1/agentbook-invoice/clients/:id', async (req: Request, res: Response) => {
   try {
     const tenantId = (req as any).tenantId;
     const { name, email, address, defaultTerms } = req.body;
@@ -217,7 +217,7 @@ app.put('/clients/:id', async (req: Request, res: Response) => {
 // ============================================
 
 // POST /invoices — create invoice with line items + journal entry
-app.post('/invoices', async (req: Request, res: Response) => {
+app.post('/api/v1/agentbook-invoice/invoices', async (req: Request, res: Response) => {
   try {
     const tenantId = (req as any).tenantId;
     const { clientId, issuedDate, dueDate, lines, status } = req.body;
@@ -365,7 +365,7 @@ app.post('/invoices', async (req: Request, res: Response) => {
 });
 
 // GET /invoices — list with status/date filters and pagination
-app.get('/invoices', async (req: Request, res: Response) => {
+app.get('/api/v1/agentbook-invoice/invoices', async (req: Request, res: Response) => {
   try {
     const tenantId = (req as any).tenantId;
     const { status, startDate, endDate, clientId, limit = '50', offset = '0' } = req.query;
@@ -578,7 +578,7 @@ app.post('/invoices/:id/void', async (req: Request, res: Response) => {
 // ============================================
 
 // POST /payments — record payment against invoice
-app.post('/payments', async (req: Request, res: Response) => {
+app.post('/api/v1/agentbook-invoice/payments', async (req: Request, res: Response) => {
   try {
     const tenantId = (req as any).tenantId;
     const { invoiceId, amountCents, method, date, stripePaymentId, feesCents } = req.body;
@@ -756,7 +756,7 @@ app.post('/payments', async (req: Request, res: Response) => {
 // ============================================
 
 // GET /aging-report — group outstanding invoices by age buckets
-app.get('/aging-report', async (req: Request, res: Response) => {
+app.get('/api/v1/agentbook-invoice/aging-report', async (req: Request, res: Response) => {
   try {
     const tenantId = (req as any).tenantId;
     const now = new Date();
@@ -844,7 +844,7 @@ app.get('/aging-report', async (req: Request, res: Response) => {
 // ============================================
 
 // POST /estimates — create estimate
-app.post('/estimates', async (req: Request, res: Response) => {
+app.post('/api/v1/agentbook-invoice/estimates', async (req: Request, res: Response) => {
   try {
     const tenantId = (req as any).tenantId;
     const { clientId, amountCents, description, validUntil } = req.body;
@@ -897,7 +897,7 @@ app.post('/estimates', async (req: Request, res: Response) => {
 });
 
 // GET /estimates — list estimates
-app.get('/estimates', async (req: Request, res: Response) => {
+app.get('/api/v1/agentbook-invoice/estimates', async (req: Request, res: Response) => {
   try {
     const tenantId = (req as any).tenantId;
     const { status, clientId } = req.query;
