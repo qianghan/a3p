@@ -273,11 +273,11 @@ const QuickActionPill: React.FC<{
   href: string;
   color: string;
 }> = ({ icon, label, href, color }) => (
-  <a
-    href={href}
+  <button
+    onClick={() => { window.location.href = href; }}
     className={`flex items-center gap-2 px-4 py-2.5 rounded-full text-white text-sm font-medium whitespace-nowrap snap-start shrink-0 active:scale-95 transition-transform ${color}`}
   >
     {icon}
     {label}
-  </a>
+  </button>
 );

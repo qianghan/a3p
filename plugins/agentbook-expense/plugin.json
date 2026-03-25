@@ -29,7 +29,9 @@
       "/agentbook/receipts",
       "/agentbook/receipts/*",
       "/agentbook/vendors",
-      "/agentbook/vendors/*"
+      "/agentbook/vendors/*",
+      "/agentbook/bank",
+      "/agentbook/bank/*"
     ],
     "navigation": {
       "label": "Expenses",

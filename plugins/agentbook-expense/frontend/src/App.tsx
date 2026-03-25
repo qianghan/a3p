@@ -5,6 +5,7 @@ import { ExpenseListPage } from './pages/ExpenseList';
 import { NewExpensePage } from './pages/NewExpense';
 import { ReceiptsPage } from './pages/Receipts';
 import { VendorsPage } from './pages/Vendors';
+import { BankConnectionPage } from './pages/BankConnection';
 import './globals.css';
 
 const AgentbookExpenseApp: React.FC = () => (
@@ -14,6 +15,7 @@ const AgentbookExpenseApp: React.FC = () => (
       <Route path="/new" element={<NewExpensePage />} />
       <Route path="/receipts" element={<ReceiptsPage />} />
       <Route path="/vendors" element={<VendorsPage />} />
+      <Route path="/bank" element={<BankConnectionPage />} />
       <Route path="/*" element={<ExpenseListPage />} />
     </Routes>
   </MemoryRouter>

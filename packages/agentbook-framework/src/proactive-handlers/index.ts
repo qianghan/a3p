@@ -18,3 +18,4 @@ export { handleTaxDeadline } from './tax-deadline.js';
 export { handleDeductionAlert } from './deduction-alert.js';
 export { handleBankAnomaly } from './bank-anomaly.js';
 export { handleReconciliationNudge } from './reconciliation-nudge.js';
+export { handleBracketAlert, calculateBracketGap } from './bracket-alert.js';
