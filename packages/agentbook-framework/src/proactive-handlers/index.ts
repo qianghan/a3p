@@ -19,3 +19,10 @@ export { handleDeductionAlert } from './deduction-alert.js';
 export { handleBankAnomaly } from './bank-anomaly.js';
 export { handleReconciliationNudge } from './reconciliation-nudge.js';
 export { handleBracketAlert, calculateBracketGap } from './bracket-alert.js';
+
+// Phase 3
+export { handleCashFlowWarning } from './cash-flow-warning.js';
+export { handleSpendingTrend } from './spending-trend.js';
+export { handleEarningsMilestone, checkMilestoneCrossed } from './earnings-milestone.js';
+export { handlePaymentPrediction } from './payment-prediction.js';
+export { getEngagementStats, recommendFrequencyAdjustments } from './engagement-tuner.js';

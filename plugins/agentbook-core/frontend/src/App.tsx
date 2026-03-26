@@ -4,6 +4,7 @@ import { createPlugin } from '@naap/plugin-sdk';
 import { DashboardPage } from './pages/Dashboard';
 import { LedgerPage } from './pages/Ledger';
 import { AccountsPage } from './pages/Accounts';
+import { ProjectionsPage } from './pages/Projections';
 import './globals.css';
 
 const AgentBookCoreApp: React.FC = () => (
@@ -12,6 +13,7 @@ const AgentBookCoreApp: React.FC = () => (
       <Route path="/" element={<DashboardPage />} />
       <Route path="/ledger" element={<LedgerPage />} />
       <Route path="/accounts" element={<AccountsPage />} />
+      <Route path="/projections" element={<ProjectionsPage />} />
       <Route path="/*" element={<DashboardPage />} />
     </Routes>
   </MemoryRouter>

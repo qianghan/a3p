@@ -6,6 +6,8 @@ import { QuarterlyPage } from './pages/Quarterly';
 import { DeductionsPage } from './pages/Deductions';
 import { ReportsPage } from './pages/Reports';
 import { CashFlowPage } from './pages/CashFlow';
+import { AnalyticsPage } from './pages/Analytics';
+import { WhatIfPage } from './pages/WhatIf';
 import './globals.css';
 
 const AgentbookTaxApp: React.FC = () => (
@@ -16,6 +18,8 @@ const AgentbookTaxApp: React.FC = () => (
       <Route path="/deductions" element={<DeductionsPage />} />
       <Route path="/reports" element={<ReportsPage />} />
       <Route path="/cashflow" element={<CashFlowPage />} />
+      <Route path="/analytics" element={<AnalyticsPage />} />
+      <Route path="/whatif" element={<WhatIfPage />} />
       <Route path="/*" element={<TaxDashboardPage />} />
     </Routes>
   </MemoryRouter>
