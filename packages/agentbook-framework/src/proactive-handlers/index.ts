@@ -26,3 +26,8 @@ export { handleSpendingTrend } from './spending-trend.js';
 export { handleEarningsMilestone, checkMilestoneCrossed } from './earnings-milestone.js';
 export { handlePaymentPrediction } from './payment-prediction.js';
 export { getEngagementStats, recommendFrequencyAdjustments } from './engagement-tuner.js';
+
+// Phase 4
+export { handleYearEndPlanning } from './year-end-planning.js';
+export { handleContractorThreshold } from './contractor-threshold.js';
+export { handleYearEndClosingChecklist } from './year-end-closing-checklist.js';

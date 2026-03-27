@@ -1871,3 +1871,57 @@ model AbEngagementLog {
   @@index([tenantId, category])
   @@schema("plugin_agentbook_core")
 }
+
+model AbTenantAccess {
+  id          String   @id @default(uuid())
+  tenantId    String
+  userId      String
+  role        String   @default("viewer")        // owner | bookkeeper | viewer | cpa
+  email       String
+  invitedBy   String?
+  accessToken String?  @unique                   // for CPA read-only link
+  expiresAt   DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([tenantId, userId])
+  @@index([tenantId])
+  @@index([accessToken])
+  @@schema("plugin_agentbook_core")
+}
+
+model AbCPANote {
+  id          String   @id @default(uuid())
+  tenantId    String
+  authorId    String
+  authorRole  String   @default("cpa")
+  content     String
+  attachedTo  String?                            // journal_entry_id, expense_id, etc.
+  attachedType String?                           // journal_entry | expense | invoice | tax
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([tenantId, createdAt])
+  @@index([tenantId, attachedTo])
+  @@schema("plugin_agentbook_core")
+}
+
+model AbOnboardingProgress {
+  id          String   @id @default(uuid())
+  tenantId    String   @unique
+  currentStep Int      @default(0)
+  completedSteps String[] @default([])
+  businessType String?
+  jurisdiction String?
+  region       String?
+  currency     String?
+  bankConnected Boolean @default(false)
+  accountsSeeded Boolean @default(false)
+  firstExpense Boolean @default(false)
+  telegramConnected Boolean @default(false)
+  completedAt DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@schema("plugin_agentbook_core")
+}
