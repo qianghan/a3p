@@ -1078,6 +1078,281 @@ router.put('/agentbook-tax/tax/config', async (req: any, res) => {
 });
 
 // ============================================
+// ADDITIONAL REPORTS (Phase 6)
+// ============================================
+
+// 1. AR Aging Detail — Detailed aging with per-client breakdown
+app.get('/api/v1/agentbook-tax/reports/ar-aging-detail', async (req, res) => {
+  try {
+    const tenantId = (req as any).tenantId;
+    const invoices = await db.abInvoice.findMany({
+      where: { tenantId, status: { in: ['sent', 'viewed', 'overdue'] } },
+      include: { client: true, payments: true },
+      orderBy: { dueDate: 'asc' },
+    });
+
+    const now = new Date();
+    const detail = invoices.map((inv: any) => {
+      const paidCents = inv.payments.reduce((s: number, p: any) => s + p.amountCents, 0);
+      const balanceCents = inv.amountCents - paidCents;
+      const daysOverdue = Math.max(0, Math.floor((now.getTime() - new Date(inv.dueDate).getTime()) / (1000 * 60 * 60 * 24)));
+      const bucket = daysOverdue <= 0 ? 'current' : daysOverdue <= 30 ? '1-30' : daysOverdue <= 60 ? '31-60' : daysOverdue <= 90 ? '61-90' : '90+';
+      return { invoiceNumber: inv.number, clientName: inv.client?.name, amountCents: inv.amountCents, paidCents, balanceCents, dueDate: inv.dueDate, daysOverdue, bucket };
+    });
+
+    const buckets: Record<string, number> = { current: 0, '1-30': 0, '31-60': 0, '61-90': 0, '90+': 0 };
+    for (const d of detail) buckets[d.bucket] = (buckets[d.bucket] || 0) + d.balanceCents;
+
+    res.json({ success: true, data: { detail, buckets, totalOutstandingCents: detail.reduce((s: number, d: any) => s + d.balanceCents, 0) } });
+  } catch (err) { res.status(500).json({ success: false, error: String(err) }); }
+});
+
+// 2. Expense by Vendor — Top vendors with spend breakdown
+app.get('/api/v1/agentbook-tax/reports/expense-by-vendor', async (req, res) => {
+  try {
+    const tenantId = (req as any).tenantId;
+    const { startDate, endDate } = req.query;
+    const where: any = { tenantId, isPersonal: false };
+    if (startDate) where.date = { ...where.date, gte: new Date(startDate as string) };
+    if (endDate) where.date = { ...where.date, lte: new Date(endDate as string) };
+
+    const expenses = await db.abExpense.findMany({ where, select: { vendorId: true, amountCents: true } });
+    const vendorTotals: Map<string, number> = new Map();
+    const vendorCounts: Map<string, number> = new Map();
+    for (const e of expenses) {
+      if (!e.vendorId) continue;
+      vendorTotals.set(e.vendorId, (vendorTotals.get(e.vendorId) || 0) + e.amountCents);
+      vendorCounts.set(e.vendorId, (vendorCounts.get(e.vendorId) || 0) + 1);
+    }
+
+    const vendorIds = Array.from(vendorTotals.keys());
+    const vendors = await db.abVendor.findMany({ where: { id: { in: vendorIds } } });
+    const nameMap = new Map(vendors.map((v: any) => [v.id, v.name]));
+
+    const result = Array.from(vendorTotals.entries())
+      .map(([id, total]) => ({ vendorId: id, vendorName: nameMap.get(id) || 'Unknown', totalCents: total, count: vendorCounts.get(id) || 0 }))
+      .sort((a, b) => b.totalCents - a.totalCents);
+
+    res.json({ success: true, data: result });
+  } catch (err) { res.status(500).json({ success: false, error: String(err) }); }
+});
+
+// 3. Income by Client — Revenue per client
+app.get('/api/v1/agentbook-tax/reports/income-by-client', async (req, res) => {
+  try {
+    const tenantId = (req as any).tenantId;
+    const clients = await db.abClient.findMany({ where: { tenantId } });
+    const result = clients.map((c: any) => ({
+      clientId: c.id, clientName: c.name,
+      totalBilledCents: c.totalBilledCents, totalPaidCents: c.totalPaidCents,
+      outstandingCents: c.totalBilledCents - c.totalPaidCents,
+    })).sort((a: any, b: any) => b.totalBilledCents - a.totalBilledCents);
+
+    res.json({ success: true, data: result });
+  } catch (err) { res.status(500).json({ success: false, error: String(err) }); }
+});
+
+// 4. Tax Summary by Category — Expenses grouped by tax category (Schedule C / T2125 lines)
+app.get('/api/v1/agentbook-tax/reports/tax-summary', async (req, res) => {
+  try {
+    const tenantId = (req as any).tenantId;
+    const { taxYear } = req.query;
+    const year = parseInt(taxYear as string) || new Date().getFullYear();
+    const yearStart = new Date(year, 0, 1);
+    const yearEnd = new Date(year, 11, 31);
+
+    const accounts = await db.abAccount.findMany({ where: { tenantId, accountType: 'expense', isActive: true } });
+    const result: { taxCategory: string; accountName: string; totalCents: number }[] = [];
+
+    for (const acct of accounts) {
+      const lines = await db.abJournalLine.findMany({
+        where: { accountId: acct.id, entry: { tenantId, date: { gte: yearStart, lte: yearEnd } } },
+      });
+      const total = lines.reduce((s: number, l: any) => s + l.debitCents, 0);
+      if (total > 0) {
+        result.push({ taxCategory: acct.taxCategory || 'Other', accountName: acct.name, totalCents: total });
+      }
+    }
+
+    res.json({ success: true, data: { taxYear: year, categories: result.sort((a, b) => b.totalCents - a.totalCents), totalCents: result.reduce((s, r) => s + r.totalCents, 0) } });
+  } catch (err) { res.status(500).json({ success: false, error: String(err) }); }
+});
+
+// 5. Monthly Expense Trend — Last 12 months spending
+app.get('/api/v1/agentbook-tax/reports/monthly-expense-trend', async (req, res) => {
+  try {
+    const tenantId = (req as any).tenantId;
+    const months: { month: string; totalCents: number }[] = [];
+    const now = new Date();
+
+    for (let i = 11; i >= 0; i--) {
+      const start = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const end = new Date(now.getFullYear(), now.getMonth() - i + 1, 0);
+      const expenses = await db.abExpense.findMany({
+        where: { tenantId, isPersonal: false, date: { gte: start, lte: end } },
+        select: { amountCents: true },
+      });
+      months.push({ month: `${start.getFullYear()}-${String(start.getMonth() + 1).padStart(2, '0')}`, totalCents: expenses.reduce((s: number, e: any) => s + e.amountCents, 0) });
+    }
+
+    res.json({ success: true, data: months });
+  } catch (err) { res.status(500).json({ success: false, error: String(err) }); }
+});
+
+// 6. Quarterly Comparison — Compare quarters YoY
+app.get('/api/v1/agentbook-tax/reports/quarterly-comparison', async (req, res) => {
+  try {
+    const tenantId = (req as any).tenantId;
+    const year = parseInt(req.query.year as string) || new Date().getFullYear();
+    const quarters: { quarter: string; revenueCents: number; expensesCents: number; netCents: number }[] = [];
+
+    for (let q = 1; q <= 4; q++) {
+      const start = new Date(year, (q - 1) * 3, 1);
+      const end = new Date(year, q * 3, 0);
+
+      const revenueAccts = await db.abAccount.findMany({ where: { tenantId, accountType: 'revenue' } });
+      const expenseAccts = await db.abAccount.findMany({ where: { tenantId, accountType: 'expense' } });
+
+      let rev = 0;
+      for (const a of revenueAccts) {
+        const lines = await db.abJournalLine.findMany({ where: { accountId: a.id, entry: { tenantId, date: { gte: start, lte: end } } } });
+        rev += lines.reduce((s: number, l: any) => s + l.creditCents, 0);
+      }
+
+      let exp = 0;
+      for (const a of expenseAccts) {
+        const lines = await db.abJournalLine.findMany({ where: { accountId: a.id, entry: { tenantId, date: { gte: start, lte: end } } } });
+        exp += lines.reduce((s: number, l: any) => s + l.debitCents, 0);
+      }
+
+      quarters.push({ quarter: `Q${q} ${year}`, revenueCents: rev, expensesCents: exp, netCents: rev - exp });
+    }
+
+    res.json({ success: true, data: quarters });
+  } catch (err) { res.status(500).json({ success: false, error: String(err) }); }
+});
+
+// 7. Annual Summary — Full year at a glance
+app.get('/api/v1/agentbook-tax/reports/annual-summary', async (req, res) => {
+  try {
+    const tenantId = (req as any).tenantId;
+    const year = parseInt(req.query.year as string) || new Date().getFullYear();
+    const yearStart = new Date(year, 0, 1);
+    const yearEnd = new Date(year, 11, 31);
+
+    const expenseCount = await db.abExpense.count({ where: { tenantId, date: { gte: yearStart, lte: yearEnd }, isPersonal: false } });
+    const invoiceCount = await db.abInvoice.count({ where: { tenantId, issuedDate: { gte: yearStart, lte: yearEnd } } });
+    const clientCount = await db.abClient.count({ where: { tenantId } });
+    const vendorCount = await db.abVendor.count({ where: { tenantId } });
+
+    // Get P&L summary
+    const revenueAccts = await db.abAccount.findMany({ where: { tenantId, accountType: 'revenue' } });
+    const expenseAccts = await db.abAccount.findMany({ where: { tenantId, accountType: 'expense' } });
+
+    let totalRevenue = 0;
+    for (const a of revenueAccts) {
+      const lines = await db.abJournalLine.findMany({ where: { accountId: a.id, entry: { tenantId, date: { gte: yearStart, lte: yearEnd } } } });
+      totalRevenue += lines.reduce((s: number, l: any) => s + l.creditCents, 0);
+    }
+
+    let totalExpenses = 0;
+    for (const a of expenseAccts) {
+      const lines = await db.abJournalLine.findMany({ where: { accountId: a.id, entry: { tenantId, date: { gte: yearStart, lte: yearEnd } } } });
+      totalExpenses += lines.reduce((s: number, l: any) => s + l.debitCents, 0);
+    }
+
+    res.json({
+      success: true,
+      data: { year, revenueCents: totalRevenue, expensesCents: totalExpenses, netIncomeCents: totalRevenue - totalExpenses, expenseCount, invoiceCount, clientCount, vendorCount },
+    });
+  } catch (err) { res.status(500).json({ success: false, error: String(err) }); }
+});
+
+// 8. Receipt Audit Log — Expenses with/without receipt documentation
+app.get('/api/v1/agentbook-tax/reports/receipt-audit', async (req, res) => {
+  try {
+    const tenantId = (req as any).tenantId;
+    const { startDate, endDate } = req.query;
+    const where: any = { tenantId, isPersonal: false };
+    if (startDate) where.date = { ...where.date, gte: new Date(startDate as string) };
+    if (endDate) where.date = { ...where.date, lte: new Date(endDate as string) };
+
+    const expenses = await db.abExpense.findMany({ where, orderBy: { date: 'desc' } });
+    const withReceipt = expenses.filter((e: any) => e.receiptUrl);
+    const withoutReceipt = expenses.filter((e: any) => !e.receiptUrl);
+
+    res.json({
+      success: true,
+      data: {
+        total: expenses.length,
+        withReceipt: withReceipt.length,
+        withoutReceipt: withoutReceipt.length,
+        coveragePercent: expenses.length > 0 ? withReceipt.length / expenses.length : 0,
+        missingReceipts: withoutReceipt.map((e: any) => ({ id: e.id, date: e.date, amountCents: e.amountCents, description: e.description })),
+      },
+    });
+  } catch (err) { res.status(500).json({ success: false, error: String(err) }); }
+});
+
+// 9. Bank Reconciliation Detail — Matched vs unmatched transactions
+app.get('/api/v1/agentbook-tax/reports/bank-reconciliation', async (req, res) => {
+  try {
+    const tenantId = (req as any).tenantId;
+    const [total, matched, exceptions, pending] = await Promise.all([
+      db.abBankTransaction.count({ where: { tenantId } }),
+      db.abBankTransaction.count({ where: { tenantId, matchStatus: 'matched' } }),
+      db.abBankTransaction.count({ where: { tenantId, matchStatus: 'exception' } }),
+      db.abBankTransaction.count({ where: { tenantId, matchStatus: 'pending' } }),
+    ]);
+
+    const unmatched = await db.abBankTransaction.findMany({
+      where: { tenantId, matchStatus: 'exception' },
+      orderBy: { date: 'desc' },
+      take: 20,
+    });
+
+    res.json({
+      success: true,
+      data: { total, matched, exceptions, pending, matchRate: total > 0 ? matched / total : 0, unmatchedDetail: unmatched },
+    });
+  } catch (err) { res.status(500).json({ success: false, error: String(err) }); }
+});
+
+// 10. Earnings Projection — Annual projection with confidence bands
+app.get('/api/v1/agentbook-tax/reports/earnings-projection', async (req, res) => {
+  try {
+    const tenantId = (req as any).tenantId;
+    const year = new Date().getFullYear();
+    const yearStart = new Date(year, 0, 1);
+    const now = new Date();
+    const monthsElapsed = now.getMonth() + (now.getDate() / 30);
+
+    const revenueAccts = await db.abAccount.findMany({ where: { tenantId, accountType: 'revenue' } });
+    const revIds = revenueAccts.map((a: any) => a.id);
+    const lines = await db.abJournalLine.findMany({
+      where: { accountId: { in: revIds }, entry: { tenantId, date: { gte: yearStart } } },
+    });
+    const ytdRevenue = lines.reduce((s: number, l: any) => s + l.creditCents, 0);
+
+    const monthlyRate = monthsElapsed > 0 ? ytdRevenue / monthsElapsed : 0;
+    const projected = Math.round(monthlyRate * 12);
+    const uncertainty = Math.max(0.05, 0.20 * (1 - monthsElapsed / 12));
+
+    res.json({
+      success: true,
+      data: {
+        ytdRevenueCents: ytdRevenue,
+        projectedAnnualCents: projected,
+        confidenceLow: Math.round(projected * (1 - uncertainty)),
+        confidenceHigh: Math.round(projected * (1 + uncertainty)),
+        monthsOfData: Math.floor(monthsElapsed),
+        methodology: `Linear extrapolation from ${Math.floor(monthsElapsed)} months (±${Math.round(uncertainty * 100)}%)`,
+      },
+    });
+  } catch (err) { res.status(500).json({ success: false, error: String(err) }); }
+});
+
+// ============================================
 // START SERVER
 // ============================================
 

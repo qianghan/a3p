@@ -3,6 +3,7 @@
  * Integrates with agentbook-core for journal entry creation.
  */
 import 'dotenv/config';
+import crypto from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { createPluginServer } from '@naap/plugin-server-sdk';
 import { db } from './db/client.js';
@@ -330,6 +331,156 @@ app.get('/api/v1/agentbook-expense/recurring-rules', async (req, res) => {
   } catch (err) {
     res.status(500).json({ success: false, error: String(err) });
   }
+});
+
+// === PLAID INTEGRATION (Phase 6) ===
+
+app.post('/api/v1/agentbook-expense/plaid/create-link-token', async (req, res) => {
+  try {
+    const tenantId = (req as any).tenantId;
+    // In production: call Plaid API to create a link token
+    // For now: return a mock token that Plaid Link can use in sandbox
+    const linkToken = `link-sandbox-${crypto.randomUUID().slice(0, 8)}`;
+
+    await db.abEvent.create({
+      data: { tenantId, eventType: 'plaid.link_token_created', actor: 'system', action: { linkToken: linkToken.slice(0, 12) + '...' } },
+    });
+
+    res.json({ success: true, data: { linkToken, environment: process.env.PLAID_ENV || 'sandbox' } });
+  } catch (err) { res.status(500).json({ success: false, error: String(err) }); }
+});
+
+app.post('/api/v1/agentbook-expense/plaid/exchange-token', async (req, res) => {
+  try {
+    const tenantId = (req as any).tenantId;
+    const { publicToken, accountId, institutionName } = req.body;
+
+    // In production: exchange public token for access token via Plaid API
+    // For now: create a bank account record
+    const bankAccount = await db.abBankAccount.create({
+      data: {
+        tenantId,
+        plaidItemId: `item-${crypto.randomUUID().slice(0, 8)}`,
+        plaidAccountId: accountId || `acct-${crypto.randomUUID().slice(0, 8)}`,
+        name: 'Checking Account',
+        type: 'checking',
+        institution: institutionName || 'Sandbox Bank',
+        connected: true,
+        lastSynced: new Date(),
+      },
+    });
+
+    await db.abEvent.create({
+      data: { tenantId, eventType: 'plaid.account_connected', actor: 'system', action: { bankAccountId: bankAccount.id, institution: institutionName } },
+    });
+
+    res.json({ success: true, data: bankAccount });
+  } catch (err) { res.status(500).json({ success: false, error: String(err) }); }
+});
+
+app.get('/api/v1/agentbook-expense/bank-accounts', async (req, res) => {
+  try {
+    const tenantId = (req as any).tenantId;
+    const accounts = await db.abBankAccount.findMany({ where: { tenantId }, orderBy: { createdAt: 'desc' } });
+    res.json({ success: true, data: accounts });
+  } catch (err) { res.status(500).json({ success: false, error: String(err) }); }
+});
+
+app.post('/api/v1/agentbook-expense/bank-sync', async (req, res) => {
+  try {
+    const tenantId = (req as any).tenantId;
+    // In production: call Plaid API to fetch transactions
+    // For now: return sync status
+    const accounts = await db.abBankAccount.findMany({ where: { tenantId, connected: true } });
+
+    for (const acct of accounts) {
+      await db.abBankAccount.update({ where: { id: acct.id }, data: { lastSynced: new Date() } });
+    }
+
+    res.json({ success: true, data: { accountsSynced: accounts.length, timestamp: new Date().toISOString() } });
+  } catch (err) { res.status(500).json({ success: false, error: String(err) }); }
+});
+
+app.get('/api/v1/agentbook-expense/reconciliation-summary', async (req, res) => {
+  try {
+    const tenantId = (req as any).tenantId;
+    const [total, matched, exceptions] = await Promise.all([
+      db.abBankTransaction.count({ where: { tenantId } }),
+      db.abBankTransaction.count({ where: { tenantId, matchStatus: 'matched' } }),
+      db.abBankTransaction.count({ where: { tenantId, matchStatus: 'exception' } }),
+    ]);
+
+    res.json({ success: true, data: { totalTransactions: total, matched, exceptions, matchRate: total > 0 ? matched / total : 0 } });
+  } catch (err) { res.status(500).json({ success: false, error: String(err) }); }
+});
+
+// === STRIPE CONNECT (Phase 6) ===
+
+app.post('/api/v1/agentbook-expense/stripe/webhook', async (req, res) => {
+  try {
+    const tenantId = (req as any).tenantId;
+    const sig = req.headers['stripe-signature'];
+
+    // In production: verify signature with Stripe webhook secret
+    // const event = stripe.webhooks.constructEvent(req.body, sig, process.env.STRIPE_WEBHOOK_SECRET);
+
+    const event = req.body;
+
+    // Idempotency check
+    if (event.id) {
+      const existing = await db.abStripeWebhookEvent.findUnique({ where: { stripeEventId: event.id } });
+      if (existing?.processed) {
+        return res.json({ success: true, message: 'Already processed' });
+      }
+
+      await db.abStripeWebhookEvent.upsert({
+        where: { stripeEventId: event.id },
+        update: { processed: true },
+        create: { tenantId, stripeEventId: event.id, eventType: event.type || 'unknown', payload: event, processed: true },
+      });
+    }
+
+    await db.abEvent.create({
+      data: { tenantId, eventType: `stripe.${event.type || 'webhook'}`, actor: 'system', action: { stripeEventId: event.id } },
+    });
+
+    res.json({ success: true });
+  } catch (err) { res.status(500).json({ success: false, error: String(err) }); }
+});
+
+// === RECEIPT OCR (Phase 6) ===
+
+app.post('/api/v1/agentbook-expense/receipts/ocr', async (req, res) => {
+  try {
+    const tenantId = (req as any).tenantId;
+    const { imageUrl } = req.body;
+
+    if (!imageUrl) {
+      return res.status(400).json({ success: false, error: 'imageUrl is required' });
+    }
+
+    // In production: call service-gateway LLM vision endpoint
+    // For now: return structured placeholder indicating OCR is available
+    const ocrResult = {
+      amount_cents: 0,
+      vendor: null,
+      date: new Date().toISOString().split('T')[0],
+      line_items: [],
+      subtotal_cents: null,
+      tax_cents: null,
+      tip_cents: null,
+      currency: 'USD',
+      confidence: 0.0,
+      status: 'pending_llm_connection',
+      message: 'OCR endpoint active. Connect service-gateway LLM for production processing.',
+    };
+
+    await db.abEvent.create({
+      data: { tenantId, eventType: 'receipt.ocr_requested', actor: 'system', action: { imageUrl: imageUrl.slice(0, 50) + '...' } },
+    });
+
+    res.json({ success: true, data: ocrResult });
+  } catch (err) { res.status(500).json({ success: false, error: String(err) }); }
 });
 
 start();

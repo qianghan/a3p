@@ -4,6 +4,7 @@
  * The constraint engine is code, not LLM prompts.
  */
 import 'dotenv/config';
+import crypto from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { createPluginServer } from '@naap/plugin-server-sdk';
 import { db } from './db/client.js';
@@ -485,6 +486,165 @@ app.delete('/api/v1/agentbook-core/journal-entries/:id', async (_req, res) => {
     error: 'Journal entries cannot be deleted. Create a reversing entry instead.',
     constraint: 'immutability_invariant',
   });
+});
+
+// === ONBOARDING (Phase 6) ===
+
+app.get('/api/v1/agentbook-core/onboarding', async (req, res) => {
+  try {
+    const tenantId = (req as any).tenantId;
+    let progress = await db.abOnboardingProgress.findUnique({ where: { tenantId } });
+    if (!progress) {
+      progress = await db.abOnboardingProgress.create({ data: { tenantId } });
+    }
+
+    const STEPS = [
+      { id: 'business_type', title: 'Choose your business type', description: 'Freelancer, sole proprietor, or consultant?', order: 0 },
+      { id: 'jurisdiction', title: 'Set your country & region', description: 'US, Canada, UK, or Australia?', order: 1 },
+      { id: 'currency', title: 'Set your currency', description: 'USD, CAD, GBP, EUR, or AUD?', order: 2 },
+      { id: 'accounts', title: 'Set up chart of accounts', description: 'Based on your tax jurisdiction', order: 3 },
+      { id: 'bank', title: 'Connect your bank', description: 'Link via Plaid for auto-import', order: 4 },
+      { id: 'first_expense', title: 'Record your first expense', description: 'Snap a receipt or type an expense', order: 5 },
+      { id: 'telegram', title: 'Connect Telegram', description: 'Proactive notifications on the go', order: 6 },
+    ];
+
+    const completedSet = new Set(progress.completedSteps);
+    const steps = STEPS.map(s => ({ ...s, completed: completedSet.has(s.id) }));
+    const completedCount = steps.filter(s => s.completed).length;
+
+    res.json({
+      success: true,
+      data: {
+        steps,
+        currentStep: progress.currentStep,
+        percentComplete: STEPS.length > 0 ? completedCount / STEPS.length : 0,
+        isComplete: completedCount === STEPS.length,
+      },
+    });
+  } catch (err) { res.status(500).json({ success: false, error: String(err) }); }
+});
+
+app.post('/api/v1/agentbook-core/onboarding/complete-step', async (req, res) => {
+  try {
+    const tenantId = (req as any).tenantId;
+    const { stepId } = req.body;
+
+    let progress = await db.abOnboardingProgress.findUnique({ where: { tenantId } });
+    if (!progress) {
+      progress = await db.abOnboardingProgress.create({ data: { tenantId } });
+    }
+
+    const completedSteps = [...new Set([...progress.completedSteps, stepId])];
+    const currentStep = Math.min(completedSteps.length, 6);
+
+    await db.abOnboardingProgress.update({
+      where: { tenantId },
+      data: {
+        completedSteps,
+        currentStep,
+        ...(stepId === 'bank' && { bankConnected: true }),
+        ...(stepId === 'accounts' && { accountsSeeded: true }),
+        ...(stepId === 'first_expense' && { firstExpense: true }),
+        ...(stepId === 'telegram' && { telegramConnected: true }),
+        ...(completedSteps.length === 7 && { completedAt: new Date() }),
+      },
+    });
+
+    res.json({ success: true });
+  } catch (err) { res.status(500).json({ success: false, error: String(err) }); }
+});
+
+app.post('/api/v1/agentbook-core/accounts/seed-jurisdiction', async (req, res) => {
+  try {
+    const tenantId = (req as any).tenantId;
+    const config = await db.abTenantConfig.findUnique({ where: { userId: tenantId } });
+    const jurisdiction = config?.jurisdiction || 'us';
+
+    // Default chart of accounts based on jurisdiction
+    const US_ACCOUNTS = [
+      { code: '1000', name: 'Cash', accountType: 'asset' },
+      { code: '1100', name: 'Accounts Receivable', accountType: 'asset' },
+      { code: '1200', name: 'Business Checking', accountType: 'asset' },
+      { code: '2000', name: 'Accounts Payable', accountType: 'liability' },
+      { code: '2100', name: 'Sales Tax Payable', accountType: 'liability' },
+      { code: '3000', name: "Owner's Equity", accountType: 'equity' },
+      { code: '4000', name: 'Service Revenue', accountType: 'revenue', taxCategory: 'Line 1' },
+      { code: '5000', name: 'Advertising', accountType: 'expense', taxCategory: 'Line 8' },
+      { code: '5100', name: 'Car & Truck', accountType: 'expense', taxCategory: 'Line 9' },
+      { code: '5200', name: 'Commissions & Fees', accountType: 'expense', taxCategory: 'Line 10' },
+      { code: '5300', name: 'Contract Labor', accountType: 'expense', taxCategory: 'Line 11' },
+      { code: '5400', name: 'Insurance', accountType: 'expense', taxCategory: 'Line 15' },
+      { code: '5700', name: 'Legal & Professional', accountType: 'expense', taxCategory: 'Line 17' },
+      { code: '5800', name: 'Office Expenses', accountType: 'expense', taxCategory: 'Line 18' },
+      { code: '5900', name: 'Rent', accountType: 'expense', taxCategory: 'Line 20b' },
+      { code: '6100', name: 'Supplies', accountType: 'expense', taxCategory: 'Line 22' },
+      { code: '6300', name: 'Travel', accountType: 'expense', taxCategory: 'Line 24a' },
+      { code: '6400', name: 'Meals', accountType: 'expense', taxCategory: 'Line 24b' },
+      { code: '6500', name: 'Utilities', accountType: 'expense', taxCategory: 'Line 25' },
+      { code: '6600', name: 'Software & Subscriptions', accountType: 'expense', taxCategory: 'Line 27a' },
+      { code: '6700', name: 'Bank Fees', accountType: 'expense', taxCategory: 'Line 27a' },
+    ];
+
+    const accounts = US_ACCOUNTS; // TODO: Select based on jurisdiction
+
+    const created = await db.$transaction(
+      accounts.map(a => db.abAccount.upsert({
+        where: { tenantId_code: { tenantId, code: a.code } },
+        update: { name: a.name, accountType: a.accountType, taxCategory: (a as any).taxCategory },
+        create: { tenantId, ...a },
+      }))
+    );
+
+    res.json({ success: true, data: { count: created.length } });
+  } catch (err) { res.status(500).json({ success: false, error: String(err) }); }
+});
+
+// === CPA COLLABORATION (Phase 6) ===
+
+app.get('/api/v1/agentbook-core/cpa/notes', async (req, res) => {
+  try {
+    const tenantId = (req as any).tenantId;
+    const notes = await db.abCPANote.findMany({
+      where: { tenantId },
+      orderBy: { createdAt: 'desc' },
+      take: 50,
+    });
+    res.json({ success: true, data: notes });
+  } catch (err) { res.status(500).json({ success: false, error: String(err) }); }
+});
+
+app.post('/api/v1/agentbook-core/cpa/notes', async (req, res) => {
+  try {
+    const tenantId = (req as any).tenantId;
+    const { content, attachedTo, attachedType } = req.body;
+    const note = await db.abCPANote.create({
+      data: { tenantId, authorId: tenantId, content, attachedTo, attachedType },
+    });
+    res.json({ success: true, data: note });
+  } catch (err) { res.status(500).json({ success: false, error: String(err) }); }
+});
+
+app.post('/api/v1/agentbook-core/cpa/generate-link', async (req, res) => {
+  try {
+    const tenantId = (req as any).tenantId;
+    const { email } = req.body;
+    const token = crypto.randomUUID();
+    const expiresAt = new Date();
+    expiresAt.setDate(expiresAt.getDate() + 30);
+
+    await db.abTenantAccess.create({
+      data: {
+        tenantId,
+        userId: `cpa-${token.slice(0, 8)}`,
+        email: email || 'cpa@example.com',
+        role: 'cpa',
+        accessToken: token,
+        expiresAt,
+      },
+    });
+
+    res.json({ success: true, data: { token, expiresAt } });
+  } catch (err) { res.status(500).json({ success: false, error: String(err) }); }
 });
 
 start();
