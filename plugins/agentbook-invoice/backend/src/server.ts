@@ -1067,6 +1067,217 @@ app.post('/estimates/:id/convert', async (req: Request, res: Response) => {
 });
 
 // ============================================
+// TIME TRACKING (Phase 7)
+// ============================================
+
+// Projects CRUD
+app.post('/api/v1/agentbook-invoice/projects', async (req: Request, res: Response) => {
+  try {
+    const tenantId = (req as any).tenantId;
+    const { name, clientId, description, hourlyRateCents, budgetHours } = req.body;
+    const project = await db.abProject.create({
+      data: { tenantId, name, clientId, description, hourlyRateCents, budgetHours },
+    });
+    res.status(201).json({ success: true, data: project });
+  } catch (err: any) {
+    if (err.code === 'P2002') return res.status(409).json({ success: false, error: 'Project name already exists' });
+    res.status(500).json({ success: false, error: String(err) });
+  }
+});
+
+app.get('/api/v1/agentbook-invoice/projects', async (req: Request, res: Response) => {
+  try {
+    const tenantId = (req as any).tenantId;
+    const projects = await db.abProject.findMany({
+      where: { tenantId, status: { not: 'archived' } },
+      include: { timeEntries: { select: { durationMinutes: true, billed: true } } },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    const result = projects.map((p: any) => {
+      const totalMinutes = p.timeEntries.reduce((s: number, e: any) => s + (e.durationMinutes || 0), 0);
+      const billedMinutes = p.timeEntries.filter((e: any) => e.billed).reduce((s: number, e: any) => s + (e.durationMinutes || 0), 0);
+      return {
+        ...p,
+        timeEntries: undefined,
+        totalHours: Math.round(totalMinutes / 6) / 10,
+        billedHours: Math.round(billedMinutes / 6) / 10,
+        unbilledHours: Math.round((totalMinutes - billedMinutes) / 6) / 10,
+      };
+    });
+
+    res.json({ success: true, data: result });
+  } catch (err) { res.status(500).json({ success: false, error: String(err) }); }
+});
+
+// Timer — Start
+app.post('/api/v1/agentbook-invoice/timer/start', async (req: Request, res: Response) => {
+  try {
+    const tenantId = (req as any).tenantId;
+    const { description, projectId, clientId } = req.body;
+
+    // Auto-stop any running timer
+    const running = await db.abTimeEntry.findFirst({ where: { tenantId, endedAt: null } });
+    if (running) {
+      const dur = Math.max(1, Math.round((Date.now() - new Date(running.startedAt).getTime()) / 60000));
+      await db.abTimeEntry.update({ where: { id: running.id }, data: { endedAt: new Date(), durationMinutes: dur } });
+    }
+
+    // Get rate from project
+    let rateCents: number | null = null;
+    if (projectId) {
+      const project = await db.abProject.findFirst({ where: { id: projectId, tenantId } });
+      rateCents = project?.hourlyRateCents ?? null;
+    }
+
+    const entry = await db.abTimeEntry.create({
+      data: { tenantId, projectId, clientId, description: description || 'Working', startedAt: new Date(), hourlyRateCents: rateCents },
+    });
+
+    res.status(201).json({ success: true, data: entry });
+  } catch (err) { res.status(500).json({ success: false, error: String(err) }); }
+});
+
+// Timer — Stop
+app.post('/api/v1/agentbook-invoice/timer/stop', async (req: Request, res: Response) => {
+  try {
+    const tenantId = (req as any).tenantId;
+    const running = await db.abTimeEntry.findFirst({ where: { tenantId, endedAt: null }, orderBy: { startedAt: 'desc' } });
+    if (!running) return res.status(404).json({ success: false, error: 'No running timer' });
+
+    const dur = Math.max(1, Math.round((Date.now() - new Date(running.startedAt).getTime()) / 60000));
+    const updated = await db.abTimeEntry.update({
+      where: { id: running.id },
+      data: { endedAt: new Date(), durationMinutes: dur },
+    });
+
+    await db.abEvent.create({
+      data: { tenantId, eventType: 'time.logged', actor: 'agent', action: { entryId: updated.id, minutes: dur } },
+    });
+
+    res.json({ success: true, data: updated });
+  } catch (err) { res.status(500).json({ success: false, error: String(err) }); }
+});
+
+// Timer — Status
+app.get('/api/v1/agentbook-invoice/timer/status', async (req: Request, res: Response) => {
+  try {
+    const tenantId = (req as any).tenantId;
+    const running = await db.abTimeEntry.findFirst({ where: { tenantId, endedAt: null }, orderBy: { startedAt: 'desc' } });
+    if (!running) return res.json({ success: true, data: { running: false } });
+
+    const elapsedMinutes = Math.round((Date.now() - new Date(running.startedAt).getTime()) / 60000);
+    res.json({ success: true, data: { running: true, entry: running, elapsedMinutes } });
+  } catch (err) { res.status(500).json({ success: false, error: String(err) }); }
+});
+
+// Log time manually
+app.post('/api/v1/agentbook-invoice/time-entries', async (req: Request, res: Response) => {
+  try {
+    const tenantId = (req as any).tenantId;
+    const { description, minutes, projectId, clientId, date, hourlyRateCents } = req.body;
+    if (!minutes || minutes <= 0) return res.status(400).json({ success: false, error: 'minutes must be positive' });
+
+    const entryDate = date ? new Date(date) : new Date();
+    const startedAt = new Date(entryDate.getTime() - minutes * 60000);
+
+    const entry = await db.abTimeEntry.create({
+      data: { tenantId, projectId, clientId, description: description || 'Time entry', startedAt, endedAt: entryDate, durationMinutes: minutes, hourlyRateCents },
+    });
+
+    res.status(201).json({ success: true, data: entry });
+  } catch (err) { res.status(500).json({ success: false, error: String(err) }); }
+});
+
+// List time entries
+app.get('/api/v1/agentbook-invoice/time-entries', async (req: Request, res: Response) => {
+  try {
+    const tenantId = (req as any).tenantId;
+    const { projectId, clientId, billed, startDate, endDate, limit = '50' } = req.query;
+
+    const where: any = { tenantId };
+    if (projectId) where.projectId = projectId;
+    if (clientId) where.clientId = clientId;
+    if (billed !== undefined) where.billed = billed === 'true';
+    if (startDate) where.startedAt = { ...where.startedAt, gte: new Date(startDate as string) };
+    if (endDate) where.startedAt = { ...where.startedAt, lte: new Date(endDate as string) };
+
+    const entries = await db.abTimeEntry.findMany({
+      where,
+      include: { project: { select: { name: true } } },
+      orderBy: { startedAt: 'desc' },
+      take: parseInt(limit as string),
+    });
+
+    const totalMinutes = entries.reduce((s: number, e: any) => s + (e.durationMinutes || 0), 0);
+
+    res.json({ success: true, data: entries, meta: { totalMinutes, totalHours: Math.round(totalMinutes / 6) / 10 } });
+  } catch (err) { res.status(500).json({ success: false, error: String(err) }); }
+});
+
+// Unbilled summary
+app.get('/api/v1/agentbook-invoice/unbilled-summary', async (req: Request, res: Response) => {
+  try {
+    const tenantId = (req as any).tenantId;
+    const entries = await db.abTimeEntry.findMany({
+      where: { tenantId, billable: true, billed: false, endedAt: { not: null } },
+    });
+
+    // Group by clientId
+    const groups: Map<string, { minutes: number; entries: number; rateCents: number }> = new Map();
+    for (const e of entries) {
+      const key = (e as any).clientId || 'no-client';
+      const g = groups.get(key) || { minutes: 0, entries: 0, rateCents: (e as any).hourlyRateCents || 0 };
+      g.minutes += (e as any).durationMinutes;
+      g.entries += 1;
+      if ((e as any).hourlyRateCents) g.rateCents = (e as any).hourlyRateCents;
+      groups.set(key, g);
+    }
+
+    const clientIds = Array.from(groups.keys()).filter(k => k !== 'no-client');
+    const clients = await db.abClient.findMany({ where: { id: { in: clientIds } } });
+    const nameMap = new Map(clients.map((c: any) => [c.id, c.name]));
+
+    const result = Array.from(groups.entries()).map(([cid, g]) => ({
+      clientId: cid,
+      clientName: nameMap.get(cid) || 'No Client',
+      totalMinutes: g.minutes,
+      totalHours: Math.round(g.minutes / 6) / 10,
+      hourlyRateCents: g.rateCents,
+      unbilledAmountCents: Math.round((g.minutes / 60) * g.rateCents),
+      entries: g.entries,
+    }));
+
+    res.json({ success: true, data: result });
+  } catch (err) { res.status(500).json({ success: false, error: String(err) }); }
+});
+
+// Project profitability
+app.get('/api/v1/agentbook-invoice/project-profitability', async (req: Request, res: Response) => {
+  try {
+    const tenantId = (req as any).tenantId;
+    const projects = await db.abProject.findMany({
+      where: { tenantId },
+      include: { timeEntries: { select: { durationMinutes: true, billed: true } } },
+    });
+
+    const result = projects.map((p: any) => {
+      const totalMinutes = p.timeEntries.reduce((s: number, e: any) => s + (e.durationMinutes || 0), 0);
+      const totalHours = totalMinutes / 60;
+      const rate = p.hourlyRateCents || 0;
+      const revenue = Math.round(totalHours * rate);
+      return {
+        projectId: p.id, projectName: p.name, totalHours: Math.round(totalHours * 10) / 10,
+        totalRevenueCents: revenue, effectiveRateCents: totalHours > 0 ? Math.round(revenue / totalHours) : 0,
+        budgetHours: p.budgetHours, budgetUsedPercent: p.budgetHours ? Math.round((totalHours / p.budgetHours) * 100) : null,
+      };
+    });
+
+    res.json({ success: true, data: result });
+  } catch (err) { res.status(500).json({ success: false, error: String(err) }); }
+});
+
+// ============================================
 // START
 // ============================================
 

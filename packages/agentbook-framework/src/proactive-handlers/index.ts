@@ -31,3 +31,6 @@ export { getEngagementStats, recommendFrequencyAdjustments } from './engagement-
 export { handleYearEndPlanning } from './year-end-planning.js';
 export { handleContractorThreshold } from './contractor-threshold.js';
 export { handleYearEndClosingChecklist } from './year-end-closing-checklist.js';
+
+// Phase 7
+export { handleUnbilledHours } from './unbilled-hours.js';

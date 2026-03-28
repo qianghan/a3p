@@ -1750,6 +1750,50 @@ model AbEstimate {
   @@schema("plugin_agentbook_invoice")
 }
 
+model AbProject {
+  id            String   @id @default(uuid())
+  tenantId      String
+  clientId      String?
+  name          String
+  description   String?
+  hourlyRateCents Int?                          // null = not billable
+  status        String   @default("active")     // active | completed | archived
+  budgetHours   Float?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  timeEntries   AbTimeEntry[]
+
+  @@unique([tenantId, name])
+  @@index([tenantId])
+  @@index([tenantId, status])
+  @@schema("plugin_agentbook_invoice")
+}
+
+model AbTimeEntry {
+  id            String    @id @default(uuid())
+  tenantId      String
+  projectId     String?
+  project       AbProject? @relation(fields: [projectId], references: [id])
+  clientId      String?
+  description   String
+  startedAt     DateTime
+  endedAt       DateTime?
+  durationMinutes Int     @default(0)
+  hourlyRateCents Int?
+  billable      Boolean  @default(true)
+  billed        Boolean  @default(false)
+  invoiceId     String?                         // linked when auto-invoiced
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([tenantId, startedAt])
+  @@index([tenantId, projectId])
+  @@index([tenantId, billed])
+  @@index([tenantId, clientId])
+  @@schema("plugin_agentbook_invoice")
+}
+
 // ============================================
 // PLUGIN: AGENTBOOK TAX
 // ============================================
