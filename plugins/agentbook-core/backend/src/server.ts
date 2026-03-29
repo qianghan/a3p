@@ -582,6 +582,179 @@ app.get('/api/v1/agentbook-core/agents/:agentId/learning', async (req, res) => {
   } catch (err) { res.status(500).json({ success: false, error: String(err) }); }
 });
 
+// === AGI FEATURES (7 Core Differentiators) ===
+
+// Feature 2: Conversational Financial Memory — Ask anything
+app.post('/api/v1/agentbook-core/ask', async (req, res) => {
+  try {
+    const tenantId = (req as any).tenantId;
+    const { question } = req.body;
+    if (!question) return res.status(400).json({ success: false, error: 'question is required' });
+
+    // Pattern-matched queries (MVP — LLM-generated queries in production)
+    const q = question.toLowerCase();
+    let answer = '';
+    let data: any = null;
+
+    if (q.includes('revenue') || q.includes('income') || q.includes('earn')) {
+      const accounts = await db.abAccount.findMany({ where: { tenantId, accountType: 'revenue' } });
+      const lines = await db.abJournalLine.findMany({
+        where: { accountId: { in: accounts.map((a: any) => a.id) }, entry: { tenantId } },
+      });
+      const total = lines.reduce((s: number, l: any) => s + l.creditCents, 0);
+      answer = `Your total revenue is $${(total / 100).toLocaleString()}.`;
+      data = { totalRevenueCents: total };
+    } else if (q.includes('spend') || q.includes('expense')) {
+      const expenses = await db.abExpense.findMany({ where: { tenantId, isPersonal: false } });
+      const total = expenses.reduce((s: number, e: any) => s + e.amountCents, 0);
+      answer = `Total expenses: $${(total / 100).toLocaleString()} across ${expenses.length} transactions.`;
+      data = { totalCents: total, count: expenses.length };
+    } else if (q.includes('tax') || q.includes('owe')) {
+      const estimate = await db.abTaxEstimate.findFirst({ where: { tenantId }, orderBy: { calculatedAt: 'desc' } });
+      if (estimate) {
+        answer = `Estimated tax: $${(estimate.totalTaxCents / 100).toLocaleString()}. Effective rate: ${(estimate.effectiveRate * 100).toFixed(1)}%.`;
+        data = estimate;
+      } else { answer = 'No tax estimate yet.'; }
+    } else if (q.includes('cash') || q.includes('balance')) {
+      const cash = await db.abAccount.findFirst({ where: { tenantId, code: '1000' } });
+      if (cash) {
+        const lines = await db.abJournalLine.findMany({ where: { accountId: cash.id, entry: { tenantId } } });
+        const balance = lines.reduce((s: number, l: any) => s + l.debitCents - l.creditCents, 0);
+        answer = `Cash balance: $${(balance / 100).toLocaleString()}.`;
+        data = { balanceCents: balance };
+      } else { answer = 'No cash account found.'; }
+    } else if (q.includes('client')) {
+      const clients = await db.abClient.findMany({ where: { tenantId } });
+      const outstanding = clients.reduce((s: number, c: any) => s + (c.totalBilledCents - c.totalPaidCents), 0);
+      answer = `${clients.length} clients. Outstanding: $${(outstanding / 100).toLocaleString()}.`;
+      data = { clients: clients.length, outstandingCents: outstanding };
+    } else {
+      answer = `I can answer about revenue, expenses, taxes, cash balance, and clients. Try: "How much revenue this year?"`;
+    }
+
+    res.json({ success: true, data: { question, answer, data } });
+  } catch (err) { res.status(500).json({ success: false, error: String(err) }); }
+});
+
+// Feature 3: Proactive Money Moves
+app.get('/api/v1/agentbook-core/money-moves', async (req, res) => {
+  try {
+    const tenantId = (req as any).tenantId;
+    const moves: any[] = [];
+
+    // Cash cushion check
+    const cash = await db.abAccount.findFirst({ where: { tenantId, code: '1000' } });
+    if (cash) {
+      const lines = await db.abJournalLine.findMany({ where: { accountId: cash.id, entry: { tenantId } } });
+      const balance = lines.reduce((s: number, l: any) => s + l.debitCents - l.creditCents, 0);
+      const threeMonthsAgo = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000);
+      const expenses = await db.abExpense.aggregate({
+        where: { tenantId, isPersonal: false, date: { gte: threeMonthsAgo } },
+        _sum: { amountCents: true },
+      });
+      const monthlyExp = (expenses._sum.amountCents || 0) / 3;
+      if (monthlyExp > 0 && balance / monthlyExp < 2) {
+        moves.push({ type: 'cash_cushion', urgency: balance / monthlyExp < 1 ? 'critical' : 'important',
+          title: 'Cash cushion thin', description: `${(balance / monthlyExp).toFixed(1)} months runway`, impactCents: Math.round(monthlyExp * 3 - balance) });
+      }
+    }
+
+    // Revenue concentration
+    const clients = await db.abClient.findMany({ where: { tenantId } });
+    const totalRev = clients.reduce((s: number, c: any) => s + c.totalBilledCents, 0);
+    if (totalRev > 0) {
+      const top = clients.sort((a: any, b: any) => b.totalBilledCents - a.totalBilledCents)[0];
+      if (top && top.totalBilledCents / totalRev > 0.5) {
+        moves.push({ type: 'revenue_cliff', urgency: 'important',
+          title: `${top.name} = ${Math.round(top.totalBilledCents / totalRev * 100)}% of revenue`,
+          description: 'Diversification recommended', impactCents: top.totalBilledCents });
+      }
+    }
+
+    res.json({ success: true, data: moves });
+  } catch (err) { res.status(500).json({ success: false, error: String(err) }); }
+});
+
+// Feature 4: Tax Package Generation
+app.get('/api/v1/agentbook-core/tax-package', async (req, res) => {
+  try {
+    const tenantId = (req as any).tenantId;
+    const taxYear = parseInt(req.query.year as string) || new Date().getFullYear();
+    const config = await db.abTenantConfig.findUnique({ where: { userId: tenantId } });
+    const yearStart = new Date(taxYear, 0, 1);
+    const yearEnd = new Date(taxYear, 11, 31);
+
+    const revenueAccounts = await db.abAccount.findMany({ where: { tenantId, accountType: 'revenue' } });
+    const revLines = await db.abJournalLine.findMany({
+      where: { accountId: { in: revenueAccounts.map((a: any) => a.id) }, entry: { tenantId, date: { gte: yearStart, lte: yearEnd } } },
+    });
+    const gross = revLines.reduce((s: number, l: any) => s + l.creditCents, 0);
+
+    const expenseAccounts = await db.abAccount.findMany({ where: { tenantId, accountType: 'expense' } });
+    const categories: any[] = [];
+    let totalExp = 0;
+    for (const a of expenseAccounts) {
+      const lines = await db.abJournalLine.findMany({
+        where: { accountId: a.id, entry: { tenantId, date: { gte: yearStart, lte: yearEnd } } },
+      });
+      const amount = lines.reduce((s: number, l: any) => s + l.debitCents, 0);
+      if (amount > 0) { categories.push({ category: a.taxCategory || a.name, amountCents: amount }); totalExp += amount; }
+    }
+
+    const allExp = await db.abExpense.count({ where: { tenantId, date: { gte: yearStart, lte: yearEnd }, isPersonal: false } });
+    const withReceipts = await db.abExpense.count({ where: { tenantId, date: { gte: yearStart, lte: yearEnd }, isPersonal: false, receiptUrl: { not: null } } });
+    const missing: string[] = [];
+    if (allExp > 0 && withReceipts / allExp < 0.8) missing.push(`${allExp - withReceipts} expenses without receipts`);
+    if (gross === 0) missing.push('No revenue recorded');
+
+    res.json({ success: true, data: {
+      jurisdiction: config?.jurisdiction || 'us', taxYear, grossIncomeCents: gross, totalExpensesCents: totalExp,
+      netIncomeCents: gross - totalExp, expensesByCategory: categories.sort((a: any, b: any) => b.amountCents - a.amountCents),
+      receiptCoverage: allExp > 0 ? withReceipts / allExp : 0, readyToFile: missing.length === 0, missingItems: missing,
+    }});
+  } catch (err) { res.status(500).json({ success: false, error: String(err) }); }
+});
+
+// Feature 5: Client Intelligence
+app.get('/api/v1/agentbook-core/client-health', async (req, res) => {
+  try {
+    const tenantId = (req as any).tenantId;
+    const clients = await db.abClient.findMany({ where: { tenantId } });
+    const totalBilled = clients.reduce((s: number, c: any) => s + c.totalBilledCents, 0);
+
+    const result = clients.map((c: any) => {
+      const share = totalBilled > 0 ? c.totalBilledCents / totalBilled : 0;
+      const outstanding = c.totalBilledCents - c.totalPaidCents;
+      return {
+        clientId: c.id, clientName: c.name, lifetimeValueCents: c.totalBilledCents,
+        outstandingCents: outstanding, revenueShare: share,
+        riskLevel: share > 0.5 ? 'high' : share > 0.3 ? 'moderate' : 'low',
+      };
+    }).sort((a: any, b: any) => b.lifetimeValueCents - a.lifetimeValueCents);
+
+    res.json({ success: true, data: result });
+  } catch (err) { res.status(500).json({ success: false, error: String(err) }); }
+});
+
+// Feature 7: Autopilot Status
+app.get('/api/v1/agentbook-core/autopilot', async (req, res) => {
+  try {
+    const tenantId = (req as any).tenantId;
+    const config = await db.abTenantConfig.findUnique({ where: { userId: tenantId } });
+    const monthsActive = config ? Math.floor((Date.now() - new Date(config.createdAt).getTime()) / (30 * 24 * 60 * 60 * 1000)) : 0;
+
+    const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+    const corrections = await db.abLearningEvent.count({ where: { tenantId, eventType: 'correction', createdAt: { gte: thirtyDaysAgo } } });
+    const confirmations = await db.abLearningEvent.count({ where: { tenantId, eventType: 'confirmation', createdAt: { gte: thirtyDaysAgo } } });
+    const total = corrections + confirmations;
+    const accuracy = total > 0 ? confirmations / total : 0.5;
+    const trustLevel = Math.min(1, monthsActive / 6) * 0.4 + accuracy * 0.6;
+    const phase = trustLevel > 0.9 ? 'autopilot' : trustLevel > 0.7 ? 'confident' : trustLevel > 0.4 ? 'learning' : 'training';
+
+    res.json({ success: true, data: { trustLevel, trustPhase: phase, accuracy, monthsActive, corrections, confirmations } });
+  } catch (err) { res.status(500).json({ success: false, error: String(err) }); }
+});
+
 // === IMMUTABILITY GUARD: Journal entries cannot be modified once created ===
 // Per SKILL.md: "Corrections are made via reversing entries, never by editing existing records."
 app.put('/api/v1/agentbook-core/journal-entries/:id', async (_req, res) => {
