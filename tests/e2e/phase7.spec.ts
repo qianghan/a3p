@@ -7,12 +7,13 @@ const H = { 'x-tenant-id': TENANT, 'Content-Type': 'application/json' };
 
 test.describe('Phase 7: Projects', () => {
   test('create project', async ({ request }) => {
+    const name = `E2E Project ${Date.now()}`;
     const res = await request.post(`${INVOICE_API}/api/v1/agentbook-invoice/projects`, {
-      headers: H, data: { name: 'E2E Project', hourlyRateCents: 15000 },
+      headers: H, data: { name, hourlyRateCents: 15000 },
     });
     expect(res.ok()).toBeTruthy();
     const d = await res.json();
-    expect(d.data.name).toBe('E2E Project');
+    expect(d.data.name).toBe(name);
     expect(d.data.hourlyRateCents).toBe(15000);
   });
 
