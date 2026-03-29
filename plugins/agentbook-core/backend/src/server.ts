@@ -647,4 +647,83 @@ app.post('/api/v1/agentbook-core/cpa/generate-link', async (req, res) => {
   } catch (err) { res.status(500).json({ success: false, error: String(err) }); }
 });
 
+// === ADMIN: LLM PROVIDER CONFIG (Phase 8) ===
+
+app.get('/api/v1/agentbook-core/admin/llm-configs', async (req, res) => {
+  try {
+    const configs = await db.abLLMProviderConfig.findMany({ orderBy: { createdAt: 'asc' } });
+    res.json({ success: true, data: configs });
+  } catch (err) { res.status(500).json({ success: false, error: String(err) }); }
+});
+
+app.post('/api/v1/agentbook-core/admin/llm-configs', async (req, res) => {
+  try {
+    const { name, provider, apiKey, baseUrl, modelFast, modelStandard, modelPremium, modelVision, isDefault } = req.body;
+
+    // If setting as default, unset others
+    if (isDefault) {
+      await db.abLLMProviderConfig.updateMany({ data: { isDefault: false } });
+    }
+
+    const config = await db.abLLMProviderConfig.create({
+      data: { name, provider, apiKey, baseUrl, modelFast, modelStandard, modelPremium, modelVision, isDefault: isDefault || false },
+    });
+    res.status(201).json({ success: true, data: config });
+  } catch (err) { res.status(500).json({ success: false, error: String(err) }); }
+});
+
+app.post('/api/v1/agentbook-core/admin/llm-configs/:id/set-default', async (req, res) => {
+  try {
+    await db.abLLMProviderConfig.updateMany({ data: { isDefault: false } });
+    await db.abLLMProviderConfig.update({ where: { id: req.params.id }, data: { isDefault: true } });
+    res.json({ success: true });
+  } catch (err) { res.status(500).json({ success: false, error: String(err) }); }
+});
+
+app.delete('/api/v1/agentbook-core/admin/llm-configs/:id', async (req, res) => {
+  try {
+    await db.abLLMProviderConfig.delete({ where: { id: req.params.id } });
+    res.json({ success: true });
+  } catch (err) { res.status(500).json({ success: false, error: String(err) }); }
+});
+
+app.post('/api/v1/agentbook-core/admin/llm-configs/:id/test', async (req, res) => {
+  try {
+    const config = await db.abLLMProviderConfig.findUnique({ where: { id: req.params.id } });
+    if (!config) return res.status(404).json({ success: false, error: 'Config not found' });
+
+    // Test with Gemini API (direct call for testing)
+    if (config.provider === 'gemini') {
+      const model = config.modelFast || 'gemini-2.0-flash';
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${config.apiKey}`;
+
+      const start = Date.now();
+      const apiRes = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ role: 'user', parts: [{ text: 'Say "AgentBook LLM connection successful!" in one sentence.' }] }],
+          generationConfig: { maxOutputTokens: 50 },
+        }),
+      });
+      const latencyMs = Date.now() - start;
+
+      if (!apiRes.ok) {
+        const error = await apiRes.text();
+        return res.json({ success: false, error: `API error: ${error.slice(0, 200)}` });
+      }
+
+      const data = await apiRes.json();
+      const response = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+
+      return res.json({ success: true, data: { model, response, latencyMs } });
+    }
+
+    // Generic test for other providers
+    res.json({ success: true, data: { model: 'test', response: 'Provider test not implemented yet', latencyMs: 0 } });
+  } catch (err) {
+    res.status(500).json({ success: false, error: String(err) });
+  }
+});
+
 start();

@@ -19,3 +19,5 @@ export { ProactiveEngine } from './proactive-engine.js';
 export { CalendarEngine, type CalendarEvent, type CalendarProvider } from './calendar-engine.js';
 export { type Intent, type ToolResult, type DAGPlan } from './types.js';
 export { LLMBudgetTracker, type LLMUsageRecord } from './llm-budget.js';
+export { LLMGateway, getLLMGateway, initLLMGateway, GeminiProvider } from './llm/index.js';
+export type { LLMProvider, LLMProviderConfig, LLMRequest, LLMResponse, LLMMessage } from './llm/types.js';

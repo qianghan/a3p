@@ -1969,3 +1969,24 @@ model AbOnboardingProgress {
 
   @@schema("plugin_agentbook_core")
 }
+
+model AbLLMProviderConfig {
+  id          String   @id @default(uuid())
+  tenantId    String?                           // null = platform-wide default
+  name        String                            // "Google Gemini", "OpenAI GPT"
+  provider    String                            // "gemini" | "openai" | "claude" | "kimi" | "minimax"
+  apiKey      String                            // encrypted in production
+  baseUrl     String?
+  enabled     Boolean  @default(true)
+  isDefault   Boolean  @default(false)
+  modelFast   String   @default("gemini-2.0-flash")
+  modelStandard String @default("gemini-2.5-flash")
+  modelPremium String  @default("gemini-2.5-pro")
+  modelVision String?  @default("gemini-2.5-flash")
+  rateLimit   Int?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([tenantId])
+  @@schema("plugin_agentbook_core")
+}

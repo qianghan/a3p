@@ -34,3 +34,7 @@ export { handleYearEndClosingChecklist } from './year-end-closing-checklist.js';
 
 // Phase 7
 export { handleUnbilledHours } from './unbilled-hours.js';
+
+// Phase 8
+export { handleSubscriptionAuditAlert } from './subscription-audit-alert.js';
+export { handleConcentrationWarning } from './concentration-warning.js';
