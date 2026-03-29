@@ -54,6 +54,38 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       });
 
       processed++;
+
+      // Auto-record bank transactions (Zero-Input Bookkeeping)
+      const bankTxns = await db.abBankTransaction.findMany({
+        where: { tenantId: tenant.userId, matchStatus: 'pending', pending: false },
+        take: 50,
+      });
+
+      for (const tx of bankTxns) {
+        // Check vendor pattern for auto-categorization
+        const normalizedMerchant = (tx.merchantName || tx.name || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+        const pattern = await db.abPattern.findFirst({
+          where: { tenantId: tenant.userId, vendorPattern: normalizedMerchant },
+        });
+
+        if (pattern && pattern.confidence >= 0.9 && tx.amount > 0) {
+          // Auto-record silently
+          await db.abExpense.create({
+            data: {
+              tenantId: tenant.userId,
+              amountCents: Math.abs(tx.amount),
+              categoryId: pattern.categoryId,
+              date: new Date(tx.date),
+              description: `Auto: ${tx.name || tx.merchantName}`,
+              confidence: pattern.confidence,
+            },
+          });
+          await db.abBankTransaction.update({
+            where: { id: tx.id },
+            data: { matchStatus: 'matched' },
+          });
+        }
+      }
     }
 
     return NextResponse.json({ success: true, processed, timestamp: new Date().toISOString() });

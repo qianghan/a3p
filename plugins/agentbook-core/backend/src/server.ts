@@ -629,7 +629,60 @@ app.post('/api/v1/agentbook-core/ask', async (req, res) => {
       answer = `${clients.length} clients. Outstanding: $${(outstanding / 100).toLocaleString()}.`;
       data = { clients: clients.length, outstandingCents: outstanding };
     } else {
-      answer = `I can answer about revenue, expenses, taxes, cash balance, and clients. Try: "How much revenue this year?"`;
+      // LLM fallback: use Gemini for complex questions
+      const llmConfig = await db.abLLMProviderConfig.findFirst({ where: { enabled: true, isDefault: true } });
+      if (llmConfig && llmConfig.provider === 'gemini') {
+        try {
+          // Get financial context for LLM
+          const revenueAccounts = await db.abAccount.findMany({ where: { tenantId, accountType: 'revenue' } });
+          const revLines = await db.abJournalLine.findMany({
+            where: { accountId: { in: revenueAccounts.map((a: any) => a.id) }, entry: { tenantId } },
+          });
+          const totalRevenue = revLines.reduce((s: number, l: any) => s + l.creditCents, 0);
+
+          const expenseCount = await db.abExpense.count({ where: { tenantId, isPersonal: false } });
+          const expenses = await db.abExpense.aggregate({ where: { tenantId, isPersonal: false }, _sum: { amountCents: true } });
+          const totalExpenses = expenses._sum.amountCents || 0;
+
+          const clients = await db.abClient.findMany({ where: { tenantId } });
+          const config = await db.abTenantConfig.findUnique({ where: { userId: tenantId } });
+
+          const context = `Financial context for ${config?.jurisdiction || 'us'} business:
+Revenue: $${(totalRevenue / 100).toFixed(2)}
+Expenses: $${(totalExpenses / 100).toFixed(2)} across ${expenseCount} transactions
+Net income: $${((totalRevenue - totalExpenses) / 100).toFixed(2)}
+Clients: ${clients.map((c: any) => `${c.name} (billed: $${(c.totalBilledCents / 100).toFixed(2)})`).join(', ') || 'None'}
+Currency: ${config?.currency || 'USD'}
+Jurisdiction: ${config?.jurisdiction || 'us'}`;
+
+          const model = llmConfig.modelFast || 'gemini-2.0-flash';
+          const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${llmConfig.apiKey}`;
+
+          const llmRes = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              systemInstruction: { parts: [{ text: 'You are AgentBook, an AI accounting agent. Answer financial questions concisely using the provided context. If you cannot answer from the data, say so clearly. Always include dollar amounts.' }] },
+              contents: [{ role: 'user', parts: [{ text: `${context}\n\nQuestion: ${question}` }] }],
+              generationConfig: { maxOutputTokens: 300, temperature: 0.3 },
+            }),
+          });
+
+          if (llmRes.ok) {
+            const llmData = await llmRes.json();
+            const llmAnswer = llmData.candidates?.[0]?.content?.parts?.[0]?.text || '';
+            answer = llmAnswer;
+            data = { source: 'gemini', model, context: 'financial_summary' };
+          } else {
+            answer = `I can answer about revenue, expenses, taxes, cash balance, and clients. Try: "How much revenue this year?"`;
+          }
+        } catch (llmErr) {
+          console.warn('LLM fallback failed:', llmErr);
+          answer = `I can answer about revenue, expenses, taxes, cash balance, and clients. Try: "How much revenue this year?"`;
+        }
+      } else {
+        answer = `I can answer about revenue, expenses, taxes, cash balance, and clients. Try: "How much revenue this year?"`;
+      }
     }
 
     res.json({ success: true, data: { question, answer, data } });
@@ -668,6 +721,35 @@ app.get('/api/v1/agentbook-core/money-moves', async (req, res) => {
         moves.push({ type: 'revenue_cliff', urgency: 'important',
           title: `${top.name} = ${Math.round(top.totalBilledCents / totalRev * 100)}% of revenue`,
           description: 'Diversification recommended', impactCents: top.totalBilledCents });
+      }
+    }
+
+    // Move 5: Bracket proximity timing advice
+    const config = await db.abTenantConfig.findUnique({ where: { userId: tenantId } });
+    const estimate = await db.abTaxEstimate.findFirst({ where: { tenantId }, orderBy: { calculatedAt: 'desc' } });
+    if (estimate && estimate.netIncomeCents > 0) {
+      const jurisdiction = config?.jurisdiction || 'us';
+      // Simplified bracket check
+      const brackets = jurisdiction === 'ca'
+        ? [{ min: 0, max: 5737500, rate: 0.15 }, { min: 5737500, max: 11475000, rate: 0.205 }, { min: 11475000, max: 15846800, rate: 0.26 }, { min: 15846800, max: 22170800, rate: 0.29 }, { min: 22170800, max: null as number | null, rate: 0.33 }]
+        : [{ min: 0, max: 1160000, rate: 0.10 }, { min: 1160000, max: 4712500, rate: 0.12 }, { min: 4712500, max: 10052500, rate: 0.22 }, { min: 10052500, max: 19190000, rate: 0.24 }, { min: 19190000, max: null as number | null, rate: 0.32 }];
+
+      for (let i = 0; i < brackets.length - 1; i++) {
+        const b = brackets[i];
+        if (b.max && estimate.netIncomeCents > b.min && estimate.netIncomeCents < b.max) {
+          const gap = b.max - estimate.netIncomeCents;
+          if (gap < 500000 && gap > 0) { // Within $5,000 of next bracket
+            const nextRate = brackets[i + 1].rate;
+            const savings = Math.round(gap * (nextRate - b.rate));
+            moves.push({
+              type: 'optimal_timing', urgency: 'informational',
+              title: `$${(gap / 100).toFixed(0)} from next tax bracket`,
+              description: `Prepay $${(gap / 100).toFixed(0)} in deductible expenses before year-end to stay in the ${(b.rate * 100).toFixed(0)}% bracket and save ~$${(savings / 100).toFixed(0)}.`,
+              impactCents: savings,
+            });
+            break;
+          }
+        }
       }
     }
 
@@ -722,15 +804,49 @@ app.get('/api/v1/agentbook-core/client-health', async (req, res) => {
     const clients = await db.abClient.findMany({ where: { tenantId } });
     const totalBilled = clients.reduce((s: number, c: any) => s + c.totalBilledCents, 0);
 
-    const result = clients.map((c: any) => {
+    const result = await Promise.all(clients.map(async (c: any) => {
       const share = totalBilled > 0 ? c.totalBilledCents / totalBilled : 0;
       const outstanding = c.totalBilledCents - c.totalPaidCents;
+
+      // Effective hourly rate from time entries
+      const timeEntries = await db.abTimeEntry.findMany({
+        where: { tenantId, clientId: c.id, endedAt: { not: null } },
+      });
+      const totalMinutes = timeEntries.reduce((s: number, e: any) => s + (e.durationMinutes || 0), 0);
+      const totalHours = totalMinutes / 60;
+      const effectiveRateCents = totalHours > 0 ? Math.round(c.totalBilledCents / totalHours) : 0;
+
+      // Payment reliability from invoices
+      const paidInvoices = await db.abInvoice.findMany({
+        where: { tenantId, clientId: c.id, status: 'paid' },
+        include: { payments: true },
+      });
+      const onTime = paidInvoices.filter((inv: any) => {
+        if (!inv.payments.length) return false;
+        return new Date(inv.payments[0].date) <= new Date(inv.dueDate);
+      }).length;
+      const reliability = paidInvoices.length > 0 ? onTime / paidInvoices.length : 1;
+      const daysList = paidInvoices.filter((inv: any) => inv.payments.length > 0).map((inv: any) =>
+        Math.ceil((new Date(inv.payments[0].date).getTime() - new Date(inv.issuedDate).getTime()) / (1000*60*60*24))
+      );
+      const avgDays = daysList.length > 0 ? Math.round(daysList.reduce((s: number, d: number) => s + d, 0) / daysList.length) : 30;
+
+      let risk: string = 'low';
+      let recommendation = `${c.name} is a healthy client.`;
+      if (effectiveRateCents > 0 && effectiveRateCents < (totalBilled / Math.max(1, clients.length)) * 0.7) {
+        risk = 'high'; recommendation = `Effective rate below average. Consider rate increase.`;
+      } else if (reliability < 0.7) {
+        risk = 'moderate'; recommendation = `Payment reliability ${Math.round(reliability*100)}%. Consider shorter terms.`;
+      }
+
       return {
         clientId: c.id, clientName: c.name, lifetimeValueCents: c.totalBilledCents,
         outstandingCents: outstanding, revenueShare: share,
-        riskLevel: share > 0.5 ? 'high' : share > 0.3 ? 'moderate' : 'low',
+        effectiveRateCents, totalHours: Math.round(totalHours * 10) / 10,
+        paymentReliability: reliability, avgDaysToPay: avgDays,
+        riskLevel: risk, recommendation,
       };
-    }).sort((a: any, b: any) => b.lifetimeValueCents - a.lifetimeValueCents);
+    }));
 
     res.json({ success: true, data: result });
   } catch (err) { res.status(500).json({ success: false, error: String(err) }); }
@@ -750,6 +866,21 @@ app.get('/api/v1/agentbook-core/autopilot', async (req, res) => {
     const accuracy = total > 0 ? confirmations / total : 0.5;
     const trustLevel = Math.min(1, monthsActive / 6) * 0.4 + accuracy * 0.6;
     const phase = trustLevel > 0.9 ? 'autopilot' : trustLevel > 0.7 ? 'confident' : trustLevel > 0.4 ? 'learning' : 'training';
+
+    // Auto-adjust bookkeeper agent based on trust phase
+    if (phase === 'confident' || phase === 'autopilot') {
+      await db.abAgentConfig.upsert({
+        where: { tenantId_agentId: { tenantId, agentId: 'bookkeeper' } },
+        update: { autoApprove: true },
+        create: { tenantId, agentId: 'bookkeeper', autoApprove: true },
+      });
+    } else if (phase === 'training') {
+      await db.abAgentConfig.upsert({
+        where: { tenantId_agentId: { tenantId, agentId: 'bookkeeper' } },
+        update: { autoApprove: false },
+        create: { tenantId, agentId: 'bookkeeper', autoApprove: false },
+      });
+    }
 
     res.json({ success: true, data: { trustLevel, trustPhase: phase, accuracy, monthsActive, corrections, confirmations } });
   } catch (err) { res.status(500).json({ success: false, error: String(err) }); }

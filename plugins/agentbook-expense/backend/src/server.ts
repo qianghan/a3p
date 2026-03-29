@@ -459,21 +459,38 @@ app.post('/api/v1/agentbook-expense/receipts/ocr', async (req, res) => {
       return res.status(400).json({ success: false, error: 'imageUrl is required' });
     }
 
-    // In production: call service-gateway LLM vision endpoint
-    // For now: return structured placeholder indicating OCR is available
-    const ocrResult = {
-      amount_cents: 0,
-      vendor: null,
-      date: new Date().toISOString().split('T')[0],
-      line_items: [],
-      subtotal_cents: null,
-      tax_cents: null,
-      tip_cents: null,
-      currency: 'USD',
-      confidence: 0.0,
-      status: 'pending_llm_connection',
-      message: 'OCR endpoint active. Connect service-gateway LLM for production processing.',
-    };
+    // Call Gemini for receipt OCR
+    const llmConfig = await db.abLLMProviderConfig.findFirst({ where: { enabled: true, isDefault: true } });
+    let ocrResult: any = { amount_cents: 0, vendor: null, date: new Date().toISOString().split('T')[0], confidence: 0, status: 'no_llm_configured' };
+
+    if (llmConfig && llmConfig.provider === 'gemini') {
+      try {
+        const model = llmConfig.modelVision || llmConfig.modelStandard || 'gemini-2.5-flash';
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${llmConfig.apiKey}`;
+
+        const llmRes = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            systemInstruction: { parts: [{ text: 'Extract receipt data as JSON: {"amount_cents": <integer>, "vendor": "<string>", "date": "<YYYY-MM-DD>", "currency": "USD or CAD", "confidence": <0-1>}. Return ONLY valid JSON.' }] },
+            contents: [{ role: 'user', parts: [{ text: `Extract data from this receipt image URL: ${imageUrl}` }] }],
+            generationConfig: { maxOutputTokens: 200, temperature: 0.1, responseMimeType: 'application/json' },
+          }),
+        });
+
+        if (llmRes.ok) {
+          const llmData = await llmRes.json();
+          const text = llmData.candidates?.[0]?.content?.parts?.[0]?.text || '{}';
+          try {
+            const parsed = JSON.parse(text);
+            ocrResult = { ...parsed, status: 'processed_by_gemini', model };
+          } catch { ocrResult.status = 'gemini_parse_error'; }
+        }
+      } catch (err) {
+        console.warn('Gemini OCR failed:', err);
+        ocrResult.status = 'gemini_error';
+      }
+    }
 
     await db.abEvent.create({
       data: { tenantId, eventType: 'receipt.ocr_requested', actor: 'system', action: { imageUrl: imageUrl.slice(0, 50) + '...' } },
