@@ -11,6 +11,23 @@ const PLUGIN_ROUTE_MAP: Record<string, string> = {
   '/gateway': 'serviceGateway',
   '/forum': 'community',
   '/publish': 'pluginPublisher',
+  // AgentBook — specific sub-paths BEFORE the catch-all
+  '/agentbook/expenses': 'agentbookExpense',
+  '/agentbook/receipts': 'agentbookExpense',
+  '/agentbook/vendors': 'agentbookExpense',
+  '/agentbook/bank': 'agentbookExpense',
+  '/agentbook/invoices': 'agentbookInvoice',
+  '/agentbook/clients': 'agentbookInvoice',
+  '/agentbook/estimates': 'agentbookInvoice',
+  '/agentbook/timer': 'agentbookInvoice',
+  '/agentbook/projects': 'agentbookInvoice',
+  '/agentbook/tax': 'agentbookTax',
+  '/agentbook/reports': 'agentbookTax',
+  '/agentbook/cashflow': 'agentbookTax',
+  '/agentbook/analytics': 'agentbookTax',
+  '/agentbook/whatif': 'agentbookTax',
+  // AgentBook core — catch-all for /agentbook, /agentbook/ledger, /agentbook/accounts, etc.
+  '/agentbook': 'agentbookCore',
 };
 
 // CSP configuration for plugin pages
