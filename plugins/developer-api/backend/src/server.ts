@@ -2,10 +2,15 @@ import express from 'express';
 import cors from 'cors';
 import crypto from 'crypto';
 import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { config } from 'dotenv';
 import { createAuthMiddleware } from '@naap/plugin-server-sdk';
 
-config();
+const backendRoot = resolve(import.meta.dirname ?? '.', '..');
+const repoRoot = resolve(backendRoot, '../../..');
+// Load backend/.env first, then repo root (do not override keys already set)
+config({ path: resolve(backendRoot, '.env') });
+config({ path: resolve(repoRoot, '.env'), override: false });
 
 function sanitizeForLog(value: unknown): string {
   return String(value).replace(/[\n\r\t\x00-\x1f\x7f-\x9f\u2028\u2029]/g, '');
@@ -135,6 +140,112 @@ app.get('/api/v1/developer/models', async (req, res) => {
   } catch (error) {
     console.error('Error fetching models:', error);
     res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// ============================================
+// Network Models (NAAP /v1/net/models)
+// ============================================
+
+/** Matches apps/web-next `.env` example: NAAP API base including /v1. */
+const DEFAULT_NET_MODELS_API_BASE = 'https://naap-api.livepeer.cloud/v1';
+
+const NET_MODELS_API_BASE = (
+  process.env.NAAP_API_SERVER_URL?.trim() || DEFAULT_NET_MODELS_API_BASE
+).replace(/\/+$/, '');
+
+const NET_MODELS_CACHE_TTL_MS = 60_000;
+const netModelsJsonCache = new Map<
+  string,
+  { expiresAt: number; body: { models: unknown[]; total: number } }
+>();
+const netModelsInflight = new Map<string, Promise<{ models: unknown[]; total: number }>>();
+
+function parseNetModelsJson(payload: unknown): unknown[] {
+  if (Array.isArray(payload)) {
+    return payload;
+  }
+  if (payload && typeof payload === 'object') {
+    const o = payload as Record<string, unknown>;
+    if (Array.isArray(o.models)) {
+      return o.models;
+    }
+    if (Array.isArray(o.data)) {
+      return o.data;
+    }
+    throw new Error(
+      `Unsupported net models JSON shape: object with keys [${Object.keys(o).join(', ')}]`
+    );
+  }
+  throw new Error(
+    `Unsupported net models JSON shape: primitive value of type ${typeof payload} with value ${
+      typeof payload === 'string' ? JSON.stringify(payload) : String(payload)
+    }`
+  );
+}
+
+app.get('/api/v1/developer/network-models', async (req, res) => {
+  try {
+    const limitParam = typeof req.query.limit === 'string' ? req.query.limit : undefined;
+    const limitIsAll = limitParam === 'all' || limitParam === '0' || limitParam == null;
+    const limit = limitIsAll
+      ? undefined
+      : Math.max(1, Math.min(parseInt(limitParam!, 10) || 50, 200));
+    const cacheKey = limitIsAll ? 'all' : String(limit);
+    const cached = netModelsJsonCache.get(cacheKey);
+    if (cached && cached.expiresAt > Date.now()) {
+      return res.json(cached.body);
+    }
+
+    const inflight = netModelsInflight.get(cacheKey);
+    if (inflight) {
+      const body = await inflight;
+      return res.json(body);
+    }
+
+    const fetchPromise = (async () => {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 10_000);
+      const upstreamUrl = limitIsAll
+        ? `${NET_MODELS_API_BASE}/net/models`
+        : `${NET_MODELS_API_BASE}/net/models?limit=${limit}`;
+      let upstream: Response;
+      try {
+        upstream = await fetch(
+          upstreamUrl,
+          {
+            headers: { Accept: 'application/json' },
+            signal: controller.signal,
+          }
+        );
+      } finally {
+        clearTimeout(timeout);
+      }
+
+      if (!upstream.ok) {
+        console.error(`[developer-api] NAAP net/models returned ${upstream.status}`);
+        throw new Error(`upstream HTTP ${upstream.status}`);
+      }
+
+      const payload = await upstream.json();
+      const models = parseNetModelsJson(payload);
+      return { models, total: models.length };
+    })();
+
+    netModelsInflight.set(cacheKey, fetchPromise);
+    try {
+      const body = await fetchPromise;
+      netModelsJsonCache.set(cacheKey, {
+        expiresAt: Date.now() + NET_MODELS_CACHE_TTL_MS,
+        body,
+      });
+      return res.json(body);
+    } finally {
+      netModelsInflight.delete(cacheKey);
+    }
+  } catch (error) {
+    console.error('Error fetching network models:', error);
+    res.status(502).json({ error: 'Failed to fetch network models from NAAP API' });
   }
 });
 

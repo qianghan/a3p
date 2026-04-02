@@ -51,23 +51,31 @@ export const DASHBOARD_JOB_FEED_EMIT_EVENT = 'dashboard:job-feed:event' as const
  */
 export const DASHBOARD_SCHEMA = /* GraphQL */ `
   type Query {
+    # Optimized/summary queries
     kpi(window: String, timeframe: String): KPI
     protocol: Protocol
     fees(days: Int): FeesInfo
     pipelines(limit: Int, timeframe: String): [PipelineUsage!]
     pipelineCatalog: [PipelineCatalogEntry!]
-    gpuCapacity: GPUCapacity
+    gpuCapacity(timeframe: String): GPUCapacity
     pricing: [PipelinePricing!]
     orchestrators(period: String): [OrchestratorRow!]
+  }
+
+  type HourlyBucket {
+    hour: String!
+    value: Float!
   }
 
   type KPI {
     successRate: MetricDelta!
     orchestratorsOnline: MetricDelta!
     dailyUsageMins: MetricDelta!
-    dailyStreamCount: MetricDelta!
+    dailySessionCount: MetricDelta!
     dailyNetworkFeesEth: MetricDelta!
     timeframeHours: Int!
+    hourlyUsage: [HourlyBucket!]
+    hourlySessions: [HourlyBucket!]
   }
 
   type MetricDelta {
@@ -89,10 +97,10 @@ export const DASHBOARD_SCHEMA = /* GraphQL */ `
     oneDayVolumeEth: Float!
     oneWeekVolumeUsd: Float!
     oneWeekVolumeEth: Float!
-    volumeChangeUsd: Float!
-    volumeChangeEth: Float!
-    weeklyVolumeChangeUsd: Float!
-    weeklyVolumeChangeEth: Float!
+    volumeChangeUsd: Float
+    volumeChangeEth: Float
+    weeklyVolumeChangeUsd: Float
+    weeklyVolumeChangeEth: Float
     dayData: [FeeDayData!]!
     weeklyData: [FeeWeeklyData!]!
   }
@@ -111,12 +119,16 @@ export const DASHBOARD_SCHEMA = /* GraphQL */ `
 
   type PipelineModelMins {
     model: String!
-    mins: Int!
+    mins: Float!
+    sessions: Int!
+    avgFps: Float!
   }
 
   type PipelineUsage {
     name: String!
-    mins: Int!
+    mins: Float!
+    sessions: Int!
+    avgFps: Float!
     color: String
     modelMins: [PipelineModelMins!]
   }
@@ -125,6 +137,7 @@ export const DASHBOARD_SCHEMA = /* GraphQL */ `
     id: String!
     name: String!
     models: [String!]!
+    regions: [String!]!
   }
 
   type GPUModelCapacity {
@@ -132,17 +145,36 @@ export const DASHBOARD_SCHEMA = /* GraphQL */ `
     count: Int!
   }
 
+  type GPUCapacityPipelineModel {
+    model: String!
+    gpus: Int!
+  }
+
+  type GPUCapacityPipeline {
+    name: String!
+    gpus: Int!
+    models: [GPUCapacityPipelineModel!]
+  }
+
   type GPUCapacity {
     totalGPUs: Int!
+    activeGPUs: Int!
     availableCapacity: Float!
     models: [GPUModelCapacity!]!
+    pipelineGPUs: [GPUCapacityPipeline!]!
   }
 
   type PipelinePricing {
     pipeline: String!
+    """Model name within the pipeline (e.g. "stabilityai/stable-diffusion-xl-base-1.0")."""
+    model: String
     unit: String!
     price: Float!
+    """Average pixelsPerUnit for this capability (billing step size in pixels)."""
+    pixelsPerUnit: Float
     outputPerDollar: String!
+    """Total capacity (warm + cold orchestrators) for this pipeline+model from /net/models."""
+    capacity: Int
   }
 
   type PipelineModelOffer {
@@ -152,9 +184,11 @@ export const DASHBOARD_SCHEMA = /* GraphQL */ `
 
   type OrchestratorRow {
     address: String!
+    uri: String
     knownSessions: Int!
     successSessions: Int!
     successRatio: Float!
+    effectiveSuccessRate: Float
     noSwapRatio: Float
     slaScore: Float
     pipelines: [String!]!
@@ -173,15 +207,22 @@ export interface MetricDelta {
   delta: number;
 }
 
+export interface HourlyBucket {
+  hour: string;
+  value: number;
+}
+
 /** KPI widget data */
 export interface DashboardKPI {
   successRate: MetricDelta;
   orchestratorsOnline: MetricDelta;
   dailyUsageMins: MetricDelta;
-  dailyStreamCount: MetricDelta;
+  dailySessionCount: MetricDelta;
   dailyNetworkFeesEth: MetricDelta;
   /** The timeframe in hours that this KPI data covers */
   timeframeHours: number;
+  hourlyUsage?: HourlyBucket[];
+  hourlySessions?: HourlyBucket[];
 }
 
 /** Protocol widget data */
@@ -214,10 +255,10 @@ export interface DashboardFeesInfo {
   oneDayVolumeEth: number;
   oneWeekVolumeUsd: number;
   oneWeekVolumeEth: number;
-  volumeChangeUsd: number;
-  volumeChangeEth: number;
-  weeklyVolumeChangeUsd: number;
-  weeklyVolumeChangeEth: number;
+  volumeChangeUsd: number | null;
+  volumeChangeEth: number | null;
+  weeklyVolumeChangeUsd: number | null;
+  weeklyVolumeChangeEth: number | null;
   dayData: DashboardFeeDayData[];
   weeklyData: DashboardFeeWeeklyData[];
 }
@@ -225,14 +266,28 @@ export interface DashboardFeesInfo {
 /** Pipeline usage entry */
 export interface DashboardPipelineModelMins {
   model: string;
+  /** Minutes of demand for this model (from Network Demand, always 24h) */
   mins: number;
+  /** Session count for this model (from Network Demand, always 24h) */
+  sessions: number;
+  /** Weighted average output FPS for this model (from Network Demand, always 24h) */
+  avgFps: number;
+  /** @deprecated GPU counts moved to GPUCapacity.pipelineGPUs */
+  gpus?: number;
 }
 
 export interface DashboardPipelineUsage {
   name: string;
+  /** Minutes of demand for this pipeline (from Network Demand, always 24h) */
   mins: number;
+  /** Session count for this pipeline (from Network Demand, always 24h) */
+  sessions: number;
+  /** Weighted average output FPS for this pipeline (from Network Demand, always 24h) */
+  avgFps: number;
+  /** @deprecated GPU counts moved to GPUCapacity.pipelineGPUs */
+  gpus?: number;
   color?: string;
-  /** Per-model inference minutes (when available) */
+  /** Per-model minute breakdown (when available) */
   modelMins?: DashboardPipelineModelMins[];
 }
 
@@ -244,6 +299,8 @@ export interface DashboardPipelineCatalogEntry {
   name: string;
   /** Models supported under this pipeline */
   models: string[];
+  /** Regions where this pipeline is available */
+  regions: string[];
 }
 
 /** GPU model capacity entry */
@@ -252,19 +309,41 @@ export interface DashboardGPUModelCapacity {
   count: number;
 }
 
+/** Model-level GPU breakdown inside a pipeline entry */
+export interface DashboardGPUCapacityPipelineModel {
+  model: string;
+  gpus: number;
+}
+
+/** Pipeline-level GPU breakdown */
+export interface DashboardGPUCapacityPipeline {
+  name: string;
+  gpus: number;
+  models?: DashboardGPUCapacityPipelineModel[];
+}
+
 /** GPU capacity widget data */
 export interface DashboardGPUCapacity {
   totalGPUs: number;
+  /** GPUs that had at least one known session in the period */
+  activeGPUs: number;
   availableCapacity: number;
   models: DashboardGPUModelCapacity[];
+  pipelineGPUs: DashboardGPUCapacityPipeline[];
 }
 
 /** Pipeline pricing entry */
 export interface DashboardPipelinePricing {
   pipeline: string;
+  /** Model name within the pipeline (e.g. "stabilityai/stable-diffusion-xl-base-1.0") */
+  model?: string;
   unit: string;
   price: number;
+  /** Weighted avg pixelsPerUnit from capabilities_prices (pixel block size for price). */
+  pixelsPerUnit?: number | null;
   outputPerDollar: string;
+  /** Total capacity (warm + cold orchestrators) for this pipeline+model from /net/models. */
+  capacity?: number;
 }
 
 /** Per-pipeline model(s) offered by an orchestrator (from SLA rows). */
@@ -276,9 +355,11 @@ export interface DashboardPipelineModelOffer {
 /** Single orchestrator row aggregated over a time window */
 export interface DashboardOrchestrator {
   address: string;
+  uri?: string;
   knownSessions: number;
   successSessions: number;
   successRatio: number;
+  effectiveSuccessRate: number | null;
   noSwapRatio: number | null;
   slaScore: number | null;
   pipelines: string[];
@@ -288,6 +369,7 @@ export interface DashboardOrchestrator {
 
 /** Full dashboard query response shape (all fields optional for partial providers) */
 export interface DashboardData {
+  // Optimized/summary data
   kpi?: DashboardKPI | null;
   protocol?: DashboardProtocol | null;
   fees?: DashboardFeesInfo | null;
@@ -322,15 +404,25 @@ export interface JobFeedSubscribeResponse {
   eventName: string;
   /** Whether this provider uses event bus fallback instead of Ably */
   useEventBusFallback: boolean;
+  /** BFF URL to poll for job feed data (used when useEventBusFallback is true) */
+  fetchUrl?: string | null;
 }
 
 /** Shape of a single job feed entry */
 export interface JobFeedEntry {
   id: string;
   pipeline: string;
-  status: 'running' | 'completed' | 'failed';
+  model?: string;
+  status: 'running' | 'online' | 'degraded_input' | 'degraded_inference' | 'degraded_output' | 'degraded' | 'completed' | 'failed' | string;
   startedAt: string;
   latencyMs?: number;
+  gateway?: string;
+  orchestratorUrl?: string;
+  inputFps?: number;
+  outputFps?: number;
+  lastSeen?: string;
+  durationSeconds?: number;
+  runningFor?: string;
 }
 
 // ============================================================================
@@ -345,12 +437,13 @@ export interface JobFeedEntry {
  * Unimplemented resolvers return null (GraphQL handles this gracefully).
  */
 export interface DashboardResolvers {
+  // Optimized/summary resolvers
   kpi?: (args: { window?: string; timeframe?: string }) => DashboardKPI | Promise<DashboardKPI>;
   protocol?: () => DashboardProtocol | Promise<DashboardProtocol>;
   fees?: (args: { days?: number }) => DashboardFeesInfo | Promise<DashboardFeesInfo>;
   pipelines?: (args: { limit?: number; timeframe?: string }) => DashboardPipelineUsage[] | Promise<DashboardPipelineUsage[]>;
   pipelineCatalog?: () => DashboardPipelineCatalogEntry[] | Promise<DashboardPipelineCatalogEntry[]>;
-  gpuCapacity?: () => DashboardGPUCapacity | Promise<DashboardGPUCapacity>;
+  gpuCapacity?: (args: { timeframe?: string }) => DashboardGPUCapacity | Promise<DashboardGPUCapacity>;
   pricing?: () => DashboardPipelinePricing[] | Promise<DashboardPipelinePricing[]>;
   orchestrators?: (args: { period?: string }) => DashboardOrchestrator[] | Promise<DashboardOrchestrator[]>;
 }

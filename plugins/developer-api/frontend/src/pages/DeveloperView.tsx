@@ -15,22 +15,43 @@ import {
   Loader2,
   CreditCard,
   Cloud,
+  Globe,
+  Cpu,
+  Users,
+  X,
 } from 'lucide-react';
 import { Card, Badge, Modal } from '@naap/ui';
-import { getServiceOrigin } from '@naap/plugin-sdk';
+import type { NetworkModel } from '@naap/plugin-sdk';
 
 type TabId = 'models' | 'api-keys' | 'usage' | 'docs';
 
-interface AIModel {
-  id: string;
-  name: string;
-  tagline: string;
-  type: string;
-  featured: boolean;
-  realtime: boolean;
-  costPerMin: { min: number; max: number };
-  latencyP50: number;
-  badges: string[];
+const TAB_PATH_SEGMENT: Record<TabId, string> = {
+  models: 'models',
+  'api-keys': 'keys',
+  usage: 'usage',
+  docs: 'docs',
+};
+
+const TAB_FROM_SEGMENT: Record<string, TabId> = {
+  models: 'models',
+  keys: 'api-keys',
+  usage: 'usage',
+  docs: 'docs',
+  'api-keys': 'api-keys',
+};
+
+function resolveTabFromPath(pathname: string): TabId {
+  const parts = pathname.split('/').filter(Boolean);
+  const maybeRoot = parts[0];
+  const maybeTab = parts[1];
+  if (maybeRoot !== 'developer') {
+    return 'models';
+  }
+  return TAB_FROM_SEGMENT[maybeTab ?? ''] ?? 'models';
+}
+
+function getPathForTab(tab: TabId): string {
+  return `/developer/${TAB_PATH_SEGMENT[tab]}`;
 }
 
 interface ApiKeyProject {
@@ -64,8 +85,6 @@ interface ProjectInfo {
   name: string;
   isDefault: boolean;
 }
-
-const BASE_URL = getServiceOrigin('developer-api');
 
 async function fetchCsrfToken(): Promise<string> {
   try {
@@ -103,9 +122,9 @@ function delayWithAbort(ms: number, signal: AbortSignal): Promise<void> {
 }
 
 const tabs = [
+  { id: 'models' as TabId, label: 'Models', icon: <Box size={14} /> },
   { id: 'api-keys' as TabId, label: 'API Keys', icon: <Key size={14} /> },
   { id: 'usage' as TabId, label: 'Usage & Billing', icon: <BarChart3 size={14} /> },
-  { id: 'models' as TabId, label: 'Models', icon: <Box size={14} /> },
   { id: 'docs' as TabId, label: 'Docs', icon: <BookOpen size={14} /> },
 ];
 
@@ -116,11 +135,9 @@ const inputClassName =
   'w-full bg-bg-tertiary border border-white/10 rounded-lg py-2 px-3 text-sm text-text-primary focus:outline-none focus:border-accent-blue';
 
 export const DeveloperView: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<TabId>('api-keys');
-  const [models, setModels] = useState<AIModel[]>([]);
+  const [activeTab, setActiveTab] = useState<TabId>(() => resolveTabFromPath(window.location.pathname));
   const [apiKeys, setApiKeys] = useState<ApiKey[]>([]);
   const [_loading, setLoading] = useState(true);
-  const [searchQuery, setSearchQuery] = useState('');
   const [showRevoked, setShowRevoked] = useState(false);
   const [projectFilterId, setProjectFilterId] = useState<'__all__' | string>('__all__');
   const [providerFilterId, setProviderFilterId] = useState<'__all__' | string>('__all__');
@@ -133,7 +150,8 @@ export const DeveloperView: React.FC = () => {
   const [keyCopied, setKeyCopied] = useState(false);
 
   const [projects, setProjects] = useState<ProjectInfo[]>([]);
-  const [billingProviders, setBillingProviders] = useState<BillingProviderInfo[]>([]);
+  const [billingProviders, setBillingProviders] = useState<BillingProviderInfo[] | null>(null);
+  const [billingProvidersError, setBillingProvidersError] = useState(false);
   const [modalDataLoading, setModalDataLoading] = useState(false);
   const [selectedProjectId, setSelectedProjectId] = useState('');
   const [newProjectName, setNewProjectName] = useState('');
@@ -144,13 +162,28 @@ export const DeveloperView: React.FC = () => {
   const [revoking, setRevoking] = useState(false);
   const pollAbortControllerRef = useRef<AbortController | null>(null);
 
+  const [networkModels, setNetworkModels] = useState<NetworkModel[]>([]);
+  const [networkModelsLoading, setNetworkModelsLoading] = useState(false);
+  const [networkModelsError, setNetworkModelsError] = useState<string | null>(null);
+  const [networkModelSearch, setNetworkModelSearch] = useState('');
+  const [pipelineFilter, setPipelineFilter] = useState<string>('all');
+  const [copiedCell, setCopiedCell] = useState<string | null>(null);
+
+  const copyCell = useCallback(async (key: string, text: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopiedCell(key);
+      setTimeout(() => setCopiedCell((prev) => (prev === key ? null : prev)), 1500);
+    } catch { /* ignore */ }
+  }, []);
+
   const revokedCount = useMemo(
     () => apiKeys.filter(k => (k.status || '').toUpperCase() === 'REVOKED').length,
     [apiKeys]
   );
 
   const providerOptions = useMemo(() => {
-    if (billingProviders.length > 0) {
+    if (billingProviders && billingProviders.length > 0) {
       return billingProviders
         .map((provider) => ({ id: provider.id, displayName: provider.displayName }))
         .sort((a, b) => a.displayName.localeCompare(b.displayName));
@@ -189,18 +222,26 @@ export const DeveloperView: React.FC = () => {
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
-      const [modelsJson, keysJson, projectsJson] = await Promise.all([
-        fetch(`${BASE_URL}/api/v1/developer/models`).then(r => r.json()),
-        fetch('/api/v1/developer/keys').then(r => r.json()),
-        fetch('/api/v1/developer/projects').then(r => r.json()),
+      const [keysRes, projectsRes] = await Promise.all([
+        fetch('/api/v1/developer/keys'),
+        fetch('/api/v1/developer/projects'),
       ]);
-      setModels((modelsJson.data ?? modelsJson).models || []);
+      if (!keysRes.ok) {
+        throw new Error(`Failed to load API keys (HTTP ${keysRes.status})`);
+      }
+      if (!projectsRes.ok) {
+        throw new Error(`Failed to load projects (HTTP ${projectsRes.status})`);
+      }
+      const [keysJson, projectsJson] = await Promise.all([
+        keysRes.json(),
+        projectsRes.json(),
+      ]);
       setApiKeys((keysJson.data ?? keysJson).keys || []);
       setProjects((projectsJson.data ?? projectsJson).projects || []);
     } catch (err) {
       console.error('Failed to load data:', err);
-      setModels(getMockModels());
       setApiKeys([]);
+      setProjects([]);
     } finally {
       setLoading(false);
     }
@@ -212,12 +253,104 @@ export const DeveloperView: React.FC = () => {
     pollAbortControllerRef.current?.abort();
   }, []);
 
-  const loadBillingProviders = useCallback(async () => {
+  useEffect(() => {
+    const handlePopState = () => {
+      setActiveTab(resolveTabFromPath(window.location.pathname));
+    };
+
+    window.addEventListener('popstate', handlePopState);
+    return () => {
+      window.removeEventListener('popstate', handlePopState);
+    };
+  }, []);
+
+  useEffect(() => {
+    const canonicalPath = getPathForTab(activeTab);
+    if (window.location.pathname !== canonicalPath) {
+      window.history.replaceState(window.history.state, '', canonicalPath);
+    }
+  }, [activeTab]);
+
+  const handleTabChange = useCallback((tab: TabId) => {
+    setActiveTab(tab);
+    const targetPath = getPathForTab(tab);
+    if (window.location.pathname !== targetPath) {
+      window.history.pushState(window.history.state, '', targetPath);
+    }
+  }, []);
+
+  const loadNetworkModels = useCallback(async () => {
+    setNetworkModelsLoading(true);
+    setNetworkModelsError(null);
     try {
-      const json = await fetch('/api/v1/billing-providers').then(r => r.json());
+      const res = await fetch('/api/v1/developer/network-models?limit=all');
+      if (!res.ok) {
+        setNetworkModels([]);
+        setNetworkModelsError(`Failed to load models (HTTP ${res.status})`);
+        return;
+      }
+      const json = await res.json();
+      const payload = json.data ?? json;
+      if (!Array.isArray(payload?.models)) {
+        setNetworkModels([]);
+        setNetworkModelsError('Invalid response from server');
+        return;
+      }
+      setNetworkModels(payload.models);
+    } catch (err) {
+      console.error('Failed to load network models:', err);
+      setNetworkModels([]);
+      setNetworkModelsError('Network error loading models');
+    } finally {
+      setNetworkModelsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (activeTab === 'models') loadNetworkModels();
+  }, [activeTab, loadNetworkModels]);
+
+  const pipelineOptions = useMemo(() => {
+    const pipelines = new Set(networkModels.map((m) => m.Pipeline));
+    return Array.from(pipelines).sort();
+  }, [networkModels]);
+
+  useEffect(() => {
+    if (pipelineFilter !== 'all' && !pipelineOptions.includes(pipelineFilter)) {
+      setPipelineFilter('all');
+    }
+  }, [pipelineFilter, pipelineOptions]);
+
+  const filteredNetworkModels = useMemo(() => {
+    let result = networkModels;
+    if (pipelineFilter !== 'all') {
+      result = result.filter((m) => m.Pipeline === pipelineFilter);
+    }
+    if (networkModelSearch) {
+      const q = networkModelSearch.toLowerCase();
+      result = result.filter(
+        (m) =>
+          m.Model.toLowerCase().includes(q) ||
+          m.Pipeline.toLowerCase().includes(q)
+      );
+    }
+    return result;
+  }, [networkModels, pipelineFilter, networkModelSearch]);
+
+  const loadBillingProviders = useCallback(async () => {
+    setBillingProvidersError(false);
+    try {
+      const res = await fetch('/api/v1/billing-providers');
+      if (!res.ok) {
+        console.error('Failed to load billing providers:', res.status);
+        setBillingProvidersError(true);
+        return;
+      }
+      const json = await res.json();
       setBillingProviders((json.data ?? json).providers || []);
     } catch (err) {
       console.error('Failed to load billing providers:', err);
+      setBillingProvidersError(true);
     }
   }, []);
 
@@ -228,9 +361,23 @@ export const DeveloperView: React.FC = () => {
   const loadModalData = useCallback(async () => {
     setModalDataLoading(true);
     try {
+      const [projectsRes, bpRes] = await Promise.all([
+        fetch('/api/v1/developer/projects'),
+        fetch('/api/v1/billing-providers'),
+      ]);
+      if (!projectsRes.ok || !bpRes.ok) {
+        console.error(
+          'Failed to load modal data:',
+          `projects HTTP ${projectsRes.status}, billing HTTP ${bpRes.status}`,
+        );
+        if (!projectsRes.ok) setProjects([]);
+        if (!bpRes.ok) setBillingProvidersError(true);
+        return;
+      }
+      setBillingProvidersError(false);
       const [projectsJson, bpJson] = await Promise.all([
-        fetch('/api/v1/developer/projects').then(r => r.json()),
-        fetch('/api/v1/billing-providers').then(r => r.json()),
+        projectsRes.json(),
+        bpRes.json(),
       ]);
       const projectList: ProjectInfo[] = (projectsJson.data ?? projectsJson).projects || [];
       const providerList: BillingProviderInfo[] = (bpJson.data ?? bpJson).providers || [];
@@ -244,6 +391,8 @@ export const DeveloperView: React.FC = () => {
       }
     } catch (err) {
       console.error('Failed to load modal data:', err);
+      setProjects([]);
+      setBillingProviders([]);
     } finally {
       setModalDataLoading(false);
     }
@@ -282,7 +431,7 @@ export const DeveloperView: React.FC = () => {
       setCreateError('Please select a billing provider.');
       return;
     }
-    const selectedProvider = billingProviders.find(bp => bp.id === selectedBillingProviderId);
+    const selectedProvider = billingProviders?.find(bp => bp.id === selectedBillingProviderId);
     if (!selectedProvider) {
       setCreateError('Selected billing provider not found.');
       return;
@@ -446,11 +595,6 @@ export const DeveloperView: React.FC = () => {
     }
   }, [revokeKeyId, loadData]);
 
-  const filteredModels = models.filter(m =>
-    m.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    m.type.toLowerCase().includes(searchQuery.toLowerCase())
-  );
-
   return (
     <div className="space-y-4">
       <div>
@@ -460,7 +604,7 @@ export const DeveloperView: React.FC = () => {
       <div className="border-b border-white/10">
         <nav className="flex gap-1">
           {tabs.map((tab) => (
-            <button key={tab.id} onClick={() => setActiveTab(tab.id)}
+            <button key={tab.id} onClick={() => handleTabChange(tab.id)}
               className={`flex items-center gap-2 px-3 py-2 text-xs font-medium transition-all border-b-2 ${activeTab === tab.id ? 'text-accent-emerald' : 'text-text-secondary hover:text-text-primary border-transparent'}`}
               style={{ marginBottom: '-1px', borderBottomColor: activeTab === tab.id ? 'var(--accent-emerald)' : 'transparent' }}>
               {tab.icon}{tab.label}
@@ -474,28 +618,178 @@ export const DeveloperView: React.FC = () => {
 
           {activeTab === 'models' && (
             <div className="space-y-4">
-              <div className="relative max-w-md">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-text-secondary" size={14} />
-                <input type="text" placeholder="Search models..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)}
-                  className="w-full bg-bg-secondary border border-white/10 rounded-lg py-2 pl-9 pr-3 text-xs focus:outline-none focus:border-accent-blue" />
-              </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                {filteredModels.map((model) => (
-                  <Card key={model.id} className="hover:border-accent-blue/30 transition-all cursor-pointer">
-                    <div className="flex items-start justify-between mb-3">
-                      <div>
-                        <h3 className="text-sm font-semibold text-text-primary">{model.name}</h3>
-                        <p className="text-xs text-text-secondary">{model.type}</p>
-                      </div>
-                      {model.featured && <Badge variant="emerald">Featured</Badge>}
-                    </div>
-                    <p className="text-xs text-text-secondary mb-3 line-clamp-2">{model.tagline}</p>
-                    <div className="flex items-center justify-between text-xs text-text-secondary">
-                      <span>${model.costPerMin.min.toFixed(2)} - ${model.costPerMin.max.toFixed(2)}/min</span>
-                      <span>{model.latencyP50}ms p50 latency</span>
+              <div className="space-y-3">
+                <div className="flex items-center gap-2">
+                  <Globe size={14} className="text-accent-blue" />
+                  <h2 className="text-sm font-semibold text-text-primary">Network Models</h2>
+                  <span className="text-xs text-text-secondary">naap-api /v1/net/models</span>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-3">
+                  <div className="relative flex-1 max-w-md">
+                    <label htmlFor="network-model-search" className="sr-only">
+                      Search network models by name or pipeline
+                    </label>
+                    <Search
+                      className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-text-secondary"
+                      size={14}
+                      aria-hidden
+                    />
+                    <input
+                      id="network-model-search"
+                      type="text"
+                      placeholder="Search models..."
+                      value={networkModelSearch}
+                      onChange={(e) => setNetworkModelSearch(e.target.value)}
+                      autoComplete="off"
+                      className="w-full bg-bg-secondary border border-white/10 rounded-lg py-2 pl-9 pr-3 text-xs focus:outline-none focus-visible:ring-2 focus-visible:ring-accent-blue focus-visible:ring-offset-2 focus-visible:ring-offset-bg-secondary focus:border-accent-blue"
+                    />
+                    {networkModelSearch && (
+                      <button
+                        type="button"
+                        onClick={() => setNetworkModelSearch('')}
+                        aria-label="Clear search"
+                        className="absolute right-3 top-1/2 -translate-y-1/2 rounded p-0.5 text-text-secondary hover:text-text-primary focus:outline-none focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-accent-blue focus-visible:ring-offset-2 focus-visible:ring-offset-bg-secondary"
+                      >
+                        <X size={12} aria-hidden />
+                      </button>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <button
+                      type="button"
+                      onClick={() => setPipelineFilter('all')}
+                      aria-pressed={pipelineFilter === 'all'}
+                      className={`px-2.5 py-1.5 rounded-md text-xs font-medium transition-all ${
+                        pipelineFilter === 'all'
+                          ? 'bg-accent-blue/20 text-accent-blue border border-accent-blue/30'
+                          : 'bg-bg-tertiary text-text-secondary border border-white/10 hover:border-white/20'
+                      }`}
+                    >
+                      All Pipelines
+                    </button>
+                    {pipelineOptions.map((pipeline) => (
+                      <button
+                        type="button"
+                        key={pipeline}
+                        onClick={() => setPipelineFilter(pipeline === pipelineFilter ? 'all' : pipeline)}
+                        aria-pressed={pipelineFilter === pipeline}
+                        className={`px-2.5 py-1.5 rounded-md text-xs font-medium transition-all ${
+                          pipelineFilter === pipeline
+                            ? 'bg-accent-blue/20 text-accent-blue border border-accent-blue/30'
+                            : 'bg-bg-tertiary text-text-secondary border border-white/10 hover:border-white/20'
+                        }`}
+                      >
+                        {pipeline}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {networkModelsLoading ? (
+                  <Card>
+                    <div className="flex items-center justify-center gap-3 py-8">
+                      <Loader2 size={16} className="animate-spin text-text-secondary" />
+                      <span className="text-sm text-text-secondary">Loading models...</span>
                     </div>
                   </Card>
-                ))}
+                ) : networkModelsError ? (
+                  <Card>
+                    <div className="flex items-center justify-center gap-3 py-6">
+                      <AlertTriangle size={16} className="text-accent-rose" />
+                      <span className="text-sm text-accent-rose">{networkModelsError}</span>
+                      <button onClick={loadNetworkModels} className="text-xs text-text-secondary hover:text-accent-blue transition-colors ml-2">Retry</button>
+                    </div>
+                  </Card>
+                ) : filteredNetworkModels.length === 0 ? (
+                  <Card>
+                    <div className="text-center py-6 text-text-secondary">
+                      <Globe size={24} className="mx-auto mb-3 opacity-30" />
+                      <p className="text-sm">{networkModelSearch || pipelineFilter !== 'all' ? 'No models match your search' : 'No models available'}</p>
+                    </div>
+                  </Card>
+                ) : (
+                  <Card>
+                    <div className="flex items-center justify-between mb-3">
+                      <span className="text-xs text-text-secondary">
+                        {filteredNetworkModels.length} model{filteredNetworkModels.length !== 1 ? 's' : ''}
+                        {(networkModelSearch || pipelineFilter !== 'all') && ` (filtered from ${networkModels.length})`}
+                      </span>
+                      <button
+                        onClick={loadNetworkModels}
+                        className="text-xs text-text-secondary hover:text-accent-blue transition-colors"
+                      >
+                        Refresh
+                      </button>
+                    </div>
+                    <div className="overflow-x-auto">
+                      <table className="w-full">
+                        <thead>
+                          <tr className="text-left text-xs uppercase tracking-wider text-text-secondary border-b border-white/10">
+                            <th className="pb-3 font-medium">Model</th>
+                            <th className="pb-3 font-medium">Pipeline</th>
+                            <th className="pb-3 font-medium text-right">Warm Orchestrators</th>
+                            <th className="pb-3 font-medium text-right">Total Capacity</th>
+                            <th className="pb-3 font-medium text-right">Avg Price (wei/px)</th>
+                            <th className="pb-3 font-medium text-right">Price Range (wei/px)</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-white/5">
+                          {filteredNetworkModels.map((model) => (
+                            <tr key={`${model.Pipeline}-${model.Model}`} className="hover:bg-white/5 transition-colors">
+                              <td className="py-3 pr-4">
+                                <div className="flex items-center gap-2 group">
+                                  <Cpu size={12} className="text-accent-emerald flex-shrink-0" />
+                                  <span className="text-sm font-medium text-text-primary font-mono">{model.Model}</span>
+                                  <button
+                                    type="button"
+                                    onClick={() => copyCell(`model-${model.Pipeline}-${model.Model}`, model.Model)}
+                                    className="rounded p-0.5 opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100 text-text-secondary hover:text-text-primary focus:outline-none focus-visible:ring-2 focus-visible:ring-accent-blue focus-visible:ring-offset-2 focus-visible:ring-offset-bg-secondary"
+                                    title="Copy model name"
+                                    aria-label={`Copy model name ${model.Model}`}
+                                  >
+                                    {copiedCell === `model-${model.Pipeline}-${model.Model}` ? <Check size={12} className="text-accent-emerald" aria-hidden /> : <Copy size={12} aria-hidden />}
+                                  </button>
+                                </div>
+                              </td>
+                              <td className="py-3 pr-4">
+                                <div className="flex items-center gap-1.5 group">
+                                  <Badge variant="secondary">{model.Pipeline}</Badge>
+                                  <button
+                                    type="button"
+                                    onClick={() => copyCell(`pipeline-${model.Pipeline}-${model.Model}`, model.Pipeline)}
+                                    className="rounded p-0.5 opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100 text-text-secondary hover:text-text-primary focus:outline-none focus-visible:ring-2 focus-visible:ring-accent-blue focus-visible:ring-offset-2 focus-visible:ring-offset-bg-secondary"
+                                    title="Copy pipeline name"
+                                    aria-label={`Copy pipeline name ${model.Pipeline}`}
+                                  >
+                                    {copiedCell === `pipeline-${model.Pipeline}-${model.Model}` ? <Check size={12} className="text-accent-emerald" aria-hidden /> : <Copy size={12} aria-hidden />}
+                                  </button>
+                                </div>
+                              </td>
+                              <td className="py-3 pr-4 text-right">
+                                <div className="flex items-center justify-end gap-1.5">
+                                  <Users size={12} className="text-accent-blue" />
+                                  <span className="text-sm font-mono text-text-primary">{model.WarmOrchCount}</span>
+                                </div>
+                              </td>
+                              <td className="py-3 pr-4 text-right">
+                                <span className="text-sm font-mono text-text-primary">{model.TotalCapacity}</span>
+                              </td>
+                              <td className="py-3 pr-4 text-right">
+                                <span className="text-sm font-mono text-accent-emerald">{model.PriceAvgWeiPerPixel.toLocaleString()}</span>
+                              </td>
+                              <td className="py-3 text-right">
+                                <span className="text-sm font-mono text-text-secondary">
+                                  {model.PriceMinWeiPerPixel.toLocaleString()} – {model.PriceMaxWeiPerPixel.toLocaleString()}
+                                </span>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </Card>
+                )}
               </div>
             </div>
           )}
@@ -637,7 +931,15 @@ export const DeveloperView: React.FC = () => {
                   </div>
                 </div>
                 <div className="space-y-3">
-                  {billingProviders.length === 0 ? (
+                  {billingProvidersError ? (
+                    <div className="flex items-center gap-3 p-4 bg-red-500/10 border border-red-500/20 rounded-lg">
+                      <AlertTriangle size={18} className="text-red-400 flex-shrink-0" />
+                      <div className="text-sm">
+                        <p className="text-red-200 font-medium">Failed to load billing providers</p>
+                        <button onClick={loadBillingProviders} className="text-accent-blue hover:underline mt-1">Retry</button>
+                      </div>
+                    </div>
+                  ) : !billingProviders || billingProviders.length === 0 ? (
                     <div className="text-center py-6 text-text-secondary">
                       <CreditCard size={24} className="mx-auto mb-3 opacity-30" />
                       <p>No billing providers available</p>
@@ -735,7 +1037,15 @@ export const DeveloperView: React.FC = () => {
                   <Loader2 size={18} className="text-text-secondary animate-spin flex-shrink-0" />
                   <span className="text-sm text-text-secondary">Loading billing providers...</span>
                 </div>
-              ) : billingProviders.length === 0 ? (
+              ) : billingProvidersError ? (
+                <div className="flex items-center gap-3 p-4 bg-red-500/10 border border-red-500/20 rounded-lg">
+                  <AlertTriangle size={18} className="text-red-400 flex-shrink-0" />
+                  <div className="text-sm">
+                    <p className="text-red-200 font-medium">Failed to load billing providers</p>
+                    <button onClick={loadBillingProviders} className="text-accent-blue hover:underline mt-1">Retry</button>
+                  </div>
+                </div>
+              ) : !billingProviders || billingProviders.length === 0 ? (
                 <div className="flex items-center gap-3 p-4 bg-amber-500/10 border border-amber-500/20 rounded-lg">
                   <AlertTriangle size={18} className="text-amber-400 flex-shrink-0" />
                   <div className="text-sm">
@@ -761,7 +1071,7 @@ export const DeveloperView: React.FC = () => {
             <div className="flex justify-end gap-3 pt-2">
               <button
                 onClick={handleCreateKey}
-                disabled={creating || modalDataLoading || billingProviders.length === 0 || !selectedBillingProviderId}
+                disabled={creating || modalDataLoading || billingProvidersError || !billingProviders?.length || !selectedBillingProviderId}
                 className="order-2 flex items-center gap-2 px-3 py-1.5 bg-accent-emerald text-white rounded-md text-xs font-medium hover:bg-accent-emerald/90 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <Key size={16} /> Create API Key
@@ -832,13 +1142,5 @@ export const DeveloperView: React.FC = () => {
     </div>
   );
 };
-
-function getMockModels(): AIModel[] {
-  return [
-    { id: 'model-sd15', name: 'Stable Diffusion 1.5', tagline: 'Fast, lightweight image generation', type: 'text-to-video', featured: false, realtime: true, costPerMin: { min: 0.02, max: 0.05 }, latencyP50: 120, badges: ['Realtime'] },
-    { id: 'model-sdxl', name: 'SDXL Turbo', tagline: 'High-quality video generation', type: 'text-to-video', featured: true, realtime: true, costPerMin: { min: 0.08, max: 0.15 }, latencyP50: 180, badges: ['Featured', 'Best Quality'] },
-    { id: 'model-krea', name: 'Krea AI', tagline: 'Creative AI for unique visuals', type: 'text-to-video', featured: true, realtime: true, costPerMin: { min: 0.15, max: 0.30 }, latencyP50: 150, badges: ['Featured', 'Realtime'] },
-  ];
-}
 
 export default DeveloperView;
