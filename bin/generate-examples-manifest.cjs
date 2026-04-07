@@ -21,6 +21,24 @@ const ROOT = process.env.MONOREPO_ROOT
   : path.resolve(__dirname, '..');
 
 const EXAMPLES_DIR = path.join(ROOT, 'examples');
+const EXCLUDE_FILE = path.join(EXAMPLES_DIR, '.cdn-build-exclude');
+
+function loadCdnBuildExclude() {
+  const set = new Set();
+  if (fs.existsSync(EXCLUDE_FILE)) {
+    for (const line of fs.readFileSync(EXCLUDE_FILE, 'utf8').split(/\r?\n/)) {
+      const t = line.replace(/#.*/, '').trim();
+      if (t) set.add(t);
+    }
+  }
+  if (set.size === 0) {
+    set.add('intelligent-dashboard');
+  }
+  return set;
+}
+
+/** Same names as examples/.cdn-build-exclude (not on main product / CDN manifest). */
+const EXCLUDE_FROM_EXAMPLES_MANIFEST = loadCdnBuildExclude();
 const CDN_DIR = path.join(ROOT, 'apps', 'web-next', 'public', 'cdn', 'plugins');
 const DIST_DIR = path.join(ROOT, 'dist', 'plugins');
 const OUT_JSON = path.join(ROOT, 'apps', 'web-next', 'examples-manifest.json');
@@ -43,6 +61,7 @@ function generate() {
 
     entries = dirs
       .filter((d) => {
+        if (EXCLUDE_FROM_EXAMPLES_MANIFEST.has(d)) return false;
         const pj = path.join(EXAMPLES_DIR, d, 'plugin.json');
         return fs.existsSync(pj);
       })
