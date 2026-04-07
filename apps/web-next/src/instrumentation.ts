@@ -68,19 +68,14 @@ export async function register() {
       console.warn('[naap] Startup cache warm failed (non-fatal):', err);
     }
 
-    // Re-warm in the background at ~90% of the longest NAAP raw-cache TTL.
-    // NAAP_API_CACHE_TTLS values are in seconds (see raw-data.ts).
+    // Re-warm at ~90% of the shortest warmed-cache TTL so no cache expires
+    // before it is refreshed. NAAP_API_CACHE_TTLS values are in seconds.
     const MIN_REWARM_INTERVAL_MS = 60_000;
-    const demandSec =
-      typeof NAAP_API_CACHE_TTLS.demand === 'number' && Number.isFinite(NAAP_API_CACHE_TTLS.demand) && NAAP_API_CACHE_TTLS.demand > 0
-        ? NAAP_API_CACHE_TTLS.demand
-        : 180;
-    const slaSec =
-      typeof NAAP_API_CACHE_TTLS.sla === 'number' && Number.isFinite(NAAP_API_CACHE_TTLS.sla) && NAAP_API_CACHE_TTLS.sla > 0
-        ? NAAP_API_CACHE_TTLS.sla
-        : 300;
-    const maxTtlSec = Math.max(demandSec, slaSec);
-    const rewarmMs = Math.max(MIN_REWARM_INTERVAL_MS, Math.floor(maxTtlSec * 0.9 * 1000));
+    const ttlValues = (Object.values(NAAP_API_CACHE_TTLS) as number[]).filter(
+      (v) => Number.isFinite(v) && v > 0,
+    );
+    const minTtlSec = ttlValues.length > 0 ? Math.min(...ttlValues) : 900;
+    const rewarmMs = Math.max(MIN_REWARM_INTERVAL_MS, Math.floor(minTtlSec * 0.9 * 1000));
     setInterval(() => {
       Promise.all([warmDashboardCaches(), warmNetworkData()])
         .then(([r, n]) => console.log('[naap] Background cache re-warm:', r, n))
