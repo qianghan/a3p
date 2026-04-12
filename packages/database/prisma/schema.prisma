@@ -1516,28 +1516,110 @@ model AbEvent {
   @@schema("plugin_agentbook_core")
 }
 
+// Phase 12: Autonomous Workflow Automations
+model AbAutomation {
+  id          String   @id @default(uuid())
+  tenantId    String
+  name        String
+  description String?
+  trigger     Json                              // { type: "schedule|event|condition", config: {...} }
+  conditions  Json?                             // [{ field, operator, value }]
+  actions     Json                              // [{ type: "send_reminder|create_invoice|notify|...", config: {...} }]
+  status      String   @default("active")       // active | paused | completed | failed
+  lastRun     DateTime?
+  runCount    Int      @default(0)
+  maxRuns     Int?                              // null = unlimited
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([tenantId, status])
+  @@schema("plugin_agentbook_core")
+}
+
+// Phase 12: Financial Digital Twin — periodic snapshots for simulation
+model AbFinancialSnapshot {
+  id                String   @id @default(uuid())
+  tenantId          String
+  snapshotDate      DateTime
+  cashBalanceCents  Int
+  totalRevenueCents Int
+  totalExpenseCents Int
+  netIncomeCents    Int
+  arOutstandingCents Int
+  monthlyBurnCents  Int                         // avg monthly expenses
+  runwayMonths      Float                       // cash / monthly burn
+  clientCount       Int
+  topClients        Json                        // [{name, revenueCents, percentage}]
+  categoryBreakdown Json                        // [{category, amountCents}]
+  createdAt         DateTime @default(now())
+
+  @@index([tenantId, snapshotDate])
+  @@schema("plugin_agentbook_core")
+}
+
+// Phase 12: Conversation History for memory continuity
+model AbConversation {
+  id          String   @id @default(uuid())
+  tenantId    String
+  question    String
+  answer      String
+  queryType   String                            // pattern | llm | simulation
+  data        Json?
+  latencyMs   Int?
+  createdAt   DateTime @default(now())
+
+  @@index([tenantId, createdAt])
+  @@schema("plugin_agentbook_core")
+}
+
 // ============================================
 // PLUGIN: AGENTBOOK EXPENSE
 // ============================================
 
 model AbExpense {
-  id            String   @id @default(uuid())
-  tenantId      String
-  amountCents   Int
-  vendorId      String?
-  categoryId    String?                         // AbAccount.id from core
-  date          DateTime
-  description   String?
-  receiptUrl    String?
-  confidence    Float?                          // 0-1 categorization confidence
-  isPersonal    Boolean  @default(false)
-  journalEntryId String?
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  id              String   @id @default(uuid())
+  tenantId        String
+  amountCents     Int
+  taxAmountCents  Int      @default(0)          // sales tax / GST / HST amount
+  tipAmountCents  Int      @default(0)          // tip amount (meals)
+  vendorId        String?
+  vendor          AbVendor? @relation(fields: [vendorId], references: [id])
+  categoryId      String?                       // AbAccount.id from core
+  date            DateTime
+  description     String?
+  notes           String?                       // additional notes
+  receiptUrl      String?
+  paymentMethod   String   @default("unknown")  // cash | credit_card | debit | bank_transfer | unknown
+  currency        String   @default("USD")
+  tags            String?                       // comma-separated tags
+  confidence      Float?                        // 0-1 categorization confidence
+  isPersonal      Boolean  @default(false)
+  isBillable      Boolean  @default(false)      // can be billed to a client
+  clientId        String?                       // if billable, which client
+  status          String   @default("confirmed") // confirmed | pending_review | rejected
+  source          String   @default("manual")    // manual | telegram_photo | telegram_pdf | ocr | csv_import | cc_statement | bank_sync
+  journalEntryId  String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
 
   @@index([tenantId, date])
   @@index([tenantId, vendorId])
+  @@index([tenantId, status])
   @@index([tenantId, isPersonal])
+  @@index([tenantId, categoryId])
+  @@schema("plugin_agentbook_expense")
+}
+
+model AbExpenseSplit {
+  id            String   @id @default(uuid())
+  expenseId     String
+  categoryId    String?                         // AbAccount.id — the category for this split portion
+  amountCents   Int
+  isPersonal    Boolean  @default(false)
+  description   String?
+  createdAt     DateTime @default(now())
+
+  @@index([expenseId])
   @@schema("plugin_agentbook_expense")
 }
 
@@ -1551,6 +1633,8 @@ model AbVendor {
   lastSeen            DateTime @default(now())
   createdAt           DateTime @default(now())
   updatedAt           DateTime @updatedAt
+
+  expenses            AbExpense[]
 
   @@unique([tenantId, normalizedName])
   @@index([tenantId])
@@ -1685,16 +1769,20 @@ model AbInvoice {
   client          AbClient @relation(fields: [clientId], references: [id])
   number          String                        // auto-incrementing: INV-2026-0001
   amountCents     Int
+  currency        String   @default("USD")      // USD | CAD | GBP | AUD | EUR
   issuedDate      DateTime
   dueDate         DateTime
   status          String   @default("draft")    // draft | sent | viewed | paid | overdue | void
   pdfUrl          String?
+  pdfHtml         String?                       // stored HTML for PDF rendering
   journalEntryId  String?
+  recurringId     String?                       // link to AbRecurringInvoice if auto-generated
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
   lines           AbInvoiceLine[]
   payments        AbPayment[]
+  creditNotes     AbCreditNote[]
 
   @@unique([tenantId, number])
   @@index([tenantId, status])
@@ -1791,6 +1879,46 @@ model AbTimeEntry {
   @@index([tenantId, projectId])
   @@index([tenantId, billed])
   @@index([tenantId, clientId])
+  @@schema("plugin_agentbook_invoice")
+}
+
+model AbCreditNote {
+  id              String   @id @default(uuid())
+  tenantId        String
+  invoiceId       String
+  invoice         AbInvoice @relation(fields: [invoiceId], references: [id])
+  number          String                        // CN-2026-0001
+  amountCents     Int
+  reason          String                        // reason for credit
+  journalEntryId  String?
+  createdAt       DateTime @default(now())
+
+  @@unique([tenantId, number])
+  @@index([tenantId])
+  @@index([invoiceId])
+  @@schema("plugin_agentbook_invoice")
+}
+
+model AbRecurringInvoice {
+  id              String   @id @default(uuid())
+  tenantId        String
+  clientId        String
+  currency        String   @default("USD")
+  frequency       String                        // weekly | biweekly | monthly | quarterly | annual
+  nextDue         DateTime
+  endDate         DateTime?                     // null = no end
+  status          String   @default("active")   // active | paused | completed
+  templateLines   Json                          // [{description, quantity, rateCents, amountCents}]
+  totalCents      Int
+  daysToPay       Int      @default(30)         // net terms
+  autoSend        Boolean  @default(false)      // auto-send on generation
+  lastGenerated   DateTime?
+  generatedCount  Int      @default(0)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([tenantId, status])
+  @@index([nextDue])
   @@schema("plugin_agentbook_invoice")
 }
 

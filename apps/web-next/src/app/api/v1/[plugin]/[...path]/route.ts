@@ -148,6 +148,22 @@ async function handleRequest(
     headers.set('x-team-id', teamId);
   }
 
+  // AgentBook tenant resolution: header > cookie > auth session user ID > 'default'
+  let tenantId = request.headers.get('x-tenant-id')
+    || request.cookies.get('ab-tenant')?.value;
+  if (!tenantId) {
+    // Extract user ID from auth token for automatic tenant isolation
+    const authToken = request.cookies.get('naap_auth_token')?.value;
+    if (authToken) {
+      try {
+        const { validateSession } = await import('@/lib/api/auth');
+        const user = await validateSession(authToken);
+        if (user) tenantId = user.id;
+      } catch { /* session validation failed, use default */ }
+    }
+  }
+  headers.set('x-tenant-id', tenantId || 'default');
+
   // Forward CSRF token
   const csrfToken = request.headers.get('x-csrf-token');
   if (csrfToken) {

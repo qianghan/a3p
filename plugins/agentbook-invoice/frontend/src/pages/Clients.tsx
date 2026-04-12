@@ -97,15 +97,14 @@ export const ClientsPage: React.FC = () => {
             return (
               <div
                 key={client.id}
-                className={`rounded-xl p-4 border border-l-4 ${accentBorder} transition-shadow hover:shadow-md`}
-                style={{ backgroundColor: 'var(--bg-primary, #fff)', borderColor: 'var(--border-primary, #e5e7eb)' }}
+                className={`rounded-xl p-4 border border-border bg-card border-l-4 ${accentBorder} transition-shadow hover:shadow-md`}
               >
                 <div className="flex items-start justify-between mb-3">
                   <div className="min-w-0">
-                    <h3 className="font-semibold text-base truncate" style={{ color: 'var(--text-primary)' }}>
+                    <h3 className="font-semibold text-base truncate text-foreground">
                       {client.name}
                     </h3>
-                    <p className="text-sm flex items-center gap-1 mt-0.5" style={{ color: 'var(--text-secondary)' }}>
+                    <p className="text-sm flex items-center gap-1 mt-0.5 text-muted-foreground">
                       <Mail className="w-3 h-3" />
                       {client.email}
                     </p>

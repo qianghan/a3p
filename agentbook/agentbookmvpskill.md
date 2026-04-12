@@ -100,12 +100,20 @@ plugins/agentbook-{name}/
   └── frontend/
       ├── package.json               # React + Vite deps
       ├── vite.config.ts             # createPluginConfig from @naap/plugin-build
-      ├── tailwind.config.js         # A3P color tokens
+      ├── tailwind.config.js         # extends packages/theme/tailwind-extend.cjs (same as web-next)
       └── src/
           ├── App.tsx                 # createPlugin({ name, version, routes, App })
           ├── mount.tsx              # UMD global registration
+          ├── globals.css            # @import @naap/theme/shell-variables.css + @tailwind (no ad-hoc :root)
           └── pages/                 # React page components
 ```
+
+### Frontend styling (shell alignment)
+
+- **Tailwind:** `theme.extend` must come from [`packages/theme/tailwind-extend.cjs`](../packages/theme/tailwind-extend.cjs) so utilities like `bg-primary`, `text-foreground`, `bg-muted`, `border-border` compile into the UMD CSS bundle (not only when embedded in web-next).
+- **CSS variables:** Import [`packages/theme/src/shell-variables.css`](../packages/theme/src/shell-variables.css) at the top of `globals.css` (same definitions as `apps/web-next` via `@import '@naap/theme/shell-variables.css'`). Do not maintain a separate `:root` / `.dark` palette in the plugin.
+- **Semantics:** Prefer framework tokens (`bg-card`, `text-muted-foreground`, `border-border`, `bg-primary`, brand `accent-*`) over raw Tailwind palette grays (`gray-*`, `blue-600`) or invented variables (`--border-primary`).
+- **Dev deps:** Include `@tailwindcss/typography` and `@tailwindcss/forms` when using the shared preset (matches web-next).
 
 ### Backend Pattern
 ```typescript

@@ -7,6 +7,23 @@ import crypto from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { createPluginServer } from '@naap/plugin-server-sdk';
 import { db } from './db/client.js';
+import { Configuration, PlaidApi, PlaidEnvironments, Products, CountryCode } from 'plaid';
+
+// === Plaid Client Setup ===
+const PLAID_CLIENT_ID = process.env.PLAID_CLIENT_ID || '69d02fa4f1949b000dbfc51e';
+const PLAID_SECRET = process.env.PLAID_SECRET || '59be40029c47288c4db4acfd79ae56';
+const PLAID_ENV = process.env.PLAID_ENV || 'sandbox';
+
+const plaidConfig = new Configuration({
+  basePath: PlaidEnvironments[PLAID_ENV as keyof typeof PlaidEnvironments] || PlaidEnvironments.sandbox,
+  baseOptions: {
+    headers: {
+      'PLAID-CLIENT-ID': PLAID_CLIENT_ID,
+      'PLAID-SECRET': PLAID_SECRET,
+    },
+  },
+});
+const plaidClient = new PlaidApi(plaidConfig);
 
 const pluginConfig = JSON.parse(
   readFileSync(new URL('../../plugin.json', import.meta.url), 'utf8')
@@ -38,11 +55,40 @@ function normalizeVendorName(name: string): string {
   return name.toLowerCase().replace(/[^a-z0-9]/g, '').trim();
 }
 
+// === LLM Helper (local to expense plugin — same pattern as core) ===
+async function callGemini(systemPrompt: string, userMessage: string, maxTokens: number = 500): Promise<string | null> {
+  try {
+    const llmConfig = await db.abLLMProviderConfig.findFirst({ where: { enabled: true, isDefault: true } });
+    if (!llmConfig || llmConfig.provider !== 'gemini') return null;
+
+    const model = llmConfig.modelFast || 'gemini-2.0-flash';
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${llmConfig.apiKey}`;
+
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        systemInstruction: { parts: [{ text: systemPrompt }] },
+        contents: [{ role: 'user', parts: [{ text: userMessage }] }],
+        generationConfig: { maxOutputTokens: maxTokens, temperature: 0.3 },
+      }),
+    });
+    if (!res.ok) return null;
+    const data = await res.json() as any;
+    return data.candidates?.[0]?.content?.parts?.[0]?.text || null;
+  } catch { return null; }
+}
+
+function formatCents(c: number): string {
+  return '$' + (Math.abs(c) / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
 // === Record Expense ===
 app.post('/api/v1/agentbook-expense/expenses', async (req, res) => {
   try {
     const tenantId = (req as any).tenantId;
-    const { amountCents, vendor, categoryId, date, description, receiptUrl, confidence, isPersonal } = req.body;
+    const { amountCents, vendor, categoryId, date, description, receiptUrl, confidence, isPersonal,
+            taxAmountCents, tipAmountCents, paymentMethod, currency, notes, tags, isBillable, clientId, source, status } = req.body;
 
     if (!amountCents || amountCents <= 0) {
       return res.status(400).json({ success: false, error: 'amountCents must be a positive integer' });
@@ -90,18 +136,52 @@ app.post('/api/v1/agentbook-expense/expenses', async (req, res) => {
     // the expense insert or the event insert fails, both are rolled back.
     // This guarantees the audit log is always consistent with the data.
     const expense = await db.$transaction(async (tx) => {
+      // Create journal entry if category is assigned (double-entry: DR Expense, CR Cash)
+      let journalEntryId: string | null = null;
+      if (resolvedCategoryId && !isPersonal) {
+        const cashAccount = await tx.abAccount.findFirst({ where: { tenantId, code: '1000' } });
+        if (cashAccount) {
+          const je = await tx.abJournalEntry.create({
+            data: {
+              tenantId, date: new Date(date || Date.now()),
+              memo: `Expense: ${description || vendor || 'Expense'}`,
+              sourceType: 'expense', verified: true,
+              lines: {
+                create: [
+                  { accountId: resolvedCategoryId, debitCents: amountCents, creditCents: 0, description: description || vendor || 'Expense' },
+                  { accountId: cashAccount.id, debitCents: 0, creditCents: amountCents, description: `Payment: ${vendor || 'Expense'}` },
+                ],
+              },
+            },
+          });
+          journalEntryId = je.id;
+        }
+      }
+
       const exp = await tx.abExpense.create({
         data: {
           tenantId,
           amountCents,
+          taxAmountCents: taxAmountCents || 0,
+          tipAmountCents: tipAmountCents || 0,
           vendorId: vendorRecord?.id,
           categoryId: resolvedCategoryId,
           date: new Date(date || Date.now()),
           description: description || vendor || 'Expense',
+          notes: notes || null,
           receiptUrl,
+          paymentMethod: paymentMethod || 'unknown',
+          currency: currency || 'USD',
+          tags: tags || null,
           confidence: resolvedConfidence,
           isPersonal: isPersonal || false,
+          isBillable: isBillable || false,
+          clientId: clientId || null,
+          journalEntryId,
+          ...(source ? { source } : {}),
+          ...(status ? { status } : {}),
         },
+        include: { vendor: true },
       });
 
       // Emit event inside transaction for atomicity
@@ -153,6 +233,7 @@ app.get('/api/v1/agentbook-expense/expenses', async (req, res) => {
     const [expenses, total] = await Promise.all([
       db.abExpense.findMany({
         where,
+        include: { vendor: { select: { id: true, name: true, normalizedName: true } } },
         orderBy: { date: 'desc' },
         take: parseInt(limit as string),
         skip: parseInt(offset as string),
@@ -160,7 +241,21 @@ app.get('/api/v1/agentbook-expense/expenses', async (req, res) => {
       db.abExpense.count({ where }),
     ]);
 
-    res.json({ success: true, data: expenses, meta: { total, limit: parseInt(limit as string), offset: parseInt(offset as string) } });
+    // Resolve category names from accounts (cross-schema)
+    const categoryIds = [...new Set(expenses.map((e: any) => e.categoryId).filter(Boolean))];
+    const categories = categoryIds.length > 0
+      ? await db.abAccount.findMany({ where: { id: { in: categoryIds } }, select: { id: true, name: true, code: true } })
+      : [];
+    const categoryMap = Object.fromEntries(categories.map((c: any) => [c.id, { name: c.name, code: c.code }]));
+
+    const enriched = expenses.map((e: any) => ({
+      ...e,
+      vendorName: e.vendor?.name || null,
+      categoryName: e.categoryId ? categoryMap[e.categoryId]?.name || null : null,
+      categoryCode: e.categoryId ? categoryMap[e.categoryId]?.code || null : null,
+    }));
+
+    res.json({ success: true, data: enriched, meta: { total, limit: parseInt(limit as string), offset: parseInt(offset as string) } });
   } catch (err) {
     res.status(500).json({ success: false, error: String(err) });
   }
@@ -172,12 +267,226 @@ app.get('/api/v1/agentbook-expense/expenses/:id', async (req, res) => {
     const tenantId = (req as any).tenantId;
     const expense = await db.abExpense.findFirst({
       where: { id: req.params.id, tenantId },
+      include: { vendor: { select: { id: true, name: true } } },
     });
     if (!expense) return res.status(404).json({ success: false, error: 'Expense not found' });
-    res.json({ success: true, data: expense });
+
+    // Resolve category
+    let categoryName = null;
+    let categoryCode = null;
+    if (expense.categoryId) {
+      const cat = await db.abAccount.findFirst({ where: { id: expense.categoryId } });
+      if (cat) { categoryName = cat.name; categoryCode = cat.code; }
+    }
+
+    // Get splits if any
+    const splits = await db.abExpenseSplit.findMany({ where: { expenseId: expense.id } });
+
+    res.json({ success: true, data: { ...expense, vendorName: (expense as any).vendor?.name, categoryName, categoryCode, splits } });
   } catch (err) {
     res.status(500).json({ success: false, error: String(err) });
   }
+});
+
+// === Category Summary with Trends ===
+app.get('/api/v1/agentbook-expense/category-summary', async (req, res) => {
+  try {
+    const tenantId = (req as any).tenantId;
+    const { startDate, endDate, compareStartDate, compareEndDate } = req.query;
+
+    // Current period
+    const currentWhere: any = { tenantId, isPersonal: false };
+    if (startDate) currentWhere.date = { ...currentWhere.date, gte: new Date(startDate as string) };
+    if (endDate) currentWhere.date = { ...currentWhere.date, lte: new Date(endDate as string) };
+
+    const currentExpenses = await db.abExpense.findMany({
+      where: currentWhere,
+      include: { vendor: { select: { name: true } } },
+    });
+
+    // Comparison period (optional)
+    let compareExpenses: any[] = [];
+    if (compareStartDate && compareEndDate) {
+      compareExpenses = await db.abExpense.findMany({
+        where: { tenantId, isPersonal: false, date: { gte: new Date(compareStartDate as string), lte: new Date(compareEndDate as string) } },
+      });
+    }
+
+    // Group by category
+    const categoryIds = [...new Set(currentExpenses.map((e: any) => e.categoryId).filter(Boolean))];
+    const categories = categoryIds.length > 0
+      ? await db.abAccount.findMany({ where: { id: { in: categoryIds } }, select: { id: true, name: true, code: true } })
+      : [];
+    const catMap = Object.fromEntries(categories.map((c: any) => [c.id, c]));
+
+    // Compare period by category
+    const compareByCat: Record<string, number> = {};
+    for (const e of compareExpenses) {
+      const key = e.categoryId || 'uncategorized';
+      compareByCat[key] = (compareByCat[key] || 0) + e.amountCents;
+    }
+
+    // Build summary
+    const byCat: Record<string, { totalCents: number; count: number; expenses: any[] }> = {};
+    for (const e of currentExpenses) {
+      const key = e.categoryId || 'uncategorized';
+      if (!byCat[key]) byCat[key] = { totalCents: 0, count: 0, expenses: [] };
+      byCat[key].totalCents += e.amountCents;
+      byCat[key].count++;
+      byCat[key].expenses.push(e);
+    }
+
+    const summary = Object.entries(byCat).map(([catId, data]) => {
+      const cat = catMap[catId];
+      const prevTotal = compareByCat[catId] || 0;
+      const changePercent = prevTotal > 0 ? Math.round(((data.totalCents - prevTotal) / prevTotal) * 100) : null;
+
+      // Top vendors in this category
+      const vendorTotals: Record<string, number> = {};
+      for (const e of data.expenses) {
+        const vn = (e as any).vendor?.name || 'Other';
+        vendorTotals[vn] = (vendorTotals[vn] || 0) + e.amountCents;
+      }
+      const topVendors = Object.entries(vendorTotals)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 3)
+        .map(([name, cents]) => ({ name, totalCents: cents }));
+
+      return {
+        categoryId: catId === 'uncategorized' ? null : catId,
+        categoryName: cat?.name || 'Uncategorized',
+        categoryCode: cat?.code || null,
+        totalCents: data.totalCents,
+        count: data.count,
+        previousPeriodCents: prevTotal,
+        changePercent,
+        topVendors,
+      };
+    }).sort((a, b) => b.totalCents - a.totalCents);
+
+    // Personal expenses summary
+    const personalWhere: any = { tenantId, isPersonal: true };
+    if (startDate) personalWhere.date = { ...personalWhere.date, gte: new Date(startDate as string) };
+    if (endDate) personalWhere.date = { ...personalWhere.date, lte: new Date(endDate as string) };
+    const personalExpenses = await db.abExpense.findMany({ where: personalWhere });
+    const personalTotal = personalExpenses.reduce((s: number, e: any) => s + e.amountCents, 0);
+
+    res.json({
+      success: true,
+      data: {
+        categories: summary,
+        totals: {
+          businessCents: currentExpenses.reduce((s: number, e: any) => s + e.amountCents, 0),
+          personalCents: personalTotal,
+          businessCount: currentExpenses.length,
+          personalCount: personalExpenses.length,
+        },
+      },
+    });
+  } catch (err) { res.status(500).json({ success: false, error: String(err) }); }
+});
+
+// === Auto-tag expense using vendor patterns ===
+app.post('/api/v1/agentbook-expense/expenses/:id/auto-tag', async (req, res) => {
+  try {
+    const tenantId = (req as any).tenantId;
+    const expense = await db.abExpense.findFirst({
+      where: { id: req.params.id, tenantId },
+      include: { vendor: true },
+    });
+    if (!expense) return res.status(404).json({ success: false, error: 'Expense not found' });
+
+    const vendorName = (expense.vendor?.name || expense.description || '').toLowerCase();
+    let tags: string[] = expense.tags ? expense.tags.split(',').map((t: string) => t.trim()) : [];
+
+    // Auto-tag rules based on vendor/description patterns
+    const tagRules: [RegExp, string][] = [
+      [/restaurant|cafe|coffee|starbucks|mcdonald|chipotle|uchi|canoe|alo|dinner|lunch|breakfast|food|eat/i, 'meals'],
+      [/uber|lyft|taxi|cab|transit|subway|bus/i, 'transportation'],
+      [/hotel|marriott|hyatt|hilton|airbnb|motel|inn/i, 'accommodation'],
+      [/air canada|westjet|delta|united|american|flight|airline/i, 'flights'],
+      [/adobe|figma|slack|notion|github|asana|shopify|grammarly|wordpress|aws|google cloud|azure/i, 'software'],
+      [/apple|dell|wacom|samsung|lenovo|monitor|laptop|keyboard|mouse|printer/i, 'equipment'],
+      [/insurance|manulife|hiscox|allstate|geico/i, 'insurance'],
+      [/rent|lease|wework|cowork|office space/i, 'rent'],
+      [/phone|internet|bell|rogers|comcast|att|verizon|tmobile/i, 'telecom'],
+      [/usps|fedex|ups|dhl|shipping|postage/i, 'shipping'],
+      [/google ads|facebook ads|marketing|advertising|promotion/i, 'marketing'],
+      [/contractor|freelance|consultant/i, 'contractor'],
+      [/costco|walmart|target|staples|office depot|supplies/i, 'supplies'],
+      [/gas|gasoline|shell|esso|petro/i, 'fuel'],
+      [/parking|meter/i, 'parking'],
+      [/training|course|udemy|coursera|workshop|conference|seminar/i, 'education'],
+      [/netflix|spotify|hulu|disney|entertainment|movie|theater/i, 'entertainment'],
+      [/grocery|trader|whole foods|safeway|kroger/i, 'groceries'],
+    ];
+
+    for (const [pattern, tag] of tagRules) {
+      if (pattern.test(vendorName) && !tags.includes(tag)) {
+        tags.push(tag);
+      }
+    }
+
+    // Also tag by amount range
+    if (expense.amountCents > 100000) tags.push('high-value');
+    if (expense.amountCents < 1000) tags.push('micro');
+
+    const tagString = [...new Set(tags)].join(',');
+
+    await db.abExpense.update({
+      where: { id: expense.id },
+      data: { tags: tagString },
+    });
+
+    res.json({ success: true, data: { expenseId: expense.id, tags: tagString.split(',') } });
+  } catch (err) { res.status(500).json({ success: false, error: String(err) }); }
+});
+
+// === Bulk auto-tag all expenses ===
+app.post('/api/v1/agentbook-expense/auto-tag-all', async (req, res) => {
+  try {
+    const tenantId = (req as any).tenantId;
+    const expenses = await db.abExpense.findMany({
+      where: { tenantId, tags: null },
+      include: { vendor: true },
+      take: 500,
+    });
+
+    const tagRules: [RegExp, string][] = [
+      [/restaurant|cafe|coffee|starbucks|mcdonald|chipotle|uchi|canoe|alo|dinner|lunch|breakfast|food|eat/i, 'meals'],
+      [/uber|lyft|taxi|cab|transit/i, 'transportation'],
+      [/hotel|marriott|hyatt|hilton|airbnb/i, 'accommodation'],
+      [/air canada|westjet|delta|united|flight|airline/i, 'flights'],
+      [/adobe|figma|slack|notion|github|asana|shopify|grammarly|wordpress|aws/i, 'software'],
+      [/apple|dell|wacom|samsung|monitor|laptop/i, 'equipment'],
+      [/insurance|manulife|hiscox/i, 'insurance'],
+      [/rent|lease|wework|cowork/i, 'rent'],
+      [/phone|internet|bell|comcast/i, 'telecom'],
+      [/usps|fedex|ups|shipping|postage/i, 'shipping'],
+      [/google ads|facebook ads|marketing|advertising/i, 'marketing'],
+      [/contractor|freelance/i, 'contractor'],
+      [/costco|walmart|target|staples|supplies/i, 'supplies'],
+      [/training|course|udemy|workshop|conference/i, 'education'],
+      [/netflix|spotify|entertainment/i, 'entertainment'],
+      [/grocery|trader|whole foods/i, 'groceries'],
+    ];
+
+    let tagged = 0;
+    for (const exp of expenses) {
+      const vn = ((exp as any).vendor?.name || exp.description || '').toLowerCase();
+      const tags: string[] = [];
+      for (const [pattern, tag] of tagRules) {
+        if (pattern.test(vn)) tags.push(tag);
+      }
+      if (exp.amountCents > 100000) tags.push('high-value');
+      if (tags.length > 0) {
+        await db.abExpense.update({ where: { id: exp.id }, data: { tags: tags.join(',') } });
+        tagged++;
+      }
+    }
+
+    res.json({ success: true, data: { checked: expenses.length, tagged } });
+  } catch (err) { res.status(500).json({ success: false, error: String(err) }); }
 });
 
 // === Update Expense ===
@@ -333,84 +642,263 @@ app.get('/api/v1/agentbook-expense/recurring-rules', async (req, res) => {
   }
 });
 
-// === PLAID INTEGRATION (Phase 6) ===
+// === PLAID INTEGRATION (Live) ===
+
+// Store access tokens in memory per tenant (in production: encrypt and store in DB)
+const plaidAccessTokens: Record<string, string> = {};
 
 app.post('/api/v1/agentbook-expense/plaid/create-link-token', async (req, res) => {
   try {
     const tenantId = (req as any).tenantId;
-    // In production: call Plaid API to create a link token
-    // For now: return a mock token that Plaid Link can use in sandbox
-    const linkToken = `link-sandbox-${crypto.randomUUID().slice(0, 8)}`;
 
-    await db.abEvent.create({
-      data: { tenantId, eventType: 'plaid.link_token_created', actor: 'system', action: { linkToken: linkToken.slice(0, 12) + '...' } },
+    const response = await plaidClient.linkTokenCreate({
+      user: { client_user_id: tenantId },
+      client_name: 'AgentBook',
+      products: [Products.Transactions],
+      country_codes: [CountryCode.Us, CountryCode.Ca],
+      language: 'en',
     });
 
-    res.json({ success: true, data: { linkToken, environment: process.env.PLAID_ENV || 'sandbox' } });
-  } catch (err) { res.status(500).json({ success: false, error: String(err) }); }
+    const linkToken = response.data.link_token;
+
+    await db.abEvent.create({
+      data: { tenantId, eventType: 'plaid.link_token_created', actor: 'system', action: { tokenPrefix: linkToken.slice(0, 20) + '...' } },
+    });
+
+    res.json({ success: true, data: { linkToken, environment: PLAID_ENV, expiration: response.data.expiration } });
+  } catch (err: any) {
+    console.error('Plaid link token error:', err?.response?.data || err);
+    res.status(500).json({ success: false, error: err?.response?.data?.error_message || String(err) });
+  }
 });
 
 app.post('/api/v1/agentbook-expense/plaid/exchange-token', async (req, res) => {
   try {
     const tenantId = (req as any).tenantId;
-    const { publicToken, accountId, institutionName } = req.body;
+    const { publicToken, institutionId, institutionName, accounts: plaidAccounts } = req.body;
 
-    // In production: exchange public token for access token via Plaid API
-    // For now: create a bank account record
-    const bankAccount = await db.abBankAccount.create({
+    if (!publicToken) {
+      return res.status(400).json({ success: false, error: 'publicToken is required' });
+    }
+
+    // Exchange public token for access token
+    const exchangeRes = await plaidClient.itemPublicTokenExchange({ public_token: publicToken });
+    const accessToken = exchangeRes.data.access_token;
+    const itemId = exchangeRes.data.item_id;
+
+    // Store access token
+    plaidAccessTokens[tenantId] = accessToken;
+
+    // Get account details
+    const accountsRes = await plaidClient.accountsGet({ access_token: accessToken });
+    const createdAccounts = [];
+
+    for (const acct of accountsRes.data.accounts) {
+      // Check if account already exists
+      const existing = await db.abBankAccount.findFirst({ where: { plaidAccountId: acct.account_id } });
+      if (existing) continue;
+
+      const bankAccount = await db.abBankAccount.create({
+        data: {
+          tenantId,
+          plaidItemId: itemId,
+          plaidAccountId: acct.account_id,
+          name: acct.name,
+          officialName: acct.official_name || null,
+          type: acct.type || 'checking',
+          subtype: acct.subtype || null,
+          mask: acct.mask || null,
+          balanceCents: Math.round((acct.balances.current || 0) * 100),
+          currency: acct.balances.iso_currency_code || 'USD',
+          institution: institutionName || null,
+          connected: true,
+          lastSynced: new Date(),
+        },
+      });
+      createdAccounts.push(bankAccount);
+    }
+
+    await db.abEvent.create({
       data: {
-        tenantId,
-        plaidItemId: `item-${crypto.randomUUID().slice(0, 8)}`,
-        plaidAccountId: accountId || `acct-${crypto.randomUUID().slice(0, 8)}`,
-        name: 'Checking Account',
-        type: 'checking',
-        institution: institutionName || 'Sandbox Bank',
-        connected: true,
-        lastSynced: new Date(),
+        tenantId, eventType: 'plaid.account_connected', actor: 'system',
+        action: { itemId, institution: institutionName, accountCount: createdAccounts.length },
       },
     });
 
-    await db.abEvent.create({
-      data: { tenantId, eventType: 'plaid.account_connected', actor: 'system', action: { bankAccountId: bankAccount.id, institution: institutionName } },
-    });
-
-    res.json({ success: true, data: bankAccount });
-  } catch (err) { res.status(500).json({ success: false, error: String(err) }); }
+    res.json({ success: true, data: { accounts: createdAccounts, itemId } });
+  } catch (err: any) {
+    console.error('Plaid exchange error:', err?.response?.data || err);
+    res.status(500).json({ success: false, error: err?.response?.data?.error_message || String(err) });
+  }
 });
 
 app.get('/api/v1/agentbook-expense/bank-accounts', async (req, res) => {
   try {
     const tenantId = (req as any).tenantId;
-    const accounts = await db.abBankAccount.findMany({ where: { tenantId }, orderBy: { createdAt: 'desc' } });
-    res.json({ success: true, data: accounts });
+    const accounts = await db.abBankAccount.findMany({
+      where: { tenantId },
+      include: { transactions: { select: { id: true }, take: 0 } },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    // Enrich with transaction counts
+    const enriched = await Promise.all(accounts.map(async (acct: any) => {
+      const txnCount = await db.abBankTransaction.count({ where: { bankAccountId: acct.id } });
+      return { ...acct, transactionCount: txnCount };
+    }));
+
+    res.json({ success: true, data: enriched });
   } catch (err) { res.status(500).json({ success: false, error: String(err) }); }
 });
 
 app.post('/api/v1/agentbook-expense/bank-sync', async (req, res) => {
   try {
     const tenantId = (req as any).tenantId;
-    // In production: call Plaid API to fetch transactions
-    // For now: return sync status
-    const accounts = await db.abBankAccount.findMany({ where: { tenantId, connected: true } });
+    const accessToken = plaidAccessTokens[tenantId];
 
-    for (const acct of accounts) {
-      await db.abBankAccount.update({ where: { id: acct.id }, data: { lastSynced: new Date() } });
+    const accounts = await db.abBankAccount.findMany({ where: { tenantId, connected: true } });
+    if (accounts.length === 0) {
+      return res.json({ success: true, data: { accountsSynced: 0, transactionsImported: 0, message: 'No connected accounts' } });
     }
 
-    res.json({ success: true, data: { accountsSynced: accounts.length, timestamp: new Date().toISOString() } });
+    let totalImported = 0;
+    let totalMatched = 0;
+
+    if (accessToken) {
+      // Fetch transactions from Plaid (last 30 days)
+      const now = new Date();
+      const thirtyDaysAgo = new Date(now.getTime() - 30 * 86400000);
+      const startDate = thirtyDaysAgo.toISOString().slice(0, 10);
+      const endDate = now.toISOString().slice(0, 10);
+
+      try {
+        const txnRes = await plaidClient.transactionsGet({
+          access_token: accessToken,
+          start_date: startDate,
+          end_date: endDate,
+          options: { count: 500, offset: 0 },
+        });
+
+        for (const txn of txnRes.data.transactions) {
+          // Idempotent: skip if already imported
+          const existing = await db.abBankTransaction.findFirst({
+            where: { plaidTransactionId: txn.transaction_id },
+          });
+          if (existing) continue;
+
+          // Find the matching bank account
+          const bankAcct = accounts.find((a: any) => a.plaidAccountId === txn.account_id);
+          if (!bankAcct) continue;
+
+          const bankTxn = await db.abBankTransaction.create({
+            data: {
+              tenantId,
+              bankAccountId: bankAcct.id,
+              plaidTransactionId: txn.transaction_id,
+              amount: Math.round(txn.amount * 100), // Plaid: positive = outflow
+              date: new Date(txn.date),
+              merchantName: txn.merchant_name || null,
+              name: txn.name || 'Unknown',
+              category: txn.personal_finance_category?.primary || txn.category?.join(' > ') || null,
+              pending: txn.pending || false,
+              matchStatus: 'pending',
+              idempotencyKey: txn.transaction_id,
+            },
+          });
+          totalImported++;
+
+          // Auto-match: try to find a matching expense by amount + date (±2 days)
+          if (txn.amount > 0) { // outflow = expense
+            const amountCents = Math.round(txn.amount * 100);
+            const txnDate = new Date(txn.date);
+            const matchWindow = 2 * 86400000;
+
+            const matchingExpense = await db.abExpense.findFirst({
+              where: {
+                tenantId,
+                amountCents: { gte: Math.round(amountCents * 0.95), lte: Math.round(amountCents * 1.05) },
+                date: { gte: new Date(txnDate.getTime() - matchWindow), lte: new Date(txnDate.getTime() + matchWindow) },
+                journalEntryId: { not: null },
+              },
+              orderBy: { date: 'asc' },
+            });
+
+            if (matchingExpense) {
+              await db.abBankTransaction.update({
+                where: { id: bankTxn.id },
+                data: { matchedExpenseId: matchingExpense.id, matchStatus: 'matched' },
+              });
+              totalMatched++;
+            }
+          }
+        }
+
+        // Update account balances
+        for (const plaidAcct of txnRes.data.accounts) {
+          const dbAcct = accounts.find((a: any) => a.plaidAccountId === plaidAcct.account_id);
+          if (dbAcct) {
+            await db.abBankAccount.update({
+              where: { id: dbAcct.id },
+              data: {
+                balanceCents: Math.round((plaidAcct.balances.current || 0) * 100),
+                lastSynced: new Date(),
+              },
+            });
+          }
+        }
+      } catch (plaidErr: any) {
+        console.error('Plaid transactions error:', plaidErr?.response?.data || plaidErr);
+        // Still return partial success
+      }
+    } else {
+      // No access token — just update timestamps
+      for (const acct of accounts) {
+        await db.abBankAccount.update({ where: { id: acct.id }, data: { lastSynced: new Date() } });
+      }
+    }
+
+    await db.abEvent.create({
+      data: {
+        tenantId, eventType: 'bank.sync_completed', actor: 'system',
+        action: { accountsSynced: accounts.length, transactionsImported: totalImported, autoMatched: totalMatched },
+      },
+    });
+
+    res.json({
+      success: true,
+      data: { accountsSynced: accounts.length, transactionsImported: totalImported, autoMatched: totalMatched, timestamp: new Date().toISOString() },
+    });
+  } catch (err) { res.status(500).json({ success: false, error: String(err) }); }
+});
+
+// GET /bank-transactions — List imported bank transactions
+app.get('/api/v1/agentbook-expense/bank-transactions', async (req, res) => {
+  try {
+    const tenantId = (req as any).tenantId;
+    const { status, limit = '50' } = req.query;
+    const where: any = { tenantId };
+    if (status) where.matchStatus = status;
+
+    const transactions = await db.abBankTransaction.findMany({
+      where,
+      orderBy: { date: 'desc' },
+      take: parseInt(limit as string),
+    });
+    res.json({ success: true, data: transactions });
   } catch (err) { res.status(500).json({ success: false, error: String(err) }); }
 });
 
 app.get('/api/v1/agentbook-expense/reconciliation-summary', async (req, res) => {
   try {
     const tenantId = (req as any).tenantId;
-    const [total, matched, exceptions] = await Promise.all([
+    const [total, matched, exceptions, pending] = await Promise.all([
       db.abBankTransaction.count({ where: { tenantId } }),
       db.abBankTransaction.count({ where: { tenantId, matchStatus: 'matched' } }),
       db.abBankTransaction.count({ where: { tenantId, matchStatus: 'exception' } }),
+      db.abBankTransaction.count({ where: { tenantId, matchStatus: 'pending' } }),
     ]);
 
-    res.json({ success: true, data: { totalTransactions: total, matched, exceptions, matchRate: total > 0 ? matched / total : 0 } });
+    res.json({ success: true, data: { totalTransactions: total, matched, exceptions, pending, matchRate: total > 0 ? matched / total : 0 } });
   } catch (err) { res.status(500).json({ success: false, error: String(err) }); }
 });
 
@@ -525,6 +1013,1135 @@ app.post('/api/v1/agentbook-expense/receipts/ocr', async (req, res) => {
     }
 
     res.json({ success: true, data: ocrResult });
+  } catch (err) { res.status(500).json({ success: false, error: String(err) }); }
+});
+
+// ============================================
+// SPLIT TRANSACTIONS (A6 — Competitive Gap)
+// ============================================
+
+// POST /expenses/:id/split — Split expense into business/personal portions
+app.post('/api/v1/agentbook-expense/expenses/:id/split', async (req, res) => {
+  try {
+    const tenantId = (req as any).tenantId;
+    const { splits } = req.body;
+
+    if (!splits || !Array.isArray(splits) || splits.length < 2) {
+      return res.status(400).json({ success: false, error: 'At least 2 splits are required' });
+    }
+
+    const expense = await db.abExpense.findFirst({ where: { id: req.params.id, tenantId } });
+    if (!expense) return res.status(404).json({ success: false, error: 'Expense not found' });
+
+    // Validate splits sum to original amount
+    const totalSplit = splits.reduce((s: number, sp: any) => s + (sp.amountCents || 0), 0);
+    if (totalSplit !== expense.amountCents) {
+      return res.status(422).json({
+        success: false,
+        error: `Split amounts (${totalSplit}) must equal expense amount (${expense.amountCents})`,
+      });
+    }
+
+    // Create split records
+    const splitRecords = await db.$transaction(async (tx: any) => {
+      // Delete existing splits if re-splitting
+      await tx.abExpenseSplit.deleteMany({ where: { expenseId: expense.id } });
+
+      const records = [];
+      for (const sp of splits) {
+        const record = await tx.abExpenseSplit.create({
+          data: {
+            expenseId: expense.id,
+            categoryId: sp.categoryId || expense.categoryId,
+            amountCents: sp.amountCents,
+            isPersonal: sp.isPersonal || false,
+            description: sp.description || null,
+          },
+        });
+        records.push(record);
+      }
+
+      // Update the original expense: mark the personal amount
+      const personalAmount = splits.filter((s: any) => s.isPersonal).reduce((sum: number, s: any) => sum + s.amountCents, 0);
+      await tx.abExpense.update({
+        where: { id: expense.id },
+        data: { isPersonal: personalAmount > expense.amountCents / 2 },
+      });
+
+      await tx.abEvent.create({
+        data: {
+          tenantId, eventType: 'expense.split', actor: 'user',
+          action: { expenseId: expense.id, splitCount: splits.length, personalAmount, businessAmount: expense.amountCents - personalAmount },
+        },
+      });
+
+      return records;
+    });
+
+    res.json({ success: true, data: { expenseId: expense.id, splits: splitRecords } });
+  } catch (err) { res.status(500).json({ success: false, error: String(err) }); }
+});
+
+// GET /expenses/:id/splits — Get splits for an expense
+app.get('/api/v1/agentbook-expense/expenses/:id/splits', async (req, res) => {
+  try {
+    const splits = await db.abExpenseSplit.findMany({
+      where: { expenseId: req.params.id },
+      orderBy: { createdAt: 'asc' },
+    });
+    res.json({ success: true, data: splits });
+  } catch (err) { res.status(500).json({ success: false, error: String(err) }); }
+});
+
+// ============================================
+// RECURRING EXPENSE AUTO-SUGGEST (A5 — Competitive Gap)
+// ============================================
+
+// GET /expenses/recurring-suggestions — Detect expenses that could be recurring
+app.get('/api/v1/agentbook-expense/recurring-suggestions', async (req, res) => {
+  try {
+    const tenantId = (req as any).tenantId;
+
+    // Find vendors with 3+ expenses at similar amounts in the last 6 months
+    const sixMonthsAgo = new Date();
+    sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
+
+    const expenses = await db.abExpense.findMany({
+      where: { tenantId, vendorId: { not: null }, date: { gte: sixMonthsAgo }, isPersonal: false },
+      orderBy: { date: 'asc' },
+    });
+
+    // Group by vendor
+    const byVendor: Record<string, any[]> = {};
+    for (const e of expenses) {
+      if (!e.vendorId) continue;
+      if (!byVendor[e.vendorId]) byVendor[e.vendorId] = [];
+      byVendor[e.vendorId].push(e);
+    }
+
+    // Check existing recurring rules
+    const existingRules = await db.abRecurringRule.findMany({
+      where: { tenantId, active: true },
+    });
+    const existingVendorIds = new Set(existingRules.map((r: any) => r.vendorId));
+
+    const suggestions: any[] = [];
+
+    for (const [vendorId, vendorExpenses] of Object.entries(byVendor)) {
+      if (vendorExpenses.length < 3) continue;
+      if (existingVendorIds.has(vendorId)) continue;  // Already has a rule
+
+      // Check if amounts are similar (within 20%)
+      const amounts = vendorExpenses.map((e: any) => e.amountCents);
+      const avgAmount = Math.round(amounts.reduce((a: number, b: number) => a + b, 0) / amounts.length);
+      const allSimilar = amounts.every((a: number) => Math.abs(a - avgAmount) / avgAmount < 0.2);
+      if (!allSimilar) continue;
+
+      // Detect frequency from date intervals
+      const dates = vendorExpenses.map((e: any) => new Date(e.date).getTime()).sort();
+      const intervals = [];
+      for (let i = 1; i < dates.length; i++) {
+        intervals.push((dates[i] - dates[i - 1]) / 86400000);  // days
+      }
+      const avgInterval = intervals.reduce((a, b) => a + b, 0) / intervals.length;
+
+      let frequency = 'monthly';
+      if (avgInterval < 10) frequency = 'weekly';
+      else if (avgInterval < 21) frequency = 'biweekly';
+      else if (avgInterval > 80) frequency = 'quarterly';
+      else if (avgInterval > 300) frequency = 'annual';
+
+      // Get vendor name
+      const vendor = await db.abVendor.findFirst({ where: { id: vendorId } });
+
+      suggestions.push({
+        vendorId,
+        vendorName: vendor?.name || 'Unknown',
+        avgAmountCents: avgAmount,
+        frequency,
+        occurrences: vendorExpenses.length,
+        avgIntervalDays: Math.round(avgInterval),
+        lastExpenseDate: vendorExpenses[vendorExpenses.length - 1].date,
+        categoryId: vendorExpenses[0].categoryId,
+      });
+    }
+
+    // Sort by occurrences (most frequent first)
+    suggestions.sort((a, b) => b.occurrences - a.occurrences);
+
+    res.json({ success: true, data: suggestions });
+  } catch (err) { res.status(500).json({ success: false, error: String(err) }); }
+});
+
+// POST /expenses/recurring-suggestions/:vendorId/accept — Accept suggestion, create rule
+app.post('/api/v1/agentbook-expense/recurring-suggestions/:vendorId/accept', async (req, res) => {
+  try {
+    const tenantId = (req as any).tenantId;
+    const { amountCents, frequency } = req.body;
+
+    const vendor = await db.abVendor.findFirst({ where: { id: req.params.vendorId, tenantId } });
+    if (!vendor) return res.status(404).json({ success: false, error: 'Vendor not found' });
+
+    // Calculate next expected date based on frequency
+    const nextExpected = new Date();
+    switch (frequency) {
+      case 'weekly': nextExpected.setDate(nextExpected.getDate() + 7); break;
+      case 'biweekly': nextExpected.setDate(nextExpected.getDate() + 14); break;
+      case 'monthly': nextExpected.setMonth(nextExpected.getMonth() + 1); break;
+      case 'quarterly': nextExpected.setMonth(nextExpected.getMonth() + 3); break;
+      case 'annual': nextExpected.setFullYear(nextExpected.getFullYear() + 1); break;
+    }
+
+    const rule = await db.abRecurringRule.create({
+      data: { tenantId, vendorId: req.params.vendorId, amountCents, frequency, nextExpected },
+    });
+
+    await db.abEvent.create({
+      data: {
+        tenantId, eventType: 'recurring_rule.created_from_suggestion', actor: 'user',
+        action: { ruleId: rule.id, vendorId: req.params.vendorId, vendorName: vendor.name, amountCents, frequency },
+      },
+    });
+
+    res.status(201).json({ success: true, data: rule });
+  } catch (err) { res.status(500).json({ success: false, error: String(err) }); }
+});
+
+// ============================================
+// CSV DATA IMPORT (E6 — Competitive Gap)
+// ============================================
+
+function parseCSV(csvText: string): Array<Record<string, string>> {
+  const lines = csvText.trim().split('\n');
+  if (lines.length < 2) return [];
+
+  // Parse header
+  const headers = lines[0].split(',').map(h => h.trim().replace(/^"|"$/g, '').toLowerCase());
+
+  const rows: Array<Record<string, string>> = [];
+  for (let i = 1; i < lines.length; i++) {
+    const values = lines[i].split(',').map(v => v.trim().replace(/^"|"$/g, ''));
+    const row: Record<string, string> = {};
+    headers.forEach((h, idx) => { row[h] = values[idx] || ''; });
+    rows.push(row);
+  }
+  return rows;
+}
+
+function detectCSVMapping(headers: string[]): { date: string; amount: string; description: string; vendor?: string; category?: string } {
+  const lowerHeaders = headers.map(h => h.toLowerCase());
+
+  const dateCol = lowerHeaders.find(h => ['date', 'transaction date', 'trans date', 'posted date'].includes(h)) || lowerHeaders[0];
+  const amountCol = lowerHeaders.find(h => ['amount', 'debit', 'transaction amount', 'total'].includes(h)) || lowerHeaders.find(h => h.includes('amount')) || lowerHeaders[1];
+  const descCol = lowerHeaders.find(h => ['description', 'memo', 'transaction description', 'details', 'name'].includes(h)) || lowerHeaders.find(h => h.includes('desc')) || lowerHeaders[2];
+  const vendorCol = lowerHeaders.find(h => ['vendor', 'merchant', 'payee', 'merchant name'].includes(h));
+  const categoryCol = lowerHeaders.find(h => ['category', 'type', 'expense type'].includes(h));
+
+  return { date: dateCol, amount: amountCol, description: descCol, vendor: vendorCol, category: categoryCol };
+}
+
+// POST /import/csv — Import expenses from CSV
+app.post('/api/v1/agentbook-expense/import/csv', async (req, res) => {
+  try {
+    const tenantId = (req as any).tenantId;
+    const { csv, mapping } = req.body;
+
+    if (!csv || typeof csv !== 'string') {
+      return res.status(400).json({ success: false, error: 'csv field (string) is required' });
+    }
+
+    const rows = parseCSV(csv);
+    if (rows.length === 0) {
+      return res.status(400).json({ success: false, error: 'CSV has no data rows' });
+    }
+
+    // Auto-detect or use provided mapping
+    const headers = Object.keys(rows[0]);
+    const colMapping = mapping || detectCSVMapping(headers);
+
+    const imported: any[] = [];
+    const errors: any[] = [];
+
+    for (let i = 0; i < rows.length; i++) {
+      const row = rows[i];
+      try {
+        const rawAmount = row[colMapping.amount] || '0';
+        const amountFloat = Math.abs(parseFloat(rawAmount.replace(/[^0-9.-]/g, '')));
+        if (isNaN(amountFloat) || amountFloat === 0) {
+          errors.push({ row: i + 2, error: 'Invalid amount', raw: rawAmount });
+          continue;
+        }
+
+        const amountCents = Math.round(amountFloat * 100);
+        const dateStr = row[colMapping.date];
+        const date = dateStr ? new Date(dateStr) : new Date();
+        if (isNaN(date.getTime())) {
+          errors.push({ row: i + 2, error: 'Invalid date', raw: dateStr });
+          continue;
+        }
+
+        const description = row[colMapping.description] || `CSV import row ${i + 2}`;
+        const vendorName = colMapping.vendor ? row[colMapping.vendor] : undefined;
+
+        // Upsert vendor if provided
+        let vendorId: string | undefined;
+        if (vendorName) {
+          const normalized = vendorName.toLowerCase().replace(/[^a-z0-9]/g, '').trim();
+          if (normalized) {
+            const vendor = await db.abVendor.upsert({
+              where: { tenantId_normalizedName: { tenantId, normalizedName: normalized } },
+              update: { lastSeen: new Date(), transactionCount: { increment: 1 } },
+              create: { tenantId, name: vendorName, normalizedName: normalized },
+            });
+            vendorId = vendor.id;
+          }
+        }
+
+        const expense = await db.abExpense.create({
+          data: {
+            tenantId, amountCents, date, description,
+            vendorId: vendorId || null,
+            confidence: 0.6,  // imported data — medium confidence
+          },
+        });
+
+        imported.push({ row: i + 2, expenseId: expense.id, amountCents, description });
+      } catch (err) {
+        errors.push({ row: i + 2, error: String(err) });
+      }
+    }
+
+    await db.abEvent.create({
+      data: {
+        tenantId, eventType: 'expense.csv_imported', actor: 'user',
+        action: { totalRows: rows.length, imported: imported.length, errors: errors.length },
+      },
+    });
+
+    res.json({
+      success: true,
+      data: {
+        totalRows: rows.length,
+        imported: imported.length,
+        errors: errors.length,
+        importedExpenses: imported,
+        importErrors: errors.slice(0, 20),  // cap error list
+      },
+    });
+  } catch (err) { res.status(500).json({ success: false, error: String(err) }); }
+});
+
+// GET /import/csv/preview — Preview CSV mapping before importing
+app.post('/api/v1/agentbook-expense/import/csv/preview', async (req, res) => {
+  try {
+    const { csv } = req.body;
+    if (!csv) return res.status(400).json({ success: false, error: 'csv field is required' });
+
+    const rows = parseCSV(csv);
+    if (rows.length === 0) return res.status(400).json({ success: false, error: 'No data rows' });
+
+    const headers = Object.keys(rows[0]);
+    const mapping = detectCSVMapping(headers);
+
+    // Preview first 5 rows
+    const preview = rows.slice(0, 5).map((row, i) => ({
+      row: i + 2,
+      date: row[mapping.date],
+      amount: row[mapping.amount],
+      description: row[mapping.description],
+      vendor: mapping.vendor ? row[mapping.vendor] : undefined,
+      category: mapping.category ? row[mapping.category] : undefined,
+    }));
+
+    res.json({ success: true, data: { headers, mapping, totalRows: rows.length, preview } });
+  } catch (err) { res.status(500).json({ success: false, error: String(err) }); }
+});
+
+// ============================================================
+// === Endpoint: GET /advisor/insights — Proactive AI Insights ===
+// ============================================================
+app.get('/api/v1/agentbook-expense/advisor/insights', async (req, res) => {
+  try {
+    const tenantId = (req as any).tenantId;
+    const now = new Date();
+    const startDate = req.query.startDate ? new Date(req.query.startDate as string) : new Date(now.getFullYear(), 0, 1);
+    const endDate = req.query.endDate ? new Date(req.query.endDate as string) : now;
+    const periodMs = endDate.getTime() - startDate.getTime();
+    const prevStart = new Date(startDate.getTime() - periodMs);
+    const prevEnd = new Date(startDate.getTime());
+
+    const insights: any[] = [];
+    let insightIdx = 0;
+
+    // Fetch current and previous period expenses
+    const [currentExpenses, prevExpenses] = await Promise.all([
+      db.abExpense.findMany({ where: { tenantId, date: { gte: startDate, lte: endDate } } }),
+      db.abExpense.findMany({ where: { tenantId, date: { gte: prevStart, lt: prevEnd } } }),
+    ]);
+
+    // Collect all categoryIds for name resolution
+    const allCatIds = new Set<string>();
+    [...currentExpenses, ...prevExpenses].forEach((e: any) => { if (e.categoryId) allCatIds.add(e.categoryId); });
+    const catAccounts = allCatIds.size > 0
+      ? await db.abAccount.findMany({ where: { id: { in: Array.from(allCatIds) } }, select: { id: true, name: true } })
+      : [];
+    const catNameMap: Record<string, string> = {};
+    catAccounts.forEach((a: any) => { catNameMap[a.id] = a.name; });
+
+    // 1. Spending spikes — compare category totals between periods
+    const groupBy = (list: any[]) => {
+      const m: Record<string, number> = {};
+      list.forEach((e: any) => { if (e.categoryId) m[e.categoryId] = (m[e.categoryId] || 0) + e.amountCents; });
+      return m;
+    };
+    const curByCat = groupBy(currentExpenses);
+    const prevByCat = groupBy(prevExpenses);
+    for (const catId of Object.keys(curByCat)) {
+      const cur = curByCat[catId];
+      const prev = prevByCat[catId] || 0;
+      if (prev > 0) {
+        const pct = ((cur - prev) / prev) * 100;
+        if (pct > 20) {
+          const severity = pct > 50 ? 'critical' : 'warning';
+          const catName = catNameMap[catId] || catId;
+          insights.push({
+            id: `insight-${++insightIdx}`,
+            type: 'spending_spike',
+            severity,
+            title: `Spending spike in ${catName}`,
+            message: `${catName} spending increased ${Math.round(pct)}% from ${formatCents(prev)} to ${formatCents(cur)}.`,
+            data: { categoryId: catId, categoryName: catName, currentAmount: cur, previousAmount: prev, changePercent: Math.round(pct) },
+          });
+        }
+      }
+    }
+
+    // 2. Anomalies — expenses > 3x 90-day rolling average for category
+    const ninetyDaysAgo = new Date(endDate.getTime() - 90 * 24 * 60 * 60 * 1000);
+    const rollingExpenses = await db.abExpense.findMany({
+      where: { tenantId, date: { gte: ninetyDaysAgo, lte: endDate } },
+    });
+    const catAvg: Record<string, { total: number; count: number }> = {};
+    rollingExpenses.forEach((e: any) => {
+      if (e.categoryId) {
+        if (!catAvg[e.categoryId]) catAvg[e.categoryId] = { total: 0, count: 0 };
+        catAvg[e.categoryId].total += e.amountCents;
+        catAvg[e.categoryId].count += 1;
+      }
+    });
+    for (const exp of currentExpenses) {
+      const e = exp as any;
+      if (e.categoryId && catAvg[e.categoryId] && catAvg[e.categoryId].count >= 2) {
+        const avg = catAvg[e.categoryId].total / catAvg[e.categoryId].count;
+        if (e.amountCents > avg * 3) {
+          const catName = catNameMap[e.categoryId] || e.categoryId;
+          insights.push({
+            id: `insight-${++insightIdx}`,
+            type: 'anomaly',
+            severity: 'warning',
+            title: `Unusual expense in ${catName}`,
+            message: `${formatCents(e.amountCents)} is ${Math.round(e.amountCents / avg)}x the 90-day average of ${formatCents(Math.round(avg))} for ${catName}.`,
+            data: { expenseId: e.id, amount: e.amountCents, average: Math.round(avg), categoryName: catName },
+          });
+        }
+      }
+    }
+
+    // 3. Duplicates — same vendor, amount within 5%, date within 3 days
+    const sorted = [...currentExpenses].sort((a: any, b: any) => new Date(a.date).getTime() - new Date(b.date).getTime());
+    const seenDups = new Set<string>();
+    for (let i = 0; i < sorted.length; i++) {
+      for (let j = i + 1; j < sorted.length; j++) {
+        const a = sorted[i] as any;
+        const b = sorted[j] as any;
+        if (!a.vendorId || a.vendorId !== b.vendorId) continue;
+        const dayDiff = Math.abs(new Date(a.date).getTime() - new Date(b.date).getTime()) / (1000 * 60 * 60 * 24);
+        if (dayDiff > 3) break; // sorted by date, no need to check further
+        const amtDiff = Math.abs(a.amountCents - b.amountCents) / Math.max(a.amountCents, b.amountCents);
+        if (amtDiff <= 0.05) {
+          const key = [a.id, b.id].sort().join('-');
+          if (!seenDups.has(key)) {
+            seenDups.add(key);
+            insights.push({
+              id: `insight-${++insightIdx}`,
+              type: 'duplicate',
+              severity: 'warning',
+              title: 'Potential duplicate expense',
+              message: `Two charges of ${formatCents(a.amountCents)} and ${formatCents(b.amountCents)} to the same vendor within ${Math.round(dayDiff)} day(s).`,
+              data: { expenseIds: [a.id, b.id], amounts: [a.amountCents, b.amountCents] },
+            });
+          }
+        }
+      }
+    }
+
+    // 4. Missing receipts — business expenses > $25 without receiptUrl
+    const missingReceipts = currentExpenses.filter((e: any) => !e.isPersonal && e.amountCents > 2500 && !e.receiptUrl);
+    if (missingReceipts.length > 0) {
+      insights.push({
+        id: `insight-${++insightIdx}`,
+        type: 'missing_receipts',
+        severity: 'info',
+        title: `${missingReceipts.length} expense(s) missing receipts`,
+        message: `${missingReceipts.length} business expense(s) over $25 are missing receipt documentation.`,
+        data: { count: missingReceipts.length, expenseIds: missingReceipts.map((e: any) => e.id) },
+      });
+    }
+
+    // 5. Uncategorized expenses
+    const uncategorized = currentExpenses.filter((e: any) => !e.categoryId);
+    if (uncategorized.length > 0) {
+      insights.push({
+        id: `insight-${++insightIdx}`,
+        type: 'uncategorized',
+        severity: 'info',
+        title: `${uncategorized.length} uncategorized expense(s)`,
+        message: `${uncategorized.length} expense(s) need category assignment for accurate reporting.`,
+        data: { count: uncategorized.length, expenseIds: uncategorized.map((e: any) => e.id) },
+      });
+    }
+
+    // 6. Savings opportunities — recurring vendor charges (last 6 months)
+    const sixMonthsAgo = new Date(endDate.getTime() - 180 * 24 * 60 * 60 * 1000);
+    const recentExpenses = await db.abExpense.findMany({
+      where: { tenantId, date: { gte: sixMonthsAgo, lte: endDate }, vendorId: { not: null } },
+      include: { vendor: true },
+    });
+    const byVendor: Record<string, { amounts: number[]; vendorName: string }> = {};
+    recentExpenses.forEach((e: any) => {
+      if (e.vendorId) {
+        if (!byVendor[e.vendorId]) byVendor[e.vendorId] = { amounts: [], vendorName: e.vendor?.name || e.vendorId };
+        byVendor[e.vendorId].amounts.push(e.amountCents);
+      }
+    });
+    for (const [vendorId, info] of Object.entries(byVendor)) {
+      if (info.amounts.length >= 3) {
+        const avg = info.amounts.reduce((s, a) => s + a, 0) / info.amounts.length;
+        const maxVariance = Math.max(...info.amounts.map(a => Math.abs(a - avg) / avg));
+        if (maxVariance <= 0.10) {
+          const totalAnnual = avg * 12;
+          insights.push({
+            id: `insight-${++insightIdx}`,
+            type: 'savings',
+            severity: 'info',
+            title: `Savings opportunity with ${info.vendorName}`,
+            message: `${info.amounts.length} recurring charges averaging ${formatCents(Math.round(avg))}. Consider an annual plan to save.`,
+            data: { vendorId, vendorName: info.vendorName, chargeCount: info.amounts.length, averageAmount: Math.round(avg), estimatedAnnual: Math.round(totalAnnual) },
+            action: { label: 'Review vendor', type: 'navigate', target: `/expenses?vendor=${vendorId}` },
+          });
+        }
+      }
+    }
+
+    res.json({ success: true, data: { insights } });
+  } catch (err) {
+    res.status(500).json({ success: false, error: String(err) });
+  }
+});
+
+// ============================================================
+// === Endpoint: GET /advisor/chart — Chart Data for Visualization ===
+// ============================================================
+app.get('/api/v1/agentbook-expense/advisor/chart', async (req, res) => {
+  try {
+    const tenantId = (req as any).tenantId;
+    const now = new Date();
+    const startDate = req.query.startDate ? new Date(req.query.startDate as string) : new Date(now.getFullYear(), 0, 1);
+    const endDate = req.query.endDate ? new Date(req.query.endDate as string) : now;
+    const chartType = (req.query.chartType as string) || 'bar';
+    const colors = ['#10b981', '#3b82f6', '#8b5cf6', '#f59e0b', '#06b6d4', '#ec4899', '#ef4444', '#84cc16'];
+
+    const expenses = await db.abExpense.findMany({
+      where: { tenantId, date: { gte: startDate, lte: endDate } },
+    });
+
+    // Fetch comparison period expenses if provided
+    let compExpenses: any[] = [];
+    if (req.query.compareStartDate && req.query.compareEndDate) {
+      compExpenses = await db.abExpense.findMany({
+        where: {
+          tenantId,
+          date: { gte: new Date(req.query.compareStartDate as string), lte: new Date(req.query.compareEndDate as string) },
+        },
+      });
+    }
+
+    // Resolve category names
+    const allCatIds = new Set<string>();
+    [...expenses, ...compExpenses].forEach((e: any) => { if (e.categoryId) allCatIds.add(e.categoryId); });
+    const catAccounts = allCatIds.size > 0
+      ? await db.abAccount.findMany({ where: { id: { in: Array.from(allCatIds) } }, select: { id: true, name: true } })
+      : [];
+    const catNameMap: Record<string, string> = {};
+    catAccounts.forEach((a: any) => { catNameMap[a.id] = a.name; });
+
+    let data: any[] = [];
+    let title = '';
+    let subtitle = '';
+
+    if (chartType === 'trend') {
+      // Group by month
+      const monthMap: Record<string, number> = {};
+      expenses.forEach((e: any) => {
+        const d = new Date(e.date);
+        const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+        monthMap[key] = (monthMap[key] || 0) + e.amountCents;
+      });
+      const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+      data = Object.entries(monthMap)
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([key, value], i) => {
+          const month = parseInt(key.split('-')[1]) - 1;
+          return { name: monthNames[month], value, color: colors[i % colors.length] };
+        });
+      title = 'Monthly Spending Trend';
+      subtitle = `${startDate.toLocaleDateString()} — ${endDate.toLocaleDateString()}`;
+    } else {
+      // bar or pie — group by category
+      const catTotals: Record<string, number> = {};
+      expenses.forEach((e: any) => {
+        const cat = e.categoryId || 'uncategorized';
+        catTotals[cat] = (catTotals[cat] || 0) + e.amountCents;
+      });
+      const compCatTotals: Record<string, number> = {};
+      compExpenses.forEach((e: any) => {
+        const cat = e.categoryId || 'uncategorized';
+        compCatTotals[cat] = (compCatTotals[cat] || 0) + e.amountCents;
+      });
+
+      data = Object.entries(catTotals)
+        .sort(([, a], [, b]) => b - a)
+        .map(([catId, value], i) => {
+          const name = catId === 'uncategorized' ? 'Uncategorized' : (catNameMap[catId] || catId);
+          const entry: any = { name, value, color: colors[i % colors.length] };
+          if (compExpenses.length > 0) {
+            const prev = compCatTotals[catId] || 0;
+            entry.previousValue = prev;
+            entry.changePercent = prev > 0 ? Math.round(((value - prev) / prev) * 100) : null;
+          }
+          return entry;
+        });
+      title = chartType === 'pie' ? 'Expense Breakdown' : 'Expenses by Category';
+      subtitle = `${startDate.toLocaleDateString()} — ${endDate.toLocaleDateString()}`;
+    }
+
+    // Generate annotation via LLM with fallback
+    let annotation = '';
+    if (data.length > 0) {
+      const biggest = data.reduce((max, d) => d.value > max.value ? d : max, data[0]);
+      const totalValue = data.reduce((s, d) => s + d.value, 0);
+      const prompt = `Given expense chart data: ${JSON.stringify(data.map(d => ({ name: d.name, amount: formatCents(d.value) })))}. Total: ${formatCents(totalValue)}. Provide a single-sentence insight.`;
+      const llmAnnotation = await callGemini(
+        'You are a concise financial analyst. Respond with exactly one sentence of insight about the spending data.',
+        prompt,
+        150
+      );
+      annotation = llmAnnotation || `${biggest.name} is your largest expense at ${formatCents(biggest.value)}.`;
+    }
+
+    res.json({ success: true, data: { chartType, title, subtitle, data, annotation } });
+  } catch (err) {
+    res.status(500).json({ success: false, error: String(err) });
+  }
+});
+
+// ============================================================
+// === Endpoint: POST /advisor/ask — Natural Language Q&A ===
+// ============================================================
+app.post('/api/v1/agentbook-expense/advisor/ask', async (req, res) => {
+  try {
+    const tenantId = (req as any).tenantId;
+    const { question, period } = req.body;
+    if (!question) return res.status(400).json({ success: false, error: 'question is required' });
+
+    const now = new Date();
+    const startDate = period?.start ? new Date(period.start) : new Date(now.getFullYear(), 0, 1);
+    const endDate = period?.end ? new Date(period.end) : now;
+
+    // Fetch expenses with vendor relation
+    const expenses = await db.abExpense.findMany({
+      where: { tenantId, date: { gte: startDate, lte: endDate } },
+      include: { vendor: true },
+    });
+
+    // Resolve category names
+    const allCatIds = new Set<string>();
+    expenses.forEach((e: any) => { if (e.categoryId) allCatIds.add(e.categoryId); });
+    const catAccounts = allCatIds.size > 0
+      ? await db.abAccount.findMany({ where: { id: { in: Array.from(allCatIds) } }, select: { id: true, name: true } })
+      : [];
+    const catNameMap: Record<string, string> = {};
+    catAccounts.forEach((a: any) => { catNameMap[a.id] = a.name; });
+
+    // Aggregate data
+    const total = expenses.reduce((s: number, e: any) => s + e.amountCents, 0);
+    const byCatRaw: Record<string, number> = {};
+    expenses.forEach((e: any) => {
+      const catName = e.categoryId ? (catNameMap[e.categoryId] || e.categoryId) : 'Uncategorized';
+      byCatRaw[catName] = (byCatRaw[catName] || 0) + e.amountCents;
+    });
+    const byCat = Object.entries(byCatRaw).sort(([, a], [, b]) => b - a).slice(0, 8);
+
+    const byVendorRaw: Record<string, number> = {};
+    expenses.forEach((e: any) => {
+      const vName = (e.vendor as any)?.name || 'Unknown';
+      byVendorRaw[vName] = (byVendorRaw[vName] || 0) + e.amountCents;
+    });
+    const byVendor = Object.entries(byVendorRaw).sort(([, a], [, b]) => b - a).slice(0, 10);
+
+    // Build context string
+    const contextStr = [
+      `Period: ${startDate.toLocaleDateString()} to ${endDate.toLocaleDateString()}`,
+      `Total expenses: ${formatCents(total)} (${expenses.length} transactions)`,
+      `Top categories: ${byCat.map(([n, v]) => `${n}: ${formatCents(v)}`).join(', ')}`,
+      `Top vendors: ${byVendor.map(([n, v]) => `${n}: ${formatCents(v)}`).join(', ')}`,
+    ].join('\n');
+
+    let answer = '';
+    let chartData: any = null;
+    let actions: any[] = [];
+
+    // Try LLM
+    const systemPrompt = `You are AgentBook Expense Advisor — a friendly, concise financial expert.
+Given the user's expense data context, answer their question helpfully.
+Respond in JSON format: { "answer": "string", "chartData": { "type": "bar"|"pie"|"trend", "data": [{ "name": "string", "value": number }] } | null, "suggestedActions": [{ "label": "string", "type": "suggestion" }] | [] }
+Only include chartData if the question would benefit from visualization.`;
+
+    const userMsg = `Context:\n${contextStr}\n\nQuestion: ${question}`;
+    const llmResponse = await callGemini(systemPrompt, userMsg, 800);
+
+    if (llmResponse) {
+      try {
+        // Try to extract JSON from the response (handle markdown code blocks)
+        const jsonMatch = llmResponse.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+          const parsed = JSON.parse(jsonMatch[0]);
+          answer = parsed.answer || llmResponse;
+          chartData = parsed.chartData || null;
+          actions = (parsed.suggestedActions || []).map((a: any) => ({ label: a.label, type: a.type || 'suggestion' }));
+        } else {
+          answer = llmResponse;
+        }
+      } catch {
+        answer = llmResponse;
+      }
+    }
+
+    // Template fallback if no LLM answer
+    if (!answer) {
+      const q = question.toLowerCase();
+      if (q.includes('travel')) {
+        const travelCats = byCat.filter(([n]) => n.toLowerCase().includes('travel'));
+        if (travelCats.length > 0) {
+          answer = `Your travel expenses total ${formatCents(travelCats.reduce((s, [, v]) => s + v, 0))} across ${travelCats.length} category(ies).`;
+        } else {
+          answer = `No travel-related expenses found in this period. Total spending is ${formatCents(total)}.`;
+        }
+      } else if (q.match(/top|most|biggest|largest|highest/)) {
+        answer = `Your top expense categories are: ${byCat.slice(0, 5).map(([n, v]) => `${n} at ${formatCents(v)}`).join(', ')}. Total: ${formatCents(total)}.`;
+        chartData = { type: 'bar' as const, data: byCat.slice(0, 5).map(([name, value]) => ({ name, value })) };
+      } else {
+        answer = `You have ${expenses.length} expenses totaling ${formatCents(total)} for this period. Top category: ${byCat[0] ? `${byCat[0][0]} at ${formatCents(byCat[0][1])}` : 'N/A'}.`;
+      }
+      actions = [{ label: 'View expense breakdown', type: 'suggestion' }];
+    }
+
+    // Log to AbEvent
+    await db.abEvent.create({
+      data: {
+        tenantId,
+        eventType: 'advisor.question',
+        actor: 'user',
+        action: { question, answerLength: answer.length, hasChart: !!chartData } as any,
+      },
+    });
+
+    res.json({
+      success: true,
+      data: {
+        answer,
+        chartData,
+        actions,
+        sources: ['expenses', 'categories', 'vendors'],
+      },
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: String(err) });
+  }
+});
+
+// ============================================
+// EXPENSE REVIEW QUEUE (Gap 6)
+// ============================================
+
+// GET /review-queue — list expenses needing review
+app.get('/api/v1/agentbook-expense/review-queue', async (req, res) => {
+  try {
+    const tenantId = (req as any).tenantId;
+    const expenses = await db.abExpense.findMany({
+      where: { tenantId, status: 'pending_review' },
+      include: { vendor: { select: { name: true } } },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    const catIds = [...new Set(expenses.map((e: any) => e.categoryId).filter(Boolean))];
+    const categories = catIds.length > 0 ? await db.abAccount.findMany({ where: { id: { in: catIds } } }) : [];
+    const catMap = Object.fromEntries(categories.map((c: any) => [c.id, c.name]));
+
+    const enriched = expenses.map((e: any) => ({
+      ...e, vendorName: e.vendor?.name || null, categoryName: e.categoryId ? catMap[e.categoryId] || null : null,
+    }));
+
+    res.json({ success: true, data: enriched });
+  } catch (err) { res.status(500).json({ success: false, error: String(err) }); }
+});
+
+// POST /expenses/:id/confirm — confirm a pending expense, create journal entry
+app.post('/api/v1/agentbook-expense/expenses/:id/confirm', async (req, res) => {
+  try {
+    const tenantId = (req as any).tenantId;
+    const expense = await db.abExpense.findFirst({ where: { id: req.params.id, tenantId } });
+    if (!expense) return res.status(404).json({ success: false, error: 'Expense not found' });
+    if (expense.status === 'confirmed') return res.json({ success: true, data: expense, message: 'Already confirmed' });
+
+    // Allow updating fields during confirmation
+    const { amountCents, categoryId, description, vendorName } = req.body || {};
+
+    let journalEntryId = expense.journalEntryId;
+    const finalCategoryId = categoryId || expense.categoryId;
+    const finalAmount = amountCents || expense.amountCents;
+
+    // Create journal entry if not exists and category is set
+    if (!journalEntryId && finalCategoryId && !expense.isPersonal) {
+      const cashAccount = await db.abAccount.findFirst({ where: { tenantId, code: '1000' } });
+      if (cashAccount) {
+        const je = await db.abJournalEntry.create({
+          data: {
+            tenantId, date: expense.date,
+            memo: `Expense: ${description || expense.description || 'Confirmed expense'}`,
+            sourceType: 'expense', sourceId: expense.id, verified: true,
+            lines: {
+              create: [
+                { accountId: finalCategoryId, debitCents: finalAmount, creditCents: 0, description: description || expense.description || 'Expense' },
+                { accountId: cashAccount.id, debitCents: 0, creditCents: finalAmount, description: 'Payment' },
+              ],
+            },
+          },
+        });
+        journalEntryId = je.id;
+      }
+    }
+
+    const updated = await db.abExpense.update({
+      where: { id: expense.id },
+      data: {
+        status: 'confirmed',
+        journalEntryId,
+        ...(amountCents && { amountCents }),
+        ...(categoryId && { categoryId }),
+        ...(description && { description }),
+      },
+    });
+
+    await db.abEvent.create({
+      data: { tenantId, eventType: 'expense.confirmed', actor: 'user', action: { expenseId: expense.id, amountCents: finalAmount } },
+    });
+
+    res.json({ success: true, data: updated });
+  } catch (err) { res.status(500).json({ success: false, error: String(err) }); }
+});
+
+// POST /expenses/:id/reject — reject a pending expense
+app.post('/api/v1/agentbook-expense/expenses/:id/reject', async (req, res) => {
+  try {
+    const tenantId = (req as any).tenantId;
+    const expense = await db.abExpense.findFirst({ where: { id: req.params.id, tenantId } });
+    if (!expense) return res.status(404).json({ success: false, error: 'Expense not found' });
+
+    const updated = await db.abExpense.update({
+      where: { id: expense.id },
+      data: { status: 'rejected' },
+    });
+
+    await db.abEvent.create({
+      data: { tenantId, eventType: 'expense.rejected', actor: 'user', action: { expenseId: expense.id } },
+    });
+
+    res.json({ success: true, data: updated });
+  } catch (err) { res.status(500).json({ success: false, error: String(err) }); }
+});
+
+// ============================================
+// RECEIPT BLOB STORAGE (Gap 2)
+// ============================================
+
+// POST /receipts/upload-blob — download URL and store permanently
+app.post('/api/v1/agentbook-expense/receipts/upload-blob', async (req, res) => {
+  try {
+    const tenantId = (req as any).tenantId;
+    const { sourceUrl, expenseId } = req.body;
+    if (!sourceUrl) return res.status(400).json({ success: false, error: 'sourceUrl is required' });
+
+    let permanentUrl = sourceUrl;
+
+    // Try to upload to Vercel Blob via the web-next storage endpoint
+    try {
+      const imageRes = await fetch(sourceUrl);
+      if (imageRes.ok) {
+        const contentType = imageRes.headers.get('content-type') || 'image/jpeg';
+        const extension = contentType.includes('pdf') ? 'pdf' : contentType.includes('png') ? 'png' : 'jpg';
+        const filename = `receipts/${tenantId}/${Date.now()}.${extension}`;
+
+        // Use Vercel Blob directly if available, otherwise store URL as-is
+        const BLOB_TOKEN = process.env.BLOB_READ_WRITE_TOKEN;
+        if (BLOB_TOKEN) {
+          const { put } = await import('@vercel/blob');
+          const blob = await put(filename, imageRes.body as any, {
+            access: 'public',
+            token: BLOB_TOKEN,
+            contentType,
+          });
+          permanentUrl = blob.url;
+        } else {
+          // Dev mode: store source URL directly (no blob storage)
+          permanentUrl = sourceUrl;
+        }
+      }
+    } catch (uploadErr) {
+      console.warn('Blob upload failed, using source URL:', uploadErr);
+    }
+
+    // Update expense if ID provided
+    if (expenseId) {
+      await db.abExpense.update({
+        where: { id: expenseId },
+        data: { receiptUrl: permanentUrl },
+      });
+    }
+
+    res.json({ success: true, data: { permanentUrl, sourceUrl, stored: permanentUrl !== sourceUrl } });
+  } catch (err) { res.status(500).json({ success: false, error: String(err) }); }
+});
+
+// ============================================
+// CREDIT CARD STATEMENT IMPORT (Gap 4)
+// ============================================
+
+app.post('/api/v1/agentbook-expense/import/cc-statement', async (req, res) => {
+  try {
+    const tenantId = (req as any).tenantId;
+    const { transactions, csv } = req.body;
+
+    // Parse CSV if provided
+    let txns: { date: string; amount: number; description: string; merchant?: string }[] = transactions || [];
+    if (csv && typeof csv === 'string' && txns.length === 0) {
+      const lines = csv.trim().split('\n');
+      if (lines.length < 2) return res.status(400).json({ success: false, error: 'CSV has no data rows' });
+      const headers = lines[0].split(',').map(h => h.trim().toLowerCase().replace(/"/g, ''));
+
+      for (let i = 1; i < lines.length; i++) {
+        const vals = lines[i].split(',').map(v => v.trim().replace(/"/g, ''));
+        const row: any = {};
+        headers.forEach((h, idx) => row[h] = vals[idx] || '');
+
+        const dateCol = headers.find(h => ['date', 'transaction date', 'trans date', 'posted date'].includes(h)) || headers[0];
+        const amountCol = headers.find(h => ['amount', 'debit', 'charge'].includes(h)) || headers.find(h => h.includes('amount')) || headers[1];
+        const descCol = headers.find(h => ['description', 'merchant', 'name', 'memo'].includes(h)) || headers[2];
+
+        const amount = Math.abs(parseFloat((row[amountCol] || '0').replace(/[^0-9.-]/g, '')));
+        if (amount > 0) {
+          txns.push({
+            date: row[dateCol],
+            amount: Math.round(amount * 100),
+            description: row[descCol] || `CC transaction row ${i + 1}`,
+            merchant: row[headers.find(h => h.includes('merchant')) || ''] || undefined,
+          });
+        }
+      }
+    }
+
+    if (txns.length === 0) return res.status(400).json({ success: false, error: 'No transactions to import' });
+
+    const results = { matched: 0, created: 0, duplicates: 0, errors: 0, details: [] as any[] };
+
+    for (const txn of txns) {
+      const amountCents = typeof txn.amount === 'number' && txn.amount > 100 ? txn.amount : Math.round((txn.amount || 0) * 100);
+      const txnDate = new Date(txn.date);
+      if (isNaN(txnDate.getTime()) || amountCents <= 0) { results.errors++; continue; }
+
+      const matchWindow = 2 * 86400000;
+
+      // Try to match against existing expense
+      const matchingExpense = await db.abExpense.findFirst({
+        where: {
+          tenantId,
+          amountCents: { gte: Math.round(amountCents * 0.95), lte: Math.round(amountCents * 1.05) },
+          date: { gte: new Date(txnDate.getTime() - matchWindow), lte: new Date(txnDate.getTime() + matchWindow) },
+        },
+      });
+
+      if (matchingExpense) {
+        results.matched++;
+        results.details.push({ action: 'matched', expenseId: matchingExpense.id, amount: amountCents, description: txn.description });
+        continue;
+      }
+
+      // Try to match against bank transaction
+      const matchingBankTxn = await db.abBankTransaction.findFirst({
+        where: {
+          tenantId,
+          amount: { gte: Math.round(amountCents * 0.95), lte: Math.round(amountCents * 1.05) },
+          date: { gte: new Date(txnDate.getTime() - matchWindow), lte: new Date(txnDate.getTime() + matchWindow) },
+        },
+      });
+
+      // Check for duplicate (same amount + date already imported as CC)
+      const duplicate = await db.abExpense.findFirst({
+        where: {
+          tenantId, source: 'cc_statement',
+          amountCents: { gte: Math.round(amountCents * 0.99), lte: Math.round(amountCents * 1.01) },
+          date: { gte: new Date(txnDate.getTime() - 86400000), lte: new Date(txnDate.getTime() + 86400000) },
+        },
+      });
+      if (duplicate) { results.duplicates++; continue; }
+
+      // Create new expense as pending review
+      const vendorName = txn.merchant || txn.description.split(/\s{2,}/)[0] || txn.description;
+      let vendorId = null;
+      if (vendorName) {
+        const normalized = vendorName.toLowerCase().replace(/[^a-z0-9]/g, '').trim();
+        if (normalized) {
+          const vendor = await db.abVendor.upsert({
+            where: { tenantId_normalizedName: { tenantId, normalizedName: normalized } },
+            update: { lastSeen: new Date(), transactionCount: { increment: 1 } },
+            create: { tenantId, name: vendorName, normalizedName: normalized },
+          });
+          vendorId = vendor.id;
+        }
+      }
+
+      const expense = await db.abExpense.create({
+        data: {
+          tenantId, amountCents, date: txnDate, description: txn.description,
+          vendorId, source: 'cc_statement', status: 'pending_review',
+          confidence: 0.6, paymentMethod: 'credit_card',
+        },
+      });
+
+      results.created++;
+      results.details.push({ action: 'created', expenseId: expense.id, amount: amountCents, description: txn.description, status: 'pending_review' });
+    }
+
+    await db.abEvent.create({
+      data: { tenantId, eventType: 'cc_statement.imported', actor: 'user',
+        action: { total: txns.length, matched: results.matched, created: results.created, duplicates: results.duplicates } },
+    });
+
+    res.json({ success: true, data: results });
+  } catch (err) { res.status(500).json({ success: false, error: String(err) }); }
+});
+
+// ============================================
+// PROACTIVE ALERTS (Gap 5)
+// ============================================
+
+app.get('/api/v1/agentbook-expense/advisor/proactive-alerts', async (req, res) => {
+  try {
+    const tenantId = (req as any).tenantId;
+    const now = new Date();
+    const thirtyDaysAgo = new Date(now.getTime() - 30 * 86400000);
+    const sixtyDaysAgo = new Date(now.getTime() - 60 * 86400000);
+
+    const alerts: any[] = [];
+
+    // 1. Pending review items
+    const pendingCount = await db.abExpense.count({ where: { tenantId, status: 'pending_review' } });
+    if (pendingCount > 0) {
+      alerts.push({
+        id: 'pending-review', type: 'review_needed', severity: 'important',
+        title: `${pendingCount} expense${pendingCount > 1 ? 's' : ''} need${pendingCount === 1 ? 's' : ''} review`,
+        message: `You have ${pendingCount} unconfirmed expense${pendingCount > 1 ? 's' : ''}. Review them to keep your books accurate.`,
+        action: { label: 'Review Now', type: 'navigate', url: '/agentbook/expenses?filter=pending_review' },
+      });
+    }
+
+    // 2. Missing receipts (business expenses >$25 in last 30 days)
+    const missingReceipts = await db.abExpense.count({
+      where: { tenantId, isPersonal: false, status: 'confirmed', receiptUrl: null, amountCents: { gt: 2500 }, date: { gte: thirtyDaysAgo } },
+    });
+    if (missingReceipts > 0) {
+      alerts.push({
+        id: 'missing-receipts', type: 'missing_receipt', severity: missingReceipts > 5 ? 'important' : 'info',
+        title: `${missingReceipts} receipt${missingReceipts > 1 ? 's' : ''} missing`,
+        message: `${missingReceipts} business expense${missingReceipts > 1 ? 's' : ''} over $25 without receipt. Snap photos before they fade!`,
+        action: { label: 'View Expenses', type: 'navigate', url: '/agentbook/expenses' },
+      });
+    }
+
+    // 3. Unmatched bank transactions (>7 days old)
+    const sevenDaysAgo = new Date(now.getTime() - 7 * 86400000);
+    const unmatchedBank = await db.abBankTransaction.count({
+      where: { tenantId, matchStatus: 'pending', date: { lte: sevenDaysAgo } },
+    });
+    if (unmatchedBank > 0) {
+      alerts.push({
+        id: 'unmatched-bank', type: 'reconciliation', severity: 'important',
+        title: `${unmatchedBank} unmatched bank transaction${unmatchedBank > 1 ? 's' : ''}`,
+        message: `${unmatchedBank} bank transaction${unmatchedBank > 1 ? 's are' : ' is'} older than 7 days and not matched to any expense. These may be missing from your books.`,
+        action: { label: 'Reconcile', type: 'navigate', url: '/agentbook/bank' },
+      });
+    }
+
+    // 4. Spending spike detection (category >20% vs prior 30 days)
+    const currentExpenses = await db.abExpense.findMany({
+      where: { tenantId, isPersonal: false, status: 'confirmed', date: { gte: thirtyDaysAgo } },
+    });
+    const priorExpenses = await db.abExpense.findMany({
+      where: { tenantId, isPersonal: false, status: 'confirmed', date: { gte: sixtyDaysAgo, lt: thirtyDaysAgo } },
+    });
+
+    const currentByCat: Record<string, number> = {};
+    const priorByCat: Record<string, number> = {};
+    for (const e of currentExpenses) { const k = e.categoryId || 'other'; currentByCat[k] = (currentByCat[k] || 0) + e.amountCents; }
+    for (const e of priorExpenses) { const k = e.categoryId || 'other'; priorByCat[k] = (priorByCat[k] || 0) + e.amountCents; }
+
+    const catIds = [...new Set([...Object.keys(currentByCat), ...Object.keys(priorByCat)].filter(k => k !== 'other'))];
+    const catNames = catIds.length > 0 ? await db.abAccount.findMany({ where: { id: { in: catIds } } }) : [];
+    const catNameMap = Object.fromEntries(catNames.map((c: any) => [c.id, c.name]));
+
+    for (const [catId, current] of Object.entries(currentByCat)) {
+      const prior = priorByCat[catId] || 0;
+      if (prior > 0) {
+        const pct = Math.round(((current - prior) / prior) * 100);
+        if (pct > 20) {
+          alerts.push({
+            id: `spike-${catId}`, type: 'spending_spike', severity: pct > 50 ? 'critical' : 'important',
+            title: `${catNameMap[catId] || 'Spending'} up ${pct}%`,
+            message: `${catNameMap[catId] || 'Category'}: ${formatCents(current)} this month vs ${formatCents(prior)} last month (+${pct}%).`,
+            action: { label: 'View Details', type: 'navigate', url: '/agentbook/expenses' },
+          });
+        }
+      }
+    }
+
+    // 5. Uncategorized expenses
+    const uncategorized = await db.abExpense.count({
+      where: { tenantId, categoryId: null, isPersonal: false, status: 'confirmed', date: { gte: thirtyDaysAgo } },
+    });
+    if (uncategorized > 3) {
+      alerts.push({
+        id: 'uncategorized', type: 'uncategorized', severity: 'info',
+        title: `${uncategorized} uncategorized expenses`,
+        message: `Categorize them for accurate tax reporting and spending insights.`,
+        action: { label: 'Categorize', type: 'navigate', url: '/agentbook/expenses' },
+      });
+    }
+
+    // Sort by severity
+    const severityOrder: Record<string, number> = { critical: 0, important: 1, info: 2 };
+    alerts.sort((a, b) => (severityOrder[a.severity] || 9) - (severityOrder[b.severity] || 9));
+
+    res.json({ success: true, data: { alerts, generatedAt: now.toISOString() } });
   } catch (err) { res.status(500).json({ success: false, error: String(err) }); }
 });
 

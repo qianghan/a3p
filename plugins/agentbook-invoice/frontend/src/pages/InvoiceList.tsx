@@ -164,13 +164,12 @@ export const InvoiceListPage: React.FC = () => {
             return (
               <div
                 key={inv.id}
-                className="rounded-xl p-4 flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4 border transition-shadow hover:shadow-md cursor-pointer"
-                style={{ backgroundColor: 'var(--bg-primary, #fff)', borderColor: 'var(--border-primary, #e5e7eb)' }}
+                className="rounded-xl p-4 flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4 border border-border bg-card transition-shadow hover:shadow-md cursor-pointer"
               >
                 {/* Left: invoice info */}
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 mb-1">
-                    <span className="font-semibold text-sm" style={{ color: 'var(--text-primary)' }}>
+                    <span className="font-semibold text-sm text-foreground">
                       {inv.invoice_number}
                     </span>
                     <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${cfg.bg} ${cfg.text}`}>
@@ -178,7 +177,7 @@ export const InvoiceListPage: React.FC = () => {
                       {cfg.label}
                     </span>
                   </div>
-                  <p className="text-sm truncate" style={{ color: 'var(--text-secondary)' }}>
+                  <p className="text-sm truncate text-muted-foreground">
                     {inv.client_name}
                   </p>
                 </div>

@@ -8,8 +8,18 @@ import { VendorsPage } from './pages/Vendors';
 import { BankConnectionPage } from './pages/BankConnection';
 import './globals.css';
 
+// Map URL path to internal route
+function getInitialRoute(): string {
+  const path = window.location.pathname;
+  if (path.includes('/bank')) return '/bank';
+  if (path.includes('/receipts')) return '/receipts';
+  if (path.includes('/vendors')) return '/vendors';
+  if (path.includes('/new')) return '/new';
+  return '/';
+}
+
 const AgentbookExpenseApp: React.FC = () => (
-  <MemoryRouter>
+  <MemoryRouter initialEntries={[getInitialRoute()]}>
     <Routes>
       <Route path="/" element={<ExpenseListPage />} />
       <Route path="/new" element={<NewExpensePage />} />
@@ -31,6 +41,8 @@ const plugin = createPlugin({
     '/agentbook/receipts/*',
     '/agentbook/vendors',
     '/agentbook/vendors/*',
+    '/agentbook/bank',
+    '/agentbook/bank/*',
   ],
   App: AgentbookExpenseApp,
 });

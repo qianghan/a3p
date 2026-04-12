@@ -16,8 +16,19 @@ async function proxyRequest(
   headers.set('Content-Type', request.headers.get('Content-Type') || 'application/json');
   const auth = request.headers.get('Authorization');
   if (auth) headers.set('Authorization', auth);
-  const tenant = request.headers.get('x-tenant-id');
-  if (tenant) headers.set('x-tenant-id', tenant);
+  let tenant = request.headers.get('x-tenant-id')
+    || request.cookies.get('ab-tenant')?.value;
+  if (!tenant) {
+    const authToken = request.cookies.get('naap_auth_token')?.value;
+    if (authToken) {
+      try {
+        const { validateSession } = await import('@/lib/api/auth');
+        const user = await validateSession(authToken);
+        if (user) tenant = user.id;
+      } catch { /* use default */ }
+    }
+  }
+  headers.set('x-tenant-id', tenant || 'default');
 
   try {
     let body: string | undefined;

@@ -57,6 +57,44 @@ export function createBot(config: BotConfig): Bot {
     }
 
     try {
+      // Detect expense questions and route to AI advisor
+      const expenseQuestionPattern = /how much|spending|spent|expenses?|travel cost|top categor|duplicate|any savings|subscription|software cost|biggest expense|compare.*month|what did i|show me.*spend|break ?down/i;
+      if (expenseQuestionPattern.test(text)) {
+        try {
+          const advisorRes = await fetch(
+            `${process.env.AGENTBOOK_EXPENSE_URL || 'http://localhost:4051'}/api/v1/agentbook-expense/advisor/ask`,
+            {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', 'x-tenant-id': tenantId },
+              body: JSON.stringify({ question: text }),
+            },
+          );
+          const advisorData = await advisorRes.json() as any;
+          if (advisorData.success && advisorData.data?.answer) {
+            let reply = `🤖 <b>Expense Advisor</b>\n\n${advisorData.data.answer}`;
+            if (advisorData.data.chartData?.data) {
+              reply += '\n\n📊 <b>Breakdown:</b>';
+              for (const d of advisorData.data.chartData.data.slice(0, 8)) {
+                reply += `\n• ${d.name}: $${(d.value / 100).toLocaleString()}`;
+              }
+            }
+            const keyboard = new InlineKeyboard();
+            if (advisorData.data.actions?.length) {
+              for (const a of advisorData.data.actions.slice(0, 3)) {
+                keyboard.text(a.label, `advisor:${a.label}`);
+              }
+              keyboard.row();
+            }
+            keyboard.text('📊 Full Report', 'advisor:full_report');
+            await ctx.reply(reply, { reply_markup: keyboard, parse_mode: 'HTML' });
+            return;
+          }
+        } catch (advisorErr) {
+          console.warn('Expense advisor Telegram fallback:', advisorErr);
+          // Fall through to normal expense recording
+        }
+      }
+
       const result = await config.onTextExpense(chatId, text, tenantId);
       if (result.keyboard) {
         await ctx.reply(result.message, { reply_markup: result.keyboard, parse_mode: 'HTML' });

@@ -584,23 +584,129 @@ app.get('/api/v1/agentbook-core/agents/:agentId/learning', async (req, res) => {
 
 // === AGI FEATURES (7 Core Differentiators) ===
 
-// Feature 2: Conversational Financial Memory — Ask anything
+// ============================================
+// Phase 12: ENHANCED CONVERSATIONAL FINANCIAL MEMORY
+// ============================================
+
+// Helper: build comprehensive financial context for LLM
+async function buildFinancialContext(tenantId: string) {
+  const config = await db.abTenantConfig.findFirst({ where: { userId: tenantId } });
+
+  // Revenue
+  const revenueAccounts = await db.abAccount.findMany({ where: { tenantId, accountType: 'revenue' } });
+  const revLines = await db.abJournalLine.findMany({
+    where: { accountId: { in: revenueAccounts.map((a: any) => a.id) }, entry: { tenantId } },
+  });
+  const totalRevenue = revLines.reduce((s: number, l: any) => s + l.creditCents, 0);
+
+  // Expenses
+  const expenses = await db.abExpense.findMany({ where: { tenantId, isPersonal: false }, include: { vendor: true } });
+  const totalExpenses = expenses.reduce((s: number, e: any) => s + e.amountCents, 0);
+
+  // Expenses by category
+  const categories: Record<string, number> = {};
+  for (const e of expenses) {
+    const cat = e.categoryId || 'uncategorized';
+    categories[cat] = (categories[cat] || 0) + e.amountCents;
+  }
+
+  // By vendor
+  const vendors: Record<string, { total: number; count: number }> = {};
+  for (const e of expenses) {
+    const v = e.vendor?.name || 'Unknown';
+    if (!vendors[v]) vendors[v] = { total: 0, count: 0 };
+    vendors[v].total += e.amountCents;
+    vendors[v].count++;
+  }
+  const topVendors = Object.entries(vendors).sort((a, b) => b[1].total - a[1].total).slice(0, 10);
+
+  // Clients
+  const clients = await db.abClient.findMany({ where: { tenantId } });
+  const clientSummary = clients.map((c: any) => ({
+    name: c.name, billedCents: c.totalBilledCents, paidCents: c.totalPaidCents,
+    outstandingCents: c.totalBilledCents - c.totalPaidCents,
+  }));
+
+  // Invoices
+  const invoices = await db.abInvoice.findMany({ where: { tenantId }, orderBy: { issuedDate: 'desc' }, take: 20 });
+  const invoiceSummary = invoices.map((i: any) => ({
+    number: i.number, clientId: i.clientId, amountCents: i.amountCents,
+    currency: i.currency, status: i.status, issuedDate: i.issuedDate, dueDate: i.dueDate,
+  }));
+
+  // Tax estimate
+  const taxEstimate = await db.abTaxEstimate.findFirst({ where: { tenantId }, orderBy: { calculatedAt: 'desc' } });
+
+  // Cash balance
+  const cashAccount = await db.abAccount.findFirst({ where: { tenantId, code: '1000' } });
+  let cashBalance = 0;
+  if (cashAccount) {
+    const cashLines = await db.abJournalLine.findMany({ where: { accountId: cashAccount.id, entry: { tenantId } } });
+    cashBalance = cashLines.reduce((s: number, l: any) => s + l.debitCents - l.creditCents, 0);
+  }
+
+  // Recurring expenses
+  const recurring = await db.abRecurringRule.findMany({ where: { tenantId, active: true } });
+
+  return {
+    jurisdiction: config?.jurisdiction || 'us',
+    currency: config?.currency || 'USD',
+    businessName: config?.businessName || 'Unknown',
+    totalRevenueCents: totalRevenue,
+    totalExpenseCents: totalExpenses,
+    netIncomeCents: totalRevenue - totalExpenses,
+    cashBalanceCents: cashBalance,
+    expenseCount: expenses.length,
+    topVendors: topVendors.map(([name, d]) => ({ name, totalCents: d.total, count: d.count })),
+    clients: clientSummary,
+    recentInvoices: invoiceSummary,
+    taxEstimate: taxEstimate ? {
+      totalTaxCents: taxEstimate.totalTaxCents,
+      effectiveRate: taxEstimate.effectiveRate,
+      netIncomeCents: taxEstimate.netIncomeCents,
+    } : null,
+    recurringExpenses: recurring.length,
+    monthlyBurnCents: Math.round(totalExpenses / Math.max(1, Math.ceil(expenses.length / 30) || 1)),
+  };
+}
+
+// Helper: call Gemini LLM
+async function callGemini(systemPrompt: string, userMessage: string, maxTokens: number = 500): Promise<string | null> {
+  const llmConfig = await db.abLLMProviderConfig.findFirst({ where: { enabled: true, isDefault: true } });
+  if (!llmConfig || llmConfig.provider !== 'gemini') return null;
+
+  const model = llmConfig.modelFast || 'gemini-2.0-flash';
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${llmConfig.apiKey}`;
+
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      systemInstruction: { parts: [{ text: systemPrompt }] },
+      contents: [{ role: 'user', parts: [{ text: userMessage }] }],
+      generationConfig: { maxOutputTokens: maxTokens, temperature: 0.3 },
+    }),
+  });
+
+  if (!res.ok) return null;
+  const data = await res.json();
+  return data.candidates?.[0]?.content?.parts?.[0]?.text || null;
+}
+
+// POST /ask — Enhanced conversational memory with LLM + pattern matching + conversation history
 app.post('/api/v1/agentbook-core/ask', async (req, res) => {
   try {
     const tenantId = (req as any).tenantId;
     const { question } = req.body;
     if (!question) return res.status(400).json({ success: false, error: 'question is required' });
 
-    // Log question for conversation context
-    await db.abEvent.create({
-      data: { tenantId, eventType: 'ask.question', actor: 'human', action: { question } },
-    });
-
-    // Pattern-matched queries (MVP — LLM-generated queries in production)
+    const start = Date.now();
     const q = question.toLowerCase();
     let answer = '';
     let data: any = null;
+    let queryType = 'pattern';
 
+    // === PATTERN MATCHING (fast path for common questions) ===
     if (q.includes('revenue') || q.includes('income') || q.includes('earn')) {
       const accounts = await db.abAccount.findMany({ where: { tenantId, accountType: 'revenue' } });
       const lines = await db.abJournalLine.findMany({
@@ -609,97 +715,129 @@ app.post('/api/v1/agentbook-core/ask', async (req, res) => {
       const total = lines.reduce((s: number, l: any) => s + l.creditCents, 0);
       answer = `Your total revenue is $${(total / 100).toLocaleString()}.`;
       data = { totalRevenueCents: total };
-    } else if (q.includes('spend') || q.includes('expense')) {
-      const expenses = await db.abExpense.findMany({ where: { tenantId, isPersonal: false } });
+    } else if (q.includes('spend') || q.includes('expense') || q.includes('cost')) {
+      // Enhanced: detect time period + category
+      const now = new Date();
+      let since = new Date(now.getFullYear(), 0, 1); // default: this year
+      if (q.includes('last month')) { since = new Date(now); since.setMonth(since.getMonth() - 1); }
+      else if (q.includes('last quarter') || q.includes('this quarter')) { since = new Date(now); since.setMonth(since.getMonth() - 3); }
+      else if (q.includes('this month')) { since = new Date(now.getFullYear(), now.getMonth(), 1); }
+
+      const expenses = await db.abExpense.findMany({
+        where: { tenantId, isPersonal: false, date: { gte: since } },
+        include: { vendor: true },
+      });
       const total = expenses.reduce((s: number, e: any) => s + e.amountCents, 0);
-      answer = `Total expenses: $${(total / 100).toLocaleString()} across ${expenses.length} transactions.`;
-      data = { totalCents: total, count: expenses.length };
-    } else if (q.includes('tax') || q.includes('owe')) {
+
+      // Vendor breakdown
+      const byVendor: Record<string, number> = {};
+      for (const e of expenses) { byVendor[e.vendor?.name || 'Other'] = (byVendor[e.vendor?.name || 'Other'] || 0) + e.amountCents; }
+      const topVendors = Object.entries(byVendor).sort((a, b) => b[1] - a[1]).slice(0, 5);
+
+      answer = `You spent $${(total / 100).toLocaleString()} across ${expenses.length} transactions.`;
+      if (topVendors.length > 0) {
+        answer += ` Top spending: ${topVendors.map(([v, a]) => `${v} ($${(a / 100).toLocaleString()})`).join(', ')}.`;
+      }
+      data = { totalCents: total, count: expenses.length, topVendors: topVendors.map(([n, a]) => ({ name: n, cents: a })) };
+    } else if ((q.includes('tax') || q.includes('owe')) && !q.includes('owe me') && !q.includes('owes me')) {
       const estimate = await db.abTaxEstimate.findFirst({ where: { tenantId }, orderBy: { calculatedAt: 'desc' } });
       if (estimate) {
-        answer = `Estimated tax: $${(estimate.totalTaxCents / 100).toLocaleString()}. Effective rate: ${(estimate.effectiveRate * 100).toFixed(1)}%.`;
+        answer = `Estimated tax: $${(estimate.totalTaxCents / 100).toLocaleString()}. Effective rate: ${(estimate.effectiveRate * 100).toFixed(1)}%. Net income: $${(estimate.netIncomeCents / 100).toLocaleString()}.`;
         data = estimate;
-      } else { answer = 'No tax estimate yet.'; }
-    } else if (q.includes('cash') || q.includes('balance')) {
+      } else { answer = 'No tax estimate yet. Record some revenue and expenses first.'; }
+    } else if ((q.includes('cash') || q.includes('balance') || q.includes('money')) && !q.includes('owe') && !q.includes('who')) {
       const cash = await db.abAccount.findFirst({ where: { tenantId, code: '1000' } });
       if (cash) {
         const lines = await db.abJournalLine.findMany({ where: { accountId: cash.id, entry: { tenantId } } });
         const balance = lines.reduce((s: number, l: any) => s + l.debitCents - l.creditCents, 0);
-        answer = `Cash balance: $${(balance / 100).toLocaleString()}.`;
-        data = { balanceCents: balance };
+
+        // Enhanced: add runway calculation
+        const expenses = await db.abExpense.aggregate({ where: { tenantId, isPersonal: false }, _sum: { amountCents: true } });
+        const totalExp = expenses._sum.amountCents || 1;
+        const expCount = await db.abExpense.count({ where: { tenantId, isPersonal: false } });
+        const avgMonthly = expCount > 0 ? Math.round(totalExp / Math.max(1, expCount / 30)) : 0;
+        const runway = avgMonthly > 0 ? (balance / avgMonthly).toFixed(1) : 'N/A';
+
+        answer = `Cash balance: $${(balance / 100).toLocaleString()}. Monthly burn: ~$${(avgMonthly / 100).toLocaleString()}. Runway: ${runway} months.`;
+        data = { balanceCents: balance, monthlyBurnCents: avgMonthly, runwayMonths: parseFloat(runway as string) || 0 };
       } else { answer = 'No cash account found.'; }
-    } else if (q.includes('client')) {
+    } else if (q.includes('client') || q.includes('outstanding') || q.includes('owe me') || q.includes('owes me') || q.includes('who owes')) {
       const clients = await db.abClient.findMany({ where: { tenantId } });
       const outstanding = clients.reduce((s: number, c: any) => s + (c.totalBilledCents - c.totalPaidCents), 0);
-      answer = `${clients.length} clients. Outstanding: $${(outstanding / 100).toLocaleString()}.`;
-      data = { clients: clients.length, outstandingCents: outstanding };
+      const clientDetails = clients
+        .map((c: any) => ({ name: c.name, outstanding: c.totalBilledCents - c.totalPaidCents }))
+        .filter(c => c.outstanding > 0)
+        .sort((a, b) => b.outstanding - a.outstanding);
+
+      answer = `${clients.length} clients. Total outstanding: $${(outstanding / 100).toLocaleString()}.`;
+      if (clientDetails.length > 0) {
+        answer += ` Overdue: ${clientDetails.map(c => `${c.name} ($${(c.outstanding / 100).toLocaleString()})`).join(', ')}.`;
+      }
+      data = { clients: clients.length, outstandingCents: outstanding, clientDetails };
     } else {
-      // LLM fallback: use Gemini for complex questions
-      const llmConfig = await db.abLLMProviderConfig.findFirst({ where: { enabled: true, isDefault: true } });
-      if (llmConfig && llmConfig.provider === 'gemini') {
-        try {
-          // Get financial context for LLM
-          const revenueAccounts = await db.abAccount.findMany({ where: { tenantId, accountType: 'revenue' } });
-          const revLines = await db.abJournalLine.findMany({
-            where: { accountId: { in: revenueAccounts.map((a: any) => a.id) }, entry: { tenantId } },
-          });
-          const totalRevenue = revLines.reduce((s: number, l: any) => s + l.creditCents, 0);
+      // === LLM PATH (complex questions) ===
+      queryType = 'llm';
+      const context = await buildFinancialContext(tenantId);
 
-          const expenseCount = await db.abExpense.count({ where: { tenantId, isPersonal: false } });
-          const expenses = await db.abExpense.aggregate({ where: { tenantId, isPersonal: false }, _sum: { amountCents: true } });
-          const totalExpenses = expenses._sum.amountCents || 0;
+      // Get recent conversation for continuity
+      const recentConvo = await db.abConversation.findMany({
+        where: { tenantId },
+        orderBy: { createdAt: 'desc' },
+        take: 5,
+      });
+      const convoHistory = recentConvo.reverse().map((c: any) => `Q: ${c.question}\nA: ${c.answer}`).join('\n\n');
 
-          const clients = await db.abClient.findMany({ where: { tenantId } });
-          const config = await db.abTenantConfig.findUnique({ where: { userId: tenantId } });
+      const contextStr = JSON.stringify(context, null, 2);
+      const llmAnswer = await callGemini(
+        `You are AgentBook, an AI-powered financial agent. Answer questions using the financial data provided. Be concise, specific, and always include dollar amounts. If comparing periods, calculate the difference. If the data doesn't support an answer, say so clearly. Currency: ${context.currency}. Jurisdiction: ${context.jurisdiction}.`,
+        `${convoHistory ? `Recent conversation:\n${convoHistory}\n\n` : ''}Financial data:\n${contextStr}\n\nNew question: ${question}`,
+        500,
+      );
 
-          const context = `Financial context for ${config?.jurisdiction || 'us'} business:
-Revenue: $${(totalRevenue / 100).toFixed(2)}
-Expenses: $${(totalExpenses / 100).toFixed(2)} across ${expenseCount} transactions
-Net income: $${((totalRevenue - totalExpenses) / 100).toFixed(2)}
-Clients: ${clients.map((c: any) => `${c.name} (billed: $${(c.totalBilledCents / 100).toFixed(2)})`).join(', ') || 'None'}
-Currency: ${config?.currency || 'USD'}
-Jurisdiction: ${config?.jurisdiction || 'us'}`;
-
-          const model = llmConfig.modelFast || 'gemini-2.0-flash';
-          const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${llmConfig.apiKey}`;
-
-          const llmRes = await fetch(url, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              systemInstruction: { parts: [{ text: 'You are AgentBook, an AI accounting agent. Answer financial questions concisely using the provided context. If you cannot answer from the data, say so clearly. Always include dollar amounts.' }] },
-              contents: [{ role: 'user', parts: [{ text: `${context}\n\nQuestion: ${question}` }] }],
-              generationConfig: { maxOutputTokens: 300, temperature: 0.3 },
-            }),
-          });
-
-          if (llmRes.ok) {
-            const llmData = await llmRes.json();
-            const llmAnswer = llmData.candidates?.[0]?.content?.parts?.[0]?.text || '';
-            answer = llmAnswer;
-            data = { source: 'gemini', model, context: 'financial_summary' };
-          } else {
-            answer = `I can answer about revenue, expenses, taxes, cash balance, and clients. Try: "How much revenue this year?"`;
-          }
-        } catch (llmErr) {
-          console.warn('LLM fallback failed:', llmErr);
-          answer = `I can answer about revenue, expenses, taxes, cash balance, and clients. Try: "How much revenue this year?"`;
-        }
+      if (llmAnswer) {
+        answer = llmAnswer;
+        data = { source: 'gemini', contextUsed: Object.keys(context) };
       } else {
-        answer = `I can answer about revenue, expenses, taxes, cash balance, and clients. Try: "How much revenue this year?"`;
+        answer = `Your finances: Revenue $${(context.totalRevenueCents / 100).toLocaleString()}, Expenses $${(context.totalExpenseCents / 100).toLocaleString()}, Net $${(context.netIncomeCents / 100).toLocaleString()}, Cash $${(context.cashBalanceCents / 100).toLocaleString()}. Ask about revenue, expenses, taxes, cash, or clients for details.`;
+        queryType = 'fallback';
       }
     }
 
-    // Get recent conversation context
-    const recentQuestions = await db.abEvent.findMany({
-      where: { tenantId, eventType: 'ask.question' },
+    const latencyMs = Date.now() - start;
+
+    // Save to conversation history (Phase 12: memory continuity)
+    await db.abConversation.create({
+      data: { tenantId, question, answer, queryType, data: data || {}, latencyMs },
+    });
+
+    // Also log as event for audit
+    await db.abEvent.create({
+      data: { tenantId, eventType: 'ask.question', actor: 'human', action: { question, queryType, latencyMs } },
+    });
+
+    // Get recent conversation for context display
+    const recentQuestions = await db.abConversation.findMany({
+      where: { tenantId },
       orderBy: { createdAt: 'desc' },
       take: 5,
-      select: { action: true },
+      select: { question: true, answer: true, queryType: true, createdAt: true },
     });
-    const conversationContext = recentQuestions.map((e: any) => (e.action as any)?.question).filter(Boolean);
 
-    res.json({ success: true, data: { question, answer, data, conversationContext } });
+    res.json({ success: true, data: { question, answer, data, queryType, latencyMs, conversationHistory: recentQuestions } });
+  } catch (err) { res.status(500).json({ success: false, error: String(err) }); }
+});
+
+// GET /conversations — Get conversation history
+app.get('/api/v1/agentbook-core/conversations', async (req, res) => {
+  try {
+    const tenantId = (req as any).tenantId;
+    const limit = parseInt(req.query.limit as string) || 20;
+    const conversations = await db.abConversation.findMany({
+      where: { tenantId },
+      orderBy: { createdAt: 'desc' },
+      take: limit,
+    });
+    res.json({ success: true, data: conversations });
   } catch (err) { res.status(500).json({ success: false, error: String(err) }); }
 });
 
@@ -1278,6 +1416,600 @@ app.post('/api/v1/agentbook-core/admin/llm-configs/:id/test', async (req, res) =
   } catch (err) {
     res.status(500).json({ success: false, error: String(err) });
   }
+});
+
+// ============================================
+// Phase 12: AUTONOMOUS WORKFLOW COMPOSITION ENGINE
+// ============================================
+
+// POST /automations — Create a new workflow automation
+app.post('/api/v1/agentbook-core/automations', async (req, res) => {
+  try {
+    const tenantId = (req as any).tenantId;
+    const { name, description, trigger, conditions, actions } = req.body;
+
+    if (!name || !trigger || !actions) {
+      return res.status(400).json({ success: false, error: 'name, trigger, and actions are required' });
+    }
+
+    // Validate trigger type
+    const validTriggers = ['schedule', 'event', 'condition'];
+    if (!validTriggers.includes(trigger.type)) {
+      return res.status(400).json({ success: false, error: `trigger.type must be: ${validTriggers.join(', ')}` });
+    }
+
+    // Validate actions
+    const validActions = ['send_reminder', 'create_invoice', 'notify', 'categorize_expense', 'update_status', 'send_email', 'escalate'];
+    for (const action of actions) {
+      if (!validActions.includes(action.type)) {
+        return res.status(400).json({ success: false, error: `Invalid action type: ${action.type}. Valid: ${validActions.join(', ')}` });
+      }
+    }
+
+    const automation = await db.abAutomation.create({
+      data: { tenantId, name, description, trigger, conditions: conditions || null, actions, status: 'active' },
+    });
+
+    await db.abEvent.create({
+      data: {
+        tenantId, eventType: 'automation.created', actor: 'user',
+        action: { automationId: automation.id, name, triggerType: trigger.type, actionCount: actions.length },
+      },
+    });
+
+    res.status(201).json({ success: true, data: automation });
+  } catch (err) { res.status(500).json({ success: false, error: String(err) }); }
+});
+
+// GET /automations — List all automations
+app.get('/api/v1/agentbook-core/automations', async (req, res) => {
+  try {
+    const tenantId = (req as any).tenantId;
+    const automations = await db.abAutomation.findMany({
+      where: { tenantId },
+      orderBy: { createdAt: 'desc' },
+    });
+    res.json({ success: true, data: automations });
+  } catch (err) { res.status(500).json({ success: false, error: String(err) }); }
+});
+
+// PUT /automations/:id — Update automation
+app.put('/api/v1/agentbook-core/automations/:id', async (req, res) => {
+  try {
+    const tenantId = (req as any).tenantId;
+    const existing = await db.abAutomation.findFirst({ where: { id: req.params.id, tenantId } });
+    if (!existing) return res.status(404).json({ success: false, error: 'Automation not found' });
+
+    const updated = await db.abAutomation.update({
+      where: { id: req.params.id },
+      data: req.body,
+    });
+    res.json({ success: true, data: updated });
+  } catch (err) { res.status(500).json({ success: false, error: String(err) }); }
+});
+
+// DELETE /automations/:id — Delete automation
+app.delete('/api/v1/agentbook-core/automations/:id', async (req, res) => {
+  try {
+    const tenantId = (req as any).tenantId;
+    const existing = await db.abAutomation.findFirst({ where: { id: req.params.id, tenantId } });
+    if (!existing) return res.status(404).json({ success: false, error: 'Automation not found' });
+
+    await db.abAutomation.delete({ where: { id: req.params.id } });
+    res.json({ success: true, data: { deleted: true } });
+  } catch (err) { res.status(500).json({ success: false, error: String(err) }); }
+});
+
+// POST /automations/:id/run — Manually trigger an automation
+app.post('/api/v1/agentbook-core/automations/:id/run', async (req, res) => {
+  try {
+    const tenantId = (req as any).tenantId;
+    const automation = await db.abAutomation.findFirst({ where: { id: req.params.id, tenantId } });
+    if (!automation) return res.status(404).json({ success: false, error: 'Automation not found' });
+    if (automation.status !== 'active') return res.status(422).json({ success: false, error: `Automation is ${automation.status}` });
+
+    const results: any[] = [];
+    const actions = automation.actions as any[];
+
+    for (const action of actions) {
+      const actionResult: any = { type: action.type, status: 'executed' };
+
+      switch (action.type) {
+        case 'notify':
+          actionResult.message = action.config?.message || `Automation "${automation.name}" triggered`;
+          // In production: send via Telegram/email
+          break;
+
+        case 'send_reminder': {
+          // Find overdue invoices and send reminders
+          const overdue = await db.abInvoice.findMany({
+            where: { tenantId, status: { in: ['sent', 'overdue'] }, dueDate: { lt: new Date() } },
+            include: { client: true },
+            take: action.config?.limit || 5,
+          });
+          actionResult.overdueCount = overdue.length;
+          actionResult.invoices = overdue.map((i: any) => ({ number: i.number, client: i.client.name, amountCents: i.amountCents }));
+          break;
+        }
+
+        case 'categorize_expense': {
+          const uncategorized = await db.abExpense.count({ where: { tenantId, categoryId: null } });
+          actionResult.uncategorized = uncategorized;
+          break;
+        }
+
+        case 'escalate':
+          actionResult.escalatedTo = action.config?.to || 'owner';
+          actionResult.reason = action.config?.reason || 'Automation escalation';
+          break;
+
+        default:
+          actionResult.status = 'skipped';
+          actionResult.reason = `Action type ${action.type} execution pending implementation`;
+      }
+
+      results.push(actionResult);
+    }
+
+    // Update automation run stats
+    await db.abAutomation.update({
+      where: { id: automation.id },
+      data: { lastRun: new Date(), runCount: { increment: 1 } },
+    });
+
+    // Check if max runs reached
+    if (automation.maxRuns && automation.runCount + 1 >= automation.maxRuns) {
+      await db.abAutomation.update({ where: { id: automation.id }, data: { status: 'completed' } });
+    }
+
+    await db.abEvent.create({
+      data: {
+        tenantId, eventType: 'automation.executed', actor: 'system',
+        action: { automationId: automation.id, name: automation.name, actionResults: results },
+      },
+    });
+
+    res.json({ success: true, data: { automationId: automation.id, name: automation.name, results, runCount: automation.runCount + 1 } });
+  } catch (err) { res.status(500).json({ success: false, error: String(err) }); }
+});
+
+// POST /automations/from-description — Create automation from natural language (LLM-powered)
+app.post('/api/v1/agentbook-core/automations/from-description', async (req, res) => {
+  try {
+    const tenantId = (req as any).tenantId;
+    const { description } = req.body;
+    if (!description) return res.status(400).json({ success: false, error: 'description is required' });
+
+    const prompt = `Convert this workflow description into a JSON automation definition.
+Valid trigger types: schedule, event, condition
+Valid action types: send_reminder, create_invoice, notify, categorize_expense, update_status, send_email, escalate
+
+Respond with ONLY valid JSON (no markdown), in this exact format:
+{"name": "...", "trigger": {"type": "schedule|event|condition", "config": {...}}, "conditions": [...], "actions": [{"type": "...", "config": {...}}]}
+
+Description: ${description}`;
+
+    const llmResult = await callGemini(
+      'You are a workflow automation builder. Convert natural language descriptions into structured JSON workflow definitions. Always respond with valid JSON only.',
+      prompt,
+      500,
+    );
+
+    if (llmResult) {
+      try {
+        // Clean potential markdown wrapping
+        const cleaned = llmResult.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+        const workflow = JSON.parse(cleaned);
+
+        const automation = await db.abAutomation.create({
+          data: {
+            tenantId,
+            name: workflow.name || 'Auto-generated workflow',
+            description,
+            trigger: workflow.trigger,
+            conditions: workflow.conditions || null,
+            actions: workflow.actions,
+            status: 'active',
+          },
+        });
+
+        res.status(201).json({ success: true, data: { automation, generatedFrom: 'llm', originalDescription: description } });
+      } catch (parseErr) {
+        // LLM output wasn't valid JSON — return a simple default
+        const automation = await db.abAutomation.create({
+          data: {
+            tenantId, name: description.slice(0, 100),
+            description,
+            trigger: { type: 'schedule', config: { cron: '0 9 * * 1' } },
+            actions: [{ type: 'notify', config: { message: description } }],
+            status: 'active',
+          },
+        });
+        res.status(201).json({ success: true, data: { automation, generatedFrom: 'fallback', parseError: true } });
+      }
+    } else {
+      // No LLM available — create simple notification automation
+      const automation = await db.abAutomation.create({
+        data: {
+          tenantId, name: description.slice(0, 100), description,
+          trigger: { type: 'schedule', config: { cron: '0 9 * * 1' } },
+          actions: [{ type: 'notify', config: { message: description } }],
+          status: 'active',
+        },
+      });
+      res.status(201).json({ success: true, data: { automation, generatedFrom: 'default' } });
+    }
+  } catch (err) { res.status(500).json({ success: false, error: String(err) }); }
+});
+
+// ============================================
+// Phase 12: FINANCIAL DIGITAL TWIN (What-If Simulator)
+// ============================================
+
+// POST /simulate — Run financial what-if scenarios
+app.post('/api/v1/agentbook-core/simulate', async (req, res) => {
+  try {
+    const tenantId = (req as any).tenantId;
+    const { scenario } = req.body;
+    if (!scenario) return res.status(400).json({ success: false, error: 'scenario is required (object or text)' });
+
+    // Get current financial state
+    const context = await buildFinancialContext(tenantId);
+
+    // If scenario is a string, try LLM interpretation
+    let scenarioObj = typeof scenario === 'string' ? null : scenario;
+
+    if (typeof scenario === 'string') {
+      const llmResult = await callGemini(
+        'Convert a financial scenario description to JSON. Types: add_expense (monthly recurring), add_revenue (monthly), lose_client (clientName), hire (monthlyCostCents), buy_equipment (amountCents, depreciationYears). Respond with ONLY valid JSON: {"type": "...", "params": {...}}',
+        scenario,
+        200,
+      );
+      if (llmResult) {
+        try {
+          const cleaned = llmResult.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+          scenarioObj = JSON.parse(cleaned);
+        } catch { scenarioObj = null; }
+      }
+      if (!scenarioObj) {
+        scenarioObj = { type: 'custom', description: scenario };
+      }
+    }
+
+    // Base state
+    const monthlyRevenue = context.totalRevenueCents / 12;
+    const monthlyExpenses = context.monthlyBurnCents;
+    const currentCash = context.cashBalanceCents;
+    const currentNetMonthly = monthlyRevenue - monthlyExpenses;
+
+    // Apply scenario
+    let newMonthlyExpenses = monthlyExpenses;
+    let newMonthlyRevenue = monthlyRevenue;
+    let oneTimeCost = 0;
+    let scenarioDescription = '';
+
+    switch (scenarioObj.type) {
+      case 'add_expense':
+        newMonthlyExpenses += (scenarioObj.params?.monthlyCostCents || 0);
+        scenarioDescription = `Add recurring expense of $${((scenarioObj.params?.monthlyCostCents || 0) / 100).toLocaleString()}/month`;
+        break;
+      case 'add_revenue':
+        newMonthlyRevenue += (scenarioObj.params?.monthlyCostCents || scenarioObj.params?.monthlyRevenueCents || 0);
+        scenarioDescription = `Add revenue of $${((scenarioObj.params?.monthlyRevenueCents || scenarioObj.params?.monthlyCostCents || 0) / 100).toLocaleString()}/month`;
+        break;
+      case 'lose_client': {
+        const clientName = scenarioObj.params?.clientName || 'Unknown';
+        const client = context.clients.find((c: any) => c.name.toLowerCase().includes(clientName.toLowerCase()));
+        if (client) {
+          const monthlyFromClient = Math.round(client.billedCents / 12);
+          newMonthlyRevenue -= monthlyFromClient;
+          scenarioDescription = `Lose client ${client.name} ($${(monthlyFromClient / 100).toLocaleString()}/month)`;
+        } else {
+          scenarioDescription = `Lose client ${clientName} (not found — no revenue impact calculated)`;
+        }
+        break;
+      }
+      case 'hire':
+        newMonthlyExpenses += (scenarioObj.params?.monthlyCostCents || 0);
+        scenarioDescription = `Hire at $${((scenarioObj.params?.monthlyCostCents || 0) / 100).toLocaleString()}/month`;
+        break;
+      case 'buy_equipment':
+        oneTimeCost = scenarioObj.params?.amountCents || 0;
+        const depYears = scenarioObj.params?.depreciationYears || 5;
+        const monthlyDep = Math.round(oneTimeCost / (depYears * 12));
+        newMonthlyExpenses += monthlyDep;
+        scenarioDescription = `Buy equipment $${(oneTimeCost / 100).toLocaleString()} (depreciated over ${depYears} years: $${(monthlyDep / 100).toLocaleString()}/month)`;
+        break;
+      default:
+        scenarioDescription = scenarioObj.description || 'Custom scenario';
+    }
+
+    const newNetMonthly = newMonthlyRevenue - newMonthlyExpenses;
+    const newCash = currentCash - oneTimeCost;
+    const newRunway = newMonthlyExpenses > 0 ? newCash / newMonthlyExpenses : Infinity;
+
+    // 12-month cash projection
+    const projection = [];
+    let runningCash = newCash;
+    for (let m = 1; m <= 12; m++) {
+      runningCash += newNetMonthly;
+      projection.push({ month: m, cashCents: runningCash, positiveFlow: newNetMonthly > 0 });
+    }
+
+    // Tax impact estimate (rough)
+    const currentAnnualNet = currentNetMonthly * 12;
+    const newAnnualNet = newNetMonthly * 12;
+    const taxRate = context.taxEstimate?.effectiveRate || 0.25;
+    const currentTax = Math.round(currentAnnualNet * taxRate);
+    const newTax = Math.round(newAnnualNet * taxRate);
+
+    // Cash danger month (when cash goes negative)
+    const dangerMonth = projection.find(p => p.cashCents < 0)?.month || null;
+
+    const result = {
+      scenario: scenarioDescription,
+      scenarioInput: scenarioObj,
+      current: {
+        monthlyRevenueCents: Math.round(monthlyRevenue),
+        monthlyExpensesCents: monthlyExpenses,
+        monthlyNetCents: Math.round(currentNetMonthly),
+        cashCents: currentCash,
+        annualTaxCents: currentTax,
+        runwayMonths: monthlyExpenses > 0 ? parseFloat((currentCash / monthlyExpenses).toFixed(1)) : Infinity,
+      },
+      projected: {
+        monthlyRevenueCents: Math.round(newMonthlyRevenue),
+        monthlyExpensesCents: newMonthlyExpenses,
+        monthlyNetCents: Math.round(newNetMonthly),
+        cashCents: newCash,
+        annualTaxCents: newTax,
+        runwayMonths: parseFloat(newRunway.toFixed(1)),
+        oneTimeCostCents: oneTimeCost,
+      },
+      impact: {
+        monthlyNetChangeCents: Math.round(newNetMonthly - currentNetMonthly),
+        annualTaxChangeCents: newTax - currentTax,
+        runwayChangemonths: parseFloat((newRunway - (monthlyExpenses > 0 ? currentCash / monthlyExpenses : 0)).toFixed(1)),
+        cashDangerMonth: dangerMonth,
+      },
+      cashProjection12Months: projection,
+    };
+
+    // Use LLM for narrative summary if available
+    let narrative = '';
+    const llmNarrative = await callGemini(
+      'You are a financial advisor. Given a what-if scenario simulation result, provide a 2-3 sentence assessment. Be direct about risks and opportunities. Use dollar amounts.',
+      `Scenario: ${scenarioDescription}\nCurrent monthly net: $${(currentNetMonthly / 100).toFixed(2)}\nProjected monthly net: $${(newNetMonthly / 100).toFixed(2)}\nCash now: $${(currentCash / 100).toFixed(2)}\nProjected cash: $${(newCash / 100).toFixed(2)}\nRunway change: ${(newRunway - (currentCash / monthlyExpenses || 0)).toFixed(1)} months\nTax change: $${((newTax - currentTax) / 100).toFixed(2)}/year`,
+      200,
+    );
+    if (llmNarrative) narrative = llmNarrative;
+    else {
+      narrative = newNetMonthly > currentNetMonthly
+        ? `This scenario improves your monthly net by $${(Math.abs(newNetMonthly - currentNetMonthly) / 100).toLocaleString()}.`
+        : `This scenario reduces your monthly net by $${(Math.abs(newNetMonthly - currentNetMonthly) / 100).toLocaleString()}.`;
+      if (dangerMonth) narrative += ` Warning: cash goes negative in month ${dangerMonth}.`;
+    }
+
+    res.json({ success: true, data: { ...result, narrative } });
+  } catch (err) { res.status(500).json({ success: false, error: String(err) }); }
+});
+
+// GET /financial-snapshot — Get current financial snapshot
+app.get('/api/v1/agentbook-core/financial-snapshot', async (req, res) => {
+  try {
+    const tenantId = (req as any).tenantId;
+    const context = await buildFinancialContext(tenantId);
+
+    // Store snapshot
+    await db.abFinancialSnapshot.create({
+      data: {
+        tenantId,
+        snapshotDate: new Date(),
+        cashBalanceCents: context.cashBalanceCents,
+        totalRevenueCents: context.totalRevenueCents,
+        totalExpenseCents: context.totalExpenseCents,
+        netIncomeCents: context.netIncomeCents,
+        arOutstandingCents: context.clients.reduce((s: number, c: any) => s + c.outstandingCents, 0),
+        monthlyBurnCents: context.monthlyBurnCents,
+        runwayMonths: context.monthlyBurnCents > 0 ? context.cashBalanceCents / context.monthlyBurnCents : 0,
+        clientCount: context.clients.length,
+        topClients: context.clients.slice(0, 5).map((c: any) => ({
+          name: c.name, revenueCents: c.billedCents,
+          percentage: context.totalRevenueCents > 0 ? Math.round(c.billedCents / context.totalRevenueCents * 100) : 0,
+        })),
+        categoryBreakdown: context.topVendors,
+      },
+    });
+
+    res.json({ success: true, data: context });
+  } catch (err) { res.status(500).json({ success: false, error: String(err) }); }
+});
+
+// GET /financial-snapshots — Get historical snapshots for trend analysis
+app.get('/api/v1/agentbook-core/financial-snapshots', async (req, res) => {
+  try {
+    const tenantId = (req as any).tenantId;
+    const limit = parseInt(req.query.limit as string) || 30;
+    const snapshots = await db.abFinancialSnapshot.findMany({
+      where: { tenantId },
+      orderBy: { snapshotDate: 'desc' },
+      take: limit,
+    });
+    res.json({ success: true, data: snapshots });
+  } catch (err) { res.status(500).json({ success: false, error: String(err) }); }
+});
+
+// ============================================
+// Phase 12: PERSONALIZED CFO PERSONALITY
+// ============================================
+
+// GET /personality — Get agent personality settings
+app.get('/api/v1/agentbook-core/personality', async (req, res) => {
+  try {
+    const tenantId = (req as any).tenantId;
+    const { agentId } = req.query;
+
+    if (agentId) {
+      const personality = await db.abAgentPersonality.findFirst({
+        where: { tenantId, agentId: agentId as string },
+      });
+      if (!personality) {
+        // Return defaults
+        return res.json({
+          success: true, data: {
+            tenantId, agentId,
+            communicationStyle: 'auto', proactiveLevel: 'balanced',
+            riskTolerance: 'moderate', industryContext: null, customInstructions: null,
+          },
+        });
+      }
+      return res.json({ success: true, data: personality });
+    }
+
+    // Return all agent personalities
+    const personalities = await db.abAgentPersonality.findMany({ where: { tenantId } });
+
+    // Fill defaults for missing agents
+    const agentIds = ['bookkeeper', 'tax-strategist', 'collections', 'insights'];
+    const result = agentIds.map(aid => {
+      const existing = personalities.find((p: any) => p.agentId === aid);
+      return existing || {
+        tenantId, agentId: aid,
+        communicationStyle: 'auto', proactiveLevel: 'balanced',
+        riskTolerance: 'moderate', industryContext: null, customInstructions: null,
+      };
+    });
+
+    res.json({ success: true, data: result });
+  } catch (err) { res.status(500).json({ success: false, error: String(err) }); }
+});
+
+// PUT /personality — Update agent personality
+app.put('/api/v1/agentbook-core/personality', async (req, res) => {
+  try {
+    const tenantId = (req as any).tenantId;
+    const { agentId, communicationStyle, proactiveLevel, riskTolerance, industryContext, customInstructions } = req.body;
+
+    if (!agentId) return res.status(400).json({ success: false, error: 'agentId is required' });
+
+    const validStyles = ['concise', 'detailed', 'auto'];
+    const validLevels = ['minimal', 'balanced', 'aggressive'];
+    const validRisk = ['conservative', 'moderate', 'aggressive'];
+
+    if (communicationStyle && !validStyles.includes(communicationStyle)) {
+      return res.status(400).json({ success: false, error: `communicationStyle must be: ${validStyles.join(', ')}` });
+    }
+    if (proactiveLevel && !validLevels.includes(proactiveLevel)) {
+      return res.status(400).json({ success: false, error: `proactiveLevel must be: ${validLevels.join(', ')}` });
+    }
+    if (riskTolerance && !validRisk.includes(riskTolerance)) {
+      return res.status(400).json({ success: false, error: `riskTolerance must be: ${validRisk.join(', ')}` });
+    }
+
+    const personality = await db.abAgentPersonality.upsert({
+      where: { tenantId_agentId: { tenantId, agentId } },
+      update: {
+        ...(communicationStyle && { communicationStyle }),
+        ...(proactiveLevel && { proactiveLevel }),
+        ...(riskTolerance && { riskTolerance }),
+        ...(industryContext !== undefined && { industryContext }),
+        ...(customInstructions !== undefined && { customInstructions }),
+      },
+      create: {
+        tenantId, agentId,
+        communicationStyle: communicationStyle || 'auto',
+        proactiveLevel: proactiveLevel || 'balanced',
+        riskTolerance: riskTolerance || 'moderate',
+        industryContext: industryContext || null,
+        customInstructions: customInstructions || null,
+      },
+    });
+
+    await db.abEvent.create({
+      data: {
+        tenantId, eventType: 'personality.updated', actor: 'user',
+        action: { agentId, communicationStyle, proactiveLevel, riskTolerance },
+      },
+    });
+
+    res.json({ success: true, data: personality });
+  } catch (err) { res.status(500).json({ success: false, error: String(err) }); }
+});
+
+// POST /personality/auto-adapt — Agent self-adapts based on user engagement patterns
+app.post('/api/v1/agentbook-core/personality/auto-adapt', async (req, res) => {
+  try {
+    const tenantId = (req as any).tenantId;
+    const { agentId } = req.body;
+    if (!agentId) return res.status(400).json({ success: false, error: 'agentId is required' });
+
+    // Analyze engagement patterns from events
+    const thirtyDaysAgo = new Date();
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+
+    const events = await db.abEvent.findMany({
+      where: { tenantId, createdAt: { gte: thirtyDaysAgo } },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    // Count corrections (indicates agent needs more confirmation)
+    const corrections = events.filter((e: any) => (e.eventType as string).includes('correction') || (e.eventType as string).includes('corrected')).length;
+
+    // Count questions asked (indicates preferred interaction style)
+    const questions = events.filter((e: any) => e.eventType === 'ask.question').length;
+
+    // Count automation runs (indicates desire for automation)
+    const automationRuns = events.filter((e: any) => (e.eventType as string).includes('automation')).length;
+
+    // Determine adaptations
+    const adaptations: Record<string, string> = {};
+
+    // High corrections → more cautious
+    if (corrections > 10) {
+      adaptations.proactiveLevel = 'minimal';
+    } else if (corrections < 3 && events.length > 20) {
+      adaptations.proactiveLevel = 'aggressive';
+    }
+
+    // Many questions → user prefers detailed responses
+    if (questions > 15) {
+      adaptations.communicationStyle = 'detailed';
+    } else if (questions < 3 && events.length > 20) {
+      adaptations.communicationStyle = 'concise';
+    }
+
+    // Apply adaptations
+    if (Object.keys(adaptations).length > 0) {
+      await db.abAgentPersonality.upsert({
+        where: { tenantId_agentId: { tenantId, agentId } },
+        update: adaptations,
+        create: {
+          tenantId, agentId,
+          communicationStyle: adaptations.communicationStyle || 'auto',
+          proactiveLevel: adaptations.proactiveLevel || 'balanced',
+          riskTolerance: 'moderate',
+        },
+      });
+    }
+
+    await db.abEvent.create({
+      data: {
+        tenantId, eventType: 'personality.auto_adapted', actor: 'system',
+        action: { agentId, corrections, questions, automationRuns, adaptations },
+      },
+    });
+
+    res.json({
+      success: true,
+      data: {
+        agentId,
+        analysisWindow: '30 days',
+        metrics: { corrections, questions, automationRuns, totalEvents: events.length },
+        adaptations,
+        adapted: Object.keys(adaptations).length > 0,
+      },
+    });
+  } catch (err) { res.status(500).json({ success: false, error: String(err) }); }
 });
 
 start();

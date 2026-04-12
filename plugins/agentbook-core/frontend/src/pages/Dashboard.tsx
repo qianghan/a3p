@@ -174,11 +174,11 @@ export const DashboardPage: React.FC = () => {
       <div className="mb-6">
         <h2 className="text-sm font-medium text-muted-foreground mb-3 px-1">Quick Actions</h2>
         <div className="flex gap-3 overflow-x-auto pb-2 -mx-1 px-1 snap-x">
-          <QuickActionPill icon={<Camera className="w-4 h-4" />} label="Snap Receipt" href="/agentbook/expenses/new" color="bg-primary" />
-          <QuickActionPill icon={<FileText className="w-4 h-4" />} label="New Invoice" href="/agentbook/invoices/new" color="bg-blue-600" />
-          <QuickActionPill icon={<Calculator className="w-4 h-4" />} label="Tax Estimate" href="/agentbook/tax" color="bg-purple-600" />
-          <QuickActionPill icon={<BookOpen className="w-4 h-4" />} label="Reports" href="/agentbook/reports" color="bg-emerald-600" />
-          <QuickActionPill icon={<Send className="w-4 h-4" />} label="Ask Agent" href="#" color="bg-amber-600" />
+          <QuickActionPill icon={<Camera className="w-4 h-4" />} label="Snap Receipt" href="/agentbook/expenses/new" color="bg-primary text-primary-foreground" />
+          <QuickActionPill icon={<FileText className="w-4 h-4" />} label="New Invoice" href="/agentbook/invoices/new" color="bg-accent-purple text-white" />
+          <QuickActionPill icon={<Calculator className="w-4 h-4" />} label="Tax Estimate" href="/agentbook/tax" color="bg-accent-amber text-white" />
+          <QuickActionPill icon={<BookOpen className="w-4 h-4" />} label="Reports" href="/agentbook/reports" color="bg-accent-green text-white" />
+          <QuickActionPill icon={<Send className="w-4 h-4" />} label="Ask Agent" href="#" color="bg-muted text-foreground border border-border" />
         </div>
       </div>
 
@@ -251,9 +251,9 @@ const MetricCard: React.FC<{
   color: 'blue' | 'green' | 'red';
 }> = ({ icon, label, value, color }) => {
   const colors = {
-    blue: 'text-blue-500 bg-blue-500/10',
-    green: 'text-green-500 bg-green-500/10',
-    red: 'text-red-500 bg-red-500/10',
+    blue: 'text-accent-blue bg-accent-blue/10',
+    green: 'text-accent-green bg-accent-green/10',
+    red: 'text-accent-rose bg-accent-rose/10',
   };
 
   return (
@@ -275,7 +275,7 @@ const QuickActionPill: React.FC<{
 }> = ({ icon, label, href, color }) => (
   <button
     onClick={() => { window.location.href = href; }}
-    className={`flex items-center gap-2 px-4 py-2.5 rounded-full text-white text-sm font-medium whitespace-nowrap snap-start shrink-0 active:scale-95 transition-transform ${color}`}
+    className={`flex items-center gap-2 px-4 py-2.5 rounded-full text-sm font-medium whitespace-nowrap snap-start shrink-0 active:scale-95 transition-transform ${color}`}
   >
     {icon}
     {label}

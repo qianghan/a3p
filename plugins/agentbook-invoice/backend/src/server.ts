@@ -220,7 +220,7 @@ app.put('/api/v1/agentbook-invoice/clients/:id', async (req: Request, res: Respo
 app.post('/api/v1/agentbook-invoice/invoices', async (req: Request, res: Response) => {
   try {
     const tenantId = (req as any).tenantId;
-    const { clientId, issuedDate, dueDate, lines, status } = req.body;
+    const { clientId, issuedDate, dueDate, lines, status, currency } = req.body;
 
     if (!clientId || !lines || !Array.isArray(lines) || lines.length === 0) {
       return res.status(400).json({ success: false, error: 'clientId and at least one line item are required' });
@@ -309,6 +309,7 @@ app.post('/api/v1/agentbook-invoice/invoices', async (req: Request, res: Respons
           clientId,
           number: invoiceNumber,
           amountCents: totalAmountCents,
+          currency: currency || 'USD',
           issuedDate: new Date(issuedDate || Date.now()),
           dueDate: new Date(dueDate || Date.now()),
           status: status || 'draft',
@@ -463,9 +464,30 @@ app.post('/invoices/:id/send', async (req: Request, res: Response) => {
       return inv;
     });
 
-    // TODO: integrate email sending service
+    // Send email if client has email address
+    const client = await db.abClient.findFirst({ where: { id: invoice.clientId, tenantId } });
+    let emailSent = false;
+    if (client?.email) {
+      try {
+        const fullInvoice = await db.abInvoice.findFirst({
+          where: { id: invoice.id },
+          include: { lines: true, client: true },
+        });
+        const tenantConfig = await db.abTenantConfig.findFirst({ where: { userId: tenantId } });
+        const html = generateInvoiceHtml(fullInvoice!, fullInvoice!.client, fullInvoice!.lines, tenantConfig);
+        const emailProvider = getEmailProvider();
+        await emailProvider.send(
+          client.email,
+          `Invoice ${invoice.number} from ${tenantConfig?.businessName || 'Your Company'}`,
+          html,
+        );
+        emailSent = true;
+      } catch (emailErr) {
+        console.warn('Email send failed (non-blocking):', emailErr);
+      }
+    }
 
-    res.json({ success: true, data: updated });
+    res.json({ success: true, data: { ...updated, emailSent } });
   } catch (err) {
     res.status(500).json({ success: false, error: String(err) });
   }
@@ -1274,6 +1296,592 @@ app.get('/api/v1/agentbook-invoice/project-profitability', async (req: Request, 
     });
 
     res.json({ success: true, data: result });
+  } catch (err) { res.status(500).json({ success: false, error: String(err) }); }
+});
+
+// ============================================
+// INVOICE PDF GENERATION (B2 — Competitive Gap)
+// ============================================
+
+const CURRENCY_SYMBOLS: Record<string, string> = {
+  USD: '$', CAD: 'C$', GBP: '£', AUD: 'A$', EUR: '€',
+};
+
+const CURRENCY_LOCALES: Record<string, string> = {
+  USD: 'en-US', CAD: 'en-CA', GBP: 'en-GB', AUD: 'en-AU', EUR: 'de-DE',
+};
+
+function formatMoney(cents: number, currency: string = 'USD'): string {
+  const locale = CURRENCY_LOCALES[currency] || 'en-US';
+  return new Intl.NumberFormat(locale, { style: 'currency', currency }).format(cents / 100);
+}
+
+function generateInvoiceHtml(invoice: any, client: any, lines: any[], tenantConfig: any): string {
+  const currency = invoice.currency || 'USD';
+  const companyName = tenantConfig?.businessName || 'Your Company';
+  const companyAddress = tenantConfig?.address || '';
+  const companyEmail = tenantConfig?.email || '';
+
+  const lineRows = lines.map((l: any, i: number) => `
+    <tr>
+      <td style="padding:8px;border-bottom:1px solid #eee;">${i + 1}</td>
+      <td style="padding:8px;border-bottom:1px solid #eee;">${l.description}</td>
+      <td style="padding:8px;border-bottom:1px solid #eee;text-align:center;">${l.quantity}</td>
+      <td style="padding:8px;border-bottom:1px solid #eee;text-align:right;">${formatMoney(l.rateCents, currency)}</td>
+      <td style="padding:8px;border-bottom:1px solid #eee;text-align:right;">${formatMoney(l.amountCents, currency)}</td>
+    </tr>`).join('');
+
+  return `<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><title>Invoice ${invoice.number}</title>
+<style>
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; color: #1a1a2e; margin: 0; padding: 40px; }
+  .header { display: flex; justify-content: space-between; margin-bottom: 40px; }
+  .company { font-size: 24px; font-weight: 700; color: #10b981; }
+  .invoice-title { font-size: 32px; font-weight: 300; color: #64748b; text-align: right; }
+  .invoice-number { font-size: 14px; color: #94a3b8; text-align: right; }
+  .details { display: flex; justify-content: space-between; margin-bottom: 30px; }
+  .details-box { background: #f8fafc; padding: 16px; border-radius: 8px; min-width: 200px; }
+  .details-label { font-size: 11px; text-transform: uppercase; color: #94a3b8; letter-spacing: 1px; margin-bottom: 4px; }
+  .details-value { font-size: 14px; font-weight: 500; }
+  table { width: 100%; border-collapse: collapse; margin-bottom: 30px; }
+  thead th { background: #1a1a2e; color: white; padding: 10px 8px; text-align: left; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; }
+  thead th:nth-child(3), thead th:nth-child(4), thead th:nth-child(5) { text-align: right; }
+  .total-row { display: flex; justify-content: flex-end; }
+  .total-box { background: #10b981; color: white; padding: 16px 32px; border-radius: 8px; font-size: 20px; font-weight: 700; }
+  .footer { margin-top: 40px; padding-top: 20px; border-top: 1px solid #e2e8f0; font-size: 12px; color: #94a3b8; text-align: center; }
+  .status { display: inline-block; padding: 4px 12px; border-radius: 12px; font-size: 12px; font-weight: 600; text-transform: uppercase; }
+  .status-draft { background: #f1f5f9; color: #64748b; }
+  .status-sent { background: #dbeafe; color: #2563eb; }
+  .status-paid { background: #d1fae5; color: #059669; }
+  .status-overdue { background: #fee2e2; color: #dc2626; }
+  @media print { body { padding: 20px; } }
+</style>
+</head>
+<body>
+  <div class="header">
+    <div>
+      <div class="company">${companyName}</div>
+      <div style="font-size:13px;color:#64748b;margin-top:4px;">${companyAddress}</div>
+      ${companyEmail ? `<div style="font-size:13px;color:#64748b;">${companyEmail}</div>` : ''}
+    </div>
+    <div>
+      <div class="invoice-title">INVOICE</div>
+      <div class="invoice-number">${invoice.number}</div>
+      <div style="margin-top:8px;text-align:right;"><span class="status status-${invoice.status}">${invoice.status}</span></div>
+    </div>
+  </div>
+
+  <div class="details">
+    <div class="details-box">
+      <div class="details-label">Bill To</div>
+      <div class="details-value">${client.name}</div>
+      ${client.email ? `<div style="font-size:13px;color:#64748b;">${client.email}</div>` : ''}
+      ${client.address ? `<div style="font-size:13px;color:#64748b;">${client.address}</div>` : ''}
+    </div>
+    <div class="details-box">
+      <div class="details-label">Invoice Date</div>
+      <div class="details-value">${new Date(invoice.issuedDate).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}</div>
+      <div class="details-label" style="margin-top:12px;">Due Date</div>
+      <div class="details-value">${new Date(invoice.dueDate).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}</div>
+    </div>
+    <div class="details-box">
+      <div class="details-label">Currency</div>
+      <div class="details-value">${currency}</div>
+      <div class="details-label" style="margin-top:12px;">Amount Due</div>
+      <div class="details-value" style="font-size:18px;color:#10b981;">${formatMoney(invoice.amountCents, currency)}</div>
+    </div>
+  </div>
+
+  <table>
+    <thead>
+      <tr>
+        <th style="width:40px;">#</th>
+        <th>Description</th>
+        <th style="width:80px;text-align:center;">Qty</th>
+        <th style="width:120px;text-align:right;">Rate</th>
+        <th style="width:120px;text-align:right;">Amount</th>
+      </tr>
+    </thead>
+    <tbody>${lineRows}</tbody>
+  </table>
+
+  <div class="total-row">
+    <div class="total-box">Total: ${formatMoney(invoice.amountCents, currency)}</div>
+  </div>
+
+  <div class="footer">
+    <p>Generated by AgentBook — Powered by AI</p>
+    <p>Thank you for your business!</p>
+  </div>
+</body>
+</html>`;
+}
+
+// POST /invoices/:id/pdf — Generate invoice PDF HTML
+app.post('/invoices/:id/pdf', async (req: Request, res: Response) => {
+  try {
+    const tenantId = (req as any).tenantId;
+    const invoice = await db.abInvoice.findFirst({
+      where: { id: req.params.id, tenantId },
+      include: { lines: true, client: true },
+    });
+    if (!invoice) return res.status(404).json({ success: false, error: 'Invoice not found' });
+
+    const tenantConfig = await db.abTenantConfig.findFirst({ where: { userId: tenantId } });
+    const html = generateInvoiceHtml(invoice, invoice.client, invoice.lines, tenantConfig);
+
+    await db.abInvoice.update({
+      where: { id: invoice.id },
+      data: { pdfHtml: html, pdfUrl: `/api/v1/agentbook-invoice/invoices/${invoice.id}/pdf` },
+    });
+
+    res.json({ success: true, data: { invoiceId: invoice.id, pdfUrl: `/api/v1/agentbook-invoice/invoices/${invoice.id}/pdf` } });
+  } catch (err) { res.status(500).json({ success: false, error: String(err) }); }
+});
+
+// GET /invoices/:id/pdf — Render invoice PDF HTML (printable)
+app.get('/invoices/:id/pdf', async (req: Request, res: Response) => {
+  try {
+    const tenantId = (req as any).tenantId;
+    const invoice = await db.abInvoice.findFirst({
+      where: { id: req.params.id, tenantId },
+      include: { lines: true, client: true },
+    });
+    if (!invoice) return res.status(404).json({ success: false, error: 'Invoice not found' });
+
+    // Use cached HTML or generate fresh
+    const tenantConfig = await db.abTenantConfig.findFirst({ where: { userId: tenantId } });
+    const html = invoice.pdfHtml || generateInvoiceHtml(invoice, invoice.client, invoice.lines, tenantConfig);
+
+    res.setHeader('Content-Type', 'text/html');
+    res.send(html);
+  } catch (err) { res.status(500).json({ success: false, error: String(err) }); }
+});
+
+// ============================================
+// EMAIL DELIVERY (B3 — Competitive Gap)
+// ============================================
+
+interface EmailProvider {
+  send(to: string, subject: string, html: string, from?: string): Promise<{ id: string; status: string }>;
+}
+
+class ResendProvider implements EmailProvider {
+  private apiKey: string;
+  private fromAddress: string;
+
+  constructor(apiKey: string, fromAddress: string = 'invoices@agentbook.ai') {
+    this.apiKey = apiKey;
+    this.fromAddress = fromAddress;
+  }
+
+  async send(to: string, subject: string, html: string, from?: string): Promise<{ id: string; status: string }> {
+    const response = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${this.apiKey}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ from: from || this.fromAddress, to, subject, html }),
+    });
+
+    if (!response.ok) {
+      const err = await response.text();
+      throw new Error(`Email send failed: ${err}`);
+    }
+
+    const data = await response.json() as any;
+    return { id: data.id || 'unknown', status: 'sent' };
+  }
+}
+
+// Fallback: log-only provider for development
+class LogEmailProvider implements EmailProvider {
+  async send(to: string, subject: string, _html: string): Promise<{ id: string; status: string }> {
+    console.log(`[EMAIL] To: ${to}, Subject: ${subject}`);
+    return { id: `log-${Date.now()}`, status: 'logged' };
+  }
+}
+
+function getEmailProvider(): EmailProvider {
+  const resendKey = process.env.RESEND_API_KEY;
+  if (resendKey) return new ResendProvider(resendKey);
+  return new LogEmailProvider();
+}
+
+// POST /invoices/:id/email — Send invoice via email
+app.post('/invoices/:id/email', async (req: Request, res: Response) => {
+  try {
+    const tenantId = (req as any).tenantId;
+    const invoice = await db.abInvoice.findFirst({
+      where: { id: req.params.id, tenantId },
+      include: { lines: true, client: true },
+    });
+    if (!invoice) return res.status(404).json({ success: false, error: 'Invoice not found' });
+    if (!invoice.client.email) return res.status(422).json({ success: false, error: 'Client has no email address' });
+    if (invoice.status === 'void') return res.status(422).json({ success: false, error: 'Cannot email a voided invoice' });
+
+    const tenantConfig = await db.abTenantConfig.findFirst({ where: { userId: tenantId } });
+    const html = invoice.pdfHtml || generateInvoiceHtml(invoice, invoice.client, invoice.lines, tenantConfig);
+    const companyName = tenantConfig?.businessName || 'Your Company';
+
+    const emailProvider = getEmailProvider();
+    const result = await emailProvider.send(
+      invoice.client.email,
+      `Invoice ${invoice.number} from ${companyName} — ${formatMoney(invoice.amountCents, invoice.currency)}`,
+      html,
+    );
+
+    // Update invoice status to sent if still draft
+    if (invoice.status === 'draft') {
+      await db.abInvoice.update({ where: { id: invoice.id }, data: { status: 'sent' } });
+    }
+
+    await db.abEvent.create({
+      data: {
+        tenantId, eventType: 'invoice.emailed', actor: 'agent',
+        action: { invoiceId: invoice.id, to: invoice.client.email, emailId: result.id, status: result.status },
+      },
+    });
+
+    res.json({ success: true, data: { emailId: result.id, status: result.status, to: invoice.client.email } });
+  } catch (err) { res.status(500).json({ success: false, error: String(err) }); }
+});
+
+// POST /invoices/:id/remind — Send payment reminder email
+app.post('/invoices/:id/remind', async (req: Request, res: Response) => {
+  try {
+    const tenantId = (req as any).tenantId;
+    const invoice = await db.abInvoice.findFirst({
+      where: { id: req.params.id, tenantId },
+      include: { client: true, payments: true },
+    });
+    if (!invoice) return res.status(404).json({ success: false, error: 'Invoice not found' });
+    if (!invoice.client.email) return res.status(422).json({ success: false, error: 'Client has no email address' });
+    if (invoice.status === 'paid' || invoice.status === 'void') {
+      return res.status(422).json({ success: false, error: `Cannot remind — invoice is ${invoice.status}` });
+    }
+
+    const totalPaid = invoice.payments.reduce((s: number, p: any) => s + p.amountCents, 0);
+    const balance = invoice.amountCents - totalPaid;
+    const daysOverdue = Math.max(0, Math.floor((Date.now() - new Date(invoice.dueDate).getTime()) / 86400000));
+    const tenantConfig = await db.abTenantConfig.findFirst({ where: { userId: tenantId } });
+    const companyName = tenantConfig?.businessName || 'Your Company';
+
+    const tone = daysOverdue > 30 ? 'urgent' : daysOverdue > 14 ? 'firm' : 'gentle';
+    const toneText = { gentle: 'Friendly Reminder', firm: 'Payment Reminder', urgent: 'Urgent: Payment Overdue' };
+
+    const reminderHtml = `<!DOCTYPE html><html><head><meta charset="utf-8"></head><body style="font-family:sans-serif;padding:40px;">
+      <h2 style="color:${tone === 'urgent' ? '#dc2626' : '#1a1a2e'};">${toneText[tone]}</h2>
+      <p>Dear ${invoice.client.name},</p>
+      <p>This is a ${tone} reminder regarding invoice <strong>${invoice.number}</strong> for <strong>${formatMoney(balance, invoice.currency)}</strong>${daysOverdue > 0 ? ` which was due ${daysOverdue} days ago` : ` due on ${new Date(invoice.dueDate).toLocaleDateString()}`}.</p>
+      ${totalPaid > 0 ? `<p>We have received ${formatMoney(totalPaid, invoice.currency)} — remaining balance: ${formatMoney(balance, invoice.currency)}.</p>` : ''}
+      <p>Please arrange payment at your earliest convenience.</p>
+      <p>Best regards,<br>${companyName}</p>
+      <hr style="border:none;border-top:1px solid #e2e8f0;margin:30px 0;">
+      <p style="font-size:12px;color:#94a3b8;">Sent via AgentBook</p>
+    </body></html>`;
+
+    const emailProvider = getEmailProvider();
+    const result = await emailProvider.send(
+      invoice.client.email,
+      `${toneText[tone]}: Invoice ${invoice.number} — ${formatMoney(balance, invoice.currency)}`,
+      reminderHtml,
+    );
+
+    await db.abEvent.create({
+      data: {
+        tenantId, eventType: 'invoice.reminder_sent', actor: 'agent',
+        action: { invoiceId: invoice.id, tone, daysOverdue, balance, emailId: result.id },
+      },
+    });
+
+    res.json({ success: true, data: { emailId: result.id, tone, daysOverdue, balance } });
+  } catch (err) { res.status(500).json({ success: false, error: String(err) }); }
+});
+
+// ============================================
+// CREDIT NOTES (B9 — Competitive Gap)
+// ============================================
+
+// POST /credit-notes — Create credit note against an invoice
+app.post('/api/v1/agentbook-invoice/credit-notes', async (req: Request, res: Response) => {
+  try {
+    const tenantId = (req as any).tenantId;
+    const { invoiceId, amountCents, reason } = req.body;
+
+    if (!invoiceId || !amountCents || amountCents <= 0 || !reason) {
+      return res.status(400).json({ success: false, error: 'invoiceId, amountCents (positive), and reason are required' });
+    }
+
+    const invoice = await db.abInvoice.findFirst({
+      where: { id: invoiceId, tenantId },
+      include: { payments: true, client: true },
+    });
+    if (!invoice) return res.status(404).json({ success: false, error: 'Invoice not found' });
+    if (invoice.status === 'void') return res.status(422).json({ success: false, error: 'Cannot credit a voided invoice' });
+
+    const totalPaid = invoice.payments.reduce((s: number, p: any) => s + p.amountCents, 0);
+    const balance = invoice.amountCents - totalPaid;
+    if (amountCents > balance) {
+      return res.status(422).json({ success: false, error: `Credit amount (${amountCents}) exceeds remaining balance (${balance})` });
+    }
+
+    // Generate credit note number: CN-YYYY-NNNN
+    const year = new Date().getFullYear();
+    const lastCN = await db.abCreditNote.findFirst({
+      where: { tenantId, number: { startsWith: `CN-${year}-` } },
+      orderBy: { number: 'desc' },
+    });
+    let cnSeq = 1;
+    if (lastCN) cnSeq = parseInt(lastCN.number.split('-')[2], 10) + 1;
+    const cnNumber = `CN-${year}-${String(cnSeq).padStart(4, '0')}`;
+
+    const arAccount = await getAccountByCode(tenantId, '1100');
+    const revenueAccount = await getAccountByCode(tenantId, '4000');
+    if (!arAccount || !revenueAccount) {
+      return res.status(422).json({ success: false, error: 'AR/Revenue accounts not found' });
+    }
+
+    const creditNote = await db.$transaction(async (tx) => {
+      // Reversing journal entry: DR Revenue, CR AR
+      const je = await tx.abJournalEntry.create({
+        data: {
+          tenantId, date: new Date(), memo: `Credit note ${cnNumber} against ${invoice.number}`,
+          sourceType: 'credit_note', verified: true,
+          lines: {
+            create: [
+              { accountId: revenueAccount.id, debitCents: amountCents, creditCents: 0, description: `Revenue reversal - ${cnNumber}` },
+              { accountId: arAccount.id, debitCents: 0, creditCents: amountCents, description: `AR reduction - ${cnNumber}` },
+            ],
+          },
+        },
+      });
+
+      const cn = await tx.abCreditNote.create({
+        data: { tenantId, invoiceId, number: cnNumber, amountCents, reason, journalEntryId: je.id },
+      });
+
+      // Reduce client totalBilledCents
+      await tx.abClient.update({
+        where: { id: invoice.clientId },
+        data: { totalBilledCents: { decrement: amountCents } },
+      });
+
+      await tx.abEvent.create({
+        data: {
+          tenantId, eventType: 'credit_note.created', actor: 'agent',
+          action: { creditNoteId: cn.id, number: cnNumber, invoiceId, amountCents, reason },
+        },
+      });
+
+      return cn;
+    });
+
+    res.status(201).json({ success: true, data: creditNote });
+  } catch (err) { res.status(500).json({ success: false, error: String(err) }); }
+});
+
+// GET /credit-notes — List credit notes
+app.get('/api/v1/agentbook-invoice/credit-notes', async (req: Request, res: Response) => {
+  try {
+    const tenantId = (req as any).tenantId;
+    const creditNotes = await db.abCreditNote.findMany({
+      where: { tenantId },
+      include: { invoice: { select: { number: true, clientId: true } } },
+      orderBy: { createdAt: 'desc' },
+    });
+    res.json({ success: true, data: creditNotes });
+  } catch (err) { res.status(500).json({ success: false, error: String(err) }); }
+});
+
+// ============================================
+// RECURRING INVOICES (B5 — Competitive Gap)
+// ============================================
+
+// POST /recurring-invoices — Create recurring invoice schedule
+app.post('/api/v1/agentbook-invoice/recurring-invoices', async (req: Request, res: Response) => {
+  try {
+    const tenantId = (req as any).tenantId;
+    const { clientId, frequency, nextDue, endDate, templateLines, daysToPay, autoSend, currency } = req.body;
+
+    if (!clientId || !frequency || !nextDue || !templateLines || !Array.isArray(templateLines) || templateLines.length === 0) {
+      return res.status(400).json({ success: false, error: 'clientId, frequency, nextDue, and templateLines are required' });
+    }
+
+    const client = await db.abClient.findFirst({ where: { id: clientId, tenantId } });
+    if (!client) return res.status(404).json({ success: false, error: 'Client not found' });
+
+    const validFreqs = ['weekly', 'biweekly', 'monthly', 'quarterly', 'annual'];
+    if (!validFreqs.includes(frequency)) {
+      return res.status(400).json({ success: false, error: `frequency must be one of: ${validFreqs.join(', ')}` });
+    }
+
+    const totalCents = templateLines.reduce((s: number, l: any) => s + Math.round((l.quantity || 1) * l.rateCents), 0);
+
+    const recurring = await db.abRecurringInvoice.create({
+      data: {
+        tenantId, clientId, frequency,
+        nextDue: new Date(nextDue),
+        endDate: endDate ? new Date(endDate) : null,
+        templateLines, totalCents,
+        daysToPay: daysToPay || 30,
+        autoSend: autoSend || false,
+        currency: currency || 'USD',
+      },
+    });
+
+    await db.abEvent.create({
+      data: {
+        tenantId, eventType: 'recurring_invoice.created', actor: 'agent',
+        action: { recurringId: recurring.id, clientId, frequency, totalCents },
+      },
+    });
+
+    res.status(201).json({ success: true, data: recurring });
+  } catch (err) { res.status(500).json({ success: false, error: String(err) }); }
+});
+
+// GET /recurring-invoices — List recurring schedules
+app.get('/api/v1/agentbook-invoice/recurring-invoices', async (req: Request, res: Response) => {
+  try {
+    const tenantId = (req as any).tenantId;
+    const items = await db.abRecurringInvoice.findMany({
+      where: { tenantId },
+      orderBy: { nextDue: 'asc' },
+    });
+    res.json({ success: true, data: items });
+  } catch (err) { res.status(500).json({ success: false, error: String(err) }); }
+});
+
+// PUT /recurring-invoices/:id — Update recurring invoice
+app.put('/api/v1/agentbook-invoice/recurring-invoices/:id', async (req: Request, res: Response) => {
+  try {
+    const tenantId = (req as any).tenantId;
+    const existing = await db.abRecurringInvoice.findFirst({ where: { id: req.params.id, tenantId } });
+    if (!existing) return res.status(404).json({ success: false, error: 'Recurring invoice not found' });
+
+    const { status, frequency, templateLines, daysToPay, autoSend, nextDue, endDate } = req.body;
+    const updateData: any = {};
+    if (status) updateData.status = status;
+    if (frequency) updateData.frequency = frequency;
+    if (templateLines) {
+      updateData.templateLines = templateLines;
+      updateData.totalCents = templateLines.reduce((s: number, l: any) => s + Math.round((l.quantity || 1) * l.rateCents), 0);
+    }
+    if (daysToPay !== undefined) updateData.daysToPay = daysToPay;
+    if (autoSend !== undefined) updateData.autoSend = autoSend;
+    if (nextDue) updateData.nextDue = new Date(nextDue);
+    if (endDate) updateData.endDate = new Date(endDate);
+
+    const updated = await db.abRecurringInvoice.update({ where: { id: req.params.id }, data: updateData });
+    res.json({ success: true, data: updated });
+  } catch (err) { res.status(500).json({ success: false, error: String(err) }); }
+});
+
+// POST /recurring-invoices/generate — Manually trigger recurring invoice generation
+// Also used by cron job
+app.post('/api/v1/agentbook-invoice/recurring-invoices/generate', async (req: Request, res: Response) => {
+  try {
+    const tenantId = (req as any).tenantId;
+    const now = new Date();
+
+    const dueItems = await db.abRecurringInvoice.findMany({
+      where: { tenantId, status: 'active', nextDue: { lte: now } },
+    });
+
+    const generated: any[] = [];
+
+    for (const item of dueItems) {
+      // Check end date
+      if (item.endDate && now > item.endDate) {
+        await db.abRecurringInvoice.update({ where: { id: item.id }, data: { status: 'completed' } });
+        continue;
+      }
+
+      const client = await db.abClient.findFirst({ where: { id: item.clientId, tenantId } });
+      if (!client) continue;
+
+      // Generate invoice number
+      const year = now.getFullYear();
+      const lastInvoice = await db.abInvoice.findFirst({
+        where: { tenantId, number: { startsWith: `INV-${year}-` } },
+        orderBy: { number: 'desc' },
+      });
+      let nextSeq = 1;
+      if (lastInvoice) nextSeq = parseInt(lastInvoice.number.split('-')[2], 10) + 1;
+      const invoiceNumber = `INV-${year}-${String(nextSeq).padStart(4, '0')}`;
+
+      const lines = (item.templateLines as any[]).map((l: any) => ({
+        description: l.description,
+        quantity: l.quantity || 1,
+        rateCents: l.rateCents,
+        amountCents: Math.round((l.quantity || 1) * l.rateCents),
+      }));
+
+      const arAccount = await getAccountByCode(tenantId, '1100');
+      const revenueAccount = await getAccountByCode(tenantId, '4000');
+      if (!arAccount || !revenueAccount) continue;
+
+      const dueDate = new Date(now);
+      dueDate.setDate(dueDate.getDate() + item.daysToPay);
+
+      const invoice = await db.$transaction(async (tx) => {
+        const je = await tx.abJournalEntry.create({
+          data: {
+            tenantId, date: now, memo: `Recurring Invoice ${invoiceNumber} to ${client.name}`,
+            sourceType: 'invoice', verified: true,
+            lines: {
+              create: [
+                { accountId: arAccount.id, debitCents: item.totalCents, creditCents: 0, description: `AR - ${invoiceNumber}` },
+                { accountId: revenueAccount.id, debitCents: 0, creditCents: item.totalCents, description: `Revenue - ${invoiceNumber}` },
+              ],
+            },
+          },
+        });
+
+        const inv = await tx.abInvoice.create({
+          data: {
+            tenantId, clientId: item.clientId, number: invoiceNumber,
+            amountCents: item.totalCents, currency: item.currency,
+            issuedDate: now, dueDate,
+            status: item.autoSend ? 'sent' : 'draft',
+            journalEntryId: je.id, recurringId: item.id,
+            lines: { create: lines },
+          },
+          include: { lines: true },
+        });
+
+        await tx.abJournalEntry.update({ where: { id: je.id }, data: { sourceId: inv.id } });
+        await tx.abClient.update({ where: { id: item.clientId }, data: { totalBilledCents: { increment: item.totalCents } } });
+
+        await tx.abEvent.create({
+          data: {
+            tenantId, eventType: 'invoice.auto_generated', actor: 'system',
+            action: { invoiceId: inv.id, number: invoiceNumber, recurringId: item.id, amountCents: item.totalCents },
+          },
+        });
+
+        return inv;
+      });
+
+      // Calculate next due date
+      const nextDue = new Date(item.nextDue);
+      switch (item.frequency) {
+        case 'weekly': nextDue.setDate(nextDue.getDate() + 7); break;
+        case 'biweekly': nextDue.setDate(nextDue.getDate() + 14); break;
+        case 'monthly': nextDue.setMonth(nextDue.getMonth() + 1); break;
+        case 'quarterly': nextDue.setMonth(nextDue.getMonth() + 3); break;
+        case 'annual': nextDue.setFullYear(nextDue.getFullYear() + 1); break;
+      }
+
+      await db.abRecurringInvoice.update({
+        where: { id: item.id },
+        data: { nextDue, lastGenerated: now, generatedCount: { increment: 1 } },
+      });
+
+      generated.push({ invoiceId: invoice.id, number: invoice.number, clientId: item.clientId });
+    }
+
+    res.json({ success: true, data: { generated, count: generated.length } });
   } catch (err) { res.status(500).json({ success: false, error: String(err) }); }
 });
 

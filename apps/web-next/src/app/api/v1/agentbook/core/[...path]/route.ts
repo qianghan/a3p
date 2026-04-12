@@ -22,8 +22,20 @@ async function proxyRequest(
   const authHeader = request.headers.get('Authorization');
   if (authHeader) headers.set('Authorization', authHeader);
 
-  const tenantId = request.headers.get('x-tenant-id');
-  if (tenantId) headers.set('x-tenant-id', tenantId);
+  // Tenant resolution: header > cookie > auth session > 'default'
+  let tenantId = request.headers.get('x-tenant-id')
+    || request.cookies.get('ab-tenant')?.value;
+  if (!tenantId) {
+    const authToken = request.cookies.get('naap_auth_token')?.value;
+    if (authToken) {
+      try {
+        const { validateSession } = await import('@/lib/api/auth');
+        const user = await validateSession(authToken);
+        if (user) tenantId = user.id;
+      } catch { /* use default */ }
+    }
+  }
+  headers.set('x-tenant-id', tenantId || 'default');
 
   try {
     let body: string | undefined;

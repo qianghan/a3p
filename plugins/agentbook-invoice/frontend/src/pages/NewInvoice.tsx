@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Plus, Trash2, Send, Save, ArrowLeft, Loader2 } from 'lucide-react';
 
@@ -7,6 +7,12 @@ interface LineItem {
   description: string;
   quantity: number;
   rate: number;
+}
+
+interface Client {
+  id: string;
+  name: string;
+  email?: string;
 }
 
 function uid() {
@@ -18,13 +24,17 @@ function formatCurrency(n: number) {
 }
 
 const TERMS_OPTIONS = [
-  { value: 'net-30', label: 'Net 30' },
-  { value: 'net-15', label: 'Net 15' },
-  { value: 'due-on-receipt', label: 'Due on Receipt' },
+  { value: 'net-30', label: 'Net 30', days: 30 },
+  { value: 'net-15', label: 'Net 15', days: 15 },
+  { value: 'due-on-receipt', label: 'Due on Receipt', days: 0 },
 ];
+
+const API = '/api/v1/agentbook-invoice';
 
 export const NewInvoicePage: React.FC = () => {
   const navigate = useNavigate();
+  const [clients, setClients] = useState<Client[]>([]);
+  const [selectedClientId, setSelectedClientId] = useState('');
   const [clientName, setClientName] = useState('');
   const [clientEmail, setClientEmail] = useState('');
   const [description, setDescription] = useState('');
@@ -34,6 +44,14 @@ export const NewInvoicePage: React.FC = () => {
     { id: uid(), description: '', quantity: 1, rate: 0 },
   ]);
   const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState('');
+
+  // Load existing clients
+  useEffect(() => {
+    fetch(`${API}/clients`).then(r => r.json()).then(d => {
+      if (d.success) setClients(d.data || []);
+    }).catch(() => {});
+  }, []);
 
   const addLineItem = () => {
     setLineItems((prev) => [...prev, { id: uid(), description: '', quantity: 1, rate: 0 }]);
@@ -54,121 +72,165 @@ export const NewInvoicePage: React.FC = () => {
 
   const handleSubmit = async (status: 'draft' | 'sent') => {
     setSubmitting(true);
+    setError('');
     try {
-      await fetch('/api/v1/agentbook-invoice/invoices', {
+      // 1. Resolve clientId — use selected or create new
+      let clientId = selectedClientId;
+      if (!clientId && clientName.trim()) {
+        const clientRes = await fetch(`${API}/clients`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: clientName.trim(), email: clientEmail.trim() || undefined }),
+        });
+        const clientData = await clientRes.json();
+        if (!clientData.success) {
+          setError(clientData.error || 'Failed to create client');
+          return;
+        }
+        clientId = clientData.data.id;
+      }
+
+      if (!clientId) {
+        setError('Please select a client or enter a new client name');
+        return;
+      }
+
+      // Validate line items
+      const validLines = lineItems.filter(li => li.description.trim() && li.rate > 0);
+      if (validLines.length === 0) {
+        setError('Add at least one line item with a description and rate');
+        return;
+      }
+
+      // 2. Calculate due date from terms
+      const termsDays = TERMS_OPTIONS.find(t => t.value === terms)?.days ?? 30;
+      const issuedDate = new Date(invoiceDate);
+      const dueDate = new Date(issuedDate);
+      dueDate.setDate(dueDate.getDate() + termsDays);
+
+      // 3. Create invoice — amounts in CENTS
+      const res = await fetch(`${API}/invoices`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          client_name: clientName,
-          client_email: clientEmail,
-          description,
-          terms,
-          invoice_date: invoiceDate,
+          clientId,
+          issuedDate: invoiceDate,
+          dueDate: dueDate.toISOString().slice(0, 10),
           status,
-          line_items: lineItems.map(({ description: desc, quantity, rate }) => ({
+          lines: validLines.map(({ description: desc, quantity, rate }) => ({
             description: desc,
             quantity,
-            rate,
-            amount: quantity * rate,
+            rateCents: Math.round(rate * 100),
           })),
-          total,
         }),
       });
+
+      const data = await res.json();
+      if (!data.success) {
+        setError(data.error || 'Failed to create invoice');
+        return;
+      }
+
       navigate('/');
-    } catch {
-      // silently fail for now
+    } catch (err) {
+      setError(String(err));
     } finally {
       setSubmitting(false);
     }
   };
 
-  const inputStyle: React.CSSProperties = {
-    backgroundColor: 'var(--bg-primary, #fff)',
-    borderColor: 'var(--border-primary, #e5e7eb)',
-    color: 'var(--text-primary)',
-  };
+  const fieldClass =
+    'w-full px-3 py-2 rounded-lg border border-input bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-ring';
+  const fieldClassRight = `${fieldClass} text-right`;
 
   return (
     <div className="p-4 sm:p-6 max-w-3xl mx-auto">
       {/* Header */}
       <div className="flex items-center gap-3 mb-6">
-        <button onClick={() => navigate('/')} className="p-2 rounded-lg hover:bg-gray-100 transition-colors">
-          <ArrowLeft className="w-5 h-5" style={{ color: 'var(--text-secondary)' }} />
+        <button type="button" onClick={() => navigate('/')} className="p-2 rounded-lg hover:bg-muted transition-colors text-muted-foreground">
+          <ArrowLeft className="w-5 h-5" />
         </button>
-        <h1 className="text-2xl font-bold" style={{ color: 'var(--text-primary)' }}>
+        <h1 className="text-2xl font-bold text-foreground">
           New Invoice
         </h1>
       </div>
 
       <div className="space-y-6">
         {/* Client info */}
-        <div
-          className="rounded-xl p-4 sm:p-6 border"
-          style={{ backgroundColor: 'var(--bg-primary, #fff)', borderColor: 'var(--border-primary, #e5e7eb)' }}
-        >
-          <h2 className="text-sm font-semibold uppercase tracking-wide mb-4" style={{ color: 'var(--text-secondary)' }}>
+        <div className="rounded-xl p-4 sm:p-6 border border-border bg-card">
+          <h2 className="text-sm font-semibold uppercase tracking-wide mb-4 text-muted-foreground">
             Client Details
           </h2>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium mb-1" style={{ color: 'var(--text-primary)' }}>
-                Client Name
+          {clients.length > 0 && (
+            <div className="mb-4">
+              <label className="block text-sm font-medium mb-1 text-foreground">
+                Select Existing Client
               </label>
-              <input
-                type="text"
-                value={clientName}
-                onChange={(e) => setClientName(e.target.value)}
-                placeholder="Enter client name"
-                className="w-full px-3 py-2 rounded-lg border text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                style={inputStyle}
-              />
+              <select
+                value={selectedClientId}
+                onChange={(e) => { setSelectedClientId(e.target.value); if (e.target.value) { setClientName(''); setClientEmail(''); } }}
+                className={fieldClass}
+              >
+                <option value="">— New client —</option>
+                {clients.map(c => <option key={c.id} value={c.id}>{c.name}{c.email ? ` (${c.email})` : ''}</option>)}
+              </select>
             </div>
-            <div>
-              <label className="block text-sm font-medium mb-1" style={{ color: 'var(--text-primary)' }}>
-                Client Email
-              </label>
-              <input
-                type="email"
-                value={clientEmail}
-                onChange={(e) => setClientEmail(e.target.value)}
-                placeholder="client@example.com"
-                className="w-full px-3 py-2 rounded-lg border text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                style={inputStyle}
-              />
+          )}
+          {!selectedClientId && (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium mb-1 text-foreground">
+                  Client Name
+                </label>
+                <input
+                  type="text"
+                  value={clientName}
+                  onChange={(e) => setClientName(e.target.value)}
+                  placeholder="Enter client name"
+                  className={fieldClass}
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1 text-foreground">
+                  Client Email
+                </label>
+                <input
+                  type="email"
+                  value={clientEmail}
+                  onChange={(e) => setClientEmail(e.target.value)}
+                  placeholder="client@example.com"
+                  className={fieldClass}
+                />
+              </div>
             </div>
-          </div>
+          )}
         </div>
 
         {/* Invoice details */}
-        <div
-          className="rounded-xl p-4 sm:p-6 border"
-          style={{ backgroundColor: 'var(--bg-primary, #fff)', borderColor: 'var(--border-primary, #e5e7eb)' }}
-        >
-          <h2 className="text-sm font-semibold uppercase tracking-wide mb-4" style={{ color: 'var(--text-secondary)' }}>
+        <div className="rounded-xl p-4 sm:p-6 border border-border bg-card">
+          <h2 className="text-sm font-semibold uppercase tracking-wide mb-4 text-muted-foreground">
             Invoice Details
           </h2>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <div>
-              <label className="block text-sm font-medium mb-1" style={{ color: 'var(--text-primary)' }}>
+              <label className="block text-sm font-medium mb-1 text-foreground">
                 Invoice Date
               </label>
               <input
                 type="date"
                 value={invoiceDate}
                 onChange={(e) => setInvoiceDate(e.target.value)}
-                className="w-full px-3 py-2 rounded-lg border text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                style={inputStyle}
+                className={fieldClass}
               />
             </div>
             <div>
-              <label className="block text-sm font-medium mb-1" style={{ color: 'var(--text-primary)' }}>
+              <label className="block text-sm font-medium mb-1 text-foreground">
                 Terms
               </label>
               <select
                 value={terms}
                 onChange={(e) => setTerms(e.target.value)}
-                className="w-full px-3 py-2 rounded-lg border text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                style={inputStyle}
+                className={fieldClass}
               >
                 {TERMS_OPTIONS.map((opt) => (
                   <option key={opt.value} value={opt.value}>
@@ -178,7 +240,7 @@ export const NewInvoicePage: React.FC = () => {
               </select>
             </div>
             <div className="sm:col-span-1">
-              <label className="block text-sm font-medium mb-1" style={{ color: 'var(--text-primary)' }}>
+              <label className="block text-sm font-medium mb-1 text-foreground">
                 Description
               </label>
               <input
@@ -186,27 +248,21 @@ export const NewInvoicePage: React.FC = () => {
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
                 placeholder="Project description"
-                className="w-full px-3 py-2 rounded-lg border text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                style={inputStyle}
+                className={fieldClass}
               />
             </div>
           </div>
         </div>
 
         {/* Line items */}
-        <div
-          className="rounded-xl p-4 sm:p-6 border"
-          style={{ backgroundColor: 'var(--bg-primary, #fff)', borderColor: 'var(--border-primary, #e5e7eb)' }}
-        >
-          <h2 className="text-sm font-semibold uppercase tracking-wide mb-4" style={{ color: 'var(--text-secondary)' }}>
+        <div className="rounded-xl p-4 sm:p-6 border border-border bg-card">
+          <h2 className="text-sm font-semibold uppercase tracking-wide mb-4 text-muted-foreground">
             Line Items
           </h2>
 
           <div className="space-y-3">
             {/* Desktop header */}
-            <div className="hidden sm:grid sm:grid-cols-12 gap-3 text-xs font-medium uppercase tracking-wide px-1"
-              style={{ color: 'var(--text-secondary)' }}
-            >
+            <div className="hidden sm:grid sm:grid-cols-12 gap-3 text-xs font-medium uppercase tracking-wide px-1 text-muted-foreground">
               <span className="col-span-5">Description</span>
               <span className="col-span-2 text-right">Qty</span>
               <span className="col-span-2 text-right">Rate</span>
@@ -217,11 +273,10 @@ export const NewInvoicePage: React.FC = () => {
             {lineItems.map((li) => (
               <div
                 key={li.id}
-                className="grid grid-cols-1 sm:grid-cols-12 gap-3 p-3 rounded-lg"
-                style={{ backgroundColor: 'var(--bg-secondary, #f9fafb)' }}
+                className="grid grid-cols-1 sm:grid-cols-12 gap-3 p-3 rounded-lg bg-muted/40"
               >
                 <div className="sm:col-span-5">
-                  <label className="sm:hidden block text-xs font-medium mb-1" style={{ color: 'var(--text-secondary)' }}>
+                  <label className="sm:hidden block text-xs font-medium mb-1 text-muted-foreground">
                     Description
                   </label>
                   <input
@@ -229,12 +284,11 @@ export const NewInvoicePage: React.FC = () => {
                     value={li.description}
                     onChange={(e) => updateLineItem(li.id, 'description', e.target.value)}
                     placeholder="Item description"
-                    className="w-full px-3 py-2 rounded-lg border text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                    style={inputStyle}
+                    className={fieldClass}
                   />
                 </div>
                 <div className="sm:col-span-2">
-                  <label className="sm:hidden block text-xs font-medium mb-1" style={{ color: 'var(--text-secondary)' }}>
+                  <label className="sm:hidden block text-xs font-medium mb-1 text-muted-foreground">
                     Quantity
                   </label>
                   <input
@@ -242,12 +296,11 @@ export const NewInvoicePage: React.FC = () => {
                     min={0}
                     value={li.quantity}
                     onChange={(e) => updateLineItem(li.id, 'quantity', parseFloat(e.target.value) || 0)}
-                    className="w-full px-3 py-2 rounded-lg border text-sm text-right focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                    style={inputStyle}
+                    className={fieldClassRight}
                   />
                 </div>
                 <div className="sm:col-span-2">
-                  <label className="sm:hidden block text-xs font-medium mb-1" style={{ color: 'var(--text-secondary)' }}>
+                  <label className="sm:hidden block text-xs font-medium mb-1 text-muted-foreground">
                     Rate
                   </label>
                   <input
@@ -256,20 +309,20 @@ export const NewInvoicePage: React.FC = () => {
                     step={0.01}
                     value={li.rate}
                     onChange={(e) => updateLineItem(li.id, 'rate', parseFloat(e.target.value) || 0)}
-                    className="w-full px-3 py-2 rounded-lg border text-sm text-right focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                    style={inputStyle}
+                    className={fieldClassRight}
                   />
                 </div>
                 <div className="sm:col-span-2 flex items-center justify-end">
-                  <span className="font-semibold text-sm" style={{ color: 'var(--text-primary)' }}>
+                  <span className="font-semibold text-sm text-foreground">
                     {formatCurrency(li.quantity * li.rate)}
                   </span>
                 </div>
                 <div className="sm:col-span-1 flex items-center justify-end">
                   <button
+                    type="button"
                     onClick={() => removeLineItem(li.id)}
                     disabled={lineItems.length <= 1}
-                    className="p-1.5 rounded-lg hover:bg-red-50 text-gray-400 hover:text-red-500 transition-colors disabled:opacity-30"
+                    className="p-1.5 rounded-lg text-muted-foreground hover:bg-destructive/10 hover:text-destructive transition-colors disabled:opacity-30"
                   >
                     <Trash2 className="w-4 h-4" />
                   </button>
@@ -279,9 +332,9 @@ export const NewInvoicePage: React.FC = () => {
           </div>
 
           <button
+            type="button"
             onClick={addLineItem}
-            className="mt-3 inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium transition-colors hover:bg-gray-100"
-            style={{ color: 'var(--accent-emerald, #10b981)' }}
+            className="mt-3 inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium transition-colors hover:bg-muted text-primary"
           >
             <Plus className="w-4 h-4" />
             Add Line Item
@@ -289,34 +342,37 @@ export const NewInvoicePage: React.FC = () => {
         </div>
 
         {/* Total + actions */}
-        <div
-          className="rounded-xl p-4 sm:p-6 border"
-          style={{ backgroundColor: 'var(--bg-primary, #fff)', borderColor: 'var(--border-primary, #e5e7eb)' }}
-        >
+        <div className="rounded-xl p-4 sm:p-6 border border-border bg-card">
           <div className="flex items-center justify-between mb-6">
-            <span className="text-sm font-semibold uppercase tracking-wide" style={{ color: 'var(--text-secondary)' }}>
+            <span className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
               Total
             </span>
-            <span className="text-2xl font-bold" style={{ color: 'var(--text-primary)' }}>
+            <span className="text-2xl font-bold text-foreground">
               {formatCurrency(total)}
             </span>
           </div>
 
+          {error && (
+            <div className="mb-4 p-3 rounded-lg text-sm text-destructive bg-destructive/10 border border-destructive/20">
+              {error}
+            </div>
+          )}
+
           <div className="flex flex-col sm:flex-row gap-3">
             <button
+              type="button"
               onClick={() => handleSubmit('draft')}
               disabled={submitting}
-              className="flex-1 inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium border transition-colors hover:bg-gray-50 disabled:opacity-50"
-              style={{ borderColor: 'var(--border-primary, #e5e7eb)', color: 'var(--text-primary)' }}
+              className="flex-1 inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium border border-border bg-background text-foreground transition-colors hover:bg-muted disabled:opacity-50"
             >
               {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
               Save as Draft
             </button>
             <button
+              type="button"
               onClick={() => handleSubmit('sent')}
               disabled={submitting}
-              className="flex-1 inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium text-white transition-colors disabled:opacity-50"
-              style={{ backgroundColor: 'var(--accent-emerald, #10b981)' }}
+              className="flex-1 inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium bg-primary text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-50"
             >
               {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
               Create &amp; Send

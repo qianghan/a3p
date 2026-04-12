@@ -1,0 +1,199 @@
+<h2>What should the Inline Advisor show?</h2>
+<p class="subtitle">Pick the sections that matter most. The advisor will have a proactive zone (auto-generated) and a reactive zone (user asks).</p>
+
+<div style="max-width:720px;margin:0 auto;">
+
+  <!-- MOCKUP: Full inline advisor layout -->
+  <div class="mockup">
+    <div class="mockup-header">Expense Advisor — Full Layout Mockup</div>
+    <div class="mockup-body" style="background:#0f172a;padding:20px;">
+
+      <!-- 1. Proactive Insight Bar -->
+      <div style="margin-bottom:16px;">
+        <div style="font-size:10px;color:#64748b;text-transform:uppercase;letter-spacing:1px;margin-bottom:8px;display:flex;align-items:center;gap:6px;">
+          <span style="font-size:12px;">🤖</span> Agent Insights
+        </div>
+
+        <!-- Scrollable insight cards -->
+        <div style="display:flex;gap:10px;overflow-x:auto;padding-bottom:4px;">
+          <!-- Risk alert -->
+          <div style="min-width:220px;background:rgba(239,68,68,0.08);border:1px solid rgba(239,68,68,0.2);border-radius:10px;padding:12px;flex-shrink:0;">
+            <div style="font-size:10px;color:#ef4444;font-weight:600;margin-bottom:4px;">⚠️ Spending Spike</div>
+            <div style="font-size:11px;color:#e2e8f0;line-height:1.4;">Software subscriptions up <strong style="color:#ef4444;">+34%</strong> this month. 2 new subscriptions detected.</div>
+            <div style="margin-top:6px;font-size:10px;color:#ef4444;cursor:pointer;">View details →</div>
+          </div>
+
+          <!-- Pattern -->
+          <div style="min-width:220px;background:rgba(16,185,129,0.08);border:1px solid rgba(16,185,129,0.2);border-radius:10px;padding:12px;flex-shrink:0;">
+            <div style="font-size:10px;color:#10b981;font-weight:600;margin-bottom:4px;">💡 Savings Opportunity</div>
+            <div style="font-size:11px;color:#e2e8f0;line-height:1.4;">You pay Adobe monthly ($55/mo). Annual plan saves <strong style="color:#10b981;">$132/year</strong>.</div>
+            <div style="margin-top:6px;font-size:10px;color:#10b981;cursor:pointer;">Switch to annual →</div>
+          </div>
+
+          <!-- Anomaly -->
+          <div style="min-width:220px;background:rgba(234,179,8,0.08);border:1px solid rgba(234,179,8,0.2);border-radius:10px;padding:12px;flex-shrink:0;">
+            <div style="font-size:10px;color:#eab308;font-weight:600;margin-bottom:4px;">🔍 Unusual Expense</div>
+            <div style="font-size:11px;color:#e2e8f0;line-height:1.4;">$3,499 at Apple Store — <strong>6x</strong> your average equipment spend.</div>
+            <div style="margin-top:6px;font-size:10px;color:#eab308;cursor:pointer;">Categorize →</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 2. Smart Chart (context-aware, changes based on what user is viewing) -->
+      <div style="background:#1e293b;border-radius:12px;padding:16px;margin-bottom:16px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+          <div>
+            <div style="font-size:12px;color:#e2e8f0;font-weight:600;">Monthly Spend by Category</div>
+            <div style="font-size:10px;color:#64748b;">Jan — Mar 2026 &nbsp;·&nbsp; vs previous quarter</div>
+          </div>
+          <div style="display:flex;gap:4px;">
+            <div style="background:#334155;padding:4px 8px;border-radius:6px;font-size:9px;color:#10b981;cursor:pointer;">Bar</div>
+            <div style="background:#334155;padding:4px 8px;border-radius:6px;font-size:9px;color:#64748b;cursor:pointer;">Pie</div>
+            <div style="background:#334155;padding:4px 8px;border-radius:6px;font-size:9px;color:#64748b;cursor:pointer;">Trend</div>
+          </div>
+        </div>
+        <!-- Bar chart mockup -->
+        <div style="display:flex;align-items:end;gap:6px;height:100px;padding:0 4px;">
+          <div style="flex:1;text-align:center;">
+            <div style="background:#10b981;height:80px;border-radius:4px 4px 0 0;margin-bottom:4px;position:relative;">
+              <span style="position:absolute;top:-16px;left:50%;transform:translateX(-50%);font-size:9px;color:#94a3b8;">$14.8K</span>
+            </div>
+            <div style="font-size:8px;color:#64748b;">Office</div>
+          </div>
+          <div style="flex:1;text-align:center;">
+            <div style="background:#3b82f6;height:55px;border-radius:4px 4px 0 0;margin-bottom:4px;position:relative;">
+              <span style="position:absolute;top:-16px;left:50%;transform:translateX(-50%);font-size:9px;color:#94a3b8;">$8.5K</span>
+            </div>
+            <div style="font-size:8px;color:#64748b;">Rent</div>
+          </div>
+          <div style="flex:1;text-align:center;">
+            <div style="background:#8b5cf6;height:35px;border-radius:4px 4px 0 0;margin-bottom:4px;position:relative;">
+              <span style="position:absolute;top:-16px;left:50%;transform:translateX(-50%);font-size:9px;color:#94a3b8;">$4.7K</span>
+            </div>
+            <div style="font-size:8px;color:#64748b;">Travel</div>
+          </div>
+          <div style="flex:1;text-align:center;">
+            <div style="display:flex;gap:2px;justify-content:center;align-items:end;height:80px;">
+              <div style="background:#f59e0b;width:45%;height:28px;border-radius:3px 3px 0 0;opacity:0.4;"></div>
+              <div style="background:#ef4444;width:45%;height:42px;border-radius:3px 3px 0 0;">
+              </div>
+            </div>
+            <div style="margin-top:4px;font-size:8px;color:#ef4444;font-weight:600;">Software ↑34%</div>
+          </div>
+          <div style="flex:1;text-align:center;">
+            <div style="background:#06b6d4;height:20px;border-radius:4px 4px 0 0;margin-bottom:4px;position:relative;">
+              <span style="position:absolute;top:-16px;left:50%;transform:translateX(-50%);font-size:9px;color:#94a3b8;">$816</span>
+            </div>
+            <div style="font-size:8px;color:#64748b;">Meals</div>
+          </div>
+        </div>
+        <!-- AI note under chart -->
+        <div style="margin-top:12px;padding:8px;background:rgba(16,185,129,0.06);border-radius:8px;display:flex;gap:6px;align-items:start;">
+          <span style="font-size:10px;margin-top:1px;">💡</span>
+          <span style="font-size:10px;color:#94a3b8;line-height:1.4;">Software jumped due to Notion annual ($199) and new Figma seat. Travel is seasonal — Montreal + Vancouver trips. All other categories are stable.</span>
+        </div>
+      </div>
+
+      <!-- 3. Ask Bar (command palette style) -->
+      <div style="background:#1e293b;border-radius:12px;padding:4px;display:flex;align-items:center;gap:8px;">
+        <div style="display:flex;align-items:center;gap:8px;flex:1;padding:10px 12px;">
+          <span style="font-size:14px;">💬</span>
+          <span style="font-size:12px;color:#64748b;">Ask about your expenses... "How much did I spend on travel?" "Any duplicate charges?"</span>
+        </div>
+        <div style="background:#10b981;border-radius:8px;padding:8px 14px;font-size:11px;color:white;font-weight:600;cursor:pointer;">Ask</div>
+      </div>
+
+      <!-- 4. Example: Agent response with chart -->
+      <div style="margin-top:12px;background:#1e293b;border-radius:12px;padding:16px;">
+        <div style="display:flex;gap:8px;align-items:start;margin-bottom:12px;">
+          <div style="width:24px;height:24px;background:#10b981;border-radius:6px;display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:12px;">🤖</div>
+          <div>
+            <div style="font-size:11px;color:#10b981;font-weight:600;margin-bottom:4px;">Expense Advisor</div>
+            <div style="font-size:12px;color:#e2e8f0;line-height:1.5;">Your travel spend this quarter is <strong>$4,710 CAD</strong> across 5 transactions. That's <strong style="color:#ef4444;">40% higher</strong> than last quarter ($3,360). The increase is driven by the Vancouver conference trip ($800 flight + $450 hotel).</div>
+          </div>
+        </div>
+        <!-- Inline chart in response -->
+        <div style="background:#334155;border-radius:8px;padding:12px;margin-left:32px;">
+          <div style="font-size:10px;color:#94a3b8;margin-bottom:8px;">Travel Expenses — Quarter Comparison</div>
+          <div style="display:flex;gap:16px;">
+            <div style="text-align:center;">
+              <div style="background:#334155;border:2px solid #10b981;border-radius:4px;width:60px;height:40px;display:flex;align-items:center;justify-content:center;font-size:11px;color:#10b981;font-weight:600;">$3.4K</div>
+              <div style="font-size:9px;color:#64748b;margin-top:4px;">Q4 2025</div>
+            </div>
+            <div style="display:flex;align-items:center;font-size:14px;color:#ef4444;">→</div>
+            <div style="text-align:center;">
+              <div style="background:rgba(239,68,68,0.1);border:2px solid #ef4444;border-radius:4px;width:60px;height:60px;display:flex;align-items:center;justify-content:center;font-size:11px;color:#ef4444;font-weight:600;">$4.7K</div>
+              <div style="font-size:9px;color:#64748b;margin-top:4px;">Q1 2026</div>
+            </div>
+          </div>
+        </div>
+        <!-- Suggestion -->
+        <div style="margin-top:10px;margin-left:32px;display:flex;gap:6px;">
+          <div style="background:#334155;border-radius:6px;padding:6px 10px;font-size:10px;color:#10b981;cursor:pointer;border:1px solid #334155;">💡 Set travel budget alert</div>
+          <div style="background:#334155;border-radius:6px;padding:6px 10px;font-size:10px;color:#94a3b8;cursor:pointer;border:1px solid #334155;">📊 Full travel report</div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- Telegram mirror -->
+  <div style="margin-top:24px;">
+    <h3>Same content in Telegram</h3>
+    <p class="subtitle">The advisor produces the same outputs in Telegram — proactive alerts become messages, charts become images, action buttons become inline keyboards.</p>
+
+    <div class="mockup">
+      <div class="mockup-header">Telegram — Same Advisor, Same Insights</div>
+      <div class="mockup-body" style="background:#0f172a;padding:20px;">
+        <!-- Telegram message bubbles -->
+        <div style="max-width:320px;">
+          <!-- Bot message -->
+          <div style="background:#1e293b;border-radius:0 12px 12px 12px;padding:12px;margin-bottom:10px;">
+            <div style="font-size:11px;color:#10b981;font-weight:600;margin-bottom:4px;">🤖 Expense Advisor</div>
+            <div style="font-size:12px;color:#e2e8f0;line-height:1.5;">⚠️ <strong>Software spend alert</strong><br>Your subscriptions are up 34% this month ($3,720 vs $2,776).<br><br>2 new: Notion $199, Figma $549<br><br>💡 Adobe annual plan would save $132/yr</div>
+            <!-- Inline keyboard -->
+            <div style="display:flex;gap:4px;margin-top:8px;">
+              <div style="flex:1;background:#334155;border-radius:6px;padding:6px;text-align:center;font-size:10px;color:#10b981;">📊 Details</div>
+              <div style="flex:1;background:#334155;border-radius:6px;padding:6px;text-align:center;font-size:10px;color:#94a3b8;">✓ Got it</div>
+            </div>
+          </div>
+          <!-- User asks -->
+          <div style="background:#10b981;border-radius:12px 0 12px 12px;padding:10px 14px;margin-bottom:10px;margin-left:auto;max-width:200px;text-align:right;">
+            <div style="font-size:12px;color:white;">How much on travel?</div>
+          </div>
+          <!-- Bot responds -->
+          <div style="background:#1e293b;border-radius:0 12px 12px 12px;padding:12px;">
+            <div style="font-size:12px;color:#e2e8f0;line-height:1.5;">✈️ Travel this quarter: <strong>$4,710 CAD</strong> (+40% vs last quarter)<br><br>• Air Canada $485<br>• WestJet $350<br>• Hotels $670<br>• Uber $65</div>
+            <div style="display:flex;gap:4px;margin-top:8px;">
+              <div style="flex:1;background:#334155;border-radius:6px;padding:6px;text-align:center;font-size:10px;color:#10b981;">📊 Chart</div>
+              <div style="flex:1;background:#334155;border-radius:6px;padding:6px;text-align:center;font-size:10px;color:#94a3b8;">Set budget</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<div style="margin-top:24px;padding:16px;background:rgba(16,185,129,0.06);border:1px solid rgba(16,185,129,0.2);border-radius:12px;">
+  <h3 style="margin-bottom:8px;">The 4 zones of the Inline Advisor:</h3>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+    <div>
+      <div style="font-weight:600;margin-bottom:2px;">1. Proactive Insight Cards</div>
+      <div style="font-size:13px;color:#94a3b8;">Auto-generated alerts: spending spikes, savings, anomalies, risks. Scrollable horizontal strip.</div>
+    </div>
+    <div>
+      <div style="font-weight:600;margin-bottom:2px;">2. Smart Chart</div>
+      <div style="font-size:13px;color:#94a3b8;">Context-aware visualization that changes based on time period and filters. Bar/pie/trend toggle. AI annotation underneath.</div>
+    </div>
+    <div>
+      <div style="font-weight:600;margin-bottom:2px;">3. Ask Bar</div>
+      <div style="font-size:13px;color:#94a3b8;">Command palette-style input. Natural language questions. Quick suggestion chips.</div>
+    </div>
+    <div>
+      <div style="font-weight:600;margin-bottom:2px;">4. Agent Response</div>
+      <div style="font-size:13px;color:#94a3b8;">Rich responses with inline charts, data tables, and action buttons. Same output goes to Telegram.</div>
+    </div>
+  </div>
+</div>
