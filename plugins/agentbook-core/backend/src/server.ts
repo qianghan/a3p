@@ -2012,4 +2012,540 @@ app.post('/api/v1/agentbook-core/personality/auto-adapt', async (req, res) => {
   } catch (err) { res.status(500).json({ success: false, error: String(err) }); }
 });
 
+// =====================================================
+// AGENT BRAIN — Skills, Memory, and Message Processing
+// =====================================================
+
+const BUILT_IN_SKILLS = [
+  {
+    name: 'record-expense', description: 'Record a business or personal expense', category: 'bookkeeping',
+    triggerPatterns: ['\\$\\d', 'spent ', 'paid ', 'bought ', 'purchased '],
+    parameters: { amountCents: { type: 'number', required: true, extractHint: 'dollar amount times 100' }, vendor: { type: 'string', required: false, extractHint: 'business name' }, description: { type: 'string', required: false }, date: { type: 'date', required: false, default: 'today' } },
+    endpoint: { method: 'POST', url: '/api/v1/agentbook-expense/expenses' },
+    responseTemplate: 'Recorded: ${{amount}} — {{description}}',
+  },
+  {
+    name: 'query-expenses', description: 'Query, search, list, or ask questions about expenses', category: 'bookkeeping',
+    triggerPatterns: ['show.*expense', 'list.*expense', 'last \\d+ expense', 'how much.*spen', 'recent expense', 'summary.*expense'],
+    parameters: { question: { type: 'string', required: true, extractHint: 'the full user message' } },
+    endpoint: { method: 'POST', url: '/api/v1/agentbook-expense/advisor/ask' },
+  },
+  {
+    name: 'query-finance', description: 'Ask about cash balance, revenue, profit, tax, clients, or general financial questions', category: 'finance',
+    triggerPatterns: ['balance', 'revenue', 'profit', 'loss', 'tax', 'client.*owe', 'outstanding', 'income', 'net '],
+    parameters: { question: { type: 'string', required: true, extractHint: 'the full user message' } },
+    endpoint: { method: 'POST', url: '/api/v1/agentbook-core/ask' },
+  },
+  {
+    name: 'scan-receipt', description: 'Scan and process a receipt photo', category: 'bookkeeping',
+    triggerPatterns: [],
+    parameters: { imageUrl: { type: 'string', required: true, extractHint: 'attachment URL' } },
+    endpoint: { method: 'POST', url: '/api/v1/agentbook-expense/receipts/ocr' },
+  },
+  {
+    name: 'scan-document', description: 'Process a PDF document (receipt or statement)', category: 'bookkeeping',
+    triggerPatterns: [],
+    parameters: { imageUrl: { type: 'string', required: true, extractHint: 'attachment URL' } },
+    endpoint: { method: 'POST', url: '/api/v1/agentbook-expense/receipts/ocr' },
+  },
+  {
+    name: 'create-invoice', description: 'Create an invoice for a client', category: 'invoicing',
+    triggerPatterns: ['invoice .+ \\$'],
+    parameters: { clientName: { type: 'string', required: true }, amountCents: { type: 'number', required: true }, description: { type: 'string', required: false, default: 'Services' } },
+    endpoint: { method: 'POST', url: '/api/v1/agentbook-invoice/invoices' },
+  },
+  {
+    name: 'simulate-scenario', description: 'Run a what-if financial simulation', category: 'planning',
+    triggerPatterns: ['what if', 'what.?if', 'simulate', 'scenario', 'hire.*\\$', 'lose.*client'],
+    parameters: { scenario: { type: 'string', required: true, extractHint: 'the full user message' } },
+    endpoint: { method: 'POST', url: '/api/v1/agentbook-core/simulate' },
+  },
+  {
+    name: 'proactive-alerts', description: 'Check for alerts, notifications, or things needing attention', category: 'insights',
+    triggerPatterns: ['alert', 'notification', 'check.?up', 'anything.*know', 'what.?s new'],
+    parameters: {},
+    endpoint: { method: 'GET', url: '/api/v1/agentbook-expense/advisor/proactive-alerts', queryParams: [] },
+  },
+  {
+    name: 'expense-breakdown', description: 'Show spending breakdown by category as a chart', category: 'insights',
+    triggerPatterns: ['breakdown', 'categor.*chart', 'pie chart', 'bar chart', 'spending chart'],
+    parameters: { chartType: { type: 'string', required: false, default: 'bar' } },
+    endpoint: { method: 'GET', url: '/api/v1/agentbook-expense/advisor/chart', queryParams: ['startDate', 'endDate', 'chartType'] },
+  },
+  {
+    name: 'general-question', description: 'Answer any general financial or accounting question', category: 'finance',
+    triggerPatterns: [],
+    parameters: { question: { type: 'string', required: true, extractHint: 'the full user message' } },
+    endpoint: { method: 'POST', url: '/api/v1/agentbook-core/ask' },
+  },
+];
+
+// --- 1. Seed Skills Endpoint ---
+app.post('/api/v1/agentbook-core/agent/seed-skills', async (_req, res) => {
+  try {
+    let created = 0;
+    let updated = 0;
+    for (const skill of BUILT_IN_SKILLS) {
+      const existing = await db.abSkillManifest.findFirst({
+        where: { tenantId: null, name: skill.name },
+      });
+      if (existing) {
+        await db.abSkillManifest.update({
+          where: { id: existing.id },
+          data: {
+            description: skill.description,
+            category: skill.category,
+            triggerPatterns: skill.triggerPatterns,
+            parameters: skill.parameters as any,
+            endpoint: skill.endpoint as any,
+            responseTemplate: (skill as any).responseTemplate || null,
+            source: 'built_in',
+          },
+        });
+        updated++;
+      } else {
+        await db.abSkillManifest.create({
+          data: {
+            tenantId: null,
+            name: skill.name,
+            description: skill.description,
+            category: skill.category,
+            triggerPatterns: skill.triggerPatterns,
+            parameters: skill.parameters as any,
+            endpoint: skill.endpoint as any,
+            responseTemplate: (skill as any).responseTemplate || null,
+            source: 'built_in',
+            enabled: true,
+          },
+        });
+        created++;
+      }
+    }
+    res.json({ success: true, data: { created, updated, total: BUILT_IN_SKILLS.length } });
+  } catch (err) {
+    console.error('Seed skills error:', err);
+    res.status(500).json({ success: false, error: String(err) });
+  }
+});
+
+// --- 2. Skills CRUD ---
+app.get('/api/v1/agentbook-core/agent/skills', async (req, res) => {
+  try {
+    const tenantId = (req as any).tenantId;
+    const skills = await db.abSkillManifest.findMany({
+      where: {
+        enabled: true,
+        OR: [{ tenantId: null }, { tenantId }],
+      },
+      orderBy: { name: 'asc' },
+    });
+    res.json({ success: true, data: skills });
+  } catch (err) {
+    res.status(500).json({ success: false, error: String(err) });
+  }
+});
+
+app.post('/api/v1/agentbook-core/agent/skills', async (req, res) => {
+  try {
+    const tenantId = (req as any).tenantId;
+    const { name, description, category, triggerPatterns, parameters, endpoint, responseTemplate } = req.body;
+    if (!name || !description) {
+      return res.status(400).json({ success: false, error: 'name and description required' });
+    }
+    const skill = await db.abSkillManifest.create({
+      data: {
+        tenantId,
+        name,
+        description,
+        category: category || 'custom',
+        triggerPatterns: triggerPatterns || [],
+        parameters: parameters || {},
+        endpoint: endpoint || {},
+        responseTemplate: responseTemplate || null,
+        source: 'user',
+        enabled: true,
+      },
+    });
+    res.json({ success: true, data: skill });
+  } catch (err) {
+    res.status(500).json({ success: false, error: String(err) });
+  }
+});
+
+// --- 3. Memory CRUD ---
+app.get('/api/v1/agentbook-core/agent/memory', async (req, res) => {
+  try {
+    const tenantId = (req as any).tenantId;
+    const typeFilter = req.query.type as string | undefined;
+    const where: any = { tenantId };
+    if (typeFilter) where.type = typeFilter;
+    const memories = await db.abUserMemory.findMany({
+      where,
+      orderBy: { lastUsed: 'desc' },
+    });
+    res.json({ success: true, data: memories });
+  } catch (err) {
+    res.status(500).json({ success: false, error: String(err) });
+  }
+});
+
+app.post('/api/v1/agentbook-core/agent/memory', async (req, res) => {
+  try {
+    const tenantId = (req as any).tenantId;
+    const { key, value, type, confidence, expiresAt } = req.body;
+    if (!key || !value) {
+      return res.status(400).json({ success: false, error: 'key and value required' });
+    }
+    // Upsert by tenantId + key
+    const existing = await db.abUserMemory.findFirst({
+      where: { tenantId, key },
+    });
+    let memory;
+    if (existing) {
+      memory = await db.abUserMemory.update({
+        where: { id: existing.id },
+        data: {
+          value,
+          type: type || existing.type,
+          confidence: confidence ?? existing.confidence,
+          expiresAt: expiresAt ? new Date(expiresAt) : existing.expiresAt,
+          lastUsed: new Date(),
+        },
+      });
+    } else {
+      memory = await db.abUserMemory.create({
+        data: {
+          tenantId,
+          key,
+          value,
+          type: type || 'context',
+          confidence: confidence ?? 0.8,
+          expiresAt: expiresAt ? new Date(expiresAt) : null,
+          lastUsed: new Date(),
+        },
+      });
+    }
+    res.json({ success: true, data: memory });
+  } catch (err) {
+    res.status(500).json({ success: false, error: String(err) });
+  }
+});
+
+app.delete('/api/v1/agentbook-core/agent/memory/:id', async (req, res) => {
+  try {
+    const tenantId = (req as any).tenantId;
+    const { id } = req.params;
+    const memory = await db.abUserMemory.findFirst({ where: { id, tenantId } });
+    if (!memory) {
+      return res.status(404).json({ success: false, error: 'Memory not found' });
+    }
+    await db.abUserMemory.delete({ where: { id } });
+    res.json({ success: true, data: { deleted: true } });
+  } catch (err) {
+    res.status(500).json({ success: false, error: String(err) });
+  }
+});
+
+// --- 4. Agent Brain: Message Processing ---
+app.post('/api/v1/agentbook-core/agent/message', async (req, res) => {
+  try {
+    const tenantId = (req as any).tenantId;
+    const { text, channel = 'api', attachments } = req.body;
+    if (!text && (!attachments || attachments.length === 0)) {
+      return res.status(400).json({ success: false, error: 'text or attachments required' });
+    }
+
+    const startTime = Date.now();
+
+    // === 1. CONTEXT ASSEMBLY ===
+    const [tenantConfig, conversation, memory, skills] = await Promise.all([
+      db.abTenantConfig.findFirst({ where: { userId: tenantId } }),
+      db.abConversation.findMany({ where: { tenantId }, orderBy: { createdAt: 'desc' }, take: 10 }),
+      db.abUserMemory.findMany({
+        where: { tenantId, OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }] },
+        orderBy: { lastUsed: 'desc' }, take: 50,
+      }),
+      db.abSkillManifest.findMany({
+        where: { enabled: true, OR: [{ tenantId: null }, { tenantId }] },
+      }),
+    ]);
+
+    // === 2. INTENT CLASSIFICATION ===
+    let selectedSkill: any = null;
+    let extractedParams: any = {};
+    let confidence = 0;
+    const lower = (text || '').toLowerCase();
+
+    // Handle attachments first
+    if (attachments?.length > 0) {
+      const att = attachments[0];
+      if (att.type === 'photo') {
+        selectedSkill = skills.find((s: any) => s.name === 'scan-receipt');
+        extractedParams = { imageUrl: att.url };
+        confidence = 1.0;
+      } else if (att.type === 'pdf' || att.type === 'document') {
+        selectedSkill = skills.find((s: any) => s.name === 'scan-document');
+        extractedParams = { imageUrl: att.url };
+        confidence = 1.0;
+      }
+    }
+
+    if (!selectedSkill && text) {
+      // Stage 1: User memory shortcuts
+      const shortcuts = memory.filter((m: any) => m.type === 'shortcut');
+      for (const sc of shortcuts) {
+        if (lower.includes(sc.key.replace('shortcut:', ''))) {
+          try {
+            const parsed = JSON.parse(sc.value);
+            selectedSkill = skills.find((s: any) => s.name === parsed.skill);
+            extractedParams = parsed.params || { question: text };
+            confidence = sc.confidence;
+            // Update usage
+            await db.abUserMemory.update({ where: { id: sc.id }, data: { usageCount: { increment: 1 }, lastUsed: new Date() } });
+            break;
+          } catch { /* invalid shortcut */ }
+        }
+      }
+
+      // Stage 2: Regex fast path
+      if (!selectedSkill) {
+        // Apply vendor aliases from memory
+        let processedText = text;
+        const aliases = memory.filter((m: any) => m.type === 'vendor_alias');
+        for (const alias of aliases) {
+          const aliasKey = alias.key.replace('vendor_alias:', '');
+          if (lower.includes(aliasKey)) {
+            processedText = processedText.replace(new RegExp(aliasKey, 'gi'), alias.value);
+          }
+        }
+
+        // Check trigger patterns — but for record-expense, also require a dollar amount
+        for (const skill of skills) {
+          const patterns = (skill.triggerPatterns as string[]) || [];
+          if (patterns.length === 0) continue;
+
+          for (const pattern of patterns) {
+            try {
+              if (new RegExp(pattern, 'i').test(lower)) {
+                // Special check: record-expense needs a $ amount and should not match invoice commands
+                if (skill.name === 'record-expense') {
+                  if (!/\$\s*[\d,]+\.?\d{0,2}|\d+\s*(?:dollars|bucks)/i.test(text)) continue;
+                  if (/^invoice\s/i.test(lower)) continue;
+                }
+                selectedSkill = skill;
+                confidence = 0.85;
+                break;
+              }
+            } catch { /* invalid regex */ }
+          }
+          if (selectedSkill) break;
+        }
+
+        // Extract params for regex-matched skills
+        if (selectedSkill) {
+          const params = selectedSkill.parameters as Record<string, any>;
+          if (params.question) extractedParams.question = text;
+          if (params.scenario) extractedParams.scenario = text;
+          if (params.amountCents) {
+            const amtMatch = processedText.match(/\$\s*([\d,]+\.?\d{0,2})/);
+            if (amtMatch) extractedParams.amountCents = Math.round(parseFloat(amtMatch[1].replace(/,/g, '')) * 100);
+          }
+          if (params.vendor) {
+            const vendorMatch = processedText.match(/(?:at|from|@)\s+([A-Z][A-Za-z\s&']+)/);
+            if (vendorMatch) extractedParams.vendor = vendorMatch[1].trim();
+          }
+          if (params.clientName) {
+            const invoiceMatch = text.match(/invoice\s+(.+?)\s+\$/i);
+            if (invoiceMatch) extractedParams.clientName = invoiceMatch[1].trim();
+          }
+          if (params.description && !extractedParams.description) extractedParams.description = text;
+        }
+      }
+
+      // Stage 3: LLM classification
+      if (!selectedSkill) {
+        const skillDescriptions = skills.map((s: any) => `- ${s.name}: ${s.description}`).join('\n');
+        const recentConvo = conversation.slice(0, 5).reverse().map((c: any) => `User: ${c.question}\nAgent: ${c.answer}`).join('\n');
+        const memoryContext = memory.filter((m: any) => m.type === 'context').map((m: any) => `${m.key}: ${m.value}`).join('\n');
+
+        const llmResult = await callGemini(
+          `You are an intent classifier for AgentBook, an AI accounting agent.
+Given the user's message, conversation history, and available skills, determine:
+1. Which skill to invoke (by name)
+2. What parameters to extract
+3. Your confidence (0-1)
+
+Available skills:
+${skillDescriptions}
+
+Respond as JSON only: { "skill": "skill-name", "parameters": { ... }, "confidence": 0.9 }
+If no skill matches well, use "general-question" with parameter "question" = the user's message.`,
+          `${recentConvo ? 'Recent conversation:\n' + recentConvo + '\n\n' : ''}${memoryContext ? 'User context:\n' + memoryContext + '\n\n' : ''}User message: ${text}`,
+          300,
+        );
+
+        if (llmResult) {
+          try {
+            const cleaned = llmResult.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+            const parsed = JSON.parse(cleaned);
+            selectedSkill = skills.find((s: any) => s.name === parsed.skill);
+            extractedParams = parsed.parameters || { question: text };
+            confidence = parsed.confidence || 0.7;
+          } catch { /* LLM parse failure */ }
+        }
+
+        // Ultimate fallback
+        if (!selectedSkill) {
+          selectedSkill = skills.find((s: any) => s.name === 'general-question');
+          extractedParams = { question: text };
+          confidence = 0.3;
+        }
+      }
+    }
+
+    if (!selectedSkill) {
+      return res.json({ success: true, data: { message: 'I\'m not sure what you mean. Try "Spent $45 on lunch" or "How much on travel?"', skillUsed: 'none', confidence: 0 } });
+    }
+
+    // === 3. SKILL EXECUTION ===
+    const endpoint = selectedSkill.endpoint as any;
+    const baseUrls: Record<string, string> = {
+      '/api/v1/agentbook-expense': process.env.AGENTBOOK_EXPENSE_URL || 'http://localhost:4051',
+      '/api/v1/agentbook-core': process.env.AGENTBOOK_CORE_URL || 'http://localhost:4050',
+      '/api/v1/agentbook-invoice': process.env.AGENTBOOK_INVOICE_URL || 'http://localhost:4052',
+      '/api/v1/agentbook-tax': process.env.AGENTBOOK_TAX_URL || 'http://localhost:4053',
+    };
+
+    // Resolve base URL
+    let targetUrl = endpoint.url;
+    for (const [prefix, base] of Object.entries(baseUrls)) {
+      if (endpoint.url.startsWith(prefix)) {
+        targetUrl = base + endpoint.url;
+        break;
+      }
+    }
+
+    // Special pre-processing for create-invoice
+    if (selectedSkill.name === 'create-invoice' && extractedParams.clientName) {
+      try {
+        const invoiceBase = baseUrls['/api/v1/agentbook-invoice'] || 'http://localhost:4052';
+        const clientsRes = await fetch(`${invoiceBase}/api/v1/agentbook-invoice/clients`, { headers: { 'Content-Type': 'application/json', 'x-tenant-id': tenantId } });
+        const clientsData = await clientsRes.json() as any;
+        let client = (clientsData.data || []).find((c: any) => c.name.toLowerCase().includes(extractedParams.clientName.toLowerCase()));
+        if (!client) {
+          const createRes = await fetch(`${invoiceBase}/api/v1/agentbook-invoice/clients`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json', 'x-tenant-id': tenantId },
+            body: JSON.stringify({ name: extractedParams.clientName }),
+          });
+          client = ((await createRes.json()) as any).data;
+        }
+        if (client) {
+          const dueDate = new Date(); dueDate.setDate(dueDate.getDate() + 30);
+          extractedParams = {
+            clientId: client.id,
+            issuedDate: new Date().toISOString().slice(0, 10),
+            dueDate: dueDate.toISOString().slice(0, 10),
+            status: 'draft',
+            lines: [{ description: extractedParams.description || 'Services', quantity: 1, rateCents: extractedParams.amountCents }],
+          };
+        }
+      } catch (err) { console.warn('Invoice client resolution error:', err); }
+    }
+
+    let skillResponse: any = null;
+    let skillError = false;
+    try {
+      if (endpoint.method === 'GET') {
+        const queryParams = (endpoint.queryParams || []) as string[];
+        const qs = new URLSearchParams();
+        for (const p of queryParams) {
+          if (extractedParams[p]) qs.set(p, String(extractedParams[p]));
+        }
+        const getUrl = qs.toString() ? `${targetUrl}?${qs}` : targetUrl;
+        const getRes = await fetch(getUrl, { headers: { 'x-tenant-id': tenantId } });
+        skillResponse = await getRes.json();
+      } else {
+        const postRes = await fetch(targetUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'x-tenant-id': tenantId },
+          body: JSON.stringify(extractedParams),
+        });
+        skillResponse = await postRes.json();
+      }
+    } catch (err) {
+      console.error('Skill execution error:', err);
+      skillError = true;
+    }
+
+    // === 4. RESPONSE FORMATTING ===
+    let message = '';
+    let actions: any[] = [];
+    let chartData: any = null;
+
+    if (skillError || !skillResponse?.success) {
+      message = "I couldn't complete that action. Please try again or rephrase your request.";
+    } else {
+      const data = skillResponse.data;
+
+      // Use response template if available
+      if (selectedSkill.responseTemplate && data) {
+        message = (selectedSkill.responseTemplate as string).replace(/\{\{(\w+)\}\}/g, (_: any, key: string) => {
+          if (key === 'amount' || key === 'amountFormatted') return '$' + ((data.amountCents || 0) / 100).toFixed(2);
+          return data[key] || '';
+        });
+      } else if (data?.answer) {
+        message = data.answer;
+      } else if (data?.alerts) {
+        message = data.alerts.length > 0
+          ? data.alerts.slice(0, 5).map((a: any) => `${a.severity === 'critical' ? '\u{1F534}' : a.severity === 'important' ? '\u{1F7E1}' : '\u{1F7E2}'} **${a.title}**\n${a.message}`).join('\n\n')
+          : 'All clear! No alerts right now.';
+      } else if (data?.narrative) {
+        message = data.narrative;
+        if (data.impact) {
+          message += `\n\nImpact: Monthly net change $${(data.impact.monthlyNetChangeCents / 100).toLocaleString()}`;
+        }
+      } else if (data?.annotation) {
+        message = data.annotation;
+        chartData = { type: data.chartType || 'bar', data: data.data || [] };
+      } else if (data?.id && data?.amountCents !== undefined) {
+        message = `Recorded: $${(data.amountCents / 100).toFixed(2)} — ${data.description || data.number || 'Item'}`;
+      } else if (data?.number) {
+        message = `Invoice ${data.number} created — $${(data.amountCents / 100).toFixed(2)}`;
+      } else {
+        message = JSON.stringify(data).slice(0, 300);
+      }
+
+      // Extract chart data if available
+      if (data?.chartData) chartData = data.chartData;
+      if (data?.data && Array.isArray(data.data) && data.data[0]?.name && data.data[0]?.value) {
+        chartData = chartData || { type: 'bar', data: data.data };
+      }
+
+      // Extract actions
+      if (data?.actions) actions = data.actions;
+    }
+
+    const latencyMs = Date.now() - startTime;
+
+    // === 5. LEARNING ===
+    // Save conversation
+    await db.abConversation.create({
+      data: { tenantId, question: text || '[attachment]', answer: message, queryType: 'agent', channel, skillUsed: selectedSkill.name, data: { params: extractedParams }, latencyMs },
+    });
+
+    // Log event
+    await db.abEvent.create({
+      data: { tenantId, eventType: 'agent.message', actor: 'user', action: { text: (text || '').slice(0, 100), skillUsed: selectedSkill.name, confidence, channel, latencyMs } },
+    });
+
+    res.json({
+      success: true,
+      data: { message, actions, chartData, skillUsed: selectedSkill.name, confidence, latencyMs },
+    });
+  } catch (err) {
+    console.error('Agent message error:', err);
+    res.status(500).json({ success: false, error: String(err) });
+  }
+});
+
 start();

@@ -1563,7 +1563,9 @@ model AbConversation {
   tenantId    String
   question    String
   answer      String
-  queryType   String                            // pattern | llm | simulation
+  queryType   String                            // pattern | llm | simulation | agent
+  channel     String   @default("web")          // web | telegram | api
+  skillUsed   String?                           // which skill handled this message
   data        Json?
   latencyMs   Int?
   createdAt   DateTime @default(now())
@@ -2164,6 +2166,47 @@ model AbAgentPersonality {
   updatedAt           DateTime @updatedAt
 
   @@unique([tenantId, agentId])
+  @@schema("plugin_agentbook_core")
+}
+
+model AbSkillManifest {
+  id              String   @id @default(uuid())
+  tenantId        String?
+  name            String
+  description     String
+  category        String
+  triggerPatterns Json
+  parameters      Json
+  endpoint        Json
+  responseTemplate String?
+  confirmBefore   Boolean  @default(false)
+  postActions     Json?
+  enabled         Boolean  @default(true)
+  source          String   @default("built_in")
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@unique([tenantId, name])
+  @@index([tenantId, enabled])
+  @@schema("plugin_agentbook_core")
+}
+
+model AbUserMemory {
+  id          String    @id @default(uuid())
+  tenantId    String
+  key         String
+  value       String
+  type        String
+  confidence  Float     @default(0.8)
+  source      String    @default("learned")
+  usageCount  Int       @default(0)
+  lastUsed    DateTime  @default(now())
+  expiresAt   DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@unique([tenantId, key])
+  @@index([tenantId, type])
   @@schema("plugin_agentbook_core")
 }
 

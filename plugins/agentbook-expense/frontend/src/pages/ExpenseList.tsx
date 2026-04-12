@@ -228,17 +228,19 @@ export const ExpenseListPage: React.FC = () => {
   const handleAsk = async (question: string) => {
     setAdvisorLoading(true);
     try {
-      const dates = getPeriodDates(period);
-      const res = await fetch(`${API}/advisor/ask`, {
+      const res = await fetch('/api/v1/agentbook-core/agent/message', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          question,
-          period: period !== 'all' ? { start: dates.start.toISOString(), end: dates.end.toISOString() } : undefined,
-        }),
+        body: JSON.stringify({ text: question, channel: 'web' }),
       });
       const data = await res.json();
-      if (data.success) setAdvisorResponse(data.data);
+      if (data.success) {
+        setAdvisorResponse({
+          answer: data.data.message,
+          chartData: data.data.chartData,
+          actions: data.data.actions,
+        });
+      }
     } catch { /* silent */ }
     setAdvisorLoading(false);
   };

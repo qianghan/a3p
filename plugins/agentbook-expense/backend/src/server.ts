@@ -1689,12 +1689,25 @@ app.post('/api/v1/agentbook-expense/advisor/ask', async (req, res) => {
     });
     const byVendor = Object.entries(byVendorRaw).sort(([, a], [, b]) => b - a).slice(0, 10);
 
+    // Recent individual expenses (for "show me last N" type questions)
+    const recentExpenses = [...expenses]
+      .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+      .slice(0, 20)
+      .map((e: any) => {
+        const vName = e.vendor?.name || 'Unknown';
+        const catName = e.categoryId ? (catNameMap[e.categoryId] || 'Uncategorized') : 'Uncategorized';
+        return `${new Date(e.date).toLocaleDateString()} | ${vName} | ${formatCents(e.amountCents)} | ${catName} | ${e.description || ''}${e.isPersonal ? ' [personal]' : ''}`;
+      });
+
     // Build context string
     const contextStr = [
       `Period: ${startDate.toLocaleDateString()} to ${endDate.toLocaleDateString()}`,
       `Total expenses: ${formatCents(total)} (${expenses.length} transactions)`,
       `Top categories: ${byCat.map(([n, v]) => `${n}: ${formatCents(v)}`).join(', ')}`,
       `Top vendors: ${byVendor.map(([n, v]) => `${n}: ${formatCents(v)}`).join(', ')}`,
+      `\nRecent expenses (newest first):`,
+      `Date | Vendor | Amount | Category | Description`,
+      ...recentExpenses,
     ].join('\n');
 
     let answer = '';
@@ -1703,8 +1716,10 @@ app.post('/api/v1/agentbook-expense/advisor/ask', async (req, res) => {
 
     // Try LLM
     const systemPrompt = `You are AgentBook Expense Advisor — a friendly, concise financial expert.
-Given the user's expense data context, answer their question helpfully.
-Respond in JSON format: { "answer": "string", "chartData": { "type": "bar"|"pie"|"trend", "data": [{ "name": "string", "value": number }] } | null, "suggestedActions": [{ "label": "string", "type": "suggestion" }] | [] }
+You have access to the user's complete expense data including individual transactions, category totals, and vendor breakdowns.
+When asked to list or show expenses, use the "Recent expenses" data provided. When asked about totals or comparisons, use the aggregated data.
+Always include specific dollar amounts. Be helpful and direct.
+Respond in JSON format: { "answer": "your detailed answer as a string (use \\n for line breaks)", "chartData": { "type": "bar"|"pie"|"trend", "data": [{ "name": "string", "value": number_in_cents }] } | null, "suggestedActions": [{ "label": "string", "type": "suggestion" }] | [] }
 Only include chartData if the question would benefit from visualization.`;
 
     const userMsg = `Context:\n${contextStr}\n\nQuestion: ${question}`;
@@ -1730,20 +1745,53 @@ Only include chartData if the question would benefit from visualization.`;
     // Template fallback if no LLM answer
     if (!answer) {
       const q = question.toLowerCase();
-      if (q.includes('travel')) {
+      const recentForFallback = [...expenses]
+        .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+
+      if (q.match(/show|list|last|recent|latest/)) {
+        // Extract number (e.g., "last 5") or default to 5
+        const numMatch = q.match(/(\d+)/);
+        const count = numMatch ? Math.min(parseInt(numMatch[1]), 20) : 5;
+        const items = recentForFallback.slice(0, count);
+        answer = `Here are your last ${items.length} expenses:\n\n${items.map((e: any) => {
+          const vName = e.vendor?.name || 'Unknown';
+          const catName = e.categoryId ? (catNameMap[e.categoryId] || '') : '';
+          return `• ${new Date(e.date).toLocaleDateString()} — **${vName}** — ${formatCents(e.amountCents)}${catName ? ` (${catName})` : ''}`;
+        }).join('\n')}`;
+      } else if (q.includes('travel')) {
         const travelCats = byCat.filter(([n]) => n.toLowerCase().includes('travel'));
         if (travelCats.length > 0) {
-          answer = `Your travel expenses total ${formatCents(travelCats.reduce((s, [, v]) => s + v, 0))} across ${travelCats.length} category(ies).`;
+          const travelExpenses = recentForFallback.filter((e: any) => {
+            const cn = e.categoryId ? catNameMap[e.categoryId] : '';
+            return cn?.toLowerCase().includes('travel');
+          });
+          answer = `Your travel expenses total ${formatCents(travelCats.reduce((s, [, v]) => s + v, 0))} (${travelExpenses.length} transactions).\n\n${travelExpenses.slice(0, 10).map((e: any) => `• ${new Date(e.date).toLocaleDateString()} — ${e.vendor?.name || 'Unknown'} — ${formatCents(e.amountCents)}`).join('\n')}`;
         } else {
-          answer = `No travel-related expenses found in this period. Total spending is ${formatCents(total)}.`;
+          answer = `No travel expenses found in this period. Total spending: ${formatCents(total)}.`;
         }
       } else if (q.match(/top|most|biggest|largest|highest/)) {
-        answer = `Your top expense categories are: ${byCat.slice(0, 5).map(([n, v]) => `${n} at ${formatCents(v)}`).join(', ')}. Total: ${formatCents(total)}.`;
+        answer = `Your top expense categories:\n\n${byCat.slice(0, 5).map(([n, v]) => `• **${n}** — ${formatCents(v)}`).join('\n')}\n\nTotal: ${formatCents(total)}`;
         chartData = { type: 'bar' as const, data: byCat.slice(0, 5).map(([name, value]) => ({ name, value })) };
+      } else if (q.match(/summary|overview|breakdown/)) {
+        answer = `Expense summary (${expenses.length} transactions, ${formatCents(total)} total):\n\n**By category:**\n${byCat.map(([n, v]) => `• ${n}: ${formatCents(v)}`).join('\n')}\n\n**Top vendors:**\n${byVendor.slice(0, 5).map(([n, v]) => `• ${n}: ${formatCents(v)}`).join('\n')}`;
+        chartData = { type: 'bar' as const, data: byCat.map(([name, value]) => ({ name, value })) };
+      } else if (q.match(/duplicate|double/)) {
+        const sorted = [...recentForFallback].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+        const dups: string[] = [];
+        for (let i = 0; i < sorted.length && dups.length < 5; i++) {
+          for (let j = i + 1; j < sorted.length; j++) {
+            const a = sorted[i], b = sorted[j];
+            if (Math.abs(new Date(b.date).getTime() - new Date(a.date).getTime()) > 3 * 86400000) break;
+            if (a.vendorId && a.vendorId === b.vendorId && Math.abs(a.amountCents - b.amountCents) / a.amountCents < 0.05) {
+              dups.push(`• ${(a as any).vendor?.name || 'Unknown'}: ${formatCents(a.amountCents)} on ${new Date(a.date).toLocaleDateString()} and ${formatCents(b.amountCents)} on ${new Date(b.date).toLocaleDateString()}`);
+            }
+          }
+        }
+        answer = dups.length > 0 ? `Found ${dups.length} potential duplicate(s):\n\n${dups.join('\n')}` : 'No duplicate expenses detected.';
       } else {
-        answer = `You have ${expenses.length} expenses totaling ${formatCents(total)} for this period. Top category: ${byCat[0] ? `${byCat[0][0]} at ${formatCents(byCat[0][1])}` : 'N/A'}.`;
+        answer = `You have ${expenses.length} expenses totaling ${formatCents(total)}.\n\nTop category: ${byCat[0] ? `**${byCat[0][0]}** at ${formatCents(byCat[0][1])}` : 'N/A'}.\nTop vendor: ${byVendor[0] ? `**${byVendor[0][0]}** at ${formatCents(byVendor[0][1])}` : 'N/A'}.`;
       }
-      actions = [{ label: 'View expense breakdown', type: 'suggestion' }];
+      actions = [{ label: 'Show breakdown', type: 'suggestion' }, { label: 'Any duplicates?', type: 'suggestion' }];
     }
 
     // Log to AbEvent

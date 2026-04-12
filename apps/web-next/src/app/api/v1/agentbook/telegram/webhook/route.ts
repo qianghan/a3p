@@ -1,5 +1,6 @@
 /**
- * Telegram Bot Webhook — Vercel serverless endpoint.
+ * Telegram Bot Webhook — Thin adapter that routes all messages through
+ * the channel-agnostic Agent Brain at POST /agent/message.
  */
 import { NextRequest, NextResponse } from 'next/server';
 import { Bot } from 'grammy';
@@ -14,6 +15,41 @@ function resolveTenantId(chatId: number): string {
   return CHAT_TO_TENANT[String(chatId)] || String(chatId);
 }
 
+const CORE_API = process.env.AGENTBOOK_CORE_URL || 'http://localhost:4050';
+
+/** Call the agent brain and return the response data. */
+async function callAgentBrain(tenantId: string, text: string, attachments?: { type: string; url: string }[]): Promise<any> {
+  const res = await fetch(`${CORE_API}/api/v1/agentbook-core/agent/message`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'x-tenant-id': tenantId },
+    body: JSON.stringify({ text, channel: 'telegram', attachments }),
+  });
+  return res.json();
+}
+
+/** Convert markdown to Telegram-safe HTML. */
+function mdToHtml(md: string): string {
+  return md
+    .replace(/\*\*(.+?)\*\*/g, '<b>$1</b>')
+    .replace(/\*(.+?)\*/g, '<i>$1</i>')
+    .replace(/`(.+?)`/g, '<code>$1</code>');
+}
+
+/** Format agent response for Telegram. */
+function formatResponse(data: any): string {
+  let reply = mdToHtml(data.message || 'Done.');
+  if (data.chartData?.data?.length) {
+    reply += '\n\n📊 <b>Breakdown:</b>';
+    for (const item of data.chartData.data.slice(0, 8)) {
+      const val = typeof item.value === 'number' && item.value > 100
+        ? '$' + (item.value / 100).toLocaleString()
+        : item.value;
+      reply += `\n• ${item.name}: ${val}`;
+    }
+  }
+  return reply;
+}
+
 // Lazy-initialize bot (cold start optimization for serverless)
 let bot: Bot | null = null;
 
@@ -25,51 +61,52 @@ function getBot(): Bot {
 
   bot = new Bot(token);
 
-  // Text messages → expense recording
+  // === Text messages → Agent Brain ===
   bot.on('message:text', async (ctx) => {
     const text = ctx.message.text;
-    if (text.startsWith('/')) {
-      // Handle commands
-      switch (text.split(' ')[0].toLowerCase()) {
-        case '/start':
-          await ctx.reply('👋 Welcome to AgentBook!\n\n📸 Send a receipt photo\n💬 Type an expense: "Spent $45 on lunch"\n📄 Forward a receipt email\n\n/help for more', { parse_mode: 'HTML' });
-          return;
-        case '/help':
-          await ctx.reply('📚 <b>AgentBook Help</b>\n\n• Send a receipt photo\n• Type: "Spent $45 on lunch"\n• /balance — Cash balance\n• /tax — Tax estimate\n• /reports — Financial reports', { parse_mode: 'HTML' });
-          return;
-        default:
-          await ctx.reply("I don't recognize that command. Type /help for options.");
-          return;
-      }
+    const tenantId = resolveTenantId(ctx.chat.id);
+
+    // Commands that show static help text
+    if (text === '/start') {
+      await ctx.reply('👋 Welcome to <b>AgentBook</b>!\n\nI\'m your AI accounting agent. Here\'s what I can do:\n\n💬 <b>Record expenses:</b> "Spent $45 on lunch at Starbucks"\n📸 <b>Snap receipts:</b> Send a photo or PDF\n❓ <b>Ask anything:</b> "How much on travel this month?"\n📊 <b>Get insights:</b> "Show me spending breakdown"\n💰 <b>Check balance:</b> "What\'s my cash balance?"\n🧾 <b>Invoicing:</b> "Invoice Acme $5000 for consulting"\n\n/help for all commands', { parse_mode: 'HTML' });
+      return;
+    }
+    if (text === '/help') {
+      await ctx.reply('📚 <b>AgentBook Commands</b>\n\n<b>Expenses:</b>\n• Type: "Spent $45 on lunch"\n• "Show last 5 expenses"\n\n<b>Finance:</b>\n• "What\'s my balance?"\n• "Tax estimate"\n• "Revenue summary"\n\n<b>Insights:</b>\n• "Spending breakdown"\n• "Any alerts?"\n• "What if I hire someone at $5K/mo?"\n\n<b>Actions:</b>\n• Send receipt photo/PDF\n• "Invoice Acme $5000"\n\nOr just type anything — I\'ll figure it out.', { parse_mode: 'HTML' });
+      return;
     }
 
-    // Forward to expense recording API
-    const tenantId = resolveTenantId(ctx.chat.id);
+    // Slash command shortcuts → rewrite as natural language for the agent
+    const slashMap: Record<string, string> = {
+      '/balance': 'What is my cash balance?',
+      '/tax': 'What is my tax situation?',
+      '/revenue': 'How much revenue do I have?',
+      '/clients': 'Who owes me money?',
+    };
+    const cmd = text.split(' ')[0].toLowerCase();
+    const agentText = slashMap[cmd] || text;
+
     try {
-      const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
-      const res = await fetch(`${baseUrl}/api/v1/agentbook/expense/expenses`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-tenant-id': tenantId },
-        body: JSON.stringify({
-          amountCents: extractAmount(text),
-          vendor: extractVendor(text),
-          description: text,
-          date: new Date().toISOString(),
-        }),
-      });
-      const data = await res.json();
-      if (data.success) {
-        const amt = (data.data.amountCents / 100).toFixed(2);
-        await ctx.reply(`✅ Recorded: $${amt} — ${data.data.description}`, { parse_mode: 'HTML' });
+      const result = await callAgentBrain(tenantId, agentText);
+      if (result.success && result.data) {
+        const reply = formatResponse(result.data);
+
+        // Build inline keyboard for expense recordings
+        const keyboard = result.data.skillUsed === 'record-expense' && result.data.message?.includes('Recorded')
+          ? { inline_keyboard: [[{ text: '📁 Category', callback_data: `change_cat:agent` }, { text: '🏠 Personal', callback_data: `personal:agent` }]] }
+          : undefined;
+
+        await ctx.reply(reply, { reply_markup: keyboard, parse_mode: 'HTML' });
       } else {
-        await ctx.reply(`Could not record expense: ${data.error}`);
+        await ctx.reply('I\'m not sure what you mean. Type /help for options.', { parse_mode: 'HTML' });
       }
     } catch (err) {
-      await ctx.reply('Sorry, I had trouble processing that. Please try again.');
+      console.error('Agent brain error:', err);
+      await ctx.reply('Something went wrong. Please try again.', { parse_mode: 'HTML' });
     }
   });
 
-  // Photo messages → Blob upload → Gemini OCR → auto-record
+  // === Photo messages → Agent Brain with attachment ===
   bot.on('message:photo', async (ctx) => {
     const tenantId = resolveTenantId(ctx.chat.id);
     const photos = ctx.message.photo;
@@ -80,82 +117,25 @@ function getBot(): Bot {
     try {
       const file = await ctx.api.getFile(bestPhoto.file_id);
       const telegramUrl = `https://api.telegram.org/file/bot${process.env.TELEGRAM_BOT_TOKEN}/${file.file_path}`;
-      const expenseApi = process.env.AGENTBOOK_EXPENSE_URL || 'http://localhost:4051';
 
-      // 1. Upload to permanent storage
+      // Upload to blob storage first
+      const expenseApi = process.env.AGENTBOOK_EXPENSE_URL || 'http://localhost:4051';
       const blobRes = await fetch(`${expenseApi}/api/v1/agentbook-expense/receipts/upload-blob`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'x-tenant-id': tenantId },
         body: JSON.stringify({ sourceUrl: telegramUrl }),
       });
       const blobData = await blobRes.json() as any;
-      const receiptUrl = blobData.data?.permanentUrl || telegramUrl;
+      const permanentUrl = blobData.data?.permanentUrl || telegramUrl;
 
-      // 2. Call OCR with permanent URL
-      const ocrRes = await fetch(`${expenseApi}/api/v1/agentbook-expense/receipts/ocr`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-tenant-id': tenantId },
-        body: JSON.stringify({ imageUrl: receiptUrl }),
-      });
-      const ocrData = await ocrRes.json() as any;
-      const ocr = ocrData.data || {};
+      const result = await callAgentBrain(tenantId, ctx.message.caption || '', [
+        { type: 'photo', url: permanentUrl },
+      ]);
 
-      if (ocr.autoRecorded && ocr.expenseId) {
-        // High confidence — auto-recorded
-        const amt = ((ocr.amount_cents || 0) / 100).toFixed(2);
-        const keyboard = {
-          inline_keyboard: [
-            [
-              { text: '✅ Correct', callback_data: `confirm:${ocr.expenseId}` },
-              { text: '✏️ Edit', callback_data: `edit:${ocr.expenseId}` },
-            ],
-            [
-              { text: '📁 Category', callback_data: `change_cat:${ocr.expenseId}` },
-              { text: '🏠 Personal', callback_data: `personal:${ocr.expenseId}` },
-            ],
-          ],
-        };
-        await ctx.reply(
-          `🧾 <b>Receipt recorded!</b>\n\n💰 <b>$${amt}</b>${ocr.vendor ? ` at ${ocr.vendor}` : ''}${ocr.date ? `\n📅 ${ocr.date}` : ''}\n🔍 Confidence: ${Math.round((ocr.confidence || 0) * 100)}%`,
-          { reply_markup: keyboard, parse_mode: 'HTML' }
-        );
-      } else if (ocr.amount_cents > 0) {
-        // Low confidence — create as pending review
-        const expRes = await fetch(`${expenseApi}/api/v1/agentbook-expense/expenses`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'x-tenant-id': tenantId },
-          body: JSON.stringify({
-            amountCents: ocr.amount_cents,
-            vendor: ocr.vendor,
-            description: `Receipt: ${ocr.vendor || 'Unknown'}`,
-            date: ocr.date || new Date().toISOString(),
-            receiptUrl,
-            confidence: ocr.confidence || 0.4,
-            source: 'telegram_photo',
-            status: 'pending_review',
-          }),
-        });
-        const expData = await expRes.json() as any;
-        const amt = ((ocr.amount_cents || 0) / 100).toFixed(2);
-        const keyboard = {
-          inline_keyboard: [
-            [
-              { text: `✅ Confirm $${amt}`, callback_data: `confirm:${expData.data?.id}` },
-              { text: '✏️ Edit amount', callback_data: `edit:${expData.data?.id}` },
-            ],
-            [{ text: '❌ Reject', callback_data: `reject:${expData.data?.id}` }],
-          ],
-        };
-        await ctx.reply(
-          `🧾 <b>Receipt scanned</b> (needs review)\n\n💰 $${amt}${ocr.vendor ? ` — ${ocr.vendor}` : ''}\n🔍 Low confidence (${Math.round((ocr.confidence || 0) * 100)}%)\n\nPlease confirm or edit:`,
-          { reply_markup: keyboard, parse_mode: 'HTML' }
-        );
+      if (result.success && result.data) {
+        await ctx.reply(formatResponse(result.data), { parse_mode: 'HTML' });
       } else {
-        // OCR failed entirely
-        await ctx.reply(
-          '🧾 I saved the receipt photo but couldn\'t read the amount.\n\nPlease type the expense, e.g.: "Spent $45 on lunch at Starbucks"',
-          { parse_mode: 'HTML' }
-        );
+        await ctx.reply('🧾 I saved the receipt but couldn\'t process it.\n\nPlease type the expense, e.g.: "Spent $45 on lunch"', { parse_mode: 'HTML' });
       }
     } catch (err) {
       console.error('Photo receipt error:', err);
@@ -163,81 +143,41 @@ function getBot(): Bot {
     }
   });
 
-  // Document messages (PDF receipts/statements) → Blob upload → OCR
+  // === Document messages (PDF) → Agent Brain with attachment ===
   bot.on('message:document', async (ctx) => {
     const tenantId = resolveTenantId(ctx.chat.id);
     const doc = ctx.message.document;
-    const fileName = doc.file_name || 'document';
     const mimeType = doc.mime_type || '';
 
-    // Only handle PDFs and images
     if (!mimeType.includes('pdf') && !mimeType.includes('image')) {
       await ctx.reply('I can process PDF receipts and images. Please send a receipt photo or PDF.');
       return;
     }
 
-    await ctx.reply(`📄 Processing ${fileName}...`);
+    await ctx.reply(`📄 Processing ${doc.file_name || 'document'}...`);
 
     try {
       const file = await ctx.api.getFile(doc.file_id);
       const telegramUrl = `https://api.telegram.org/file/bot${process.env.TELEGRAM_BOT_TOKEN}/${file.file_path}`;
-      const expenseApi = process.env.AGENTBOOK_EXPENSE_URL || 'http://localhost:4051';
 
-      // 1. Upload to permanent storage
+      const expenseApi = process.env.AGENTBOOK_EXPENSE_URL || 'http://localhost:4051';
       const blobRes = await fetch(`${expenseApi}/api/v1/agentbook-expense/receipts/upload-blob`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'x-tenant-id': tenantId },
         body: JSON.stringify({ sourceUrl: telegramUrl }),
       });
       const blobData = await blobRes.json() as any;
-      const receiptUrl = blobData.data?.permanentUrl || telegramUrl;
+      const permanentUrl = blobData.data?.permanentUrl || telegramUrl;
 
-      // 2. Call OCR
-      const ocrRes = await fetch(`${expenseApi}/api/v1/agentbook-expense/receipts/ocr`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-tenant-id': tenantId },
-        body: JSON.stringify({ imageUrl: receiptUrl }),
-      });
-      const ocrData = await ocrRes.json() as any;
-      const ocr = ocrData.data || {};
+      const attType = mimeType.includes('pdf') ? 'pdf' : 'photo';
+      const result = await callAgentBrain(tenantId, ctx.message.caption || '', [
+        { type: attType, url: permanentUrl },
+      ]);
 
-      if (ocr.autoRecorded && ocr.expenseId) {
-        const amt = ((ocr.amount_cents || 0) / 100).toFixed(2);
-        await ctx.reply(
-          `📄 <b>Document processed!</b>\n\n💰 <b>$${amt}</b>${ocr.vendor ? ` — ${ocr.vendor}` : ''}\n✅ Auto-recorded to your books.`,
-          { parse_mode: 'HTML' }
-        );
-      } else if (ocr.amount_cents > 0) {
-        const expRes = await fetch(`${expenseApi}/api/v1/agentbook-expense/expenses`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'x-tenant-id': tenantId },
-          body: JSON.stringify({
-            amountCents: ocr.amount_cents,
-            vendor: ocr.vendor,
-            description: `PDF: ${ocr.vendor || fileName}`,
-            date: ocr.date || new Date().toISOString(),
-            receiptUrl,
-            confidence: ocr.confidence || 0.4,
-            source: 'telegram_pdf',
-            status: 'pending_review',
-          }),
-        });
-        const expData = await expRes.json() as any;
-        const amt = ((ocr.amount_cents || 0) / 100).toFixed(2);
-        const keyboard = {
-          inline_keyboard: [
-            [
-              { text: `✅ Confirm $${amt}`, callback_data: `confirm:${expData.data?.id}` },
-              { text: '✏️ Edit', callback_data: `edit:${expData.data?.id}` },
-            ],
-          ],
-        };
-        await ctx.reply(
-          `📄 <b>Document scanned</b>\n\n💰 $${amt}${ocr.vendor ? ` — ${ocr.vendor}` : ''}\n📎 ${fileName}\n\nPlease confirm:`,
-          { reply_markup: keyboard, parse_mode: 'HTML' }
-        );
+      if (result.success && result.data) {
+        await ctx.reply(formatResponse(result.data), { parse_mode: 'HTML' });
       } else {
-        await ctx.reply(`📄 Saved ${fileName} but couldn't extract expense data.\n\nPlease type the expense manually.`);
+        await ctx.reply(`📄 Saved ${doc.file_name || 'document'} but couldn't extract expense data.\n\nPlease type the expense manually.`);
       }
     } catch (err) {
       console.error('Document receipt error:', err);
@@ -245,7 +185,7 @@ function getBot(): Bot {
     }
   });
 
-  // Callback queries (inline keyboard buttons)
+  // === Callback queries (inline keyboard buttons) ===
   bot.on('callback_query:data', async (ctx) => {
     const cbData = ctx.callbackQuery.data;
     const tenantId = ctx.chat?.id ? resolveTenantId(ctx.chat.id) : '';
@@ -288,22 +228,6 @@ function getBot(): Bot {
   return bot;
 }
 
-// Simple amount extraction from text
-function extractAmount(text: string): number {
-  const match = text.match(/\$?([\d,]+\.?\d{0,2})/);
-  if (match) {
-    const amount = parseFloat(match[1].replace(/,/g, ''));
-    return Math.round(amount * 100);
-  }
-  return 0;
-}
-
-// Simple vendor extraction
-function extractVendor(text: string): string | undefined {
-  const atMatch = text.match(/(?:at|from|@)\s+([A-Z][A-Za-z\s&']+)/);
-  return atMatch ? atMatch[1].trim() : undefined;
-}
-
 export async function POST(request: NextRequest): Promise<NextResponse> {
   const secret = request.headers.get('X-Telegram-Bot-Api-Secret-Token');
   const expectedSecret = process.env.TELEGRAM_WEBHOOK_SECRET;
@@ -318,7 +242,6 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
   try {
     const b = getBot();
-    // Grammy requires bot.init() before handling updates in serverless
     if (!b.isInited()) {
       await b.init();
     }
