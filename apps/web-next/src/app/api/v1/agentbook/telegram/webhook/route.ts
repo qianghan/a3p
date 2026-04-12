@@ -27,12 +27,19 @@ async function callAgentBrain(tenantId: string, text: string, attachments?: { ty
   return res.json();
 }
 
+/** Escape HTML special characters for Telegram. */
+function escHtml(s: string): string {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
 /** Convert markdown to Telegram-safe HTML. */
 function mdToHtml(md: string): string {
-  return md
-    .replace(/\*\*(.+?)\*\*/g, '<b>$1</b>')
-    .replace(/\*(.+?)\*/g, '<i>$1</i>')
-    .replace(/`(.+?)`/g, '<code>$1</code>');
+  // Escape HTML entities first, then apply formatting
+  let html = escHtml(md);
+  html = html.replace(/\*\*(.+?)\*\*/g, '<b>$1</b>');
+  html = html.replace(/\*(.+?)\*/g, '<i>$1</i>');
+  html = html.replace(/`(.+?)`/g, '<code>$1</code>');
+  return html;
 }
 
 /** Format agent response for Telegram. */
@@ -96,13 +103,18 @@ function getBot(): Bot {
           ? { inline_keyboard: [[{ text: '📁 Category', callback_data: `change_cat:agent` }, { text: '🏠 Personal', callback_data: `personal:agent` }]] }
           : undefined;
 
-        await ctx.reply(reply, { reply_markup: keyboard, parse_mode: 'HTML' });
+        try {
+          await ctx.reply(reply, { reply_markup: keyboard, parse_mode: 'HTML' });
+        } catch {
+          // Telegram rejected HTML — fall back to plain text
+          await ctx.reply(result.data.message || reply, { reply_markup: keyboard });
+        }
       } else {
-        await ctx.reply('I\'m not sure what you mean. Type /help for options.', { parse_mode: 'HTML' });
+        await ctx.reply('I\'m not sure what you mean. Type /help for options.');
       }
     } catch (err) {
       console.error('Agent brain error:', err);
-      await ctx.reply('Something went wrong. Please try again.', { parse_mode: 'HTML' });
+      await ctx.reply('Something went wrong. Please try again.');
     }
   });
 

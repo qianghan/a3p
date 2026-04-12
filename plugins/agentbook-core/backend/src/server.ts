@@ -2022,7 +2022,7 @@ const BUILT_IN_SKILLS = [
     triggerPatterns: ['\\$\\d', 'spent ', 'paid ', 'bought ', 'purchased '],
     parameters: { amountCents: { type: 'number', required: true, extractHint: 'dollar amount times 100' }, vendor: { type: 'string', required: false, extractHint: 'business name' }, description: { type: 'string', required: false }, date: { type: 'date', required: false, default: 'today' } },
     endpoint: { method: 'POST', url: '/api/v1/agentbook-expense/expenses' },
-    responseTemplate: 'Recorded: ${{amount}} — {{description}}',
+    responseTemplate: 'Recorded: {{amountFormatted}} — {{description}} [{{categoryName}}]',
   },
   {
     name: 'query-expenses', description: 'Query, search, list, or ask questions about expenses', category: 'bookkeeping',
@@ -2071,6 +2071,12 @@ const BUILT_IN_SKILLS = [
     triggerPatterns: ['breakdown', 'categor.*chart', 'pie chart', 'bar chart', 'spending chart'],
     parameters: { chartType: { type: 'string', required: false, default: 'bar' } },
     endpoint: { method: 'GET', url: '/api/v1/agentbook-expense/advisor/chart', queryParams: ['startDate', 'endDate', 'chartType'] },
+  },
+  {
+    name: 'categorize-expenses', description: 'Auto-categorize uncategorized expenses into the right expense categories', category: 'bookkeeping',
+    triggerPatterns: ['categorize', 'classify', 'organize.*expense', 'fix.*categor', 'uncategorized', 'auto.?categor'],
+    parameters: {},
+    endpoint: { method: 'INTERNAL', url: '' },  // handled inline by agent brain
   },
   {
     name: 'general-question', description: 'Answer any general financial or accounting question', category: 'finance',
@@ -2327,10 +2333,11 @@ app.post('/api/v1/agentbook-core/agent/message', async (req, res) => {
           for (const pattern of patterns) {
             try {
               if (new RegExp(pattern, 'i').test(lower)) {
-                // Special check: record-expense needs a $ amount and should not match invoice commands
+                // Special check: record-expense needs a $ amount and should not match invoice/simulation commands
                 if (skill.name === 'record-expense') {
                   if (!/\$\s*[\d,]+\.?\d{0,2}|\d+\s*(?:dollars|bucks)/i.test(text)) continue;
                   if (/^invoice\s/i.test(lower)) continue;
+                  if (/what\s*if\b/i.test(lower)) continue;
                 }
                 selectedSkill = skill;
                 confidence = 0.85;
@@ -2425,6 +2432,46 @@ If no skill matches well, use "general-question" with parameter "question" = the
       }
     }
 
+    // Special pre-processing for record-expense: auto-categorize from description/vendor
+    if (selectedSkill.name === 'record-expense' && !extractedParams.categoryId) {
+      try {
+        // Load expense category accounts for this tenant
+        const expenseAccounts = await db.abAccount.findMany({
+          where: { tenantId, accountType: 'expense', isActive: true },
+          select: { id: true, name: true, code: true },
+        });
+        if (expenseAccounts.length > 0) {
+          const desc = (text || '').toLowerCase();
+          // Keyword → category mapping (code-based for speed, no LLM needed)
+          const categoryKeywords: Record<string, string[]> = {
+            'Meals': ['lunch', 'dinner', 'breakfast', 'coffee', 'food', 'meal', 'restaurant', 'starbucks', 'mcdonald', 'uber eats', 'doordash', 'grubhub', 'snack', 'cafe', 'pizza', 'sushi', 'taco', 'burger'],
+            'Travel': ['flight', 'hotel', 'airbnb', 'uber', 'lyft', 'taxi', 'cab', 'train', 'bus', 'parking', 'gas', 'fuel', 'toll', 'rental car', 'travel', 'trip'],
+            'Software & Subscriptions': ['software', 'subscription', 'saas', 'aws', 'azure', 'gcp', 'github', 'figma', 'slack', 'zoom', 'notion', 'adobe', 'dropbox', 'heroku', 'vercel', 'netlify', 'hosting', 'domain', 'app', 'license'],
+            'Office Expenses': ['office', 'desk', 'chair', 'monitor', 'keyboard', 'mouse', 'printer', 'paper', 'ink', 'stapler', 'pens', 'notebook', 'whiteboard'],
+            'Supplies': ['supplies', 'supply', 'equipment', 'tool', 'hardware'],
+            'Advertising': ['advertising', 'marketing', 'facebook ads', 'google ads', 'promotion', 'campaign', 'sponsor'],
+            'Rent': ['rent', 'lease', 'coworking', 'wework', 'office space'],
+            'Utilities': ['electric', 'water', 'internet', 'phone', 'utility', 'utilities', 'wifi', 'cell', 'mobile plan'],
+            'Insurance': ['insurance', 'premium', 'coverage', 'liability'],
+            'Legal & Professional': ['lawyer', 'legal', 'attorney', 'accountant', 'cpa', 'consultant', 'audit', 'professional', 'notary'],
+            'Contract Labor': ['contractor', 'freelancer', 'freelance', 'subcontract', 'contract labor', 'outsource'],
+            'Commissions & Fees': ['commission', 'fee', 'stripe', 'paypal', 'processing', 'transaction fee', 'platform fee'],
+            'Bank Fees': ['bank fee', 'wire fee', 'overdraft', 'atm fee', 'monthly fee', 'service charge'],
+            'Car & Truck': ['car', 'truck', 'vehicle', 'mileage', 'oil change', 'tire', 'repair', 'auto'],
+          };
+          for (const [catName, keywords] of Object.entries(categoryKeywords)) {
+            if (keywords.some(kw => desc.includes(kw))) {
+              const account = expenseAccounts.find(a => a.name === catName);
+              if (account) {
+                extractedParams.categoryId = account.id;
+                break;
+              }
+            }
+          }
+        }
+      } catch (err) { console.warn('Auto-categorize error:', err); }
+    }
+
     // Special pre-processing for create-invoice
     if (selectedSkill.name === 'create-invoice' && extractedParams.clientName) {
       try {
@@ -2452,6 +2499,94 @@ If no skill matches well, use "general-question" with parameter "question" = the
       } catch (err) { console.warn('Invoice client resolution error:', err); }
     }
 
+    // Special inline handler: categorize-expenses (no external endpoint)
+    if (selectedSkill.name === 'categorize-expenses') {
+      try {
+        const expenseBase = baseUrls['/api/v1/agentbook-expense'] || 'http://localhost:4051';
+        const H = { 'Content-Type': 'application/json', 'x-tenant-id': tenantId };
+
+        // Fetch uncategorized expenses
+        const listRes = await fetch(`${expenseBase}/api/v1/agentbook-expense/expenses?limit=100`, { headers: H });
+        const listData = await listRes.json() as any;
+        const uncategorized = (listData.data || []).filter((e: any) => !e.categoryId);
+
+        if (uncategorized.length === 0) {
+          const totalCount = (listData.data || []).length;
+          await db.abConversation.create({ data: { tenantId, question: text || '[categorize]', answer: 'All expenses are already categorized!', queryType: 'agent', channel, skillUsed: 'categorize-expenses' } });
+          return res.json({ success: true, data: { message: `All ${totalCount} expenses are already categorized!`, skillUsed: 'categorize-expenses', confidence } });
+        }
+
+        // Load expense category accounts
+        const expenseAccounts = await db.abAccount.findMany({
+          where: { tenantId, accountType: 'expense', isActive: true },
+          select: { id: true, name: true },
+        });
+
+        const categoryKeywords: Record<string, string[]> = {
+          'Meals': ['lunch', 'dinner', 'breakfast', 'coffee', 'food', 'meal', 'restaurant', 'starbucks', 'mcdonald', 'uber eats', 'doordash', 'grubhub', 'snack', 'cafe', 'pizza', 'sushi', 'taco', 'burger'],
+          'Travel': ['flight', 'hotel', 'airbnb', 'uber', 'lyft', 'taxi', 'cab', 'train', 'bus', 'parking', 'gas', 'fuel', 'toll', 'rental car', 'travel', 'trip'],
+          'Software & Subscriptions': ['software', 'subscription', 'saas', 'aws', 'azure', 'gcp', 'github', 'figma', 'slack', 'zoom', 'notion', 'adobe', 'dropbox', 'heroku', 'vercel', 'netlify', 'hosting', 'domain', 'app', 'license'],
+          'Office Expenses': ['office', 'desk', 'chair', 'monitor', 'keyboard', 'mouse', 'printer', 'paper', 'ink', 'stapler', 'pens', 'notebook', 'whiteboard'],
+          'Supplies': ['supplies', 'supply', 'equipment', 'tool', 'hardware'],
+          'Advertising': ['advertising', 'marketing', 'facebook ads', 'google ads', 'promotion', 'campaign', 'sponsor'],
+          'Rent': ['rent', 'lease', 'coworking', 'wework', 'office space'],
+          'Utilities': ['electric', 'water', 'internet', 'phone', 'utility', 'utilities', 'wifi', 'cell', 'mobile plan'],
+          'Insurance': ['insurance', 'premium', 'coverage', 'liability'],
+          'Legal & Professional': ['lawyer', 'legal', 'attorney', 'accountant', 'cpa', 'consultant', 'audit', 'professional', 'notary'],
+          'Contract Labor': ['contractor', 'freelancer', 'freelance', 'subcontract', 'contract labor', 'outsource'],
+          'Commissions & Fees': ['commission', 'fee', 'stripe', 'paypal', 'processing', 'transaction fee', 'platform fee'],
+          'Bank Fees': ['bank fee', 'wire fee', 'overdraft', 'atm fee', 'monthly fee', 'service charge'],
+          'Car & Truck': ['car', 'truck', 'vehicle', 'mileage', 'oil change', 'tire', 'repair', 'auto'],
+        };
+
+        let categorized = 0;
+        let skipped = 0;
+        const results: string[] = [];
+
+        for (const exp of uncategorized) {
+          const desc = ((exp.description || '') + ' ' + (exp.vendorName || '')).toLowerCase();
+          let matchedCatId: string | null = null;
+          let matchedCatName: string | null = null;
+
+          for (const [catName, keywords] of Object.entries(categoryKeywords)) {
+            if (keywords.some(kw => desc.includes(kw))) {
+              const account = expenseAccounts.find(a => a.name === catName);
+              if (account) {
+                matchedCatId = account.id;
+                matchedCatName = catName;
+                break;
+              }
+            }
+          }
+
+          if (matchedCatId) {
+            await fetch(`${expenseBase}/api/v1/agentbook-expense/expenses/${exp.id}/categorize`, {
+              method: 'POST', headers: H,
+              body: JSON.stringify({ categoryId: matchedCatId, source: 'agent_auto' }),
+            });
+            const amt = (exp.amountCents / 100).toFixed(2);
+            results.push(`$${amt} ${exp.description || exp.vendorName || 'expense'} → **${matchedCatName}**`);
+            categorized++;
+          } else {
+            skipped++;
+          }
+        }
+
+        let message = `Categorized **${categorized}** of ${uncategorized.length} uncategorized expenses.`;
+        if (skipped > 0) message += ` ${skipped} couldn't be auto-categorized — you can categorize them manually.`;
+        if (results.length > 0) message += '\n\n' + results.slice(0, 15).join('\n');
+        if (results.length > 15) message += `\n...and ${results.length - 15} more.`;
+
+        await db.abConversation.create({ data: { tenantId, question: text || '[categorize]', answer: message, queryType: 'agent', channel, skillUsed: 'categorize-expenses' } });
+        await db.abEvent.create({ data: { tenantId, eventType: 'agent.message', actor: 'user', action: { skillUsed: 'categorize-expenses', categorized, skipped, channel } } });
+
+        return res.json({ success: true, data: { message, skillUsed: 'categorize-expenses', confidence, latencyMs: Date.now() - startTime } });
+      } catch (err) {
+        console.error('Categorize expenses error:', err);
+        return res.json({ success: true, data: { message: "I couldn't categorize the expenses. Please try again.", skillUsed: 'categorize-expenses', confidence: 0 } });
+      }
+    }
+
     let skillResponse: any = null;
     let skillError = false;
     try {
@@ -2477,6 +2612,14 @@ If no skill matches well, use "general-question" with parameter "question" = the
       skillError = true;
     }
 
+    // Post-processing: resolve category name for newly created expenses
+    if (selectedSkill.name === 'record-expense' && skillResponse?.success && skillResponse.data?.categoryId) {
+      try {
+        const cat = await db.abAccount.findFirst({ where: { id: skillResponse.data.categoryId } });
+        if (cat) skillResponse.data.categoryName = cat.name;
+      } catch { /* ignore */ }
+    }
+
     // === 4. RESPONSE FORMATTING ===
     let message = '';
     let actions: any[] = [];
@@ -2493,6 +2636,8 @@ If no skill matches well, use "general-question" with parameter "question" = the
           if (key === 'amount' || key === 'amountFormatted') return '$' + ((data.amountCents || 0) / 100).toFixed(2);
           return data[key] || '';
         });
+        // Clean up empty brackets from optional template fields
+        message = message.replace(/\s*\[\s*\]\s*/g, '').trim();
       } else if (data?.answer) {
         message = data.answer;
       } else if (data?.alerts) {
@@ -2508,7 +2653,8 @@ If no skill matches well, use "general-question" with parameter "question" = the
         message = data.annotation;
         chartData = { type: data.chartType || 'bar', data: data.data || [] };
       } else if (data?.id && data?.amountCents !== undefined) {
-        message = `Recorded: $${(data.amountCents / 100).toFixed(2)} — ${data.description || data.number || 'Item'}`;
+        const catLabel = data.categoryName ? ` [${data.categoryName}]` : '';
+        message = `Recorded: $${(data.amountCents / 100).toFixed(2)} — ${data.description || data.number || 'Item'}${catLabel}`;
       } else if (data?.number) {
         message = `Invoice ${data.number} created — $${(data.amountCents / 100).toFixed(2)}`;
       } else {

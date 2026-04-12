@@ -21,13 +21,13 @@ test.describe.serial('Agent Brain', () => {
     expect(body.data.confidence).toBeGreaterThanOrEqual(0);
   });
 
-  // 2. Seed skills endpoint creates 10 built-in skills
-  test('seed skills creates 10 built-in skills', async ({ request }) => {
+  // 2. Seed skills endpoint creates 11 built-in skills
+  test('seed skills creates 11 built-in skills', async ({ request }) => {
     const res = await request.post(`${CORE}/api/v1/agentbook-core/agent/seed-skills`);
     expect(res.ok()).toBeTruthy();
     const body = await res.json();
     expect(body.success).toBe(true);
-    expect(body.data.total).toBe(10);
+    expect(body.data.total).toBe(11);
   });
 
   // 3. Skill registry lists built-in skills
@@ -35,7 +35,7 @@ test.describe.serial('Agent Brain', () => {
     const res = await request.get(`${CORE}/api/v1/agentbook-core/agent/skills`, { headers: H });
     expect(res.ok()).toBeTruthy();
     const body = await res.json();
-    expect(body.data.length).toBeGreaterThanOrEqual(10);
+    expect(body.data.length).toBeGreaterThanOrEqual(11);
     const names = body.data.map((s: any) => s.name);
     expect(names).toContain('record-expense');
     expect(names).toContain('query-expenses');
@@ -225,7 +225,20 @@ test.describe.serial('Agent Brain', () => {
     expect(body.data.skillUsed).toBe('scan-receipt');
   });
 
-  // 15. Error handling: invalid request returns friendly error
+  // 15. Categorize expenses skill
+  test('categorize expenses: routes to categorize-expenses skill', async ({ request }) => {
+    const res = await request.post(`${CORE}/api/v1/agentbook-core/agent/message`, {
+      headers: H,
+      data: { text: 'categorize my uncategorized expenses', channel: 'api' },
+    });
+    expect(res.ok()).toBeTruthy();
+    const body = await res.json();
+    expect(body.success).toBe(true);
+    expect(body.data.skillUsed).toBe('categorize-expenses');
+    expect(body.data.message).toBeTruthy();
+  });
+
+  // 16. Error handling: invalid request returns friendly error
   test('error handling: missing text and attachments returns 400', async ({ request }) => {
     const res = await request.post(`${CORE}/api/v1/agentbook-core/agent/message`, {
       headers: H,
