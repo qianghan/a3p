@@ -8,6 +8,7 @@ import crypto from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { createPluginServer } from '@naap/plugin-server-sdk';
 import { db } from './db/client.js';
+import { handleAgentMessage } from './agent-brain.js';
 
 const pluginConfig = JSON.parse(
   readFileSync(new URL('../../plugin.json', import.meta.url), 'utf8')
@@ -2079,6 +2080,38 @@ const BUILT_IN_SKILLS = [
     endpoint: { method: 'INTERNAL', url: '' },  // handled inline by agent brain
   },
   {
+    name: 'edit-expense', description: 'Edit an existing expense — change amount, category, vendor, date, or description', category: 'bookkeeping',
+    triggerPatterns: ['change.*expense', 'edit.*expense', 'update.*expense', 'fix.*expense', 'correct.*expense'],
+    parameters: { expenseId: { type: 'string', required: false, extractHint: 'expense ID or "last"' } },
+    endpoint: { method: 'PUT', url: '/api/v1/agentbook-expense/expenses/:id' },
+    confirmBefore: true,
+  },
+  {
+    name: 'split-expense', description: 'Split an expense into business and personal portions', category: 'bookkeeping',
+    triggerPatterns: ['split.*expense', 'part.*business.*personal', 'half.*personal'],
+    parameters: { expenseId: { type: 'string', required: false }, businessPercent: { type: 'number', required: false, default: 50 } },
+    endpoint: { method: 'POST', url: '/api/v1/agentbook-expense/expenses/:id/split' },
+    confirmBefore: true,
+  },
+  {
+    name: 'review-queue', description: 'Show expenses that need human review — low confidence, pending, or flagged', category: 'bookkeeping',
+    triggerPatterns: ['review', 'pending.*review', 'need.*attention', 'flagged'],
+    parameters: {},
+    endpoint: { method: 'GET', url: '/api/v1/agentbook-expense/review-queue' },
+  },
+  {
+    name: 'manage-recurring', description: 'View or manage recurring expense patterns — subscriptions, rent, monthly charges', category: 'bookkeeping',
+    triggerPatterns: ['recurring', 'subscription', 'monthly.*expense', 'regular.*payment'],
+    parameters: {},
+    endpoint: { method: 'GET', url: '/api/v1/agentbook-expense/recurring-suggestions' },
+  },
+  {
+    name: 'vendor-insights', description: 'Show spending patterns by vendor — who you spend most with, trends', category: 'insights',
+    triggerPatterns: ['vendor.*spend', 'who.*spend.*most', 'top.*vendor', 'vendor.*pattern'],
+    parameters: {},
+    endpoint: { method: 'GET', url: '/api/v1/agentbook-expense/vendors' },
+  },
+  {
     name: 'general-question', description: 'Answer any general financial or accounting question', category: 'finance',
     triggerPatterns: [],
     parameters: { question: { type: 'string', required: true, extractHint: 'the full user message' } },
@@ -2252,131 +2285,134 @@ app.delete('/api/v1/agentbook-core/agent/memory/:id', async (req, res) => {
   }
 });
 
-// --- 4. Agent Brain: Message Processing ---
-app.post('/api/v1/agentbook-core/agent/message', async (req, res) => {
-  try {
-    const tenantId = (req as any).tenantId;
-    const { text, channel = 'api', attachments } = req.body;
-    if (!text && (!attachments || attachments.length === 0)) {
-      return res.status(400).json({ success: false, error: 'text or attachments required' });
-    }
+// --- 4. Agent Brain: classifyAndExecuteV1 (extracted from inline handler) ---
+async function classifyAndExecuteV1(
+  text: string, tenantId: string, channel: string,
+  attachments?: any[], memory?: any[], skills?: any[],
+  conversation?: any[], tenantConfig?: any,
+): Promise<any> {
+  const startTime = Date.now();
 
-    const startTime = Date.now();
-
-    // === 1. CONTEXT ASSEMBLY ===
-    const [tenantConfig, conversation, memory, skills] = await Promise.all([
-      db.abTenantConfig.findFirst({ where: { userId: tenantId } }),
-      db.abConversation.findMany({ where: { tenantId }, orderBy: { createdAt: 'desc' }, take: 10 }),
-      db.abUserMemory.findMany({
+  // If context params not provided, fetch them (backward compatibility)
+  if (!memory || !skills || !conversation || tenantConfig === undefined) {
+    const [tc, conv, mem, sk] = await Promise.all([
+      tenantConfig !== undefined ? Promise.resolve(tenantConfig) : db.abTenantConfig.findFirst({ where: { userId: tenantId } }),
+      conversation || db.abConversation.findMany({ where: { tenantId }, orderBy: { createdAt: 'desc' }, take: 10 }),
+      memory || db.abUserMemory.findMany({
         where: { tenantId, OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }] },
         orderBy: { lastUsed: 'desc' }, take: 50,
       }),
-      db.abSkillManifest.findMany({
+      skills || db.abSkillManifest.findMany({
         where: { enabled: true, OR: [{ tenantId: null }, { tenantId }] },
       }),
     ]);
+    tenantConfig = tc;
+    conversation = conv;
+    memory = mem;
+    skills = sk;
+  }
 
-    // === 2. INTENT CLASSIFICATION ===
-    let selectedSkill: any = null;
-    let extractedParams: any = {};
-    let confidence = 0;
-    const lower = (text || '').toLowerCase();
+  // === 2. INTENT CLASSIFICATION ===
+  let selectedSkill: any = null;
+  let extractedParams: any = {};
+  let confidence = 0;
+  const lower = (text || '').toLowerCase();
 
-    // Handle attachments first
-    if (attachments?.length > 0) {
-      const att = attachments[0];
-      if (att.type === 'photo') {
-        selectedSkill = skills.find((s: any) => s.name === 'scan-receipt');
-        extractedParams = { imageUrl: att.url };
-        confidence = 1.0;
-      } else if (att.type === 'pdf' || att.type === 'document') {
-        selectedSkill = skills.find((s: any) => s.name === 'scan-document');
-        extractedParams = { imageUrl: att.url };
-        confidence = 1.0;
+  // Handle attachments first
+  if (attachments?.length > 0) {
+    const att = attachments[0];
+    if (att.type === 'photo') {
+      selectedSkill = skills.find((s: any) => s.name === 'scan-receipt');
+      extractedParams = { imageUrl: att.url };
+      confidence = 1.0;
+    } else if (att.type === 'pdf' || att.type === 'document') {
+      selectedSkill = skills.find((s: any) => s.name === 'scan-document');
+      extractedParams = { imageUrl: att.url };
+      confidence = 1.0;
+    }
+  }
+
+  if (!selectedSkill && text) {
+    // Stage 1: User memory shortcuts
+    const shortcuts = memory.filter((m: any) => m.type === 'shortcut');
+    for (const sc of shortcuts) {
+      if (lower.includes(sc.key.replace('shortcut:', ''))) {
+        try {
+          const parsed = JSON.parse(sc.value);
+          selectedSkill = skills.find((s: any) => s.name === parsed.skill);
+          extractedParams = parsed.params || { question: text };
+          confidence = sc.confidence;
+          // Update usage
+          await db.abUserMemory.update({ where: { id: sc.id }, data: { usageCount: { increment: 1 }, lastUsed: new Date() } });
+          break;
+        } catch { /* invalid shortcut */ }
       }
     }
 
-    if (!selectedSkill && text) {
-      // Stage 1: User memory shortcuts
-      const shortcuts = memory.filter((m: any) => m.type === 'shortcut');
-      for (const sc of shortcuts) {
-        if (lower.includes(sc.key.replace('shortcut:', ''))) {
+    // Stage 2: Regex fast path
+    if (!selectedSkill) {
+      // Apply vendor aliases from memory
+      let processedText = text;
+      const aliases = memory.filter((m: any) => m.type === 'vendor_alias');
+      for (const alias of aliases) {
+        const aliasKey = alias.key.replace('vendor_alias:', '');
+        if (lower.includes(aliasKey)) {
+          processedText = processedText.replace(new RegExp(aliasKey, 'gi'), alias.value);
+        }
+      }
+
+      // Check trigger patterns — but for record-expense, also require a dollar amount
+      for (const skill of skills) {
+        const patterns = (skill.triggerPatterns as string[]) || [];
+        if (patterns.length === 0) continue;
+
+        for (const pattern of patterns) {
           try {
-            const parsed = JSON.parse(sc.value);
-            selectedSkill = skills.find((s: any) => s.name === parsed.skill);
-            extractedParams = parsed.params || { question: text };
-            confidence = sc.confidence;
-            // Update usage
-            await db.abUserMemory.update({ where: { id: sc.id }, data: { usageCount: { increment: 1 }, lastUsed: new Date() } });
-            break;
-          } catch { /* invalid shortcut */ }
-        }
-      }
-
-      // Stage 2: Regex fast path
-      if (!selectedSkill) {
-        // Apply vendor aliases from memory
-        let processedText = text;
-        const aliases = memory.filter((m: any) => m.type === 'vendor_alias');
-        for (const alias of aliases) {
-          const aliasKey = alias.key.replace('vendor_alias:', '');
-          if (lower.includes(aliasKey)) {
-            processedText = processedText.replace(new RegExp(aliasKey, 'gi'), alias.value);
-          }
-        }
-
-        // Check trigger patterns — but for record-expense, also require a dollar amount
-        for (const skill of skills) {
-          const patterns = (skill.triggerPatterns as string[]) || [];
-          if (patterns.length === 0) continue;
-
-          for (const pattern of patterns) {
-            try {
-              if (new RegExp(pattern, 'i').test(lower)) {
-                // Special check: record-expense needs a $ amount and should not match invoice/simulation commands
-                if (skill.name === 'record-expense') {
-                  if (!/\$\s*[\d,]+\.?\d{0,2}|\d+\s*(?:dollars|bucks)/i.test(text)) continue;
-                  if (/^invoice\s/i.test(lower)) continue;
-                  if (/what\s*if\b/i.test(lower)) continue;
-                }
-                selectedSkill = skill;
-                confidence = 0.85;
-                break;
+            if (new RegExp(pattern, 'i').test(lower)) {
+              // Special check: record-expense needs a $ amount and should not match invoice/simulation commands
+              if (skill.name === 'record-expense') {
+                if (!/\$\s*[\d,]+\.?\d{0,2}|\d+\s*(?:dollars|bucks)/i.test(text)) continue;
+                if (/^invoice\s/i.test(lower)) continue;
+                if (/what\s*if\b/i.test(lower)) continue;
               }
-            } catch { /* invalid regex */ }
-          }
-          if (selectedSkill) break;
+              selectedSkill = skill;
+              confidence = 0.85;
+              break;
+            }
+          } catch { /* invalid regex */ }
         }
-
-        // Extract params for regex-matched skills
-        if (selectedSkill) {
-          const params = selectedSkill.parameters as Record<string, any>;
-          if (params.question) extractedParams.question = text;
-          if (params.scenario) extractedParams.scenario = text;
-          if (params.amountCents) {
-            const amtMatch = processedText.match(/\$\s*([\d,]+\.?\d{0,2})/);
-            if (amtMatch) extractedParams.amountCents = Math.round(parseFloat(amtMatch[1].replace(/,/g, '')) * 100);
-          }
-          if (params.vendor) {
-            const vendorMatch = processedText.match(/(?:at|from|@)\s+([A-Z][A-Za-z\s&']+)/);
-            if (vendorMatch) extractedParams.vendor = vendorMatch[1].trim();
-          }
-          if (params.clientName) {
-            const invoiceMatch = text.match(/invoice\s+(.+?)\s+\$/i);
-            if (invoiceMatch) extractedParams.clientName = invoiceMatch[1].trim();
-          }
-          if (params.description && !extractedParams.description) extractedParams.description = text;
-        }
+        if (selectedSkill) break;
       }
 
-      // Stage 3: LLM classification
-      if (!selectedSkill) {
-        const skillDescriptions = skills.map((s: any) => `- ${s.name}: ${s.description}`).join('\n');
-        const recentConvo = conversation.slice(0, 5).reverse().map((c: any) => `User: ${c.question}\nAgent: ${c.answer}`).join('\n');
-        const memoryContext = memory.filter((m: any) => m.type === 'context').map((m: any) => `${m.key}: ${m.value}`).join('\n');
+      // Extract params for regex-matched skills
+      if (selectedSkill) {
+        const params = selectedSkill.parameters as Record<string, any>;
+        if (params.question) extractedParams.question = text;
+        if (params.scenario) extractedParams.scenario = text;
+        if (params.amountCents) {
+          const amtMatch = processedText.match(/\$\s*([\d,]+\.?\d{0,2})/);
+          if (amtMatch) extractedParams.amountCents = Math.round(parseFloat(amtMatch[1].replace(/,/g, '')) * 100);
+        }
+        if (params.vendor) {
+          const vendorMatch = processedText.match(/(?:at|from|@)\s+([A-Z][A-Za-z\s&']+)/);
+          if (vendorMatch) extractedParams.vendor = vendorMatch[1].trim();
+        }
+        if (params.clientName) {
+          const invoiceMatch = text.match(/invoice\s+(.+?)\s+\$/i);
+          if (invoiceMatch) extractedParams.clientName = invoiceMatch[1].trim();
+        }
+        if (params.description && !extractedParams.description) extractedParams.description = text;
+      }
+    }
 
-        const llmResult = await callGemini(
-          `You are an intent classifier for AgentBook, an AI accounting agent.
+    // Stage 3: LLM classification
+    if (!selectedSkill) {
+      const skillDescriptions = skills.map((s: any) => `- ${s.name}: ${s.description}`).join('\n');
+      const recentConvo = conversation.slice(0, 5).reverse().map((c: any) => `User: ${c.question}\nAgent: ${c.answer}`).join('\n');
+      const memoryContext = memory.filter((m: any) => m.type === 'context').map((m: any) => `${m.key}: ${m.value}`).join('\n');
+
+      const llmResult = await callGemini(
+        `You are an intent classifier for AgentBook, an AI accounting agent.
 Given the user's message, conversation history, and available skills, determine:
 1. Which skill to invoke (by name)
 2. What parameters to extract
@@ -2387,141 +2423,62 @@ ${skillDescriptions}
 
 Respond as JSON only: { "skill": "skill-name", "parameters": { ... }, "confidence": 0.9 }
 If no skill matches well, use "general-question" with parameter "question" = the user's message.`,
-          `${recentConvo ? 'Recent conversation:\n' + recentConvo + '\n\n' : ''}${memoryContext ? 'User context:\n' + memoryContext + '\n\n' : ''}User message: ${text}`,
-          300,
-        );
+        `${recentConvo ? 'Recent conversation:\n' + recentConvo + '\n\n' : ''}${memoryContext ? 'User context:\n' + memoryContext + '\n\n' : ''}User message: ${text}`,
+        300,
+      );
 
-        if (llmResult) {
-          try {
-            const cleaned = llmResult.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
-            const parsed = JSON.parse(cleaned);
-            selectedSkill = skills.find((s: any) => s.name === parsed.skill);
-            extractedParams = parsed.parameters || { question: text };
-            confidence = parsed.confidence || 0.7;
-          } catch { /* LLM parse failure */ }
-        }
+      if (llmResult) {
+        try {
+          const cleaned = llmResult.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+          const parsed = JSON.parse(cleaned);
+          selectedSkill = skills.find((s: any) => s.name === parsed.skill);
+          extractedParams = parsed.parameters || { question: text };
+          confidence = parsed.confidence || 0.7;
+        } catch { /* LLM parse failure */ }
+      }
 
-        // Ultimate fallback
-        if (!selectedSkill) {
-          selectedSkill = skills.find((s: any) => s.name === 'general-question');
-          extractedParams = { question: text };
-          confidence = 0.3;
-        }
+      // Ultimate fallback
+      if (!selectedSkill) {
+        selectedSkill = skills.find((s: any) => s.name === 'general-question');
+        extractedParams = { question: text };
+        confidence = 0.3;
       }
     }
+  }
 
-    if (!selectedSkill) {
-      return res.json({ success: true, data: { message: 'I\'m not sure what you mean. Try "Spent $45 on lunch" or "How much on travel?"', skillUsed: 'none', confidence: 0 } });
+  if (!selectedSkill) {
+    return null;
+  }
+
+  // === 3. SKILL EXECUTION ===
+  const endpoint = selectedSkill.endpoint as any;
+  const baseUrls: Record<string, string> = {
+    '/api/v1/agentbook-expense': process.env.AGENTBOOK_EXPENSE_URL || 'http://localhost:4051',
+    '/api/v1/agentbook-core': process.env.AGENTBOOK_CORE_URL || 'http://localhost:4050',
+    '/api/v1/agentbook-invoice': process.env.AGENTBOOK_INVOICE_URL || 'http://localhost:4052',
+    '/api/v1/agentbook-tax': process.env.AGENTBOOK_TAX_URL || 'http://localhost:4053',
+  };
+
+  // Resolve base URL
+  let targetUrl = endpoint.url;
+  for (const [prefix, base] of Object.entries(baseUrls)) {
+    if (endpoint.url.startsWith(prefix)) {
+      targetUrl = base + endpoint.url;
+      break;
     }
+  }
 
-    // === 3. SKILL EXECUTION ===
-    const endpoint = selectedSkill.endpoint as any;
-    const baseUrls: Record<string, string> = {
-      '/api/v1/agentbook-expense': process.env.AGENTBOOK_EXPENSE_URL || 'http://localhost:4051',
-      '/api/v1/agentbook-core': process.env.AGENTBOOK_CORE_URL || 'http://localhost:4050',
-      '/api/v1/agentbook-invoice': process.env.AGENTBOOK_INVOICE_URL || 'http://localhost:4052',
-      '/api/v1/agentbook-tax': process.env.AGENTBOOK_TAX_URL || 'http://localhost:4053',
-    };
-
-    // Resolve base URL
-    let targetUrl = endpoint.url;
-    for (const [prefix, base] of Object.entries(baseUrls)) {
-      if (endpoint.url.startsWith(prefix)) {
-        targetUrl = base + endpoint.url;
-        break;
-      }
-    }
-
-    // Special pre-processing for record-expense: auto-categorize from description/vendor
-    if (selectedSkill.name === 'record-expense' && !extractedParams.categoryId) {
-      try {
-        // Load expense category accounts for this tenant
-        const expenseAccounts = await db.abAccount.findMany({
-          where: { tenantId, accountType: 'expense', isActive: true },
-          select: { id: true, name: true, code: true },
-        });
-        if (expenseAccounts.length > 0) {
-          const desc = (text || '').toLowerCase();
-          // Keyword → category mapping (code-based for speed, no LLM needed)
-          const categoryKeywords: Record<string, string[]> = {
-            'Meals': ['lunch', 'dinner', 'breakfast', 'coffee', 'food', 'meal', 'restaurant', 'starbucks', 'mcdonald', 'uber eats', 'doordash', 'grubhub', 'snack', 'cafe', 'pizza', 'sushi', 'taco', 'burger'],
-            'Travel': ['flight', 'hotel', 'airbnb', 'uber', 'lyft', 'taxi', 'cab', 'train', 'bus', 'parking', 'gas', 'fuel', 'toll', 'rental car', 'travel', 'trip'],
-            'Software & Subscriptions': ['software', 'subscription', 'saas', 'aws', 'azure', 'gcp', 'github', 'figma', 'slack', 'zoom', 'notion', 'adobe', 'dropbox', 'heroku', 'vercel', 'netlify', 'hosting', 'domain', 'app', 'license'],
-            'Office Expenses': ['office', 'desk', 'chair', 'monitor', 'keyboard', 'mouse', 'printer', 'paper', 'ink', 'stapler', 'pens', 'notebook', 'whiteboard'],
-            'Supplies': ['supplies', 'supply', 'equipment', 'tool', 'hardware'],
-            'Advertising': ['advertising', 'marketing', 'facebook ads', 'google ads', 'promotion', 'campaign', 'sponsor'],
-            'Rent': ['rent', 'lease', 'coworking', 'wework', 'office space'],
-            'Utilities': ['electric', 'water', 'internet', 'phone', 'utility', 'utilities', 'wifi', 'cell', 'mobile plan'],
-            'Insurance': ['insurance', 'premium', 'coverage', 'liability'],
-            'Legal & Professional': ['lawyer', 'legal', 'attorney', 'accountant', 'cpa', 'consultant', 'audit', 'professional', 'notary'],
-            'Contract Labor': ['contractor', 'freelancer', 'freelance', 'subcontract', 'contract labor', 'outsource'],
-            'Commissions & Fees': ['commission', 'fee', 'stripe', 'paypal', 'processing', 'transaction fee', 'platform fee'],
-            'Bank Fees': ['bank fee', 'wire fee', 'overdraft', 'atm fee', 'monthly fee', 'service charge'],
-            'Car & Truck': ['car', 'truck', 'vehicle', 'mileage', 'oil change', 'tire', 'repair', 'auto'],
-          };
-          for (const [catName, keywords] of Object.entries(categoryKeywords)) {
-            if (keywords.some(kw => desc.includes(kw))) {
-              const account = expenseAccounts.find(a => a.name === catName);
-              if (account) {
-                extractedParams.categoryId = account.id;
-                break;
-              }
-            }
-          }
-        }
-      } catch (err) { console.warn('Auto-categorize error:', err); }
-    }
-
-    // Special pre-processing for create-invoice
-    if (selectedSkill.name === 'create-invoice' && extractedParams.clientName) {
-      try {
-        const invoiceBase = baseUrls['/api/v1/agentbook-invoice'] || 'http://localhost:4052';
-        const clientsRes = await fetch(`${invoiceBase}/api/v1/agentbook-invoice/clients`, { headers: { 'Content-Type': 'application/json', 'x-tenant-id': tenantId } });
-        const clientsData = await clientsRes.json() as any;
-        let client = (clientsData.data || []).find((c: any) => c.name.toLowerCase().includes(extractedParams.clientName.toLowerCase()));
-        if (!client) {
-          const createRes = await fetch(`${invoiceBase}/api/v1/agentbook-invoice/clients`, {
-            method: 'POST', headers: { 'Content-Type': 'application/json', 'x-tenant-id': tenantId },
-            body: JSON.stringify({ name: extractedParams.clientName }),
-          });
-          client = ((await createRes.json()) as any).data;
-        }
-        if (client) {
-          const dueDate = new Date(); dueDate.setDate(dueDate.getDate() + 30);
-          extractedParams = {
-            clientId: client.id,
-            issuedDate: new Date().toISOString().slice(0, 10),
-            dueDate: dueDate.toISOString().slice(0, 10),
-            status: 'draft',
-            lines: [{ description: extractedParams.description || 'Services', quantity: 1, rateCents: extractedParams.amountCents }],
-          };
-        }
-      } catch (err) { console.warn('Invoice client resolution error:', err); }
-    }
-
-    // Special inline handler: categorize-expenses (no external endpoint)
-    if (selectedSkill.name === 'categorize-expenses') {
-      try {
-        const expenseBase = baseUrls['/api/v1/agentbook-expense'] || 'http://localhost:4051';
-        const H = { 'Content-Type': 'application/json', 'x-tenant-id': tenantId };
-
-        // Fetch uncategorized expenses
-        const listRes = await fetch(`${expenseBase}/api/v1/agentbook-expense/expenses?limit=100`, { headers: H });
-        const listData = await listRes.json() as any;
-        const uncategorized = (listData.data || []).filter((e: any) => !e.categoryId);
-
-        if (uncategorized.length === 0) {
-          const totalCount = (listData.data || []).length;
-          await db.abConversation.create({ data: { tenantId, question: text || '[categorize]', answer: 'All expenses are already categorized!', queryType: 'agent', channel, skillUsed: 'categorize-expenses' } });
-          return res.json({ success: true, data: { message: `All ${totalCount} expenses are already categorized!`, skillUsed: 'categorize-expenses', confidence } });
-        }
-
-        // Load expense category accounts
-        const expenseAccounts = await db.abAccount.findMany({
-          where: { tenantId, accountType: 'expense', isActive: true },
-          select: { id: true, name: true },
-        });
-
+  // Special pre-processing for record-expense: auto-categorize from description/vendor
+  if (selectedSkill.name === 'record-expense' && !extractedParams.categoryId) {
+    try {
+      // Load expense category accounts for this tenant
+      const expenseAccounts = await db.abAccount.findMany({
+        where: { tenantId, accountType: 'expense', isActive: true },
+        select: { id: true, name: true, code: true },
+      });
+      if (expenseAccounts.length > 0) {
+        const desc = (text || '').toLowerCase();
+        // Keyword → category mapping (code-based for speed, no LLM needed)
         const categoryKeywords: Record<string, string[]> = {
           'Meals': ['lunch', 'dinner', 'breakfast', 'coffee', 'food', 'meal', 'restaurant', 'starbucks', 'mcdonald', 'uber eats', 'doordash', 'grubhub', 'snack', 'cafe', 'pizza', 'sushi', 'taco', 'burger'],
           'Travel': ['flight', 'hotel', 'airbnb', 'uber', 'lyft', 'taxi', 'cab', 'train', 'bus', 'parking', 'gas', 'fuel', 'toll', 'rental car', 'travel', 'trip'],
@@ -2538,156 +2495,279 @@ If no skill matches well, use "general-question" with parameter "question" = the
           'Bank Fees': ['bank fee', 'wire fee', 'overdraft', 'atm fee', 'monthly fee', 'service charge'],
           'Car & Truck': ['car', 'truck', 'vehicle', 'mileage', 'oil change', 'tire', 'repair', 'auto'],
         };
-
-        let categorized = 0;
-        let skipped = 0;
-        const results: string[] = [];
-
-        for (const exp of uncategorized) {
-          const desc = ((exp.description || '') + ' ' + (exp.vendorName || '')).toLowerCase();
-          let matchedCatId: string | null = null;
-          let matchedCatName: string | null = null;
-
-          for (const [catName, keywords] of Object.entries(categoryKeywords)) {
-            if (keywords.some(kw => desc.includes(kw))) {
-              const account = expenseAccounts.find(a => a.name === catName);
-              if (account) {
-                matchedCatId = account.id;
-                matchedCatName = catName;
-                break;
-              }
+        for (const [catName, keywords] of Object.entries(categoryKeywords)) {
+          if (keywords.some(kw => desc.includes(kw))) {
+            const account = expenseAccounts.find(a => a.name === catName);
+            if (account) {
+              extractedParams.categoryId = account.id;
+              break;
             }
           }
+        }
+      }
+    } catch (err) { console.warn('Auto-categorize error:', err); }
+  }
 
-          if (matchedCatId) {
-            await fetch(`${expenseBase}/api/v1/agentbook-expense/expenses/${exp.id}/categorize`, {
-              method: 'POST', headers: H,
-              body: JSON.stringify({ categoryId: matchedCatId, source: 'agent_auto' }),
-            });
-            const amt = (exp.amountCents / 100).toFixed(2);
-            results.push(`$${amt} ${exp.description || exp.vendorName || 'expense'} → **${matchedCatName}**`);
-            categorized++;
-          } else {
-            skipped++;
+  // Special pre-processing for create-invoice
+  if (selectedSkill.name === 'create-invoice' && extractedParams.clientName) {
+    try {
+      const invoiceBase = baseUrls['/api/v1/agentbook-invoice'] || 'http://localhost:4052';
+      const clientsRes = await fetch(`${invoiceBase}/api/v1/agentbook-invoice/clients`, { headers: { 'Content-Type': 'application/json', 'x-tenant-id': tenantId } });
+      const clientsData = await clientsRes.json() as any;
+      let client = (clientsData.data || []).find((c: any) => c.name.toLowerCase().includes(extractedParams.clientName.toLowerCase()));
+      if (!client) {
+        const createRes = await fetch(`${invoiceBase}/api/v1/agentbook-invoice/clients`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json', 'x-tenant-id': tenantId },
+          body: JSON.stringify({ name: extractedParams.clientName }),
+        });
+        client = ((await createRes.json()) as any).data;
+      }
+      if (client) {
+        const dueDate = new Date(); dueDate.setDate(dueDate.getDate() + 30);
+        extractedParams = {
+          clientId: client.id,
+          issuedDate: new Date().toISOString().slice(0, 10),
+          dueDate: dueDate.toISOString().slice(0, 10),
+          status: 'draft',
+          lines: [{ description: extractedParams.description || 'Services', quantity: 1, rateCents: extractedParams.amountCents }],
+        };
+      }
+    } catch (err) { console.warn('Invoice client resolution error:', err); }
+  }
+
+  // Special inline handler: categorize-expenses (no external endpoint)
+  if (selectedSkill.name === 'categorize-expenses') {
+    try {
+      const expenseBase = baseUrls['/api/v1/agentbook-expense'] || 'http://localhost:4051';
+      const H = { 'Content-Type': 'application/json', 'x-tenant-id': tenantId };
+
+      // Fetch uncategorized expenses
+      const listRes = await fetch(`${expenseBase}/api/v1/agentbook-expense/expenses?limit=100`, { headers: H });
+      const listData = await listRes.json() as any;
+      const uncategorized = (listData.data || []).filter((e: any) => !e.categoryId);
+
+      if (uncategorized.length === 0) {
+        const totalCount = (listData.data || []).length;
+        await db.abConversation.create({ data: { tenantId, question: text || '[categorize]', answer: 'All expenses are already categorized!', queryType: 'agent', channel, skillUsed: 'categorize-expenses' } });
+        return {
+          selectedSkill, extractedParams, confidence, skillUsed: selectedSkill.name, skillResponse: null,
+          responseData: { message: `All ${totalCount} expenses are already categorized!`, skillUsed: 'categorize-expenses', confidence, latencyMs: Date.now() - startTime },
+        };
+      }
+
+      // Load expense category accounts
+      const expenseAccounts = await db.abAccount.findMany({
+        where: { tenantId, accountType: 'expense', isActive: true },
+        select: { id: true, name: true },
+      });
+
+      const categoryKeywords: Record<string, string[]> = {
+        'Meals': ['lunch', 'dinner', 'breakfast', 'coffee', 'food', 'meal', 'restaurant', 'starbucks', 'mcdonald', 'uber eats', 'doordash', 'grubhub', 'snack', 'cafe', 'pizza', 'sushi', 'taco', 'burger'],
+        'Travel': ['flight', 'hotel', 'airbnb', 'uber', 'lyft', 'taxi', 'cab', 'train', 'bus', 'parking', 'gas', 'fuel', 'toll', 'rental car', 'travel', 'trip'],
+        'Software & Subscriptions': ['software', 'subscription', 'saas', 'aws', 'azure', 'gcp', 'github', 'figma', 'slack', 'zoom', 'notion', 'adobe', 'dropbox', 'heroku', 'vercel', 'netlify', 'hosting', 'domain', 'app', 'license'],
+        'Office Expenses': ['office', 'desk', 'chair', 'monitor', 'keyboard', 'mouse', 'printer', 'paper', 'ink', 'stapler', 'pens', 'notebook', 'whiteboard'],
+        'Supplies': ['supplies', 'supply', 'equipment', 'tool', 'hardware'],
+        'Advertising': ['advertising', 'marketing', 'facebook ads', 'google ads', 'promotion', 'campaign', 'sponsor'],
+        'Rent': ['rent', 'lease', 'coworking', 'wework', 'office space'],
+        'Utilities': ['electric', 'water', 'internet', 'phone', 'utility', 'utilities', 'wifi', 'cell', 'mobile plan'],
+        'Insurance': ['insurance', 'premium', 'coverage', 'liability'],
+        'Legal & Professional': ['lawyer', 'legal', 'attorney', 'accountant', 'cpa', 'consultant', 'audit', 'professional', 'notary'],
+        'Contract Labor': ['contractor', 'freelancer', 'freelance', 'subcontract', 'contract labor', 'outsource'],
+        'Commissions & Fees': ['commission', 'fee', 'stripe', 'paypal', 'processing', 'transaction fee', 'platform fee'],
+        'Bank Fees': ['bank fee', 'wire fee', 'overdraft', 'atm fee', 'monthly fee', 'service charge'],
+        'Car & Truck': ['car', 'truck', 'vehicle', 'mileage', 'oil change', 'tire', 'repair', 'auto'],
+      };
+
+      let categorized = 0;
+      let skipped = 0;
+      const results: string[] = [];
+
+      for (const exp of uncategorized) {
+        const desc = ((exp.description || '') + ' ' + (exp.vendorName || '')).toLowerCase();
+        let matchedCatId: string | null = null;
+        let matchedCatName: string | null = null;
+
+        for (const [catName, keywords] of Object.entries(categoryKeywords)) {
+          if (keywords.some(kw => desc.includes(kw))) {
+            const account = expenseAccounts.find(a => a.name === catName);
+            if (account) {
+              matchedCatId = account.id;
+              matchedCatName = catName;
+              break;
+            }
           }
         }
 
-        let message = `Categorized **${categorized}** of ${uncategorized.length} uncategorized expenses.`;
-        if (skipped > 0) message += ` ${skipped} couldn't be auto-categorized — you can categorize them manually.`;
-        if (results.length > 0) message += '\n\n' + results.slice(0, 15).join('\n');
-        if (results.length > 15) message += `\n...and ${results.length - 15} more.`;
-
-        await db.abConversation.create({ data: { tenantId, question: text || '[categorize]', answer: message, queryType: 'agent', channel, skillUsed: 'categorize-expenses' } });
-        await db.abEvent.create({ data: { tenantId, eventType: 'agent.message', actor: 'user', action: { skillUsed: 'categorize-expenses', categorized, skipped, channel } } });
-
-        return res.json({ success: true, data: { message, skillUsed: 'categorize-expenses', confidence, latencyMs: Date.now() - startTime } });
-      } catch (err) {
-        console.error('Categorize expenses error:', err);
-        return res.json({ success: true, data: { message: "I couldn't categorize the expenses. Please try again.", skillUsed: 'categorize-expenses', confidence: 0 } });
-      }
-    }
-
-    let skillResponse: any = null;
-    let skillError = false;
-    try {
-      if (endpoint.method === 'GET') {
-        const queryParams = (endpoint.queryParams || []) as string[];
-        const qs = new URLSearchParams();
-        for (const p of queryParams) {
-          if (extractedParams[p]) qs.set(p, String(extractedParams[p]));
+        if (matchedCatId) {
+          await fetch(`${expenseBase}/api/v1/agentbook-expense/expenses/${exp.id}/categorize`, {
+            method: 'POST', headers: H,
+            body: JSON.stringify({ categoryId: matchedCatId, source: 'agent_auto' }),
+          });
+          const amt = (exp.amountCents / 100).toFixed(2);
+          results.push(`$${amt} ${exp.description || exp.vendorName || 'expense'} → **${matchedCatName}**`);
+          categorized++;
+        } else {
+          skipped++;
         }
-        const getUrl = qs.toString() ? `${targetUrl}?${qs}` : targetUrl;
-        const getRes = await fetch(getUrl, { headers: { 'x-tenant-id': tenantId } });
-        skillResponse = await getRes.json();
-      } else {
-        const postRes = await fetch(targetUrl, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'x-tenant-id': tenantId },
-          body: JSON.stringify(extractedParams),
-        });
-        skillResponse = await postRes.json();
       }
+
+      let message = `Categorized **${categorized}** of ${uncategorized.length} uncategorized expenses.`;
+      if (skipped > 0) message += ` ${skipped} couldn't be auto-categorized — you can categorize them manually.`;
+      if (results.length > 0) message += '\n\n' + results.slice(0, 15).join('\n');
+      if (results.length > 15) message += `\n...and ${results.length - 15} more.`;
+
+      await db.abConversation.create({ data: { tenantId, question: text || '[categorize]', answer: message, queryType: 'agent', channel, skillUsed: 'categorize-expenses' } });
+      await db.abEvent.create({ data: { tenantId, eventType: 'agent.message', actor: 'user', action: { skillUsed: 'categorize-expenses', categorized, skipped, channel } } });
+
+      return {
+        selectedSkill, extractedParams, confidence, skillUsed: selectedSkill.name, skillResponse: null,
+        responseData: { message, skillUsed: 'categorize-expenses', confidence, latencyMs: Date.now() - startTime },
+      };
     } catch (err) {
-      console.error('Skill execution error:', err);
-      skillError = true;
+      console.error('Categorize expenses error:', err);
+      return {
+        selectedSkill, extractedParams, confidence: 0, skillUsed: 'categorize-expenses', skillResponse: null,
+        responseData: { message: "I couldn't categorize the expenses. Please try again.", skillUsed: 'categorize-expenses', confidence: 0, latencyMs: Date.now() - startTime },
+      };
     }
+  }
 
-    // Post-processing: resolve category name for newly created expenses
-    if (selectedSkill.name === 'record-expense' && skillResponse?.success && skillResponse.data?.categoryId) {
-      try {
-        const cat = await db.abAccount.findFirst({ where: { id: skillResponse.data.categoryId } });
-        if (cat) skillResponse.data.categoryName = cat.name;
-      } catch { /* ignore */ }
-    }
-
-    // === 4. RESPONSE FORMATTING ===
-    let message = '';
-    let actions: any[] = [];
-    let chartData: any = null;
-
-    if (skillError || !skillResponse?.success) {
-      message = "I couldn't complete that action. Please try again or rephrase your request.";
+  let skillResponse: any = null;
+  let skillError = false;
+  try {
+    if (endpoint.method === 'GET') {
+      const queryParams = (endpoint.queryParams || []) as string[];
+      const qs = new URLSearchParams();
+      for (const p of queryParams) {
+        if (extractedParams[p]) qs.set(p, String(extractedParams[p]));
+      }
+      const getUrl = qs.toString() ? `${targetUrl}?${qs}` : targetUrl;
+      const getRes = await fetch(getUrl, { headers: { 'x-tenant-id': tenantId } });
+      skillResponse = await getRes.json();
     } else {
-      const data = skillResponse.data;
+      const postRes = await fetch(targetUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-tenant-id': tenantId },
+        body: JSON.stringify(extractedParams),
+      });
+      skillResponse = await postRes.json();
+    }
+  } catch (err) {
+    console.error('Skill execution error:', err);
+    skillError = true;
+  }
 
-      // Use response template if available
-      if (selectedSkill.responseTemplate && data) {
-        message = (selectedSkill.responseTemplate as string).replace(/\{\{(\w+)\}\}/g, (_: any, key: string) => {
-          if (key === 'amount' || key === 'amountFormatted') return '$' + ((data.amountCents || 0) / 100).toFixed(2);
-          return data[key] || '';
-        });
-        // Clean up empty brackets from optional template fields
-        message = message.replace(/\s*\[\s*\]\s*/g, '').trim();
-      } else if (data?.answer) {
-        message = data.answer;
-      } else if (data?.alerts) {
-        message = data.alerts.length > 0
-          ? data.alerts.slice(0, 5).map((a: any) => `${a.severity === 'critical' ? '\u{1F534}' : a.severity === 'important' ? '\u{1F7E1}' : '\u{1F7E2}'} **${a.title}**\n${a.message}`).join('\n\n')
-          : 'All clear! No alerts right now.';
-      } else if (data?.narrative) {
-        message = data.narrative;
-        if (data.impact) {
-          message += `\n\nImpact: Monthly net change $${(data.impact.monthlyNetChangeCents / 100).toLocaleString()}`;
-        }
-      } else if (data?.annotation) {
-        message = data.annotation;
-        chartData = { type: data.chartType || 'bar', data: data.data || [] };
-      } else if (data?.id && data?.amountCents !== undefined) {
-        const catLabel = data.categoryName ? ` [${data.categoryName}]` : '';
-        message = `Recorded: $${(data.amountCents / 100).toFixed(2)} — ${data.description || data.number || 'Item'}${catLabel}`;
-      } else if (data?.number) {
-        message = `Invoice ${data.number} created — $${(data.amountCents / 100).toFixed(2)}`;
-      } else {
-        message = JSON.stringify(data).slice(0, 300);
+  // Post-processing: resolve category name for newly created expenses
+  if (selectedSkill.name === 'record-expense' && skillResponse?.success && skillResponse.data?.categoryId) {
+    try {
+      const cat = await db.abAccount.findFirst({ where: { id: skillResponse.data.categoryId } });
+      if (cat) skillResponse.data.categoryName = cat.name;
+    } catch { /* ignore */ }
+  }
+
+  // === 4. RESPONSE FORMATTING ===
+  let message = '';
+  let actions: any[] = [];
+  let chartData: any = null;
+
+  if (skillError || !skillResponse?.success) {
+    message = "I couldn't complete that action. Please try again or rephrase your request.";
+  } else {
+    const data = skillResponse.data;
+
+    // Use response template if available
+    if (selectedSkill.responseTemplate && data) {
+      message = (selectedSkill.responseTemplate as string).replace(/\{\{(\w+)\}\}/g, (_: any, key: string) => {
+        if (key === 'amount' || key === 'amountFormatted') return '$' + ((data.amountCents || 0) / 100).toFixed(2);
+        return data[key] || '';
+      });
+      // Clean up empty brackets from optional template fields
+      message = message.replace(/\s*\[\s*\]\s*/g, '').trim();
+    } else if (data?.answer) {
+      message = data.answer;
+    } else if (data?.alerts) {
+      message = data.alerts.length > 0
+        ? data.alerts.slice(0, 5).map((a: any) => `${a.severity === 'critical' ? '\u{1F534}' : a.severity === 'important' ? '\u{1F7E1}' : '\u{1F7E2}'} **${a.title}**\n${a.message}`).join('\n\n')
+        : 'All clear! No alerts right now.';
+    } else if (data?.narrative) {
+      message = data.narrative;
+      if (data.impact) {
+        message += `\n\nImpact: Monthly net change $${(data.impact.monthlyNetChangeCents / 100).toLocaleString()}`;
       }
-
-      // Extract chart data if available
-      if (data?.chartData) chartData = data.chartData;
-      if (data?.data && Array.isArray(data.data) && data.data[0]?.name && data.data[0]?.value) {
-        chartData = chartData || { type: 'bar', data: data.data };
-      }
-
-      // Extract actions
-      if (data?.actions) actions = data.actions;
+    } else if (data?.annotation) {
+      message = data.annotation;
+      chartData = { type: data.chartType || 'bar', data: data.data || [] };
+    } else if (data?.id && data?.amountCents !== undefined) {
+      const catLabel = data.categoryName ? ` [${data.categoryName}]` : '';
+      message = `Recorded: $${(data.amountCents / 100).toFixed(2)} — ${data.description || data.number || 'Item'}${catLabel}`;
+    } else if (data?.number) {
+      message = `Invoice ${data.number} created — $${(data.amountCents / 100).toFixed(2)}`;
+    } else {
+      message = JSON.stringify(data).slice(0, 300);
     }
 
-    const latencyMs = Date.now() - startTime;
+    // Extract chart data if available
+    if (data?.chartData) chartData = data.chartData;
+    if (data?.data && Array.isArray(data.data) && data.data[0]?.name && data.data[0]?.value) {
+      chartData = chartData || { type: 'bar', data: data.data };
+    }
 
-    // === 5. LEARNING ===
-    // Save conversation
-    await db.abConversation.create({
-      data: { tenantId, question: text || '[attachment]', answer: message, queryType: 'agent', channel, skillUsed: selectedSkill.name, data: { params: extractedParams }, latencyMs },
-    });
+    // Extract actions
+    if (data?.actions) actions = data.actions;
+  }
 
-    // Log event
-    await db.abEvent.create({
-      data: { tenantId, eventType: 'agent.message', actor: 'user', action: { text: (text || '').slice(0, 100), skillUsed: selectedSkill.name, confidence, channel, latencyMs } },
-    });
+  const latencyMs = Date.now() - startTime;
 
-    res.json({
-      success: true,
-      data: { message, actions, chartData, skillUsed: selectedSkill.name, confidence, latencyMs },
-    });
+  // === 5. LEARNING ===
+  // Save conversation
+  await db.abConversation.create({
+    data: { tenantId, question: text || '[attachment]', answer: message, queryType: 'agent', channel, skillUsed: selectedSkill.name, data: { params: extractedParams }, latencyMs },
+  });
+
+  // Log event
+  await db.abEvent.create({
+    data: { tenantId, eventType: 'agent.message', actor: 'user', action: { text: (text || '').slice(0, 100), skillUsed: selectedSkill.name, confidence, channel, latencyMs } },
+  });
+
+  return {
+    selectedSkill,
+    extractedParams,
+    confidence,
+    skillUsed: selectedSkill.name,
+    skillResponse,
+    responseData: { message, actions, chartData, skillUsed: selectedSkill.name, confidence, latencyMs },
+  };
+}
+
+// --- 5. Agent Brain: Message Processing (thin wrapper) ---
+app.post('/api/v1/agentbook-core/agent/message', async (req, res) => {
+  try {
+    const tenantId = (req as any).tenantId;
+    const { text, channel = 'api', attachments, sessionAction, feedback } = req.body;
+    if (!text && (!attachments || attachments.length === 0) && !sessionAction) {
+      return res.status(400).json({ success: false, error: 'text, attachments, or sessionAction required' });
+    }
+
+    const baseUrls: Record<string, string> = {
+      '/api/v1/agentbook-expense': process.env.AGENTBOOK_EXPENSE_URL || 'http://localhost:4051',
+      '/api/v1/agentbook-core': process.env.AGENTBOOK_CORE_URL || 'http://localhost:4050',
+      '/api/v1/agentbook-invoice': process.env.AGENTBOOK_INVOICE_URL || 'http://localhost:4052',
+      '/api/v1/agentbook-tax': process.env.AGENTBOOK_TAX_URL || 'http://localhost:4053',
+    };
+
+    const result = await handleAgentMessage(
+      { text: text || '', tenantId, channel, attachments, sessionAction, feedback },
+      {
+        skills: await db.abSkillManifest.findMany({
+          where: { enabled: true, OR: [{ tenantId: null }, { tenantId }] },
+        }),
+        callGemini,
+        baseUrls,
+        classifyAndExecuteV1,
+      },
+    );
+
+    res.json(result);
   } catch (err) {
     console.error('Agent message error:', err);
     res.status(500).json({ success: false, error: String(err) });
