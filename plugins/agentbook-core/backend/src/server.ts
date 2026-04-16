@@ -2112,6 +2112,42 @@ const BUILT_IN_SKILLS = [
     endpoint: { method: 'GET', url: '/api/v1/agentbook-expense/vendors' },
   },
   {
+    name: 'query-invoices', description: 'List, search, or ask about invoices — outstanding, overdue, by client, by status', category: 'invoicing',
+    triggerPatterns: ['show.*invoice', 'list.*invoice', 'outstanding.*invoice', 'unpaid.*invoice', 'overdue.*invoice', 'invoice.*status', 'my invoice'],
+    parameters: { status: { type: 'string', required: false }, clientName: { type: 'string', required: false } },
+    endpoint: { method: 'GET', url: '/api/v1/agentbook-invoice/invoices', queryParams: ['status', 'clientId', 'limit'] },
+  },
+  {
+    name: 'aging-report', description: 'Show accounts receivable aging — who owes money and how overdue', category: 'invoicing',
+    triggerPatterns: ['aging', 'who.*owe', 'accounts.*receivable', 'ar report', 'overdue.*client', 'owe.*money'],
+    parameters: {},
+    endpoint: { method: 'GET', url: '/api/v1/agentbook-invoice/aging-report' },
+  },
+  {
+    name: 'query-estimates', description: 'List estimates — pending, approved, converted', category: 'invoicing',
+    triggerPatterns: ['show.*estimate', 'list.*estimate', 'pending.*estimate', 'my estimate'],
+    parameters: { status: { type: 'string', required: false } },
+    endpoint: { method: 'GET', url: '/api/v1/agentbook-invoice/estimates', queryParams: ['status', 'clientId'] },
+  },
+  {
+    name: 'query-clients', description: 'List clients or show client details — billing history, outstanding balance', category: 'invoicing',
+    triggerPatterns: ['show.*client', 'list.*client', 'client.*detail', 'client.*balance', 'my client'],
+    parameters: {},
+    endpoint: { method: 'GET', url: '/api/v1/agentbook-invoice/clients' },
+  },
+  {
+    name: 'timer-status', description: 'Check if a time tracking timer is running and how long', category: 'invoicing',
+    triggerPatterns: ['timer.*status', 'timer.*running', 'is.*timer', 'how long.*timer'],
+    parameters: {},
+    endpoint: { method: 'GET', url: '/api/v1/agentbook-invoice/timer/status' },
+  },
+  {
+    name: 'unbilled-summary', description: 'Show unbilled time by client — hours logged but not yet invoiced', category: 'invoicing',
+    triggerPatterns: ['unbilled', 'not.*invoiced', 'billable.*time', 'hours.*not.*billed'],
+    parameters: {},
+    endpoint: { method: 'GET', url: '/api/v1/agentbook-invoice/unbilled-summary' },
+  },
+  {
     name: 'general-question', description: 'Answer any general financial or accounting question', category: 'finance',
     triggerPatterns: [],
     parameters: { question: { type: 'string', required: true, extractHint: 'the full user message' } },
@@ -2514,6 +2550,18 @@ If no skill matches well, use "general-question" with parameter "question" = the
     } catch (err) { console.warn('Auto-categorize error:', err); }
   }
 
+  // Pre-processing: query-invoices — resolve clientName to clientId
+  if (selectedSkill.name === 'query-invoices' && extractedParams.clientName) {
+    try {
+      const invoiceBase = baseUrls['/api/v1/agentbook-invoice'] || 'http://localhost:4052';
+      const clientsRes = await fetch(`${invoiceBase}/api/v1/agentbook-invoice/clients`, { headers: { 'Content-Type': 'application/json', 'x-tenant-id': tenantId } });
+      const clientsData = await clientsRes.json() as any;
+      const client = (clientsData.data || []).find((c: any) => c.name.toLowerCase().includes(extractedParams.clientName.toLowerCase()));
+      if (client) extractedParams.clientId = client.id;
+      delete extractedParams.clientName;
+    } catch (err) { console.warn('Invoice client resolution error:', err); }
+  }
+
   // Special pre-processing for create-invoice
   if (selectedSkill.name === 'create-invoice' && extractedParams.clientName) {
     try {
@@ -2703,6 +2751,59 @@ If no skill matches well, use "general-question" with parameter "question" = the
     } else if (data?.annotation) {
       message = data.annotation;
       chartData = { type: data.chartType || 'bar', data: data.data || [] };
+    // Invoice list
+    } else if (Array.isArray(data) && data.length > 0 && data[0]?.number && data[0]?.status) {
+      message = data.slice(0, 10).map((inv: any) => {
+        const icon = inv.status === 'paid' ? '\u2705' : inv.status === 'overdue' ? '\u{1F534}' : '\u{1F7E1}';
+        return `${icon} ${inv.number} \u2014 $${(inv.amountCents / 100).toFixed(2)} (${inv.client?.name || 'Unknown'}) [${inv.status}]`;
+      }).join('\n');
+      if (data.length > 10) message += `\n...and ${data.length - 10} more.`;
+
+    // Aging report
+    } else if (data?.buckets) {
+      message = '**Accounts Receivable Aging**\n';
+      const buckets = data.buckets;
+      for (const [label, invoices] of Object.entries(buckets)) {
+        const inv = invoices as any[];
+        if (inv.length > 0) {
+          const totalCents = inv.reduce((s: number, i: any) => s + (i.balanceDueCents || i.amountCents || 0), 0);
+          message += `\n**${label}**: $${(totalCents / 100).toFixed(2)} (${inv.length} invoices)`;
+        }
+      }
+      if (data.totalOutstandingCents !== undefined) {
+        message += `\n\n**Total Outstanding:** $${(data.totalOutstandingCents / 100).toFixed(2)}`;
+      }
+
+    // Client list
+    } else if (Array.isArray(data) && data.length > 0 && data[0]?.name && data[0]?.totalBilledCents !== undefined) {
+      message = data.slice(0, 10).map((c: any) => {
+        const balance = ((c.totalBilledCents - c.totalPaidCents) / 100).toFixed(2);
+        return `\u2022 **${c.name}**${c.email ? ` (${c.email})` : ''} \u2014 outstanding: $${balance}`;
+      }).join('\n');
+
+    // Estimate list
+    } else if (Array.isArray(data) && data.length > 0 && data[0]?.validUntil && data[0]?.amountCents) {
+      message = data.slice(0, 10).map((e: any) => {
+        const icon = e.status === 'approved' ? '\u2705' : e.status === 'declined' ? '\u274C' : '\u{1F7E1}';
+        return `${icon} $${(e.amountCents / 100).toFixed(2)} \u2014 ${e.description} (${e.client?.name || 'Unknown'}) [${e.status}]`;
+      }).join('\n');
+
+    // Timer status
+    } else if (data?.running !== undefined) {
+      message = data.running
+        ? `Timer running: ${data.entry?.description || 'untitled'} (${data.elapsedMinutes || 0} min)`
+        : 'No timer running.';
+
+    // Unbilled summary
+    } else if (Array.isArray(data) && data.length > 0 && data[0]?.unbilledAmountCents !== undefined) {
+      message = '**Unbilled Time**\n';
+      let total = 0;
+      for (const item of data) {
+        message += `\n\u2022 **${item.clientName || 'Unknown'}**: ${item.totalHours?.toFixed(1) || 0}h \u2014 $${(item.unbilledAmountCents / 100).toFixed(2)}`;
+        total += item.unbilledAmountCents;
+      }
+      message += `\n\n**Total Unbilled:** $${(total / 100).toFixed(2)}`;
+
     } else if (data?.id && data?.amountCents !== undefined) {
       const catLabel = data.categoryName ? ` [${data.categoryName}]` : '';
       message = `Recorded: $${(data.amountCents / 100).toFixed(2)} — ${data.description || data.number || 'Item'}${catLabel}`;
