@@ -22,12 +22,12 @@ test.describe.serial('Agent Brain', () => {
   });
 
   // 2. Seed skills endpoint creates 16 built-in skills
-  test('seed skills creates 22 built-in skills', async ({ request }) => {
+  test('seed skills creates 28 built-in skills', async ({ request }) => {
     const res = await request.post(`${CORE}/api/v1/agentbook-core/agent/seed-skills`);
     expect(res.ok()).toBeTruthy();
     const body = await res.json();
     expect(body.success).toBe(true);
-    expect(body.data.total).toBe(22);
+    expect(body.data.total).toBe(28);
   });
 
   // 3. Skill registry lists built-in skills

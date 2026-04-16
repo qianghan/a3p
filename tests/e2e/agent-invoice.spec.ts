@@ -55,3 +55,63 @@ test.describe.serial('Invoice Agent — Query Skills', () => {
     expect((await res.json()).data.skillUsed).toBe('unbilled-summary');
   });
 });
+
+test.describe.serial('Invoice Agent — Action Skills', () => {
+  test('create-invoice: "invoice Acme $5000 for consulting"', async ({ request }) => {
+    const res = await request.post(`${CORE}/api/v1/agentbook-core/agent/message`, {
+      headers: H, data: { text: 'invoice Acme $5000 for consulting', channel: 'api' },
+    });
+    expect(res.ok()).toBeTruthy();
+    const body = await res.json();
+    expect(body.data.skillUsed).toBe('create-invoice');
+    expect(body.data.message).toBeTruthy();
+  });
+
+  test('send-invoice: "send that invoice"', async ({ request }) => {
+    const res = await request.post(`${CORE}/api/v1/agentbook-core/agent/message`, {
+      headers: H, data: { text: 'send that invoice', channel: 'api' },
+    });
+    expect(res.ok()).toBeTruthy();
+    expect((await res.json()).data.skillUsed).toBe('send-invoice');
+  });
+
+  test('record-payment: "got $5000 from Acme"', async ({ request }) => {
+    const res = await request.post(`${CORE}/api/v1/agentbook-core/agent/message`, {
+      headers: H, data: { text: 'got $5000 from Acme', channel: 'api' },
+    });
+    expect(res.ok()).toBeTruthy();
+    expect((await res.json()).data.skillUsed).toBe('record-payment');
+  });
+
+  test('create-estimate: "estimate TechCorp $3000 for web design"', async ({ request }) => {
+    const res = await request.post(`${CORE}/api/v1/agentbook-core/agent/message`, {
+      headers: H, data: { text: 'estimate TechCorp $3000 for web design', channel: 'api' },
+    });
+    expect(res.ok()).toBeTruthy();
+    expect((await res.json()).data.skillUsed).toBe('create-estimate');
+  });
+
+  test('start-timer: "start timer for TechCorp"', async ({ request }) => {
+    const res = await request.post(`${CORE}/api/v1/agentbook-core/agent/message`, {
+      headers: H, data: { text: 'start timer for TechCorp project', channel: 'api' },
+    });
+    expect(res.ok()).toBeTruthy();
+    expect((await res.json()).data.skillUsed).toBe('start-timer');
+  });
+
+  test('stop-timer: "stop timer"', async ({ request }) => {
+    const res = await request.post(`${CORE}/api/v1/agentbook-core/agent/message`, {
+      headers: H, data: { text: 'stop timer', channel: 'api' },
+    });
+    expect(res.ok()).toBeTruthy();
+    expect((await res.json()).data.skillUsed).toBe('stop-timer');
+  });
+
+  test('send-reminder: "send payment reminders"', async ({ request }) => {
+    const res = await request.post(`${CORE}/api/v1/agentbook-core/agent/message`, {
+      headers: H, data: { text: 'send payment reminders', channel: 'api' },
+    });
+    expect(res.ok()).toBeTruthy();
+    expect((await res.json()).data.skillUsed).toBe('send-reminder');
+  });
+});

@@ -2148,6 +2148,44 @@ const BUILT_IN_SKILLS = [
     endpoint: { method: 'GET', url: '/api/v1/agentbook-invoice/unbilled-summary' },
   },
   {
+    name: 'send-invoice', description: 'Send a draft or created invoice to the client via email', category: 'invoicing',
+    triggerPatterns: ['send.*invoice', 'email.*invoice', 'deliver.*invoice', 'send.*that.*invoice'],
+    parameters: { invoiceId: { type: 'string', required: false, extractHint: 'invoice ID, number like INV-YYYY-NNNN, or "last"' } },
+    endpoint: { method: 'POST', url: '/api/v1/agentbook-invoice/invoices/:id/send' },
+    confirmBefore: true,
+  },
+  {
+    name: 'record-payment', description: 'Record a payment received for an invoice', category: 'invoicing',
+    triggerPatterns: ['got.*paid', 'received.*payment', 'record.*payment', 'got.*\\$.*from', 'payment.*received'],
+    parameters: { invoiceId: { type: 'string', required: false }, amountCents: { type: 'number', required: false }, clientName: { type: 'string', required: false }, method: { type: 'string', required: false, default: 'manual' } },
+    endpoint: { method: 'POST', url: '/api/v1/agentbook-invoice/payments' },
+    confirmBefore: true,
+  },
+  {
+    name: 'create-estimate', description: 'Create a project estimate or quote for a client', category: 'invoicing',
+    triggerPatterns: ['estimate.*\\$', 'quote.*\\$', 'proposal.*\\$', 'create.*estimate'],
+    parameters: { clientName: { type: 'string', required: true }, amountCents: { type: 'number', required: true }, description: { type: 'string', required: true } },
+    endpoint: { method: 'POST', url: '/api/v1/agentbook-invoice/estimates' },
+  },
+  {
+    name: 'start-timer', description: 'Start a time tracking timer for a project or client', category: 'invoicing',
+    triggerPatterns: ['start.*timer', 'track.*time', 'clock.*in', 'begin.*timer'],
+    parameters: { description: { type: 'string', required: false }, clientName: { type: 'string', required: false }, projectName: { type: 'string', required: false } },
+    endpoint: { method: 'POST', url: '/api/v1/agentbook-invoice/timer/start' },
+  },
+  {
+    name: 'stop-timer', description: 'Stop the running time tracker', category: 'invoicing',
+    triggerPatterns: ['stop.*timer', 'clock.*out', 'end.*timer', 'pause.*timer'],
+    parameters: {},
+    endpoint: { method: 'POST', url: '/api/v1/agentbook-invoice/timer/stop' },
+  },
+  {
+    name: 'send-reminder', description: 'Send payment reminder for overdue invoices', category: 'invoicing',
+    triggerPatterns: ['send.*remind', 'remind.*overdue', 'follow.*up.*invoice', 'chase.*payment', 'nudge.*client', 'remind.*payment'],
+    parameters: { invoiceId: { type: 'string', required: false, extractHint: 'invoice ID or "all" for all overdue' } },
+    endpoint: { method: 'INTERNAL', url: '' },
+  },
+  {
     name: 'general-question', description: 'Answer any general financial or accounting question', category: 'finance',
     triggerPatterns: [],
     parameters: { question: { type: 'string', required: true, extractHint: 'the full user message' } },
@@ -2321,6 +2359,21 @@ app.delete('/api/v1/agentbook-core/agent/memory/:id', async (req, res) => {
   }
 });
 
+// --- Helper: resolve or create a client by name ---
+async function resolveOrCreateClient(invoiceBase: string, tenantId: string, clientName: string): Promise<any> {
+  const H = { 'Content-Type': 'application/json', 'x-tenant-id': tenantId };
+  const clientsRes = await fetch(`${invoiceBase}/api/v1/agentbook-invoice/clients`, { headers: H });
+  const clientsData = await clientsRes.json() as any;
+  let client = (clientsData.data || []).find((c: any) => c.name.toLowerCase().includes(clientName.toLowerCase()));
+  if (!client) {
+    const createRes = await fetch(`${invoiceBase}/api/v1/agentbook-invoice/clients`, {
+      method: 'POST', headers: H, body: JSON.stringify({ name: clientName }),
+    });
+    client = ((await createRes.json()) as any).data;
+  }
+  return client;
+}
+
 // --- 4. Agent Brain: classifyAndExecuteV1 (extracted from inline handler) ---
 async function classifyAndExecuteV1(
   text: string, tenantId: string, channel: string,
@@ -2410,6 +2463,9 @@ async function classifyAndExecuteV1(
                 if (!/\$\s*[\d,]+\.?\d{0,2}|\d+\s*(?:dollars|bucks)/i.test(text)) continue;
                 if (/^invoice\s/i.test(lower)) continue;
                 if (/what\s*if\b/i.test(lower)) continue;
+                if (/got.*\$.*from/i.test(lower)) continue;  // payment, not expense
+                if (/received.*payment/i.test(lower)) continue;
+                if (/^(?:estimate|quote|proposal)\s/i.test(lower)) continue;  // estimate, not expense
               }
               selectedSkill = skill;
               confidence = 0.85;
@@ -2436,6 +2492,21 @@ async function classifyAndExecuteV1(
         if (params.clientName) {
           const invoiceMatch = text.match(/invoice\s+(.+?)\s+\$/i);
           if (invoiceMatch) extractedParams.clientName = invoiceMatch[1].trim();
+          // estimate/quote pattern: "estimate TechCorp $3000 ..."
+          if (!extractedParams.clientName) {
+            const estMatch = text.match(/(?:estimate|quote|proposal)\s+(.+?)\s+\$/i);
+            if (estMatch) extractedParams.clientName = estMatch[1].trim();
+          }
+          // payment pattern: "got $5000 from Acme"
+          if (!extractedParams.clientName) {
+            const payMatch = text.match(/from\s+([A-Z][A-Za-z\s&']+)/i);
+            if (payMatch) extractedParams.clientName = payMatch[1].trim();
+          }
+          // timer pattern: "start timer for TechCorp"
+          if (!extractedParams.clientName) {
+            const timerMatch = text.match(/timer\s+(?:for\s+)?(.+?)(?:\s+project)?$/i);
+            if (timerMatch) extractedParams.clientName = timerMatch[1].trim();
+          }
         }
         if (params.description && !extractedParams.description) extractedParams.description = text;
       }
@@ -2566,16 +2637,7 @@ If no skill matches well, use "general-question" with parameter "question" = the
   if (selectedSkill.name === 'create-invoice' && extractedParams.clientName) {
     try {
       const invoiceBase = baseUrls['/api/v1/agentbook-invoice'] || 'http://localhost:4052';
-      const clientsRes = await fetch(`${invoiceBase}/api/v1/agentbook-invoice/clients`, { headers: { 'Content-Type': 'application/json', 'x-tenant-id': tenantId } });
-      const clientsData = await clientsRes.json() as any;
-      let client = (clientsData.data || []).find((c: any) => c.name.toLowerCase().includes(extractedParams.clientName.toLowerCase()));
-      if (!client) {
-        const createRes = await fetch(`${invoiceBase}/api/v1/agentbook-invoice/clients`, {
-          method: 'POST', headers: { 'Content-Type': 'application/json', 'x-tenant-id': tenantId },
-          body: JSON.stringify({ name: extractedParams.clientName }),
-        });
-        client = ((await createRes.json()) as any).data;
-      }
+      const client = await resolveOrCreateClient(invoiceBase, tenantId, extractedParams.clientName);
       if (client) {
         const dueDate = new Date(); dueDate.setDate(dueDate.getDate() + 30);
         extractedParams = {
@@ -2587,6 +2649,143 @@ If no skill matches well, use "general-question" with parameter "question" = the
         };
       }
     } catch (err) { console.warn('Invoice client resolution error:', err); }
+  }
+
+  // Pre-processing: send-invoice — resolve invoice reference
+  if (selectedSkill.name === 'send-invoice') {
+    try {
+      const invoiceBase = baseUrls['/api/v1/agentbook-invoice'] || 'http://localhost:4052';
+      const H = { 'Content-Type': 'application/json', 'x-tenant-id': tenantId };
+      let invoiceId = extractedParams.invoiceId;
+      if (!invoiceId || invoiceId === 'last' || invoiceId === 'that') {
+        // Find most recent invoice
+        const listRes = await fetch(`${invoiceBase}/api/v1/agentbook-invoice/invoices?limit=1`, { headers: H });
+        const listData = await listRes.json() as any;
+        const invoices = listData.data || [];
+        if (invoices.length > 0) invoiceId = invoices[0].id;
+      } else if (invoiceId.startsWith('INV-')) {
+        // Look up by number
+        const listRes = await fetch(`${invoiceBase}/api/v1/agentbook-invoice/invoices?number=${encodeURIComponent(invoiceId)}`, { headers: H });
+        const listData = await listRes.json() as any;
+        const invoices = listData.data || [];
+        if (invoices.length > 0) invoiceId = invoices[0].id;
+      }
+      if (!invoiceId) {
+        await db.abConversation.create({ data: { tenantId, question: text || '[send-invoice]', answer: "I couldn't find an invoice to send. Please specify an invoice number.", queryType: 'agent', channel, skillUsed: 'send-invoice' } });
+        return {
+          selectedSkill, extractedParams, confidence, skillUsed: selectedSkill.name, skillResponse: null,
+          responseData: { message: "I couldn't find an invoice to send. Please specify an invoice number.", skillUsed: 'send-invoice', confidence, latencyMs: Date.now() - startTime },
+        };
+      }
+      targetUrl = targetUrl.replace(':id', invoiceId);
+      extractedParams = {};
+    } catch (err) { console.warn('Send-invoice resolution error:', err); }
+  }
+
+  // Pre-processing: record-payment — resolve client → outstanding invoice → amount
+  if (selectedSkill.name === 'record-payment') {
+    try {
+      const invoiceBase = baseUrls['/api/v1/agentbook-invoice'] || 'http://localhost:4052';
+      const H = { 'Content-Type': 'application/json', 'x-tenant-id': tenantId };
+      if (extractedParams.clientName) {
+        const client = await resolveOrCreateClient(invoiceBase, tenantId, extractedParams.clientName);
+        if (client) {
+          // Find outstanding sent invoice for this client
+          const invRes = await fetch(`${invoiceBase}/api/v1/agentbook-invoice/invoices?clientId=${client.id}&status=sent`, { headers: H });
+          const invData = await invRes.json() as any;
+          const invoices = invData.data || [];
+          if (invoices.length > 0) {
+            extractedParams.invoiceId = invoices[0].id;
+            if (!extractedParams.amountCents) extractedParams.amountCents = invoices[0].amountCents;
+          }
+        }
+        delete extractedParams.clientName;
+      }
+      if (!extractedParams.date) extractedParams.date = new Date().toISOString().slice(0, 10);
+    } catch (err) { console.warn('Record-payment resolution error:', err); }
+  }
+
+  // Pre-processing: create-estimate — resolve client
+  if (selectedSkill.name === 'create-estimate' && extractedParams.clientName) {
+    try {
+      const invoiceBase = baseUrls['/api/v1/agentbook-invoice'] || 'http://localhost:4052';
+      const client = await resolveOrCreateClient(invoiceBase, tenantId, extractedParams.clientName);
+      if (client) {
+        const validUntil = new Date(); validUntil.setDate(validUntil.getDate() + 30);
+        extractedParams.clientId = client.id;
+        if (!extractedParams.validUntil) extractedParams.validUntil = validUntil.toISOString().slice(0, 10);
+        delete extractedParams.clientName;
+      }
+    } catch (err) { console.warn('Create-estimate resolution error:', err); }
+  }
+
+  // Pre-processing: start-timer — resolve client/project names to IDs
+  if (selectedSkill.name === 'start-timer') {
+    try {
+      const invoiceBase = baseUrls['/api/v1/agentbook-invoice'] || 'http://localhost:4052';
+      const H = { 'Content-Type': 'application/json', 'x-tenant-id': tenantId };
+      if (extractedParams.clientName) {
+        const clientsRes = await fetch(`${invoiceBase}/api/v1/agentbook-invoice/clients`, { headers: H });
+        const clientsData = await clientsRes.json() as any;
+        const client = (clientsData.data || []).find((c: any) => c.name.toLowerCase().includes(extractedParams.clientName.toLowerCase()));
+        if (client) extractedParams.clientId = client.id;
+        delete extractedParams.clientName;
+      }
+      if (extractedParams.projectName) {
+        const projRes = await fetch(`${invoiceBase}/api/v1/agentbook-invoice/projects`, { headers: H });
+        const projData = await projRes.json() as any;
+        const project = (projData.data || []).find((p: any) => p.name.toLowerCase().includes(extractedParams.projectName.toLowerCase()));
+        if (project) extractedParams.projectId = project.id;
+        delete extractedParams.projectName;
+      }
+    } catch (err) { console.warn('Start-timer resolution error:', err); }
+  }
+
+  // Special inline handler: send-reminder (INTERNAL — batch overdue reminders)
+  if (selectedSkill.name === 'send-reminder') {
+    try {
+      const invoiceBase = baseUrls['/api/v1/agentbook-invoice'] || 'http://localhost:4052';
+      const H = { 'Content-Type': 'application/json', 'x-tenant-id': tenantId };
+      let message = '';
+
+      if (extractedParams.invoiceId && extractedParams.invoiceId !== 'all') {
+        // Specific invoice reminder
+        const remindRes = await fetch(`${invoiceBase}/api/v1/agentbook-invoice/invoices/${extractedParams.invoiceId}/remind`, { method: 'POST', headers: H });
+        const remindData = await remindRes.json() as any;
+        message = remindData.success ? 'Payment reminder sent!' : "Couldn't send reminder — invoice may not be overdue.";
+      } else {
+        // All overdue invoices
+        const listRes = await fetch(`${invoiceBase}/api/v1/agentbook-invoice/invoices?status=overdue`, { headers: H });
+        const listData = await listRes.json() as any;
+        const overdue = listData.data || [];
+
+        if (overdue.length === 0) {
+          message = 'No overdue invoices found. All clients are up to date!';
+        } else {
+          let sent = 0;
+          for (const inv of overdue) {
+            try {
+              await fetch(`${invoiceBase}/api/v1/agentbook-invoice/invoices/${inv.id}/remind`, { method: 'POST', headers: H });
+              sent++;
+            } catch { /* skip failed */ }
+          }
+          message = `Sent payment reminders for ${sent} of ${overdue.length} overdue invoices.`;
+        }
+      }
+
+      await db.abConversation.create({ data: { tenantId, question: text || '[send-reminder]', answer: message, queryType: 'agent', channel, skillUsed: 'send-reminder' } });
+      await db.abEvent.create({ data: { tenantId, eventType: 'agent.message', actor: 'user', action: { skillUsed: 'send-reminder', channel } } });
+      return {
+        selectedSkill, extractedParams, confidence, skillUsed: selectedSkill.name, skillResponse: null,
+        responseData: { message, skillUsed: 'send-reminder', confidence, latencyMs: Date.now() - startTime },
+      };
+    } catch (err) {
+      console.error('Send-reminder error:', err);
+      return {
+        selectedSkill, extractedParams, confidence: 0, skillUsed: 'send-reminder', skillResponse: null,
+        responseData: { message: "I couldn't send reminders. Please try again.", skillUsed: 'send-reminder', confidence: 0, latencyMs: Date.now() - startTime },
+      };
+    }
   }
 
   // Special inline handler: categorize-expenses (no external endpoint)
@@ -2803,6 +3002,29 @@ If no skill matches well, use "general-question" with parameter "question" = the
         total += item.unbilledAmountCents;
       }
       message += `\n\n**Total Unbilled:** $${(total / 100).toFixed(2)}`;
+
+    // Send invoice response
+    } else if (selectedSkill.name === 'send-invoice' && data) {
+      message = data.message || data.status === 'sent' ? `Invoice sent to client!` : `Invoice marked as sent.`;
+
+    // Record payment response
+    } else if (selectedSkill.name === 'record-payment' && data) {
+      const amt = data.amountCents ? `$${(data.amountCents / 100).toFixed(2)}` : '';
+      message = `Payment recorded${amt ? ': ' + amt : ''}. Invoice updated.`;
+
+    // Create estimate response
+    } else if (selectedSkill.name === 'create-estimate' && data) {
+      const amt = data.amountCents ? `$${(data.amountCents / 100).toFixed(2)}` : '';
+      message = `Estimate created${amt ? ' for ' + amt : ''}${data.client?.name ? ' (' + data.client.name + ')' : ''}.`;
+
+    // Start timer response
+    } else if (selectedSkill.name === 'start-timer' && data) {
+      message = `Timer started${data.description ? ': ' + data.description : ''}.`;
+
+    // Stop timer response
+    } else if (selectedSkill.name === 'stop-timer' && data) {
+      const mins = data.durationMinutes || data.elapsedMinutes || 0;
+      message = `Timer stopped. Duration: ${mins} minutes.`;
 
     } else if (data?.id && data?.amountCents !== undefined) {
       const catLabel = data.categoryName ? ` [${data.categoryName}]` : '';
