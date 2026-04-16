@@ -283,18 +283,19 @@ export async function executeStep(
     return { success: false, error: `Unknown skill: ${step.action}` };
   }
 
-  if (!skill.endpoint) {
+  const endpoint = skill.endpoint as any;
+  if (!endpoint || !endpoint.url) {
     return { success: false, error: `Skill "${step.action}" has no endpoint` };
   }
 
-  if (skill.method === 'INTERNAL') {
+  if (endpoint.method === 'INTERNAL') {
     return { success: false, error: `Skill "${step.action}" is internal and cannot be executed via HTTP` };
   }
 
-  // Resolve base URL: find the base URL key whose prefix matches the skill endpoint
+  // Resolve base URL: find the base URL key whose prefix matches the skill endpoint URL
   let baseUrl = '';
   for (const [prefix, url] of Object.entries(baseUrls)) {
-    if (skill.endpoint.startsWith(prefix)) {
+    if (endpoint.url.startsWith(prefix)) {
       baseUrl = url;
       break;
     }
@@ -304,14 +305,14 @@ export async function executeStep(
     // Fallback: try to find by partial prefix match
     const entries = Object.entries(baseUrls);
     for (const [prefix, url] of entries) {
-      if (skill.endpoint.includes(prefix.replace(/^\/api\/v1\//, ''))) {
+      if (endpoint.url.includes(prefix.replace(/^\/api\/v1\//, ''))) {
         baseUrl = url;
         break;
       }
     }
   }
 
-  const method = (skill.method ?? 'GET').toUpperCase();
+  const method = (endpoint.method ?? 'GET').toUpperCase();
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 30_000);
 
@@ -320,7 +321,7 @@ export async function executeStep(
     let fetchOptions: RequestInit;
 
     // Build URL: substitute path params from step.params, remainder goes to query/body
-    let endpointPath = skill.endpoint;
+    let endpointPath = endpoint.url;
     const unusedParams: Record<string, any> = { ...step.params };
 
     // Replace path parameters like {id} or :id

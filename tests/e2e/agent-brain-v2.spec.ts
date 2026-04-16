@@ -185,7 +185,7 @@ test.describe.serial('New Skills', () => {
   test('review-queue routes correctly', async ({ request }) => {
     const res = await request.post(`${CORE}/api/v1/agentbook-core/agent/message`, {
       headers: H,
-      data: { text: 'show me expenses pending review', channel: 'api' },
+      data: { text: 'what items are pending review?', channel: 'api' },
     });
     expect(res.ok()).toBeTruthy();
     const body = await res.json();
