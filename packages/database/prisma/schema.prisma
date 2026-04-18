@@ -2008,6 +2008,70 @@ model AbSalesTaxCollected {
   @@schema("plugin_agentbook_tax")
 }
 
+model AbTaxFormTemplate {
+  id              String   @id @default(uuid())
+  jurisdiction    String
+  formCode        String
+  formName        String
+  version         String
+  category        String
+  sections        Json
+  validationRules Json     @default("[]")
+  exportSchema    Json?
+  dependencies    Json     @default("[]")
+  enabled         Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@unique([jurisdiction, formCode, version])
+  @@index([jurisdiction, version])
+  @@schema("plugin_agentbook_tax")
+}
+
+model AbTaxFiling {
+  id            String    @id @default(uuid())
+  tenantId      String
+  taxYear       Int
+  jurisdiction  String
+  region        String    @default("")
+  filingType    String    @default("personal_return")
+  status        String    @default("draft")
+  forms         Json      @default("{}")
+  missingFields Json      @default("[]")
+  slips         Json      @default("[]")
+  exportData    Json?
+  exportUrl     String?
+  filedAt       DateTime?
+  filedRef      String?
+  filedStatus   String?
+  notes         Json      @default("[]")
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@unique([tenantId, taxYear, filingType])
+  @@index([tenantId])
+  @@schema("plugin_agentbook_tax")
+}
+
+model AbTaxSlip {
+  id            String   @id @default(uuid())
+  tenantId      String
+  taxYear       Int
+  slipType      String
+  issuer        String?
+  imageUrl      String?
+  extractedData Json     @default("{}")
+  confidence    Float    @default(0)
+  status        String   @default("pending")
+  filingId      String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([tenantId, taxYear])
+  @@index([tenantId, slipType])
+  @@schema("plugin_agentbook_tax")
+}
+
 model AbCalendarEvent {
   id              String   @id @default(uuid())
   tenantId        String
