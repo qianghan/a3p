@@ -2330,6 +2330,19 @@ const BUILT_IN_SKILLS = [
     endpoint: { method: 'INTERNAL', url: '' },
   },
   {
+    name: 'tax-filing-submit', description: 'Submit tax return to CRA via certified partner API — e-file your return', category: 'tax',
+    triggerPatterns: ['submit.*tax', 'submit.*cra', 'efile', 'netfile', 'submit.*return', 'file.*return.*cra', 'send.*cra'],
+    parameters: { taxYear: { type: 'number', required: false, default: 2025 } },
+    endpoint: { method: 'INTERNAL', url: '' },
+    confirmBefore: true,
+  },
+  {
+    name: 'tax-filing-check', description: 'Check e-filing status — accepted, rejected, or pending by CRA', category: 'tax',
+    triggerPatterns: ['filing.*status.*cra', 'cra.*accept', 'return.*status.*cra', 'check.*filing.*status', 'did.*cra.*accept'],
+    parameters: { taxYear: { type: 'number', required: false, default: 2025 } },
+    endpoint: { method: 'GET', url: '/api/v1/agentbook-tax/tax-filing/2025/status' },
+  },
+  {
     name: 'general-question', description: 'Answer any general financial or accounting question', category: 'finance',
     triggerPatterns: [],
     parameters: { question: { type: 'string', required: true, extractHint: 'the full user message' } },
@@ -2604,7 +2617,7 @@ async function classifyAndExecuteV1(
             if (new RegExp(pattern, 'i').test(lower)) {
               // Special check: query-finance should not match tax-specific queries that have dedicated skills
               if (skill.name === 'query-finance') {
-                if (/tax.*estimate|how much.*tax|tax.*owe|tax.*situation|tax.*liability|quarterly.*tax|quarterly.*payment|estimated.*payment|deduction|write.*off|tax.*saving|tax.*break|p.?&?.?l|profit.*loss|income.*statement|net.*income|how.*much.*profit|balance.*sheet|net.*worth|equity|cash.*flow|cash.*projection|runway|burn.*rate|how long.*cash.*last|financial.*summary|financial.*snapshot|how.*doing.*financially|financial.*health|money.*move|action.*item|what.*should.*do|advice.*money|reconcil|unmatched.*transaction|bank.*match|bank.*status|tax.*fil|start.*fil|file.*tax|review.*t[12]|t2125|schedule.*1|gst.*return|tax.*slip|validate.*tax|check.*tax.*error|verify.*return|tax.*ready|export.*tax|generate.*tax.*form|download.*return|create.*tax.*file|print.*tax|pdf.*tax/i.test(lower)) continue;
+                if (/tax.*estimate|how much.*tax|tax.*owe|tax.*situation|tax.*liability|quarterly.*tax|quarterly.*payment|estimated.*payment|deduction|write.*off|tax.*saving|tax.*break|p.?&?.?l|profit.*loss|income.*statement|net.*income|how.*much.*profit|balance.*sheet|net.*worth|equity|cash.*flow|cash.*projection|runway|burn.*rate|how long.*cash.*last|financial.*summary|financial.*snapshot|how.*doing.*financially|financial.*health|money.*move|action.*item|what.*should.*do|advice.*money|reconcil|unmatched.*transaction|bank.*match|bank.*status|tax.*fil|start.*fil|file.*tax|review.*t[12]|t2125|schedule.*1|gst.*return|tax.*slip|validate.*tax|check.*tax.*error|verify.*return|tax.*ready|export.*tax|generate.*tax.*form|download.*return|create.*tax.*file|print.*tax|pdf.*tax|submit.*cra|efile|netfile|filing.*status.*cra/i.test(lower)) continue;
               }
               // Special check: record-expense needs a $ amount and should not match invoice/simulation commands
               if (skill.name === 'record-expense') {
@@ -3037,6 +3050,34 @@ If no skill matches well, use "general-question" with parameter "question" = the
       }
     }
 
+  // INTERNAL handler: tax-filing-submit
+    if (selectedSkill.name === 'tax-filing-submit') {
+      try {
+        const taxBase = baseUrls['/api/v1/agentbook-tax'] || 'http://localhost:4053';
+        const IH = { 'Content-Type': 'application/json', 'x-tenant-id': tenantId };
+        const taxYear = extractedParams.taxYear || 2025;
+        const res = await fetch(`${taxBase}/api/v1/agentbook-tax/tax-filing/${taxYear}/submit`, { method: 'POST', headers: IH });
+        const data = await res.json() as any;
+        let message: string;
+        if (data.success) {
+          message = `\u2705 **${data.data.message}**`;
+        } else {
+          message = `\u274C **Filing Failed**\n\n${data.error}`;
+          if (data.data?.validation?.errors?.length > 0) {
+            message += '\n\n**Fix these errors first:**\n';
+            data.data.validation.errors.forEach((e: any) => { message += `- ${e.message}\n`; });
+          }
+        }
+        await db.abConversation.create({ data: { tenantId, question: text || '[submit]', answer: message, queryType: 'agent', channel, skillUsed: 'tax-filing-submit' } });
+        return { selectedSkill, extractedParams, confidence, skillUsed: 'tax-filing-submit', skillResponse: data,
+          responseData: { message, actions: [], chartData: null, skillUsed: 'tax-filing-submit', confidence, latencyMs: Date.now() - startTime } };
+      } catch (err) {
+        console.error('Tax submit error:', err);
+        return { selectedSkill, extractedParams, confidence, skillUsed: 'tax-filing-submit', skillResponse: null,
+          responseData: { message: "Filing submission failed. Please try again.", actions: [], chartData: null, skillUsed: 'tax-filing-submit', confidence: 0, latencyMs: Date.now() - startTime } };
+      }
+    }
+
   // Special inline handler: categorize-expenses (no external endpoint)
   if (selectedSkill.name === 'categorize-expenses') {
     try {
@@ -3431,6 +3472,9 @@ If no skill matches well, use "general-question" with parameter "question" = the
         const icon = s.status === 'confirmed' ? '\u2705' : '\u{1F7E1}';
         message += `\n${icon} **${s.slipType}**${s.issuer ? ` from ${s.issuer}` : ''} [${s.status}] (${Math.round((s.confidence || 0) * 100)}% confidence)`;
       }
+
+    } else if (data?.confirmationNumber && data?.filedAt) {
+      message = data.message || `Filing status: ${data.status}\nConfirmation: ${data.confirmationNumber}`;
 
     } else if (data?.id && data?.amountCents !== undefined) {
       const catLabel = data.categoryName ? ` [${data.categoryName}]` : '';

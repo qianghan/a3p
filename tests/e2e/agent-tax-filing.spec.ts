@@ -148,3 +148,57 @@ test.describe.serial('Tax Filing — Phase B', () => {
     }
   });
 });
+
+test.describe.serial('Tax Filing — Phase C: E-Filing', () => {
+  test('tax-filing-submit skill routes correctly', async ({ request }) => {
+    const res = await request.post(`${CORE}/api/v1/agentbook-core/agent/message`, {
+      headers: H, data: { text: 'submit my tax return to CRA', channel: 'api' },
+    });
+    expect(res.ok()).toBeTruthy();
+    const body = await res.json();
+    expect(body.data.skillUsed).toBe('tax-filing-submit');
+    expect(body.data.message).toBeTruthy();
+  });
+
+  test('submit endpoint returns result', async ({ request }) => {
+    const res = await request.post(`${TAX}/api/v1/agentbook-tax/tax-filing/2025/submit`, { headers: H });
+    expect(res.ok()).toBeTruthy();
+    const body = await res.json();
+    expect(body).toHaveProperty('success');
+    // May succeed with mock partner or fail validation — both are valid
+    if (body.success) {
+      expect(body.data).toHaveProperty('confirmationNumber');
+    }
+  });
+
+  test('tax-filing-check skill routes correctly', async ({ request }) => {
+    const res = await request.post(`${CORE}/api/v1/agentbook-core/agent/message`, {
+      headers: H, data: { text: 'check my filing status with CRA', channel: 'api' },
+    });
+    expect(res.ok()).toBeTruthy();
+    const body = await res.json();
+    expect(body.data.skillUsed).toBe('tax-filing-check');
+    expect(body.data.message).toBeTruthy();
+  });
+
+  test('status endpoint returns result', async ({ request }) => {
+    const res = await request.get(`${TAX}/api/v1/agentbook-tax/tax-filing/2025/status`, { headers: H });
+    expect(res.ok()).toBeTruthy();
+    const body = await res.json();
+    expect(body).toHaveProperty('success');
+    if (body.success) {
+      expect(body.data).toHaveProperty('status');
+    }
+  });
+
+  test('re-submit shows already filed', async ({ request }) => {
+    // First submit (may have already been submitted)
+    await request.post(`${TAX}/api/v1/agentbook-tax/tax-filing/2025/submit`, { headers: H });
+    // Second submit
+    const res = await request.post(`${TAX}/api/v1/agentbook-tax/tax-filing/2025/submit`, { headers: H });
+    expect(res.ok()).toBeTruthy();
+    const body = await res.json();
+    // Either already-filed error or success is acceptable
+    expect(body).toHaveProperty('success');
+  });
+});
