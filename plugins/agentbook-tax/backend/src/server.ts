@@ -17,6 +17,9 @@ import 'dotenv/config';
 import { readFileSync } from 'node:fs';
 import { createPluginServer } from '@naap/plugin-server-sdk';
 import { db } from './db/client.js';
+import { seedCanadianForms } from './tax-forms.js';
+import { populateFiling, updateFilingField } from './tax-filing.js';
+import { processSlipOCR, confirmSlip, listSlips } from './tax-slips.js';
 
 const pluginConfig = JSON.parse(
   readFileSync(new URL('../../plugin.json', import.meta.url), 'utf8')
@@ -1350,6 +1353,90 @@ server.app.get('/api/v1/agentbook-tax/reports/earnings-projection', async (req, 
       },
     });
   } catch (err) { res.status(500).json({ success: false, error: String(err) }); }
+});
+
+// ============================================
+// TAX FORMS — SEED
+// ============================================
+
+server.app.post('/api/v1/agentbook-tax/tax-forms/seed', async (req, res) => {
+  try {
+    const result = await seedCanadianForms();
+    res.json({ success: true, data: result });
+  } catch (err) {
+    res.status(500).json({ success: false, error: String(err) });
+  }
+});
+
+// ============================================
+// TAX FILING — SESSION + FIELDS
+// ============================================
+
+server.app.get('/api/v1/agentbook-tax/tax-filing/:year', async (req, res) => {
+  try {
+    const tenantId = (req as any).tenantId;
+    const { year } = req.params;
+    const result = await populateFiling(tenantId, parseInt(year));
+    res.json({ success: true, data: result });
+  } catch (err) {
+    res.status(500).json({ success: false, error: String(err) });
+  }
+});
+
+server.app.post('/api/v1/agentbook-tax/tax-filing/:year/field', async (req, res) => {
+  try {
+    const tenantId = (req as any).tenantId;
+    const { year } = req.params;
+    const { formCode, fieldId, value } = req.body;
+    if (!formCode || !fieldId) {
+      return res.status(400).json({ success: false, error: 'formCode and fieldId are required' });
+    }
+    const result = await updateFilingField(tenantId, year, formCode, fieldId, value);
+    res.json({ success: true, data: result });
+  } catch (err) {
+    res.status(500).json({ success: false, error: String(err) });
+  }
+});
+
+// ============================================
+// TAX SLIPS — OCR, CONFIRM, LIST
+// ============================================
+
+server.app.post('/api/v1/agentbook-tax/tax-slips/ocr', async (req, res) => {
+  try {
+    const tenantId = (req as any).tenantId;
+    const { taxYear, imageUrl, filingId } = req.body;
+    if (!imageUrl) {
+      return res.status(400).json({ success: false, error: 'imageUrl is required' });
+    }
+    const callGemini = async (_sys: string, _user: string, _max?: number): Promise<string | null> => null;
+    const result = await processSlipOCR(tenantId, taxYear, imageUrl, filingId, callGemini);
+    res.json({ success: true, data: result });
+  } catch (err) {
+    res.status(500).json({ success: false, error: String(err) });
+  }
+});
+
+server.app.post('/api/v1/agentbook-tax/tax-slips/:id/confirm', async (req, res) => {
+  try {
+    const tenantId = (req as any).tenantId;
+    const { id } = req.params;
+    const result = await confirmSlip(tenantId, id);
+    res.json({ success: true, data: result });
+  } catch (err) {
+    res.status(500).json({ success: false, error: String(err) });
+  }
+});
+
+server.app.get('/api/v1/agentbook-tax/tax-slips', async (req, res) => {
+  try {
+    const tenantId = (req as any).tenantId;
+    const taxYear = parseInt(req.query.taxYear as string) || 2025;
+    const result = await listSlips(tenantId, taxYear);
+    res.json({ success: true, data: result });
+  } catch (err) {
+    res.status(500).json({ success: false, error: String(err) });
+  }
 });
 
 // ============================================
