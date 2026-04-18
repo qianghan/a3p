@@ -2072,6 +2072,20 @@ model AbTaxSlip {
   @@schema("plugin_agentbook_tax")
 }
 
+model AbTaxFilingPartner {
+  id            String   @id @default(uuid())
+  jurisdiction  String
+  partnerName   String
+  apiUrl        String
+  apiKey        String?
+  certId        String?
+  enabled       Boolean  @default(true)
+  createdAt     DateTime @default(now())
+
+  @@unique([jurisdiction, partnerName])
+  @@schema("plugin_agentbook_tax")
+}
+
 model AbCalendarEvent {
   id              String   @id @default(uuid())
   tenantId        String
