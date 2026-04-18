@@ -2264,6 +2264,60 @@ const BUILT_IN_SKILLS = [
     endpoint: { method: 'GET', url: '/api/v1/agentbook-core/automations' },
   },
   {
+    name: 'tax-filing-start', description: 'Start tax filing — create filing session, auto-populate from books, identify missing fields', category: 'tax',
+    triggerPatterns: ['start.*tax.*fil', 'file.*my.*tax', 'begin.*return', 'prepare.*tax.*return', 'tax.*return'],
+    parameters: { taxYear: { type: 'number', required: false, default: 2025 } },
+    endpoint: { method: 'INTERNAL', url: '' },
+  },
+  {
+    name: 'tax-filing-status', description: 'Check tax filing progress — completeness by form, what is missing', category: 'tax',
+    triggerPatterns: ['tax.*filing.*status', 'filing.*progress', 'what.*missing.*tax', 'tax.*complete', 'filing.*complete'],
+    parameters: { taxYear: { type: 'number', required: false, default: 2025 } },
+    endpoint: { method: 'GET', url: '/api/v1/agentbook-tax/tax-filing/2025' },
+  },
+  {
+    name: 'tax-slip-scan', description: 'Upload and scan a tax slip (T4, T5, RRSP, TFSA, bank statement) for OCR extraction', category: 'tax',
+    triggerPatterns: ['upload.*slip', 'scan.*t4', 'scan.*t5', 'scan.*rrsp', 'scan.*slip', 'tax.*document'],
+    parameters: { imageUrl: { type: 'string', required: false } },
+    endpoint: { method: 'INTERNAL', url: '' },
+  },
+  {
+    name: 'tax-slip-list', description: 'Show uploaded tax slips and their status', category: 'tax',
+    triggerPatterns: ['show.*slip', 'list.*slip', 'uploaded.*slip', 'my.*slip', 'tax.*slip'],
+    parameters: { taxYear: { type: 'number', required: false, default: 2025 } },
+    endpoint: { method: 'GET', url: '/api/v1/agentbook-tax/tax-slips', queryParams: ['taxYear'] },
+  },
+  {
+    name: 'ca-t2125-review', description: 'Review T2125 Statement of Business Income — revenue, expenses, vehicle, home office', category: 'tax',
+    triggerPatterns: ['review.*t2125', 'business.*income.*form', 't2125', 'statement.*business'],
+    parameters: {},
+    endpoint: { method: 'GET', url: '/api/v1/agentbook-tax/tax-filing/2025' },
+  },
+  {
+    name: 'ca-t1-review', description: 'Review T1 General personal income tax return — income sources, deductions, credits', category: 'tax',
+    triggerPatterns: ['review.*t1', 'personal.*return', 't1.*general', 't1.*review'],
+    parameters: {},
+    endpoint: { method: 'GET', url: '/api/v1/agentbook-tax/tax-filing/2025' },
+  },
+  {
+    name: 'ca-gst-hst-review', description: 'Review GST/HST return — collected tax, input tax credits, net tax', category: 'tax',
+    triggerPatterns: ['review.*gst', 'review.*hst', 'sales.*tax.*return', 'gst.*hst.*review', 'gst.*return'],
+    parameters: {},
+    endpoint: { method: 'GET', url: '/api/v1/agentbook-tax/tax-filing/2025' },
+  },
+  {
+    name: 'ca-schedule-1-review', description: 'Review Schedule 1 federal tax calculation', category: 'tax',
+    triggerPatterns: ['schedule.*1', 'federal.*tax.*calc'],
+    parameters: {},
+    endpoint: { method: 'GET', url: '/api/v1/agentbook-tax/tax-filing/2025' },
+  },
+  {
+    name: 'tax-filing-field', description: 'Provide a value for a missing tax filing field', category: 'tax',
+    triggerPatterns: [],
+    parameters: { formCode: { type: 'string', required: true }, fieldId: { type: 'string', required: true }, value: { type: 'string', required: true } },
+    endpoint: { method: 'POST', url: '/api/v1/agentbook-tax/tax-filing/2025/field' },
+  },
+  {
     name: 'general-question', description: 'Answer any general financial or accounting question', category: 'finance',
     triggerPatterns: [],
     parameters: { question: { type: 'string', required: true, extractHint: 'the full user message' } },
@@ -2538,7 +2592,7 @@ async function classifyAndExecuteV1(
             if (new RegExp(pattern, 'i').test(lower)) {
               // Special check: query-finance should not match tax-specific queries that have dedicated skills
               if (skill.name === 'query-finance') {
-                if (/tax.*estimate|how much.*tax|tax.*owe|tax.*situation|tax.*liability|quarterly.*tax|quarterly.*payment|estimated.*payment|deduction|write.*off|tax.*saving|tax.*break|p.?&?.?l|profit.*loss|income.*statement|net.*income|how.*much.*profit|balance.*sheet|net.*worth|equity|cash.*flow|cash.*projection|runway|burn.*rate|how long.*cash.*last|financial.*summary|financial.*snapshot|how.*doing.*financially|financial.*health|money.*move|action.*item|what.*should.*do|advice.*money|reconcil|unmatched.*transaction|bank.*match|bank.*status/i.test(lower)) continue;
+                if (/tax.*estimate|how much.*tax|tax.*owe|tax.*situation|tax.*liability|quarterly.*tax|quarterly.*payment|estimated.*payment|deduction|write.*off|tax.*saving|tax.*break|p.?&?.?l|profit.*loss|income.*statement|net.*income|how.*much.*profit|balance.*sheet|net.*worth|equity|cash.*flow|cash.*projection|runway|burn.*rate|how long.*cash.*last|financial.*summary|financial.*snapshot|how.*doing.*financially|financial.*health|money.*move|action.*item|what.*should.*do|advice.*money|reconcil|unmatched.*transaction|bank.*match|bank.*status|tax.*fil|start.*fil|file.*tax|review.*t[12]|t2125|schedule.*1|gst.*return|tax.*slip/i.test(lower)) continue;
               }
               // Special check: record-expense needs a $ amount and should not match invoice/simulation commands
               if (skill.name === 'record-expense') {
@@ -2553,6 +2607,10 @@ async function classifyAndExecuteV1(
               // Special check: proactive-alerts should not match automation creation commands
               if (skill.name === 'proactive-alerts') {
                 if (/alert.*when|notify.*when|automat/i.test(lower)) continue;  // automation, not alert check
+              }
+              // Special check: review-queue should not match tax form reviews
+              if (skill.name === 'review-queue') {
+                if (/review.*t[12]|t2125|t1.*general|t1.*review|gst.*review|hst.*review|schedule.*1|review.*gst|review.*hst/i.test(lower)) continue;
               }
               // Special check: create-automation should not match listing/showing automations
               if (skill.name === 'create-automation') {
@@ -2882,6 +2940,52 @@ If no skill matches well, use "general-question" with parameter "question" = the
         selectedSkill, extractedParams, confidence: 0, skillUsed: 'send-reminder', skillResponse: null,
         responseData: { message: "I couldn't send reminders. Please try again.", skillUsed: 'send-reminder', confidence: 0, latencyMs: Date.now() - startTime },
       };
+    }
+  }
+
+  // INTERNAL handler: tax-filing-start
+  if (selectedSkill.name === 'tax-filing-start') {
+    try {
+      const taxBase = baseUrls['/api/v1/agentbook-tax'] || 'http://localhost:4053';
+      const IH = { 'Content-Type': 'application/json', 'x-tenant-id': tenantId };
+      const taxYear = extractedParams.taxYear || 2025;
+
+      // Seed forms
+      await fetch(`${taxBase}/api/v1/agentbook-tax/tax-forms/seed`, { method: 'POST', headers: IH });
+
+      // Populate filing
+      const res = await fetch(`${taxBase}/api/v1/agentbook-tax/tax-filing/${taxYear}`, { headers: IH });
+      const data = await res.json() as any;
+
+      if (!data.success) throw new Error(data.error || 'Filing failed');
+
+      const filing = data.data;
+      let message = `**Tax Filing ${taxYear} — ${(filing.jurisdiction || 'ca').toUpperCase()}**\n\n`;
+      message += `Overall completeness: **${Math.round((filing.completeness || 0) * 100)}%**\n\n`;
+
+      for (const form of (filing.forms || [])) {
+        const icon = form.completeness >= 100 ? '\u2705' : form.completeness >= 50 ? '\u{1F7E1}' : '\u{1F534}';
+        message += `${icon} **${form.formCode}**: ${form.completeness}% complete\n`;
+      }
+
+      if (filing.missingFields?.length > 0) {
+        const manualFields = filing.missingFields.filter((f: any) => f.source === 'manual');
+        const slipFields = filing.missingFields.filter((f: any) => f.source === 'slip');
+        message += `\n**Missing:**\n`;
+        if (manualFields.length > 0) message += `- ${manualFields.length} fields need your input\n`;
+        if (slipFields.length > 0) message += `- ${slipFields.length} fields need tax slips (T4, T5, RRSP, etc.)\n`;
+        message += `\nSend tax slips as photos/PDFs, or ask me about a specific form.`;
+      } else {
+        message += `\nAll fields populated! Review each form or export when ready.`;
+      }
+
+      await db.abConversation.create({ data: { tenantId, question: text || '[tax filing]', answer: message, queryType: 'agent', channel, skillUsed: 'tax-filing-start' } });
+      return { selectedSkill, extractedParams, confidence, skillUsed: 'tax-filing-start', skillResponse: data,
+        responseData: { message, actions: [], chartData: null, skillUsed: 'tax-filing-start', confidence, latencyMs: Date.now() - startTime } };
+    } catch (err) {
+      console.error('Tax filing start error:', err);
+      return { selectedSkill, extractedParams, confidence: 0, skillUsed: 'tax-filing-start', skillResponse: null,
+        responseData: { message: "I couldn't start the tax filing. Please try again.", actions: [], chartData: null, skillUsed: 'tax-filing-start', confidence: 0, latencyMs: Date.now() - startTime } };
     }
   }
 
@@ -3246,6 +3350,26 @@ If no skill matches well, use "general-question" with parameter "question" = the
     } else if (data?.trigger && data?.action && data?.id) {
       message = `**Automation Created**\n\nWhen: ${data.trigger}\nThen: ${data.action}`;
       if (data.description) message += `\n\n${data.description}`;
+
+    // Tax filing status
+    } else if (data?.filingId && data?.completeness !== undefined && data?.forms) {
+      message = `**Tax Filing ${data.taxYear || '2025'}**\n\n`;
+      message += `Overall: **${Math.round((data.completeness || 0) * 100)}%** complete\n\n`;
+      for (const form of (data.forms || [])) {
+        const icon = form.completeness >= 100 ? '\u2705' : form.completeness >= 50 ? '\u{1F7E1}' : '\u{1F534}';
+        message += `${icon} **${form.formCode}**: ${form.completeness}%\n`;
+      }
+      if (data.missingFields?.length > 0) {
+        message += `\n${data.missingFields.length} fields still needed.`;
+      }
+
+    // Tax slips list
+    } else if (Array.isArray(data) && data.length > 0 && data[0]?.slipType && data[0]?.extractedData !== undefined) {
+      message = '**Tax Slips**\n';
+      for (const s of data) {
+        const icon = s.status === 'confirmed' ? '\u2705' : '\u{1F7E1}';
+        message += `\n${icon} **${s.slipType}**${s.issuer ? ` from ${s.issuer}` : ''} [${s.status}] (${Math.round((s.confidence || 0) * 100)}% confidence)`;
+      }
 
     } else if (data?.id && data?.amountCents !== undefined) {
       const catLabel = data.categoryName ? ` [${data.categoryName}]` : '';

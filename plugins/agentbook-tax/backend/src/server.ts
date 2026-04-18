@@ -1391,7 +1391,7 @@ server.app.post('/api/v1/agentbook-tax/tax-filing/:year/field', async (req, res)
     if (!formCode || !fieldId) {
       return res.status(400).json({ success: false, error: 'formCode and fieldId are required' });
     }
-    const result = await updateFilingField(tenantId, year, formCode, fieldId, value);
+    const result = await updateFilingField(tenantId, parseInt(year, 10), formCode, fieldId, value);
     res.json({ success: true, data: result });
   } catch (err) {
     res.status(500).json({ success: false, error: String(err) });
