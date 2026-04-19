@@ -2621,10 +2621,14 @@ async function classifyAndExecuteV1(
               }
               // Special check: record-expense needs a $ amount and should not match invoice/simulation commands
               if (skill.name === 'record-expense') {
-                if (!/\$\s*[\d,]+\.?\d{0,2}|\d+\s*(?:dollars|bucks)/i.test(text)) continue;
+                // Must contain a dollar amount ($X, X dollars, or bare number after expense verb)
+                if (!/\$\s*[\d,]+\.?\d{0,2}|\d+\s*(?:dollars|bucks)/i.test(text)
+                    && !/(?:spent|paid|bought|purchased|cost)\s+\$?[\d,]+\.?\d{0,2}/i.test(text)) continue;
                 if (/^invoice\s/i.test(lower)) continue;
                 if (/what\s*if\b/i.test(lower)) continue;
-                if (/got.*\$.*from/i.test(lower)) continue;  // payment, not expense
+                if (/got.*\$.*from/i.test(lower)) continue;
+                if (/alert.*when|notify.*when|automat/i.test(lower)) continue;
+                if (/received.*payment/i.test(lower)) continue;
                 if (/received.*payment/i.test(lower)) continue;
                 if (/^(?:estimate|quote|proposal)\s/i.test(lower)) continue;  // estimate, not expense
                 if (/alert.*when|notify.*when|automat/i.test(lower)) continue;  // automation, not expense
@@ -2656,11 +2660,17 @@ async function classifyAndExecuteV1(
         if (params.question) extractedParams.question = text;
         if (params.scenario) extractedParams.scenario = text;
         if (params.amountCents) {
-          const amtMatch = processedText.match(/\$\s*([\d,]+\.?\d{0,2})/);
+          // Try $X.XX, then bare number after expense verb, then N bucks/dollars, then X.XX standalone
+          const amtMatch = processedText.match(/\$\s*([\d,]+\.?\d{0,2})/)
+            || processedText.match(/(?:spent|paid|bought|purchased|cost|was)\s+\$?([\d,]+\.?\d{0,2})/i)
+            || processedText.match(/([\d,]+\.?\d{0,2})\s*(?:dollars|bucks|cad|usd)/i)
+            || processedText.match(/\b([\d,]+\.\d{2})\b/);
           if (amtMatch) extractedParams.amountCents = Math.round(parseFloat(amtMatch[1].replace(/,/g, '')) * 100);
         }
         if (params.vendor) {
-          const vendorMatch = processedText.match(/(?:at|from|@)\s+([A-Z][A-Za-z\s&']+)/);
+          // Try "at/from/@ Vendor", then "on/for description"
+          const vendorMatch = processedText.match(/(?:at|from|@)\s+([A-Z][A-Za-z\s&']+)/)
+            || processedText.match(/(?:on|for)\s+(.+?)(?:\s+today|\s+yesterday|\s*$)/i);
           if (vendorMatch) extractedParams.vendor = vendorMatch[1].trim();
         }
         if (params.clientName) {
@@ -2715,11 +2725,20 @@ If no skill matches well, use "general-question" with parameter "question" = the
           selectedSkill = skills.find((s: any) => s.name === parsed.skill);
           extractedParams = parsed.parameters || { question: text };
           confidence = parsed.confidence || 0.7;
-          // Ensure skills that need 'question' or 'scenario' always get the full text
+          // Ensure skills get required params from the original text
           if (selectedSkill) {
             const skillParams = selectedSkill.parameters as Record<string, any>;
             if (skillParams.question && !extractedParams.question) extractedParams.question = text;
             if (skillParams.scenario && !extractedParams.scenario) extractedParams.scenario = text;
+            // For expense/invoice skills, extract amount from text if LLM didn't provide it
+            if (skillParams.amountCents && !extractedParams.amountCents) {
+              const amtMatch = text.match(/\$\s*([\d,]+\.?\d{0,2})/)
+                || text.match(/(?:spent|paid|bought|purchased|cost|was)\s+\$?([\d,]+\.?\d{0,2})/i)
+                || text.match(/([\d,]+\.?\d{0,2})\s*(?:dollars|bucks|cad|usd)/i)
+                || text.match(/\b([\d,]+\.\d{2})\b/);
+              if (amtMatch) extractedParams.amountCents = Math.round(parseFloat(amtMatch[1].replace(/,/g, '')) * 100);
+            }
+            if (skillParams.description && !extractedParams.description) extractedParams.description = text;
           }
         } catch { /* LLM parse failure */ }
       }
@@ -3214,7 +3233,29 @@ If no skill matches well, use "general-question" with parameter "question" = the
   let chartData: any = null;
 
   if (skillError || !skillResponse?.success) {
-    message = "I couldn't complete that action. Please try again or rephrase your request.";
+    // Provide specific error feedback based on skill and what went wrong
+    const errorDetail = skillResponse?.error || '';
+    if (selectedSkill.name === 'record-expense') {
+      if (!extractedParams.amountCents) {
+        message = "I couldn't find the amount. Try including a number, e.g.:\n• \"Spent $45 on lunch\"\n• \"Paid 132.99 for gas\"";
+      } else {
+        message = `I couldn't record that expense. ${errorDetail ? 'Error: ' + errorDetail : 'Please try again.'}`;
+      }
+    } else if (selectedSkill.name === 'create-invoice' || selectedSkill.name === 'create-estimate') {
+      if (!extractedParams.clientName && !extractedParams.clientId) {
+        message = "I need a client name and amount. Try:\n• \"Invoice Acme $5000 for consulting\"\n• \"Estimate TechCorp $3000 for web design\"";
+      } else {
+        message = `I couldn't create that. ${errorDetail ? 'Error: ' + errorDetail : 'Please check the client name and amount.'}`;
+      }
+    } else if (selectedSkill.name === 'record-payment') {
+      message = "I couldn't record the payment. I need a client or invoice reference:\n• \"Got $5000 from Acme\"\n• \"Record payment for INV-2026-0001\"";
+    } else if (selectedSkill.name === 'send-invoice') {
+      message = "I couldn't find an invoice to send. Try:\n• \"Send invoice INV-2026-0001\"\n• Create one first: \"Invoice Acme $5000\"";
+    } else if (errorDetail) {
+      message = `I couldn't complete that action. ${errorDetail}`;
+    } else {
+      message = `I couldn't complete that action (skill: ${selectedSkill.name}). Please try rephrasing or type /help ${selectedSkill.category || ''} for guidance.`;
+    }
   } else {
     const data = skillResponse.data;
 
