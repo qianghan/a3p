@@ -956,13 +956,53 @@ app.post('/api/v1/agentbook-expense/receipts/ocr', async (req, res) => {
         const model = llmConfig.modelVision || llmConfig.modelStandard || 'gemini-2.5-flash';
         const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${llmConfig.apiKey}`;
 
+        // Download image and convert to base64 for Gemini Vision
+        // Cap at 4MB (Gemini inline limit). For larger images, resize would be needed.
+        let imageParts: any[] = [];
+        try {
+          const imgRes = await fetch(imageUrl);
+          if (imgRes.ok) {
+            const imgBuffer = await imgRes.arrayBuffer();
+            const sizeKB = imgBuffer.byteLength / 1024;
+            const base64 = Buffer.from(imgBuffer).toString('base64');
+            const mimeType = imgRes.headers.get('content-type') || 'image/jpeg';
+            if (sizeKB < 4096) { // Under 4MB — send directly
+              imageParts = [{ inlineData: { mimeType, data: base64 } }];
+            } else {
+              console.warn(`Receipt image too large (${Math.round(sizeKB)}KB), using URL fallback`);
+              imageParts = [{ text: `[Image too large for inline. URL: ${imageUrl}]` }];
+            }
+          }
+        } catch (imgErr) {
+          console.warn('Image download failed:', imgErr);
+          // Fall back to asking Gemini to fetch the URL (less reliable)
+          imageParts = [{ text: `Please analyze the receipt image at this URL: ${imageUrl}` }];
+        }
+
+        const systemPrompt = `You are an expert receipt and document scanner. Extract data from the receipt image.
+
+INSTRUCTIONS:
+- Look carefully at the TOTAL or AMOUNT DUE — this is the most important field
+- The total is usually the largest number, often at the bottom, sometimes after "Total", "Amount Due", "Balance", or "Grand Total"
+- Vendor/store name is usually at the top of the receipt
+- Date may be in various formats (MM/DD/YYYY, YYYY-MM-DD, DD/MM/YYYY, Mon DD YYYY)
+- If the image is blurry or unclear, extract what you CAN see and set confidence lower
+- amount_cents is the total in CENTS (e.g., $45.99 = 4599, $132.99 = 13299)
+- If you see tax/tip lines, use the GRAND TOTAL (after tax and tip)
+- If you can't read the amount at all, set amount_cents to 0 and confidence to 0
+
+Return ONLY valid JSON: {"amount_cents": <integer>, "vendor": "<string or null>", "date": "<YYYY-MM-DD>", "currency": "USD or CAD", "items": "<brief description of items if visible>", "tax_cents": <integer or 0>, "tip_cents": <integer or 0>, "confidence": <0.0-1.0>}`;
+
         const llmRes = await fetch(url, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            systemInstruction: { parts: [{ text: 'Extract receipt data as JSON: {"amount_cents": <integer>, "vendor": "<string>", "date": "<YYYY-MM-DD>", "currency": "USD or CAD", "confidence": <0-1>}. Return ONLY valid JSON.' }] },
-            contents: [{ role: 'user', parts: [{ text: `Extract data from this receipt image URL: ${imageUrl}` }] }],
-            generationConfig: { maxOutputTokens: 200, temperature: 0.1, responseMimeType: 'application/json' },
+            systemInstruction: { parts: [{ text: systemPrompt }] },
+            contents: [{ role: 'user', parts: [
+              ...imageParts,
+              { text: 'Extract the receipt data from this image. Focus on the total amount, vendor name, and date.' },
+            ] }],
+            generationConfig: { maxOutputTokens: 4096, temperature: 0.1, thinkingConfig: { thinkingBudget: 0 } },
           }),
         });
 
@@ -970,9 +1010,51 @@ app.post('/api/v1/agentbook-expense/receipts/ocr', async (req, res) => {
           const llmData = await llmRes.json();
           const text = llmData.candidates?.[0]?.content?.parts?.[0]?.text || '{}';
           try {
-            const parsed = JSON.parse(text);
-            ocrResult = { ...parsed, status: 'processed_by_gemini', model };
-          } catch { ocrResult.status = 'gemini_parse_error'; }
+            const cleaned = text.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+            const parsed = JSON.parse(cleaned);
+            ocrResult = {
+              amount_cents: parsed.amount_cents || 0,
+              vendor: parsed.vendor || null,
+              date: parsed.date || new Date().toISOString().split('T')[0],
+              currency: parsed.currency || 'USD',
+              items: parsed.items || null,
+              tax_cents: parsed.tax_cents || 0,
+              tip_cents: parsed.tip_cents || 0,
+              confidence: parsed.confidence || 0,
+              status: 'processed_by_gemini',
+              model,
+            };
+          } catch (parseErr) {
+            // Try to extract from non-standard response (Gemini sometimes wraps in extra structure)
+            try {
+              const jsonMatch = text.match(/\{[\s\S]*\}/);
+              if (jsonMatch) {
+                const parsed = JSON.parse(jsonMatch[0]);
+                ocrResult = {
+                  amount_cents: parsed.amount_cents || 0,
+                  vendor: parsed.vendor || null,
+                  date: parsed.date || new Date().toISOString().split('T')[0],
+                  currency: parsed.currency || 'USD',
+                  items: parsed.items || null,
+                  tax_cents: parsed.tax_cents || 0,
+                  tip_cents: parsed.tip_cents || 0,
+                  confidence: parsed.confidence || 0,
+                  status: 'processed_by_gemini',
+                  model,
+                };
+              } else {
+                ocrResult.status = 'gemini_parse_error';
+                console.warn('Gemini OCR parse error, raw text:', text.slice(0, 300));
+              }
+            } catch {
+              ocrResult.status = 'gemini_parse_error';
+              console.warn('Gemini OCR parse error (fallback), raw text:', text.slice(0, 300));
+            }
+          }
+        } else {
+          const errBody = await llmRes.text().catch(() => '');
+          console.warn('Gemini OCR HTTP error:', llmRes.status, errBody.slice(0, 200));
+          ocrResult.status = 'gemini_http_error';
         }
       } catch (err) {
         console.warn('Gemini OCR failed:', err);

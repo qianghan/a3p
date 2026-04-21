@@ -3281,6 +3281,29 @@ If no skill matches well, use "general-question" with parameter "question" = the
     } else if (data?.annotation) {
       message = data.annotation;
       chartData = { type: data.chartType || 'bar', data: data.data || [] };
+
+    // Receipt OCR result
+    } else if (data?.status && (data.status.startsWith('processed_by_') || data.status === 'gemini_parse_error' || data.status === 'gemini_error' || data.status === 'no_llm_configured')) {
+      if (data.amount_cents > 0 && data.autoRecorded) {
+        const amt = (data.amount_cents / 100).toFixed(2);
+        message = `\u2705 **Receipt recorded!**\n\n\u{1F4B0} **$${amt}**${data.vendor ? ` at ${data.vendor}` : ''}`;
+        if (data.date) message += `\n\u{1F4C5} ${data.date}`;
+        if (data.items) message += `\n\u{1F4DD} ${data.items}`;
+        message += `\n\u{1F50D} Confidence: ${Math.round((data.confidence || 0) * 100)}%`;
+      } else if (data.amount_cents > 0) {
+        const amt = (data.amount_cents / 100).toFixed(2);
+        message = `\u{1F9FE} **Receipt scanned** (needs review)\n\n\u{1F4B0} $${amt}${data.vendor ? ` \u2014 ${data.vendor}` : ''}`;
+        if (data.date) message += `\n\u{1F4C5} ${data.date}`;
+        message += `\n\u{1F50D} Low confidence (${Math.round((data.confidence || 0) * 100)}%)`;
+        message += `\n\nConfirm or type the correct amount.`;
+      } else {
+        message = `\u{1F9FE} I couldn't read the amount from that receipt.`;
+        if (data.vendor) message += ` I can see it's from **${data.vendor}**.`;
+        message += `\n\nPlease type the expense, e.g.: "Spent $45 on lunch at ${data.vendor || 'store'}"`;
+        if (data.status === 'gemini_parse_error') message += `\n\n_(The image was processed but the result couldn't be parsed. Try a clearer photo.)_`;
+        if (data.status === 'no_llm_configured') message += `\n\n_(Receipt scanning requires LLM configuration.)_`;
+      }
+
     // Invoice list
     } else if (Array.isArray(data) && data.length > 0 && data[0]?.number && data[0]?.status) {
       message = data.slice(0, 10).map((inv: any) => {
