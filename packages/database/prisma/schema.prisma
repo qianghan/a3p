@@ -1426,6 +1426,12 @@ model AbTenantConfig {
   autoApproveLimitCents   Int      @default(50000)       // $500 default
   autoRemindEnabled       Boolean  @default(false)
   autoRemindDays          Int      @default(3)            // min days between reminders
+  companyName             String?
+  companyAddress          String?
+  companyEmail            String?
+  companyPhone            String?
+  logoUrl                 String?
+  brandColor              String   @default("#1a1a2e")
   createdAt               DateTime @default(now())
   updatedAt               DateTime @updatedAt
 

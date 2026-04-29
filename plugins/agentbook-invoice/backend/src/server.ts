@@ -1318,9 +1318,12 @@ function formatMoney(cents: number, currency: string = 'USD'): string {
 
 function generateInvoiceHtml(invoice: any, client: any, lines: any[], tenantConfig: any): string {
   const currency = invoice.currency || 'USD';
-  const companyName = tenantConfig?.businessName || 'Your Company';
-  const companyAddress = tenantConfig?.address || '';
-  const companyEmail = tenantConfig?.email || '';
+  const companyName = tenantConfig?.companyName || tenantConfig?.businessName || 'Your Company';
+  const companyAddress = tenantConfig?.companyAddress || tenantConfig?.address || '';
+  const companyEmail = tenantConfig?.companyEmail || tenantConfig?.email || '';
+  const companyPhone = tenantConfig?.companyPhone || '';
+  const logoUrl = tenantConfig?.logoUrl || '';
+  const brandColor = tenantConfig?.brandColor || '#10b981';
 
   const lineRows = lines.map((l: any, i: number) => `
     <tr>
@@ -1337,7 +1340,7 @@ function generateInvoiceHtml(invoice: any, client: any, lines: any[], tenantConf
 <style>
   body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; color: #1a1a2e; margin: 0; padding: 40px; }
   .header { display: flex; justify-content: space-between; margin-bottom: 40px; }
-  .company { font-size: 24px; font-weight: 700; color: #10b981; }
+  .company { font-size: 24px; font-weight: 700; color: ${brandColor}; }
   .invoice-title { font-size: 32px; font-weight: 300; color: #64748b; text-align: right; }
   .invoice-number { font-size: 14px; color: #94a3b8; text-align: right; }
   .details { display: flex; justify-content: space-between; margin-bottom: 30px; }
@@ -1345,10 +1348,10 @@ function generateInvoiceHtml(invoice: any, client: any, lines: any[], tenantConf
   .details-label { font-size: 11px; text-transform: uppercase; color: #94a3b8; letter-spacing: 1px; margin-bottom: 4px; }
   .details-value { font-size: 14px; font-weight: 500; }
   table { width: 100%; border-collapse: collapse; margin-bottom: 30px; }
-  thead th { background: #1a1a2e; color: white; padding: 10px 8px; text-align: left; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; }
+  thead th { background: ${brandColor}; color: white; padding: 10px 8px; text-align: left; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; }
   thead th:nth-child(3), thead th:nth-child(4), thead th:nth-child(5) { text-align: right; }
   .total-row { display: flex; justify-content: flex-end; }
-  .total-box { background: #10b981; color: white; padding: 16px 32px; border-radius: 8px; font-size: 20px; font-weight: 700; }
+  .total-box { background: ${brandColor}; color: white; padding: 16px 32px; border-radius: 8px; font-size: 20px; font-weight: 700; }
   .footer { margin-top: 40px; padding-top: 20px; border-top: 1px solid #e2e8f0; font-size: 12px; color: #94a3b8; text-align: center; }
   .status { display: inline-block; padding: 4px 12px; border-radius: 12px; font-size: 12px; font-weight: 600; text-transform: uppercase; }
   .status-draft { background: #f1f5f9; color: #64748b; }
@@ -1361,9 +1364,11 @@ function generateInvoiceHtml(invoice: any, client: any, lines: any[], tenantConf
 <body>
   <div class="header">
     <div>
+      ${logoUrl ? `<img src="${logoUrl}" alt="${companyName}" style="max-height:60px;max-width:200px;margin-bottom:8px;" />` : ''}
       <div class="company">${companyName}</div>
       <div style="font-size:13px;color:#64748b;margin-top:4px;">${companyAddress}</div>
       ${companyEmail ? `<div style="font-size:13px;color:#64748b;">${companyEmail}</div>` : ''}
+      ${companyPhone ? `<div style="font-size:13px;color:#64748b;">${companyPhone}</div>` : ''}
     </div>
     <div>
       <div class="invoice-title">INVOICE</div>
@@ -1389,7 +1394,7 @@ function generateInvoiceHtml(invoice: any, client: any, lines: any[], tenantConf
       <div class="details-label">Currency</div>
       <div class="details-value">${currency}</div>
       <div class="details-label" style="margin-top:12px;">Amount Due</div>
-      <div class="details-value" style="font-size:18px;color:#10b981;">${formatMoney(invoice.amountCents, currency)}</div>
+      <div class="details-value" style="font-size:18px;color:${brandColor};">${formatMoney(invoice.amountCents, currency)}</div>
     </div>
   </div>
 
@@ -1411,7 +1416,7 @@ function generateInvoiceHtml(invoice: any, client: any, lines: any[], tenantConf
   </div>
 
   ${invoice.paymentUrl && invoice.status !== 'paid' ? `<div style="text-align:center;margin:24px 0">
-    <a href="${invoice.paymentUrl}" style="display:inline-block;padding:14px 32px;background:#10b981;color:white;text-decoration:none;border-radius:8px;font-weight:bold;font-size:16px">
+    <a href="${invoice.paymentUrl}" style="display:inline-block;padding:14px 32px;background:${brandColor};color:white;text-decoration:none;border-radius:8px;font-weight:bold;font-size:16px">
       Pay ${formatMoney(invoice.amountCents, currency)} Now
     </a>
     <p style="margin-top:8px;font-size:12px;color:#888">Secure payment powered by Stripe</p>
@@ -1582,7 +1587,7 @@ app.post('/invoices/:id/remind', async (req: Request, res: Response) => {
       <p>This is a ${tone} reminder regarding invoice <strong>${invoice.number}</strong> for <strong>${formatMoney(balance, invoice.currency)}</strong>${daysOverdue > 0 ? ` which was due ${daysOverdue} days ago` : ` due on ${new Date(invoice.dueDate).toLocaleDateString()}`}.</p>
       ${totalPaid > 0 ? `<p>We have received ${formatMoney(totalPaid, invoice.currency)} — remaining balance: ${formatMoney(balance, invoice.currency)}.</p>` : ''}
       ${invoice.paymentUrl ? `<div style="text-align:center;margin:24px 0">
-        <a href="${invoice.paymentUrl}" style="display:inline-block;padding:14px 32px;background:#10b981;color:white;text-decoration:none;border-radius:8px;font-weight:bold;font-size:16px">
+        <a href="${invoice.paymentUrl}" style="display:inline-block;padding:14px 32px;background:${brandColor};color:white;text-decoration:none;border-radius:8px;font-weight:bold;font-size:16px">
           Pay ${formatMoney(balance, invoice.currency)} Now
         </a>
         <p style="margin-top:8px;font-size:12px;color:#888">Secure payment powered by Stripe</p>
@@ -2030,6 +2035,48 @@ app.post('/api/v1/agentbook-invoice/stripe/checkout-completed', async (req: Requ
   } catch (err) {
     console.error('Stripe checkout webhook error:', err);
     res.json({ received: true, error: String(err) });
+  }
+});
+
+// ============================================
+// PUBLIC INVOICE VIEW (no auth required)
+// ============================================
+
+app.get('/api/v1/agentbook-invoice/invoices/:id/public', async (req: Request, res: Response) => {
+  try {
+    const invoice = await db.abInvoice.findFirst({
+      where: { id: req.params.id },
+      include: { client: true, lines: true },
+    });
+    if (!invoice) return res.status(404).json({ success: false, error: 'Invoice not found' });
+
+    // Mark as viewed
+    if (invoice.status === 'sent') {
+      await db.abInvoice.update({ where: { id: invoice.id }, data: { status: 'viewed' } });
+    }
+
+    // Return safe data (no tenant secrets)
+    res.json({
+      success: true,
+      data: {
+        number: invoice.number,
+        amountCents: invoice.amountCents,
+        currency: invoice.currency,
+        issuedDate: invoice.issuedDate,
+        dueDate: invoice.dueDate,
+        status: invoice.status === 'sent' ? 'viewed' : invoice.status,
+        paymentUrl: invoice.paymentUrl,
+        clientName: invoice.client?.name,
+        lines: (invoice.lines || []).map((l: any) => ({
+          description: l.description,
+          quantity: l.quantity,
+          rateCents: l.rateCents,
+          amountCents: l.amountCents,
+        })),
+      },
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: String(err) });
   }
 });
 

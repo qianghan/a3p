@@ -29,6 +29,13 @@ app.use((req, res, next) => {
   next();
 });
 
+// === Multi-Currency Formatter ===
+function fmtCurrency(cents: number, currency?: string): string {
+  const symbols: Record<string, string> = { USD: '$', CAD: 'CA$', GBP: '\u00a3', EUR: '\u20ac', AUD: 'A$' };
+  const sym = symbols[currency || 'USD'] || (currency || 'USD') + ' ';
+  return `${sym}${(cents / 100).toFixed(2)}`;
+}
+
 // === Health Check ===
 app.get('/healthz', async (_req, res) => {
   try {
@@ -3714,7 +3721,7 @@ If no skill matches well, use "general-question" with parameter "question" = the
     // Use response template if available
     if (selectedSkill.responseTemplate && data) {
       message = (selectedSkill.responseTemplate as string).replace(/\{\{(\w+)\}\}/g, (_: any, key: string) => {
-        if (key === 'amount' || key === 'amountFormatted') return '$' + ((data.amountCents || 0) / 100).toFixed(2);
+        if (key === 'amount' || key === 'amountFormatted') return fmtCurrency(data.amountCents || 0, data.currency);
         return data[key] || '';
       });
       // Clean up empty brackets from optional template fields
@@ -3760,7 +3767,7 @@ If no skill matches well, use "general-question" with parameter "question" = the
     } else if (Array.isArray(data) && data.length > 0 && data[0]?.number && data[0]?.status) {
       message = data.slice(0, 10).map((inv: any) => {
         const icon = inv.status === 'paid' ? '\u2705' : inv.status === 'overdue' ? '\u{1F534}' : '\u{1F7E1}';
-        return `${icon} ${inv.number} \u2014 $${(inv.amountCents / 100).toFixed(2)} (${inv.client?.name || 'Unknown'}) [${inv.status}]`;
+        return `${icon} ${inv.number} \u2014 ${fmtCurrency(inv.amountCents, inv.currency)} (${inv.client?.name || 'Unknown'}) [${inv.status}]`;
       }).join('\n');
       if (data.length > 10) message += `\n...and ${data.length - 10} more.`;
 
@@ -3772,11 +3779,11 @@ If no skill matches well, use "general-question" with parameter "question" = the
         const inv = invoices as any[];
         if (inv.length > 0) {
           const totalCents = inv.reduce((s: number, i: any) => s + (i.balanceDueCents || i.amountCents || 0), 0);
-          message += `\n**${label}**: $${(totalCents / 100).toFixed(2)} (${inv.length} invoices)`;
+          message += `\n**${label}**: ${fmtCurrency(totalCents)} (${inv.length} invoices)`;
         }
       }
       if (data.totalOutstandingCents !== undefined) {
-        message += `\n\n**Total Outstanding:** $${(data.totalOutstandingCents / 100).toFixed(2)}`;
+        message += `\n\n**Total Outstanding:** ${fmtCurrency(data.totalOutstandingCents)}`;
       }
 
     // Client list
@@ -3874,32 +3881,32 @@ If no skill matches well, use "general-question" with parameter "question" = the
       for (const b of data.budgets) {
         const pct = b.percent || 0;
         const icon = pct > 100 ? '\u{1F534}' : pct > (b.alertPercent || 80) ? '\u{1F7E1}' : '\u{1F7E2}';
-        message += `\n${icon} **${b.categoryName || 'Total'}**: $${(b.spentCents / 100).toFixed(0)} / $${(b.amountCents / 100).toFixed(0)} (${pct}%)`;
+        message += `\n${icon} **${b.categoryName || 'Total'}**: ${fmtCurrency(b.spentCents, b.currency)} / ${fmtCurrency(b.amountCents, b.currency)} (${pct}%)`;
       }
 
     // Expense report
     } else if (data?.html && data?.expenseCount !== undefined) {
-      message = `**Expense Report** generated\n\n${data.expenseCount} expenses, total: $${(data.totalCents / 100).toFixed(2)}`;
+      message = `**Expense Report** generated\n\n${data.expenseCount} expenses, total: ${fmtCurrency(data.totalCents, data.currency)}`;
       if (data.categories?.length > 0) {
         message += '\n';
         for (const cat of data.categories.slice(0, 8)) {
-          message += `\n\u2022 ${cat.name}: $${(cat.total / 100).toFixed(2)} (${cat.count})`;
+          message += `\n\u2022 ${cat.name}: ${fmtCurrency(cat.total, data.currency)} (${cat.count})`;
         }
       }
 
     // P&L report
     } else if (data?.grossRevenueCents !== undefined && data?.totalExpensesCents !== undefined && data?.netIncomeCents !== undefined && !data?.totalTaxCents) {
       message = '**Profit & Loss**\n';
-      message += `\nRevenue: $${(data.grossRevenueCents / 100).toFixed(2)}`;
-      message += `\nExpenses: $${(data.totalExpensesCents / 100).toFixed(2)}`;
-      message += `\n**Net Income: $${(data.netIncomeCents / 100).toFixed(2)}**`;
+      message += `\nRevenue: ${fmtCurrency(data.grossRevenueCents, data.currency)}`;
+      message += `\nExpenses: ${fmtCurrency(data.totalExpensesCents, data.currency)}`;
+      message += `\n**Net Income: ${fmtCurrency(data.netIncomeCents, data.currency)}**`;
       if (data.revenueLines?.length) {
         message += '\n\nRevenue Breakdown:';
-        data.revenueLines.forEach((l: any) => { message += `\n  \u2022 ${l.name}: $${(l.amountCents / 100).toFixed(2)}`; });
+        data.revenueLines.forEach((l: any) => { message += `\n  \u2022 ${l.name}: ${fmtCurrency(l.amountCents, data.currency)}`; });
       }
       if (data.expenseLines?.length) {
         message += '\n\nExpense Breakdown:';
-        data.expenseLines.slice(0, 8).forEach((l: any) => { message += `\n  \u2022 ${l.name}: $${(l.amountCents / 100).toFixed(2)}`; });
+        data.expenseLines.slice(0, 8).forEach((l: any) => { message += `\n  \u2022 ${l.name}: ${fmtCurrency(l.amountCents, data.currency)}`; });
       }
 
     // Balance sheet
@@ -4013,13 +4020,13 @@ If no skill matches well, use "general-question" with parameter "question" = the
 
     } else if (data?.id && data?.amountCents !== undefined) {
       const catLabel = data.categoryName ? ` [${data.categoryName}]` : '';
-      message = `Recorded: $${(data.amountCents / 100).toFixed(2)} — ${data.description || data.number || 'Item'}${catLabel}`;
+      message = `Recorded: ${fmtCurrency(data.amountCents, data.currency)} — ${data.description || data.number || 'Item'}${catLabel}`;
     } else if (data?.number) {
-      message = `Invoice ${data.number} created — $${(data.amountCents / 100).toFixed(2)}`;
+      message = `Invoice ${data.number} created — ${fmtCurrency(data.amountCents, data.currency)}`;
       if (data.lines?.length > 1) {
         message += '\n\nLine items:';
         data.lines.forEach((l: any) => {
-          message += `\n• ${l.description}: $${(l.amountCents / 100).toFixed(2)}`;
+          message += `\n• ${l.description}: ${fmtCurrency(l.amountCents, data.currency)}`;
         });
       }
     } else {
