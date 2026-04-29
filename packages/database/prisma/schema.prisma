@@ -1424,6 +1424,8 @@ model AbTenantConfig {
   timezone                String   @default("America/New_York")
   fiscalYearStart         Int      @default(1)           // month 1-12
   autoApproveLimitCents   Int      @default(50000)       // $500 default
+  autoRemindEnabled       Boolean  @default(false)
+  autoRemindDays          Int      @default(3)            // min days between reminders
   createdAt               DateTime @default(now())
   updatedAt               DateTime @updatedAt
 
@@ -1798,6 +1800,8 @@ model AbInvoice {
   pdfHtml         String?                       // stored HTML for PDF rendering
   journalEntryId  String?
   recurringId     String?                       // link to AbRecurringInvoice if auto-generated
+  paymentUrl      String?
+  lastRemindedAt  DateTime?
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 

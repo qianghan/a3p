@@ -58,7 +58,7 @@ app.get('/api/v1/agentbook-core/tenant-config', async (req, res) => {
 app.put('/api/v1/agentbook-core/tenant-config', async (req, res) => {
   try {
     const tenantId = (req as any).tenantId;
-    const { businessType, jurisdiction, region, currency, locale, timezone, fiscalYearStart, autoApproveLimitCents } = req.body;
+    const { businessType, jurisdiction, region, currency, locale, timezone, fiscalYearStart, autoApproveLimitCents, autoRemindEnabled, autoRemindDays } = req.body;
     const config = await db.abTenantConfig.upsert({
       where: { userId: tenantId },
       update: {
@@ -70,6 +70,8 @@ app.put('/api/v1/agentbook-core/tenant-config', async (req, res) => {
         ...(timezone && { timezone }),
         ...(fiscalYearStart && { fiscalYearStart }),
         ...(autoApproveLimitCents !== undefined && { autoApproveLimitCents }),
+        ...(autoRemindEnabled !== undefined && { autoRemindEnabled }),
+        ...(autoRemindDays !== undefined && { autoRemindDays }),
       },
       create: {
         userId: tenantId,
@@ -2544,6 +2546,18 @@ const BUILT_IN_SKILLS = [
     confirmBefore: true,
   },
   {
+    name: 'create-payment-link', description: 'Generate a Stripe payment link for an invoice so clients can pay online', category: 'invoicing',
+    triggerPatterns: ['payment.*link', 'pay.*link', 'stripe.*link', 'online.*pay', 'pay.*online', 'generate.*link'],
+    parameters: { invoiceId: { type: 'string', required: false } },
+    endpoint: { method: 'POST', url: '/api/v1/agentbook-invoice/invoices/:id/payment-link' },
+  },
+  {
+    name: 'toggle-auto-reminders', description: 'Enable or disable automatic payment reminders for overdue invoices', category: 'invoicing',
+    triggerPatterns: ['auto.*remind', 'automatic.*remind', 'enable.*remind', 'disable.*remind'],
+    parameters: { enabled: { type: 'boolean', required: false } },
+    endpoint: { method: 'PUT', url: '/api/v1/agentbook-core/tenant-config' },
+  },
+  {
     name: 'general-question', description: 'Answer any general financial or accounting question', category: 'finance',
     triggerPatterns: [],
     parameters: { question: { type: 'string', required: true, extractHint: 'the full user message' } },
@@ -3027,20 +3041,48 @@ If no skill matches well, use "general-question" with parameter "question" = the
     } catch (err) { console.warn('Invoice client resolution error:', err); }
   }
 
-  // Special pre-processing for create-invoice
+  // Special pre-processing for create-invoice (supports multi-line items)
   if (selectedSkill.name === 'create-invoice' && extractedParams.clientName) {
     try {
       const invoiceBase = baseUrls['/api/v1/agentbook-invoice'] || 'http://localhost:4052';
       const client = await resolveOrCreateClient(invoiceBase, tenantId, extractedParams.clientName);
       if (client) {
         const dueDate = new Date(); dueDate.setDate(dueDate.getDate() + 30);
-        extractedParams = {
-          clientId: client.id,
-          issuedDate: new Date().toISOString().slice(0, 10),
-          dueDate: dueDate.toISOString().slice(0, 10),
-          status: 'draft',
-          lines: [{ description: extractedParams.description || 'Services', quantity: 1, rateCents: extractedParams.amountCents }],
-        };
+
+        // Parse multi-line items: "consulting $3000, design $2000, hosting $500"
+        let lines: any[] = [];
+        const lineText = extractedParams.description || text;
+
+        // Pattern: match segments like "description $amount" separated by commas
+        const multiLineMatch = lineText.match(/[^,$]*\$[\d,]+\.?\d{0,2}/gi);
+        if (multiLineMatch && multiLineMatch.length > 1) {
+          for (const seg of multiLineMatch) {
+            const amtMatch = seg.match(/\$?([\d,]+\.?\d{0,2})\s*$/);
+            const desc = seg.replace(/\$?[\d,]+\.?\d{0,2}\s*$/, '').replace(/[,;]\s*$/, '').trim();
+            if (amtMatch) {
+              lines.push({
+                description: desc || 'Service',
+                quantity: 1,
+                rateCents: Math.round(parseFloat(amtMatch[1].replace(/,/g, '')) * 100),
+              });
+            }
+          }
+        }
+
+        // Single item (existing behavior)
+        if (lines.length === 0 && extractedParams.amountCents) {
+          lines = [{ description: extractedParams.description || 'Services', quantity: 1, rateCents: extractedParams.amountCents }];
+        }
+
+        if (lines.length > 0) {
+          extractedParams = {
+            clientId: client.id,
+            issuedDate: new Date().toISOString().slice(0, 10),
+            dueDate: dueDate.toISOString().slice(0, 10),
+            status: 'draft',
+            lines,
+          };
+        }
       }
     } catch (err) { console.warn('Invoice client resolution error:', err); }
   }
@@ -3106,6 +3148,36 @@ If no skill matches well, use "general-question" with parameter "question" = the
       targetUrl = targetUrl.replace(':id', invoiceId);
       extractedParams = {};
     } catch (err) { console.warn('Send-invoice resolution error:', err); }
+  }
+
+  // Pre-processing: create-payment-link — resolve invoice ID (same pattern as send-invoice)
+  if (selectedSkill.name === 'create-payment-link') {
+    try {
+      const invoiceBase = baseUrls['/api/v1/agentbook-invoice'] || 'http://localhost:4052';
+      const H = { 'Content-Type': 'application/json', 'x-tenant-id': tenantId };
+      let invoiceId = extractedParams.invoiceId;
+      if (!invoiceId || invoiceId === 'last' || invoiceId === 'that') {
+        const listRes = await fetch(`${invoiceBase}/api/v1/agentbook-invoice/invoices?limit=1`, { headers: H });
+        const listData = await listRes.json() as any;
+        const invoices = listData.data || [];
+        if (invoices.length > 0) invoiceId = invoices[0].id;
+      } else if (invoiceId.startsWith('INV-')) {
+        const listRes = await fetch(`${invoiceBase}/api/v1/agentbook-invoice/invoices?number=${encodeURIComponent(invoiceId)}`, { headers: H });
+        const listData = await listRes.json() as any;
+        const invoices = listData.data || [];
+        if (invoices.length > 0) invoiceId = invoices[0].id;
+      }
+      if (invoiceId) {
+        targetUrl = targetUrl.replace(':id', invoiceId);
+        extractedParams = {};
+      }
+    } catch (err) { console.warn('Create-payment-link resolution error:', err); }
+  }
+
+  // Pre-processing: toggle-auto-reminders — parse enable/disable from text
+  if (selectedSkill.name === 'toggle-auto-reminders') {
+    const enable = /enable|turn on|activate|start/i.test(text);
+    extractedParams = { autoRemindEnabled: enable };
   }
 
   // Pre-processing: convert-estimate — resolve "last" estimate
@@ -3893,6 +3965,12 @@ If no skill matches well, use "general-question" with parameter "question" = the
       message = `Recorded: $${(data.amountCents / 100).toFixed(2)} — ${data.description || data.number || 'Item'}${catLabel}`;
     } else if (data?.number) {
       message = `Invoice ${data.number} created — $${(data.amountCents / 100).toFixed(2)}`;
+      if (data.lines?.length > 1) {
+        message += '\n\nLine items:';
+        data.lines.forEach((l: any) => {
+          message += `\n• ${l.description}: $${(l.amountCents / 100).toFixed(2)}`;
+        });
+      }
     } else {
       message = JSON.stringify(data).slice(0, 300);
     }
