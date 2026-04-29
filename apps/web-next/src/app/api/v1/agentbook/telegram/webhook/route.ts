@@ -428,6 +428,10 @@ function getBot(): Bot {
         });
         await ctx.answerCallbackQuery({ text: '🏠 Marked as personal' });
         await ctx.editMessageText('🏠 Marked as personal expense (excluded from business books).');
+      } else if (action === 'change_cat') {
+        // Category change — route through agent as a correction prompt
+        await ctx.answerCallbackQuery({ text: 'What category?' });
+        await ctx.reply('What category should this be? (e.g., "Travel", "Meals", "Software")');
       } else {
         await ctx.answerCallbackQuery({ text: `Action: ${cbData}` });
       }

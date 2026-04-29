@@ -3025,6 +3025,38 @@ If no skill matches well, use "general-question" with parameter "question" = the
     } catch (err) { console.warn('Invoice client resolution error:', err); }
   }
 
+  // Pre-processing: edit-expense — resolve "last" or recent expense
+  if (selectedSkill.name === 'edit-expense') {
+    try {
+      const expenseBase = baseUrls['/api/v1/agentbook-expense'] || 'http://localhost:4051';
+      const EH = { 'Content-Type': 'application/json', 'x-tenant-id': tenantId };
+      if (!extractedParams.expenseId || extractedParams.expenseId === 'last') {
+        // Find most recent expense
+        const res = await fetch(`${expenseBase}/api/v1/agentbook-expense/expenses?limit=1`, { headers: EH });
+        const data = await res.json() as any;
+        if (data.data?.[0]) extractedParams.expenseId = data.data[0].id;
+      }
+      // Also try to resolve "that" from last conversation
+      if (!extractedParams.expenseId) {
+        const lastConvo = await db.abConversation.findFirst({ where: { tenantId, skillUsed: 'record-expense' }, orderBy: { createdAt: 'desc' } });
+        const lastData = lastConvo?.data as any;
+        if (lastData?.params?.expenseId || lastData?.id) extractedParams.expenseId = lastData.params?.expenseId || lastData.id;
+      }
+    } catch (err) { console.warn('Edit-expense resolution error:', err); }
+  }
+
+  // Pre-processing: split-expense — resolve expense ID
+  if (selectedSkill.name === 'split-expense') {
+    try {
+      if (!extractedParams.expenseId || extractedParams.expenseId === 'last') {
+        const expenseBase = baseUrls['/api/v1/agentbook-expense'] || 'http://localhost:4051';
+        const res = await fetch(`${expenseBase}/api/v1/agentbook-expense/expenses?limit=1`, { headers: { 'Content-Type': 'application/json', 'x-tenant-id': tenantId } });
+        const data = await res.json() as any;
+        if (data.data?.[0]) extractedParams.expenseId = data.data[0].id;
+      }
+    } catch (err) { console.warn('Split-expense resolution error:', err); }
+  }
+
   // Pre-processing: send-invoice — resolve invoice reference
   if (selectedSkill.name === 'send-invoice') {
     try {
@@ -3169,6 +3201,64 @@ If no skill matches well, use "general-question" with parameter "question" = the
   }
 
   // INTERNAL handler: tax-filing-start
+  // INTERNAL handler: tax-slip-scan — upload attachment → OCR → extract fields
+  if (selectedSkill.name === 'tax-slip-scan') {
+    try {
+      const taxBase = baseUrls['/api/v1/agentbook-tax'] || 'http://localhost:4053';
+      const IH = { 'Content-Type': 'application/json', 'x-tenant-id': tenantId };
+
+      // Get image URL from attachments or params
+      let imageUrl = extractedParams.imageUrl;
+      if (!imageUrl && attachments?.length > 0) {
+        imageUrl = attachments[0].url;
+      }
+      if (!imageUrl) {
+        return { selectedSkill, extractedParams, confidence, skillUsed: 'tax-slip-scan', skillResponse: null,
+          responseData: { message: 'Please send a photo or PDF of your tax slip (T4, T5, RRSP, etc.).', actions: [], chartData: null, skillUsed: 'tax-slip-scan', confidence, latencyMs: Date.now() - startTime } };
+      }
+
+      const ocrRes = await fetch(`${taxBase}/api/v1/agentbook-tax/tax-slips/ocr`, {
+        method: 'POST', headers: IH,
+        body: JSON.stringify({ imageUrl, taxYear: 2025 }),
+      });
+      const ocrData = await ocrRes.json() as any;
+
+      let message: string;
+      if (ocrData.success && ocrData.data?.slipType && ocrData.data.slipType !== 'unknown') {
+        const d = ocrData.data;
+        message = `\u{1F9FE} **${d.slipType}** scanned${d.issuer ? ` from ${d.issuer}` : ''}\n`;
+        message += `Confidence: ${Math.round((d.confidence || 0) * 100)}%\n\n`;
+        // Show extracted fields
+        const fields = d.extractedData || {};
+        for (const [k, v] of Object.entries(fields)) {
+          if (v && v !== 0) {
+            const label = k.replace(/_/g, ' ').replace(/\b\w/g, (c: string) => c.toUpperCase());
+            const display = typeof v === 'number' && k.includes('income') || k.includes('amount') || k.includes('deducted') || k.includes('contributions') || k.includes('premiums')
+              ? `$${(Number(v) / 100).toFixed(2)}` : String(v);
+            message += `\u2022 ${label}: ${display}\n`;
+          }
+        }
+        message += '\nConfirm this is correct? (yes/no)';
+
+        // Auto-confirm for high confidence
+        if (d.confidence >= 0.8) {
+          await fetch(`${taxBase}/api/v1/agentbook-tax/tax-slips/${d.id}/confirm`, { method: 'POST', headers: IH });
+          message += '\n\n\u2705 Auto-confirmed (high confidence). Re-populate your filing to update fields.';
+        }
+      } else {
+        message = "I couldn't read that tax slip. Please try a clearer photo, or make sure it's a Canadian tax document (T4, T5, RRSP receipt, etc.).";
+      }
+
+      await db.abConversation.create({ data: { tenantId, question: text || '[tax slip]', answer: message, queryType: 'agent', channel, skillUsed: 'tax-slip-scan' } });
+      return { selectedSkill, extractedParams, confidence, skillUsed: 'tax-slip-scan', skillResponse: ocrData,
+        responseData: { message, actions: [], chartData: null, skillUsed: 'tax-slip-scan', confidence, latencyMs: Date.now() - startTime } };
+    } catch (err) {
+      console.error('Tax slip scan error:', err);
+      return { selectedSkill, extractedParams, confidence, skillUsed: 'tax-slip-scan', skillResponse: null,
+        responseData: { message: "I couldn't process that tax slip. Please try again.", actions: [], chartData: null, skillUsed: 'tax-slip-scan', confidence: 0, latencyMs: Date.now() - startTime } };
+    }
+  }
+
   if (selectedSkill.name === 'tax-filing-start') {
     try {
       const taxBase = baseUrls['/api/v1/agentbook-tax'] || 'http://localhost:4053';
@@ -3388,12 +3478,26 @@ If no skill matches well, use "general-question" with parameter "question" = the
       const getRes = await fetch(getUrl, { headers: { 'x-tenant-id': tenantId } });
       skillResponse = await getRes.json();
     } else {
-      const postRes = await fetch(targetUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-tenant-id': tenantId },
-        body: JSON.stringify(extractedParams),
+      // Resolve :id or {id} path parameters in URL
+      let resolvedUrl = targetUrl;
+      const paramsCopy = { ...extractedParams };
+      resolvedUrl = resolvedUrl.replace(/:(\w+)|\{(\w+)\}/g, (_: string, p1: string, p2: string) => {
+        const key = p1 || p2;
+        if (key === 'id' && !paramsCopy[key]) {
+          // Try expenseId, invoiceId, or generic id
+          const idVal = paramsCopy.expenseId || paramsCopy.invoiceId || paramsCopy.id;
+          if (idVal) { delete paramsCopy.expenseId; delete paramsCopy.invoiceId; delete paramsCopy.id; return encodeURIComponent(String(idVal)); }
+        }
+        if (paramsCopy[key]) { const val = paramsCopy[key]; delete paramsCopy[key]; return encodeURIComponent(String(val)); }
+        return _;
       });
-      skillResponse = await postRes.json();
+
+      const fetchRes = await fetch(resolvedUrl, {
+        method: endpoint.method || 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-tenant-id': tenantId },
+        body: JSON.stringify(paramsCopy),
+      });
+      skillResponse = await fetchRes.json();
     }
   } catch (err) {
     console.error('Skill execution error:', err);
