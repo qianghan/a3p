@@ -5,17 +5,32 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { Bot } from 'grammy';
 
-// Telegram chat ID → AgentBook user ID mapping
-// In production: stored in DB. For dev: hardcoded.
-const CHAT_TO_TENANT: Record<string, string> = {
+// Dev fallback: hardcoded chat ID → tenant mapping
+const CHAT_TO_TENANT_FALLBACK: Record<string, string> = {
   '5336658682': '2e2348b6-a64c-44ad-907e-4ac120ff06f2', // Qiang → Maya
 };
 
-function resolveTenantId(chatId: number): string {
-  return CHAT_TO_TENANT[String(chatId)] || String(chatId);
-}
-
 const CORE_API = process.env.AGENTBOOK_CORE_URL || 'http://localhost:4050';
+
+/** Resolve tenant from chat ID — checks DB first, falls back to hardcoded dev mapping. */
+async function resolveTenantId(chatId: number, botToken?: string): Promise<string> {
+  const chatStr = String(chatId);
+
+  // Try DB lookup: find bot config where chatIds contains this chat ID
+  try {
+    const res = await fetch(`${CORE_API}/api/v1/agentbook-core/telegram/resolve-chat`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ chatId: chatStr, botToken }),
+    });
+    if (res.ok) {
+      const data = await res.json() as any;
+      if (data.data?.tenantId) return data.data.tenantId;
+    }
+  } catch { /* DB lookup failed, use fallback */ }
+
+  return CHAT_TO_TENANT_FALLBACK[chatStr] || chatStr;
+}
 
 /** Call the agent brain and return the response data. */
 async function callAgentBrain(
@@ -75,7 +90,7 @@ function getBot(): Bot {
   // === Text messages → Agent Brain ===
   bot.on('message:text', async (ctx) => {
     const text = ctx.message.text;
-    const tenantId = resolveTenantId(ctx.chat.id);
+    const tenantId = await resolveTenantId(ctx.chat.id);
 
     // Commands that show static help text
     if (text === '/start') {
@@ -91,7 +106,8 @@ function getBot(): Bot {
         + '/help tax — estimates, deductions, filing\n'
         + '/help reports — P&amp;L, balance sheet, cashflow\n'
         + '/help timer — time tracking &amp; billing\n'
-        + '/help planning — multi-step tasks &amp; automation\n\n'
+        + '/help planning — multi-step tasks &amp; automation\n'
+        + '/help telegram — connect your own bot\n\n'
         + '<b>Quick examples:</b>\n'
         + '• "Spent $45 on lunch at Starbucks"\n'
         + '• "Show my invoices"\n'
@@ -194,6 +210,19 @@ function getBot(): Bot {
           + '• "Show my CPA notes"\n'
           + '• "Add note for CPA: review Q3 expenses"\n'
           + '• "Share access with my accountant"',
+        telegram:
+          '🤖 <b>Telegram Bot Setup</b>\n\n'
+          + '<b>Connect your own bot:</b>\n'
+          + '1. Open @BotFather in Telegram\n'
+          + '2. Send /newbot and follow the prompts\n'
+          + '3. Copy the API token\n'
+          + '4. Call the API:\n'
+          + '<code>POST /api/v1/agentbook-core/telegram/setup</code>\n'
+          + '<code>{"botToken": "YOUR_TOKEN"}</code>\n\n'
+          + '<b>Check status:</b>\n'
+          + '• "Check my Telegram bot status"\n\n'
+          + '<b>Disconnect:</b>\n'
+          + '<code>DELETE /api/v1/agentbook-core/telegram/disconnect</code>',
       };
 
       const helpText = helpTopics[topic];
@@ -277,7 +306,7 @@ function getBot(): Bot {
 
   // === Photo messages → Agent Brain with attachment ===
   bot.on('message:photo', async (ctx) => {
-    const tenantId = resolveTenantId(ctx.chat.id);
+    const tenantId = await resolveTenantId(ctx.chat.id);
     const photos = ctx.message.photo;
     const bestPhoto = photos[photos.length - 1];
 
@@ -314,7 +343,7 @@ function getBot(): Bot {
 
   // === Document messages (PDF) → Agent Brain with attachment ===
   bot.on('message:document', async (ctx) => {
-    const tenantId = resolveTenantId(ctx.chat.id);
+    const tenantId = await resolveTenantId(ctx.chat.id);
     const doc = ctx.message.document;
     const mimeType = doc.mime_type || '';
 
@@ -357,7 +386,7 @@ function getBot(): Bot {
   // === Callback queries (inline keyboard buttons) ===
   bot.on('callback_query:data', async (ctx) => {
     const cbData = ctx.callbackQuery.data;
-    const tenantId = ctx.chat?.id ? resolveTenantId(ctx.chat.id) : '';
+    const tenantId = ctx.chat?.id ? await resolveTenantId(ctx.chat.id) : '';
     const expenseApi = process.env.AGENTBOOK_EXPENSE_URL || 'http://localhost:4051';
 
     try {

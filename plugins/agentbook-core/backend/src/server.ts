@@ -87,6 +87,175 @@ app.put('/api/v1/agentbook-core/tenant-config', async (req, res) => {
   }
 });
 
+// === Telegram Bot Configuration ===
+
+// POST /telegram/setup — Configure Telegram bot for this tenant
+app.post('/api/v1/agentbook-core/telegram/setup', async (req, res) => {
+  try {
+    const tenantId = (req as any).tenantId;
+    const { botToken } = req.body;
+
+    if (!botToken || !botToken.includes(':')) {
+      return res.status(400).json({ success: false, error: 'Valid Telegram bot token required (format: 123456:ABC...)' });
+    }
+
+    // Verify the token with Telegram
+    let botInfo: any;
+    try {
+      const verifyRes = await fetch(`https://api.telegram.org/bot${botToken}/getMe`);
+      const verifyData = await verifyRes.json() as any;
+      if (!verifyData.ok) {
+        return res.status(400).json({ success: false, error: 'Invalid bot token — Telegram rejected it. Get a valid token from @BotFather.' });
+      }
+      botInfo = verifyData.result;
+    } catch {
+      return res.status(400).json({ success: false, error: 'Could not verify token with Telegram. Check your internet connection.' });
+    }
+
+    // Generate webhook secret
+    const webhookSecret = crypto.randomUUID().replace(/-/g, '');
+
+    // Determine webhook URL
+    const baseUrl = process.env.TELEGRAM_WEBHOOK_BASE_URL || process.env.NEXTAUTH_URL || '';
+    const webhookUrl = baseUrl ? `${baseUrl}/api/v1/agentbook/telegram/webhook` : '';
+
+    // Upsert bot config
+    const botConfig = await db.abTelegramBot.upsert({
+      where: { tenantId },
+      update: {
+        botToken,
+        botUsername: botInfo.username || null,
+        webhookSecret,
+        webhookUrl,
+        enabled: true,
+      },
+      create: {
+        tenantId,
+        botToken,
+        botUsername: botInfo.username || null,
+        webhookSecret,
+        webhookUrl,
+        chatIds: [],
+        enabled: true,
+      },
+    });
+
+    // Register webhook with Telegram if we have a base URL
+    let webhookRegistered = false;
+    if (webhookUrl) {
+      try {
+        const regRes = await fetch(
+          `https://api.telegram.org/bot${botToken}/setWebhook?url=${encodeURIComponent(webhookUrl)}&secret_token=${webhookSecret}&allowed_updates=${encodeURIComponent(JSON.stringify(['message', 'callback_query']))}`
+        );
+        const regData = await regRes.json() as any;
+        webhookRegistered = regData.ok;
+      } catch { /* webhook registration failed — user can do it manually */ }
+    }
+
+    res.json({
+      success: true,
+      data: {
+        botUsername: botInfo.username,
+        botName: botInfo.first_name,
+        webhookRegistered,
+        webhookUrl: webhookUrl || 'Not configured — set TELEGRAM_WEBHOOK_BASE_URL env var or register manually',
+        instructions: webhookRegistered
+          ? `Your bot @${botInfo.username} is connected! Send it a message to start.`
+          : `Bot @${botInfo.username} saved. To complete setup:\n1. Set up a tunnel: ./agentbook/keep-tunnel-alive.sh\n2. Register webhook: curl "https://api.telegram.org/bot${botToken.slice(0, 10)}..../setWebhook?url=YOUR_TUNNEL_URL/api/v1/agentbook/telegram/webhook&secret_token=${webhookSecret}"`,
+      },
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: String(err) });
+  }
+});
+
+// GET /telegram/status — Check Telegram bot configuration
+app.get('/api/v1/agentbook-core/telegram/status', async (req, res) => {
+  try {
+    const tenantId = (req as any).tenantId;
+    const botConfig = await db.abTelegramBot.findUnique({ where: { tenantId } });
+    if (!botConfig) {
+      return res.json({ success: true, data: { configured: false, instructions: 'Send your Telegram bot token to connect. Get one from @BotFather in Telegram.' } });
+    }
+
+    // Check webhook status
+    let webhookInfo: any = null;
+    try {
+      const infoRes = await fetch(`https://api.telegram.org/bot${botConfig.botToken}/getWebhookInfo`);
+      webhookInfo = ((await infoRes.json()) as any).result;
+    } catch { /* can't reach telegram */ }
+
+    res.json({
+      success: true,
+      data: {
+        configured: true,
+        enabled: botConfig.enabled,
+        botUsername: botConfig.botUsername,
+        chatIds: botConfig.chatIds,
+        webhookUrl: webhookInfo?.url || botConfig.webhookUrl,
+        webhookActive: webhookInfo ? !webhookInfo.last_error_message : null,
+        lastError: webhookInfo?.last_error_message || null,
+      },
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: String(err) });
+  }
+});
+
+// POST /telegram/resolve-chat — Internal: resolve chat ID to tenant (called by webhook adapter)
+app.post('/api/v1/agentbook-core/telegram/resolve-chat', async (req, res) => {
+  try {
+    const { chatId, botToken } = req.body;
+    if (!chatId) return res.status(400).json({ success: false, error: 'chatId required' });
+
+    // Find bot config that has this chatId in its chatIds array, or by botToken
+    let botConfig: any = null;
+    if (botToken) {
+      botConfig = await db.abTelegramBot.findFirst({ where: { botToken, enabled: true } });
+    }
+    if (!botConfig) {
+      // Search all bots for this chatId
+      const allBots = await db.abTelegramBot.findMany({ where: { enabled: true } });
+      botConfig = allBots.find((b: any) => {
+        const ids = (b.chatIds as string[]) || [];
+        return ids.includes(String(chatId));
+      });
+    }
+
+    if (botConfig) {
+      // Auto-register this chatId if not already in the list
+      const ids = (botConfig.chatIds as string[]) || [];
+      if (!ids.includes(String(chatId))) {
+        ids.push(String(chatId));
+        await db.abTelegramBot.update({ where: { id: botConfig.id }, data: { chatIds: ids as any } });
+      }
+      return res.json({ success: true, data: { tenantId: botConfig.tenantId } });
+    }
+
+    res.json({ success: true, data: { tenantId: null } });
+  } catch (err) {
+    res.status(500).json({ success: false, error: String(err) });
+  }
+});
+
+// DELETE /telegram/disconnect — Remove Telegram bot
+app.delete('/api/v1/agentbook-core/telegram/disconnect', async (req, res) => {
+  try {
+    const tenantId = (req as any).tenantId;
+    const botConfig = await db.abTelegramBot.findUnique({ where: { tenantId } });
+    if (botConfig) {
+      // Remove webhook from Telegram
+      try {
+        await fetch(`https://api.telegram.org/bot${botConfig.botToken}/deleteWebhook`);
+      } catch { /* best effort */ }
+      await db.abTelegramBot.delete({ where: { tenantId } });
+    }
+    res.json({ success: true, data: { disconnected: true } });
+  } catch (err) {
+    res.status(500).json({ success: false, error: String(err) });
+  }
+});
+
 // === Chart of Accounts ===
 app.get('/api/v1/agentbook-core/accounts', async (req, res) => {
   try {
@@ -2341,6 +2510,18 @@ const BUILT_IN_SKILLS = [
     triggerPatterns: ['filing.*status.*cra', 'cra.*accept', 'return.*status.*cra', 'check.*filing.*status', 'did.*cra.*accept'],
     parameters: { taxYear: { type: 'number', required: false, default: 2025 } },
     endpoint: { method: 'GET', url: '/api/v1/agentbook-tax/tax-filing/2025/status' },
+  },
+  {
+    name: 'telegram-setup', description: 'Configure Telegram bot — connect your own bot by providing the API token from @BotFather', category: 'finance',
+    triggerPatterns: ['setup.*telegram', 'connect.*telegram', 'telegram.*bot.*token', 'configure.*telegram', 'my.*bot.*token'],
+    parameters: { botToken: { type: 'string', required: false, extractHint: 'Telegram bot API token from @BotFather' } },
+    endpoint: { method: 'POST', url: '/api/v1/agentbook-core/telegram/setup' },
+  },
+  {
+    name: 'telegram-status', description: 'Check Telegram bot connection status', category: 'finance',
+    triggerPatterns: ['telegram.*status', 'bot.*connected', 'telegram.*config'],
+    parameters: {},
+    endpoint: { method: 'GET', url: '/api/v1/agentbook-core/telegram/status' },
   },
   {
     name: 'general-question', description: 'Answer any general financial or accounting question', category: 'finance',

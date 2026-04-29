@@ -1431,6 +1431,23 @@ model AbTenantConfig {
   @@schema("plugin_agentbook_core")
 }
 
+model AbTelegramBot {
+  id              String   @id @default(uuid())
+  tenantId        String
+  botToken        String
+  botUsername      String?
+  chatIds         Json     @default("[]")
+  webhookSecret   String?
+  webhookUrl      String?
+  enabled         Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@unique([tenantId])
+  @@index([botToken])
+  @@schema("plugin_agentbook_core")
+}
+
 model AbAccount {
   id            String   @id @default(uuid())
   tenantId      String
