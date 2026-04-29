@@ -2524,6 +2524,26 @@ const BUILT_IN_SKILLS = [
     endpoint: { method: 'GET', url: '/api/v1/agentbook-core/telegram/status' },
   },
   {
+    name: 'convert-estimate', description: 'Convert an approved estimate into an invoice', category: 'invoicing',
+    triggerPatterns: ['convert.*estimate', 'estimate.*invoice', 'turn.*estimate.*invoice'],
+    parameters: { estimateId: { type: 'string', required: false, extractHint: 'estimate ID or "last"' } },
+    endpoint: { method: 'POST', url: '/api/v1/agentbook-invoice/estimates/:id/convert' },
+  },
+  {
+    name: 'void-invoice', description: 'Void/cancel an invoice — reverses journal entries', category: 'invoicing',
+    triggerPatterns: ['void.*invoice', 'cancel.*invoice', 'delete.*invoice'],
+    parameters: { invoiceId: { type: 'string', required: false, extractHint: 'invoice ID, number, or "last"' } },
+    endpoint: { method: 'POST', url: '/api/v1/agentbook-invoice/invoices/:id/void' },
+    confirmBefore: true,
+  },
+  {
+    name: 'create-credit-note', description: 'Issue a credit note against an invoice — partial refund or adjustment', category: 'invoicing',
+    triggerPatterns: ['credit.*note', 'credit.*invoice', 'issue.*credit', 'refund.*invoice'],
+    parameters: { invoiceId: { type: 'string', required: false }, amountCents: { type: 'number', required: false }, reason: { type: 'string', required: false } },
+    endpoint: { method: 'POST', url: '/api/v1/agentbook-invoice/credit-notes' },
+    confirmBefore: true,
+  },
+  {
     name: 'general-question', description: 'Answer any general financial or accounting question', category: 'finance',
     triggerPatterns: [],
     parameters: { question: { type: 'string', required: true, extractHint: 'the full user message' } },
@@ -3086,6 +3106,49 @@ If no skill matches well, use "general-question" with parameter "question" = the
       targetUrl = targetUrl.replace(':id', invoiceId);
       extractedParams = {};
     } catch (err) { console.warn('Send-invoice resolution error:', err); }
+  }
+
+  // Pre-processing: convert-estimate — resolve "last" estimate
+  if (selectedSkill.name === 'convert-estimate') {
+    try {
+      const invoiceBase = baseUrls['/api/v1/agentbook-invoice'] || 'http://localhost:4052';
+      if (!extractedParams.estimateId || extractedParams.estimateId === 'last') {
+        const res = await fetch(`${invoiceBase}/api/v1/agentbook-invoice/estimates?status=approved&limit=1`, { headers: { 'Content-Type': 'application/json', 'x-tenant-id': tenantId } });
+        const data = await res.json() as any;
+        if (data.data?.[0]) extractedParams.estimateId = data.data[0].id;
+      }
+    } catch (err) { console.warn('Convert-estimate resolution error:', err); }
+  }
+
+  // Pre-processing: void-invoice — resolve invoice reference
+  if (selectedSkill.name === 'void-invoice') {
+    try {
+      const invoiceBase = baseUrls['/api/v1/agentbook-invoice'] || 'http://localhost:4052';
+      const IH = { 'Content-Type': 'application/json', 'x-tenant-id': tenantId };
+      let invoiceId = extractedParams.invoiceId;
+      if (!invoiceId || invoiceId === 'last') {
+        const res = await fetch(`${invoiceBase}/api/v1/agentbook-invoice/invoices?limit=1`, { headers: IH });
+        const data = await res.json() as any;
+        invoiceId = data.data?.[0]?.id;
+      } else if (invoiceId.startsWith('INV-')) {
+        const res = await fetch(`${invoiceBase}/api/v1/agentbook-invoice/invoices`, { headers: IH });
+        const data = await res.json() as any;
+        const match = data.data?.find((i: any) => i.number === invoiceId);
+        invoiceId = match?.id;
+      }
+      if (invoiceId) extractedParams.invoiceId = invoiceId;
+    } catch (err) { console.warn('Void-invoice resolution error:', err); }
+  }
+
+  // Pre-processing: create-credit-note — resolve invoice reference
+  if (selectedSkill.name === 'create-credit-note' && !extractedParams.invoiceId) {
+    try {
+      const invoiceBase = baseUrls['/api/v1/agentbook-invoice'] || 'http://localhost:4052';
+      const res = await fetch(`${invoiceBase}/api/v1/agentbook-invoice/invoices?limit=1`, { headers: { 'Content-Type': 'application/json', 'x-tenant-id': tenantId } });
+      const data = await res.json() as any;
+      if (data.data?.[0]) extractedParams.invoiceId = data.data[0].id;
+      if (!extractedParams.reason) extractedParams.reason = 'Credit adjustment';
+    } catch (err) { console.warn('Credit-note resolution error:', err); }
   }
 
   // Pre-processing: record-payment — resolve client → outstanding invoice → amount
