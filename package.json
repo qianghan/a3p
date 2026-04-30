@@ -37,7 +37,9 @@
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "react-router-dom": "^7.0.0",
-    "recharts": "^2.15.0"
+    "recharts": "^2.15.0",
+    "@tailwindcss/typography": "^0.5.19",
+    "@tailwindcss/forms": "^0.5.11"
   },
   "optionalDependencies": {
     "@rollup/rollup-darwin-arm64": "^4.59.0"
@@ -51,8 +53,6 @@
     "@swc-node/register": "~1.11.1",
     "@swc/core": "1.15.18",
     "@swc/helpers": "^0.5.19",
-    "@tailwindcss/forms": "^0.5.11",
-    "@tailwindcss/typography": "^0.5.19",
     "@types/node": "^20.19.35",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
