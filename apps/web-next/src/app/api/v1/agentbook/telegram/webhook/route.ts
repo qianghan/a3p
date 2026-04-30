@@ -29,7 +29,9 @@ async function resolveTenantId(chatId: number, botToken?: string): Promise<strin
     }
   } catch { /* DB lookup failed, use fallback */ }
 
-  return CHAT_TO_TENANT_FALLBACK[chatStr] || chatStr;
+  if (CHAT_TO_TENANT_FALLBACK[chatStr]) return CHAT_TO_TENANT_FALLBACK[chatStr];
+  console.warn(`Unknown Telegram chat ${chatStr} — no tenant mapping found`);
+  return `unmapped:${chatStr}`; // Will not match any real tenantId, prevents silent data pollution
 }
 
 /** Call the agent brain and return the response data. */

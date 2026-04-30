@@ -6,8 +6,15 @@
 
 set -e
 
-BOT_TOKEN="8652628162:AAFblKmbR4qTMJGYghqjpLvW4yDFeB9Ik2U"
-WEBHOOK_SECRET="agentbook-webhook-secret-2026"
+# Source .env.local for bot token (looks in apps/web-next/.env.local)
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+ENV_FILE="$SCRIPT_DIR/../apps/web-next/.env.local"
+if [ -f "$ENV_FILE" ]; then
+  export $(grep -E '^TELEGRAM_BOT_TOKEN=|^TELEGRAM_WEBHOOK_SECRET=' "$ENV_FILE" | xargs)
+fi
+
+BOT_TOKEN="${TELEGRAM_BOT_TOKEN:?TELEGRAM_BOT_TOKEN not set — add it to apps/web-next/.env.local}"
+WEBHOOK_SECRET="${TELEGRAM_WEBHOOK_SECRET:-agentbook-webhook-secret-2026}"
 LOCAL_PORT=3000
 
 echo "🤖 AgentBook Telegram Dev Setup"

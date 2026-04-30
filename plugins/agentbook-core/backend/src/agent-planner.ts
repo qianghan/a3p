@@ -18,7 +18,7 @@ const MULTI_INTENT_PATTERNS = [
   /then /i,
   /also /i,
   /after that/i,
-  /first.+then/i,
+  /first.+?then/i,
 ];
 
 const CONDITIONAL_PATTERN = /if.+then/i;
@@ -252,7 +252,7 @@ export async function updateSession(
         "stepResults" = COALESCE(${stepResults ? JSON.stringify(stepResults) : null}::jsonb, "stepResults"),
         "currentStep" = COALESCE(${currentStep ?? null}, "currentStep"),
         "undoStack" = COALESCE(${undoStack ? JSON.stringify(undoStack) : null}::jsonb, "undoStack"),
-        "pendingConfirmation" = COALESCE(${pendingConfirmation !== undefined ? JSON.stringify(pendingConfirmation) : null}::jsonb, "pendingConfirmation"),
+        "pendingConfirmation" = ${pendingConfirmation !== undefined ? (pendingConfirmation ? JSON.stringify(pendingConfirmation) : null) : null}::jsonb,
         "status" = COALESCE(${status ?? null}, "status"),
         "evaluation" = COALESCE(${evaluation ? JSON.stringify(evaluation) : null}::jsonb, "evaluation")
     WHERE "id" = ${id} AND "version" = ${version}`;

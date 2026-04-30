@@ -2867,11 +2867,9 @@ async function classifyAndExecuteV1(
                 if (/^invoice\s/i.test(lower)) continue;
                 if (/what\s*if\b/i.test(lower)) continue;
                 if (/got.*\$.*from/i.test(lower)) continue;
-                if (/alert.*when|notify.*when|automat/i.test(lower)) continue;
-                if (/received.*payment/i.test(lower)) continue;
+                if (/alert.*when|notify.*when|automat/i.test(lower)) continue;  // automation, not expense
                 if (/received.*payment/i.test(lower)) continue;
                 if (/^(?:estimate|quote|proposal)\s/i.test(lower)) continue;  // estimate, not expense
-                if (/alert.*when|notify.*when|automat/i.test(lower)) continue;  // automation, not expense
               }
               // Special check: proactive-alerts should not match automation creation commands
               if (skill.name === 'proactive-alerts') {

@@ -101,7 +101,7 @@ The agent brain powers all conversational AI via Telegram, web, and API. Single 
 - Feedback detection: "no, that should be Travel" → correction flow
 - Plan display with Proceed/Cancel inline buttons
 
-**E2E Tests:** `tests/e2e/agent-brain.spec.ts` (16 tests) + `tests/e2e/agent-brain-v2.spec.ts` (12 tests)
+**E2E Tests:** `tests/e2e/agent-brain.spec.ts` + `tests/e2e/agent-brain-v2.spec.ts` + 5 more test files
 
 **Adding a new skill:**
 1. Add manifest to `BUILT_IN_SKILLS` array in `server.ts` (before `general-question`)

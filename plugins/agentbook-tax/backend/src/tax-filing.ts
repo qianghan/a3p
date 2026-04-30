@@ -188,6 +188,7 @@ export async function updateFilingField(
   }
 
   // Update the field value inside the forms JSON blob
+  if (['__proto__', 'constructor', 'prototype'].includes(formCode)) throw new Error('Invalid form code');
   const forms = (filing.forms as Record<string, Record<string, any>>) || {};
   if (!forms[formCode]) forms[formCode] = {};
   forms[formCode][fieldId] = value;

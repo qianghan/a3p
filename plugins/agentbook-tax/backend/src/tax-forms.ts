@@ -375,7 +375,9 @@ function evaluateSimple(expr: string, fields: Record<string, any>): number | nul
       }
     }
   }
-  // Evaluate simple arithmetic (safe — no user input, only spec-defined formulas)
+  // Validate: only allow digits, arithmetic operators, parentheses, spaces, decimal points
+  if (!/^[\d\s+\-*/().]+$/.test(resolved)) return null;
+  // Evaluate simple arithmetic
   try {
     const result = Function(`"use strict"; return (${resolved})`)();
     return typeof result === 'number' && isFinite(result) ? Math.round(result) : null;
