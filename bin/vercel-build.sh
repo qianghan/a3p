@@ -49,6 +49,8 @@ else
   # Production and preview: build all plugins. Source-hash caching in build-plugins.sh
   # skips unchanged plugins, so --parallel is efficient for both.
   echo "[1/6] Building plugin bundles..."
+  # Ensure plugin builds can resolve root node_modules (for @tailwindcss/* etc.)
+  export NODE_PATH="${NODE_PATH:+$NODE_PATH:}$(pwd)/node_modules"
   ./bin/build-plugins.sh --parallel
 fi
 
