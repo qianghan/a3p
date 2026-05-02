@@ -16,6 +16,14 @@ const nextConfig = {
   // files from workspace packages (e.g. @naap/database engine binaries).
   outputFileTracingRoot: path.join(__dirname, '../../'),
 
+  // Plugin Express backends read their plugin.json via
+  // `readFileSync(new URL('../../plugin.json', import.meta.url))`. Force the
+  // file into the function bundle so Vercel deployments include it.
+  outputFileTracingIncludes: {
+    '/api/v1/agentbook-tax/**': ['../../plugins/agentbook-tax/plugin.json'],
+    '/api/v1/agentbook-invoice/**': ['../../plugins/agentbook-invoice/plugin.json'],
+  },
+
   // Transpile monorepo packages
   // Note: @naap/database is excluded — Prisma generates JS output via postinstall,
   // and adding it here causes type-portability errors with Prisma runtime internals.
@@ -27,6 +35,9 @@ const nextConfig = {
     '@naap/config',
     '@naap/plugin-sdk',
     '@naap/cache',
+    '@naap/plugin-server-sdk',
+    '@naap/plugin-agentbook-tax-backend',
+    '@naap/plugin-agentbook-invoice-backend',
   ],
 
   // Image optimization

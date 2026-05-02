@@ -2081,7 +2081,21 @@ app.get('/api/v1/agentbook-invoice/invoices/:id/public', async (req: Request, re
 });
 
 // ============================================
-// START
+// EXPORTS (used by Next.js route handlers on Vercel)
 // ============================================
 
-start();
+export { app };
+
+// ============================================
+// START (only when run directly, not when imported by Next.js)
+// ============================================
+
+const isDirectRun =
+  typeof process !== 'undefined' &&
+  Array.isArray(process.argv) &&
+  !!process.argv[1] &&
+  import.meta.url === new URL(process.argv[1], 'file://').href;
+
+if (isDirectRun) {
+  start();
+}

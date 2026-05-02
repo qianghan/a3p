@@ -1493,10 +1493,24 @@ server.app.get('/api/v1/agentbook-tax/tax-filing/:year/status', async (req, res)
 });
 
 // ============================================
-// START SERVER
+// EXPORTS (used by Next.js route handlers on Vercel)
 // ============================================
 
-server.start().catch((err) => {
-  console.error('Failed to start agentbook-tax-svc:', err);
-  process.exit(1);
-});
+export const app = server.app;
+
+// ============================================
+// START SERVER (only when run directly, not when imported by Next.js)
+// ============================================
+
+const isDirectRun =
+  typeof process !== 'undefined' &&
+  Array.isArray(process.argv) &&
+  !!process.argv[1] &&
+  import.meta.url === new URL(process.argv[1], 'file://').href;
+
+if (isDirectRun) {
+  server.start().catch((err) => {
+    console.error('Failed to start agentbook-tax-svc:', err);
+    process.exit(1);
+  });
+}
