@@ -850,7 +850,7 @@ async function buildFinancialContext(tenantId: string) {
 }
 
 // Helper: call Gemini LLM
-async function callGemini(systemPrompt: string, userMessage: string, maxTokens: number = 500): Promise<string | null> {
+export async function callGemini(systemPrompt: string, userMessage: string, maxTokens: number = 500): Promise<string | null> {
   const llmConfig = await db.abLLMProviderConfig.findFirst({ where: { enabled: true, isDefault: true } });
   if (!llmConfig || llmConfig.provider !== 'gemini') return null;
 

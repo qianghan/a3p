@@ -1426,6 +1426,7 @@ model AbTenantConfig {
   autoApproveLimitCents   Int      @default(50000)       // $500 default
   autoRemindEnabled       Boolean  @default(false)
   autoRemindDays          Int      @default(3)            // min days between reminders
+  dailyDigestEnabled      Boolean  @default(true)         // morning digest opt-out
   companyName             String?
   companyAddress          String?
   companyEmail            String?
