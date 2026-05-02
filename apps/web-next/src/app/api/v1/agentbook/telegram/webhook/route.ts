@@ -8,6 +8,7 @@ import { Bot } from 'grammy';
 // Dev fallback: hardcoded chat ID → tenant mapping
 const CHAT_TO_TENANT_FALLBACK: Record<string, string> = {
   '5336658682': '2e2348b6-a64c-44ad-907e-4ac120ff06f2', // Qiang → Maya
+  '555555555':  'b9a80acd-fa14-4209-83a9-03231513fa8f', // Nightly e2e bot tests → e2e@agentbook.test
 };
 
 const CORE_API = process.env.AGENTBOOK_CORE_URL || 'http://localhost:4050';
