@@ -9,6 +9,7 @@ import { readFileSync } from 'node:fs';
 import { createPluginServer } from '@naap/plugin-server-sdk';
 import { db } from './db/client.js';
 import { handleAgentMessage } from './agent-brain.js';
+import { handleDashboardOverview } from './dashboard/overview.js';
 
 const pluginConfig = JSON.parse(
   readFileSync(new URL('../../plugin.json', import.meta.url), 'utf8')
@@ -539,6 +540,9 @@ app.get('/api/v1/agentbook-core/trial-balance', async (req, res) => {
     res.status(500).json({ success: false, error: String(err) });
   }
 });
+
+// === Dashboard Overview Aggregator ===
+app.get('/api/v1/agentbook-core/dashboard/overview', handleDashboardOverview);
 
 // === Fiscal Periods ===
 app.get('/api/v1/agentbook-core/fiscal-periods', async (req, res) => {
