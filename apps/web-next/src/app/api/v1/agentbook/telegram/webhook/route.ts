@@ -11,6 +11,16 @@ const CHAT_TO_TENANT_FALLBACK: Record<string, string> = {
   '555555555':  'b9a80acd-fa14-4209-83a9-03231513fa8f', // Nightly e2e bot tests → e2e@agentbook.test
 };
 
+// === E2E test capture ===
+//
+// When E2E_TELEGRAM_CAPTURE=1, intercept bot.api.sendMessage so the
+// nightly suite can inspect would-be replies without hitting Telegram.
+// Production behaviour is unchanged when the env var is unset.
+
+interface CaptureEntry { chatId: number | string; text: string; payload?: unknown; }
+const E2E_CAPTURE = process.env.E2E_TELEGRAM_CAPTURE === '1';
+let currentCapture: CaptureEntry[] | null = null;
+
 const CORE_API = process.env.AGENTBOOK_CORE_URL || 'http://localhost:4050';
 
 /** Resolve tenant from chat ID — checks DB first, falls back to hardcoded dev mapping. */
@@ -89,6 +99,21 @@ function getBot(): Bot {
   if (!token) throw new Error('TELEGRAM_BOT_TOKEN not set');
 
   bot = new Bot(token);
+
+  if (E2E_CAPTURE) {
+    const orig = bot.api.sendMessage.bind(bot.api);
+    // Override the raw sendMessage so all ctx.reply() / ctx.replyWithHTML / etc.
+    // funnel through here. Push to currentCapture if set, otherwise call through
+    // (e.g. for direct sendMessage in production paths).
+    (bot.api as any).sendMessage = (async (chatId: number | string, text: string, payload?: unknown) => {
+      if (currentCapture) {
+        currentCapture.push({ chatId, text, payload });
+        // Return a fake Telegram Message object so grammy doesn't choke.
+        return { message_id: 0, date: Math.floor(Date.now() / 1000), chat: { id: Number(chatId), type: 'private' as const }, text } as any;
+      }
+      return orig(chatId, text, payload as any);
+    });
+  }
 
   // === Text messages → Agent Brain ===
   bot.on('message:text', async (ctx) => {
@@ -465,7 +490,20 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       await b.init();
     }
     const update = await request.json();
-    await b.handleUpdate(update);
+    const captureBuf: CaptureEntry[] | null = E2E_CAPTURE ? [] : null;
+    if (captureBuf) currentCapture = captureBuf;
+    try {
+      await b.handleUpdate(update);
+    } finally {
+      if (captureBuf) currentCapture = null;
+    }
+    if (captureBuf) {
+      return NextResponse.json({
+        ok: true,
+        captured: captureBuf,
+        botReply: captureBuf[0]?.text,
+      });
+    }
     return NextResponse.json({ ok: true });
   } catch (err) {
     console.error('Telegram webhook error:', err);
