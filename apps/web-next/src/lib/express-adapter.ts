@@ -6,6 +6,8 @@
  *
  * Used to host plugin Express backends (agentbook-tax, agentbook-invoice)
  * inside Vercel Functions instead of running them as separate services.
+ *
+ * Adapter version: v3 (cache-bust marker for Vercel build).
  */
 
 import 'server-only';
@@ -146,6 +148,9 @@ export async function dispatchToExpress(
     // Vercel times out and returns 500 with an empty body. With no callback,
     // Express's finalhandler writes the response (404 / 500) through our
     // wrapped res.end, which calls finalize() and resolves the promise.
+    // Telemetry: confirm which adapter version is live.
+    console.log(`[express-adapter v3] dispatching ${req.method} ${req.url}`);
+
     try {
       app(req, res);
     } catch (err) {
