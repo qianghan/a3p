@@ -30,7 +30,13 @@ logs/
 *.log
 
 # Plugin backends (Vercel only builds frontends + Next.js)
+# Exception: agentbook-tax and agentbook-invoice are imported by the Next.js
+# app and run as Vercel Functions, so their sources must remain included.
 plugins/*/backend/
+!plugins/agentbook-tax/backend/
+!plugins/agentbook-tax/backend/**
+!plugins/agentbook-invoice/backend/
+!plugins/agentbook-invoice/backend/**
 
 # Test files
 **/*.test.ts
