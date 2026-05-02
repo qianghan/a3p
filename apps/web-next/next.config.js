@@ -22,6 +22,8 @@ const nextConfig = {
   outputFileTracingIncludes: {
     '/api/v1/agentbook-tax/**': ['../../plugins/agentbook-tax/plugin.json'],
     '/api/v1/agentbook-invoice/**': ['../../plugins/agentbook-invoice/plugin.json'],
+    '/api/v1/agentbook-core/**': ['../../plugins/agentbook-core/plugin.json'],
+    '/api/v1/agentbook-expense/**': ['../../plugins/agentbook-expense/plugin.json'],
   },
 
   // Transpile monorepo packages
@@ -38,6 +40,8 @@ const nextConfig = {
     '@naap/plugin-server-sdk',
     '@naap/plugin-agentbook-tax-backend',
     '@naap/plugin-agentbook-invoice-backend',
+    '@naap/plugin-agentbook-core-backend',
+    '@naap/plugin-agentbook-expense-backend',
   ],
 
   // Image optimization

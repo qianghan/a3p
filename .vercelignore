@@ -37,6 +37,10 @@ plugins/*/backend/
 !plugins/agentbook-tax/backend/**
 !plugins/agentbook-invoice/backend/
 !plugins/agentbook-invoice/backend/**
+!plugins/agentbook-core/backend/
+!plugins/agentbook-core/backend/**
+!plugins/agentbook-expense/backend/
+!plugins/agentbook-expense/backend/**
 
 # Test files
 **/*.test.ts

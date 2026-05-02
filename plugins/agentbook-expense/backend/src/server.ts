@@ -2409,4 +2409,22 @@ app.post('/api/v1/agentbook-expense/reports/expense-pdf', async (req, res) => {
   } catch (err) { res.status(500).json({ success: false, error: String(err) }); }
 });
 
-start();
+// ============================================
+// EXPORTS (used by Next.js route handlers on Vercel)
+// ============================================
+
+export { app };
+
+// ============================================
+// START (only when run directly, not when imported by Next.js)
+// ============================================
+
+const isDirectRun =
+  typeof process !== 'undefined' &&
+  Array.isArray(process.argv) &&
+  !!process.argv[1] &&
+  import.meta.url === new URL(process.argv[1], 'file://').href;
+
+if (isDirectRun) {
+  start();
+}
