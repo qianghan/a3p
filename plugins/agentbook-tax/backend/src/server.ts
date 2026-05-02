@@ -23,9 +23,19 @@ import { processSlipOCR, confirmSlip, listSlips } from './tax-slips.js';
 import { validateFiling, exportFiling } from './tax-export.js';
 import { submitFiling, checkFilingStatus, seedMockPartner } from './tax-efiling.js';
 
-const pluginConfig = JSON.parse(
-  readFileSync(new URL('../../plugin.json', import.meta.url), 'utf8')
-);
+// Read plugin.json for dev-only fields (devPort). When this module is
+// bundled by webpack (as happens when hosted inside a Next.js function on
+// Vercel), `new URL(..., import.meta.url)` returns a class instance that
+// Node's fs.readFileSync does not accept ("Received an instance of URL"
+// from a different polyfilled URL class). Fall back to defaults silently.
+let pluginConfig: { backend?: { devPort?: number } } = {};
+try {
+  pluginConfig = JSON.parse(
+    readFileSync(new URL('../../plugin.json', import.meta.url), 'utf8')
+  );
+} catch {
+  /* bundled environment — defaults are fine */
+}
 
 // ============================================
 // TAX BRACKET DEFINITIONS
