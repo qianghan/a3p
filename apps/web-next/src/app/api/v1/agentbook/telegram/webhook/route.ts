@@ -1,16 +1,20 @@
 /**
  * Telegram Bot Webhook.
  *
- * Self-contained: tenant resolution and the minimal agent both run
- * against Prisma directly. The full Express agent-brain pipeline
- * (memory, planner, evaluator, 16 skills, Gemini) is not bundled
- * into this Vercel function — instead we pattern-match the common
- * queries (balance, invoices, expenses, tax) so the bot is
- * responsive for daily testing.
+ * Routes all messages through the full agent-brain pipeline imported
+ * from the plugin source: memory, planner, evaluator, 16 skills, and
+ * Gemini for natural-language understanding. Cross-plugin HTTP calls
+ * inside classifyAndExecuteV1 hit native Next.js routes on the same
+ * host (set via AGENTBOOK_*_URL env vars).
+ *
+ * The minimal pattern-matched agent below remains as an offline
+ * fallback so the bot still responds when Gemini is unavailable.
  */
 import { NextRequest, NextResponse } from 'next/server';
 import { Bot } from 'grammy';
 import { prisma as db } from '@naap/database';
+import { handleAgentMessage } from '@agentbook-core/agent-brain';
+import { callGemini, classifyAndExecuteV1 } from '@agentbook-core/server';
 
 // Dev fallback: hardcoded chat ID → tenant mapping
 const CHAT_TO_TENANT_FALLBACK: Record<string, string> = {
@@ -308,16 +312,52 @@ async function persistReceiptBlob(sourceUrl: string, tenantId: string, contentTy
   }
 }
 
-/** Minimal in-process agent — pattern-matches common queries against the tenant's books. */
+/** Build the cross-plugin baseUrls map the agent brain expects. */
+function getBaseUrls(): Record<string, string> {
+  const host = process.env.AGENTBOOK_HOST || 'https://a3book.brainliber.com';
+  return {
+    '/api/v1/agentbook-core':    process.env.AGENTBOOK_CORE_URL    || host,
+    '/api/v1/agentbook-expense': process.env.AGENTBOOK_EXPENSE_URL || host,
+    '/api/v1/agentbook-invoice': process.env.AGENTBOOK_INVOICE_URL || host,
+    '/api/v1/agentbook-tax':     process.env.AGENTBOOK_TAX_URL     || host,
+  };
+}
+
+/** Run the full agent-brain pipeline. Falls back to the inline minimal agent on hard failure. */
 async function callAgentBrain(
   tenantId: string,
   text: string,
-  _attachments?: { type: string; url: string }[],
+  attachments?: { type: string; url: string }[],
   sessionAction?: string,
-  _feedback?: string,
+  feedback?: string,
+): Promise<{ success: true; data: { message: string; skillUsed?: string } } | { success: false; error: string }> {
+  try {
+    const skills = await db.abSkillManifest.findMany({
+      where: { enabled: true, OR: [{ tenantId: null }, { tenantId }] },
+    });
+    const baseUrls = getBaseUrls();
+    const brainResult = await handleAgentMessage(
+      { text: text || '', tenantId, channel: 'telegram', attachments, sessionAction, feedback },
+      { skills, callGemini, baseUrls, classifyAndExecuteV1 },
+    );
+    if (brainResult?.success && brainResult.data?.message) {
+      return brainResult as { success: true; data: { message: string; skillUsed?: string } };
+    }
+  } catch (err) {
+    console.warn('[telegram/agent-brain] failed, falling back to inline agent:', err);
+  }
+
+  return callMinimalAgent(tenantId, text, sessionAction);
+}
+
+/** Pattern-matched offline fallback. Used when the agent brain throws. */
+async function callMinimalAgent(
+  tenantId: string,
+  text: string,
+  sessionAction?: string,
 ): Promise<{ success: true; data: { message: string; skillUsed?: string } } | { success: false; error: string }> {
   if (sessionAction) {
-    return { success: true, data: { message: 'Session-based actions (yes/no/undo) require the full agent brain, which isn\'t enabled in this build yet. Try a direct query: balance, invoices, expenses, tax.' } };
+    return { success: true, data: { message: 'Session is no longer active.' } };
   }
 
   const lower = text.toLowerCase().trim();

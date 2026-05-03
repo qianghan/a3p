@@ -867,11 +867,17 @@ async function buildFinancialContext(tenantId: string) {
 
 // Helper: call Gemini LLM
 export async function callGemini(systemPrompt: string, userMessage: string, maxTokens: number = 500): Promise<string | null> {
-  const llmConfig = await db.abLLMProviderConfig.findFirst({ where: { enabled: true, isDefault: true } });
-  if (!llmConfig || llmConfig.provider !== 'gemini') return null;
+  // Resolve key + model: env var first (production), then DB config (legacy / overrides).
+  let apiKey: string | null = process.env.GEMINI_API_KEY || null;
+  let model = process.env.GEMINI_MODEL_FAST || 'gemini-2.0-flash';
+  if (!apiKey) {
+    const llmConfig = await db.abLLMProviderConfig.findFirst({ where: { enabled: true, isDefault: true } });
+    if (!llmConfig || llmConfig.provider !== 'gemini') return null;
+    apiKey = llmConfig.apiKey;
+    model = llmConfig.modelFast || model;
+  }
 
-  const model = llmConfig.modelFast || 'gemini-2.0-flash';
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${llmConfig.apiKey}`;
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
 
   const res = await fetch(url, {
     method: 'POST',
@@ -2788,7 +2794,7 @@ async function resolveOrCreateClient(invoiceBase: string, tenantId: string, clie
 }
 
 // --- 4. Agent Brain: classifyAndExecuteV1 (extracted from inline handler) ---
-async function classifyAndExecuteV1(
+export async function classifyAndExecuteV1(
   text: string, tenantId: string, channel: string,
   attachments?: any[], memory?: any[], skills?: any[],
   conversation?: any[], tenantConfig?: any,
