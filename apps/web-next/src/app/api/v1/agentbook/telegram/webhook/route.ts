@@ -100,35 +100,45 @@ interface ReceiptOcrResult {
   confidence: number;
 }
 
-/** Run Gemini Vision OCR on a receipt image URL. Returns null on failure. */
-async function ocrReceipt(imageUrl: string): Promise<ReceiptOcrResult | null> {
+/** Run Gemini Vision OCR on a receipt image or PDF URL. Returns null on failure. */
+async function ocrReceipt(fileUrl: string, hintMime?: string): Promise<ReceiptOcrResult | null> {
   const cfg = await getGeminiKey();
   if (!cfg) return null;
 
   let imagePart: { inlineData: { mimeType: string; data: string } } | { text: string };
   try {
-    const imgRes = await fetch(imageUrl);
-    if (!imgRes.ok) throw new Error(`fetch ${imgRes.status}`);
-    const buf = await imgRes.arrayBuffer();
-    if (buf.byteLength > 4_000_000) {
-      imagePart = { text: `[Image too large for inline OCR. URL: ${imageUrl}]` };
+    const fileRes = await fetch(fileUrl);
+    if (!fileRes.ok) throw new Error(`fetch ${fileRes.status}`);
+    const buf = await fileRes.arrayBuffer();
+    const headerMime = fileRes.headers.get('content-type') || '';
+    // Trust the explicit hint over a generic header (Telegram serves PDFs as
+    // application/octet-stream, which Gemini rejects).
+    let mimeType = (hintMime && hintMime !== 'application/octet-stream' ? hintMime : headerMime) || '';
+    if (!mimeType || mimeType === 'application/octet-stream') {
+      mimeType = fileUrl.toLowerCase().endsWith('.pdf') ? 'application/pdf' : 'image/jpeg';
+    }
+    // Gemini accepts inline PDFs up to ~20 MB; images are typically capped
+    // around 4 MB before performance/quality drops noticeably. Use a single
+    // 18 MB budget for both — anything larger falls back to a URL hint.
+    if (buf.byteLength > 18_000_000) {
+      imagePart = { text: `[File too large for inline OCR — ${(buf.byteLength / 1_000_000).toFixed(1)} MB. URL: ${fileUrl}]` };
     } else {
-      const mimeType = imgRes.headers.get('content-type') || 'image/jpeg';
       imagePart = { inlineData: { mimeType, data: Buffer.from(buf).toString('base64') } };
     }
   } catch (err) {
-    console.warn('[telegram/ocr] image download failed:', err);
+    console.warn('[telegram/ocr] file download failed:', err);
     return null;
   }
 
-  const systemPrompt = `You are an expert receipt scanner. Extract data from the receipt image.
+  const systemPrompt = `You are an expert receipt and invoice scanner. The input may be a photo OR a PDF (single- or multi-page).
 
 INSTRUCTIONS:
-- The TOTAL or AMOUNT DUE is the most important field — usually the largest number, often at the bottom after "Total"/"Amount Due"/"Grand Total"/"Balance".
-- Vendor/store name is usually at the top.
-- Date may be MM/DD/YYYY, YYYY-MM-DD, DD/MM/YYYY, or "Mon DD YYYY".
-- amount_cents is the GRAND TOTAL in CENTS (e.g., $45.99 = 4599).
-- If the image is unreadable, set amount_cents=0 and confidence=0.
+- For a multi-page PDF, treat the entire document as one purchase — find the GRAND TOTAL on whichever page it appears.
+- The TOTAL / AMOUNT DUE is the most important field — usually the largest number, often after "Total"/"Amount Due"/"Grand Total"/"Balance Due".
+- Vendor/merchant/issuer name is usually at the top of page 1.
+- Date may be MM/DD/YYYY, YYYY-MM-DD, DD/MM/YYYY, or "Mon DD YYYY". Pick the issue/transaction date, not the due date if a separate due date exists.
+- amount_cents is the GRAND TOTAL in CENTS (e.g., $45.99 = 4599, $1,234.56 = 123456).
+- If you can't read the total at all, set amount_cents=0 and confidence=0.
 
 Return ONLY valid JSON:
 {"amount_cents": <int>, "vendor": "<string|null>", "date": "<YYYY-MM-DD>", "currency": "USD|CAD", "items": "<string|null>", "tax_cents": <int>, "tip_cents": <int>, "confidence": <0.0-1.0>}`;
@@ -681,7 +691,7 @@ function getBot(): Bot {
       const telegramUrl = `https://api.telegram.org/file/bot${process.env.TELEGRAM_BOT_TOKEN}/${file.file_path}`;
       const permanentUrl = await persistReceiptBlob(telegramUrl, tenantId, 'image/jpeg');
 
-      const ocr = await ocrReceipt(permanentUrl);
+      const ocr = await ocrReceipt(permanentUrl, 'image/jpeg');
       if (!ocr) {
         await ctx.reply('I saved the photo but couldn\'t run OCR on it. Either the image is unreadable or the Gemini key isn\'t configured. Type the expense, e.g. "Spent $45 on lunch at Starbucks".');
         return;
@@ -727,7 +737,7 @@ function getBot(): Bot {
       const telegramUrl = `https://api.telegram.org/file/bot${process.env.TELEGRAM_BOT_TOKEN}/${file.file_path}`;
       const permanentUrl = await persistReceiptBlob(telegramUrl, tenantId, mimeType);
 
-      const ocr = await ocrReceipt(permanentUrl);
+      const ocr = await ocrReceipt(permanentUrl, mimeType);
       if (!ocr || ocr.amount_cents === 0) {
         await ctx.reply(`Saved ${doc.file_name || 'document'} but couldn't extract a total. Type the expense manually if you want it on the books.`);
         return;
