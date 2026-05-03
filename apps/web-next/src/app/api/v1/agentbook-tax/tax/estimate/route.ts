@@ -122,7 +122,13 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     const incomeTaxCents = calcProgressiveTax(taxableIncomeCents, brackets);
     const totalTaxCents = seTaxCents + incomeTaxCents;
     const period = params.get('period') || currentPeriod();
+    const effectiveRate = netIncomeCents > 0
+      ? parseFloat((totalTaxCents / netIncomeCents * 100).toFixed(2))
+      : 0;
 
+    // The legacy plugin frontend reads top-level snake_case dollar fields
+    // (data.total_estimated_tax etc.); the new dashboard reads the cents
+    // values under `data`. Emit both shapes to keep both consumers happy.
     return NextResponse.json({
       success: true,
       data: {
@@ -135,12 +141,18 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         seTaxCents,
         incomeTaxCents,
         totalTaxCents,
-        effectiveRate: netIncomeCents > 0
-          ? parseFloat((totalTaxCents / netIncomeCents * 100).toFixed(2))
-          : 0,
+        effectiveRate,
         calculatedAt: new Date().toISOString(),
         dateRange: { startDate: startDate.toISOString(), endDate: endDate.toISOString() },
       },
+      total_estimated_tax: totalTaxCents / 100,
+      income_tax: incomeTaxCents / 100,
+      self_employment_tax: seTaxCents / 100,
+      effective_rate: effectiveRate,
+      total_revenue: grossRevenueCents / 100,
+      total_expenses: expensesCents / 100,
+      net_income: netIncomeCents / 100,
+      quarterly_payments: [],
     });
   } catch (err) {
     console.error('[agentbook-tax/tax/estimate] failed:', err);
