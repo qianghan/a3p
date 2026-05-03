@@ -12,6 +12,18 @@ const nextConfig = {
     optimizePackageImports: ['lucide-react', 'framer-motion'],
   },
 
+  // Externalize heavy server-side packages so they're resolved from
+  // node_modules at runtime instead of being bundled into every function.
+  // Critical for the agentbook-* catch-all routes which were each bundling
+  // a full Prisma engine, pushing past Vercel's 262 MB function-size cap.
+  serverExternalPackages: [
+    '@naap/database',
+    '@prisma/client',
+    '@prisma/engines',
+    'express',
+    'grammy',
+  ],
+
   // Monorepo: set tracing root to the repo root so Next.js can find
   // files from workspace packages (e.g. @naap/database engine binaries).
   outputFileTracingRoot: path.join(__dirname, '../../'),
