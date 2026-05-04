@@ -8,7 +8,7 @@
 import 'server-only';
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma as db } from '@naap/database';
-import { BUILT_IN_SKILLS } from '@agentbook-core/server';
+import { BUILT_IN_SKILLS } from '@agentbook-core/built-in-skills';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
