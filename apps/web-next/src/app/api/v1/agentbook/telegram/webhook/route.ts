@@ -69,6 +69,24 @@ function fmtUsd(cents: number): string {
   return '$' + (Math.abs(cents) / 100).toLocaleString('en-US', { maximumFractionDigits: 2, minimumFractionDigits: 2 });
 }
 
+/**
+ * Turn a callback `expenseId` token into a real id. The agent attaches
+ * the literal "agent" token to record-expense replies because the brain
+ * doesn't yet propagate the created id through to the keyboard. Map
+ * "agent" to the most-recent expense for this tenant; pass through real
+ * UUIDs unchanged.
+ */
+async function resolveExpenseId(tenantId: string, token: string | undefined): Promise<string | null> {
+  if (!token) return null;
+  if (token !== 'agent' && token.length > 8) return token;
+  const recent = await db.abExpense.findFirst({
+    where: { tenantId },
+    orderBy: { createdAt: 'desc' },
+    select: { id: true },
+  });
+  return recent?.id ?? null;
+}
+
 function normalizeVendorName(name: string): string {
   return name.toLowerCase().replace(/[^a-z0-9]/g, '').trim();
 }
@@ -808,10 +826,16 @@ function getBot(): Bot {
   bot.on('callback_query:data', async (ctx) => {
     const cbData = ctx.callbackQuery.data;
     try {
-      const [action, expenseId] = cbData.split(':');
+      const tenantId = ctx.chat?.id ? await resolveTenantId(ctx.chat.id) : '';
+      const parts = cbData.split(':');
+      const action = parts[0];
 
-      if (action === 'reject' && expenseId) {
-        const tenantId = ctx.chat?.id ? await resolveTenantId(ctx.chat.id) : '';
+      if (action === 'reject') {
+        const expenseId = await resolveExpenseId(tenantId, parts[1]);
+        if (!expenseId) {
+          await ctx.answerCallbackQuery({ text: 'No recent expense to reject' });
+          return;
+        }
         await db.abExpense.updateMany({
           where: { id: expenseId, tenantId },
           data: { status: 'rejected' },
@@ -821,8 +845,12 @@ function getBot(): Bot {
         return;
       }
 
-      if (action === 'personal' && expenseId) {
-        const tenantId = ctx.chat?.id ? await resolveTenantId(ctx.chat.id) : '';
+      if (action === 'personal') {
+        const expenseId = await resolveExpenseId(tenantId, parts[1]);
+        if (!expenseId) {
+          await ctx.answerCallbackQuery({ text: 'No recent expense to update' });
+          return;
+        }
         await db.abExpense.updateMany({
           where: { id: expenseId, tenantId },
           data: { isPersonal: true },
@@ -832,9 +860,88 @@ function getBot(): Bot {
         return;
       }
 
-      // Other callbacks (session: confirm/cancel, change_cat, expense confirm)
-      // depend on the agent-brain pipeline.
-      await ctx.answerCallbackQuery({ text: 'That action needs the agent brain — not enabled yet.' });
+      if (action === 'change_cat') {
+        const expenseId = await resolveExpenseId(tenantId, parts[1]);
+        if (!expenseId) {
+          await ctx.answerCallbackQuery({ text: 'No recent expense to categorize' });
+          return;
+        }
+        const categories = await db.abAccount.findMany({
+          where: { tenantId, accountType: 'expense', isActive: true },
+          orderBy: { code: 'asc' },
+          select: { id: true, name: true, code: true },
+          take: 12,
+        });
+        if (categories.length === 0) {
+          await ctx.answerCallbackQuery({ text: 'No expense categories — seed your chart of accounts first' });
+          return;
+        }
+        const rows: { text: string; callback_data: string }[][] = [];
+        for (let i = 0; i < categories.length; i += 2) {
+          rows.push(
+            categories.slice(i, i + 2).map((c) => ({
+              text: c.name,
+              callback_data: `cat:${expenseId}:${c.id}`,
+            })),
+          );
+        }
+        await ctx.answerCallbackQuery({ text: 'Pick a category' });
+        await ctx.reply('📁 Pick a category:', { reply_markup: { inline_keyboard: rows } });
+        return;
+      }
+
+      if (action === 'cat') {
+        const expenseId = parts[1];
+        const categoryId = parts[2];
+        if (!expenseId || !categoryId) {
+          await ctx.answerCallbackQuery({ text: 'Bad callback data' });
+          return;
+        }
+        const expense = await db.abExpense.findFirst({ where: { id: expenseId, tenantId } });
+        if (!expense) {
+          await ctx.answerCallbackQuery({ text: 'Expense not found' });
+          return;
+        }
+        await db.abExpense.update({
+          where: { id: expenseId },
+          data: { categoryId, confidence: 1.0 },
+        });
+        if (expense.vendorId) {
+          const vendor = await db.abVendor.findUnique({ where: { id: expense.vendorId } });
+          if (vendor) {
+            await db.abPattern.upsert({
+              where: { tenantId_vendorPattern: { tenantId, vendorPattern: vendor.normalizedName } },
+              update: { categoryId, confidence: 0.95, source: 'user_corrected', usageCount: { increment: 1 }, lastUsed: new Date() },
+              create: { tenantId, vendorPattern: vendor.normalizedName, categoryId, confidence: 0.95, source: 'user_corrected' },
+            });
+            await db.abVendor.update({ where: { id: vendor.id }, data: { defaultCategoryId: categoryId } });
+          }
+        }
+        const cat = await db.abAccount.findUnique({ where: { id: categoryId } });
+        await ctx.answerCallbackQuery({ text: `✅ Categorized as ${cat?.name || ''}` });
+        try {
+          await ctx.editMessageText(`✅ Categorized as <b>${cat?.name || categoryId}</b>. The bot will remember this for similar expenses from the same vendor.`, { parse_mode: 'HTML' });
+        } catch {
+          await ctx.reply(`✅ Categorized as ${cat?.name || categoryId}.`);
+        }
+        return;
+      }
+
+      if (action === 'session') {
+        const sessionAction = parts[1];
+        const result = await callAgentBrain(tenantId, sessionAction || 'status', undefined, sessionAction);
+        await ctx.answerCallbackQuery({ text: sessionAction === 'confirm' ? 'Executing…' : 'Cancelled' });
+        if (result.success && result.data?.message) {
+          try {
+            await ctx.editMessageText(mdToHtml(result.data.message), { parse_mode: 'HTML' });
+          } catch {
+            await ctx.reply(result.data.message);
+          }
+        }
+        return;
+      }
+
+      await ctx.answerCallbackQuery({ text: `Unknown action: ${action}` });
     } catch (err) {
       console.error('Callback error:', err);
       await ctx.answerCallbackQuery({ text: 'Error processing action' });
