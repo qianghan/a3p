@@ -33,7 +33,8 @@
       "@naap/utils": ["../../packages/utils/src/index.ts"],
       "@naap/config": ["../../packages/config/src/index.ts"],
       "@naap/plugin-sdk": ["../../packages/plugin-sdk/src/index.ts"],
-      "@agentbook-core/*": ["../../plugins/agentbook-core/backend/src/*"]
+      "@agentbook-core/*": ["../../plugins/agentbook-core/backend/src/*"],
+      "@agentbook-tax/*": ["../../plugins/agentbook-tax/backend/src/*"]
     }
   },
   "include": [

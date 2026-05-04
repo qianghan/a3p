@@ -9,7 +9,7 @@
 import 'server-only';
 import { NextRequest, NextResponse } from 'next/server';
 import { resolveAgentbookTenant } from '@/lib/agentbook-tenant';
-import { processSlipOCR } from '../../../../../../../../../plugins/agentbook-tax/backend/src/tax-slips';
+import { processSlipOCR } from '@agentbook-tax/tax-slips';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
