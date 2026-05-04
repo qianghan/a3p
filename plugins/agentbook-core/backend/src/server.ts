@@ -2535,10 +2535,23 @@ export async function classifyAndExecuteV1(
           if (amtMatch) extractedParams.amountCents = Math.round(parseFloat(amtMatch[1].replace(/,/g, '')) * 100);
         }
         if (params.vendor) {
-          // Try "at/from/@ Vendor", then "on/for description"
-          const vendorMatch = processedText.match(/(?:at|from|@)\s+([A-Z][A-Za-z\s&']+)/)
-            || processedText.match(/(?:on|for)\s+(.+?)(?:\s+today|\s+yesterday|\s*$)/i);
+          // Vendor is the merchant name only — try strongest signals first:
+          //   1. "at|from|@ Vendor"        → "lunch at Starbucks" → "Starbucks"
+          //   2. "with client/customer X"  → "lunch with client glg" → "glg"
+          //   3. fallback: "on|for <short token>" — longer phrases are
+          //      descriptions, not vendors, so don't grab them.
+          let vendorMatch = processedText.match(/(?:at|from|@)\s+([A-Z][A-Za-z0-9\s&']+?)(?:\s+today|\s+yesterday|\s*$)/);
+          if (!vendorMatch) {
+            vendorMatch = processedText.match(/with\s+(?:client|customer|vendor)\s+([A-Za-z0-9][A-Za-z0-9\s&']*?)(?:\s+today|\s+yesterday|\s*$)/i);
+          }
+          if (!vendorMatch) {
+            const candidate = processedText.match(/(?:on|for)\s+([A-Za-z0-9'&]{2,20})(?:\s+today|\s+yesterday|\s*$)/i);
+            if (candidate) vendorMatch = candidate;
+          }
           if (vendorMatch) extractedParams.vendor = vendorMatch[1].trim();
+          // Keep the full text as the description so the audit log
+          // doesn't lose context — vendor is just for grouping.
+          extractedParams.description = text;
         }
         if (params.clientName) {
           const invoiceMatch = text.match(/invoice\s+(.+?)\s+\$/i);

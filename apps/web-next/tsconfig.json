@@ -41,7 +41,8 @@
     "**/*.ts",
     "**/*.tsx",
     ".next/types/**/*.ts",
-    "../../plugins/agentbook-core/backend/src/**/*.ts"
+    "../../plugins/agentbook-core/backend/src/**/*.ts",
+    "../../plugins/agentbook-tax/backend/src/**/*.ts"
   ],
   "exclude": [
     "node_modules",

@@ -1,10 +1,12 @@
 /**
- * Invoice list — native Next.js route.
+ * Invoice list + create — native Next.js route.
  *
- * Read-only port of the legacy plugin Express handler. Detail and
- * mutating endpoints (POST, /:id, /:id/send, /:id/remind, payments,
- * recurring) still 501 via the generic [plugin]/[...path] proxy until
- * they are ported individually.
+ * GET: list with status/date/client filters.
+ * POST: create with line items, AR/Revenue journal entry, client total
+ * update, and audit event in a single transaction.
+ *
+ * Detail (`/:id`), state transitions (`send`, `void`, `remind`, payments,
+ * recurring) still 501 via the generic proxy until each is ported.
  */
 
 import 'server-only';
@@ -55,6 +57,150 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     });
   } catch (err) {
     console.error('[agentbook-invoice/invoices GET] failed:', err);
+    return NextResponse.json(
+      { success: false, error: err instanceof Error ? err.message : String(err) },
+      { status: 500 },
+    );
+  }
+}
+
+interface InvoiceLine {
+  description?: string;
+  quantity?: number;
+  rateCents: number;
+}
+
+interface CreateInvoiceBody {
+  clientId?: string;
+  issuedDate?: string;
+  dueDate?: string;
+  lines?: InvoiceLine[];
+  status?: string;
+  currency?: string;
+}
+
+export async function POST(request: NextRequest): Promise<NextResponse> {
+  try {
+    const tenantId = await resolveAgentbookTenant(request);
+    const body = (await request.json().catch(() => ({}))) as CreateInvoiceBody;
+    const { clientId, issuedDate, dueDate, lines, status, currency } = body;
+
+    if (!clientId || !lines || !Array.isArray(lines) || lines.length === 0) {
+      return NextResponse.json(
+        { success: false, error: 'clientId and at least one line item are required' },
+        { status: 400 },
+      );
+    }
+
+    const client = await db.abClient.findFirst({ where: { id: clientId, tenantId } });
+    if (!client) {
+      return NextResponse.json({ success: false, error: 'Client not found' }, { status: 404 });
+    }
+
+    const lineItems = lines.map((l) => ({
+      description: l.description || '',
+      quantity: l.quantity || 1,
+      rateCents: l.rateCents,
+      amountCents: Math.round((l.quantity || 1) * l.rateCents),
+    }));
+    const totalAmountCents = lineItems.reduce((sum, l) => sum + l.amountCents, 0);
+
+    const year = new Date(issuedDate || Date.now()).getFullYear();
+    const lastInvoice = await db.abInvoice.findFirst({
+      where: { tenantId, number: { startsWith: `INV-${year}-` } },
+      orderBy: { number: 'desc' },
+    });
+
+    let nextSeq = 1;
+    if (lastInvoice) {
+      const parts = lastInvoice.number.split('-');
+      nextSeq = parseInt(parts[2], 10) + 1;
+    }
+    const invoiceNumber = `INV-${year}-${String(nextSeq).padStart(4, '0')}`;
+
+    const [arAccount, revenueAccount] = await Promise.all([
+      db.abAccount.findUnique({ where: { tenantId_code: { tenantId, code: '1100' } } }),
+      db.abAccount.findUnique({ where: { tenantId_code: { tenantId, code: '4000' } } }),
+    ]);
+
+    if (!arAccount || !revenueAccount) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'AR account (1100) or Revenue account (4000) not found. Ensure chart of accounts is seeded.',
+        },
+        { status: 422 },
+      );
+    }
+
+    try {
+      const invoice = await db.$transaction(async (tx) => {
+        const journalEntry = await tx.abJournalEntry.create({
+          data: {
+            tenantId,
+            date: new Date(issuedDate || Date.now()),
+            memo: `Invoice ${invoiceNumber} to ${client.name}`,
+            sourceType: 'invoice',
+            verified: true,
+            lines: {
+              create: [
+                { accountId: arAccount.id, debitCents: totalAmountCents, creditCents: 0, description: `AR - Invoice ${invoiceNumber}` },
+                { accountId: revenueAccount.id, debitCents: 0, creditCents: totalAmountCents, description: `Revenue - Invoice ${invoiceNumber}` },
+              ],
+            },
+          },
+        });
+
+        const inv = await tx.abInvoice.create({
+          data: {
+            tenantId,
+            clientId,
+            number: invoiceNumber,
+            amountCents: totalAmountCents,
+            currency: currency || 'USD',
+            issuedDate: new Date(issuedDate || Date.now()),
+            dueDate: new Date(dueDate || Date.now()),
+            status: status || 'draft',
+            journalEntryId: journalEntry.id,
+            lines: { create: lineItems },
+          },
+          include: { lines: true },
+        });
+
+        await tx.abJournalEntry.update({ where: { id: journalEntry.id }, data: { sourceId: inv.id } });
+        await tx.abClient.update({
+          where: { id: clientId },
+          data: { totalBilledCents: { increment: totalAmountCents } },
+        });
+
+        await tx.abEvent.create({
+          data: {
+            tenantId,
+            eventType: 'invoice.created',
+            actor: 'agent',
+            action: {
+              invoiceId: inv.id,
+              number: invoiceNumber,
+              clientId,
+              amountCents: totalAmountCents,
+              lineCount: lineItems.length,
+            },
+            constraintsPassed: ['balance_invariant'],
+            verificationResult: 'passed',
+          },
+        });
+
+        return inv;
+      });
+      return NextResponse.json({ success: true, data: invoice }, { status: 201 });
+    } catch (err: unknown) {
+      if (typeof err === 'object' && err !== null && 'code' in err && (err as { code: string }).code === 'P2002') {
+        return NextResponse.json({ success: false, error: 'Invoice number already exists' }, { status: 409 });
+      }
+      throw err;
+    }
+  } catch (err) {
+    console.error('[agentbook-invoice/invoices POST] failed:', err);
     return NextResponse.json(
       { success: false, error: err instanceof Error ? err.message : String(err) },
       { status: 500 },
