@@ -315,6 +315,178 @@ async function createOcrExpense(
   return { id: expense.id, categoryId, vendorName: expense.vendor?.name || ocr.vendor };
 }
 
+/**
+ * Conversational state stored under AbUserMemory key
+ * "telegram:active_expense" — the most recent expense the bot recorded
+ * for this tenant. Used by both the inline-keyboard callbacks and the
+ * natural-language follow-up handler ("it's business", "should be Travel"...).
+ */
+const ACTIVE_EXPENSE_KEY = 'telegram:active_expense';
+
+async function setActiveExpense(tenantId: string, expenseId: string): Promise<void> {
+  const value = JSON.stringify({ expenseId, setAt: Date.now() });
+  await db.abUserMemory.upsert({
+    where: { tenantId_key: { tenantId, key: ACTIVE_EXPENSE_KEY } },
+    update: { value, lastUsed: new Date() },
+    create: { tenantId, key: ACTIVE_EXPENSE_KEY, value, type: 'pending_action', confidence: 1 },
+  });
+}
+
+interface ActiveExpense {
+  id: string;
+  amountCents: number;
+  currency: string;
+  date: Date;
+  description: string | null;
+  vendorName: string | null;
+  categoryName: string | null;
+  isPersonal: boolean;
+  status: string;
+}
+
+async function getActiveExpense(tenantId: string): Promise<ActiveExpense | null> {
+  const memory = await db.abUserMemory.findUnique({
+    where: { tenantId_key: { tenantId, key: ACTIVE_EXPENSE_KEY } },
+  });
+  if (!memory) return null;
+  let expenseId: string | undefined;
+  try {
+    expenseId = (JSON.parse(memory.value) as { expenseId?: string }).expenseId;
+  } catch {
+    return null;
+  }
+  if (!expenseId) return null;
+
+  const expense = await db.abExpense.findFirst({
+    where: { id: expenseId, tenantId },
+    include: { vendor: { select: { name: true } } },
+  });
+  if (!expense) return null;
+
+  let categoryName: string | null = null;
+  if (expense.categoryId) {
+    const cat = await db.abAccount.findUnique({
+      where: { id: expense.categoryId },
+      select: { name: true },
+    });
+    categoryName = cat?.name ?? null;
+  }
+
+  return {
+    id: expense.id,
+    amountCents: expense.amountCents,
+    currency: expense.currency,
+    date: expense.date,
+    description: expense.description,
+    vendorName: expense.vendor?.name ?? null,
+    categoryName,
+    isPersonal: expense.isPersonal,
+    status: expense.status,
+  };
+}
+
+function formatExpenseSummary(e: ActiveExpense, leadLine: string): string {
+  const lines: string[] = [leadLine, ''];
+  if (e.vendorName) lines.push(`• Vendor: <b>${escHtml(e.vendorName)}</b>`);
+  lines.push(`• Amount: <b>${fmtUsd(e.amountCents)} ${e.currency}</b>`);
+  lines.push(`• Date: ${e.date.toISOString().slice(0, 10)}`);
+  lines.push(`• Category: <b>${e.categoryName ? escHtml(e.categoryName) : '—'}</b>`);
+  lines.push(`• Type: ${e.isPersonal ? '🏠 Personal' : '💼 Business'}`);
+  lines.push(`• Status: ${e.status === 'confirmed' ? '✅ Confirmed' : e.status === 'rejected' ? '❌ Rejected' : '⚠️ Needs review'}`);
+  return lines.join('\n');
+}
+
+/**
+ * Detect a short natural-language follow-up against the active expense
+ * ("it's business", "personal", "should be Travel", "category Meals").
+ * Returns true if a follow-up was applied — the caller should skip the
+ * agent brain in that case.
+ */
+async function tryActiveExpenseFollowup(
+  tenantId: string,
+  text: string,
+  ctx: { reply: (text: string, opts?: { parse_mode?: 'HTML' | 'Markdown' }) => Promise<unknown> },
+): Promise<boolean> {
+  const lower = text.toLowerCase().trim();
+
+  // "it's business" / "make it business" / "business" / "work expense"
+  if (/^(it'?s|that'?s|mark as|make it|set it as|its|this is)?\s*(business|work|work[\- ]related)$/i.test(lower)) {
+    const active = await getActiveExpense(tenantId);
+    if (!active) return false;
+    await db.abExpense.update({ where: { id: active.id }, data: { isPersonal: false } });
+    const updated = { ...active, isPersonal: false };
+    await ctx.reply(formatExpenseSummary(updated, '💼 Got it — marked as a business expense.'), { parse_mode: 'HTML' });
+    return true;
+  }
+
+  // "it's personal"
+  if (/^(it'?s|that'?s|mark as|make it|set it as|its|this is)?\s*personal$/i.test(lower)) {
+    const active = await getActiveExpense(tenantId);
+    if (!active) return false;
+    await db.abExpense.update({ where: { id: active.id }, data: { isPersonal: true } });
+    const updated = { ...active, isPersonal: true };
+    await ctx.reply(formatExpenseSummary(updated, '🏠 Got it — marked as personal (excluded from business books).'), { parse_mode: 'HTML' });
+    return true;
+  }
+
+  // "should be travel" / "category travel" / "cat travel" / "put in meals"
+  const catMatch = lower.match(/^(?:should be|change category to|change to|category|cat|categor[iy]ze (?:as|to|under)|put it in|put in|file under|book it as)\s*:?\s*(.+)$/i);
+  if (catMatch) {
+    const term = catMatch[1].trim();
+    const active = await getActiveExpense(tenantId);
+    if (!active) return false;
+    const accounts = await db.abAccount.findMany({
+      where: { tenantId, accountType: 'expense', isActive: true },
+      select: { id: true, name: true, code: true },
+    });
+    const lowerTerm = term.toLowerCase();
+    const matched =
+      accounts.find((a) => a.name.toLowerCase() === lowerTerm) ||
+      accounts.find((a) => a.name.toLowerCase().includes(lowerTerm)) ||
+      accounts.find((a) => lowerTerm.includes(a.name.toLowerCase()));
+    if (!matched) {
+      const list = accounts.slice(0, 10).map((a) => `• ${a.name}`).join('\n');
+      await ctx.reply(`I don't have a category called "${term}". Available:\n${list}\n\nTap 📁 Category for a picker.`);
+      return true;
+    }
+    await db.abExpense.update({
+      where: { id: active.id },
+      data: { categoryId: matched.id, confidence: 1 },
+    });
+    if (active.vendorName) {
+      const vendor = await db.abVendor.findFirst({ where: { tenantId, name: active.vendorName } });
+      if (vendor) {
+        await db.abPattern.upsert({
+          where: { tenantId_vendorPattern: { tenantId, vendorPattern: vendor.normalizedName } },
+          update: {
+            categoryId: matched.id,
+            confidence: 0.95,
+            source: 'user_corrected',
+            usageCount: { increment: 1 },
+            lastUsed: new Date(),
+          },
+          create: {
+            tenantId,
+            vendorPattern: vendor.normalizedName,
+            categoryId: matched.id,
+            confidence: 0.95,
+            source: 'user_corrected',
+          },
+        });
+        await db.abVendor.update({ where: { id: vendor.id }, data: { defaultCategoryId: matched.id } });
+      }
+    }
+    const updated = { ...active, categoryName: matched.name };
+    await ctx.reply(
+      formatExpenseSummary(updated, `✅ Categorized as <b>${escHtml(matched.name)}</b>. I'll remember this for future ${active.vendorName || 'expenses from this vendor'}.`),
+      { parse_mode: 'HTML' },
+    );
+    return true;
+  }
+
+  return false;
+}
+
 async function persistReceiptBlob(sourceUrl: string, tenantId: string, contentType: string): Promise<string> {
   const token = process.env.BLOB_READ_WRITE_TOKEN;
   if (!token) return sourceUrl;
@@ -704,6 +876,18 @@ function getBot(): Bot {
     const cmd = text.split(' ')[0].toLowerCase();
     const agentText = slashMap[cmd] || text;
 
+    // Natural-language follow-ups against the active expense (e.g. after a
+    // receipt OCR): "it's business", "personal", "should be Travel". Apply
+    // before routing to the agent brain so we don't hit the LLM unnecessarily.
+    if (!sessionAction && !feedback) {
+      try {
+        const handled = await tryActiveExpenseFollowup(tenantId, text, ctx);
+        if (handled) return;
+      } catch (err) {
+        console.warn('[telegram/followup] failed:', err);
+      }
+    }
+
     try {
       const result = await callAgentBrain(tenantId, agentText, undefined, sessionAction, feedback);
       if (result.success && result.data) {
@@ -762,18 +946,37 @@ function getBot(): Bot {
       }
 
       const expense = await createOcrExpense(tenantId, ocr, permanentUrl, 'telegram_photo');
+      await setActiveExpense(tenantId, expense.id);
+
+      const active = await getActiveExpense(tenantId);
+      if (!active) {
+        await ctx.reply('Receipt saved but I lost track of it. Type "expenses" to see it.');
+        return;
+      }
+
       const conf = Math.round(ocr.confidence * 100);
-      const status = ocr.confidence >= 0.6 && expense.categoryId
-        ? '✅ Recorded'
-        : '⚠️ Needs review';
-      const reply = `${status}\n\n• Vendor: ${expense.vendorName || '—'}\n• Amount: ${fmtUsd(ocr.amount_cents)} ${ocr.currency}\n• Date: ${ocr.date}${ocr.tax_cents ? `\n• Tax: ${fmtUsd(ocr.tax_cents)}` : ''}${ocr.tip_cents ? `\n• Tip: ${fmtUsd(ocr.tip_cents)}` : ''}\n• Confidence: ${conf}%`;
-      await ctx.reply(reply, {
+      const lead = active.categoryName
+        ? `🧾 <b>Got your receipt!</b>\n\nI categorized it as <b>${escHtml(active.categoryName)}</b> based on what I learned about ${active.vendorName ? escHtml(active.vendorName) : 'this vendor'}. Look right?`
+        : `🧾 <b>Got your receipt!</b>\n\nNeeds a category — tap one below or just say "category Meals" / "should be Travel".`;
+      const extras: string[] = [];
+      if (ocr.tax_cents) extras.push(`• Tax: ${fmtUsd(ocr.tax_cents)}`);
+      if (ocr.tip_cents) extras.push(`• Tip: ${fmtUsd(ocr.tip_cents)}`);
+      extras.push(`• Confidence: ${conf}%`);
+
+      const summary = formatExpenseSummary(active, lead) + '\n' + extras.join('\n');
+      await ctx.reply(summary, {
         parse_mode: 'HTML',
         reply_markup: {
-          inline_keyboard: [[
-            { text: '🏠 Personal', callback_data: `personal:${expense.id}` },
-            { text: '❌ Reject',   callback_data: `reject:${expense.id}` },
-          ]],
+          inline_keyboard: [
+            [
+              { text: '✅ Looks right', callback_data: `confirm:${expense.id}` },
+              { text: '📁 Different category', callback_data: `change_cat:${expense.id}` },
+            ],
+            [
+              { text: active.isPersonal ? '💼 Business' : '🏠 Personal', callback_data: `${active.isPersonal ? 'business' : 'personal'}:${expense.id}` },
+              { text: '❌ Not real', callback_data: `reject:${expense.id}` },
+            ],
+          ],
         },
       });
     } catch (err) {
@@ -809,14 +1012,33 @@ function getBot(): Bot {
         permanentUrl,
         mimeType.includes('pdf') ? 'telegram_pdf' : 'telegram_photo',
       );
-      const status = ocr.confidence >= 0.6 && expense.categoryId ? '✅ Recorded' : '⚠️ Needs review';
-      await ctx.reply(`${status}\n\n• Vendor: ${expense.vendorName || '—'}\n• Amount: ${fmtUsd(ocr.amount_cents)} ${ocr.currency}\n• Date: ${ocr.date}\n• Confidence: ${Math.round(ocr.confidence * 100)}%`, {
+      await setActiveExpense(tenantId, expense.id);
+
+      const active = await getActiveExpense(tenantId);
+      if (!active) {
+        await ctx.reply('Document saved but I lost track of the expense. Type "expenses" to see it.');
+        return;
+      }
+
+      const conf = Math.round(ocr.confidence * 100);
+      const lead = active.categoryName
+        ? `📄 <b>Got your document!</b>\n\nI categorized it as <b>${escHtml(active.categoryName)}</b>. Look right?`
+        : `📄 <b>Got your document!</b>\n\nNeeds a category — tap one below or say "category Meals" / "should be Travel".`;
+      const summary = formatExpenseSummary(active, lead) + `\n• Confidence: ${conf}%`;
+
+      await ctx.reply(summary, {
         parse_mode: 'HTML',
         reply_markup: {
-          inline_keyboard: [[
-            { text: '🏠 Personal', callback_data: `personal:${expense.id}` },
-            { text: '❌ Reject',   callback_data: `reject:${expense.id}` },
-          ]],
+          inline_keyboard: [
+            [
+              { text: '✅ Looks right', callback_data: `confirm:${expense.id}` },
+              { text: '📁 Different category', callback_data: `change_cat:${expense.id}` },
+            ],
+            [
+              { text: active.isPersonal ? '💼 Business' : '🏠 Personal', callback_data: `${active.isPersonal ? 'business' : 'personal'}:${expense.id}` },
+              { text: '❌ Not real', callback_data: `reject:${expense.id}` },
+            ],
+          ],
         },
       });
     } catch (err) {
@@ -832,6 +1054,68 @@ function getBot(): Bot {
       const parts = cbData.split(':');
       const action = parts[0];
 
+      if (action === 'confirm') {
+        const expenseId = await resolveExpenseId(tenantId, parts[1]);
+        if (!expenseId) {
+          await ctx.answerCallbackQuery({ text: 'No recent expense to confirm' });
+          return;
+        }
+        const expense = await db.abExpense.findFirst({ where: { id: expenseId, tenantId } });
+        if (!expense) {
+          await ctx.answerCallbackQuery({ text: 'Expense not found' });
+          return;
+        }
+        // If status is pending_review and category is set, post a journal entry now.
+        let journalEntryId = expense.journalEntryId;
+        if (!journalEntryId && expense.categoryId && !expense.isPersonal) {
+          const cashAccount = await db.abAccount.findFirst({ where: { tenantId, code: '1000' } });
+          if (cashAccount) {
+            const je = await db.abJournalEntry.create({
+              data: {
+                tenantId,
+                date: expense.date,
+                memo: `Expense: ${expense.description || 'Confirmed expense'}`,
+                sourceType: 'expense',
+                sourceId: expense.id,
+                verified: true,
+                lines: {
+                  create: [
+                    { accountId: expense.categoryId, debitCents: expense.amountCents, creditCents: 0, description: expense.description || 'Expense' },
+                    { accountId: cashAccount.id, debitCents: 0, creditCents: expense.amountCents, description: 'Payment' },
+                  ],
+                },
+              },
+            });
+            journalEntryId = je.id;
+          }
+        }
+        await db.abExpense.update({
+          where: { id: expenseId },
+          data: { status: 'confirmed', journalEntryId },
+        });
+        await db.abEvent.create({
+          data: {
+            tenantId,
+            eventType: 'expense.confirmed',
+            actor: 'user',
+            action: { expenseId: expense.id, source: 'telegram_button' },
+          },
+        });
+        const updated = await getActiveExpense(tenantId);
+        await ctx.answerCallbackQuery({ text: '✅ Confirmed' });
+        if (updated) {
+          try {
+            await ctx.editMessageText(
+              formatExpenseSummary(updated, '✅ <b>Recorded</b> — on the books.'),
+              { parse_mode: 'HTML' },
+            );
+          } catch {
+            await ctx.reply(formatExpenseSummary(updated, '✅ Recorded — on the books.'), { parse_mode: 'HTML' });
+          }
+        }
+        return;
+      }
+
       if (action === 'reject') {
         const expenseId = await resolveExpenseId(tenantId, parts[1]);
         if (!expenseId) {
@@ -843,7 +1127,11 @@ function getBot(): Bot {
           data: { status: 'rejected' },
         });
         await ctx.answerCallbackQuery({ text: '❌ Expense rejected' });
-        await ctx.editMessageText('❌ Expense rejected.');
+        try {
+          await ctx.editMessageText('❌ Expense rejected — won\'t appear on the books.');
+        } catch {
+          await ctx.reply('❌ Expense rejected — won\'t appear on the books.');
+        }
         return;
       }
 
@@ -858,7 +1146,36 @@ function getBot(): Bot {
           data: { isPersonal: true },
         });
         await ctx.answerCallbackQuery({ text: '🏠 Marked as personal' });
-        await ctx.editMessageText('🏠 Marked as personal expense (excluded from business books).');
+        const updated = await getActiveExpense(tenantId);
+        if (updated) {
+          try {
+            await ctx.editMessageText(formatExpenseSummary(updated, '🏠 Marked as personal — excluded from business books.'), { parse_mode: 'HTML' });
+          } catch {
+            await ctx.reply(formatExpenseSummary(updated, '🏠 Marked as personal — excluded from business books.'), { parse_mode: 'HTML' });
+          }
+        }
+        return;
+      }
+
+      if (action === 'business') {
+        const expenseId = await resolveExpenseId(tenantId, parts[1]);
+        if (!expenseId) {
+          await ctx.answerCallbackQuery({ text: 'No recent expense to update' });
+          return;
+        }
+        await db.abExpense.updateMany({
+          where: { id: expenseId, tenantId },
+          data: { isPersonal: false },
+        });
+        await ctx.answerCallbackQuery({ text: '💼 Marked as business' });
+        const updated = await getActiveExpense(tenantId);
+        if (updated) {
+          try {
+            await ctx.editMessageText(formatExpenseSummary(updated, '💼 Marked as a business expense.'), { parse_mode: 'HTML' });
+          } catch {
+            await ctx.reply(formatExpenseSummary(updated, '💼 Marked as a business expense.'), { parse_mode: 'HTML' });
+          }
+        }
         return;
       }
 
@@ -963,11 +1280,18 @@ function getBot(): Bot {
             await db.abVendor.update({ where: { id: vendor.id }, data: { defaultCategoryId: categoryId } });
           }
         }
+        await setActiveExpense(tenantId, expenseId);
         await ctx.answerCallbackQuery({ text: `✅ Categorized as ${account.name}` });
+        const updated = await getActiveExpense(tenantId);
+        const lead = `✅ Categorized as <b>${escHtml(account.name)}</b>. I'll remember this for future ${expense.vendorId ? 'expenses from this vendor' : 'similar expenses'}.`;
         try {
-          await ctx.editMessageText(`✅ Categorized as <b>${account.name}</b>. The bot will remember this for similar expenses from the same vendor.`, { parse_mode: 'HTML' });
+          if (updated) {
+            await ctx.editMessageText(formatExpenseSummary(updated, lead), { parse_mode: 'HTML' });
+          } else {
+            await ctx.editMessageText(lead, { parse_mode: 'HTML' });
+          }
         } catch {
-          await ctx.reply(`✅ Categorized as ${account.name}.`);
+          await ctx.reply(updated ? formatExpenseSummary(updated, lead) : lead, { parse_mode: 'HTML' });
         }
         return;
       }
