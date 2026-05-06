@@ -401,6 +401,10 @@ export function reviewPlan(steps: PlanStep[], ctx: BotContext): ReviewResult {
     if (step.skill === 'expense.record' && !step.args.amountCents) {
       blockers.push('I couldn\'t pin down the amount. Try "Spent $45 on gas at Shell".');
     }
+    // Confirmation gate: don't book a business expense without a category.
+    if (step.skill === 'expense.confirm' && ctx.active && !ctx.active.categoryId && !ctx.active.isPersonal) {
+      blockers.push('I can\'t book this without a category. Tell me one ("Fuel", "Meals", "Office") or tap 📁 below.');
+    }
   }
 
   return { approved: blockers.length === 0, blockers, warnings };

@@ -73,6 +73,47 @@ function fmtUsd(cents: number): string {
 }
 
 /**
+ * Surface tax-line implications for common categories so the user sees the
+ * actual deductible impact at the moment of booking, not just where it
+ * went on the chart of accounts. Today this covers the US Schedule C
+ * cases that have non-trivial deductibility rules; the CA T2125
+ * equivalents inherit by line number where the rules align.
+ */
+function buildTaxNote(categoryName: string, taxCategory: string, amountCents: number): string {
+  const dollars = (cents: number) => `$${(cents / 100).toFixed(2)}`;
+  const cat = categoryName.toLowerCase();
+  const line = (taxCategory || '').toLowerCase();
+
+  // Meals: 50% deductible per IRS §274(n) / Canadian CRA rules.
+  if (cat.includes('meal') || line.includes('24b')) {
+    const deductible = Math.round(amountCents * 0.5);
+    return `Heads up: meals are 50% deductible — effective write-off ≈ ${dollars(deductible)}.`;
+  }
+
+  // Auto / fuel — actual-expense vs. mileage method matters; flag gently.
+  if (cat.includes('car') || cat.includes('fuel') || cat.includes('truck') || line.includes('9')) {
+    return `Note: vehicle expenses can be claimed via actual costs OR standard mileage. Make sure you're using the same method all year.`;
+  }
+
+  // Travel.
+  if (cat.includes('travel') || line.includes('24a')) {
+    return `Travel is fully deductible if it's overnight + business-purpose. Hold onto the receipt.`;
+  }
+
+  // Software / subscriptions — easy 100% writeoff but reminder for personal-use split.
+  if (cat.includes('software') || cat.includes('subscription') || line.includes('27a')) {
+    return `Software is 100% deductible if used purely for business. Personal use? Split it.`;
+  }
+
+  // Home office / rent / utilities.
+  if (cat.includes('rent') || line.includes('20b')) {
+    return `If this is your home office portion, only the business-use % is deductible. Track the square footage.`;
+  }
+
+  return '';
+}
+
+/**
  * Turn a callback `expenseId` token into a real id. The agent attaches
  * the literal "agent" token to record-expense replies because the brain
  * doesn't yet propagate the created id through to the keyboard. Map
@@ -225,7 +266,7 @@ async function createOcrExpense(
   ocr: ReceiptOcrResult,
   receiptUrl: string,
   source: 'telegram_photo' | 'telegram_pdf',
-): Promise<{ id: string; categoryId: string | null; vendorName: string | null }> {
+): Promise<CreatedOcrExpense> {
   let vendor: { id: string; defaultCategoryId: string | null } | null = null;
   if (ocr.vendor) {
     const normalized = normalizeVendorName(ocr.vendor);
@@ -239,41 +280,31 @@ async function createOcrExpense(
     }
   }
 
+  // Category inference: vendor default → vendor pattern → null (ask user).
+  // Track WHERE the category came from so we can be honest with the user
+  // when surfacing it ("I'm 75% sure" vs "you've put Shell here before").
   let categoryId: string | null = vendor?.defaultCategoryId ?? null;
+  let categorySource: 'vendor_default' | 'pattern' | null = vendor?.defaultCategoryId ? 'vendor_default' : null;
+  let categoryConfidence: number | null = vendor?.defaultCategoryId ? 0.95 : null;
   if (!categoryId && vendor) {
     const pattern = await db.abPattern.findUnique({
       where: { tenantId_vendorPattern: { tenantId, vendorPattern: normalizeVendorName(ocr.vendor || '') } },
     });
-    if (pattern) categoryId = pattern.categoryId;
+    if (pattern) {
+      categoryId = pattern.categoryId;
+      categorySource = 'pattern';
+      categoryConfidence = pattern.confidence;
+    }
   }
 
   const expenseDate = new Date(ocr.date);
   const safeDate = isNaN(expenseDate.getTime()) ? new Date() : expenseDate;
 
+  // CONFIRMATION GATE: every receipt lands as a draft (status='pending_review')
+  // and is NOT booked to the ledger until the user explicitly taps Confirm
+  // or replies with "yes / looks good". This is the single biggest behavior
+  // change between "automation that surprises you" and "accountant you trust".
   const expense = await db.$transaction(async (tx) => {
-    let journalEntryId: string | null = null;
-    if (categoryId) {
-      const cashAccount = await tx.abAccount.findFirst({ where: { tenantId, code: '1000' } });
-      if (cashAccount) {
-        const je = await tx.abJournalEntry.create({
-          data: {
-            tenantId,
-            date: safeDate,
-            memo: `Expense: ${ocr.vendor || ocr.items || 'Receipt'}`,
-            sourceType: 'expense',
-            verified: ocr.confidence >= 0.8,
-            lines: {
-              create: [
-                { accountId: categoryId, debitCents: ocr.amount_cents, creditCents: 0, description: ocr.items || ocr.vendor || 'Expense' },
-                { accountId: cashAccount.id, debitCents: 0, creditCents: ocr.amount_cents, description: `Payment: ${ocr.vendor || ''}` },
-              ],
-            },
-          },
-        });
-        journalEntryId = je.id;
-      }
-    }
-
     const exp = await tx.abExpense.create({
       data: {
         tenantId,
@@ -287,9 +318,9 @@ async function createOcrExpense(
         receiptUrl,
         currency: ocr.currency,
         confidence: ocr.confidence,
-        status: ocr.confidence >= 0.6 && categoryId ? 'confirmed' : 'pending_review',
+        status: 'pending_review',
         source,
-        journalEntryId,
+        journalEntryId: null,
       },
       include: { vendor: { select: { name: true } } },
     });
@@ -297,7 +328,7 @@ async function createOcrExpense(
     await tx.abEvent.create({
       data: {
         tenantId,
-        eventType: 'expense.recorded',
+        eventType: 'expense.draft_recorded',
         actor: 'agent',
         action: {
           expense_id: exp.id,
@@ -306,6 +337,8 @@ async function createOcrExpense(
           categoryId,
           source,
           confidence: ocr.confidence,
+          categorySource,
+          categoryConfidence,
         },
       },
     });
@@ -313,7 +346,13 @@ async function createOcrExpense(
     return exp;
   });
 
-  return { id: expense.id, categoryId, vendorName: expense.vendor?.name || ocr.vendor };
+  return {
+    id: expense.id,
+    categoryId,
+    vendorName: expense.vendor?.name || ocr.vendor,
+    categorySource,
+    categoryConfidence,
+  };
 }
 
 /**
@@ -393,8 +432,59 @@ function formatExpenseSummary(e: ActiveExpense, leadLine: string): string {
   lines.push(`• Date: ${e.date.toISOString().slice(0, 10)}`);
   lines.push(`• Category: <b>${e.categoryName ? escHtml(e.categoryName) : '—'}</b>`);
   lines.push(`• Type: ${e.isPersonal ? '🏠 Personal' : '💼 Business'}`);
-  lines.push(`• Status: ${e.status === 'confirmed' ? '✅ Confirmed' : e.status === 'rejected' ? '❌ Rejected' : '⚠️ Needs review'}`);
+  lines.push(`• Status: ${e.status === 'confirmed' ? '✅ Confirmed' : e.status === 'rejected' ? '❌ Rejected' : '⚠️ Draft — not on the books yet'}`);
   return lines.join('\n');
+}
+
+interface CreatedOcrExpense {
+  id: string;
+  categoryId: string | null;
+  vendorName: string | null;
+  categorySource: 'vendor_default' | 'pattern' | null;
+  categoryConfidence: number | null;
+}
+
+/**
+ * Build the user-facing reply for a freshly-OCR'd receipt that's still
+ * a draft. Surfaces:
+ *   • OCR confidence honestly when below 80%
+ *   • Where the category came from (vendor default vs. learned pattern)
+ *     and how confident I am
+ *   • Tax / tip if present
+ *   • A clear ask to confirm — the receipt is NOT on the books yet
+ */
+function buildDraftReceiptReply(
+  active: ActiveExpense,
+  ocr: ReceiptOcrResult,
+  expense: CreatedOcrExpense,
+): string {
+  const ocrConf = Math.round(ocr.confidence * 100);
+  const vendorPhrase = active.vendorName ? `<b>${escHtml(active.vendorName)}</b>` : '<b>this one</b>';
+  const amountPhrase = `<b>${fmtUsd(active.amountCents)} ${active.currency}</b>`;
+
+  let lead: string;
+  if (active.categoryName) {
+    const catNote =
+      expense.categorySource === 'vendor_default'
+        ? `(your default category for ${active.vendorName ? escHtml(active.vendorName) : 'this vendor'})`
+        : expense.categorySource === 'pattern' && expense.categoryConfidence !== null
+          ? `(I'm ~${Math.round(expense.categoryConfidence * 100)}% sure based on past entries)`
+          : '';
+    lead = `📒 <b>Draft receipt</b> — ${vendorPhrase} for ${amountPhrase} under <b>${escHtml(active.categoryName)}</b> ${catNote}.\n\nThis isn't on the books yet. Tap ✅ to confirm, or tell me anything that needs fixing — "actually that's personal", "should be Meals", "wrong amount", etc.`;
+  } else {
+    lead = `📒 <b>Draft receipt</b> — ${vendorPhrase} for ${amountPhrase} on ${active.date.toISOString().slice(0, 10)}.\n\nI need a category before I book it. Tap 📁 below or just tell me — "Fuel", "Meals", "Office", "should be Travel".`;
+  }
+
+  const extras: string[] = [];
+  if (ocr.tax_cents) extras.push(`• Tax: ${fmtUsd(ocr.tax_cents)}`);
+  if (ocr.tip_cents) extras.push(`• Tip: ${fmtUsd(ocr.tip_cents)}`);
+  if (ocrConf < 80) {
+    extras.push(`• ⚠️ OCR confidence: ${ocrConf}% — double-check the amount`);
+  } else {
+    extras.push(`• OCR confidence: ${ocrConf}%`);
+  }
+
+  return formatExpenseSummary(active, lead) + '\n' + extras.join('\n');
 }
 
 async function persistReceiptBlob(sourceUrl: string, tenantId: string, contentType: string): Promise<string> {
@@ -881,31 +971,20 @@ function getBot(): Bot {
 
       const active = await getActiveExpense(tenantId);
       if (!active) {
-        await ctx.reply('Saved the receipt but I lost track of it. Type "expenses" to see it on your books.');
+        await ctx.reply('Saved the receipt but I lost track of it. Type "expenses" to see it.');
         return;
       }
 
-      const conf = Math.round(ocr.confidence * 100);
-      const vendorPhrase = active.vendorName ? escHtml(active.vendorName) : 'this one';
-      const lead = active.categoryName
-        ? `📒 Booking <b>${vendorPhrase}</b> for <b>${fmtUsd(active.amountCents)}</b> under <b>${escHtml(active.categoryName)}</b> ${active.vendorName ? '(I learned that\'s where ' + escHtml(active.vendorName) + ' usually goes)' : ''}.\n\nLook right? Tap a button or just tell me — "yep", "actually it\'s personal", "should be Meals", anything works.`
-        : `📒 Got <b>${vendorPhrase}</b> for <b>${fmtUsd(active.amountCents)}</b> on ${active.date.toISOString().slice(0, 10)}.\n\nNeed to pick a category for this one — tap 📁 below or just say "Meals" / "Fuel" / "should be Travel".`;
-      const extras: string[] = [];
-      if (ocr.tax_cents) extras.push(`• Tax: ${fmtUsd(ocr.tax_cents)}`);
-      if (ocr.tip_cents) extras.push(`• Tip: ${fmtUsd(ocr.tip_cents)}`);
-      extras.push(`• Confidence: ${conf}%`);
-
-      const summary = formatExpenseSummary(active, lead) + '\n' + extras.join('\n');
-      await ctx.reply(summary, {
+      await ctx.reply(buildDraftReceiptReply(active, ocr, expense), {
         parse_mode: 'HTML',
         reply_markup: {
           inline_keyboard: [
             [
-              { text: '✅ Looks right', callback_data: `confirm:${expense.id}` },
-              { text: '📁 Different category', callback_data: `change_cat:${expense.id}` },
+              { text: '✅ Looks right — book it', callback_data: `confirm:${expense.id}` },
+              { text: '📁 Change category', callback_data: `change_cat:${expense.id}` },
             ],
             [
-              { text: active.isPersonal ? '💼 Business' : '🏠 Personal', callback_data: `${active.isPersonal ? 'business' : 'personal'}:${expense.id}` },
+              { text: active.isPersonal ? '💼 Make business' : '🏠 Make personal', callback_data: `${active.isPersonal ? 'business' : 'personal'}:${expense.id}` },
               { text: '❌ Not real', callback_data: `reject:${expense.id}` },
             ],
           ],
@@ -948,27 +1027,20 @@ function getBot(): Bot {
 
       const active = await getActiveExpense(tenantId);
       if (!active) {
-        await ctx.reply('Document saved but I lost track of the expense. Type "expenses" to see it.');
+        await ctx.reply('Document saved but I lost track of it. Type "expenses" to see it.');
         return;
       }
 
-      const conf = Math.round(ocr.confidence * 100);
-      const vendorPhrase = active.vendorName ? escHtml(active.vendorName) : 'this one';
-      const lead = active.categoryName
-        ? `📒 Booking <b>${vendorPhrase}</b> for <b>${fmtUsd(active.amountCents)}</b> under <b>${escHtml(active.categoryName)}</b>.\n\nLook right? Tap a button or just tell me ("yep", "should be Travel", "personal").`
-        : `📒 Got <b>${vendorPhrase}</b> for <b>${fmtUsd(active.amountCents)}</b>.\n\nNeed to pick a category — tap 📁 or tell me one ("Meals" / "should be Software").`;
-      const summary = formatExpenseSummary(active, lead) + `\n• Confidence: ${conf}%`;
-
-      await ctx.reply(summary, {
+      await ctx.reply(buildDraftReceiptReply(active, ocr, expense), {
         parse_mode: 'HTML',
         reply_markup: {
           inline_keyboard: [
             [
-              { text: '✅ Looks right', callback_data: `confirm:${expense.id}` },
-              { text: '📁 Different category', callback_data: `change_cat:${expense.id}` },
+              { text: '✅ Looks right — book it', callback_data: `confirm:${expense.id}` },
+              { text: '📁 Change category', callback_data: `change_cat:${expense.id}` },
             ],
             [
-              { text: active.isPersonal ? '💼 Business' : '🏠 Personal', callback_data: `${active.isPersonal ? 'business' : 'personal'}:${expense.id}` },
+              { text: active.isPersonal ? '💼 Make business' : '🏠 Make personal', callback_data: `${active.isPersonal ? 'business' : 'personal'}:${expense.id}` },
               { text: '❌ Not real', callback_data: `reject:${expense.id}` },
             ],
           ],
@@ -976,7 +1048,7 @@ function getBot(): Bot {
       });
     } catch (err) {
       console.error('[telegram/document] failed:', err);
-      await ctx.reply('Sorry, I couldn\'t process that document. Try sending it as a photo, or type the expense.');
+      await ctx.reply('Sorry, I couldn\'t process that document. Try sending it as a photo or type it in plain English.');
     }
   });
 
@@ -998,8 +1070,22 @@ function getBot(): Bot {
           await ctx.answerCallbackQuery({ text: 'Expense not found' });
           return;
         }
-        // If status is pending_review and category is set, post a journal entry now.
+
+        // Confirmation gate: refuse to book without a category.
+        if (!expense.categoryId && !expense.isPersonal) {
+          await ctx.answerCallbackQuery({ text: 'Need a category first' });
+          await ctx.reply('I can\'t book this without a category — tap 📁 below or tell me one ("Fuel", "Meals", "Office Expenses").');
+          return;
+        }
+
         let journalEntryId = expense.journalEntryId;
+        let categoryAccount: { id: string; name: string; taxCategory: string | null } | null = null;
+        if (expense.categoryId) {
+          categoryAccount = await db.abAccount.findUnique({
+            where: { id: expense.categoryId },
+            select: { id: true, name: true, taxCategory: true },
+          });
+        }
         if (!journalEntryId && expense.categoryId && !expense.isPersonal) {
           const cashAccount = await db.abAccount.findFirst({ where: { tenantId, code: '1000' } });
           if (cashAccount) {
@@ -1035,15 +1121,21 @@ function getBot(): Bot {
           },
         });
         const updated = await getActiveExpense(tenantId);
-        await ctx.answerCallbackQuery({ text: '✅ Confirmed' });
+        await ctx.answerCallbackQuery({ text: '✅ Booked' });
+
+        // Tax-line implication note (gap 11) — surface deduction rules
+        // when the category has a known tax-category mapping.
+        const taxNote = categoryAccount?.taxCategory
+          ? buildTaxNote(categoryAccount.name, categoryAccount.taxCategory, expense.amountCents)
+          : '';
+        const lead = taxNote
+          ? `✅ <b>On the books.</b> ${taxNote}`
+          : `✅ <b>On the books.</b>`;
         if (updated) {
           try {
-            await ctx.editMessageText(
-              formatExpenseSummary(updated, '✅ <b>Recorded</b> — on the books.'),
-              { parse_mode: 'HTML' },
-            );
+            await ctx.editMessageText(formatExpenseSummary(updated, lead), { parse_mode: 'HTML' });
           } catch {
-            await ctx.reply(formatExpenseSummary(updated, '✅ Recorded — on the books.'), { parse_mode: 'HTML' });
+            await ctx.reply(formatExpenseSummary(updated, lead), { parse_mode: 'HTML' });
           }
         }
         return;
