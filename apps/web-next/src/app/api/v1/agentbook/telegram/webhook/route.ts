@@ -73,44 +73,60 @@ function fmtUsd(cents: number): string {
 }
 
 /**
- * Surface tax-line implications for common categories so the user sees the
- * actual deductible impact at the moment of booking, not just where it
- * went on the chart of accounts. Today this covers the US Schedule C
- * cases that have non-trivial deductibility rules; the CA T2125
- * equivalents inherit by line number where the rules align.
+ * Surface tax-line implications + ITC eligibility at the moment of
+ * booking, so the user sees the actual deductible impact, not just
+ * where it went on the chart of accounts.
  */
-function buildTaxNote(categoryName: string, taxCategory: string, amountCents: number): string {
+function buildTaxNote(
+  categoryName: string,
+  taxCategory: string,
+  amountCents: number,
+  taxCents: number = 0,
+  jurisdiction: string = 'us',
+): string {
   const dollars = (cents: number) => `$${(cents / 100).toFixed(2)}`;
   const cat = categoryName.toLowerCase();
   const line = (taxCategory || '').toLowerCase();
+  const notes: string[] = [];
 
-  // Meals: 50% deductible per IRS §274(n) / Canadian CRA rules.
-  if (cat.includes('meal') || line.includes('24b')) {
+  // GST/HST — Canadian tenants can claim Input Tax Credits if registered.
+  if (jurisdiction === 'ca' && taxCents > 0) {
+    notes.push(`GST/HST on this receipt: ${dollars(taxCents)} — claim as ITC if you're registered.`);
+  }
+
+  // Meals: 50% deductible per IRS §274(n) / CRA equivalent.
+  if (cat.includes('meal') || cat.includes('entertainment') || line.includes('24b')) {
     const deductible = Math.round(amountCents * 0.5);
-    return `Heads up: meals are 50% deductible — effective write-off ≈ ${dollars(deductible)}.`;
+    notes.push(`Heads up: meals are 50% deductible — effective write-off ≈ ${dollars(deductible)}.`);
   }
-
-  // Auto / fuel — actual-expense vs. mileage method matters; flag gently.
-  if (cat.includes('car') || cat.includes('fuel') || cat.includes('truck') || line.includes('9')) {
-    return `Note: vehicle expenses can be claimed via actual costs OR standard mileage. Make sure you're using the same method all year.`;
+  // Alcohol-only purchases: 50% deductible US, 50% CA, often non-deductible if no business meal.
+  else if (cat.includes('alcohol') || cat.includes('liquor') || cat.includes('bar')) {
+    notes.push(`Alcohol on its own usually isn't deductible — only counts when it's part of a documented business meal.`);
   }
-
+  // Vehicle / fuel — actual vs. mileage method.
+  else if (cat.includes('car') || cat.includes('fuel') || cat.includes('truck') || line.includes('9')) {
+    notes.push(`Vehicle expenses: actual-costs OR standard mileage — pick one method and stick with it all year.`);
+  }
   // Travel.
-  if (cat.includes('travel') || line.includes('24a')) {
-    return `Travel is fully deductible if it's overnight + business-purpose. Hold onto the receipt.`;
+  else if (cat.includes('travel') || line.includes('24a')) {
+    notes.push(`Travel is fully deductible if overnight + business-purpose. Save the receipt.`);
+  }
+  // Software / subscriptions.
+  else if (cat.includes('software') || cat.includes('subscription') || line.includes('27a')) {
+    notes.push(`Software is 100% deductible if used purely for business. Personal use? Split it.`);
+  }
+  // Rent / home office.
+  else if (cat.includes('rent') || line.includes('20b')) {
+    notes.push(`Home-office portion only — track the business-use % and square footage.`);
+  }
+  // Gifts (US: $25/person/year cap).
+  else if (cat.includes('gift') && jurisdiction === 'us') {
+    if (amountCents > 2500) {
+      notes.push(`⚠️ US gift cap: only $25/person/year is deductible. Anything above is not.`);
+    }
   }
 
-  // Software / subscriptions — easy 100% writeoff but reminder for personal-use split.
-  if (cat.includes('software') || cat.includes('subscription') || line.includes('27a')) {
-    return `Software is 100% deductible if used purely for business. Personal use? Split it.`;
-  }
-
-  // Home office / rent / utilities.
-  if (cat.includes('rent') || line.includes('20b')) {
-    return `If this is your home office portion, only the business-use % is deductible. Track the square footage.`;
-  }
-
-  return '';
+  return notes.join(' ');
 }
 
 /**
@@ -201,7 +217,7 @@ async function ocrReceipt(fileUrl: string, hintMime?: string): Promise<ReceiptOc
 INSTRUCTIONS:
 - For a multi-page PDF, treat the entire document as one purchase — find the GRAND TOTAL on whichever page it appears.
 - The TOTAL / AMOUNT DUE is the most important field — usually the largest number, often after "Total"/"Amount Due"/"Grand Total"/"Balance Due".
-- Vendor/merchant/issuer name is usually at the top of page 1.
+- Vendor/merchant/issuer name is usually at the top of page 1. Return the CANONICAL BRAND NAME, not the raw print: "STARBUCKS #4521 PORTLAND OR" → "Starbucks", "WAL-MART STORE 0042" → "Walmart", "SHELL OIL 12-345-6789" → "Shell". Strip store numbers, location codes, and shouty caps.
 - Date may be MM/DD/YYYY, YYYY-MM-DD, DD/MM/YYYY, or "Mon DD YYYY". Pick the issue/transaction date, not the due date if a separate due date exists.
 - amount_cents is the GRAND TOTAL in CENTS (e.g., $45.99 = 4599, $1,234.56 = 123456).
 - If you can't read the total at all, set amount_cents=0 and confidence=0.
@@ -485,6 +501,21 @@ function buildDraftReceiptReply(
   }
 
   return formatExpenseSummary(active, lead) + '\n' + extras.join('\n');
+}
+
+/**
+ * Surface a currency-mismatch warning when the receipt was issued in a
+ * different currency than the tenant's books. Real conversion is left
+ * for a future Plaid/FX integration; today we just call attention to it
+ * so the user knows the books amount won't match the bank statement.
+ */
+function currencyMismatchNote(
+  receiptCurrency: string,
+  tenantCurrency: string | null,
+): string | null {
+  if (!tenantCurrency) return null;
+  if (receiptCurrency.toUpperCase() === tenantCurrency.toUpperCase()) return null;
+  return `Note: receipt is in ${receiptCurrency.toUpperCase()} but your books run in ${tenantCurrency.toUpperCase()}. I've stored the original amount; bank reconciliation will need the converted figure.`;
 }
 
 async function persistReceiptBlob(sourceUrl: string, tenantId: string, contentType: string): Promise<string> {
@@ -975,7 +1006,13 @@ function getBot(): Bot {
         return;
       }
 
-      await ctx.reply(buildDraftReceiptReply(active, ocr, expense), {
+      const tenantConfig = await db.abTenantConfig.findUnique({
+        where: { userId: tenantId },
+        select: { currency: true },
+      });
+      const fxNote = currencyMismatchNote(ocr.currency, tenantConfig?.currency || null);
+      const draftReply = buildDraftReceiptReply(active, ocr, expense) + (fxNote ? `\n\n💱 ${fxNote}` : '');
+      await ctx.reply(draftReply, {
         parse_mode: 'HTML',
         reply_markup: {
           inline_keyboard: [
@@ -1031,7 +1068,13 @@ function getBot(): Bot {
         return;
       }
 
-      await ctx.reply(buildDraftReceiptReply(active, ocr, expense), {
+      const tenantConfig = await db.abTenantConfig.findUnique({
+        where: { userId: tenantId },
+        select: { currency: true },
+      });
+      const fxNote = currencyMismatchNote(ocr.currency, tenantConfig?.currency || null);
+      const draftReply = buildDraftReceiptReply(active, ocr, expense) + (fxNote ? `\n\n💱 ${fxNote}` : '');
+      await ctx.reply(draftReply, {
         parse_mode: 'HTML',
         reply_markup: {
           inline_keyboard: [
@@ -1086,6 +1129,10 @@ function getBot(): Bot {
             select: { id: true, name: true, taxCategory: true },
           });
         }
+        const tenantConfig = await db.abTenantConfig.findUnique({
+          where: { userId: tenantId },
+          select: { jurisdiction: true, currency: true },
+        });
         if (!journalEntryId && expense.categoryId && !expense.isPersonal) {
           const cashAccount = await db.abAccount.findFirst({ where: { tenantId, code: '1000' } });
           if (cashAccount) {
@@ -1123,20 +1170,30 @@ function getBot(): Bot {
         const updated = await getActiveExpense(tenantId);
         await ctx.answerCallbackQuery({ text: '✅ Booked' });
 
-        // Tax-line implication note (gap 11) — surface deduction rules
-        // when the category has a known tax-category mapping.
-        const taxNote = categoryAccount?.taxCategory
-          ? buildTaxNote(categoryAccount.name, categoryAccount.taxCategory, expense.amountCents)
+        // Tax-line implication note (gaps 11, 12, 14) — surface deduction
+        // rules + ITC eligibility based on category, amount, tax_cents,
+        // and jurisdiction.
+        const taxNote = categoryAccount
+          ? buildTaxNote(
+              categoryAccount.name,
+              categoryAccount.taxCategory || '',
+              expense.amountCents,
+              expense.taxAmountCents || 0,
+              tenantConfig?.jurisdiction || 'us',
+            )
           : '';
-        const lead = taxNote
-          ? `✅ <b>On the books.</b> ${taxNote}`
-          : `✅ <b>On the books.</b>`;
-        if (updated) {
-          try {
-            await ctx.editMessageText(formatExpenseSummary(updated, lead), { parse_mode: 'HTML' });
-          } catch {
-            await ctx.reply(formatExpenseSummary(updated, lead), { parse_mode: 'HTML' });
-          }
+
+        // Pacing (gap 5): post-confirm reply is short — one line + the
+        // tax note if any. The user just saw the full summary in the
+        // draft message and doesn't need to see it again on confirm.
+        const oneLine = updated
+          ? `✅ <b>On the books</b> — ${escHtml(updated.vendorName || 'expense')} ${fmtUsd(updated.amountCents)}${updated.categoryName ? ' → <b>' + escHtml(updated.categoryName) + '</b>' : ''}.`
+          : '✅ <b>On the books.</b>';
+        const reply = taxNote ? `${oneLine}\n\n${taxNote}` : oneLine;
+        try {
+          await ctx.editMessageText(reply, { parse_mode: 'HTML' });
+        } catch {
+          await ctx.reply(reply, { parse_mode: 'HTML' });
         }
         return;
       }
