@@ -36,6 +36,7 @@ export type IntentName =
   | 'query_expenses'    // recent expenses (optionally filtered)
   | 'query_tax'         // tax estimate / quarterly
   | 'show_help'         // bot capabilities
+  | 'clarify'           // bot is unsure — ask the user a question first
   | 'unrelated';        // none of the above — let agent brain reply
 
 export interface IntentSlots {
@@ -44,7 +45,9 @@ export interface IntentSlots {
   vendor?: string;
   description?: string;
   date?: string;
-  filter?: string;       // e.g. "travel", "this month"
+  filter?: string;        // e.g. "travel", "this month"
+  clarifyingQuestion?: string;  // bot's question back to the user
+  candidateIntents?: IntentName[]; // intents the bot is choosing between
 }
 
 export interface BotIntent {
@@ -186,18 +189,34 @@ INTENT CHOICES (pick exactly one)
    query_tax       — user is asking about tax
                      ("how much tax do I owe", "quarterly")
    show_help       — user is asking what the bot can do
-   unrelated       — none of the above
+   clarify         — you genuinely cannot tell what the user means OR
+                     they could plausibly mean two of the above. Don't
+                     guess — ASK them. Set slots.clarifyingQuestion to a
+                     short, natural follow-up question (one sentence,
+                     friendly accountant tone, max ~120 chars). If two
+                     intents are plausible, set slots.candidateIntents.
+                     Examples that should clarify (not guess):
+                       • "yeah" with no active expense → ask what they mean
+                       • "Starbucks" alone → could be category Meals or
+                         a new expense; ask
+                       • "make it 50" with no active expense → ask
+                       • "fine" → ambiguous; ask
+                       • Receipt at coffee shop, user says "client meeting"
+                         → it could be Meals (categorize) AND business
+                         (mark_business). Pick one or clarify.
+   unrelated       — message clearly isn't about the books at all
 
 RULES
    • If active expense is null, prefer record_expense over confirm/categorize/etc.
-   • A short "yes/yeah/ok" with active expense = confirm. Without active expense = unrelated.
+   • A short "yes/yeah/ok" with active expense = confirm. Without active expense = clarify (ask them what to confirm).
    • If the message contains a \$ amount + a verb (spent / paid / bought) = record_expense regardless of active expense.
-   • For categorize, slots.categoryName MUST be one of the available list above. If no match, use unrelated.
-   • Confidence < 0.5 means the model is unsure — return unrelated instead.
+   • For categorize, slots.categoryName MUST be one of the available list above. If no exact-or-close match, use clarify with the candidate options in the question.
+   • Confidence below 0.7 = clarify (better to ask than to guess wrong on the user's books).
+   • A great accountant ASKS when uncertain. Don't be afraid to clarify.
 
 OUTPUT
 Respond with ONLY a JSON object — no preamble, no code fences:
-{"intent": "<name>", "slots": {"categoryName": "Fuel", "amountCents": 4523, "vendor": "Shell", "description": "...", "filter": "..."}, "confidence": 0.0-1.0, "reason": "<one short sentence>"}`;
+{"intent": "<name>", "slots": {"categoryName": "Fuel", "amountCents": 4523, "vendor": "Shell", "description": "...", "filter": "...", "clarifyingQuestion": "...", "candidateIntents": ["...", "..."]}, "confidence": 0.0-1.0, "reason": "<one short sentence>"}`;
 
   let raw: string;
   try {
@@ -225,8 +244,21 @@ Respond with ONLY a JSON object — no preamble, no code fences:
     parsed.source = 'llm';
     parsed.slots = parsed.slots || {};
     if (typeof parsed.confidence !== 'number') parsed.confidence = 0.6;
+    // Below 0.5: clearly off-topic, let the agent brain handle it.
     if (parsed.confidence < 0.5) {
       parsed.intent = 'unrelated';
+    }
+    // 0.5–0.7: model is on-topic but unsure — convert to clarify if it
+    // didn't already, so the bot asks instead of guessing on the user's
+    // books. Skip if the LLM already returned a question.
+    if (
+      parsed.intent !== 'clarify' &&
+      parsed.intent !== 'unrelated' &&
+      parsed.confidence < 0.7 &&
+      !parsed.slots.clarifyingQuestion
+    ) {
+      parsed.slots.clarifyingQuestion = `I read that as "${parsed.intent.replace('_', ' ')}" but I'm not 100% sure — can you confirm or rephrase?`;
+      parsed.intent = 'clarify';
     }
     return parsed;
   } catch {
@@ -374,6 +406,16 @@ export function planSteps(intent: BotIntent, _ctx: BotContext): PlanStep[] {
       return [{ id, skill: 'query.tax', args: {}, dependsOn: [] }];
     case 'show_help':
       return [{ id, skill: 'meta.help', args: {}, dependsOn: [] }];
+    case 'clarify':
+      return [{
+        id,
+        skill: 'meta.clarify',
+        args: {
+          question: intent.slots.clarifyingQuestion || 'Could you say that another way?',
+          candidates: intent.slots.candidateIntents || [],
+        },
+        dependsOn: [],
+      }];
     case 'unrelated':
     default:
       // Delegate to the agent brain — single step, but the brain runs its
@@ -518,6 +560,17 @@ export async function executeStep(step: PlanStep, ctx: BotContext): Promise<Exec
         return { stepId: step.id, success: true };
       }
 
+      case 'meta.clarify': {
+        return {
+          stepId: step.id,
+          success: true,
+          data: {
+            question: step.args.question as string,
+            candidates: step.args.candidates as string[],
+          },
+        };
+      }
+
       // expense.record + query.* + meta.delegate_to_brain are handled by the
       // existing webhook pipeline (agent brain or minimal-agent path) so we
       // signal "delegate" here.
@@ -586,6 +639,20 @@ export function evaluate(
   if (intent.intent === 'show_help') {
     return {
       reply: 'I can record expenses ("spent $45 on gas at Shell"), book uploaded receipts (just send a photo), and answer questions about your books — try "balance", "invoices", "expenses", or "tax". After a receipt I read out the totals and you can reply naturally — "yep", "actually it\'s personal", "should be Meals" — and I\'ll update it.',
+      parseMode: undefined,
+      learned,
+      delegatedToBrain: false,
+      needsKeyboard: false,
+    };
+  }
+
+  if (intent.intent === 'clarify') {
+    const result = results[0];
+    const question = (result?.data as { question?: string } | undefined)?.question
+      || intent.slots.clarifyingQuestion
+      || 'Could you say that another way?';
+    return {
+      reply: `🤔 ${question}`,
       parseMode: undefined,
       learned,
       delegatedToBrain: false,
