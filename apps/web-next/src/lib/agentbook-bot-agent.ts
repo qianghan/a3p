@@ -36,6 +36,8 @@ export type IntentName =
   | 'query_expenses'    // recent expenses (optionally filtered)
   | 'query_tax'         // tax estimate / quarterly
   | 'show_help'         // bot capabilities
+  | 'undo_last'         // reverse / delete the most recent expense
+  | 'update_amount'     // fix the amount on the active expense
   | 'clarify'           // bot is unsure — ask the user a question first
   | 'unrelated';        // none of the above — let agent brain reply
 
@@ -189,6 +191,17 @@ INTENT CHOICES (pick exactly one)
    query_tax       — user is asking about tax
                      ("how much tax do I owe", "quarterly")
    show_help       — user is asking what the bot can do
+   undo_last       — user wants to reverse / scrap the most recent expense
+                     ("undo", "scratch that", "scratch the last one",
+                      "delete the last expense", "actually never mind",
+                      "remove that", "go back")
+                     For a draft (pending_review): delete it.
+                     For a booked one (confirmed): post a reversing journal
+                     and mark rejected.
+   update_amount   — user is correcting the amount on the active expense.
+                     SET slots.amountCents.
+                     ("change it to \$45", "the amount is \$54.99",
+                      "actually it was 132", "fix the total to \$200")
    clarify         — you genuinely cannot tell what the user means OR
                      they could plausibly mean two of the above. Don't
                      guess — ASK them. Set slots.clarifyingQuestion to a
@@ -273,6 +286,24 @@ function classifyIntentWithRegex(text: string, ctx: BotContext): BotIntent {
   // Slash commands and help
   if (HELP_KEYWORDS.test(lower)) {
     return { intent: 'show_help', slots, confidence: 0.95, reason: 'help keyword', source: 'regex' };
+  }
+
+  // Undo / scratch — needs an active expense to be useful.
+  if (ctx.active && /^(undo|scratch (?:that|the last|it)|delete (?:that|the last|it)|never mind|remove (?:that|the last|it)|go back)\b/i.test(lower)) {
+    return { intent: 'undo_last', slots, confidence: 0.9, reason: 'undo keyword + active expense', source: 'regex' };
+  }
+
+  // Amount correction — "change it to $45", "actually it was 132".
+  if (ctx.active) {
+    const amountFixMatch = lower.match(/(?:change|fix|correct|update|set)\s+(?:it|the (?:amount|total)|that)\s*(?:to|=|is)?\s*\$?([\d,]+(?:\.\d{1,2})?)/i)
+      || lower.match(/(?:actually|it was|the amount is|total is)\s*\$?([\d,]+(?:\.\d{1,2})?)\s*$/i);
+    if (amountFixMatch) {
+      const amt = parseFloat(amountFixMatch[1].replace(/,/g, ''));
+      if (!isNaN(amt) && amt > 0) {
+        slots.amountCents = Math.round(amt * 100);
+        return { intent: 'update_amount', slots, confidence: 0.85, reason: 'amount-fix phrase + active expense', source: 'regex' };
+      }
+    }
   }
 
   // Confirm / reject only meaningful with an active expense
@@ -406,6 +437,10 @@ export function planSteps(intent: BotIntent, _ctx: BotContext): PlanStep[] {
       return [{ id, skill: 'query.tax', args: {}, dependsOn: [] }];
     case 'show_help':
       return [{ id, skill: 'meta.help', args: {}, dependsOn: [] }];
+    case 'undo_last':
+      return [{ id, skill: 'expense.undo_last', args: {}, dependsOn: [] }];
+    case 'update_amount':
+      return [{ id, skill: 'expense.update_amount', args: { amountCents: intent.slots.amountCents }, dependsOn: [] }];
     case 'clarify':
       return [{
         id,
@@ -446,6 +481,15 @@ export function reviewPlan(steps: PlanStep[], ctx: BotContext): ReviewResult {
     // Confirmation gate: don't book a business expense without a category.
     if (step.skill === 'expense.confirm' && ctx.active && !ctx.active.categoryId && !ctx.active.isPersonal) {
       blockers.push('I can\'t book this without a category. Tell me one ("Fuel", "Meals", "Office") or tap 📁 below.');
+    }
+    if ((step.skill === 'expense.undo_last' || step.skill === 'expense.update_amount') && !ctx.active) {
+      blockers.push('I don\'t have a recent expense to update. Upload a receipt first.');
+    }
+    if (step.skill === 'expense.update_amount') {
+      const amt = step.args.amountCents as number | undefined;
+      if (!amt || amt <= 0) {
+        blockers.push('I need a positive dollar amount. Try "fix it to $45".');
+      }
     }
   }
 
@@ -556,6 +600,195 @@ export async function executeStep(step: PlanStep, ctx: BotContext): Promise<Exec
         return { stepId: step.id, success: true, data: { categoryName: matched.name } };
       }
 
+      case 'expense.undo_last': {
+        if (!ctx.active) return { stepId: step.id, success: false, error: 'no active' };
+        if (ctx.active.status === 'rejected') {
+          return {
+            stepId: step.id,
+            success: true,
+            data: { wasAlready: true, vendorName: ctx.active.vendorName, amountCents: ctx.active.amountCents },
+          };
+        }
+
+        // Confirmed + booked → post a reversing journal entry, mark
+        // rejected. (Journal entries are immutable per the constraint
+        // engine; corrections are reversing entries, never edits.)
+        if (ctx.active.status === 'confirmed' && ctx.active.categoryId && !ctx.active.isPersonal) {
+          const expenseRow = await db.abExpense.findUnique({
+            where: { id: ctx.active.id },
+            select: { journalEntryId: true },
+          });
+          if (expenseRow?.journalEntryId) {
+            const original = await db.abJournalEntry.findUnique({
+              where: { id: expenseRow.journalEntryId },
+              include: { lines: true },
+            });
+            if (original) {
+              await db.abJournalEntry.create({
+                data: {
+                  tenantId: ctx.tenantId,
+                  date: new Date(),
+                  memo: `REVERSAL: ${original.memo}`,
+                  sourceType: 'expense',
+                  sourceId: ctx.active.id,
+                  verified: true,
+                  lines: {
+                    create: original.lines.map((l) => ({
+                      accountId: l.accountId,
+                      // swap debit and credit to reverse the original entry
+                      debitCents: l.creditCents,
+                      creditCents: l.debitCents,
+                      description: `Reversal: ${l.description || ''}`,
+                    })),
+                  },
+                },
+              });
+            }
+          }
+          await db.abExpense.update({
+            where: { id: ctx.active.id },
+            data: { status: 'rejected' },
+          });
+        } else {
+          // Draft or personal — no journal to reverse, just delete the
+          // expense outright since it never made it onto the books.
+          await db.abExpense.delete({ where: { id: ctx.active.id } });
+        }
+
+        // Clear the active-expense memory so subsequent follow-ups can't
+        // hit a deleted row.
+        await db.abUserMemory.deleteMany({
+          where: { tenantId: ctx.tenantId, key: 'telegram:active_expense' },
+        });
+
+        await db.abEvent.create({
+          data: {
+            tenantId: ctx.tenantId,
+            eventType: 'expense.undone',
+            actor: 'user',
+            action: {
+              expenseId: ctx.active.id,
+              previousStatus: ctx.active.status,
+              vendorName: ctx.active.vendorName,
+              amountCents: ctx.active.amountCents,
+            },
+          },
+        });
+        return {
+          stepId: step.id,
+          success: true,
+          data: {
+            previousStatus: ctx.active.status,
+            vendorName: ctx.active.vendorName,
+            amountCents: ctx.active.amountCents,
+          },
+        };
+      }
+
+      case 'expense.update_amount': {
+        if (!ctx.active) return { stepId: step.id, success: false, error: 'no active' };
+        const newAmount = step.args.amountCents as number;
+        const previousAmount = ctx.active.amountCents;
+        if (newAmount === previousAmount) {
+          return { stepId: step.id, success: true, data: { unchanged: true } };
+        }
+
+        // If the expense is already booked to the ledger, post a
+        // reversing entry and a fresh entry at the new amount. The
+        // immutability rule means we cannot just patch the journal lines.
+        if (
+          ctx.active.status === 'confirmed' &&
+          ctx.active.categoryId &&
+          !ctx.active.isPersonal
+        ) {
+          const expenseRow = await db.abExpense.findUnique({
+            where: { id: ctx.active.id },
+            select: { journalEntryId: true },
+          });
+          if (expenseRow?.journalEntryId) {
+            const original = await db.abJournalEntry.findUnique({
+              where: { id: expenseRow.journalEntryId },
+              include: { lines: true },
+            });
+            if (original) {
+              await db.abJournalEntry.create({
+                data: {
+                  tenantId: ctx.tenantId,
+                  date: new Date(),
+                  memo: `REVERSAL: ${original.memo} (amount fix)`,
+                  sourceType: 'expense',
+                  sourceId: ctx.active.id,
+                  verified: true,
+                  lines: {
+                    create: original.lines.map((l) => ({
+                      accountId: l.accountId,
+                      debitCents: l.creditCents,
+                      creditCents: l.debitCents,
+                      description: `Reversal: ${l.description || ''}`,
+                    })),
+                  },
+                },
+              });
+            }
+            const cash = await db.abAccount.findFirst({
+              where: { tenantId: ctx.tenantId, code: '1000' },
+            });
+            if (cash) {
+              const replacement = await db.abJournalEntry.create({
+                data: {
+                  tenantId: ctx.tenantId,
+                  date: ctx.active.date,
+                  memo: `Expense (amended): ${ctx.active.description || 'Expense'}`,
+                  sourceType: 'expense',
+                  sourceId: ctx.active.id,
+                  verified: true,
+                  lines: {
+                    create: [
+                      { accountId: ctx.active.categoryId, debitCents: newAmount, creditCents: 0, description: ctx.active.description || 'Expense' },
+                      { accountId: cash.id, debitCents: 0, creditCents: newAmount, description: 'Payment' },
+                    ],
+                  },
+                },
+              });
+              await db.abExpense.update({
+                where: { id: ctx.active.id },
+                data: { amountCents: newAmount, journalEntryId: replacement.id },
+              });
+            } else {
+              await db.abExpense.update({
+                where: { id: ctx.active.id },
+                data: { amountCents: newAmount },
+              });
+            }
+          } else {
+            await db.abExpense.update({
+              where: { id: ctx.active.id },
+              data: { amountCents: newAmount },
+            });
+          }
+        } else {
+          // Draft or personal — no journal entry to reverse, just patch.
+          await db.abExpense.update({
+            where: { id: ctx.active.id },
+            data: { amountCents: newAmount },
+          });
+        }
+
+        await db.abEvent.create({
+          data: {
+            tenantId: ctx.tenantId,
+            eventType: 'expense.amount_updated',
+            actor: 'user',
+            action: {
+              expenseId: ctx.active.id,
+              previousAmount,
+              newAmount,
+            },
+          },
+        });
+        return { stepId: step.id, success: true, data: { previousAmount, newAmount } };
+      }
+
       case 'meta.help': {
         return { stepId: step.id, success: true };
       }
@@ -638,9 +871,81 @@ export function evaluate(
 
   if (intent.intent === 'show_help') {
     return {
-      reply: 'I can record expenses ("spent $45 on gas at Shell"), book uploaded receipts (just send a photo), and answer questions about your books — try "balance", "invoices", "expenses", or "tax". After a receipt I read out the totals and you can reply naturally — "yep", "actually it\'s personal", "should be Meals" — and I\'ll update it.',
+      reply: 'I can record expenses ("spent $45 on gas at Shell"), book uploaded receipts (just send a photo), and answer questions about your books — try "balance", "invoices", "expenses", or "tax". After a receipt I read out the totals and you can reply naturally — "yep", "actually it\'s personal", "should be Meals", "fix it to $45", "scratch that" — and I\'ll update it.',
       parseMode: undefined,
       learned,
+      delegatedToBrain: false,
+      needsKeyboard: false,
+    };
+  }
+
+  if (intent.intent === 'undo_last') {
+    const r = results[0];
+    if (!r?.success) {
+      return {
+        reply: r?.error || 'Couldn\'t undo that one.',
+        parseMode: undefined,
+        learned,
+        delegatedToBrain: false,
+        needsKeyboard: false,
+      };
+    }
+    const data = r.data as { previousStatus?: string; vendorName?: string | null; amountCents?: number; wasAlready?: boolean } | undefined;
+    if (data?.wasAlready) {
+      return {
+        reply: '📭 Already rejected — nothing to undo.',
+        parseMode: undefined,
+        learned,
+        delegatedToBrain: false,
+        needsKeyboard: false,
+      };
+    }
+    const vendor = data?.vendorName ? escHtml(data.vendorName) : 'that one';
+    const amt = data?.amountCents ? fmtUsd(data.amountCents) : '';
+    const action = data?.previousStatus === 'confirmed'
+      ? `posted a reversing entry for <b>${vendor}</b> ${amt} — it\'s off the books now.`
+      : `tossed the draft for <b>${vendor}</b> ${amt}.`;
+    return {
+      reply: `↩️ Undone — ${action} What's next?`,
+      parseMode: 'HTML',
+      learned: [{ what: `undo ${data?.previousStatus}`, outcome: 'reversed' }],
+      delegatedToBrain: false,
+      needsKeyboard: false,
+    };
+  }
+
+  if (intent.intent === 'update_amount') {
+    const r = results[0];
+    if (!r?.success) {
+      return {
+        reply: r?.error || 'Couldn\'t fix the amount.',
+        parseMode: undefined,
+        learned,
+        delegatedToBrain: false,
+        needsKeyboard: false,
+      };
+    }
+    const data = r.data as { previousAmount?: number; newAmount?: number; unchanged?: boolean } | undefined;
+    if (data?.unchanged) {
+      return {
+        reply: '🤷 That\'s already the amount on file — no change made.',
+        parseMode: undefined,
+        learned,
+        delegatedToBrain: false,
+        needsKeyboard: false,
+      };
+    }
+    const updated = ctx.active ? { ...ctx.active, amountCents: data?.newAmount ?? ctx.active.amountCents } : null;
+    if (!updated) {
+      return { reply: '🤔 No active expense to update.', parseMode: undefined, learned, delegatedToBrain: false, needsKeyboard: false };
+    }
+    const lead = data?.previousAmount && data?.newAmount
+      ? `🔧 Updated amount: <b>${fmtUsd(data.previousAmount)}</b> → <b>${fmtUsd(data.newAmount)}</b>${ctx.active?.status === 'confirmed' ? ' (posted reversing + replacement entries)' : ''}.`
+      : `🔧 Updated.`;
+    return {
+      reply: summary(updated, lead),
+      parseMode: 'HTML',
+      learned: [{ what: 'amount fix', outcome: 'reversed-and-reposted' }],
       delegatedToBrain: false,
       needsKeyboard: false,
     };
