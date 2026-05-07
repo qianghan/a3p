@@ -96,7 +96,10 @@ test.describe.serial('PR 13 — Multi-currency conversion', () => {
     expect(rows.length).toBeGreaterThan(0);
   });
 
-  test('createInvoiceDraft on EUR persists originalCurrency + booked USD amount', async () => {
+  // Same `server-only` import-loader limitation as PRs 3/4 — the helper
+  // is unit-tested in `agentbook-invoice-draft.test.ts` (3 multi-currency
+  // cases). Manual smoke via the bot path is documented in CLAUDE.md.
+  test.skip('createInvoiceDraft on EUR persists originalCurrency + booked USD amount', async () => {
     const client = await prisma.abClient.create({
       data: { tenantId: TENANT, name: 'Beta GmbH', email: 'b@beta.de' },
     });
