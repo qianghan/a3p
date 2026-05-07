@@ -18,6 +18,7 @@ const PLUGIN_ROUTE_MAP: Record<string, string> = {
   '/agentbook/estimates': 'agentbookInvoice',
   '/agentbook/timer': 'agentbookInvoice',
   '/agentbook/projects': 'agentbookInvoice',
+  '/agentbook/tax-package': 'agentbookTax',
   '/agentbook/tax': 'agentbookTax',
   '/agentbook/reports': 'agentbookTax',
   '/agentbook/cashflow': 'agentbookTax',
