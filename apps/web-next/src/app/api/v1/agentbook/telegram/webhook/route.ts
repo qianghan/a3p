@@ -4308,6 +4308,415 @@ function getBot(): Bot {
         return;
       }
 
+      // ─── PR 9: Bank reconciliation diff ────────────────────────────────
+      // bnk_match:<txnId>          → confirm the bot's stored best guess
+      // bnk_skip:<txnId>           → mark ignored
+      // bnk_pickinvoice:<txnId>    → invoice picker (top 5 candidates)
+      // bnk_pickexpense:<txnId>    → expense picker (top 5 candidates)
+      // bnk_match2:<txnId>:<tgt>   → match against the picked target
+      if (action === 'bnk_match') {
+        const txnId = parts[1];
+        if (!txnId) {
+          await ctx.answerCallbackQuery({ text: 'Bad callback' });
+          return;
+        }
+        const txn = await db.abBankTransaction.findFirst({
+          where: { id: txnId, tenantId },
+        });
+        if (!txn) {
+          await ctx.answerCallbackQuery({ text: 'Transaction not found' });
+          return;
+        }
+        // Pull the best-guess target the matcher (PR 3) pre-stored on
+        // this row. If nothing was guessed, ask the user to use the picker.
+        const targetType: 'invoice' | 'expense' | null = txn.matchedInvoiceId
+          ? 'invoice'
+          : txn.matchedExpenseId
+          ? 'expense'
+          : null;
+        const targetId = txn.matchedInvoiceId || txn.matchedExpenseId;
+        if (!targetType || !targetId) {
+          await ctx.answerCallbackQuery({ text: 'No guess on file — use Pick another' });
+          return;
+        }
+
+        // Defensively call the same code path the HTTP endpoint uses,
+        // by inlining the equivalent transaction here. We could fetch
+        // over HTTP but that would mean self-fetching which the broader
+        // cron stack already removed.
+        try {
+          if (targetType === 'invoice') {
+            const invoice = await db.abInvoice.findFirst({
+              where: { id: targetId, tenantId },
+              include: { payments: true },
+            });
+            if (!invoice) {
+              await ctx.answerCallbackQuery({ text: 'Invoice missing' });
+              return;
+            }
+            const amountCents = Math.abs(txn.amount);
+            const existingPaid = invoice.payments.reduce((s, p) => s + p.amountCents, 0);
+            const remainingBalance = invoice.amountCents - existingPaid;
+            const paymentAmount = Math.min(amountCents, remainingBalance);
+
+            const [arAccount, cashAccount] = await Promise.all([
+              db.abAccount.findUnique({ where: { tenantId_code: { tenantId, code: '1100' } } }),
+              db.abAccount.findUnique({ where: { tenantId_code: { tenantId, code: '1000' } } }),
+            ]);
+            if (!arAccount || !cashAccount) {
+              await ctx.answerCallbackQuery({ text: 'Chart of accounts missing' });
+              return;
+            }
+            const fullyPaid = existingPaid + paymentAmount >= invoice.amountCents;
+
+            await db.$transaction(async (tx) => {
+              const je = await tx.abJournalEntry.create({
+                data: {
+                  tenantId,
+                  date: txn.date,
+                  memo: `Bank reconciliation — Invoice ${invoice.number}`,
+                  sourceType: 'payment',
+                  verified: true,
+                  lines: {
+                    create: [
+                      { accountId: cashAccount.id, debitCents: paymentAmount, creditCents: 0, description: `Cash received - Invoice ${invoice.number}` },
+                      { accountId: arAccount.id, debitCents: 0, creditCents: paymentAmount, description: `AR payment - Invoice ${invoice.number}` },
+                    ],
+                  },
+                },
+              });
+              const pmt = await tx.abPayment.create({
+                data: {
+                  tenantId,
+                  invoiceId: invoice.id,
+                  amountCents: paymentAmount,
+                  method: 'bank_transfer',
+                  date: txn.date,
+                  journalEntryId: je.id,
+                },
+              });
+              await tx.abJournalEntry.update({ where: { id: je.id }, data: { sourceId: pmt.id } });
+              if (fullyPaid) {
+                await tx.abInvoice.update({ where: { id: invoice.id }, data: { status: 'paid' } });
+              }
+              await tx.abClient.update({
+                where: { id: invoice.clientId },
+                data: { totalPaidCents: { increment: paymentAmount } },
+              });
+              await tx.abBankTransaction.update({
+                where: { id: txn.id },
+                data: { matchedInvoiceId: invoice.id, matchStatus: 'matched' },
+              });
+              await tx.abEvent.create({
+                data: {
+                  tenantId,
+                  eventType: 'bank.txn_matched',
+                  actor: 'user',
+                  action: { transactionId: txn.id, targetType: 'invoice', invoiceId: invoice.id, source: 'telegram_button' },
+                },
+              });
+            });
+
+            await ctx.answerCallbackQuery({ text: '✅ Matched & paid' });
+            const replyText = `✅ Marked ${fmtUsd(paymentAmount)} to <b>${escHtml(invoice.number)}</b> — paid.`;
+            try {
+              await ctx.editMessageText(replyText, { parse_mode: 'HTML' });
+            } catch {
+              await ctx.reply(replyText, { parse_mode: 'HTML' });
+            }
+            return;
+          }
+
+          // expense
+          const expense = await db.abExpense.findFirst({
+            where: { id: targetId, tenantId },
+          });
+          if (!expense) {
+            await ctx.answerCallbackQuery({ text: 'Expense missing' });
+            return;
+          }
+          await db.$transaction([
+            db.abBankTransaction.update({
+              where: { id: txn.id },
+              data: { matchedExpenseId: expense.id, matchStatus: 'matched' },
+            }),
+            db.abEvent.create({
+              data: {
+                tenantId,
+                eventType: 'bank.txn_matched',
+                actor: 'user',
+                action: { transactionId: txn.id, targetType: 'expense', expenseId: expense.id, source: 'telegram_button' },
+              },
+            }),
+          ]);
+          await ctx.answerCallbackQuery({ text: '✅ Matched' });
+          const expReply = `✅ Linked ${fmtUsd(Math.abs(txn.amount))} to expense <b>${escHtml(expense.description || 'expense')}</b>.`;
+          try {
+            await ctx.editMessageText(expReply, { parse_mode: 'HTML' });
+          } catch {
+            await ctx.reply(expReply, { parse_mode: 'HTML' });
+          }
+        } catch (err) {
+          console.error('[bnk_match] failed:', err);
+          await ctx.answerCallbackQuery({ text: 'Error matching — try again' });
+        }
+        return;
+      }
+
+      if (action === 'bnk_skip') {
+        const txnId = parts[1];
+        if (!txnId) {
+          await ctx.answerCallbackQuery({ text: 'Bad callback' });
+          return;
+        }
+        const txn = await db.abBankTransaction.findFirst({
+          where: { id: txnId, tenantId },
+        });
+        if (!txn) {
+          await ctx.answerCallbackQuery({ text: 'Transaction not found' });
+          return;
+        }
+        await db.$transaction([
+          db.abBankTransaction.update({
+            where: { id: txn.id },
+            data: { matchStatus: 'ignored' },
+          }),
+          db.abEvent.create({
+            data: {
+              tenantId,
+              eventType: 'bank.txn_skipped',
+              actor: 'user',
+              action: { transactionId: txn.id, source: 'telegram_button' },
+            },
+          }),
+        ]);
+        await ctx.answerCallbackQuery({ text: '🟡 Skipped' });
+        const skipReply = `🟡 Skipped — I'll leave it pending.`;
+        try {
+          await ctx.editMessageText(skipReply);
+        } catch {
+          await ctx.reply(skipReply);
+        }
+        return;
+      }
+
+      if (action === 'bnk_pickinvoice' || action === 'bnk_pickexpense') {
+        const txnId = parts[1];
+        if (!txnId) {
+          await ctx.answerCallbackQuery({ text: 'Bad callback' });
+          return;
+        }
+        const txn = await db.abBankTransaction.findFirst({
+          where: { id: txnId, tenantId },
+        });
+        if (!txn) {
+          await ctx.answerCallbackQuery({ text: 'Transaction not found' });
+          return;
+        }
+
+        // Top-5 candidates inside the same amount/date window the matcher
+        // (PR 3) uses for the auto path. We deliberately use raw queries
+        // instead of `matchTransaction` because we want the runners-up too,
+        // not only the single best.
+        const ONE_DAY_MS = 86_400_000;
+        const windowMs = 3 * ONE_DAY_MS;
+        const windowStart = new Date(txn.date.getTime() - windowMs);
+        const windowEnd = new Date(txn.date.getTime() + windowMs);
+        const tol = Math.max(100, Math.round(Math.abs(txn.amount) * 0.005));
+
+        // Telegram callback_data caps at 64 bytes. With two UUIDs the
+        // naive `bnk_m2:<txnId>:<targetId>` would be 84 bytes, so we
+        // store a {txnId, targetType, targetId} mapping in AbUserMemory
+        // keyed by a short random token and use `bnk_m2:<token>` (≈18 B).
+        const candidates: { label: string; targetType: 'invoice' | 'expense'; targetId: string }[] = [];
+        if (action === 'bnk_pickinvoice') {
+          const txnAbs = Math.abs(txn.amount);
+          const invs = await db.abInvoice.findMany({
+            where: {
+              tenantId,
+              status: { in: ['sent', 'viewed', 'overdue'] },
+              amountCents: { gte: txnAbs - tol, lte: txnAbs + tol },
+              issuedDate: { gte: windowStart, lte: windowEnd },
+            },
+            include: { client: { select: { name: true } } },
+            take: 5,
+          });
+          for (const inv of invs) {
+            const label = `${inv.number} ${inv.client?.name || ''}`.trim().slice(0, 40);
+            candidates.push({ label, targetType: 'invoice', targetId: inv.id });
+          }
+        } else {
+          const exps = await db.abExpense.findMany({
+            where: {
+              tenantId,
+              amountCents: { gte: txn.amount - tol, lte: txn.amount + tol },
+              date: { gte: windowStart, lte: windowEnd },
+              isPersonal: false,
+            },
+            include: { vendor: { select: { name: true } } },
+            take: 5,
+          });
+          for (const exp of exps) {
+            const label = `${exp.vendor?.name || exp.description || 'expense'} ${fmtUsd(exp.amountCents)}`.slice(0, 40);
+            candidates.push({ label, targetType: 'expense', targetId: exp.id });
+          }
+        }
+
+        if (candidates.length === 0) {
+          await ctx.answerCallbackQuery({ text: 'No candidates found' });
+          await ctx.reply(
+            `No likely ${action === 'bnk_pickinvoice' ? 'invoices' : 'expenses'} match. ` +
+              `Tap ❌ Skip if you want to ignore this transaction.`,
+          );
+          return;
+        }
+
+        const rows: { text: string; callback_data: string }[][] = [];
+        for (const c of candidates) {
+          const token = randomBytes(5).toString('hex');
+          await db.abUserMemory.upsert({
+            where: { tenantId_key: { tenantId, key: `telegram:bnk_pick:${token}` } },
+            update: {
+              value: JSON.stringify({ txnId, targetType: c.targetType, targetId: c.targetId }),
+              lastUsed: new Date(),
+            },
+            create: {
+              tenantId,
+              key: `telegram:bnk_pick:${token}`,
+              value: JSON.stringify({ txnId, targetType: c.targetType, targetId: c.targetId }),
+              type: 'pending_action',
+              confidence: 1,
+            },
+          });
+          rows.push([{ text: c.label, callback_data: `bnk_m2:${token}` }]);
+        }
+
+        rows.push([{ text: '❌ Cancel', callback_data: `bnk_skip:${txnId}` }]);
+        await ctx.answerCallbackQuery({ text: 'Pick a match' });
+        await ctx.reply(`Pick the ${action === 'bnk_pickinvoice' ? 'invoice' : 'expense'} this matches:`, {
+          reply_markup: { inline_keyboard: rows },
+        });
+        return;
+      }
+
+      if (action === 'bnk_m2') {
+        const token = parts[1];
+        if (!token) {
+          await ctx.answerCallbackQuery({ text: 'Bad callback' });
+          return;
+        }
+        const memo = await db.abUserMemory.findUnique({
+          where: { tenantId_key: { tenantId, key: `telegram:bnk_pick:${token}` } },
+        });
+        if (!memo) {
+          await ctx.answerCallbackQuery({ text: 'Pick expired — open digest again' });
+          return;
+        }
+        let parsed: { txnId: string; targetType: 'invoice' | 'expense'; targetId: string };
+        try {
+          parsed = JSON.parse(memo.value);
+        } catch {
+          await ctx.answerCallbackQuery({ text: 'Bad pick token' });
+          return;
+        }
+        const { txnId, targetType, targetId } = parsed;
+        const txn = await db.abBankTransaction.findFirst({
+          where: { id: txnId, tenantId },
+        });
+        if (!txn) {
+          await ctx.answerCallbackQuery({ text: 'Transaction not found' });
+          return;
+        }
+        try {
+          if (targetType === 'invoice') {
+            const invoice = await db.abInvoice.findFirst({
+              where: { id: targetId, tenantId },
+              include: { payments: true },
+            });
+            if (!invoice) {
+              await ctx.answerCallbackQuery({ text: 'Invoice missing' });
+              return;
+            }
+            const amountCents = Math.abs(txn.amount);
+            const existingPaid = invoice.payments.reduce((s, p) => s + p.amountCents, 0);
+            const remainingBalance = invoice.amountCents - existingPaid;
+            const paymentAmount = Math.min(amountCents, remainingBalance);
+            const [arAccount, cashAccount] = await Promise.all([
+              db.abAccount.findUnique({ where: { tenantId_code: { tenantId, code: '1100' } } }),
+              db.abAccount.findUnique({ where: { tenantId_code: { tenantId, code: '1000' } } }),
+            ]);
+            if (!arAccount || !cashAccount) {
+              await ctx.answerCallbackQuery({ text: 'Chart of accounts missing' });
+              return;
+            }
+            const fullyPaid = existingPaid + paymentAmount >= invoice.amountCents;
+            await db.$transaction(async (tx) => {
+              const je = await tx.abJournalEntry.create({
+                data: {
+                  tenantId,
+                  date: txn.date,
+                  memo: `Bank reconciliation — Invoice ${invoice.number}`,
+                  sourceType: 'payment',
+                  verified: true,
+                  lines: {
+                    create: [
+                      { accountId: cashAccount.id, debitCents: paymentAmount, creditCents: 0, description: `Cash received - Invoice ${invoice.number}` },
+                      { accountId: arAccount.id, debitCents: 0, creditCents: paymentAmount, description: `AR payment - Invoice ${invoice.number}` },
+                    ],
+                  },
+                },
+              });
+              const pmt = await tx.abPayment.create({
+                data: {
+                  tenantId,
+                  invoiceId: invoice.id,
+                  amountCents: paymentAmount,
+                  method: 'bank_transfer',
+                  date: txn.date,
+                  journalEntryId: je.id,
+                },
+              });
+              await tx.abJournalEntry.update({ where: { id: je.id }, data: { sourceId: pmt.id } });
+              if (fullyPaid) {
+                await tx.abInvoice.update({ where: { id: invoice.id }, data: { status: 'paid' } });
+              }
+              await tx.abClient.update({
+                where: { id: invoice.clientId },
+                data: { totalPaidCents: { increment: paymentAmount } },
+              });
+              await tx.abBankTransaction.update({
+                where: { id: txn.id },
+                data: { matchedInvoiceId: invoice.id, matchStatus: 'matched' },
+              });
+            });
+            await ctx.answerCallbackQuery({ text: '✅ Matched & paid' });
+            await ctx.reply(`✅ Marked ${fmtUsd(paymentAmount)} to <b>${escHtml(invoice.number)}</b> — paid.`, {
+              parse_mode: 'HTML',
+            });
+            return;
+          }
+          const expense = await db.abExpense.findFirst({
+            where: { id: targetId, tenantId },
+          });
+          if (!expense) {
+            await ctx.answerCallbackQuery({ text: 'Expense missing' });
+            return;
+          }
+          await db.abBankTransaction.update({
+            where: { id: txn.id },
+            data: { matchedExpenseId: expense.id, matchStatus: 'matched' },
+          });
+          await ctx.answerCallbackQuery({ text: '✅ Linked' });
+          await ctx.reply(`✅ Linked ${fmtUsd(Math.abs(txn.amount))} to expense <b>${escHtml(expense.description || 'expense')}</b>.`, {
+            parse_mode: 'HTML',
+          });
+        } catch (err) {
+          console.error('[bnk_match2] failed:', err);
+          await ctx.answerCallbackQuery({ text: 'Error matching — try again' });
+        }
+        return;
+      }
+
       if (action === 'mlg_edit') {
         const entryId = parts[1];
         if (!entryId) {
