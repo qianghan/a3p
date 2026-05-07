@@ -87,17 +87,25 @@ export interface MatchResult {
 
 // === Helpers ===
 
-function withinAmountTolerance(a: number, b: number): boolean {
+// Exported for direct unit-testing of the symmetry property.
+export function withinAmountTolerance(a: number, b: number): boolean {
   const diff = Math.abs(a - b);
-  const tol = Math.max(AMOUNT_TOLERANCE_MIN_CENTS, Math.round(b * AMOUNT_TOLERANCE_PCT));
+  // Base the percent tolerance on the larger of the two amounts so the
+  // function is symmetric: withinAmountTolerance(100, 99) and
+  // withinAmountTolerance(99, 100) compute the same tol and therefore
+  // give the same answer.
+  const ref = Math.max(Math.abs(a), Math.abs(b));
+  const tol = Math.max(AMOUNT_TOLERANCE_MIN_CENTS, Math.round(ref * AMOUNT_TOLERANCE_PCT));
   return diff <= tol;
 }
 
-function amountScore(a: number, b: number): number {
+export function amountScore(a: number, b: number): number {
   // 1.0 when exact, gentle quarter-decay across the window — the gate
   // already filtered anything outside tol, so within-tol differences
   // (sub-cent rounding, fees) shouldn't drag the score down hard.
-  const tol = Math.max(AMOUNT_TOLERANCE_MIN_CENTS, Math.round(b * AMOUNT_TOLERANCE_PCT));
+  // Symmetric: tol depends on max(|a|, |b|), not on b alone.
+  const ref = Math.max(Math.abs(a), Math.abs(b));
+  const tol = Math.max(AMOUNT_TOLERANCE_MIN_CENTS, Math.round(ref * AMOUNT_TOLERANCE_PCT));
   const diff = Math.abs(a - b);
   if (diff > tol) return 0;
   // 0 diff → 1.0, full-tol diff → 0.75

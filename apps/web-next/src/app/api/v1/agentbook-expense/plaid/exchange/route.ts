@@ -11,7 +11,7 @@
 import 'server-only';
 import { NextRequest, NextResponse } from 'next/server';
 import { resolveAgentbookTenant } from '@/lib/agentbook-tenant';
-import { exchangePublicToken } from '@/lib/agentbook-plaid';
+import { exchangePublicToken, sanitizePlaidError } from '@/lib/agentbook-plaid';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -55,12 +55,10 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     }));
     return NextResponse.json({ success: true, data: { accounts: safe } });
   } catch (err) {
-    console.error(
-      '[plaid/exchange POST] failed:',
-      err instanceof Error ? err.message : 'error',
-    );
+    // Log full error server-side; sanitize before returning to client.
+    console.error('[plaid/exchange POST] failed:', err);
     return NextResponse.json(
-      { success: false, error: err instanceof Error ? err.message : 'unknown error' },
+      { success: false, error: sanitizePlaidError(err) },
       { status: 500 },
     );
   }

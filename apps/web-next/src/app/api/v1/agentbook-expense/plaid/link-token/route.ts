@@ -8,7 +8,7 @@
 import 'server-only';
 import { NextRequest, NextResponse } from 'next/server';
 import { resolveAgentbookTenant } from '@/lib/agentbook-tenant';
-import { createLinkToken } from '@/lib/agentbook-plaid';
+import { createLinkToken, sanitizePlaidError } from '@/lib/agentbook-plaid';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -24,9 +24,12 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       data: { linkToken, expiration, environment: process.env.PLAID_ENV || 'sandbox' },
     });
   } catch (err) {
-    console.error('[plaid/link-token POST] failed:', err instanceof Error ? err.message : 'error');
+    // Log the full error server-side for debugging; return a sanitized
+    // message to the client (Plaid's axios errors can leak access tokens
+    // via err.config — see sanitizePlaidError).
+    console.error('[plaid/link-token POST] failed:', err);
     return NextResponse.json(
-      { success: false, error: err instanceof Error ? err.message : 'unknown error' },
+      { success: false, error: sanitizePlaidError(err) },
       { status: 500 },
     );
   }

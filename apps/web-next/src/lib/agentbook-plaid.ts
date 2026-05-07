@@ -20,6 +20,29 @@ import {
   type MatchableTxn,
 } from './agentbook-payment-matcher';
 
+/**
+ * Translate a Plaid/axios error to a client-safe string. Plaid's PlaidApi
+ * is built on axios, and AxiosError.message can include the request URL and
+ * the request payload (which contains the Plaid access token). Never return
+ * the raw error message to clients — always go through this helper.
+ *
+ * Server-side `console.error(err)` callers should still log the full error
+ * object for debugging; only the *response body* gets the sanitized string.
+ */
+export function sanitizePlaidError(err: unknown): string {
+  // Plaid's PlaidApi throws axios errors whose response body is the
+  // documented Plaid error envelope: { error_code, error_message, ... }.
+  const axiosErr = err as {
+    response?: { data?: { error_code?: string; error_message?: string } };
+  };
+  if (axiosErr?.response?.data?.error_code) {
+    return `Plaid error: ${axiosErr.response.data.error_code}`;
+  }
+  // Generic fallback — never include the original message (axios attaches
+  // err.config which can leak the access token via the request body).
+  return 'Bank operation failed. Please try again later.';
+}
+
 let cachedClient: PlaidApi | null = null;
 
 export function getPlaidClient(): PlaidApi {
@@ -158,6 +181,14 @@ export async function syncTransactionsForAccount(
 
   // /transactions/sync paginates with `has_more`. Bound the loop so a
   // misbehaving server can't pin us forever.
+  //
+  // Cap = 10 pages * 200 txns/page = 2000 transactions per sync run. If a
+  // tenant has more than 2000 new transactions since the last cursor (e.g.
+  // very long disconnect or first-time historical pull), the remainder is
+  // *not* dropped — Plaid's cursor model guarantees we resume from the
+  // unchanged cursor on the next sync. The truncation just delays import,
+  // it doesn't lose data. We log a warn below so operators notice when a
+  // tenant is hitting the cap and can decide whether to bump it.
   let safety = 10;
   while (hasMore && safety-- > 0) {
     const res = await client.transactionsSync({
@@ -170,6 +201,13 @@ export async function syncTransactionsForAccount(
     for (const r of res.data.removed) removed.push({ transaction_id: r.transaction_id });
     cursor = res.data.next_cursor;
     hasMore = res.data.has_more;
+  }
+  if (hasMore && safety <= 0) {
+    console.warn(
+      '[agentbook-plaid] sync cap reached for account',
+      accountId,
+      '— more transactions remain; will resume on next sync',
+    );
   }
 
   // Upsert rows. Plaid amounts: positive = outflow (debit), negative = inflow.
@@ -208,6 +246,11 @@ export async function syncTransactionsForAccount(
   }
 
   for (const t of modified) {
+    // Note: `category` is intentionally NOT updated here. Once a transaction
+    // is imported, the user (or our matcher) may have refined the category;
+    // overwriting it on a Plaid-side modify would clobber that work. Amount,
+    // date, name, and pending status are pure facts from the bank so we
+    // refresh them; categorization is owned by the application after import.
     await db.abBankTransaction.updateMany({
       where: { plaidTransactionId: t.transaction_id },
       data: {

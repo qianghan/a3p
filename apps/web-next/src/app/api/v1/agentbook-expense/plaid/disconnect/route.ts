@@ -11,7 +11,7 @@
 import 'server-only';
 import { NextRequest, NextResponse } from 'next/server';
 import { resolveAgentbookTenant } from '@/lib/agentbook-tenant';
-import { disconnectAccount } from '@/lib/agentbook-plaid';
+import { disconnectAccount, sanitizePlaidError } from '@/lib/agentbook-plaid';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -35,12 +35,9 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     await disconnectAccount(accountId, tenantId);
     return NextResponse.json({ success: true });
   } catch (err) {
-    console.error(
-      '[plaid/disconnect POST] failed:',
-      err instanceof Error ? err.message : 'error',
-    );
+    console.error('[plaid/disconnect POST] failed:', err);
     return NextResponse.json(
-      { success: false, error: err instanceof Error ? err.message : 'unknown error' },
+      { success: false, error: sanitizePlaidError(err) },
       { status: 500 },
     );
   }

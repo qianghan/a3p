@@ -10,7 +10,7 @@ import 'server-only';
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma as db } from '@naap/database';
 import { resolveAgentbookTenant } from '@/lib/agentbook-tenant';
-import { syncTransactionsForAccount } from '@/lib/agentbook-plaid';
+import { syncTransactionsForAccount, sanitizePlaidError } from '@/lib/agentbook-plaid';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -36,9 +36,12 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         totalModified += r.modified;
         totalRemoved += r.removed;
       } catch (err) {
+        // Log full error server-side; only surface a sanitized string
+        // (Plaid axios errors can leak the access token via err.config).
+        console.error('[plaid/sync POST] account', account.id, 'error:', err);
         errors.push({
           accountId: account.id,
-          error: err instanceof Error ? err.message : String(err),
+          error: sanitizePlaidError(err),
         });
       }
     }
@@ -70,9 +73,9 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       },
     });
   } catch (err) {
-    console.error('[plaid/sync POST] failed:', err instanceof Error ? err.message : 'error');
+    console.error('[plaid/sync POST] failed:', err);
     return NextResponse.json(
-      { success: false, error: err instanceof Error ? err.message : 'unknown error' },
+      { success: false, error: sanitizePlaidError(err) },
       { status: 500 },
     );
   }

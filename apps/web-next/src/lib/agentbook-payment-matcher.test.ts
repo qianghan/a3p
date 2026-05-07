@@ -15,6 +15,8 @@ vi.mock('server-only', () => ({}));
 import {
   scoreInvoiceMatch,
   scoreExpenseMatch,
+  withinAmountTolerance,
+  amountScore,
   AUTO_MATCH_THRESHOLD,
   REVIEW_THRESHOLD,
   type MatchableInvoice,
@@ -175,5 +177,36 @@ describe('threshold constants', () => {
     expect(AUTO_MATCH_THRESHOLD).toBeCloseTo(0.85);
     expect(REVIEW_THRESHOLD).toBeCloseTo(0.55);
     expect(AUTO_MATCH_THRESHOLD).toBeGreaterThan(REVIEW_THRESHOLD);
+  });
+});
+
+describe('amount tolerance symmetry', () => {
+  // Regression: previously `tol` was computed from the second argument, so
+  // withinAmountTolerance(big, small) and withinAmountTolerance(small, big)
+  // could disagree right at the percent-tolerance edge. Now tol is based
+  // on max(|a|, |b|) so order is irrelevant.
+
+  it('withinAmountTolerance is symmetric across simple inputs', () => {
+    expect(withinAmountTolerance(100, 99)).toBe(withinAmountTolerance(99, 100));
+    expect(withinAmountTolerance(120000, 120300)).toBe(
+      withinAmountTolerance(120300, 120000),
+    );
+  });
+
+  it('withinAmountTolerance is symmetric near the percent-tolerance edge', () => {
+    // 0.5% of 1,000,000 = 5,000. 0.5% of 1,005,000 = 5,025. With the old
+    // (asymmetric) tol-from-b code, the answer flipped depending on order;
+    // now both compute tol from the larger value and agree.
+    const a = 1_000_000;
+    const b = 1_005_000; // 0.5% above a, exactly at the b-based edge
+    expect(withinAmountTolerance(a, b)).toBe(withinAmountTolerance(b, a));
+  });
+
+  it('amountScore is symmetric across the same inputs', () => {
+    expect(amountScore(100, 99)).toBeCloseTo(amountScore(99, 100));
+    expect(amountScore(120000, 120300)).toBeCloseTo(amountScore(120300, 120000));
+    expect(amountScore(1_000_000, 1_005_000)).toBeCloseTo(
+      amountScore(1_005_000, 1_000_000),
+    );
   });
 });

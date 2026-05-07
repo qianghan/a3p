@@ -57,8 +57,10 @@ export function encryptToken(plaintext: string): string {
 }
 
 export function decryptToken(ciphertext: string): string {
-  // Reject obvious garbage early so the error message is useful.
-  if (typeof ciphertext !== 'string' || ciphertext.length < 28) {
+  // Reject obvious garbage early so the error message is useful. Minimum
+  // valid format is 12 (IV) + 16 (auth tag) + ≥1 (ciphertext) = 29 bytes
+  // raw, which is at least 29 base64 characters once base64-encoded.
+  if (typeof ciphertext !== 'string' || ciphertext.length < 29) {
     throw new Error('decryptToken: ciphertext too short or missing');
   }
   let buf: Buffer;
