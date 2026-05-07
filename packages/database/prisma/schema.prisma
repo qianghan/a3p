@@ -1719,6 +1719,8 @@ model AbBankAccount {
   institution     String?
   connected       Boolean  @default(true)
   lastSynced      DateTime?
+  accessTokenEnc  String?                         // AES-256-GCM-encrypted Plaid access token
+  cursorToken     String?                         // Plaid /transactions/sync cursor
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
