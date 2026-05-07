@@ -50,6 +50,7 @@ export type IntentName =
   | 'timer_status'      // /timer status — what's running + today's total
   | 'invoice_from_timer' // build an invoice from accumulated unbilled hours
   | 'record_mileage'    // "drove 47 miles to TechCorp" → mileage entry + JE (PR 4)
+  | 'generate_tax_package' // "give me my 2025 tax package" → render PDF/CSV/ZIP (PR 5)
   | 'clarify'           // bot is unsure — ask the user a question first
   | 'unrelated';        // none of the above — let agent brain reply
 
@@ -70,6 +71,9 @@ export interface IntentSlots {
   miles?: number;              // distance value the user spoke (mi or km)
   unit?: 'mi' | 'km';          // which unit the value refers to
   purpose?: string;            // free-form trip purpose ("TechCorp meeting")
+  // Tax-package slots (PR 5):
+  taxYear?: number;            // calendar year, defaults to last year if absent
+  jurisdiction?: 'us' | 'ca';  // tenant jurisdiction (resolved at execute time)
 }
 
 export interface BotIntent {
@@ -251,6 +255,16 @@ INTENT CHOICES (pick exactly one)
                      ("drove 47 miles to TechCorp",
                       "drove 23 km client meeting",
                       "47 mi from office to airport")
+   generate_tax_package — user wants the year-end tax package (PDF + CSV
+                     bundle for their accountant). Triggers contain words
+                     like "tax package" / "year-end package" / "annual
+                     report" / "tax bundle" optionally followed by a 4-digit
+                     year. SET slots.taxYear to the year if mentioned;
+                     otherwise leave it absent and the executor defaults
+                     to last year.
+                     ("give me my 2025 tax package",
+                      "year-end package for 2024",
+                      "send me my annual tax report")
    query_balance   — user is asking about cash on hand
                      ("how much do I have", "balance", "cash")
    query_invoices  — user is asking about outstanding invoices
@@ -299,7 +313,7 @@ RULES
 
 OUTPUT
 Respond with ONLY a JSON object — no preamble, no code fences:
-{"intent": "<name>", "slots": {"categoryName": "Fuel", "amountCents": 4523, "vendor": "Shell", "description": "...", "filter": "...", "clarifyingQuestion": "...", "candidateIntents": ["...", "..."], "miles": 47, "unit": "mi", "purpose": "TechCorp meeting", "clientNameHint": "TechCorp"}, "confidence": 0.0-1.0, "reason": "<one short sentence>"}`;
+{"intent": "<name>", "slots": {"categoryName": "Fuel", "amountCents": 4523, "vendor": "Shell", "description": "...", "filter": "...", "clarifyingQuestion": "...", "candidateIntents": ["...", "..."], "miles": 47, "unit": "mi", "purpose": "TechCorp meeting", "clientNameHint": "TechCorp", "taxYear": 2025}, "confidence": 0.0-1.0, "reason": "<one short sentence>"}`;
 
   let raw: string;
   try {
@@ -504,6 +518,27 @@ function classifyIntentWithRegex(text: string, ctx: BotContext): BotIntent {
     };
   }
 
+  // Tax package (PR 5): "give me my 2025 tax package", "year-end report
+  // for 2024", "annual bundle". The year is optional — when absent the
+  // executor falls back to the previous calendar year (the typical use
+  // case: filing this year for last year's books).
+  const taxPkgMatch = text.match(/\b(?:tax|year[\- ]end|annual)\s+(?:package|bundle|report)\s*(?:for)?\s*(\d{4})?/i);
+  if (taxPkgMatch) {
+    const yearRaw = taxPkgMatch[1];
+    const slots: IntentSlots = {};
+    if (yearRaw) {
+      const y = parseInt(yearRaw, 10);
+      if (isFinite(y) && y >= 2000 && y <= 2100) slots.taxYear = y;
+    }
+    return {
+      intent: 'generate_tax_package',
+      slots,
+      confidence: 0.92,
+      reason: 'tax/year-end/annual + package/bundle/report',
+      source: 'regex',
+    };
+  }
+
   // Invoice creation — "invoice Acme $5K for July consulting", "bill X
   // $1000 for Y", "send Acme an invoice". Beats record_expense, since
   // "invoice" is more specific than the spent/paid/bought verbs.
@@ -670,6 +705,15 @@ export function planSteps(intent: BotIntent, _ctx: BotContext): PlanStep[] {
           unit: intent.slots.unit,
           purpose: intent.slots.purpose,
           clientNameHint: intent.slots.clientNameHint,
+        },
+        dependsOn: [],
+      }];
+    case 'generate_tax_package':
+      return [{
+        id,
+        skill: 'tax.generate_package',
+        args: {
+          year: intent.slots.taxYear,
         },
         dependsOn: [],
       }];
@@ -1637,6 +1681,47 @@ export async function executeStep(step: PlanStep, ctx: BotContext): Promise<Exec
         };
       }
 
+      // ─── Tax package (PR 5) ───────────────────────────────────────
+      case 'tax.generate_package': {
+        const yearArg = step.args.year as number | undefined;
+        // Default: previous calendar year (typical filing pattern).
+        const year = typeof yearArg === 'number' && isFinite(yearArg) && yearArg > 2000
+          ? yearArg
+          : new Date().getUTCFullYear() - 1;
+
+        // Resolve jurisdiction from tenant config (default 'us').
+        const cfg = await db.abTenantConfig.findUnique({
+          where: { userId: ctx.tenantId },
+          select: { jurisdiction: true },
+        });
+        const jurisdiction: 'us' | 'ca' = cfg?.jurisdiction === 'ca' ? 'ca' : 'us';
+
+        // Lazy-load to avoid pulling @react-pdf into tests / hot paths
+        // that don't need it. The tax-package module itself further
+        // lazy-loads the renderer in `generatePackage`.
+        const { generatePackage } = await import('./agentbook-tax-package');
+        const result = await generatePackage({
+          tenantId: ctx.tenantId,
+          year,
+          jurisdiction,
+        });
+
+        return {
+          stepId: step.id,
+          success: true,
+          data: {
+            kind: 'tax_package',
+            packageId: result.packageId,
+            year,
+            jurisdiction,
+            pdfUrl: result.pdfUrl,
+            receiptsZipUrl: result.receiptsZipUrl ?? null,
+            csvUrls: result.csvUrls,
+            summary: result.summary,
+          },
+        };
+      }
+
       case 'meta.help': {
         return { stepId: step.id, success: true };
       }
@@ -1823,15 +1908,16 @@ export function evaluate(
     };
   }
 
-  // Timer + invoice-from-timer (PR 2) + record_mileage (PR 4): same
-  // handoff pattern as create_invoice_from_chat — the webhook renders
-  // rich, keyboarded replies.
+  // Timer + invoice-from-timer (PR 2) + record_mileage (PR 4) +
+  // generate_tax_package (PR 5): same handoff pattern as
+  // create_invoice_from_chat — the webhook renders rich, keyboarded replies.
   if (
     intent.intent === 'start_timer' ||
     intent.intent === 'stop_timer' ||
     intent.intent === 'timer_status' ||
     intent.intent === 'invoice_from_timer' ||
-    intent.intent === 'record_mileage'
+    intent.intent === 'record_mileage' ||
+    intent.intent === 'generate_tax_package'
   ) {
     const r = results[0];
     if (!r?.success) {

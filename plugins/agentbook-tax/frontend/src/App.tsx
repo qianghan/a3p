@@ -8,6 +8,7 @@ import { ReportsPage } from './pages/Reports';
 import { CashFlowPage } from './pages/CashFlow';
 import { AnalyticsPage } from './pages/Analytics';
 import { WhatIfPage } from './pages/WhatIf';
+import { TaxPackagePage } from './pages/TaxPackage';
 import './globals.css';
 
 const AgentbookTaxApp: React.FC = () => (
@@ -20,6 +21,7 @@ const AgentbookTaxApp: React.FC = () => (
       <Route path="/cashflow" element={<CashFlowPage />} />
       <Route path="/analytics" element={<AnalyticsPage />} />
       <Route path="/whatif" element={<WhatIfPage />} />
+      <Route path="/tax-package" element={<TaxPackagePage />} />
       <Route path="/*" element={<TaxDashboardPage />} />
     </Routes>
   </MemoryRouter>
@@ -35,6 +37,8 @@ const plugin = createPlugin({
     '/agentbook/reports/*',
     '/agentbook/cashflow',
     '/agentbook/cashflow/*',
+    '/agentbook/tax-package',
+    '/agentbook/tax-package/*',
   ],
   App: AgentbookTaxApp,
 });

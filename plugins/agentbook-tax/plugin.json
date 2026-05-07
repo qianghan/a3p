@@ -29,7 +29,9 @@
       "/agentbook/reports",
       "/agentbook/reports/*",
       "/agentbook/cashflow",
-      "/agentbook/cashflow/*"
+      "/agentbook/cashflow/*",
+      "/agentbook/tax-package",
+      "/agentbook/tax-package/*"
     ],
     "navigation": {
       "label": "Tax & Reports",

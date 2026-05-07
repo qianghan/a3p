@@ -1742,6 +1742,82 @@ async function renderMileageStepResult(
   });
 }
 
+// ─── Tax package (PR 5) ────────────────────────────────────────────────
+interface TaxPackageData {
+  kind: 'tax_package';
+  packageId: string;
+  year: number;
+  jurisdiction: 'us' | 'ca';
+  pdfUrl: string;
+  receiptsZipUrl: string | null;
+  csvUrls: { pnl: string; mileage: string; deductions: string };
+  summary: {
+    expenseCount: number;
+    deductionsCents: number;
+    mileageDeductionCents: number;
+    arTotalCents: number;
+    pnlByLine: Record<string, number>;
+    period: { start: string; end: string };
+  };
+}
+
+/**
+ * Render a friendly Telegram reply for a generated tax package.
+ *
+ * The "📦 Building your {year} package…" progress line is sent
+ * separately by the dispatcher BEFORE we kick off `generatePackage`,
+ * because the renderer here only fires after the lib finishes; sending
+ * a "ready" message synchronously is the simplest path. If that's too
+ * abrupt, the dispatcher can pre-send the building line — see the
+ * webhook dispatcher block below.
+ */
+export function renderTaxPackageStepResult(data: TaxPackageData): { html: string; keyboard?: unknown } {
+  const dollars = (cents: number): string =>
+    `$${(cents / 100).toLocaleString('en-US', { maximumFractionDigits: 2, minimumFractionDigits: 2 })}`;
+  const formName = data.jurisdiction === 'ca' ? 'T2125' : 'Schedule C';
+  const lines: string[] = [
+    `✅ <b>${data.year} ${formName} package ready</b>`,
+    ``,
+    `• Expenses: ${data.summary.expenseCount}`,
+    `• Deductions: <b>${dollars(data.summary.deductionsCents)}</b>`,
+    `• Mileage deductible: ${dollars(data.summary.mileageDeductionCents)}`,
+    `• AR outstanding: ${dollars(data.summary.arTotalCents)}`,
+    ``,
+    `📄 <a href="${data.pdfUrl}">PDF</a> · ` +
+      `<a href="${data.csvUrls.pnl}">P&amp;L CSV</a> · ` +
+      `<a href="${data.csvUrls.mileage}">Mileage CSV</a> · ` +
+      `<a href="${data.csvUrls.deductions}">Deductions CSV</a>` +
+      (data.receiptsZipUrl ? ` · <a href="${data.receiptsZipUrl}">Receipts ZIP</a>` : ''),
+  ];
+  return {
+    html: lines.join('\n'),
+    keyboard: {
+      inline_keyboard: [[
+        { text: '↻ Regenerate', callback_data: `tpkg_regen:${data.year}:${data.jurisdiction}` },
+      ]],
+    },
+  };
+}
+
+async function renderTaxPackageReply(
+  ctx: InvoiceReplyCtx,
+  result: { success: boolean; data?: unknown; error?: string } | undefined,
+): Promise<void> {
+  if (!result || !result.success || !result.data) {
+    await ctx.reply(result?.error || "Couldn't build the tax package — try again.");
+    return;
+  }
+  const data = result.data as TaxPackageData;
+  const { html, keyboard } = renderTaxPackageStepResult(data);
+  await ctx.reply(html, {
+    parse_mode: 'HTML',
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    reply_markup: keyboard as any,
+    // Keep the link preview off — these are blob URLs, no useful preview.
+    link_preview_options: { is_disabled: true },
+  });
+}
+
 // Lazy-initialize bot (cold start optimization for serverless)
 let bot: Bot | null = null;
 
@@ -2297,6 +2373,18 @@ function getBot(): Bot {
           && loop.intent.intent === 'record_mileage'
         ) {
           await renderMileageStepResult(tenantId, ctx, loop.results[0]);
+          return;
+        }
+        if (
+          loop.evaluation.needsKeyboard
+          && loop.intent.intent === 'generate_tax_package'
+        ) {
+          // Note: the bot loop already executed `generatePackage` synchronously
+          // by the time we get here, so the "📦 Building…" pre-message would
+          // arrive after the work is done. We render the final ready message
+          // here; if cold-start latency becomes a problem, the dispatcher
+          // can send a pre-execute "building" hint via the bot loop hook.
+          await renderTaxPackageReply(ctx, loop.results[0]);
           return;
         }
 

@@ -2153,6 +2153,31 @@ model AbTaxFilingPartner {
   @@schema("plugin_agentbook_tax")
 }
 
+// PR 5 — Year-end tax package generator. One row per (tenant, year,
+// jurisdiction); the unique tuple makes /generate idempotent — the
+// route looks the row up and overwrites the artifacts on regenerate.
+// `pdfUrl`, `receiptsZipUrl`, and per-section `csvUrls` all point to
+// Vercel Blob; `summary` is a denormalised JSON snapshot for fast
+// listing on the web page without re-querying the books.
+model AbTaxPackage {
+  id              String   @id @default(uuid())
+  tenantId        String
+  year            Int
+  jurisdiction    String                                  // 'us' | 'ca'
+  pdfUrl          String?                                 // Vercel Blob URL
+  receiptsZipUrl  String?                                 // Separate Blob URL for receipts ZIP
+  csvUrls         Json?                                   // { pnl, mileage, deductions } → blob URLs
+  summary         Json                                    // { expenseCount, deductionsCents, mileageDeductionCents, ... }
+  status          String   @default("pending")            // pending | ready | failed
+  errorMsg        String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@unique([tenantId, year, jurisdiction])
+  @@index([tenantId, year])
+  @@schema("plugin_agentbook_tax")
+}
+
 model AbCalendarEvent {
   id              String   @id @default(uuid())
   tenantId        String
