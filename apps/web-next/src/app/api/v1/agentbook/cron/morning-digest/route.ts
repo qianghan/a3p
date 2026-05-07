@@ -643,8 +643,36 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       // the inbox doesn't get spammed. Skipped entirely if Telegram
       // wasn't reachable — the email fallback is text-only and these
       // need callbacks.
+      //
+      // Idempotency: cron fires hourly and the `?hour=now` debug bypass
+      // exists, so the same tenant can land here twice in a UTC day. We
+      // gate on an AbEvent stamped with today's UTC date — present means
+      // we've already sent today, skip. Per-call `take: 3` only covers
+      // *this* call's list; without this gate a retry resends the same
+      // 3 items (or different 3 items) and double-spams the inbox.
       if (tgSent && digest.bankReview.items.length > 0) {
-        await sendBankReviewMessages(tenant.userId, digest.bankReview.items);
+        const todayUTC = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
+        const dayStart = new Date(`${todayUTC}T00:00:00.000Z`);
+        const dayEnd = new Date(`${todayUTC}T23:59:59.999Z`);
+        const alreadySent = await db.abEvent.findFirst({
+          where: {
+            tenantId: tenant.userId,
+            eventType: 'bank.digest_sent_today',
+            createdAt: { gte: dayStart, lte: dayEnd },
+          },
+          select: { id: true },
+        });
+        if (!alreadySent) {
+          await sendBankReviewMessages(tenant.userId, digest.bankReview.items);
+          await db.abEvent.create({
+            data: {
+              tenantId: tenant.userId,
+              eventType: 'bank.digest_sent_today',
+              actor: 'system',
+              action: { dateUTC: todayUTC, count: digest.bankReview.items.length },
+            },
+          });
+        }
       }
       sent++;
     } catch (err) {

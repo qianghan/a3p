@@ -392,4 +392,97 @@ test.describe.serial('PR 9 — Telegram callbacks', () => {
     await prisma.abBankAccount.delete({ where: { id: acct.id } });
     await prisma.abExpense.delete({ where: { id: expense.id } });
   });
+
+  test('bnk_pickexpense → bnk_m2 picker flow matches and cleans tokens', async ({ request }) => {
+    // Set up a txn with multiple plausible expense candidates so the
+    // picker actually has runners-up. We create three expenses at $19,
+    // $20, $21 and a $20 outflow — the scorer should rank $20 first.
+    const today = new Date();
+    const acct = await prisma.abBankAccount.create({
+      data: {
+        tenantId: TENANT,
+        plaidItemId: 'pick-item',
+        plaidAccountId: `pick-account-${Date.now()}`,
+        name: 'Pick Checking',
+        type: 'checking',
+        connected: true,
+      },
+    });
+    const expA = await prisma.abExpense.create({
+      data: { tenantId: TENANT, amountCents: 1900, date: today, description: 'Office snacks A', isPersonal: false, status: 'confirmed' },
+    });
+    const expB = await prisma.abExpense.create({
+      data: { tenantId: TENANT, amountCents: 2000, date: today, description: 'Office snacks B', isPersonal: false, status: 'confirmed' },
+    });
+    const expC = await prisma.abExpense.create({
+      data: { tenantId: TENANT, amountCents: 2100, date: today, description: 'Office snacks C', isPersonal: false, status: 'confirmed' },
+    });
+    const txn = await prisma.abBankTransaction.create({
+      data: {
+        tenantId: TENANT,
+        bankAccountId: acct.id,
+        plaidTransactionId: `pick-txn-${Date.now()}`,
+        amount: 2000,
+        date: today,
+        merchantName: 'Snacks',
+        name: 'SNACKS PURCHASE',
+        matchStatus: 'exception',
+      },
+    });
+
+    // 1) Open the expense picker.
+    const pickResp = await postWebhook(request, { callbackData: `bnk_pickexpense:${txn.id}` });
+    expect(pickResp.ok).toBe(true);
+
+    // 2) Picker tokens should now exist for this txn. Pick the one
+    // pointing at expB (the exact-amount match).
+    const tokens = await prisma.abUserMemory.findMany({
+      where: {
+        tenantId: TENANT,
+        key: { startsWith: 'telegram:bnk_pick:' },
+        value: { contains: `"txnId":"${txn.id}"` },
+      },
+    });
+    expect(tokens.length).toBeGreaterThan(0);
+    const target = tokens.find((t) => t.value.includes(`"targetId":"${expB.id}"`));
+    expect(target).toBeTruthy();
+    const tokenStr = target!.key.replace('telegram:bnk_pick:', '');
+
+    // 3) Fire bnk_m2:<token>.
+    const m2Resp = await postWebhook(request, { callbackData: `bnk_m2:${tokenStr}` });
+    expect(m2Resp.ok).toBe(true);
+
+    // 4) Txn matched to the picked expense.
+    const updated = await prisma.abBankTransaction.findUnique({ where: { id: txn.id } });
+    expect(updated?.matchStatus).toBe('matched');
+    expect(updated?.matchedExpenseId).toBe(expB.id);
+
+    // 5) ALL sibling picker tokens for this txn should be gone.
+    const remaining = await prisma.abUserMemory.findMany({
+      where: {
+        tenantId: TENANT,
+        key: { startsWith: 'telegram:bnk_pick:' },
+        value: { contains: `"txnId":"${txn.id}"` },
+      },
+    });
+    expect(remaining.length).toBe(0);
+
+    // 6) AbEvent emitted for parity with the HTTP path.
+    const ev = await prisma.abEvent.findFirst({
+      where: {
+        tenantId: TENANT,
+        eventType: 'bank.txn_matched',
+        action: { path: ['transactionId'], equals: txn.id },
+      },
+    });
+    expect(ev).toBeTruthy();
+
+    // Cleanup.
+    await prisma.abEvent.deleteMany({
+      where: { tenantId: TENANT, action: { path: ['transactionId'], equals: txn.id } },
+    });
+    await prisma.abBankTransaction.delete({ where: { id: txn.id } });
+    await prisma.abBankAccount.delete({ where: { id: acct.id } });
+    await prisma.abExpense.deleteMany({ where: { id: { in: [expA.id, expB.id, expC.id] } } });
+  });
 });
