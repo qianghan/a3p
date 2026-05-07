@@ -136,12 +136,16 @@ test.describe.serial('PR 12 — Smart deduction discovery', () => {
   });
 
   test('cron route runs the rules engine; meals + same-week invoice → high-confidence suggestion', async ({ request }) => {
-    // The cron is bearer-gated only when CRON_SECRET is set. In the dev
-    // server we leave CRON_SECRET unset, so an unauthenticated GET runs
-    // the discovery for ALL recent-activity tenants (which includes
-    // both A and B from beforeAll).
+    // The cron is bearer-gated when CRON_SECRET is set. Send the matching
+    // Authorization header conditionally so the test works both locally
+    // (with CRON_SECRET set) and in environments where it's unset.
+    const cronSecret = process.env.CRON_SECRET || '';
+    const headers: Record<string, string> = cronSecret
+      ? { Authorization: `Bearer ${cronSecret}` }
+      : {};
     const res = await request.get(
       `${WEB}/api/v1/agentbook/cron/deduction-discovery`,
+      { headers },
     );
     expect(res.ok()).toBeTruthy();
     const body = await res.json();
@@ -212,7 +216,10 @@ test.describe.serial('PR 12 — Smart deduction discovery', () => {
         isDeductible: false,
       },
     });
-    const cronRes = await request.get(`${WEB}/api/v1/agentbook/cron/deduction-discovery`);
+    const cronAuthHeaders: Record<string, string> = process.env.CRON_SECRET
+      ? { Authorization: `Bearer ${process.env.CRON_SECRET}` }
+      : {};
+    const cronRes = await request.get(`${WEB}/api/v1/agentbook/cron/deduction-discovery`, { headers: cronAuthHeaders });
     expect(cronRes.ok()).toBeTruthy();
     const fresh = await prisma.abDeductionSuggestion.findFirst({
       where: { tenantId: TENANT_A, status: 'open', expenseId: meal2.id },
