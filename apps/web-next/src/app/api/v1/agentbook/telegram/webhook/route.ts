@@ -1444,6 +1444,9 @@ function randomToken(): string {
 // Send/Edit/Cancel for the resulting draft reuses PR 1's `inv_*` callbacks
 // — the draft lives in `AbInvoice` exactly the same way.
 
+// Telegram-flavoured "Xh Ymin" string. The frontend's Timer.tsx uses a
+// different format ("Xh Ym"), so we deliberately keep the two helpers
+// separate rather than sharing a single utility.
 function fmtMinutes(min: number): string {
   if (!min || min <= 0) return '0min';
   const m = Math.round(min);
@@ -3349,6 +3352,20 @@ function getBot(): Bot {
         const token = parts[1];
         const clientId = parts[2];
         if (!token || !clientId) { await ctx.answerCallbackQuery({ text: 'Bad callback' }); return; }
+        // Fail closed locally before invoking the HTTP route — same
+        // pattern as `tmr_pickclient` above. The route does verify
+        // ownership too, but doing the check here keeps the bot from
+        // round-tripping a foreign clientId and leaking its existence
+        // through a 403 response code.
+        const owns = await db.abClient.findFirst({
+          where: { id: clientId, tenantId },
+          select: { id: true },
+        });
+        if (!owns) {
+          await ctx.answerCallbackQuery({ text: 'Client missing' });
+          await ctx.reply("That client isn't available anymore.");
+          return;
+        }
         const memoryKey = `telegram:pending_invoice_from_timer:${token}`;
         const memory = await db.abUserMemory.findUnique({
           where: { tenantId_key: { tenantId, key: memoryKey } },

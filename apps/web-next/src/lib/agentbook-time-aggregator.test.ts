@@ -3,7 +3,7 @@
  * invoice flow. Both helpers are pure, so the suite runs offline.
  */
 
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   parseDateHint,
   aggregateByDay,
@@ -85,13 +85,22 @@ describe('aggregateByDay', () => {
     expect(lines[0].rateCents).toBe(17500);
   });
 
-  it('returns rate 0 when all entries on a day have null rates', () => {
+  it('returns rate 0 when all entries on a day have null rates (aggregator is pure — consumer rejects $0 invoices)', () => {
+    // Invariant: the aggregator stays a pure projection. Producing
+    // `rateCents: 0` here is *correct* (no rate data, no rate). The
+    // rejection of zero-rate drafts lives in the consumers (the
+    // `from-time-entries` route + the bot agent's `invoice.from_timer`
+    // step), so they can return a fixable user-facing error instead of
+    // silently creating a $0 draft.
     const entries: TimeEntryRow[] = [
       { id: 'a', date: '2026-05-01', description: 'misc', durationMinutes: 60, hourlyRateCents: null },
       { id: 'b', date: '2026-05-01', description: 'misc', durationMinutes: 60, hourlyRateCents: null },
     ];
     const lines = aggregateByDay(entries);
     expect(lines[0].rateCents).toBe(0);
+    // Document the consumer expectation: every line is 0¢, so a
+    // downstream `lines.every(l => l.rateCents === 0)` guard fires.
+    expect(lines.every((l) => l.rateCents === 0)).toBe(true);
   });
 
   it('falls back to "multiple tasks" when descriptions on a day differ', () => {
@@ -166,5 +175,58 @@ describe('parseDateHint', () => {
     // straddles into a different UTC month, exactly different — but
     // never identical to the UTC anchor on most days).
     expect(pacific.startDate.getTime()).not.toBe(utc.startDate.getTime());
+  });
+
+  describe('year-edge and DST', () => {
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it('"last week" anchored on Jan 3 spans the previous year (Dec into Jan)', () => {
+      // Jan 3, 2026 is a Saturday in America/New_York. "this week" runs
+      // Mon Dec 29 → Mon Jan 5, so "last week" is Mon Dec 22 → Mon Dec 29
+      // — both boundaries land in 2025. Verifies the math survives the
+      // year roll without truncating to month/year separately.
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date('2026-01-03T15:00:00Z'));
+      const r = parseDateHint('last week', 'America/New_York');
+      const days = (r.endDate.getTime() - r.startDate.getTime()) / 86400000;
+      // 7 days, possibly off by 1/24 if a DST crossover landed inside
+      // (none in late Dec/early Jan, but be defensive).
+      expect(Math.round(days)).toBe(7);
+      expect(r.startDate.getUTCFullYear()).toBe(2025);
+      expect(r.startDate.getUTCMonth()).toBe(11); // December (0-indexed)
+      expect(r.endDate.getUTCFullYear()).toBe(2025);
+      expect(r.endDate.getUTCMonth()).toBe(11);
+    });
+
+    it('"today" on a DST spring-forward day yields a 23-hour range, not 25', () => {
+      // 2026-03-08 is the second Sunday of March — US spring-forward,
+      // when 02:00 jumps to 03:00 in America/New_York. The local day is
+      // 23 hours wide. The naive `+86_400_000` math would over-shoot.
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date('2026-03-08T15:00:00Z'));
+      const r = parseDateHint('today', 'America/New_York');
+      const hours = (r.endDate.getTime() - r.startDate.getTime()) / 3_600_000;
+      expect(hours).toBe(23);
+    });
+
+    it('"today" on a non-DST day is exactly 24 hours wide', () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date('2026-05-06T15:00:00Z'));
+      const r = parseDateHint('today', 'America/New_York');
+      const hours = (r.endDate.getTime() - r.startDate.getTime()) / 3_600_000;
+      expect(hours).toBe(24);
+    });
+
+    it('"today" on a fall-back day yields a 25-hour range', () => {
+      // 2026-11-01 is the first Sunday of November — fall-back, the
+      // local day is 25 hours wide.
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date('2026-11-01T15:00:00Z'));
+      const r = parseDateHint('today', 'America/New_York');
+      const hours = (r.endDate.getTime() - r.startDate.getTime()) / 3_600_000;
+      expect(hours).toBe(25);
+    });
   });
 });

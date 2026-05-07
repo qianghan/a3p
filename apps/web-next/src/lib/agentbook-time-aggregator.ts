@@ -68,8 +68,12 @@ function isoDateInTz(date: Date, tz: string): string {
  * Build a Date from year/month/day at midnight in the given IANA
  * timezone. Uses an iterative correction (UTC anchor → measure offset →
  * adjust) which is cheap and survives DST without pulling in moment / luxon.
+ *
+ * Exported so callers (e.g. the bot agent's `timer.status` path) can
+ * compute "today's midnight" in the tenant TZ without recreating the
+ * offset-walking logic.
  */
-function midnightInTz(year: number, month0: number, day: number, tz: string): Date {
+export function midnightInTz(year: number, month0: number, day: number, tz: string): Date {
   const utc = Date.UTC(year, month0, day, 0, 0, 0, 0);
   const guess = new Date(utc);
   const offsetMin = (() => {
@@ -106,9 +110,13 @@ function midnightInTz(year: number, month0: number, day: number, tz: string): Da
  * Resolve a natural-language hint to a `[startDate, endDate)` range in
  * the tenant timezone (default UTC).
  *
- * Hints recognised: "this week", "last week", "this month", "last
- * month". "Week" boundaries use Monday as week-start (ISO 8601). Falls
- * back to "this month" when the hint is undefined or unrecognised.
+ * Hints recognised: "today", "this week", "last week", "this month",
+ * "last month". "Week" boundaries use Monday as week-start (ISO 8601).
+ * Falls back to "this month" when the hint is undefined or unrecognised.
+ *
+ * "today" returns `[localMidnight, nextLocalMidnight)`. Width is computed
+ * by calendar-day arithmetic (not `+ 86_400_000`), so DST spring-forward
+ * yields a 23-hour day and fall-back yields 25 hours — never an off-by-one.
  */
 export function parseDateHint(hint: string | undefined, tz: string = 'UTC'): TimeRange {
   const now = new Date();
@@ -125,6 +133,15 @@ export function parseDateHint(hint: string | undefined, tz: string = 'UTC'): Tim
   // 0 (Sun) – 6 (Sat). Convert to Monday-based: Mon=0, …, Sun=6.
   const dow = localMidnight.getUTCDay();
   const mondayOffset = (dow + 6) % 7;
+
+  if (normalised === 'today') {
+    // Walk to *tomorrow's* midnight via calendar day-of-month, not
+    // raw +24h: that survives DST transitions where today is 23 or
+    // 25 hours long in the local zone.
+    const startDate = localMidnight;
+    const endDate = midnightInTz(y, m0, d + 1, tz);
+    return { startDate, endDate };
+  }
 
   if (normalised === 'this week') {
     const startDate = new Date(localMidnight.getTime() - mondayOffset * MS_PER_DAY);

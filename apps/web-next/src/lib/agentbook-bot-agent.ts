@@ -24,6 +24,7 @@ import { prisma as db } from '@naap/database';
 import { parseInvoiceFromText } from './agentbook-invoice-parser';
 import { createInvoiceDraft } from './agentbook-invoice-draft';
 import { parseDateHint, aggregateByDay, type TimeEntryRow } from './agentbook-time-aggregator';
+import { resolveClientByHint } from './agentbook-client-resolver';
 
 // ─── Types ────────────────────────────────────────────────────────────────
 
@@ -950,15 +951,9 @@ export async function executeStep(step: PlanStep, ctx: BotContext): Promise<Exec
           };
         }
 
-        // Resolve client by case-insensitive substring match.
-        const allClients = await db.abClient.findMany({
-          where: { tenantId: ctx.tenantId },
-          select: { id: true, name: true, email: true },
-        });
-        const hint = parsed.clientNameHint.toLowerCase();
-        const candidates = allClients.filter(
-          (c) => c.name.toLowerCase().includes(hint) || hint.includes(c.name.toLowerCase()),
-        );
+        // Resolve client via the shared exact-then-substring helper.
+        const resolution = await resolveClientByHint(ctx.tenantId, parsed.clientNameHint);
+        const candidates = resolution.candidates;
 
         if (candidates.length === 0) {
           return {
@@ -990,7 +985,7 @@ export async function executeStep(step: PlanStep, ctx: BotContext): Promise<Exec
         // HTTP draft-from-text route.
         const draft = await createInvoiceDraft({
           tenantId: ctx.tenantId,
-          client: candidates[0],
+          client: { id: candidates[0].id, name: candidates[0].name, email: candidates[0].email },
           parsed,
         });
 
@@ -1015,15 +1010,8 @@ export async function executeStep(step: PlanStep, ctx: BotContext): Promise<Exec
         let clientId: string | null = null;
         let clientName: string | null = null;
         if (clientNameHint && clientNameHint.trim()) {
-          const allClients = await db.abClient.findMany({
-            where: { tenantId: ctx.tenantId },
-            select: { id: true, name: true },
-          });
-          const hint = clientNameHint.toLowerCase();
-          const exact = allClients.filter((c) => c.name.toLowerCase() === hint);
-          const matches = exact.length > 0
-            ? exact
-            : allClients.filter((c) => c.name.toLowerCase().includes(hint) || hint.includes(c.name.toLowerCase()));
+          const resolution = await resolveClientByHint(ctx.tenantId, clientNameHint);
+          const matches = resolution.candidates;
           if (matches.length === 1) {
             clientId = matches[0].id;
             clientName = matches[0].name;
@@ -1162,50 +1150,15 @@ export async function executeStep(step: PlanStep, ctx: BotContext): Promise<Exec
           orderBy: { startedAt: 'desc' },
         });
 
-        // Today = [todayStart, tomorrowStart) in tenant TZ. Reuse the
-        // 'this week' boundary helper logic via parseDateHint by walking
-        // back through the days, but the simpler approach is a direct
-        // "today in tz" anchor.
-        const todayHint = parseDateHint('this week', tz);
-        // todayHint.startDate is Monday; we want today specifically.
-        const now = new Date();
-        const todayIso = (() => {
-          try {
-            return new Intl.DateTimeFormat('en-CA', {
-              timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit',
-            }).formatToParts(now).reduce<Record<string, string>>((acc, p) => {
-              acc[p.type] = p.value;
-              return acc;
-            }, {});
-          } catch {
-            return null;
-          }
-        })();
-        let todayStart: Date;
-        let tomorrowStart: Date;
-        if (todayIso) {
-          // Compute today's midnight in tz by adding day-offset to week start.
-          const todayDayMs = Date.UTC(
-            Number(todayIso.year), Number(todayIso.month) - 1, Number(todayIso.day),
-          );
-          // Find the matching day in the week range.
-          const weekStartUtcDay = Date.UTC(
-            todayHint.startDate.getUTCFullYear(),
-            todayHint.startDate.getUTCMonth(),
-            todayHint.startDate.getUTCDate(),
-          );
-          const offsetDays = Math.round((todayDayMs - weekStartUtcDay) / 86400000);
-          todayStart = new Date(todayHint.startDate.getTime() + offsetDays * 86400000);
-          tomorrowStart = new Date(todayStart.getTime() + 86400000);
-        } else {
-          todayStart = todayHint.startDate;
-          tomorrowStart = new Date(todayStart.getTime() + 86400000);
-        }
+        // Today = [todayStart, tomorrowStart) in tenant TZ. parseDateHint
+        // does the DST-aware day-walk for us — survives spring-forward
+        // (23h day) and fall-back (25h day) without an off-by-one.
+        const today = parseDateHint('today', tz);
 
         const todayEntries = await db.abTimeEntry.findMany({
           where: {
             tenantId: ctx.tenantId,
-            startedAt: { gte: todayStart, lt: tomorrowStart },
+            startedAt: { gte: today.startDate, lt: today.endDate },
           },
           select: { durationMinutes: true, startedAt: true, endedAt: true },
         });
@@ -1265,16 +1218,9 @@ export async function executeStep(step: PlanStep, ctx: BotContext): Promise<Exec
           };
         }
 
-        // Resolve client (PR 1's exact-then-substring pattern).
-        const allClients = await db.abClient.findMany({
-          where: { tenantId: ctx.tenantId },
-          select: { id: true, name: true, email: true },
-        });
-        const hint = clientNameHint.toLowerCase();
-        const exact = allClients.filter((c) => c.name.toLowerCase() === hint);
-        const candidates = exact.length > 0
-          ? exact
-          : allClients.filter((c) => c.name.toLowerCase().includes(hint) || hint.includes(c.name.toLowerCase()));
+        // Resolve client via the shared exact-then-substring helper.
+        const resolution = await resolveClientByHint(ctx.tenantId, clientNameHint);
+        const candidates = resolution.candidates;
         if (candidates.length === 0) {
           return {
             stepId: step.id,
@@ -1298,7 +1244,7 @@ export async function executeStep(step: PlanStep, ctx: BotContext): Promise<Exec
           };
         }
 
-        const client = candidates[0];
+        const client = { id: candidates[0].id, name: candidates[0].name, email: candidates[0].email };
 
         // Resolve date range using the tenant timezone.
         const tenantConfig = await db.abTenantConfig.findUnique({
@@ -1349,6 +1295,18 @@ export async function executeStep(step: PlanStep, ctx: BotContext): Promise<Exec
         const aggregated = aggregateByDay(rows);
         const totalMinutes = entries.reduce((s, e) => s + (e.durationMinutes || 0), 0);
 
+        // Reject zero-rate invoices at the consumer: aggregated lines all at
+        // 0¢ means every input entry had `hourlyRateCents == null`. Creating
+        // a $0 draft and showing the user "Draft ready — total $0" with no
+        // explanation is worse than failing closed with a fixable message.
+        if (aggregated.length > 0 && aggregated.every((l) => l.rateCents === 0)) {
+          return {
+            stepId: step.id,
+            success: false,
+            error: `These entries don't have an hourly rate set yet — set one on ${client.name} first, then try again.`,
+          };
+        }
+
         // Determine the "headline" rate: if every entry shares the same
         // non-null rate, use it; otherwise mark "varied".
         const rateSet = new Set<number>();
@@ -1373,11 +1331,35 @@ export async function executeStep(step: PlanStep, ctx: BotContext): Promise<Exec
         // Mark the entries we just consumed as billed. Scoping by
         // `billed=false` guards against a concurrent invoice-from-timer
         // pass having already claimed any of these rows.
+        //
+        // Atomicity: createInvoiceDraft already committed its own transaction.
+        // If the updateMany below fails (network blip, deadlock) we'd be left
+        // with a draft AND still-unbilled entries — re-running would create
+        // a duplicate invoice. Compensate by voiding the draft so retry is
+        // safe. The void itself is best-effort: if it fails we log and let
+        // the original error propagate.
         const entryIds = entries.map((e) => e.id);
-        await db.abTimeEntry.updateMany({
-          where: { id: { in: entryIds }, tenantId: ctx.tenantId, billed: false },
-          data: { billed: true, invoiceId: draft.draftId },
-        });
+        try {
+          await db.abTimeEntry.updateMany({
+            where: { id: { in: entryIds }, tenantId: ctx.tenantId, billed: false },
+            data: { billed: true, invoiceId: draft.draftId },
+          });
+        } catch (err) {
+          // Status value is 'void' to match the rest of the codebase
+          // (see /invoices/[id]/void/route.ts).
+          await db.abInvoice
+            .updateMany({
+              where: { id: draft.draftId, tenantId: ctx.tenantId },
+              data: { status: 'void' },
+            })
+            .catch((voidErr) => {
+              console.error(
+                '[invoice.from_timer] failed to void draft after updateMany error',
+                { draftId: draft.draftId, voidErr },
+              );
+            });
+          throw err;
+        }
 
         return {
           stepId: step.id,

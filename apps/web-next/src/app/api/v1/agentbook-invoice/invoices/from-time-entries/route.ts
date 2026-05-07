@@ -25,9 +25,15 @@
  * numbering, so the "mark consumed" `updateMany` happens as a separate
  * statement *after* the draft commits. To stay correct under failure we
  * scope the update by the entry IDs we just read (so a concurrent
- * billing pass doesn't double-bill); if the update itself fails we throw
- * — the user sees an error and can retry, which is safer than silently
- * leaving the entries unflagged.
+ * billing pass doesn't double-bill). If the `updateMany` itself fails
+ * (network blip, deadlock) we'd be stuck with a draft AND still-unbilled
+ * entries — re-running would produce a duplicate invoice. Compensate by
+ * voiding the draft so retry is safe; the void is best-effort and any
+ * residual is logged for manual cleanup.
+ *
+ * Zero-rate guard: if every aggregated line ends up at 0¢ (because every
+ * source entry had `hourlyRateCents == null`), we 400 with a fixable
+ * message instead of silently producing a $0 draft.
  */
 
 import 'server-only';
@@ -152,6 +158,19 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     }));
     const aggregated = aggregateByDay(rows);
 
+    // Reject zero-rate invoices: silently producing a $0 draft when every
+    // input entry had a null hourly rate is worse UX than failing closed
+    // with a fixable message.
+    if (aggregated.length > 0 && aggregated.every((l) => l.rateCents === 0)) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'Time entries have no hourly rate set. Set a rate on the client default or on the entries first.',
+        },
+        { status: 400 },
+      );
+    }
+
     // 4. Build the parser-compatible shape expected by createInvoiceDraft.
     const parsedLines = aggregated.map((line) => ({
       description: line.description,
@@ -170,11 +189,34 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     //    Scoping by id-list AND `billed=false` prevents a concurrent
     //    billing pass from re-flagging entries it already claimed (which
     //    would silently overwrite the other invoice's link).
+    //
+    //    Atomicity: if this `updateMany` fails after the draft has been
+    //    committed, void the draft so a retry doesn't create a duplicate
+    //    invoice. The void itself is best-effort: if it also fails the
+    //    error is logged for manual cleanup and we still propagate the
+    //    original failure to the caller.
     const entryIds = entries.map((e) => e.id);
-    await db.abTimeEntry.updateMany({
-      where: { id: { in: entryIds }, tenantId, billed: false },
-      data: { billed: true, invoiceId: draft.draftId },
-    });
+    try {
+      await db.abTimeEntry.updateMany({
+        where: { id: { in: entryIds }, tenantId, billed: false },
+        data: { billed: true, invoiceId: draft.draftId },
+      });
+    } catch (err) {
+      // Status value is 'void' to match the rest of the codebase
+      // (see /invoices/[id]/void/route.ts).
+      await db.abInvoice
+        .updateMany({
+          where: { id: draft.draftId, tenantId },
+          data: { status: 'void' },
+        })
+        .catch((voidErr) => {
+          console.error(
+            '[from-time-entries] failed to void draft after updateMany error',
+            { draftId: draft.draftId, voidErr },
+          );
+        });
+      throw err;
+    }
 
     return NextResponse.json(
       {

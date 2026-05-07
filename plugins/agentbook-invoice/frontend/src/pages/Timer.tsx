@@ -146,11 +146,23 @@ export const TimerPage: React.FC = () => {
         setGenerateError('Pick at least one entry first.');
         return;
       }
+      // Local helpers — kept inline to avoid a new file for two
+      // one-liners. `endOfDay` returns 23:59:59.999, then we bump by 1ms
+      // so the half-open `[start, end)` API filter includes that final
+      // millisecond's worth of entries without the brittle `+ 1ms`-on-an-
+      // arbitrary-instant trick we used previously.
+      const startOfDay = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate());
+      const endOfDay = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate(), 23, 59, 59, 999);
+
       let lastInvoiceId: string | null = null;
       for (const [clientId, group] of byClient.entries()) {
-        // Use the [min, max + 1ms] range so all picked entries fall inside.
-        const start = new Date(group.minStart);
-        const end = new Date(group.maxStart + 1);
+        // Span the full local-calendar days that contain the selected
+        // entries — picks land cleanly inside even if the user toggles
+        // an entry that started seconds before midnight.
+        const minStart = new Date(group.minStart);
+        const maxStart = new Date(group.maxStart);
+        const start = startOfDay(minStart);
+        const end = new Date(endOfDay(maxStart).getTime() + 1);
         const res = await fetch(`${API}/invoices/from-time-entries`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
