@@ -22,6 +22,7 @@
 import 'server-only';
 import { prisma as db } from '@naap/database';
 import { parseInvoiceFromText } from './agentbook-invoice-parser';
+import { createInvoiceDraft } from './agentbook-invoice-draft';
 
 // ─── Types ────────────────────────────────────────────────────────────────
 
@@ -872,73 +873,14 @@ export async function executeStep(step: PlanStep, ctx: BotContext): Promise<Exec
           };
         }
 
-        // Single match — create the draft directly.
-        const client = candidates[0];
-        const issuedDate = new Date();
-        const dueDate = parsed.dueDateHint && parsed.dueDateHint.toLowerCase() !== 'net-30'
-          ? (() => {
-              const d = new Date(parsed.dueDateHint!);
-              return isNaN(d.getTime()) ? new Date(issuedDate.getTime() + 30 * 24 * 60 * 60 * 1000) : d;
-            })()
-          : new Date(issuedDate.getTime() + 30 * 24 * 60 * 60 * 1000);
-
-        const tenantConfig = await db.abTenantConfig.findUnique({
-          where: { userId: ctx.tenantId },
-          select: { currency: true },
-        });
-        const currency = parsed.currencyHint || tenantConfig?.currency || 'USD';
-
-        const year = issuedDate.getFullYear();
-        const last = await db.abInvoice.findFirst({
-          where: { tenantId: ctx.tenantId, number: { startsWith: `INV-${year}-` } },
-          orderBy: { number: 'desc' },
-        });
-        let nextSeq = 1;
-        if (last) {
-          const parts = last.number.split('-');
-          const n = parseInt(parts[2], 10);
-          if (!isNaN(n)) nextSeq = n + 1;
-        }
-        const invoiceNumber = `INV-${year}-${String(nextSeq).padStart(4, '0')}`;
-
-        const lineItems = parsed.lines.map((l) => ({
-          description: l.description || '',
-          quantity: l.quantity || 1,
-          rateCents: l.rateCents,
-          amountCents: Math.round((l.quantity || 1) * l.rateCents),
-        }));
-        const totalAmountCents = lineItems.reduce((sum, l) => sum + l.amountCents, 0);
-
-        const inv = await db.abInvoice.create({
-          data: {
-            tenantId: ctx.tenantId,
-            clientId: client.id,
-            number: invoiceNumber,
-            amountCents: totalAmountCents,
-            currency,
-            issuedDate,
-            dueDate,
-            status: 'draft',
-            source: 'telegram',
-            lines: { create: lineItems },
-          },
-          include: { lines: true },
-        });
-
-        await db.abEvent.create({
-          data: {
-            tenantId: ctx.tenantId,
-            eventType: 'invoice.drafted_from_chat',
-            actor: 'agent',
-            action: {
-              invoiceId: inv.id,
-              number: invoiceNumber,
-              clientId: client.id,
-              amountCents: totalAmountCents,
-              lineCount: lineItems.length,
-              source: 'telegram',
-            },
-          },
+        // Single match — create the draft directly. The shared helper
+        // owns numbering, currency fallback, line creation, and the
+        // AbEvent emission so this path stays byte-identical to the
+        // HTTP draft-from-text route.
+        const draft = await createInvoiceDraft({
+          tenantId: ctx.tenantId,
+          client: candidates[0],
+          parsed,
         });
 
         return {
@@ -946,20 +888,7 @@ export async function executeStep(step: PlanStep, ctx: BotContext): Promise<Exec
           success: true,
           data: {
             kind: 'draft_created',
-            draftId: inv.id,
-            invoiceNumber,
-            clientName: client.name,
-            clientEmail: client.email,
-            totalCents: totalAmountCents,
-            currency,
-            dueDate: dueDate.toISOString(),
-            issuedDate: issuedDate.toISOString(),
-            lines: inv.lines.map((l) => ({
-              description: l.description,
-              rateCents: l.rateCents,
-              quantity: l.quantity,
-              amountCents: l.amountCents,
-            })),
+            ...draft,
           },
         };
       }

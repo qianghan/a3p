@@ -71,4 +71,34 @@ describe('parseInvoiceWithRegex', () => {
   it('returns null when the client name is missing', () => {
     expect(parseInvoiceWithRegex('invoice $5000 for consulting')).toBeNull();
   });
+
+  // Hostile / pathological input — make sure we never produce a draft
+  // with a non-positive or non-finite amount, and never hang on long
+  // input thanks to a catastrophic regex backtrack.
+
+  it('rejects negative amounts', () => {
+    expect(parseInvoiceWithRegex('invoice Acme $-500 for consulting')).toBeNull();
+  });
+
+  it('rejects zero amounts', () => {
+    expect(parseInvoiceWithRegex('invoice Acme $0 for consulting')).toBeNull();
+  });
+
+  it('rejects non-finite tokens (Infinity, NaN)', () => {
+    expect(parseInvoiceWithRegex('invoice Acme $Infinity for consulting')).toBeNull();
+    expect(parseInvoiceWithRegex('invoice Acme $NaN for consulting')).toBeNull();
+  });
+
+  it('handles a 10,000-character input within 100ms', () => {
+    const filler = 'a '.repeat(5000); // ~10000 chars
+    const text = `invoice Acme ${filler} $5000 for consulting`;
+    const start = Date.now();
+    const result = parseInvoiceWithRegex(text);
+    const elapsed = Date.now() - start;
+    // The shape of the regex is linear in length; we don't care if it
+    // returns null vs a result, just that it doesn't pin a CPU.
+    expect(elapsed).toBeLessThan(100);
+    // Either null or a sensible parse — never a crash.
+    expect(result === null || typeof result === 'object').toBe(true);
+  });
 });

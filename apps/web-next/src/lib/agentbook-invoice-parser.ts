@@ -128,6 +128,9 @@ async function parseInvoiceWithGemini(text: string): Promise<ParsedInvoiceDraft 
   if (!apiKey) return null;
 
   const model = process.env.GEMINI_MODEL_FAST || 'gemini-2.0-flash';
+  // The API key is passed as a query param per Google's generative-language
+  // SDK convention. Don't move it to a header — the v1beta endpoint only
+  // accepts it on the URL.
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
 
   const systemPrompt = `You extract invoice details from a freelancer's casual Telegram message.
@@ -172,10 +175,14 @@ Respond with ONLY a JSON object — no preamble, no code fences.`;
         generationConfig: { maxOutputTokens: 400, temperature: 0.1 },
       }),
     });
-    if (!res.ok) return null;
+    if (!res.ok) {
+      console.warn(`[invoice-parser] Gemini call failed: HTTP ${res.status}`);
+      return null;
+    }
     const data = (await res.json()) as { candidates?: { content?: { parts?: { text?: string }[] } }[] };
     raw = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
-  } catch {
+  } catch (err) {
+    console.warn('[invoice-parser] Gemini call failed:', (err as Error)?.message || err);
     return null;
   }
 
@@ -206,7 +213,8 @@ Respond with ONLY a JSON object — no preamble, no code fences.`;
       currencyHint: parsed.currency || 'USD',
       confidence: parsed.confidence ?? 0.8,
     };
-  } catch {
+  } catch (err) {
+    console.warn('[invoice-parser] Gemini response parse failed:', (err as Error)?.message || err);
     return null;
   }
 }

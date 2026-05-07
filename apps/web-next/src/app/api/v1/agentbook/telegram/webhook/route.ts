@@ -11,6 +11,7 @@
  * fallback so the bot still responds when Gemini is unavailable.
  */
 import { NextRequest, NextResponse } from 'next/server';
+import { randomBytes } from 'node:crypto';
 import { Bot } from 'grammy';
 import { prisma as db } from '@naap/database';
 import { handleAgentMessage } from '@agentbook-core/agent-brain';
@@ -1339,6 +1340,23 @@ function draftKeyboard(draftId: string) {
   };
 }
 
+/**
+ * Build the inline keyboard for the ambiguous-client picker.
+ * Telegram's `callback_data` cap is 64 bytes — `inv_pickclient:<token>:<uuid>`
+ * is 15 + 10 + 1 + 36 = 62, comfortably under.
+ */
+function pickerKeyboard(token: string, candidates: Array<{ id: string; name: string }>) {
+  const rows: { text: string; callback_data: string }[][] = candidates.slice(0, MAX_PICKER_CANDIDATES).map((c) => [
+    { text: c.name, callback_data: `inv_pickclient:${token}:${c.id}` },
+  ]);
+  rows.push([{ text: '❌ Cancel', callback_data: `inv_pickcancel:${token}` }]);
+  return { inline_keyboard: rows };
+}
+
+/** Cap the picker candidate list — both the inline keyboard rows and
+ *  the "Which X did you mean — A or B or C" question text. */
+const MAX_PICKER_CANDIDATES = 6;
+
 interface InvoiceReplyCtx {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   reply: (text: string, opts?: any) => Promise<unknown>;
@@ -1378,14 +1396,16 @@ async function renderInvoiceCreateResult(
       },
     });
 
-    const rows: { text: string; callback_data: string }[][] = data.candidates.slice(0, 6).map((c) => [
-      { text: c.name, callback_data: `inv_pickclient:${token}:${c.id}` },
-    ]);
-    rows.push([{ text: '❌ Cancel', callback_data: `inv_pickcancel:${token}` }]);
+    // Truncate to MAX_PICKER_CANDIDATES (6) — long candidate lists blow
+    // past Telegram's text-message length when interpolated inline.
+    const shown = data.candidates.slice(0, MAX_PICKER_CANDIDATES);
+    const namesText = shown.map((c) => escHtml(c.name)).join(' or ');
+    const overflow = data.candidates.length - shown.length;
+    const suffix = overflow > 0 ? ` (and ${overflow} more)` : '';
 
     await ctx.reply(
-      `Which ${escHtml(data.clientNameHint)} did you mean — ${data.candidates.map((c) => escHtml(c.name)).join(' or ')}?`,
-      { parse_mode: 'HTML', reply_markup: { inline_keyboard: rows } },
+      `Which ${escHtml(data.clientNameHint)} did you mean — ${namesText}${suffix}?`,
+      { parse_mode: 'HTML', reply_markup: pickerKeyboard(token, data.candidates) },
     );
     return;
   }
@@ -1399,10 +1419,11 @@ async function renderInvoiceCreateResult(
 }
 
 function randomToken(): string {
-  // 10 chars of base36 — keeps `inv_pickclient:<token>:<uuid>` (15 + 10
-  // + 1 + 36 = 62 bytes) safely under Telegram's 64-byte callback_data
-  // cap.
-  return Math.random().toString(36).slice(2, 12);
+  // 10 chars hex (40 bits of CSPRNG entropy) — keeps `inv_pickclient:<token>:<uuid>`
+  // (15 + 10 + 1 + 36 = 62 bytes) safely under Telegram's 64-byte
+  // callback_data cap. Math.random is not cryptographically random and
+  // a same-second collision under load could cross-route picks.
+  return randomBytes(5).toString('hex');
 }
 
 // Lazy-initialize bot (cold start optimization for serverless)
@@ -1643,9 +1664,19 @@ function getBot(): Bot {
                 lastUsed: new Date(),
               },
             });
-            const prompt = field === 'amount'
-              ? "What's the new total? (e.g. <code>$5500</code>)"
-              : "What's the new due date? (e.g. <code>2026-06-30</code>)";
+            // Item 8: when the draft has >1 line, the amount-edit path
+            // proportionally rebases each line. Surface that explicitly
+            // up front instead of silently doing it — per-line edit
+            // lands in PR 2.
+            let prompt: string;
+            if (field === 'amount') {
+              const lineCount = await db.abInvoiceLine.count({ where: { invoiceId: parsedEdit.draftId } });
+              prompt = lineCount > 1
+                ? "What's the new total? (e.g. <code>$5500</code>)\n\n<i>Note: this rebalances each line proportionally. Per-line edit ships in the next release.</i>"
+                : "What's the new total? (e.g. <code>$5500</code>)";
+            } else {
+              prompt = "What's the new due date? (e.g. <code>2026-06-30</code>)";
+            }
             await ctx.reply(prompt, { parse_mode: 'HTML' });
             return;
           }
@@ -1672,6 +1703,14 @@ function getBot(): Bot {
               return;
             }
             const newTotal = Math.round((m[2] ? n * 1000 : n) * 100);
+            // Cap at $10B (1e12 cents). Above this we leave Number's
+            // safe-integer range and the proportional-rebalance math
+            // below silently produces wrong line amounts.
+            const MAX_INVOICE_CENTS = 1_000_000_000_000;
+            if (!Number.isFinite(newTotal) || newTotal <= 0 || newTotal > MAX_INVOICE_CENTS) {
+              await ctx.reply('That amount looks off — try again with a smaller number?');
+              return;
+            }
             // Distribute across existing lines proportionally; if a single
             // line, just replace its rate.
             const lines = await db.abInvoiceLine.findMany({ where: { invoiceId: draft.id } });
@@ -1714,6 +1753,15 @@ function getBot(): Bot {
             const parsedDate = new Date(trimmed);
             if (isNaN(parsedDate.getTime())) {
               await ctx.reply('I couldn\'t read that date. Try <code>2026-06-30</code> or <code>July 30</code>.', { parse_mode: 'HTML' });
+              return;
+            }
+            // Bound to [issuedDate, issuedDate + 5 years] so a typo like
+            // 9999-12-31 doesn't land as the actual due date and break
+            // every aging report downstream.
+            const FIVE_YEARS_MS = 5 * 365 * 24 * 60 * 60 * 1000;
+            const issuedTs = draft.issuedDate.getTime();
+            if (parsedDate.getTime() < issuedTs || parsedDate.getTime() > issuedTs + FIVE_YEARS_MS) {
+              await ctx.reply("That date doesn't look right — try YYYY-MM-DD or 'in 30 days'.");
               return;
             }
             await db.abInvoice.update({
