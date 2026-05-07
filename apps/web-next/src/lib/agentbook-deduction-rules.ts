@@ -299,7 +299,9 @@ export const RULES: Record<string, Rule> = {
   meal_with_client_invoice,
   software_marked_personal,
   home_wifi_business_share,
-  mileage_near_client_invoice,
+  // mileage_near_client_invoice — deferred: apply path needs a per-mileage-entry
+  // hook, and the dedupe key collapses to one row per run. Re-enable once both
+  // are addressed in a follow-up PR.
 };
 
 /**
