@@ -63,7 +63,7 @@ export async function POST(request: NextRequest, { params }: RouteContext): Prom
   } catch (err) {
     console.error('[agentbook-invoice/estimates/[id]/accept POST] failed:', err);
     return NextResponse.json(
-      { success: false, error: err instanceof Error ? err.message : String(err) },
+      { success: false, error: 'Internal error' },
       { status: 500 },
     );
   }

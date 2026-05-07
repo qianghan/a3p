@@ -46,7 +46,7 @@ export async function GET(request: NextRequest, { params }: RouteContext): Promi
   } catch (err) {
     console.error('[agentbook-invoice/estimates/[id] GET] failed:', err);
     return NextResponse.json(
-      { success: false, error: err instanceof Error ? err.message : String(err) },
+      { success: false, error: 'Internal error' },
       { status: 500 },
     );
   }
@@ -118,7 +118,7 @@ export async function PATCH(request: NextRequest, { params }: RouteContext): Pro
   } catch (err) {
     console.error('[agentbook-invoice/estimates/[id] PATCH] failed:', err);
     return NextResponse.json(
-      { success: false, error: err instanceof Error ? err.message : String(err) },
+      { success: false, error: 'Internal error' },
       { status: 500 },
     );
   }
@@ -151,7 +151,7 @@ export async function DELETE(request: NextRequest, { params }: RouteContext): Pr
   } catch (err) {
     console.error('[agentbook-invoice/estimates/[id] DELETE] failed:', err);
     return NextResponse.json(
-      { success: false, error: err instanceof Error ? err.message : String(err) },
+      { success: false, error: 'Internal error' },
       { status: 500 },
     );
   }
