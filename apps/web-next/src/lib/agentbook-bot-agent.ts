@@ -2724,6 +2724,17 @@ export async function executeStep(step: PlanStep, ctx: BotContext): Promise<Exec
             },
           });
           accessId = created.id;
+          // Mirror the HTTP route's audit trail.
+          const { audit } = await import('./agentbook-audit');
+          await audit({
+            tenantId: ctx.tenantId,
+            source: 'telegram',
+            actor: 'bot',
+            action: 'cpa.invite',
+            entityType: 'AbTenantAccess',
+            entityId: accessId,
+            after: { email, role, expiresAt: expiresAt?.toISOString() ?? null },
+          });
         }
         const base =
           process.env.APP_URL ||

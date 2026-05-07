@@ -19,6 +19,13 @@ import { CpaRequestForm } from './cpa-request-form';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
+// Token IS the credential and lives in the URL — keep search engines out
+// and don't bleed the token through the Referer header on outbound clicks.
+export const metadata = {
+  robots: { index: false, follow: false },
+  referrer: 'no-referrer' as const,
+};
+
 interface PageProps {
   params: Promise<{ token: string }>;
 }
@@ -96,7 +103,12 @@ function fmtDate(d: Date | string | null): string {
  * that adds a network hop and we already have the access record from
  * resolveAccessByToken.
  */
-async function loadDashboard(tenantId: string, accessExpiresAt: Date | null): Promise<DashboardData | null> {
+async function loadDashboard(
+  tenantId: string,
+  accessEmail: string,
+  accessRole: string,
+  accessExpiresAt: Date | null,
+): Promise<DashboardData | null> {
   const today = new Date();
   const daysAgo = (n: number): Date => {
     const d = new Date();
@@ -112,7 +124,6 @@ async function loadDashboard(tenantId: string, accessExpiresAt: Date | null): Pr
     thirtyDayExpenses,
     openRequests,
     tenantConfig,
-    accessRow,
   ] = await Promise.all([
     db.abAccount.findMany({
       where: { tenantId, accountType: 'asset', isActive: true },
@@ -178,11 +189,6 @@ async function loadDashboard(tenantId: string, accessExpiresAt: Date | null): Pr
       where: { userId: tenantId },
       select: { companyName: true, currency: true, jurisdiction: true },
     }),
-    // Cheap reload of access row purely for email/role display.
-    db.abTenantAccess.findFirst({
-      where: { tenantId },
-      select: { email: true, role: true, expiresAt: true },
-    }),
   ]);
 
   const cashOnHandCents = assetAccounts.reduce((sum, a) => {
@@ -244,9 +250,9 @@ async function loadDashboard(tenantId: string, accessExpiresAt: Date | null): Pr
 
   return {
     access: {
-      email: accessRow?.email || '',
-      role: accessRow?.role || 'cpa',
-      expiresAt: accessRow?.expiresAt || accessExpiresAt,
+      email: accessEmail,
+      role: accessRole,
+      expiresAt: accessExpiresAt,
     },
     tenant: tenantConfig
       ? {
@@ -273,7 +279,7 @@ export default async function CpaPortalPage({ params }: PageProps) {
   const access = await resolveAccessByToken(token);
   if (!access) notFound();
 
-  const data = await loadDashboard(access.tenantId, access.expiresAt);
+  const data = await loadDashboard(access.tenantId, access.email, access.role, access.expiresAt);
   if (!data) notFound();
 
   const currency = data.tenant?.currency || 'USD';
