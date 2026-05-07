@@ -104,7 +104,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       },
     });
 
-    void audit({
+    await audit({
       tenantId,
       actor: await inferActor(request),
       source: inferSource(request),

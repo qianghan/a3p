@@ -70,7 +70,7 @@ export async function POST(
       data: { status: 'resolved', resolvedAt: new Date(), resolution },
     });
 
-    void audit({
+    await audit({
       tenantId: access.tenantId,
       actor: await inferActor(request),
       source: inferSource(request),

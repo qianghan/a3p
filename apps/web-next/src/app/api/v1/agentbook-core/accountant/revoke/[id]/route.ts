@@ -61,7 +61,7 @@ export async function POST(
 
     invalidateTokenCache(row.accessToken);
 
-    void audit({
+    await audit({
       tenantId,
       actor: await inferActor(request),
       source: inferSource(request),
