@@ -1438,17 +1438,41 @@ function getBot(): Bot {
   bot = new Bot(token);
 
   if (E2E_CAPTURE) {
-    const orig = bot.api.sendMessage.bind(bot.api);
-    // Override the raw sendMessage so all ctx.reply() / ctx.replyWithHTML / etc.
-    // funnel through here. Push to currentCapture if set, otherwise call through
-    // (e.g. for direct sendMessage in production paths).
-    (bot.api as any).sendMessage = (async (chatId: number | string, text: string, payload?: unknown) => {
-      if (currentCapture) {
-        currentCapture.push({ chatId, text, payload });
-        // Return a fake Telegram Message object so grammy doesn't choke.
-        return { message_id: 0, date: Math.floor(Date.now() / 1000), chat: { id: Number(chatId), type: 'private' as const }, text } as any;
+    // Install a grammy API transformer — intercepts every bot.api.* call
+    // (including ctx.reply / ctx.replyWithHTML / ctx.answerCallbackQuery, which
+    // delegate through bot.api). Direct property assignment doesn't survive
+    // grammy's internal method routing, so this is the supported path.
+    bot.api.config.use(async (prev, method, payload, signal) => {
+      if (method === 'sendMessage' && currentCapture) {
+        const p = payload as { chat_id: number | string; text: string };
+        currentCapture.push({ chatId: p.chat_id, text: p.text, payload });
+        return {
+          ok: true,
+          result: { message_id: 0, date: Math.floor(Date.now() / 1000), chat: { id: Number(p.chat_id), type: 'private' as const }, text: p.text },
+        } as any;
       }
-      return orig(chatId, text, payload as any);
+      if (method === 'getMe') {
+        return {
+          ok: true,
+          result: {
+            id: 1, is_bot: true, first_name: 'E2E Bot', username: 'e2e_bot',
+            can_join_groups: false, can_read_all_group_messages: false, supports_inline_queries: false,
+          },
+        } as any;
+      }
+      if (method === 'getFile') {
+        const p = payload as { file_id: string };
+        return { ok: true, result: { file_id: p.file_id, file_unique_id: p.file_id, file_size: 1024, file_path: 'e2e/fixture.jpg' } } as any;
+      }
+      if (method === 'answerCallbackQuery' || method === 'editMessageText' || method === 'editMessageReplyMarkup') {
+        return { ok: true, result: true } as any;
+      }
+      // Unhandled methods would hit Telegram with a fake token in capture mode.
+      // Return an ok-shaped stub instead of letting them 404.
+      if (currentCapture) {
+        return { ok: true, result: true } as any;
+      }
+      return prev(method, payload, signal);
     });
   }
 
@@ -2969,7 +2993,10 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   const secret = request.headers.get('X-Telegram-Bot-Api-Secret-Token');
   const expectedSecret = process.env.TELEGRAM_WEBHOOK_SECRET;
 
-  if (expectedSecret && secret !== expectedSecret) {
+  // E2E_CAPTURE is a server-side test toggle; production has it off.
+  // When on, we accept synthetic Updates without the Telegram secret so
+  // the e2e suite (and PR-level webhook tests) can hit the route directly.
+  if (expectedSecret && secret !== expectedSecret && !E2E_CAPTURE) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
