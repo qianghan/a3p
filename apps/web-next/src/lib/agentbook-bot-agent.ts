@@ -21,6 +21,7 @@
 
 import 'server-only';
 import { prisma as db } from '@naap/database';
+import { parseInvoiceFromText } from './agentbook-invoice-parser';
 
 // ─── Types ────────────────────────────────────────────────────────────────
 
@@ -38,6 +39,7 @@ export type IntentName =
   | 'show_help'         // bot capabilities
   | 'undo_last'         // reverse / delete the most recent expense
   | 'update_amount'     // fix the amount on the active expense
+  | 'create_invoice_from_chat' // user is asking the bot to draft an invoice
   | 'clarify'           // bot is unsure — ask the user a question first
   | 'unrelated';        // none of the above — let agent brain reply
 
@@ -181,6 +183,16 @@ INTENT CHOICES (pick exactly one)
    record_expense  — record a BRAND NEW expense from the text
                      ("Spent \$45 on lunch at Shell", "Paid 132.99 for gas",
                      "Bought a laptop for \$2000")
+   create_invoice_from_chat — user wants to create / send an invoice to
+                     a client. Triggers: "invoice <client> \$<amount>
+                     for <desc>", "send <client> a \$<amt> invoice",
+                     "bill <client> \$<amt> for <desc>". SET
+                     slots.description to the FULL raw user text — the
+                     downstream parser handles client name, line items,
+                     amount, and due date.
+                     ("invoice Acme \$5K for July consulting",
+                      "bill TechCorp \$3000 for design and \$500 hosting",
+                      "send Maya a \$1200 invoice for retainer")
    query_balance   — user is asking about cash on hand
                      ("how much do I have", "balance", "cash")
    query_invoices  — user is asking about outstanding invoices
@@ -314,6 +326,19 @@ function classifyIntentWithRegex(text: string, ctx: BotContext): BotIntent {
     return { intent: 'reject', slots, confidence: 0.85, reason: 'negative + active expense', source: 'regex' };
   }
 
+  // Invoice creation — "invoice Acme $5K for July consulting", "bill X
+  // $1000 for Y", "send Acme an invoice". Beats record_expense, since
+  // "invoice" is more specific than the spent/paid/bought verbs.
+  if (/^(?:please\s+|can you\s+)?(?:invoice|bill|send.+invoice|create.+invoice)\s+/i.test(text)) {
+    return {
+      intent: 'create_invoice_from_chat',
+      slots: { description: text },
+      confidence: 0.85,
+      reason: 'invoice trigger phrase',
+      source: 'regex',
+    };
+  }
+
   // Record-expense beats follow-up if there's a $ amount + verb
   const amtMatch =
     text.match(/\$?\s*([\d,]+\.?\d*)\s*(?:dollars|bucks|usd|cad)?/i) ||
@@ -427,6 +452,13 @@ export function planSteps(intent: BotIntent, _ctx: BotContext): PlanStep[] {
       return [{ id, skill: 'expense.categorize', args: { categoryName: intent.slots.categoryName }, dependsOn: [] }];
     case 'record_expense':
       return [{ id, skill: 'expense.record', args: { ...intent.slots }, dependsOn: [] }];
+    case 'create_invoice_from_chat':
+      return [{
+        id,
+        skill: 'invoice.create_from_chat',
+        args: { text: intent.slots.description || '' },
+        dependsOn: [],
+      }];
     case 'query_balance':
       return [{ id, skill: 'query.balance', args: {}, dependsOn: [] }];
     case 'query_invoices':
@@ -789,6 +821,149 @@ export async function executeStep(step: PlanStep, ctx: BotContext): Promise<Exec
         return { stepId: step.id, success: true, data: { previousAmount, newAmount } };
       }
 
+      case 'invoice.create_from_chat': {
+        const text = (step.args.text as string | undefined) || '';
+        if (!text.trim()) {
+          return { stepId: step.id, success: false, error: 'No invoice text provided.' };
+        }
+        const parsed = await parseInvoiceFromText(text);
+        if (!parsed) {
+          return {
+            stepId: step.id,
+            success: true,
+            data: {
+              kind: 'needs_clarify',
+              question: "I read that as an invoice but couldn't pin down the client and amount. Try \"invoice Acme $5K for July consulting\".",
+            },
+          };
+        }
+
+        // Resolve client by case-insensitive substring match.
+        const allClients = await db.abClient.findMany({
+          where: { tenantId: ctx.tenantId },
+          select: { id: true, name: true, email: true },
+        });
+        const hint = parsed.clientNameHint.toLowerCase();
+        const candidates = allClients.filter(
+          (c) => c.name.toLowerCase().includes(hint) || hint.includes(c.name.toLowerCase()),
+        );
+
+        if (candidates.length === 0) {
+          return {
+            stepId: step.id,
+            success: true,
+            data: {
+              kind: 'needs_clarify',
+              question: `Which client is "${parsed.clientNameHint}"? I don't have one with that name on file.`,
+              parsed,
+            },
+          };
+        }
+        if (candidates.length > 1) {
+          return {
+            stepId: step.id,
+            success: true,
+            data: {
+              kind: 'ambiguous',
+              clientNameHint: parsed.clientNameHint,
+              candidates: candidates.map((c) => ({ id: c.id, name: c.name, email: c.email })),
+              parsed,
+            },
+          };
+        }
+
+        // Single match — create the draft directly.
+        const client = candidates[0];
+        const issuedDate = new Date();
+        const dueDate = parsed.dueDateHint && parsed.dueDateHint.toLowerCase() !== 'net-30'
+          ? (() => {
+              const d = new Date(parsed.dueDateHint!);
+              return isNaN(d.getTime()) ? new Date(issuedDate.getTime() + 30 * 24 * 60 * 60 * 1000) : d;
+            })()
+          : new Date(issuedDate.getTime() + 30 * 24 * 60 * 60 * 1000);
+
+        const tenantConfig = await db.abTenantConfig.findUnique({
+          where: { userId: ctx.tenantId },
+          select: { currency: true },
+        });
+        const currency = parsed.currencyHint || tenantConfig?.currency || 'USD';
+
+        const year = issuedDate.getFullYear();
+        const last = await db.abInvoice.findFirst({
+          where: { tenantId: ctx.tenantId, number: { startsWith: `INV-${year}-` } },
+          orderBy: { number: 'desc' },
+        });
+        let nextSeq = 1;
+        if (last) {
+          const parts = last.number.split('-');
+          const n = parseInt(parts[2], 10);
+          if (!isNaN(n)) nextSeq = n + 1;
+        }
+        const invoiceNumber = `INV-${year}-${String(nextSeq).padStart(4, '0')}`;
+
+        const lineItems = parsed.lines.map((l) => ({
+          description: l.description || '',
+          quantity: l.quantity || 1,
+          rateCents: l.rateCents,
+          amountCents: Math.round((l.quantity || 1) * l.rateCents),
+        }));
+        const totalAmountCents = lineItems.reduce((sum, l) => sum + l.amountCents, 0);
+
+        const inv = await db.abInvoice.create({
+          data: {
+            tenantId: ctx.tenantId,
+            clientId: client.id,
+            number: invoiceNumber,
+            amountCents: totalAmountCents,
+            currency,
+            issuedDate,
+            dueDate,
+            status: 'draft',
+            source: 'telegram',
+            lines: { create: lineItems },
+          },
+          include: { lines: true },
+        });
+
+        await db.abEvent.create({
+          data: {
+            tenantId: ctx.tenantId,
+            eventType: 'invoice.drafted_from_chat',
+            actor: 'agent',
+            action: {
+              invoiceId: inv.id,
+              number: invoiceNumber,
+              clientId: client.id,
+              amountCents: totalAmountCents,
+              lineCount: lineItems.length,
+              source: 'telegram',
+            },
+          },
+        });
+
+        return {
+          stepId: step.id,
+          success: true,
+          data: {
+            kind: 'draft_created',
+            draftId: inv.id,
+            invoiceNumber,
+            clientName: client.name,
+            clientEmail: client.email,
+            totalCents: totalAmountCents,
+            currency,
+            dueDate: dueDate.toISOString(),
+            issuedDate: issuedDate.toISOString(),
+            lines: inv.lines.map((l) => ({
+              description: l.description,
+              rateCents: l.rateCents,
+              quantity: l.quantity,
+              amountCents: l.amountCents,
+            })),
+          },
+        };
+      }
+
       case 'meta.help': {
         return { stepId: step.id, success: true };
       }
@@ -948,6 +1123,30 @@ export function evaluate(
       learned: [{ what: 'amount fix', outcome: 'reversed-and-reposted' }],
       delegatedToBrain: false,
       needsKeyboard: false,
+    };
+  }
+
+  if (intent.intent === 'create_invoice_from_chat') {
+    const r = results[0];
+    if (!r?.success) {
+      return {
+        reply: r?.error || 'Couldn\'t draft that invoice.',
+        parseMode: undefined,
+        learned,
+        delegatedToBrain: false,
+        needsKeyboard: false,
+      };
+    }
+    // The webhook adapter inspects results[0].data and renders the
+    // friendly preview + inline keyboard (Send/Edit/Cancel or
+    // ambiguous-picker). We hand back an empty reply with
+    // needsKeyboard=true so the adapter knows it owns the response.
+    return {
+      reply: '',
+      parseMode: undefined,
+      learned,
+      delegatedToBrain: false,
+      needsKeyboard: true,
     };
   }
 
