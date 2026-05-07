@@ -173,9 +173,13 @@ test.describe.serial('PR 6 — Cron generation tags source=recurring', () => {
       },
     });
 
-    // Hit the cron endpoint. CRON_SECRET unset in the test env; the
-    // route only enforces auth when CRON_SECRET is set.
-    const res = await request.get(`${WEB}/api/v1/agentbook/cron/recurring-invoices`);
+    // Hit the cron endpoint. When CRON_SECRET is set on the server, send
+    // the matching bearer header; otherwise the route is open.
+    const cronSecret = process.env.CRON_SECRET || '';
+    const headers: Record<string, string> = cronSecret
+      ? { Authorization: `Bearer ${cronSecret}` }
+      : {};
+    const res = await request.get(`${WEB}/api/v1/agentbook/cron/recurring-invoices`, { headers });
     expect(res.ok()).toBeTruthy();
     const body = await res.json();
     expect(body.success).toBe(true);
