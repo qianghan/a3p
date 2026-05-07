@@ -2572,27 +2572,31 @@ export async function executeStep(step: PlanStep, ctx: BotContext): Promise<Exec
         const categoryId = matched ? matched.id : null;
         const categoryName = matched ? matched.name : term;
 
-        const budget = await db.abBudget.upsert({
+        // Prisma's compound-unique upsert with a nullable column rejects
+        // `null` at runtime ("Argument `categoryId` must not be null"),
+        // so fall back to findFirst + create-or-update.
+        const existing = await db.abBudget.findFirst({
           where: {
-            tenantId_categoryId_period: {
-              tenantId: ctx.tenantId,
-              // Prisma's compound-unique input is typed as non-nullable
-              // even though the column is. Cast preserves the
-              // upsert-with-null-category behaviour we use elsewhere.
-              categoryId: (categoryId || null) as unknown as string,
-              period,
-            },
-          },
-          update: { amountCents, categoryName, alertPercent: 80 },
-          create: {
             tenantId: ctx.tenantId,
-            amountCents,
-            categoryId,
-            categoryName,
+            categoryId: categoryId ?? null,
             period,
-            alertPercent: 80,
           },
         });
+        const budget = existing
+          ? await db.abBudget.update({
+              where: { id: existing.id },
+              data: { amountCents, categoryName, alertPercent: 80 },
+            })
+          : await db.abBudget.create({
+              data: {
+                tenantId: ctx.tenantId,
+                amountCents,
+                categoryId,
+                categoryName,
+                period,
+                alertPercent: 80,
+              },
+            });
 
         await db.abEvent.create({
           data: {
