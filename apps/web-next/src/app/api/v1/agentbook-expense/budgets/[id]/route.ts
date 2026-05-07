@@ -35,7 +35,7 @@ export async function DELETE(request: NextRequest, ctx: RouteCtx): Promise<NextR
   } catch (err) {
     console.error('[agentbook-expense/budgets/:id DELETE] failed:', err);
     return NextResponse.json(
-      { success: false, error: err instanceof Error ? err.message : String(err) },
+      { success: false, error: 'Internal error' },
       { status: 500 },
     );
   }
@@ -75,7 +75,7 @@ export async function PUT(request: NextRequest, ctx: RouteCtx): Promise<NextResp
   } catch (err) {
     console.error('[agentbook-expense/budgets/:id PUT] failed:', err);
     return NextResponse.json(
-      { success: false, error: err instanceof Error ? err.message : String(err) },
+      { success: false, error: 'Internal error' },
       { status: 500 },
     );
   }
