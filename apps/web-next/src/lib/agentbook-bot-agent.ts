@@ -1844,8 +1844,10 @@ export async function executeStep(step: PlanStep, ctx: BotContext): Promise<Exec
         if (dayOfMonth && (cadence === 'monthly' || cadence === 'quarterly' || cadence === 'annual')) {
           // Set to the requested day of *this* month if still upcoming;
           // otherwise next month for monthly, +3 months for quarterly,
-          // +1 year for annual.
-          nextDue.setDate(dayOfMonth);
+          // +1 year for annual. Clamp dayOfMonth to the month's last day
+          // to avoid JS Date's silent rollover (e.g., setDate(31) in Feb).
+          const daysInThisMonth = new Date(nextDue.getFullYear(), nextDue.getMonth() + 1, 0).getDate();
+          nextDue.setDate(Math.min(dayOfMonth, daysInThisMonth));
           if (nextDue <= now) {
             switch (cadence) {
               case 'monthly': nextDue.setMonth(nextDue.getMonth() + 1); break;
@@ -1869,7 +1871,7 @@ export async function executeStep(step: PlanStep, ctx: BotContext): Promise<Exec
         // simple "$5K consulting" / "$1K subscription" cases. Multi-line
         // shapes ("$5K consulting and $1K hosting recurring") can be
         // added later without changing the schedule schema.
-        const lineDescription = (description || 'Recurring invoice').trim();
+        const lineDescription = (description || 'Recurring invoice').trim().slice(0, 500);
         const templateLines = [
           { description: lineDescription, quantity: 1, rateCents: amountCents },
         ];
