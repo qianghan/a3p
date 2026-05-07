@@ -34,6 +34,10 @@ interface DigestData {
   upcomingThisWeek: { kind: string; label: string; daysOut: number; amountCents: number }[];
   anomalyCount: number;
   taxDaysUntilQ: number | null;
+  bankReview: {
+    count: number;
+    items: { id: string; amountCents: number; merchantName: string | null; date: Date }[];
+  };
 }
 
 function fmt$(cents: number): string {
@@ -164,6 +168,21 @@ async function buildDigest(tenantId: string): Promise<DigestData> {
     ? Math.round((nextDeadline.getTime() - now.getTime()) / 86_400_000)
     : null;
 
+  // Bank reconciliation: transactions in the 0.55–0.85 score band that
+  // the matcher couldn't auto-apply. Surfaced as "N need review" so
+  // Maya can confirm in the morning. Interactive [Match] / [Not this]
+  // buttons land in PR 9 (daily reconciliation diff) — for now we just
+  // tell the user how many there are.
+  const bankReviewItems = await db.abBankTransaction.findMany({
+    where: { tenantId, matchStatus: 'exception' },
+    orderBy: { date: 'desc' },
+    take: 3,
+    select: { id: true, amount: true, merchantName: true, name: true, date: true },
+  });
+  const bankReviewCount = await db.abBankTransaction.count({
+    where: { tenantId, matchStatus: 'exception' },
+  });
+
   return {
     cashTodayCents,
     yesterday: {
@@ -178,6 +197,15 @@ async function buildDigest(tenantId: string): Promise<DigestData> {
     upcomingThisWeek,
     anomalyCount,
     taxDaysUntilQ,
+    bankReview: {
+      count: bankReviewCount,
+      items: bankReviewItems.map((b) => ({
+        id: b.id,
+        amountCents: Math.abs(b.amount),
+        merchantName: b.merchantName || b.name,
+        date: b.date,
+      })),
+    },
   };
 }
 
@@ -244,6 +272,24 @@ function composeMessage(
   if (sec.anomalies && d.anomalyCount > 0) {
     lines.push('');
     lines.push(`📈 ${d.anomalyCount} unusual expense${d.anomalyCount === 1 ? '' : 's'} yesterday — type "expenses" to review`);
+  }
+
+  if (d.bankReview && d.bankReview.count > 0) {
+    lines.push('');
+    lines.push(
+      `🏦 <b>Bank reconciliation</b> — ${d.bankReview.count} transaction${d.bankReview.count === 1 ? '' : 's'} need${d.bankReview.count === 1 ? 's' : ''} review`,
+    );
+    const limit = concise ? 2 : 3;
+    for (const b of d.bankReview.items.slice(0, limit)) {
+      const dayLabel = new Intl.DateTimeFormat('en-US', { weekday: 'short' }).format(
+        new Date(b.date),
+      );
+      const merchant = b.merchantName || 'unknown';
+      lines.push(`  • ${fmt$(b.amountCents)} from ${escapeHtml(merchant)} on ${dayLabel}`);
+    }
+    if (d.bankReview.count > limit) {
+      lines.push(`  … and ${d.bankReview.count - limit} more`);
+    }
   }
 
   if (sec.taxDeadline && d.taxDaysUntilQ !== null && d.taxDaysUntilQ <= 21) {

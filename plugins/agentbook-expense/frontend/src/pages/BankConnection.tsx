@@ -70,7 +70,7 @@ export const BankConnectionPage: React.FC = () => {
   const handleStartConnect = async () => {
     setConnecting(true);
     try {
-      const res = await fetch(`${API}/plaid/create-link-token`, { method: 'POST' });
+      const res = await fetch(`${API}/plaid/link-token`, { method: 'POST' });
       const data = await res.json();
       if (data.success) {
         setLinkToken(data.data.linkToken);
@@ -87,12 +87,11 @@ export const BankConnectionPage: React.FC = () => {
   const onPlaidSuccess = useCallback(async (publicToken: string, metadata: any) => {
     setConnecting(true);
     try {
-      const res = await fetch(`${API}/plaid/exchange-token`, {
+      const res = await fetch(`${API}/plaid/exchange`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           publicToken,
-          institutionId: metadata.institution?.institution_id,
           institutionName: metadata.institution?.name,
           accounts: metadata.accounts,
         }),
@@ -123,12 +122,12 @@ export const BankConnectionPage: React.FC = () => {
     setSyncing(true);
     setSyncResult(null);
     try {
-      const res = await fetch(`${API}/bank-sync`, { method: 'POST' });
+      const res = await fetch(`${API}/plaid/sync`, { method: 'POST' });
       const data = await res.json();
       if (data.success) {
         setSyncResult({
           type: 'sync',
-          message: `Synced ${data.data.accountsSynced} account(s). Imported ${data.data.transactionsImported} transactions. Auto-matched ${data.data.autoMatched}.`,
+          message: `Synced ${data.data.accountsSynced} account(s). Imported ${data.data.transactionsImported} transactions.`,
         });
       }
       await fetchData();

@@ -39,6 +39,7 @@
     "mime-types": "^3.0.2",
     "next": "15.5.12",
     "next-mdx-remote": "^6.0.0",
+    "plaid": "^26.0.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "recharts": "^2.15.0",
