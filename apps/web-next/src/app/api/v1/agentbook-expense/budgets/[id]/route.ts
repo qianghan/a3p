@@ -93,6 +93,24 @@ export async function PUT(request: NextRequest, ctx: RouteCtx): Promise<NextResp
       return NextResponse.json({ success: false, error: 'not found' }, { status: 404 });
     }
     const updated = await db.abBudget.update({ where: { id }, data });
+    await audit({
+      tenantId,
+      source: inferSource(request),
+      actor: await inferActor(request),
+      action: 'budget.update',
+      entityType: 'AbBudget',
+      entityId: id,
+      before: {
+        amountCents: existing.amountCents,
+        categoryName: existing.categoryName,
+        alertPercent: existing.alertPercent,
+      },
+      after: {
+        amountCents: updated.amountCents,
+        categoryName: updated.categoryName,
+        alertPercent: updated.alertPercent,
+      },
+    });
     return NextResponse.json({ success: true, data: updated });
   } catch (err) {
     console.error('[agentbook-expense/budgets/:id PUT] failed:', err);
