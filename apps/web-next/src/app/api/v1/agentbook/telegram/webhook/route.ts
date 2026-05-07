@@ -19,6 +19,7 @@ import { callGemini, classifyAndExecuteV1 } from '@agentbook-core/server';
 import { runAgentLoop, type BotContext, type ActiveExpense as BotActive } from '@/lib/agentbook-bot-agent';
 import { parseDateHint } from '@/lib/agentbook-time-aggregator';
 import { autoCategorizeForTenant, getPendingSuggestions, dropPendingSuggestion } from '@/lib/agentbook-auto-categorize';
+import { updateMileageEntry } from '@/lib/agentbook-mileage-service';
 import {
   getDigestPrefs,
   setDigestPrefs,
@@ -2146,28 +2147,20 @@ function getBot(): Bot {
             await db.abUserMemory.deleteMany({ where: { tenantId, key: mileageEditKey } });
             return;
           }
-          // Use the dedicated PATCH route to keep the reverse-and-repost
-          // journal logic in one place.
-          const baseUrl = ctx.chat.type === 'private' ? '' : '';
-          // Native Next.js routes can be invoked directly via prisma, but
-          // we re-use the HTTP handler here so the JE reversal stays
-          // single-sourced. Build a minimal absolute URL.
-          let host = process.env.NEXT_PUBLIC_APP_URL || process.env.VERCEL_URL || 'http://localhost:3000';
-          if (!host.startsWith('http')) host = `https://${host}`;
+          // Call the shared mileage service in-process. The previous
+          // implementation re-entered the PATCH route via fetch with an
+          // `x-tenant-id` header — that's a tenant-spoof vector since
+          // the route is internet-reachable and the header is the
+          // highest-priority tenant resolver. In-process call uses the
+          // tenant we already authenticated from the chat-ID mapping.
           try {
-            const patchRes = await fetch(`${host}/api/v1/agentbook-expense/mileage/${parsedMlg.entryId}`, {
-              method: 'PATCH',
-              headers: {
-                'Content-Type': 'application/json',
-                'x-tenant-id': tenantId,
-              },
-              body: JSON.stringify({ miles: newMiles }),
+            const result = await updateMileageEntry(tenantId, parsedMlg.entryId, {
+              miles: newMiles,
             });
-            const patchJson = await patchRes.json().catch(() => ({}));
-            if (!patchRes.ok || !patchJson.success) {
-              await ctx.reply(`Couldn't update that trip${patchJson.error ? ` — ${patchJson.error}` : '.'}`);
+            if (!result.ok) {
+              await ctx.reply(`Couldn't update that trip — ${result.error}.`);
             } else {
-              const data = patchJson.data as { miles: number; unit: string; deductibleAmountCents: number };
+              const data = result.entry;
               const dollars = (data.deductibleAmountCents / 100).toLocaleString('en-US', { style: 'currency', currency: 'USD' });
               await ctx.reply(
                 `🔧 Updated to ${data.miles} ${data.unit} = <b>${dollars}</b>. Reposted the journal entry.`,
@@ -2179,8 +2172,6 @@ function getBot(): Bot {
             await ctx.reply("Couldn't update that trip — try again in a sec.");
           }
           await db.abUserMemory.deleteMany({ where: { tenantId, key: mileageEditKey } });
-          // Suppress baseUrl unused-var warning; some lint rules surface that.
-          void baseUrl;
           return;
         }
       }

@@ -31,10 +31,19 @@ interface ByClientTotal {
   unit: 'mi' | 'km';
 }
 
+interface ByPurposeTotal {
+  purpose: string;
+  miles: number;
+  deductibleCents: number;
+  unit: 'mi' | 'km';
+  entryCount: number;
+}
+
 interface MileageSummary {
   ytd: { miles: number; deductibleCents: number; entryCount: number };
   monthly: MonthlyTotal[];
   byClient: ByClientTotal[];
+  byPurpose: ByPurposeTotal[];
 }
 
 interface Client {
@@ -293,22 +302,46 @@ export const MileagePage: React.FC = () => {
         })}
       </div>
 
-      {/* By-client breakdown */}
-      {summary && summary.byClient.length > 0 && (
-        <>
-          <h2 className="text-sm font-medium text-muted-foreground mt-8 mb-3">YTD by client</h2>
-          <div className="space-y-2">
-            {summary.byClient.map((c) => (
-              <div key={c.clientId} className="bg-card border border-border rounded-lg p-3 flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-medium">{c.clientName}</p>
-                  <p className="text-xs text-muted-foreground">{c.miles.toLocaleString()} {c.unit}</p>
-                </div>
-                <span className="font-mono text-sm">{fmtMoney(c.deductibleCents, currency)}</span>
+      {/* YTD breakdowns — by-client and by-purpose, side-by-side on
+          wider viewports so the user can see "who I drove for" and
+          "what I drove for" at a glance. */}
+      {summary && (summary.byClient.length > 0 || (summary.byPurpose && summary.byPurpose.length > 0)) && (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-8">
+          {summary.byClient.length > 0 && (
+            <div>
+              <h2 className="text-sm font-medium text-muted-foreground mb-3">YTD by client</h2>
+              <div className="space-y-2">
+                {summary.byClient.map((c) => (
+                  <div key={c.clientId} className="bg-card border border-border rounded-lg p-3 flex items-center justify-between">
+                    <div>
+                      <p className="text-sm font-medium">{c.clientName}</p>
+                      <p className="text-xs text-muted-foreground">{c.miles.toLocaleString()} {c.unit}</p>
+                    </div>
+                    <span className="font-mono text-sm">{fmtMoney(c.deductibleCents, currency)}</span>
+                  </div>
+                ))}
               </div>
-            ))}
-          </div>
-        </>
+            </div>
+          )}
+          {summary.byPurpose && summary.byPurpose.length > 0 && (
+            <div>
+              <h2 className="text-sm font-medium text-muted-foreground mb-3">YTD by purpose</h2>
+              <div className="space-y-2">
+                {summary.byPurpose.map((p) => (
+                  <div key={p.purpose} className="bg-card border border-border rounded-lg p-3 flex items-center justify-between">
+                    <div className="min-w-0 pr-2">
+                      <p className="text-sm font-medium truncate">{p.purpose}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {p.miles.toLocaleString()} {p.unit} · {p.entryCount} {p.entryCount === 1 ? 'trip' : 'trips'}
+                      </p>
+                    </div>
+                    <span className="font-mono text-sm">{fmtMoney(p.deductibleCents, currency)}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
       )}
     </div>
   );

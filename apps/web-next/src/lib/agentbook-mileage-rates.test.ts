@@ -83,3 +83,83 @@ describe('getMileageRate', () => {
     expect([67, 65, 65.5]).toContain(r.ratePerUnitCents);
   });
 });
+
+describe('CRA tier picker — backdated-trip regression (PR 4 review M2)', () => {
+  /**
+   * Scenario: a CA tenant has these mileage entries already in the DB:
+   *   • Jan 10: 4,990 km
+   *   • Dec 1:  100 km   (post-boundary, already used HIGH tier)
+   *
+   * Now the user backdates a NEW 50 km trip to *Feb 1* (between the two
+   * existing entries). The naive picker that filters by `date < year-end`
+   * sees 5,090 km of "YTD" and picks the HIGH tier — wrong, because the
+   * Dec 1 trip happened *after* the trip we're booking.
+   *
+   * The correct picker filters by `date < trip-date` and sees only the
+   * 4,990 km that actually preceded Feb 1, putting the trip in the LOW
+   * tier. We simulate the picker by passing the right vs. wrong YTD value
+   * directly to `getMileageRate`.
+   */
+
+  // A small helper mirrors the production query: sum existing entries
+  // whose date is strictly less than the candidate trip date.
+  function ytdBeforeTrip(
+    entries: { date: Date; miles: number }[],
+    tripDate: Date,
+  ): number {
+    return entries
+      .filter((e) => e.date < tripDate)
+      .reduce((s, e) => s + e.miles, 0);
+  }
+
+  // Same shape, but the BUGGY filter (the one the PR review flagged):
+  // sums everything in the calendar year regardless of order.
+  function ytdAllYear(
+    entries: { date: Date; miles: number }[],
+    year: number,
+  ): number {
+    const yearStart = new Date(Date.UTC(year, 0, 1));
+    const yearEnd = new Date(Date.UTC(year + 1, 0, 1));
+    return entries
+      .filter((e) => e.date >= yearStart && e.date < yearEnd)
+      .reduce((s, e) => s + e.miles, 0);
+  }
+
+  it('backdated trip uses YTD-before-trip-date, NOT all-of-year totals', () => {
+    const entries = [
+      { date: new Date(Date.UTC(2026, 0, 10)), miles: 4_990 }, // Jan 10
+      { date: new Date(Date.UTC(2026, 11, 1)), miles: 100 }, // Dec 1
+    ];
+    const tripDate = new Date(Date.UTC(2026, 1, 1)); // Feb 1
+
+    const correctYtd = ytdBeforeTrip(entries, tripDate);
+    const buggyYtd = ytdAllYear(entries, 2026);
+
+    expect(correctYtd).toBe(4_990); // only Jan 10 preceded Feb 1
+    expect(buggyYtd).toBe(5_090); // includes the Dec 1 trip → wrong
+
+    const correctRate = getMileageRate('ca', 2026, correctYtd);
+    const buggyRate = getMileageRate('ca', 2026, buggyYtd);
+
+    // The fix: backdated trip lands in the LOW tier.
+    expect(correctRate.ratePerUnitCents).toBe(CRA_LOW_TIER_CENTS_PER_KM);
+    // Demonstrate the bug we are guarding against: buggy filter picks HIGH.
+    expect(buggyRate.ratePerUnitCents).toBe(CRA_HIGH_TIER_CENTS_PER_KM);
+  });
+
+  it('linear-history trip (no backdating) gets the same answer either way', () => {
+    // When entries are recorded in order, both filters yield the same
+    // YTD-before total. This guards against accidentally penalising the
+    // common case while we fix the backdating one.
+    const entries = [
+      { date: new Date(Date.UTC(2026, 0, 10)), miles: 1_500 },
+      { date: new Date(Date.UTC(2026, 2, 5)), miles: 2_000 },
+    ];
+    const tripDate = new Date(Date.UTC(2026, 5, 1)); // June 1, after both
+
+    const correctYtd = ytdBeforeTrip(entries, tripDate);
+    const buggyYtd = ytdAllYear(entries, 2026);
+    expect(correctYtd).toBe(buggyYtd);
+    expect(correctYtd).toBe(3_500);
+  });
+});

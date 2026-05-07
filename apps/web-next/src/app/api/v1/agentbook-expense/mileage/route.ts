@@ -7,8 +7,8 @@
  *        actually moved on a personal-vehicle business trip).
  *
  *   GET  lists entries (filterable) and, when `?summary=true`, returns
- *        monthly + YTD totals + per-client breakdown for the dashboard
- *        and the year-end aggregator.
+ *        monthly + YTD totals + per-client + per-purpose breakdowns for
+ *        the dashboard and the year-end aggregator.
  */
 
 import 'server-only';
@@ -16,6 +16,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma as db } from '@naap/database';
 import { resolveAgentbookTenant } from '@/lib/agentbook-tenant';
 import { getMileageRate } from '@/lib/agentbook-mileage-rates';
+import { resolveVehicleAccounts } from '@/lib/agentbook-account-resolver';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -30,67 +31,28 @@ interface CreateMileageBody {
   jurisdictionOverride?: 'us' | 'ca';
 }
 
-/**
- * Locate the chart-of-accounts row a mileage entry should debit. Falls
- * back through three rules:
- *   1. taxCategory = "Line 9" (US Schedule C, "Car and Truck") OR
- *      taxCategory = "9281" / "Box 9281" (T2125 Motor vehicle expenses)
- *   2. account name matches /vehicle|car & truck|motor/i
- *   3. account code 5100 (the seed default for US) or 5300 (spec hint)
- *
- * Returns null if no match — caller treats that as "skip JE, just save
- * the entry"; the user is told their chart of accounts needs seeding.
- */
-async function resolveVehicleExpenseAccount(tenantId: string) {
-  const candidates = await db.abAccount.findMany({
-    where: { tenantId, accountType: 'expense', isActive: true },
-    select: { id: true, code: true, name: true, taxCategory: true },
-  });
-
-  // 1. Tax-category match (US Line 9 / CA box 9281)
-  let hit = candidates.find((a) =>
-    a.taxCategory && /^line\s*9$|^9281$|box\s*9281/i.test(a.taxCategory),
-  );
-  if (hit) return hit;
-
-  // 2. Name match
-  hit = candidates.find((a) => /vehicle|car\s*&?\s*truck|motor/i.test(a.name));
-  if (hit) return hit;
-
-  // 3. Common codes — 5100 (seed default) before 5300 (spec hint)
-  hit = candidates.find((a) => a.code === '5100' || a.code === '5300');
-  return hit || null;
-}
-
-async function resolveOwnersEquityAccount(tenantId: string) {
-  // The default chart names it "Owner's Equity" at code 3000.
-  return db.abAccount.findFirst({
-    where: {
-      tenantId,
-      accountType: 'equity',
-      OR: [
-        { code: '3000' },
-        { name: { contains: 'Owner', mode: 'insensitive' } },
-        { name: { contains: 'Equity', mode: 'insensitive' } },
-      ],
-    },
-    select: { id: true, code: true, name: true },
-  });
-}
+const PURPOSE_MAX = 500;
 
 /**
- * Sum miles already booked this calendar year so the CRA tier picker
- * can decide low- vs. high-tier. Scoped by `unit` so a mixed-history
- * tenant (rare) doesn't accidentally count miles toward the km tier.
+ * Sum miles already booked this calendar year **before** the given trip
+ * date so the CRA tier picker can decide low- vs. high-tier. Filtering
+ * by `date < tripDate` (rather than the year-end boundary) means a
+ * backdated trip can't accidentally count December km in its tier
+ * calc — the picker only ever sees km that actually happened first.
+ * Scoped by `unit` so a mixed-history tenant doesn't accidentally count
+ * miles toward the km tier.
  */
-async function ytdMilesOrKm(tenantId: string, year: number, unit: 'mi' | 'km'): Promise<number> {
-  const start = new Date(Date.UTC(year, 0, 1));
-  const end = new Date(Date.UTC(year + 1, 0, 1));
+async function ytdMilesOrKm(
+  tenantId: string,
+  tripDate: Date,
+  unit: 'mi' | 'km',
+): Promise<number> {
+  const start = new Date(Date.UTC(tripDate.getUTCFullYear(), 0, 1));
   const rows = await db.abMileageEntry.findMany({
     where: {
       tenantId,
       unit,
-      date: { gte: start, lt: end },
+      date: { gte: start, lt: tripDate },
     },
     select: { miles: true },
   });
@@ -137,22 +99,23 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       ? body.unit
       : (jurisdiction === 'ca' ? 'km' : 'mi');
 
-    const ytd = jurisdiction === 'ca' ? await ytdMilesOrKm(tenantId, year, unit) : 0;
+    const ytd = jurisdiction === 'ca' ? await ytdMilesOrKm(tenantId, date, unit) : 0;
     const rate = getMileageRate(jurisdiction, year, ytd);
     // If the user gave us miles in a CA tenant (or vice-versa), the rate
     // table picked a per-km rate — we still trust the user's recorded
     // unit for the stored entry, but apply the jurisdiction's rate.
     const deductibleAmountCents = Math.round(miles * rate.ratePerUnitCents);
 
+    const purpose = body.purpose.trim().slice(0, PURPOSE_MAX);
+
     // Try to post a journal entry. If the chart of accounts isn't
     // seeded we still save the entry — the user can rebuild the JE later.
-    const vehicleAcct = await resolveVehicleExpenseAccount(tenantId);
-    const equityAcct = await resolveOwnersEquityAccount(tenantId);
+    const accounts = await resolveVehicleAccounts(tenantId);
 
     const entry = await db.$transaction(async (tx) => {
       let journalEntryId: string | null = null;
-      if (vehicleAcct && equityAcct && deductibleAmountCents > 0) {
-        const memo = `Mileage: ${miles} ${unit} — ${body.purpose}`;
+      if (accounts && deductibleAmountCents > 0) {
+        const memo = `Mileage: ${miles} ${unit} — ${purpose}`;
         const je = await tx.abJournalEntry.create({
           data: {
             tenantId,
@@ -163,13 +126,13 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
             lines: {
               create: [
                 {
-                  accountId: vehicleAcct.id,
+                  accountId: accounts.vehicleAccountId,
                   debitCents: deductibleAmountCents,
                   creditCents: 0,
                   description: `Mileage @ ${rate.ratePerUnitCents}¢/${rate.unit}`,
                 },
                 {
-                  accountId: equityAcct.id,
+                  accountId: accounts.equityAccountId,
                   debitCents: 0,
                   creditCents: deductibleAmountCents,
                   description: 'Personal vehicle, no cash outlay',
@@ -187,7 +150,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
           date,
           miles,
           unit,
-          purpose: body.purpose!.trim(),
+          purpose,
           clientId: body.clientId || null,
           jurisdiction,
           ratePerUnitCents: rate.ratePerUnitCents,
@@ -272,7 +235,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       return NextResponse.json({ success: true, data: entries });
     }
 
-    // Summary mode: monthly + YTD totals + per-client breakdown.
+    // Summary mode: monthly + YTD totals + per-client + per-purpose breakdowns.
     const now = new Date();
     const yearStart = new Date(Date.UTC(now.getUTCFullYear(), 0, 1));
     const ytd = entries.filter((e) => e.date >= yearStart);
@@ -281,6 +244,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     let ytdMiles = 0;
     let ytdDeductibleCents = 0;
     const byClient = new Map<string, { miles: number; deductibleCents: number; unit: 'mi' | 'km' }>();
+    const byPurpose = new Map<string, { miles: number; deductibleCents: number; unit: 'mi' | 'km'; entryCount: number }>();
 
     for (const e of ytd) {
       const ym = `${e.date.getUTCFullYear()}-${String(e.date.getUTCMonth() + 1).padStart(2, '0')}`;
@@ -298,6 +262,22 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         cslot.deductibleCents += e.deductibleAmountCents;
         byClient.set(e.clientId, cslot);
       }
+
+      // Per-purpose grouping uses a normalised key so "TechCorp meeting"
+      // and "techcorp meeting" land in the same bucket. Display label
+      // keeps the first-seen casing.
+      const purposeLabel = (e.purpose || 'Business travel').trim();
+      const purposeKey = purposeLabel.toLowerCase();
+      const pslot = byPurpose.get(purposeKey) || {
+        miles: 0,
+        deductibleCents: 0,
+        unit: e.unit as 'mi' | 'km',
+        entryCount: 0,
+      };
+      pslot.miles += e.miles;
+      pslot.deductibleCents += e.deductibleAmountCents;
+      pslot.entryCount += 1;
+      byPurpose.set(purposeKey, pslot);
     }
 
     // Decorate by-client with names.
@@ -309,6 +289,15 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         })
       : [];
     const clientName = new Map(clients.map((c) => [c.id, c.name]));
+
+    // Recover the original-cased label for each purpose bucket (first-seen wins).
+    const purposeLabel = new Map<string, string>();
+    for (const e of ytd) {
+      const key = (e.purpose || 'Business travel').trim().toLowerCase();
+      if (!purposeLabel.has(key)) {
+        purposeLabel.set(key, (e.purpose || 'Business travel').trim());
+      }
+    }
 
     return NextResponse.json({
       success: true,
@@ -328,6 +317,12 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
             clientName: clientName.get(id) || id,
             ...s,
           })),
+          byPurpose: Array.from(byPurpose.entries())
+            .map(([key, s]) => ({
+              purpose: purposeLabel.get(key) || key,
+              ...s,
+            }))
+            .sort((a, b) => b.deductibleCents - a.deductibleCents),
         },
       },
     });

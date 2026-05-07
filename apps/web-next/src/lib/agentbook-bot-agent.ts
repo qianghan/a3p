@@ -26,6 +26,7 @@ import { createInvoiceDraft } from './agentbook-invoice-draft';
 import { parseDateHint, aggregateByDay, type TimeEntryRow } from './agentbook-time-aggregator';
 import { resolveClientByHint } from './agentbook-client-resolver';
 import { getMileageRate } from './agentbook-mileage-rates';
+import { resolveVehicleAccounts } from './agentbook-account-resolver';
 
 // ─── Types ────────────────────────────────────────────────────────────────
 
@@ -447,9 +448,33 @@ function classifyIntentWithRegex(text: string, ctx: BotContext): BotIntent {
   if (mileageMatch) {
     const miles = parseFloat(mileageMatch[1]);
     if (isFinite(miles) && miles > 0) {
-      const rawUnit = (mileageMatch[2] || 'mi').toLowerCase();
+      const rawUnitRaw = mileageMatch[2];
+      const unitGiven = !!rawUnitRaw;
+      const rawUnit = (rawUnitRaw || 'mi').toLowerCase();
       const unit: 'mi' | 'km' = /km|kilom/i.test(rawUnit) ? 'km' : 'mi';
-      const purposeRaw = (mileageMatch[3] || '').trim().replace(/[.!?]+$/, '');
+
+      // Ambiguous-driving guard: when no unit was given AND the value
+      // looks like hours (≤ 24) AND the text mentions "hour|hr", the
+      // user almost certainly said "drove for 2 hours" — not 2 miles.
+      // Re-route to clarify rather than booking 2 miles silently.
+      if (!unitGiven && miles <= 24 && /\b(?:hour|hours|hr|hrs)\b/i.test(text)) {
+        return {
+          intent: 'clarify',
+          slots: { clarifyingQuestion: 'How many miles?' },
+          confidence: 0.85,
+          reason: 'ambiguous "drove N hours" without distance unit',
+          source: 'regex',
+        };
+      }
+
+      // Purpose extraction post-processing: trim trailing punctuation,
+      // strip leading prepositions ("to TechCorp" → "TechCorp"; "from
+      // office" → "office"), and default to "Business travel" if the
+      // user only said "drove 47 miles." with no destination.
+      let purposeRaw = (mileageMatch[3] || '').trim().replace(/[.!?]+$/, '');
+      purposeRaw = purposeRaw.replace(/^(?:to|for|on|at|from|—|-)\s+/i, '').trim();
+      const purpose = purposeRaw || 'Business travel';
+
       // Lift a capitalised word/phrase as the client hint when present.
       let clientNameHint: string | undefined;
       const capMatch = purposeRaw.match(/\b([A-Z][\w&'\-.]*(?:\s+[A-Z][\w&'\-.]*)*)\b/);
@@ -459,7 +484,7 @@ function classifyIntentWithRegex(text: string, ctx: BotContext): BotIntent {
         slots: {
           miles,
           unit,
-          purpose: purposeRaw || 'Business travel',
+          purpose,
           clientNameHint,
         },
         confidence: 0.9,
@@ -1488,10 +1513,12 @@ export async function executeStep(step: PlanStep, ctx: BotContext): Promise<Exec
 
         let ytd = 0;
         if (jurisdiction === 'ca') {
+          // YTD-before-this-trip: filter on `date < trip-date` (not the
+          // year-end boundary) so a backdated trip doesn't accidentally
+          // see future km in its tier picker.
           const start = new Date(Date.UTC(year, 0, 1));
-          const end = new Date(Date.UTC(year + 1, 0, 1));
           const rows = await db.abMileageEntry.findMany({
-            where: { tenantId: ctx.tenantId, unit, date: { gte: start, lt: end } },
+            where: { tenantId: ctx.tenantId, unit, date: { gte: start, lt: date } },
             select: { miles: true },
           });
           ytd = rows.reduce((s, r) => s + r.miles, 0);
@@ -1512,35 +1539,17 @@ export async function executeStep(step: PlanStep, ctx: BotContext): Promise<Exec
         }
 
         // Resolve accounts for the JE (best-effort — if the chart
-        // isn't seeded we still save the entry).
-        const candidates = await db.abAccount.findMany({
-          where: { tenantId: ctx.tenantId, accountType: 'expense', isActive: true },
-          select: { id: true, code: true, name: true, taxCategory: true },
-        });
-        const vehicleAcct =
-          candidates.find((a) =>
-            a.taxCategory && /^line\s*9$|9281/i.test(a.taxCategory),
-          )
-          || candidates.find((a) => /vehicle|car\s*&?\s*truck|motor/i.test(a.name))
-          || candidates.find((a) => a.code === '5100' || a.code === '5300')
-          || null;
-        const equityAcct = await db.abAccount.findFirst({
-          where: {
-            tenantId: ctx.tenantId,
-            accountType: 'equity',
-            OR: [
-              { code: '3000' },
-              { name: { contains: 'Owner', mode: 'insensitive' } },
-            ],
-          },
-          select: { id: true },
-        });
+        // isn't seeded we still save the entry). Shared helper so the
+        // route, the PATCH service, and the bot all use the same lookup.
+        const accounts = await resolveVehicleAccounts(ctx.tenantId);
 
-        const purpose = purposeRaw.trim() || 'Business travel';
+        // Cap purpose at 500 chars to match the route validation —
+        // the bot is a write path too, so the constraint applies here.
+        const purpose = (purposeRaw.trim() || 'Business travel').slice(0, 500);
 
         const created = await db.$transaction(async (tx) => {
           let journalEntryId: string | null = null;
-          if (vehicleAcct && equityAcct && deductibleAmountCents > 0) {
+          if (accounts && deductibleAmountCents > 0) {
             const memo = `Mileage: ${miles} ${unit} — ${purpose}`;
             const je = await tx.abJournalEntry.create({
               data: {
@@ -1552,13 +1561,13 @@ export async function executeStep(step: PlanStep, ctx: BotContext): Promise<Exec
                 lines: {
                   create: [
                     {
-                      accountId: vehicleAcct.id,
+                      accountId: accounts.vehicleAccountId,
                       debitCents: deductibleAmountCents,
                       creditCents: 0,
                       description: `Mileage @ ${rate.ratePerUnitCents}¢/${rate.unit}`,
                     },
                     {
-                      accountId: equityAcct.id,
+                      accountId: accounts.equityAccountId,
                       debitCents: 0,
                       creditCents: deductibleAmountCents,
                       description: 'Personal vehicle, no cash outlay',

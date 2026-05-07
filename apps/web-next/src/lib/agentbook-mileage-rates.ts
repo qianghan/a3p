@@ -15,10 +15,16 @@
  * Boundary policy (MVP):
  *   We do NOT split a single trip across the 5,000 km boundary; whichever
  *   tier the cumulative-YTD-before-this-trip lands in is what the entire
- *   trip uses. So a 50 km trip starting at 4,990 km YTD books at the LOW
- *   tier (72¢/km × 50 = $36.00), even though 10 km of it crosses into
- *   the upper tier. The simpler rule keeps the journal entry single-line
- *   and reversible. PR 5 can revisit if needed.
+ *   trip uses. The simpler rule keeps the journal entry single-line and
+ *   reversible. Mid-trip splits land in a follow-up.
+ *
+ *   Worked example:
+ *     Maya is at 4,990 km YTD (Canada tenant) and logs a 50 km trip.
+ *     YTD-before-trip = 4,990 km is < 5,000 → LOW tier picked. The entry
+ *     uses 72¢/km × 50 km = $36.00 for the entire trip, even though
+ *     10 km of it technically crosses the 5,000 km boundary into the
+ *     high-tier bucket. After this entry, YTD = 5,040 km, so her *next*
+ *     trip will be billed at the HIGH tier (66¢/km).
  */
 
 import 'server-only';
