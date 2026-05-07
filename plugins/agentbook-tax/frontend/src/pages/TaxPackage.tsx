@@ -104,7 +104,10 @@ export const TaxPackagePage: React.FC = () => {
             <label className="text-xs text-muted-foreground block mb-1">Tax year</label>
             <select
               value={year}
-              onChange={(e) => setYear(parseInt(e.target.value, 10))}
+              onChange={(e) => {
+                const y = Number(e.target.value);
+                if (Number.isInteger(y)) setYear(y);
+              }}
               className="p-2 border border-border rounded-lg bg-background"
               aria-label="Tax year"
             >
@@ -162,8 +165,13 @@ export const TaxPackagePage: React.FC = () => {
                   <p className="text-[11px] text-muted-foreground mt-0.5">
                     Built {new Date(p.createdAt).toLocaleString()}
                   </p>
-                  {p.errorMsg && (
-                    <p className="text-xs text-red-500 mt-1">{p.errorMsg}</p>
+                  {p.errorMsg && p.status === 'failed' && (
+                    // PR 5: errorMsg is a categorised failure code
+                    // (e.g. `pdf_render_failed`) — never a raw exception.
+                    // The Regenerate button on the right kicks off a retry.
+                    <p className="text-xs text-red-500 mt-1">
+                      <span aria-hidden>❌</span> Failed — {p.errorMsg}
+                    </p>
                   )}
                 </div>
                 <div className="flex items-center gap-2 flex-shrink-0">

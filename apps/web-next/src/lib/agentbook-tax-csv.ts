@@ -15,12 +15,27 @@
 
 import type { PackageData } from './agentbook-tax-package';
 
-/** RFC 4180: wrap in quotes if value contains comma, quote, CR, or LF. */
+/**
+ * RFC 4180 quoting + Excel formula-injection prevention.
+ *
+ * If a cell starts with `= + - @ \t \r`, Excel / Google Sheets will
+ * interpret the value as a formula and may execute it (CVE-style data
+ * exfiltration via `=HYPERLINK(...)` or `=cmd|'...'`). Prefix the cell
+ * with a single quote so the spreadsheet treats it as text. The single
+ * quote is invisible in the rendered cell but defangs the formula.
+ *
+ * Then apply the standard RFC 4180 wrap if the value contains a comma,
+ * quote, or newline.
+ */
 function csvEscape(value: string): string {
-  if (/[",\r\n]/.test(value)) {
-    return `"${value.replace(/"/g, '""')}"`;
+  let v = value;
+  if (v.length > 0 && /^[=+\-@\t\r]/.test(v)) {
+    v = `'${v}`;
   }
-  return value;
+  if (/[",\r\n]/.test(v)) {
+    return `"${v.replace(/"/g, '""')}"`;
+  }
+  return v;
 }
 
 function row(cells: (string | number)[]): string {

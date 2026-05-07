@@ -12,9 +12,10 @@
  *   3. Empty data — package still produces a valid (zero-totalled) shape
  *   4. Mileage YTD is included in the package's deduction roll-up
  *   5. Deductions categorisation groups expenses by their tax-line key
- *   6. Receipts source URLs are surfaced on the line-item view
- *   7. CSV bundle — pnl/mileage/deductions all serialise without leaking
+ *   6. CSV bundle — pnl/mileage/deductions all serialise without leaking
  *      sensitive fields (passwordHash, accessTokenEnc)
+ *   7. CSV formula-injection — cells starting with =,+,-,@ get prefixed
+ *      with a single quote so spreadsheet apps treat them as text
  */
 
 import { describe, expect, it, vi, beforeEach } from 'vitest';
@@ -58,6 +59,7 @@ import {
   renderMileageCsv,
   renderDeductionsCsv,
 } from './agentbook-tax-csv';
+import { isAllowedReceiptHost } from './agentbook-tax-receipts-zip';
 
 // Cast the mocked module so each method has `.mockResolvedValue`.
 const mockedDb = db as unknown as {
@@ -139,7 +141,8 @@ describe('gatherPackageData — US tenant', () => {
 
     expect(data.expenseCount).toBe(2);
     expect(data.period.start.getUTCFullYear()).toBe(2025);
-    expect(data.period.end.getUTCFullYear()).toBe(2025);
+    // Half-open `[start, end)`: `end` is Jan 1 of the next year (exclusive).
+    expect(data.period.end.toISOString()).toBe('2026-01-01T00:00:00.000Z');
     // The line keys reflect the US Schedule C mapping (string contains
     // "Schedule C" or the line number from the canonical IRS form).
     const lineKeys = Object.keys(data.pnlByLine);
@@ -242,10 +245,6 @@ describe('CSV renderers', () => {
     },
     expenseCount: 2,
     period: { start: new Date('2025-01-01'), end: new Date('2025-12-31') },
-    expenses: [
-      { id: 'e1', date: new Date('2025-03-15'), amountCents: 5000, vendorName: 'Bistro', description: 'Lunch', taxLine: 'Schedule C Line 24b - Meals', receiptUrl: 'https://blob/r-1.jpg' },
-      { id: 'e2', date: new Date('2025-06-01'), amountCents: 12000, vendorName: 'Airline', description: 'Flight', taxLine: 'Schedule C Line 24a - Travel', receiptUrl: null },
-    ],
     jurisdiction: 'us',
   };
 
@@ -269,5 +268,52 @@ describe('CSV renderers', () => {
     expect(csv).toMatch(/Travel/);
     expect(csv).toMatch(/Meals/);
     expect(csv).not.toMatch(/passwordHash|accessTokenEnc|secretKey/i);
+  });
+
+  it('CSV formula injection — leading =,+,-,@ are defanged with a single quote', () => {
+    const evil: PackageData = {
+      ...fakeData,
+      pnlByLine: { '=cmd|"/c calc"!A1': 1000, '+SUM(1+1)': 2000, '-2+3': 3000, '@SUM(1)': 4000 },
+      deductions: {
+        byCategory: { '=HYPERLINK("http://evil")': 500 },
+        totalCents: 500,
+      },
+    };
+    const pnl = renderPnlCsv(evil);
+    // The cell is wrapped in quotes (RFC 4180) AND prefixed with `'`
+    // so spreadsheets show literal text, not a formula. Look for the
+    // single quote immediately after the opening RFC4180 quote.
+    expect(pnl).toMatch(/"'=cmd/);
+    expect(pnl).toMatch(/'\+SUM/); // unquoted version
+    expect(pnl).toMatch(/'-2\+3/);
+    expect(pnl).toMatch(/'@SUM/);
+    const ded = renderDeductionsCsv(evil);
+    expect(ded).toMatch(/"'=HYPERLINK/);
+  });
+});
+
+describe('isAllowedReceiptHost (SSRF guard)', () => {
+  it('allows known storage hosts', () => {
+    expect(isAllowedReceiptHost('https://blob.vercel-storage.com/foo.jpg')).toBe(true);
+    expect(isAllowedReceiptHost('https://abc.public.blob.vercel-storage.com/foo')).toBe(true);
+    expect(isAllowedReceiptHost('https://a3book.brainliber.com/r.png')).toBe(true);
+  });
+
+  it('rejects cloud-metadata and internal hosts', () => {
+    expect(isAllowedReceiptHost('http://169.254.169.254/latest/meta-data/')).toBe(false);
+    expect(isAllowedReceiptHost('http://10.0.0.5/')).toBe(false);
+    expect(isAllowedReceiptHost('http://example.com/r.jpg')).toBe(false);
+  });
+
+  it('rejects non-http(s) schemes (file:, ftp:, gopher:, data:)', () => {
+    expect(isAllowedReceiptHost('file:///etc/passwd')).toBe(false);
+    expect(isAllowedReceiptHost('ftp://localhost/foo')).toBe(false);
+    expect(isAllowedReceiptHost('gopher://localhost/x')).toBe(false);
+    expect(isAllowedReceiptHost('data:text/plain;base64,QQ==')).toBe(false);
+  });
+
+  it('rejects unparseable URLs', () => {
+    expect(isAllowedReceiptHost('not a url')).toBe(false);
+    expect(isAllowedReceiptHost('')).toBe(false);
   });
 });

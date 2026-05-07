@@ -35,6 +35,13 @@ export async function uploadBlob(
 ): Promise<UploadResult> {
   const token = process.env.BLOB_READ_WRITE_TOKEN;
   if (!token) {
+    // Hard-fail in production: silently switching to a `data:` URL on
+    // a real deploy hides a misconfiguration that would otherwise
+    // leak base64 bytes into Telegram messages and DB rows. We only
+    // tolerate the fallback in dev / test where the noise is fine.
+    if (process.env.NODE_ENV === 'production') {
+      throw new Error('BLOB_READ_WRITE_TOKEN unset in production');
+    }
     // Dev / CI fallback. The data URL keeps the round-trip honest:
     // callers get back a string that can be served / clicked, and the
     // ZIP / PDF bytes round-trip intact through base64.

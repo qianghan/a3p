@@ -21,10 +21,12 @@ import { generatePackage } from '@/lib/agentbook-tax-package';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
+// 60s ceiling matches Vercel's hobby-plan max function duration. The
+// orchestrator must finish PDF + CSVs + receipts ZIP within this budget.
 export const maxDuration = 60;
 
 interface GenerateBody {
-  year?: number;
+  year?: number | string;
   jurisdiction?: 'us' | 'ca';
 }
 
@@ -33,8 +35,12 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     const tenantId = await resolveAgentbookTenant(request);
     const body = (await request.json().catch(() => ({}))) as GenerateBody;
 
-    const year = typeof body.year === 'number' ? body.year : NaN;
-    if (!isFinite(year) || year < 2000 || year > 2100) {
+    // Validate year up front. Accept number or numeric string; reject
+    // anything that isn't an integer in the calendar-year window. We
+    // do not silently default — a missing year is a 400.
+    const yearRaw = body.year;
+    const year = typeof yearRaw === 'number' ? yearRaw : Number(yearRaw);
+    if (!Number.isInteger(year) || year < 2000 || year > 2100) {
       return NextResponse.json(
         { success: false, error: 'year must be a 4-digit calendar year' },
         { status: 400 },
@@ -65,9 +71,14 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       },
     });
   } catch (err) {
+    // Server-side: log full error for ops. Client-side: return a
+    // generic, stable message — the orchestrator already persisted a
+    // categorised failure code on the package row so the UI can read
+    // that for the per-row banner; we don't echo raw `err.message`
+    // here because it could leak server internals.
     console.error('[agentbook-tax/tax-package/generate POST] failed:', err);
     return NextResponse.json(
-      { success: false, error: err instanceof Error ? err.message : String(err) },
+      { success: false, error: 'Internal error', code: 'TAX_PACKAGE_FAILED' },
       { status: 500 },
     );
   }

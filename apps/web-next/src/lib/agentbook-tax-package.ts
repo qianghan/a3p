@@ -38,16 +38,6 @@ export interface PackageInput {
   jurisdiction: 'us' | 'ca';
 }
 
-export interface ExpenseLine {
-  id: string;
-  date: Date;
-  amountCents: number;
-  vendorName: string | null;
-  description: string | null;
-  taxLine: string;
-  receiptUrl: string | null;
-}
-
 export interface MileageRow {
   id: string;
   date: Date;
@@ -74,11 +64,30 @@ export interface PackageData {
     totalCents: number;
   };
   expenseCount: number;
+  /**
+   * Half-open `[start, end)` calendar-year boundary in UTC. `start` is
+   * Jan 1 of `year` 00:00:00 UTC; `end` is Jan 1 of `year+1` 00:00:00
+   * UTC (exclusive). All readers — PDF, CSV, AR snapshot — must treat
+   * this as exclusive on the right and never decrement by 1ms.
+   */
   period: { start: Date; end: Date };
-  /** Per-expense rows surfaced to the PDF for the "view source" links. */
-  expenses: ExpenseLine[];
   jurisdiction: 'us' | 'ca';
 }
+
+/**
+ * Categorised failure codes for the AbTaxPackage.errorMsg column. We
+ * never persist a raw exception string from the orchestrator — that
+ * could leak server internals (file paths, stack frames, env names)
+ * back to the client. Instead the catch block tags the failure with
+ * the phase that crashed, and the client renders a generic message.
+ */
+export type TaxPackageFailureCode =
+  | 'gather_data_failed'
+  | 'pdf_render_failed'
+  | 'csv_render_failed'
+  | 'blob_upload_failed'
+  | 'receipts_zip_failed'
+  | 'unknown_failure';
 
 export interface GenerateResult {
   packageId: string;
@@ -204,9 +213,14 @@ function buildArSnapshot(invoices: InvoiceForAr[], now: Date): PackageData['ar']
  * jurisdiction-tagged shape. Pure (no I/O beyond the read), so the unit
  * tests mock `@naap/database` and exercise the mapping directly.
  *
- * Period boundary: `[Jan 1 year, Jan 1 year+1)` in UTC. We don't honour
- * fiscal-year-start because freelancer Schedule C / T2125 packages are
- * filed on calendar year regardless of the tenant's bookkeeping policy.
+ * Period boundary: half-open `[Jan 1 year, Jan 1 year+1)` in UTC. The
+ * AR snapshot uses the same `end` as its "as of" cutoff so the
+ * boundary is consistent across all sections; readers should treat
+ * `end` as exclusive on the right.
+ *
+ * We don't honour fiscal-year-start because freelancer Schedule C /
+ * T2125 packages are filed on calendar year regardless of the
+ * tenant's bookkeeping policy.
  */
 export async function gatherPackageData(input: PackageInput): Promise<PackageData> {
   const { tenantId, year, jurisdiction } = input;
@@ -248,13 +262,21 @@ export async function gatherPackageData(input: PackageInput): Promise<PackageDat
     orderBy: { date: 'asc' },
   });
 
-  const expenseLines: ExpenseLine[] = [];
   const pnlByLine: Record<string, number> = {};
   const byCategory: Record<string, number> = {};
   let deductionsTotal = 0;
 
   for (const e of expenses) {
     const acct = e.categoryId ? accountById.get(e.categoryId) : null;
+    if (e.categoryId && !acct) {
+      // Stale category — the expense points at an account we couldn't
+      // load (deleted, deactivated, or wrong tenant). We still bucket
+      // it under "expense" so it lands in a sensible "Other" line, but
+      // surface the data-quality issue so it can be cleaned up.
+      console.warn(
+        `[tax-package] expense ${e.id} has stale category ${e.categoryId} (tenant=${tenantId})`,
+      );
+    }
     const taxLine = taxLineFor(
       jurisdiction,
       acct?.accountType || 'expense',
@@ -264,15 +286,6 @@ export async function gatherPackageData(input: PackageInput): Promise<PackageDat
     pnlByLine[taxLine] = (pnlByLine[taxLine] || 0) + e.amountCents;
     byCategory[taxLine] = (byCategory[taxLine] || 0) + e.amountCents;
     deductionsTotal += e.amountCents;
-    expenseLines.push({
-      id: e.id,
-      date: e.date,
-      amountCents: e.amountCents,
-      vendorName: e.vendor?.name ?? null,
-      description: e.description ?? null,
-      taxLine,
-      receiptUrl: e.receiptUrl ?? null,
-    });
   }
 
   // Mileage YTD — pulled from PR 4. We surface the per-trip rows so the
@@ -300,6 +313,8 @@ export async function gatherPackageData(input: PackageInput): Promise<PackageDat
 
   // AR snapshot — invoices still owed at the package generation moment,
   // including aging buckets so the accountant can see the AR profile.
+  // Use `end` (exclusive boundary, Jan 1 next year 00:00 UTC) as the
+  // "as of" timestamp so the AR cutoff matches the expense window.
   const invoices = await db.abInvoice.findMany({
     where: {
       tenantId,
@@ -327,8 +342,7 @@ export async function gatherPackageData(input: PackageInput): Promise<PackageDat
       totalCents: deductionsTotal,
     },
     expenseCount: expenses.length,
-    period: { start, end: new Date(end.getTime() - 1) },
-    expenses: expenseLines,
+    period: { start, end },
     jurisdiction,
   };
 }
@@ -370,7 +384,13 @@ export async function generatePackage(input: PackageInput): Promise<GenerateResu
     select: { id: true },
   });
 
+  // Track the failure phase so the catch block can persist a stable
+  // category code instead of a raw exception string. See the
+  // `TaxPackageFailureCode` doc above.
+  let failurePhase: TaxPackageFailureCode = 'unknown_failure';
+
   try {
+    failurePhase = 'gather_data_failed';
     const data = await gatherPackageData(input);
 
     // Lazy-load the heavy modules so unit tests that only exercise
@@ -385,11 +405,15 @@ export async function generatePackage(input: PackageInput): Promise<GenerateResu
     const { buildReceiptsZip } = zipMod;
     const { uploadBlob } = blobMod;
 
+    failurePhase = 'pdf_render_failed';
     const pdfBuf = await renderPackagePdf(data);
+
+    failurePhase = 'csv_render_failed';
     const pnlCsv = renderPnlCsv(data);
     const mileageCsv = renderMileageCsv(data);
     const deductionsCsv = renderDeductionsCsv(data);
 
+    failurePhase = 'blob_upload_failed';
     const namePrefix = `tax-package/${tenantId}/${year}/${jurisdiction}`;
     const [pdfUp, pnlUp, mileageUp, dedUp] = await Promise.all([
       uploadBlob(`${namePrefix}/package.pdf`, pdfBuf, 'application/pdf'),
@@ -422,6 +446,11 @@ export async function generatePackage(input: PackageInput): Promise<GenerateResu
 
     const csvUrls = { pnl: pnlUp.url, mileage: mileageUp.url, deductions: dedUp.url };
 
+    // Note: when `buildReceiptsZip` returns null after a prior run had
+    // a ZIP, we set `receiptsZipUrl` back to null here. The previously
+    // uploaded ZIP becomes orphan blob storage — we accept that
+    // trade-off rather than tracking the prior URL through the upsert
+    // and calling `del()`. Storage cleanup is a future cleanup PR.
     await db.abTaxPackage.update({
       where: { id: pkg.id },
       data: {
@@ -442,10 +471,16 @@ export async function generatePackage(input: PackageInput): Promise<GenerateResu
       summary,
     };
   } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
+    // Log the full error server-side for ops; persist only the
+    // categorised code (never the raw message) so the client never
+    // sees server internals.
+    console.error(
+      `[tax-package] failed phase=${failurePhase} tenant=${tenantId} year=${year}:`,
+      err,
+    );
     await db.abTaxPackage.update({
       where: { id: pkg.id },
-      data: { status: 'failed', errorMsg: msg },
+      data: { status: 'failed', errorMsg: failurePhase },
     }).catch(() => {});
     throw err;
   }
