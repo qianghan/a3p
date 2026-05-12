@@ -442,6 +442,31 @@ async function setActiveExpense(tenantId: string, expenseId: string): Promise<vo
   });
 }
 
+/**
+ * PR 2: dual-write the "active expense" into the unified conversation
+ * thread as a focused entity. The legacy AbUserMemory key above stays
+ * the read path for now; future PRs will swap reads to getFocus(thread)
+ * and retire the legacy key. Best-effort — never throws.
+ */
+async function focusThreadExpense(
+  tenantId: string,
+  chatId: number | string,
+  expenseId: string,
+  label?: string,
+): Promise<void> {
+  try {
+    const threadMod = await import('@/lib/agentbook-thread');
+    const t = await threadMod.openThread(tenantId, 'telegram', chatId);
+    await threadMod.setFocus(t, {
+      kind: 'expense',
+      id: expenseId,
+      label: label ?? `expense ${expenseId.slice(0, 8)}`,
+    });
+  } catch (err) {
+    console.warn('[telegram] focusThreadExpense failed (non-fatal):', err);
+  }
+}
+
 interface ActiveExpense {
   id: string;
   amountCents: number;
@@ -3622,6 +3647,10 @@ function getBot(): Bot {
       await ctx.reply('Saved the receipt but I lost track of it. Type "expenses" to see it.');
       return;
     }
+    if (ctx.chat?.id) {
+      await focusThreadExpense(tenantId, ctx.chat.id, active.id,
+        active.vendorName ? `${active.vendorName} · ${fmtUsd(active.amountCents)}` : `${fmtUsd(active.amountCents)} expense`);
+    }
 
     const tenantConfig = await db.abTenantConfig.findUnique({
       where: { userId: tenantId },
@@ -3786,6 +3815,7 @@ function getBot(): Bot {
     // corrections like "no, that should be Travel" still work.
     if (lastBookedExpenseId) {
       await setActiveExpense(tenantId, lastBookedExpenseId);
+      if (ctx.chat?.id) await focusThreadExpense(tenantId, ctx.chat.id, lastBookedExpenseId);
     }
 
     const total = autoBooked + needsReview + failed;
@@ -3979,6 +4009,8 @@ function getBot(): Bot {
         await ctx.reply('Document saved but I lost track of it. Type "expenses" to see it.');
         return;
       }
+      await focusThreadExpense(tenantId, ctx.chat.id, active.id,
+        active.vendorName ? `${active.vendorName} · ${fmtUsd(active.amountCents)}` : `${fmtUsd(active.amountCents)} expense`);
 
       const tenantConfig = await db.abTenantConfig.findUnique({
         where: { userId: tenantId },
@@ -4552,6 +4584,7 @@ function getBot(): Bot {
           }
         }
         await setActiveExpense(tenantId, expenseId);
+        if (ctx.chat?.id) await focusThreadExpense(tenantId, ctx.chat.id, expenseId);
         await ctx.answerCallbackQuery({ text: `✅ Categorized as ${account.name}` });
         const updated = await getActiveExpense(tenantId);
         const lead = `✅ Categorized as <b>${escHtml(account.name)}</b>. I'll remember this for future ${expense.vendorId ? 'expenses from this vendor' : 'similar expenses'}.`;
@@ -4661,6 +4694,7 @@ function getBot(): Bot {
           return;
         }
         await setActiveExpense(tenantId, draftId);
+        if (ctx.chat?.id) await focusThreadExpense(tenantId, ctx.chat.id, draftId);
         const updated = await getActiveExpense(tenantId);
         await ctx.answerCallbackQuery({ text: 'Treating as separate' });
         if (!updated) {
@@ -4764,6 +4798,7 @@ function getBot(): Bot {
           return;
         }
         await setActiveExpense(tenantId, expenseId);
+        if (ctx.chat?.id) await focusThreadExpense(tenantId, ctx.chat.id, expenseId);
         const categories = await db.abAccount.findMany({
           where: { tenantId, accountType: 'expense', isActive: true },
           orderBy: { code: 'asc' },
