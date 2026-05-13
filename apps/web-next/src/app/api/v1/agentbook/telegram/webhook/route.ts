@@ -2343,6 +2343,22 @@ function getBot(): Bot {
     const text = ctx.message.text;
     const tenantId = await resolveTenantId(ctx.chat.id);
 
+    // PR Phase 8: gate the Telegram bot via @naap/billing. Free tier
+    // users see an upgrade nudge and the bot does not invoke the
+    // brain or any tools. Fail-open: a DB blip lets the user keep
+    // chatting rather than walling them off.
+    try {
+      const { canUseFeature } = await import('@naap/billing');
+      if (!(await canUseFeature(tenantId, 'telegram_bot'))) {
+        await ctx.reply(
+          '🔒 The Telegram bot is a Pro feature. Upgrade your AgentBook plan to chat here:\nhttps://a3book.brainliber.com/billing',
+        );
+        return;
+      }
+    } catch (err) {
+      console.warn('[billing] gate check failed open:', err);
+    }
+
     // Load conversation context so the bot has memory across turns —
     // references like "the second one" / "INV-007" / "yes" resolve to
     // entities the bot just mentioned; pending slot fills (e.g. asked
@@ -3841,6 +3857,25 @@ function getBot(): Bot {
     const best = photos[photos.length - 1];
     const caption = ctx.message.caption || null;
     const arrivedAt = Date.now();
+
+    // PR Phase 8: gate OCR by ocr_scans quota. Block at limit;
+    // increment on success (best-effort, swallows errors).
+    try {
+      const { checkQuota, incrementUsage } = await import('@naap/billing');
+      const q = await checkQuota(tenantId, 'ocr_scans');
+      if (!q.allowed) {
+        await ctx.reply(
+          `You've used all ${q.limit} receipt scans this month. Upgrade for more:\nhttps://a3book.brainliber.com/billing`,
+        );
+        return;
+      }
+      // Successful pass-through; incrementUsage runs on the
+      // batch-completion or single-receipt success paths below
+      // (best-effort, fire-and-forget).
+      void incrementUsage(tenantId, 'ocr_scans', 1).catch(() => {});
+    } catch (err) {
+      console.warn('[billing] OCR quota check failed open:', err);
+    }
 
     // PR 16: if the user just said "send receipt for X", attach this
     // upload to that expense instead of creating a new draft. This is
