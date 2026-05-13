@@ -121,6 +121,8 @@
     { "path": "/api/v1/agentbook/cron/home-office-quarterly", "schedule": "0 13 * * *" },
     { "path": "/api/v1/agentbook/cron/dead-letter-replay", "schedule": "30 4 * * *" },
     { "path": "/api/v1/agentbook/cron/daily-backup", "schedule": "0 5 * * *" },
-    { "path": "/api/v1/agentbook/cron/purge-deleted", "schedule": "0 4 * * *" }
+    { "path": "/api/v1/agentbook/cron/purge-deleted", "schedule": "0 4 * * *" },
+    { "path": "/api/v1/agentbook-billing/cron/reset-quotas", "schedule": "0 0 * * *" },
+    { "path": "/api/v1/agentbook-billing/cron/cleanup-events", "schedule": "0 3 * * 0" }
   ]
 }
