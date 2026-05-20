@@ -1,19 +1,15 @@
-import { createRoot, type Root } from 'react-dom/client';
-import { App } from './App';
+import plugin from './App';
 
-interface ShellContext {
-  route: string;
-  user?: { id: string; email: string };
+const PLUGIN_GLOBAL_NAME = 'NaapPluginAgentbookBilling';
+
+export const mount = plugin.mount;
+export const unmount = plugin.unmount;
+export const metadata = (plugin as { metadata?: unknown }).metadata ?? { name: 'agentbook-billing', version: '1.0.0' };
+
+if (typeof window !== 'undefined') {
+  (window as unknown as Record<string, unknown>)[PLUGIN_GLOBAL_NAME] = {
+    mount, unmount, metadata,
+  };
 }
 
-const roots = new WeakMap<Element, Root>();
-
-export function mount(container: HTMLElement, ctx: ShellContext): () => void {
-  let root = roots.get(container);
-  if (!root) {
-    root = createRoot(container);
-    roots.set(container, root);
-  }
-  root.render(<App route={ctx.route} user={ctx.user} />);
-  return () => { root?.unmount(); roots.delete(container); };
-}
+export default { mount, unmount, metadata };
