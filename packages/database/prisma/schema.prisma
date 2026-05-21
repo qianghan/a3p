@@ -2467,6 +2467,28 @@ model AbSkillManifest {
   @@schema("plugin_agentbook_core")
 }
 
+// AbSkillRun — per-execution metric row written fire-and-forget after every
+// classify→execute. Powers the /agent/skills/metrics aggregation endpoint
+// (success rate, p50/p95 latency, error breakdown per skill).
+// Wave 2 PR 14 / G-016.
+model AbSkillRun {
+  id           String   @id @default(cuid())
+  tenantId     String
+  skillName    String
+  status       String // "success" | "error" | "timeout" | "skipped"
+  durationMs   Int
+  confidence   Float?
+  tokenCost    Int? // tokens consumed by LLM during classification, if known
+  errorType    String? // "validation" | "downstream" | "internal" | "timeout"
+  errorMessage String? // truncated to ~200 chars
+  channel      String? // "telegram" | "web" | etc.
+  createdAt    DateTime @default(now())
+
+  @@index([tenantId, createdAt])
+  @@index([skillName, status, createdAt])
+  @@schema("plugin_agentbook_core")
+}
+
 // Conversation thread — a coherent unit of user ↔ bot dialogue.
 // One row per (tenantId, channel, chatId) at any time with status='active';
 // closure (by idle, length, explicit, or topic shift) ends the thread and

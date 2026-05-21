@@ -411,6 +411,16 @@ export const BUILT_IN_SKILLS = [
     endpoint: { method: 'INTERNAL', url: '' },
   },
   {
+    // PR 14 / G-016: chat-discoverable per-skill metrics.
+    // "skill metrics", "agent stats", "how is the agent doing" → GET the
+    // metrics endpoint and return the top skills by usage + success rate.
+    // Makes rubric #2 ("skills discoverable from chat") measurable too.
+    name: 'show-skill-metrics', description: 'Show how the agent is performing across skills (success rate, latency, usage)', category: 'observability',
+    triggerPatterns: ['skill\\s*metrics', 'agent\\s*stats', 'how.*agent.*doing', 'skill.*performance', 'agent\\s*performance'],
+    parameters: { days: { type: 'number', required: false, extractHint: 'lookback window in days, default 7' } },
+    endpoint: { method: 'GET', url: '/api/v1/agentbook-core/agent/skills/metrics' },
+  },
+  {
     name: 'general-question', description: 'Answer any general financial or accounting question', category: 'finance',
     triggerPatterns: [],
     parameters: { question: { type: 'string', required: true, extractHint: 'the full user message' } },

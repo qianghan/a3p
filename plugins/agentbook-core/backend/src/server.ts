@@ -2678,7 +2678,82 @@ If no skill matches well, use "general-question" with parameter "question" = the
 // executeClassification — given a pre-classified result, runs pre-processing
 // + the HTTP/INTERNAL skill handler and formats the response.
 // This is the side-effecting half of the original classifyAndExecuteV1.
+//
+// PR 14 / G-016: wraps the core logic with per-skill metric collection.
+// Every execution writes an AbSkillRun row fire-and-forget (DB failures
+// during metric write do NOT block or break the user response).
 export async function executeClassification(
+  classification: ClassificationResult,
+  text: string,
+  tenantId: string,
+  channel: string,
+  attachments?: any[],
+): Promise<any> {
+  const t0 = Date.now();
+  let status: 'success' | 'error' | 'timeout' | 'skipped' = 'success';
+  let errorType: string | undefined;
+  let errorMessage: string | undefined;
+  const skillName = classification?.selectedSkill?.name ?? 'unknown';
+  const confidence = typeof classification?.confidence === 'number' ? classification.confidence : null;
+
+  try {
+    const result = await _executeClassificationCore(
+      classification,
+      text,
+      tenantId,
+      channel,
+      attachments,
+    );
+    // Detect downstream failure surfaces (the core returns shaped objects,
+    // not all of which throw — some embed an error message under
+    // responseData.message). We treat explicit success===false or status==='error'
+    // as an error; otherwise call it success.
+    const rd = result?.responseData;
+    if (result?.status === 'error' || result?.success === false) {
+      status = 'error';
+      errorType = 'downstream';
+      const raw = typeof result?.error === 'string'
+        ? result.error
+        : typeof rd?.message === 'string'
+          ? rd.message
+          : 'unknown';
+      errorMessage = String(raw).slice(0, 200);
+    }
+    return result;
+  } catch (err: any) {
+    status = err?.name === 'AbortError' ? 'timeout' : 'error';
+    errorType = err?.name === 'AbortError' ? 'timeout' : 'internal';
+    errorMessage = err instanceof Error
+      ? err.message.slice(0, 200)
+      : String(err).slice(0, 200);
+    throw err;
+  } finally {
+    const durationMs = Date.now() - t0;
+    // Fire-and-forget — never block or break the response on a metric write.
+    void (async () => {
+      try {
+        await db.abSkillRun.create({
+          data: {
+            tenantId,
+            skillName,
+            status,
+            durationMs,
+            confidence,
+            errorType: errorType ?? null,
+            errorMessage: errorMessage ?? null,
+            channel,
+          },
+        });
+      } catch (e) {
+        console.warn('[skill-metrics] failed to write AbSkillRun:', e);
+      }
+    })();
+  }
+}
+
+// Core implementation — renamed from the previous executeClassification body.
+// Kept private so the public export can wrap it with metric collection.
+async function _executeClassificationCore(
   classification: ClassificationResult,
   text: string,
   tenantId: string,
