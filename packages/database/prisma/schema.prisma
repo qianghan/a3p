@@ -2450,6 +2450,8 @@ model AbSkillManifest {
   description      String
   category         String
   triggerPatterns  Json
+  requirePatterns  String[] @default([])
+  excludePatterns  String[] @default([])
   parameters       Json
   endpoint         Json
   responseTemplate String?
