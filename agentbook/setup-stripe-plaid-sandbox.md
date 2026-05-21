@@ -236,6 +236,7 @@ Before flipping to live mode:
 - [ ] Configure Plaid OAuth redirect URI for production domain
 - [ ] Test refund flow end-to-end in live mode with a real $1 charge
 - [ ] Set up Stripe billing alerts (failed payments, churning subs)
+- [ ] **Set `INVOICE_PUBLIC_LINK_SECRET`** (G-006) — HMAC secret for the public invoice link token gate. Generate with `openssl rand -hex 32`. The invoice plugin will throw on startup if `NODE_ENV=production` and this is missing. Rotate any time; old `/pay/{id}?t=...` links will return 403 until invoices are re-sent.
 
 ---
 

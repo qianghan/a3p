@@ -16,6 +16,7 @@ import 'dotenv/config';
 import { readFileSync } from 'node:fs';
 import { createPluginServer } from '@naap/plugin-server-sdk';
 import { db } from './db/client.js';
+import { verifyInvoiceLink, buildPublicInvoiceUrl } from './invoice-signed-link.js';
 
 import type { Request, Response } from 'express';
 
@@ -1960,8 +1961,11 @@ app.post('/api/v1/agentbook-invoice/invoices/:id/payment-link', async (req: Requ
 
     const stripeKey = process.env.STRIPE_SECRET_KEY;
     if (!stripeKey) {
-      // No Stripe configured — generate a mock payment URL for dev
-      const mockUrl = `${process.env.NEXTAUTH_URL || 'http://localhost:3000'}/pay/${invoice.id}`;
+      // No Stripe configured — generate a mock payment URL for dev.
+      // G-006: emit signed URL so the /pay/{id} page can pass the token through
+      // to the gated public endpoint.
+      const baseUrl = process.env.NEXTAUTH_URL || 'http://localhost:3000';
+      const mockUrl = buildPublicInvoiceUrl(baseUrl, invoice.id, invoice.tenantId);
       await db.abInvoice.update({ where: { id: invoice.id }, data: { paymentUrl: mockUrl } });
       return res.json({ success: true, data: { paymentUrl: mockUrl, mock: true } });
     }
@@ -2015,6 +2019,12 @@ app.get('/api/v1/agentbook-invoice/invoices/:id/public', async (req: Request, re
       include: { client: true, lines: true },
     });
     if (!invoice) return res.status(404).json({ success: false, error: 'Invoice not found' });
+
+    // G-006: require HMAC-signed token; reject unsigned or tampered links.
+    const token = typeof req.query.t === 'string' ? req.query.t : undefined;
+    if (!verifyInvoiceLink(invoice.id, invoice.tenantId, token)) {
+      return res.status(403).json({ success: false, error: 'invalid or expired link' });
+    }
 
     // Mark as viewed
     if (invoice.status === 'sent') {
