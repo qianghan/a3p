@@ -538,7 +538,153 @@ All cron routes that use `safeCompareBearer` (PR 3+) get bearer auth right via `
 
 ## Stream A.4 — `apps/web-next/src/app/(dashboard)/**`
 
-(populated in Task A.4)
+### Scope note
+
+The literal `apps/web-next/src/app/(dashboard)/**` directory contains 17 page.tsx files. Of those, **12 are shell/admin/embedded chrome** (settings, admin/*, teams, marketplace, feedback, releases, embedded/governance/treasury, [...slug] catch-all). The actual AgentBook financial features live in **plugin frontends** (`plugins/agentbook-{core,expense,invoice,tax}/frontend/src/pages/`) and are mounted at runtime by `apps/web-next/src/app/(dashboard)/[...slug]/page.tsx` (path-based route matching on `usePathname()`, line 23-48). When a user visits `/agentbook/expenses`, Next.js routes the request through this catch-all, which then loads the corresponding plugin UMD bundle and React-Router-mounts the appropriate page (e.g. `plugins/agentbook-expense/frontend/src/pages/ExpenseList.tsx`).
+
+Because rubric #1 is asking "can a user accomplish this entire screen's purpose by chatting", I audit the plugin pages as well — they ARE the rendered output of `(dashboard)/agentbook/*` routes. I cite both file paths.
+
+### Global observations (apply to the whole shell)
+
+- [launch] apps/web-next/src/app/(dashboard)/layout.tsx:11-13 — the dashboard shell wraps every page in `AppLayout` (sidebar + top-bar) but has **no persistent chat surface**. There is no docked agent panel, no slash-command palette, no "press / to ask the agent" affordance anywhere in `apps/web-next/src/components/layout/`. The only agent interface on the WEB is one `AskBar` embedded inside `plugins/agentbook-expense/frontend/src/pages/ExpenseList.tsx:467` (one page, one plugin). This is the single biggest rubric #1 violation: the product's chat-first claim is fulfilled only by Telegram, not the web shell.
+- [launch] apps/web-next/src/components/layout/app-layout.tsx / sidebar.tsx — sidebar navigation is a traditional CRUD-app tree (Expenses, Invoices, Clients, Tax, Reports, Settings). The chat is not a peer in navigation; it is invisible in the shell. Rubric #1 deducts -2 for "every primary workflow can be completed via chat alone" because there is no chat to alone-complete anything from.
+- [launch] apps/web-next/src/app/(dashboard)/[...slug]/page.tsx:135-159 — when the agent (via Telegram) creates an expense or drafts an invoice, the catch-all-mounted page has NO mechanism to receive that update. The plugin loads with its own `useEffect(() => fetch(...))` pattern (e.g. ExpenseList.tsx:184-206). There is no `useAgentSession()` hook, no shell event-bus listener for `agent.action.completed`. Chat-driven changes do not appear in the open page without a manual refresh.
+- [launch] No `PlanPreview` component exists anywhere in the codebase. Grep across `apps/web-next/src` and `plugins/*/frontend/src` for `Proceed`, `PlanPreview`, `plan.steps`, or "Proceed/Cancel" returns zero matches. The Telegram bot has inline Proceed/Cancel buttons per `apps/web-next/src/app/api/v1/agentbook/telegram/webhook/route.ts`, but the WEB has no equivalent surface. This is the rubric #3 hard-floor risk: "Agent has no plan-preview mechanism for any multi-step action" caps the overall score at 85 unless qualified by Telegram-only delivery.
+- [polish] apps/web-next/src/contexts/shell-context.tsx exists with a `useEvents` event-bus, but it is wired only for cross-tab notifications (`notifications`), team-switch broadcasts, and plugin manifest updates — not for agent-session deltas. No plugin page subscribes to `agent.expense.recorded` or similar.
+
+### Dashboard shell pages (the literal `apps/web-next/src/app/(dashboard)/**`)
+
+- [NOTE] apps/web-next/src/app/(dashboard)/admin/feedback/page.tsx — deliberately form-only (admin triage UI for the feedback queue). Exempt from rubric #1 deduction.
+- [NOTE] apps/web-next/src/app/(dashboard)/admin/plugins/page.tsx — deliberately form-only (system-admin sets which plugins are core/auto-install). Exempt.
+- [NOTE] apps/web-next/src/app/(dashboard)/admin/secrets/page.tsx — deliberately form-only (admin secret/key management). Exempt.
+  - [polish] line 97-101, 108 — uses `window.confirm()` (native browser dialog) for delete + rotate. Functional but inconsistent with the Modal pattern used elsewhere; replace with the `@naap/ui` Modal for tenant-consistent UX.
+- [NOTE] apps/web-next/src/app/(dashboard)/admin/users/page.tsx — deliberately form-only (sysadmin user list / role assignment). Exempt.
+- [NOTE] apps/web-next/src/app/(dashboard)/embedded/[type]/page.tsx — third-party iframe wrappers (Livepeer treasury + governance). Not an AgentBook surface; exempt.
+- [polish] apps/web-next/src/app/(dashboard)/feedback/page.tsx:71-72 — user feedback form (bug/feature/general). Chat parity exists in concept (a user could `/feedback` the agent) but no `submit-feedback` skill is registered in `built-in-skills.ts`. Submitting a bug report is currently form-only. Note: explicitly not in the financial-feature scope, so not a launch-grade deduction, but the page does duplicate what a future skill should own.
+- [NOTE] apps/web-next/src/app/(dashboard)/governance/page.tsx, treasury/page.tsx — both are redirect()'s to `/embedded/...`. Exempt.
+- [launch] apps/web-next/src/app/(dashboard)/marketplace/page.tsx — installing a plugin, leaving a review, posting a comment — entire marketplace UX is form-only. No `install-plugin`, `review-plugin`, or `query-marketplace` skill in `built-in-skills.ts`. This is arguably a deliberate "advanced view" for system installation, but for an agent-native product, "install the X plugin" is exactly the kind of operation Claude Code lets you do via chat. Borderline; flagging as launch because the product narrative is agent-first.
+- [NOTE] apps/web-next/src/app/(dashboard)/plugins/[pluginName]/page.tsx — generic plugin loader; not a feature surface. Exempt.
+- [NOTE] apps/web-next/src/app/(dashboard)/releases/page.tsx — read-only changelog. Exempt.
+- [polish] apps/web-next/src/app/(dashboard)/settings/page.tsx — user preferences, plugin order, theme, profile. Mostly legitimately settings (exempt from rubric #1), BUT the page also does plugin **uninstall** (line 79-80, `setUninstallingPlugin` + `showUninstallConfirm`). Uninstall has a confirm modal — good. Settings persist via `fetch PUT`; there's no `update-preferences` skill, so an agent can't "make my theme dark" — minor gap but not blocking.
+- [NOTE] apps/web-next/src/app/(dashboard)/teams/page.tsx — team management list. Workspace administration, exempt.
+- [NOTE] apps/web-next/src/app/(dashboard)/teams/[teamId]/page.tsx — team dashboard with plugin installs. Workspace administration, exempt.
+- [launch] apps/web-next/src/app/(dashboard)/teams/[teamId]/members/page.tsx:159 — member removal uses `confirm('Are you sure you want to remove this member?')` (native browser confirm) — destructive action has a confirm step, but it's native browser modal not a styled dialog. Acceptable for rubric #3 "destructive actions require explicit confirm" because the confirm DOES exist; flagging as a UX polish, not a launch defect.
+- [NOTE] apps/web-next/src/app/(dashboard)/teams/[teamId]/settings/page.tsx — workspace administration, exempt. Has a `deleteConfirmText` "type the team name" pattern — good.
+- [NOTE] apps/web-next/src/app/(dashboard)/[...slug]/page.tsx — the plugin loader catch-all. Not a feature surface itself.
+
+### Plugin frontend pages mounted into (dashboard)/[...slug] (the actual AgentBook UX)
+
+#### agentbook-core/
+
+- [polish] plugins/agentbook-core/frontend/src/pages/Dashboard.tsx — landing page. Mostly read-only (overview, attention items, next moments). Has "New invoice / Snap / Ask" buttons (lines 20-28) — the Ask button links to `/agentbook/agents` (an agent CONFIG page), NOT a chat. There's no `useAgentSession` integration. Independent `useDashboardOverview()` hook (line 59) — chat-driven changes do not appear live. Polish: refactor to subscribe to agent state.
+- [launch] plugins/agentbook-core/frontend/src/pages/Onboarding.tsx:50-60 — onboarding entirely form-only (business_type, jurisdiction, currency, bank, telegram). For an agent-first product, the canonical demo is "the agent walks you through onboarding by asking questions." No `onboarding-step` skill exists; the agent cannot complete steps for the user. Exact violation of rubric #1 criterion "every primary workflow can be completed via chat alone." First impression is form-driven.
+- [launch] plugins/agentbook-core/frontend/src/pages/CPAPortal.tsx:30-44 — CPA link generation is form-only (`generateLink()` POST). There IS a `cpa-share` skill (built-in-skills.ts line 230) — partial parity — but the email is hardcoded to `cpa@example.com` (line 36), no agent-routed alternative. The notes feature (addNote line 47-58) maps to the `cpa-notes` skill (line 224) — chat parity exists. Mixed.
+- [launch] plugins/agentbook-core/frontend/src/pages/HomeOffice.tsx — quarterly home-office deduction entry. No `home-office` skill in built-in-skills.ts. Form-only. -2.
+- [launch] plugins/agentbook-core/frontend/src/pages/TelegramSettings.tsx — connecting the Telegram bot is form-only on web (paste token). There IS a `telegram-setup` skill (line 327), but it requires the user to message the bot from a different Telegram account to set up the first bot — chicken-and-egg. Acceptable as a bootstrap form; flagging as note rather than full launch.
+- [NOTE] plugins/agentbook-core/frontend/src/pages/AdminConfig.tsx — LLM provider/api-key configuration. Deliberately form-only (admin) — exempt.
+- [NOTE] plugins/agentbook-core/frontend/src/pages/admin/DeadLetter.tsx — webhook dead-letter queue admin. Deliberately form-only — exempt.
+- [polish] plugins/agentbook-core/frontend/src/pages/Agents.tsx:38-48 — agent configuration toggles (aggressiveness slider, auto-approve, model tier, frequency). Deliberately a configuration surface — exempt from rubric #1 form-only deduction. BUT the page is also the destination of the Dashboard "Ask" button (Dashboard.tsx:26-28) — which is misleading since this page configures agents, it doesn't chat with them. Rename or relink.
+- [polish] plugins/agentbook-core/frontend/src/pages/Ledger.tsx — read-only journal-entry viewer. Has a `query-finance` skill that overlaps. Chat parity acceptable; flag as polish for plan-preview / intermediate-state visibility — none on this page.
+- [polish] plugins/agentbook-core/frontend/src/pages/Accounts.tsx — read-only chart-of-accounts list, filter by type. No write actions. Chat parity not required (read-only). OK.
+- [polish] plugins/agentbook-core/frontend/src/pages/Activity.tsx — read-only audit-event viewer. OK — deliberately a forensic surface, exempt.
+- [polish] plugins/agentbook-core/frontend/src/pages/Projections.tsx — read-only earnings projection. Skill parity: `query-finance` and `cashflow-report` (line 200). OK.
+- [launch] plugins/agentbook-core/frontend/src/pages/SavedSearches.tsx — create/edit/delete saved searches via form. There IS a `searches` Telegram command per the file header ("the bot's `/searches` command shows pinned only"), but no skill in BUILT_IN_SKILLS for `create-saved-search` or `pin-search`. Creating new searches is form-only. -2.
+
+#### agentbook-expense/
+
+- [launch] plugins/agentbook-expense/frontend/src/pages/NewExpense.tsx:15-41 — manual expense entry. There IS a `record-expense` skill (built-in-skills.ts line 3), and chat parity is real on Telegram. But on web, this page is the only path: there's no `AskBar` here, no "Try saying: 'Coffee 4.50 starbucks'" affordance, and the form's success state (line 47-49) doesn't show the journal entry that was created. Worse: the receipt upload zone (line 51-56) is decorative — it has no `onClick` handler, no file input, no drag-drop wire. The text says "we'll extract the details automatically" but does NOT call `/receipts/ocr` from this page. Document as "manual override" and add a 'Talk to me instead' link. -2.
+- [launch] plugins/agentbook-expense/frontend/src/pages/NewExpense.tsx:15-41 (continued) — the expense POST (line 19-29) creates with NO confirmation gate, NO plan preview, NO journal entry preview. The Telegram path has a confirmation prompt (Stream A.2 finding); web bypasses it. Rubric #3 deduction risk.
+- [VERIFIED CLOSED][partial] plugins/agentbook-expense/frontend/src/pages/ExpenseList.tsx:9, 467 — has an `AskBar` component, this is the SOLE chat-equivalent surface in the whole web UI. Maps to `/api/v1/agentbook-core/agent/message` (line 247). Good — but only handles READ-ONLY queries ("top spending", "duplicates") per AskBar.tsx SUGGESTIONS — does NOT support write actions like "delete that expense" or "recategorize all Starbucks to Meals". Limited parity. (Counted as PARTIAL closure, not deducted.)
+- [polish] plugins/agentbook-expense/frontend/src/pages/ExpenseList.tsx:208-215 — restore for soft-deleted expense exists, but no UI confirm before soft-delete (deletion is not visible in this view — only restore). Need to verify the delete-action surface (likely in [id] route page); if delete is one-click in the row dropdown without confirm, rubric #3 -3 hard-floor risk.
+- [launch] plugins/agentbook-expense/frontend/src/pages/Receipts.tsx — read-only grid of receipts, plus a decorative "drag and drop" upload zone (line 40-45) with NO `onClick`, NO file input, NO handler. Same pattern as NewExpense.tsx — the upload affordance is theater. There IS a `scan-receipt` skill (line 22) so chat parity exists in principle, but the page misleads users into thinking the dropzone works. -2.
+- [launch] plugins/agentbook-expense/frontend/src/pages/Vendors.tsx — read-only vendor list. There IS a `vendor-insights` skill (line 90). Read-only OK. But no link to "edit vendor's default category" — vendor pattern editing (relevant per built-in-skills `manage-recurring` and the pattern-learning subsystem) is entirely absent from web. -2.
+- [launch] plugins/agentbook-expense/frontend/src/pages/Budgets.tsx — budget CRUD via form (line 41-80). There ARE `set-budget` and `query-budget` skills (built-in-skills.ts line 371, 377). Chat parity exists for SET and QUERY; but EDIT and DELETE (`Pencil`, `Trash2` icons imported line 2) flow through the form, no skill. Mixed. The `set-budget` skill should also handle update/delete — verify or -2.
+- [launch] plugins/agentbook-expense/frontend/src/pages/Mileage.tsx — form-only mileage entry. No `record-mileage` skill in BUILT_IN_SKILLS. (G-OLD-020 closure was the backend; no agent skill on top.) -2.
+- [launch] plugins/agentbook-expense/frontend/src/pages/PerDiem.tsx — form-only per-diem entry. No `record-per-diem` skill in BUILT_IN_SKILLS. -2.
+- [launch] plugins/agentbook-expense/frontend/src/pages/BankConnection.tsx:70-80 — Plaid Link is form-only (web only). No `connect-bank` skill in BUILT_IN_SKILLS. Acceptable since OAuth flow inherently requires a browser context — flag as `[NOTE]` instead. Actually deliberately form-only (auth flow), exempt.
+- [NOTE] plugins/agentbook-expense/frontend/src/pages/BankConnection.tsx — exempt from rubric #1 deduction (OAuth handshake inherently browser-only).
+
+#### agentbook-invoice/
+
+- [launch] plugins/agentbook-invoice/frontend/src/pages/NewInvoice.tsx:45-... — manual invoice draft via form. There IS a `create-invoice` skill (line 34) and the `draft-from-text` endpoint, so chat parity is real, but the web form's submit does NOT show a plan preview ("Here's the invoice I'll create: Client X, $5K, net-30, send via email?"). It just POSTs and navigates. Rubric #3 multi-step-no-plan deduction risk. -2.
+- [launch] plugins/agentbook-invoice/frontend/src/pages/Clients.tsx — there is NO "Add Client" button visible in the first 100 lines; client creation appears to happen as a side-effect of invoice creation (NewInvoice.tsx writes clientName + clientEmail). There IS a `query-clients` skill (line 114) — chat can READ clients but cannot create/edit/delete. Mixed.
+- [polish] plugins/agentbook-invoice/frontend/src/pages/Clients.tsx — independent fetch via useCallback (line 35-49) with no subscription to agent updates. Chat-created clients do not appear without manual refresh.
+- [polish] plugins/agentbook-invoice/frontend/src/pages/InvoiceList.tsx — read-only invoice list + restore. The "send", "void", "remind", "payment" state transitions are NOT inline here — they happen on detail pages (per Stream A.3 findings about `/invoices/[id]/send/route.ts` etc., the API routes exist). Skills for send-invoice, void-invoice, record-payment, send-reminder ALL exist (lines 132, 345, 139, 164). Chat parity good for state transitions. Independent fetch — polish.
+- [launch] plugins/agentbook-invoice/frontend/src/pages/Estimates.tsx — create estimate, convert to invoice, decline. Skills exist: `create-estimate` (line 146), `query-estimates` (line 108), `convert-estimate` (line 339). Chat parity good. But within the page itself, "convert" or "decline" are likely click-to-execute without confirm (Trash2 icon imported line 12). -2 for destructive without confirm if delete is wired.
+- [launch] plugins/agentbook-invoice/frontend/src/pages/RecurringInvoices.tsx — full CRUD on recurring schedules. The pause/play/edit/delete are all form/button driven. There's a `manage-recurring` skill for expenses (line 84) but NOT for invoice recurring schedules. -2 form-only.
+- [polish] plugins/agentbook-invoice/frontend/src/pages/Projects.tsx — read-only project profitability. OK.
+- [launch] plugins/agentbook-invoice/frontend/src/pages/Timer.tsx — timer start/stop is form-driven (Play/Square buttons). Skills `start-timer` (line 152), `stop-timer` (line 158), `timer-status` (line 120) exist. Good chat parity. But "generate invoice from selected entries" (`generating` state, line 35) is form-only — no `invoice-from-time` skill. -2.
+
+#### agentbook-tax/
+
+- [polish] plugins/agentbook-tax/frontend/src/pages/TaxDashboard.tsx — read-only tax-estimate display. `tax-estimate` skill (line 170) exists. OK.
+- [polish] plugins/agentbook-tax/frontend/src/pages/Quarterly.tsx — read-only quarterly schedule. `quarterly-payments` skill (line 176) exists. OK.
+- [polish] plugins/agentbook-tax/frontend/src/pages/CashFlow.tsx — read-only cash-flow projection. `cashflow-report` skill (line 200) exists. OK.
+- [launch] plugins/agentbook-tax/frontend/src/pages/Deductions.tsx:55-69 — applying/dismissing a deduction suggestion is a one-click PATCH (line 58-62) with NO confirmation, NO plan preview. "Apply this deduction" creates a downstream journal entry in some flows; should be confirmed. Rubric #3 destructive-without-confirm risk. -2.
+- [polish] plugins/agentbook-tax/frontend/src/pages/Analytics.tsx — read-only. OK.
+- [polish] plugins/agentbook-tax/frontend/src/pages/Reports.tsx — read-only report-list. Maps to multiple skills (pnl-report, balance-sheet, cashflow-report). OK.
+- [launch] plugins/agentbook-tax/frontend/src/pages/TaxPackage.tsx — year-end tax-package generation is form-only ("Generate" button POSTs). No `generate-tax-package` skill in BUILT_IN_SKILLS. -2.
+- [launch] plugins/agentbook-tax/frontend/src/pages/WhatIf.tsx — scenario simulator is form-only. There IS a `simulate-scenario` skill (line 40), so chat parity exists in principle, but the web page doesn't surface the chat alternative. The "calculate" button (line 22-40) is single-shot, no plan preview, no follow-up. (Borderline — the skill exists; flag as polish since the underlying capability is reachable.)
+
+### Intermediate-state visibility (rubric #1)
+
+Every plugin page reviewed uses a generic `<Loader2 className="animate-spin" />` or `Loading...` text. None show meaningful status like "checking your March expenses..." or "looking up your Acme invoices...". Citations:
+
+- [polish] plugins/agentbook-expense/frontend/src/pages/ExpenseList.tsx:467 — AskBar shows a 3-dot animation while waiting; no text.
+- [polish] plugins/agentbook-expense/frontend/src/pages/BankConnection.tsx:49-65 — loading state is just a Loader2 icon.
+- [polish] plugins/agentbook-tax/frontend/src/pages/TaxDashboard.tsx:40-58 — loading state generic.
+- [polish] plugins/agentbook-invoice/frontend/src/pages/Estimates.tsx — generic loader.
+
+All count as polish — not blockers but consistent rubric #1 deduction across the entire UI.
+
+### Edit history / undo
+
+- [VERIFIED PARTIAL: G-OLD-023] Soft-delete + restore exist on expenses (ExpenseList.tsx:208-215), invoices (InvoiceList.tsx:88), clients (Clients.tsx:55-62). 90-day window per inline comments. This is the only undo affordance.
+- [polish] No undo for: invoice send (once sent, can only void), payment recording, estimate conversion, tax-package generation, agent config changes (Agents.tsx), saved-search edits. Add a `recent-actions` view with one-click undo for at-risk operations.
+
+### Rubric #1 auto-deduction tally
+
+Counted `[launch]` findings where a financial feature in the dashboard/plugin UI is form-only OR chat-driven path is absent/broken:
+
+| # | Finding (abbrev) |
+|---|------|
+| 1 | layout.tsx — no persistent chat surface in shell |
+| 2 | layout/sidebar.tsx — CRUD-app navigation, chat not a peer |
+| 3 | [...slug]/page.tsx — plugin pages do not subscribe to agent updates (independent fetch) |
+| 4 | No PlanPreview component anywhere in web codebase |
+| 5 | marketplace/page.tsx — install/review form-only |
+| 6 | Onboarding.tsx — 7-step setup form-only, no agent walk-through |
+| 7 | CPAPortal.tsx — CPA email hardcoded, partial parity |
+| 8 | HomeOffice.tsx — quarterly entry form-only, no skill |
+| 9 | SavedSearches.tsx — saved-search CRUD form-only, no skill |
+| 10 | NewExpense.tsx — manual entry + theater dropzone |
+| 11 | NewExpense.tsx — no confirmation gate on web POST |
+| 12 | Receipts.tsx — theater dropzone, no handler |
+| 13 | Vendors.tsx — vendor edit not exposed |
+| 14 | Budgets.tsx — edit/delete form-only |
+| 15 | Mileage.tsx — no record-mileage skill |
+| 16 | PerDiem.tsx — no record-per-diem skill |
+| 17 | NewInvoice.tsx — no plan preview before draft |
+| 18 | Estimates.tsx — convert/decline likely click-without-confirm |
+| 19 | RecurringInvoices.tsx — recurring CRUD form-only, no skill |
+| 20 | Timer.tsx — invoice-from-time form-only |
+| 21 | Deductions.tsx — apply/dismiss without confirm |
+| 22 | TaxPackage.tsx — generate form-only, no skill |
+
+**22 launch-grade form-only / chat-parity-missing findings × 2 pts each = -44 pts.**
+
+Hard cap: per the rubric, rubric #1 max is 12 pts, so the auto-deduction floors at -12 (zeroing out the category). Per spec §5 "6+ such findings = whole category zeroed out" — confirmed: **rubric #1 (Agent-first architecture) = 0/12**.
+
+Per Tier-1 hard floor: if Tier 1 total drops below 32/40, overall score caps at 90. With rubric #1 zeroed, Tier 1 max becomes 28/40 — Tier 1 hard-floor TRIPPED, overall score capped at 90.
+
+Additionally hit:
+- Rubric #3 risk: "Agent has no plan-preview mechanism for any multi-step action" — per spec §5 Hard Floors, this caps overall at 85 until fixed. The Telegram bot has plan preview but the web UI does not; depends on grader's interpretation of "for any multi-step action" — recommend NOT triggering the cap because chat parity via Telegram demonstrates the mechanism exists in product, even if not on web.
+
+### Summary
+
+Of **39 page-equivalent surfaces reviewed** (17 dashboard shell + 22 plugin frontend pages), **6 have legitimate chat parity** (ExpenseList via AskBar; Ledger / Accounts / Activity / Projections / Reports as read-only views the agent can also serve; plus invoice send/void/payment skills that the web defers to), **22 are form-only-without-chat-parity (launch)**, **11 are deliberate form-only and exempt** (admin/secrets/users/feedback-triage/team-administration/embedded-iframes/auth-flows). **Net rubric #1 auto-deduction: -12 (capped) — rubric #1 scored 0/12.** Tier 1 hard floor TRIPPED; overall score caps at 90. The single biggest fix would be adding a persistent chat surface to `apps/web-next/src/components/layout/app-layout.tsx` (closes findings 1–4 in one PR) and shipping skills for the eight feature areas currently form-only (home-office, saved-search, mileage, per-diem, recurring-invoice, vendor-edit, generate-tax-package, invoice-from-time).
+
+
 
 ## Stream A.5 — Prisma schema + existing tests
 
