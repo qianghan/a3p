@@ -3,12 +3,14 @@ import { z } from 'zod';
 import { prisma } from '@naap/database';
 import { getCurrentPlan, invalidateAccount } from '@naap/billing';
 import { getStripe } from '@/lib/billing/stripe';
-import { resolveAgentbookTenant } from '@/lib/agentbook-tenant';
+import { safeResolveAgentbookTenant } from '@/lib/agentbook-tenant';
 
 export const runtime = 'nodejs';
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
-  const tenantId = await resolveAgentbookTenant(request);
+  const __resolved = await safeResolveAgentbookTenant(request);
+  if ('response' in __resolved) return __resolved.response;
+  const { tenantId } = __resolved;
   const cur = await getCurrentPlan(tenantId);
   return NextResponse.json(cur);
 }
@@ -19,7 +21,9 @@ const Body = z.object({
 });
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
-  const tenantId = await resolveAgentbookTenant(request);
+  const __resolved = await safeResolveAgentbookTenant(request);
+  if ('response' in __resolved) return __resolved.response;
+  const { tenantId } = __resolved;
   const parsed = Body.safeParse(await request.json().catch(() => ({})));
   if (!parsed.success) return NextResponse.json({ error: 'invalid body' }, { status: 400 });
   const { planId, paymentMethodId } = parsed.data;

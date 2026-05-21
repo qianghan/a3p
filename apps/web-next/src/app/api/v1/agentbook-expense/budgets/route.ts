@@ -8,7 +8,7 @@
 import 'server-only';
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma as db } from '@naap/database';
-import { resolveAgentbookTenant } from '@/lib/agentbook-tenant';
+import { safeResolveAgentbookTenant } from '@/lib/agentbook-tenant';
 import { audit } from '@/lib/agentbook-audit';
 import { inferSource, inferActor } from '@/lib/agentbook-audit-context';
 import { withSoftDelete, parseIncludeDeleted } from '@/lib/agentbook-soft-delete';
@@ -19,7 +19,9 @@ export const maxDuration = 30;
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
   try {
-    const tenantId = await resolveAgentbookTenant(request);
+    const __resolved = await safeResolveAgentbookTenant(request);
+    if ('response' in __resolved) return __resolved.response;
+    const { tenantId } = __resolved;
     const includeDeleted = parseIncludeDeleted(request.nextUrl.searchParams);
     const budgets = await db.abBudget.findMany({
       where: withSoftDelete({ tenantId }, includeDeleted),
@@ -45,7 +47,9 @@ interface BudgetBody {
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
   try {
-    const tenantId = await resolveAgentbookTenant(request);
+    const __resolved = await safeResolveAgentbookTenant(request);
+    if ('response' in __resolved) return __resolved.response;
+    const { tenantId } = __resolved;
     const body = (await request.json().catch(() => ({}))) as BudgetBody;
     const { amountCents, categoryId, categoryName, period, alertPercent } = body;
 

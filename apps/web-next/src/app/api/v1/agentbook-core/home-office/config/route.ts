@@ -5,14 +5,14 @@
  * the actual-expense method and a flag for the US simplified method
  * ($5/sqft up to 300 sqft, IRS Pub 587). The bot's quarterly prompt
  * reads these values to compute the deductible portion. Tenant-scoped
- * (resolved via `resolveAgentbookTenant`) and sanitised on the 500 path
+ * (resolved via `safeResolveAgentbookTenant`) and sanitised on the 500 path
  * so we never leak Prisma internals.
  */
 
 import 'server-only';
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma as db } from '@naap/database';
-import { resolveAgentbookTenant } from '@/lib/agentbook-tenant';
+import { safeResolveAgentbookTenant } from '@/lib/agentbook-tenant';
 import { computeRatio } from '@/lib/agentbook-home-office';
 
 export const runtime = 'nodejs';
@@ -26,7 +26,9 @@ function sanitizeError(err: unknown, label: string): string {
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
   try {
-    const tenantId = await resolveAgentbookTenant(request);
+    const __resolved = await safeResolveAgentbookTenant(request);
+    if ('response' in __resolved) return __resolved.response;
+    const { tenantId } = __resolved;
     let cfg = await db.abHomeOfficeConfig.findUnique({ where: { tenantId } });
     if (!cfg) {
       cfg = await db.abHomeOfficeConfig.create({
@@ -50,7 +52,9 @@ interface UpdateConfigBody {
 
 export async function PUT(request: NextRequest): Promise<NextResponse> {
   try {
-    const tenantId = await resolveAgentbookTenant(request);
+    const __resolved = await safeResolveAgentbookTenant(request);
+    if ('response' in __resolved) return __resolved.response;
+    const { tenantId } = __resolved;
     const body = (await request.json().catch(() => ({}))) as UpdateConfigBody;
 
     // Validate sqft inputs — must be non-negative integers when set.

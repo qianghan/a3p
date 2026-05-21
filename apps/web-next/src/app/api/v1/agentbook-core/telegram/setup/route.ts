@@ -6,7 +6,7 @@ import 'server-only';
 import { NextRequest, NextResponse } from 'next/server';
 import crypto from 'node:crypto';
 import { prisma as db } from '@naap/database';
-import { resolveAgentbookTenant } from '@/lib/agentbook-tenant';
+import { safeResolveAgentbookTenant } from '@/lib/agentbook-tenant';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -18,7 +18,9 @@ interface SetupBody {
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
   try {
-    const tenantId = await resolveAgentbookTenant(request);
+    const __resolved = await safeResolveAgentbookTenant(request);
+    if ('response' in __resolved) return __resolved.response;
+    const { tenantId } = __resolved;
     const body = (await request.json().catch(() => ({}))) as SetupBody;
     const { botToken } = body;
 

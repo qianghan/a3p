@@ -5,7 +5,7 @@
 import 'server-only';
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma as db } from '@naap/database';
-import { resolveAgentbookTenant } from '@/lib/agentbook-tenant';
+import { safeResolveAgentbookTenant } from '@/lib/agentbook-tenant';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -32,7 +32,9 @@ export async function PUT(
   { params }: { params: Promise<{ id: string }> },
 ): Promise<NextResponse> {
   try {
-    const tenantId = await resolveAgentbookTenant(request);
+    const __resolved = await safeResolveAgentbookTenant(request);
+    if ('response' in __resolved) return __resolved.response;
+    const { tenantId } = __resolved;
     const { id } = await params;
     const body = (await request.json().catch(() => ({}))) as UpdateBody;
 
@@ -73,14 +75,16 @@ export async function PUT(
 /**
  * Hard-delete a recurring schedule. Prior generated invoices stay on the
  * books — only the schedule (and its future generation) goes away. Tenant-
- * scoped via `resolveAgentbookTenant`.
+ * scoped via `safeResolveAgentbookTenant`.
  */
 export async function DELETE(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ): Promise<NextResponse> {
   try {
-    const tenantId = await resolveAgentbookTenant(request);
+    const __resolved = await safeResolveAgentbookTenant(request);
+    if ('response' in __resolved) return __resolved.response;
+    const { tenantId } = __resolved;
     const { id } = await params;
 
     const existing = await db.abRecurringInvoice.findFirst({ where: { id, tenantId } });

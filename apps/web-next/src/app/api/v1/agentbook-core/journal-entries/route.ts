@@ -12,7 +12,7 @@
 import 'server-only';
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma as db } from '@naap/database';
-import { resolveAgentbookTenant } from '@/lib/agentbook-tenant';
+import { safeResolveAgentbookTenant } from '@/lib/agentbook-tenant';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -35,7 +35,9 @@ interface CreateJournalBody {
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
   try {
-    const tenantId = await resolveAgentbookTenant(request);
+    const __resolved = await safeResolveAgentbookTenant(request);
+    if ('response' in __resolved) return __resolved.response;
+    const { tenantId } = __resolved;
     const body = (await request.json().catch(() => ({}))) as CreateJournalBody;
     const { date, memo, sourceType, sourceId, lines } = body;
 
@@ -169,7 +171,9 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
   try {
-    const tenantId = await resolveAgentbookTenant(request);
+    const __resolved = await safeResolveAgentbookTenant(request);
+    if ('response' in __resolved) return __resolved.response;
+    const { tenantId } = __resolved;
     const params = request.nextUrl.searchParams;
     const startDate = params.get('startDate');
     const endDate = params.get('endDate');

@@ -4,7 +4,7 @@
 
 import 'server-only';
 import { NextRequest, NextResponse } from 'next/server';
-import { resolveAgentbookTenant } from '@/lib/agentbook-tenant';
+import { safeResolveAgentbookTenant } from '@/lib/agentbook-tenant';
 import { seedCanadianForms } from '@agentbook-tax/tax-forms';
 
 export const runtime = 'nodejs';
@@ -13,7 +13,8 @@ export const maxDuration = 60;
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
   try {
-    await resolveAgentbookTenant(request);
+    const __resolved = await safeResolveAgentbookTenant(request);
+    if ('response' in __resolved) return __resolved.response;
     const result = await seedCanadianForms();
     return NextResponse.json({ success: true, data: result });
   } catch (err) {

@@ -18,7 +18,7 @@
 import 'server-only';
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma as db } from '@naap/database';
-import { resolveAgentbookTenant } from '@/lib/agentbook-tenant';
+import { safeResolveAgentbookTenant } from '@/lib/agentbook-tenant';
 import { generateAccessToken } from '@/lib/agentbook-cpa-token';
 import { audit } from '@/lib/agentbook-audit';
 import { inferActor, inferSource } from '@/lib/agentbook-audit-context';
@@ -48,7 +48,9 @@ function buildInviteUrl(token: string, request: NextRequest): string {
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
   try {
-    const tenantId = await resolveAgentbookTenant(request);
+    const __resolved = await safeResolveAgentbookTenant(request);
+    if ('response' in __resolved) return __resolved.response;
+    const { tenantId } = __resolved;
     const body = (await request.json().catch(() => ({}))) as InviteBody;
 
     const email = (body.email || '').trim().toLowerCase();
