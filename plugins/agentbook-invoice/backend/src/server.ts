@@ -1997,79 +1997,12 @@ app.post('/api/v1/agentbook-invoice/invoices/:id/payment-link', async (req: Requ
   }
 });
 
-// POST /stripe/checkout-completed — Handle successful Stripe payment
-app.post('/api/v1/agentbook-invoice/stripe/checkout-completed', async (req: Request, res: Response) => {
-  try {
-    const event = req.body;
-    if (event.type !== 'checkout.session.completed') {
-      return res.json({ received: true });
-    }
-
-    const session = event.data.object;
-    const invoiceId = session.metadata?.invoiceId;
-    const tenantId = session.metadata?.tenantId;
-    if (!invoiceId || !tenantId) return res.json({ received: true });
-
-    // Check idempotency — skip if already processed
-    const existing = await db.abPayment.findFirst({ where: { stripePaymentId: session.payment_intent } });
-    if (existing) return res.json({ received: true, message: 'Already processed' });
-
-    const invoice = await db.abInvoice.findFirst({ where: { id: invoiceId, tenantId } });
-    if (!invoice || invoice.status === 'paid') return res.json({ received: true });
-
-    const amountCents = session.amount_total || invoice.amountCents;
-
-    // Record payment
-    await db.abPayment.create({
-      data: {
-        tenantId,
-        invoiceId: invoice.id,
-        amountCents,
-        method: 'stripe',
-        date: new Date(),
-        stripePaymentId: session.payment_intent,
-      },
-    });
-
-    // Update invoice status
-    await db.abInvoice.update({
-      where: { id: invoice.id },
-      data: { status: 'paid' },
-    });
-
-    // Create journal entry if accounts exist
-    try {
-      const cashAccount = await getAccountByCode(tenantId, '1010');
-      const arAccount = await getAccountByCode(tenantId, '1200');
-      if (cashAccount && arAccount) {
-        await db.abJournalEntry.create({
-          data: {
-            tenantId, date: new Date(), description: `Stripe payment for ${invoice.number}`,
-            lines: {
-              create: [
-                { accountId: cashAccount.id, debitCents: amountCents, creditCents: 0 },
-                { accountId: arAccount.id, debitCents: 0, creditCents: amountCents },
-              ],
-            },
-          },
-        });
-      }
-    } catch { /* journal entry is best-effort */ }
-
-    // Log event
-    await db.abEvent.create({
-      data: {
-        tenantId, eventType: 'invoice.stripe_payment', actor: 'stripe',
-        action: { invoiceId: invoice.id, amountCents, paymentIntent: session.payment_intent },
-      },
-    });
-
-    res.json({ received: true, recorded: true });
-  } catch (err) {
-    console.error('Stripe checkout webhook error:', err);
-    res.json({ received: true, error: String(err) });
-  }
-});
+// NOTE: The plugin-level /stripe/checkout-completed handler was removed (G-005).
+// The 'checkout.session.completed' event is now handled by the canonical signed
+// handler at apps/web-next/src/app/api/v1/agentbook/stripe-webhook/route.ts
+// (delegated to handlers.ts). It verifies stripe-signature against
+// STRIPE_WEBHOOK_SECRET and runs the same payment-recording + journal-entry
+// logic. Do not re-add an unsigned endpoint here.
 
 // ============================================
 // PUBLIC INVOICE VIEW (no auth required)

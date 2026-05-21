@@ -911,38 +911,11 @@ app.get('/api/v1/agentbook-expense/reconciliation-summary', async (req, res) => 
 });
 
 // === STRIPE CONNECT (Phase 6) ===
-
-app.post('/api/v1/agentbook-expense/stripe/webhook', async (req, res) => {
-  try {
-    const tenantId = (req as any).tenantId;
-    const sig = req.headers['stripe-signature'];
-
-    // In production: verify signature with Stripe webhook secret
-    // const event = stripe.webhooks.constructEvent(req.body, sig, process.env.STRIPE_WEBHOOK_SECRET);
-
-    const event = req.body;
-
-    // Idempotency check
-    if (event.id) {
-      const existing = await db.abStripeWebhookEvent.findUnique({ where: { stripeEventId: event.id } });
-      if (existing?.processed) {
-        return res.json({ success: true, message: 'Already processed' });
-      }
-
-      await db.abStripeWebhookEvent.upsert({
-        where: { stripeEventId: event.id },
-        update: { processed: true },
-        create: { tenantId, stripeEventId: event.id, eventType: event.type || 'unknown', payload: event, processed: true },
-      });
-    }
-
-    await db.abEvent.create({
-      data: { tenantId, eventType: `stripe.${event.type || 'webhook'}`, actor: 'system', action: { stripeEventId: event.id } },
-    });
-
-    res.json({ success: true });
-  } catch (err) { res.status(500).json({ success: false, error: String(err) }); }
-});
+// NOTE: The plugin-level /stripe/webhook handler was removed (G-004).
+// All Stripe webhook events are now handled by the canonical signed handler at
+// apps/web-next/src/app/api/v1/agentbook/stripe-webhook/route.ts, which
+// verifies stripe-signature against STRIPE_WEBHOOK_SECRET. Do not re-add an
+// unsigned endpoint here.
 
 // === RECEIPT OCR (Phase 6) ===
 
