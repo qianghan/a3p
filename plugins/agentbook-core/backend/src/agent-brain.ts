@@ -36,6 +36,38 @@ interface AgentContext {
     skills?: any[],
     conversation?: any[],
     tenantConfig?: any,
+    confirmed?: boolean,
+  ) => Promise<any>;
+  /**
+   * PR 9 (G-010): pure classification — no side effects. Returns intent + params
+   * without executing the skill. agent-brain uses this to gate destructive
+   * actions (confirmBefore: true) behind a user confirmation step.
+   *
+   * Optional for backward compatibility: callers that don't provide it fall
+   * back to the legacy classifyAndExecuteV1 path. New callers should always
+   * provide it.
+   */
+  classifyOnly?: (
+    text: string,
+    tenantId: string,
+    channel: string,
+    attachments?: any[],
+    memory?: any[],
+    skills?: any[],
+    conversation?: any[],
+    tenantConfig?: any,
+  ) => Promise<any>;
+  /**
+   * PR 9 (G-010): execute a previously-returned classification. Used by the
+   * confirm-flow path — when the user replies "yes" to a destructive-action
+   * preview, we re-invoke the skill via this function.
+   */
+  executeClassification?: (
+    classification: any,
+    text: string,
+    tenantId: string,
+    channel: string,
+    attachments?: any[],
   ) => Promise<any>;
 }
 
@@ -96,6 +128,38 @@ function resolveBaseUrlForEndpoint(
 
 function buildResponse(data: AgentResponse['data']): AgentResponse {
   return { success: true, data };
+}
+
+/**
+ * Human-readable description of a destructive action, used in the plan preview.
+ * Kept deliberately simple — the goal is to let the user understand what is
+ * about to happen, not to render a full audit log.
+ */
+function describeDestructiveAction(classification: any, fallbackText: string): string {
+  const name = classification?.selectedSkill?.name || 'unknown';
+  const params = classification?.extractedParams || {};
+  switch (name) {
+    case 'send-invoice':
+      return params.invoiceId
+        ? `Send invoice ${params.invoiceId} to the client`
+        : 'Send the most recent invoice to the client';
+    case 'void-invoice':
+      return params.invoiceId
+        ? `Void invoice ${params.invoiceId} (reverses journal entries)`
+        : 'Void the most recent invoice (reverses journal entries)';
+    case 'tax-filing-submit':
+      return `Submit ${params.taxYear || 2025} tax return to CRA (e-file)`;
+    case 'create-credit-note':
+      return `Issue a credit note${params.invoiceId ? ` against ${params.invoiceId}` : ''}`;
+    case 'edit-expense':
+      return `Edit expense ${params.expenseId || 'last'}`;
+    case 'split-expense':
+      return `Split expense ${params.expenseId || 'last'} ${params.businessPercent ? `(${params.businessPercent}% business)` : ''}`;
+    case 'record-payment':
+      return `Record payment${params.amountCents ? ` of $${(params.amountCents / 100).toFixed(2)}` : ''}${params.clientName ? ` from ${params.clientName}` : ''}`;
+    default:
+      return `Run ${name}: ${fallbackText.slice(0, 100)}`;
+  }
 }
 
 // ─── Main ───────────────────────────────────────────────────────────────────
@@ -220,7 +284,61 @@ export async function handleAgentMessage(
     }
 
     if (action === 'confirm' && activeSession.pendingConfirmation) {
-      // Execute remaining steps
+      // PR 9 (G-010): if the session carries a pendingClassification (a
+      // destructive action gated on confirm), execute that classification now
+      // via ctx.executeClassification — bypassing the plan-step loop entirely.
+      const pc = activeSession.pendingConfirmation as any;
+      if (pc?.pendingClassification && ctx.executeClassification) {
+        const cleared = await updateSession(activeSession.id, activeSession.version, { pendingConfirmation: null });
+        if (!cleared) {
+          return buildResponse({
+            message: 'Session was modified by another process. Please try again.',
+            skillUsed: 'session',
+            confidence: 1,
+            latencyMs: Date.now() - startTime,
+          });
+        }
+        const v1Result = await ctx.executeClassification(
+          pc.pendingClassification,
+          pc.text || '',
+          tenantId,
+          pc.channel || channel,
+          pc.attachments || [],
+        );
+        await updateSession(activeSession.id, activeSession.version + 1, { status: 'completed' });
+
+        const responseData = v1Result?.responseData || {
+          message: v1Result?.skillResponse?.message || 'Done.',
+          skillUsed: v1Result?.skillUsed,
+          confidence: v1Result?.confidence,
+        };
+
+        // Best-effort logging
+        db.abConversation.create({
+          data: {
+            tenantId,
+            question: text,
+            answer: responseData.message || '',
+            queryType: 'agent',
+            channel,
+            skillUsed: responseData.skillUsed || v1Result?.skillUsed || 'unknown',
+            data: v1Result?.skillResponse || {},
+            latencyMs: Date.now() - startTime,
+          },
+        }).catch(() => {});
+
+        return buildResponse({
+          message: responseData.message,
+          actions: responseData.actions,
+          chartData: responseData.chartData,
+          skillUsed: responseData.skillUsed || v1Result?.skillUsed || 'unknown',
+          confidence: responseData.confidence ?? v1Result?.confidence ?? 1,
+          sessionId: activeSession.id,
+          latencyMs: Date.now() - startTime,
+        });
+      }
+
+      // Existing path: execute remaining plan steps (from the complex planner).
       const plan = (activeSession.plan as PlanStep[]) || [];
       const startStep = activeSession.currentStep ?? 0;
       const stepResults = (activeSession.stepResults as any[]) || [];
@@ -299,25 +417,108 @@ export async function handleAgentMessage(
     }),
   ]);
 
-  // ── Step 3: Classify via v1 ────────────────────────────────────────────
-  const v1Result = await ctx.classifyAndExecuteV1(
-    text,
-    tenantId,
-    channel,
-    attachments,
-    memory,
-    skills,
-    conversation,
-    tenantConfig,
-  );
+  // ── Step 3a: Classify ONLY (no side effects) ──────────────────────────
+  // PR 9 (G-010): split classification from execution so destructive actions
+  // can be gated on user confirmation BEFORE the skill HTTP call fires.
+  let classification: any = null;
+  if (ctx.classifyOnly) {
+    classification = await ctx.classifyOnly(
+      text, tenantId, channel, attachments, memory, skills, conversation, tenantConfig,
+    );
+  }
 
-  if (!v1Result) {
-    return buildResponse({
-      message: 'I\'m not sure what you mean. Try "Spent $45 on lunch" or "How much on travel?"',
-      skillUsed: 'none',
-      confidence: 0,
-      latencyMs: Date.now() - startTime,
-    });
+  // Fallback for legacy callers that only provide classifyAndExecuteV1.
+  // We still need a classification to evaluate confirmBefore; if the legacy
+  // function returned a result, treat it as already-executed.
+  let v1Result: any = null;
+
+  if (!classification) {
+    // Legacy path: classifyAndExecuteV1 does the whole thing atomically.
+    // This preserves backwards compatibility for callers that haven't migrated.
+    v1Result = await ctx.classifyAndExecuteV1(
+      text, tenantId, channel, attachments, memory, skills, conversation, tenantConfig,
+    );
+    if (!v1Result) {
+      return buildResponse({
+        message: 'I\'m not sure what you mean. Try "Spent $45 on lunch" or "How much on travel?"',
+        skillUsed: 'none',
+        confidence: 0,
+        latencyMs: Date.now() - startTime,
+      });
+    }
+  } else {
+    // Step 3b: if destructive, build a plan preview + create a session that
+    // stores the pending classification. Do NOT execute the skill.
+    if (classification.confirmBefore) {
+      const desc = describeDestructiveAction(classification, text);
+      const planSteps: PlanStep[] = [
+        {
+          id: 'step-1',
+          action: classification.selectedSkill?.name || 'unknown',
+          description: desc,
+          params: classification.extractedParams || {},
+          dependsOn: [],
+          canUndo: false,
+          status: 'pending',
+        },
+      ];
+
+      // Expire any existing active sessions then create a new one carrying
+      // the pendingClassification in the session.pendingConfirmation JSON blob.
+      // No schema change required — pendingConfirmation is already JSONB.
+      const session = await createSession(tenantId, text, planSteps);
+      await updateSession(session.id, session.version, {
+        pendingConfirmation: {
+          awaitingApproval: true,
+          pendingClassification: classification,
+          channel,
+          attachments: attachments || [],
+          text,
+        },
+      });
+
+      const planMessage = formatPlan(planSteps);
+
+      db.abConversation.create({
+        data: {
+          tenantId,
+          question: text,
+          answer: planMessage,
+          queryType: 'agent',
+          channel,
+          skillUsed: classification.selectedSkill?.name || 'planner',
+          data: { plan: planSteps as any, sessionId: session.id, pendingDestructive: true },
+        },
+      }).catch(() => {});
+
+      return buildResponse({
+        message: planMessage,
+        skillUsed: classification.selectedSkill?.name || 'planner',
+        confidence: classification.confidence ?? 0.8,
+        plan: { steps: planSteps, requiresConfirmation: true },
+        sessionId: session.id,
+        latencyMs: Date.now() - startTime,
+      });
+    }
+
+    // Step 3c: non-destructive — execute now.
+    if (ctx.executeClassification) {
+      v1Result = await ctx.executeClassification(classification, text, tenantId, channel, attachments);
+    } else {
+      // No executeClassification provided — fall back through classifyAndExecuteV1.
+      // (The classification was non-destructive, so this is safe.)
+      v1Result = await ctx.classifyAndExecuteV1(
+        text, tenantId, channel, attachments, memory, skills, conversation, tenantConfig,
+      );
+    }
+    if (!v1Result) {
+      return buildResponse({
+        message: 'I\'m not sure what you mean. Try "Spent $45 on lunch" or "How much on travel?"',
+        skillUsed: 'none',
+        confidence: 0,
+        latencyMs: Date.now() - startTime,
+      });
+    }
   }
 
   // ── Step 4: Complexity assessment ──────────────────────────────────────

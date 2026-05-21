@@ -2433,14 +2433,36 @@ async function resolveOrCreateClient(invoiceBase: string, tenantId: string, clie
   return client;
 }
 
-// --- 4. Agent Brain: classifyAndExecuteV1 (extracted from inline handler) ---
-export async function classifyAndExecuteV1(
+// --- 4. Agent Brain: classifyOnly / executeClassification / classifyAndExecuteV1 ---
+//
+// PR 9 (G-010): Splits the previous atomic classifyAndExecuteV1 into:
+//   - classifyOnly        → intent + params, NO side effects
+//   - executeClassification → runs the pre-processing + HTTP/INTERNAL handler
+//   - classifyAndExecuteV1  → wrapper preserving the existing public signature.
+//                            If the selected skill has confirmBefore=true,
+//                            returns the classification result without executing
+//                            so the caller (agent-brain.ts) can show a plan
+//                            preview and gate execution on user confirm.
+
+export interface ClassificationResult {
+  selectedSkill: any;                  // skill manifest entry from DB
+  extractedParams: Record<string, any>;
+  confidence: number;
+  confirmBefore: boolean;
+  // Context snapshot needed by executeClassification (so we don't re-fetch)
+  memory: any[];
+  skills: any[];
+  conversation: any[];
+  tenantConfig: any;
+  // For tracing
+  reasoning?: string;
+}
+
+export async function classifyOnly(
   text: string, tenantId: string, channel: string,
   attachments?: any[], memory?: any[], skills?: any[],
   conversation?: any[], tenantConfig?: any,
-): Promise<any> {
-  const startTime = Date.now();
-
+): Promise<ClassificationResult | null> {
   // If context params not provided, fetch them (backward compatibility)
   if (!memory || !skills || !conversation || tenantConfig === undefined) {
     const [tc, conv, mem, sk] = await Promise.all([
@@ -2669,8 +2691,33 @@ If no skill matches well, use "general-question" with parameter "question" = the
     return null;
   }
 
+  return {
+    selectedSkill,
+    extractedParams,
+    confidence,
+    confirmBefore: Boolean(selectedSkill.confirmBefore),
+    memory: memory as any[],
+    skills: skills as any[],
+    conversation: conversation as any[],
+    tenantConfig,
+  };
+}
+
+// executeClassification — given a pre-classified result, runs pre-processing
+// + the HTTP/INTERNAL skill handler and formats the response.
+// This is the side-effecting half of the original classifyAndExecuteV1.
+export async function executeClassification(
+  classification: ClassificationResult,
+  text: string,
+  tenantId: string,
+  channel: string,
+  attachments?: any[],
+): Promise<any> {
+  const startTime = Date.now();
+  let { selectedSkill, extractedParams, confidence } = classification;
+
   // === 3. SKILL EXECUTION ===
-  const endpoint = selectedSkill.endpoint as any;
+  let endpoint = selectedSkill.endpoint as any;
   const baseUrls: Record<string, string> = {
     '/api/v1/agentbook-expense': process.env.AGENTBOOK_EXPENSE_URL || 'http://localhost:4051',
     '/api/v1/agentbook-core': process.env.AGENTBOOK_CORE_URL || 'http://localhost:4050',
@@ -3739,6 +3786,50 @@ If no skill matches well, use "general-question" with parameter "question" = the
   };
 }
 
+// classifyAndExecuteV1 — backwards-compatible wrapper. Preserves the original
+// public signature so existing callers (telegram webhook, cron handlers, the
+// inline /agent/message route below) continue to work.
+//
+// Behavior change introduced by PR 9 (G-010): if the selected skill has
+// `confirmBefore: true` AND the caller did not pass `confirmed = true`, this
+// returns the classification result WITHOUT executing. The caller is then
+// responsible for showing a plan preview and re-invoking executeClassification
+// once the user confirms.
+//
+// Today the only caller that respects this convention is agent-brain.ts (which
+// uses classifyOnly + executeClassification directly). Other callers
+// (telegram webhook fallback, cron) still receive an execution result for
+// non-destructive skills — for destructive skills they will receive a
+// classification-only object and should handle the confirm flow.
+export async function classifyAndExecuteV1(
+  text: string, tenantId: string, channel: string,
+  attachments?: any[], memory?: any[], skills?: any[],
+  conversation?: any[], tenantConfig?: any,
+  confirmed?: boolean,
+): Promise<any> {
+  const classification = await classifyOnly(
+    text, tenantId, channel, attachments, memory, skills, conversation, tenantConfig,
+  );
+  if (!classification) return null;
+
+  // Destructive skill — gate on explicit confirmation. The classification is
+  // returned without side effects; the caller must persist it and re-invoke
+  // executeClassification after the user confirms.
+  if (classification.confirmBefore && !confirmed) {
+    return {
+      selectedSkill: classification.selectedSkill,
+      extractedParams: classification.extractedParams,
+      confidence: classification.confidence,
+      confirmBefore: true,
+      requiresConfirmation: true,
+      skillUsed: classification.selectedSkill.name,
+      classification,
+    };
+  }
+
+  return executeClassification(classification, text, tenantId, channel, attachments);
+}
+
 // --- 5. Agent Brain: Message Processing (thin wrapper) ---
 app.post('/api/v1/agentbook-core/agent/message', async (req, res) => {
   try {
@@ -3764,6 +3855,10 @@ app.post('/api/v1/agentbook-core/agent/message', async (req, res) => {
         callGemini,
         baseUrls,
         classifyAndExecuteV1,
+        // PR 9 (G-010): split classify/execute so destructive skills wait for
+        // user confirm before firing.
+        classifyOnly,
+        executeClassification,
       },
     );
 
