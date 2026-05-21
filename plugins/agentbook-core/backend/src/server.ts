@@ -10,6 +10,7 @@ import { createPluginServer } from '@naap/plugin-server-sdk';
 import { db } from './db/client.js';
 import { handleAgentMessage } from './agent-brain.js';
 import { BUILT_IN_SKILLS } from './built-in-skills.js';
+import { selectSkillByPatterns } from './skill-routing.js';
 import { handleDashboardOverview } from './dashboard/overview.js';
 import { handleDashboardActivity } from './dashboard/activity.js';
 import { handleDashboardAgentSummary } from './dashboard/agent-summary.js';
@@ -2268,6 +2269,8 @@ app.post('/api/v1/agentbook-core/agent/seed-skills', async (_req, res) => {
             description: skill.description,
             category: skill.category,
             triggerPatterns: skill.triggerPatterns,
+            requirePatterns: (skill as any).requirePatterns || [],
+            excludePatterns: (skill as any).excludePatterns || [],
             parameters: skill.parameters as any,
             endpoint: skill.endpoint as any,
             responseTemplate: (skill as any).responseTemplate || null,
@@ -2283,6 +2286,8 @@ app.post('/api/v1/agentbook-core/agent/seed-skills', async (_req, res) => {
             description: skill.description,
             category: skill.category,
             triggerPatterns: skill.triggerPatterns,
+            requirePatterns: (skill as any).requirePatterns || [],
+            excludePatterns: (skill as any).excludePatterns || [],
             parameters: skill.parameters as any,
             endpoint: skill.endpoint as any,
             responseTemplate: (skill as any).responseTemplate || null,
@@ -2320,7 +2325,7 @@ app.get('/api/v1/agentbook-core/agent/skills', async (req, res) => {
 app.post('/api/v1/agentbook-core/agent/skills', async (req, res) => {
   try {
     const tenantId = (req as any).tenantId;
-    const { name, description, category, triggerPatterns, parameters, endpoint, responseTemplate } = req.body;
+    const { name, description, category, triggerPatterns, requirePatterns, excludePatterns, parameters, endpoint, responseTemplate } = req.body;
     if (!name || !description) {
       return res.status(400).json({ success: false, error: 'name and description required' });
     }
@@ -2331,6 +2336,8 @@ app.post('/api/v1/agentbook-core/agent/skills', async (req, res) => {
         description,
         category: category || 'custom',
         triggerPatterns: triggerPatterns || [],
+        requirePatterns: requirePatterns || [],
+        excludePatterns: excludePatterns || [],
         parameters: parameters || {},
         endpoint: endpoint || {},
         responseTemplate: responseTemplate || null,
@@ -2531,49 +2538,14 @@ export async function classifyOnly(
         }
       }
 
-      // Check trigger patterns — but for record-expense, also require a dollar amount
+      // Manifest-driven routing (G-011): trigger + require + exclude patterns
+      // live on each AbSkillManifest entry; selectSkillByPatterns applies them
+      // uniformly. Skills are tried in array order — first match wins.
       for (const skill of skills) {
-        const patterns = (skill.triggerPatterns as string[]) || [];
-        if (patterns.length === 0) continue;
-
-        for (const pattern of patterns) {
-          try {
-            if (new RegExp(pattern, 'i').test(lower)) {
-              // Special check: query-finance should not match tax-specific queries that have dedicated skills
-              if (skill.name === 'query-finance') {
-                if (/tax.*estimate|how much.*tax|tax.*owe|tax.*situation|tax.*liability|quarterly.*tax|quarterly.*payment|estimated.*payment|deduction|write.*off|tax.*saving|tax.*break|p.?&?.?l|profit.*loss|income.*statement|net.*income|how.*much.*profit|balance.*sheet|net.*worth|equity|cash.*flow|cash.*projection|runway|burn.*rate|how long.*cash.*last|financial.*summary|financial.*snapshot|how.*doing.*financially|financial.*health|money.*move|action.*item|what.*should.*do|advice.*money|reconcil|unmatched.*transaction|bank.*match|bank.*status|tax.*fil|start.*fil|file.*tax|review.*t[12]|t2125|schedule.*1|gst.*return|tax.*slip|validate.*tax|check.*tax.*error|verify.*return|tax.*ready|export.*tax|generate.*tax.*form|download.*return|create.*tax.*file|print.*tax|pdf.*tax|submit.*cra|efile|netfile|filing.*status.*cra/i.test(lower)) continue;
-              }
-              // Special check: record-expense needs a $ amount and should not match invoice/simulation commands
-              if (skill.name === 'record-expense') {
-                // Must contain a dollar amount ($X, X dollars, or bare number after expense verb)
-                if (!/\$\s*[\d,]+\.?\d{0,2}|\d+\s*(?:dollars|bucks)/i.test(text)
-                    && !/(?:spent|paid|bought|purchased|cost)\s+\$?[\d,]+\.?\d{0,2}/i.test(text)) continue;
-                if (/^invoice\s/i.test(lower)) continue;
-                if (/what\s*if\b/i.test(lower)) continue;
-                if (/got.*\$.*from/i.test(lower)) continue;
-                if (/alert.*when|notify.*when|automat/i.test(lower)) continue;  // automation, not expense
-                if (/received.*payment/i.test(lower)) continue;
-                if (/^(?:estimate|quote|proposal)\s/i.test(lower)) continue;  // estimate, not expense
-              }
-              // Special check: proactive-alerts should not match automation creation commands
-              if (skill.name === 'proactive-alerts') {
-                if (/alert.*when|notify.*when|automat/i.test(lower)) continue;  // automation, not alert check
-              }
-              // Special check: review-queue should not match tax form reviews
-              if (skill.name === 'review-queue') {
-                if (/review.*t[12]|t2125|t1.*general|t1.*review|gst.*review|hst.*review|schedule.*1|review.*gst|review.*hst/i.test(lower)) continue;
-              }
-              // Special check: create-automation should not match listing/showing automations
-              if (skill.name === 'create-automation') {
-                if (/^(?:show|list|get|view|display|what|my)\s.*automat|^automat.*(?:show|list|get)|show.*my.*automat|list.*automat|my.*automat|active.*rule/i.test(lower)) continue;
-              }
-              selectedSkill = skill;
-              confidence = 0.85;
-              break;
-            }
-          } catch { /* invalid regex */ }
-        }
-        if (selectedSkill) break;
+        if (!selectSkillByPatterns(skill, text, lower)) continue;
+        selectedSkill = skill;
+        confidence = 0.85;
+        break;
       }
 
       // Extract params for regex-matched skills
