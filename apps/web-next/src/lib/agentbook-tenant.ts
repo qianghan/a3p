@@ -14,7 +14,7 @@
  */
 
 import 'server-only';
-import type { NextRequest } from 'next/server';
+import { NextResponse, type NextRequest } from 'next/server';
 
 function isCronAuthenticated(request: NextRequest): boolean {
   // Vercel-issued cron requests
@@ -82,20 +82,32 @@ export async function resolveAgentbookTenant(request: NextRequest): Promise<stri
  * Convenience wrapper for route handlers that want graceful 401/400 responses
  * instead of unhandled throws. Returns either { tenantId } or { response } that
  * the handler should immediately return.
+ *
+ * The `response` is a `NextResponse` so it satisfies both `Response` and
+ * `NextResponse` return types in route handlers.
  */
 export async function safeResolveAgentbookTenant(
   request: NextRequest
-): Promise<{ tenantId: string } | { response: Response }> {
+): Promise<{ tenantId: string } | { response: NextResponse }> {
   try {
     const tenantId = await resolveAgentbookTenant(request);
     return { tenantId };
   } catch (err) {
-    if (err instanceof Response) return { response: err };
+    if (err instanceof Response) {
+      // Re-wrap as NextResponse so the caller's typed return signature accepts it.
+      const body = await err.text();
+      return {
+        response: new NextResponse(body, {
+          status: err.status,
+          headers: err.headers,
+        }),
+      };
+    }
     return {
-      response: new Response(JSON.stringify({ error: 'internal error during auth' }), {
-        status: 500,
-        headers: { 'Content-Type': 'application/json' },
-      }),
+      response: NextResponse.json(
+        { error: 'internal error during auth' },
+        { status: 500 },
+      ),
     };
   }
 }

@@ -21,7 +21,7 @@
 
 import 'server-only';
 import { NextRequest, NextResponse } from 'next/server';
-import { resolveAgentbookTenant } from '@/lib/agentbook-tenant';
+import { safeResolveAgentbookTenant } from '@/lib/agentbook-tenant';
 import { buildCatchUp } from '@/lib/agentbook-catch-up';
 
 export const runtime = 'nodejs';
@@ -43,7 +43,9 @@ function parseSince(raw: string | null): Date {
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
   try {
-    const tenantId = await resolveAgentbookTenant(request);
+    const __resolved = await safeResolveAgentbookTenant(request);
+    if ('response' in __resolved) return __resolved.response;
+    const { tenantId } = __resolved;
     const sinceAt = parseSince(request.nextUrl.searchParams.get('since'));
 
     const summary = await buildCatchUp({ tenantId, sinceAt });

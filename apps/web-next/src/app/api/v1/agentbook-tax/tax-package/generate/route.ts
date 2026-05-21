@@ -9,14 +9,14 @@
  * the same triple regenerates artifacts but reuses the row id, which
  * the e2e suite asserts.
  *
- * Tenant scoping happens up-front via `resolveAgentbookTenant`; every
+ * Tenant scoping happens up-front via `safeResolveAgentbookTenant`; every
  * downstream Prisma query in `gatherPackageData` filters by `tenantId`.
  */
 
 import 'server-only';
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma as db } from '@naap/database';
-import { resolveAgentbookTenant } from '@/lib/agentbook-tenant';
+import { safeResolveAgentbookTenant } from '@/lib/agentbook-tenant';
 import { generatePackage } from '@/lib/agentbook-tax-package';
 
 export const runtime = 'nodejs';
@@ -32,7 +32,9 @@ interface GenerateBody {
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
   try {
-    const tenantId = await resolveAgentbookTenant(request);
+    const __resolved = await safeResolveAgentbookTenant(request);
+    if ('response' in __resolved) return __resolved.response;
+    const { tenantId } = __resolved;
     const body = (await request.json().catch(() => ({}))) as GenerateBody;
 
     // Validate year up front. Accept number or numeric string; reject

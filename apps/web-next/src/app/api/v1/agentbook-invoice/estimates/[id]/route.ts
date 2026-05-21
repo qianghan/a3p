@@ -9,7 +9,7 @@
 import 'server-only';
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma as db } from '@naap/database';
-import { resolveAgentbookTenant } from '@/lib/agentbook-tenant';
+import { safeResolveAgentbookTenant } from '@/lib/agentbook-tenant';
 import { formatEstimateNumber } from '@/lib/agentbook-estimate-parser';
 
 export const runtime = 'nodejs';
@@ -30,7 +30,9 @@ const DELETABLE_STATUSES = new Set(['pending', 'declined', 'expired']);
 
 export async function GET(request: NextRequest, { params }: RouteContext): Promise<NextResponse> {
   try {
-    const tenantId = await resolveAgentbookTenant(request);
+    const __resolved = await safeResolveAgentbookTenant(request);
+    if ('response' in __resolved) return __resolved.response;
+    const { tenantId } = __resolved;
     const { id } = await params;
     const estimate = await db.abEstimate.findFirst({
       where: { id, tenantId },
@@ -54,7 +56,9 @@ export async function GET(request: NextRequest, { params }: RouteContext): Promi
 
 export async function PATCH(request: NextRequest, { params }: RouteContext): Promise<NextResponse> {
   try {
-    const tenantId = await resolveAgentbookTenant(request);
+    const __resolved = await safeResolveAgentbookTenant(request);
+    if ('response' in __resolved) return __resolved.response;
+    const { tenantId } = __resolved;
     const { id } = await params;
     const body = (await request.json().catch(() => ({}))) as PatchBody;
 
@@ -126,7 +130,9 @@ export async function PATCH(request: NextRequest, { params }: RouteContext): Pro
 
 export async function DELETE(request: NextRequest, { params }: RouteContext): Promise<NextResponse> {
   try {
-    const tenantId = await resolveAgentbookTenant(request);
+    const __resolved = await safeResolveAgentbookTenant(request);
+    if ('response' in __resolved) return __resolved.response;
+    const { tenantId } = __resolved;
     const { id } = await params;
     const existing = await db.abEstimate.findFirst({ where: { id, tenantId } });
     if (!existing) {

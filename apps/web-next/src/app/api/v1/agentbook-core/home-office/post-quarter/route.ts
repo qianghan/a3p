@@ -25,7 +25,7 @@
  *     AbExpense row per non-zero component so the user can see "10%
  *     of utilities = $40, 10% of internet = $9, …" in the ledger.
  *
- * Tenant-scoped (`resolveAgentbookTenant`), 500s sanitised, 422 when
+ * Tenant-scoped (`safeResolveAgentbookTenant`), 500s sanitised, 422 when
  * config is missing the data needed to compute the deductible.
  *
  * GET returns the history of quarters posted so far.
@@ -34,7 +34,7 @@
 import 'server-only';
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma as db } from '@naap/database';
-import { resolveAgentbookTenant } from '@/lib/agentbook-tenant';
+import { safeResolveAgentbookTenant } from '@/lib/agentbook-tenant';
 import {
   computeQuarterlyDeductible,
   computeRatio,
@@ -69,7 +69,9 @@ const QUARTER_TO_MONTH: Record<number, number> = { 1: 0, 2: 3, 3: 6, 4: 9 };
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
   try {
-    const tenantId = await resolveAgentbookTenant(request);
+    const __resolved = await safeResolveAgentbookTenant(request);
+    if ('response' in __resolved) return __resolved.response;
+    const { tenantId } = __resolved;
     const body = (await request.json().catch(() => ({}))) as PostQuarterBody;
 
     const year = typeof body.year === 'number' && body.year > 1900 && body.year < 9999
@@ -276,7 +278,9 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
   try {
-    const tenantId = await resolveAgentbookTenant(request);
+    const __resolved = await safeResolveAgentbookTenant(request);
+    if ('response' in __resolved) return __resolved.response;
+    const { tenantId } = __resolved;
     const entries = await db.abExpense.findMany({
       where: { tenantId, taxCategory: 'home_office' },
       orderBy: { date: 'desc' },

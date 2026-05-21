@@ -17,7 +17,7 @@
 import 'server-only';
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma as db } from '@naap/database';
-import { resolveAgentbookTenant } from '@/lib/agentbook-tenant';
+import { safeResolveAgentbookTenant } from '@/lib/agentbook-tenant';
 import { parseInvoiceFromText, type ParsedInvoiceDraft } from '@/lib/agentbook-invoice-parser';
 import { createInvoiceDraft } from '@/lib/agentbook-invoice-draft';
 import { audit } from '@/lib/agentbook-audit';
@@ -35,7 +35,9 @@ interface DraftFromTextBody {
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
   try {
-    const tenantId = await resolveAgentbookTenant(request);
+    const __resolved = await safeResolveAgentbookTenant(request);
+    if ('response' in __resolved) return __resolved.response;
+    const { tenantId } = __resolved;
     const body = (await request.json().catch(() => ({}))) as DraftFromTextBody;
     const text = (body.text || '').trim();
 

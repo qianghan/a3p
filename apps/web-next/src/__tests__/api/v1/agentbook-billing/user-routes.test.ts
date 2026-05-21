@@ -15,7 +15,10 @@ const billPlanFindUnique = vi.fn();
 const billPlanFindFirst = vi.fn();
 const resolveTenant = vi.fn().mockResolvedValue('t1');
 
-vi.mock('@/lib/agentbook-tenant', () => ({ resolveAgentbookTenant: (...a: unknown[]) => resolveTenant(...a) }));
+vi.mock('@/lib/agentbook-tenant', () => ({
+  resolveAgentbookTenant: (...a: unknown[]) => resolveTenant(...a),
+  safeResolveAgentbookTenant: async (...a: unknown[]) => ({ tenantId: await resolveTenant(...a) }),
+}));
 vi.mock('@naap/billing', () => ({
   getCurrentPlan: (...a: unknown[]) => getCurrentPlan(...a),
   invalidateAccount: vi.fn(),

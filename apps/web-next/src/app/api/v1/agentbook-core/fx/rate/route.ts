@@ -11,7 +11,7 @@
 
 import 'server-only';
 import { NextRequest, NextResponse } from 'next/server';
-import { resolveAgentbookTenant } from '@/lib/agentbook-tenant';
+import { safeResolveAgentbookTenant } from '@/lib/agentbook-tenant';
 import { getRate } from '@/lib/agentbook-fx';
 
 export const runtime = 'nodejs';
@@ -23,8 +23,8 @@ const CCY_RE = /^[A-Z]{3}$/;
 export async function GET(request: NextRequest): Promise<NextResponse> {
   try {
     // Auth via tenant resolution — fails fast for unauthenticated callers.
-    await resolveAgentbookTenant(request);
-
+    const __resolved = await safeResolveAgentbookTenant(request);
+    if ('response' in __resolved) return __resolved.response;
     const { searchParams } = new URL(request.url);
     const from = (searchParams.get('from') || '').toUpperCase();
     const to = (searchParams.get('to') || '').toUpperCase();

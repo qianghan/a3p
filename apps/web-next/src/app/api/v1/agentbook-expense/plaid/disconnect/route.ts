@@ -10,7 +10,7 @@
 
 import 'server-only';
 import { NextRequest, NextResponse } from 'next/server';
-import { resolveAgentbookTenant } from '@/lib/agentbook-tenant';
+import { safeResolveAgentbookTenant } from '@/lib/agentbook-tenant';
 import { disconnectAccount, sanitizePlaidError } from '@/lib/agentbook-plaid';
 
 export const runtime = 'nodejs';
@@ -23,7 +23,9 @@ interface DisconnectBody {
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
   try {
-    const tenantId = await resolveAgentbookTenant(request);
+    const __resolved = await safeResolveAgentbookTenant(request);
+    if ('response' in __resolved) return __resolved.response;
+    const { tenantId } = __resolved;
     const body = (await request.json().catch(() => ({}))) as DisconnectBody;
     const { accountId } = body;
     if (!accountId || typeof accountId !== 'string') {

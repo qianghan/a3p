@@ -17,7 +17,7 @@
 
 import 'server-only';
 import { NextRequest, NextResponse } from 'next/server';
-import { resolveAgentbookTenant } from '@/lib/agentbook-tenant';
+import { safeResolveAgentbookTenant } from '@/lib/agentbook-tenant';
 import { getStatusSnapshot } from '@/lib/agentbook-status';
 
 export const runtime = 'nodejs';
@@ -26,7 +26,9 @@ export const maxDuration = 30;
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
   try {
-    const tenantId = await resolveAgentbookTenant(request);
+    const __resolved = await safeResolveAgentbookTenant(request);
+    if ('response' in __resolved) return __resolved.response;
+    const { tenantId } = __resolved;
     const snapshot = await getStatusSnapshot(tenantId);
     return NextResponse.json({ success: true, data: snapshot });
   } catch (err) {
