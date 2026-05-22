@@ -261,17 +261,46 @@ export async function handleAgentMessage(
           latencyMs: Date.now() - startTime,
         });
       }
-      const lastUndo = undoStack.pop()!;
+      // PR 24 (G-028): peek without popping. Only commit the pop + session
+      // update if the reverse call succeeds. Previously the stack was popped
+      // unconditionally and "Undone: X" was reported even when the reverse
+      // fetch threw or returned 5xx — leaving the user with a misleading
+      // success message and a lost undo entry.
+      const lastUndo = undoStack[undoStack.length - 1];
       const baseUrl = resolveBaseUrlForEndpoint(lastUndo.reverseEndpoint, ctx.baseUrls);
+      let reverseStatus: number | null = null;
+      let reverseError: string | null = null;
       try {
-        await fetch(`${baseUrl}${lastUndo.reverseEndpoint}`, {
+        const r = await fetch(`${baseUrl}${lastUndo.reverseEndpoint}`, {
           method: lastUndo.reverseMethod || 'POST',
           headers: { 'Content-Type': 'application/json', 'x-tenant-id': tenantId },
           body: JSON.stringify(lastUndo.reverseParams || {}),
         });
-      } catch {
-        // Best-effort undo
+        reverseStatus = r.status;
+        if (!r.ok) reverseError = `reverse call returned HTTP ${r.status}`;
+      } catch (err) {
+        reverseError = err instanceof Error ? err.message : String(err);
       }
+
+      if (reverseError) {
+        console.warn('[agent-brain] undo reverse-call failed:', {
+          tenantId,
+          description: lastUndo.description,
+          reverseStatus,
+          reverseError,
+        });
+        return buildResponse({
+          message: `I couldn't undo "${lastUndo.description}" — the reverse step failed. Try again, or contact support if it keeps happening.`,
+          skillUsed: 'session',
+          confidence: 1,
+          sessionId: activeSession.id,
+          undoAvailable: true,
+          latencyMs: Date.now() - startTime,
+        });
+      }
+
+      // Reverse succeeded — commit the pop and update the session.
+      undoStack.pop();
       await updateSession(activeSession.id, activeSession.version, { undoStack });
       return buildResponse({
         message: `Undone: ${lastUndo.description}`,
