@@ -15,6 +15,7 @@ import { safeResolveAgentbookTenant } from '@/lib/agentbook-tenant';
 import { audit } from '@/lib/agentbook-audit';
 import { inferSource, inferActor } from '@/lib/agentbook-audit-context';
 import { withSoftDelete, parseIncludeDeleted } from '@/lib/agentbook-soft-delete';
+import { withHttpIdempotency } from '@/lib/agentbook-idempotency';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -46,161 +47,175 @@ interface CreateExpenseBody {
 }
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
-  try {
-    const __resolved = await safeResolveAgentbookTenant(request);
-    if ('response' in __resolved) return __resolved.response;
-    const { tenantId } = __resolved;
-    const body = (await request.json().catch(() => ({}))) as CreateExpenseBody;
-    const {
-      amountCents, vendor, categoryId, date, description, receiptUrl, confidence, isPersonal,
-      taxAmountCents, tipAmountCents, paymentMethod, currency, notes, tags, isBillable, clientId, source, status,
-    } = body;
+  const __resolved = await safeResolveAgentbookTenant(request);
+  if ('response' in __resolved) return __resolved.response;
+  const { tenantId } = __resolved;
+  const auditSource = inferSource(request);
+  const auditActor = await inferActor(request);
 
-    if (!amountCents || amountCents <= 0) {
-      return NextResponse.json({ success: false, error: 'amountCents must be a positive integer' }, { status: 400 });
-    }
+  return withHttpIdempotency(request, {
+    tenantId,
+    endpoint: 'POST /api/v1/agentbook-expense/expenses',
+    handler: async (rawBody) => {
+      try {
+        let body: CreateExpenseBody = {};
+        try {
+          body = rawBody ? (JSON.parse(rawBody) as CreateExpenseBody) : {};
+        } catch {
+          body = {};
+        }
+        const {
+          amountCents, vendor, categoryId, date, description, receiptUrl, confidence, isPersonal,
+          taxAmountCents, tipAmountCents, paymentMethod, currency, notes, tags, isBillable, clientId, source, status,
+        } = body;
 
-    let vendorRecord: { id: string; defaultCategoryId: string | null; normalizedName: string } | null = null;
-    if (vendor) {
-      const normalized = normalizeVendorName(vendor);
-      if (normalized) {
-        vendorRecord = await db.abVendor.upsert({
-          where: { tenantId_normalizedName: { tenantId, normalizedName: normalized } },
-          update: { transactionCount: { increment: 1 }, lastSeen: new Date() },
-          create: {
-            tenantId,
-            name: vendor,
-            normalizedName: normalized,
-            defaultCategoryId: categoryId || null,
-          },
-          select: { id: true, defaultCategoryId: true, normalizedName: true },
-        });
-      }
-    }
+        if (!amountCents || amountCents <= 0) {
+          return { status: 400, body: { success: false, error: 'amountCents must be a positive integer' } };
+        }
 
-    let resolvedCategoryId: string | null = categoryId ?? null;
-    let resolvedConfidence: number | null = confidence ?? null;
-    if (!resolvedCategoryId && vendorRecord) {
-      const pattern = await db.abPattern.findUnique({
-        where: { tenantId_vendorPattern: { tenantId, vendorPattern: vendorRecord.normalizedName } },
-      });
-      if (pattern) {
-        resolvedCategoryId = pattern.categoryId;
-        resolvedConfidence = pattern.confidence;
-        await db.abPattern.update({
-          where: { id: pattern.id },
-          data: { usageCount: { increment: 1 }, lastUsed: new Date() },
-        });
-      }
-    }
+        let vendorRecord: { id: string; defaultCategoryId: string | null; normalizedName: string } | null = null;
+        if (vendor) {
+          const normalized = normalizeVendorName(vendor);
+          if (normalized) {
+            vendorRecord = await db.abVendor.upsert({
+              where: { tenantId_normalizedName: { tenantId, normalizedName: normalized } },
+              update: { transactionCount: { increment: 1 }, lastSeen: new Date() },
+              create: {
+                tenantId,
+                name: vendor,
+                normalizedName: normalized,
+                defaultCategoryId: categoryId || null,
+              },
+              select: { id: true, defaultCategoryId: true, normalizedName: true },
+            });
+          }
+        }
 
-    const expense = await db.$transaction(async (tx) => {
-      let journalEntryId: string | null = null;
-      if (resolvedCategoryId && !isPersonal) {
-        const cashAccount = await tx.abAccount.findFirst({ where: { tenantId, code: '1000' } });
-        if (cashAccount) {
-          const je = await tx.abJournalEntry.create({
+        let resolvedCategoryId: string | null = categoryId ?? null;
+        let resolvedConfidence: number | null = confidence ?? null;
+        if (!resolvedCategoryId && vendorRecord) {
+          const pattern = await db.abPattern.findUnique({
+            where: { tenantId_vendorPattern: { tenantId, vendorPattern: vendorRecord.normalizedName } },
+          });
+          if (pattern) {
+            resolvedCategoryId = pattern.categoryId;
+            resolvedConfidence = pattern.confidence;
+            await db.abPattern.update({
+              where: { id: pattern.id },
+              data: { usageCount: { increment: 1 }, lastUsed: new Date() },
+            });
+          }
+        }
+
+        const expense = await db.$transaction(async (tx) => {
+          let journalEntryId: string | null = null;
+          if (resolvedCategoryId && !isPersonal) {
+            const cashAccount = await tx.abAccount.findFirst({ where: { tenantId, code: '1000' } });
+            if (cashAccount) {
+              const je = await tx.abJournalEntry.create({
+                data: {
+                  tenantId,
+                  date: new Date(date || Date.now()),
+                  memo: `Expense: ${description || vendor || 'Expense'}`,
+                  sourceType: 'expense',
+                  verified: true,
+                  lines: {
+                    create: [
+                      { tenantId, accountId: resolvedCategoryId, debitCents: amountCents, creditCents: 0, description: description || vendor || 'Expense' }, // G-009
+                      { tenantId, accountId: cashAccount.id, debitCents: 0, creditCents: amountCents, description: `Payment: ${vendor || 'Expense'}` }, // G-009
+                    ],
+                  },
+                },
+              });
+              journalEntryId = je.id;
+            }
+          }
+
+          const exp = await tx.abExpense.create({
             data: {
               tenantId,
+              amountCents,
+              taxAmountCents: taxAmountCents || 0,
+              tipAmountCents: tipAmountCents || 0,
+              vendorId: vendorRecord?.id,
+              categoryId: resolvedCategoryId,
               date: new Date(date || Date.now()),
-              memo: `Expense: ${description || vendor || 'Expense'}`,
-              sourceType: 'expense',
-              verified: true,
-              lines: {
-                create: [
-                  { tenantId, accountId: resolvedCategoryId, debitCents: amountCents, creditCents: 0, description: description || vendor || 'Expense' }, // G-009
-                  { tenantId, accountId: cashAccount.id, debitCents: 0, creditCents: amountCents, description: `Payment: ${vendor || 'Expense'}` }, // G-009
-                ],
+              description: description || vendor || 'Expense',
+              notes: notes || null,
+              receiptUrl,
+              paymentMethod: paymentMethod || 'unknown',
+              currency: currency || 'USD',
+              tags: tags || null,
+              confidence: resolvedConfidence,
+              isPersonal: isPersonal || false,
+              isBillable: isBillable || false,
+              clientId: clientId || null,
+              journalEntryId,
+              ...(source ? { source } : {}),
+              ...(status ? { status } : {}),
+            },
+            include: { vendor: true },
+          });
+
+          await tx.abEvent.create({
+            data: {
+              tenantId,
+              eventType: 'expense.recorded',
+              actor: 'agent',
+              action: {
+                expense_id: exp.id,
+                amountCents,
+                vendor: vendor || null,
+                categoryId: resolvedCategoryId,
+                isPersonal: isPersonal || false,
+                hasReceipt: !!receiptUrl,
               },
             },
           });
-          journalEntryId = je.id;
-        }
-      }
 
-      const exp = await tx.abExpense.create({
-        data: {
-          tenantId,
-          amountCents,
-          taxAmountCents: taxAmountCents || 0,
-          tipAmountCents: tipAmountCents || 0,
-          vendorId: vendorRecord?.id,
-          categoryId: resolvedCategoryId,
-          date: new Date(date || Date.now()),
-          description: description || vendor || 'Expense',
-          notes: notes || null,
-          receiptUrl,
-          paymentMethod: paymentMethod || 'unknown',
-          currency: currency || 'USD',
-          tags: tags || null,
-          confidence: resolvedConfidence,
-          isPersonal: isPersonal || false,
-          isBillable: isBillable || false,
-          clientId: clientId || null,
-          journalEntryId,
-          ...(source ? { source } : {}),
-          ...(status ? { status } : {}),
-        },
-        include: { vendor: true },
-      });
+          return exp;
+        });
 
-      await tx.abEvent.create({
-        data: {
+        await audit({
           tenantId,
-          eventType: 'expense.recorded',
-          actor: 'agent',
-          action: {
-            expense_id: exp.id,
+          source: auditSource,
+          actor: auditActor,
+          action: 'expense.create',
+          entityType: 'AbExpense',
+          entityId: expense.id,
+          after: {
             amountCents,
-            vendor: vendor || null,
+            vendorId: expense.vendorId,
+            vendorName: vendor || null,
             categoryId: resolvedCategoryId,
-            isPersonal: isPersonal || false,
+            date: expense.date,
+            description: expense.description,
+            isPersonal: expense.isPersonal,
             hasReceipt: !!receiptUrl,
           },
-        },
-      });
+        });
 
-      return exp;
-    });
-
-    await audit({
-      tenantId,
-      source: inferSource(request),
-      actor: await inferActor(request),
-      action: 'expense.create',
-      entityType: 'AbExpense',
-      entityId: expense.id,
-      after: {
-        amountCents,
-        vendorId: expense.vendorId,
-        vendorName: vendor || null,
-        categoryId: resolvedCategoryId,
-        date: expense.date,
-        description: expense.description,
-        isPersonal: expense.isPersonal,
-        hasReceipt: !!receiptUrl,
-      },
-    });
-
-    return NextResponse.json(
-      {
-        success: true,
-        data: expense,
-        meta: {
-          vendor: vendorRecord,
-          categoryFromPattern: !categoryId && !!resolvedCategoryId,
-          confidence: resolvedConfidence,
-        },
-      },
-      { status: 201 },
-    );
-  } catch (err) {
-    console.error('[agentbook-expense/expenses POST] failed:', err);
-    return NextResponse.json(
-      { success: false, error: err instanceof Error ? err.message : String(err) },
-      { status: 500 },
-    );
-  }
+        return {
+          status: 201,
+          body: {
+            success: true,
+            data: expense,
+            meta: {
+              vendor: vendorRecord,
+              categoryFromPattern: !categoryId && !!resolvedCategoryId,
+              confidence: resolvedConfidence,
+            },
+          },
+        };
+      } catch (err) {
+        console.error('[agentbook-expense/expenses POST] failed:', err);
+        return {
+          status: 500,
+          body: { success: false, error: err instanceof Error ? err.message : String(err) },
+        };
+      }
+    },
+  });
 }
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
