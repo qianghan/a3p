@@ -9,6 +9,7 @@ import { createPluginServer } from '@naap/plugin-server-sdk';
 import { db } from './db/client.js';
 import { Configuration, PlaidApi, PlaidEnvironments, Products, CountryCode } from 'plaid';
 import { encryptToken, decryptToken } from './plaid-token-crypto.js';
+import { checkQuota, incrementUsage } from '@naap/billing';
 
 // === Plaid Client Setup ===
 const PLAID_CLIENT_ID = process.env.PLAID_CLIENT_ID || '69d02fa4f1949b000dbfc51e';
@@ -48,6 +49,29 @@ app.use((req, res, next) => {
   (req as any).tenantId = req.headers['x-tenant-id'] as string || 'default';
   next();
 });
+
+// === Billing quota helper ===
+// Returns true if the request should proceed; if false, the helper has
+// already sent the appropriate 402 (quota_exceeded) or 503 (transient
+// quota_check_unavailable) response and the handler must short-circuit.
+// G-022: failing CLOSED on DB errors is the security property — see
+// packages/billing/src/quotas.ts.
+async function enforceQuota(
+  res: any,
+  tenantId: string,
+  dim: 'ocr_scans' | 'bank_connections' | 'ai_messages' | 'expenses_created' | 'invoices_sent',
+): Promise<boolean> {
+  const q = await checkQuota(tenantId, dim);
+  if (q.allowed) return true;
+  const status = q.retryable ? 503 : 402;
+  res.status(status).json({
+    success: false,
+    error: q.reason ?? 'quota_exceeded',
+    quota: { dimension: dim, used: q.used, limit: q.limit, remaining: q.remaining },
+    upgradeUrl: '/billing',
+  });
+  return false;
+}
 
 // === Health Check ===
 app.get('/healthz', async (_req, res) => {
@@ -694,6 +718,11 @@ app.post('/api/v1/agentbook-expense/plaid/exchange-token', async (req, res) => {
       return res.status(400).json({ success: false, error: 'publicToken is required' });
     }
 
+    // G-022: gate Plaid linking by the bank_connections quota. Free-tier
+    // plans cap how many institutions a user can link. The check is BEFORE
+    // we call Plaid so we don't burn an API call on a denied request.
+    if (!(await enforceQuota(res, tenantId, 'bank_connections'))) return;
+
     // Exchange public token for access token
     const exchangeRes = await plaidClient.itemPublicTokenExchange({ public_token: publicToken });
     const accessToken = exchangeRes.data.access_token;
@@ -757,6 +786,11 @@ app.post('/api/v1/agentbook-expense/plaid/exchange-token', async (req, res) => {
         action: { itemId, institution: institutionName, accountCount: createdAccounts.length },
       },
     });
+
+    // G-022: count each newly-linked Plaid item as one connection. Re-links
+    // (existing rows refreshed) don't increment — only net-new institutions
+    // count against the quota. Fire-and-forget.
+    void incrementUsage(tenantId, 'bank_connections', 1).catch(() => {});
 
     res.json({ success: true, data: { accounts: createdAccounts, itemId } });
   } catch (err: any) {
@@ -989,6 +1023,10 @@ app.post('/api/v1/agentbook-expense/receipts/ocr', async (req, res) => {
       return res.status(400).json({ success: false, error: 'imageUrl is required' });
     }
 
+    // G-022: gate the LLM OCR call by the ocr_scans quota. Free-tier
+    // users hit a hard ceiling instead of unlimited Gemini Vision calls.
+    if (!(await enforceQuota(res, tenantId, 'ocr_scans'))) return;
+
     // Call Gemini for receipt OCR
     // safe: AbLLMProviderConfig is admin-managed platform config (tenantId nullable). Per-tenant override scoping deferred to PR 3 (G-005).
     const llmConfig = await db.abLLMProviderConfig.findFirst({ where: { enabled: true, isDefault: true } });
@@ -1132,6 +1170,12 @@ Return ONLY valid JSON: {"amount_cents": <integer>, "vendor": "<string or null>"
     await db.abEvent.create({
       data: { tenantId, eventType: 'receipt.ocr_requested', actor: 'system', action: { imageUrl: imageUrl.slice(0, 50) + '...' } },
     });
+
+    // G-022: increment the OCR usage counter. Fire-and-forget — if this
+    // fails the user got the service; the counter is best-effort and
+    // self-heals on the next call (incrementUsage is idempotent-ish via
+    // upsert).
+    void incrementUsage(tenantId, 'ocr_scans', 1).catch(() => {});
 
     // Auto-execute: if OCR extracted data with confidence > 0.7, create expense automatically
     if (ocrResult.amount_cents > 0 && ocrResult.confidence > 0.7) {
@@ -1808,6 +1852,11 @@ app.post('/api/v1/agentbook-expense/advisor/ask', async (req, res) => {
     const { question, period } = req.body;
     if (!question) return res.status(400).json({ success: false, error: 'question is required' });
 
+    // G-022: gate advisor LLM calls by the ai_messages quota. This is
+    // a Gemini call with full expense context — by far the most expensive
+    // operation in this plugin per unit.
+    if (!(await enforceQuota(res, tenantId, 'ai_messages'))) return;
+
     const now = new Date();
     const startDate = period?.start ? new Date(period.start) : new Date(now.getFullYear(), 0, 1);
     const endDate = period?.end ? new Date(period.end) : now;
@@ -1957,6 +2006,10 @@ Only include chartData if the question would benefit from visualization.`;
         action: { question, answerLength: answer.length, hasChart: !!chartData } as any,
       },
     });
+
+    // G-022: count this Gemini call against the ai_messages quota.
+    // Fire-and-forget — the user already got the answer.
+    void incrementUsage(tenantId, 'ai_messages', 1).catch(() => {});
 
     res.json({
       success: true,

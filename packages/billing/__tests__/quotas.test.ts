@@ -63,12 +63,26 @@ describe('checkQuota', () => {
     expect(q.remaining).toBe(Number.POSITIVE_INFINITY);
   });
 
-  it('fails open on DB error', async () => {
+  it('fails CLOSED on DB error (G-022)', async () => {
+    // Subscription lookup throws — checkQuota must deny the request
+    // and mark it retryable, NOT silently grant access.
     findUnique.mockRejectedValue(new Error('db down'));
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {});
     const q = await checkQuota('t1', 'ocr_scans');
-    expect(q.allowed).toBe(true);
-    warn.mockRestore();
+    expect(q.allowed).toBe(false);
+    expect(q.reason).toBe('quota_check_unavailable');
+    expect(q.retryable).toBe(true);
+    err.mockRestore();
+  });
+
+  it('populates reason: quota_exceeded when used >= limit', async () => {
+    findUnique.mockResolvedValue(proSub);
+    findMany.mockResolvedValue([{ dimension: 'ocr_scans', count: 10 }]);
+    const q = await checkQuota('t1', 'ocr_scans');
+    expect(q.allowed).toBe(false);
+    expect(q.reason).toBe('quota_exceeded');
+    // Not a transient failure — caller should return 402, not 503.
+    expect(q.retryable).toBeUndefined();
   });
 });
 
