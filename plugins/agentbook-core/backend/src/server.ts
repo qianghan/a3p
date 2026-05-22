@@ -865,8 +865,31 @@ async function buildFinancialContext(tenantId: string) {
       netIncomeCents: taxEstimate.netIncomeCents,
     } : null,
     recurringExpenses: recurring.length,
-    monthlyBurnCents: Math.round(totalExpenses / Math.max(1, Math.ceil(expenses.length / 30) || 1)),
+    monthlyBurnCents: computeMonthlyBurnCents(expenses),
   };
+}
+
+/**
+ * Compute average monthly burn from trailing 90 days of business expenses.
+ *
+ * Previous implementation was `totalExpenses / ceil(count / 30)` — a
+ * count-based proxy that treated every 30 expenses as one month. A power
+ * user with 60 receipts in 3 days would see burn = total/2, off by orders
+ * of magnitude.
+ *
+ * Fix: take the trailing 90 days only (lifetime-burn isn't a meaningful
+ * signal for "current burn rate"), and divide by 3 to get monthly average.
+ * Months with no activity contribute 0, so the average correctly reflects
+ * a slowdown. Returns 0 if no expenses in the window.
+ */
+function computeMonthlyBurnCents(expenses: Array<{ date: Date | string; amountCents: number }>): number {
+  const cutoff = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000);
+  let trailingTotal = 0;
+  for (const e of expenses) {
+    const d = e.date instanceof Date ? e.date : new Date(e.date);
+    if (d >= cutoff) trailingTotal += e.amountCents;
+  }
+  return Math.round(trailingTotal / 3);
 }
 
 /**
