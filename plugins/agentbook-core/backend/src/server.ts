@@ -1348,49 +1348,101 @@ app.get('/api/v1/agentbook-core/client-health', async (req, res) => {
     const clients = await db.abClient.findMany({ where: { tenantId } });
     const totalBilled = clients.reduce((s: number, c: any) => s + c.totalBilledCents, 0);
 
-    const result = await Promise.all(clients.map(async (c: any) => {
+    // Was: 2 queries per client (timeEntries + paidInvoices) inside a
+    // Promise.all over N clients → 2N+1 round-trips. For a tenant with 50
+    // clients that's >100 queries per /client-health hit.
+    //
+    // Now: 2 bulk queries + JS bucketing keyed by clientId. 3 round-trips
+    // total regardless of client count. (PR 31 / G-036)
+    const clientIds = clients.map((c: any) => c.id);
+    const [allTimeEntries, allPaidInvoices] = await Promise.all([
+      clientIds.length > 0
+        ? db.abTimeEntry.findMany({
+            where: { tenantId, clientId: { in: clientIds }, endedAt: { not: null } },
+            select: { clientId: true, durationMinutes: true },
+          })
+        : Promise.resolve([] as Array<{ clientId: string | null; durationMinutes: number | null }>),
+      clientIds.length > 0
+        ? db.abInvoice.findMany({
+            where: { tenantId, clientId: { in: clientIds }, status: 'paid' },
+            include: { payments: true },
+          })
+        : Promise.resolve([] as any[]),
+    ]);
+
+    const timeByClient = new Map<string, typeof allTimeEntries>();
+    for (const te of allTimeEntries) {
+      if (!te.clientId) continue;
+      const bucket = timeByClient.get(te.clientId);
+      if (bucket) bucket.push(te);
+      else timeByClient.set(te.clientId, [te]);
+    }
+    const invoicesByClient = new Map<string, typeof allPaidInvoices>();
+    for (const inv of allPaidInvoices as any[]) {
+      if (!inv.clientId) continue;
+      const bucket = invoicesByClient.get(inv.clientId);
+      if (bucket) bucket.push(inv);
+      else invoicesByClient.set(inv.clientId, [inv]);
+    }
+
+    const result = clients.map((c: any) => {
       const share = totalBilled > 0 ? c.totalBilledCents / totalBilled : 0;
       const outstanding = c.totalBilledCents - c.totalPaidCents;
 
-      // Effective hourly rate from time entries
-      const timeEntries = await db.abTimeEntry.findMany({
-        where: { tenantId, clientId: c.id, endedAt: { not: null } },
-      });
-      const totalMinutes = timeEntries.reduce((s: number, e: any) => s + (e.durationMinutes || 0), 0);
+      const timeEntries = timeByClient.get(c.id) ?? [];
+      const totalMinutes = timeEntries.reduce(
+        (s: number, e: any) => s + (e.durationMinutes || 0),
+        0,
+      );
       const totalHours = totalMinutes / 60;
       const effectiveRateCents = totalHours > 0 ? Math.round(c.totalBilledCents / totalHours) : 0;
 
-      // Payment reliability from invoices
-      const paidInvoices = await db.abInvoice.findMany({
-        where: { tenantId, clientId: c.id, status: 'paid' },
-        include: { payments: true },
-      });
+      const paidInvoices = invoicesByClient.get(c.id) ?? [];
       const onTime = paidInvoices.filter((inv: any) => {
         if (!inv.payments.length) return false;
         return new Date(inv.payments[0].date) <= new Date(inv.dueDate);
       }).length;
       const reliability = paidInvoices.length > 0 ? onTime / paidInvoices.length : 1;
-      const daysList = paidInvoices.filter((inv: any) => inv.payments.length > 0).map((inv: any) =>
-        Math.ceil((new Date(inv.payments[0].date).getTime() - new Date(inv.issuedDate).getTime()) / (1000*60*60*24))
-      );
-      const avgDays = daysList.length > 0 ? Math.round(daysList.reduce((s: number, d: number) => s + d, 0) / daysList.length) : 30;
+      const daysList = paidInvoices
+        .filter((inv: any) => inv.payments.length > 0)
+        .map((inv: any) =>
+          Math.ceil(
+            (new Date(inv.payments[0].date).getTime() - new Date(inv.issuedDate).getTime()) /
+              (1000 * 60 * 60 * 24),
+          ),
+        );
+      const avgDays =
+        daysList.length > 0
+          ? Math.round(daysList.reduce((s: number, d: number) => s + d, 0) / daysList.length)
+          : 30;
 
       let risk: string = 'low';
       let recommendation = `${c.name} is a healthy client.`;
-      if (effectiveRateCents > 0 && effectiveRateCents < (totalBilled / Math.max(1, clients.length)) * 0.7) {
-        risk = 'high'; recommendation = `Effective rate below average. Consider rate increase.`;
+      if (
+        effectiveRateCents > 0 &&
+        effectiveRateCents < (totalBilled / Math.max(1, clients.length)) * 0.7
+      ) {
+        risk = 'high';
+        recommendation = `Effective rate below average. Consider rate increase.`;
       } else if (reliability < 0.7) {
-        risk = 'moderate'; recommendation = `Payment reliability ${Math.round(reliability*100)}%. Consider shorter terms.`;
+        risk = 'moderate';
+        recommendation = `Payment reliability ${Math.round(reliability * 100)}%. Consider shorter terms.`;
       }
 
       return {
-        clientId: c.id, clientName: c.name, lifetimeValueCents: c.totalBilledCents,
-        outstandingCents: outstanding, revenueShare: share,
-        effectiveRateCents, totalHours: Math.round(totalHours * 10) / 10,
-        paymentReliability: reliability, avgDaysToPay: avgDays,
-        riskLevel: risk, recommendation,
+        clientId: c.id,
+        clientName: c.name,
+        lifetimeValueCents: c.totalBilledCents,
+        outstandingCents: outstanding,
+        revenueShare: share,
+        effectiveRateCents,
+        totalHours: Math.round(totalHours * 10) / 10,
+        paymentReliability: reliability,
+        avgDaysToPay: avgDays,
+        riskLevel: risk,
+        recommendation,
       };
-    }));
+    });
 
     res.json({ success: true, data: result });
   } catch (err) { res.status(500).json({ success: false, error: String(err) }); }
