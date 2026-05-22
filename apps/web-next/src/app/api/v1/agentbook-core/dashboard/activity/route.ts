@@ -24,7 +24,9 @@ interface ActivityItem {
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
   try {
-    const tenantId = await resolveTenantId(request);
+    const __resolved = await resolveTenantId(request);
+    if ('response' in __resolved) return __resolved.response;
+    const { tenantId } = __resolved;
     const limit = Math.min(50, Math.max(1, parseInt(request.nextUrl.searchParams.get('limit') || '10', 10)));
 
     const perSource = limit * 3;

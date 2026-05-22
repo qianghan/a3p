@@ -15,6 +15,7 @@
     "test:watch": "vitest"
   },
   "dependencies": {
+    "@naap/billing": "*",
     "@naap/plugin-server-sdk": "*",
     "@naap/database": "*",
     "cors": "^2.8.6",

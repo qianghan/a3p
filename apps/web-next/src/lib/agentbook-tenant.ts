@@ -14,22 +14,42 @@
  */
 
 import 'server-only';
+import { timingSafeEqual } from 'node:crypto';
 import { NextResponse, type NextRequest } from 'next/server';
 
-function isCronAuthenticated(request: NextRequest): boolean {
-  // Vercel-issued cron requests
-  if (request.headers.get('x-vercel-cron') === '1') return true;
+function safeBearerCompare(provided: string | null, expected: string): boolean {
+  if (!provided) return false;
+  const want = `Bearer ${expected}`;
+  if (provided.length !== want.length) return false;
+  return timingSafeEqual(Buffer.from(provided), Buffer.from(want));
+}
 
-  // Explicit shared-secret bearer or ?secret= query param
+function safeSecretCompare(provided: string | null, expected: string): boolean {
+  if (!provided) return false;
+  if (provided.length !== expected.length) return false;
+  return timingSafeEqual(Buffer.from(provided), Buffer.from(expected));
+}
+
+function isCronAuthenticated(request: NextRequest): boolean {
+  // CRON_SECRET is required for any cron path. The `x-vercel-cron: 1`
+  // header alone is NOT trusted — Vercel itself strips it from inbound
+  // user requests on its platform, but the app also runs outside Vercel
+  // (the standalone plugin servers, local dev, container deploys), where
+  // any caller can spoof the header. We require the bearer (or
+  // ?secret= query param) regardless. See review finding F-6a.
   const cronSecret = process.env.CRON_SECRET;
   if (!cronSecret) return false;
-  const auth = request.headers.get('authorization');
-  if (auth === `Bearer ${cronSecret}`) return true;
 
-  // Some cron entries use ?secret=... (existing pattern)
+  // Bearer in Authorization header — preferred for Vercel crons.
+  if (safeBearerCompare(request.headers.get('authorization'), cronSecret)) {
+    return true;
+  }
+
+  // Legacy ?secret=... query param — kept for back-compat with the few
+  // cron entries that pre-date the bearer convention. Timing-safe.
   try {
     const url = new URL(request.url);
-    if (url.searchParams.get('secret') === cronSecret) return true;
+    if (safeSecretCompare(url.searchParams.get('secret'), cronSecret)) return true;
   } catch {
     /* ignore */
   }
@@ -79,6 +99,12 @@ export async function resolveAgentbookTenant(request: NextRequest): Promise<stri
 }
 
 /**
+ * Result of safeResolveAgentbookTenant — either a tenantId (authed) or a
+ * Response the caller must return immediately (unauthed / forbidden).
+ */
+export type ResolveResult = { tenantId: string } | { response: NextResponse };
+
+/**
  * Convenience wrapper for route handlers that want graceful 401/400 responses
  * instead of unhandled throws. Returns either { tenantId } or { response } that
  * the handler should immediately return.
@@ -88,7 +114,7 @@ export async function resolveAgentbookTenant(request: NextRequest): Promise<stri
  */
 export async function safeResolveAgentbookTenant(
   request: NextRequest
-): Promise<{ tenantId: string } | { response: NextResponse }> {
+): Promise<ResolveResult> {
   try {
     const tenantId = await resolveAgentbookTenant(request);
     return { tenantId };

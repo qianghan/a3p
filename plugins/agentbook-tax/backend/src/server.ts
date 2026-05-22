@@ -22,6 +22,7 @@ import { populateFiling, updateFilingField } from './tax-filing.js';
 import { processSlipOCR, confirmSlip, listSlips } from './tax-slips.js';
 import { validateFiling, exportFiling } from './tax-export.js';
 import { submitFiling, checkFilingStatus, seedMockPartner } from './tax-efiling.js';
+import { checkQuota, incrementUsage } from '@naap/billing';
 
 // Read plugin.json for dev-only fields (devPort). When this module is
 // bundled by webpack (as happens when hosted inside a Next.js function on
@@ -182,6 +183,28 @@ router.use((req: any, _res, next) => {
   req.tenantId = getTenantId(req);
   next();
 });
+
+// === Billing quota helper ===
+// Returns true if the request may proceed; if false, the helper has
+// already sent a 402 (quota_exceeded) or 503 (transient
+// quota_check_unavailable) response and the handler must short-circuit.
+// G-022: failing CLOSED on DB errors is the security property.
+async function enforceQuota(
+  res: any,
+  tenantId: string,
+  dim: 'ocr_scans' | 'ai_messages',
+): Promise<boolean> {
+  const q = await checkQuota(tenantId, dim);
+  if (q.allowed) return true;
+  const status = q.retryable ? 503 : 402;
+  res.status(status).json({
+    success: false,
+    error: q.reason ?? 'quota_exceeded',
+    quota: { dimension: dim, used: q.used, limit: q.limit, remaining: q.remaining },
+    upgradeUrl: '/billing',
+  });
+  return false;
+}
 
 // ============================================
 // TAX ESTIMATION
@@ -1421,8 +1444,20 @@ server.app.post('/api/v1/agentbook-tax/tax-slips/ocr', async (req, res) => {
     if (!imageUrl) {
       return res.status(400).json({ success: false, error: 'imageUrl is required' });
     }
+
+    // G-022: gate Gemini-backed slip OCR by the ocr_scans quota. Same
+    // dimension the expense plugin uses for receipt OCR — both are LLM
+    // Vision calls against the same monthly cap.
+    if (!(await enforceQuota(res, tenantId, 'ocr_scans'))) return;
+
     const callGemini = async (_sys: string, _user: string, _max?: number): Promise<string | null> => null;
     const result = await processSlipOCR(tenantId, taxYear, imageUrl, filingId, callGemini);
+
+    // G-022: count the scan (fire-and-forget). The placeholder callGemini
+    // returns null today, but the route is wired so the quota tracks the
+    // moment real Gemini integration lands.
+    void incrementUsage(tenantId, 'ocr_scans', 1).catch(() => {});
+
     res.json({ success: true, data: result });
   } catch (err) {
     res.status(500).json({ success: false, error: String(err) });
