@@ -19,20 +19,42 @@ const ALGORITHM = 'aes-256-gcm';
 const IV_LENGTH = 12;
 const AUTH_TAG_LENGTH = 16;
 
-// 32-byte all-zero hex string. Only used when BANK_TOKEN_ENCRYPTION_KEY
-// is unset — i.e. local dev. We warn loudly so it's obvious in logs.
+// 32-byte all-zero hex string. Only used in local dev / test environments
+// where BANK_TOKEN_ENCRYPTION_KEY is unset. In production / preview /
+// staging this fallback path now throws instead of silently degrading to
+// plaintext-equivalent encryption (G-001 review finding F-3 — fail-closed
+// to match the sibling plugin helper at plugins/agentbook-expense/.../
+// plaid-token-crypto.ts).
 const DEV_FALLBACK_KEY_HEX =
   '0000000000000000000000000000000000000000000000000000000000000000';
 
 let warnedAboutDevKey = false;
 
+function isLocalOrTest(): boolean {
+  const nodeEnv = process.env.NODE_ENV;
+  const vercelEnv = process.env.VERCEL_ENV;
+  if (nodeEnv === 'test') return true;
+  // VERCEL_ENV is one of 'production' | 'preview' | 'development'. If unset
+  // we're running outside Vercel — typically a developer's machine.
+  if (nodeEnv !== 'production' && (!vercelEnv || vercelEnv === 'development')) {
+    return true;
+  }
+  return false;
+}
+
 function getKey(): Buffer {
   const hex = process.env.BANK_TOKEN_ENCRYPTION_KEY;
   if (!hex) {
+    if (!isLocalOrTest()) {
+      throw new Error(
+        'BANK_TOKEN_ENCRYPTION_KEY must be set in production, preview, and staging environments',
+      );
+    }
     if (!warnedAboutDevKey) {
       console.warn(
         '[agentbook-bank-token] BANK_TOKEN_ENCRYPTION_KEY is not set — ' +
-          'using a dev fallback key. DO NOT USE IN PRODUCTION.',
+          'using a dev fallback key. Local dev only; production / preview ' +
+          'deployments fail closed.',
       );
       warnedAboutDevKey = true;
     }

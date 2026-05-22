@@ -35,7 +35,9 @@ export const maxDuration = 30;
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
   try {
-    const tenantId = await resolveTenantId(request);
+    const __resolved = await resolveTenantId(request);
+    if ('response' in __resolved) return __resolved.response;
+    const { tenantId } = __resolved;
     const today = new Date();
 
     const [
