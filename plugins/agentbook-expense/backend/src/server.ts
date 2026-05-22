@@ -808,10 +808,26 @@ app.get('/api/v1/agentbook-expense/bank-accounts', async (req, res) => {
       orderBy: { createdAt: 'desc' },
     });
 
-    // Enrich with transaction counts
-    const enriched = await Promise.all(accounts.map(async (acct: any) => {
-      const txnCount = await db.abBankTransaction.count({ where: { bankAccountId: acct.id } });
-      return { ...acct, transactionCount: txnCount };
+    // Enrich with transaction counts.
+    //
+    // Was: N+1 `db.abBankTransaction.count` per account. Replaced with a
+    // single groupBy that returns all counts in one query. (PR 31 / G-036)
+    const accountIds = accounts.map((a: any) => a.id);
+    const counts =
+      accountIds.length > 0
+        ? await db.abBankTransaction.groupBy({
+            by: ['bankAccountId'],
+            where: { bankAccountId: { in: accountIds } },
+            _count: { _all: true },
+          })
+        : [];
+    const countByAccount = new Map<string, number>();
+    for (const row of counts) {
+      if (row.bankAccountId) countByAccount.set(row.bankAccountId, row._count._all);
+    }
+    const enriched = accounts.map((acct: any) => ({
+      ...acct,
+      transactionCount: countByAccount.get(acct.id) ?? 0,
     }));
 
     res.json({ success: true, data: enriched });
