@@ -47,7 +47,9 @@ function buildDeterministicSummary(f: SummaryFacts): string {
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
   try {
-    const tenantId = await resolveTenantId(request);
+    const __resolved = await resolveTenantId(request);
+    if ('response' in __resolved) return __resolved.response;
+    const { tenantId } = __resolved;
     const params = request.nextUrl.searchParams;
     const facts: SummaryFacts = {
       overdueCount: parseInt(params.get('overdueCount') || '0', 10),

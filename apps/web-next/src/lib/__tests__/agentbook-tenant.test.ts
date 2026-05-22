@@ -78,14 +78,37 @@ describe('resolveAgentbookTenant', () => {
     expect(result).toBe('user-A');
   });
 
-  it('accepts vercel cron header + x-tenant-id', async () => {
+  it('rejects vercel cron header alone (no bearer) — F-6a', async () => {
+    // The x-vercel-cron header is not trusted on its own. Bearer must also
+    // be present. (Vercel itself sends both — strip-then-spoof is the attack
+    // we're closing.)
+    process.env.CRON_SECRET = 'shh';
     const req = makeRequest({ headers: { 'x-vercel-cron': '1', 'x-tenant-id': 'tenant-A' } });
+    try {
+      await resolveAgentbookTenant(req);
+      throw new Error('should have thrown');
+    } catch (err) {
+      expect(err).toBeInstanceOf(Response);
+      expect((err as Response).status).toBe(401);
+    }
+  });
+
+  it('accepts vercel cron + bearer + x-tenant-id', async () => {
+    process.env.CRON_SECRET = 'shh';
+    const req = makeRequest({
+      headers: {
+        'x-vercel-cron': '1',
+        authorization: 'Bearer shh',
+        'x-tenant-id': 'tenant-A',
+      },
+    });
     const result = await resolveAgentbookTenant(req);
     expect(result).toBe('tenant-A');
   });
 
-  it('rejects vercel cron header WITHOUT x-tenant-id', async () => {
-    const req = makeRequest({ headers: { 'x-vercel-cron': '1' } });
+  it('rejects cron with bearer but WITHOUT x-tenant-id (400)', async () => {
+    process.env.CRON_SECRET = 'shh';
+    const req = makeRequest({ headers: { authorization: 'Bearer shh' } });
     try {
       await resolveAgentbookTenant(req);
       throw new Error('should have thrown');
