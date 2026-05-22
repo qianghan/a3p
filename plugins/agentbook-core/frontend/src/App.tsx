@@ -7,6 +7,7 @@ import { LedgerPage } from './pages/Ledger';
 import { AccountsPage } from './pages/Accounts';
 import { ProjectionsPage } from './pages/Projections';
 import { OnboardingPage } from './pages/Onboarding';
+import { OnboardingChatPage } from './pages/OnboardingChat';
 import { CPAPortalPage } from './pages/CPAPortal';
 import { AdminConfigPage } from './pages/AdminConfig';
 import { AgentsPage } from './pages/Agents';
@@ -25,7 +26,11 @@ const AgentBookCoreApp: React.FC = () => (
       <Route path="/ledger" element={<LedgerPage />} />
       <Route path="/accounts" element={<AccountsPage />} />
       <Route path="/projections" element={<ProjectionsPage />} />
-      <Route path="/onboarding" element={<OnboardingPage />} />
+      {/* G-032 / PR 27: agent-driven onboarding is the new default.
+          Legacy 7-step wizard remains accessible at /onboarding/wizard for
+          users who explicitly want the form view. */}
+      <Route path="/onboarding" element={<OnboardingChatPage />} />
+      <Route path="/onboarding/wizard" element={<OnboardingPage />} />
       <Route path="/cpa" element={<CPAPortalPage />} />
       <Route path="/admin" element={<AdminConfigPage />} />
       <Route path="/admin/dead-letter" element={<DeadLetterPage />} />
