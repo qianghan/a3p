@@ -15,7 +15,7 @@ import { randomBytes } from 'node:crypto';
 import { Bot, type Context as GrammyContext } from 'grammy';
 import { prisma as db } from '@naap/database';
 import { handleAgentMessage } from '@agentbook-core/agent-brain';
-import { callGemini, classifyAndExecuteV1 } from '@agentbook-core/server';
+import { callGemini, classifyAndExecuteV1, classifyOnly, executeClassification } from '@agentbook-core/server';
 import { runAgentLoop, type BotContext, type ActiveExpense as BotActive } from '@/lib/agentbook-bot-agent';
 import { parseDateHint } from '@/lib/agentbook-time-aggregator';
 import { autoCategorizeForTenant, getPendingSuggestions, dropPendingSuggestion } from '@/lib/agentbook-auto-categorize';
@@ -1187,7 +1187,7 @@ async function callAgentBrain(
     const baseUrls = getBaseUrls();
     const brainResult = await handleAgentMessage(
       { text: text || '', tenantId, channel: 'telegram', attachments, sessionAction, feedback },
-      { skills, callGemini, baseUrls, classifyAndExecuteV1 },
+      { skills, callGemini, baseUrls, classifyAndExecuteV1, classifyOnly, executeClassification },
     );
     if (brainResult?.success && brainResult.data?.message) {
       return brainResult as { success: true; data: { message: string; skillUsed?: string } };

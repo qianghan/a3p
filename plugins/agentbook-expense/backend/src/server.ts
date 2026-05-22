@@ -8,6 +8,8 @@ import { readFileSync } from 'node:fs';
 import { createPluginServer } from '@naap/plugin-server-sdk';
 import { db } from './db/client.js';
 import { Configuration, PlaidApi, PlaidEnvironments, Products, CountryCode } from 'plaid';
+import { encryptToken, decryptToken } from './plaid-token-crypto.js';
+import { checkQuota, incrementUsage } from '@naap/billing';
 
 // === Plaid Client Setup ===
 const PLAID_CLIENT_ID = process.env.PLAID_CLIENT_ID || '69d02fa4f1949b000dbfc51e';
@@ -47,6 +49,29 @@ app.use((req, res, next) => {
   (req as any).tenantId = req.headers['x-tenant-id'] as string || 'default';
   next();
 });
+
+// === Billing quota helper ===
+// Returns true if the request should proceed; if false, the helper has
+// already sent the appropriate 402 (quota_exceeded) or 503 (transient
+// quota_check_unavailable) response and the handler must short-circuit.
+// G-022: failing CLOSED on DB errors is the security property — see
+// packages/billing/src/quotas.ts.
+async function enforceQuota(
+  res: any,
+  tenantId: string,
+  dim: 'ocr_scans' | 'bank_connections' | 'ai_messages' | 'expenses_created' | 'invoices_sent',
+): Promise<boolean> {
+  const q = await checkQuota(tenantId, dim);
+  if (q.allowed) return true;
+  const status = q.retryable ? 503 : 402;
+  res.status(status).json({
+    success: false,
+    error: q.reason ?? 'quota_exceeded',
+    quota: { dimension: dim, used: q.used, limit: q.limit, remaining: q.remaining },
+    upgradeUrl: '/billing',
+  });
+  return false;
+}
 
 // === Health Check ===
 app.get('/healthz', async (_req, res) => {
@@ -652,9 +677,12 @@ app.get('/api/v1/agentbook-expense/recurring-rules', async (req, res) => {
 });
 
 // === PLAID INTEGRATION (Live) ===
-
-// Store access tokens in memory per tenant (in production: encrypt and store in DB)
-const plaidAccessTokens: Record<string, string> = {};
+//
+// Plaid access tokens are persisted encrypted on AbBankAccount.accessTokenEnc
+// (AES-256-GCM, see plaid-token-crypto.ts). Previously they lived in a
+// process-local Map, which Vercel cold starts silently dropped — causing
+// /bank-sync to return "0 imported" with no error after every cold start.
+// G-019 in docs/superpowers/reports/2026-05-21-gap-report.md.
 
 app.post('/api/v1/agentbook-expense/plaid/create-link-token', async (req, res) => {
   try {
@@ -690,13 +718,20 @@ app.post('/api/v1/agentbook-expense/plaid/exchange-token', async (req, res) => {
       return res.status(400).json({ success: false, error: 'publicToken is required' });
     }
 
+    // G-022: gate Plaid linking by the bank_connections quota. Free-tier
+    // plans cap how many institutions a user can link. The check is BEFORE
+    // we call Plaid so we don't burn an API call on a denied request.
+    if (!(await enforceQuota(res, tenantId, 'bank_connections'))) return;
+
     // Exchange public token for access token
     const exchangeRes = await plaidClient.itemPublicTokenExchange({ public_token: publicToken });
     const accessToken = exchangeRes.data.access_token;
     const itemId = exchangeRes.data.item_id;
 
-    // Store access token
-    plaidAccessTokens[tenantId] = accessToken;
+    // Encrypt the access token once — all accounts under this Plaid Item
+    // share the same access token, so we write the same ciphertext to each
+    // AbBankAccount row. (Plaid's model: 1 Item = 1 access token = N accounts.)
+    const encryptedToken = encryptToken(accessToken);
 
     // Get account details
     const accountsRes = await plaidClient.accountsGet({ access_token: accessToken });
@@ -705,13 +740,31 @@ app.post('/api/v1/agentbook-expense/plaid/exchange-token', async (req, res) => {
     for (const acct of accountsRes.data.accounts) {
       // Check if account already exists (scoped to tenant: Plaid sandbox uses deterministic IDs across tenants)
       const existing = await db.abBankAccount.findFirst({ where: { plaidAccountId: acct.account_id, tenantId } });
-      if (existing) continue;
+      if (existing) {
+        // Re-link path: refresh the encrypted token so subsequent syncs work.
+        // Plaid issues a fresh access token on every Link flow, so the old
+        // one may have been revoked.
+        const updated = await db.abBankAccount.update({
+          where: { id: existing.id },
+          data: {
+            plaidItemId: itemId,
+            accessTokenEnc: encryptedToken,
+            connected: true,
+            institution: institutionName || existing.institution,
+            balanceCents: Math.round((acct.balances.current || 0) * 100),
+            lastSynced: new Date(),
+          },
+        });
+        createdAccounts.push(updated);
+        continue;
+      }
 
       const bankAccount = await db.abBankAccount.create({
         data: {
           tenantId,
           plaidItemId: itemId,
           plaidAccountId: acct.account_id,
+          accessTokenEnc: encryptedToken,
           name: acct.name,
           officialName: acct.official_name || null,
           type: acct.type || 'checking',
@@ -733,6 +786,11 @@ app.post('/api/v1/agentbook-expense/plaid/exchange-token', async (req, res) => {
         action: { itemId, institution: institutionName, accountCount: createdAccounts.length },
       },
     });
+
+    // G-022: count each newly-linked Plaid item as one connection. Re-links
+    // (existing rows refreshed) don't increment — only net-new institutions
+    // count against the quota. Fire-and-forget.
+    void incrementUsage(tenantId, 'bank_connections', 1).catch(() => {});
 
     res.json({ success: true, data: { accounts: createdAccounts, itemId } });
   } catch (err: any) {
@@ -763,7 +821,6 @@ app.get('/api/v1/agentbook-expense/bank-accounts', async (req, res) => {
 app.post('/api/v1/agentbook-expense/bank-sync', async (req, res) => {
   try {
     const tenantId = (req as any).tenantId;
-    const accessToken = plaidAccessTokens[tenantId];
 
     const accounts = await db.abBankAccount.findMany({ where: { tenantId, connected: true } });
     if (accounts.length === 0) {
@@ -773,12 +830,48 @@ app.post('/api/v1/agentbook-expense/bank-sync', async (req, res) => {
     let totalImported = 0;
     let totalMatched = 0;
 
-    if (accessToken) {
-      // Fetch transactions from Plaid (last 30 days)
-      const now = new Date();
-      const thirtyDaysAgo = new Date(now.getTime() - 30 * 86400000);
-      const startDate = thirtyDaysAgo.toISOString().slice(0, 10);
-      const endDate = now.toISOString().slice(0, 10);
+    // Group accounts by their encrypted access token. A Plaid Item can have
+    // multiple accounts (e.g., checking + savings at the same bank), and
+    // they share one access token. A tenant may have linked multiple Items
+    // (different banks), each with its own access token. Group so we make
+    // one /transactions call per Item rather than per account.
+    //
+    // Accounts without a token on file (legacy rows from before this PR
+    // landed, when tokens lived in the in-memory Map) just get their
+    // timestamp bumped — the user will need to re-link via Plaid Link.
+    const accountsByToken = new Map<string, typeof accounts>();
+    const accountsWithoutToken: typeof accounts = [];
+    for (const acct of accounts) {
+      if (!acct.accessTokenEnc) {
+        accountsWithoutToken.push(acct);
+        continue;
+      }
+      const existing = accountsByToken.get(acct.accessTokenEnc) || [];
+      existing.push(acct);
+      accountsByToken.set(acct.accessTokenEnc, existing);
+    }
+
+    // Fetch transactions per-Item from Plaid (last 30 days). One call covers
+    // all accounts under the Item.
+    const now = new Date();
+    const thirtyDaysAgo = new Date(now.getTime() - 30 * 86400000);
+    const startDate = thirtyDaysAgo.toISOString().slice(0, 10);
+    const endDate = now.toISOString().slice(0, 10);
+
+    for (const [encryptedToken, itemAccounts] of accountsByToken.entries()) {
+      let accessToken: string;
+      try {
+        accessToken = decryptToken(encryptedToken);
+      } catch (decryptErr) {
+        console.error(
+          '[bank-sync] failed to decrypt access token for accounts',
+          itemAccounts.map((a) => a.id),
+          decryptErr,
+        );
+        // Skip this Item rather than aborting the whole sync — other Items
+        // may decrypt cleanly. Operators see the error in logs.
+        continue;
+      }
 
       try {
         const txnRes = await plaidClient.transactionsGet({
@@ -795,8 +888,8 @@ app.post('/api/v1/agentbook-expense/bank-sync', async (req, res) => {
           });
           if (existing) continue;
 
-          // Find the matching bank account
-          const bankAcct = accounts.find((a: any) => a.plaidAccountId === txn.account_id);
+          // Find the matching bank account within this Item
+          const bankAcct = itemAccounts.find((a: any) => a.plaidAccountId === txn.account_id);
           if (!bankAcct) continue;
 
           const bankTxn = await db.abBankTransaction.create({
@@ -842,9 +935,9 @@ app.post('/api/v1/agentbook-expense/bank-sync', async (req, res) => {
           }
         }
 
-        // Update account balances
+        // Update account balances for accounts under this Item
         for (const plaidAcct of txnRes.data.accounts) {
-          const dbAcct = accounts.find((a: any) => a.plaidAccountId === plaidAcct.account_id);
+          const dbAcct = itemAccounts.find((a: any) => a.plaidAccountId === plaidAcct.account_id);
           if (dbAcct) {
             await db.abBankAccount.update({
               where: { id: dbAcct.id },
@@ -857,13 +950,14 @@ app.post('/api/v1/agentbook-expense/bank-sync', async (req, res) => {
         }
       } catch (plaidErr: any) {
         console.error('Plaid transactions error:', plaidErr?.response?.data || plaidErr);
-        // Still return partial success
+        // Don't abort the loop — other Items may still sync successfully.
       }
-    } else {
-      // No access token — just update timestamps
-      for (const acct of accounts) {
-        await db.abBankAccount.update({ where: { id: acct.id }, data: { lastSynced: new Date() } });
-      }
+    }
+
+    // Accounts without a token on file still get a timestamp bump so the
+    // UI doesn't show a stale lastSynced.
+    for (const acct of accountsWithoutToken) {
+      await db.abBankAccount.update({ where: { id: acct.id }, data: { lastSynced: new Date() } });
     }
 
     await db.abEvent.create({
@@ -928,6 +1022,10 @@ app.post('/api/v1/agentbook-expense/receipts/ocr', async (req, res) => {
     if (!imageUrl) {
       return res.status(400).json({ success: false, error: 'imageUrl is required' });
     }
+
+    // G-022: gate the LLM OCR call by the ocr_scans quota. Free-tier
+    // users hit a hard ceiling instead of unlimited Gemini Vision calls.
+    if (!(await enforceQuota(res, tenantId, 'ocr_scans'))) return;
 
     // Call Gemini for receipt OCR
     // safe: AbLLMProviderConfig is admin-managed platform config (tenantId nullable). Per-tenant override scoping deferred to PR 3 (G-005).
@@ -1072,6 +1170,12 @@ Return ONLY valid JSON: {"amount_cents": <integer>, "vendor": "<string or null>"
     await db.abEvent.create({
       data: { tenantId, eventType: 'receipt.ocr_requested', actor: 'system', action: { imageUrl: imageUrl.slice(0, 50) + '...' } },
     });
+
+    // G-022: increment the OCR usage counter. Fire-and-forget — if this
+    // fails the user got the service; the counter is best-effort and
+    // self-heals on the next call (incrementUsage is idempotent-ish via
+    // upsert).
+    void incrementUsage(tenantId, 'ocr_scans', 1).catch(() => {});
 
     // Auto-execute: if OCR extracted data with confidence > 0.7, create expense automatically
     if (ocrResult.amount_cents > 0 && ocrResult.confidence > 0.7) {
@@ -1748,6 +1852,11 @@ app.post('/api/v1/agentbook-expense/advisor/ask', async (req, res) => {
     const { question, period } = req.body;
     if (!question) return res.status(400).json({ success: false, error: 'question is required' });
 
+    // G-022: gate advisor LLM calls by the ai_messages quota. This is
+    // a Gemini call with full expense context — by far the most expensive
+    // operation in this plugin per unit.
+    if (!(await enforceQuota(res, tenantId, 'ai_messages'))) return;
+
     const now = new Date();
     const startDate = period?.start ? new Date(period.start) : new Date(now.getFullYear(), 0, 1);
     const endDate = period?.end ? new Date(period.end) : now;
@@ -1897,6 +2006,10 @@ Only include chartData if the question would benefit from visualization.`;
         action: { question, answerLength: answer.length, hasChart: !!chartData } as any,
       },
     });
+
+    // G-022: count this Gemini call against the ai_messages quota.
+    // Fire-and-forget — the user already got the answer.
+    void incrementUsage(tenantId, 'ai_messages', 1).catch(() => {});
 
     res.json({
       success: true,

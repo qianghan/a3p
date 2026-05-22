@@ -17,6 +17,7 @@ import { readFileSync } from 'node:fs';
 import { createPluginServer } from '@naap/plugin-server-sdk';
 import { db } from './db/client.js';
 import { verifyInvoiceLink, buildPublicInvoiceUrl } from './invoice-signed-link.js';
+import { checkQuota, incrementUsage } from '@naap/billing';
 
 import type { Request, Response } from 'express';
 
@@ -50,6 +51,28 @@ app.use((req: Request, _res: Response, next) => {
   (req as any).tenantId = req.headers['x-tenant-id'] as string || 'default';
   next();
 });
+
+// === Billing quota helper ===
+// Returns true if the request may proceed; if false, the helper has
+// already sent a 402 (quota_exceeded) or 503 (transient
+// quota_check_unavailable) response and the handler must short-circuit.
+// G-022: failing CLOSED on DB errors is the security property.
+async function enforceQuota(
+  res: Response,
+  tenantId: string,
+  dim: 'invoices_sent' | 'ai_messages',
+): Promise<boolean> {
+  const q = await checkQuota(tenantId, dim);
+  if (q.allowed) return true;
+  const status = q.retryable ? 503 : 402;
+  res.status(status).json({
+    success: false,
+    error: q.reason ?? 'quota_exceeded',
+    quota: { dimension: dim, used: q.used, limit: q.limit, remaining: q.remaining },
+    upgradeUrl: '/billing',
+  });
+  return false;
+}
 
 // ============================================
 // HEALTH CHECK
@@ -482,6 +505,11 @@ app.post('/invoices/:id/send', async (req: Request, res: Response) => {
       return res.status(422).json({ success: false, error: 'Invoice is already paid' });
     }
 
+    // G-022: gate by invoices_sent quota. Free-tier plans cap monthly
+    // sends; deny with 402 (quota_exceeded) or 503 (DB error / retryable)
+    // BEFORE we flip status and fire the email.
+    if (!(await enforceQuota(res, tenantId, 'invoices_sent'))) return;
+
     // Update status + emit event in a transaction for atomicity
     const updated = await db.$transaction(async (tx) => {
       const inv = await tx.abInvoice.update({
@@ -523,6 +551,11 @@ app.post('/invoices/:id/send', async (req: Request, res: Response) => {
         console.warn('Email send failed (non-blocking):', emailErr);
       }
     }
+
+    // G-022: count the send against invoices_sent (fire-and-forget).
+    // We increment AFTER the status flip so failed transactions don't
+    // burn quota.
+    void incrementUsage(tenantId, 'invoices_sent', 1).catch(() => {});
 
     res.json({ success: true, data: { ...updated, emailSent } });
   } catch (err) {

@@ -15,7 +15,7 @@
 import 'server-only';
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma as db } from '@naap/database';
-import { resolveAgentbookTenant } from '@/lib/agentbook-tenant';
+import { safeResolveAgentbookTenant } from '@/lib/agentbook-tenant';
 import { lookupPerDiem, CONUS_DEFAULT_MIE_CENTS } from '@/lib/agentbook-perdiem-rates';
 
 export const runtime = 'nodejs';
@@ -42,7 +42,9 @@ function sanitizeError(err: unknown): string {
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
   try {
-    const tenantId = await resolveAgentbookTenant(request);
+    const __resolved = await safeResolveAgentbookTenant(request);
+    if ('response' in __resolved) return __resolved.response;
+    const { tenantId } = __resolved;
     const body = (await request.json().catch(() => ({}))) as CreatePerDiemBody;
 
     const cityRaw = (body.city || '').trim();
@@ -252,7 +254,9 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
   try {
-    const tenantId = await resolveAgentbookTenant(request);
+    const __resolved = await safeResolveAgentbookTenant(request);
+    if ('response' in __resolved) return __resolved.response;
+    const { tenantId } = __resolved;
     const params = request.nextUrl.searchParams;
     const since = params.get('since');
     const until = params.get('until');

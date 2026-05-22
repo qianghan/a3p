@@ -36,23 +36,27 @@ export interface RecurringOutflow {
 }
 
 // ─── Tenant resolution ───────────────────────────────────────────────────
+//
+// G-001 finding F-1: previously hosted a header/cookie-trust + 'default'
+// fallback resolver that bypassed the central safeResolveAgentbookTenant
+// rewrite. Three dashboard routes used it as an unauthenticated
+// cross-tenant read vector. Now forwards to the central helper.
 
 import type { NextRequest } from 'next/server';
+import {
+  safeResolveAgentbookTenant,
+  type ResolveResult,
+} from '@/lib/agentbook-tenant';
 
-export async function resolveTenantId(req: NextRequest): Promise<string> {
-  const headerTenant = req.headers.get('x-tenant-id');
-  if (headerTenant) return headerTenant;
-  const cookieTenant = req.cookies.get('ab-tenant')?.value;
-  if (cookieTenant) return cookieTenant;
-  const authToken = req.cookies.get('naap_auth_token')?.value;
-  if (authToken) {
-    try {
-      const { validateSession } = await import('@/lib/api/auth');
-      const user = await validateSession(authToken);
-      if (user?.id) return user.id;
-    } catch { /* fall through */ }
-  }
-  return 'default';
+/**
+ * @deprecated Use safeResolveAgentbookTenant directly. Retained as a
+ * forwarding alias so dashboard routes converge on the central
+ * implementation without a wider rename.
+ */
+export async function resolveTenantId(
+  req: NextRequest,
+): Promise<ResolveResult> {
+  return safeResolveAgentbookTenant(req);
 }
 
 // ─── Attention ranking (pure) ────────────────────────────────────────────

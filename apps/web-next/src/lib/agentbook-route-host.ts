@@ -11,7 +11,7 @@
 import 'server-only';
 import type { NextRequest } from 'next/server';
 import { dispatchToExpress } from '@/lib/express-adapter';
-import { resolveAgentbookTenant } from '@/lib/agentbook-tenant';
+import { safeResolveAgentbookTenant } from '@/lib/agentbook-tenant';
 
 type ExpressApp = (req: unknown, res: unknown, next?: (err?: unknown) => void) => void;
 
@@ -47,7 +47,9 @@ export function makeRouteHandler(plugin: string, importApp: () => Promise<{ app:
   return async function handler(request: NextRequest): Promise<Response> {
     try {
       const app = await getApp();
-      const tenantId = await resolveAgentbookTenant(request);
+      const __resolved = await safeResolveAgentbookTenant(request);
+      if ('response' in __resolved) return __resolved.response;
+      const { tenantId } = __resolved;
       return await dispatchToExpress(app, request, { extraHeaders: { 'x-tenant-id': tenantId } });
     } catch (err) {
       const error = err instanceof Error ? err : new Error(String(err));

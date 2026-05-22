@@ -6,9 +6,10 @@
 import 'server-only';
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma as db } from '@naap/database';
-import { resolveAgentbookTenant } from '@/lib/agentbook-tenant';
+import { safeResolveAgentbookTenant } from '@/lib/agentbook-tenant';
 import { audit } from '@/lib/agentbook-audit';
 import { inferSource, inferActor } from '@/lib/agentbook-audit-context';
+import { withHttpIdempotency } from '@/lib/agentbook-idempotency';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -24,175 +25,191 @@ interface CreatePaymentBody {
 }
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
-  try {
-    const tenantId = await resolveAgentbookTenant(request);
-    const body = (await request.json().catch(() => ({}))) as CreatePaymentBody;
-    const { invoiceId, amountCents, method, date, stripePaymentId, feesCents } = body;
+  const __resolved = await safeResolveAgentbookTenant(request);
+  if ('response' in __resolved) return __resolved.response;
+  const { tenantId } = __resolved;
+  const auditSource = inferSource(request);
+  const auditActor = await inferActor(request);
 
-    if (!invoiceId || !amountCents || amountCents <= 0) {
-      return NextResponse.json(
-        { success: false, error: 'invoiceId and positive amountCents are required' },
-        { status: 400 },
-      );
-    }
+  return withHttpIdempotency(request, {
+    tenantId,
+    endpoint: 'POST /api/v1/agentbook-invoice/payments',
+    handler: async (rawBody) => {
+      try {
+        let body: CreatePaymentBody = {};
+        try {
+          body = rawBody ? (JSON.parse(rawBody) as CreatePaymentBody) : {};
+        } catch {
+          body = {};
+        }
+        const { invoiceId, amountCents, method, date, stripePaymentId, feesCents } = body;
 
-    const invoice = await db.abInvoice.findFirst({
-      where: { id: invoiceId, tenantId },
-      include: { payments: true, client: true },
-    });
-    if (!invoice) {
-      return NextResponse.json({ success: false, error: 'Invoice not found' }, { status: 404 });
-    }
-    if (invoice.status === 'void') {
-      return NextResponse.json({ success: false, error: 'Cannot pay a voided invoice' }, { status: 422 });
-    }
+        if (!invoiceId || !amountCents || amountCents <= 0) {
+          return {
+            status: 400,
+            body: { success: false, error: 'invoiceId and positive amountCents are required' },
+          };
+        }
 
-    const existingPaid = invoice.payments.reduce((sum, p) => sum + p.amountCents, 0);
-    const remainingBalance = invoice.amountCents - existingPaid;
-    if (amountCents > remainingBalance) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: `Payment amount (${amountCents}) exceeds remaining balance (${remainingBalance})`,
-        },
-        { status: 422 },
-      );
-    }
+        const invoice = await db.abInvoice.findFirst({
+          where: { id: invoiceId, tenantId },
+          include: { payments: true, client: true },
+        });
+        if (!invoice) {
+          return { status: 404, body: { success: false, error: 'Invoice not found' } };
+        }
+        if (invoice.status === 'void') {
+          return { status: 422, body: { success: false, error: 'Cannot pay a voided invoice' } };
+        }
 
-    const fees = feesCents || 0;
-    const fullyPaid = existingPaid + amountCents >= invoice.amountCents;
+        const existingPaid = invoice.payments.reduce((sum, p) => sum + p.amountCents, 0);
+        const remainingBalance = invoice.amountCents - existingPaid;
+        if (amountCents > remainingBalance) {
+          return {
+            status: 422,
+            body: {
+              success: false,
+              error: `Payment amount (${amountCents}) exceeds remaining balance (${remainingBalance})`,
+            },
+          };
+        }
 
-    const [arAccount, cashAccount, feesAccount] = await Promise.all([
-      db.abAccount.findUnique({ where: { tenantId_code: { tenantId, code: '1100' } } }),
-      db.abAccount.findUnique({ where: { tenantId_code: { tenantId, code: '1000' } } }),
-      fees > 0
-        ? db.abAccount.findUnique({ where: { tenantId_code: { tenantId, code: '5200' } } })
-        : Promise.resolve(null),
-    ]);
+        const fees = feesCents || 0;
+        const fullyPaid = existingPaid + amountCents >= invoice.amountCents;
 
-    if (!arAccount || !cashAccount) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: 'AR account (1100) or Cash account (1000) not found. Ensure chart of accounts is seeded.',
-        },
-        { status: 422 },
-      );
-    }
+        const [arAccount, cashAccount, feesAccount] = await Promise.all([
+          db.abAccount.findUnique({ where: { tenantId_code: { tenantId, code: '1100' } } }),
+          db.abAccount.findUnique({ where: { tenantId_code: { tenantId, code: '1000' } } }),
+          fees > 0
+            ? db.abAccount.findUnique({ where: { tenantId_code: { tenantId, code: '5200' } } })
+            : Promise.resolve(null),
+        ]);
 
-    const payment = await db.$transaction(async (tx) => {
-      const journalLines: Array<{
-        tenantId: string;
-        accountId: string;
-        debitCents: number;
-        creditCents: number;
-        description: string;
-      }> = [
-        { tenantId, accountId: cashAccount.id, debitCents: amountCents, creditCents: 0, description: `Cash received - Invoice ${invoice.number}` }, // G-009
-        { tenantId, accountId: arAccount.id, debitCents: 0, creditCents: amountCents, description: `AR payment - Invoice ${invoice.number}` }, // G-009
-      ];
-      if (fees > 0 && feesAccount) {
-        journalLines.push(
-          { tenantId, accountId: feesAccount.id, debitCents: fees, creditCents: 0, description: `Payment processing fees - Invoice ${invoice.number}` }, // G-009
-          { tenantId, accountId: cashAccount.id, debitCents: 0, creditCents: fees, description: `Fees deducted from cash - Invoice ${invoice.number}` }, // G-009
-        );
-      }
+        if (!arAccount || !cashAccount) {
+          return {
+            status: 422,
+            body: {
+              success: false,
+              error: 'AR account (1100) or Cash account (1000) not found. Ensure chart of accounts is seeded.',
+            },
+          };
+        }
 
-      const journalEntry = await tx.abJournalEntry.create({
-        data: {
+        const payment = await db.$transaction(async (tx) => {
+          const journalLines: Array<{
+            tenantId: string;
+            accountId: string;
+            debitCents: number;
+            creditCents: number;
+            description: string;
+          }> = [
+            { tenantId, accountId: cashAccount.id, debitCents: amountCents, creditCents: 0, description: `Cash received - Invoice ${invoice.number}` }, // G-009
+            { tenantId, accountId: arAccount.id, debitCents: 0, creditCents: amountCents, description: `AR payment - Invoice ${invoice.number}` }, // G-009
+          ];
+          if (fees > 0 && feesAccount) {
+            journalLines.push(
+              { tenantId, accountId: feesAccount.id, debitCents: fees, creditCents: 0, description: `Payment processing fees - Invoice ${invoice.number}` }, // G-009
+              { tenantId, accountId: cashAccount.id, debitCents: 0, creditCents: fees, description: `Fees deducted from cash - Invoice ${invoice.number}` }, // G-009
+            );
+          }
+
+          const journalEntry = await tx.abJournalEntry.create({
+            data: {
+              tenantId,
+              date: new Date(date || Date.now()),
+              memo: `Payment for Invoice ${invoice.number}`,
+              sourceType: 'payment',
+              verified: true,
+              lines: { create: journalLines },
+            },
+          });
+
+          const pmt = await tx.abPayment.create({
+            data: {
+              tenantId,
+              invoiceId,
+              amountCents,
+              method: method || 'manual',
+              date: new Date(date || Date.now()),
+              stripePaymentId: stripePaymentId || null,
+              feesCents: fees,
+              journalEntryId: journalEntry.id,
+            },
+          });
+
+          await tx.abJournalEntry.update({ where: { id: journalEntry.id }, data: { sourceId: pmt.id } });
+
+          if (fullyPaid) {
+            await tx.abInvoice.update({ where: { id: invoiceId }, data: { status: 'paid' } });
+          }
+
+          await tx.abClient.update({
+            where: { id: invoice.clientId },
+            data: { totalPaidCents: { increment: amountCents } },
+          });
+
+          await tx.abEvent.create({
+            data: {
+              tenantId,
+              eventType: 'payment.received',
+              actor: 'agent',
+              action: {
+                paymentId: pmt.id,
+                invoiceId,
+                invoiceNumber: invoice.number,
+                amountCents,
+                method: method || 'manual',
+                feesCents: fees,
+                fullyPaid,
+                clientId: invoice.clientId,
+                clientName: invoice.client.name,
+              },
+              constraintsPassed: ['balance_invariant'],
+              verificationResult: 'passed',
+            },
+          });
+
+          return pmt;
+        });
+
+        // PR 10 — audit the payment + the invoice status flip if it became paid.
+        await audit({
           tenantId,
-          date: new Date(date || Date.now()),
-          memo: `Payment for Invoice ${invoice.number}`,
-          sourceType: 'payment',
-          verified: true,
-          lines: { create: journalLines },
-        },
-      });
-
-      const pmt = await tx.abPayment.create({
-        data: {
-          tenantId,
-          invoiceId,
-          amountCents,
-          method: method || 'manual',
-          date: new Date(date || Date.now()),
-          stripePaymentId: stripePaymentId || null,
-          feesCents: fees,
-          journalEntryId: journalEntry.id,
-        },
-      });
-
-      await tx.abJournalEntry.update({ where: { id: journalEntry.id }, data: { sourceId: pmt.id } });
-
-      if (fullyPaid) {
-        await tx.abInvoice.update({ where: { id: invoiceId }, data: { status: 'paid' } });
-      }
-
-      await tx.abClient.update({
-        where: { id: invoice.clientId },
-        data: { totalPaidCents: { increment: amountCents } },
-      });
-
-      await tx.abEvent.create({
-        data: {
-          tenantId,
-          eventType: 'payment.received',
-          actor: 'agent',
-          action: {
-            paymentId: pmt.id,
+          source: auditSource,
+          actor: auditActor,
+          action: 'payment.create',
+          entityType: 'AbPayment',
+          entityId: payment.id,
+          after: {
             invoiceId,
             invoiceNumber: invoice.number,
             amountCents,
-            method: method || 'manual',
+            method: payment.method,
             feesCents: fees,
             fullyPaid,
-            clientId: invoice.clientId,
-            clientName: invoice.client.name,
           },
-          constraintsPassed: ['balance_invariant'],
-          verificationResult: 'passed',
-        },
-      });
+        });
+        if (fullyPaid) {
+          await audit({
+            tenantId,
+            source: auditSource,
+            actor: auditActor,
+            action: 'invoice.mark_paid',
+            entityType: 'AbInvoice',
+            entityId: invoiceId,
+            before: { status: invoice.status },
+            after: { status: 'paid', number: invoice.number, paymentId: payment.id },
+          });
+        }
 
-      return pmt;
-    });
-
-    // PR 10 — audit the payment + the invoice status flip if it became paid.
-    await audit({
-      tenantId,
-      source: inferSource(request),
-      actor: await inferActor(request),
-      action: 'payment.create',
-      entityType: 'AbPayment',
-      entityId: payment.id,
-      after: {
-        invoiceId,
-        invoiceNumber: invoice.number,
-        amountCents,
-        method: payment.method,
-        feesCents: fees,
-        fullyPaid,
-      },
-    });
-    if (fullyPaid) {
-      await audit({
-        tenantId,
-        source: inferSource(request),
-        actor: await inferActor(request),
-        action: 'invoice.mark_paid',
-        entityType: 'AbInvoice',
-        entityId: invoiceId,
-        before: { status: invoice.status },
-        after: { status: 'paid', number: invoice.number, paymentId: payment.id },
-      });
-    }
-
-    return NextResponse.json({ success: true, data: payment }, { status: 201 });
-  } catch (err) {
-    console.error('[agentbook-invoice/payments POST] failed:', err);
-    return NextResponse.json(
-      { success: false, error: err instanceof Error ? err.message : String(err) },
-      { status: 500 },
-    );
-  }
+        return { status: 201, body: { success: true, data: payment } };
+      } catch (err) {
+        console.error('[agentbook-invoice/payments POST] failed:', err);
+        return {
+          status: 500,
+          body: { success: false, error: err instanceof Error ? err.message : String(err) },
+        };
+      }
+    },
+  });
 }
