@@ -1177,7 +1177,15 @@ Return ONLY valid JSON: {"amount_cents": <integer>, "vendor": "<string or null>"
     // upsert).
     void incrementUsage(tenantId, 'ocr_scans', 1).catch(() => {});
 
-    // Auto-execute: if OCR extracted data with confidence > 0.7, create expense automatically
+    // G-024 (PR 21): OCR-extracted expenses route through the review queue
+    // instead of auto-confirming. The verify-then-commit framework requires
+    // explicit user confirmation before the expense is posted to the ledger
+    // — otherwise OCR errors silently mutate the books with no recourse.
+    //
+    // Threshold semantics: amount_cents > 0 + confidence > 0.7 is enough to
+    // surface the expense in the review queue (the "Auto" label in the UI
+    // distinguishes it from manual entries). The user reviews + confirms
+    // via /expenses/:id/confirm, which creates the journal entry.
     if (ocrResult.amount_cents > 0 && ocrResult.confidence > 0.7) {
       const vendor = ocrResult.vendor ? await db.abVendor.upsert({
         where: { tenantId_normalizedName: { tenantId, normalizedName: (ocrResult.vendor || '').toLowerCase().replace(/[^a-z0-9]/g, '') } },
@@ -1194,15 +1202,28 @@ Return ONLY valid JSON: {"amount_cents": <integer>, "vendor": "<string or null>"
           description: `Receipt: ${ocrResult.vendor || 'Unknown'}`,
           receiptUrl: imageUrl,
           confidence: ocrResult.confidence,
+          // G-024: pending_review forces the verify-then-commit gate before
+          // the expense affects P&L. Confirmation creates the journal entry.
+          status: 'pending_review',
+          source: 'ocr_auto',
         },
       });
 
       await db.abEvent.create({
         data: { tenantId, eventType: 'receipt.auto_processed', actor: 'agent',
-          action: { expenseId: expense.id, amountCents: ocrResult.amount_cents, vendor: ocrResult.vendor, confidence: ocrResult.confidence } },
+          action: { expenseId: expense.id, amountCents: ocrResult.amount_cents, vendor: ocrResult.vendor, confidence: ocrResult.confidence, status: 'pending_review' } },
       });
 
-      return res.json({ success: true, data: { ...ocrResult, autoRecorded: true, expenseId: expense.id } });
+      return res.json({
+        success: true,
+        data: {
+          ...ocrResult,
+          autoRecorded: false, // semantically: NOT auto-recorded into ledger; awaiting review
+          queuedForReview: true,
+          expenseId: expense.id,
+          reviewUrl: '/agentbook/expenses?filter=pending_review',
+        },
+      });
     }
 
     res.json({ success: true, data: ocrResult });
