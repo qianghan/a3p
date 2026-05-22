@@ -918,7 +918,12 @@ function deriveEffectiveRate(estimate: {
   return 0;
 }
 
-// Helper: call Gemini LLM
+// Default Gemini call timeout — overridable via GEMINI_TIMEOUT_MS env var.
+// Closes G-026: previously callGemini had no timeout; a slow Gemini response
+// would hold an Express worker for the platform default (potentially minutes).
+const GEMINI_DEFAULT_TIMEOUT_MS = 20_000;
+
+// Helper: call Gemini LLM, with timeout + AbortController.
 export async function callGemini(systemPrompt: string, userMessage: string, maxTokens: number = 500): Promise<string | null> {
   // Resolve key + model: env var first (production), then DB config (legacy / overrides).
   let apiKey: string | null = process.env.GEMINI_API_KEY || null;
@@ -933,19 +938,35 @@ export async function callGemini(systemPrompt: string, userMessage: string, maxT
 
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
 
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      systemInstruction: { parts: [{ text: systemPrompt }] },
-      contents: [{ role: 'user', parts: [{ text: userMessage }] }],
-      generationConfig: { maxOutputTokens: maxTokens, temperature: 0.3 },
-    }),
-  });
+  const timeoutMs = Number(process.env.GEMINI_TIMEOUT_MS) || GEMINI_DEFAULT_TIMEOUT_MS;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
 
-  if (!res.ok) return null;
-  const data = await res.json();
-  return data.candidates?.[0]?.content?.parts?.[0]?.text || null;
+  try {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        systemInstruction: { parts: [{ text: systemPrompt }] },
+        contents: [{ role: 'user', parts: [{ text: userMessage }] }],
+        generationConfig: { maxOutputTokens: maxTokens, temperature: 0.3 },
+      }),
+      signal: controller.signal,
+    });
+
+    if (!res.ok) return null;
+    const data = await res.json();
+    return data.candidates?.[0]?.content?.parts?.[0]?.text || null;
+  } catch (err) {
+    if ((err as Error)?.name === 'AbortError') {
+      console.warn(`[callGemini] timed out after ${timeoutMs}ms`);
+      return null;
+    }
+    console.warn('[callGemini] failed:', err);
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 // POST /ask — Enhanced conversational memory with LLM + pattern matching + conversation history
