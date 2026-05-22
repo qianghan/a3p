@@ -821,6 +821,10 @@ app.get('/api/v1/agentbook-expense/bank-accounts', async (req, res) => {
 app.post('/api/v1/agentbook-expense/bank-sync', async (req, res) => {
   try {
     const tenantId = (req as any).tenantId;
+    // PR 17 extension: bank-sync hits Plaid /transactions for each linked
+    // Item — a real external-API cost. Gate on bank_connections (existing
+    // dimension; usage is per-tenant-per-sync regardless of count).
+    if (!(await enforceQuota(res, tenantId, 'bank_connections'))) return;
 
     const accounts = await db.abBankAccount.findMany({ where: { tenantId, connected: true } });
     if (accounts.length === 0) {
@@ -1561,6 +1565,9 @@ app.post('/api/v1/agentbook-expense/import/csv/preview', async (req, res) => {
 app.get('/api/v1/agentbook-expense/advisor/insights', async (req, res) => {
   try {
     const tenantId = (req as any).tenantId;
+    // PR 17 extension: this endpoint can call Gemini downstream when generating
+    // narrative insights. Gate on ai_messages so free-tier abuse is bounded.
+    if (!(await enforceQuota(res, tenantId, 'ai_messages'))) return;
     const now = new Date();
     const startDate = req.query.startDate ? new Date(req.query.startDate as string) : new Date(now.getFullYear(), 0, 1);
     const endDate = req.query.endDate ? new Date(req.query.endDate as string) : now;
@@ -1743,6 +1750,9 @@ app.get('/api/v1/agentbook-expense/advisor/insights', async (req, res) => {
 app.get('/api/v1/agentbook-expense/advisor/chart', async (req, res) => {
   try {
     const tenantId = (req as any).tenantId;
+    // PR 17 extension: chart endpoint pulls large expense windows + can run
+    // narrative captions through Gemini. Gate on ai_messages.
+    if (!(await enforceQuota(res, tenantId, 'ai_messages'))) return;
     const now = new Date();
     const startDate = req.query.startDate ? new Date(req.query.startDate as string) : new Date(now.getFullYear(), 0, 1);
     const endDate = req.query.endDate ? new Date(req.query.endDate as string) : now;
@@ -2185,6 +2195,10 @@ app.post('/api/v1/agentbook-expense/receipts/upload-blob', async (req, res) => {
 app.post('/api/v1/agentbook-expense/import/cc-statement', async (req, res) => {
   try {
     const tenantId = (req as any).tenantId;
+    // PR 17 extension: CC statement import can create N expenses + journal
+    // entries per call. Gate on expenses_created so a free-tier user can't
+    // bypass per-month expense limits via bulk import.
+    if (!(await enforceQuota(res, tenantId, 'expenses_created'))) return;
     const { transactions, csv } = req.body;
 
     // Parse CSV if provided
