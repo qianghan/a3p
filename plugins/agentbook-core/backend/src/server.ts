@@ -861,12 +861,38 @@ async function buildFinancialContext(tenantId: string) {
     recentInvoices: invoiceSummary,
     taxEstimate: taxEstimate ? {
       totalTaxCents: taxEstimate.totalTaxCents,
-      effectiveRate: taxEstimate.effectiveRate,
+      effectiveRate: deriveEffectiveRate(taxEstimate),
       netIncomeCents: taxEstimate.netIncomeCents,
     } : null,
     recurringExpenses: recurring.length,
     monthlyBurnCents: Math.round(totalExpenses / Math.max(1, Math.ceil(expenses.length / 30) || 1)),
   };
+}
+
+/**
+ * Derive effective tax rate as a decimal (0–1). Closes G-017.
+ *
+ * The `AbTaxEstimate` model has no `effectiveRate` column — reads of
+ * `estimate.effectiveRate` silently produce NaN%. The tax plugin's
+ * /tax/estimate HTTP response includes an `effectiveRate` field as a
+ * PERCENT (e.g. 25.00 for 25%), so we also normalize percent → decimal
+ * to avoid the "2500%" rendering bug at the skill response formatter.
+ */
+function deriveEffectiveRate(estimate: {
+  totalTaxCents?: number | null;
+  netIncomeCents?: number | null;
+  effectiveRate?: number | null;
+} | null | undefined): number {
+  if (!estimate) return 0;
+  // Pre-computed by tax plugin response — normalize percent → decimal.
+  if (typeof estimate.effectiveRate === 'number') {
+    return estimate.effectiveRate > 1 ? estimate.effectiveRate / 100 : estimate.effectiveRate;
+  }
+  const net = estimate.netIncomeCents ?? 0;
+  if (net > 0 && typeof estimate.totalTaxCents === 'number') {
+    return estimate.totalTaxCents / net;
+  }
+  return 0;
 }
 
 // Helper: call Gemini LLM
@@ -948,7 +974,7 @@ app.post('/api/v1/agentbook-core/ask', async (req, res) => {
     } else if ((q.includes('tax') || q.includes('owe')) && !q.includes('owe me') && !q.includes('owes me')) {
       const estimate = await db.abTaxEstimate.findFirst({ where: { tenantId }, orderBy: { calculatedAt: 'desc' } });
       if (estimate) {
-        answer = `Estimated tax: $${(estimate.totalTaxCents / 100).toLocaleString()}. Effective rate: ${(estimate.effectiveRate * 100).toFixed(1)}%. Net income: $${(estimate.netIncomeCents / 100).toLocaleString()}.`;
+        answer = `Estimated tax: $${(estimate.totalTaxCents / 100).toLocaleString()}. Effective rate: ${(deriveEffectiveRate(estimate) * 100).toFixed(1)}%. Net income: $${(estimate.netIncomeCents / 100).toLocaleString()}.`;
         data = estimate;
       } else { answer = 'No tax estimate yet. Record some revenue and expenses first.'; }
     } else if ((q.includes('cash') || q.includes('balance') || q.includes('money')) && !q.includes('owe') && !q.includes('who')) {
@@ -1236,7 +1262,7 @@ app.get('/api/v1/agentbook-core/tax-package/html', async (req, res) => {
     <tr><td>${jurisdiction === 'ca' ? 'CPP Self-Employed' : 'Self-Employment Tax'}</td><td class="amount">${fmt(estimate.seTaxCents)}</td></tr>
     <tr><td>Income Tax</td><td class="amount">${fmt(estimate.incomeTaxCents)}</td></tr>
     <tr class="total-row"><td>Total Estimated Tax</td><td class="amount">${fmt(estimate.totalTaxCents)}</td></tr>
-    <tr><td>Effective Tax Rate</td><td class="amount">${(estimate.effectiveRate * 100).toFixed(1)}%</td></tr>
+    <tr><td>Effective Tax Rate</td><td class="amount">${(deriveEffectiveRate(estimate) * 100).toFixed(1)}%</td></tr>
   </table>
   ` : ''}
 
@@ -1975,7 +2001,7 @@ app.post('/api/v1/agentbook-core/simulate', async (req, res) => {
     // Tax impact estimate (rough)
     const currentAnnualNet = currentNetMonthly * 12;
     const newAnnualNet = newNetMonthly * 12;
-    const taxRate = context.taxEstimate?.effectiveRate || 0.25;
+    const taxRate = deriveEffectiveRate(context.taxEstimate) || 0.25;
     const currentTax = Math.round(currentAnnualNet * taxRate);
     const newTax = Math.round(newAnnualNet * taxRate);
 
@@ -3616,7 +3642,7 @@ async function _executeClassificationCore(
       if (data.selfEmploymentTaxCents) message += `\nSE Tax: $${(data.selfEmploymentTaxCents / 100).toFixed(2)}`;
       if (data.incomeTaxCents) message += `\nIncome Tax: $${(data.incomeTaxCents / 100).toFixed(2)}`;
       message += `\n**Total Tax: $${(data.totalTaxCents / 100).toFixed(2)}**`;
-      message += `\nEffective Rate: ${(data.effectiveRate * 100).toFixed(1)}%`;
+      message += `\nEffective Rate: ${(deriveEffectiveRate(data) * 100).toFixed(1)}%`;
 
     // Quarterly payments
     } else if (data?.quarters && Array.isArray(data.quarters)) {
