@@ -870,6 +870,97 @@ async function buildFinancialContext(tenantId: string) {
 }
 
 /**
+ * Prune a financial-context object down to just the slices a specific
+ * question needs. The full context can be 5-10K tokens when serialized
+ * (G-038 / PR 33); for a "how much tax do I owe" question, 90% of that
+ * is dead weight that costs Gemini tokens and slows the response.
+ *
+ * Approach: lightweight regex-based intent detection, then return an
+ * object with only the relevant fields. Always preserves the headline
+ * totals (revenue / expenses / net / cash) so the LLM has the orienting
+ * numbers regardless of intent.
+ *
+ * Order matters — the first matching intent wins. Returns an object
+ * suitable for direct JSON.stringify.
+ */
+export function pruneContextForQuestion(
+  context: any,
+  question: string,
+): Record<string, unknown> {
+  const q = (question || '').toLowerCase();
+
+  // Always-present headline fields keep the LLM grounded.
+  const headline = {
+    jurisdiction: context.jurisdiction,
+    currency: context.currency,
+    totalRevenueCents: context.totalRevenueCents,
+    totalExpenseCents: context.totalExpenseCents,
+    netIncomeCents: context.netIncomeCents,
+    cashBalanceCents: context.cashBalanceCents,
+  };
+
+  // Tax-focused — pull in tax estimate + recurring expenses (deduction proxy).
+  if (/tax|owe|deduct|write.?off|estimate|quarterly|filing|gst|hst/.test(q)) {
+    return {
+      ...headline,
+      taxEstimate: context.taxEstimate,
+      recurringExpenses: context.recurringExpenses,
+      expenseCount: context.expenseCount,
+    };
+  }
+
+  // Expense / vendor / category focused.
+  if (/spent|spend|expense|cost|vendor|categor|where.*money|biggest/.test(q)) {
+    return {
+      ...headline,
+      topVendors: context.topVendors,
+      expenseCount: context.expenseCount,
+      monthlyBurnCents: context.monthlyBurnCents,
+      recurringExpenses: context.recurringExpenses,
+    };
+  }
+
+  // Client / invoice focused.
+  if (/client|customer|invoice|billed|unpaid|overdue|outstand|aging/.test(q)) {
+    return {
+      ...headline,
+      clients: context.clients,
+      recentInvoices: context.recentInvoices,
+    };
+  }
+
+  // Cash / runway focused — runway needs burn + balance only.
+  if (/cash|balance|runway|burn|how long|months/.test(q)) {
+    return {
+      ...headline,
+      monthlyBurnCents: context.monthlyBurnCents,
+      recurringExpenses: context.recurringExpenses,
+    };
+  }
+
+  // Comparison / trend focused — include period totals and recent invoices for revenue trend.
+  if (/compare|vs\.?\b|versus|trend|this month|last month|growth|change/.test(q)) {
+    return {
+      ...headline,
+      monthlyBurnCents: context.monthlyBurnCents,
+      recentInvoices: context.recentInvoices,
+      topVendors: context.topVendors,
+    };
+  }
+
+  // Default — modest snapshot. Skip the heavy arrays (clients, invoices,
+  // vendors). Keep summary numbers + tax + burn so most general questions
+  // can be answered.
+  return {
+    ...headline,
+    expenseCount: context.expenseCount,
+    monthlyBurnCents: context.monthlyBurnCents,
+    taxEstimate: context.taxEstimate,
+    recurringExpenses: context.recurringExpenses,
+  };
+}
+
+/**
  * Compute average monthly burn from trailing 90 days of business expenses.
  *
  * Previous implementation was `totalExpenses / ceil(count / 30)` — a
@@ -1063,7 +1154,11 @@ app.post('/api/v1/agentbook-core/ask', async (req, res) => {
       });
       const convoHistory = recentConvo.reverse().map((c: any) => `Q: ${c.question}\nA: ${c.answer}`).join('\n\n');
 
-      const contextStr = JSON.stringify(context, null, 2);
+      // G-038 / PR 33: prune context to just the slices this question
+      // needs. Previously serialized the full 5-10K-token blob on every
+      // /ask call. Now typically 500-1500 tokens.
+      const prunedContext = pruneContextForQuestion(context, question);
+      const contextStr = JSON.stringify(prunedContext, null, 2);
       const llmAnswer = await callGemini(
         `You are AgentBook, an AI-powered financial agent. Answer questions using the financial data provided. Be concise, specific, and always include dollar amounts. If comparing periods, calculate the difference. If the data doesn't support an answer, say so clearly. Currency: ${context.currency}. Jurisdiction: ${context.jurisdiction}.`,
         `${convoHistory ? `Recent conversation:\n${convoHistory}\n\n` : ''}Financial data:\n${contextStr}\n\nNew question: ${question}`,
@@ -1072,7 +1167,7 @@ app.post('/api/v1/agentbook-core/ask', async (req, res) => {
 
       if (llmAnswer) {
         answer = llmAnswer;
-        data = { source: 'gemini', contextUsed: Object.keys(context) };
+        data = { source: 'gemini', contextUsed: Object.keys(prunedContext) };
       } else {
         answer = `Your finances: Revenue $${(context.totalRevenueCents / 100).toLocaleString()}, Expenses $${(context.totalExpenseCents / 100).toLocaleString()}, Net $${(context.netIncomeCents / 100).toLocaleString()}, Cash $${(context.cashBalanceCents / 100).toLocaleString()}. Ask about revenue, expenses, taxes, cash, or clients for details.`;
         queryType = 'fallback';
