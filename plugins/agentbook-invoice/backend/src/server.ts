@@ -16,6 +16,7 @@ import 'dotenv/config';
 import { readFileSync } from 'node:fs';
 import { createPluginServer } from '@naap/plugin-server-sdk';
 import { db } from './db/client.js';
+import { verifyInvoiceLink, buildPublicInvoiceUrl } from './invoice-signed-link.js';
 
 import type { Request, Response } from 'express';
 
@@ -252,6 +253,7 @@ app.post('/api/v1/agentbook-invoice/invoices', async (req: Request, res: Respons
 
     // Calculate total from lines
     const lineItems = lines.map((l: any) => ({
+      tenantId, // G-009
       description: l.description,
       quantity: l.quantity || 1,
       rateCents: l.rateCents,
@@ -302,12 +304,14 @@ app.post('/api/v1/agentbook-invoice/invoices', async (req: Request, res: Respons
           lines: {
             create: [
               {
+                tenantId, // G-009
                 accountId: arAccount.id,
                 debitCents: totalAmountCents,
                 creditCents: 0,
                 description: `AR - Invoice ${invoiceNumber}`,
               },
               {
+                tenantId, // G-009
                 accountId: revenueAccount.id,
                 debitCents: 0,
                 creditCents: totalAmountCents,
@@ -503,7 +507,7 @@ app.post('/invoices/:id/send', async (req: Request, res: Response) => {
     if (client?.email) {
       try {
         const fullInvoice = await db.abInvoice.findFirst({
-          where: { id: invoice.id },
+          where: { id: invoice.id, tenantId },
           include: { lines: true, client: true },
         });
         const tenantConfig = await db.abTenantConfig.findFirst({ where: { userId: tenantId } });
@@ -573,12 +577,14 @@ app.post('/invoices/:id/void', async (req: Request, res: Response) => {
           lines: {
             create: [
               {
+                tenantId, // G-009
                 accountId: arAccount.id,
                 debitCents: 0,
                 creditCents: invoice.amountCents,
                 description: `Reverse AR - Invoice ${invoice.number}`,
               },
               {
+                tenantId, // G-009
                 accountId: revenueAccount.id,
                 debitCents: invoice.amountCents,
                 creditCents: 0,
@@ -689,18 +695,21 @@ app.post('/api/v1/agentbook-invoice/payments', async (req: Request, res: Respons
       // Create journal entry: debit Cash (net of fees), credit AR
       // If fees: debit Fees Expense, credit Cash (for the fee portion)
       const journalLines: Array<{
+        tenantId: string;
         accountId: string;
         debitCents: number;
         creditCents: number;
         description: string;
       }> = [
         {
+          tenantId, // G-009
           accountId: cashAccount.id,
           debitCents: amountCents,
           creditCents: 0,
           description: `Cash received - Invoice ${invoice.number}`,
         },
         {
+          tenantId, // G-009
           accountId: arAccount.id,
           debitCents: 0,
           creditCents: amountCents,
@@ -712,12 +721,14 @@ app.post('/api/v1/agentbook-invoice/payments', async (req: Request, res: Respons
       if (fees > 0 && feesAccount) {
         journalLines.push(
           {
+            tenantId, // G-009
             accountId: feesAccount.id,
             debitCents: fees,
             creditCents: 0,
             description: `Payment processing fees - Invoice ${invoice.number}`,
           },
           {
+            tenantId, // G-009
             accountId: cashAccount.id,
             debitCents: 0,
             creditCents: fees,
@@ -1031,12 +1042,14 @@ app.post('/estimates/:id/convert', async (req: Request, res: Response) => {
           lines: {
             create: [
               {
+                tenantId, // G-009
                 accountId: arAccount.id,
                 debitCents: estimate.amountCents,
                 creditCents: 0,
                 description: `AR - Invoice ${invoiceNumber}`,
               },
               {
+                tenantId, // G-009
                 accountId: revenueAccount.id,
                 debitCents: 0,
                 creditCents: estimate.amountCents,
@@ -1061,6 +1074,7 @@ app.post('/estimates/:id/convert', async (req: Request, res: Response) => {
           lines: {
             create: [
               {
+                tenantId, // G-009
                 description: estimate.description,
                 quantity: 1,
                 rateCents: estimate.amountCents,
@@ -1290,7 +1304,7 @@ app.get('/api/v1/agentbook-invoice/unbilled-summary', async (req: Request, res: 
     }
 
     const clientIds = Array.from(groups.keys()).filter(k => k !== 'no-client');
-    const clients = await db.abClient.findMany({ where: { id: { in: clientIds } } });
+    const clients = await db.abClient.findMany({ where: { id: { in: clientIds }, tenantId } });
     const nameMap = new Map(clients.map((c: any) => [c.id, c.name]));
 
     const result = Array.from(groups.entries()).map(([cid, g]) => ({
@@ -1702,8 +1716,8 @@ app.post('/api/v1/agentbook-invoice/credit-notes', async (req: Request, res: Res
           sourceType: 'credit_note', verified: true,
           lines: {
             create: [
-              { accountId: revenueAccount.id, debitCents: amountCents, creditCents: 0, description: `Revenue reversal - ${cnNumber}` },
-              { accountId: arAccount.id, debitCents: 0, creditCents: amountCents, description: `AR reduction - ${cnNumber}` },
+              { tenantId, accountId: revenueAccount.id, debitCents: amountCents, creditCents: 0, description: `Revenue reversal - ${cnNumber}` }, // G-009
+              { tenantId, accountId: arAccount.id, debitCents: 0, creditCents: amountCents, description: `AR reduction - ${cnNumber}` }, // G-009
             ],
           },
         },
@@ -1864,6 +1878,7 @@ app.post('/api/v1/agentbook-invoice/recurring-invoices/generate', async (req: Re
       const invoiceNumber = `INV-${year}-${String(nextSeq).padStart(4, '0')}`;
 
       const lines = (item.templateLines as any[]).map((l: any) => ({
+        tenantId, // G-009
         description: l.description,
         quantity: l.quantity || 1,
         rateCents: l.rateCents,
@@ -1884,8 +1899,8 @@ app.post('/api/v1/agentbook-invoice/recurring-invoices/generate', async (req: Re
             sourceType: 'invoice', verified: true,
             lines: {
               create: [
-                { accountId: arAccount.id, debitCents: item.totalCents, creditCents: 0, description: `AR - ${invoiceNumber}` },
-                { accountId: revenueAccount.id, debitCents: 0, creditCents: item.totalCents, description: `Revenue - ${invoiceNumber}` },
+                { tenantId, accountId: arAccount.id, debitCents: item.totalCents, creditCents: 0, description: `AR - ${invoiceNumber}` }, // G-009
+                { tenantId, accountId: revenueAccount.id, debitCents: 0, creditCents: item.totalCents, description: `Revenue - ${invoiceNumber}` }, // G-009
               ],
             },
           },
@@ -1960,8 +1975,11 @@ app.post('/api/v1/agentbook-invoice/invoices/:id/payment-link', async (req: Requ
 
     const stripeKey = process.env.STRIPE_SECRET_KEY;
     if (!stripeKey) {
-      // No Stripe configured — generate a mock payment URL for dev
-      const mockUrl = `${process.env.NEXTAUTH_URL || 'http://localhost:3000'}/pay/${invoice.id}`;
+      // No Stripe configured — generate a mock payment URL for dev.
+      // G-006: emit signed URL so the /pay/{id} page can pass the token through
+      // to the gated public endpoint.
+      const baseUrl = process.env.NEXTAUTH_URL || 'http://localhost:3000';
+      const mockUrl = buildPublicInvoiceUrl(baseUrl, invoice.id, invoice.tenantId);
       await db.abInvoice.update({ where: { id: invoice.id }, data: { paymentUrl: mockUrl } });
       return res.json({ success: true, data: { paymentUrl: mockUrl, mock: true } });
     }
@@ -1997,79 +2015,12 @@ app.post('/api/v1/agentbook-invoice/invoices/:id/payment-link', async (req: Requ
   }
 });
 
-// POST /stripe/checkout-completed — Handle successful Stripe payment
-app.post('/api/v1/agentbook-invoice/stripe/checkout-completed', async (req: Request, res: Response) => {
-  try {
-    const event = req.body;
-    if (event.type !== 'checkout.session.completed') {
-      return res.json({ received: true });
-    }
-
-    const session = event.data.object;
-    const invoiceId = session.metadata?.invoiceId;
-    const tenantId = session.metadata?.tenantId;
-    if (!invoiceId || !tenantId) return res.json({ received: true });
-
-    // Check idempotency — skip if already processed
-    const existing = await db.abPayment.findFirst({ where: { stripePaymentId: session.payment_intent } });
-    if (existing) return res.json({ received: true, message: 'Already processed' });
-
-    const invoice = await db.abInvoice.findFirst({ where: { id: invoiceId, tenantId } });
-    if (!invoice || invoice.status === 'paid') return res.json({ received: true });
-
-    const amountCents = session.amount_total || invoice.amountCents;
-
-    // Record payment
-    await db.abPayment.create({
-      data: {
-        tenantId,
-        invoiceId: invoice.id,
-        amountCents,
-        method: 'stripe',
-        date: new Date(),
-        stripePaymentId: session.payment_intent,
-      },
-    });
-
-    // Update invoice status
-    await db.abInvoice.update({
-      where: { id: invoice.id },
-      data: { status: 'paid' },
-    });
-
-    // Create journal entry if accounts exist
-    try {
-      const cashAccount = await getAccountByCode(tenantId, '1010');
-      const arAccount = await getAccountByCode(tenantId, '1200');
-      if (cashAccount && arAccount) {
-        await db.abJournalEntry.create({
-          data: {
-            tenantId, date: new Date(), description: `Stripe payment for ${invoice.number}`,
-            lines: {
-              create: [
-                { accountId: cashAccount.id, debitCents: amountCents, creditCents: 0 },
-                { accountId: arAccount.id, debitCents: 0, creditCents: amountCents },
-              ],
-            },
-          },
-        });
-      }
-    } catch { /* journal entry is best-effort */ }
-
-    // Log event
-    await db.abEvent.create({
-      data: {
-        tenantId, eventType: 'invoice.stripe_payment', actor: 'stripe',
-        action: { invoiceId: invoice.id, amountCents, paymentIntent: session.payment_intent },
-      },
-    });
-
-    res.json({ received: true, recorded: true });
-  } catch (err) {
-    console.error('Stripe checkout webhook error:', err);
-    res.json({ received: true, error: String(err) });
-  }
-});
+// NOTE: The plugin-level /stripe/checkout-completed handler was removed (G-005).
+// The 'checkout.session.completed' event is now handled by the canonical signed
+// handler at apps/web-next/src/app/api/v1/agentbook/stripe-webhook/route.ts
+// (delegated to handlers.ts). It verifies stripe-signature against
+// STRIPE_WEBHOOK_SECRET and runs the same payment-recording + journal-entry
+// logic. Do not re-add an unsigned endpoint here.
 
 // ============================================
 // PUBLIC INVOICE VIEW (no auth required)
@@ -2077,11 +2028,18 @@ app.post('/api/v1/agentbook-invoice/stripe/checkout-completed', async (req: Requ
 
 app.get('/api/v1/agentbook-invoice/invoices/:id/public', async (req: Request, res: Response) => {
   try {
+    // safe: public endpoint (no auth); the HMAC verifyInvoiceLink check below binds id+tenantId via the signed token before exposing data.
     const invoice = await db.abInvoice.findFirst({
       where: { id: req.params.id },
       include: { client: true, lines: true },
     });
     if (!invoice) return res.status(404).json({ success: false, error: 'Invoice not found' });
+
+    // G-006: require HMAC-signed token; reject unsigned or tampered links.
+    const token = typeof req.query.t === 'string' ? req.query.t : undefined;
+    if (!verifyInvoiceLink(invoice.id, invoice.tenantId, token)) {
+      return res.status(403).json({ success: false, error: 'invalid or expired link' });
+    }
 
     // Mark as viewed
     if (invoice.status === 'sent') {

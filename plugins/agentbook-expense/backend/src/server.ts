@@ -66,6 +66,7 @@ function normalizeVendorName(name: string): string {
 // === LLM Helper (local to expense plugin — same pattern as core) ===
 async function callGemini(systemPrompt: string, userMessage: string, maxTokens: number = 500): Promise<string | null> {
   try {
+    // safe: AbLLMProviderConfig is admin-managed platform config (tenantId nullable). Per-tenant override scoping deferred to PR 3 (G-005).
     const llmConfig = await db.abLLMProviderConfig.findFirst({ where: { enabled: true, isDefault: true } });
     if (!llmConfig || llmConfig.provider !== 'gemini') return null;
 
@@ -156,8 +157,8 @@ app.post('/api/v1/agentbook-expense/expenses', async (req, res) => {
               sourceType: 'expense', verified: true,
               lines: {
                 create: [
-                  { accountId: resolvedCategoryId, debitCents: amountCents, creditCents: 0, description: description || vendor || 'Expense' },
-                  { accountId: cashAccount.id, debitCents: 0, creditCents: amountCents, description: `Payment: ${vendor || 'Expense'}` },
+                  { tenantId, accountId: resolvedCategoryId, debitCents: amountCents, creditCents: 0, description: description || vendor || 'Expense' },
+                  { tenantId, accountId: cashAccount.id, debitCents: 0, creditCents: amountCents, description: `Payment: ${vendor || 'Expense'}` },
                 ],
               },
             },
@@ -252,7 +253,7 @@ app.get('/api/v1/agentbook-expense/expenses', async (req, res) => {
     // Resolve category names from accounts (cross-schema)
     const categoryIds = [...new Set(expenses.map((e: any) => e.categoryId).filter(Boolean))];
     const categories = categoryIds.length > 0
-      ? await db.abAccount.findMany({ where: { id: { in: categoryIds } }, select: { id: true, name: true, code: true } })
+      ? await db.abAccount.findMany({ where: { id: { in: categoryIds }, tenantId }, select: { id: true, name: true, code: true } })
       : [];
     const categoryMap = Object.fromEntries(categories.map((c: any) => [c.id, { name: c.name, code: c.code }]));
 
@@ -283,12 +284,12 @@ app.get('/api/v1/agentbook-expense/expenses/:id', async (req, res) => {
     let categoryName = null;
     let categoryCode = null;
     if (expense.categoryId) {
-      const cat = await db.abAccount.findFirst({ where: { id: expense.categoryId } });
+      const cat = await db.abAccount.findFirst({ where: { id: expense.categoryId, tenantId } });
       if (cat) { categoryName = cat.name; categoryCode = cat.code; }
     }
 
-    // Get splits if any
-    const splits = await db.abExpenseSplit.findMany({ where: { expenseId: expense.id } });
+    // Get splits if any (G-009: line tables now carry tenantId — filter directly)
+    const splits = await db.abExpenseSplit.findMany({ where: { tenantId, expenseId: expense.id } });
 
     res.json({ success: true, data: { ...expense, vendorName: (expense as any).vendor?.name, categoryName, categoryCode, splits } });
   } catch (err) {
@@ -323,7 +324,7 @@ app.get('/api/v1/agentbook-expense/category-summary', async (req, res) => {
     // Group by category
     const categoryIds = [...new Set(currentExpenses.map((e: any) => e.categoryId).filter(Boolean))];
     const categories = categoryIds.length > 0
-      ? await db.abAccount.findMany({ where: { id: { in: categoryIds } }, select: { id: true, name: true, code: true } })
+      ? await db.abAccount.findMany({ where: { id: { in: categoryIds }, tenantId }, select: { id: true, name: true, code: true } })
       : [];
     const catMap = Object.fromEntries(categories.map((c: any) => [c.id, c]));
 
@@ -539,7 +540,7 @@ app.post('/api/v1/agentbook-expense/expenses/:id/categorize', async (req, res) =
 
     // Update or create vendor pattern (user correction = high confidence)
     if (expense.vendorId) {
-      const vendor = await db.abVendor.findUnique({ where: { id: expense.vendorId } });
+      const vendor = await db.abVendor.findFirst({ where: { id: expense.vendorId, tenantId } });
       if (vendor) {
         await db.abPattern.upsert({
           where: { tenantId_vendorPattern: { tenantId, vendorPattern: vendor.normalizedName } },
@@ -702,8 +703,8 @@ app.post('/api/v1/agentbook-expense/plaid/exchange-token', async (req, res) => {
     const createdAccounts = [];
 
     for (const acct of accountsRes.data.accounts) {
-      // Check if account already exists
-      const existing = await db.abBankAccount.findFirst({ where: { plaidAccountId: acct.account_id } });
+      // Check if account already exists (scoped to tenant: Plaid sandbox uses deterministic IDs across tenants)
+      const existing = await db.abBankAccount.findFirst({ where: { plaidAccountId: acct.account_id, tenantId } });
       if (existing) continue;
 
       const bankAccount = await db.abBankAccount.create({
@@ -788,9 +789,9 @@ app.post('/api/v1/agentbook-expense/bank-sync', async (req, res) => {
         });
 
         for (const txn of txnRes.data.transactions) {
-          // Idempotent: skip if already imported
+          // Idempotent: skip if already imported (scoped to tenant: Plaid sandbox uses deterministic IDs across tenants)
           const existing = await db.abBankTransaction.findFirst({
-            where: { plaidTransactionId: txn.transaction_id },
+            where: { plaidTransactionId: txn.transaction_id, tenantId },
           });
           if (existing) continue;
 
@@ -911,38 +912,11 @@ app.get('/api/v1/agentbook-expense/reconciliation-summary', async (req, res) => 
 });
 
 // === STRIPE CONNECT (Phase 6) ===
-
-app.post('/api/v1/agentbook-expense/stripe/webhook', async (req, res) => {
-  try {
-    const tenantId = (req as any).tenantId;
-    const sig = req.headers['stripe-signature'];
-
-    // In production: verify signature with Stripe webhook secret
-    // const event = stripe.webhooks.constructEvent(req.body, sig, process.env.STRIPE_WEBHOOK_SECRET);
-
-    const event = req.body;
-
-    // Idempotency check
-    if (event.id) {
-      const existing = await db.abStripeWebhookEvent.findUnique({ where: { stripeEventId: event.id } });
-      if (existing?.processed) {
-        return res.json({ success: true, message: 'Already processed' });
-      }
-
-      await db.abStripeWebhookEvent.upsert({
-        where: { stripeEventId: event.id },
-        update: { processed: true },
-        create: { tenantId, stripeEventId: event.id, eventType: event.type || 'unknown', payload: event, processed: true },
-      });
-    }
-
-    await db.abEvent.create({
-      data: { tenantId, eventType: `stripe.${event.type || 'webhook'}`, actor: 'system', action: { stripeEventId: event.id } },
-    });
-
-    res.json({ success: true });
-  } catch (err) { res.status(500).json({ success: false, error: String(err) }); }
-});
+// NOTE: The plugin-level /stripe/webhook handler was removed (G-004).
+// All Stripe webhook events are now handled by the canonical signed handler at
+// apps/web-next/src/app/api/v1/agentbook/stripe-webhook/route.ts, which
+// verifies stripe-signature against STRIPE_WEBHOOK_SECRET. Do not re-add an
+// unsigned endpoint here.
 
 // === RECEIPT OCR (Phase 6) ===
 
@@ -956,6 +930,7 @@ app.post('/api/v1/agentbook-expense/receipts/ocr', async (req, res) => {
     }
 
     // Call Gemini for receipt OCR
+    // safe: AbLLMProviderConfig is admin-managed platform config (tenantId nullable). Per-tenant override scoping deferred to PR 3 (G-005).
     const llmConfig = await db.abLLMProviderConfig.findFirst({ where: { enabled: true, isDefault: true } });
     let ocrResult: any = { amount_cents: 0, vendor: null, date: new Date().toISOString().split('T')[0], confidence: 0, status: 'no_llm_configured' };
 
@@ -1165,6 +1140,7 @@ app.post('/api/v1/agentbook-expense/expenses/:id/split', async (req, res) => {
       for (const sp of splits) {
         const record = await tx.abExpenseSplit.create({
           data: {
+            tenantId, // G-009
             expenseId: expense.id,
             categoryId: sp.categoryId || expense.categoryId,
             amountCents: sp.amountCents,
@@ -1199,8 +1175,12 @@ app.post('/api/v1/agentbook-expense/expenses/:id/split', async (req, res) => {
 // GET /expenses/:id/splits — Get splits for an expense
 app.get('/api/v1/agentbook-expense/expenses/:id/splits', async (req, res) => {
   try {
+    const tenantId = (req as any).tenantId;
+    // G-009: AbExpenseSplit now carries tenantId — filter directly.
+    const expense = await db.abExpense.findFirst({ where: { id: req.params.id, tenantId }, select: { id: true } });
+    if (!expense) return res.status(404).json({ success: false, error: 'Expense not found' });
     const splits = await db.abExpenseSplit.findMany({
-      where: { expenseId: req.params.id },
+      where: { tenantId, expenseId: expense.id },
       orderBy: { createdAt: 'asc' },
     });
     res.json({ success: true, data: splits });
@@ -1266,7 +1246,7 @@ app.get('/api/v1/agentbook-expense/recurring-suggestions', async (req, res) => {
       else if (avgInterval > 300) frequency = 'annual';
 
       // Get vendor name
-      const vendor = await db.abVendor.findFirst({ where: { id: vendorId } });
+      const vendor = await db.abVendor.findFirst({ where: { id: vendorId, tenantId } });
 
       suggestions.push({
         vendorId,
@@ -1497,7 +1477,7 @@ app.get('/api/v1/agentbook-expense/advisor/insights', async (req, res) => {
     const allCatIds = new Set<string>();
     [...currentExpenses, ...prevExpenses].forEach((e: any) => { if (e.categoryId) allCatIds.add(e.categoryId); });
     const catAccounts = allCatIds.size > 0
-      ? await db.abAccount.findMany({ where: { id: { in: Array.from(allCatIds) } }, select: { id: true, name: true } })
+      ? await db.abAccount.findMany({ where: { id: { in: Array.from(allCatIds) }, tenantId }, select: { id: true, name: true } })
       : [];
     const catNameMap: Record<string, string> = {};
     catAccounts.forEach((a: any) => { catNameMap[a.id] = a.name; });
@@ -1684,7 +1664,7 @@ app.get('/api/v1/agentbook-expense/advisor/chart', async (req, res) => {
     const allCatIds = new Set<string>();
     [...expenses, ...compExpenses].forEach((e: any) => { if (e.categoryId) allCatIds.add(e.categoryId); });
     const catAccounts = allCatIds.size > 0
-      ? await db.abAccount.findMany({ where: { id: { in: Array.from(allCatIds) } }, select: { id: true, name: true } })
+      ? await db.abAccount.findMany({ where: { id: { in: Array.from(allCatIds) }, tenantId }, select: { id: true, name: true } })
       : [];
     const catNameMap: Record<string, string> = {};
     catAccounts.forEach((a: any) => { catNameMap[a.id] = a.name; });
@@ -1782,7 +1762,7 @@ app.post('/api/v1/agentbook-expense/advisor/ask', async (req, res) => {
     const allCatIds = new Set<string>();
     expenses.forEach((e: any) => { if (e.categoryId) allCatIds.add(e.categoryId); });
     const catAccounts = allCatIds.size > 0
-      ? await db.abAccount.findMany({ where: { id: { in: Array.from(allCatIds) } }, select: { id: true, name: true } })
+      ? await db.abAccount.findMany({ where: { id: { in: Array.from(allCatIds) }, tenantId }, select: { id: true, name: true } })
       : [];
     const catNameMap: Record<string, string> = {};
     catAccounts.forEach((a: any) => { catNameMap[a.id] = a.name; });
@@ -1947,7 +1927,7 @@ app.get('/api/v1/agentbook-expense/review-queue', async (req, res) => {
     });
 
     const catIds = [...new Set(expenses.map((e: any) => e.categoryId).filter(Boolean))];
-    const categories = catIds.length > 0 ? await db.abAccount.findMany({ where: { id: { in: catIds } } }) : [];
+    const categories = catIds.length > 0 ? await db.abAccount.findMany({ where: { id: { in: catIds }, tenantId } }) : [];
     const catMap = Object.fromEntries(categories.map((c: any) => [c.id, c.name]));
 
     const enriched = expenses.map((e: any) => ({
@@ -1984,8 +1964,8 @@ app.post('/api/v1/agentbook-expense/expenses/:id/confirm', async (req, res) => {
             sourceType: 'expense', sourceId: expense.id, verified: true,
             lines: {
               create: [
-                { accountId: finalCategoryId, debitCents: finalAmount, creditCents: 0, description: description || expense.description || 'Expense' },
-                { accountId: cashAccount.id, debitCents: 0, creditCents: finalAmount, description: 'Payment' },
+                { tenantId, accountId: finalCategoryId, debitCents: finalAmount, creditCents: 0, description: description || expense.description || 'Expense' },
+                { tenantId, accountId: cashAccount.id, debitCents: 0, creditCents: finalAmount, description: 'Payment' },
               ],
             },
           },
@@ -2268,7 +2248,7 @@ app.get('/api/v1/agentbook-expense/advisor/proactive-alerts', async (req, res) =
     for (const e of priorExpenses) { const k = e.categoryId || 'other'; priorByCat[k] = (priorByCat[k] || 0) + e.amountCents; }
 
     const catIds = [...new Set([...Object.keys(currentByCat), ...Object.keys(priorByCat)].filter(k => k !== 'other'))];
-    const catNames = catIds.length > 0 ? await db.abAccount.findMany({ where: { id: { in: catIds } } }) : [];
+    const catNames = catIds.length > 0 ? await db.abAccount.findMany({ where: { id: { in: catIds }, tenantId } }) : [];
     const catNameMap = Object.fromEntries(catNames.map((c: any) => [c.id, c.name]));
 
     for (const [catId, current] of Object.entries(currentByCat)) {

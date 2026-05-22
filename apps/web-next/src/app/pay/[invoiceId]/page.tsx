@@ -60,9 +60,10 @@ function statusBadge(status: string) {
   );
 }
 
-async function fetchInvoice(invoiceId: string): Promise<PublicInvoice | null> {
+async function fetchInvoice(invoiceId: string, token: string | undefined): Promise<PublicInvoice | null> {
   try {
-    const res = await fetch(`${INVOICE_API}/api/v1/agentbook-invoice/invoices/${invoiceId}/public`, {
+    const qs = token ? `?t=${encodeURIComponent(token)}` : '';
+    const res = await fetch(`${INVOICE_API}/api/v1/agentbook-invoice/invoices/${invoiceId}/public${qs}`, {
       cache: 'no-store',
     });
     if (!res.ok) return null;
@@ -73,9 +74,16 @@ async function fetchInvoice(invoiceId: string): Promise<PublicInvoice | null> {
   }
 }
 
-export default async function PayInvoicePage({ params }: { params: Promise<{ invoiceId: string }> }) {
+export default async function PayInvoicePage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ invoiceId: string }>;
+  searchParams: Promise<{ t?: string }>;
+}) {
   const { invoiceId } = await params;
-  const invoice = await fetchInvoice(invoiceId);
+  const { t } = await searchParams;
+  const invoice = await fetchInvoice(invoiceId, t);
 
   if (!invoice) {
     return (

@@ -232,10 +232,11 @@ app.post('/api/v1/agentbook-core/telegram/resolve-chat', async (req, res) => {
     // Find bot config that has this chatId in its chatIds array, or by botToken
     let botConfig: any = null;
     if (botToken) {
+      // safe: tenant-agnostic bootstrap — webhook arrives knowing only botToken; this resolver maps it to a tenant. Auth hardening covered separately in G-002 (PR 1).
       botConfig = await db.abTelegramBot.findFirst({ where: { botToken, enabled: true } });
     }
     if (!botConfig) {
-      // Search all bots for this chatId
+      // safe: tenant-agnostic bootstrap — fallback chat-id scan when botToken is absent; webhook auth hardening covered in G-002 (PR 1).
       const allBots = await db.abTelegramBot.findMany({ where: { enabled: true } });
       botConfig = allBots.find((b: any) => {
         const ids = (b.chatIds as string[]) || [];
@@ -440,6 +441,7 @@ app.post('/api/v1/agentbook-core/journal-entries', async (req, res) => {
           verified: true,
           lines: {
             create: lines.map((l: any) => ({
+              tenantId, // G-009
               accountId: l.accountId,
               debitCents: l.debitCents || 0,
               creditCents: l.creditCents || 0,
@@ -872,6 +874,7 @@ export async function callGemini(systemPrompt: string, userMessage: string, maxT
   let apiKey: string | null = process.env.GEMINI_API_KEY || null;
   let model = process.env.GEMINI_MODEL_FAST || 'gemini-2.0-flash';
   if (!apiKey) {
+    // safe: AbLLMProviderConfig is admin-managed platform config (tenantId nullable). Per-tenant override scoping deferred to PR 3 (G-005).
     const llmConfig = await db.abLLMProviderConfig.findFirst({ where: { enabled: true, isDefault: true } });
     if (!llmConfig || llmConfig.provider !== 'gemini') return null;
     apiKey = llmConfig.apiKey;
@@ -1543,14 +1546,40 @@ app.post('/api/v1/agentbook-core/cpa/generate-link', async (req, res) => {
 
 // === ADMIN: LLM PROVIDER CONFIG (Phase 8) ===
 
+/**
+ * Plugin-side admin gate. The user-facing surface is the Next.js proxy layer
+ * which gates via requireAdmin (apps/web-next/src/lib/admin-guard.ts). If the
+ * plugin port is ever exposed directly (e.g., debug mode, misconfig), this
+ * shared-secret header check is the second line of defense.
+ *
+ * The Next.js proxy SHOULD forward INTERNAL_ADMIN_SECRET via x-internal-admin
+ * header. If INTERNAL_ADMIN_SECRET is unset, dev mode is assumed and the
+ * check is bypassed (matching the existing requireAuth dev pattern above).
+ */
+function isInternalAdmin(req: any): boolean {
+  const secret = process.env.INTERNAL_ADMIN_SECRET;
+  if (!secret) return true; // dev mode: no secret configured, allow.
+  return req.headers['x-internal-admin'] === secret;
+}
+
+function redactApiKey(apiKey: string | null | undefined): string {
+  if (!apiKey) return '****';
+  if (apiKey.length <= 4) return '****';
+  return '****' + apiKey.slice(-4);
+}
+
 app.get('/api/v1/agentbook-core/admin/llm-configs', async (req, res) => {
+  if (!isInternalAdmin(req)) { res.status(403).json({ success: false, error: 'admin only' }); return; }
   try {
+    // safe: admin-only endpoint, AbLLMProviderConfig is platform config (tenantId nullable). Per-tenant scoping deferred to PR 3 (G-005).
     const configs = await db.abLLMProviderConfig.findMany({ orderBy: { createdAt: 'asc' } });
-    res.json({ success: true, data: configs });
+    const redacted = configs.map((c) => ({ ...c, apiKey: redactApiKey(c.apiKey) }));
+    res.json({ success: true, data: redacted });
   } catch (err) { res.status(500).json({ success: false, error: String(err) }); }
 });
 
 app.post('/api/v1/agentbook-core/admin/llm-configs', async (req, res) => {
+  if (!isInternalAdmin(req)) { res.status(403).json({ success: false, error: 'admin only' }); return; }
   try {
     const { name, provider, apiKey, baseUrl, modelFast, modelStandard, modelPremium, modelVision, isDefault } = req.body;
 
@@ -1562,11 +1591,12 @@ app.post('/api/v1/agentbook-core/admin/llm-configs', async (req, res) => {
     const config = await db.abLLMProviderConfig.create({
       data: { name, provider, apiKey, baseUrl, modelFast, modelStandard, modelPremium, modelVision, isDefault: isDefault || false },
     });
-    res.status(201).json({ success: true, data: config });
+    res.status(201).json({ success: true, data: { ...config, apiKey: redactApiKey(config.apiKey) } });
   } catch (err) { res.status(500).json({ success: false, error: String(err) }); }
 });
 
 app.post('/api/v1/agentbook-core/admin/llm-configs/:id/set-default', async (req, res) => {
+  if (!isInternalAdmin(req)) { res.status(403).json({ success: false, error: 'admin only' }); return; }
   try {
     await db.abLLMProviderConfig.updateMany({ data: { isDefault: false } });
     await db.abLLMProviderConfig.update({ where: { id: req.params.id }, data: { isDefault: true } });
@@ -1575,6 +1605,7 @@ app.post('/api/v1/agentbook-core/admin/llm-configs/:id/set-default', async (req,
 });
 
 app.delete('/api/v1/agentbook-core/admin/llm-configs/:id', async (req, res) => {
+  if (!isInternalAdmin(req)) { res.status(403).json({ success: false, error: 'admin only' }); return; }
   try {
     await db.abLLMProviderConfig.delete({ where: { id: req.params.id } });
     res.json({ success: true });
@@ -1582,7 +1613,9 @@ app.delete('/api/v1/agentbook-core/admin/llm-configs/:id', async (req, res) => {
 });
 
 app.post('/api/v1/agentbook-core/admin/llm-configs/:id/test', async (req, res) => {
+  if (!isInternalAdmin(req)) { res.status(403).json({ success: false, error: 'admin only' }); return; }
   try {
+    // safe: admin-only endpoint, AbLLMProviderConfig is platform config (tenantId nullable). Per-tenant scoping deferred to PR 3 (G-005).
     const config = await db.abLLMProviderConfig.findUnique({ where: { id: req.params.id } });
     if (!config) return res.status(404).json({ success: false, error: 'Config not found' });
 
@@ -3321,7 +3354,7 @@ If no skill matches well, use "general-question" with parameter "question" = the
   // Post-processing: resolve category name for newly created expenses
   if (selectedSkill.name === 'record-expense' && skillResponse?.success && skillResponse.data?.categoryId) {
     try {
-      const cat = await db.abAccount.findFirst({ where: { id: skillResponse.data.categoryId } });
+      const cat = await db.abAccount.findFirst({ where: { id: skillResponse.data.categoryId, tenantId } });
       if (cat) skillResponse.data.categoryName = cat.name;
     } catch { /* ignore */ }
   }

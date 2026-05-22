@@ -65,6 +65,85 @@ export async function applyEvent(event: Stripe.Event): Promise<void> {
       // event flips status. Logged for observability.
       console.log('[stripe-webhook]', event.type, 'recorded');
       break;
+    case 'checkout.session.completed': {
+      // Customer-invoice payment via Stripe Checkout (NOT subscription).
+      // Records payment, marks AbInvoice paid, creates journal entry.
+      // Previously handled by plugins/agentbook-invoice /stripe/checkout-completed
+      // (which was unsigned). Now consolidated into the signed canonical handler.
+      const session = event.data.object as Stripe.Checkout.Session;
+      const invoiceId = session.metadata?.invoiceId;
+      const tenantId = session.metadata?.tenantId;
+      if (!invoiceId || !tenantId) {
+        console.warn('[stripe-webhook] checkout.session.completed missing invoiceId/tenantId metadata');
+        return;
+      }
+      const paymentIntent =
+        typeof session.payment_intent === 'string'
+          ? session.payment_intent
+          : session.payment_intent?.id ?? null;
+
+      // Idempotency: skip if a payment row already exists for this PaymentIntent.
+      if (paymentIntent) {
+        const existing = await prisma.abPayment.findFirst({ where: { stripePaymentId: paymentIntent } });
+        if (existing) return;
+      }
+
+      const invoice = await prisma.abInvoice.findFirst({ where: { id: invoiceId, tenantId } });
+      if (!invoice || invoice.status === 'paid') return;
+
+      const amountCents = session.amount_total ?? invoice.amountCents;
+
+      await prisma.abPayment.create({
+        data: {
+          tenantId,
+          invoiceId: invoice.id,
+          amountCents,
+          method: 'stripe',
+          date: new Date(),
+          stripePaymentId: paymentIntent,
+        },
+      });
+
+      await prisma.abInvoice.update({
+        where: { id: invoice.id },
+        data: { status: 'paid' },
+      });
+
+      // Best-effort journal entry — won't block payment recording if accounts missing.
+      try {
+        const cashAccount = await prisma.abAccount.findFirst({ where: { tenantId, code: '1010' } });
+        const arAccount = await prisma.abAccount.findFirst({ where: { tenantId, code: '1200' } });
+        if (cashAccount && arAccount) {
+          await prisma.abJournalEntry.create({
+            data: {
+              tenantId,
+              date: new Date(),
+              memo: `Stripe payment for ${invoice.number}`,
+              sourceType: 'payment',
+              sourceId: invoice.id,
+              lines: {
+                create: [
+                  { tenantId, accountId: cashAccount.id, debitCents: amountCents, creditCents: 0 }, // G-009
+                  { tenantId, accountId: arAccount.id, debitCents: 0, creditCents: amountCents }, // G-009
+                ],
+              },
+            },
+          });
+        }
+      } catch (err) {
+        console.warn('[stripe-webhook] journal entry creation failed (non-fatal):', err);
+      }
+
+      await prisma.abEvent.create({
+        data: {
+          tenantId,
+          eventType: 'invoice.stripe_payment',
+          actor: 'stripe',
+          action: { invoiceId: invoice.id, amountCents, paymentIntent },
+        },
+      });
+      break;
+    }
     default:
       // Unknown event type — still recorded in BillEvent for replay.
       break;
