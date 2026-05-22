@@ -126,6 +126,116 @@ function resolveBaseUrlForEndpoint(
   return '';
 }
 
+/**
+ * Resolve pronoun-style referents in the user's text using recent
+ * conversation context (G-014 / PR 12).
+ *
+ * Closes the "fix it" / "the last one" / "that invoice" handling gap
+ * flagged by the 2026-05-12 chat-engagement review: conversation context
+ * was loaded but only consumed in the Stage-3 LLM fallback. Stage-1
+ * shortcut and Stage-2 regex paths classified raw "it" / "that" against
+ * the skill manifest and rarely picked the right skill.
+ *
+ * This resolver runs BEFORE classification and rewrites the text so the
+ * downstream classifier sees concrete IDs/numbers instead of pronouns.
+ *
+ * Strategy: scan the most recent agent turns for entity references
+ * (invoice numbers, expense IDs, client names) and substitute pronouns
+ * with the most recent matching entity.
+ *
+ * Conservative by design: only triggers when the input clearly contains
+ * a pronoun pattern. Leaves text untouched otherwise.
+ */
+export function resolveReferents(
+  text: string,
+  conversation: Array<{ question?: string | null; answer?: string | null }>,
+): string {
+  if (!text || conversation.length === 0) return text;
+
+  // Cheap gate — only run if there's at least one pronoun-like or definite
+  // article pattern. Avoids the entity-extraction loop on every message.
+  if (
+    !/\b(it|that|this|those|them|the|fix\s+it|same)\b/i.test(text)
+  ) {
+    return text;
+  }
+
+  // Scan recent conversation turns for the most-recent entity references.
+  // Most-recent-first so newer mentions win.
+  const turns = conversation.slice(0, 5);
+
+  let lastInvoiceNumber: string | null = null;
+  let lastExpenseId: string | null = null;
+  let lastClientName: string | null = null;
+  let lastEntityKind: 'invoice' | 'expense' | 'client' | null = null;
+
+  for (const turn of turns) {
+    const combined = `${turn.question ?? ''}\n${turn.answer ?? ''}`;
+    // Invoice number: INV-YYYY-NNNN
+    if (!lastInvoiceNumber) {
+      const m = combined.match(/\bINV-\d{4}-\d{4,}\b/i);
+      if (m) {
+        lastInvoiceNumber = m[0];
+        if (!lastEntityKind) lastEntityKind = 'invoice';
+      }
+    }
+    // Expense ID: cuid-style or uuid-style
+    if (!lastExpenseId) {
+      const m = combined.match(/\bexp(?:ense)?[-_]([a-z0-9]{6,})\b/i);
+      if (m) {
+        lastExpenseId = m[1];
+        if (!lastEntityKind) lastEntityKind = 'expense';
+      }
+    }
+    // Client name — heuristic: "client X" or "to X for"
+    if (!lastClientName) {
+      const m =
+        combined.match(/\bclient\s+([A-Z][A-Za-z0-9\s&'.]{1,40}?)(?=[.,!?]|$|\s+(?:has|invoice|paid|owes))/i) ||
+        combined.match(/\bto\s+([A-Z][A-Za-z0-9\s&'.]{1,40}?)(?=[.,!?]|\s+(?:for|invoice))/);
+      if (m) {
+        lastClientName = m[1].trim();
+        if (!lastEntityKind) lastEntityKind = 'client';
+      }
+    }
+  }
+
+  let rewritten = text;
+
+  // "the invoice" / "that invoice" → most recent invoice number
+  if (lastInvoiceNumber && /\b(the|that|this)\s+invoice\b/i.test(rewritten)) {
+    rewritten = rewritten.replace(/\b(the|that|this)\s+invoice\b/gi, `invoice ${lastInvoiceNumber}`);
+  }
+  // "the expense" / "that expense" → most recent expense ID (rewritten as exp-NNN)
+  if (lastExpenseId && /\b(the|that|this)\s+expense\b/i.test(rewritten)) {
+    rewritten = rewritten.replace(
+      /\b(the|that|this)\s+expense\b/gi,
+      `expense exp-${lastExpenseId}`,
+    );
+  }
+  // "the client" → most recent client name
+  if (lastClientName && /\b(the|that|this)\s+client\b/i.test(rewritten)) {
+    rewritten = rewritten.replace(/\b(the|that|this)\s+client\b/gi, `client ${lastClientName}`);
+  }
+
+  // Generic "it" / "that" — resolve based on most recently mentioned entity kind.
+  // We only do this when the message is short (≤ 6 words) — long sentences are
+  // more likely to use "it" referentially in ways the classifier can already
+  // handle, and we don't want to inject false context.
+  const wordCount = rewritten.trim().split(/\s+/).length;
+  if (wordCount <= 6 && lastEntityKind && /\b(it|that)\b/i.test(rewritten)) {
+    let replacement: string | null = null;
+    if (lastEntityKind === 'invoice' && lastInvoiceNumber) replacement = `invoice ${lastInvoiceNumber}`;
+    else if (lastEntityKind === 'expense' && lastExpenseId) replacement = `expense exp-${lastExpenseId}`;
+    else if (lastEntityKind === 'client' && lastClientName) replacement = `client ${lastClientName}`;
+    if (replacement) {
+      // Only replace standalone pronouns, not "it's" / "that's" / "its".
+      rewritten = rewritten.replace(/\b(it|that)\b(?!'s|s\b)/gi, replacement);
+    }
+  }
+
+  return rewritten;
+}
+
 function buildResponse(data: AgentResponse['data']): AgentResponse {
   return { success: true, data };
 }
@@ -446,13 +556,20 @@ export async function handleAgentMessage(
     }),
   ]);
 
+  // ── Step 2.5: Resolve referents using conversation context ───────────
+  // PR 12 (G-014): rewrite pronouns ("fix it", "the last invoice") to
+  // concrete entity refs BEFORE classification, so Stage-1 shortcuts and
+  // Stage-2 regex paths see the same resolved text the Stage-3 LLM would.
+  // No-op when the input has no pronoun-like tokens.
+  const resolvedText = resolveReferents(text, conversation);
+
   // ── Step 3a: Classify ONLY (no side effects) ──────────────────────────
   // PR 9 (G-010): split classification from execution so destructive actions
   // can be gated on user confirmation BEFORE the skill HTTP call fires.
   let classification: any = null;
   if (ctx.classifyOnly) {
     classification = await ctx.classifyOnly(
-      text, tenantId, channel, attachments, memory, skills, conversation, tenantConfig,
+      resolvedText, tenantId, channel, attachments, memory, skills, conversation, tenantConfig,
     );
   }
 
@@ -464,8 +581,10 @@ export async function handleAgentMessage(
   if (!classification) {
     // Legacy path: classifyAndExecuteV1 does the whole thing atomically.
     // This preserves backwards compatibility for callers that haven't migrated.
+    // PR 12: also pass resolvedText here so the legacy path benefits from
+    // pronoun resolution.
     v1Result = await ctx.classifyAndExecuteV1(
-      text, tenantId, channel, attachments, memory, skills, conversation, tenantConfig,
+      resolvedText, tenantId, channel, attachments, memory, skills, conversation, tenantConfig,
     );
     if (!v1Result) {
       return buildResponse({
