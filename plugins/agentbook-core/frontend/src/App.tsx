@@ -1,6 +1,7 @@
 import React from 'react';
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
 import { createPlugin } from '@naap/plugin-sdk';
+import { ChatPage } from './pages/Chat';
 import { DashboardPage } from './pages/Dashboard';
 import { LedgerPage } from './pages/Ledger';
 import { AccountsPage } from './pages/Accounts';
@@ -18,7 +19,9 @@ import './globals.css';
 const AgentBookCoreApp: React.FC = () => (
   <MemoryRouter>
     <Routes>
-      <Route path="/" element={<DashboardPage />} />
+      <Route path="/" element={<ChatPage />} />
+      <Route path="/chat" element={<ChatPage />} />
+      <Route path="/dashboard" element={<DashboardPage />} />
       <Route path="/ledger" element={<LedgerPage />} />
       <Route path="/accounts" element={<AccountsPage />} />
       <Route path="/projections" element={<ProjectionsPage />} />
@@ -30,7 +33,7 @@ const AgentBookCoreApp: React.FC = () => (
       <Route path="/telegram" element={<TelegramSettingsPage />} />
       <Route path="/activity" element={<ActivityPage />} />
       <Route path="/home-office" element={<HomeOfficePage />} />
-      <Route path="/*" element={<DashboardPage />} />
+      <Route path="/*" element={<ChatPage />} />
     </Routes>
   </MemoryRouter>
 );

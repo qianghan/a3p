@@ -2,6 +2,8 @@ export const BUILT_IN_SKILLS = [
   {
     name: 'record-expense', description: 'Record a business or personal expense', category: 'bookkeeping',
     triggerPatterns: ['\\$\\d', 'spent ', 'paid ', 'bought ', 'purchased '],
+    requirePatterns: ['\\$\\s*[\\d,]+\\.?\\d{0,2}|\\d+\\s*(?:dollars|bucks)|(?:spent|paid|bought|purchased|cost)\\s+\\$?[\\d,]+\\.?\\d{0,2}'],
+    excludePatterns: ['^invoice\\s', 'what\\s*if\\b', 'got.*\\$.*from', 'alert.*when|notify.*when|automat', 'received.*payment', '^(?:estimate|quote|proposal)\\s'],
     parameters: { amountCents: { type: 'number', required: true, extractHint: 'dollar amount times 100' }, vendor: { type: 'string', required: false, extractHint: 'business name' }, description: { type: 'string', required: false }, date: { type: 'date', required: false, default: 'today' } },
     endpoint: { method: 'POST', url: '/api/v1/agentbook-expense/expenses' },
     responseTemplate: 'Recorded: {{amountFormatted}} — {{description}} [{{categoryName}}]',
@@ -15,6 +17,9 @@ export const BUILT_IN_SKILLS = [
   {
     name: 'query-finance', description: 'Ask about cash balance, revenue, profit, tax, clients, or general financial questions', category: 'finance',
     triggerPatterns: ['balance', 'revenue', 'profit', 'loss', 'tax', 'client.*owe', 'outstanding', 'income', 'net '],
+    // Tax / report / cash-flow / reconciliation / tax-filing utterances have
+    // dedicated skills — exclude them here so query-finance doesn't shadow.
+    excludePatterns: ['tax.*estimate|how much.*tax|tax.*owe|tax.*situation|tax.*liability|quarterly.*tax|quarterly.*payment|estimated.*payment|deduction|write.*off|tax.*saving|tax.*break|p.?&?.?l|profit.*loss|income.*statement|net.*income|how.*much.*profit|balance.*sheet|net.*worth|equity|cash.*flow|cash.*projection|runway|burn.*rate|how long.*cash.*last|financial.*summary|financial.*snapshot|how.*doing.*financially|financial.*health|money.*move|action.*item|what.*should.*do|advice.*money|reconcil|unmatched.*transaction|bank.*match|bank.*status|tax.*fil|start.*fil|file.*tax|review.*t[12]|t2125|schedule.*1|gst.*return|tax.*slip|validate.*tax|check.*tax.*error|verify.*return|tax.*ready|export.*tax|generate.*tax.*form|download.*return|create.*tax.*file|print.*tax|pdf.*tax|submit.*cra|efile|netfile|filing.*status.*cra'],
     parameters: { question: { type: 'string', required: true, extractHint: 'the full user message' } },
     endpoint: { method: 'POST', url: '/api/v1/agentbook-core/ask' },
   },
@@ -45,6 +50,9 @@ export const BUILT_IN_SKILLS = [
   {
     name: 'proactive-alerts', description: 'Check for alerts, notifications, or things needing attention', category: 'insights',
     triggerPatterns: ['alert', 'notification', 'check.?up', 'anything.*know', 'what.?s new'],
+    // "alert me when X" / "notify when X" / "automat..." are automation
+    // creation, not proactive alert checks.
+    excludePatterns: ['alert.*when|notify.*when|automat'],
     parameters: {},
     endpoint: { method: 'GET', url: '/api/v1/agentbook-expense/advisor/proactive-alerts', queryParams: [] },
   },
@@ -77,6 +85,9 @@ export const BUILT_IN_SKILLS = [
   {
     name: 'review-queue', description: 'Show expenses that need human review — low confidence, pending, or flagged', category: 'bookkeeping',
     triggerPatterns: ['review', 'pending.*review', 'need.*attention', 'flagged'],
+    // Tax-form review utterances have dedicated CA tax skills (ca-t2125-review,
+    // ca-t1-review, ca-gst-hst-review, ca-schedule-1-review).
+    excludePatterns: ['review.*t[12]|t2125|t1.*general|t1.*review|gst.*review|hst.*review|schedule.*1|review.*gst|review.*hst'],
     parameters: {},
     endpoint: { method: 'GET', url: '/api/v1/agentbook-expense/review-queue' },
   },
@@ -235,6 +246,8 @@ export const BUILT_IN_SKILLS = [
   {
     name: 'create-automation', description: 'Create an automation rule from natural language — triggers, conditions, actions', category: 'finance',
     triggerPatterns: ['automat', 'when.*then', 'alert.*when', 'notify.*when', 'rule.*when'],
+    // "show/list my automations" is list-automations, not create.
+    excludePatterns: ['^(?:show|list|get|view|display|what|my)\\s.*automat|^automat.*(?:show|list|get)|show.*my.*automat|list.*automat|my.*automat|active.*rule'],
     parameters: { description: { type: 'string', required: true, extractHint: 'natural language rule description' } },
     endpoint: { method: 'POST', url: '/api/v1/agentbook-core/automations/from-description' },
   },
@@ -396,6 +409,16 @@ export const BUILT_IN_SKILLS = [
     triggerPatterns: ['^send\\s+receipt\\s+for\\s+', '^skip\\s+receipt\\s+for\\s+'],
     parameters: { target: { type: 'string', required: true, extractHint: 'expense description or vendor' } },
     endpoint: { method: 'INTERNAL', url: '' },
+  },
+  {
+    // PR 14 / G-016: chat-discoverable per-skill metrics.
+    // "skill metrics", "agent stats", "how is the agent doing" → GET the
+    // metrics endpoint and return the top skills by usage + success rate.
+    // Makes rubric #2 ("skills discoverable from chat") measurable too.
+    name: 'show-skill-metrics', description: 'Show how the agent is performing across skills (success rate, latency, usage)', category: 'observability',
+    triggerPatterns: ['skill\\s*metrics', 'agent\\s*stats', 'how.*agent.*doing', 'skill.*performance', 'agent\\s*performance'],
+    parameters: { days: { type: 'number', required: false, extractHint: 'lookback window in days, default 7' } },
+    endpoint: { method: 'GET', url: '/api/v1/agentbook-core/agent/skills/metrics' },
   },
   {
     name: 'general-question', description: 'Answer any general financial or accounting question', category: 'finance',

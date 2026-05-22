@@ -10,6 +10,7 @@ import { createPluginServer } from '@naap/plugin-server-sdk';
 import { db } from './db/client.js';
 import { handleAgentMessage } from './agent-brain.js';
 import { BUILT_IN_SKILLS } from './built-in-skills.js';
+import { selectSkillByPatterns } from './skill-routing.js';
 import { handleDashboardOverview } from './dashboard/overview.js';
 import { handleDashboardActivity } from './dashboard/activity.js';
 import { handleDashboardAgentSummary } from './dashboard/agent-summary.js';
@@ -2268,6 +2269,8 @@ app.post('/api/v1/agentbook-core/agent/seed-skills', async (_req, res) => {
             description: skill.description,
             category: skill.category,
             triggerPatterns: skill.triggerPatterns,
+            requirePatterns: (skill as any).requirePatterns || [],
+            excludePatterns: (skill as any).excludePatterns || [],
             parameters: skill.parameters as any,
             endpoint: skill.endpoint as any,
             responseTemplate: (skill as any).responseTemplate || null,
@@ -2283,6 +2286,8 @@ app.post('/api/v1/agentbook-core/agent/seed-skills', async (_req, res) => {
             description: skill.description,
             category: skill.category,
             triggerPatterns: skill.triggerPatterns,
+            requirePatterns: (skill as any).requirePatterns || [],
+            excludePatterns: (skill as any).excludePatterns || [],
             parameters: skill.parameters as any,
             endpoint: skill.endpoint as any,
             responseTemplate: (skill as any).responseTemplate || null,
@@ -2320,7 +2325,7 @@ app.get('/api/v1/agentbook-core/agent/skills', async (req, res) => {
 app.post('/api/v1/agentbook-core/agent/skills', async (req, res) => {
   try {
     const tenantId = (req as any).tenantId;
-    const { name, description, category, triggerPatterns, parameters, endpoint, responseTemplate } = req.body;
+    const { name, description, category, triggerPatterns, requirePatterns, excludePatterns, parameters, endpoint, responseTemplate } = req.body;
     if (!name || !description) {
       return res.status(400).json({ success: false, error: 'name and description required' });
     }
@@ -2331,6 +2336,8 @@ app.post('/api/v1/agentbook-core/agent/skills', async (req, res) => {
         description,
         category: category || 'custom',
         triggerPatterns: triggerPatterns || [],
+        requirePatterns: requirePatterns || [],
+        excludePatterns: excludePatterns || [],
         parameters: parameters || {},
         endpoint: endpoint || {},
         responseTemplate: responseTemplate || null,
@@ -2433,14 +2440,36 @@ async function resolveOrCreateClient(invoiceBase: string, tenantId: string, clie
   return client;
 }
 
-// --- 4. Agent Brain: classifyAndExecuteV1 (extracted from inline handler) ---
-export async function classifyAndExecuteV1(
+// --- 4. Agent Brain: classifyOnly / executeClassification / classifyAndExecuteV1 ---
+//
+// PR 9 (G-010): Splits the previous atomic classifyAndExecuteV1 into:
+//   - classifyOnly        → intent + params, NO side effects
+//   - executeClassification → runs the pre-processing + HTTP/INTERNAL handler
+//   - classifyAndExecuteV1  → wrapper preserving the existing public signature.
+//                            If the selected skill has confirmBefore=true,
+//                            returns the classification result without executing
+//                            so the caller (agent-brain.ts) can show a plan
+//                            preview and gate execution on user confirm.
+
+export interface ClassificationResult {
+  selectedSkill: any;                  // skill manifest entry from DB
+  extractedParams: Record<string, any>;
+  confidence: number;
+  confirmBefore: boolean;
+  // Context snapshot needed by executeClassification (so we don't re-fetch)
+  memory: any[];
+  skills: any[];
+  conversation: any[];
+  tenantConfig: any;
+  // For tracing
+  reasoning?: string;
+}
+
+export async function classifyOnly(
   text: string, tenantId: string, channel: string,
   attachments?: any[], memory?: any[], skills?: any[],
   conversation?: any[], tenantConfig?: any,
-): Promise<any> {
-  const startTime = Date.now();
-
+): Promise<ClassificationResult | null> {
   // If context params not provided, fetch them (backward compatibility)
   if (!memory || !skills || !conversation || tenantConfig === undefined) {
     const [tc, conv, mem, sk] = await Promise.all([
@@ -2509,49 +2538,14 @@ export async function classifyAndExecuteV1(
         }
       }
 
-      // Check trigger patterns — but for record-expense, also require a dollar amount
+      // Manifest-driven routing (G-011): trigger + require + exclude patterns
+      // live on each AbSkillManifest entry; selectSkillByPatterns applies them
+      // uniformly. Skills are tried in array order — first match wins.
       for (const skill of skills) {
-        const patterns = (skill.triggerPatterns as string[]) || [];
-        if (patterns.length === 0) continue;
-
-        for (const pattern of patterns) {
-          try {
-            if (new RegExp(pattern, 'i').test(lower)) {
-              // Special check: query-finance should not match tax-specific queries that have dedicated skills
-              if (skill.name === 'query-finance') {
-                if (/tax.*estimate|how much.*tax|tax.*owe|tax.*situation|tax.*liability|quarterly.*tax|quarterly.*payment|estimated.*payment|deduction|write.*off|tax.*saving|tax.*break|p.?&?.?l|profit.*loss|income.*statement|net.*income|how.*much.*profit|balance.*sheet|net.*worth|equity|cash.*flow|cash.*projection|runway|burn.*rate|how long.*cash.*last|financial.*summary|financial.*snapshot|how.*doing.*financially|financial.*health|money.*move|action.*item|what.*should.*do|advice.*money|reconcil|unmatched.*transaction|bank.*match|bank.*status|tax.*fil|start.*fil|file.*tax|review.*t[12]|t2125|schedule.*1|gst.*return|tax.*slip|validate.*tax|check.*tax.*error|verify.*return|tax.*ready|export.*tax|generate.*tax.*form|download.*return|create.*tax.*file|print.*tax|pdf.*tax|submit.*cra|efile|netfile|filing.*status.*cra/i.test(lower)) continue;
-              }
-              // Special check: record-expense needs a $ amount and should not match invoice/simulation commands
-              if (skill.name === 'record-expense') {
-                // Must contain a dollar amount ($X, X dollars, or bare number after expense verb)
-                if (!/\$\s*[\d,]+\.?\d{0,2}|\d+\s*(?:dollars|bucks)/i.test(text)
-                    && !/(?:spent|paid|bought|purchased|cost)\s+\$?[\d,]+\.?\d{0,2}/i.test(text)) continue;
-                if (/^invoice\s/i.test(lower)) continue;
-                if (/what\s*if\b/i.test(lower)) continue;
-                if (/got.*\$.*from/i.test(lower)) continue;
-                if (/alert.*when|notify.*when|automat/i.test(lower)) continue;  // automation, not expense
-                if (/received.*payment/i.test(lower)) continue;
-                if (/^(?:estimate|quote|proposal)\s/i.test(lower)) continue;  // estimate, not expense
-              }
-              // Special check: proactive-alerts should not match automation creation commands
-              if (skill.name === 'proactive-alerts') {
-                if (/alert.*when|notify.*when|automat/i.test(lower)) continue;  // automation, not alert check
-              }
-              // Special check: review-queue should not match tax form reviews
-              if (skill.name === 'review-queue') {
-                if (/review.*t[12]|t2125|t1.*general|t1.*review|gst.*review|hst.*review|schedule.*1|review.*gst|review.*hst/i.test(lower)) continue;
-              }
-              // Special check: create-automation should not match listing/showing automations
-              if (skill.name === 'create-automation') {
-                if (/^(?:show|list|get|view|display|what|my)\s.*automat|^automat.*(?:show|list|get)|show.*my.*automat|list.*automat|my.*automat|active.*rule/i.test(lower)) continue;
-              }
-              selectedSkill = skill;
-              confidence = 0.85;
-              break;
-            }
-          } catch { /* invalid regex */ }
-        }
-        if (selectedSkill) break;
+        if (!selectSkillByPatterns(skill, text, lower)) continue;
+        selectedSkill = skill;
+        confidence = 0.85;
+        break;
       }
 
       // Extract params for regex-matched skills
@@ -2669,8 +2663,108 @@ If no skill matches well, use "general-question" with parameter "question" = the
     return null;
   }
 
+  return {
+    selectedSkill,
+    extractedParams,
+    confidence,
+    confirmBefore: Boolean(selectedSkill.confirmBefore),
+    memory: memory as any[],
+    skills: skills as any[],
+    conversation: conversation as any[],
+    tenantConfig,
+  };
+}
+
+// executeClassification — given a pre-classified result, runs pre-processing
+// + the HTTP/INTERNAL skill handler and formats the response.
+// This is the side-effecting half of the original classifyAndExecuteV1.
+//
+// PR 14 / G-016: wraps the core logic with per-skill metric collection.
+// Every execution writes an AbSkillRun row fire-and-forget (DB failures
+// during metric write do NOT block or break the user response).
+export async function executeClassification(
+  classification: ClassificationResult,
+  text: string,
+  tenantId: string,
+  channel: string,
+  attachments?: any[],
+): Promise<any> {
+  const t0 = Date.now();
+  let status: 'success' | 'error' | 'timeout' | 'skipped' = 'success';
+  let errorType: string | undefined;
+  let errorMessage: string | undefined;
+  const skillName = classification?.selectedSkill?.name ?? 'unknown';
+  const confidence = typeof classification?.confidence === 'number' ? classification.confidence : null;
+
+  try {
+    const result = await _executeClassificationCore(
+      classification,
+      text,
+      tenantId,
+      channel,
+      attachments,
+    );
+    // Detect downstream failure surfaces (the core returns shaped objects,
+    // not all of which throw — some embed an error message under
+    // responseData.message). We treat explicit success===false or status==='error'
+    // as an error; otherwise call it success.
+    const rd = result?.responseData;
+    if (result?.status === 'error' || result?.success === false) {
+      status = 'error';
+      errorType = 'downstream';
+      const raw = typeof result?.error === 'string'
+        ? result.error
+        : typeof rd?.message === 'string'
+          ? rd.message
+          : 'unknown';
+      errorMessage = String(raw).slice(0, 200);
+    }
+    return result;
+  } catch (err: any) {
+    status = err?.name === 'AbortError' ? 'timeout' : 'error';
+    errorType = err?.name === 'AbortError' ? 'timeout' : 'internal';
+    errorMessage = err instanceof Error
+      ? err.message.slice(0, 200)
+      : String(err).slice(0, 200);
+    throw err;
+  } finally {
+    const durationMs = Date.now() - t0;
+    // Fire-and-forget — never block or break the response on a metric write.
+    void (async () => {
+      try {
+        await db.abSkillRun.create({
+          data: {
+            tenantId,
+            skillName,
+            status,
+            durationMs,
+            confidence,
+            errorType: errorType ?? null,
+            errorMessage: errorMessage ?? null,
+            channel,
+          },
+        });
+      } catch (e) {
+        console.warn('[skill-metrics] failed to write AbSkillRun:', e);
+      }
+    })();
+  }
+}
+
+// Core implementation — renamed from the previous executeClassification body.
+// Kept private so the public export can wrap it with metric collection.
+async function _executeClassificationCore(
+  classification: ClassificationResult,
+  text: string,
+  tenantId: string,
+  channel: string,
+  attachments?: any[],
+): Promise<any> {
+  const startTime = Date.now();
+  let { selectedSkill, extractedParams, confidence } = classification;
+
   // === 3. SKILL EXECUTION ===
-  const endpoint = selectedSkill.endpoint as any;
+  let endpoint = selectedSkill.endpoint as any;
   const baseUrls: Record<string, string> = {
     '/api/v1/agentbook-expense': process.env.AGENTBOOK_EXPENSE_URL || 'http://localhost:4051',
     '/api/v1/agentbook-core': process.env.AGENTBOOK_CORE_URL || 'http://localhost:4050',
@@ -3739,6 +3833,50 @@ If no skill matches well, use "general-question" with parameter "question" = the
   };
 }
 
+// classifyAndExecuteV1 — backwards-compatible wrapper. Preserves the original
+// public signature so existing callers (telegram webhook, cron handlers, the
+// inline /agent/message route below) continue to work.
+//
+// Behavior change introduced by PR 9 (G-010): if the selected skill has
+// `confirmBefore: true` AND the caller did not pass `confirmed = true`, this
+// returns the classification result WITHOUT executing. The caller is then
+// responsible for showing a plan preview and re-invoking executeClassification
+// once the user confirms.
+//
+// Today the only caller that respects this convention is agent-brain.ts (which
+// uses classifyOnly + executeClassification directly). Other callers
+// (telegram webhook fallback, cron) still receive an execution result for
+// non-destructive skills — for destructive skills they will receive a
+// classification-only object and should handle the confirm flow.
+export async function classifyAndExecuteV1(
+  text: string, tenantId: string, channel: string,
+  attachments?: any[], memory?: any[], skills?: any[],
+  conversation?: any[], tenantConfig?: any,
+  confirmed?: boolean,
+): Promise<any> {
+  const classification = await classifyOnly(
+    text, tenantId, channel, attachments, memory, skills, conversation, tenantConfig,
+  );
+  if (!classification) return null;
+
+  // Destructive skill — gate on explicit confirmation. The classification is
+  // returned without side effects; the caller must persist it and re-invoke
+  // executeClassification after the user confirms.
+  if (classification.confirmBefore && !confirmed) {
+    return {
+      selectedSkill: classification.selectedSkill,
+      extractedParams: classification.extractedParams,
+      confidence: classification.confidence,
+      confirmBefore: true,
+      requiresConfirmation: true,
+      skillUsed: classification.selectedSkill.name,
+      classification,
+    };
+  }
+
+  return executeClassification(classification, text, tenantId, channel, attachments);
+}
+
 // --- 5. Agent Brain: Message Processing (thin wrapper) ---
 app.post('/api/v1/agentbook-core/agent/message', async (req, res) => {
   try {
@@ -3764,6 +3902,10 @@ app.post('/api/v1/agentbook-core/agent/message', async (req, res) => {
         callGemini,
         baseUrls,
         classifyAndExecuteV1,
+        // PR 9 (G-010): split classify/execute so destructive skills wait for
+        // user confirm before firing.
+        classifyOnly,
+        executeClassification,
       },
     );
 
