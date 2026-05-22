@@ -1409,18 +1409,73 @@ app.post('/api/v1/agentbook-expense/recurring-suggestions/:vendorId/accept', asy
 // CSV DATA IMPORT (E6 — Competitive Gap)
 // ============================================
 
+/**
+ * Parse one CSV row, RFC-4180 aware. Handles:
+ * - quoted fields containing commas: "Subway #1234, NYC" → one field
+ * - escaped quotes inside a quoted field: "He said ""hi""" → He said "hi"
+ *
+ * Closes G-035: previously `line.split(',')` corrupted every field to the
+ * right of any quoted comma — a routine occurrence in real-world bank CSVs.
+ *
+ * Trailing/leading whitespace on each value is trimmed.
+ */
+export function parseCSVRow(line: string): string[] {
+  const out: string[] = [];
+  let cur = '';
+  let i = 0;
+  let inQuotes = false;
+  while (i < line.length) {
+    const ch = line[i];
+    if (inQuotes) {
+      if (ch === '"') {
+        if (i + 1 < line.length && line[i + 1] === '"') {
+          cur += '"';
+          i += 2;
+          continue;
+        }
+        inQuotes = false;
+        i++;
+        continue;
+      }
+      cur += ch;
+      i++;
+      continue;
+    }
+    if (ch === '"') {
+      inQuotes = true;
+      i++;
+      continue;
+    }
+    if (ch === ',') {
+      out.push(cur.trim());
+      cur = '';
+      i++;
+      continue;
+    }
+    cur += ch;
+    i++;
+  }
+  out.push(cur.trim());
+  return out;
+}
+
 function parseCSV(csvText: string): Array<Record<string, string>> {
-  const lines = csvText.trim().split('\n');
+  // Strip BOM if present (common from Excel exports).
+  const cleaned = csvText.replace(/^﻿/, '');
+  // Handle CRLF, LF, or CR line endings.
+  const lines = cleaned.trim().split(/\r\n|\n|\r/);
   if (lines.length < 2) return [];
 
-  // Parse header
-  const headers = lines[0].split(',').map(h => h.trim().replace(/^"|"$/g, '').toLowerCase());
+  const headers = parseCSVRow(lines[0]).map(h => h.toLowerCase());
 
   const rows: Array<Record<string, string>> = [];
   for (let i = 1; i < lines.length; i++) {
-    const values = lines[i].split(',').map(v => v.trim().replace(/^"|"$/g, ''));
+    if (!lines[i].trim()) continue; // skip blank lines
+    const values = parseCSVRow(lines[i]);
     const row: Record<string, string> = {};
-    headers.forEach((h, idx) => { row[h] = values[idx] || ''; });
+    headers.forEach((h, idx) => {
+      row[h] = values[idx] ?? '';
+    });
     rows.push(row);
   }
   return rows;
