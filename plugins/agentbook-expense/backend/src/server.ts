@@ -2130,51 +2130,101 @@ app.post('/api/v1/agentbook-expense/expenses/:id/reject', async (req, res) => {
 // RECEIPT BLOB STORAGE (Gap 2)
 // ============================================
 
-// POST /receipts/upload-blob — download URL and store permanently
+// POST /receipts/upload-blob — store a receipt permanently.
+//
+// Accepts EITHER:
+//   1. { sourceUrl, expenseId? } — rehost an existing URL (Telegram CDN path).
+//   2. { dataBase64, contentType?, filename?, expenseId? } — direct upload
+//      from a browser File (G-031 — closes the "non-functional theater"
+//      finding for the web receipt dropzone).
+//
+// Returns: { permanentUrl, sourceUrl?, url, stored }
 app.post('/api/v1/agentbook-expense/receipts/upload-blob', async (req, res) => {
   try {
     const tenantId = (req as any).tenantId;
-    const { sourceUrl, expenseId } = req.body;
-    if (!sourceUrl) return res.status(400).json({ success: false, error: 'sourceUrl is required' });
+    const { sourceUrl, expenseId, dataBase64, contentType: bodyCT, filename: bodyFn } = req.body || {};
 
-    let permanentUrl = sourceUrl;
+    const BLOB_TOKEN = process.env.BLOB_READ_WRITE_TOKEN;
+    let permanentUrl: string | null = null;
 
-    // Try to upload to Vercel Blob via the web-next storage endpoint
-    try {
-      const imageRes = await fetch(sourceUrl);
-      if (imageRes.ok) {
-        const contentType = imageRes.headers.get('content-type') || 'image/jpeg';
-        const extension = contentType.includes('pdf') ? 'pdf' : contentType.includes('png') ? 'png' : 'jpg';
-        const filename = `receipts/${tenantId}/${Date.now()}.${extension}`;
-
-        // Use Vercel Blob directly if available, otherwise store URL as-is
-        const BLOB_TOKEN = process.env.BLOB_READ_WRITE_TOKEN;
-        if (BLOB_TOKEN) {
-          const { put } = await import('@vercel/blob');
-          const blob = await put(filename, imageRes.body as any, {
-            access: 'public',
-            token: BLOB_TOKEN,
-            contentType,
-          });
-          permanentUrl = blob.url;
-        } else {
-          // Dev mode: store source URL directly (no blob storage)
-          permanentUrl = sourceUrl;
-        }
+    if (dataBase64 && typeof dataBase64 === 'string') {
+      // Browser-uploaded file path (base64-encoded).
+      if (dataBase64.length > 14 * 1024 * 1024) {
+        // ~10MB binary after base64 decode. Reject early to avoid OOM.
+        return res.status(413).json({ success: false, error: 'file too large (max 10MB)' });
       }
-    } catch (uploadErr) {
-      console.warn('Blob upload failed, using source URL:', uploadErr);
+      const buf = Buffer.from(dataBase64, 'base64');
+      const contentType = (typeof bodyCT === 'string' && bodyCT) || 'image/jpeg';
+      const extension = contentType.includes('pdf')
+        ? 'pdf'
+        : contentType.includes('png')
+          ? 'png'
+          : contentType.includes('heic')
+            ? 'heic'
+            : 'jpg';
+      const filename =
+        typeof bodyFn === 'string' && bodyFn
+          ? `receipts/${tenantId}/${Date.now()}-${bodyFn.replace(/[^A-Za-z0-9._-]/g, '_')}`
+          : `receipts/${tenantId}/${Date.now()}.${extension}`;
+
+      if (BLOB_TOKEN) {
+        const { put } = await import('@vercel/blob');
+        const blob = await put(filename, buf, {
+          access: 'public',
+          token: BLOB_TOKEN,
+          contentType,
+        });
+        permanentUrl = blob.url;
+      } else {
+        // Dev fallback: synthesize an absolute data URL so OCR can still
+        // round-trip the bytes via fetch().
+        permanentUrl = `data:${contentType};base64,${dataBase64}`;
+      }
+    } else if (sourceUrl) {
+      // Rehost-from-URL path (existing behavior, e.g. Telegram CDN).
+      permanentUrl = sourceUrl;
+      try {
+        const imageRes = await fetch(sourceUrl);
+        if (imageRes.ok) {
+          const contentType = imageRes.headers.get('content-type') || 'image/jpeg';
+          const extension = contentType.includes('pdf') ? 'pdf' : contentType.includes('png') ? 'png' : 'jpg';
+          const filename = `receipts/${tenantId}/${Date.now()}.${extension}`;
+          if (BLOB_TOKEN) {
+            const { put } = await import('@vercel/blob');
+            const blob = await put(filename, imageRes.body as any, {
+              access: 'public',
+              token: BLOB_TOKEN,
+              contentType,
+            });
+            permanentUrl = blob.url;
+          }
+        }
+      } catch (uploadErr) {
+        console.warn('Blob upload failed, using source URL:', uploadErr);
+      }
+    } else {
+      return res
+        .status(400)
+        .json({ success: false, error: 'sourceUrl or dataBase64 is required' });
     }
 
-    // Update expense if ID provided
+    // Update expense if ID provided.
     if (expenseId) {
       await db.abExpense.update({
         where: { id: expenseId },
-        data: { receiptUrl: permanentUrl },
+        data: { receiptUrl: permanentUrl ?? undefined },
       });
     }
 
-    res.json({ success: true, data: { permanentUrl, sourceUrl, stored: permanentUrl !== sourceUrl } });
+    res.json({
+      success: true,
+      data: {
+        permanentUrl,
+        url: permanentUrl, // alias for callers that read 'url'
+        sourceUrl: sourceUrl ?? null,
+        stored: !!BLOB_TOKEN,
+      },
+    });
   } catch (err) { res.status(500).json({ success: false, error: String(err) }); }
 });
 

@@ -1,7 +1,16 @@
-import React, { useState } from 'react';
-import { Upload, DollarSign, Tag, Calendar as CalendarIcon } from 'lucide-react';
+import React, { useRef, useState } from 'react';
+import { Upload, DollarSign, Loader2, CheckCircle, AlertCircle } from 'lucide-react';
 
 const API_BASE = '/api/v1/agentbook-expense';
+
+interface OCRResult {
+  amount_cents?: number;
+  vendor?: string;
+  date?: string;
+  description?: string;
+  confidence?: number;
+  status?: string;
+}
 
 export const NewExpensePage: React.FC = () => {
   const [amount, setAmount] = useState('');
@@ -12,25 +21,133 @@ export const NewExpensePage: React.FC = () => {
   const [submitting, setSubmitting] = useState(false);
   const [success, setSuccess] = useState(false);
 
+  // Receipt OCR state (G-031 — closes the "non-functional theater" finding).
+  const [receiptStatus, setReceiptStatus] = useState<
+    | { kind: 'idle' }
+    | { kind: 'uploading' }
+    | { kind: 'extracting' }
+    | { kind: 'extracted'; result: OCRResult; blobUrl: string }
+    | { kind: 'error'; message: string }
+  >({ kind: 'idle' });
+  const [dragging, setDragging] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleReceiptFile = async (file: File) => {
+    if (!file) return;
+    if (!/^image\/|application\/pdf$/.test(file.type)) {
+      setReceiptStatus({ kind: 'error', message: 'Unsupported file type. Use JPG, PNG, or PDF.' });
+      return;
+    }
+    if (file.size > 10 * 1024 * 1024) {
+      setReceiptStatus({ kind: 'error', message: 'File too large (max 10MB).' });
+      return;
+    }
+
+    try {
+      // 1. Read file as base64 + upload to permanent storage.
+      setReceiptStatus({ kind: 'uploading' });
+      const dataBase64 = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => {
+          const result = reader.result as string;
+          // result is "data:image/jpeg;base64,<base64>" — strip the prefix.
+          const commaIdx = result.indexOf(',');
+          resolve(commaIdx >= 0 ? result.slice(commaIdx + 1) : result);
+        };
+        reader.onerror = () => reject(reader.error);
+        reader.readAsDataURL(file);
+      });
+      const uploadRes = await fetch(`${API_BASE}/receipts/upload-blob`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          dataBase64,
+          contentType: file.type,
+          filename: file.name,
+        }),
+      });
+      if (!uploadRes.ok) {
+        throw new Error(`upload failed: HTTP ${uploadRes.status}`);
+      }
+      const uploadData = await uploadRes.json();
+      const blobUrl: string | undefined = uploadData?.data?.url || uploadData?.data?.permanentUrl;
+      if (!blobUrl) throw new Error('upload response missing url');
+
+      // 2. Send to OCR.
+      setReceiptStatus({ kind: 'extracting' });
+      const ocrRes = await fetch(`${API_BASE}/receipts/ocr`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ imageUrl: blobUrl }),
+      });
+      if (!ocrRes.ok) {
+        throw new Error(`OCR failed: HTTP ${ocrRes.status}`);
+      }
+      const ocrPayload = await ocrRes.json();
+      const result: OCRResult = ocrPayload?.data ?? ocrPayload;
+
+      // 3. Populate the form. User reviews + clicks Record (rubric #3 —
+      //    confirm-before-destructive: never auto-create the expense).
+      if (result.amount_cents && result.amount_cents > 0) {
+        setAmount((result.amount_cents / 100).toFixed(2));
+      }
+      if (result.vendor) setVendor(result.vendor);
+      if (result.description) setDescription(result.description);
+      if (result.date && /^\d{4}-\d{2}-\d{2}/.test(result.date)) {
+        setDate(result.date.slice(0, 10));
+      }
+      setReceiptStatus({ kind: 'extracted', result, blobUrl });
+    } catch (err) {
+      setReceiptStatus({
+        kind: 'error',
+        message: err instanceof Error ? err.message : String(err),
+      });
+    }
+  };
+
+  const onDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    setDragging(true);
+  };
+  const onDragLeave = () => setDragging(false);
+  const onDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    setDragging(false);
+    const file = e.dataTransfer.files?.[0];
+    if (file) void handleReceiptFile(file);
+  };
+  const onFileInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) void handleReceiptFile(file);
+    // Reset so picking the same file twice in a row still fires.
+    e.target.value = '';
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setSubmitting(true);
     try {
+      const body: Record<string, unknown> = {
+        amountCents: Math.round(parseFloat(amount) * 100),
+        vendor: vendor || undefined,
+        description: description || vendor || 'Expense',
+        date,
+        isPersonal,
+      };
+      // If we have a stored receipt URL from OCR, attach it.
+      if (receiptStatus.kind === 'extracted') {
+        body.receiptUrl = receiptStatus.blobUrl;
+      }
       const res = await fetch(`${API_BASE}/expenses`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          amountCents: Math.round(parseFloat(amount) * 100),
-          vendor: vendor || undefined,
-          description: description || vendor || 'Expense',
-          date,
-          isPersonal,
-        }),
+        body: JSON.stringify(body),
       });
       const data = await res.json();
       if (data.success) {
         setSuccess(true);
         setAmount(''); setVendor(''); setDescription('');
+        setReceiptStatus({ kind: 'idle' });
         setTimeout(() => setSuccess(false), 3000);
       }
     } catch (err) {
@@ -48,11 +165,63 @@ export const NewExpensePage: React.FC = () => {
         <div className="bg-green-500/10 text-green-500 p-4 rounded-lg mb-6">Expense recorded successfully!</div>
       )}
 
-      {/* Receipt Upload Zone */}
-      <div className="border-2 border-dashed border-border rounded-xl p-8 mb-6 text-center hover:border-primary/50 transition-colors cursor-pointer">
-        <Upload className="w-10 h-10 mx-auto mb-3 text-muted-foreground" />
-        <p className="text-muted-foreground">Drag and drop a receipt, or click to upload</p>
-        <p className="text-xs text-muted-foreground mt-1">JPG, PNG, PDF — we'll extract the details automatically</p>
+      {/* Receipt Upload Zone — wired for real (G-031) */}
+      <div
+        onClick={() => fileInputRef.current?.click()}
+        onDragOver={onDragOver}
+        onDragLeave={onDragLeave}
+        onDrop={onDrop}
+        className={`border-2 border-dashed rounded-xl p-8 mb-6 text-center transition-colors cursor-pointer ${
+          dragging ? 'border-primary bg-primary/5' : 'border-border hover:border-primary/50'
+        }`}
+      >
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/jpeg,image/png,image/heic,application/pdf"
+          onChange={onFileInputChange}
+          className="hidden"
+        />
+        {receiptStatus.kind === 'uploading' && (
+          <>
+            <Loader2 className="w-10 h-10 mx-auto mb-3 text-primary animate-spin" />
+            <p className="text-muted-foreground">Uploading receipt…</p>
+          </>
+        )}
+        {receiptStatus.kind === 'extracting' && (
+          <>
+            <Loader2 className="w-10 h-10 mx-auto mb-3 text-primary animate-spin" />
+            <p className="text-muted-foreground">Reading the receipt…</p>
+          </>
+        )}
+        {receiptStatus.kind === 'extracted' && (
+          <>
+            <CheckCircle className="w-10 h-10 mx-auto mb-3 text-green-500" />
+            <p className="text-foreground">
+              Extracted{receiptStatus.result.vendor ? ` from ${receiptStatus.result.vendor}` : ''}
+              {typeof receiptStatus.result.confidence === 'number'
+                ? ` · confidence ${Math.round(receiptStatus.result.confidence * 100)}%`
+                : ''}
+            </p>
+            <p className="text-xs text-muted-foreground mt-1">
+              Fields below are pre-filled. Review and edit, then click Record.
+            </p>
+          </>
+        )}
+        {receiptStatus.kind === 'error' && (
+          <>
+            <AlertCircle className="w-10 h-10 mx-auto mb-3 text-red-500" />
+            <p className="text-foreground">{receiptStatus.message}</p>
+            <p className="text-xs text-muted-foreground mt-1">Click to try another file.</p>
+          </>
+        )}
+        {receiptStatus.kind === 'idle' && (
+          <>
+            <Upload className="w-10 h-10 mx-auto mb-3 text-muted-foreground" />
+            <p className="text-muted-foreground">Drag and drop a receipt, or click to upload</p>
+            <p className="text-xs text-muted-foreground mt-1">JPG, PNG, PDF — we'll extract the details automatically</p>
+          </>
+        )}
       </div>
 
       <div className="text-center text-muted-foreground text-sm mb-6">— or enter manually —</div>
