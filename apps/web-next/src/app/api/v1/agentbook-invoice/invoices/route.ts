@@ -16,6 +16,7 @@ import { safeResolveAgentbookTenant } from '@/lib/agentbook-tenant';
 import { audit } from '@/lib/agentbook-audit';
 import { inferSource, inferActor } from '@/lib/agentbook-audit-context';
 import { withSoftDelete, parseIncludeDeleted } from '@/lib/agentbook-soft-delete';
+import { withHttpIdempotency } from '@/lib/agentbook-idempotency';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -87,152 +88,166 @@ interface CreateInvoiceBody {
 }
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
-  try {
-    const __resolved = await safeResolveAgentbookTenant(request);
-    if ('response' in __resolved) return __resolved.response;
-    const { tenantId } = __resolved;
-    const body = (await request.json().catch(() => ({}))) as CreateInvoiceBody;
-    const { clientId, issuedDate, dueDate, lines, status, currency } = body;
+  const __resolved = await safeResolveAgentbookTenant(request);
+  if ('response' in __resolved) return __resolved.response;
+  const { tenantId } = __resolved;
+  const auditSource = inferSource(request);
+  const auditActor = await inferActor(request);
 
-    if (!clientId || !lines || !Array.isArray(lines) || lines.length === 0) {
-      return NextResponse.json(
-        { success: false, error: 'clientId and at least one line item are required' },
-        { status: 400 },
-      );
-    }
+  return withHttpIdempotency(request, {
+    tenantId,
+    endpoint: 'POST /api/v1/agentbook-invoice/invoices',
+    handler: async (rawBody) => {
+      try {
+        let body: CreateInvoiceBody = {};
+        try {
+          body = rawBody ? (JSON.parse(rawBody) as CreateInvoiceBody) : {};
+        } catch {
+          body = {};
+        }
+        const { clientId, issuedDate, dueDate, lines, status, currency } = body;
 
-    const client = await db.abClient.findFirst({ where: { id: clientId, tenantId } });
-    if (!client) {
-      return NextResponse.json({ success: false, error: 'Client not found' }, { status: 404 });
-    }
+        if (!clientId || !lines || !Array.isArray(lines) || lines.length === 0) {
+          return {
+            status: 400,
+            body: { success: false, error: 'clientId and at least one line item are required' },
+          };
+        }
 
-    const lineItems = lines.map((l) => ({
-      tenantId, // G-009
-      description: l.description || '',
-      quantity: l.quantity || 1,
-      rateCents: l.rateCents,
-      amountCents: Math.round((l.quantity || 1) * l.rateCents),
-    }));
-    const totalAmountCents = lineItems.reduce((sum, l) => sum + l.amountCents, 0);
+        const client = await db.abClient.findFirst({ where: { id: clientId, tenantId } });
+        if (!client) {
+          return { status: 404, body: { success: false, error: 'Client not found' } };
+        }
 
-    const year = new Date(issuedDate || Date.now()).getFullYear();
-    const lastInvoice = await db.abInvoice.findFirst({
-      where: { tenantId, number: { startsWith: `INV-${year}-` } },
-      orderBy: { number: 'desc' },
-    });
+        const lineItems = lines.map((l) => ({
+          tenantId, // G-009
+          description: l.description || '',
+          quantity: l.quantity || 1,
+          rateCents: l.rateCents,
+          amountCents: Math.round((l.quantity || 1) * l.rateCents),
+        }));
+        const totalAmountCents = lineItems.reduce((sum, l) => sum + l.amountCents, 0);
 
-    let nextSeq = 1;
-    if (lastInvoice) {
-      const parts = lastInvoice.number.split('-');
-      nextSeq = parseInt(parts[2], 10) + 1;
-    }
-    const invoiceNumber = `INV-${year}-${String(nextSeq).padStart(4, '0')}`;
+        const year = new Date(issuedDate || Date.now()).getFullYear();
+        const lastInvoice = await db.abInvoice.findFirst({
+          where: { tenantId, number: { startsWith: `INV-${year}-` } },
+          orderBy: { number: 'desc' },
+        });
 
-    const [arAccount, revenueAccount] = await Promise.all([
-      db.abAccount.findUnique({ where: { tenantId_code: { tenantId, code: '1100' } } }),
-      db.abAccount.findUnique({ where: { tenantId_code: { tenantId, code: '4000' } } }),
-    ]);
+        let nextSeq = 1;
+        if (lastInvoice) {
+          const parts = lastInvoice.number.split('-');
+          nextSeq = parseInt(parts[2], 10) + 1;
+        }
+        const invoiceNumber = `INV-${year}-${String(nextSeq).padStart(4, '0')}`;
 
-    if (!arAccount || !revenueAccount) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: 'AR account (1100) or Revenue account (4000) not found. Ensure chart of accounts is seeded.',
-        },
-        { status: 422 },
-      );
-    }
+        const [arAccount, revenueAccount] = await Promise.all([
+          db.abAccount.findUnique({ where: { tenantId_code: { tenantId, code: '1100' } } }),
+          db.abAccount.findUnique({ where: { tenantId_code: { tenantId, code: '4000' } } }),
+        ]);
 
-    try {
-      const invoice = await db.$transaction(async (tx) => {
-        const journalEntry = await tx.abJournalEntry.create({
-          data: {
-            tenantId,
-            date: new Date(issuedDate || Date.now()),
-            memo: `Invoice ${invoiceNumber} to ${client.name}`,
-            sourceType: 'invoice',
-            verified: true,
-            lines: {
-              create: [
-                { tenantId, accountId: arAccount.id, debitCents: totalAmountCents, creditCents: 0, description: `AR - Invoice ${invoiceNumber}` }, // G-009
-                { tenantId, accountId: revenueAccount.id, debitCents: 0, creditCents: totalAmountCents, description: `Revenue - Invoice ${invoiceNumber}` }, // G-009
-              ],
+        if (!arAccount || !revenueAccount) {
+          return {
+            status: 422,
+            body: {
+              success: false,
+              error: 'AR account (1100) or Revenue account (4000) not found. Ensure chart of accounts is seeded.',
             },
-          },
-        });
+          };
+        }
 
-        const inv = await tx.abInvoice.create({
-          data: {
+        try {
+          const invoice = await db.$transaction(async (tx) => {
+            const journalEntry = await tx.abJournalEntry.create({
+              data: {
+                tenantId,
+                date: new Date(issuedDate || Date.now()),
+                memo: `Invoice ${invoiceNumber} to ${client.name}`,
+                sourceType: 'invoice',
+                verified: true,
+                lines: {
+                  create: [
+                    { tenantId, accountId: arAccount.id, debitCents: totalAmountCents, creditCents: 0, description: `AR - Invoice ${invoiceNumber}` }, // G-009
+                    { tenantId, accountId: revenueAccount.id, debitCents: 0, creditCents: totalAmountCents, description: `Revenue - Invoice ${invoiceNumber}` }, // G-009
+                  ],
+                },
+              },
+            });
+
+            const inv = await tx.abInvoice.create({
+              data: {
+                tenantId,
+                clientId,
+                number: invoiceNumber,
+                amountCents: totalAmountCents,
+                currency: currency || 'USD',
+                issuedDate: new Date(issuedDate || Date.now()),
+                dueDate: new Date(dueDate || Date.now()),
+                status: status || 'draft',
+                journalEntryId: journalEntry.id,
+                lines: { create: lineItems },
+              },
+              include: { lines: true },
+            });
+
+            await tx.abJournalEntry.update({ where: { id: journalEntry.id }, data: { sourceId: inv.id } });
+            await tx.abClient.update({
+              where: { id: clientId },
+              data: { totalBilledCents: { increment: totalAmountCents } },
+            });
+
+            await tx.abEvent.create({
+              data: {
+                tenantId,
+                eventType: 'invoice.created',
+                actor: 'agent',
+                action: {
+                  invoiceId: inv.id,
+                  number: invoiceNumber,
+                  clientId,
+                  amountCents: totalAmountCents,
+                  lineCount: lineItems.length,
+                },
+                constraintsPassed: ['balance_invariant'],
+                verificationResult: 'passed',
+              },
+            });
+
+            return inv;
+          });
+          // PR 10 — structured audit row alongside the loose AbEvent.
+          await audit({
             tenantId,
-            clientId,
-            number: invoiceNumber,
-            amountCents: totalAmountCents,
-            currency: currency || 'USD',
-            issuedDate: new Date(issuedDate || Date.now()),
-            dueDate: new Date(dueDate || Date.now()),
-            status: status || 'draft',
-            journalEntryId: journalEntry.id,
-            lines: { create: lineItems },
-          },
-          include: { lines: true },
-        });
-
-        await tx.abJournalEntry.update({ where: { id: journalEntry.id }, data: { sourceId: inv.id } });
-        await tx.abClient.update({
-          where: { id: clientId },
-          data: { totalBilledCents: { increment: totalAmountCents } },
-        });
-
-        await tx.abEvent.create({
-          data: {
-            tenantId,
-            eventType: 'invoice.created',
-            actor: 'agent',
-            action: {
-              invoiceId: inv.id,
-              number: invoiceNumber,
+            source: auditSource,
+            actor: auditActor,
+            action: 'invoice.create',
+            entityType: 'AbInvoice',
+            entityId: invoice.id,
+            after: {
+              number: invoice.number,
               clientId,
               amountCents: totalAmountCents,
+              currency: invoice.currency,
+              status: invoice.status,
+              issuedDate: invoice.issuedDate,
+              dueDate: invoice.dueDate,
               lineCount: lineItems.length,
             },
-            constraintsPassed: ['balance_invariant'],
-            verificationResult: 'passed',
-          },
-        });
-
-        return inv;
-      });
-      // PR 10 — structured audit row alongside the loose AbEvent.
-      await audit({
-        tenantId,
-        source: inferSource(request),
-        actor: await inferActor(request),
-        action: 'invoice.create',
-        entityType: 'AbInvoice',
-        entityId: invoice.id,
-        after: {
-          number: invoice.number,
-          clientId,
-          amountCents: totalAmountCents,
-          currency: invoice.currency,
-          status: invoice.status,
-          issuedDate: invoice.issuedDate,
-          dueDate: invoice.dueDate,
-          lineCount: lineItems.length,
-        },
-      });
-      return NextResponse.json({ success: true, data: invoice }, { status: 201 });
-    } catch (err: unknown) {
-      if (typeof err === 'object' && err !== null && 'code' in err && (err as { code: string }).code === 'P2002') {
-        return NextResponse.json({ success: false, error: 'Invoice number already exists' }, { status: 409 });
+          });
+          return { status: 201, body: { success: true, data: invoice } };
+        } catch (err: unknown) {
+          if (typeof err === 'object' && err !== null && 'code' in err && (err as { code: string }).code === 'P2002') {
+            return { status: 409, body: { success: false, error: 'Invoice number already exists' } };
+          }
+          throw err;
+        }
+      } catch (err) {
+        console.error('[agentbook-invoice/invoices POST] failed:', err);
+        return {
+          status: 500,
+          body: { success: false, error: err instanceof Error ? err.message : String(err) },
+        };
       }
-      throw err;
-    }
-  } catch (err) {
-    console.error('[agentbook-invoice/invoices POST] failed:', err);
-    return NextResponse.json(
-      { success: false, error: err instanceof Error ? err.message : String(err) },
-      { status: 500 },
-    );
-  }
+    },
+  });
 }

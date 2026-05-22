@@ -32,9 +32,17 @@ vi.mock('@naap/database', () => {
         findUnique: vi.fn(),
         deleteMany: vi.fn(),
       },
+      abHttpIdempotencyKey: {
+        findUnique: vi.fn(),
+        upsert: vi.fn(),
+        deleteMany: vi.fn(),
+      },
     },
   };
 });
+
+import { NextRequest } from 'next/server';
+import { createHash } from 'node:crypto';
 
 import { prisma as db } from '@naap/database';
 import {
@@ -42,6 +50,7 @@ import {
   recordResponse,
   getCachedResponse,
   pruneIdempotencyKeys,
+  withHttpIdempotency,
 } from './agentbook-idempotency';
 
 const mockedDb = db as unknown as {
@@ -49,6 +58,11 @@ const mockedDb = db as unknown as {
     create: ReturnType<typeof vi.fn>;
     update: ReturnType<typeof vi.fn>;
     findUnique: ReturnType<typeof vi.fn>;
+    deleteMany: ReturnType<typeof vi.fn>;
+  };
+  abHttpIdempotencyKey: {
+    findUnique: ReturnType<typeof vi.fn>;
+    upsert: ReturnType<typeof vi.fn>;
     deleteMany: ReturnType<typeof vi.fn>;
   };
 };
@@ -61,6 +75,9 @@ beforeEach(() => {
   mockedDb.abIdempotencyKey.update.mockReset();
   mockedDb.abIdempotencyKey.findUnique.mockReset();
   mockedDb.abIdempotencyKey.deleteMany.mockReset();
+  mockedDb.abHttpIdempotencyKey.findUnique.mockReset();
+  mockedDb.abHttpIdempotencyKey.upsert.mockReset();
+  mockedDb.abHttpIdempotencyKey.deleteMany.mockReset();
 });
 
 describe('claimKey', () => {
@@ -168,6 +185,7 @@ describe('getCachedResponse', () => {
 describe('pruneIdempotencyKeys', () => {
   it('deletes rows older than the cutoff (default 1 day) and returns the count', async () => {
     mockedDb.abIdempotencyKey.deleteMany.mockResolvedValue({ count: 12 });
+    mockedDb.abHttpIdempotencyKey.deleteMany.mockResolvedValue({ count: 0 });
 
     const before = Date.now();
     const r = await pruneIdempotencyKeys();
@@ -185,6 +203,7 @@ describe('pruneIdempotencyKeys', () => {
 
   it('honours a custom retention window (in hours)', async () => {
     mockedDb.abIdempotencyKey.deleteMany.mockResolvedValue({ count: 5 });
+    mockedDb.abHttpIdempotencyKey.deleteMany.mockResolvedValue({ count: 0 });
 
     const r = await pruneIdempotencyKeys({ olderThanHours: 6 });
 
@@ -193,5 +212,160 @@ describe('pruneIdempotencyKeys', () => {
     const cutoff: Date = args.where.createdAt.lt;
     const sixHoursAgo = Date.now() - 6 * 3_600_000;
     expect(Math.abs(cutoff.getTime() - sixHoursAgo)).toBeLessThan(2_000);
+  });
+
+  it('also prunes expired AbHttpIdempotencyKey rows (G-020, PR 15)', async () => {
+    mockedDb.abIdempotencyKey.deleteMany.mockResolvedValue({ count: 3 });
+    mockedDb.abHttpIdempotencyKey.deleteMany.mockResolvedValue({ count: 7 });
+
+    const r = await pruneIdempotencyKeys();
+
+    // Combined count: Telegram (3) + HTTP (7) = 10.
+    expect(r).toEqual({ deleted: 10 });
+    expect(mockedDb.abHttpIdempotencyKey.deleteMany).toHaveBeenCalledTimes(1);
+    const args = mockedDb.abHttpIdempotencyKey.deleteMany.mock.calls[0][0];
+    expect(args.where.expiresAt.lt).toBeInstanceOf(Date);
+  });
+});
+
+// ---------------------------------------------------------------------
+// withHttpIdempotency (G-020, PR 15)
+//
+// Pins the wrapper's contract:
+//   - no header → handler runs, no cache write
+//   - first call with header → handler runs, cache written
+//   - replay with same body → cached response replayed, handler NOT called
+//   - replay with different body → 422
+//   - expired entry → falls through to fresh execution
+// ---------------------------------------------------------------------
+
+function makeReq(body: object, headers: Record<string, string> = {}): NextRequest {
+  return new NextRequest('http://localhost/test', {
+    method: 'POST',
+    headers: new Headers(headers),
+    body: JSON.stringify(body),
+  });
+}
+
+describe('withHttpIdempotency', () => {
+  const ENDPOINT = 'POST /api/v1/test';
+
+  it('no Idempotency-Key header → runs handler, no cache write', async () => {
+    const handler = vi.fn().mockResolvedValue({ status: 201, body: { id: 'new' } });
+    const res = await withHttpIdempotency(makeReq({ amount: 100 }), {
+      tenantId: 't1',
+      endpoint: ENDPOINT,
+      handler,
+    });
+    expect(res.status).toBe(201);
+    expect(handler).toHaveBeenCalledOnce();
+    expect(mockedDb.abHttpIdempotencyKey.findUnique).not.toHaveBeenCalled();
+    expect(mockedDb.abHttpIdempotencyKey.upsert).not.toHaveBeenCalled();
+  });
+
+  it('first call with key → runs handler, writes cache row', async () => {
+    mockedDb.abHttpIdempotencyKey.findUnique.mockResolvedValue(null);
+    mockedDb.abHttpIdempotencyKey.upsert.mockResolvedValue({});
+    const handler = vi.fn().mockResolvedValue({ status: 201, body: { id: 'new' } });
+
+    const res = await withHttpIdempotency(
+      makeReq({ amount: 100 }, { 'idempotency-key': 'abc' }),
+      { tenantId: 't1', endpoint: ENDPOINT, handler },
+    );
+
+    expect(res.status).toBe(201);
+    expect(handler).toHaveBeenCalledOnce();
+    expect(mockedDb.abHttpIdempotencyKey.upsert).toHaveBeenCalledOnce();
+    const upsertArgs = mockedDb.abHttpIdempotencyKey.upsert.mock.calls[0][0];
+    expect(upsertArgs.create.tenantId).toBe('t1');
+    expect(upsertArgs.create.key).toBe('abc');
+    expect(upsertArgs.create.endpoint).toBe(ENDPOINT);
+    expect(upsertArgs.create.status).toBe(201);
+    // requestHash must be a sha256 hex digest
+    expect(upsertArgs.create.requestHash).toMatch(/^[a-f0-9]{64}$/);
+    // responseJson serializes the body
+    expect(JSON.parse(upsertArgs.create.responseJson)).toEqual({ id: 'new' });
+  });
+
+  it('replay with same key + same body → returns cached response, handler NOT called', async () => {
+    const bodyObj = { amount: 100 };
+    const cachedHash = createHash('sha256')
+      .update(JSON.stringify(bodyObj))
+      .digest('hex');
+    mockedDb.abHttpIdempotencyKey.findUnique.mockResolvedValue({
+      id: 'x',
+      tenantId: 't1',
+      key: 'abc',
+      endpoint: ENDPOINT,
+      requestHash: cachedHash,
+      responseJson: JSON.stringify({ id: 'cached' }),
+      status: 201,
+      createdAt: new Date(),
+      expiresAt: new Date(Date.now() + 60_000),
+    });
+    const handler = vi.fn().mockResolvedValue({ status: 201, body: { id: 'fresh' } });
+
+    const res = await withHttpIdempotency(
+      makeReq(bodyObj, { 'idempotency-key': 'abc' }),
+      { tenantId: 't1', endpoint: ENDPOINT, handler },
+    );
+
+    expect(res.status).toBe(201);
+    expect(handler).not.toHaveBeenCalled();
+    expect(mockedDb.abHttpIdempotencyKey.upsert).not.toHaveBeenCalled();
+    const responseBody = await res.json();
+    expect(responseBody).toEqual({ id: 'cached' });
+  });
+
+  it('replay with same key but different body → 422 (caller misuse)', async () => {
+    mockedDb.abHttpIdempotencyKey.findUnique.mockResolvedValue({
+      id: 'x',
+      tenantId: 't1',
+      key: 'abc',
+      endpoint: ENDPOINT,
+      requestHash: 'wrong-hash-for-this-body',
+      responseJson: JSON.stringify({}),
+      status: 201,
+      createdAt: new Date(),
+      expiresAt: new Date(Date.now() + 60_000),
+    });
+    const handler = vi.fn();
+
+    const res = await withHttpIdempotency(
+      makeReq({ amount: 100 }, { 'idempotency-key': 'abc' }),
+      { tenantId: 't1', endpoint: ENDPOINT, handler },
+    );
+
+    expect(res.status).toBe(422);
+    expect(handler).not.toHaveBeenCalled();
+    expect(mockedDb.abHttpIdempotencyKey.upsert).not.toHaveBeenCalled();
+  });
+
+  it('expired cache entry → falls through to fresh execution + overwrites', async () => {
+    mockedDb.abHttpIdempotencyKey.findUnique.mockResolvedValue({
+      id: 'x',
+      tenantId: 't1',
+      key: 'abc',
+      endpoint: ENDPOINT,
+      requestHash: 'stale-hash',
+      responseJson: JSON.stringify({ id: 'old' }),
+      status: 201,
+      createdAt: new Date(Date.now() - 86_400_000),
+      // Expired 1 minute ago.
+      expiresAt: new Date(Date.now() - 60_000),
+    });
+    mockedDb.abHttpIdempotencyKey.upsert.mockResolvedValue({});
+    const handler = vi.fn().mockResolvedValue({ status: 201, body: { id: 'new' } });
+
+    const res = await withHttpIdempotency(
+      makeReq({ amount: 100 }, { 'idempotency-key': 'abc' }),
+      { tenantId: 't1', endpoint: ENDPOINT, handler },
+    );
+
+    expect(res.status).toBe(201);
+    expect(handler).toHaveBeenCalledOnce();
+    expect(mockedDb.abHttpIdempotencyKey.upsert).toHaveBeenCalledOnce();
+    const responseBody = await res.json();
+    expect(responseBody).toEqual({ id: 'new' });
   });
 });

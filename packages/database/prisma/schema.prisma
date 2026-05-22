@@ -1506,6 +1506,7 @@ model AbJournalEntry {
 
   lines AbJournalLine[]
 
+  @@unique([tenantId, sourceType, sourceId]) // G-021: prevent duplicate JE per source. Postgres treats NULL as distinct so manual entries (sourceId=null) are not constrained.
   @@index([tenantId, date])
   @@index([tenantId, sourceType])
   @@schema("plugin_agentbook_core")
@@ -2690,6 +2691,34 @@ model AbIdempotencyKey {
   createdAt DateTime @default(now())
 
   @@index([tenantId, createdAt])
+  @@schema("plugin_agentbook_core")
+}
+
+/// HTTP `Idempotency-Key` cache for financial POST endpoints (G-020, PR 15).
+///
+/// Distinct from `AbIdempotencyKey` (Telegram webhook dedup, keyed by
+/// update id). This table backs the `withHttpIdempotency` wrapper:
+/// clients send an `Idempotency-Key` header, the wrapper hashes the
+/// request body and either replays the cached response (same key + same
+/// body) or returns 422 (same key + different body — caller misuse).
+///
+/// Scoped per-(tenant, key, endpoint) so the same key can be reused
+/// across different routes without collisions. `expiresAt` is enforced
+/// on read (expired rows fall through to fresh execution) and pruned
+/// daily by the `/agentbook/cron/idempotency-prune` cron.
+model AbHttpIdempotencyKey {
+  id           String   @id @default(cuid())
+  tenantId     String
+  key          String // client-supplied Idempotency-Key header value
+  endpoint     String // e.g. "POST /api/v1/agentbook-core/journal-entries"
+  requestHash  String // sha256 of the request body — detects misuse (same key, different body)
+  responseJson String // serialized response to return on replay
+  status       Int // HTTP status code to return on replay
+  createdAt    DateTime @default(now())
+  expiresAt    DateTime // TTL — 24h typical
+
+  @@unique([tenantId, key, endpoint])
+  @@index([expiresAt])
   @@schema("plugin_agentbook_core")
 }
 
