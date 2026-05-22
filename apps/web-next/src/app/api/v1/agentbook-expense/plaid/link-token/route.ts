@@ -2,12 +2,12 @@
  * POST /api/v1/agentbook-expense/plaid/link-token
  *
  * Returns a short-lived `linkToken` that the Plaid Link UI uses to start
- * an OAuth flow. Tenant-scoped via `resolveAgentbookTenant`.
+ * an OAuth flow. Tenant-scoped via `safeResolveAgentbookTenant`.
  */
 
 import 'server-only';
 import { NextRequest, NextResponse } from 'next/server';
-import { resolveAgentbookTenant } from '@/lib/agentbook-tenant';
+import { safeResolveAgentbookTenant } from '@/lib/agentbook-tenant';
 import { createLinkToken, sanitizePlaidError } from '@/lib/agentbook-plaid';
 
 export const runtime = 'nodejs';
@@ -16,7 +16,9 @@ export const maxDuration = 30;
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
   try {
-    const tenantId = await resolveAgentbookTenant(request);
+    const __resolved = await safeResolveAgentbookTenant(request);
+    if ('response' in __resolved) return __resolved.response;
+    const { tenantId } = __resolved;
     const { linkToken, expiration } = await createLinkToken(tenantId);
     // NOTE: never log the linkToken itself — it's a session-bound credential.
     return NextResponse.json({

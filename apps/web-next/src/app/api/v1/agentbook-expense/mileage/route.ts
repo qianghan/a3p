@@ -14,7 +14,7 @@
 import 'server-only';
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma as db } from '@naap/database';
-import { resolveAgentbookTenant } from '@/lib/agentbook-tenant';
+import { safeResolveAgentbookTenant } from '@/lib/agentbook-tenant';
 import { getMileageRate } from '@/lib/agentbook-mileage-rates';
 import { resolveVehicleAccounts } from '@/lib/agentbook-account-resolver';
 import { withSoftDelete, parseIncludeDeleted } from '@/lib/agentbook-soft-delete';
@@ -65,7 +65,9 @@ async function ytdMilesOrKm(
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
   try {
-    const tenantId = await resolveAgentbookTenant(request);
+    const __resolved = await safeResolveAgentbookTenant(request);
+    if ('response' in __resolved) return __resolved.response;
+    const { tenantId } = __resolved;
     const body = (await request.json().catch(() => ({}))) as CreateMileageBody;
     const miles = typeof body.miles === 'number' ? body.miles : NaN;
 
@@ -215,7 +217,9 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
   try {
-    const tenantId = await resolveAgentbookTenant(request);
+    const __resolved = await safeResolveAgentbookTenant(request);
+    if ('response' in __resolved) return __resolved.response;
+    const { tenantId } = __resolved;
     const params = request.nextUrl.searchParams;
     const clientId = params.get('clientId') || undefined;
     const since = params.get('since');

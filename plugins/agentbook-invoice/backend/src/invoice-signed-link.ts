@@ -2,8 +2,21 @@ import { createHmac, timingSafeEqual } from 'node:crypto';
 
 const SECRET = process.env.INVOICE_PUBLIC_LINK_SECRET;
 
-if (!SECRET && process.env.NODE_ENV === 'production') {
-  throw new Error('INVOICE_PUBLIC_LINK_SECRET must be set in production');
+// Fail-closed: require the secret in any deployed environment (production,
+// preview, staging). Only allow the dev fallback when running locally or in
+// the test runner. Vercel sets VERCEL_ENV to 'production' | 'preview' |
+// 'development'; we treat 'development' as local + only when NODE_ENV is not
+// 'production'. This prevents the dev fallback from being silently used in
+// internet-accessible preview / staging deployments.
+const IS_TEST = process.env.NODE_ENV === 'test';
+const IS_LOCAL_DEV =
+  process.env.NODE_ENV !== 'production' &&
+  (!process.env.VERCEL_ENV || process.env.VERCEL_ENV === 'development');
+
+if (!SECRET && !IS_TEST && !IS_LOCAL_DEV) {
+  throw new Error(
+    'INVOICE_PUBLIC_LINK_SECRET must be set in production, preview, and staging environments',
+  );
 }
 
 const FALLBACK_SECRET = 'dev-only-rotate-in-prod';

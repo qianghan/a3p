@@ -1,12 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@naap/database';
 import { getStripe } from '@/lib/billing/stripe';
-import { resolveAgentbookTenant } from '@/lib/agentbook-tenant';
+import { safeResolveAgentbookTenant } from '@/lib/agentbook-tenant';
 
 export const runtime = 'nodejs';
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
-  const tenantId = await resolveAgentbookTenant(request);
+  const __resolved = await safeResolveAgentbookTenant(request);
+  if ('response' in __resolved) return __resolved.response;
+  const { tenantId } = __resolved;
   const stripe = getStripe();
   const existing = await prisma.billSubscription.findUnique({ where: { accountId: tenantId } });
   let customerId = existing?.stripeCustomerId ?? null;
