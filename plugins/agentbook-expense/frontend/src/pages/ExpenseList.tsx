@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useMemo } from 'react';
+import { useAgentEvents } from '@naap/plugin-sdk';
 import { useNavigate } from 'react-router-dom';
 import {
   Receipt, Search, ChevronDown, Calendar, CreditCard, Tag, FileText, Image,
@@ -148,6 +149,11 @@ const PERIOD_LABELS: Record<Period, string> = {
 
 export const ExpenseListPage: React.FC = () => {
   const navigate = useNavigate();
+  // PR 28 adoption: refetch the list when the agent mutates expense state
+  // via chat / Telegram / cron. The hook polls /events/since every 10s and
+  // bumps lastChange on matching events. Filter to expense-related kinds so
+  // unrelated events (invoice.*, tax.*) don't trigger needless refetches.
+  const { lastChange } = useAgentEvents({ kinds: ['expense', 'receipt'] });
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [categorySummary, setCategorySummary] = useState<CategorySummary[]>([]);
   const [loading, setLoading] = useState(true);
@@ -203,7 +209,9 @@ export const ExpenseListPage: React.FC = () => {
       if (expData.success) setExpenses(expData.data);
       if (catData.success) setCategorySummary(catData.data.categories);
     }).catch(console.error).finally(() => setLoading(false));
-  }, [filter, period, showDeleted]);
+    // PR 28: lastChange in deps so the effect re-runs whenever the agent
+    // mutates expense state via chat / Telegram.
+  }, [filter, period, showDeleted, lastChange]);
 
   // PR 26: restore a soft-deleted expense within the 90-day window.
   const handleRestore = async (id: string) => {
