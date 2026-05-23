@@ -205,3 +205,10 @@ export {
   type UseMutationOptions,
   type UseMutationResult,
 } from './useQuery.js';
+
+// AgentBook agent-event polling (G-033 / PR 28).
+export {
+  useAgentEvents,
+  type UseAgentEventsOptions,
+  type UseAgentEventsResult,
+} from './useAgentEvents.js';

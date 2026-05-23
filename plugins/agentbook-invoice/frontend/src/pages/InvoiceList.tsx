@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useAgentEvents } from '@naap/plugin-sdk';
 import {
   Plus,
   FileText,
@@ -78,9 +79,13 @@ export const InvoiceListPage: React.FC = () => {
     }
   }, [showDeleted]);
 
+  // PR 28 adoption: refetch when the agent mutates invoice state via chat
+  // / Telegram (create, send, void, payment recorded, etc.).
+  const { lastChange } = useAgentEvents({ kinds: ['invoice', 'payment'] });
+
   useEffect(() => {
     fetchInvoices();
-  }, [fetchInvoices]);
+  }, [fetchInvoices, lastChange]);
 
   // PR 26: restore a soft-deleted invoice within the 90-day window.
   const handleRestore = async (id: string) => {
