@@ -7,6 +7,7 @@ import 'server-only';
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma as db } from '@naap/database';
 import { safeResolveAgentbookTenant } from '@/lib/agentbook-tenant';
+import { parseCsvWithHeaders } from '@/lib/agentbook-csv';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -25,20 +26,10 @@ interface ImportBody {
   mapping?: ColumnMapping;
 }
 
+// Delegates to shared parseCsvWithHeaders for RFC-4180-ish parsing
+// (quoted commas, escaped quotes, CRLF). Closes G-035.
 function parseCSV(csvText: string): Record<string, string>[] {
-  const lines = csvText.trim().split('\n');
-  if (lines.length < 2) return [];
-  const headers = lines[0].split(',').map((h) => h.trim().replace(/^"|"$/g, '').toLowerCase());
-  const rows: Record<string, string>[] = [];
-  for (let i = 1; i < lines.length; i++) {
-    const values = lines[i].split(',').map((v) => v.trim().replace(/^"|"$/g, ''));
-    const row: Record<string, string> = {};
-    headers.forEach((h, idx) => {
-      row[h] = values[idx] || '';
-    });
-    rows.push(row);
-  }
-  return rows;
+  return parseCsvWithHeaders(csvText).rows;
 }
 
 function detectMapping(headers: string[]): ColumnMapping {
