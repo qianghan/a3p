@@ -9,6 +9,7 @@ import 'server-only';
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma as db } from '@naap/database';
 import { safeResolveAgentbookTenant } from '@/lib/agentbook-tenant';
+import { parseCsvWithHeaders } from '@/lib/agentbook-csv';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -36,37 +37,32 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     const csv = body.csv;
 
     if (csv && typeof csv === 'string' && txns.length === 0) {
-      const lines = csv.trim().split('\n');
-      if (lines.length < 2) {
+      // G-035: use the shared parser so quoted commas don't break the import.
+      const { headers, rows } = parseCsvWithHeaders(csv);
+      if (rows.length === 0) {
         return NextResponse.json({ success: false, error: 'CSV has no data rows' }, { status: 400 });
       }
-      const headers = lines[0].split(',').map((h) => h.trim().toLowerCase().replace(/"/g, ''));
-      for (let i = 1; i < lines.length; i++) {
-        const vals = lines[i].split(',').map((v) => v.trim().replace(/"/g, ''));
-        const row: Record<string, string> = {};
-        headers.forEach((h, idx) => {
-          row[h] = vals[idx] || '';
-        });
-        const dateCol =
-          headers.find((h) => ['date', 'transaction date', 'trans date', 'posted date'].includes(h)) || headers[0];
-        const amountCol =
-          headers.find((h) => ['amount', 'debit', 'charge'].includes(h)) ||
-          headers.find((h) => h.includes('amount')) ||
-          headers[1];
-        const descCol =
-          headers.find((h) => ['description', 'merchant', 'name', 'memo'].includes(h)) || headers[2];
-        const merchantCol = headers.find((h) => h.includes('merchant'));
+      const dateCol =
+        headers.find((h) => ['date', 'transaction date', 'trans date', 'posted date'].includes(h)) || headers[0];
+      const amountCol =
+        headers.find((h) => ['amount', 'debit', 'charge'].includes(h)) ||
+        headers.find((h) => h.includes('amount')) ||
+        headers[1];
+      const descCol =
+        headers.find((h) => ['description', 'merchant', 'name', 'memo'].includes(h)) || headers[2];
+      const merchantCol = headers.find((h) => h.includes('merchant'));
 
+      rows.forEach((row, i) => {
         const amount = Math.abs(parseFloat((row[amountCol] || '0').replace(/[^0-9.-]/g, '')));
         if (amount > 0) {
           txns.push({
             date: row[dateCol],
             amount: Math.round(amount * 100),
-            description: row[descCol] || `CC transaction row ${i + 1}`,
+            description: row[descCol] || `CC transaction row ${i + 2}`,
             merchant: merchantCol ? row[merchantCol] : undefined,
           });
         }
-      }
+      });
     }
 
     if (txns.length === 0) {
