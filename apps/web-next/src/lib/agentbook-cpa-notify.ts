@@ -14,7 +14,8 @@
  */
 
 import 'server-only';
-import { prisma as db } from '@naap/database';
+import { sendToAllChannels } from './agentbook-chat-adapter';
+import { reportError } from './logger';
 
 export interface CpaRequestNudge {
   requestId: string;
@@ -22,10 +23,6 @@ export interface CpaRequestNudge {
   message: string;
   entityType: string;
   entityId: string | null;
-}
-
-function escapeHtml(s: string): string {
-  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
 function formatEntityHint(entityType: string, entityId: string | null): string {
@@ -38,56 +35,35 @@ function formatEntityHint(entityType: string, entityId: string | null): string {
   return ` (about a specific ${label})`;
 }
 
+/**
+ * Notify the tenant that their CPA needs a response. PR 40 (Tier 5 #17):
+ * delivery routes through the ChatAdapter so every configured channel
+ * (Telegram + Web + Email) gets the nudge, not just Telegram. The Resolve /
+ * Skip buttons survive on Telegram via the adapter's `buttons` option; on
+ * Web the buttons become quick-reply chips emitted into the AbEvent; on
+ * Email the text-only message includes a deep link to the resolve page.
+ */
 export async function sendCpaRequestNudge(
   tenantId: string,
   payload: CpaRequestNudge,
 ): Promise<boolean> {
   try {
-    const bot = await db.abTelegramBot.findFirst({
-      where: { tenantId, enabled: true },
-    });
-    if (!bot) return false;
-    const chats = Array.isArray(bot.chatIds) ? (bot.chatIds as string[]) : [];
-    if (chats.length === 0) return false;
-
+    const hint = formatEntityHint(payload.entityType, payload.entityId);
     const text =
-      `📒 Your CPA <b>${escapeHtml(payload.cpaEmail)}</b> needs your eyes${escapeHtml(formatEntityHint(payload.entityType, payload.entityId))}:\n` +
-      `<i>"${escapeHtml(payload.message.slice(0, 500))}"</i>\n` +
-      `Tap below to resolve.`;
+      `📒 Your CPA *${payload.cpaEmail}* needs your eyes${hint}:\n` +
+      `_"${payload.message.slice(0, 500)}"_\n` +
+      `Tap Resolve to handle it.`;
 
-    const replyMarkup = {
-      inline_keyboard: [
-        [
-          { text: '👀 Resolve', callback_data: `cpa_resolve:${payload.requestId}` },
-          { text: '⏭ Skip for now', callback_data: `cpa_skip:${payload.requestId}` },
-        ],
-      ],
-    };
-
-    let any = false;
-    for (const chatId of chats) {
-      try {
-        const res = await fetch(
-          `https://api.telegram.org/bot${bot.botToken}/sendMessage`,
-          {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              chat_id: chatId,
-              text,
-              parse_mode: 'HTML',
-              reply_markup: replyMarkup,
-            }),
-          },
-        );
-        if (res.ok) any = true;
-      } catch (err) {
-        console.warn('[cpa-notify] sendMessage failed:', err);
-      }
-    }
-    return any;
+    const results = await sendToAllChannels(tenantId, text, {
+      buttons: [[
+        { text: '👀 Resolve', callbackData: `cpa_resolve:${payload.requestId}` },
+        { text: '⏭ Skip for now', callbackData: `cpa_skip:${payload.requestId}` },
+      ]],
+      idempotencyKey: `cpa-nudge:${payload.requestId}`,
+    });
+    return results.some((r) => r.delivered);
   } catch (err) {
-    console.warn('[cpa-notify] failed:', err);
+    void reportError('cpa-notify failed', err, { tenantId, source: 'agentbook-cpa-notify' });
     return false;
   }
 }
