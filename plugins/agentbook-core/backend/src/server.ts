@@ -1072,6 +1072,14 @@ app.post('/api/v1/agentbook-core/ask', async (req, res) => {
     let answer = '';
     let data: any = null;
     let queryType = 'pattern';
+    // PR 35 / Tier 2 #9: every /ask answer names the data slices it was
+    // grounded in. The UI can render them as "based on …" footnotes; the
+    // user can click through to verify.
+    const citations: Array<{
+      kind: string;
+      label: string;
+      details?: Record<string, unknown>;
+    }> = [];
 
     // === PATTERN MATCHING (fast path for common questions) ===
     if (q.includes('revenue') || q.includes('income') || q.includes('earn')) {
@@ -1082,13 +1090,19 @@ app.post('/api/v1/agentbook-core/ask', async (req, res) => {
       const total = lines.reduce((s: number, l: any) => s + l.creditCents, 0);
       answer = `Your total revenue is $${(total / 100).toLocaleString()}.`;
       data = { totalRevenueCents: total };
+      citations.push({
+        kind: 'revenue_total',
+        label: `Sum of credit lines across ${accounts.length} revenue accounts (${lines.length} journal entries)`,
+        details: { accountIds: accounts.map((a: any) => a.id), journalLineCount: lines.length },
+      });
     } else if (q.includes('spend') || q.includes('expense') || q.includes('cost')) {
       // Enhanced: detect time period + category
       const now = new Date();
       let since = new Date(now.getFullYear(), 0, 1); // default: this year
-      if (q.includes('last month')) { since = new Date(now); since.setMonth(since.getMonth() - 1); }
-      else if (q.includes('last quarter') || q.includes('this quarter')) { since = new Date(now); since.setMonth(since.getMonth() - 3); }
-      else if (q.includes('this month')) { since = new Date(now.getFullYear(), now.getMonth(), 1); }
+      let periodLabel = 'year-to-date';
+      if (q.includes('last month')) { since = new Date(now); since.setMonth(since.getMonth() - 1); periodLabel = 'last 30 days'; }
+      else if (q.includes('last quarter') || q.includes('this quarter')) { since = new Date(now); since.setMonth(since.getMonth() - 3); periodLabel = 'last 90 days'; }
+      else if (q.includes('this month')) { since = new Date(now.getFullYear(), now.getMonth(), 1); periodLabel = 'month-to-date'; }
 
       const expenses = await db.abExpense.findMany({
         where: { tenantId, isPersonal: false, date: { gte: since } },
@@ -1106,11 +1120,21 @@ app.post('/api/v1/agentbook-core/ask', async (req, res) => {
         answer += ` Top spending: ${topVendors.map(([v, a]) => `${v} ($${(a / 100).toLocaleString()})`).join(', ')}.`;
       }
       data = { totalCents: total, count: expenses.length, topVendors: topVendors.map(([n, a]) => ({ name: n, cents: a })) };
+      citations.push({
+        kind: 'expense_aggregate',
+        label: `${expenses.length} business expense rows (${periodLabel}, since ${since.toISOString().slice(0, 10)})`,
+        details: { since: since.toISOString(), period: periodLabel, expenseCount: expenses.length },
+      });
     } else if ((q.includes('tax') || q.includes('owe')) && !q.includes('owe me') && !q.includes('owes me')) {
       const estimate = await db.abTaxEstimate.findFirst({ where: { tenantId }, orderBy: { calculatedAt: 'desc' } });
       if (estimate) {
         answer = `Estimated tax: $${(estimate.totalTaxCents / 100).toLocaleString()}. Effective rate: ${(deriveEffectiveRate(estimate) * 100).toFixed(1)}%. Net income: $${(estimate.netIncomeCents / 100).toLocaleString()}.`;
         data = estimate;
+        citations.push({
+          kind: 'tax_estimate_row',
+          label: `Latest tax estimate (calculated ${estimate.calculatedAt.toISOString().slice(0, 10)})`,
+          details: { estimateId: estimate.id, calculatedAt: estimate.calculatedAt.toISOString() },
+        });
       } else { answer = 'No tax estimate yet. Record some revenue and expenses first.'; }
     } else if ((q.includes('cash') || q.includes('balance') || q.includes('money')) && !q.includes('owe') && !q.includes('who')) {
       const cash = await db.abAccount.findFirst({ where: { tenantId, code: '1000' } });
@@ -1127,6 +1151,16 @@ app.post('/api/v1/agentbook-core/ask', async (req, res) => {
 
         answer = `Cash balance: $${(balance / 100).toLocaleString()}. Monthly burn: ~$${(avgMonthly / 100).toLocaleString()}. Runway: ${runway} months.`;
         data = { balanceCents: balance, monthlyBurnCents: avgMonthly, runwayMonths: parseFloat(runway as string) || 0 };
+        citations.push({
+          kind: 'cash_balance',
+          label: `Cash account ${cash.code} balance over ${lines.length} journal lines`,
+          details: { accountId: cash.id, accountCode: cash.code, journalLineCount: lines.length },
+        });
+        citations.push({
+          kind: 'expense_aggregate',
+          label: `${expCount} business expenses (lifetime) for monthly-burn calculation`,
+          details: { expenseCount: expCount },
+        });
       } else { answer = 'No cash account found.'; }
     } else if (q.includes('client') || q.includes('outstanding') || q.includes('owe me') || q.includes('owes me') || q.includes('who owes')) {
       const clients = await db.abClient.findMany({ where: { tenantId } });
@@ -1141,6 +1175,11 @@ app.post('/api/v1/agentbook-core/ask', async (req, res) => {
         answer += ` Overdue: ${clientDetails.map(c => `${c.name} ($${(c.outstanding / 100).toLocaleString()})`).join(', ')}.`;
       }
       data = { clients: clients.length, outstandingCents: outstanding, clientDetails };
+      citations.push({
+        kind: 'client_outstanding',
+        label: `${clients.length} client rows (totalBilledCents - totalPaidCents)`,
+        details: { clientCount: clients.length, clientsWithOutstanding: clientDetails.length },
+      });
     } else {
       // === LLM PATH (complex questions) ===
       queryType = 'llm';
@@ -1168,9 +1207,24 @@ app.post('/api/v1/agentbook-core/ask', async (req, res) => {
       if (llmAnswer) {
         answer = llmAnswer;
         data = { source: 'gemini', contextUsed: Object.keys(prunedContext) };
+        // PR 35: name every context slice the LLM saw. The slice keys come
+        // from pruneContextForQuestion (totalRevenueCents, totalExpenseCents,
+        // cashBalanceCents, latestTaxEstimate, recentExpenses, etc.) — each
+        // becomes a citation.
+        for (const key of Object.keys(prunedContext)) {
+          citations.push({
+            kind: 'context_slice',
+            label: `Financial-context field: ${key}`,
+            details: { sliceKey: key },
+          });
+        }
       } else {
         answer = `Your finances: Revenue $${(context.totalRevenueCents / 100).toLocaleString()}, Expenses $${(context.totalExpenseCents / 100).toLocaleString()}, Net $${(context.netIncomeCents / 100).toLocaleString()}, Cash $${(context.cashBalanceCents / 100).toLocaleString()}. Ask about revenue, expenses, taxes, cash, or clients for details.`;
         queryType = 'fallback';
+        citations.push({
+          kind: 'context_slice',
+          label: 'Aggregated financial-context summary (revenue / expense / net / cash totals)',
+        });
       }
     }
 
@@ -1194,7 +1248,7 @@ app.post('/api/v1/agentbook-core/ask', async (req, res) => {
       select: { question: true, answer: true, queryType: true, createdAt: true },
     });
 
-    res.json({ success: true, data: { question, answer, data, queryType, latencyMs, conversationHistory: recentQuestions } });
+    res.json({ success: true, data: { question, answer, data, queryType, latencyMs, conversationHistory: recentQuestions, citations } });
   } catch (err) { res.status(500).json({ success: false, error: String(err) }); }
 });
 
