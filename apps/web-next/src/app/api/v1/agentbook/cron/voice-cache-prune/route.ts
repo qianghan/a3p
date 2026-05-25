@@ -17,6 +17,7 @@ import 'server-only';
 import { timingSafeEqual } from 'node:crypto';
 import { NextRequest, NextResponse } from 'next/server';
 import { pruneVoiceTranscripts } from '@/lib/agentbook-voice-cache';
+import { reportError } from '@/lib/logger';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -46,7 +47,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       data: { deleted: result.deleted, retentionDays: 30 },
     });
   } catch (err) {
-    console.error('[cron/voice-cache-prune] failed:', err);
+    void reportError('cron/voice-cache-prune failed', err, { source: 'cron/voice-cache-prune' });
     return NextResponse.json(
       { success: false, error: 'prune failed' },
       { status: 500 },

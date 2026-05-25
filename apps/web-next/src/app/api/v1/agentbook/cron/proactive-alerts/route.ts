@@ -22,6 +22,7 @@ import { timingSafeEqual } from 'node:crypto';
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma as db } from '@naap/database';
 import { sendToAllChannels } from '@/lib/agentbook-chat-adapter';
+import { reportError } from '@/lib/logger';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -298,7 +299,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       },
     });
   } catch (err) {
-    console.error('[cron/proactive-alerts]', err);
+    void reportError('cron/proactive-alerts failed', err, { source: 'cron/proactive-alerts' });
     return NextResponse.json({ error: 'Internal error' }, { status: 500 });
   }
 }

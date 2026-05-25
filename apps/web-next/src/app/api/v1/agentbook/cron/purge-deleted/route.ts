@@ -16,6 +16,7 @@ import 'server-only';
 import { timingSafeEqual } from 'node:crypto';
 import { NextRequest, NextResponse } from 'next/server';
 import { purgeSoftDeleted } from '@/lib/agentbook-purge-deleted';
+import { reportError } from '@/lib/logger';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -42,7 +43,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     const result = await purgeSoftDeleted();
     return NextResponse.json({ success: true, data: result });
   } catch (err) {
-    console.error('[cron/purge-deleted] failed:', err);
+    void reportError('cron/purge-deleted failed', err, { source: 'cron/purge-deleted' });
     return NextResponse.json(
       { success: false, error: 'purge failed' },
       { status: 500 },

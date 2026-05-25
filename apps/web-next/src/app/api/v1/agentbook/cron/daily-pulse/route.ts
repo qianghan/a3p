@@ -4,6 +4,7 @@
  */
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma as db } from '@naap/database';
+import { reportError } from '@/lib/logger';
 
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
@@ -90,7 +91,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
     return NextResponse.json({ success: true, processed, timestamp: new Date().toISOString() });
   } catch (err) {
-    console.error('Daily pulse cron error:', err);
+    void reportError('cron/daily-pulse failed', err, { source: 'cron/daily-pulse' });
     return NextResponse.json({ error: 'Internal error' }, { status: 500 });
   }
 }
