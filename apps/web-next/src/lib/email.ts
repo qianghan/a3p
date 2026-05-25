@@ -261,3 +261,38 @@ export async function sendPasswordResetEmail(
     return { success: false, error: message };
   }
 }
+
+/**
+ * Send a generic transactional email. Used by the EmailAdapter
+ * (`agentbook-chat-adapter.ts`) so the agent can deliver messages to a
+ * tenant by email when Telegram isn't connected. The text is wrapped in a
+ * minimal HTML scaffold so it renders consistently across mail clients.
+ *
+ * Returns `{ success, messageId?, error? }`. Never throws.
+ */
+export async function sendAgentMessageEmail(
+  to: string,
+  subject: string,
+  text: string,
+): Promise<{ success: boolean; messageId?: string; error?: string }> {
+  const client = getResendClient();
+  if (!client) {
+    return { success: false, error: 'Email service not configured' };
+  }
+
+  const safeText = escapeHtml(text);
+  const html = `<!doctype html>
+<html><body style="font-family:-apple-system,Segoe UI,sans-serif;line-height:1.5;color:#111;max-width:600px;margin:0 auto;padding:24px;">
+  <h2 style="font-size:18px;margin:0 0 16px;color:#111;">${escapeHtml(subject)}</h2>
+  <div style="white-space:pre-wrap;font-size:14px;">${safeText}</div>
+  <hr style="border:none;border-top:1px solid #e5e7eb;margin:24px 0;" />
+  <p style="font-size:12px;color:#6b7280;margin:0;">Sent by AgentBook. To stop these messages, update your delivery preferences in Settings.</p>
+</body></html>`;
+
+  try {
+    const result = await client.emails.send({ from: EMAIL_FROM, to, subject, html });
+    return { success: true, messageId: (result as unknown as { data?: { id?: string } })?.data?.id };
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
