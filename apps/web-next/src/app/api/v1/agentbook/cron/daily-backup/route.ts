@@ -23,6 +23,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma as db } from '@naap/database';
 import { buildAndUploadBackup } from '@/lib/agentbook-backup';
 import { sendToAllChannels } from '@/lib/agentbook-chat-adapter';
+import { reportError } from '@/lib/logger';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -84,7 +85,7 @@ async function processOne(tenantId: string): Promise<TenantResult> {
         result.sizeBytes,
       );
     } catch (err) {
-      console.warn('[cron/daily-backup] notify failed', tenantId, err);
+      void reportError('cron/daily-backup notify failed', err, { tenantId, source: 'cron/daily-backup' });
     }
     return {
       tenantId,
@@ -94,7 +95,7 @@ async function processOne(tenantId: string): Promise<TenantResult> {
       notified,
     };
   } catch (err) {
-    console.error('[cron/daily-backup] tenant error', tenantId, err);
+    void reportError('cron/daily-backup tenant error', err, { tenantId, source: 'cron/daily-backup' });
     return {
       tenantId,
       ok: false,
@@ -171,7 +172,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       },
     });
   } catch (err) {
-    console.error('[cron/daily-backup] failed:', err);
+    void reportError('cron/daily-backup failed', err, { source: 'cron/daily-backup' });
     // Sanitised: don't echo stack traces to the cron response. Vercel
     // logs already have the structured error.
     return NextResponse.json(

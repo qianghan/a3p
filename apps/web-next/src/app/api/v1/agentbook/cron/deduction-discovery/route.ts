@@ -16,6 +16,7 @@ import { timingSafeEqual } from 'node:crypto';
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma as db } from '@naap/database';
 import { runDeductionDiscovery } from '@/lib/agentbook-deduction-rules';
+import { reportError } from '@/lib/logger';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -83,9 +84,10 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         errorCount++;
         const t = (tenantStats[row.tenantId] ??= { created: 0, errors: 0 });
         t.errors++;
-        console.error(
-          '[cron/deduction-discovery] tenant', row.tenantId, 'failed:', err,
-        );
+        void reportError('cron/deduction-discovery tenant failed', err, {
+          tenantId: row.tenantId,
+          source: 'cron/deduction-discovery',
+        });
       }
     });
 
@@ -111,7 +113,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       timestamp: new Date().toISOString(),
     });
   } catch (err) {
-    console.error('[cron/deduction-discovery] failed:', err);
+    void reportError('cron/deduction-discovery failed', err, { source: 'cron/deduction-discovery' });
     return NextResponse.json(
       { error: 'Deduction discovery failed' },
       { status: 500 },

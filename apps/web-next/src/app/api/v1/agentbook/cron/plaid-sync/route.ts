@@ -21,6 +21,7 @@ import { timingSafeEqual } from 'node:crypto';
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma as db } from '@naap/database';
 import { syncTransactionsForAccount, sanitizePlaidError } from '@/lib/agentbook-plaid';
+import { reportError } from '@/lib/logger';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -97,16 +98,12 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       const t = (tenantStats[acct.tenantId] ??= { added: 0, errors: 0 });
       t.errors++;
       // Full error server-side, sanitized string in any structured fields.
-      console.error(
-        '[cron/plaid-sync] account',
-        acct.id,
-        'tenant',
-        acct.tenantId,
-        'error:',
-        err,
-        'sanitized:',
-        sanitizePlaidError(err),
-      );
+      void reportError('cron/plaid-sync account error', err, {
+        tenantId: acct.tenantId,
+        accountId: acct.id,
+        sanitized: sanitizePlaidError(err),
+        source: 'cron/plaid-sync',
+      });
     }
   });
 

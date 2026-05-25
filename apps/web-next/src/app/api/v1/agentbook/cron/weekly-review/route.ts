@@ -4,6 +4,7 @@
  */
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma as db } from '@naap/database';
+import { reportError } from '@/lib/logger';
 
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
@@ -83,7 +84,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       timestamp: now.toISOString(),
     });
   } catch (err) {
-    console.error('Weekly review cron error:', err);
+    void reportError('cron/weekly-review failed', err, { source: 'cron/weekly-review' });
     return NextResponse.json({ error: 'Internal error' }, { status: 500 });
   }
 }

@@ -23,6 +23,7 @@ import {
   buildTodos,
   type DigestSummary,
 } from '@/lib/agentbook-digest-builder';
+import { reportError } from '@/lib/logger';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -972,7 +973,10 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         try {
           budgets = await getBudgetProgress(tenant.userId);
         } catch (err) {
-          console.warn('[morning-digest] budget fetch failed', tenant.userId, err);
+          void reportError('cron/morning-digest budget fetch failed', err, {
+            tenantId: tenant.userId,
+            source: 'cron/morning-digest',
+          });
         }
       }
 
@@ -1065,7 +1069,10 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       }
       sent++;
     } catch (err) {
-      console.error('[morning-digest] tenant error', tenant.userId, err);
+      void reportError('cron/morning-digest tenant error', err, {
+        tenantId: tenant.userId,
+        source: 'cron/morning-digest',
+      });
       errors++;
     }
   }

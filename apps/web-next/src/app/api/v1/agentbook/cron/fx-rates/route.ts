@@ -15,6 +15,7 @@ import 'server-only';
 import { timingSafeEqual } from 'node:crypto';
 import { NextRequest, NextResponse } from 'next/server';
 import { getRate } from '@/lib/agentbook-fx';
+import { reportError } from '@/lib/logger';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -66,7 +67,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       // sink the cron.
       failed++;
       failures.push(`${from}->${to}`);
-      console.warn('[cron/fx-rates] getRate threw unexpectedly:', err);
+      void reportError('cron/fx-rates getRate threw unexpectedly', err, { source: 'cron/fx-rates' });
     }
   }
 

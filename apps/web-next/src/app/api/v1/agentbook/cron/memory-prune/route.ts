@@ -21,6 +21,7 @@ import 'server-only';
 import { timingSafeEqual } from 'node:crypto';
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma as db } from '@naap/database';
+import { reportError } from '@/lib/logger';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -85,7 +86,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       },
     });
   } catch (err) {
-    console.error('[cron/memory-prune]', err);
+    void reportError('cron/memory-prune failed', err, { source: 'cron/memory-prune' });
     return NextResponse.json({ error: 'Internal error' }, { status: 500 });
   }
 }

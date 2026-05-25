@@ -15,6 +15,7 @@ import 'server-only';
 import { timingSafeEqual } from 'node:crypto';
 import { NextRequest, NextResponse } from 'next/server';
 import { replayOpenDeadLetters } from '@/lib/agentbook-dead-letter';
+import { reportError } from '@/lib/logger';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -53,7 +54,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     });
     return NextResponse.json({ success: true, data: result });
   } catch (err) {
-    console.error('[cron/dead-letter-replay] failed:', err);
+    void reportError('cron/dead-letter-replay failed', err, { source: 'cron/dead-letter-replay' });
     return NextResponse.json(
       {
         success: false,

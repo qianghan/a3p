@@ -4,6 +4,7 @@
  */
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma as db } from '@naap/database';
+import { reportError } from '@/lib/logger';
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
   const authHeader = request.headers.get('authorization');
@@ -113,7 +114,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
     return NextResponse.json({ success: true, generated, checked: dueItems.length, timestamp: now.toISOString() });
   } catch (err) {
-    console.error('Recurring invoice cron error:', err);
+    void reportError('cron/recurring-invoices failed', err, { source: 'cron/recurring-invoices' });
     return NextResponse.json({ error: 'Internal error' }, { status: 500 });
   }
 }

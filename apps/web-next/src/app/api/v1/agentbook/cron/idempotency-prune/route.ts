@@ -14,6 +14,7 @@ import 'server-only';
 import { timingSafeEqual } from 'node:crypto';
 import { NextRequest, NextResponse } from 'next/server';
 import { pruneIdempotencyKeys } from '@/lib/agentbook-idempotency';
+import { reportError } from '@/lib/logger';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -43,7 +44,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       data: { deleted: result.deleted, retentionHours: 24 },
     });
   } catch (err) {
-    console.error('[cron/idempotency-prune] failed:', err);
+    void reportError('cron/idempotency-prune failed', err, { source: 'cron/idempotency-prune' });
     return NextResponse.json(
       { success: false, error: 'prune failed' },
       { status: 500 },
