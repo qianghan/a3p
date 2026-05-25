@@ -24,6 +24,7 @@
 
 import 'server-only';
 import { prisma as db } from '@naap/database';
+import { sendAgentMessageEmail } from './email';
 
 export interface ChatMessageOptions {
   /** Disable Markdown / formatting parsing on the target platform. */
@@ -135,6 +136,32 @@ class WebAdapter implements ChatAdapter {
 }
 
 // =========================================================================
+// Email adapter — second concrete channel beyond Telegram (PR 39)
+// =========================================================================
+//
+// The agent uses email as a fallback / parallel channel when the tenant has
+// a verified email but no Telegram connected — or simply prefers email.
+// Falls back gracefully (delivered:false) if RESEND_API_KEY isn't set or the
+// sender bounces. Delegates the actual SMTP work to email.ts so this module
+// stays adapter-only.
+
+class EmailAdapter implements ChatAdapter {
+  readonly channel = 'email';
+
+  async sendMessage(toEmail: string, text: string, opts?: ChatMessageOptions): Promise<ChatSendResult> {
+    // First line of the message becomes the subject when no explicit subject
+    // is supplied via opts — common pattern for chat→email bridges so the
+    // recipient sees a meaningful preview in their inbox.
+    const firstLine = text.split('\n')[0].slice(0, 120);
+    const subject = (opts && (opts as { subject?: string }).subject) || firstLine || 'AgentBook update';
+    const r = await sendAgentMessageEmail(toEmail, subject, text);
+    return r.success
+      ? { delivered: true, channel: 'email', messageId: r.messageId }
+      : { delivered: false, channel: 'email', error: r.error ?? 'unknown' };
+  }
+}
+
+// =========================================================================
 // Resolution
 // =========================================================================
 
@@ -167,6 +194,20 @@ export async function resolveAdaptersForTenant(
     }
   }
 
+  // PR 39: include the Email adapter when the tenant has a verified email
+  // and RESEND_API_KEY is configured. The verified-only gate avoids
+  // accidental delivery to a typo-address that the user hasn't proven they
+  // own.
+  if (process.env.RESEND_API_KEY) {
+    const user = await db.user.findUnique({
+      where: { id: tenantId },
+      select: { email: true, emailVerified: true },
+    });
+    if (user?.email && user.emailVerified) {
+      out.push({ adapter: new EmailAdapter(), chatId: user.email });
+    }
+  }
+
   return out;
 }
 
@@ -186,4 +227,4 @@ export async function sendToAllChannels(
 }
 
 // Exposed for tests / advanced callers that need a specific channel.
-export { TelegramAdapter, WebAdapter };
+export { TelegramAdapter, WebAdapter, EmailAdapter };

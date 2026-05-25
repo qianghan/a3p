@@ -6,16 +6,25 @@ vi.mock('server-only', () => ({}));
 // AbEvent insert is a spy rather than a live DB write.
 const mockAbEventCreate = vi.fn();
 const mockTelegramBotFindFirst = vi.fn();
+const mockUserFindUnique = vi.fn();
 vi.mock('@naap/database', () => ({
   prisma: {
     abEvent: { create: (...args: unknown[]) => mockAbEventCreate(...args) },
     abTelegramBot: { findFirst: (...args: unknown[]) => mockTelegramBotFindFirst(...args) },
+    user: { findUnique: (...args: unknown[]) => mockUserFindUnique(...args) },
   },
+}));
+
+// Mock the email module so EmailAdapter tests don't try to call Resend.
+const mockSendAgentMessageEmail = vi.fn();
+vi.mock('../email', () => ({
+  sendAgentMessageEmail: (...args: unknown[]) => mockSendAgentMessageEmail(...args),
 }));
 
 import {
   TelegramAdapter,
   WebAdapter,
+  EmailAdapter,
   resolveAdaptersForTenant,
   sendToAllChannels,
 } from '../agentbook-chat-adapter';
@@ -26,7 +35,10 @@ describe('ChatAdapter — Tier 5 #17 abstraction', () => {
   beforeEach(() => {
     mockAbEventCreate.mockReset();
     mockTelegramBotFindFirst.mockReset();
+    mockUserFindUnique.mockReset();
+    mockSendAgentMessageEmail.mockReset();
     delete (process.env as Record<string, string | undefined>).TELEGRAM_BOT_TOKEN;
+    delete (process.env as Record<string, string | undefined>).RESEND_API_KEY;
   });
   afterEach(() => {
     globalThis.fetch = realFetch;
@@ -105,6 +117,34 @@ describe('ChatAdapter — Tier 5 #17 abstraction', () => {
     });
   });
 
+  describe('EmailAdapter', () => {
+    it('delivers via the email helper using the first line as subject', async () => {
+      mockSendAgentMessageEmail.mockResolvedValueOnce({ success: true, messageId: 'em-1' });
+      const r = await new EmailAdapter().sendMessage('alice@example.com', 'Backup ready\nLink: https://x');
+      expect(r.delivered).toBe(true);
+      expect(r.channel).toBe('email');
+      expect(r.messageId).toBe('em-1');
+      const [to, subject, text] = mockSendAgentMessageEmail.mock.calls[0] as [string, string, string];
+      expect(to).toBe('alice@example.com');
+      expect(subject).toBe('Backup ready');
+      expect(text).toContain('Link: https://x');
+    });
+
+    it('respects opts.subject when provided', async () => {
+      mockSendAgentMessageEmail.mockResolvedValueOnce({ success: true });
+      await new EmailAdapter().sendMessage('a@b.c', 'body', { subject: 'Custom subject' } as never);
+      const [, subject] = mockSendAgentMessageEmail.mock.calls[0] as [string, string];
+      expect(subject).toBe('Custom subject');
+    });
+
+    it('returns delivered:false when sendAgentMessageEmail reports failure', async () => {
+      mockSendAgentMessageEmail.mockResolvedValueOnce({ success: false, error: 'no api key' });
+      const r = await new EmailAdapter().sendMessage('a@b.c', 'x');
+      expect(r.delivered).toBe(false);
+      expect(r.error).toBe('no api key');
+    });
+  });
+
   describe('WebAdapter', () => {
     it('writes an AbEvent so the next /events/since poll surfaces the message', async () => {
       mockAbEventCreate.mockResolvedValueOnce({ id: 'evt-1' });
@@ -129,12 +169,14 @@ describe('ChatAdapter — Tier 5 #17 abstraction', () => {
   });
 
   describe('resolveAdaptersForTenant', () => {
-    it('returns just the web adapter when no telegram bot is configured', async () => {
+    it('returns just the web adapter when no telegram bot, no email config', async () => {
       mockTelegramBotFindFirst.mockResolvedValueOnce(null);
+      // No RESEND_API_KEY → user.findUnique should not be called.
       const adapters = await resolveAdaptersForTenant('tenant-x');
       expect(adapters).toHaveLength(1);
       expect(adapters[0].adapter.channel).toBe('web');
       expect(adapters[0].chatId).toBe('tenant-x');
+      expect(mockUserFindUnique).not.toHaveBeenCalled();
     });
 
     it('includes telegram adapter when bot + token + chat ids are present', async () => {
@@ -155,6 +197,34 @@ describe('ChatAdapter — Tier 5 #17 abstraction', () => {
       const adapters = await resolveAdaptersForTenant('tenant-x');
       expect(adapters).toHaveLength(1);
       expect(adapters[0].adapter.channel).toBe('web');
+    });
+
+    it('includes email adapter when RESEND_API_KEY + verified email are present', async () => {
+      process.env.RESEND_API_KEY = 'resend-key';
+      mockTelegramBotFindFirst.mockResolvedValueOnce(null);
+      mockUserFindUnique.mockResolvedValueOnce({ email: 'alice@x.io', emailVerified: new Date() });
+      const adapters = await resolveAdaptersForTenant('tenant-x');
+      expect(adapters).toHaveLength(2);
+      expect(adapters[1].adapter.channel).toBe('email');
+      expect(adapters[1].chatId).toBe('alice@x.io');
+    });
+
+    it('skips email adapter when email is unverified', async () => {
+      process.env.RESEND_API_KEY = 'resend-key';
+      mockTelegramBotFindFirst.mockResolvedValueOnce(null);
+      mockUserFindUnique.mockResolvedValueOnce({ email: 'alice@x.io', emailVerified: null });
+      const adapters = await resolveAdaptersForTenant('tenant-x');
+      expect(adapters).toHaveLength(1);
+      expect(adapters[0].adapter.channel).toBe('web');
+    });
+
+    it('all three channels can coexist', async () => {
+      process.env.TELEGRAM_BOT_TOKEN = 'env-token';
+      process.env.RESEND_API_KEY = 'resend-key';
+      mockTelegramBotFindFirst.mockResolvedValueOnce({ chatIds: ['111'] });
+      mockUserFindUnique.mockResolvedValueOnce({ email: 'a@b.c', emailVerified: new Date() });
+      const adapters = await resolveAdaptersForTenant('tenant-x');
+      expect(adapters.map((a) => a.adapter.channel)).toEqual(['web', 'telegram', 'email']);
     });
   });
 
