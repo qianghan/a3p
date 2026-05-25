@@ -20,6 +20,7 @@ import 'server-only';
 import { timingSafeEqual } from 'node:crypto';
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma as db } from '@naap/database';
+import { sendToAllChannels } from '@/lib/agentbook-chat-adapter';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -52,26 +53,12 @@ export function quarterTriggerForDate(now: Date): { year: number; quarter: numbe
   }
 }
 
-async function sendTelegram(
-  tenantId: string,
-  message: string,
-): Promise<boolean> {
-  const bot = await db.abTelegramBot.findFirst({ where: { tenantId, enabled: true } });
-  if (!bot) return false;
-  const chats = Array.isArray(bot.chatIds) ? (bot.chatIds as string[]) : [];
-  if (chats.length === 0) return false;
-  for (const chatId of chats) {
-    await fetch(`https://api.telegram.org/bot${bot.botToken}/sendMessage`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        chat_id: chatId,
-        text: message,
-        parse_mode: 'HTML',
-      }),
-    }).catch(() => null);
-  }
-  return true;
+// PR 34 (Tier 5 #17): delivery routes through the ChatAdapter abstraction
+// so future platforms (WhatsApp, Discord, Slack) plug in without touching
+// this cron. Returns true if at least one channel delivered.
+async function notifyTenant(tenantId: string, message: string): Promise<boolean> {
+  const results = await sendToAllChannels(tenantId, message, { plainText: true });
+  return results.some((r) => r.delivered);
 }
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
@@ -107,7 +94,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       });
       // No config? Still nudge — the user might want to set it up. We
       // tag the event so analytics can see the conversion.
-      const sent = await sendTelegram(tenant.userId, message);
+      const sent = await notifyTenant(tenant.userId, message);
       if (sent) {
         prompted += 1;
         await db.abEvent.create({

@@ -21,6 +21,7 @@ import 'server-only';
 import { timingSafeEqual } from 'node:crypto';
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma as db } from '@naap/database';
+import { sendToAllChannels } from '@/lib/agentbook-chat-adapter';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -210,39 +211,20 @@ async function recentlySentAlertIds(tenantId: string): Promise<Set<string>> {
   return ids;
 }
 
-async function sendTelegram(tenantId: string, message: string): Promise<boolean> {
-  const bot = await db.abTelegramBot.findFirst({ where: { tenantId, enabled: true } });
-  if (!bot) return false;
-  const chats = Array.isArray(bot.chatIds) ? (bot.chatIds as string[]) : [];
-  if (chats.length === 0) return false;
-  let anySent = false;
-  for (const chatId of chats) {
-    try {
-      const res = await fetch(`https://api.telegram.org/bot${bot.botToken}/sendMessage`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          chat_id: chatId,
-          text: message,
-          parse_mode: 'HTML',
-        }),
-      });
-      if (res.ok) anySent = true;
-    } catch {
-      /* one chat failed — continue with the others */
-    }
-  }
-  return anySent;
+// PR 34 (Tier 5 #17): routes through the ChatAdapter abstraction. Future
+// channels (WhatsApp / Discord / Slack) join by implementing ChatAdapter;
+// this cron is unchanged.
+async function notifyTenant(tenantId: string, message: string): Promise<boolean> {
+  const results = await sendToAllChannels(tenantId, message, { plainText: true });
+  return results.some((r) => r.delivered);
 }
 
-function formatAlertForTelegram(alert: Alert): string {
+// PR 34: emit plain text — the ChatAdapter abstraction normalizes per
+// channel; the cron stays channel-agnostic.
+function formatAlert(alert: Alert): string {
   const severityIcon =
     alert.severity === 'critical' ? '🚨' : alert.severity === 'important' ? '⚠️' : 'ℹ️';
-  return `${severityIcon} <b>${escapeHtml(alert.title)}</b>\n${escapeHtml(alert.message)}`;
-}
-
-function escapeHtml(s: string): string {
-  return s.replace(/[&<>]/g, (c) => (c === '&' ? '&amp;' : c === '<' ? '&lt;' : '&gt;'));
+  return `${severityIcon} ${alert.title}\n${alert.message}`;
 }
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
@@ -284,7 +266,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
           continue;
         }
 
-        const sent = await sendTelegram(tenantId, formatAlertForTelegram(alert));
+        const sent = await notifyTenant(tenantId, formatAlert(alert));
         if (sent) {
           totalAlertsSent += 1;
           await db.abEvent.create({

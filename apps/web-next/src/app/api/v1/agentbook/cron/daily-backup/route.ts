@@ -22,6 +22,7 @@ import { timingSafeEqual } from 'node:crypto';
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma as db } from '@naap/database';
 import { buildAndUploadBackup } from '@/lib/agentbook-backup';
+import { sendToAllChannels } from '@/lib/agentbook-chat-adapter';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -56,47 +57,20 @@ interface TenantResult {
 }
 
 /**
- * Telegram message — 24h hint is informational; Vercel Blob URLs are
- * already public-by-token, so the link is usable as-is. Wording mirrors
- * the spec ("Backup ready (~12 KB)").
+ * Notify the user that the backup is ready. PR 34: routes through the
+ * ChatAdapter abstraction so future channels (Slack, WhatsApp, Discord)
+ * inherit the notification automatically. Failures must not bubble up
+ * because the row already landed in `AbBackup` — the user can recover via
+ * the UI even if every channel is down.
  */
 async function sendBackupNotification(
   tenantId: string,
   url: string,
   sizeBytes: number,
 ): Promise<boolean> {
-  const bot = await db.abTelegramBot.findFirst({
-    where: { tenantId, enabled: true },
-  });
-  if (!bot) return false;
-  const chats = Array.isArray(bot.chatIds) ? (bot.chatIds as string[]) : [];
-  if (chats.length === 0) return false;
-
-  const text = `🛟 Backup ready (${fmtSize(sizeBytes)}) — <a href="${url}">download</a> (link valid 24h)`;
-
-  let anySent = false;
-  for (const chatId of chats) {
-    try {
-      const res = await fetch(
-        `https://api.telegram.org/bot${bot.botToken}/sendMessage`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            chat_id: chatId,
-            text,
-            parse_mode: 'HTML',
-            disable_web_page_preview: true,
-          }),
-        },
-      );
-      if (res.ok) anySent = true;
-    } catch {
-      // Telegram outages must not fail the backup — the row already
-      // landed in `AbBackup`, the user can find the URL via the UI.
-    }
-  }
-  return anySent;
+  const text = `🛟 Backup ready (${fmtSize(sizeBytes)}) — ${url} (link valid 24h)`;
+  const results = await sendToAllChannels(tenantId, text, { plainText: true });
+  return results.some((r) => r.delivered);
 }
 
 async function processOne(tenantId: string): Promise<TenantResult> {
