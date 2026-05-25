@@ -133,8 +133,13 @@ async function getSentry(): Promise<any | null> {
   if (!sentryInitPromise) {
     sentryInitPromise = (async () => {
       try {
-        // @ts-expect-error optional peer dependency
-        const mod = await import('@sentry/nextjs');
+        // Indirect string so vite's import-analysis can't statically resolve
+        // the optional peer dependency — without this, vitest fails to even
+        // load this file when @sentry/nextjs isn't installed. The indirect
+        // form also satisfies TypeScript without `@ts-expect-error` since
+        // the import target is `string`, not a known module specifier.
+        const moduleName = '@sentry/nextjs';
+        const mod = await import(/* @vite-ignore */ moduleName);
         return mod ?? null;
       } catch {
         return null;
