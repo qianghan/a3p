@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Car, Download, Plus, X } from 'lucide-react';
+import { ChatCTA } from '@naap/plugin-sdk';
 
 const API = '/api/v1/agentbook-expense';
 
@@ -170,6 +171,9 @@ export const MileagePage: React.FC = () => {
           </button>
         </div>
       </div>
+
+      {/* PR 41 / Tier 1 #1: chat-first escape hatch */}
+      <ChatCTA example="I drove 45 miles to a client meeting today" />
 
       {/* YTD + monthly totals */}
       {ytd && (

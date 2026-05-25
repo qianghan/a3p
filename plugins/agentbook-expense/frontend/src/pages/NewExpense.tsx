@@ -1,5 +1,6 @@
 import React, { useRef, useState } from 'react';
 import { Upload, DollarSign, Loader2, CheckCircle, AlertCircle } from 'lucide-react';
+import { ChatCTA } from '@naap/plugin-sdk';
 
 const API_BASE = '/api/v1/agentbook-expense';
 
@@ -159,7 +160,10 @@ export const NewExpensePage: React.FC = () => {
 
   return (
     <div className="p-6 max-w-2xl mx-auto">
-      <h1 className="text-2xl font-bold mb-6">Record Expense</h1>
+      <h1 className="text-2xl font-bold mb-3">Record Expense</h1>
+
+      {/* PR 41 / Tier 1 #1: chat-first escape hatch */}
+      <ChatCTA example="I spent $42 at Starbucks for client meeting today" />
 
       {success && (
         <div className="bg-green-500/10 text-green-500 p-4 rounded-lg mb-6">Expense recorded successfully!</div>

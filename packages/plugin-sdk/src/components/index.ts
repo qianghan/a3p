@@ -9,3 +9,7 @@ export type { LivepeerPublisherProps, LivepeerPublisherRef } from './LivepeerPub
 
 export { LivepeerPlayer } from './LivepeerPlayer';
 export type { LivepeerPlayerProps, LivepeerPlayerRef } from './LivepeerPlayer';
+
+// AgentBook agent-first CTA (PR 41 / Tier 1 #1).
+export { ChatCTA } from './ChatCTA';
+export type { ChatCTAProps } from './ChatCTA';

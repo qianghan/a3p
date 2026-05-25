@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Target, Plus, X, Trash2, Pencil } from 'lucide-react';
+import { ChatCTA } from '@naap/plugin-sdk';
 
 const API = '/api/v1/agentbook-expense';
 
@@ -182,6 +183,9 @@ export const BudgetsPage: React.FC = () => {
           <Plus className="w-4 h-4" /> New Budget
         </button>
       </div>
+
+      {/* PR 41 / Tier 1 #1: chat-first escape hatch */}
+      <ChatCTA example="set a $500 monthly budget for software subscriptions" />
 
       {showForm && (
         <div className="bg-card border border-border rounded-xl p-4 mb-6 space-y-3">
