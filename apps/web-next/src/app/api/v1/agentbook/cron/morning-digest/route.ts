@@ -24,6 +24,7 @@ import {
   type DigestSummary,
 } from '@/lib/agentbook-digest-builder';
 import { reportError } from '@/lib/logger';
+import { sendToAllChannels } from '@/lib/agentbook-chat-adapter';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -727,29 +728,30 @@ function renderBudgetBar(percent: number): string {
   return `${lead} ${'█'.repeat(filled)}${'░'.repeat(Math.max(0, cells - filled))}`;
 }
 
-async function sendTelegram(
+/**
+ * PR 40 (Tier 5 #17): delivery routes through the ChatAdapter abstraction.
+ * `sendToAllChannels` fans out to every channel configured for the tenant:
+ * Web (always), Telegram (when connected), Email (when verified). Inline
+ * keyboard buttons survive on Telegram via the adapter's `buttons` option;
+ * Web/Email gracefully degrade (Web emits buttons in the AbEvent action,
+ * Email omits them).
+ *
+ * Returns true when ≥1 channel delivered.
+ */
+async function sendDigest(
   tenantId: string,
   message: string,
   inlineKeyboard?: { text: string; callback_data: string }[][],
 ): Promise<boolean> {
-  const bot = await db.abTelegramBot.findFirst({ where: { tenantId, enabled: true } });
-  if (!bot) return false;
-  const chats = Array.isArray(bot.chatIds) ? (bot.chatIds as string[]) : [];
-  if (chats.length === 0) return false;
-  const replyMarkup = inlineKeyboard ? { inline_keyboard: inlineKeyboard } : undefined;
-  for (const chatId of chats) {
-    await fetch(`https://api.telegram.org/bot${bot.botToken}/sendMessage`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        chat_id: chatId,
-        text: message,
-        parse_mode: 'HTML',
-        ...(replyMarkup ? { reply_markup: replyMarkup } : {}),
-      }),
-    }).catch(() => null);
-  }
-  return true;
+  const buttons = inlineKeyboard?.map((row) =>
+    row.map((b) => ({ text: b.text, callbackData: b.callback_data })),
+  );
+  const results = await sendToAllChannels(tenantId, message, {
+    plainText: true,
+    subject: 'Your AgentBook morning summary',
+    buttons,
+  });
+  return results.some((r) => r.delivered);
 }
 
 /**
@@ -863,26 +865,6 @@ async function sendDeductionMessages(
       }).catch(() => null);
     }
   }
-}
-
-async function sendEmail(userId: string, htmlMessage: string): Promise<boolean> {
-  if (!process.env.RESEND_API_KEY) return false;
-  const user = await db.user.findUnique({ where: { id: userId } });
-  if (!user?.email) return false;
-  // Strip HTML tags for the plaintext fallback.
-  const text = htmlMessage.replace(/<[^>]+>/g, '');
-  await fetch('https://api.resend.com/emails', {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${process.env.RESEND_API_KEY}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      from: process.env.RESEND_FROM || 'AgentBook <noreply@agentbook.app>',
-      to: user.email,
-      subject: 'Your AgentBook morning summary',
-      html: htmlMessage.replace(/\n/g, '<br>'),
-      text,
-    }),
-  }).catch(() => null);
-  return true;
 }
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
@@ -1000,8 +982,9 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         buttons.push([{ text: '⚙️ Set up briefing', callback_data: 'setup_briefing' }]);
       }
       const keyboard = buttons.length > 0 ? buttons : undefined;
-      const tgSent = await sendTelegram(tenant.userId, message, keyboard);
-      if (!tgSent) await sendEmail(tenant.userId, message);
+      // PR 40: single adapter call replaces the prior tg-first / email-fallback
+      // ladder. sendToAllChannels delivers to every configured channel.
+      const tgSent = await sendDigest(tenant.userId, message, keyboard);
 
       // PR 9: per-line interactive bank-reconciliation messages. Capped
       // at 3/tenant/day (already enforced by `take: 3` on the query) so

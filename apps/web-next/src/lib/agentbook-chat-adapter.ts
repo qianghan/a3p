@@ -33,6 +33,12 @@ export interface ChatMessageOptions {
   buttons?: Array<Array<{ text: string; callbackData: string }>>;
   /** Idempotency key to prevent duplicate sends from cron retries. */
   idempotencyKey?: string;
+  /**
+   * Optional explicit subject for channels that take one (currently only
+   * Email). Telegram and Web ignore this. If unset, the EmailAdapter uses
+   * the first line of `text` as the subject.
+   */
+  subject?: string;
 }
 
 export interface ChatSendResult {
@@ -153,7 +159,7 @@ class EmailAdapter implements ChatAdapter {
     // is supplied via opts — common pattern for chat→email bridges so the
     // recipient sees a meaningful preview in their inbox.
     const firstLine = text.split('\n')[0].slice(0, 120);
-    const subject = (opts && (opts as { subject?: string }).subject) || firstLine || 'AgentBook update';
+    const subject = opts?.subject || firstLine || 'AgentBook update';
     const r = await sendAgentMessageEmail(toEmail, subject, text);
     return r.success
       ? { delivered: true, channel: 'email', messageId: r.messageId }
