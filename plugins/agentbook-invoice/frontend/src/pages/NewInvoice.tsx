@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Plus, Trash2, Send, Save, ArrowLeft, Loader2 } from 'lucide-react';
+import { ChatCTA } from '@naap/plugin-sdk';
 
 interface LineItem {
   id: string;
@@ -229,6 +230,9 @@ export const NewInvoicePage: React.FC = () => {
           New Invoice
         </h1>
       </div>
+
+      {/* PR 41 / Tier 1 #1: chat-first escape hatch */}
+      <ChatCTA example="invoice Acme $5,000 for January consulting, due in 30 days" />
 
       <div className="space-y-6">
         {/* Client info */}

@@ -8,6 +8,7 @@ import {
   RefreshCw,
   UserPlus,
 } from 'lucide-react';
+import { ChatCTA } from '@naap/plugin-sdk';
 
 interface Client {
   id: string;
@@ -93,6 +94,9 @@ export const ClientsPage: React.FC = () => {
           </button>
         </div>
       </div>
+
+      {/* PR 41 / Tier 1 #1: chat-first escape hatch */}
+      <ChatCTA example="add a new client: Acme Corp, billing@acme.com" />
 
       {/* Content */}
       {loading ? (

@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Plane, Plus, X, Hotel } from 'lucide-react';
+import { ChatCTA } from '@naap/plugin-sdk';
 
 const API = '/api/v1/agentbook-expense';
 
@@ -147,6 +148,9 @@ export const PerDiemPage: React.FC = () => {
           {showForm ? 'Cancel' : 'Book per-diem'}
         </button>
       </div>
+
+      {/* PR 41 / Tier 1 #1: chat-first escape hatch */}
+      <ChatCTA example="I was traveling in Chicago for 3 days last week" />
 
       <p className="text-sm text-muted-foreground mb-6">
         GSA per-diem rates for federal travel — book a flat M&amp;IE rate
