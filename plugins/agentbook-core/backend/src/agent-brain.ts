@@ -543,6 +543,23 @@ export async function handleAgentMessage(
       }
       baseVersion++;
 
+      // PR 58 / Tier 1 #1: emit a plan-started event so subscribers (chat
+      // page, mobile clients, the observability dashboard) can show a
+      // live "running" indicator. Best-effort — never block the step
+      // loop on the event insert.
+      db.abEvent.create({
+        data: {
+          tenantId,
+          eventType: 'agent.plan_started',
+          actor: 'agent',
+          action: {
+            sessionId: activeSession.id,
+            totalSteps: plan.length,
+            startStep,
+          },
+        },
+      }).catch(() => {});
+
       for (let i = startStep; i < plan.length; i++) {
         const step = plan[i];
         step.status = 'running';
@@ -550,6 +567,24 @@ export async function handleAgentMessage(
           plan,
           currentStep: i,
         });
+
+        // PR 58: per-step start. Subscribers see "Step 2/4 in progress: ..."
+        // updates in near real time via useAgentEvents polling.
+        db.abEvent.create({
+          data: {
+            tenantId,
+            eventType: 'agent.step_started',
+            actor: 'agent',
+            action: {
+              sessionId: activeSession.id,
+              stepIndex: i,
+              totalSteps: plan.length,
+              stepId: step.id,
+              action: step.action,
+              description: step.description,
+            },
+          },
+        }).catch(() => {});
 
         const result = await executeStep(step, tenantId, ctx.skills, ctx.baseUrls);
         step.result = result;
@@ -560,6 +595,23 @@ export async function handleAgentMessage(
         if (undo) undoStack.push(undo);
 
         stepResults.push({ stepId: step.id, result });
+
+        // PR 58: per-step end. Includes success/failure so subscribers
+        // can render the right icon without re-fetching the plan.
+        db.abEvent.create({
+          data: {
+            tenantId,
+            eventType: 'agent.step_completed',
+            actor: 'agent',
+            action: {
+              sessionId: activeSession.id,
+              stepIndex: i,
+              totalSteps: plan.length,
+              stepId: step.id,
+              status: step.status,
+            },
+          },
+        }).catch(() => {});
       }
 
       const finalVersion = baseVersion + (plan.length - startStep);
@@ -572,6 +624,24 @@ export async function handleAgentMessage(
         evaluation,
         currentStep: plan.length,
       });
+
+      // PR 58: plan-completed event closes the loop so the chat UI can
+      // drop its "running" indicator on next poll.
+      db.abEvent.create({
+        data: {
+          tenantId,
+          eventType: 'agent.plan_completed',
+          actor: 'agent',
+          action: {
+            sessionId: activeSession.id,
+            totalSteps: plan.length,
+            stepsCompleted: evaluation.stepsCompleted,
+            stepsFailed: evaluation.stepsFailed,
+            qualityScore: evaluation.qualityScore,
+            planSuccess: evaluation.planSuccess,
+          },
+        },
+      }).catch(() => {});
 
       const evalMessage = formatEvaluation(evaluation, plan);
       return buildResponse({
