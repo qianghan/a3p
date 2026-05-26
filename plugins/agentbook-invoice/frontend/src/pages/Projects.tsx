@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Briefcase, Clock, DollarSign, TrendingUp } from 'lucide-react';
+import { ChatCTA } from '@naap/plugin-sdk';
 
 const API = '/api/v1/agentbook-invoice';
 
@@ -28,6 +29,9 @@ export const ProjectsPage: React.FC = () => {
           <h1 className="text-2xl font-bold">Projects</h1>
         </div>
       </div>
+
+      {/* PR 44 / Tier 1 #1: chat-first escape hatch */}
+      <ChatCTA example="start a new project for Acme Corp called 'Q2 redesign'" />
 
       {loading && <p className="text-muted-foreground">Loading...</p>}
 

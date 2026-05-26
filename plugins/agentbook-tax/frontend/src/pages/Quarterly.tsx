@@ -8,6 +8,7 @@ import {
   Loader2,
   RefreshCw,
 } from 'lucide-react';
+import { ChatCTA } from '@naap/plugin-sdk';
 
 interface Quarter {
   id: string;
@@ -130,6 +131,9 @@ export const QuarterlyPage: React.FC = () => {
           Track and manage quarterly tax installment payments
         </p>
       </div>
+
+      {/* PR 44 / Tier 1 #1: chat-first escape hatch */}
+      <ChatCTA example="how much do I owe in quarterly taxes this quarter?" />
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         {quarters.map((q) => {

@@ -8,6 +8,7 @@ import {
   RefreshCw,
   Tag,
 } from 'lucide-react';
+import { ChatCTA } from '@naap/plugin-sdk';
 
 interface Deduction {
   id: string;
@@ -104,6 +105,9 @@ export const DeductionsPage: React.FC = () => {
           Discover and optimize available tax deductions
         </p>
       </div>
+
+      {/* PR 44 / Tier 1 #1: chat-first escape hatch */}
+      <ChatCTA example="what deductions can I still claim for last year?" />
 
       {/* Total savings banner */}
       <div
