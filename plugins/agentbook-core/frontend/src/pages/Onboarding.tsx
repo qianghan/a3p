@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { CheckCircle, Circle, ChevronRight, Building2, Globe, DollarSign, BookOpen, Link2, Receipt, Send } from 'lucide-react';
+import { ChatCTA } from '@naap/plugin-sdk';
 
 const CORE_API = '/api/v1/agentbook-core';
 
@@ -91,6 +92,13 @@ export const OnboardingPage: React.FC = () => {
     <div className="px-4 py-5 sm:p-6 max-w-2xl mx-auto">
       <h1 className="text-2xl font-bold mb-2">Welcome to AgentBook</h1>
       <p className="text-muted-foreground mb-6">Let's set up your accounting in under 10 minutes.</p>
+
+      {/* PR 52 / Tier 1 #1: chat-first escape hatch (legacy wizard).
+          The default onboarding path is /onboarding (OnboardingChat) since PR 27;
+          this wizard remains available at /onboarding/wizard for users who
+          explicitly want the form view. Offering the chat path here completes
+          the form-only-path reduction (22/22). */}
+      <ChatCTA example="walk me through setup — I'm a freelance consultant in Toronto" />
 
       {/* Progress bar */}
       <div className="mb-8">

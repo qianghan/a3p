@@ -98,6 +98,19 @@ export const AdminConfigPage: React.FC = () => {
         <h1 className="text-2xl font-bold">Agent Configuration</h1>
       </div>
 
+      {/*
+        PR 52 / Tier 1 #1: NOTE-exempt from the form-only-path reduction.
+        This page configures LLM providers (API keys, models) and is gated
+        behind the admin allowlist. A chat-first equivalent would leak the
+        ADMIN_EMAILS gate to every authenticated user, which we explicitly
+        reject. Admins use this page; everyone else never sees it.
+      */}
+      <div className="mb-6 px-4 py-3 rounded-lg border border-dashed border-amber-500/30 bg-amber-500/5 text-xs text-muted-foreground">
+        <strong className="text-amber-700 dark:text-amber-400">Admin-only:</strong>{' '}
+        LLM provider configuration is intentionally not chat-driven. The agent
+        does not expose API keys or routing weights to itself or to users.
+      </div>
+
       {/* LLM Providers */}
       <div className="mb-8">
         <div className="flex items-center justify-between mb-4">
