@@ -16,6 +16,38 @@ interface Citation {
   details?: Record<string, unknown>;
 }
 
+/**
+ * PR 56 / Tier 2 #9 polish: map a citation to a clickable URL when the
+ * citation points at a specific entity. Returns null for context-only
+ * citations (the LLM saw the slice but there's no row to view).
+ */
+function citationHref(c: Citation): string | null {
+  const details = c.details ?? {};
+  switch (c.kind) {
+    case 'revenue_total':
+      return '/agentbook/ledger?accountType=revenue';
+    case 'expense_aggregate': {
+      const since = typeof details.since === 'string' ? details.since : null;
+      return since
+        ? `/agentbook/expenses?since=${encodeURIComponent(since.slice(0, 10))}`
+        : '/agentbook/expenses';
+    }
+    case 'tax_estimate_row':
+      return '/agentbook/tax';
+    case 'cash_balance': {
+      const code = typeof details.accountCode === 'string' ? details.accountCode : '1000';
+      return `/agentbook/ledger?accountCode=${encodeURIComponent(code)}`;
+    }
+    case 'client_outstanding':
+      return '/agentbook/clients';
+    case 'context_slice':
+      // No specific row to view — context slices are aggregate LLM input.
+      return null;
+    default:
+      return null;
+  }
+}
+
 interface Message {
   role: 'user' | 'agent';
   text?: string;
@@ -200,16 +232,36 @@ export const ChatPage: React.FC = () => {
                     Based on
                   </div>
                   <div className="flex flex-wrap gap-1">
-                    {msg.citations.map((c, ci) => (
-                      <span
-                        key={ci}
-                        title={c.details ? JSON.stringify(c.details) : c.kind}
-                        className="text-[10px] px-2 py-0.5 rounded-full bg-muted text-muted-foreground border border-border/50"
-                        data-testid="chat-citation"
-                      >
-                        {c.label}
-                      </span>
-                    ))}
+                    {msg.citations.map((c, ci) => {
+                      const href = citationHref(c);
+                      const baseCls =
+                        'text-[10px] px-2 py-0.5 rounded-full border border-border/50';
+                      const linkCls =
+                        `${baseCls} bg-muted hover:bg-muted/70 text-muted-foreground hover:text-foreground transition-colors`;
+                      const plainCls = `${baseCls} bg-muted text-muted-foreground`;
+                      // Linkable citations (PR 56) become anchors with the
+                      // appropriate href; context-only stays as a plain span.
+                      return href ? (
+                        <a
+                          key={ci}
+                          href={href}
+                          title={c.details ? JSON.stringify(c.details) : c.kind}
+                          className={linkCls}
+                          data-testid="chat-citation"
+                        >
+                          {c.label}
+                        </a>
+                      ) : (
+                        <span
+                          key={ci}
+                          title={c.details ? JSON.stringify(c.details) : c.kind}
+                          className={plainCls}
+                          data-testid="chat-citation"
+                        >
+                          {c.label}
+                        </span>
+                      );
+                    })}
                   </div>
                 </div>
               )}
