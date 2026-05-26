@@ -154,19 +154,51 @@ function summarize(results: TurnResult[]) {
   for (const stat of Object.values(byCategory)) stat.passRate = stat.n ? stat.passed / stat.n : 0;
   for (const stat of Object.values(bySkill)) stat.passRate = stat.n ? stat.passed / stat.n : 0;
 
+  // PR 48 / Tier 1 #4: multi-turn coherence. A thread passes IFF every turn
+  // passes — partial credit is uninteresting because broken context typically
+  // cascades (turn 2 fails because turn 1's entity wasn't remembered).
+  const threadGroups: Record<string, TurnResult[]> = {};
+  for (const r of results) {
+    if (r.cu.threadId) {
+      if (!threadGroups[r.cu.threadId]) threadGroups[r.cu.threadId] = [];
+      threadGroups[r.cu.threadId].push(r);
+    }
+  }
+  const threadIds = Object.keys(threadGroups);
+  const threadsPassed = threadIds.filter((tid) =>
+    threadGroups[tid].every((r) => r.passed),
+  );
+  const multiTurnCoherence = threadIds.length ? threadsPassed.length / threadIds.length : 0;
+
+  const threadDetail = threadIds.map((tid) => {
+    const turns = threadGroups[tid];
+    const allPassed = turns.every((r) => r.passed);
+    return {
+      threadId: tid,
+      turns: turns.length,
+      passed: allPassed,
+      firstFailure: allPassed ? null : turns.find((r) => !r.passed)?.cu.id ?? null,
+    };
+  });
+
   return {
     total,
     passed,
     failed: total - passed,
     intentAccuracy: total ? passed / total : 0,
     hallucinationRate: total ? hallucinated / total : 0,
+    multiTurnCoherence,
+    multiTurnThreads: threadIds.length,
+    multiTurnThreadsPassed: threadsPassed.length,
     byCategory,
     bySkill,
+    threads: threadDetail,
     failures: results
       .filter((r) => !r.passed)
       .map((r) => ({
         id: r.cu.id,
         text: r.cu.text,
+        threadId: r.cu.threadId ?? null,
         expectedSkill: r.cu.expectedSkill,
         actualSkill: r.skillUsed,
         reasons: r.reasons,
@@ -180,16 +212,32 @@ function printSummary(summary: ReturnType<typeof summarize>): void {
   console.log(`Passed:             ${summary.passed} (${(summary.intentAccuracy * 100).toFixed(1)}%)`);
   console.log(`Failed:             ${summary.failed}`);
   console.log(`Hallucination rate: ${(summary.hallucinationRate * 100).toFixed(1)}%`);
+  if (summary.multiTurnThreads > 0) {
+    console.log(
+      `Multi-turn coherence: ${summary.multiTurnThreadsPassed}/${summary.multiTurnThreads}  ` +
+        `(${(summary.multiTurnCoherence * 100).toFixed(1)}%)`,
+    );
+  }
   console.log('');
   console.log('By category:');
   for (const [cat, stat] of Object.entries(summary.byCategory)) {
     console.log(`  ${cat.padEnd(14)} ${stat.passed}/${stat.n}  (${(stat.passRate * 100).toFixed(1)}%)`);
   }
+  if (summary.threads.length > 0) {
+    console.log('');
+    console.log('Multi-turn threads:');
+    for (const t of summary.threads) {
+      const icon = t.passed ? '✓' : '✗';
+      const note = t.firstFailure ? `  (first failure: ${t.firstFailure})` : '';
+      console.log(`  ${icon} ${t.threadId.padEnd(28)} ${t.turns} turns${note}`);
+    }
+  }
   if (summary.failed > 0) {
     console.log('');
     console.log('Failures:');
     for (const f of summary.failures) {
-      console.log(`  - [${f.id}] "${f.text.slice(0, 60)}"`);
+      const threadNote = f.threadId ? ` (${f.threadId})` : '';
+      console.log(`  - [${f.id}] "${f.text.slice(0, 60)}"${threadNote}`);
       for (const r of f.reasons) console.log(`      · ${r}`);
     }
   }
