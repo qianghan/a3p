@@ -123,6 +123,7 @@
     { "path": "/api/v1/agentbook/cron/daily-backup", "schedule": "0 5 * * *" },
     { "path": "/api/v1/agentbook/cron/purge-deleted", "schedule": "0 4 * * *" },
     { "path": "/api/v1/agentbook/cron/proactive-alerts", "schedule": "0 14 * * *" },
+    { "path": "/api/v1/agentbook/cron/onboarding-nudge", "schedule": "0 15 * * *" },
     { "path": "/api/v1/agentbook/cron/memory-prune", "schedule": "0 4 * * *" },
     { "path": "/api/v1/agentbook-billing/cron/reset-quotas", "schedule": "0 0 * * *" },
     { "path": "/api/v1/agentbook-billing/cron/cleanup-events", "schedule": "0 3 * * 0" }

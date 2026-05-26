@@ -9,6 +9,7 @@ import { ActivityFeed } from './dashboard/ActivityFeed';
 import { QuickActionsBar } from './dashboard/QuickActionsBar';
 import { OnboardingHero } from './dashboard/OnboardingHero';
 import { CatchUpBanner } from './dashboard/CatchUpBanner';
+import { ResumeOnboardingBanner } from './dashboard/ResumeOnboardingBanner';
 import type { AgentSummary } from './dashboard/types';
 
 const Skeleton: React.FC<{ className?: string }> = ({ className }) => (
@@ -149,6 +150,8 @@ export const DashboardPage: React.FC = () => {
     <div className="px-4 py-6 max-w-7xl mx-auto pb-32 lg:pb-6">
       {pulling && <div className="text-center text-sm text-muted-foreground mb-2">Refreshing…</div>}
       <CatchUpBanner />
+      {/* PR 53: re-engages tenants who started but didn't finish onboarding. */}
+      <ResumeOnboardingBanner />
       <header className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-xl sm:text-2xl font-bold text-foreground">{greeting}</h1>
