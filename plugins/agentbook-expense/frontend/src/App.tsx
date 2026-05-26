@@ -6,6 +6,7 @@ import { NewExpensePage } from './pages/NewExpense';
 import { ReceiptsPage } from './pages/Receipts';
 import { VendorsPage } from './pages/Vendors';
 import { BankConnectionPage } from './pages/BankConnection';
+import { BankReviewPage } from './pages/BankReview';
 import { MileagePage } from './pages/Mileage';
 import { BudgetsPage } from './pages/Budgets';
 import { PerDiemPage } from './pages/PerDiem';
@@ -14,6 +15,8 @@ import './globals.css';
 // Map URL path to internal route
 function getInitialRoute(): string {
   const path = window.location.pathname;
+  // More specific bank sub-paths first — /bank/review must beat /bank.
+  if (path.includes('/bank/review')) return '/bank/review';
   if (path.includes('/bank')) return '/bank';
   if (path.includes('/receipts')) return '/receipts';
   if (path.includes('/vendors')) return '/vendors';
@@ -32,6 +35,7 @@ const AgentbookExpenseApp: React.FC = () => (
       <Route path="/receipts" element={<ReceiptsPage />} />
       <Route path="/vendors" element={<VendorsPage />} />
       <Route path="/bank" element={<BankConnectionPage />} />
+      <Route path="/bank/review" element={<BankReviewPage />} />
       <Route path="/mileage" element={<MileagePage />} />
       <Route path="/per-diem" element={<PerDiemPage />} />
       <Route path="/budgets" element={<BudgetsPage />} />
