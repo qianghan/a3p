@@ -140,7 +140,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           clearAllAuthStorage();
           return { user: null, authErrorStatus: 401 };
         }
-        throw new Error('Failed to fetch user');
+        // 5xx / other non-OK: surface the status so RequireAuth can decide
+        // whether to redirect or show an error UI. Returning authErrorStatus=null
+        // here is what previously caused the endless-reload loop on /agentbook
+        // (middleware sends cookie-holder → /agentbook, RequireAuth redirects
+        // to /login without clearing cookie, middleware sends back → loop).
+        return { user: null, authErrorStatus: response.status };
       }
 
       const data = await response.json();
@@ -411,22 +416,35 @@ export function RequireAuth({
 
   useEffect(() => {
     if (!isLoading && !isAuthenticated) {
-      // Only perform full cleanup when we have explicit evidence of an invalid session
-      // (401 or 200 with no user data). This preserves valid sessions during transient
-      // network errors (authErrorStatus === null).
-      const hasExplicitInvalidSession = authErrorStatus === 401 || (authErrorStatus === 200 && !user);
-      
+      // Three cases:
+      //   1. 401 or 200-without-user → explicit invalid session: clear cookie
+      //      via /logout and redirect to /login. Middleware will then allow
+      //      the user to reach the login page.
+      //   2. 5xx or other non-OK → /auth/me is failing transiently. Do NOT
+      //      redirect — that creates an endless reload loop because the
+      //      middleware sees the cookie and bounces /login back to /agentbook.
+      //      Stay on the page; the user sees the error UI below.
+      //   3. authErrorStatus === null AND no token → unauthenticated visitor,
+      //      simple redirect to /login is safe (no cookie → no middleware
+      //      bounce-back).
+      const hasExplicitInvalidSession =
+        authErrorStatus === 401 || (authErrorStatus === 200 && !user);
+      const hasTransientServerError =
+        typeof authErrorStatus === 'number' && authErrorStatus >= 500;
+
+      if (hasTransientServerError) {
+        // Render the error UI below — do NOT redirect.
+        return;
+      }
+
       if (hasExplicitInvalidSession) {
-        // Use the logout endpoint for consistent cleanup of httpOnly cookie, then redirect.
-        // Clear client-side storage first, then call logout API to clear server-side cookie.
         clearAllAuthStorage();
         fetch('/api/v1/auth/logout', { method: 'GET', credentials: 'include' })
-          .catch(() => {}) // Ignore errors - we're redirecting anyway
+          .catch(() => {})
           .finally(() => {
             window.location.replace(`/login?redirect=${encodeURIComponent(pathname)}`);
           });
       } else {
-        // Transient error or no token - redirect without cleanup to preserve any valid cookie
         window.location.replace(`/login?redirect=${encodeURIComponent(pathname)}`);
       }
     }
@@ -436,6 +454,44 @@ export function RequireAuth({
     return fallback ?? (
       <div className="flex min-h-screen items-center justify-center">
         <div className="h-8 w-8 animate-spin rounded-full border-2 border-muted-foreground border-t-transparent" />
+      </div>
+    );
+  }
+
+  // /auth/me is failing transiently (5xx). Showing an error UI here breaks
+  // the redirect loop with middleware: the cookie still exists, so any
+  // attempt to redirect to /login would be bounced back to /agentbook.
+  const transientServerError =
+    !isAuthenticated && typeof authErrorStatus === 'number' && authErrorStatus >= 500;
+  if (transientServerError) {
+    return (
+      <div className="flex min-h-screen flex-col items-center justify-center px-6 text-center">
+        <h1 className="text-xl font-semibold">We're having trouble loading your session</h1>
+        <p className="mt-2 text-sm text-muted-foreground max-w-md">
+          The authentication service returned an error ({authErrorStatus}). This is usually
+          temporary. Try reloading the page, or sign out and back in.
+        </p>
+        <div className="mt-6 flex gap-3">
+          <button
+            onClick={() => window.location.reload()}
+            className="rounded-lg bg-primary text-primary-foreground px-4 py-2 text-sm font-medium hover:opacity-90"
+          >
+            Reload
+          </button>
+          <button
+            onClick={() => {
+              clearAllAuthStorage();
+              fetch('/api/v1/auth/logout', { method: 'GET', credentials: 'include' })
+                .catch(() => {})
+                .finally(() => {
+                  window.location.replace('/login');
+                });
+            }}
+            className="rounded-lg border border-border px-4 py-2 text-sm font-medium hover:bg-muted"
+          >
+            Sign out
+          </button>
+        </div>
       </div>
     );
   }
