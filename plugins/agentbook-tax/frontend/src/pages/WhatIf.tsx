@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Calculator, ArrowRight, DollarSign } from 'lucide-react';
+import { ChatCTA } from '@naap/plugin-sdk';
 
 const TAX_API = '/api/v1/agentbook-tax';
 
@@ -45,6 +46,9 @@ export const WhatIfPage: React.FC = () => {
         <Calculator className="w-6 h-6 text-primary" />
         <h1 className="text-2xl font-bold">What If...?</h1>
       </div>
+
+      {/* PR 45 / Tier 1 #1: chat-first escape hatch */}
+      <ChatCTA example="simulate raising my hourly rate from $150 to $180 for the rest of the year" />
 
       <p className="text-muted-foreground mb-6">
         See how adding expenses or income would affect your tax liability.

@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { usePlaidLink } from 'react-plaid-link';
 import { Building2, Link2, RefreshCw, CheckCircle, AlertCircle, Plus, Clock, Loader2 } from 'lucide-react';
+import { ChatCTA } from '@naap/plugin-sdk';
 
 interface BankAccount {
   id: string;
@@ -166,6 +167,9 @@ export const BankConnectionPage: React.FC = () => {
           </button>
         </div>
       </div>
+
+      {/* PR 45 / Tier 1 #1: chat-first escape hatch */}
+      <ChatCTA example="connect my Chase business checking account" />
 
       {syncResult && (
         <div className={`mb-4 p-3 rounded-xl text-sm flex items-center gap-2 ${
