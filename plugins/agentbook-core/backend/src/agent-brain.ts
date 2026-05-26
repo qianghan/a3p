@@ -85,6 +85,16 @@ interface AgentResponse {
     sessionId?: string;
     suggestions?: string[];
     undoAvailable?: boolean;
+    /**
+     * PR 43 / Tier 2 #9: per-answer citations naming the data the agent
+     * grounded its response in. The chat UI renders these as footnote
+     * chips. See /ask in server.ts for the kind taxonomy.
+     */
+    citations?: Array<{
+      kind: string;
+      label: string;
+      details?: Record<string, unknown>;
+    }>;
   };
 }
 
@@ -820,5 +830,7 @@ export async function handleAgentMessage(
     skillUsed: responseData.skillUsed || v1Result.skillUsed,
     confidence: responseData.confidence ?? v1Result.confidence,
     latencyMs: Date.now() - startTime,
+    // PR 43: forward citations from the skill response to the chat UI.
+    citations: responseData.citations,
   });
 }

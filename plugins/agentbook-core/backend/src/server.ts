@@ -4094,13 +4094,29 @@ async function _executeClassificationCore(
     data: { tenantId, eventType: 'agent.message', actor: 'user', action: { text: (text || '').slice(0, 100), skillUsed: selectedSkill.name, confidence, channel, latencyMs } },
   });
 
+  // PR 43 / Tier 2 #9: thread citations from /ask (or any skill that emits
+  // them) through to the chat surface. The frontend renders them as
+  // footnote chips under the answer so the user can verify what the
+  // agent grounded its answer in.
+  const citations = Array.isArray(skillResponse?.data?.citations)
+    ? skillResponse.data.citations
+    : undefined;
+
   return {
     selectedSkill,
     extractedParams,
     confidence,
     skillUsed: selectedSkill.name,
     skillResponse,
-    responseData: { message, actions, chartData, skillUsed: selectedSkill.name, confidence, latencyMs },
+    responseData: {
+      message,
+      actions,
+      chartData,
+      skillUsed: selectedSkill.name,
+      confidence,
+      latencyMs,
+      ...(citations ? { citations } : {}),
+    },
   };
 }
 

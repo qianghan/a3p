@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Send, MessageSquare, Loader2 } from 'lucide-react';
+import { Send, MessageSquare, Loader2, BookOpen } from 'lucide-react';
 import { PlanPreview, type PlanStep } from '../components/PlanPreview';
 
 const API = '/api/v1/agentbook-core';
@@ -9,12 +9,20 @@ interface PlanPayload {
   requiresConfirmation: boolean;
 }
 
+// PR 43 / Tier 2 #9: per-answer citation chips.
+interface Citation {
+  kind: string;
+  label: string;
+  details?: Record<string, unknown>;
+}
+
 interface Message {
   role: 'user' | 'agent';
   text?: string;
   plan?: PlanPayload;
   sessionId?: string;
   skillUsed?: string;
+  citations?: Citation[];
   error?: boolean;
 }
 
@@ -23,6 +31,7 @@ interface AgentResponseData {
   skillUsed?: string;
   plan?: PlanPayload;
   sessionId?: string;
+  citations?: Citation[];
 }
 
 /**
@@ -79,6 +88,7 @@ export const ChatPage: React.FC = () => {
             plan: data.plan,
             sessionId: data.sessionId,
             skillUsed: data.skillUsed,
+            citations: data.citations,
           },
         ]);
         if (data.sessionId) {
@@ -182,6 +192,26 @@ export const ChatPage: React.FC = () => {
                   onCancel={() => void submit('', 'cancel')}
                   disabled={loading}
                 />
+              )}
+              {msg.role === 'agent' && msg.citations && msg.citations.length > 0 && (
+                <div className="mt-2 pt-2 border-t border-border/50">
+                  <div className="text-[10px] text-muted-foreground/70 mb-1 flex items-center gap-1">
+                    <BookOpen className="w-3 h-3" />
+                    Based on
+                  </div>
+                  <div className="flex flex-wrap gap-1">
+                    {msg.citations.map((c, ci) => (
+                      <span
+                        key={ci}
+                        title={c.details ? JSON.stringify(c.details) : c.kind}
+                        className="text-[10px] px-2 py-0.5 rounded-full bg-muted text-muted-foreground border border-border/50"
+                        data-testid="chat-citation"
+                      >
+                        {c.label}
+                      </span>
+                    ))}
+                  </div>
+                </div>
               )}
               {msg.role === 'agent' && msg.skillUsed && !msg.error && (
                 <div className="mt-1 text-[10px] text-muted-foreground/70">
