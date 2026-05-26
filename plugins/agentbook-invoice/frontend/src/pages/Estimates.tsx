@@ -10,6 +10,7 @@ import {
   Plus,
   Trash2,
 } from 'lucide-react';
+import { ChatCTA } from '@naap/plugin-sdk';
 
 interface ClientLite {
   id: string;
@@ -132,6 +133,9 @@ export const EstimatesPage: React.FC = () => {
           New Estimate
         </button>
       </div>
+
+      {/* PR 44 / Tier 1 #1: chat-first escape hatch */}
+      <ChatCTA example="estimate TechCorp $3,000 for the new project, valid 30 days" />
 
       {/* Status filters */}
       <div className="flex flex-wrap gap-2 mb-4">

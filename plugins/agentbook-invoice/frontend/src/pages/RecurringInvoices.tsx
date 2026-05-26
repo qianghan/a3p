@@ -10,6 +10,7 @@ import {
   RefreshCw,
   X,
 } from 'lucide-react';
+import { ChatCTA } from '@naap/plugin-sdk';
 
 type Frequency = 'weekly' | 'biweekly' | 'monthly' | 'quarterly' | 'annual';
 type Status = 'active' | 'paused' | 'completed';
@@ -259,6 +260,9 @@ export const RecurringInvoicesPage: React.FC = () => {
           New Schedule
         </button>
       </div>
+
+      {/* PR 44 / Tier 1 #1: chat-first escape hatch */}
+      <ChatCTA example="bill Acme $2,000 every month for retainer, starting next Monday" />
 
       {/* Content */}
       {loading ? (

@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Store, TrendingUp } from 'lucide-react';
+import { ChatCTA } from '@naap/plugin-sdk';
 
 interface Vendor {
   id: string;
@@ -30,6 +31,9 @@ export const VendorsPage: React.FC = () => {
         <Store className="w-6 h-6 text-primary" />
         <h1 className="text-2xl font-bold">Vendors</h1>
       </div>
+
+      {/* PR 44 / Tier 1 #1: chat-first escape hatch */}
+      <ChatCTA example="show me my top 5 vendors this quarter" />
 
       {loading && <p className="text-muted-foreground">Loading vendors...</p>}
 
