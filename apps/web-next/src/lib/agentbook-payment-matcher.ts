@@ -250,12 +250,33 @@ export async function matchTransaction(
   tenantId: string,
   txn: MatchableTxn,
 ): Promise<MatchResult> {
+  const all = await matchTransactionWithCandidates(tenantId, txn, 1);
+  return all[0] ?? { kind: 'none', score: 0 };
+}
+
+/**
+ * PR 49: return the top-N candidates ranked by score so the picker UI can
+ * show alternatives ("did you mean Acme INV-0001 or BigCo INV-0002?").
+ * The single-best path delegates to this and takes the first entry.
+ *
+ * Filters applied beyond the original matcher:
+ *   - Soft-deleted expenses (deletedAt != null) are skipped.
+ *   - Expenses already matched to a different AbBankTransaction are skipped
+ *     (avoids double-attribution).
+ *   - Only status='confirmed' expenses are eligible (skip pending_review).
+ *
+ * `limit` defaults to 3 — enough to render in the Telegram review prompt.
+ */
+export async function matchTransactionWithCandidates(
+  tenantId: string,
+  txn: MatchableTxn,
+  limit: number = 3,
+): Promise<MatchResult[]> {
   const windowMs = DATE_WINDOW_DAYS * ONE_DAY_MS;
   const windowStart = new Date(txn.date.getTime() - windowMs);
   const windowEnd = new Date(txn.date.getTime() + windowMs);
 
   if (txn.amountCents < 0) {
-    // Inflow → look for an outstanding invoice.
     const txnAbs = Math.abs(txn.amountCents);
     const tol = Math.max(
       AMOUNT_TOLERANCE_MIN_CENTS,
@@ -271,54 +292,75 @@ export async function matchTransaction(
       include: { client: { select: { name: true } } },
       take: 20,
     });
-    let best: MatchResult = { kind: 'none', score: 0 };
-    for (const inv of candidates) {
-      const score = scoreInvoiceMatch(txn, {
-        id: inv.id,
-        amountCents: inv.amountCents,
-        issuedDate: inv.issuedDate,
-        dueDate: inv.dueDate,
-        status: inv.status,
-        clientName: inv.client?.name || null,
-      });
-      if (score > best.score) {
-        best = { kind: 'invoice', score, targetId: inv.id };
-      }
-    }
-    return best;
+    const scored = candidates
+      .map<MatchResult>((inv) => ({
+        kind: 'invoice' as const,
+        targetId: inv.id,
+        score: scoreInvoiceMatch(txn, {
+          id: inv.id,
+          amountCents: inv.amountCents,
+          issuedDate: inv.issuedDate,
+          dueDate: inv.dueDate,
+          status: inv.status,
+          clientName: inv.client?.name || null,
+        }),
+      }))
+      .filter((r) => r.score > 0)
+      .sort((a, b) => b.score - a.score)
+      .slice(0, Math.max(1, limit));
+    return scored;
   }
 
   if (txn.amountCents > 0) {
-    // Outflow → look for a recent expense not already matched.
     const tol = Math.max(
       AMOUNT_TOLERANCE_MIN_CENTS,
       Math.round(txn.amountCents * AMOUNT_TOLERANCE_PCT),
     );
+
+    // Pre-fetch the IDs of expenses already matched to a bank txn (any tenant
+    // row of this tenant). Filtering in JS keeps the Prisma query simple.
+    const alreadyMatchedRows = await db.abBankTransaction.findMany({
+      where: {
+        tenantId,
+        matchedExpenseId: { not: null },
+      },
+      select: { matchedExpenseId: true },
+    });
+    const alreadyMatchedIds = new Set(
+      alreadyMatchedRows.map((r) => r.matchedExpenseId!).filter(Boolean),
+    );
+
     const candidates = await db.abExpense.findMany({
       where: {
         tenantId,
         amountCents: { gte: txn.amountCents - tol, lte: txn.amountCents + tol },
         date: { gte: windowStart, lte: windowEnd },
         isPersonal: false,
+        deletedAt: null,             // PR 49: skip soft-deleted
+        status: 'confirmed',         // PR 49: skip pending_review / rejected
       },
       include: { vendor: { select: { name: true } } },
       take: 20,
     });
-    let best: MatchResult = { kind: 'none', score: 0 };
-    for (const exp of candidates) {
-      const score = scoreExpenseMatch(txn, {
-        id: exp.id,
-        amountCents: exp.amountCents,
-        date: exp.date,
-        description: exp.description,
-        vendorName: exp.vendor?.name || null,
-      });
-      if (score > best.score) {
-        best = { kind: 'expense', score, targetId: exp.id };
-      }
-    }
-    return best;
+
+    const scored = candidates
+      .filter((exp) => !alreadyMatchedIds.has(exp.id))  // PR 49: no double-attribution
+      .map<MatchResult>((exp) => ({
+        kind: 'expense' as const,
+        targetId: exp.id,
+        score: scoreExpenseMatch(txn, {
+          id: exp.id,
+          amountCents: exp.amountCents,
+          date: exp.date,
+          description: exp.description,
+          vendorName: exp.vendor?.name || null,
+        }),
+      }))
+      .filter((r) => r.score > 0)
+      .sort((a, b) => b.score - a.score)
+      .slice(0, Math.max(1, limit));
+    return scored;
   }
 
-  return { kind: 'none', score: 0 };
+  return [];
 }
