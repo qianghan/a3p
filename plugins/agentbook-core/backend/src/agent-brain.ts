@@ -241,6 +241,43 @@ function buildResponse(data: AgentResponse['data']): AgentResponse {
 }
 
 /**
+ * Confidence threshold below which the agent forces a confirm-preview
+ * step even on skills the manifest marks as non-destructive (PR 42 /
+ * Tier 1 #3). Tuned so:
+ *   - Regex-match path (confidence ≈ 0.85): never trips → fast loop preserved.
+ *   - LLM happy-path  (confidence ≈ 0.7–0.9): never trips.
+ *   - LLM unsure path (confidence ≈ 0.3–0.7): trips → user clarifies.
+ *   - Ultimate fallback (confidence ≈ 0.3, skill=general-question): handled
+ *     by the skip-list below, not by the threshold.
+ */
+const CONFIDENCE_ESCALATION_THRESHOLD = 0.55;
+
+/**
+ * Skills that should never be confidence-escalated. These are either
+ * read-only (a wrong answer is recoverable) or already fallback / Q&A
+ * paths where asking the user "are you sure?" would feel obtuse.
+ */
+const ESCALATION_EXEMPT_SKILLS = new Set([
+  'general-question',
+  'query-expenses',
+  'query-finance',
+  'expense-breakdown',
+  'proactive-alerts',
+  'vendor-insights',
+  'show-skill-metrics',
+]);
+
+function shouldEscalateOnConfidence(classification: any): boolean {
+  if (!classification) return false;
+  const conf = typeof classification.confidence === 'number' ? classification.confidence : 1;
+  if (conf >= CONFIDENCE_ESCALATION_THRESHOLD) return false;
+  const name = classification.selectedSkill?.name;
+  if (!name) return false;
+  if (ESCALATION_EXEMPT_SKILLS.has(name)) return false;
+  return true;
+}
+
+/**
  * Human-readable description of a destructive action, used in the plan preview.
  * Kept deliberately simple — the goal is to let the user understand what is
  * about to happen, not to render a full audit log.
@@ -595,10 +632,20 @@ export async function handleAgentMessage(
       });
     }
   } else {
-    // Step 3b: if destructive, build a plan preview + create a session that
-    // stores the pending classification. Do NOT execute the skill.
-    if (classification.confirmBefore) {
+    // Step 3b: if destructive OR the agent is uncertain about this
+    // non-fallback skill (PR 42 / Tier 1 #3), build a plan preview + create a
+    // session that stores the pending classification. Do NOT execute the
+    // skill.
+    const escalateLowConfidence = shouldEscalateOnConfidence(classification);
+    if (classification.confirmBefore || escalateLowConfidence) {
       const desc = describeDestructiveAction(classification, text);
+      // When the gate fires because confidence is low (not because the skill
+      // is intrinsically destructive), prepend a clarifying lead-in. The
+      // user sees a clear "I'm not sure" framing rather than the standard
+      // confirm prompt — accuracy signal AND a chance to correct.
+      const lead = !classification.confirmBefore && escalateLowConfidence
+        ? `I'm not entirely sure I understood — does this look right?\n`
+        : '';
       const planSteps: PlanStep[] = [
         {
           id: 'step-1',
@@ -625,7 +672,7 @@ export async function handleAgentMessage(
         },
       });
 
-      const planMessage = formatPlan(planSteps);
+      const planMessage = lead + formatPlan(planSteps);
 
       db.abConversation.create({
         data: {
@@ -635,7 +682,19 @@ export async function handleAgentMessage(
           queryType: 'agent',
           channel,
           skillUsed: classification.selectedSkill?.name || 'planner',
-          data: { plan: planSteps as any, sessionId: session.id, pendingDestructive: true },
+          data: {
+            plan: planSteps as any,
+            sessionId: session.id,
+            pendingDestructive: !!classification.confirmBefore,
+            // Surface the escalation reason so analytics / activity feed
+            // can distinguish "destructive confirm" from "low-confidence
+            // confirm" — they're different UX events.
+            escalationReason: classification.confirmBefore
+              ? 'destructive'
+              : escalateLowConfidence
+                ? 'low_confidence'
+                : null,
+          },
         },
       }).catch(() => {});
 
