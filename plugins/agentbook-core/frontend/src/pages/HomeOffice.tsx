@@ -18,6 +18,7 @@
  */
 import React, { useEffect, useMemo, useState } from 'react';
 import { Home, Save, Plus } from 'lucide-react';
+import { ChatCTA } from '@naap/plugin-sdk';
 
 const API = '/api/v1/agentbook-core';
 
@@ -238,6 +239,9 @@ export const HomeOfficePage: React.FC = () => {
         <Home className="w-6 h-6 text-primary" />
         <h1 className="text-2xl font-bold">Home office</h1>
       </div>
+
+      {/* PR 45 / Tier 1 #1: chat-first escape hatch */}
+      <ChatCTA example="my home office is 200 sqft of a 1000 sqft apartment, use simplified method" />
 
       <p className="text-sm text-muted-foreground mb-6">
         Quarterly home-office deduction. Configure your square footage

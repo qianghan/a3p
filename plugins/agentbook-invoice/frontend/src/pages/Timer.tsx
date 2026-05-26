@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { Play, Square, Clock, Receipt } from 'lucide-react';
+import { ChatCTA } from '@naap/plugin-sdk';
 
 const API = '/api/v1/agentbook-invoice';
 
@@ -210,6 +211,9 @@ export const TimerPage: React.FC = () => {
         <Clock className="w-6 h-6 text-primary" />
         <h1 className="text-2xl font-bold">Time Tracker</h1>
       </div>
+
+      {/* PR 45 / Tier 1 #1: chat-first escape hatch */}
+      <ChatCTA example="start a timer for TechCorp on the Q2 redesign project" />
 
       {/* Timer */}
       <div className="bg-card border border-border rounded-xl p-6 mb-6 text-center">

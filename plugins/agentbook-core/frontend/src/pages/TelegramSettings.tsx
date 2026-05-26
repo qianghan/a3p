@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Send, Key, Loader2, Trash2, RefreshCw, CheckCircle, XCircle, AlertCircle, ExternalLink } from 'lucide-react';
+import { ChatCTA } from '@naap/plugin-sdk';
 
 const API = '/api/v1/agentbook-core';
 
@@ -96,6 +97,9 @@ export const TelegramSettingsPage: React.FC = () => {
         <Send className="w-6 h-6 text-primary" />
         <h1 className="text-2xl font-bold">Telegram Bot</h1>
       </div>
+
+      {/* PR 45 / Tier 1 #1: chat-first escape hatch */}
+      <ChatCTA example="set up my telegram bot so I can text my expenses" />
 
       {/* Status alerts */}
       {error && (

@@ -8,6 +8,7 @@ import {
   ChevronUp,
   Loader2,
 } from 'lucide-react';
+import { ChatCTA } from '@naap/plugin-sdk';
 
 interface ReportRow {
   label: string;
@@ -153,6 +154,9 @@ export const ReportsPage: React.FC = () => {
           Generate and view financial reports for your business
         </p>
       </div>
+
+      {/* PR 45 / Tier 1 #1: chat-first escape hatch */}
+      <ChatCTA example="show me my P&L for this quarter" />
 
       <div className="space-y-4">
         {REPORTS.map((report) => {

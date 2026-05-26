@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Image, Upload } from 'lucide-react';
+import { ChatCTA } from '@naap/plugin-sdk';
 
 interface Expense {
   id: string;
@@ -35,6 +36,9 @@ export const ReceiptsPage: React.FC = () => {
         <Image className="w-6 h-6 text-primary" />
         <h1 className="text-2xl font-bold">Receipts</h1>
       </div>
+
+      {/* PR 45 / Tier 1 #1: chat-first escape hatch */}
+      <ChatCTA example="send me a photo of your receipt — I'll extract the amount, vendor, and date" />
 
       {/* Upload Zone */}
       <div className="border-2 border-dashed border-border rounded-xl p-8 mb-6 text-center hover:border-primary/50 transition-colors cursor-pointer">

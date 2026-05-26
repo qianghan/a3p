@@ -15,6 +15,7 @@
  */
 import React, { useEffect, useMemo, useState } from 'react';
 import { Search, Pin, PinOff, Trash2, Play, Plus, X } from 'lucide-react';
+import { ChatCTA } from '@naap/plugin-sdk';
 
 const API = '/api/v1/agentbook-core';
 
@@ -244,6 +245,9 @@ export const SavedSearchesPage: React.FC = () => {
           <Plus size={16} /> {showCreate ? 'Close' : 'New'}
         </button>
       </header>
+
+      {/* PR 45 / Tier 1 #1: chat-first escape hatch */}
+      <ChatCTA example="save a search for unbilled time entries this month" />
 
       {err && (
         <div style={{ background: '#fee', border: '1px solid #f99', padding: 12, borderRadius: 6, marginBottom: 16 }}>
