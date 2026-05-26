@@ -1,0 +1,108 @@
+name: Nightly Canonical Eval
+
+# Replays the canonical-utterance suite (tests/e2e/nightly/canonical-utterances.ts)
+# against the deployed agent, producing the intent-accuracy + hallucination-rate +
+# multi-turn-coherence numbers the Tier 1 #4 rubric criterion calls for.
+#
+# Schedule: 06:00 UTC daily (after morning-digest finishes at 02:00 UTC).
+# Manual: workflow_dispatch lets a reviewer trigger an ad-hoc run.
+#
+# Requires the following repo secrets:
+#   E2E_BASE_URL              base URL of the deployment to evaluate
+#                              (defaults to https://a3book.brainliber.com if unset)
+#   E2E_USER_EMAIL            login email for the canonical-eval seed user
+#   E2E_USER_PASSWORD         password for the same
+#   E2E_RESET_TOKEN           one-shot token for /v1/e2e-test/reset-e2e-user
+#                              (clears prior conversation so multi-turn threads
+#                              start with a clean slate)
+#
+# Exits non-zero when intent accuracy < 80 %, so the workflow status reflects
+# rubric pass/fail. The JSON report is uploaded as a workflow artifact for
+# triage.
+
+on:
+  schedule:
+    - cron: '0 6 * * *'         # 06:00 UTC daily
+  workflow_dispatch:
+    inputs:
+      base_url:
+        description: 'Base URL to evaluate (defaults to E2E_BASE_URL secret)'
+        required: false
+        type: string
+
+concurrency:
+  group: nightly-canonical-eval
+  cancel-in-progress: false
+
+jobs:
+  canonical-eval:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      E2E_BASE_URL: ${{ inputs.base_url || secrets.E2E_BASE_URL || 'https://a3book.brainliber.com' }}
+      E2E_USER_EMAIL: ${{ secrets.E2E_USER_EMAIL }}
+      E2E_USER_PASSWORD: ${{ secrets.E2E_USER_PASSWORD }}
+      E2E_RESET_TOKEN: ${{ secrets.E2E_RESET_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+      - name: Install
+        run: npm ci --include=dev
+
+      # Reset the canonical-eval seed user so multi-turn threads start with
+      # an empty conversation. The harness's thread-coherence metric only
+      # makes sense if turn 1 isn't being shadowed by a prior thread's
+      # context. The reset endpoint is gated by E2E_RESET_TOKEN.
+      - name: Reset eval user
+        if: env.E2E_RESET_TOKEN != ''
+        run: |
+          curl -sS -X POST \
+            -H "x-e2e-reset-token: ${E2E_RESET_TOKEN}" \
+            "${E2E_BASE_URL}/api/v1/e2e-test/reset-e2e-user" || true
+
+      # Get a session cookie. The login endpoint sets `naap_auth_token` on
+      # success; we capture it for the eval harness via -c then -b.
+      - name: Login
+        run: |
+          curl -sS -c cookies.txt -X POST \
+            -H "Content-Type: application/json" \
+            -d "{\"email\":\"${E2E_USER_EMAIL}\",\"password\":\"${E2E_USER_PASSWORD}\"}" \
+            "${E2E_BASE_URL}/api/v1/auth/login" > /dev/null
+          AUTH_COOKIE="$(grep -E '^[^#].*naap_auth_token' cookies.txt | awk '{print $6"="$7}')"
+          if [ -z "$AUTH_COOKIE" ]; then
+            echo "::error::login did not produce naap_auth_token cookie"
+            exit 1
+          fi
+          echo "AUTH_COOKIE=$AUTH_COOKIE" >> "$GITHUB_ENV"
+
+      - name: Run canonical eval
+        run: |
+          npx tsx scripts/run-canonical-eval.ts \
+            --base-url="${E2E_BASE_URL}" \
+            --cookie="${AUTH_COOKIE}" \
+            --out=./canonical-eval-report.json
+
+      - name: Upload report artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: canonical-eval-report
+          path: canonical-eval-report.json
+          retention-days: 30
+
+      - name: Summary
+        if: always()
+        run: |
+          if [ -f canonical-eval-report.json ]; then
+            echo "## Canonical Eval Summary" >> "$GITHUB_STEP_SUMMARY"
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            jq -r '
+              "* Total: \(.total)\n" +
+              "* Passed: \(.passed) (\((.intentAccuracy * 100) | floor)%)\n" +
+              "* Hallucination rate: \((.hallucinationRate * 100) | floor)%\n" +
+              "* Multi-turn coherence: \(.multiTurnThreadsPassed)/\(.multiTurnThreads) (\((.multiTurnCoherence * 100) | floor)%)"
+            ' canonical-eval-report.json >> "$GITHUB_STEP_SUMMARY"
+          fi
