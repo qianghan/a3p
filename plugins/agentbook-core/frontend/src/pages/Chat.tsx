@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Send, MessageSquare, Loader2, BookOpen } from 'lucide-react';
+import { Send, MessageSquare, Loader2, BookOpen, Activity } from 'lucide-react';
+import { useAgentEvents } from '@naap/plugin-sdk';
 import { PlanPreview, type PlanStep } from '../components/PlanPreview';
 
 const API = '/api/v1/agentbook-core';
@@ -83,6 +84,18 @@ export const ChatPage: React.FC = () => {
   const [sessionId, setSessionId] = useState<string | undefined>(undefined);
   const listRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  // PR 58 / Tier 1 #1: subscribe to agent.step_* + plan_* events so the
+  // chat surfaces "agent is mid-plan" intermediate state without
+  // re-fetching the session.
+  const { kinds: agentEventKinds } = useAgentEvents({ kinds: ['agent'] });
+  // A plan is "in progress" when the latest poll saw step_started events
+  // and did NOT see plan_completed in the same window. Best-effort signal —
+  // poll cadence is ~10s so the indicator may lag briefly, which is fine
+  // for a "thinking..." affordance.
+  const planInProgress = Boolean(
+    agentEventKinds['agent.step_started'] && !agentEventKinds['agent.plan_completed'],
+  );
 
   // Auto-scroll to bottom when messages change.
   useEffect(() => {
@@ -280,6 +293,21 @@ export const ChatPage: React.FC = () => {
               <div className="flex items-center gap-2 text-sm text-muted-foreground">
                 <Loader2 className="w-4 h-4 animate-spin" />
                 Thinking...
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* PR 58 / Tier 1 #1: intermediate-state indicator for multi-step
+            plans. Surfaces when the agent is mid-plan but this tab isn't
+            actively waiting on a request (e.g. the user navigated back
+            after kicking off a long plan). */}
+        {!loading && planInProgress && (
+          <div className="flex justify-start" data-testid="agent-plan-indicator">
+            <div className="max-w-[85%] rounded-2xl px-4 py-2 bg-amber-500/10 border border-amber-500/20">
+              <div className="flex items-center gap-2 text-sm text-amber-700 dark:text-amber-400">
+                <Activity className="w-4 h-4 animate-pulse" />
+                Agent is running a multi-step plan in the background…
               </div>
             </div>
           </div>
