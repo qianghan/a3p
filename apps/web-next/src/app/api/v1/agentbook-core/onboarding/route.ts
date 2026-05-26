@@ -29,6 +29,23 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     let progress = await db.abOnboardingProgress.findUnique({ where: { tenantId } });
     if (!progress) {
       progress = await db.abOnboardingProgress.create({ data: { tenantId } });
+      // PR 46 / Tier 3 #10: telemetry on first entry into onboarding so
+      // the funnel can compute drop-off + first-15-min from event history.
+      try {
+        await db.abEvent.create({
+          data: {
+            tenantId,
+            eventType: 'onboarding.started',
+            actor: 'user',
+            action: {
+              totalSteps: STEPS.length,
+              startedAt: progress.createdAt.toISOString(),
+            },
+          },
+        });
+      } catch {
+        /* best-effort telemetry */
+      }
     }
 
     const completedSet = new Set(progress.completedSteps);
