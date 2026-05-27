@@ -26,6 +26,7 @@ import {
 import { prisma as db } from '@naap/database';
 import { safeResolveAgentbookTenant } from '@/lib/agentbook-tenant';
 import { checkAndIncrement } from '@/lib/agentbook-rate-limit';
+import { t, parseLocaleHeader } from '@/lib/agentbook-i18n';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -84,10 +85,14 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       const retryAfterSec = limit.retryAfterMs
         ? Math.max(1, Math.ceil(limit.retryAfterMs / 1000))
         : 60;
-      const message =
-        limit.reason === 'day'
-          ? "Daily message ceiling reached. Try again tomorrow, or upgrade your plan for a higher limit."
-          : "You're sending messages very fast. Try again in a minute.";
+      // PR 62: i18n the rate-limit message based on the client's
+      // Accept-Language header. Falls back to English when the locale
+      // isn't supported.
+      const locale = parseLocaleHeader(request.headers.get('accept-language'));
+      const message = t(
+        limit.reason === 'day' ? 'rate.day_exceeded' : 'rate.minute_exceeded',
+        locale,
+      );
       return NextResponse.json(
         {
           success: false,
@@ -95,6 +100,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
           reason: limit.reason,
           retryAfterMs: limit.retryAfterMs,
           message,
+          locale,
         },
         {
           status: 429,
