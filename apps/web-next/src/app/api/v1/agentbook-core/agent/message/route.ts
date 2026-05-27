@@ -25,6 +25,7 @@ import {
 } from '@agentbook-core/server';
 import { prisma as db } from '@naap/database';
 import { safeResolveAgentbookTenant } from '@/lib/agentbook-tenant';
+import { checkAndIncrement } from '@/lib/agentbook-rate-limit';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -71,6 +72,36 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       { success: false, error: 'text or sessionAction required' },
       { status: 400 },
     );
+  }
+
+  // PR 61: per-tenant rate limit on /agent/message. Session actions
+  // (Proceed / Cancel button clicks) are user follow-throughs on an
+  // already-counted message, not a new request — exempt them so the
+  // user can confirm a plan even right at the ceiling.
+  if (!body.sessionAction) {
+    const limit = await checkAndIncrement(tenantId, 'web');
+    if (!limit.allowed) {
+      const retryAfterSec = limit.retryAfterMs
+        ? Math.max(1, Math.ceil(limit.retryAfterMs / 1000))
+        : 60;
+      const message =
+        limit.reason === 'day'
+          ? "Daily message ceiling reached. Try again tomorrow, or upgrade your plan for a higher limit."
+          : "You're sending messages very fast. Try again in a minute.";
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'rate_limited',
+          reason: limit.reason,
+          retryAfterMs: limit.retryAfterMs,
+          message,
+        },
+        {
+          status: 429,
+          headers: { 'Retry-After': String(retryAfterSec) },
+        },
+      );
+    }
   }
 
   try {
