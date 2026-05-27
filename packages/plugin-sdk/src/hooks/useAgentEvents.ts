@@ -65,6 +65,11 @@ export function useAgentEvents(opts: UseAgentEventsOptions = {}): UseAgentEvents
   });
   const sinceRef = useRef<string>(new Date().toISOString());
   const aliveRef = useRef(true);
+  // PR 63: track the last ETag the server sent us so we can send
+  // If-None-Match on the next poll. When the server has nothing new
+  // (latestAt + count unchanged) it returns 304 and we don't even
+  // parse a body. Saves DB query AND JSON round-trip.
+  const etagRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (disabled) return;
@@ -72,10 +77,23 @@ export function useAgentEvents(opts: UseAgentEventsOptions = {}): UseAgentEvents
 
     async function poll() {
       try {
+        const headers: Record<string, string> = {};
+        if (etagRef.current) headers['If-None-Match'] = etagRef.current;
         const res = await fetch(`${API}?ts=${encodeURIComponent(sinceRef.current)}`, {
           credentials: 'include',
+          headers,
         });
-        if (!res.ok) return;
+        if (!res.ok && res.status !== 304) return;
+
+        const newEtag = res.headers.get('etag');
+        if (newEtag) etagRef.current = newEtag;
+
+        if (res.status === 304) {
+          // Nothing new since the last poll — no state change needed.
+          if (!aliveRef.current) return;
+          return;
+        }
+
         const data = (await res.json()) as EventsSinceResponse;
         if (!aliveRef.current) return;
 
