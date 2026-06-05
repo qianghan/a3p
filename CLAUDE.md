@@ -11,6 +11,7 @@ AgentBook is an AI-powered accounting system for freelancers and small businesse
 | `agentbook/skills/architecture.md` | Architecture questions, adding endpoints/models, debugging | System overview, plugin structure, schema layout, API map, auth flow |
 | `agentbook/skills/product.md` | Feature questions, user stories, competitive analysis | Target users, differentiators, feature inventory, key workflows |
 | `agentbook/skills/workflows.md` | Implementation tasks, "how do I add X?" | File locations, dev patterns, testing guide, common operations |
+| `agentbook/skills/deployment.md` | Deploying to Vercel, build cost optimization, redeploys | Local build + `--prebuilt` flow (default), env pull, git auto-deploy controls |
 | `agentbook/users.md` | Testing, login credentials | Test accounts, seed data commands, local dev startup |
 | `agentbook/user-story.md` | Product planning, what users can do | 73 user stories across 10 categories, value scoring |
 

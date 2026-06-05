@@ -111,3 +111,4 @@ tests/e2e/nightly/playwright-report/
 * 2.tsx
 * 2.yml
 * 2.yaml
+.env*.local

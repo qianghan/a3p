@@ -92,6 +92,43 @@ cd apps/web-next || { echo "ERROR: Failed to cd to apps/web-next"; exit 1; }
 npm run build
 cd ../.. || { echo "ERROR: Failed to cd back to root"; exit 1; }
 
+# Step 5a: Dedup Prisma engine copies via symlinks.
+# PrismaPlugin copies the 16MB engine next to every chunk that references
+# @prisma/client (~30 copies × 5 variants = 535MB). We replace duplicates
+# with symlinks to a single canonical copy per variant in both the build
+# output and the standalone tree (which Vercel's function packager copies
+# from). Vercel preserves symlinks. Reclaims ~450MB.
+echo "[5a/6] Deduplicating Prisma engine binaries via symlinks..."
+dedup_dir() {
+  local dir="$1"
+  [ -d "$dir" ] || return 0
+  local reclaimed=0
+  for variant in libquery_engine-linux-arm64-openssl-3.0.x.so \
+                 libquery_engine-linux-musl-openssl-3.0.x.so \
+                 libquery_engine-rhel-openssl-3.0.x.so \
+                 libquery_engine-debian-openssl-3.0.x.so \
+                 libquery_engine-darwin-arm64.dylib; do
+    local canonical=""
+    # shellcheck disable=SC2206
+    local files=("$dir"/"$variant".node "$dir"/"$variant"\ [0-9]*.node)
+    for f in "${files[@]}"; do
+      [ -f "$f" ] && [ ! -L "$f" ] || continue
+      if [ -z "$canonical" ]; then
+        canonical="$f"
+      else
+        local size
+        size=$(stat -f %z "$f" 2>/dev/null || stat -c %s "$f")
+        rm "$f"
+        ln -s "$(basename "$canonical")" "$f"
+        reclaimed=$((reclaimed + size))
+      fi
+    done
+  done
+  echo "  $dir: reclaimed $((reclaimed / 1024 / 1024)) MB"
+}
+dedup_dir "apps/web-next/.next/server/chunks"
+dedup_dir "apps/web-next/.next/standalone/apps/web-next/.next/server/chunks"
+
 # Step 6: (Optional) One-time cleanup for PR 87 moved plugins
 # Set RUN_PLUGIN_CLEANUP=1 in Vercel env to run once, then remove.
 if [ "${RUN_PLUGIN_CLEANUP}" = "1" ] && [ "${VERCEL_ENV}" = "production" ] && [ -n "$DATABASE_URL" ]; then
