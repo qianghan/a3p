@@ -42,6 +42,25 @@ app.use((req, res, next) => {
   next();
 });
 
+// === Agent-brain outbound auth ===
+// Plugin endpoints in apps/web-next moved to safeResolveAgentbookTenant
+// (commit bf3aca2f). That resolver accepts either a real user session OR
+// CRON_SECRET + x-tenant-id for service-to-service calls. The agent
+// brain runs server-side, so it uses the latter path. Without the
+// bearer token, every skill execution returns 401 ('unauthorized').
+function brainHeaders(tenantId: string, extra?: Record<string, string>): Record<string, string> {
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    'x-tenant-id': tenantId,
+    ...(extra || {}),
+  };
+  const cronSecret = process.env.CRON_SECRET;
+  if (cronSecret) {
+    headers['Authorization'] = `Bearer ${cronSecret}`;
+  }
+  return headers;
+}
+
 // === Multi-Currency Formatter ===
 function fmtCurrency(cents: number, currency?: string): string {
   const symbols: Record<string, string> = { USD: '$', CAD: 'CA$', GBP: '\u00a3', EUR: '\u20ac', AUD: 'A$' };
@@ -2698,7 +2717,7 @@ app.delete('/api/v1/agentbook-core/agent/memory/:id', async (req, res) => {
 
 // --- Helper: resolve or create a client by name ---
 async function resolveOrCreateClient(invoiceBase: string, tenantId: string, clientName: string): Promise<any> {
-  const H = { 'Content-Type': 'application/json', 'x-tenant-id': tenantId };
+  const H = brainHeaders(tenantId);
   const clientsRes = await fetch(`${invoiceBase}/api/v1/agentbook-invoice/clients`, { headers: H });
   const clientsData = await clientsRes.json() as any;
   let client = (clientsData.data || []).find((c: any) => c.name.toLowerCase().includes(clientName.toLowerCase()));
@@ -3096,7 +3115,7 @@ async function _executeClassificationCore(
   if (selectedSkill.name === 'query-invoices' && extractedParams.clientName) {
     try {
       const invoiceBase = baseUrls['/api/v1/agentbook-invoice'] || 'http://localhost:4052';
-      const clientsRes = await fetch(`${invoiceBase}/api/v1/agentbook-invoice/clients`, { headers: { 'Content-Type': 'application/json', 'x-tenant-id': tenantId } });
+      const clientsRes = await fetch(`${invoiceBase}/api/v1/agentbook-invoice/clients`, { headers: brainHeaders(tenantId) });
       const clientsData = await clientsRes.json() as any;
       const client = (clientsData.data || []).find((c: any) => c.name.toLowerCase().includes(extractedParams.clientName.toLowerCase()));
       if (client) extractedParams.clientId = client.id;
@@ -3154,7 +3173,7 @@ async function _executeClassificationCore(
   if (selectedSkill.name === 'edit-expense') {
     try {
       const expenseBase = baseUrls['/api/v1/agentbook-expense'] || 'http://localhost:4051';
-      const EH = { 'Content-Type': 'application/json', 'x-tenant-id': tenantId };
+      const EH = brainHeaders(tenantId);
       if (!extractedParams.expenseId || extractedParams.expenseId === 'last') {
         // Find most recent expense
         const res = await fetch(`${expenseBase}/api/v1/agentbook-expense/expenses?limit=1`, { headers: EH });
@@ -3175,7 +3194,7 @@ async function _executeClassificationCore(
     try {
       if (!extractedParams.expenseId || extractedParams.expenseId === 'last') {
         const expenseBase = baseUrls['/api/v1/agentbook-expense'] || 'http://localhost:4051';
-        const res = await fetch(`${expenseBase}/api/v1/agentbook-expense/expenses?limit=1`, { headers: { 'Content-Type': 'application/json', 'x-tenant-id': tenantId } });
+        const res = await fetch(`${expenseBase}/api/v1/agentbook-expense/expenses?limit=1`, { headers: brainHeaders(tenantId) });
         const data = await res.json() as any;
         if (data.data?.[0]) extractedParams.expenseId = data.data[0].id;
       }
@@ -3186,7 +3205,7 @@ async function _executeClassificationCore(
   if (selectedSkill.name === 'send-invoice') {
     try {
       const invoiceBase = baseUrls['/api/v1/agentbook-invoice'] || 'http://localhost:4052';
-      const H = { 'Content-Type': 'application/json', 'x-tenant-id': tenantId };
+      const H = brainHeaders(tenantId);
       let invoiceId = extractedParams.invoiceId;
       if (!invoiceId || invoiceId === 'last' || invoiceId === 'that') {
         // Find most recent invoice
@@ -3217,7 +3236,7 @@ async function _executeClassificationCore(
   if (selectedSkill.name === 'create-payment-link') {
     try {
       const invoiceBase = baseUrls['/api/v1/agentbook-invoice'] || 'http://localhost:4052';
-      const H = { 'Content-Type': 'application/json', 'x-tenant-id': tenantId };
+      const H = brainHeaders(tenantId);
       let invoiceId = extractedParams.invoiceId;
       if (!invoiceId || invoiceId === 'last' || invoiceId === 'that') {
         const listRes = await fetch(`${invoiceBase}/api/v1/agentbook-invoice/invoices?limit=1`, { headers: H });
@@ -3248,7 +3267,7 @@ async function _executeClassificationCore(
     try {
       const invoiceBase = baseUrls['/api/v1/agentbook-invoice'] || 'http://localhost:4052';
       if (!extractedParams.estimateId || extractedParams.estimateId === 'last') {
-        const res = await fetch(`${invoiceBase}/api/v1/agentbook-invoice/estimates?status=approved&limit=1`, { headers: { 'Content-Type': 'application/json', 'x-tenant-id': tenantId } });
+        const res = await fetch(`${invoiceBase}/api/v1/agentbook-invoice/estimates?status=approved&limit=1`, { headers: brainHeaders(tenantId) });
         const data = await res.json() as any;
         if (data.data?.[0]) extractedParams.estimateId = data.data[0].id;
       }
@@ -3259,7 +3278,7 @@ async function _executeClassificationCore(
   if (selectedSkill.name === 'void-invoice') {
     try {
       const invoiceBase = baseUrls['/api/v1/agentbook-invoice'] || 'http://localhost:4052';
-      const IH = { 'Content-Type': 'application/json', 'x-tenant-id': tenantId };
+      const IH = brainHeaders(tenantId);
       let invoiceId = extractedParams.invoiceId;
       if (!invoiceId || invoiceId === 'last') {
         const res = await fetch(`${invoiceBase}/api/v1/agentbook-invoice/invoices?limit=1`, { headers: IH });
@@ -3279,7 +3298,7 @@ async function _executeClassificationCore(
   if (selectedSkill.name === 'create-credit-note' && !extractedParams.invoiceId) {
     try {
       const invoiceBase = baseUrls['/api/v1/agentbook-invoice'] || 'http://localhost:4052';
-      const res = await fetch(`${invoiceBase}/api/v1/agentbook-invoice/invoices?limit=1`, { headers: { 'Content-Type': 'application/json', 'x-tenant-id': tenantId } });
+      const res = await fetch(`${invoiceBase}/api/v1/agentbook-invoice/invoices?limit=1`, { headers: brainHeaders(tenantId) });
       const data = await res.json() as any;
       if (data.data?.[0]) extractedParams.invoiceId = data.data[0].id;
       if (!extractedParams.reason) extractedParams.reason = 'Credit adjustment';
@@ -3290,7 +3309,7 @@ async function _executeClassificationCore(
   if (selectedSkill.name === 'record-payment') {
     try {
       const invoiceBase = baseUrls['/api/v1/agentbook-invoice'] || 'http://localhost:4052';
-      const H = { 'Content-Type': 'application/json', 'x-tenant-id': tenantId };
+      const H = brainHeaders(tenantId);
       if (extractedParams.clientName) {
         const client = await resolveOrCreateClient(invoiceBase, tenantId, extractedParams.clientName);
         if (client) {
@@ -3333,7 +3352,7 @@ async function _executeClassificationCore(
   if (selectedSkill.name === 'start-timer') {
     try {
       const invoiceBase = baseUrls['/api/v1/agentbook-invoice'] || 'http://localhost:4052';
-      const H = { 'Content-Type': 'application/json', 'x-tenant-id': tenantId };
+      const H = brainHeaders(tenantId);
       if (extractedParams.clientName) {
         const clientsRes = await fetch(`${invoiceBase}/api/v1/agentbook-invoice/clients`, { headers: H });
         const clientsData = await clientsRes.json() as any;
@@ -3355,7 +3374,7 @@ async function _executeClassificationCore(
   if (selectedSkill.name === 'send-reminder') {
     try {
       const invoiceBase = baseUrls['/api/v1/agentbook-invoice'] || 'http://localhost:4052';
-      const H = { 'Content-Type': 'application/json', 'x-tenant-id': tenantId };
+      const H = brainHeaders(tenantId);
       let message = '';
 
       if (extractedParams.invoiceId && extractedParams.invoiceId !== 'all') {
@@ -3403,7 +3422,7 @@ async function _executeClassificationCore(
   if (selectedSkill.name === 'tax-slip-scan') {
     try {
       const taxBase = baseUrls['/api/v1/agentbook-tax'] || 'http://localhost:4053';
-      const IH = { 'Content-Type': 'application/json', 'x-tenant-id': tenantId };
+      const IH = brainHeaders(tenantId);
 
       // Get image URL from attachments or params
       let imageUrl = extractedParams.imageUrl;
@@ -3460,7 +3479,7 @@ async function _executeClassificationCore(
   if (selectedSkill.name === 'tax-filing-start') {
     try {
       const taxBase = baseUrls['/api/v1/agentbook-tax'] || 'http://localhost:4053';
-      const IH = { 'Content-Type': 'application/json', 'x-tenant-id': tenantId };
+      const IH = brainHeaders(tenantId);
       const taxYear = extractedParams.taxYear || 2025;
 
       // Seed forms
@@ -3506,7 +3525,7 @@ async function _executeClassificationCore(
     if (selectedSkill.name === 'tax-filing-export') {
       try {
         const taxBase = baseUrls['/api/v1/agentbook-tax'] || 'http://localhost:4053';
-        const IH = { 'Content-Type': 'application/json', 'x-tenant-id': tenantId };
+        const IH = brainHeaders(tenantId);
         const format = extractedParams.format || 'json';
         const res = await fetch(`${taxBase}/api/v1/agentbook-tax/tax-filing/2025/export`, {
           method: 'POST', headers: IH, body: JSON.stringify({ format }),
@@ -3542,7 +3561,7 @@ async function _executeClassificationCore(
     if (selectedSkill.name === 'tax-filing-submit') {
       try {
         const taxBase = baseUrls['/api/v1/agentbook-tax'] || 'http://localhost:4053';
-        const IH = { 'Content-Type': 'application/json', 'x-tenant-id': tenantId };
+        const IH = brainHeaders(tenantId);
         const taxYear = extractedParams.taxYear || 2025;
         const res = await fetch(`${taxBase}/api/v1/agentbook-tax/tax-filing/${taxYear}/submit`, { method: 'POST', headers: IH });
         const data = await res.json() as any;
@@ -3584,7 +3603,7 @@ async function _executeClassificationCore(
   if (selectedSkill.name === 'categorize-expenses') {
     try {
       const expenseBase = baseUrls['/api/v1/agentbook-expense'] || 'http://localhost:4051';
-      const H = { 'Content-Type': 'application/json', 'x-tenant-id': tenantId };
+      const H = brainHeaders(tenantId);
 
       // Fetch uncategorized expenses
       const listRes = await fetch(`${expenseBase}/api/v1/agentbook-expense/expenses?limit=100`, { headers: H });
@@ -3687,7 +3706,7 @@ async function _executeClassificationCore(
         if (extractedParams[p]) qs.set(p, String(extractedParams[p]));
       }
       const getUrl = qs.toString() ? `${targetUrl}?${qs}` : targetUrl;
-      const getRes = await fetch(getUrl, { headers: { 'x-tenant-id': tenantId } });
+      const getRes = await fetch(getUrl, { headers: brainHeaders(tenantId) });
       skillResponse = await getRes.json();
     } else {
       // Resolve :id or {id} path parameters in URL
@@ -3706,7 +3725,7 @@ async function _executeClassificationCore(
 
       const fetchRes = await fetch(resolvedUrl, {
         method: endpoint.method || 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-tenant-id': tenantId },
+        headers: brainHeaders(tenantId),
         body: JSON.stringify(paramsCopy),
       });
       skillResponse = await fetchRes.json();
