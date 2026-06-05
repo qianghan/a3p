@@ -61,6 +61,118 @@ function brainHeaders(tenantId: string, extra?: Record<string, string>): Record<
   return headers;
 }
 
+// === Accountant Engagement (used when intent is unclear or skill couldn't execute) ===
+// Replaces flat "I couldn't complete that action" with an LLM-driven response
+// that either asks a clarifying question or suggests an actionable next step,
+// framed as a friendly accountant. Always returns a usable string — if Gemini
+// is unavailable it falls back to a deterministic local heuristic so the user
+// is never dead-ended.
+function localEngagementFallback(opts: {
+  userText: string;
+  selectedSkillName?: string;
+}): string {
+  const t = (opts.userText || '').toLowerCase();
+  // Topic-keyed clarifying questions. Use prefix matches (no trailing \b)
+  // so "incorporate" matches "incorporat", "refinancing" matches "refinanc".
+  if (/(mortgage|refinanc|invest|stock|crypto|401k|ira|rrsp|retire)/.test(t)) {
+    return "That's a personal-finance call I can't make for you, but I can pull together the numbers that would inform it — current cashflow, last 12-month revenue/expense trend, and a tax estimate. Want me to run any of those?";
+  }
+  if (/(incorporat|\bllc\b|s-?corp|c-?corp|sole prop|partnership|business entity|register.*business)/.test(t)) {
+    return "Entity choice depends on liability, tax bracket, and how you pay yourself — a CPA should make the final call. I can prep a P&L and tax estimate to make that conversation faster. Want me to do that?";
+  }
+  if (/(audit|\birs\b|\bcra\b|tax notice|letter from)/.test(t)) {
+    return "If you got something official, save it and don't reply yet. I can package your books — receipts, journal entries, tax summary — into a CPA-ready export. Want me to generate that?";
+  }
+  if (/(deadline|file by|when .* (tax|file|due)|tax due|due date)/.test(t)) {
+    return "Tax deadlines depend on your jurisdiction and entity type. What country/state are you in, and are you filing as sole prop, LLC, or corp?";
+  }
+  if (/(how.*file.*tax|how.*do.*tax|file my tax|do my tax)/.test(t)) {
+    return "I can prep your books for filing — P&L, tax summary, and a CPA-ready export. If you want self-serve filing, AgentBook supports US/Canada forms (T1, T2125, GST/HST). Which jurisdiction are you in?";
+  }
+  if (/(can.*deduct|write[- ]off|is.*deductible)/.test(t)) {
+    return "Most legitimate business expenses are deductible — what's the expense, and was it for business or personal use?";
+  }
+  if (/(travel|trip|mileage|drove|flew|hotel|airbnb|uber|lyft|taxi)/.test(t)) {
+    return "To log travel, tell me the amount and what it was for — e.g. \"spent $145 on a hotel for the Acme meeting\" or \"drove 45 miles to the client site\". Or do you want a travel-spend summary?";
+  }
+  if (/(invoice|estimate|quote)/.test(t)) {
+    return "I can create invoices and estimates. Tell me the client and amount, like \"invoice Acme $5000 for consulting\", and I'll draft it.";
+  }
+  if (/(spent|paid|bought|cost|purchase)/.test(t)) {
+    return "Sounds like you're logging an expense — could you tell me the amount and vendor? e.g. \"spent $24 at Starbucks today\".";
+  }
+  if (/(how much|total .*(spent|earned)|revenue|income|profit|owe)/.test(t)) {
+    return "Want a quick read? I can pull P&L for this month, expense-by-vendor, or your AR aging report. Which one?";
+  }
+  if (/^(hi|hey|hello|yo|sup|good (morning|afternoon|evening))\b/.test(t)) {
+    return "Hey! I keep your books in shape — log expenses, draft invoices, run reports, estimate tax. What's on your mind today?";
+  }
+  if (/(help|what can you|what do you do)/.test(t)) {
+    return "I'm your bookkeeping co-pilot. Try things like \"spent $24 on coffee\", \"invoice Acme $5000\", \"show me last month's P&L\", or \"scan this receipt\" with a photo attached.";
+  }
+  return "I want to help with that — could you give me one more detail? Is this an expense to log, an invoice to send, a question about your books, or something else?";
+}
+
+async function accountantEngagement(opts: {
+  userText: string;
+  selectedSkillName?: string;
+  attemptedAction?: string;
+  errorDetail?: string;
+  lowConfidence?: boolean;
+  recentConvo?: Array<{ question: string; answer: string }>;
+}): Promise<string> {
+  try {
+    const convoSnippet = (opts.recentConvo || [])
+      .slice(0, 3)
+      .map((c) => `User: ${c.question}\nAssistant: ${c.answer}`)
+      .join('\n');
+
+    const systemPrompt = [
+      'You are AgentBook, a friendly small-business accountant assistant talking with the user in chat (web or Telegram).',
+      'The classifier could not confidently route this message to a concrete action, or the action it tried failed.',
+      '',
+      'Your job in this reply is to KEEP THE CONVERSATION GOING — never end with a flat "I don\'t know". Pick ONE of these moves:',
+      '  1) ASK a single short clarifying question that an accountant would naturally ask',
+      '     (was that a business or personal expense? which client? for what period? do you mean income or expense?).',
+      '  2) SUGGEST a concrete next step the user can take — either rephrase the request so AgentBook can handle it, or do the action manually outside the app',
+      '     (e.g. "I can\'t file taxes for you, but I can prep a P&L and tax-summary export — want me to do that?").',
+      '  3) OFFER guidance — if it\'s a finance question AgentBook can\'t answer directly, share a brief accountant-style tip and propose an in-app follow-up.',
+      '',
+      'AgentBook CAN do (representative — not exhaustive):',
+      '  - Record / edit / split / categorize expenses; receipt scanning (image or PDF)',
+      '  - Create invoices, estimates, credit notes; send invoices; record payments',
+      '  - Track time (timer start/stop) and bill from time entries',
+      '  - Reports: P&L, balance sheet, cashflow, tax-summary, expense-by-vendor, aging report',
+      '  - Tax: estimate quarterly tax, prep US/Canada tax forms (T1, T2125, GST/HST)',
+      '  - Bank account sync (Plaid), bank-reconciliation summary',
+      '  - Manage recurring expense rules, budgets, vendor insights',
+      '  - Tax-package export for CPA hand-off',
+      '',
+      'Style rules: warm but brief, 1–3 short sentences, plain text (no markdown bullets in chat), no headers, never robotic. Don\'t say "I am an AI" or "as an AI". Don\'t pretend to do something you didn\'t. If you ask a question, end the message with the question.',
+    ].join('\n');
+
+    const userMessage = [
+      convoSnippet && `Recent conversation:\n${convoSnippet}`,
+      `User just said: "${opts.userText}"`,
+      opts.selectedSkillName && `Classifier guessed action: ${opts.selectedSkillName}${opts.lowConfidence ? ' (low confidence)' : ''}`,
+      opts.attemptedAction && `What I tried: ${opts.attemptedAction}`,
+      opts.errorDetail && `Why it didn\'t work: ${opts.errorDetail}`,
+      '',
+      'Respond now as the accountant assistant.',
+    ].filter(Boolean).join('\n');
+
+    const reply = await callGemini(systemPrompt, userMessage, 220);
+    if (reply && reply.trim()) {
+      // Strip any stray markdown fencing the model may add.
+      return reply.trim().replace(/^```[a-z]*\n?/i, '').replace(/\n?```$/i, '').trim();
+    }
+    console.warn('[accountantEngagement] Gemini returned empty — using local fallback');
+  } catch (err) {
+    console.warn('[accountantEngagement] LLM failed, using local fallback:', err);
+  }
+  return localEngagementFallback(opts);
+}
+
 // === Multi-Currency Formatter ===
 function fmtCurrency(cents: number, currency?: string): string {
   const symbols: Record<string, string> = { USD: '$', CAD: 'CA$', GBP: '\u00a3', EUR: '\u20ac', AUD: 'A$' };
@@ -3749,7 +3861,12 @@ async function _executeClassificationCore(
   let chartData: any = null;
 
   if (skillError || !skillResponse?.success) {
-    // Provide specific error feedback based on skill and what went wrong
+    // Provide specific error feedback based on skill and what went wrong.
+    // For the catch-all paths (low-confidence general-question, missing
+    // endpoint, etc.) call accountantEngagement so the user gets a
+    // clarifying question or actionable suggestion instead of a flat
+    // "I don't know" — only the skill-specific branches below keep their
+    // canned guidance because those are precise enough to be useful.
     const errorDetail = skillResponse?.error || '';
     if (selectedSkill.name === 'record-expense') {
       if (!extractedParams.amountCents) {
@@ -3767,10 +3884,17 @@ async function _executeClassificationCore(
       message = "I couldn't record the payment. I need a client or invoice reference:\n• \"Got $5000 from Acme\"\n• \"Record payment for INV-2026-0001\"";
     } else if (selectedSkill.name === 'send-invoice') {
       message = "I couldn't find an invoice to send. Try:\n• \"Send invoice INV-2026-0001\"\n• Create one first: \"Invoice Acme $5000\"";
-    } else if (errorDetail) {
-      message = `I couldn't complete that action. ${errorDetail}`;
     } else {
-      message = `I couldn't complete that action (skill: ${selectedSkill.name}). Please try rephrasing or type /help ${selectedSkill.category || ''} for guidance.`;
+      // Catch-all: engage the user (clarify or suggest) instead of dead-ending.
+      // accountantEngagement is now infallible — falls back to a local heuristic
+      // when Gemini is unreachable.
+      message = await accountantEngagement({
+        userText: text,
+        selectedSkillName: selectedSkill.name,
+        attemptedAction: `${endpoint.method || 'POST'} ${endpoint.url}`,
+        errorDetail: errorDetail || (skillError ? 'request failed' : 'no response'),
+        lowConfidence: typeof confidence === 'number' && confidence < 0.6,
+      });
     }
   } else {
     const data = skillResponse.data;

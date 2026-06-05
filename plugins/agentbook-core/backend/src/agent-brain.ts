@@ -12,6 +12,84 @@ import { retrieveRelevantMemories, learnFromInteraction, handleCorrection } from
 import { assessComplexity, generatePlan, formatPlan, createSession, getActiveSession, updateSession, executeStep, buildUndoAction } from './agent-planner.js';
 import { PlanStep, Evaluation, assessStepQuality, buildFinalEvaluation, formatEvaluation } from './agent-evaluator.js';
 
+// Deterministic local engagement fallback when LLM is unreachable.
+// Keeps the user moving forward with a clarifying question or hint
+// instead of a dead-end "I don't know".
+function localBrainFallback(userText: string): string {
+  const t = (userText || '').toLowerCase();
+  if (/(mortgage|refinanc|invest|stock|crypto|401k|ira|rrsp|retire)/.test(t))
+    return "That's a personal-finance decision I can't make for you — but I can pull cashflow, last-12mo trends, and a tax estimate to inform it. Want me to run any of those?";
+  if (/(incorporat|\bllc\b|s-?corp|c-?corp|sole prop|partnership|business entity|register.*business)/.test(t))
+    return 'Entity choice depends on liability and tax — a CPA should weigh in. I can prep a P&L and tax estimate to feed that conversation. Want that?';
+  if (/(audit|\birs\b|\bcra\b|tax notice|letter from)/.test(t))
+    return "If you got something official, save it and don't reply yet. I can package your books into a CPA-ready export — want me to generate that?";
+  if (/(deadline|file by|when .* (tax|file|due)|tax due|due date)/.test(t))
+    return 'Tax deadlines depend on jurisdiction and entity. What country/state are you in, and are you a sole prop, LLC, or corp?';
+  if (/(how.*file.*tax|how.*do.*tax|file my tax|do my tax)/.test(t))
+    return 'I can prep your books for filing — P&L, tax summary, and a CPA-ready export. AgentBook also supports US/Canada self-serve forms (T1, T2125, GST/HST). Which jurisdiction?';
+  if (/(travel|trip|mileage|drove|flew|hotel|airbnb|uber|lyft|taxi)/.test(t))
+    return 'To log travel, tell me the amount + what it was for — e.g. "spent $145 on a hotel for the Acme meeting" or "drove 45 miles to the client site". Or do you want a travel-spend summary?';
+  if (/(invoice|estimate|quote)/.test(t))
+    return 'I can create invoices and estimates. Tell me the client and amount — e.g. "invoice Acme $5000 for consulting".';
+  if (/(spent|paid|bought|cost|purchase)/.test(t))
+    return 'Sounds like an expense — could you tell me the amount and vendor? e.g. "spent $24 at Starbucks today".';
+  if (/(how much|total .*(spent|earned)|revenue|income|profit|owe)/.test(t))
+    return 'I can pull P&L for this month, expense-by-vendor, or your AR aging report. Which one?';
+  if (/^(hi|hey|hello|yo|sup|good (morning|afternoon|evening))\b/.test(t))
+    return "Hey — I keep your books in shape: log expenses, draft invoices, run reports, estimate tax. What's on your mind?";
+  if (/(help|what can you|what do you do)/.test(t))
+    return 'I\'m your bookkeeping co-pilot. Try "spent $24 on coffee", "invoice Acme $5000", "show me last month\'s P&L", or attach a receipt photo.';
+  return 'I want to help — one more detail would unblock me. Is this an expense to log, an invoice to send, a question about your books, or something else?';
+}
+
+// When the classifier can't route a user message, ask an LLM (via the
+// agent context's callGemini) to either ask a clarifying question or
+// suggest an actionable next step — in the voice of a friendly
+// accountant. Always returns a usable string; falls back to a local
+// heuristic if the LLM is unreachable.
+async function brainAccountantFallback(
+  callGemini: (sys: string, user: string, max?: number) => Promise<string | null>,
+  userText: string,
+  conversation: Array<{ question: string; answer: string }>,
+): Promise<string> {
+  const convoSnippet = (conversation || [])
+    .slice(0, 3)
+    .map((c) => `User: ${c.question}\nAssistant: ${c.answer}`)
+    .join('\n');
+
+  const systemPrompt = [
+    'You are AgentBook, a friendly small-business accountant assistant talking in chat (web or Telegram).',
+    'You could not confidently understand the user\'s intent.',
+    '',
+    'In your reply, pick ONE move and stop:',
+    '  1) Ask one short clarifying question an accountant would naturally ask (business or personal? which client? expense or income? for what period?).',
+    '  2) Suggest a concrete next step — either rephrase for AgentBook, or do the task manually outside if it\'s out of scope.',
+    '  3) If they\'re asking a generic finance question, give a brief accountant-style tip in plain English and propose an in-app follow-up.',
+    '',
+    'AgentBook can: record/edit/split/categorize expenses, scan receipts, create invoices/estimates/credit notes, record payments, track time, run reports (P&L, balance sheet, cashflow, tax-summary, expense-by-vendor, aging), estimate taxes, prep US/Canada tax forms, sync banks via Plaid, manage recurring rules and budgets.',
+    '',
+    'Style: warm but brief, 1–3 short sentences, plain conversational text (no markdown bullets), never say "I am an AI", never end with a flat "I don\'t know". If asking a question, end the message with it.',
+  ].join('\n');
+
+  const userMessage = [
+    convoSnippet && `Recent conversation:\n${convoSnippet}`,
+    `User just said: "${userText}"`,
+    '',
+    'Respond now as the accountant assistant.',
+  ].filter(Boolean).join('\n');
+
+  try {
+    const reply = await callGemini(systemPrompt, userMessage, 220);
+    if (reply && reply.trim()) {
+      return reply.trim().replace(/^```[a-z]*\n?/i, '').replace(/\n?```$/i, '').trim();
+    }
+    console.warn('[brainAccountantFallback] Gemini returned empty — using local fallback');
+  } catch (err) {
+    console.warn('[brainAccountantFallback] LLM failed, using local fallback:', err);
+  }
+  return localBrainFallback(userText);
+}
+
 // ─── Types ──────────────────────────────────────────────────────────────────
 
 interface AgentRequest {
@@ -704,8 +782,9 @@ export async function handleAgentMessage(
       resolvedText, tenantId, channel, attachments, memory, skills, conversation, tenantConfig,
     );
     if (!v1Result) {
+      const engaged = await brainAccountantFallback(ctx.callGemini, resolvedText, conversation);
       return buildResponse({
-        message: 'I\'m not sure what you mean. Try "Spent $45 on lunch" or "How much on travel?"',
+        message: engaged,
         skillUsed: 'none',
         confidence: 0,
         latencyMs: Date.now() - startTime,
@@ -799,8 +878,9 @@ export async function handleAgentMessage(
       );
     }
     if (!v1Result) {
+      const engaged = await brainAccountantFallback(ctx.callGemini, text, conversation);
       return buildResponse({
-        message: 'I\'m not sure what you mean. Try "Spent $45 on lunch" or "How much on travel?"',
+        message: engaged,
         skillUsed: 'none',
         confidence: 0,
         latencyMs: Date.now() - startTime,
