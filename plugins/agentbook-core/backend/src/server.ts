@@ -1149,7 +1149,9 @@ const GEMINI_DEFAULT_TIMEOUT_MS = 20_000;
 export async function callGemini(systemPrompt: string, userMessage: string, maxTokens: number = 500): Promise<string | null> {
   // Resolve key + model: env var first (production), then DB config (legacy / overrides).
   let apiKey: string | null = process.env.GEMINI_API_KEY || null;
-  let model = process.env.GEMINI_MODEL_FAST || 'gemini-2.0-flash';
+  // gemini-2.0-flash was retired by Google in mid-2026 (returns 404
+  // NOT_FOUND). 2.5-flash is the current low-cost model.
+  let model = process.env.GEMINI_MODEL_FAST || 'gemini-2.5-flash';
   if (!apiKey) {
     // safe: AbLLMProviderConfig is admin-managed platform config (tenantId nullable). Per-tenant override scoping deferred to PR 3 (G-005).
     const llmConfig = await db.abLLMProviderConfig.findFirst({ where: { enabled: true, isDefault: true } });
@@ -1171,7 +1173,15 @@ export async function callGemini(systemPrompt: string, userMessage: string, maxT
       body: JSON.stringify({
         systemInstruction: { parts: [{ text: systemPrompt }] },
         contents: [{ role: 'user', parts: [{ text: userMessage }] }],
-        generationConfig: { maxOutputTokens: maxTokens, temperature: 0.3 },
+        // gemini-2.5-flash consumes output tokens on internal "thinking" by
+        // default — small maxOutputTokens budgets get burned before visible
+        // text emerges, producing truncated replies. Disable thinking for
+        // the agent's chat-grade outputs.
+        generationConfig: {
+          maxOutputTokens: maxTokens,
+          temperature: 0.3,
+          thinkingConfig: { thinkingBudget: 0 },
+        },
       }),
       signal: controller.signal,
     });
