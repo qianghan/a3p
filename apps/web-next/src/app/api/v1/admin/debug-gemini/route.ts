@@ -22,6 +22,11 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
   const envKey = process.env.GEMINI_API_KEY || '';
   const envModel = process.env.GEMINI_MODEL_FAST || 'gemini-2.0-flash';
+  const whsec = process.env.STRIPE_WEBHOOK_SECRET || '';
+  const sk = process.env.STRIPE_SECRET_KEY || '';
+  const pk = process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY || '';
+
+  const mask = (v: string) => v ? { present: true, length: v.length, prefix: v.slice(0, 8), suffix: v.slice(-4) } : { present: false };
 
   const out: Record<string, unknown> = {
     env: {
@@ -30,6 +35,9 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       GEMINI_API_KEY_prefix: envKey.slice(0, 4),
       GEMINI_API_KEY_suffix: envKey.slice(-4),
       GEMINI_MODEL_FAST: envModel,
+      STRIPE_WEBHOOK_SECRET: mask(whsec),
+      STRIPE_SECRET_KEY: mask(sk),
+      NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: mask(pk),
       VERCEL_REGION: process.env.VERCEL_REGION,
     },
   };

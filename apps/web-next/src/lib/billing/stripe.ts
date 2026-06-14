@@ -15,8 +15,16 @@ export function getStripe(): Stripe {
   const key = process.env.STRIPE_SECRET_KEY;
   if (!key) throw new Error('[billing] STRIPE_SECRET_KEY not set');
   const isProd = process.env.VERCEL_ENV === 'production';
-  if (isProd && !key.startsWith('sk_live_')) {
-    throw new Error('[billing] production env must use sk_live_* key');
+  // Allow sk_test_* in production when STRIPE_SANDBOX_OK=1 — needed for
+  // pre-launch sandbox testing on the production deployment. Without
+  // this escape hatch the webhook handler can't even construct Stripe
+  // (which means signature verification throws before it runs).
+  const sandboxOk = process.env.STRIPE_SANDBOX_OK === '1';
+  if (isProd && !key.startsWith('sk_live_') && !sandboxOk) {
+    throw new Error('[billing] production env must use sk_live_* key (set STRIPE_SANDBOX_OK=1 to override for sandbox testing)');
+  }
+  if (isProd && key.startsWith('sk_test_') && sandboxOk) {
+    console.warn('[billing] production env running with sk_test_* — STRIPE_SANDBOX_OK=1 acknowledged');
   }
   if (!isProd && !key.startsWith('sk_test_')) {
     console.warn('[billing] non-production env should use sk_test_* key');
