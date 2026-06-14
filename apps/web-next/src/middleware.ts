@@ -34,7 +34,11 @@ const PLUGIN_ROUTE_MAP: Record<string, string> = {
   '/agentbook': 'agentbookCore',
 };
 
-// CSP configuration for plugin pages
+// CSP configuration for plugin pages. Note: plugin pages embed Stripe
+// Elements (billing flow) and Plaid Link (bank-connect flow), both of
+// which load third-party JS from their respective CDNs and open iframes
+// from their own domains. Without these explicit allows, those scripts
+// 404 with a CSP block and the entire flow dies silently.
 const PLUGIN_CSP_SOURCES = {
   scripts: [
     "'self'",
@@ -43,6 +47,8 @@ const PLUGIN_CSP_SOURCES = {
     'https://blob.vercel-storage.com',
     'https://cdn.naap.io',
     'https://*.vercel.app',
+    'https://js.stripe.com',
+    'https://cdn.plaid.com',
   ],
   styles: [
     "'self'",
@@ -70,9 +76,14 @@ const PLUGIN_CSP_SOURCES = {
     'wss://*.naap.io',
     'http://localhost:*',
     'ws://localhost:*',
+    'https://api.stripe.com',
+    'https://*.plaid.com',
   ],
   frame: [
     "'self'",
+    'https://js.stripe.com',
+    'https://hooks.stripe.com',
+    'https://*.plaid.com',
   ],
 };
 
@@ -83,6 +94,9 @@ function generatePluginCSP(isDev: boolean): string {
   const directives = [
     `default-src 'self'`,
     `script-src ${[...PLUGIN_CSP_SOURCES.scripts, ...devSources].join(' ')}`,
+    // Chrome enforces script-src-elem independently; without it the
+    // script-src fallback warning is fine but explicit is clearer.
+    `script-src-elem ${[...PLUGIN_CSP_SOURCES.scripts, ...devSources].join(' ')}`,
     `style-src ${PLUGIN_CSP_SOURCES.styles.join(' ')}`,
     `font-src ${PLUGIN_CSP_SOURCES.fonts.join(' ')}`,
     `img-src ${PLUGIN_CSP_SOURCES.images.join(' ')}`,
