@@ -206,12 +206,14 @@ export function middleware(request: NextRequest) {
     return response;
   }
 
-  // Handle root path - always redirect
+  // Root path: authed users go to the dashboard. Unauthed users see the
+  // marketing landing (rendered by app/page.tsx) — DON'T bounce them to
+  // /login, the landing IS the front door now.
   if (pathname === '/') {
     if (token) {
       return NextResponse.redirect(new URL('/agentbook', request.url));
     }
-    return NextResponse.redirect(new URL('/login', request.url));
+    // fall through to NextResponse.next() below so app/page.tsx renders
   }
 
   // Check if trying to access protected route without auth
