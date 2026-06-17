@@ -86,6 +86,12 @@ fi
 echo "[4/6] Syncing plugin registry..."
 npx tsx bin/sync-plugin-registry.ts
 
+# Step 4b: Enforce AgentBook-as-default plugin configuration.
+# Runs immediately after sync to guarantee AgentBook plugins are enabled and
+# marked isCore, regardless of prior DB state or sync failures. Non-fatal.
+echo "[4b/6] Enforcing AgentBook plugin defaults..."
+npx tsx bin/seed-agentbook-defaults.ts 2>&1 || echo "WARN: AgentBook defaults could not be applied (non-fatal)"
+
 # Step 5: Build Next.js app
 echo "[5/6] Building Next.js app..."
 cd apps/web-next || { echo "ERROR: Failed to cd to apps/web-next"; exit 1; }
