@@ -37,7 +37,7 @@ export function UpgradeTimingModal({
       <div className="w-[440px] rounded-xl bg-white p-6 shadow-xl">
         <div className="mb-4 flex items-center justify-between">
           <h3 className="text-lg font-semibold">Upgrade to {plan.name}</h3>
-          <button onClick={onClose} className="text-xl text-gray-400 hover:text-gray-600">×</button>
+          <button onClick={onClose} aria-label="close" className="text-xl text-gray-400 hover:text-gray-600">×</button>
         </div>
 
         {loading && (

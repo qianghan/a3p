@@ -8,9 +8,12 @@ declare global {
 }
 
 let _stripePromise: Promise<Stripe | null> | null = null;
+let _cachedKey: string | undefined;
 function getStripePromise(): Promise<Stripe | null> {
-  if (!_stripePromise) {
-    _stripePromise = loadStripe(window.STRIPE_PUBLISHABLE_KEY ?? '');
+  const key = window.STRIPE_PUBLISHABLE_KEY ?? '';
+  if (!_stripePromise || _cachedKey !== key) {
+    _cachedKey = key;
+    _stripePromise = loadStripe(key);
   }
   return _stripePromise;
 }
