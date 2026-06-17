@@ -22,8 +22,8 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
   const sub = await prisma.billSubscription.findUnique({ where: { accountId: tenantId } });
 
-  // Free tier or no active Stripe sub — return trial info only
-  if (!sub?.stripeSubscriptionId || sub.status === 'free') {
+  // Free tier, no active Stripe sub, or cancelling sub — return trial info only
+  if (!sub?.stripeSubscriptionId || sub.status === 'free' || sub.cancelAtPeriodEnd) {
     const trialEnd = new Date();
     trialEnd.setDate(trialEnd.getDate() + 90);
     return NextResponse.json({
@@ -42,14 +42,18 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       return NextResponse.json({ error: 'no subscription items' }, { status: 400 });
     }
 
+    if (!sub.stripeCustomerId) {
+      return NextResponse.json({ error: 'no Stripe customer on subscription' }, { status: 400 });
+    }
+
     const upcoming = await stripe.invoices.retrieveUpcoming({
-      customer: sub.stripeCustomerId!,
+      customer: sub.stripeCustomerId,
       subscription: sub.stripeSubscriptionId,
       subscription_items: [{ id: currentItem.id, price: plan.stripePriceId }],
     });
 
     return NextResponse.json({
-      proratedAmountCents: upcoming.amount_due,
+      proratedAmountCents: upcoming.amount_remaining,
       immediateChargeDate: upcoming.next_payment_attempt
         ? new Date(upcoming.next_payment_attempt * 1000).toISOString()
         : null,
