@@ -21,6 +21,7 @@ function formatQuota(v: number): string {
 }
 
 function savingsPct(monthlyPlan: Plan, annualPlan: Plan): number {
+  if (monthlyPlan.priceCents === 0) return 0;
   const monthlyYearly = monthlyPlan.priceCents * 12;
   return Math.round(((monthlyYearly - annualPlan.priceCents) / monthlyYearly) * 100);
 }
@@ -33,13 +34,17 @@ export function PlanGrid({
   onSubscribe: (p: Plan) => void;
 }): JSX.Element {
   const [plans, setPlans] = useState<Plan[] | null>(null);
-  const [interval, setInterval] = useState<'month' | 'year'>('month');
+  const [billingInterval, setBillingInterval] = useState<'month' | 'year'>('month');
+  const [loadError, setLoadError] = useState<string | null>(null);
 
-  useEffect(() => { billingApi.listPlans().then(setPlans); }, []);
+  useEffect(() => {
+    billingApi.listPlans().then(setPlans).catch((e: unknown) => setLoadError(String(e)));
+  }, []);
 
+  if (loadError) return <div className="text-red-600 text-sm">Failed to load plans: {loadError}</div>;
   if (!plans) return <div className="text-gray-500">Loading plans…</div>;
 
-  const visible = plans.filter((p) => p.priceCents === 0 || p.interval === interval);
+  const visible = plans.filter((p) => p.priceCents === 0 || p.interval === billingInterval);
 
   const monthlyByCode = new Map(
     plans.filter((p) => p.interval === 'month' && p.priceCents > 0).map((p) => [p.code, p]),
@@ -53,9 +58,9 @@ export function PlanGrid({
           {(['month', 'year'] as const).map((iv) => (
             <button
               key={iv}
-              onClick={() => setInterval(iv)}
+              onClick={() => setBillingInterval(iv)}
               className={`rounded-full px-4 py-1.5 text-sm font-medium transition-colors ${
-                interval === iv ? 'bg-white shadow text-gray-900' : 'text-gray-500'
+                billingInterval === iv ? 'bg-white shadow text-gray-900' : 'text-gray-500'
               }`}
             >
               {iv === 'month' ? 'Monthly' : (
