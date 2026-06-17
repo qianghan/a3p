@@ -51,6 +51,13 @@ export interface CurrentPlanView {
   usage: Record<string, { used: number; limit: number }>;
 }
 
+export interface ProratePreview {
+  proratedAmountCents: number;
+  immediateChargeDate: string | null;
+  trialEndDate: string | null;
+  renewalDate: string | null;
+}
+
 export const meApi = {
   current: async (): Promise<CurrentPlanView> =>
     json<CurrentPlanView>(await fetch('/api/v1/agentbook-billing/me/subscription')),
@@ -68,4 +75,8 @@ export const meApi = {
   reactivate: async (): Promise<void> => {
     await json<unknown>(await fetch('/api/v1/agentbook-billing/me/subscription/reactivate', { method: 'POST' }));
   },
+  proratePreview: async (planId: string): Promise<ProratePreview> =>
+    json<ProratePreview>(
+      await fetch(`/api/v1/agentbook-billing/me/subscription/proration-preview?planId=${encodeURIComponent(planId)}`),
+    ),
 };
