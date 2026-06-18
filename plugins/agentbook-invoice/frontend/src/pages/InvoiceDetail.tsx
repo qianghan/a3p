@@ -35,7 +35,8 @@ interface InvoiceDetail {
   payments: Payment[];
 }
 
-function fmt(cents: number, currency = 'USD'): string {
+function fmt(cents: number | null | undefined, currency = 'USD'): string {
+  if (cents == null || isNaN(cents)) return '—';
   return new Intl.NumberFormat('en-US', { style: 'currency', currency }).format(cents / 100);
 }
 

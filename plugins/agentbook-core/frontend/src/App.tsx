@@ -19,8 +19,14 @@ import { DeadLetterPage } from './pages/admin/DeadLetter';
 import { SkillMetricsPage } from './pages/SkillMetrics';
 import './globals.css';
 
+function getInitialRoute(): string {
+  const path = window.location.pathname;
+  if (path.startsWith('/agentbook/')) return path.replace('/agentbook', '');
+  return '/';
+}
+
 const AgentBookCoreApp: React.FC = () => (
-  <MemoryRouter>
+  <MemoryRouter initialEntries={[getInitialRoute()]}>
     <Routes>
       <Route path="/" element={<ChatPage />} />
       <Route path="/chat" element={<ChatPage />} />
