@@ -3869,6 +3869,14 @@ async function _executeClassificationCore(
       });
       const totalPaid = payments.reduce((s, p) => s + p.amountCents, 0);
       const balance = invoice.amountCents - totalPaid;
+
+      if (balance <= 0) {
+        return {
+          text: `${invoice.number} is already fully paid — no payment due.`,
+          actions: [],
+        };
+      }
+
       const payAmount = amountCents ? Math.min(Number(amountCents), balance) : balance;
 
       // Multiple unpaid invoices for same client — warn and confirm
@@ -3882,11 +3890,11 @@ async function _executeClassificationCore(
           },
         });
         if (others > 1) {
-          const confirmMsg = `${clientName} has ${others} unpaid invoices. I'll record payment for the earliest due one: ${invoice.number} (${(balance / 100).toFixed(2)} ${invoice.currency}). Is that right? Reply "yes" to confirm.`;
+          const confirmMsg = `${clientName} has ${others} unpaid invoices. I'll record payment for the earliest due one: ${invoice.number} (${(balance / 100).toFixed(2)} ${invoice.currency}). To specify a different invoice, say the invoice number (e.g., "record payment for INV-2026-0004").`;
           await db.abConversation.create({ data: { tenantId, question: text || '[record-invoice-payment]', answer: confirmMsg, queryType: 'agent', channel, skillUsed: 'record-invoice-payment' } });
           return {
             selectedSkill, extractedParams, confidence, skillUsed: 'record-invoice-payment', skillResponse: null,
-            responseData: { message: confirmMsg, actions: [{ type: 'confirm_payment', invoiceId: invoice.id, amountCents: payAmount }], skillUsed: 'record-invoice-payment', confidence, latencyMs: Date.now() - startTime },
+            responseData: { message: confirmMsg, actions: [], skillUsed: 'record-invoice-payment', confidence, latencyMs: Date.now() - startTime },
           };
         }
       }
@@ -3916,7 +3924,7 @@ async function _executeClassificationCore(
       const remaining = invoice.amountCents - newTotalPaid;
       const fullyPaid = remaining <= 0;
       const message = fullyPaid
-        ? `Done ✓ — ${invoice.number}${clientLabel} is now **Paid**. ${(payAmount / 100).toFixed(2)} ${invoice.currency} recorded. Journal entry posted.`
+        ? `Done ✓ — ${invoice.number}${clientLabel} is now **Paid**. ${(payAmount / 100).toFixed(2)} ${invoice.currency} recorded.`
         : `Recorded ${(payAmount / 100).toFixed(2)} ${invoice.currency} for ${invoice.number}${clientLabel}. Balance remaining: ${(remaining / 100).toFixed(2)} ${invoice.currency}.`;
 
       await db.abConversation.create({ data: { tenantId, question: text || '[record-invoice-payment]', answer: message, queryType: 'agent', channel, skillUsed: 'record-invoice-payment' } });

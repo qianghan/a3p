@@ -423,6 +423,8 @@ export const BUILT_IN_SKILLS = [
   {
     name: 'record-invoice-payment',
     description: 'Record a payment received for an invoice. Use when user says they received payment for an invoice, a client paid them, or they want to mark an invoice as paid.',
+    category: 'invoicing',
+    triggerPatterns: ['paid.*invoice', 'invoice.*paid', 'got paid', 'received.*payment', 'mark.*paid'],
     examples: [
       'I got paid for invoice INV-2026-0004',
       'Acme paid the invoice',
