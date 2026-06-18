@@ -347,7 +347,7 @@ export function InvoiceDetailPage(): JSX.Element {
           currency={invoice.currency}
           balanceDueCents={invoice.balanceDueCents}
           onClose={() => setShowPayModal(false)}
-          onDone={() => { setShowPayModal(false); reload(); }}
+          onDone={() => { setShowPayModal(false); reload(); showToast('Payment recorded'); }}
         />
       )}
     </div>
