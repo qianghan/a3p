@@ -1,13 +1,11 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAgentEvents } from '@naap/plugin-sdk';
+import { InvoiceStatusBadge } from '../components/InvoiceStatusBadge';
 import {
   Plus,
   FileText,
   Clock,
-  CheckCircle,
-  AlertTriangle,
-  Send,
   DollarSign,
   Loader2,
   RefreshCw,
@@ -31,14 +29,6 @@ interface Invoice {
   // PR 26: soft-delete timestamp (null when live).
   deletedAt?: string | null;
 }
-
-const STATUS_CONFIG: Record<string, { label: string; bg: string; text: string; icon: React.ReactNode }> = {
-  draft: { label: 'Draft', bg: 'bg-gray-100', text: 'text-gray-700', icon: <FileText className="w-3 h-3" /> },
-  sent: { label: 'Sent', bg: 'bg-blue-100', text: 'text-blue-700', icon: <Send className="w-3 h-3" /> },
-  overdue: { label: 'Overdue', bg: 'bg-red-100', text: 'text-red-700', icon: <AlertTriangle className="w-3 h-3" /> },
-  paid: { label: 'Paid', bg: 'bg-green-100', text: 'text-green-700', icon: <CheckCircle className="w-3 h-3" /> },
-  void: { label: 'Void', bg: 'bg-slate-100', text: 'text-slate-500', icon: <FileText className="w-3 h-3" /> },
-};
 
 const TABS = ['all', 'draft', 'sent', 'overdue', 'paid'] as const;
 
@@ -205,10 +195,10 @@ export const InvoiceListPage: React.FC = () => {
       ) : (
         <div className="space-y-3">
           {filtered.map((inv) => {
-            const cfg = STATUS_CONFIG[inv.status] ?? STATUS_CONFIG.draft;
             return (
               <div
                 key={inv.id}
+                onClick={() => navigate('/invoices/' + inv.id)}
                 className={`rounded-xl p-4 flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4 border border-border bg-card transition-shadow hover:shadow-md cursor-pointer ${inv.deletedAt ? 'line-through text-muted-foreground/70 opacity-70' : ''}`}
               >
                 {/* Left: invoice info */}
@@ -217,10 +207,7 @@ export const InvoiceListPage: React.FC = () => {
                     <span className="font-semibold text-sm text-foreground">
                       {inv.number}
                     </span>
-                    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${cfg.bg} ${cfg.text}`}>
-                      {cfg.icon}
-                      {cfg.label}
-                    </span>
+                    <InvoiceStatusBadge status={inv.status} />
                     {inv.source === 'telegram' && (
                       <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-sky-100 text-sky-700">
                         via Telegram

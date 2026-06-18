@@ -8,6 +8,7 @@ import { EstimatesPage } from './pages/Estimates';
 import { TimerPage } from './pages/Timer';
 import { ProjectsPage } from './pages/Projects';
 import { RecurringInvoicesPage } from './pages/RecurringInvoices';
+import { InvoiceDetailPage } from './pages/InvoiceDetail';
 import './globals.css';
 
 const AgentbookInvoiceApp: React.FC = () => (
@@ -20,6 +21,7 @@ const AgentbookInvoiceApp: React.FC = () => (
       <Route path="/estimates" element={<EstimatesPage />} />
       <Route path="/timer" element={<TimerPage />} />
       <Route path="/projects" element={<ProjectsPage />} />
+      <Route path="/invoices/:id" element={<InvoiceDetailPage />} />
       <Route path="/*" element={<InvoiceListPage />} />
     </Routes>
   </MemoryRouter>
