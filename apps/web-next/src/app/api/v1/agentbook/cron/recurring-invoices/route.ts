@@ -13,6 +13,19 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   }
 
   try {
+    // ── Overdue sweep ──────────────────────────────────────────────────────────
+    const swept = await db.abInvoice.updateMany({
+      where: {
+        status: { in: ['sent', 'viewed'] },
+        dueDate: { lt: new Date() },
+        deletedAt: null,
+      },
+      data: { status: 'overdue' },
+    });
+    if (swept.count > 0) {
+      console.log(`[cron] Marked ${swept.count} invoice(s) as overdue`);
+    }
+
     const now = new Date();
     const dueItems = await db.abRecurringInvoice.findMany({
       where: { status: 'active', nextDue: { lte: now } },
