@@ -1,5 +1,5 @@
 // plugins/agentbook-invoice/frontend/src/pages/InvoiceDetail.tsx
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { InvoiceStatusBadge, type InvoiceStatus } from '../components/InvoiceStatusBadge';
 
@@ -40,7 +40,8 @@ function fmt(cents: number, currency = 'USD'): string {
   return new Intl.NumberFormat('en-US', { style: 'currency', currency }).format(cents / 100);
 }
 
-function fmtDate(iso: string): string {
+function fmtDate(iso: string | null | undefined): string {
+  if (!iso) return '—';
   return new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
@@ -106,16 +107,16 @@ export function InvoiceDetailPage(): JSX.Element {
     setTimeout(() => setToast(null), 3500);
   };
 
-  const reload = (): void => {
+  const reload = useCallback((): void => {
     setLoading(true);
     fetch(`/api/v1/agentbook-invoice/invoices/${id}`)
       .then((r) => r.json())
       .then((body: { data: InvoiceDetail }) => setInvoice(body.data))
       .catch((e: unknown) => setErr(String(e)))
       .finally(() => setLoading(false));
-  };
+  }, [id]);
 
-  useEffect(reload, [id]);
+  useEffect(() => { reload(); }, [reload]);
 
   const doSend = async (): Promise<void> => {
     setActionBusy('send');
