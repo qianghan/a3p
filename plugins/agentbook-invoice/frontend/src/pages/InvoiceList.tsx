@@ -193,8 +193,9 @@ export const InvoiceListPage: React.FC = () => {
         <div className="mb-4 flex items-center justify-between rounded-lg bg-red-50 border border-red-200 px-4 py-3">
           <span className="text-sm font-medium text-red-800">
             {overdueInvoices.length} invoice{overdueInvoices.length !== 1 ? 's' : ''} past due —{' '}
-            {new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(
-              overdueInvoices.reduce((s, inv) => s + inv.amountCents, 0) / 100,
+            {formatCurrency(
+              overdueInvoices.reduce((s, inv) => s + inv.amountCents, 0),
+              overdueInvoices[0]?.currency ?? 'USD',
             )}{' '}
             outstanding
           </span>
