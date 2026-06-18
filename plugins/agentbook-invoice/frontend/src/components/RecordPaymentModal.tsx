@@ -31,8 +31,6 @@ export function RecordPaymentModal({
   const [amount, setAmount] = useState(defaultAmount);
   const [method, setMethod] = useState('manual');
   const [paidAt, setPaidAt] = useState(new Date().toISOString().slice(0, 10));
-  const [reference, setReference] = useState('');
-  const [notes, setNotes] = useState('');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
@@ -57,9 +55,7 @@ export function RecordPaymentModal({
           invoiceId,
           amountCents,
           method,
-          paidAt: new Date(paidAt + 'T12:00:00Z').toISOString(),
-          reference: reference || null,
-          notes: notes || null,
+          date: new Date(paidAt + 'T12:00:00Z').toISOString(),
         }),
       });
       if (!r.ok) {
@@ -79,7 +75,7 @@ export function RecordPaymentModal({
       <div className="w-[420px] rounded-xl bg-white p-6 shadow-xl">
         <div className="mb-4 flex items-center justify-between">
           <h3 className="text-lg font-semibold">Record Payment — {invoiceNumber}</h3>
-          <button onClick={onClose} className="text-xl text-gray-400 hover:text-gray-600">×</button>
+          <button onClick={onClose} aria-label="Close" className="text-xl text-gray-400 hover:text-gray-600">×</button>
         </div>
 
         <form onSubmit={submit} className="space-y-4">
@@ -121,31 +117,6 @@ export function RecordPaymentModal({
               {METHODS.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
             </select>
           </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700">
-              Reference <span className="font-normal text-gray-400">(optional)</span>
-            </label>
-            <input
-              type="text"
-              value={reference}
-              onChange={(e) => setReference(e.target.value)}
-              maxLength={100}
-              placeholder="Check #1042, Transfer ref ABC123…"
-              className="mt-1 w-full rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700">
-              Notes <span className="font-normal text-gray-400">(optional)</span>
-            </label>
-            <textarea
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
-              rows={2}
-              className="mt-1 w-full rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
-          </div>
-
           {err && <div className="rounded bg-red-50 p-2 text-sm text-red-700">{err}</div>}
 
           <div className="flex gap-3 pt-2">

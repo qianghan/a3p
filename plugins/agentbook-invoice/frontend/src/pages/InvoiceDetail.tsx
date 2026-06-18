@@ -17,8 +17,6 @@ interface Payment {
   paidAt: string;
   method: string;
   amountCents: number;
-  reference: string | null;
-  notes: string | null;
 }
 
 interface InvoiceDetail {
@@ -94,6 +92,7 @@ export function InvoiceDetailPage(): JSX.Element {
   useEffect(() => { reload(); }, [reload]);
 
   const doSend = async (): Promise<void> => {
+    setErr(null);
     setActionBusy('send');
     try {
       const r = await fetch(`/api/v1/agentbook-invoice/invoices/${id}/send`, { method: 'POST' });
@@ -106,6 +105,7 @@ export function InvoiceDetailPage(): JSX.Element {
 
   const doVoid = async (): Promise<void> => {
     if (!window.confirm('Void this invoice? This will reverse the journal entry and cannot be undone.')) return;
+    setErr(null);
     setActionBusy('void');
     try {
       const r = await fetch(`/api/v1/agentbook-invoice/invoices/${id}/void`, { method: 'POST' });
@@ -121,6 +121,7 @@ export function InvoiceDetailPage(): JSX.Element {
     if (!window.confirm(
       `Mark ${invoice.number} (${fmt(invoice.balanceDueCents, invoice.currency)}) as fully paid via manual payment today?`,
     )) return;
+    setErr(null);
     setActionBusy('markpaid');
     try {
       const r = await fetch('/api/v1/agentbook-invoice/payments', {
@@ -130,7 +131,7 @@ export function InvoiceDetailPage(): JSX.Element {
           invoiceId: id,
           amountCents: invoice.balanceDueCents,
           method: 'manual',
-          paidAt: new Date().toISOString(),
+          date: new Date().toISOString(),
         }),
       });
       if (!r.ok) throw new Error(`${r.status}`);
@@ -141,6 +142,7 @@ export function InvoiceDetailPage(): JSX.Element {
   };
 
   const doRemind = async (): Promise<void> => {
+    setErr(null);
     setActionBusy('remind');
     try {
       const r = await fetch(`/api/v1/agentbook-invoice/invoices/${id}/remind`, { method: 'POST' });
@@ -317,7 +319,6 @@ export function InvoiceDetailPage(): JSX.Element {
                 <tr>
                   <th className="px-4 py-2 text-left font-medium text-gray-600">Date</th>
                   <th className="px-4 py-2 text-left font-medium text-gray-600">Method</th>
-                  <th className="px-4 py-2 text-left font-medium text-gray-600">Reference</th>
                   <th className="px-4 py-2 text-right font-medium text-gray-600">Amount</th>
                 </tr>
               </thead>
@@ -328,7 +329,6 @@ export function InvoiceDetailPage(): JSX.Element {
                     <td className="px-4 py-3 text-gray-700">
                       {METHOD_LABELS[p.method] ?? p.method}
                     </td>
-                    <td className="px-4 py-3 text-gray-500">{p.reference ?? '—'}</td>
                     <td className="px-4 py-3 text-right font-medium text-green-700">
                       +{fmt(p.amountCents, invoice.currency)}
                     </td>
