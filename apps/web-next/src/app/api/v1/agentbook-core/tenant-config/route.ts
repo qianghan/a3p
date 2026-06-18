@@ -11,6 +11,8 @@ export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 export const maxDuration = 30;
 
+const VALID_PAYMENT_TERMS = ['net-15', 'net-30', 'net-60', 'due-on-receipt'] as const;
+
 export async function GET(request: NextRequest): Promise<NextResponse> {
   try {
     const __resolved = await safeResolveAgentbookTenant(request);
@@ -66,7 +68,12 @@ export async function PUT(request: NextRequest): Promise<NextResponse> {
     if (body.autoRemindEnabled !== undefined) update.autoRemindEnabled = body.autoRemindEnabled;
     if (body.autoRemindDays !== undefined) update.autoRemindDays = body.autoRemindDays;
     // Invoice defaults
-    if (body.defaultPaymentTerms !== undefined) update.defaultPaymentTerms = body.defaultPaymentTerms;
+    if (body.defaultPaymentTerms !== undefined) {
+      if (body.defaultPaymentTerms !== null && !VALID_PAYMENT_TERMS.includes(body.defaultPaymentTerms as typeof VALID_PAYMENT_TERMS[number])) {
+        return NextResponse.json({ error: 'invalid defaultPaymentTerms' }, { status: 400 });
+      }
+      update.defaultPaymentTerms = body.defaultPaymentTerms;
+    }
     if (body.defaultCurrency !== undefined) update.defaultCurrency = body.defaultCurrency;
     if (body.invoiceFooterNote !== undefined) update.invoiceFooterNote = body.invoiceFooterNote;
     if (body.invoiceThankYouMessage !== undefined) update.invoiceThankYouMessage = body.invoiceThankYouMessage;
