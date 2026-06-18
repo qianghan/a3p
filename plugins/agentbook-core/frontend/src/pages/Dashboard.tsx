@@ -45,6 +45,9 @@ const Kebab: React.FC<{ onRefresh: () => void; showTelegramHint: boolean }> = ({
           <a href="/agentbook/telegram" className="w-full block px-3 py-2 text-sm hover:bg-muted rounded-lg">
             Share to Telegram
           </a>
+          <a href="/agentbook/settings" className="w-full block px-3 py-2 text-sm hover:bg-muted rounded-lg">
+            Settings
+          </a>
           {showTelegramHint && (
             <a href="/agentbook/telegram" className="block px-3 py-2 mt-1 text-xs text-primary bg-primary/5 rounded-lg">
               ☀️ Get a 7am summary — connect Telegram

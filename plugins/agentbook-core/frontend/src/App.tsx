@@ -12,6 +12,7 @@ import { CPAPortalPage } from './pages/CPAPortal';
 import { AdminConfigPage } from './pages/AdminConfig';
 import { AgentsPage } from './pages/Agents';
 import { TelegramSettingsPage } from './pages/TelegramSettings';
+import { SettingsPage } from './pages/SettingsPage';
 import { ActivityPage } from './pages/Activity';
 import { HomeOfficePage } from './pages/HomeOffice';
 import { DeadLetterPage } from './pages/admin/DeadLetter';
@@ -38,6 +39,7 @@ const AgentBookCoreApp: React.FC = () => (
       <Route path="/agents" element={<AgentsPage />} />
       <Route path="/skill-metrics" element={<SkillMetricsPage />} />
       <Route path="/telegram" element={<TelegramSettingsPage />} />
+      <Route path="/settings" element={<SettingsPage />} />
       <Route path="/activity" element={<ActivityPage />} />
       <Route path="/home-office" element={<HomeOfficePage />} />
       <Route path="/*" element={<ChatPage />} />
