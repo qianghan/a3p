@@ -41,6 +41,11 @@ interface UpdateConfigBody {
   autoApproveLimitCents?: number;
   autoRemindEnabled?: boolean;
   autoRemindDays?: number[];
+  // Invoice defaults
+  defaultPaymentTerms?: string | null;
+  defaultCurrency?: string | null;
+  invoiceFooterNote?: string | null;
+  invoiceThankYouMessage?: string | null;
 }
 
 export async function PUT(request: NextRequest): Promise<NextResponse> {
@@ -60,6 +65,11 @@ export async function PUT(request: NextRequest): Promise<NextResponse> {
     if (body.autoApproveLimitCents !== undefined) update.autoApproveLimitCents = body.autoApproveLimitCents;
     if (body.autoRemindEnabled !== undefined) update.autoRemindEnabled = body.autoRemindEnabled;
     if (body.autoRemindDays !== undefined) update.autoRemindDays = body.autoRemindDays;
+    // Invoice defaults
+    if (body.defaultPaymentTerms !== undefined) update.defaultPaymentTerms = body.defaultPaymentTerms;
+    if (body.defaultCurrency !== undefined) update.defaultCurrency = body.defaultCurrency;
+    if (body.invoiceFooterNote !== undefined) update.invoiceFooterNote = body.invoiceFooterNote;
+    if (body.invoiceThankYouMessage !== undefined) update.invoiceThankYouMessage = body.invoiceThankYouMessage;
 
     const config = await db.abTenantConfig.upsert({
       where: { userId: tenantId },
