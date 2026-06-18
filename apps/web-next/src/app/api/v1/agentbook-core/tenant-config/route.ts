@@ -74,9 +74,24 @@ export async function PUT(request: NextRequest): Promise<NextResponse> {
       }
       update.defaultPaymentTerms = body.defaultPaymentTerms;
     }
-    if (body.defaultCurrency !== undefined) update.defaultCurrency = body.defaultCurrency;
-    if (body.invoiceFooterNote !== undefined) update.invoiceFooterNote = body.invoiceFooterNote;
-    if (body.invoiceThankYouMessage !== undefined) update.invoiceThankYouMessage = body.invoiceThankYouMessage;
+    if (body.defaultCurrency !== undefined) {
+      if (body.defaultCurrency !== null && body.defaultCurrency.length !== 3) {
+        return NextResponse.json({ error: 'defaultCurrency must be a 3-letter ISO code' }, { status: 400 });
+      }
+      update.defaultCurrency = body.defaultCurrency;
+    }
+    if (body.invoiceFooterNote !== undefined) {
+      if (body.invoiceFooterNote !== null && body.invoiceFooterNote.length > 500) {
+        return NextResponse.json({ error: 'invoiceFooterNote exceeds 500 characters' }, { status: 400 });
+      }
+      update.invoiceFooterNote = body.invoiceFooterNote;
+    }
+    if (body.invoiceThankYouMessage !== undefined) {
+      if (body.invoiceThankYouMessage !== null && body.invoiceThankYouMessage.length > 200) {
+        return NextResponse.json({ error: 'invoiceThankYouMessage exceeds 200 characters' }, { status: 400 });
+      }
+      update.invoiceThankYouMessage = body.invoiceThankYouMessage;
+    }
 
     const config = await db.abTenantConfig.upsert({
       where: { userId: tenantId },
