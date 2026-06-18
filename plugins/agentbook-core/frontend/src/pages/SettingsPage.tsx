@@ -124,10 +124,12 @@ export function SettingsPage(): JSX.Element {
     try {
       const url = await uploadLogo(file);
       setForm((f) => f ? { ...f, logoUrl: url } : f);
+      URL.revokeObjectURL(localUrl);
       setPendingLogoUrl(null);
       showToast('Logo uploaded');
     } catch (e2: unknown) {
       setErr(String(e2));
+      URL.revokeObjectURL(localUrl);
       setPendingLogoUrl(null);
     } finally {
       setUploading(false);
