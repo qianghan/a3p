@@ -2,6 +2,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { InvoiceStatusBadge, type InvoiceStatus } from '../components/InvoiceStatusBadge';
+import { RecordPaymentModal } from '../components/RecordPaymentModal';
 
 interface InvoiceLine {
   id: string;
@@ -65,32 +66,6 @@ function reminderTone(days: number): string {
   return 'gentle';
 }
 
-interface RecordPaymentModalProps {
-  invoiceId: string;
-  invoiceNumber: string;
-  currency: string;
-  balanceDueCents: number;
-  onClose: () => void;
-  onDone: () => void;
-}
-
-function RecordPaymentModalInline({
-  onClose,
-}: RecordPaymentModalProps): JSX.Element {
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-      <div className="rounded-xl bg-white p-6 shadow-xl">
-        <p className="mb-4 text-sm text-gray-600">Payment modal — coming in next update</p>
-        <button
-          onClick={onClose}
-          className="rounded-lg border px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
-        >
-          Close
-        </button>
-      </div>
-    </div>
-  );
-}
 
 export function InvoiceDetailPage(): JSX.Element {
   const { id } = useParams<{ id: string }>();
@@ -365,9 +340,8 @@ export function InvoiceDetailPage(): JSX.Element {
         </div>
       )}
 
-      {/* RecordPaymentModal placeholder — replaced in Task B6 */}
       {showPayModal && invoice && (
-        <RecordPaymentModalInline
+        <RecordPaymentModal
           invoiceId={invoice.id}
           invoiceNumber={invoice.number}
           currency={invoice.currency}
