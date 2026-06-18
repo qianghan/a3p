@@ -34,13 +34,19 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ error: 'file exceeds 2MB limit' }, { status: 413 });
   }
 
-  const ext = file.type.split('/')[1].replace('svg+xml', 'svg');
+  const ext = file.type === 'image/svg+xml' ? 'svg' : file.type.split('/')[1];
   const filename = `logos/${tenantId}-${Date.now()}.${ext}`;
 
-  const blob = await put(filename, Buffer.from(bytes), {
-    access: 'public',
-    contentType: file.type,
-  });
+  let blob: { url: string };
+  try {
+    blob = await put(filename, Buffer.from(bytes), {
+      access: 'public',
+      contentType: file.type,
+    });
+  } catch (err) {
+    console.error('[logo-upload] Vercel Blob put failed:', err);
+    return NextResponse.json({ error: 'file upload failed' }, { status: 502 });
+  }
 
   return NextResponse.json({ url: blob.url });
 }
