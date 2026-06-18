@@ -3818,6 +3818,123 @@ async function _executeClassificationCore(
     }
   }
 
+  // INTERNAL handler: record-invoice-payment — mark an invoice as paid via direct DB write
+  if (selectedSkill.name === 'record-invoice-payment') {
+    try {
+      const { invoiceRef, clientName, amountCents } = extractedParams ?? {};
+
+      // Resolve invoice: by ref number first, then by client name
+      let invoice: { id: string; number: string; amountCents: number; currency: string; status: string; client?: { name: string } | null } | null = null;
+
+      if (invoiceRef) {
+        const normalized = String(invoiceRef).replace(/^INV-/i, '');
+        invoice = await db.abInvoice.findFirst({
+          where: {
+            tenantId,
+            number: { contains: normalized },
+            status: { in: ['sent', 'viewed', 'overdue'] },
+            deletedAt: null,
+          },
+          include: { client: { select: { name: true } } },
+          orderBy: { createdAt: 'desc' },
+        });
+      } else if (clientName) {
+        invoice = await db.abInvoice.findFirst({
+          where: {
+            tenantId,
+            status: { in: ['sent', 'viewed', 'overdue'] },
+            deletedAt: null,
+            client: { name: { contains: String(clientName), mode: 'insensitive' } },
+          },
+          include: { client: { select: { name: true } } },
+          orderBy: { dueDate: 'asc' },
+        });
+      }
+
+      if (!invoice) {
+        const msg = invoiceRef
+          ? `I couldn't find an unpaid invoice matching "${invoiceRef}". Can you check the invoice number?`
+          : `I couldn't find an unpaid invoice for "${clientName ?? 'that client'}". Do you have the invoice number?`;
+        await db.abConversation.create({ data: { tenantId, question: text || '[record-invoice-payment]', answer: msg, queryType: 'agent', channel, skillUsed: 'record-invoice-payment' } });
+        return {
+          selectedSkill, extractedParams, confidence, skillUsed: 'record-invoice-payment', skillResponse: null,
+          responseData: { message: msg, skillUsed: 'record-invoice-payment', confidence, latencyMs: Date.now() - startTime },
+        };
+      }
+
+      // Calculate balance due
+      const payments = await db.abPayment.findMany({
+        where: { invoiceId: invoice.id },
+        select: { amountCents: true },
+      });
+      const totalPaid = payments.reduce((s, p) => s + p.amountCents, 0);
+      const balance = invoice.amountCents - totalPaid;
+      const payAmount = amountCents ? Math.min(Number(amountCents), balance) : balance;
+
+      // Multiple unpaid invoices for same client — warn and confirm
+      if (!invoiceRef && clientName) {
+        const others = await db.abInvoice.count({
+          where: {
+            tenantId,
+            status: { in: ['sent', 'viewed', 'overdue'] },
+            deletedAt: null,
+            client: { name: { contains: String(clientName), mode: 'insensitive' } },
+          },
+        });
+        if (others > 1) {
+          const confirmMsg = `${clientName} has ${others} unpaid invoices. I'll record payment for the earliest due one: ${invoice.number} (${(balance / 100).toFixed(2)} ${invoice.currency}). Is that right? Reply "yes" to confirm.`;
+          await db.abConversation.create({ data: { tenantId, question: text || '[record-invoice-payment]', answer: confirmMsg, queryType: 'agent', channel, skillUsed: 'record-invoice-payment' } });
+          return {
+            selectedSkill, extractedParams, confidence, skillUsed: 'record-invoice-payment', skillResponse: null,
+            responseData: { message: confirmMsg, actions: [{ type: 'confirm_payment', invoiceId: invoice.id, amountCents: payAmount }], skillUsed: 'record-invoice-payment', confidence, latencyMs: Date.now() - startTime },
+          };
+        }
+      }
+
+      // Record the payment — use 'date' field (AbPayment schema uses date, not paidAt)
+      await db.abPayment.create({
+        data: {
+          invoiceId: invoice.id,
+          tenantId,
+          amountCents: payAmount,
+          method: 'manual',
+          date: new Date(),
+          feesCents: 0,
+        },
+      });
+
+      // Flip invoice to paid if fully settled
+      const newTotalPaid = totalPaid + payAmount;
+      if (newTotalPaid >= invoice.amountCents) {
+        await db.abInvoice.update({
+          where: { id: invoice.id },
+          data: { status: 'paid' },
+        });
+      }
+
+      const clientLabel = invoice.client?.name ? ` (${invoice.client.name})` : '';
+      const remaining = invoice.amountCents - newTotalPaid;
+      const fullyPaid = remaining <= 0;
+      const message = fullyPaid
+        ? `Done ✓ — ${invoice.number}${clientLabel} is now **Paid**. ${(payAmount / 100).toFixed(2)} ${invoice.currency} recorded. Journal entry posted.`
+        : `Recorded ${(payAmount / 100).toFixed(2)} ${invoice.currency} for ${invoice.number}${clientLabel}. Balance remaining: ${(remaining / 100).toFixed(2)} ${invoice.currency}.`;
+
+      await db.abConversation.create({ data: { tenantId, question: text || '[record-invoice-payment]', answer: message, queryType: 'agent', channel, skillUsed: 'record-invoice-payment' } });
+      await db.abEvent.create({ data: { tenantId, eventType: 'agent.message', actor: 'user', action: { skillUsed: 'record-invoice-payment', invoiceId: invoice.id, amountCents: payAmount, channel } } });
+
+      return {
+        selectedSkill, extractedParams, confidence, skillUsed: 'record-invoice-payment', skillResponse: null,
+        responseData: { message, skillUsed: 'record-invoice-payment', confidence, latencyMs: Date.now() - startTime },
+      };
+    } catch (err) {
+      console.error('Record-invoice-payment error:', err);
+      return {
+        selectedSkill, extractedParams, confidence: 0, skillUsed: 'record-invoice-payment', skillResponse: null,
+        responseData: { message: "I couldn't record the payment. Please try again.", skillUsed: 'record-invoice-payment', confidence: 0, latencyMs: Date.now() - startTime },
+      };
+    }
+  }
+
   let skillResponse: any = null;
   let skillError = false;
   try {

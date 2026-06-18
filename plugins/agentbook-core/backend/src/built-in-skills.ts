@@ -421,6 +421,24 @@ export const BUILT_IN_SKILLS = [
     endpoint: { method: 'GET', url: '/api/v1/agentbook-core/agent/skills/metrics' },
   },
   {
+    name: 'record-invoice-payment',
+    description: 'Record a payment received for an invoice. Use when user says they received payment for an invoice, a client paid them, or they want to mark an invoice as paid.',
+    examples: [
+      'I got paid for invoice INV-2026-0004',
+      'Acme paid the invoice',
+      'Mark invoice 0004 as paid',
+      'Received $1200 from client',
+      'Client Beta LLC paid me',
+      'invoice was paid',
+    ],
+    parameters: {
+      invoiceRef: { type: 'string', description: 'Invoice number like INV-2026-0004, or partial like "0004"', required: false },
+      clientName: { type: 'string', description: 'Client name if invoice number not provided', required: false },
+      amountCents: { type: 'number', description: 'Amount paid in cents', required: false },
+    },
+    endpoint: { method: 'INTERNAL', url: '' },
+  },
+  {
     name: 'general-question', description: 'Answer any general financial or accounting question', category: 'finance',
     triggerPatterns: [],
     parameters: { question: { type: 'string', required: true, extractHint: 'the full user message' } },
