@@ -25,8 +25,8 @@ const CURRENCIES = ['USD', 'EUR', 'GBP', 'CAD', 'AUD', 'JPY', 'CHF', 'MXN', 'BRL
 async function fetchConfig(): Promise<TenantConfig> {
   const r = await fetch('/api/v1/agentbook-core/tenant-config');
   if (!r.ok) throw new Error(`${r.status}`);
-  const { config } = await r.json() as { config: TenantConfig };
-  return config;
+  const { data } = await r.json() as { data: TenantConfig };
+  return data;
 }
 
 async function saveConfig(patch: Partial<TenantConfig>): Promise<void> {
