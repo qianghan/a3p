@@ -1,5 +1,17 @@
 # A3P — Agent as a Product
 
+## Repository Independence — IMPORTANT
+
+This repo (`qianghan/a3p`) was originally forked from `livepeer/naap` but is now a fully independent product (AgentBook). The upstream remote has been removed.
+
+**Never do any of the following:**
+- `git remote add upstream` pointing to `livepeer/naap`
+- `git fetch upstream` / `git merge upstream` / `git rebase upstream`
+- Run `prisma db push` or any migration using credentials containing `neondb_owner`, `ep-hidden-paper`, `ep-frosty-pine`, or any `naap`/Livepeer Neon endpoint
+- Add or restore env vars prefixed with `a3p_` — those were naap/Neon vars inherited from the fork and have been permanently removed
+
+**Current database:** Supabase `agentbook-db` (instance `vefoeskvxthrcnggjtlf`) — managed via Vercel Marketplace integration, connected to project `a3p-plugin-build` for all environments. All `DATABASE_URL` vars point there.
+
 ## AgentBook
 
 AgentBook is an AI-powered accounting system for freelancers and small businesses. 4 plugins, 140 API endpoints, 41 Prisma models, 26 frontend pages, Gemini LLM integration, Telegram bot, Plaid bank sync.
