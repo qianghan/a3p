@@ -55,7 +55,14 @@ cd apps/web-next && NODE_OPTIONS="--max-old-space-size=4096" npm run dev
 | Jordan (side-hustle) | `jordan@agentbook.test` | `agentbook123` |
 | Admin | `admin@a3p.io` | `a3p-dev` |
 
-Re-seed: `npx tsx agentbook/seed-personas.ts`
+Re-seed (fresh DB): run in order — backends must be on :4050-4053 with Supabase DATABASE_URL:
+```bash
+npx tsx agentbook/seed-users.ts          # platform users (creates User records matching tenant IDs)
+npx tsx agentbook/seed-personas.ts       # agentbook financial data (clients, invoices, expenses)
+DATABASE_URL="$DATABASE_URL" npx tsx bin/sync-plugin-registry.ts   # plugin registry
+DATABASE_URL="$DATABASE_URL" npx tsx bin/seed-agentbook-defaults.ts # mark plugins as core
+DATABASE_URL="$DATABASE_URL" npx tsx bin/seed-naap-skills.ts        # agent skills (67)
+```
 
 ### Telegram Bot
 
