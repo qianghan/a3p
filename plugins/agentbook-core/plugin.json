@@ -1,7 +1,7 @@
 {
   "$schema": "https://plugins.naap.io/schema/plugin.json",
   "name": "agentbook-core",
-  "displayName": "AgentBook Core",
+  "displayName": "Core",
   "version": "1.0.0",
   "description": "Double-entry ledger, chart of accounts, journal entries, constraint engine, and tenant configuration for the AgentBook accounting system.",
   "isCore": true,

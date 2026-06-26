@@ -1,7 +1,7 @@
 {
   "$schema": "https://plugins.naap.io/schema/plugin.json",
   "name": "agentbook-invoice",
-  "displayName": "AgentBook Invoicing",
+  "displayName": "Invoicing",
   "version": "1.0.0",
   "description": "Invoice creation, PDF generation, payment tracking, accounts receivable, client management, estimates, and payment follow-up.",
   "isCore": true,

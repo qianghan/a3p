@@ -1,7 +1,7 @@
 {
   "$schema": "https://plugins.naap.io/schema/plugin.json",
   "name": "agentbook-billing",
-  "displayName": "AgentBook Billing",
+  "displayName": "Billing",
   "version": "1.0.0",
   "description": "Subscription plans, payments, and entitlement gating for AgentBook.",
   "isCore": true,
@@ -13,7 +13,7 @@
   "frontend": {
     "entry": "./frontend/dist/production/agentbook-billing.js",
     "devPort": 3054,
-    "routes": ["/admin/billing", "/admin/billing/*", "/billing", "/billing/*"],
+    "routes": ["/billing", "/billing/*", "/admin/billing", "/admin/billing/*"],
     "navigation": {
       "label": "Billing",
       "icon": "CreditCard",
