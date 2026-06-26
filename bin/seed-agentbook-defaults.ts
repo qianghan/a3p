@@ -37,9 +37,7 @@ const AGENTBOOK_ORDER: Record<string, number> = {
 async function main(): Promise<void> {
   const dbUrl =
     process.env.DATABASE_URL ||
-    process.env.a3p_DATABASE_URL ||
     process.env.POSTGRES_PRISMA_URL ||
-    process.env.a3p_POSTGRES_PRISMA_URL ||
     process.env.POSTGRES_URL ||
     '';
 
