@@ -28,7 +28,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
           { answer:    { contains: q, mode: 'insensitive' as const } },
         ],
       } : {}),
-      ...(cursor ? { createdAt: { lt: new Date(cursor) } } : {}),
+      ...(cursor && !isNaN(new Date(cursor).getTime()) ? { createdAt: { lt: new Date(cursor) } } : {}),
     };
 
     const countWhere = {
