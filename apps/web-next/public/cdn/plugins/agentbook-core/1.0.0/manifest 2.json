@@ -1,6 +1,6 @@
 {
   "name": "agentbook-core",
-  "displayName": "Core",
+  "displayName": "AgentBook Core",
   "version": "1.0.0",
   "bundleFile": "agentbook-core.js",
   "stylesFile": "plugin-agentbook-core-frontend.css",
@@ -13,6 +13,6 @@
   ],
   "category": "finance",
   "description": "Double-entry ledger, chart of accounts, journal entries, constraint engine, and tenant configuration for the AgentBook accounting system.",
-  "buildTime": "2026-06-22T16:51:21.873Z",
+  "buildTime": "2026-06-22T16:47:56.691Z",
   "nodeEnv": "production"
 }
