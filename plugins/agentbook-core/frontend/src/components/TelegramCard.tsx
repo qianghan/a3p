@@ -92,7 +92,7 @@ export function TelegramCard(): JSX.Element {
     <div className="rounded-xl border border-border bg-card overflow-hidden">
       {/* Card header */}
       <div className="flex items-center gap-3 border-b border-border px-4 py-3">
-        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-500/10 text-lg">✈️</div>
+        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10 text-lg">✈️</div>
         <div className="flex-1">
           <div className="text-sm font-semibold text-foreground">Telegram</div>
           <div className="text-xs text-muted-foreground">
@@ -153,7 +153,7 @@ export function TelegramCard(): JSX.Element {
               <div className="rounded-lg bg-background px-3 py-2">
                 <div className="text-xs text-muted-foreground">Linked chats</div>
                 <div className="text-sm font-medium text-foreground">
-                  {(status.chatIds as string[])?.length ?? 0}
+                  {status.chatIds?.length ?? 0}
                 </div>
               </div>
             </div>
