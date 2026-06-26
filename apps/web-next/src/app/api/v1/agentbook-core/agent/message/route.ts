@@ -42,8 +42,10 @@ interface AgentMessageBody {
   sessionId?: string;
 }
 
-function getBaseUrls(): Record<string, string> {
-  const host = process.env.AGENTBOOK_HOST || 'https://a3book.brainliber.com';
+function getBaseUrls(request: NextRequest): Record<string, string> {
+  // Derive host from the incoming request so this works on any domain
+  // without needing AGENTBOOK_HOST to be configured correctly.
+  const host = process.env.AGENTBOOK_HOST || request.nextUrl.origin;
   return {
     '/api/v1/agentbook-core': process.env.AGENTBOOK_CORE_URL || host,
     '/api/v1/agentbook-expense': process.env.AGENTBOOK_EXPENSE_URL || host,
@@ -114,7 +116,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     const skills = await db.abSkillManifest.findMany({
       where: { enabled: true, OR: [{ tenantId: null }, { tenantId }] },
     });
-    const baseUrls = getBaseUrls();
+    const baseUrls = getBaseUrls(request);
 
     const brainResult = await handleAgentMessage(
       {

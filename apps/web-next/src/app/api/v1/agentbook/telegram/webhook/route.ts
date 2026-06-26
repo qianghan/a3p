@@ -935,7 +935,7 @@ function isPlausibleDigestFeedback(lower: string): boolean {
 
 function getSelfBaseUrl(): string {
   if (process.env.VERCEL_URL) return `https://${process.env.VERCEL_URL}`;
-  return process.env.NEXTAUTH_URL || 'https://a3book.brainliber.com';
+  return process.env.NEXTAUTH_URL || 'https://agentbook.brainliber.com';
 }
 
 /**
@@ -1163,7 +1163,7 @@ async function persistReceiptBlob(sourceUrl: string, tenantId: string, contentTy
 
 /** Build the cross-plugin baseUrls map the agent brain expects. */
 function getBaseUrls(): Record<string, string> {
-  const host = process.env.AGENTBOOK_HOST || 'https://a3book.brainliber.com';
+  const host = process.env.AGENTBOOK_HOST || process.env.NEXTAUTH_URL || 'https://agentbook.brainliber.com';
   return {
     '/api/v1/agentbook-core':    process.env.AGENTBOOK_CORE_URL    || host,
     '/api/v1/agentbook-expense': process.env.AGENTBOOK_EXPENSE_URL || host,
@@ -2351,7 +2351,7 @@ function getBot(): Bot {
       const { canUseFeature } = await import('@naap/billing');
       if (!(await canUseFeature(tenantId, 'telegram_bot'))) {
         await ctx.reply(
-          '🔒 The Telegram bot is a Pro feature. Upgrade your AgentBook plan to chat here:\nhttps://a3book.brainliber.com/billing',
+          '🔒 The Telegram bot is a Pro feature. Upgrade your AgentBook plan to chat here:\nhttps://agentbook.brainliber.com/billing',
         );
         return;
       }
@@ -3865,7 +3865,7 @@ function getBot(): Bot {
       const q = await checkQuota(tenantId, 'ocr_scans');
       if (!q.allowed) {
         await ctx.reply(
-          `You've used all ${q.limit} receipt scans this month. Upgrade for more:\nhttps://a3book.brainliber.com/billing`,
+          `You've used all ${q.limit} receipt scans this month. Upgrade for more:\nhttps://agentbook.brainliber.com/billing`,
         );
         return;
       }

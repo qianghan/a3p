@@ -43,6 +43,7 @@ const ALLOWED_RECEIPT_HOSTS: RegExp[] = [
   /\.vercel-storage\.com$/i,
   /^blob\.vercel-storage\.com$/i,
   /^a3book\.brainliber\.com$/i,
+  /^agentbook\.brainliber\.com$/i,
   /^localhost$/i,
   /^127\.0\.0\.1$/i,
 ];
