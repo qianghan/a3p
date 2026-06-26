@@ -1,4 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
+import { TelegramCard } from '../components/TelegramCard';
+import { WhatsAppCard } from '../components/WhatsAppCard';
+import { ChatHistoryTab } from '../components/ChatHistoryTab';
 
 interface TenantConfig {
   companyName: string | null;
@@ -66,8 +69,8 @@ function ProfilePreview({
 }): JSX.Element {
   const displayLogo = pendingLogoUrl ?? logoUrl;
   return (
-    <div className="rounded-lg border bg-white p-4">
-      <p className="mb-2 text-xs font-medium text-gray-500 uppercase tracking-wide">
+    <div className="rounded-lg border border-border bg-card p-4">
+      <p className="mb-2 text-xs font-medium text-muted-foreground uppercase tracking-wide">
         Invoice header preview
       </p>
       <div
@@ -85,10 +88,10 @@ function ProfilePreview({
           </div>
         )}
         <div>
-          <div className="font-semibold text-gray-900" style={{ color: brandColor }}>
+          <div className="font-semibold text-foreground" style={{ color: brandColor }}>
             {companyName || 'Your Company'}
           </div>
-          <div className="text-xs text-gray-500">Invoice header</div>
+          <div className="text-xs text-muted-foreground">Invoice header</div>
         </div>
       </div>
     </div>
@@ -96,7 +99,7 @@ function ProfilePreview({
 }
 
 export function SettingsPage(): JSX.Element {
-  const [tab, setTab] = useState<'profile' | 'invoice'>('profile');
+  const [tab, setTab] = useState<'profile' | 'invoice' | 'chatbots' | 'history'>('profile');
   const [config, setConfig] = useState<TenantConfig | null>(null);
   const [form, setForm] = useState<TenantConfig | null>(null);
   const [pendingLogoUrl, setPendingLogoUrl] = useState<string | null>(null);
@@ -156,7 +159,7 @@ export function SettingsPage(): JSX.Element {
 
   if (!form) {
     return (
-      <div className="p-6 text-gray-500">
+      <div className="p-6 text-muted-foreground">
         {err ? `Error: ${err}` : 'Loading settings…'}
       </div>
     );
@@ -167,18 +170,25 @@ export function SettingsPage(): JSX.Element {
       <h1 className="mb-6 text-2xl font-semibold">Settings</h1>
 
       {/* Tabs */}
-      <div className="mb-6 flex border-b">
-        {(['profile', 'invoice'] as const).map((t) => (
+      <div className="mb-6 flex border-b border-border">
+        {(
+          [
+            { key: 'profile', label: 'Business Profile' },
+            { key: 'invoice', label: 'Invoice Defaults' },
+            { key: 'chatbots', label: 'Chatbots' },
+            { key: 'history', label: 'Chat History' },
+          ] as const
+        ).map(({ key, label }) => (
           <button
-            key={t}
-            onClick={() => setTab(t)}
+            key={key}
+            onClick={() => setTab(key)}
             className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${
-              tab === t
-                ? 'border-blue-600 text-blue-600'
-                : 'border-transparent text-gray-500 hover:text-gray-700'
+              tab === key
+                ? 'border-primary text-primary'
+                : 'border-transparent text-muted-foreground hover:text-foreground'
             }`}
           >
-            {t === 'profile' ? 'Business Profile' : 'Invoice Defaults'}
+            {label}
           </button>
         ))}
       </div>
@@ -193,47 +203,47 @@ export function SettingsPage(): JSX.Element {
           />
 
           <div>
-            <label className="block text-sm font-medium text-gray-700">Company name</label>
+            <label className="block text-sm font-medium text-foreground">Company name</label>
             <input
               type="text"
               value={form.companyName ?? ''}
               onChange={(e) => set({ companyName: e.target.value || null })}
-              className="mt-1 w-full rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="mt-1 w-full rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-primary/30"
               placeholder="Acme Corp"
             />
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700">Email</label>
+            <label className="block text-sm font-medium text-foreground">Email</label>
             <input
               type="email"
               value={form.companyEmail ?? ''}
               onChange={(e) => set({ companyEmail: e.target.value || null })}
-              className="mt-1 w-full rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="mt-1 w-full rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-primary/30"
               placeholder="billing@acme.com"
             />
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700">Phone</label>
+            <label className="block text-sm font-medium text-foreground">Phone</label>
             <input
               type="tel"
               value={form.companyPhone ?? ''}
               onChange={(e) => set({ companyPhone: e.target.value || null })}
-              className="mt-1 w-full rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="mt-1 w-full rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-primary/30"
               placeholder="+1 555 000 0000"
             />
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700">Address</label>
+            <label className="block text-sm font-medium text-foreground">Address</label>
             <textarea
               value={form.companyAddress ?? ''}
               onChange={(e) => set({ companyAddress: e.target.value || null })}
               rows={3}
-              className="mt-1 w-full rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="mt-1 w-full rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-primary/30"
               placeholder="123 Main St, Suite 100"
             />
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700">Logo</label>
+            <label className="block text-sm font-medium text-foreground">Logo</label>
             <div className="mt-1 flex items-center gap-3">
               {(pendingLogoUrl ?? form.logoUrl) ? (
                 <img
@@ -242,7 +252,7 @@ export function SettingsPage(): JSX.Element {
                   className="h-12 w-12 rounded border object-contain"
                 />
               ) : (
-                <div className="flex h-12 w-12 items-center justify-center rounded border bg-gray-50 text-xs text-gray-400">
+                <div className="flex h-12 w-12 items-center justify-center rounded border bg-muted text-xs text-muted-foreground">
                   No logo
                 </div>
               )}
@@ -257,15 +267,15 @@ export function SettingsPage(): JSX.Element {
                 type="button"
                 onClick={() => fileRef.current?.click()}
                 disabled={uploading}
-                className="rounded-lg border px-3 py-1.5 text-sm text-gray-600 hover:bg-gray-50 disabled:opacity-50"
+                className="rounded-lg border px-3 py-1.5 text-sm text-muted-foreground hover:bg-muted disabled:opacity-50"
               >
                 {uploading ? 'Uploading…' : 'Choose file'}
               </button>
-              <span className="text-xs text-gray-400">PNG, JPEG, SVG, WebP · max 2MB</span>
+              <span className="text-xs text-muted-foreground">PNG, JPEG, SVG, WebP · max 2MB</span>
             </div>
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700">Accent colour</label>
+            <label className="block text-sm font-medium text-foreground">Accent colour</label>
             <div className="mt-1 flex items-center gap-3">
               <input
                 type="color"
@@ -281,7 +291,7 @@ export function SettingsPage(): JSX.Element {
                     set({ brandColor: e.target.value });
                   }
                 }}
-                className="w-28 rounded-lg border px-3 py-1.5 font-mono text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-28 rounded-lg border px-3 py-1.5 font-mono text-sm focus:outline-none focus:ring-1 focus:ring-primary/30"
               />
             </div>
           </div>
@@ -291,11 +301,11 @@ export function SettingsPage(): JSX.Element {
       {tab === 'invoice' && (
         <div className="space-y-5">
           <div>
-            <label className="block text-sm font-medium text-gray-700">Default payment terms</label>
+            <label className="block text-sm font-medium text-foreground">Default payment terms</label>
             <select
               value={form.defaultPaymentTerms ?? 'net-30'}
               onChange={(e) => set({ defaultPaymentTerms: e.target.value })}
-              className="mt-1 w-full rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="mt-1 w-full rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-primary/30"
             >
               {PAYMENT_TERMS.map((t) => (
                 <option key={t.value} value={t.value}>{t.label}</option>
@@ -303,59 +313,70 @@ export function SettingsPage(): JSX.Element {
             </select>
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700">Default currency</label>
+            <label className="block text-sm font-medium text-foreground">Default currency</label>
             <select
               value={form.defaultCurrency ?? 'USD'}
               onChange={(e) => set({ defaultCurrency: e.target.value })}
-              className="mt-1 w-full rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="mt-1 w-full rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-primary/30"
             >
               {CURRENCIES.map((c) => <option key={c} value={c}>{c}</option>)}
             </select>
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700">
+            <label className="block text-sm font-medium text-foreground">
               Invoice footer note
-              <span className="ml-1 font-normal text-gray-400">(appears on all invoices)</span>
+              <span className="ml-1 font-normal text-muted-foreground">(appears on all invoices)</span>
             </label>
             <textarea
               value={form.invoiceFooterNote ?? ''}
               onChange={(e) => set({ invoiceFooterNote: e.target.value || null })}
               rows={3}
               maxLength={500}
-              className="mt-1 w-full rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="mt-1 w-full rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-primary/30"
               placeholder="Thank you for your business."
             />
-            <p className="mt-1 text-xs text-gray-400">
+            <p className="mt-1 text-xs text-muted-foreground">
               {(form.invoiceFooterNote ?? '').length}/500 characters
             </p>
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700">
+            <label className="block text-sm font-medium text-foreground">
               Thank-you message
-              <span className="ml-1 font-normal text-gray-400">(shown on paid invoices)</span>
+              <span className="ml-1 font-normal text-muted-foreground">(shown on paid invoices)</span>
             </label>
             <input
               type="text"
               value={form.invoiceThankYouMessage ?? ''}
               onChange={(e) => set({ invoiceThankYouMessage: e.target.value || null })}
               maxLength={200}
-              className="mt-1 w-full rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="mt-1 w-full rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-primary/30"
               placeholder="Thank you for your payment!"
             />
           </div>
         </div>
       )}
 
+      {tab === 'chatbots' && (
+        <div className="space-y-4">
+          <TelegramCard />
+          <WhatsAppCard />
+        </div>
+      )}
+
+      {tab === 'history' && (
+        <ChatHistoryTab />
+      )}
+
       {/* Save bar */}
       <div className="mt-8 flex items-center justify-between">
         <div>
-          {err && <p className="text-sm text-red-600">{err}</p>}
-          {toast && <p className="text-sm text-green-600">{toast}</p>}
+          {err && <p className="text-sm text-destructive">{err}</p>}
+          {toast && <p className="text-sm text-primary">{toast}</p>}
         </div>
         <button
           onClick={handleSave}
           disabled={saving}
-          className="rounded-lg bg-blue-600 px-5 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+          className="rounded-lg bg-primary px-5 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
         >
           {saving ? 'Saving…' : 'Save changes'}
         </button>
