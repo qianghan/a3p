@@ -2,7 +2,7 @@
 
 **Date:** 2026-06-26
 **Status:** Approved
-**Feature:** #2 — Core plugin chatbot configuration UI (Telegram, WhatsApp)
+**Feature:** #2 — Core plugin chatbot configuration UI (Telegram, WhatsApp) + chat history viewer
 
 ---
 
@@ -176,9 +176,114 @@ Coming-soon card: `border-dashed border-border/40`, `opacity-50`.
 
 ---
 
+---
+
+## Chat History Viewer (addendum)
+
+### Problem
+
+If a user loses access to their Telegram client (new device, account loss), all conversation history is gone from the client. Since `AbConversation` stores every message server-side, the web app can show a full searchable history as a backup.
+
+### UI
+
+Fourth tab added to Settings:
+
+```
+Settings
+  ├── Business Profile
+  ├── Invoice Defaults
+  ├── Chatbots
+  └── Chat History          ← new
+```
+
+**Chat History tab layout:**
+
+```
+┌─ Search ──────────────────────────────────────────────────┐
+│  🔍  Search messages…                                      │
+└────────────────────────────────────────────────────────────┘
+
+[ All ]  [ Web ]  [ Telegram ]  [ API ]          50 messages
+
+┌────────────────────────────────────────────────────────────┐
+│  📱 Telegram  ·  record-expense  ·  Jun 26, 2:14 PM        │
+│  You: Spent $45 on lunch with client                       │
+│  Agent: ✓ Logged $45.00 — Meals & Entertainment            │
+├────────────────────────────────────────────────────────────┤
+│  💻 Web  ·  query-expenses  ·  Jun 26, 1:02 PM             │
+│  You: Show me my expenses this month                       │
+│  Agent: Here are your 12 expenses totalling $1,240…        │
+├────────────────────────────────────────────────────────────┤
+│  …                                                         │
+└────────────────────────────────────────────────────────────┘
+
+                        [ Load more ]
+```
+
+Each row shows:
+- Channel badge (icon + label: Telegram / Web / API)
+- Skill used (muted tag)
+- Timestamp (relative: "2 hours ago", tooltip shows full date)
+- Question (user message, truncated at 120 chars)
+- Answer (agent response, truncated at 180 chars)
+- Expand chevron → opens full message pair inline
+
+Search highlights matched terms in yellow. Filter chips narrow by channel. Both are client-side on the loaded page; additional pages fetched via "Load more".
+
+### Backend changes
+
+Extend `GET /api/v1/agentbook-core/conversations` with:
+
+| Param | Type | Default | Description |
+|-------|------|---------|-------------|
+| `limit` | number | 20 | Records per page |
+| `cursor` | string | — | ISO date of oldest record on current page; returns records older than this |
+| `channel` | string | — | Filter: `web`, `telegram`, `api` |
+| `q` | string | — | Full-text search on `question` + `answer` (Postgres `ILIKE %q%`) |
+
+Response shape (unchanged envelope):
+```json
+{
+  "success": true,
+  "data": {
+    "items": [ ...AbConversation[] ],
+    "nextCursor": "2026-06-20T10:00:00.000Z",
+    "total": 50
+  }
+}
+```
+
+`total` is a `COUNT(*)` with the same `WHERE` clause (no cursor), used to show "50 messages" above the list.
+
+### New route for search
+
+Rather than mutating the existing GET (which returns a flat array and is consumed by other callers), add a dedicated search endpoint:
+
+```
+GET /api/v1/agentbook-core/conversations/search
+  ?q=lunch
+  &channel=telegram
+  &cursor=2026-06-20T10:00:00.000Z
+  &limit=20
+```
+
+The existing `/conversations` GET is left unchanged for backward compatibility.
+
+### Frontend components
+
+| Component | File | Purpose |
+|-----------|------|---------|
+| `ChatHistoryTab` | `pages/ChatHistoryTab.tsx` | Tab root — search bar, filter chips, list, pagination |
+| `ConversationRow` | `components/ConversationRow.tsx` | Single expandable message pair |
+
+`ChatHistoryTab` manages state: `query`, `channel`, `cursor`, `items[]`, `loading`, `hasMore`. Search is debounced 300 ms. Channel filter resets cursor and items.
+
+---
+
 ## Out of Scope
 
 - WhatsApp backend integration (no Twilio/Meta API wiring)
 - Email/SMS chatbot channels
 - Per-channel notification preferences
 - Webhook URL display or manual override
+- Full-text index (Postgres `tsvector`) — ILIKE is sufficient for current data volumes
