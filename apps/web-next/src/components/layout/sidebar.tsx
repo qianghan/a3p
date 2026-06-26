@@ -23,6 +23,7 @@ import {
   GripVertical,
   Search,
   Command,
+  Settings,
   // Plugin icons - referenced by name in plugin.json manifests
   Wallet,
   Radio,
@@ -285,6 +286,7 @@ export function Sidebar() {
   // Routes that should use exact matching only
   const exactMatchRoutes = new Set([
     '/agentbook',
+    '/agentbook/settings',
     '/settings',
     '/teams',
     '/feedback',
@@ -421,6 +423,11 @@ export function Sidebar() {
           />
           {moreExpanded && (
             <div className="space-y-0.5 mt-1">
+              <NavLink
+                item={{ name: 'Settings', href: '/agentbook/settings', icon: Settings }}
+                isActive={isActive('/agentbook/settings')}
+                isOpen={isSidebarOpen}
+              />
               <NavLink
                 item={{ name: 'Feedback', href: '/feedback', icon: MessageSquare }}
                 isActive={isActive('/feedback')}

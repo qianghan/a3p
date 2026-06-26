@@ -185,7 +185,7 @@ export const ChatPage: React.FC = () => {
   }
 
   return (
-    <div className="flex flex-col h-screen max-h-screen bg-background">
+    <div className="flex flex-col h-full bg-background">
       {/* Header */}
       <div className="flex items-center gap-3 px-4 py-3 border-b border-border bg-card">
         <MessageSquare className="w-5 h-5 text-primary" />

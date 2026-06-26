@@ -1,6 +1,6 @@
-// plugins/agentbook-invoice/frontend/src/pages/InvoiceDetail.tsx
 import { useCallback, useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
+import { ArrowLeft, Download, Send, CreditCard, AlertTriangle, Loader2, X } from 'lucide-react';
 import { InvoiceStatusBadge, type InvoiceStatus } from '../components/InvoiceStatusBadge';
 import { RecordPaymentModal } from '../components/RecordPaymentModal';
 
@@ -65,7 +65,6 @@ function reminderTone(days: number): string {
   return 'gentle';
 }
 
-
 export function InvoiceDetailPage(): JSX.Element {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -73,11 +72,11 @@ export function InvoiceDetailPage(): JSX.Element {
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
   const [actionBusy, setActionBusy] = useState<string | null>(null);
-  const [toast, setToast] = useState<string | null>(null);
+  const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null);
   const [showPayModal, setShowPayModal] = useState(false);
 
-  const showToast = (msg: string): void => {
-    setToast(msg);
+  const showToast = (msg: string, type: 'success' | 'error' = 'success'): void => {
+    setToast({ msg, type });
     setTimeout(() => setToast(null), 3500);
   };
 
@@ -100,7 +99,7 @@ export function InvoiceDetailPage(): JSX.Element {
       if (!r.ok) throw new Error(`${r.status}`);
       reload();
       showToast('Invoice marked as issued');
-    } catch (e: unknown) { setErr(String(e)); }
+    } catch (e: unknown) { showToast(String(e), 'error'); }
     finally { setActionBusy(null); }
   };
 
@@ -113,32 +112,7 @@ export function InvoiceDetailPage(): JSX.Element {
       if (!r.ok) throw new Error(`${r.status}`);
       reload();
       showToast('Invoice voided');
-    } catch (e: unknown) { setErr(String(e)); }
-    finally { setActionBusy(null); }
-  };
-
-  const doMarkPaid = async (): Promise<void> => {
-    if (!invoice) return;
-    if (!window.confirm(
-      `Mark ${invoice.number} (${fmt(invoice.balanceDueCents, invoice.currency)}) as fully paid via manual payment today?`,
-    )) return;
-    setErr(null);
-    setActionBusy('markpaid');
-    try {
-      const r = await fetch('/api/v1/agentbook-invoice/payments', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
-          invoiceId: id,
-          amountCents: invoice.balanceDueCents,
-          method: 'manual',
-          date: new Date().toISOString(),
-        }),
-      });
-      if (!r.ok) throw new Error(`${r.status}`);
-      reload();
-      showToast('Payment recorded — invoice is now Paid');
-    } catch (e: unknown) { setErr(String(e)); }
+    } catch (e: unknown) { showToast(String(e), 'error'); }
     finally { setActionBusy(null); }
   };
 
@@ -150,7 +124,7 @@ export function InvoiceDetailPage(): JSX.Element {
       if (!r.ok) throw new Error(`${r.status}`);
       reload();
       showToast('Reminder sent');
-    } catch (e: unknown) { setErr(String(e)); }
+    } catch (e: unknown) { showToast(String(e), 'error'); }
     finally { setActionBusy(null); }
   };
 
@@ -158,8 +132,20 @@ export function InvoiceDetailPage(): JSX.Element {
     window.open(`/api/v1/agentbook-invoice/invoices/${id}/pdf`, '_blank');
   };
 
-  if (loading) return <div className="p-6 text-gray-500">Loading…</div>;
-  if (err || !invoice) return <div className="p-6 text-red-600">{err ?? 'Invoice not found'}</div>;
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-20">
+        <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+  if (err || !invoice) {
+    return (
+      <div className="p-6">
+        <p className="text-destructive">{err ?? 'Invoice not found'}</p>
+      </div>
+    );
+  }
 
   const status = invoice.status as InvoiceStatus;
   const overdueDays = daysOverdue(invoice.dueDate);
@@ -167,115 +153,138 @@ export function InvoiceDetailPage(): JSX.Element {
   const remindCooldown = invoice.lastRemindedAt
     ? Date.now() - new Date(invoice.lastRemindedAt).getTime() < 24 * 60 * 60 * 1000
     : false;
+  const canSend = status === 'draft';
+  const canDownload = ['sent', 'viewed', 'overdue', 'paid', 'void'].includes(status);
 
   return (
-    <div className="mx-auto max-w-3xl p-6 space-y-6">
-      {/* Header */}
-      <div className="flex items-start justify-between">
-        <div className="flex items-center gap-3">
-          <button
-            onClick={() => navigate('/')}
-            className="rounded p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-600"
-            aria-label="Back to invoices"
-          >
-            ← Back
+    <div className="mx-auto max-w-3xl p-4 sm:p-6 space-y-5">
+
+      {/* Toast */}
+      {toast && (
+        <div className={`fixed top-4 right-4 z-50 flex items-center gap-2 rounded-lg px-4 py-3 text-sm shadow-lg ${
+          toast.type === 'error'
+            ? 'bg-destructive/10 border border-destructive/20 text-destructive'
+            : 'bg-primary/10 border border-primary/20 text-foreground'
+        }`}>
+          {toast.msg}
+          <button onClick={() => setToast(null)} className="ml-2 text-muted-foreground hover:text-foreground">
+            <X className="w-3.5 h-3.5" />
           </button>
+        </div>
+      )}
+
+      {/* Back + invoice header */}
+      <div>
+        <button
+          onClick={() => navigate('/')}
+          className="mb-3 flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground"
+        >
+          <ArrowLeft className="w-4 h-4" /> Invoices
+        </button>
+        <div className="flex items-start justify-between gap-3">
           <div>
-            <div className="flex items-center gap-3">
-              <span className="font-mono text-xl font-bold text-gray-900">{invoice.number}</span>
+            <div className="flex items-center gap-3 flex-wrap">
+              <span className="font-mono text-2xl font-bold text-foreground">{invoice.number}</span>
               <InvoiceStatusBadge status={status} />
             </div>
-            <div className="mt-1 text-sm text-gray-500">
-              {invoice.client?.name ?? 'No client'} · Issued {fmtDate(invoice.issuedDate)}
+            <p className="mt-1 text-sm text-muted-foreground">
+              {invoice.client?.name ?? 'No client'}
+              {invoice.client?.email ? ` · ${invoice.client.email}` : ''}
+              {' · Issued '}{fmtDate(invoice.issuedDate)}
               {invoice.dueDate ? ` · Due ${fmtDate(invoice.dueDate)}` : ''}
-            </div>
+            </p>
           </div>
         </div>
       </div>
 
-      {/* Overdue alert */}
+      {/* Overdue banner */}
       {status === 'overdue' && (
-        <div className="flex items-center justify-between rounded-lg bg-red-50 border border-red-200 px-4 py-3">
-          <span className="text-sm font-medium text-red-800">
-            ⚠ This invoice is {overdueDays} day{overdueDays !== 1 ? 's' : ''} past due
-            {' '}({reminderTone(overdueDays)} tone)
+        <div className="flex items-center gap-3 rounded-xl border border-destructive/20 bg-destructive/10 px-4 py-3">
+          <AlertTriangle className="w-4 h-4 text-destructive shrink-0" />
+          <span className="text-sm text-destructive">
+            {overdueDays} day{overdueDays !== 1 ? 's' : ''} past due · {reminderTone(overdueDays)} reminder tone
           </span>
         </div>
       )}
 
-      {/* Action bar */}
-      <div className="flex flex-wrap gap-2">
-        {['sent', 'viewed', 'overdue', 'paid', 'void'].includes(status) && (
-          <button
-            onClick={openPdf}
-            className="rounded-lg border px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50"
-          >
-            View PDF ↗
-          </button>
-        )}
-        {status === 'draft' && (
+      {/* Action bar — primary / secondary / ghost hierarchy */}
+      <div className="flex flex-wrap items-center gap-2">
+        {/* Primary: send or record payment */}
+        {canSend && (
           <button
             onClick={doSend}
             disabled={actionBusy === 'send'}
-            className="rounded-lg bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+            className="flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:opacity-90 disabled:opacity-50"
           >
-            {actionBusy === 'send' ? 'Sending…' : 'Send (mark Issued)'}
+            {actionBusy === 'send' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+            {actionBusy === 'send' ? 'Sending…' : 'Send Invoice'}
           </button>
         )}
         {canRemind && (
-          <>
-            <button
-              onClick={doMarkPaid}
-              disabled={actionBusy === 'markpaid'}
-              className="rounded-lg bg-green-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-green-700 disabled:opacity-50"
-            >
-              {actionBusy === 'markpaid' ? 'Recording…' : 'Mark as Paid'}
-            </button>
-            <button
-              onClick={() => setShowPayModal(true)}
-              className="rounded-lg border border-green-300 px-3 py-1.5 text-sm font-medium text-green-700 hover:bg-green-50"
-            >
-              Record Payment
-            </button>
-            <button
-              onClick={doRemind}
-              disabled={actionBusy === 'remind' || remindCooldown}
-              className={`rounded-lg border px-3 py-1.5 text-sm font-medium disabled:opacity-50 ${
-                status === 'overdue'
-                  ? 'border-red-300 text-red-700 hover:bg-red-50'
-                  : 'border-gray-300 text-gray-700 hover:bg-gray-50'
-              }`}
-            >
-              {actionBusy === 'remind'
-                ? 'Sending…'
-                : remindCooldown
-                ? `Reminded ${fmtDate(invoice.lastRemindedAt ?? '')}`
-                : 'Send Reminder'}
-            </button>
-            <button
-              onClick={doVoid}
-              disabled={actionBusy === 'void'}
-              className="rounded-lg border border-gray-200 px-3 py-1.5 text-sm font-medium text-gray-500 hover:bg-gray-50 disabled:opacity-50"
-            >
-              Void
-            </button>
-          </>
+          <button
+            onClick={() => setShowPayModal(true)}
+            className="flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:opacity-90"
+          >
+            <CreditCard className="w-4 h-4" /> Record Payment
+          </button>
+        )}
+
+        {/* Secondary: send reminder */}
+        {canRemind && (
+          <button
+            onClick={doRemind}
+            disabled={actionBusy === 'remind' || remindCooldown}
+            className="flex items-center gap-1.5 rounded-lg border border-border px-4 py-2 text-sm font-medium text-foreground hover:bg-muted disabled:opacity-50"
+          >
+            {actionBusy === 'remind' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+            {actionBusy === 'remind' ? 'Sending…' : remindCooldown ? `Reminded ${fmtDate(invoice.lastRemindedAt ?? '')}` : 'Send Reminder'}
+          </button>
+        )}
+
+        {/* Ghost: download PDF */}
+        {canDownload && (
+          <button
+            onClick={openPdf}
+            className="flex items-center gap-1.5 rounded-lg px-4 py-2 text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-muted/50"
+          >
+            <Download className="w-4 h-4" /> Download PDF
+          </button>
+        )}
+
+        {/* Destructive ghost: void */}
+        {canRemind && (
+          <button
+            onClick={doVoid}
+            disabled={actionBusy === 'void'}
+            className="ml-auto flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm text-muted-foreground hover:text-destructive hover:bg-destructive/5 disabled:opacity-50"
+          >
+            {actionBusy === 'void' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : null}
+            Void
+          </button>
         )}
       </div>
 
-      {err && <div className="rounded bg-red-50 p-3 text-sm text-red-700">{err}</div>}
-      {toast && <div className="rounded bg-green-50 p-3 text-sm text-green-700">{toast}</div>}
+      {err && (
+        <div className="rounded-lg border border-destructive/20 bg-destructive/10 p-3 text-sm text-destructive">{err}</div>
+      )}
 
-      {/* Summary */}
-      <div className="grid grid-cols-3 gap-4">
+      {/* Summary totals */}
+      <div className="grid grid-cols-3 gap-3">
         {[
-          { label: 'Invoice total', value: fmt(invoice.amountCents, invoice.currency) },
-          { label: 'Amount paid', value: fmt(invoice.totalPaidCents, invoice.currency) },
+          { label: 'Invoice total', value: fmt(invoice.amountCents, invoice.currency), highlight: false },
+          { label: 'Amount paid', value: fmt(invoice.totalPaidCents, invoice.currency), highlight: false },
           { label: 'Balance due', value: fmt(invoice.balanceDueCents, invoice.currency), highlight: invoice.balanceDueCents > 0 },
         ].map(({ label, value, highlight }) => (
-          <div key={label} className={`rounded-lg border p-4 ${highlight ? 'border-amber-300 bg-amber-50' : 'bg-white'}`}>
-            <div className="text-xs text-gray-500">{label}</div>
-            <div className={`mt-1 text-2xl font-bold ${highlight ? 'text-amber-800' : 'text-gray-900'}`}>
+          <div
+            key={label}
+            className={`rounded-xl border p-4 ${
+              highlight
+                ? 'border-yellow-500/30 bg-yellow-500/5'
+                : 'border-border bg-card'
+            }`}
+          >
+            <div className="text-xs text-muted-foreground">{label}</div>
+            <div className={`mt-1 text-xl font-bold ${highlight ? 'text-yellow-400' : 'text-foreground'}`}>
               {value}
             </div>
           </div>
@@ -283,54 +292,75 @@ export function InvoiceDetailPage(): JSX.Element {
       </div>
 
       {/* Line items */}
-      <div className="rounded-lg border bg-white overflow-hidden">
+      <div className="rounded-xl border border-border bg-card overflow-hidden">
         <table className="w-full text-sm">
-          <thead className="border-b bg-gray-50">
+          <thead className="border-b border-border bg-background">
             <tr>
-              <th className="px-4 py-2 text-left font-medium text-gray-600">Description</th>
-              <th className="px-4 py-2 text-right font-medium text-gray-600">Qty</th>
-              <th className="px-4 py-2 text-right font-medium text-gray-600">Rate</th>
-              <th className="px-4 py-2 text-right font-medium text-gray-600">Amount</th>
+              <th className="px-4 py-2.5 text-left text-xs font-medium text-muted-foreground">Description</th>
+              <th className="px-4 py-2.5 text-right text-xs font-medium text-muted-foreground">Qty</th>
+              <th className="px-4 py-2.5 text-right text-xs font-medium text-muted-foreground">Rate</th>
+              <th className="px-4 py-2.5 text-right text-xs font-medium text-muted-foreground">Amount</th>
             </tr>
           </thead>
           <tbody>
             {invoice.lines.map((line) => (
-              <tr key={line.id} className="border-b last:border-0">
-                <td className="px-4 py-3 text-gray-800">{line.description}</td>
-                <td className="px-4 py-3 text-right text-gray-600">{line.quantity}</td>
-                <td className="px-4 py-3 text-right text-gray-600">
+              <tr key={line.id} className="border-b border-border last:border-0">
+                <td className="px-4 py-3 text-foreground">{line.description}</td>
+                <td className="px-4 py-3 text-right text-muted-foreground">{line.quantity}</td>
+                <td className="px-4 py-3 text-right text-muted-foreground">
                   {fmt(line.unitPriceCents, invoice.currency)}
                 </td>
-                <td className="px-4 py-3 text-right font-medium text-gray-900">
+                <td className="px-4 py-3 text-right font-medium text-foreground">
                   {fmt(line.amountCents, invoice.currency)}
                 </td>
               </tr>
             ))}
           </tbody>
         </table>
+        {/* Totals row */}
+        <div className="border-t border-border bg-background px-4 py-3 flex justify-end">
+          <div className="text-right space-y-1">
+            <div className="flex gap-8 text-sm">
+              <span className="text-muted-foreground">Total</span>
+              <span className="font-bold text-foreground">{fmt(invoice.amountCents, invoice.currency)}</span>
+            </div>
+            {invoice.totalPaidCents > 0 && (
+              <div className="flex gap-8 text-sm">
+                <span className="text-muted-foreground">Paid</span>
+                <span className="text-primary">−{fmt(invoice.totalPaidCents, invoice.currency)}</span>
+              </div>
+            )}
+            {invoice.balanceDueCents > 0 && (
+              <div className="flex gap-8 text-sm border-t border-border pt-1 mt-1">
+                <span className="text-muted-foreground font-medium">Balance due</span>
+                <span className="font-bold text-yellow-400">{fmt(invoice.balanceDueCents, invoice.currency)}</span>
+              </div>
+            )}
+          </div>
+        </div>
       </div>
 
       {/* Payment history */}
       {invoice.payments.length > 0 && (
         <div>
-          <h3 className="mb-2 text-sm font-semibold text-gray-700">Payment history</h3>
-          <div className="rounded-lg border bg-white overflow-hidden">
+          <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Payment history</h3>
+          <div className="rounded-xl border border-border bg-card overflow-hidden">
             <table className="w-full text-sm">
-              <thead className="border-b bg-gray-50">
+              <thead className="border-b border-border bg-background">
                 <tr>
-                  <th className="px-4 py-2 text-left font-medium text-gray-600">Date</th>
-                  <th className="px-4 py-2 text-left font-medium text-gray-600">Method</th>
-                  <th className="px-4 py-2 text-right font-medium text-gray-600">Amount</th>
+                  <th className="px-4 py-2.5 text-left text-xs font-medium text-muted-foreground">Date</th>
+                  <th className="px-4 py-2.5 text-left text-xs font-medium text-muted-foreground">Method</th>
+                  <th className="px-4 py-2.5 text-right text-xs font-medium text-muted-foreground">Amount</th>
                 </tr>
               </thead>
               <tbody>
                 {invoice.payments.map((p) => (
-                  <tr key={p.id} className="border-b last:border-0">
-                    <td className="px-4 py-3 text-gray-700">{fmtDate(p.paidAt)}</td>
-                    <td className="px-4 py-3 text-gray-700">
+                  <tr key={p.id} className="border-b border-border last:border-0">
+                    <td className="px-4 py-3 text-muted-foreground">{fmtDate(p.paidAt)}</td>
+                    <td className="px-4 py-3 text-muted-foreground">
                       {METHOD_LABELS[p.method] ?? p.method}
                     </td>
-                    <td className="px-4 py-3 text-right font-medium text-green-700">
+                    <td className="px-4 py-3 text-right font-medium text-primary">
                       +{fmt(p.amountCents, invoice.currency)}
                     </td>
                   </tr>
