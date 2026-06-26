@@ -2,7 +2,7 @@
 
 **Generated:** 2026-05-22
 **Vercel project:** `qianghans-projects/a3p-plugin-build`
-**Production URL:** https://a3book.brainliber.com
+**Production URL:** https://agentbook.brainliber.com
 
 This document tracks every environment variable AgentBook needs in production and preview. As of this date, all variables for the merged PRs (#60 → #74) are set on Vercel except the two flagged with **"USER ACTION REQUIRED."**
 
@@ -160,7 +160,7 @@ The Stripe webhook handler (`apps/web-next/src/app/api/v1/agentbook/stripe-webho
 1. Sign up at https://dashboard.stripe.com, switch to test mode for first launch.
 2. Get API keys from Developers → API keys.
 3. Set up webhook in Developers → Webhooks → Add endpoint:
-   - URL: `https://a3book.brainliber.com/api/v1/agentbook/stripe-webhook`
+   - URL: `https://agentbook.brainliber.com/api/v1/agentbook/stripe-webhook`
    - Events to listen for: `customer.subscription.*`, `checkout.session.completed`, `invoice.paid`, `invoice.payment_failed`
    - Copy the signing secret (starts with `whsec_`).
 4. Set on Vercel:
@@ -222,18 +222,18 @@ After any env change, deploy and run:
 
 ```bash
 # Sanity-check that the merged PRs work end-to-end
-TOKEN=$(curl -s -X POST https://a3book.brainliber.com/api/v1/auth/login \
+TOKEN=$(curl -s -X POST https://agentbook.brainliber.com/api/v1/auth/login \
   -H "Content-Type: application/json" \
   -d '{"email":"maya@agentbook.test","password":"agentbook123"}' | jq -r .token)
 
 # Each of these should return 200 with valid data, not 401 / 403 / 500:
-curl -s "https://a3book.brainliber.com/api/v1/agentbook-core/agent/skills/metrics?days=1" \
+curl -s "https://agentbook.brainliber.com/api/v1/agentbook-core/agent/skills/metrics?days=1" \
   -H "Authorization: Bearer $TOKEN" | jq .
 
-curl -s "https://a3book.brainliber.com/api/v1/agentbook-core/events/since?ts=$(date -u -v-1H +%Y-%m-%dT%H:%M:%SZ)" \
+curl -s "https://agentbook.brainliber.com/api/v1/agentbook-core/events/since?ts=$(date -u -v-1H +%Y-%m-%dT%H:%M:%SZ)" \
   -H "Authorization: Bearer $TOKEN" | jq .
 
-curl -s "https://a3book.brainliber.com/api/v1/agentbook-core/admin/llm-configs" \
+curl -s "https://agentbook.brainliber.com/api/v1/agentbook-core/admin/llm-configs" \
   -H "Authorization: Bearer $TOKEN" | jq .   # Should be 403 (admin required) unless logged in as ADMIN_EMAILS
 ```
 

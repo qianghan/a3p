@@ -63,6 +63,7 @@ import {
   getCachedResponse,
 } from '@/lib/agentbook-idempotency';
 import { withRetry } from '@/lib/agentbook-webhook-retry';
+import { getAppBaseUrl, getPluginBaseUrls, AGENTBOOK_CANONICAL_URL } from '@/lib/agentbook-config';
 import { checkAndIncrement } from '@/lib/agentbook-rate-limit';
 
 // PR 18: the photo handler awaits BATCH_IDLE_MS (5s) inline so it can
@@ -934,8 +935,7 @@ function isPlausibleDigestFeedback(lower: string): boolean {
 }
 
 function getSelfBaseUrl(): string {
-  if (process.env.VERCEL_URL) return `https://${process.env.VERCEL_URL}`;
-  return process.env.NEXTAUTH_URL || 'https://agentbook.brainliber.com';
+  return getAppBaseUrl();
 }
 
 /**
@@ -1163,13 +1163,7 @@ async function persistReceiptBlob(sourceUrl: string, tenantId: string, contentTy
 
 /** Build the cross-plugin baseUrls map the agent brain expects. */
 function getBaseUrls(): Record<string, string> {
-  const host = process.env.AGENTBOOK_HOST || process.env.NEXTAUTH_URL || 'https://agentbook.brainliber.com';
-  return {
-    '/api/v1/agentbook-core':    process.env.AGENTBOOK_CORE_URL    || host,
-    '/api/v1/agentbook-expense': process.env.AGENTBOOK_EXPENSE_URL || host,
-    '/api/v1/agentbook-invoice': process.env.AGENTBOOK_INVOICE_URL || host,
-    '/api/v1/agentbook-tax':     process.env.AGENTBOOK_TAX_URL     || host,
-  };
+  return getPluginBaseUrls(getAppBaseUrl());
 }
 
 /** Run the full agent-brain pipeline. Falls back to the inline minimal agent on hard failure. */
@@ -2351,7 +2345,7 @@ function getBot(): Bot {
       const { canUseFeature } = await import('@naap/billing');
       if (!(await canUseFeature(tenantId, 'telegram_bot'))) {
         await ctx.reply(
-          '🔒 The Telegram bot is a Pro feature. Upgrade your AgentBook plan to chat here:\nhttps://agentbook.brainliber.com/billing',
+          `🔒 The Telegram bot is a Pro feature. Upgrade your AgentBook plan to chat here:\n${AGENTBOOK_CANONICAL_URL}/billing`,
         );
         return;
       }
@@ -3865,7 +3859,7 @@ function getBot(): Bot {
       const q = await checkQuota(tenantId, 'ocr_scans');
       if (!q.allowed) {
         await ctx.reply(
-          `You've used all ${q.limit} receipt scans this month. Upgrade for more:\nhttps://agentbook.brainliber.com/billing`,
+          `You've used all ${q.limit} receipt scans this month. Upgrade for more:\n${AGENTBOOK_CANONICAL_URL}/billing`,
         );
         return;
       }

@@ -12,7 +12,7 @@ export default defineConfig({
     ['junit', { outputFile: 'junit.xml' }],
   ],
   use: {
-    baseURL: process.env.E2E_BASE_URL || 'https://a3book.brainliber.com',
+    baseURL: process.env.E2E_BASE_URL || 'https://agentbook.brainliber.com',
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
     video: 'retain-on-failure',
