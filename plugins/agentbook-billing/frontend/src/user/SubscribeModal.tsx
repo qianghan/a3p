@@ -59,7 +59,7 @@ function PayForm({ plan, onDone }: { plan: Plan; onDone: () => void }): JSX.Elem
   return (
     <form onSubmit={submit} className="space-y-4">
       {plan.priceCents > 0 && (
-        <div className="rounded-lg bg-blue-50 px-4 py-3 text-sm text-blue-800">
+        <div className="rounded-lg border border-primary/20 bg-primary/10 px-4 py-3 text-sm text-foreground">
           <span className="font-semibold">90-day free trial</span> — no charge until{' '}
           <strong>{trialEndLabel()}</strong>, then $
           {(plan.priceCents / 100).toFixed(2)}/
@@ -67,11 +67,15 @@ function PayForm({ plan, onDone }: { plan: Plan; onDone: () => void }): JSX.Elem
         </div>
       )}
       <PaymentElement />
-      {err && <div className="rounded bg-red-50 p-2 text-sm text-red-700">{err}</div>}
+      {err && (
+        <div className="rounded border border-destructive/20 bg-destructive/10 p-2 text-sm text-destructive">
+          {err}
+        </div>
+      )}
       <button
         type="submit"
         disabled={!stripe || busy}
-        className="w-full rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+        className="w-full rounded-lg bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
       >
         {busy ? 'Processing…' : `Start trial — ${plan.name}`}
       </button>
@@ -95,32 +99,45 @@ export function SubscribeModal({
   }, []);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-      <div className="w-[480px] rounded-xl bg-white p-6 shadow-xl">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
+      <div className="w-[480px] rounded-xl border border-border bg-card p-6 shadow-2xl">
         <div className="mb-4 flex items-center justify-between">
-          <h3 className="text-lg font-semibold">Subscribe to {plan.name}</h3>
-          <button onClick={onClose} aria-label="close" className="text-xl text-gray-400 hover:text-gray-600">×</button>
+          <h3 className="text-lg font-semibold text-foreground">Subscribe to {plan.name}</h3>
+          <button
+            onClick={onClose}
+            aria-label="close"
+            className="text-xl text-muted-foreground hover:text-foreground"
+          >
+            ×
+          </button>
         </div>
 
         {/* Step indicator */}
         <div className="mb-5 flex items-center gap-2 text-xs">
-          <span className={`font-medium ${step >= 1 ? 'text-blue-600' : 'text-gray-400'}`}>
+          <span className={`font-medium ${step >= 1 ? 'text-primary' : 'text-muted-foreground'}`}>
             1. Plan selected
           </span>
-          <span className="text-gray-300">→</span>
-          <span className={`font-medium ${step >= 2 ? 'text-blue-600' : 'text-gray-400'}`}>
+          <span className="text-muted-foreground">→</span>
+          <span className={`font-medium ${step >= 2 ? 'text-primary' : 'text-muted-foreground'}`}>
             2. Payment details
           </span>
         </div>
 
-        {err && <div className="rounded bg-red-50 p-3 text-sm text-red-700">{err}</div>}
+        {err && (
+          <div className="rounded border border-destructive/20 bg-destructive/10 p-3 text-sm text-destructive">
+            {err}
+          </div>
+        )}
 
         {!clientSecret && !err && (
-          <div className="py-6 text-center text-sm text-gray-500">Preparing checkout…</div>
+          <div className="py-6 text-center text-sm text-muted-foreground">Preparing checkout…</div>
         )}
 
         {clientSecret && (
-          <Elements stripe={getStripePromise()} options={{ clientSecret, appearance: { theme: 'stripe' } }}>
+          <Elements
+            stripe={getStripePromise()}
+            options={{ clientSecret, appearance: { theme: 'night' } }}
+          >
             <PayForm plan={plan} onDone={onDone} />
           </Elements>
         )}

@@ -20,26 +20,23 @@ export function UserApp(): JSX.Element {
     meApi.current().then(setView).catch((e: unknown) => console.error(e));
   }, [refresh]);
 
-  if (!view) return <div className="p-6 text-gray-500">Loading…</div>;
+  if (!view) return <div className="p-6 text-muted-foreground">Loading…</div>;
 
   const hasActivePaidSub =
     view.plan.priceCents > 0 &&
     (view.status === 'active' || view.status === 'trialing');
 
   const handleSubscribe = (p: Plan): void => {
-    // Downgrade to free: cancel at period end
     if (p.priceCents === 0) {
       if (window.confirm('Downgrade to the Free plan at the end of your current period?')) {
         meApi.cancel().then(() => setRefresh((r) => r + 1)).catch(console.error);
       }
       return;
     }
-    // Monthly → Annual upgrade: show proration timing modal
     if (hasActivePaidSub && p.interval === 'year') {
       setModal({ kind: 'timing', plan: p });
       return;
     }
-    // All other upgrades: go straight to Stripe checkout
     setModal({ kind: 'subscribe', plan: p });
   };
 
@@ -51,11 +48,11 @@ export function UserApp(): JSX.Element {
   return (
     <div className="mx-auto max-w-3xl space-y-6 p-6">
       <CurrentPlanCard view={view} onRefresh={() => setRefresh((r) => r + 1)} />
-      <div className="rounded-lg border bg-white p-6">
-        <h3 className="mb-3 text-sm font-medium text-gray-600">Usage this period</h3>
+      <div className="rounded-lg border border-border bg-card p-6">
+        <h3 className="mb-4 text-sm font-medium text-muted-foreground">Usage this period</h3>
         <UsageBars usage={view.usage} />
       </div>
-      <h3 className="text-lg font-semibold">Available plans</h3>
+      <h3 className="text-lg font-semibold text-foreground">Available plans</h3>
       <PlanGrid currentPlanCode={view.plan.code} onSubscribe={handleSubscribe} />
 
       {modal.kind === 'timing' && (

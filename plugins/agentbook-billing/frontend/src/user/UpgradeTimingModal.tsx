@@ -33,55 +33,60 @@ export function UpgradeTimingModal({
   }, [plan.id]);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-      <div className="w-[440px] rounded-xl bg-white p-6 shadow-xl">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
+      <div className="w-[440px] rounded-xl border border-border bg-card p-6 shadow-2xl">
         <div className="mb-4 flex items-center justify-between">
-          <h3 className="text-lg font-semibold">Upgrade to {plan.name}</h3>
-          <button onClick={onClose} aria-label="close" className="text-xl text-gray-400 hover:text-gray-600">×</button>
+          <h3 className="text-lg font-semibold text-foreground">Upgrade to {plan.name}</h3>
+          <button
+            onClick={onClose}
+            aria-label="close"
+            className="text-xl text-muted-foreground hover:text-foreground"
+          >
+            ×
+          </button>
         </div>
 
         {loading && (
-          <div className="py-8 text-center text-sm text-gray-500">Calculating pricing…</div>
+          <div className="py-8 text-center text-sm text-muted-foreground">Calculating pricing…</div>
         )}
 
         {fetchErr && (
-          <div className="rounded bg-red-50 p-3 text-sm text-red-700">
-            Could not load pricing preview. <button onClick={onConfirm} className="underline">Continue anyway</button>
+          <div className="rounded border border-destructive/20 bg-destructive/10 p-3 text-sm text-destructive">
+            Could not load pricing preview.{' '}
+            <button onClick={onConfirm} className="underline">Continue anyway</button>
           </div>
         )}
 
         {!loading && !fetchErr && preview && (
           <div className="space-y-4">
             {preview.trialEndDate ? (
-              /* Free → Paid: 90-day trial */
-              <div className="rounded-lg bg-blue-50 p-4">
-                <p className="text-sm font-semibold text-blue-900">90-day free trial included</p>
-                <p className="mt-1 text-sm text-blue-700">
+              <div className="rounded-lg border border-primary/20 bg-primary/10 p-4">
+                <p className="text-sm font-semibold text-foreground">90-day free trial included</p>
+                <p className="mt-1 text-sm text-muted-foreground">
                   No charge today. Your trial ends on{' '}
-                  <strong>{fmtDate(preview.trialEndDate)}</strong>, then{' '}
-                  <strong>
+                  <strong className="text-foreground">{fmtDate(preview.trialEndDate)}</strong>, then{' '}
+                  <strong className="text-foreground">
                     ${(plan.priceCents / 100).toFixed(2)}/{plan.interval === 'year' ? 'yr' : 'mo'}
                   </strong>{' '}
                   automatically.
                 </p>
               </div>
             ) : (
-              /* Paid → Paid: proration */
-              <div className="rounded-lg border p-4 space-y-3">
+              <div className="rounded-lg border border-border bg-muted/30 p-4 space-y-3">
                 <div className="flex justify-between text-sm">
-                  <span className="text-gray-600">Prorated charge today</span>
-                  <span className="font-semibold text-gray-900">
+                  <span className="text-muted-foreground">Prorated charge today</span>
+                  <span className="font-semibold text-foreground">
                     {fmtCents(preview.proratedAmountCents)}
                   </span>
                 </div>
                 <div className="flex justify-between text-sm">
-                  <span className="text-gray-600">Next full charge</span>
-                  <span className="text-gray-900">
+                  <span className="text-muted-foreground">Next full charge</span>
+                  <span className="text-foreground">
                     {fmtCents(plan.priceCents)}/{plan.interval === 'year' ? 'yr' : 'mo'}{' '}
                     on {fmtDate(preview.renewalDate)}
                   </span>
                 </div>
-                <p className="text-xs text-gray-400">
+                <p className="text-xs text-muted-foreground">
                   Credit for your unused monthly period is applied to today's charge.
                 </p>
               </div>
@@ -89,13 +94,13 @@ export function UpgradeTimingModal({
 
             <button
               onClick={onConfirm}
-              className="w-full rounded-lg bg-blue-600 py-2.5 text-sm font-medium text-white hover:bg-blue-700"
+              className="w-full rounded-lg bg-primary py-2.5 text-sm font-medium text-primary-foreground hover:bg-primary/90"
             >
               Continue to payment →
             </button>
             <button
               onClick={onClose}
-              className="w-full rounded-lg border py-2.5 text-sm text-gray-600 hover:bg-gray-50"
+              className="w-full rounded-lg border border-border py-2.5 text-sm text-muted-foreground hover:bg-muted"
             >
               Cancel
             </button>

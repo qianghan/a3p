@@ -8,20 +8,23 @@ const LABELS: Record<string, string> = {
 
 export function UsageBars({ usage }: { usage: Record<string, { used: number; limit: number }> }): JSX.Element {
   return (
-    <div className="space-y-2">
+    <div className="space-y-3">
       {Object.entries(usage).map(([dim, { used, limit }]) => {
         const isUnlimited = limit === -1;
         const pct = isUnlimited ? 0 : Math.min(100, Math.round((used / Math.max(1, limit)) * 100));
         return (
           <div key={dim}>
-            <div className="flex justify-between text-xs text-gray-600">
+            <div className="flex justify-between text-xs text-muted-foreground">
               <span>{LABELS[dim] ?? dim}</span>
-              <span>{used} {isUnlimited ? '' : `/ ${limit}`}</span>
+              <span className="font-medium">
+                {used}{isUnlimited ? '' : ` / ${limit}`}
+                {isUnlimited && <span className="ml-1 text-primary">Unlimited</span>}
+              </span>
             </div>
             {!isUnlimited && (
-              <div className="h-2 w-full rounded bg-gray-100">
+              <div className="mt-1 h-1.5 w-full rounded-full bg-muted">
                 <div
-                  className={`h-2 rounded ${pct >= 90 ? 'bg-red-500' : pct >= 75 ? 'bg-amber-400' : 'bg-blue-500'}`}
+                  className={`h-1.5 rounded-full transition-all ${pct >= 90 ? 'bg-destructive' : pct >= 75 ? 'bg-amber-400' : 'bg-primary'}`}
                   style={{ width: `${pct}%` }}
                 />
               </div>

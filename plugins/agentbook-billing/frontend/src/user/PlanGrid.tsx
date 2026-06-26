@@ -1,4 +1,3 @@
-// plugins/agentbook-billing/frontend/src/user/PlanGrid.tsx
 import { useEffect, useState } from 'react';
 import { billingApi, type Plan } from '../lib/api';
 
@@ -41,8 +40,8 @@ export function PlanGrid({
     billingApi.listPlans().then(setPlans).catch((e: unknown) => setLoadError(String(e)));
   }, []);
 
-  if (loadError) return <div className="text-red-600 text-sm">Failed to load plans: {loadError}</div>;
-  if (!plans) return <div className="text-gray-500">Loading plans…</div>;
+  if (loadError) return <div className="text-sm text-destructive">Failed to load plans: {loadError}</div>;
+  if (!plans) return <div className="text-muted-foreground">Loading plans…</div>;
 
   const visible = plans.filter((p) => p.priceCents === 0 || p.interval === billingInterval);
 
@@ -54,19 +53,21 @@ export function PlanGrid({
     <div>
       {/* Interval toggle */}
       <div className="mb-6 flex justify-center">
-        <div className="inline-flex rounded-full border bg-gray-50 p-1">
+        <div className="inline-flex rounded-full border border-border bg-muted p-1">
           {(['month', 'year'] as const).map((iv) => (
             <button
               key={iv}
               onClick={() => setBillingInterval(iv)}
               className={`rounded-full px-4 py-1.5 text-sm font-medium transition-colors ${
-                billingInterval === iv ? 'bg-white shadow text-gray-900' : 'text-gray-500'
+                billingInterval === iv
+                  ? 'bg-card text-foreground shadow'
+                  : 'text-muted-foreground hover:text-foreground'
               }`}
             >
               {iv === 'month' ? 'Monthly' : (
                 <span className="flex items-center gap-1.5">
                   Annual
-                  <span className="rounded-full bg-green-100 px-1.5 py-0.5 text-xs text-green-700">
+                  <span className="rounded-full bg-primary/10 px-1.5 py-0.5 text-xs text-primary">
                     Save up to 20%
                   </span>
                 </span>
@@ -90,38 +91,38 @@ export function PlanGrid({
               key={p.id}
               className={`flex flex-col rounded-xl border p-6 ${
                 isCurrent
-                  ? 'border-blue-500 bg-blue-50 ring-2 ring-blue-200'
-                  : 'border-gray-200 bg-white'
+                  ? 'border-primary bg-primary/10 ring-2 ring-primary/30'
+                  : 'border-border bg-card hover:border-primary/30 transition-colors'
               }`}
             >
-              <div className="mb-2 flex items-center gap-2">
+              <div className="mb-2 flex items-center gap-2 min-h-[24px]">
                 {isCurrent && (
-                  <span className="rounded-full bg-blue-600 px-2.5 py-0.5 text-xs font-medium text-white">
+                  <span className="rounded-full bg-primary px-2.5 py-0.5 text-xs font-medium text-primary-foreground">
                     Your plan
                   </span>
                 )}
                 {savings && !isCurrent && (
-                  <span className="rounded-full bg-green-100 px-2.5 py-0.5 text-xs font-medium text-green-700">
+                  <span className="rounded-full bg-primary/10 px-2.5 py-0.5 text-xs font-medium text-primary">
                     Save {savings}%
                   </span>
                 )}
               </div>
 
-              <div className="text-lg font-semibold text-gray-900">{p.name}</div>
-              <div className="mt-1 text-2xl font-bold text-gray-900">
+              <div className="text-lg font-semibold text-foreground">{p.name}</div>
+              <div className="mt-1 text-2xl font-bold text-foreground">
                 {p.priceCents === 0 ? (
                   'Free'
                 ) : (
                   <>
                     ${(p.priceCents / 100).toFixed(0)}
-                    <span className="text-sm font-normal text-gray-500">
+                    <span className="text-sm font-normal text-muted-foreground">
                       /{p.interval === 'year' ? 'yr' : 'mo'}
                     </span>
                   </>
                 )}
               </div>
               {p.description && (
-                <p className="mt-2 text-sm text-gray-600">{p.description}</p>
+                <p className="mt-2 text-sm text-muted-foreground">{p.description}</p>
               )}
 
               {/* Feature checklist */}
@@ -130,20 +131,22 @@ export function PlanGrid({
                   const on = p.features[key as keyof typeof p.features];
                   return (
                     <li key={key} className="flex items-center gap-2 text-sm">
-                      <span className={on ? 'text-green-500' : 'text-gray-300'}>
+                      <span className={on ? 'text-primary' : 'text-muted-foreground/40'}>
                         {on ? '✓' : '—'}
                       </span>
-                      <span className={on ? 'text-gray-800' : 'text-gray-400'}>{label}</span>
+                      <span className={on ? 'text-foreground' : 'text-muted-foreground'}>{label}</span>
                     </li>
                   );
                 })}
-                <li className="border-t pt-2" />
+                <li className="border-t border-border pt-2" />
                 {Object.entries(QUOTA_LABELS).map(([key, label]) => {
                   const val = p.quotas[key as keyof typeof p.quotas];
                   return (
                     <li key={key} className="flex items-center justify-between text-sm">
-                      <span className="text-gray-600">{label}</span>
-                      <span className="font-medium text-gray-900">{formatQuota(val)}</span>
+                      <span className="text-muted-foreground">{label}</span>
+                      <span className={`font-medium ${val === -1 ? 'text-primary' : 'text-foreground'}`}>
+                        {formatQuota(val)}
+                      </span>
                     </li>
                   );
                 })}
@@ -154,10 +157,10 @@ export function PlanGrid({
                 onClick={() => onSubscribe(p)}
                 className={`mt-6 w-full rounded-lg px-4 py-2.5 text-sm font-medium transition-colors ${
                   isCurrent
-                    ? 'cursor-default bg-gray-100 text-gray-400'
+                    ? 'cursor-default bg-muted text-muted-foreground'
                     : p.priceCents === 0
-                    ? 'border border-gray-300 text-gray-700 hover:bg-gray-50'
-                    : 'bg-blue-600 text-white hover:bg-blue-700'
+                    ? 'border border-border text-foreground hover:bg-muted'
+                    : 'bg-primary text-primary-foreground hover:bg-primary/90'
                 }`}
               >
                 {isCurrent ? 'Current plan' : p.priceCents === 0 ? 'Downgrade to Free' : 'Upgrade'}
