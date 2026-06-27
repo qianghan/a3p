@@ -8,7 +8,7 @@ import { reportError } from '@/lib/logger';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
-export const maxDuration = 300;
+export const maxDuration = 60;
 
 const NUDGE_COOLDOWN_MS = 24 * 60 * 60 * 1000;
 

@@ -57,6 +57,8 @@ function CategorizationReviewBanner({
   expenseApiBase,
   authHeaders,
   categories,
+  uncategorizedPct,
+  uncategorizedCount,
   onApproved,
   onDismiss,
 }: {
@@ -68,13 +70,15 @@ function CategorizationReviewBanner({
   expenseApiBase: string;
   authHeaders: Record<string, string>;
   categories: Array<{ id: string; name: string }>;
+  uncategorizedPct: number;
+  uncategorizedCount: number;
   onApproved: (expenseId: string) => void;
   onDismiss: () => void;
 }) {
   const [overrides, setOverrides] = React.useState<Record<string, string>>({});
   const [approving, setApproving] = React.useState<Set<string>>(new Set());
 
-  if (items.length === 0) return null;
+  if (items.length === 0 && uncategorizedPct <= 10) return null;
 
   const approve = async (expenseId: string, suggestedCategoryId: string) => {
     const catId = overrides[expenseId] ?? suggestedCategoryId;
@@ -101,7 +105,9 @@ function CategorizationReviewBanner({
     <div className="mb-4 rounded-lg border border-border bg-card p-4 shadow-sm">
       <div className="flex items-center justify-between mb-3">
         <span className="text-sm font-semibold">
-          AI suggested categories for {items.length} expense{items.length !== 1 ? 's' : ''}
+          {items.length > 0
+            ? `AI suggested categories for ${items.length} expense${items.length !== 1 ? 's' : ''}`
+            : `${uncategorizedCount} expense${uncategorizedCount !== 1 ? 's' : ''} need manual categorization`}
         </span>
         <button
           onClick={onDismiss}
@@ -110,6 +116,11 @@ function CategorizationReviewBanner({
           Dismiss for 24h ×
         </button>
       </div>
+      {items.length === 0 && (
+        <p className="text-sm text-muted-foreground mb-3">
+          AI couldn't confidently categorize these — open each expense to assign a category manually.
+        </p>
+      )}
       <div className="space-y-3">
         {items.map(item => {
           const isApproving = approving.has(item.expenseId);
@@ -289,6 +300,8 @@ export const ExpenseListPage: React.FC = () => {
       confidence: number; description: string | null;
     }>;
     uncategorizedPct: number;
+    uncategorizedCount: number;
+    totalCount: number;
   } | null>(null);
   const [catDismissed, setCatDismissed] = useState<boolean>(false);
 
@@ -687,11 +700,13 @@ export const ExpenseListPage: React.FC = () => {
         </div>
       )}
 
-      {catPending && !catDismissed && catPending.items.length > 0 && (
+      {catPending && !catDismissed && (catPending.items.length > 0 || catPending.uncategorizedPct > 10) && (
         <CategorizationReviewBanner
           items={catPending.items}
           expenseApiBase={API}
           authHeaders={{}}
+          uncategorizedPct={catPending.uncategorizedPct}
+          uncategorizedCount={catPending.uncategorizedCount ?? 0}
           categories={categorySummary
             .filter(c => c.categoryId !== null)
             .map(c => ({ id: c.categoryId!, name: c.categoryName }))}
