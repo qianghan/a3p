@@ -3721,89 +3721,64 @@ async function _executeClassificationCore(
     } catch { /* ignore */ }
   }
 
-  // Special inline handler: categorize-expenses (no external endpoint)
+  // Special inline handler: categorize-expenses — delegates to LLM auto-categorizer
   if (selectedSkill.name === 'categorize-expenses') {
     try {
-      const expenseBase = baseUrls['/api/v1/agentbook-expense'] || 'http://localhost:4051';
+      const nextBase = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
       const H = brainHeaders(tenantId);
 
-      // Fetch uncategorized expenses
-      const listRes = await fetch(`${expenseBase}/api/v1/agentbook-expense/expenses?limit=100`, { headers: H });
-      const listData = await listRes.json() as any;
-      const uncategorized = (listData.data || []).filter((e: any) => !e.categoryId);
+      // Call the LLM auto-categorizer via Next.js route (force=true bypasses dedupe)
+      const runRes = await fetch(`${nextBase}/api/v1/agentbook-core/auto-categorize/run`, {
+        method: 'POST',
+        headers: { 'x-tenant-id': tenantId, 'x-internal-cron': process.env.CRON_SECRET || '' },
+      });
+      const runData = runRes.ok
+        ? (await runRes.json() as { success: boolean; data?: { appliedCount: number; pendingCount: number; skippedCount: number } })
+        : { success: false };
 
-      if (uncategorized.length === 0) {
-        const totalCount = (listData.data || []).length;
-        await db.abConversation.create({ data: { tenantId, question: text || '[categorize]', answer: 'All expenses are already categorized!', queryType: 'agent', channel, skillUsed: 'categorize-expenses' } });
-        return {
-          selectedSkill, extractedParams, confidence, skillUsed: selectedSkill.name, skillResponse: null,
-          responseData: { message: `All ${totalCount} expenses are already categorized!`, skillUsed: 'categorize-expenses', confidence, latencyMs: Date.now() - startTime },
-        };
+      const applied = runData.success ? (runData.data?.appliedCount ?? 0) : 0;
+      const pendingCount = runData.success ? (runData.data?.pendingCount ?? 0) : 0;
+
+      let message: string;
+      if (!runData.success) {
+        message = "I couldn't run the auto-categorizer right now. Please try again in a moment.";
+      } else if (applied === 0 && pendingCount === 0) {
+        message = 'All your expenses are already categorized!';
+      } else if (pendingCount === 0) {
+        message = `Applied **${applied}** categories automatically. All expenses are now categorized!`;
+      } else {
+        message = `Applied **${applied}** categories automatically. **${pendingCount}** expense${pendingCount !== 1 ? 's' : ''} need your input — check the Expenses page or type 'review expenses' here to walk through them.`;
       }
 
-      // Load expense category accounts
-      const expenseAccounts = await db.abAccount.findMany({
-        where: { tenantId, accountType: 'expense', isActive: true },
-        select: { id: true, name: true },
-      });
-
-      const categoryKeywords: Record<string, string[]> = {
-        'Meals': ['lunch', 'dinner', 'breakfast', 'coffee', 'food', 'meal', 'restaurant', 'starbucks', 'mcdonald', 'uber eats', 'doordash', 'grubhub', 'snack', 'cafe', 'pizza', 'sushi', 'taco', 'burger'],
-        'Travel': ['flight', 'hotel', 'airbnb', 'uber', 'lyft', 'taxi', 'cab', 'train', 'bus', 'parking', 'gas', 'fuel', 'toll', 'rental car', 'travel', 'trip'],
-        'Software & Subscriptions': ['software', 'subscription', 'saas', 'aws', 'azure', 'gcp', 'github', 'figma', 'slack', 'zoom', 'notion', 'adobe', 'dropbox', 'heroku', 'vercel', 'netlify', 'hosting', 'domain', 'app', 'license'],
-        'Office Expenses': ['office', 'desk', 'chair', 'monitor', 'keyboard', 'mouse', 'printer', 'paper', 'ink', 'stapler', 'pens', 'notebook', 'whiteboard'],
-        'Supplies': ['supplies', 'supply', 'equipment', 'tool', 'hardware'],
-        'Advertising': ['advertising', 'marketing', 'facebook ads', 'google ads', 'promotion', 'campaign', 'sponsor'],
-        'Rent': ['rent', 'lease', 'coworking', 'wework', 'office space'],
-        'Utilities': ['electric', 'water', 'internet', 'phone', 'utility', 'utilities', 'wifi', 'cell', 'mobile plan'],
-        'Insurance': ['insurance', 'premium', 'coverage', 'liability'],
-        'Legal & Professional': ['lawyer', 'legal', 'attorney', 'accountant', 'cpa', 'consultant', 'audit', 'professional', 'notary'],
-        'Contract Labor': ['contractor', 'freelancer', 'freelance', 'subcontract', 'contract labor', 'outsource'],
-        'Commissions & Fees': ['commission', 'fee', 'stripe', 'paypal', 'processing', 'transaction fee', 'platform fee'],
-        'Bank Fees': ['bank fee', 'wire fee', 'overdraft', 'atm fee', 'monthly fee', 'service charge'],
-        'Car & Truck': ['car', 'truck', 'vehicle', 'mileage', 'oil change', 'tire', 'repair', 'auto'],
-      };
-
-      let categorized = 0;
-      let skipped = 0;
-      const results: string[] = [];
-
-      for (const exp of uncategorized) {
-        const desc = ((exp.description || '') + ' ' + (exp.vendorName || '')).toLowerCase();
-        let matchedCatId: string | null = null;
-        let matchedCatName: string | null = null;
-
-        for (const [catName, keywords] of Object.entries(categoryKeywords)) {
-          if (keywords.some(kw => desc.includes(kw))) {
-            const account = expenseAccounts.find(a => a.name === catName);
-            if (account) {
-              matchedCatId = account.id;
-              matchedCatName = catName;
-              break;
+      // For Telegram: include the first 2 pending items inline
+      if (pendingCount > 0 && channel === 'telegram') {
+        try {
+          const pendingRes = await fetch(`${nextBase}/api/v1/agentbook-core/auto-categorize/pending`, {
+            headers: H,
+          });
+          if (pendingRes.ok) {
+            const pendingData = await pendingRes.json() as {
+              success: boolean;
+              data?: { items: Array<{ vendorName: string | null; amountCents: number; suggestedCategoryName: string; confidence: number }> }
+            };
+            const previewItems = pendingData.data?.items?.slice(0, 2) ?? [];
+            if (previewItems.length > 0) {
+              const preview = previewItems.map(i =>
+                `• $${(i.amountCents / 100).toFixed(2)} ${i.vendorName || 'expense'} → ${i.suggestedCategoryName} (${Math.round(i.confidence * 100)}%)`
+              ).join('\n');
+              message += '\n\n' + preview;
+              if (pendingCount > 2) message += `\n...and ${pendingCount - 2} more.`;
             }
           }
-        }
-
-        if (matchedCatId) {
-          await fetch(`${expenseBase}/api/v1/agentbook-expense/expenses/${exp.id}/categorize`, {
-            method: 'POST', headers: H,
-            body: JSON.stringify({ categoryId: matchedCatId, source: 'agent_auto' }),
-          });
-          const amt = (exp.amountCents / 100).toFixed(2);
-          results.push(`$${amt} ${exp.description || exp.vendorName || 'expense'} → **${matchedCatName}**`);
-          categorized++;
-        } else {
-          skipped++;
-        }
+        } catch { /* best-effort: proceed without preview */ }
       }
 
-      let message = `Categorized **${categorized}** of ${uncategorized.length} uncategorized expenses.`;
-      if (skipped > 0) message += ` ${skipped} couldn't be auto-categorized — you can categorize them manually.`;
-      if (results.length > 0) message += '\n\n' + results.slice(0, 15).join('\n');
-      if (results.length > 15) message += `\n...and ${results.length - 15} more.`;
-
-      await db.abConversation.create({ data: { tenantId, question: text || '[categorize]', answer: message, queryType: 'agent', channel, skillUsed: 'categorize-expenses' } });
-      await db.abEvent.create({ data: { tenantId, eventType: 'agent.message', actor: 'user', action: { skillUsed: 'categorize-expenses', categorized, skipped, channel } } });
+      await db.abConversation.create({
+        data: { tenantId, question: text || '[categorize]', answer: message, queryType: 'agent', channel, skillUsed: 'categorize-expenses' },
+      });
+      await db.abEvent.create({
+        data: { tenantId, eventType: 'agent.message', actor: 'user', action: { skillUsed: 'categorize-expenses', applied, pendingCount, channel } },
+      });
 
       return {
         selectedSkill, extractedParams, confidence, skillUsed: selectedSkill.name, skillResponse: null,
