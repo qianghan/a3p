@@ -1,0 +1,1743 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Cashflow Plugin — Implementation Plan</title>
+<style>
+  :root {
+    --bg: #0f1117; --surface: #1a1d27; --border: #2d3148;
+    --accent: #6366f1; --accent-dim: #4338ca; --green: #22c55e;
+    --yellow: #eab308; --red: #ef4444; --text: #e2e8f0;
+    --muted: #94a3b8; --code-bg: #0d1117;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; font-size: 14px; line-height: 1.6; }
+  .container { max-width: 960px; margin: 0 auto; padding: 40px 24px 80px; }
+  h1 { font-size: 28px; font-weight: 700; color: #fff; margin-bottom: 8px; }
+  .subtitle { color: var(--muted); font-size: 14px; margin-bottom: 32px; }
+  .meta-grid { display: grid; grid-template-columns: repeat(3,1fr); gap: 12px; margin-bottom: 40px; }
+  .meta-card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 16px; }
+  .meta-card .label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 4px; }
+  .meta-card .value { font-size: 13px; font-weight: 500; }
+  .banner { background: #1e2035; border: 1px solid var(--accent); border-radius: 10px; padding: 16px 20px; margin-bottom: 32px; font-size: 13px; color: #a5b4fc; }
+  .banner strong { color: #c7d2fe; }
+  h2 { font-size: 20px; font-weight: 700; color: #fff; margin: 40px 0 16px; border-bottom: 1px solid var(--border); padding-bottom: 10px; }
+  h3 { font-size: 15px; font-weight: 700; color: #c7d2fe; margin: 28px 0 12px; }
+  .task { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; margin-bottom: 16px; overflow: hidden; }
+  .task-header { display: flex; align-items: flex-start; gap: 12px; padding: 16px 20px; cursor: pointer; user-select: none; }
+  .task-header:hover { background: #1e2136; }
+  .task-num { background: var(--accent); color: #fff; border-radius: 6px; font-size: 11px; font-weight: 700; padding: 2px 8px; white-space: nowrap; flex-shrink: 0; margin-top: 2px; }
+  .task-title { font-weight: 600; font-size: 14px; }
+  .task-subtitle { font-size: 12px; color: var(--muted); margin-top: 2px; }
+  .task-status { margin-left: auto; flex-shrink: 0; }
+  .badge { display: inline-flex; align-items: center; gap: 4px; border-radius: 20px; font-size: 11px; font-weight: 600; padding: 2px 10px; }
+  .badge.pending { background: #292940; color: var(--muted); border: 1px solid var(--border); }
+  .badge.pr { background: #1a2940; color: #60a5fa; border: 1px solid #1e3a5f; }
+  .badge.review { background: #2a1f00; color: var(--yellow); border: 1px solid #4a3800; }
+  .badge.merged { background: #0d2b1a; color: var(--green); border: 1px solid #14532d; }
+  .task-body { padding: 0 20px 20px; }
+  .files { margin-bottom: 14px; }
+  .files .label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.07em; margin-bottom: 6px; }
+  .file-row { display: flex; align-items: center; gap-8px; font-size: 12px; margin-bottom: 3px; }
+  .file-badge { font-size: 10px; font-weight: 700; border-radius: 4px; padding: 1px 6px; margin-right: 8px; flex-shrink: 0; }
+  .file-badge.create { background: #0d2b1a; color: var(--green); }
+  .file-badge.modify { background: #1a2940; color: #60a5fa; }
+  .file-badge.move { background: #2a1f00; color: var(--yellow); }
+  .file-path { font-family: 'SF Mono', 'Fira Code', monospace; color: #e2e8f0; }
+  .steps { list-style: none; }
+  .step { display: flex; gap: 10px; margin-bottom: 10px; }
+  .step-check { width: 18px; height: 18px; border: 1.5px solid var(--border); border-radius: 4px; flex-shrink: 0; margin-top: 1px; }
+  .step-content { flex: 1; }
+  .step-label { font-size: 13px; margin-bottom: 4px; }
+  pre { background: var(--code-bg); border: 1px solid var(--border); border-radius: 6px; padding: 12px 14px; font-family: 'SF Mono', 'Fira Code', monospace; font-size: 12px; overflow-x: auto; line-height: 1.5; color: #cdd9e5; margin-top: 6px; }
+  code { font-family: 'SF Mono', 'Fira Code', monospace; font-size: 12px; background: #1e2234; padding: 1px 5px; border-radius: 3px; color: #a5b4fc; }
+  .pr-box { border: 1px solid var(--border); border-radius: 8px; margin-top: 16px; overflow: hidden; }
+  .pr-box .pr-header { background: #1e2234; padding: 10px 14px; font-size: 12px; color: var(--muted); border-bottom: 1px solid var(--border); }
+  .pr-box .pr-body { padding: 12px 14px; font-size: 12px; }
+  .pr-gate { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; font-size: 12px; }
+  .gate-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+  .gate-dot.pass { background: var(--green); }
+  .gate-dot.required { background: var(--yellow); }
+  .divider { border: none; border-top: 1px solid var(--border); margin: 32px 0; }
+  .table-wrap { overflow-x: auto; margin: 12px 0; }
+  table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  th { background: #1a1d27; border: 1px solid var(--border); padding: 8px 12px; text-align: left; font-size: 11px; color: var(--muted); font-weight: 600; }
+  td { border: 1px solid var(--border); padding: 8px 12px; }
+  td code { background: transparent; padding: 0; }
+  .note { background: #1a2234; border-left: 3px solid var(--accent); border-radius: 0 6px 6px 0; padding: 10px 14px; font-size: 12px; color: #a5b4fc; margin: 10px 0; }
+  .warn { background: #2a1f00; border-left: 3px solid var(--yellow); border-radius: 0 6px 6px 0; padding: 10px 14px; font-size: 12px; color: #fde68a; margin: 10px 0; }
+  .progress-bar { background: var(--border); border-radius: 4px; height: 6px; margin-top: 4px; }
+  .progress-fill { height: 100%; background: var(--accent); border-radius: 4px; }
+  details summary { list-style: none; }
+  details summary::-webkit-details-marker { display: none; }
+</style>
+</head>
+<body>
+<div class="container">
+
+<h1>Cashflow Plugin — Implementation Plan</h1>
+<p class="subtitle">Spec: <code>docs/superpowers/specs/2026-06-27-cashflow-plugin-design.md</code> &nbsp;|&nbsp; Branch: <code>pr/cashflow-plugin</code> &nbsp;|&nbsp; After: auto-cat is merged</p>
+
+<div class="banner">
+  <strong>Agentic workers:</strong> Use <code>superpowers:subagent-driven-development</code> (recommended) or <code>superpowers:executing-plans</code>. Execute each PR in order. Each PR must pass CI and be merged before the next one begins. Self-code-review checklist is in the PR gate box of each task.
+</div>
+
+<div class="meta-grid">
+  <div class="meta-card"><div class="label">Architecture</div><div class="value">Extend agentbook-core (port 4050) + 1 new Prisma table + 12 columns</div></div>
+  <div class="meta-card"><div class="label">No 5th server</div><div class="value">Cashflow endpoints live on existing agentbook-core Express backend</div></div>
+  <div class="meta-card"><div class="label">Focus</div><div class="value">US + CA jurisdictions (UK/AU/NZ stubs ready but not activated)</div></div>
+</div>
+
+<div class="table-wrap">
+  <table>
+    <tr><th>PR</th><th>Title</th><th>Key files</th><th>Gate</th></tr>
+    <tr><td>1</td><td>Jurisdiction config module + US Q1 bug fix</td><td><code>jurisdictions.ts</code>, tax plugin</td><td>Unit tests pass</td></tr>
+    <tr><td>2</td><td>Schema migrations</td><td><code>schema.prisma</code>, <code>prisma db push</code></td><td>Migration clean, no data loss</td></tr>
+    <tr><td>3</td><td>Cashflow API endpoints (dashboard/trend/runway/projection)</td><td><code>core/server.ts</code></td><td>Integration tests pass</td></tr>
+    <tr><td>4</td><td>Scenarios API + tax reserve API</td><td><code>core/server.ts</code></td><td>CRUD tests pass</td></tr>
+    <tr><td>5</td><td>Crons (cashflow-snapshot + extend proactive-alerts + payment-reminders)</td><td>cron routes, vercel.json</td><td>Dry-run passes, vercel.json valid</td></tr>
+    <tr><td>6</td><td>7 chat skills (INTERNAL handlers)</td><td><code>built-in-skills.ts</code>, <code>server.ts</code></td><td>Seed skills, chat test passes</td></tr>
+    <tr><td>7</td><td>CashflowDashboard frontend page</td><td><code>CashflowDashboard.tsx</code></td><td>Visual review + build passes</td></tr>
+    <tr><td>8</td><td>ScenarioPlanner frontend page + routing + nav</td><td><code>ScenarioPlanner.tsx</code>, <code>App.tsx</code></td><td>Visual review + build passes</td></tr>
+    <tr><td>9</td><td>Deploy + E2E smoke test</td><td><code>vercel deploy</code></td><td>Production smoke test checklist</td></tr>
+  </table>
+</div>
+
+<hr class="divider">
+
+<!-- PR 1 -->
+<h2>PR 1 — Jurisdiction Config Module</h2>
+
+<div class="task">
+  <div class="task-header">
+    <span class="task-num">Task 1.1</span>
+    <div>
+      <div class="task-title">Create <code>jurisdictions.ts</code> with US + CA (and UK/AU/NZ stubs)</div>
+      <div class="task-subtitle">Data-driven — adding a new jurisdiction = adding one config object, zero handler changes</div>
+    </div>
+    <div class="task-status"><span class="badge pending">Pending</span></div>
+  </div>
+  <div class="task-body">
+    <div class="files">
+      <div class="label">Files</div>
+      <div class="file-row"><span class="file-badge create">CREATE</span><span class="file-path">plugins/agentbook-core/backend/src/lib/jurisdictions.ts</span></div>
+    </div>
+    <ul class="steps">
+      <li class="step">
+        <div class="step-check"></div>
+        <div class="step-content">
+          <div class="step-label">Write the failing test</div>
+          <pre>// plugins/agentbook-core/backend/src/lib/jurisdictions.test.ts
+import { describe, it, expect } from 'vitest';
+import { getJurisdiction, JURISDICTIONS } from './jurisdictions';
+
+describe('jurisdictions', () => {
+  it('US Q1 deadline is April 15, not March 15', () => {
+    const deadlines = JURISDICTIONS.us.quarterlyDeadlines(2026);
+    const q1 = deadlines.find(d => d.quarter === 1)!;
+    expect(q1.deadline.getMonth()).toBe(3); // April = 3 (0-indexed)
+    expect(q1.deadline.getDate()).toBe(15);
+  });
+  it('US Q4 deadline is January 15 of next year', () => {
+    const deadlines = JURISDICTIONS.us.quarterlyDeadlines(2026);
+    const q4 = deadlines.find(d => d.quarter === 4)!;
+    expect(q4.deadline.getFullYear()).toBe(2027);
+    expect(q4.deadline.getMonth()).toBe(0);
+  });
+  it('CA has 4 quarterly deadlines', () => {
+    expect(JURISDICTIONS.ca.quarterlyDeadlines(2026)).toHaveLength(4);
+  });
+  it('getJurisdiction falls back to US for unknown codes', () => {
+    expect(getJurisdiction('xx').code).toBe('us');
+  });
+  it('taxReserveRecommendedPercent is between 0.20 and 0.40 for US', () => {
+    const j = getJurisdiction('us');
+    expect(j.taxReserveRecommendedPercent).toBeGreaterThanOrEqual(0.20);
+    expect(j.taxReserveRecommendedPercent).toBeLessThanOrEqual(0.40);
+  });
+});</pre>
+          <div class="step-label">Run: <code>npx vitest run plugins/agentbook-core/backend/src/lib/jurisdictions.test.ts</code></div>
+          <div class="step-label">Expected: FAIL (module not found)</div>
+        </div>
+      </li>
+      <li class="step">
+        <div class="step-check"></div>
+        <div class="step-content">
+          <div class="step-label">Implement <code>jurisdictions.ts</code></div>
+          <pre>// plugins/agentbook-core/backend/src/lib/jurisdictions.ts
+export interface JurisdictionConfig {
+  code: string;
+  name: string;
+  defaultCurrency: string;
+  fiscalYearStart: number; // month 1–12
+  quarterlyDeadlines: (year: number) => Array&lt;{ quarter: number; deadline: Date; label: string }&gt;;
+  selfEmploymentTaxRate: number;
+  incomeBrackets: Array&lt;{ upToCents: number | null; rate: number }&gt;;
+  taxReserveRecommendedPercent: number;
+  paymentReminderLeadDays: number[];
+}
+
+function nextBusinessDay(d: Date): Date {
+  const r = new Date(d);
+  const day = r.getDay(); // 0=Sun, 6=Sat
+  if (day === 6) r.setDate(r.getDate() + 2);
+  else if (day === 0) r.setDate(r.getDate() + 1);
+  return r;
+}
+
+const US_BRACKETS: Array&lt;{ upToCents: number | null; rate: number }&gt; = [
+  { upToCents: 1147200, rate: 0.10 },
+  { upToCents: 4382200, rate: 0.12 },
+  { upToCents: 9325500, rate: 0.22 },
+  { upToCents: 19741400, rate: 0.24 },
+  { upToCents: 25046400, rate: 0.32 },
+  { upToCents: 62547000, rate: 0.35 },
+  { upToCents: null, rate: 0.37 },
+];
+
+const CA_BRACKETS: Array&lt;{ upToCents: number | null; rate: number }&gt; = [
+  { upToCents: 5558000, rate: 0.15 },
+  { upToCents: 11117300, rate: 0.205 },
+  { upToCents: 15360800, rate: 0.26 },
+  { upToCents: 18561200, rate: 0.29 },
+  { upToCents: null, rate: 0.33 },
+];
+
+export const JURISDICTIONS: Record&lt;string, JurisdictionConfig&gt; = {
+  us: {
+    code: 'us', name: 'United States', defaultCurrency: 'USD', fiscalYearStart: 1,
+    quarterlyDeadlines: (y) => [
+      { quarter: 1, deadline: nextBusinessDay(new Date(`${y}-04-15`)), label: 'Q1 Estimated Tax (Form 1040-ES)' },
+      { quarter: 2, deadline: nextBusinessDay(new Date(`${y}-06-15`)), label: 'Q2 Estimated Tax' },
+      { quarter: 3, deadline: nextBusinessDay(new Date(`${y}-09-15`)), label: 'Q3 Estimated Tax' },
+      { quarter: 4, deadline: nextBusinessDay(new Date(`${y + 1}-01-15`)), label: 'Q4 Estimated Tax' },
+    ],
+    selfEmploymentTaxRate: 0.153 * 0.9235,
+    incomeBrackets: US_BRACKETS,
+    taxReserveRecommendedPercent: 0.30,
+    paymentReminderLeadDays: [30, 14, 3],
+  },
+  ca: {
+    code: 'ca', name: 'Canada', defaultCurrency: 'CAD', fiscalYearStart: 1,
+    quarterlyDeadlines: (y) => [
+      { quarter: 1, deadline: new Date(`${y}-03-15`), label: 'March Installment' },
+      { quarter: 2, deadline: new Date(`${y}-06-15`), label: 'June Installment' },
+      { quarter: 3, deadline: new Date(`${y}-09-15`), label: 'September Installment' },
+      { quarter: 4, deadline: new Date(`${y}-12-15`), label: 'December Installment' },
+    ],
+    selfEmploymentTaxRate: 0.119,
+    incomeBrackets: CA_BRACKETS,
+    taxReserveRecommendedPercent: 0.25,
+    paymentReminderLeadDays: [30, 14, 3],
+  },
+  uk: {
+    code: 'uk', name: 'United Kingdom', defaultCurrency: 'GBP', fiscalYearStart: 4,
+    quarterlyDeadlines: (y) => [
+      { quarter: 1, deadline: new Date(`${y + 1}-01-31`), label: '1st Payment on Account' },
+      { quarter: 2, deadline: new Date(`${y + 1}-07-31`), label: '2nd Payment on Account' },
+    ],
+    selfEmploymentTaxRate: 0.092,
+    incomeBrackets: [{ upToCents: 5000000, rate: 0.20 }, { upToCents: null, rate: 0.40 }],
+    taxReserveRecommendedPercent: 0.30,
+    paymentReminderLeadDays: [60, 30, 7],
+  },
+  au: {
+    code: 'au', name: 'Australia', defaultCurrency: 'AUD', fiscalYearStart: 7,
+    quarterlyDeadlines: (y) => [
+      { quarter: 1, deadline: new Date(`${y}-10-28`), label: 'Q1 BAS (Jul–Sep)' },
+      { quarter: 2, deadline: new Date(`${y + 1}-02-28`), label: 'Q2 BAS (Oct–Dec)' },
+      { quarter: 3, deadline: new Date(`${y + 1}-04-28`), label: 'Q3 BAS (Jan–Mar)' },
+      { quarter: 4, deadline: new Date(`${y + 1}-07-28`), label: 'Q4 BAS (Apr–Jun)' },
+    ],
+    selfEmploymentTaxRate: 0.0,
+    incomeBrackets: [{ upToCents: 1803300, rate: 0 }, { upToCents: null, rate: 0.34 }],
+    taxReserveRecommendedPercent: 0.27,
+    paymentReminderLeadDays: [30, 14, 3],
+  },
+  nz: {
+    code: 'nz', name: 'New Zealand', defaultCurrency: 'NZD', fiscalYearStart: 4,
+    quarterlyDeadlines: (y) => [
+      { quarter: 1, deadline: new Date(`${y}-08-28`), label: '1st Provisional Tax' },
+      { quarter: 2, deadline: new Date(`${y + 1}-01-15`), label: '2nd Provisional Tax' },
+      { quarter: 3, deadline: new Date(`${y + 1}-05-07`), label: '3rd Provisional Tax' },
+    ],
+    selfEmploymentTaxRate: 0.0,
+    incomeBrackets: [{ upToCents: 1400000, rate: 0.105 }, { upToCents: null, rate: 0.33 }],
+    taxReserveRecommendedPercent: 0.28,
+    paymentReminderLeadDays: [30, 14, 3],
+  },
+};
+
+export function getJurisdiction(code: string): JurisdictionConfig {
+  return JURISDICTIONS[code?.toLowerCase()] ?? JURISDICTIONS.us;
+}</pre>
+        </div>
+      </li>
+      <li class="step">
+        <div class="step-check"></div>
+        <div class="step-content">
+          <div class="step-label">Run tests — expect pass</div>
+          <pre>npx vitest run plugins/agentbook-core/backend/src/lib/jurisdictions.test.ts</pre>
+        </div>
+      </li>
+    </ul>
+  </div>
+</div>
+
+<div class="task">
+  <div class="task-header">
+    <span class="task-num">Task 1.2</span>
+    <div>
+      <div class="task-title">Fix US Q1 bug in tax plugin</div>
+      <div class="task-subtitle">Replace hardcoded <code>${year}-03-15</code> with <code>getJurisdiction('us').quarterlyDeadlines(year)</code></div>
+    </div>
+    <div class="task-status"><span class="badge pending">Pending</span></div>
+  </div>
+  <div class="task-body">
+    <div class="files">
+      <div class="label">Files</div>
+      <div class="file-row"><span class="file-badge modify">MODIFY</span><span class="file-path">plugins/agentbook-tax/backend/src/server.ts</span></div>
+    </div>
+    <ul class="steps">
+      <li class="step">
+        <div class="step-check"></div>
+        <div class="step-content">
+          <div class="step-label">Find <code>getQuarterlyDeadlines</code> in tax server</div>
+          <pre>grep -n "getQuarterlyDeadlines\|03-15\|quarterly.*deadline" plugins/agentbook-tax/backend/src/server.ts | head -20</pre>
+        </div>
+      </li>
+      <li class="step">
+        <div class="step-check"></div>
+        <div class="step-content">
+          <div class="step-label">Add import and replace the function body</div>
+          <p style="font-size:12px;color:var(--muted);margin-bottom:6px;">At the top of tax server.ts, add:</p>
+          <pre>import { getJurisdiction } from '../../agentbook-core/backend/src/lib/jurisdictions';</pre>
+          <p style="font-size:12px;color:var(--muted);margin:6px 0;">Replace the existing <code>getQuarterlyDeadlines</code> function with:</p>
+          <pre>function getQuarterlyDeadlines(tenantJurisdiction: string, year: number) {
+  return getJurisdiction(tenantJurisdiction).quarterlyDeadlines(year);
+}</pre>
+          <p style="font-size:12px;color:var(--muted);margin-top:6px;">If the existing function has 0 parameters (hardcoded US), update all call sites to pass <code>tenantJurisdiction</code>. For now default to <code>'us'</code> at each call site until tenant-level jurisdiction is wired end-to-end in PR 3.</p>
+        </div>
+      </li>
+      <li class="step">
+        <div class="step-check"></div>
+        <div class="step-content">
+          <div class="step-label">Commit PR 1</div>
+          <pre>git add plugins/agentbook-core/backend/src/lib/jurisdictions.ts \
+        plugins/agentbook-core/backend/src/lib/jurisdictions.test.ts \
+        plugins/agentbook-tax/backend/src/server.ts
+git commit -m "feat(cashflow): jurisdiction config module + fix US Q1 tax deadline (Mar→Apr)"</pre>
+        </div>
+      </li>
+    </ul>
+    <div class="pr-box">
+      <div class="pr-header">PR 1 — Self-review gate before merge</div>
+      <div class="pr-body">
+        <div class="pr-gate"><div class="gate-dot required"></div>US Q1 deadline returns April 15, not March 15 (verified by test)</div>
+        <div class="pr-gate"><div class="gate-dot required"></div><code>getJurisdiction('xx')</code> falls back to US, does not throw</div>
+        <div class="pr-gate"><div class="gate-dot required"></div>Tax plugin compiles — import path from agentbook-tax → agentbook-core resolves correctly</div>
+        <div class="pr-gate"><div class="gate-dot required"></div>No existing tax tests broken</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<hr class="divider">
+
+<!-- PR 2 -->
+<h2>PR 2 — Schema Migration</h2>
+
+<div class="task">
+  <div class="task-header">
+    <span class="task-num">Task 2.1</span>
+    <div>
+      <div class="task-title">Extend schema + run <code>prisma db push</code></div>
+      <div class="task-subtitle">1 new table (AbCashflowScenario), 6 columns on AbFinancialSnapshot, 7 columns on AbTenantConfig</div>
+    </div>
+    <div class="task-status"><span class="badge pending">Pending</span></div>
+  </div>
+  <div class="task-body">
+    <div class="files">
+      <div class="label">Files</div>
+      <div class="file-row"><span class="file-badge modify">MODIFY</span><span class="file-path">packages/database/prisma/schema.prisma</span></div>
+    </div>
+    <div class="note">
+      <strong>Current DB:</strong> Supabase <code>agentbook-db</code> (instance <code>vefoeskvxthrcnggjtlf</code>). Use the Vercel-managed DATABASE_URL. Never run migrations against Neon endpoints.
+    </div>
+    <ul class="steps">
+      <li class="step">
+        <div class="step-check"></div>
+        <div class="step-content">
+          <div class="step-label">Extend <code>AbFinancialSnapshot</code> — add 6 cashflow fields</div>
+          <pre>// In model AbFinancialSnapshot, after the last existing field:
+inflow30dCents         Int     @default(0)
+outflow30dCents        Int     @default(0)
+projectedCash30Cents   Int     @default(0)
+projectedCash60Cents   Int     @default(0)
+projectedCash90Cents   Int     @default(0)
+taxReserveBalanceCents Int     @default(0)</pre>
+        </div>
+      </li>
+      <li class="step">
+        <div class="step-check"></div>
+        <div class="step-content">
+          <div class="step-label">Extend <code>AbTenantConfig</code> — add 7 cashflow config fields</div>
+          <pre>// In model AbTenantConfig, after the last existing field:
+cashflowLowBalanceCents  Int?
+cashflowMinRunwayMonths  Float?
+cashflowAlertChannel     String  @default("telegram")
+taxReserveAccountId      String?
+taxReserveMode           String  @default("quarterly_estimate")
+taxReservePercent        Float?
+taxReserveFixedCents     Int?</pre>
+        </div>
+      </li>
+      <li class="step">
+        <div class="step-check"></div>
+        <div class="step-content">
+          <div class="step-label">Add new <code>AbCashflowScenario</code> model</div>
+          <pre>model AbCashflowScenario {
+  id           String    @id @default(uuid())
+  tenantId     String
+  name         String
+  description  String?
+  scenarioType String
+  params       Json
+  startMonth   DateTime?
+  isActive     Boolean   @default(true)
+  lastResult   Json?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@index([tenantId, isActive])
+  @@schema("plugin_agentbook_core")
+}</pre>
+        </div>
+      </li>
+      <li class="step">
+        <div class="step-check"></div>
+        <div class="step-content">
+          <div class="step-label">Run <code>prisma generate</code> and verify no TypeScript errors</div>
+          <pre>cd packages/database && npx prisma generate
+# Verify: should complete without errors and regenerate the client</pre>
+        </div>
+      </li>
+      <li class="step">
+        <div class="step-check"></div>
+        <div class="step-content">
+          <div class="step-label">Run <code>prisma db push</code> against Supabase</div>
+          <div class="warn">Use the Vercel-managed DATABASE_URL (Supabase). Do NOT use neondb_owner or ep-* credentials.</div>
+          <pre>DATABASE_URL="$DATABASE_URL_FROM_VERCEL_ENV" npx prisma db push --accept-data-loss</pre>
+          <p style="font-size:12px;color:var(--muted);margin-top:6px;">Expected: all 3 operations complete (ADD COLUMN × 13, CREATE TABLE × 1). No data loss since all new columns have defaults.</p>
+        </div>
+      </li>
+      <li class="step">
+        <div class="step-check"></div>
+        <div class="step-content">
+          <div class="step-label">Commit PR 2</div>
+          <pre>git add packages/database/prisma/schema.prisma packages/database/prisma/generated/
+git commit -m "feat(cashflow): schema — AbCashflowScenario + extend AbFinancialSnapshot + AbTenantConfig"</pre>
+        </div>
+      </li>
+    </ul>
+    <div class="pr-box">
+      <div class="pr-header">PR 2 — Self-review gate before merge</div>
+      <div class="pr-body">
+        <div class="pr-gate"><div class="gate-dot required"></div><code>prisma db push</code> completed without data-loss warnings on production rows</div>
+        <div class="pr-gate"><div class="gate-dot required"></div><code>AbCashflowScenario</code> appears in the Supabase table list</div>
+        <div class="pr-gate"><div class="gate-dot required"></div>All 13 new columns visible in Supabase Table Editor with correct defaults</div>
+        <div class="pr-gate"><div class="gate-dot required"></div>Existing services still start without Prisma errors (test by starting core backend)</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<hr class="divider">
+
+<!-- PR 3 -->
+<h2>PR 3 — Cashflow API Endpoints (Read)</h2>
+
+<div class="task">
+  <div class="task-header">
+    <span class="task-num">Task 3.1</span>
+    <div>
+      <div class="task-title">Add dashboard/trend/runway/projection endpoints to agentbook-core</div>
+      <div class="task-subtitle">All on port 4050. Reads from AbFinancialSnapshot, AbJournalLine, AbFxRate</div>
+    </div>
+    <div class="task-status"><span class="badge pending">Pending</span></div>
+  </div>
+  <div class="task-body">
+    <div class="files">
+      <div class="label">Files</div>
+      <div class="file-row"><span class="file-badge modify">MODIFY</span><span class="file-path">plugins/agentbook-core/backend/src/server.ts</span></div>
+    </div>
+    <div class="note">Add all cashflow routes in a new section after the existing <code>// === Financial Snapshot ===</code> block. Search for that comment to find the insertion point.</div>
+    <ul class="steps">
+      <li class="step">
+        <div class="step-check"></div>
+        <div class="step-content">
+          <div class="step-label">Write integration test</div>
+          <pre>// plugins/agentbook-core/backend/src/__tests__/cashflow.test.ts
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+
+vi.mock('@naap/database', () => ({
+  prisma: {
+    abFinancialSnapshot: {
+      findFirst: vi.fn().mockResolvedValue({
+        cashBalanceCents: 500000, runwayMonths: 6.5, monthlyBurnCents: 75000,
+        inflow30dCents: 200000, outflow30dCents: 150000,
+        projectedCash30Cents: 550000, projectedCash60Cents: 600000, projectedCash90Cents: 620000,
+        taxReserveBalanceCents: 80000, snapshotDate: new Date(),
+      }),
+      findMany: vi.fn().mockResolvedValue([]),
+    },
+    abTenantConfig: { findUnique: vi.fn().mockResolvedValue({ currency: 'USD', jurisdiction: 'us' }) },
+    abTaxEstimate: { findFirst: vi.fn().mockResolvedValue(null) },
+    abQuarterlyPayment: { findMany: vi.fn().mockResolvedValue([]) },
+  },
+}));
+
+describe('GET /cashflow/dashboard', () => {
+  it('returns cashflow dashboard data', async () => {
+    // Use supertest against the Express app
+    // Import app from server.ts (export app, not just listen)
+    const res = await fetch('http://localhost:4050/api/v1/agentbook-core/cashflow/dashboard', {
+      headers: { 'x-tenant-id': 'test-tenant' },
+    });
+    const body = await res.json();
+    expect(body.success).toBe(true);
+    expect(body.data.balance).toBeGreaterThanOrEqual(0);
+    expect(body.data.runway).toBeGreaterThanOrEqual(0);
+    expect(body.data.currency).toBe('USD');
+  });
+});</pre>
+        </div>
+      </li>
+      <li class="step">
+        <div class="step-check"></div>
+        <div class="step-content">
+          <div class="step-label">Implement GET /cashflow/dashboard</div>
+          <p style="font-size:12px;color:var(--muted);margin-bottom:6px;">Add after the financial-snapshot section in server.ts:</p>
+          <pre>// === Cashflow API ===
+
+app.get('/api/v1/agentbook-core/cashflow/dashboard', async (req, res) =&gt; {
+  try {
+    const tenantId = (req as any).tenantId;
+    const config = await db.abTenantConfig.findUnique({ where: { tenantId } });
+    const currency = req.query.currency as string || config?.currency || 'USD';
+    const jurisdiction = config?.jurisdiction || 'us';
+
+    const snap = await db.abFinancialSnapshot.findFirst({
+      where: { tenantId },
+      orderBy: { snapshotDate: 'desc' },
+    });
+
+    // Next tax due date from jurisdiction config
+    const jur = getJurisdiction(jurisdiction);
+    const now = new Date();
+    const deadlines = jur.quarterlyDeadlines(now.getFullYear());
+    const nextDue = deadlines.find(d =&gt; d.deadline &gt; now) || deadlines[deadlines.length - 1];
+
+    // Tax reserve status from AbTaxEstimate
+    const taxEst = await db.abTaxEstimate.findFirst({
+      where: { tenantId },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    res.json({
+      success: true,
+      data: {
+        balance: snap?.cashBalanceCents ?? 0,
+        runway: snap?.runwayMonths ?? 0,
+        monthlyBurn: snap?.monthlyBurnCents ?? 0,
+        inflow30d: snap?.inflow30dCents ?? 0,
+        outflow30d: snap?.outflow30dCents ?? 0,
+        projections: {
+          d30: snap?.projectedCash30Cents ?? 0,
+          d60: snap?.projectedCash60Cents ?? 0,
+          d90: snap?.projectedCash90Cents ?? 0,
+        },
+        taxReserve: {
+          balance: snap?.taxReserveBalanceCents ?? 0,
+          recommended: taxEst?.estimatedTaxCents ?? 0,
+          nextDue: { deadline: nextDue.deadline, label: nextDue.label },
+          reserveRate: jur.taxReserveRecommendedPercent,
+        },
+        currency,
+        jurisdiction,
+        snapshotDate: snap?.snapshotDate ?? null,
+      },
+    });
+  } catch (err) { res.status(500).json({ success: false, error: String(err) }); }
+});</pre>
+        </div>
+      </li>
+      <li class="step">
+        <div class="step-check"></div>
+        <div class="step-content">
+          <div class="step-label">Implement GET /cashflow/trend</div>
+          <pre>app.get('/api/v1/agentbook-core/cashflow/trend', async (req, res) =&gt; {
+  try {
+    const tenantId = (req as any).tenantId;
+    const days = Math.min(Number(req.query.days) || 90, 365);
+    const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+
+    const snapshots = await db.abFinancialSnapshot.findMany({
+      where: { tenantId, snapshotDate: { gte: since } },
+      orderBy: { snapshotDate: 'asc' },
+      select: {
+        snapshotDate: true, cashBalanceCents: true,
+        inflow30dCents: true, outflow30dCents: true,
+      },
+    });
+
+    res.json({ success: true, data: { days, snapshots } });
+  } catch (err) { res.status(500).json({ success: false, error: String(err) }); }
+});
+
+app.get('/api/v1/agentbook-core/cashflow/runway', async (req, res) =&gt; {
+  try {
+    const tenantId = (req as any).tenantId;
+    const snap = await db.abFinancialSnapshot.findFirst({
+      where: { tenantId }, orderBy: { snapshotDate: 'desc' },
+      select: { cashBalanceCents: true, monthlyBurnCents: true, runwayMonths: true },
+    });
+    res.json({
+      success: true,
+      data: {
+        runwayMonths: snap?.runwayMonths ?? 0,
+        monthlyBurnCents: snap?.monthlyBurnCents ?? 0,
+        currentBalanceCents: snap?.cashBalanceCents ?? 0,
+      },
+    });
+  } catch (err) { res.status(500).json({ success: false, error: String(err) }); }
+});</pre>
+        </div>
+      </li>
+      <li class="step">
+        <div class="step-check"></div>
+        <div class="step-content">
+          <div class="step-label">Implement GET /cashflow/projection</div>
+          <p style="font-size:12px;color:var(--muted);margin-bottom:6px;">Reads the snap's pre-computed projections. If scenarioId provided, overlays AbCashflowScenario.lastResult.</p>
+          <pre>app.get('/api/v1/agentbook-core/cashflow/projection', async (req, res) =&gt; {
+  try {
+    const tenantId = (req as any).tenantId;
+    const scenarioId = req.query.scenarioId as string | undefined;
+
+    const snap = await db.abFinancialSnapshot.findFirst({
+      where: { tenantId }, orderBy: { snapshotDate: 'desc' },
+    });
+
+    let scenarioOverlay: any = null;
+    if (scenarioId) {
+      const scenario = await db.abCashflowScenario.findFirst({
+        where: { id: scenarioId, tenantId },
+      });
+      scenarioOverlay = scenario?.lastResult ?? null;
+    }
+
+    res.json({
+      success: true,
+      data: {
+        base: {
+          d30: snap?.projectedCash30Cents ?? 0,
+          d60: snap?.projectedCash60Cents ?? 0,
+          d90: snap?.projectedCash90Cents ?? 0,
+        },
+        scenario: scenarioOverlay,
+        snapshotDate: snap?.snapshotDate,
+      },
+    });
+  } catch (err) { res.status(500).json({ success: false, error: String(err) }); }
+});</pre>
+        </div>
+      </li>
+      <li class="step">
+        <div class="step-check"></div>
+        <div class="step-content">
+          <div class="step-label">Commit PR 3</div>
+          <pre>git add plugins/agentbook-core/backend/src/server.ts \
+        plugins/agentbook-core/backend/src/__tests__/cashflow.test.ts
+git commit -m "feat(cashflow): add dashboard/trend/runway/projection endpoints to core"</pre>
+        </div>
+      </li>
+    </ul>
+    <div class="pr-box">
+      <div class="pr-header">PR 3 — Self-review gate before merge</div>
+      <div class="pr-body">
+        <div class="pr-gate"><div class="gate-dot required"></div>GET /cashflow/dashboard returns <code>success: true</code> when AbFinancialSnapshot row exists</div>
+        <div class="pr-gate"><div class="gate-dot required"></div>GET /cashflow/dashboard returns zeroes gracefully when no snapshot row exists</div>
+        <div class="pr-gate"><div class="gate-dot required"></div>GET /cashflow/trend respects <code>?days=</code> param and caps at 365</div>
+        <div class="pr-gate"><div class="gate-dot required"></div>No circular imports — <code>jurisdictions.ts</code> imported correctly</div>
+        <div class="pr-gate"><div class="gate-dot required"></div>Existing core endpoints still respond (health check: <code>GET /api/v1/agentbook-core/health</code>)</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<hr class="divider">
+
+<!-- PR 4 -->
+<h2>PR 4 — Scenarios + Tax Reserve API</h2>
+
+<div class="task">
+  <div class="task-header">
+    <span class="task-num">Task 4.1</span>
+    <div>
+      <div class="task-title">AbCashflowScenario CRUD + tax reserve config endpoints</div>
+      <div class="task-subtitle">Scenarios run via existing /simulate endpoint; lastResult cached in DB</div>
+    </div>
+    <div class="task-status"><span class="badge pending">Pending</span></div>
+  </div>
+  <div class="task-body">
+    <div class="files">
+      <div class="label">Files</div>
+      <div class="file-row"><span class="file-badge modify">MODIFY</span><span class="file-path">plugins/agentbook-core/backend/src/server.ts</span></div>
+    </div>
+    <ul class="steps">
+      <li class="step">
+        <div class="step-check"></div>
+        <div class="step-content">
+          <div class="step-label">Implement GET + POST /cashflow/scenarios</div>
+          <pre>app.get('/api/v1/agentbook-core/cashflow/scenarios', async (req, res) =&gt; {
+  try {
+    const tenantId = (req as any).tenantId;
+    const scenarios = await db.abCashflowScenario.findMany({
+      where: { tenantId, isActive: true },
+      orderBy: { createdAt: 'desc' },
+    });
+    res.json({ success: true, data: scenarios });
+  } catch (err) { res.status(500).json({ success: false, error: String(err) }); }
+});
+
+app.post('/api/v1/agentbook-core/cashflow/scenarios', async (req, res) =&gt; {
+  try {
+    const tenantId = (req as any).tenantId;
+    const { name, description, scenarioType, params, startMonth } = req.body;
+
+    // Run simulation immediately to cache lastResult
+    let lastResult: any = null;
+    try {
+      const simRes = await fetch(`http://localhost:${process.env.PORT || 4050}/api/v1/agentbook-core/simulate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-tenant-id': tenantId },
+        body: JSON.stringify({ scenarioType, ...params }),
+      });
+      if (simRes.ok) lastResult = (await simRes.json()).data;
+    } catch { /* best-effort */ }
+
+    const scenario = await db.abCashflowScenario.create({
+      data: {
+        tenantId, name, description: description || null, scenarioType,
+        params: params || {}, startMonth: startMonth ? new Date(startMonth) : null,
+        lastResult,
+      },
+    });
+    res.status(201).json({ success: true, data: scenario });
+  } catch (err) { res.status(500).json({ success: false, error: String(err) }); }
+});
+
+app.get('/api/v1/agentbook-core/cashflow/scenarios/:id', async (req, res) =&gt; {
+  try {
+    const tenantId = (req as any).tenantId;
+    const scenario = await db.abCashflowScenario.findFirst({
+      where: { id: req.params.id, tenantId },
+    });
+    if (!scenario) return res.status(404).json({ success: false, error: 'Not found' });
+    res.json({ success: true, data: scenario });
+  } catch (err) { res.status(500).json({ success: false, error: String(err) }); }
+});
+
+app.put('/api/v1/agentbook-core/cashflow/scenarios/:id', async (req, res) =&gt; {
+  try {
+    const tenantId = (req as any).tenantId;
+    const existing = await db.abCashflowScenario.findFirst({ where: { id: req.params.id, tenantId } });
+    if (!existing) return res.status(404).json({ success: false, error: 'Not found' });
+    const updated = await db.abCashflowScenario.update({
+      where: { id: req.params.id },
+      data: { ...req.body, updatedAt: new Date() },
+    });
+    res.json({ success: true, data: updated });
+  } catch (err) { res.status(500).json({ success: false, error: String(err) }); }
+});
+
+app.delete('/api/v1/agentbook-core/cashflow/scenarios/:id', async (req, res) =&gt; {
+  try {
+    const tenantId = (req as any).tenantId;
+    await db.abCashflowScenario.updateMany({
+      where: { id: req.params.id, tenantId },
+      data: { isActive: false },
+    });
+    res.json({ success: true });
+  } catch (err) { res.status(500).json({ success: false, error: String(err) }); }
+});</pre>
+        </div>
+      </li>
+      <li class="step">
+        <div class="step-check"></div>
+        <div class="step-content">
+          <div class="step-label">Implement GET /cashflow/tax-reserve + PUT /cashflow/tax-reserve/config</div>
+          <pre>app.get('/api/v1/agentbook-core/cashflow/tax-reserve', async (req, res) =&gt; {
+  try {
+    const tenantId = (req as any).tenantId;
+    const config = await db.abTenantConfig.findUnique({ where: { tenantId } });
+    const snap = await db.abFinancialSnapshot.findFirst({
+      where: { tenantId }, orderBy: { snapshotDate: 'desc' },
+    });
+    const jur = getJurisdiction(config?.jurisdiction || 'us');
+    const now = new Date();
+    const deadlines = jur.quarterlyDeadlines(now.getFullYear());
+    const nextDue = deadlines.find(d =&gt; d.deadline &gt; now) || deadlines[deadlines.length - 1];
+    const taxEst = await db.abTaxEstimate.findFirst({
+      where: { tenantId }, orderBy: { createdAt: 'desc' },
+    });
+    const allDeadlines = [
+      ...jur.quarterlyDeadlines(now.getFullYear()),
+      ...jur.quarterlyDeadlines(now.getFullYear() + 1),
+    ].filter(d =&gt; d.deadline &gt; now).slice(0, 4);
+
+    res.json({
+      success: true,
+      data: {
+        reservedCents: snap?.taxReserveBalanceCents ?? 0,
+        targetCents: taxEst?.estimatedTaxCents ?? 0,
+        reserveMode: config?.taxReserveMode ?? 'quarterly_estimate',
+        reservePercent: config?.taxReservePercent ?? jur.taxReserveRecommendedPercent,
+        nextDue: { deadline: nextDue.deadline, amountCents: taxEst?.estimatedTaxCents ?? 0, label: nextDue.label },
+        quarterDeadlines: allDeadlines,
+        jurisdiction: config?.jurisdiction ?? 'us',
+      },
+    });
+  } catch (err) { res.status(500).json({ success: false, error: String(err) }); }
+});
+
+app.put('/api/v1/agentbook-core/cashflow/tax-reserve/config', async (req, res) =&gt; {
+  try {
+    const tenantId = (req as any).tenantId;
+    const { taxReserveMode, taxReservePercent, taxReserveFixedCents, taxReserveAccountId } = req.body;
+    const updated = await db.abTenantConfig.upsert({
+      where: { tenantId },
+      update: { taxReserveMode, taxReservePercent, taxReserveFixedCents, taxReserveAccountId },
+      create: { tenantId, taxReserveMode: taxReserveMode || 'quarterly_estimate' },
+    });
+    res.json({ success: true, data: updated });
+  } catch (err) { res.status(500).json({ success: false, error: String(err) }); }
+});
+
+app.put('/api/v1/agentbook-core/cashflow/alerts', async (req, res) =&gt; {
+  try {
+    const tenantId = (req as any).tenantId;
+    const { cashflowLowBalanceCents, cashflowMinRunwayMonths, cashflowAlertChannel } = req.body;
+    const updated = await db.abTenantConfig.upsert({
+      where: { tenantId },
+      update: { cashflowLowBalanceCents, cashflowMinRunwayMonths, cashflowAlertChannel },
+      create: { tenantId, cashflowAlertChannel: cashflowAlertChannel || 'telegram' },
+    });
+    res.json({ success: true, data: updated });
+  } catch (err) { res.status(500).json({ success: false, error: String(err) }); }
+});</pre>
+        </div>
+      </li>
+      <li class="step">
+        <div class="step-check"></div>
+        <div class="step-content">
+          <div class="step-label">Commit PR 4</div>
+          <pre>git add plugins/agentbook-core/backend/src/server.ts
+git commit -m "feat(cashflow): scenarios CRUD + tax reserve API + alert config endpoints"</pre>
+        </div>
+      </li>
+    </ul>
+    <div class="pr-box">
+      <div class="pr-header">PR 4 — Self-review gate before merge</div>
+      <div class="pr-body">
+        <div class="pr-gate"><div class="gate-dot required"></div>POST /scenarios creates a row + runs /simulate + caches lastResult</div>
+        <div class="pr-gate"><div class="gate-dot required"></div>DELETE /scenarios soft-deletes (isActive=false), row still in DB</div>
+        <div class="pr-gate"><div class="gate-dot required"></div>GET /tax-reserve returns <code>nextDue.deadline</code> as a future date</div>
+        <div class="pr-gate"><div class="gate-dot required"></div>PUT /tax-reserve/config is idempotent (upsert)</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<hr class="divider">
+
+<!-- PR 5 -->
+<h2>PR 5 — Crons (cashflow-snapshot + extend existing crons)</h2>
+
+<div class="task">
+  <div class="task-header">
+    <span class="task-num">Task 5.1</span>
+    <div>
+      <div class="task-title">Daily <code>cashflow-snapshot</code> cron</div>
+      <div class="task-subtitle">Computes inflow/outflow from AbJournalLine, writes AbFinancialSnapshot with all cashflow columns</div>
+    </div>
+    <div class="task-status"><span class="badge pending">Pending</span></div>
+  </div>
+  <div class="task-body">
+    <div class="files">
+      <div class="label">Files</div>
+      <div class="file-row"><span class="file-badge create">CREATE</span><span class="file-path">apps/web-next/src/app/api/v1/agentbook/cron/cashflow-snapshot/route.ts</span></div>
+      <div class="file-row"><span class="file-badge modify">MODIFY</span><span class="file-path">vercel.json</span></div>
+    </div>
+    <div class="note">Follow the same pattern as <code>proactive-alerts/route.ts</code>: <code>server-only</code>, bearer-gated, direct Prisma, <code>maxDuration = 300</code>.</div>
+    <ul class="steps">
+      <li class="step">
+        <div class="step-check"></div>
+        <div class="step-content">
+          <div class="step-label">Implement cashflow-snapshot cron</div>
+          <pre>// apps/web-next/src/app/api/v1/agentbook/cron/cashflow-snapshot/route.ts
+import 'server-only';
+import { timingSafeEqual } from 'node:crypto';
+import { NextRequest, NextResponse } from 'next/server';
+import { prisma as db } from '@naap/database';
+import { reportError } from '@/lib/logger';
+
+export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
+export const maxDuration = 300;
+
+function isBearerValid(req: NextRequest): boolean {
+  const secret = process.env.CRON_SECRET;
+  if (!secret) return true;
+  const auth = req.headers.get('authorization');
+  if (!auth) return false;
+  const a = Buffer.from(auth), b = Buffer.from(`Bearer ${secret}`);
+  return a.length === b.length && timingSafeEqual(a, b);
+}
+
+async function computeSnapshotForTenant(tenantId: string) {
+  const since30 = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+  const config = await db.abTenantConfig.findUnique({ where: { tenantId } });
+
+  // Cash accounts (type='asset', code starts with '1')
+  const cashAccounts = await db.abAccount.findMany({
+    where: { tenantId, accountType: 'asset', code: { startsWith: '1' }, isActive: true },
+    select: { id: true },
+  });
+  const cashAccountIds = cashAccounts.map(a =&gt; a.id);
+
+  // Current cash balance = sum of credits - debits on cash accounts
+  const cashLines = await db.abJournalLine.aggregate({
+    where: { tenantId, accountId: { in: cashAccountIds } },
+    _sum: { creditCents: true, debitCents: true },
+  });
+  const cashBalance = (cashLines._sum.creditCents ?? 0) - (cashLines._sum.debitCents ?? 0);
+
+  // 30d inflow = credits on cash accounts in last 30 days
+  const inflowLines = await db.abJournalLine.aggregate({
+    where: { tenantId, accountId: { in: cashAccountIds }, createdAt: { gte: since30 } },
+    _sum: { creditCents: true },
+  });
+  const inflow30d = inflowLines._sum.creditCents ?? 0;
+
+  // 30d outflow = debits on cash accounts in last 30 days
+  const outflowLines = await db.abJournalLine.aggregate({
+    where: { tenantId, accountId: { in: cashAccountIds }, createdAt: { gte: since30 } },
+    _sum: { debitCents: true },
+  });
+  const outflow30d = outflowLines._sum.debitCents ?? 0;
+
+  // Monthly burn = outflow30d
+  const monthlyBurn = outflow30d;
+  const runwayMonths = monthlyBurn &gt; 0 ? cashBalance / monthlyBurn : 999;
+
+  // Simple projections: extrapolate monthly net burn
+  const netMonthly = inflow30d - outflow30d;
+  const proj30 = cashBalance + netMonthly;
+  const proj60 = cashBalance + 2 * netMonthly;
+  const proj90 = cashBalance + 3 * netMonthly;
+
+  // Tax reserve estimate
+  const taxEst = await db.abTaxEstimate.findFirst({
+    where: { tenantId }, orderBy: { createdAt: 'desc' },
+  });
+  const taxReserveBalance = taxEst?.estimatedTaxCents ?? 0;
+
+  await db.abFinancialSnapshot.upsert({
+    where: { tenantId_snapshotDate: { tenantId, snapshotDate: new Date(new Date().toDateString()) } },
+    update: {
+      cashBalanceCents: cashBalance, monthlyBurnCents: monthlyBurn, runwayMonths,
+      inflow30dCents: inflow30d, outflow30dCents: outflow30d,
+      projectedCash30Cents: proj30, projectedCash60Cents: proj60, projectedCash90Cents: proj90,
+      taxReserveBalanceCents: taxReserveBalance,
+    },
+    create: {
+      tenantId, snapshotDate: new Date(new Date().toDateString()),
+      cashBalanceCents: cashBalance, monthlyBurnCents: monthlyBurn, runwayMonths,
+      arBalanceCents: 0, apBalanceCents: 0, netIncomeMtdCents: 0,
+      inflow30dCents: inflow30d, outflow30dCents: outflow30d,
+      projectedCash30Cents: proj30, projectedCash60Cents: proj60, projectedCash90Cents: proj90,
+      taxReserveBalanceCents: taxReserveBalance,
+    },
+  });
+
+  return { cashBalance, inflow30d, outflow30d, runwayMonths };
+}
+
+export async function GET(request: NextRequest): Promise&lt;NextResponse&gt; {
+  if (!isBearerValid(request)) {
+    return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
+  }
+  const tenants = await db.abExpense.groupBy({ by: ['tenantId'] });
+  const results: Record&lt;string, any&gt; = {};
+  for (const { tenantId } of tenants) {
+    try {
+      results[tenantId] = await computeSnapshotForTenant(tenantId);
+    } catch (err) {
+      reportError(`[cashflow-snapshot] tenant ${tenantId}`, err);
+      results[tenantId] = { error: String(err) };
+    }
+  }
+  return NextResponse.json({ success: true, data: results });
+}</pre>
+          <div class="warn">Check if <code>AbFinancialSnapshot</code> has a unique constraint on <code>[tenantId, snapshotDate]</code> in the schema. If not, use <code>findFirst + create/update</code> instead of <code>upsert</code>.</div>
+        </div>
+      </li>
+      <li class="step">
+        <div class="step-check"></div>
+        <div class="step-content">
+          <div class="step-label">Extend proactive-alerts cron with 2 new generators</div>
+          <p style="font-size:12px;color:var(--muted);margin-bottom:6px;">In <code>apps/web-next/src/app/api/v1/agentbook/cron/proactive-alerts/route.ts</code>, find the <code>generateAlertsForTenant</code> function and add two new generators at the end of the array:</p>
+          <pre>// Generator: low-balance alert
+async function generateLowBalanceAlert(tenantId: string, config: any): Promise&lt;Alert | null&gt; {
+  if (!config?.cashflowLowBalanceCents) return null;
+  const snap = await db.abFinancialSnapshot.findFirst({
+    where: { tenantId }, orderBy: { snapshotDate: 'desc' },
+  });
+  if (!snap || snap.projectedCash30Cents &gt;= config.cashflowLowBalanceCents) return null;
+  return {
+    id: 'cashflow-low-balance',
+    type: 'cashflow_low_balance', severity: 'critical',
+    title: 'Low cash balance projected',
+    message: `Your projected cash in 30 days ($${(snap.projectedCash30Cents / 100).toFixed(0)}) is below your alert threshold ($${(config.cashflowLowBalanceCents / 100).toFixed(0)}).`,
+  };
+}
+
+// Generator: tax reserve underfunded
+async function generateTaxReserveAlert(tenantId: string, config: any): Promise&lt;Alert | null&gt; {
+  const jur = getJurisdiction(config?.jurisdiction || 'us');
+  const now = new Date();
+  const deadlines = jur.quarterlyDeadlines(now.getFullYear());
+  const nextDue = deadlines.find(d =&gt; d.deadline &gt; now);
+  if (!nextDue) return null;
+  const daysToDeadline = (nextDue.deadline.getTime() - now.getTime()) / (24 * 60 * 60 * 1000);
+  if (daysToDeadline &gt; 45) return null;
+
+  const snap = await db.abFinancialSnapshot.findFirst({ where: { tenantId }, orderBy: { snapshotDate: 'desc' } });
+  const taxEst = await db.abTaxEstimate.findFirst({ where: { tenantId }, orderBy: { createdAt: 'desc' } });
+  const reserved = snap?.taxReserveBalanceCents ?? 0;
+  const target = taxEst?.estimatedTaxCents ?? 0;
+  if (target === 0 || reserved &gt;= target * 0.8) return null;
+
+  const shortfall = target - reserved;
+  return {
+    id: `tax-reserve-underfunded-${nextDue.quarter}`,
+    type: 'tax_reserve_underfunded', severity: 'important',
+    title: 'Tax payment deadline approaching',
+    message: `${nextDue.label} is in ${Math.round(daysToDeadline)} days. You may be $${(shortfall / 100).toFixed(0)} short of your estimated tax of $${(target / 100).toFixed(0)}.`,
+  };
+}</pre>
+          <p style="font-size:12px;color:var(--muted);margin-top:6px;">Add calls to these generators in the <code>generateAlertsForTenant</code> function body, alongside existing generators. Import <code>getJurisdiction</code> at top of file.</p>
+        </div>
+      </li>
+      <li class="step">
+        <div class="step-check"></div>
+        <div class="step-content">
+          <div class="step-label">Extend payment-reminders cron with jurisdiction-aware tax deadlines</div>
+          <p style="font-size:12px;color:var(--muted);margin-bottom:6px;">In <code>apps/web-next/src/app/api/v1/agentbook/cron/payment-reminders/route.ts</code>, add at the end of the per-tenant processing loop:</p>
+          <pre>// Tax payment deadline reminders
+const tenantConfig = await db.abTenantConfig.findUnique({ where: { tenantId } });
+const jur = getJurisdiction(tenantConfig?.jurisdiction || 'us');
+const now = new Date();
+const deadlines = jur.quarterlyDeadlines(now.getFullYear());
+for (const deadline of deadlines) {
+  const daysToDeadline = (deadline.deadline.getTime() - now.getTime()) / (24 * 60 * 60 * 1000);
+  for (const leadDay of jur.paymentReminderLeadDays) {
+    if (Math.abs(daysToDeadline - leadDay) &lt; 1) {
+      const dedupe = await db.abEvent.findFirst({
+        where: { tenantId, eventType: 'tax.deadline_reminder', createdAt: { gte: new Date(Date.now() - 23 * 60 * 60 * 1000) } },
+      });
+      if (dedupe) continue;
+      const msg = `Reminder: ${deadline.label} is in ${leadDay} days (${deadline.deadline.toISOString().slice(0, 10)}). Check your tax reserve balance.`;
+      await sendToAllChannels(tenantId, msg, { channel: 'telegram' });
+      await db.abEvent.create({ data: { tenantId, eventType: 'tax.deadline_reminder', actor: 'system', action: { deadline: deadline.deadline, leadDay } } });
+    }
+  }
+}</pre>
+        </div>
+      </li>
+      <li class="step">
+        <div class="step-check"></div>
+        <div class="step-content">
+          <div class="step-label">Add cashflow-snapshot to vercel.json</div>
+          <pre>{ "path": "/api/v1/agentbook/cron/cashflow-snapshot", "schedule": "0 5 * * *" }</pre>
+          <p style="font-size:12px;color:var(--muted);margin-top:4px;">Run: <code>node -e "JSON.parse(require('fs').readFileSync('vercel.json','utf8')); console.log('OK')"</code></p>
+        </div>
+      </li>
+      <li class="step">
+        <div class="step-check"></div>
+        <div class="step-content">
+          <div class="step-label">Commit PR 5</div>
+          <pre>git add apps/web-next/src/app/api/v1/agentbook/cron/cashflow-snapshot/ \
+        apps/web-next/src/app/api/v1/agentbook/cron/proactive-alerts/route.ts \
+        apps/web-next/src/app/api/v1/agentbook/cron/payment-reminders/route.ts \
+        vercel.json
+git commit -m "feat(cashflow): cashflow-snapshot cron + extend proactive-alerts + payment-reminders"</pre>
+        </div>
+      </li>
+    </ul>
+    <div class="pr-box">
+      <div class="pr-header">PR 5 — Self-review gate before merge</div>
+      <div class="pr-body">
+        <div class="pr-gate"><div class="gate-dot required"></div>cashflow-snapshot cron completes without errors when run locally with test tenant</div>
+        <div class="pr-gate"><div class="gate-dot required"></div>AbFinancialSnapshot row created with non-zero values after cron run</div>
+        <div class="pr-gate"><div class="gate-dot required"></div>Low-balance alert fires when projected < threshold (manual test with low threshold)</div>
+        <div class="pr-gate"><div class="gate-dot required"></div>Tax deadline reminders dedupe within 24h (run twice, check AbEvent count)</div>
+        <div class="pr-gate"><div class="gate-dot required"></div>vercel.json parses as valid JSON</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<hr class="divider">
+
+<!-- PR 6 -->
+<h2>PR 6 — 7 Chat Skills</h2>
+
+<div class="task">
+  <div class="task-header">
+    <span class="task-num">Task 6.1</span>
+    <div>
+      <div class="task-title">Register 7 cashflow skills + add INTERNAL handlers</div>
+      <div class="task-subtitle">All INTERNAL. Each handler: read API → jurisdiction-aware Gemini prompt → return message + card</div>
+    </div>
+    <div class="task-status"><span class="badge pending">Pending</span></div>
+  </div>
+  <div class="task-body">
+    <div class="files">
+      <div class="label">Files</div>
+      <div class="file-row"><span class="file-badge modify">MODIFY</span><span class="file-path">plugins/agentbook-core/backend/src/built-in-skills.ts</span></div>
+      <div class="file-row"><span class="file-badge modify">MODIFY</span><span class="file-path">plugins/agentbook-core/backend/src/server.ts</span></div>
+    </div>
+    <ul class="steps">
+      <li class="step">
+        <div class="step-check"></div>
+        <div class="step-content">
+          <div class="step-label">Add 7 skill definitions to built-in-skills.ts (before general-question)</div>
+          <pre>{ name: 'cashflow-summary',
+  description: 'Cash position, balance, and trend overview',
+  category: 'finance',
+  triggerPatterns: ['cash flow', 'cash position', "how.*s.*my.*cash", 'where.*is.*my.*cash', 'cash.*status'],
+  parameters: {}, endpoint: { method: 'INTERNAL', url: '' } },
+
+{ name: 'cashflow-runway',
+  description: 'How many months of runway remaining based on current burn rate',
+  category: 'finance',
+  triggerPatterns: ['runway', 'burn rate', 'how long can i last', 'months of cash', 'how long.*money'],
+  parameters: {}, endpoint: { method: 'INTERNAL', url: '' } },
+
+{ name: 'cashflow-projection',
+  description: '30/60/90-day cash balance projection',
+  category: 'finance',
+  triggerPatterns: ['cash forecast', 'project.*cash', '30 day cash', 'next month balance', 'cash.*next.*month', 'future.*cash'],
+  parameters: {}, endpoint: { method: 'INTERNAL', url: '' } },
+
+{ name: 'cashflow-trend',
+  description: 'Cash inflow vs outflow trend over the past 90 days',
+  category: 'finance',
+  triggerPatterns: ['cash trend', 'inflow.*outflow', 'cash history', 'how.*cash.*changed', 'cash.*over.*time'],
+  parameters: {}, endpoint: { method: 'INTERNAL', url: '' } },
+
+{ name: 'cashflow-scenario',
+  description: 'What-if scenario planning — hiring, equipment, losing a client, new revenue',
+  category: 'finance',
+  triggerPatterns: ['what if', 'if i hire', 'can i afford', 'buy equipment', 'lose.*client', 'simulate', 'what.*would.*happen.*if'],
+  parameters: {}, endpoint: { method: 'INTERNAL', url: '' } },
+
+{ name: 'cashflow-alert-setup',
+  description: 'Set up low-balance or runway alerts',
+  category: 'finance',
+  triggerPatterns: ['alert.*when.*cash', 'low.*balance.*alert', 'notify.*when.*below', 'set.*cash.*threshold', 'cash.*alert'],
+  parameters: {}, endpoint: { method: 'INTERNAL', url: '' } },
+
+{ name: 'tax-reserve-status',
+  description: 'Current tax reserve balance vs target, upcoming quarterly deadlines',
+  category: 'finance',
+  triggerPatterns: ['tax reserve', 'set aside.*tax', 'tax savings', 'enough for tax', 'tax bucket', 'quarterly.*tax', 'tax.*deadline'],
+  parameters: {}, endpoint: { method: 'INTERNAL', url: '' } },</pre>
+        </div>
+      </li>
+      <li class="step">
+        <div class="step-check"></div>
+        <div class="step-content">
+          <div class="step-label">Add INTERNAL handlers in server.ts</div>
+          <p style="font-size:12px;color:var(--muted);margin-bottom:6px;">Add all 7 handlers before the HTTP execution block in <code>_executeClassificationCore</code> (follow the same pattern as the daily-briefing handler). Each handler:</p>
+          <ol style="font-size:12px;color:var(--muted);margin:6px 0 6px 16px;">
+            <li>Reads tenant jurisdiction from <code>brainHeaders</code> tenant config</li>
+            <li>Fetches from the cashflow API (self-fetch to port 4050)</li>
+            <li>Builds a jurisdiction-aware Gemini prompt</li>
+            <li>Returns <code>{ message, skillUsed, confidence: 1.0 }</code></li>
+          </ol>
+          <pre>// Handler template — repeat for each skill
+if (selectedSkill.name === 'cashflow-summary') {
+  try {
+    const coreBase = baseUrls['/api/v1/agentbook-core'] || 'http://localhost:4050';
+    const H = brainHeaders(tenantId);
+    const dashRes = await fetch(`${coreBase}/api/v1/agentbook-core/cashflow/dashboard`, { headers: H });
+    const dash = dashRes.ok ? await dashRes.json() : null;
+    const d = dash?.data;
+
+    // Get jurisdiction for context
+    const config = await db.abTenantConfig.findUnique({ where: { tenantId } });
+    const jur = getJurisdiction(config?.jurisdiction || 'us');
+
+    const systemPrompt = `You are a friendly small-business accountant. The client is in ${jur.name} (currency: ${jur.defaultCurrency}).
+Summarize their cash position in 2-3 sentences. Be specific with dollar amounts.
+If runway &lt; 3 months, flag it as a priority. Be direct and helpful.`;
+
+    const userMsg = d
+      ? `Cash balance: $${(d.balance / 100).toFixed(0)}. Runway: ${d.runway?.toFixed(1)} months. 30d inflow: $${(d.inflow30d / 100).toFixed(0)}, outflow: $${(d.outflow30d / 100).toFixed(0)}. Projected 30d: $${(d.projections?.d30 / 100).toFixed(0)}.`
+      : 'No financial snapshot available yet.';
+
+    const reply = await callGemini(systemPrompt, userMsg, 200)
+      ?? `Your cash balance is $${d ? (d.balance / 100).toFixed(0) : 'unknown'}. I couldn't generate a full summary — try again in a moment.`;
+
+    return {
+      selectedSkill, extractedParams, confidence: 1.0, skillUsed: 'cashflow-summary', skillResponse: null,
+      responseData: { message: reply, skillUsed: 'cashflow-summary', confidence: 1.0, latencyMs: Date.now() - startTime },
+    };
+  } catch (err) {
+    return { selectedSkill, extractedParams, confidence: 0, skillUsed: 'cashflow-summary', skillResponse: null,
+      responseData: { message: "I couldn't fetch your cashflow data. Please try again.", skillUsed: 'cashflow-summary', confidence: 0, latencyMs: Date.now() - startTime } };
+  }
+}
+
+// Repeat for cashflow-runway, cashflow-projection, cashflow-trend (same pattern, different endpoint + prompt)
+// cashflow-scenario: calls /simulate, then narrates impact on runway
+// cashflow-alert-setup: parses threshold from user message, calls PUT /cashflow/alerts
+// tax-reserve-status: calls GET /cashflow/tax-reserve, narrates reserve vs target</pre>
+        </div>
+      </li>
+      <li class="step">
+        <div class="step-check"></div>
+        <div class="step-content">
+          <div class="step-label">Re-seed skills and test</div>
+          <pre>curl -s -X POST http://localhost:4050/api/v1/agentbook-core/agent/seed-skills \
+  -H "Content-Type: application/json" | jq .success
+
+# Test each skill
+curl -s -X POST http://localhost:4050/api/v1/agentbook-core/agent/message \
+  -H "Content-Type: application/json" \
+  -H "x-tenant-id: &lt;maya-tenant-id&gt;" \
+  -d '{"text": "how is my cash flow?"}' | jq .responseData.skillUsed</pre>
+          <p style="font-size:12px;color:var(--muted);margin-top:4px;">Expected: <code>"cashflow-summary"</code></p>
+        </div>
+      </li>
+      <li class="step">
+        <div class="step-check"></div>
+        <div class="step-content">
+          <div class="step-label">Commit PR 6</div>
+          <pre>git add plugins/agentbook-core/backend/src/built-in-skills.ts \
+        plugins/agentbook-core/backend/src/server.ts
+git commit -m "feat(cashflow): 7 cashflow chat skills — summary, runway, projection, trend, scenario, alert-setup, tax-reserve"</pre>
+        </div>
+      </li>
+    </ul>
+    <div class="pr-box">
+      <div class="pr-header">PR 6 — Self-review gate before merge</div>
+      <div class="pr-body">
+        <div class="pr-gate"><div class="gate-dot required"></div>All 7 skills appear in seed-skills response (check DB)</div>
+        <div class="pr-gate"><div class="gate-dot required"></div>"how is my cash flow?" → <code>cashflow-summary</code> skill used</div>
+        <div class="pr-gate"><div class="gate-dot required"></div>"what if I hire a contractor?" → <code>cashflow-scenario</code> skill used</div>
+        <div class="pr-gate"><div class="gate-dot required"></div>"tax deadline?" → <code>tax-reserve-status</code> skill used</div>
+        <div class="pr-gate"><div class="gate-dot required"></div>Jurisdiction name appears in Gemini response for US tenant</div>
+        <div class="pr-gate"><div class="gate-dot required"></div>No existing skills broken (test "record expense", "show expenses")</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<hr class="divider">
+
+<!-- PR 7 -->
+<h2>PR 7 — CashflowDashboard Frontend Page</h2>
+
+<div class="task">
+  <div class="task-header">
+    <span class="task-num">Task 7.1</span>
+    <div>
+      <div class="task-title">CashflowDashboard.tsx — balance chart, inflow/outflow bar chart, tax reserve widget</div>
+      <div class="task-subtitle">Use Recharts (already in expense plugin). No new chart library.</div>
+    </div>
+    <div class="task-status"><span class="badge pending">Pending</span></div>
+  </div>
+  <div class="task-body">
+    <div class="files">
+      <div class="label">Files</div>
+      <div class="file-row"><span class="file-badge create">CREATE</span><span class="file-path">plugins/agentbook-core/frontend/src/pages/CashflowDashboard.tsx</span></div>
+    </div>
+    <div class="note">Check if Recharts is already in <code>plugins/agentbook-core/frontend/package.json</code> — if not, install it. The expense plugin uses it at <code>plugins/agentbook-expense/frontend/</code>.</div>
+    <ul class="steps">
+      <li class="step">
+        <div class="step-check"></div>
+        <div class="step-content">
+          <div class="step-label">Check existing chart library</div>
+          <pre>grep -r "recharts\|chart" plugins/agentbook-core/frontend/package.json
+grep -r "recharts\|chart" plugins/agentbook-expense/frontend/package.json</pre>
+          <p style="font-size:12px;color:var(--muted);margin-top:4px;">If recharts is only in expense, add it to core: <code>cd plugins/agentbook-core/frontend && npm install recharts</code></p>
+        </div>
+      </li>
+      <li class="step">
+        <div class="step-check"></div>
+        <div class="step-content">
+          <div class="step-label">Implement CashflowDashboard.tsx</div>
+          <pre>import React, { useEffect, useState } from 'react';
+import {
+  LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid,
+  Tooltip, Legend, ResponsiveContainer, ReferenceLine,
+} from 'recharts';
+
+function fmt(cents: number, currency = 'USD') {
+  return new Intl.NumberFormat('en-US', { style: 'currency', currency, maximumFractionDigits: 0 }).format(cents / 100);
+}
+
+type TimeRange = '30d' | '90d' | '6m' | '1y';
+
+const RANGE_DAYS: Record&lt;TimeRange, number&gt; = { '30d': 30, '90d': 90, '6m': 180, '1y': 365 };
+
+export const CashflowDashboardPage: React.FC = () =&gt; {
+  const [dashboard, setDashboard] = useState&lt;any&gt;(null);
+  const [trend, setTrend] = useState&lt;any[]&gt;([]);
+  const [range, setRange] = useState&lt;TimeRange&gt;('90d');
+  const [currency, setCurrency] = useState('USD');
+  const [loading, setLoading] = useState(true);
+
+  const coreBase = window.__NAAP_CONFIG__?.coreApiBase || 'http://localhost:4050/api/v1/agentbook-core';
+  const token = window.__NAAP_AUTH_TOKEN__ || '';
+  const H = { Authorization: `Bearer ${token}` };
+
+  const loadData = async () =&gt; {
+    setLoading(true);
+    const days = RANGE_DAYS[range];
+    const [dashRes, trendRes] = await Promise.allSettled([
+      fetch(`${coreBase}/cashflow/dashboard?currency=${currency}`, { headers: H }),
+      fetch(`${coreBase}/cashflow/trend?days=${days}&currency=${currency}`, { headers: H }),
+    ]);
+    if (dashRes.status === 'fulfilled' &amp;&amp; dashRes.value.ok) {
+      const d = await dashRes.value.json();
+      if (d.success) setDashboard(d.data);
+    }
+    if (trendRes.status === 'fulfilled' &amp;&amp; trendRes.value.ok) {
+      const t = await trendRes.value.json();
+      if (t.success) setTrend(t.data.snapshots);
+    }
+    setLoading(false);
+  };
+
+  useEffect(() =&gt; { loadData(); }, [range, currency]);
+
+  const d = dashboard;
+  const projectionPoints = d ? [
+    { date: 'Now', balance: d.balance },
+    { date: '+30d', balance: d.projections?.d30 },
+    { date: '+60d', balance: d.projections?.d60 },
+    { date: '+90d', balance: d.projections?.d90 },
+  ] : [];
+
+  const runwayColor = (months: number) =&gt;
+    months &lt; 2 ? '#ef4444' : months &lt; 4 ? '#eab308' : '#22c55e';
+
+  return (
+    &lt;div className="p-6 space-y-6"&gt;
+      &lt;div className="flex items-center justify-between"&gt;
+        &lt;h1 className="text-2xl font-bold"&gt;Cashflow&lt;/h1&gt;
+        &lt;div className="flex gap-2"&gt;
+          {(['30d','90d','6m','1y'] as TimeRange[]).map(r =&gt; (
+            &lt;button key={r} onClick={() =&gt; setRange(r)}
+              className={`px-3 py-1 rounded text-sm font-medium border transition-colors ${range === r ? 'bg-primary text-primary-foreground border-primary' : 'border-border text-muted-foreground hover:text-foreground'}`}&gt;
+              {r}
+            &lt;/button&gt;
+          ))}
+          &lt;select value={currency} onChange={e =&gt; setCurrency(e.target.value)}
+            className="px-2 py-1 rounded border border-border text-sm"&gt;
+            &lt;option&gt;USD&lt;/option&gt;&lt;option&gt;CAD&lt;/option&gt;&lt;option&gt;GBP&lt;/option&gt;
+          &lt;/select&gt;
+        &lt;/div&gt;
+      &lt;/div&gt;
+
+      {/* KPI cards */}
+      &lt;div className="grid grid-cols-2 md:grid-cols-4 gap-4"&gt;
+        {[
+          { label: 'Cash Balance', value: d ? fmt(d.balance, currency) : '—' },
+          { label: 'Monthly Burn', value: d ? fmt(d.monthlyBurn, currency) : '—' },
+          { label: 'Runway', value: d ? `${d.runway?.toFixed(1)}mo` : '—', color: d ? runwayColor(d.runway) : undefined },
+          { label: '30d Inflow', value: d ? fmt(d.inflow30d, currency) : '—' },
+        ].map(card =&gt; (
+          &lt;div key={card.label} className="bg-card border border-border rounded-lg p-4"&gt;
+            &lt;p className="text-xs text-muted-foreground mb-1"&gt;{card.label}&lt;/p&gt;
+            &lt;p className="text-2xl font-bold" style={card.color ? { color: card.color } : {}} &gt;{card.value}&lt;/p&gt;
+          &lt;/div&gt;
+        ))}
+      &lt;/div&gt;
+
+      {/* Balance + projection chart */}
+      &lt;div className="bg-card border border-border rounded-lg p-4"&gt;
+        &lt;h2 className="text-sm font-semibold mb-3"&gt;Balance &amp; Projection&lt;/h2&gt;
+        &lt;ResponsiveContainer width="100%" height={220}&gt;
+          &lt;LineChart data={[...trend.map((s: any) =&gt; ({ date: s.snapshotDate?.slice(5,10), balance: s.cashBalanceCents, type: 'actual' })), ...projectionPoints.slice(1).map(p =&gt; ({ date: p.date, balance: p.balance, type: 'projected' }))]}&gt;
+            &lt;CartesianGrid strokeDasharray="3 3" stroke="#2d3148" /&gt;
+            &lt;XAxis dataKey="date" tick={{ fontSize: 11, fill: '#94a3b8' }} /&gt;
+            &lt;YAxis tickFormatter={v =&gt; `$${(v/100000).toFixed(0)}k`} tick={{ fontSize: 11, fill: '#94a3b8' }} /&gt;
+            &lt;Tooltip formatter={(v: number) =&gt; fmt(v, currency)} /&gt;
+            &lt;Line type="monotone" dataKey="balance" stroke="#6366f1" strokeWidth={2} dot={false} /&gt;
+          &lt;/LineChart&gt;
+        &lt;/ResponsiveContainer&gt;
+      &lt;/div&gt;
+
+      {/* Inflow/outflow bars */}
+      &lt;div className="bg-card border border-border rounded-lg p-4"&gt;
+        &lt;h2 className="text-sm font-semibold mb-3"&gt;Inflow vs Outflow (trailing {RANGE_DAYS[range]}d)&lt;/h2&gt;
+        &lt;ResponsiveContainer width="100%" height={180}&gt;
+          &lt;BarChart data={trend.slice(-12)}&gt;
+            &lt;CartesianGrid strokeDasharray="3 3" stroke="#2d3148" /&gt;
+            &lt;XAxis dataKey="snapshotDate" tickFormatter={(d: string) =&gt; d?.slice(5,10) || ''} tick={{ fontSize: 10, fill: '#94a3b8' }} /&gt;
+            &lt;YAxis tickFormatter={v =&gt; `$${(v/100000).toFixed(0)}k`} tick={{ fontSize: 11, fill: '#94a3b8' }} /&gt;
+            &lt;Tooltip formatter={(v: number) =&gt; fmt(v, currency)} /&gt;
+            &lt;Bar dataKey="inflow30dCents" name="Inflow" fill="#22c55e" radius={[2,2,0,0]} /&gt;
+            &lt;Bar dataKey="outflow30dCents" name="Outflow" fill="#ef4444" radius={[2,2,0,0]} /&gt;
+            &lt;Legend /&gt;
+          &lt;/BarChart&gt;
+        &lt;/ResponsiveContainer&gt;
+      &lt;/div&gt;
+
+      {/* Tax reserve widget */}
+      {d?.taxReserve &amp;&amp; (
+        &lt;div className="bg-card border border-border rounded-lg p-4"&gt;
+          &lt;h2 className="text-sm font-semibold mb-3"&gt;Tax Reserve&lt;/h2&gt;
+          &lt;div className="flex justify-between text-sm mb-2"&gt;
+            &lt;span&gt;{fmt(d.taxReserve.balance, currency)} reserved&lt;/span&gt;
+            &lt;span className="text-muted-foreground"&gt;Target: {fmt(d.taxReserve.recommended, currency)}&lt;/span&gt;
+          &lt;/div&gt;
+          &lt;div className="bg-border rounded-full h-2"&gt;
+            &lt;div className="bg-primary h-2 rounded-full transition-all"
+              style={{ width: `${Math.min(100, d.taxReserve.recommended &gt; 0 ? (d.taxReserve.balance / d.taxReserve.recommended) * 100 : 0)}%` }} /&gt;
+          &lt;/div&gt;
+          &lt;p className="text-xs text-muted-foreground mt-2"&gt;
+            Next due: {d.taxReserve.nextDue?.label} ({d.taxReserve.nextDue?.deadline?.slice(0,10)})
+          &lt;/p&gt;
+        &lt;/div&gt;
+      )}
+    &lt;/div&gt;
+  );
+};</pre>
+        </div>
+      </li>
+      <li class="step">
+        <div class="step-check"></div>
+        <div class="step-content">
+          <div class="step-label">Build + copy to CDN</div>
+          <pre>cd plugins/agentbook-core/frontend && npm run build
+cp dist/production/agentbook-core.js ../../apps/web-next/public/cdn/plugins/agentbook-core/agentbook-core.js
+cp dist/production/agentbook-core.js ../../apps/web-next/public/cdn/plugins/agentbook-core/1.0.0/agentbook-core.js</pre>
+        </div>
+      </li>
+      <li class="step">
+        <div class="step-check"></div>
+        <div class="step-content">
+          <div class="step-label">Visual review — verify chart renders with data</div>
+          <p style="font-size:12px;color:var(--muted);">Navigate to <code>/agentbook/cashflow</code>. Verify: KPI cards show values, balance chart has a line, inflow/outflow bars render. If no snapshot data yet, run the cashflow-snapshot cron manually first.</p>
+        </div>
+      </li>
+      <li class="step">
+        <div class="step-check"></div>
+        <div class="step-content">
+          <div class="step-label">Commit PR 7</div>
+          <pre>git add plugins/agentbook-core/frontend/src/pages/CashflowDashboard.tsx \
+        plugins/agentbook-core/frontend/dist/ \
+        apps/web-next/public/cdn/plugins/agentbook-core/
+git commit -m "feat(cashflow): CashflowDashboard page — balance chart, inflow/outflow, tax reserve widget"</pre>
+        </div>
+      </li>
+    </ul>
+    <div class="pr-box">
+      <div class="pr-header">PR 7 — Self-review gate before merge</div>
+      <div class="pr-body">
+        <div class="pr-gate"><div class="gate-dot required"></div>Page renders without console errors when snapshot data exists</div>
+        <div class="pr-gate"><div class="gate-dot required"></div>Page renders without crashing when snapshot data is empty (all zeroes)</div>
+        <div class="pr-gate"><div class="gate-dot required"></div>Time range picker changes the trend chart date range</div>
+        <div class="pr-gate"><div class="gate-dot required"></div>Tax reserve progress bar doesn't overflow 100%</div>
+        <div class="pr-gate"><div class="gate-dot required"></div>Build passes with no TypeScript errors</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<hr class="divider">
+
+<!-- PR 8 -->
+<h2>PR 8 — ScenarioPlanner + Routing + Sidebar Nav</h2>
+
+<div class="task">
+  <div class="task-header">
+    <span class="task-num">Task 8.1</span>
+    <div>
+      <div class="task-title">ScenarioPlanner.tsx + route registration + sidebar nav item</div>
+      <div class="task-subtitle">Reads saved scenarios, runs new ones, overlays on projection chart</div>
+    </div>
+    <div class="task-status"><span class="badge pending">Pending</span></div>
+  </div>
+  <div class="task-body">
+    <div class="files">
+      <div class="label">Files</div>
+      <div class="file-row"><span class="file-badge create">CREATE</span><span class="file-path">plugins/agentbook-core/frontend/src/pages/ScenarioPlanner.tsx</span></div>
+      <div class="file-row"><span class="file-badge modify">MODIFY</span><span class="file-path">plugins/agentbook-core/frontend/src/App.tsx (or router file)</span></div>
+    </div>
+    <div class="note">Find the existing router by running: <code>grep -rn "Route\|createBrowserRouter\|agentbook/" plugins/agentbook-core/frontend/src/ | head -20</code></div>
+    <ul class="steps">
+      <li class="step">
+        <div class="step-check"></div>
+        <div class="step-content">
+          <div class="step-label">Find the router and add cashflow routes</div>
+          <pre>grep -rn "Route\|path.*agentbook\|createBrowserRouter" plugins/agentbook-core/frontend/src/ | head -20</pre>
+          <p style="font-size:12px;color:var(--muted);margin-top:4px;">Add two routes:</p>
+          <pre>{ path: '/agentbook/cashflow', element: &lt;CashflowDashboardPage /&gt; },
+{ path: '/agentbook/cashflow/scenarios', element: &lt;ScenarioPlanner /&gt; },</pre>
+        </div>
+      </li>
+      <li class="step">
+        <div class="step-check"></div>
+        <div class="step-content">
+          <div class="step-label">Implement ScenarioPlanner.tsx</div>
+          <pre>import React, { useEffect, useState } from 'react';
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+
+const SCENARIO_TYPES = [
+  { value: 'add_expense', label: 'Add monthly expense' },
+  { value: 'add_revenue', label: 'Add monthly revenue' },
+  { value: 'lose_client', label: 'Lose a client' },
+  { value: 'hire', label: 'Hire someone' },
+  { value: 'buy_equipment', label: 'Buy equipment' },
+];
+
+export const ScenarioPlanner: React.FC = () =&gt; {
+  const [scenarios, setScenarios] = useState&lt;any[]&gt;([]);
+  const [base, setBase] = useState&lt;any&gt;(null);
+  const [newForm, setNewForm] = useState({ name: '', scenarioType: 'hire', params: { monthlyCostCents: 500000 } });
+  const [creating, setCreating] = useState(false);
+
+  const coreBase = window.__NAAP_CONFIG__?.coreApiBase || 'http://localhost:4050/api/v1/agentbook-core';
+  const token = window.__NAAP_AUTH_TOKEN__ || '';
+  const H = { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` };
+
+  useEffect(() =&gt; {
+    Promise.all([
+      fetch(`${coreBase}/cashflow/scenarios`, { headers: H }).then(r =&gt; r.json()),
+      fetch(`${coreBase}/cashflow/projection`, { headers: H }).then(r =&gt; r.json()),
+    ]).then(([sc, pr]) =&gt; {
+      if (sc.success) setScenarios(sc.data);
+      if (pr.success) setBase(pr.data.base);
+    });
+  }, []);
+
+  const handleCreate = async () =&gt; {
+    setCreating(true);
+    const res = await fetch(`${coreBase}/cashflow/scenarios`, {
+      method: 'POST', headers: H, body: JSON.stringify(newForm),
+    });
+    const data = await res.json();
+    if (data.success) setScenarios(prev =&gt; [data.data, ...prev]);
+    setCreating(false);
+  };
+
+  const handleDelete = async (id: string) =&gt; {
+    await fetch(`${coreBase}/cashflow/scenarios/${id}`, { method: 'DELETE', headers: H });
+    setScenarios(prev =&gt; prev.filter(s =&gt; s.id !== id));
+  };
+
+  const comparisonData = base ? [
+    { label: 'Now', base: 0, scenario: 0 },
+    { label: '+30d', base: base.d30, scenario: 0 },
+    { label: '+60d', base: base.d60, scenario: 0 },
+    { label: '+90d', base: base.d90, scenario: 0 },
+  ] : [];
+
+  return (
+    &lt;div className="p-6 space-y-6"&gt;
+      &lt;h1 className="text-2xl font-bold"&gt;Scenario Planner&lt;/h1&gt;
+
+      &lt;div className="bg-card border border-border rounded-lg p-4"&gt;
+        &lt;h2 className="text-sm font-semibold mb-3"&gt;New Scenario&lt;/h2&gt;
+        &lt;div className="grid grid-cols-2 gap-3"&gt;
+          &lt;input placeholder="Scenario name" value={newForm.name}
+            onChange={e =&gt; setNewForm(f =&gt; ({ ...f, name: e.target.value }))}
+            className="border border-border rounded px-3 py-2 text-sm bg-background" /&gt;
+          &lt;select value={newForm.scenarioType}
+            onChange={e =&gt; setNewForm(f =&gt; ({ ...f, scenarioType: e.target.value }))}
+            className="border border-border rounded px-3 py-2 text-sm bg-background"&gt;
+            {SCENARIO_TYPES.map(t =&gt; &lt;option key={t.value} value={t.value}&gt;{t.label}&lt;/option&gt;)}
+          &lt;/select&gt;
+          &lt;input placeholder="Monthly cost/revenue (cents, e.g. 500000 = $5000)"
+            type="number" value={newForm.params.monthlyCostCents}
+            onChange={e =&gt; setNewForm(f =&gt; ({ ...f, params: { monthlyCostCents: Number(e.target.value) } }))}
+            className="border border-border rounded px-3 py-2 text-sm bg-background" /&gt;
+          &lt;button onClick={handleCreate} disabled={creating || !newForm.name}
+            className="bg-primary text-primary-foreground rounded px-4 py-2 text-sm font-medium disabled:opacity-50"&gt;
+            {creating ? 'Running...' : 'Run Scenario'}
+          &lt;/button&gt;
+        &lt;/div&gt;
+      &lt;/div&gt;
+
+      &lt;div className="space-y-3"&gt;
+        {scenarios.length === 0 &amp;&amp; &lt;p className="text-muted-foreground text-sm"&gt;No scenarios yet. Create one above.&lt;/p&gt;}
+        {scenarios.map(s =&gt; (
+          &lt;div key={s.id} className="bg-card border border-border rounded-lg p-4"&gt;
+            &lt;div className="flex items-start justify-between"&gt;
+              &lt;div&gt;
+                &lt;p className="font-semibold text-sm"&gt;{s.name}&lt;/p&gt;
+                &lt;p className="text-xs text-muted-foreground"&gt;{SCENARIO_TYPES.find(t =&gt; t.value === s.scenarioType)?.label}&lt;/p&gt;
+                {s.lastResult &amp;&amp; &lt;p className="text-xs text-muted-foreground mt-1"&gt;Impact: 90d balance ${((s.lastResult?.projectedBalance90d ?? 0) / 100).toFixed(0)}&lt;/p&gt;}
+              &lt;/div&gt;
+              &lt;button onClick={() =&gt; handleDelete(s.id)} className="text-xs text-muted-foreground hover:text-destructive"&gt;Remove&lt;/button&gt;
+            &lt;/div&gt;
+          &lt;/div&gt;
+        ))}
+      &lt;/div&gt;
+    &lt;/div&gt;
+  );
+};</pre>
+        </div>
+      </li>
+      <li class="step">
+        <div class="step-check"></div>
+        <div class="step-content">
+          <div class="step-label">Add "Cashflow" to sidebar nav</div>
+          <p style="font-size:12px;color:var(--muted);margin-bottom:6px;">Find the sidebar navigation component — search for where "Expenses" or "Invoices" nav links are defined:</p>
+          <pre>grep -rn "Expenses\|Invoices\|/agentbook/" plugins/agentbook-core/frontend/src/ | grep -i "nav\|link\|menu\|sidebar" | head -10</pre>
+          <p style="font-size:12px;color:var(--muted);margin:4px 0;">Add a Cashflow nav item under the Finance section, linking to <code>/agentbook/cashflow</code>.</p>
+        </div>
+      </li>
+      <li class="step">
+        <div class="step-check"></div>
+        <div class="step-content">
+          <div class="step-label">Build + visual review</div>
+          <pre>cd plugins/agentbook-core/frontend && npm run build
+cp dist/production/agentbook-core.js ../../apps/web-next/public/cdn/plugins/agentbook-core/agentbook-core.js
+cp dist/production/agentbook-core.js ../../apps/web-next/public/cdn/plugins/agentbook-core/1.0.0/agentbook-core.js</pre>
+          <p style="font-size:12px;color:var(--muted);margin-top:4px;">Navigate to <code>/agentbook/cashflow/scenarios</code>. Create a scenario ("hire contractor", hire, $5000/mo). Verify it appears in the list with lastResult populated.</p>
+        </div>
+      </li>
+      <li class="step">
+        <div class="step-check"></div>
+        <div class="step-content">
+          <div class="step-label">Commit PR 8</div>
+          <pre>git add plugins/agentbook-core/frontend/src/ \
+        plugins/agentbook-core/frontend/dist/ \
+        apps/web-next/public/cdn/plugins/agentbook-core/
+git commit -m "feat(cashflow): ScenarioPlanner page + cashflow routing + sidebar nav"</pre>
+        </div>
+      </li>
+    </ul>
+    <div class="pr-box">
+      <div class="pr-header">PR 8 — Self-review gate before merge</div>
+      <div class="pr-body">
+        <div class="pr-gate"><div class="gate-dot required"></div>Creating a scenario POSTs to /scenarios and shows the new scenario without page reload</div>
+        <div class="pr-gate"><div class="gate-dot required"></div>Deleting a scenario removes it from the list immediately</div>
+        <div class="pr-gate"><div class="gate-dot required"></div>"Cashflow" nav item appears in sidebar and navigates to /agentbook/cashflow</div>
+        <div class="pr-gate"><div class="gate-dot required"></div>Navigating to /agentbook/cashflow/scenarios doesn't redirect to 404</div>
+        <div class="pr-gate"><div class="gate-dot required"></div>Build passes with no TypeScript errors</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<hr class="divider">
+
+<!-- PR 9 -->
+<h2>PR 9 — Deploy + E2E Smoke Test</h2>
+
+<div class="task">
+  <div class="task-header">
+    <span class="task-num">Task 9.1</span>
+    <div>
+      <div class="task-title">vercel build + deploy + smoke test checklist</div>
+      <div class="task-subtitle">Standard prebuilt deploy flow. Smoke test all 7 chat skills + both dashboard pages.</div>
+    </div>
+    <div class="task-status"><span class="badge pending">Pending</span></div>
+  </div>
+  <div class="task-body">
+    <ul class="steps">
+      <li class="step">
+        <div class="step-check"></div>
+        <div class="step-content">
+          <div class="step-label">Build Next.js app locally</div>
+          <pre>cd apps/web-next && npx vercel build --prod 2>&amp;1 | tail -30</pre>
+          <p style="font-size:12px;color:var(--muted);margin-top:4px;">Expected: exits 0 with "Build complete"</p>
+        </div>
+      </li>
+      <li class="step">
+        <div class="step-check"></div>
+        <div class="step-content">
+          <div class="step-label">Deploy to production</div>
+          <pre>cd apps/web-next && npx vercel deploy --prebuilt --prod</pre>
+        </div>
+      </li>
+      <li class="step">
+        <div class="step-check"></div>
+        <div class="step-content">
+          <div class="step-label">Manually trigger cashflow-snapshot cron to seed data</div>
+          <pre>curl -s -H "Authorization: Bearer $CRON_SECRET" \
+  https://&lt;prod-url&gt;/api/v1/agentbook/cron/cashflow-snapshot | jq .success</pre>
+          <p style="font-size:12px;color:var(--muted);margin-top:4px;">Expected: <code>true</code></p>
+        </div>
+      </li>
+      <li class="step">
+        <div class="step-check"></div>
+        <div class="step-content">
+          <div class="step-label">Smoke test checklist</div>
+          <div class="pr-box">
+            <div class="pr-header">Production Smoke Test</div>
+            <div class="pr-body">
+              <div class="pr-gate"><div class="gate-dot required"></div>Web: /agentbook/cashflow loads with KPI cards and charts</div>
+              <div class="pr-gate"><div class="gate-dot required"></div>Web: /agentbook/cashflow/scenarios loads, create a scenario works</div>
+              <div class="pr-gate"><div class="gate-dot required"></div>Chat: "how is my cash flow?" → cashflow-summary response with dollar amounts</div>
+              <div class="pr-gate"><div class="gate-dot required"></div>Chat: "what's my runway?" → cashflow-runway response</div>
+              <div class="pr-gate"><div class="gate-dot required"></div>Chat: "what if I hire a $5k/mo contractor?" → cashflow-scenario response</div>
+              <div class="pr-gate"><div class="gate-dot required"></div>Chat: "tax deadline?" → tax-reserve-status with April 15 (not March 15) for US</div>
+              <div class="pr-gate"><div class="gate-dot required"></div>Telegram: same chat skills respond via Telegram bot</div>
+              <div class="pr-gate"><div class="gate-dot required"></div>Existing skills unchanged: "record expense", "show invoices", "daily briefing"</div>
+            </div>
+          </div>
+        </div>
+      </li>
+      <li class="step">
+        <div class="step-check"></div>
+        <div class="step-content">
+          <div class="step-label">Final commit</div>
+          <pre>git add -A
+git commit -m "chore(cashflow): deploy + smoke test complete"</pre>
+        </div>
+      </li>
+    </ul>
+  </div>
+</div>
+
+<hr class="divider">
+
+<h2 style="color:var(--muted);font-size:16px;">Appendix: What NOT to rebuild</h2>
+<div class="table-wrap">
+  <table>
+    <tr><th>Thing that already exists</th><th>Where</th><th>What cashflow uses instead</th></tr>
+    <tr><td>Cash balance / burn / runway</td><td>AbFinancialSnapshot (extend)</td><td>Add 6 new columns, read existing columns</td></tr>
+    <tr><td>Scenario simulation engine</td><td>POST /agentbook-core/simulate</td><td>Call existing endpoint, cache result in AbCashflowScenario</td></tr>
+    <tr><td>FX rate table</td><td>AbFxRate + fx-rates cron</td><td>Read AbFxRate.rate for currency conversion</td></tr>
+    <tr><td>Tax estimates</td><td>AbTaxEstimate (tax plugin)</td><td>Read AbTaxEstimate.estimatedTaxCents</td></tr>
+    <tr><td>Recurring expense projection</td><td>AbRecurringRule</td><td>Sum AbRecurringRule.amountCents for projection</td></tr>
+    <tr><td>Invoice AR</td><td>AbInvoice</td><td>Count status IN (sent/overdue) × amountCents</td></tr>
+    <tr><td>Morning digest cashflow fields</td><td>morning-digest cron</td><td>Digest already reads AbFinancialSnapshot — no change</td></tr>
+  </table>
+</div>
+
+</div>
+</body>
+</html>
