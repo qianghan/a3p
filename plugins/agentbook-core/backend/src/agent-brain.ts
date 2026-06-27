@@ -68,6 +68,8 @@ async function brainAccountantFallback(
     '',
     'AgentBook can: record/edit/split/categorize expenses, scan receipts, create invoices/estimates/credit notes, record payments, track time, run reports (P&L, balance sheet, cashflow, tax-summary, expense-by-vendor, aging), estimate taxes, prep US/Canada tax forms, sync banks via Plaid, manage recurring rules and budgets.',
     '',
+    'IMPORTANT: For any summary or report request (expense summary, monthly report, financial overview, daily briefing, spending summary, how am I doing), NEVER ask for clarification — run the report for the current month by default and present results immediately.',
+    '',
     'Style: warm but brief, 1–3 short sentences, plain conversational text (no markdown bullets), never say "I am an AI", never end with a flat "I don\'t know". If asking a question, end the message with it.',
   ].join('\n');
 
