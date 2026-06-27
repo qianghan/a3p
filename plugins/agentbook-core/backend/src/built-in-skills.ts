@@ -10,7 +10,7 @@ export const BUILT_IN_SKILLS = [
   },
   {
     name: 'query-expenses', description: 'Query, search, list, or ask questions about expenses', category: 'bookkeeping',
-    triggerPatterns: ['show.*expense', 'list.*expense', 'last \\d+ expense', 'how much.*spen', 'recent expense', 'summary.*expense'],
+    triggerPatterns: ['show.*expense', 'list.*expense', 'last \\d+ expense', 'how much.*spen', 'recent expense', 'summary.*expense', 'expense.*summary', 'expense.*overview', 'spending.*summary'],
     parameters: { question: { type: 'string', required: true, extractHint: 'the full user message' } },
     endpoint: { method: 'POST', url: '/api/v1/agentbook-expense/advisor/ask' },
   },
@@ -438,6 +438,18 @@ export const BUILT_IN_SKILLS = [
       clientName: { type: 'string', description: 'Client name if invoice number not provided', required: false },
       amountCents: { type: 'number', description: 'Amount paid in cents', required: false },
     },
+    endpoint: { method: 'INTERNAL', url: '' },
+  },
+  {
+    name: 'daily-briefing',
+    description: 'Morning financial briefing — cash position, alerts, outstanding invoices, what needs attention today',
+    category: 'finance',
+    triggerPatterns: [
+      'briefing', 'daily.*brief', 'morning.*update', 'catch.*me.*up',
+      'what.*s.*up', 'update.*me', 'what.*s.*happening', 'quick.*update',
+      'daily.*summary', 'morning.*brief',
+    ],
+    parameters: {},
     endpoint: { method: 'INTERNAL', url: '' },
   },
   {
