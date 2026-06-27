@@ -3943,6 +3943,60 @@ async function _executeClassificationCore(
     }
   }
 
+  // INTERNAL handler: daily-briefing — financial snapshot + proactive alerts narrated by Gemini
+  if (selectedSkill.name === 'daily-briefing') {
+    try {
+      const coreBase = baseUrls['/api/v1/agentbook-core'] || 'http://localhost:4050';
+      const expenseBase = baseUrls['/api/v1/agentbook-expense'] || 'http://localhost:4051';
+      const H = brainHeaders(tenantId);
+      const [snapSettled, alertsSettled] = await Promise.allSettled([
+        fetch(`${coreBase}/api/v1/agentbook-core/financial-snapshot`, { headers: H }),
+        fetch(`${expenseBase}/api/v1/agentbook-expense/advisor/proactive-alerts`, { headers: H }),
+      ]);
+      const snapData = snapSettled.status === 'fulfilled'
+        ? await snapSettled.value.json().catch(() => null)
+        : null;
+      const alertData = alertsSettled.status === 'fulfilled'
+        ? await alertsSettled.value.json().catch(() => null)
+        : null;
+
+      const briefingSystem = [
+        'You are AgentBook, a friendly small-business accountant giving a morning briefing.',
+        'Summarize in 3–5 short sentences. Be specific with dollar amounts.',
+        'End with exactly one concrete action item the user can take today.',
+        'If any data is missing, briefly note it and focus on what you have.',
+        'Plain text only — no markdown, no bullet points.',
+      ].join('\n');
+
+      const briefingUser = [
+        snapData?.success
+          ? `Financial snapshot: ${JSON.stringify(snapData.data)}`
+          : 'Financial snapshot: unavailable.',
+        alertData?.success
+          ? `Alerts: ${JSON.stringify(alertData.data)}`
+          : 'Alerts: unavailable.',
+      ].join('\n');
+
+      const reply = await callGemini(briefingSystem, briefingUser, 350)
+        ?? "Here's a quick check: your books look normal but I couldn't load the full picture right now. Try again in a moment.";
+
+      await db.abConversation.create({
+        data: { tenantId, question: text || '[daily-briefing]', answer: reply, queryType: 'agent', channel, skillUsed: 'daily-briefing' },
+      }).catch(() => {});
+
+      return {
+        selectedSkill, extractedParams, confidence, skillUsed: 'daily-briefing', skillResponse: null,
+        responseData: { message: reply, skillUsed: 'daily-briefing', confidence, latencyMs: Date.now() - startTime },
+      };
+    } catch (err) {
+      console.error('Daily-briefing error:', err);
+      return {
+        selectedSkill, extractedParams, confidence: 0, skillUsed: 'daily-briefing', skillResponse: null,
+        responseData: { message: "I couldn't load your daily briefing right now. Please try again in a moment.", skillUsed: 'daily-briefing', confidence: 0, latencyMs: Date.now() - startTime },
+      };
+    }
+  }
+
   let skillResponse: any = null;
   let skillError = false;
   try {
