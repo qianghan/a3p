@@ -1,0 +1,1136 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>AgentBook — Config Step-by-Step (Stripe + E2E)</title>
+<style>
+  :root {
+    --bg: #0f1115;
+    --card: #161922;
+    --border: #2a2e3a;
+    --muted: #8b93a7;
+    --fg: #e5e7eb;
+    --primary: #6ea8ff;
+    --primary-dim: #4068b4;
+    --green: #22c55e;
+    --amber: #f59e0b;
+    --red: #ef4444;
+    --code-bg: #0b0d12;
+  }
+  @media (prefers-color-scheme: light) {
+    :root {
+      --bg: #f8fafc;
+      --card: #ffffff;
+      --border: #e2e8f0;
+      --muted: #64748b;
+      --fg: #0f172a;
+      --primary: #2563eb;
+      --primary-dim: #93c5fd;
+      --code-bg: #0f172a;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--fg);
+    font: 15px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  }
+  header {
+    padding: 32px 24px 16px;
+    max-width: 960px;
+    margin: 0 auto;
+  }
+  header h1 { margin: 0 0 4px; font-size: 28px; }
+  header p { margin: 0; color: var(--muted); }
+  main { padding: 0 24px 64px; max-width: 960px; margin: 0 auto; }
+  section {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 20px 24px;
+    margin: 16px 0;
+  }
+  section > h2 {
+    margin: 0 0 4px;
+    font-size: 20px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  section > .desc {
+    margin: 0 0 16px;
+    color: var(--muted);
+    font-size: 14px;
+  }
+  .badge {
+    display: inline-block;
+    font-size: 11px;
+    font-weight: 600;
+    padding: 2px 8px;
+    border-radius: 999px;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+  }
+  .badge.manual { background: rgba(245, 158, 11, 0.15); color: var(--amber); }
+  .badge.cli    { background: rgba(34, 197, 94, 0.15); color: var(--green); }
+  .badge.opt    { background: rgba(139, 147, 167, 0.15); color: var(--muted); }
+  .badge.verify { background: rgba(110, 168, 255, 0.15); color: var(--primary); }
+  .step {
+    border-left: 2px solid var(--border);
+    padding: 12px 0 12px 16px;
+    margin: 16px 0;
+    position: relative;
+  }
+  .step.done { border-left-color: var(--green); opacity: 0.7; }
+  .step > .head {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    margin-bottom: 6px;
+  }
+  .step > .head input[type=checkbox] {
+    margin-top: 4px;
+    width: 16px;
+    height: 16px;
+    accent-color: var(--primary);
+  }
+  .step > .head .title {
+    flex: 1;
+    font-weight: 600;
+  }
+  .step > .body { color: var(--muted); font-size: 14px; }
+  .step > .body a { color: var(--primary); }
+  pre, code {
+    font-family: "SF Mono", Menlo, Consolas, monospace;
+    font-size: 13px;
+  }
+  pre {
+    background: var(--code-bg);
+    color: #e2e8f0;
+    border-radius: 8px;
+    padding: 12px 14px;
+    overflow-x: auto;
+    margin: 8px 0 0;
+    position: relative;
+  }
+  code:not(pre code) {
+    background: rgba(110, 168, 255, 0.1);
+    color: var(--primary);
+    padding: 1px 6px;
+    border-radius: 4px;
+  }
+  .copy-btn {
+    position: absolute;
+    top: 6px;
+    right: 6px;
+    background: var(--primary);
+    color: white;
+    border: none;
+    border-radius: 6px;
+    padding: 4px 10px;
+    font-size: 11px;
+    font-weight: 600;
+    cursor: pointer;
+    opacity: 0.7;
+    transition: opacity 0.15s;
+  }
+  .copy-btn:hover { opacity: 1; }
+  .copy-btn.copied { background: var(--green); }
+  details { margin-top: 8px; }
+  details summary { cursor: pointer; color: var(--primary); font-size: 13px; }
+  table { width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 13px; }
+  th, td { text-align: left; padding: 6px 10px; border-bottom: 1px solid var(--border); }
+  th { color: var(--muted); font-weight: 600; }
+  .note {
+    background: rgba(245, 158, 11, 0.08);
+    border-left: 3px solid var(--amber);
+    padding: 10px 12px;
+    margin: 12px 0;
+    border-radius: 6px;
+    font-size: 13px;
+  }
+  .note.green { background: rgba(34, 197, 94, 0.08); border-left-color: var(--green); }
+  .note.red   { background: rgba(239, 68, 68, 0.08); border-left-color: var(--red); }
+  .toc {
+    position: sticky;
+    top: 16px;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 12px 16px;
+    margin-bottom: 16px;
+    font-size: 13px;
+  }
+  .toc a { color: var(--fg); text-decoration: none; display: block; padding: 3px 0; }
+  .toc a:hover { color: var(--primary); }
+  .pill {
+    font-size: 11px;
+    padding: 2px 6px;
+    border-radius: 4px;
+    margin-left: 6px;
+  }
+  .pill.set { background: rgba(34, 197, 94, 0.2); color: var(--green); }
+  .pill.todo { background: rgba(239, 68, 68, 0.2); color: var(--red); }
+  .pill.optional { background: rgba(139, 147, 167, 0.2); color: var(--muted); }
+  .progress {
+    display: flex;
+    gap: 8px;
+    margin-top: 8px;
+    flex-wrap: wrap;
+  }
+  .progress > div {
+    background: rgba(110, 168, 255, 0.08);
+    border: 1px solid var(--border);
+    padding: 6px 12px;
+    border-radius: 6px;
+    font-size: 12px;
+  }
+  .progress strong { font-size: 14px; color: var(--primary); }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>AgentBook — Config Step-by-Step</h1>
+  <p>Set up the remaining secrets so full e2e + canonical eval pass. Last reviewed 2026-05-28.</p>
+  <div class="progress" id="progress-bar"></div>
+</header>
+
+<main>
+
+  <div class="toc">
+    <strong>Sections</strong>
+    <a href="#status">0 · Current status (what's set vs missing)</a>
+    <a href="#users">A · Test users — login credentials</a>
+    <a href="#cant-login">B · Can't log in? "Database is not available"</a>
+    <a href="#stripe">1 · Stripe sandbox — primary ask</a>
+    <a href="#plaid">2 · Plaid sandbox sanity check</a>
+    <a href="#e2e">3 · E2E + canonical eval secrets</a>
+    <a href="#optional">4 · Optional (Resend, Sentry, OTEL)</a>
+    <a href="#verify">5 · Full e2e verification</a>
+  </div>
+
+  <!-- ============================================================ -->
+  <!-- 0. STATUS -->
+  <!-- ============================================================ -->
+
+  <section id="status">
+    <h2>0 · Current status</h2>
+    <p class="desc">Snapshot of <code>vercel env ls production</code> for the <code>a3p-plugin-build</code> project. Done = green. Missing for full e2e = red.</p>
+
+    <table>
+      <thead><tr><th>Variable</th><th>Used by</th><th>Status</th></tr></thead>
+      <tbody>
+        <tr><td><code>DATABASE_URL</code></td><td>everything</td><td><span class="pill set">SET</span></td></tr>
+        <tr><td><code>GEMINI_API_KEY</code></td><td>agent LLM</td><td><span class="pill set">SET</span></td></tr>
+        <tr><td><code>TELEGRAM_BOT_TOKEN</code></td><td>bot</td><td><span class="pill set">SET</span></td></tr>
+        <tr><td><code>CRON_SECRET</code></td><td>all crons (bearer)</td><td><span class="pill set">SET</span></td></tr>
+        <tr><td><code>INTERNAL_ADMIN_SECRET</code></td><td>admin LLM-config, /skills/register</td><td><span class="pill set">SET</span></td></tr>
+        <tr><td><code>ADMIN_EMAILS</code></td><td>admin gate</td><td><span class="pill set">SET</span></td></tr>
+        <tr><td><code>BANK_TOKEN_ENCRYPTION_KEY</code></td><td>Plaid token AES-GCM</td><td><span class="pill set">SET</span></td></tr>
+        <tr><td><code>INVOICE_PUBLIC_LINK_SECRET</code></td><td>HMAC signed links</td><td><span class="pill set">SET</span></td></tr>
+        <tr><td><code>BLOB_READ_WRITE_TOKEN</code></td><td>receipt + PDF storage</td><td><span class="pill set">SET</span></td></tr>
+        <tr><td><code>E2E_RESET_TOKEN</code></td><td>nightly canonical eval reset</td><td><span class="pill set">SET</span></td></tr>
+
+        <tr><td><code>STRIPE_SECRET_KEY</code></td><td>billing API</td><td><span class="pill todo">MISSING</span></td></tr>
+        <tr><td><code>STRIPE_PUBLISHABLE_KEY</code></td><td>checkout UI</td><td><span class="pill todo">MISSING</span></td></tr>
+        <tr><td><code>STRIPE_WEBHOOK_SECRET</code></td><td>webhook signature verify</td><td><span class="pill todo">MISSING</span></td></tr>
+        <tr><td><code>PLAID_CLIENT_ID</code></td><td>Plaid Link</td><td><span class="pill todo">MISSING in Vercel</span></td></tr>
+        <tr><td><code>PLAID_SECRET</code></td><td>Plaid API</td><td><span class="pill todo">MISSING in Vercel</span></td></tr>
+        <tr><td><code>PLAID_ENV</code></td><td>sandbox / production</td><td><span class="pill todo">MISSING in Vercel</span></td></tr>
+        <tr><td><code>E2E_USER_EMAIL</code></td><td>canonical eval CI</td><td><span class="pill todo">MISSING</span></td></tr>
+        <tr><td><code>E2E_USER_PASSWORD</code></td><td>canonical eval CI</td><td><span class="pill todo">MISSING</span></td></tr>
+        <tr><td><code>RESEND_API_KEY</code></td><td>email channel (PR 39)</td><td><span class="pill optional">OPTIONAL</span></td></tr>
+        <tr><td><code>SENTRY_DSN</code></td><td>error tracking (PR 23)</td><td><span class="pill optional">OPTIONAL</span></td></tr>
+        <tr><td><code>OTEL_EXPORTER_OTLP_ENDPOINT</code></td><td>trace export (PR 54)</td><td><span class="pill optional">OPTIONAL</span></td></tr>
+      </tbody>
+    </table>
+
+    <div class="note">
+      You said Plaid sandbox is already set up — I confirmed it's <strong>not</strong> in <code>vercel env ls</code>. That might mean it's only in your local <code>.env.local</code>. The web app's Plaid routes won't work in production without it. Section 2 has the one-liner to push the existing sandbox keys to Vercel.
+    </div>
+  </section>
+
+  <!-- ============================================================ -->
+  <!-- A. TEST USERS -->
+  <!-- ============================================================ -->
+
+  <section id="users">
+    <h2>A · Test users</h2>
+    <p class="desc">All four accounts use the same shared dev password. Seeded by <code>agentbook/seed-personas.ts</code>. Maya is the default persona for UI testing (most data); Alex / Jordan exercise the US + side-hustle paths; admin is the platform-admin role.</p>
+
+    <table>
+      <thead><tr><th>Persona</th><th>Email</th><th>Password</th><th>What's in the account</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><strong>Maya</strong></td>
+          <td><code>maya@agentbook.test</code></td>
+          <td><code>agentbook123</code></td>
+          <td>Canadian IT consultant, Toronto. 3 clients, 99 expenses, 29 invoices, 2 projects. CAD currency. The fullest account — use for most UI demos.</td>
+        </tr>
+        <tr>
+          <td><strong>Alex</strong></td>
+          <td><code>alex@agentbook.test</code></td>
+          <td><code>agentbook123</code></td>
+          <td>US design agency, Austin TX. 5 clients, 29 expenses, 13 invoices, 5 projects. 2 contractors.</td>
+        </tr>
+        <tr>
+          <td><strong>Jordan</strong></td>
+          <td><code>jordan@agentbook.test</code></td>
+          <td><code>agentbook123</code></td>
+          <td>Side-hustle, Portland OR. 2 clients (Etsy + writing). 28 expenses mixed business/personal. Split-transaction demo.</td>
+        </tr>
+        <tr>
+          <td><strong>Admin</strong></td>
+          <td><code>admin@a3p.io</code></td>
+          <td><code>a3p-dev</code></td>
+          <td>Platform admin. Empty AgentBook data — use for testing admin-gated routes (<code>/admin/observability</code>, <code>/admin/llm-configs</code>).</td>
+        </tr>
+        <tr>
+          <td><strong>E2E bot</strong></td>
+          <td><code>e2e@agentbook.test</code></td>
+          <td><em>(set by you in §3.1)</em></td>
+          <td>Dedicated for nightly canonical-eval runs. Created in <a href="#e2e">section 3</a>.</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <div class="note green" style="margin-top:16px;">
+      <strong>If the login is failing:</strong> almost always it's not the password — it's the DB. Production logs <code>"Database is not available"</code> when Neon auto-suspends. See <a href="#cant-login">section B</a> for the wake-up sequence.
+    </div>
+
+    <details style="margin-top:12px;">
+      <summary>Re-seed local data (run when DB is wiped)</summary>
+<pre><button class="copy-btn">copy</button>cd /Users/qianghan/Documents/mycodespace/a3p
+docker compose up -d database
+cd packages/database
+DATABASE_URL="postgresql://postgres:postgres@localhost:5432/naap" \
+  DATABASE_URL_UNPOOLED="postgresql://postgres:postgres@localhost:5432/naap" \
+  npx prisma db push --skip-generate
+cd /Users/qianghan/Documents/mycodespace/a3p
+npx tsx agentbook/seed-personas.ts</pre>
+    </details>
+  </section>
+
+  <!-- ============================================================ -->
+  <!-- B. CAN'T LOG IN -->
+  <!-- ============================================================ -->
+
+  <section id="cant-login">
+    <h2>B · Can't log in? <span style="font-weight:normal;color:var(--muted);font-size:16px;">"Database is not available"</span></h2>
+    <p class="desc">The 503 from <code>/auth/login</code> can come from two distinct Neon failure modes — diagnose first, then fix.</p>
+
+    <div class="note red">
+      <strong>Reproduced 2026-05-28:</strong> Direct <code>psql</code> against the Neon endpoint returned:
+      <pre style="margin:8px 0 0;background:rgba(0,0,0,0.3);font-size:12px;">ERROR: Your account or project has exceeded the compute time quota.
+       Upgrade your plan to increase limits.</pre>
+      That's <strong>quota exhausted</strong>, not a suspended branch. Auto-wake doesn't help here — only an upgrade or waiting for the monthly reset.
+    </div>
+
+    <div class="note">
+      <strong>Quota reset estimate.</strong> The Vercel-Neon integration shows ~61 days old in <code>vercel env ls</code> → project created around <strong>2026-03-28</strong>. Neon free-tier compute resets monthly on the cycle anniversary, so the next reset is expected around <strong>2026-05-28 / 2026-05-29 (within ~24 hours)</strong>.
+      <br><br>
+      Confirm the exact moment at <a href="https://console.neon.tech" target="_blank">console.neon.tech</a> → project <code>rough-dream-72470468</code> → <strong>Billing</strong> → <em>Current billing period</em>. The end date is your reset.
+      <br><br>
+      <strong>If you want to test before then</strong> — only the upgrade path (B.1) clears the block. Wait-it-out is free.
+    </div>
+
+    <div class="step">
+      <div class="head">
+        <input type="checkbox" />
+        <div class="title">B.0a — Poll-and-alert loop (run in spare terminal while you wait) <span class="badge cli">Copy/Paste</span></div>
+      </div>
+      <div class="body">
+        Direct probe every 10 min, beeps when the quota clears. Safer than refreshing the production URL by hand.
+<pre><button class="copy-btn">copy</button>brew install libpq 2>/dev/null
+export PATH="/opt/homebrew/opt/libpq/bin:$PATH"
+
+while true; do
+  vercel env pull /tmp/.env.prod --environment production --yes >/dev/null 2>&1
+  DBURL=$(grep '^a3p_DATABASE_URL_UNPOOLED=' /tmp/.env.prod | cut -d= -f2- | tr -d '"')
+  if psql "$DBURL" -c "SELECT 1;" >/dev/null 2>&1; then
+    echo "🟢 $(date) — Neon is BACK. You can log in now."
+    osascript -e 'display notification "Neon quota reset — DB is up" with title "AgentBook"' 2>/dev/null
+    say "Neon is back" 2>/dev/null
+    rm /tmp/.env.prod
+    break
+  fi
+  echo "🔴 $(date) — still blocked. Sleeping 10 min."
+  rm /tmp/.env.prod
+  sleep 600
+done</pre>
+      </div>
+    </div>
+
+    <div class="step">
+      <div class="head">
+        <input type="checkbox" />
+        <div class="title">B.0 — Diagnose which failure mode you're hitting <span class="badge verify">Verify</span></div>
+      </div>
+      <div class="body">
+        Direct DB probe — bypasses the app, hits Neon itself. The error message tells you exactly what to do.
+<pre><button class="copy-btn">copy</button># Install psql if missing (macOS):
+brew install libpq && export PATH="/opt/homebrew/opt/libpq/bin:$PATH"
+
+vercel env pull /tmp/.env.prod --environment production --yes >/dev/null
+DBURL=$(grep '^a3p_DATABASE_URL_UNPOOLED=' /tmp/.env.prod | cut -d= -f2- | tr -d '"')
+psql "$DBURL" -c "SELECT 1 AS wake, now() AS db_time;" 2>&1 | head -5
+rm /tmp/.env.prod</pre>
+        <table style="margin-top:8px;">
+          <tr><th>psql says</th><th>Diagnosis</th><th>Fix</th></tr>
+          <tr>
+            <td><code>compute time quota</code></td>
+            <td>Free-tier quota exhausted</td>
+            <td><strong>B.1 — upgrade Neon plan</strong> (current state as of 2026-05-28)</td>
+          </tr>
+          <tr>
+            <td>~1-3 sec, then <code>1 | wake</code></td>
+            <td>Branch was suspended; auto-woke</td>
+            <td>Done — retry login</td>
+          </tr>
+          <tr>
+            <td><code>connection refused</code> / DNS</td>
+            <td>Connection string rotated</td>
+            <td>B.3 — re-pull URLs from Neon dashboard</td>
+          </tr>
+          <tr>
+            <td><code>password authentication failed</code></td>
+            <td>Neon password rotated</td>
+            <td>B.3</td>
+          </tr>
+        </table>
+      </div>
+    </div>
+
+    <div class="step">
+      <div class="head">
+        <input type="checkbox" />
+        <div class="title">B.1 — Quota exhausted: upgrade the Neon plan <span class="badge manual">Manual</span></div>
+      </div>
+      <div class="body">
+        Free tier gives ~100 compute-hours/month. With cron jobs (16+ scheduled), polling (<code>/events/since</code> every 10s per active tab), nightly canonical eval, daily backups, and Plaid sync — typical AgentBook usage burns through this in 2-3 weeks.
+        <ol>
+          <li>Open <a href="https://console.neon.tech" target="_blank">console.neon.tech</a>.</li>
+          <li>Click into project <code>rough-dream-72470468</code> (the <code>a3p</code> Neon project).</li>
+          <li>Go to <strong>Billing</strong> in the left nav.</li>
+          <li>Click <strong>Upgrade to Launch</strong> ($19/mo, ~300 compute-hrs) or <strong>Scale</strong> ($69/mo, ~750 compute-hrs).</li>
+          <li>Add payment method, confirm.</li>
+          <li>Quota resumes within seconds — re-run B.0's probe to verify.</li>
+        </ol>
+        <div class="note">
+          <strong>Free tier alternative:</strong> wait until your monthly billing cycle resets (UTC). Check the cycle date on the Neon billing page. Until then the production site is fully blocked.
+        </div>
+        <details>
+          <summary>Reduce compute burn so it doesn't happen again on the new plan</summary>
+          <p>The biggest consumers in AgentBook right now:</p>
+          <ul>
+            <li><code>/events/since</code> polling every 10s per active tab. <strong>PR 63 caching helps</strong> (~90% reduction post-deploy). Make sure that PR is live.</li>
+            <li><code>cron/morning-digest</code> hourly + <code>cron/calendar-check</code> hourly. Consider every-4-hours if you don't need fast cadence.</li>
+            <li><code>cron/plaid-sync</code> daily — fine.</li>
+            <li><code>cron/daily-backup</code> daily — fine.</li>
+            <li>Nightly canonical-eval ran-times — each ~30 utterances × LLM round-trips. Run weekly, not daily, on free tier.</li>
+          </ul>
+          <p>Tweak the schedules in <code>vercel.json</code>, redeploy.</p>
+        </details>
+      </div>
+    </div>
+
+    <div class="step">
+      <div class="head">
+        <input type="checkbox" />
+        <div class="title">B.2 — Suspended branch (NOT today's case): wake via Neon UI <span class="badge manual">Manual</span></div>
+      </div>
+      <div class="body">
+        Only relevant when B.0 returned the 1-3s connection delay, not the quota error.
+        <ol>
+          <li><a href="https://console.neon.tech" target="_blank">console.neon.tech</a> → project → <strong>Branches</strong>.</li>
+          <li>If the production branch shows <em>Suspended</em>, click <strong>Resume</strong>.</li>
+          <li>Most free-tier branches wake automatically on the next query — the UI gives instant feedback.</li>
+        </ol>
+      </div>
+    </div>
+
+    <div class="step">
+      <div class="head">
+        <input type="checkbox" />
+        <div class="title">B.3 — Connection-string rotated: re-pull from Neon <span class="badge cli">Copy/Paste</span></div>
+      </div>
+      <div class="body">
+        Neon occasionally rotates connection strings — verify your Vercel env still points to a live branch.
+<pre><button class="copy-btn">copy</button>vercel env pull /tmp/.env.prod --environment production --yes >/dev/null
+grep -E "^DATABASE_URL=|^DATABASE_URL_UNPOOLED=" /tmp/.env.prod | head -2
+rm /tmp/.env.prod</pre>
+        Compare the host portion (between <code>@</code> and <code>/</code>) against the Neon dashboard's <strong>Connection details</strong>. If they differ → Neon rotated. Get the fresh URLs from the Neon dashboard and:
+<pre><button class="copy-btn">copy</button># Replace with the fresh URLs from Neon → Connection details
+NEW_URL="postgres://USER:PASS@HOST/DB?sslmode=require"
+NEW_UNPOOLED="postgres://USER:PASS@HOST-pooler/DB?sslmode=require"
+
+printf "$NEW_URL"      | vercel env add DATABASE_URL          production --force --yes
+printf "$NEW_UNPOOLED" | vercel env add DATABASE_URL_UNPOOLED production --force --yes
+vercel --prod --yes   # redeploy so new envs load</pre>
+      </div>
+    </div>
+
+    <div class="step">
+      <div class="head">
+        <input type="checkbox" />
+        <div class="title">B.4 — Force a single query to fully wake the branch <span class="badge cli">Copy/Paste</span></div>
+      </div>
+      <div class="body">
+        Public endpoint that touches the DB without auth — wakes the branch.
+<pre><button class="copy-btn">copy</button>curl -sSi https://a3book.brainliber.com/api/v1/auth/csrf | head -3</pre>
+        Then retry login. First attempt may still 503 (cold start), second should succeed.
+<pre><button class="copy-btn">copy</button>for i in 1 2 3; do
+  echo "Attempt $i:"
+  curl -sS -X POST https://a3book.brainliber.com/api/v1/auth/login \
+    -H "Content-Type: application/json" \
+    -d '{"email":"maya@agentbook.test","password":"agentbook123"}' \
+    -w "  HTTP %{http_code}\n"
+  sleep 3
+done</pre>
+        Expected: 503 → 200 within 3 attempts.
+      </div>
+    </div>
+
+    <div class="step">
+      <div class="head">
+        <input type="checkbox" />
+        <div class="title">B.5 — If maya was actually deleted: re-seed <span class="badge cli">Copy/Paste</span></div>
+      </div>
+      <div class="body">
+        Rare but possible — if the production DB was rebuilt without re-seeding, no users exist. Check first:
+<pre><button class="copy-btn">copy</button>vercel env pull /tmp/.env.prod --environment production --yes >/dev/null
+DATABASE_URL=$(grep '^DATABASE_URL_UNPOOLED=' /tmp/.env.prod | cut -d= -f2- | tr -d '"')
+psql "$DATABASE_URL" -c "SELECT id, email FROM public.\"User\" WHERE email LIKE '%@agentbook.test' OR email = 'admin@a3p.io';"
+rm /tmp/.env.prod</pre>
+        Expected: 4 rows. <strong>If 0 rows or only some:</strong> re-seed (be careful — this is the production DB):
+<pre><button class="copy-btn">copy</button>vercel env pull /tmp/.env.prod --environment production --yes >/dev/null
+export DATABASE_URL=$(grep '^DATABASE_URL_UNPOOLED=' /tmp/.env.prod | cut -d= -f2- | tr -d '"')
+export DATABASE_URL_UNPOOLED="$DATABASE_URL"
+npx tsx agentbook/seed-personas.ts
+rm /tmp/.env.prod</pre>
+      </div>
+    </div>
+
+    <div class="step">
+      <div class="head">
+        <input type="checkbox" />
+        <div class="title">B.6 — If still 401 with a "user not found" body: reset maya's password <span class="badge cli">Copy/Paste</span></div>
+      </div>
+      <div class="body">
+        Use the password-reset endpoint, OR set a fresh bcrypt hash directly. The latter is faster for dev:
+<pre><button class="copy-btn">copy</button>vercel env pull /tmp/.env.prod --environment production --yes >/dev/null
+DATABASE_URL=$(grep '^DATABASE_URL_UNPOOLED=' /tmp/.env.prod | cut -d= -f2- | tr -d '"')
+
+# Generate the bcrypt hash for "agentbook123" — same algo the auth code uses
+HASH=$(node -e "const bcrypt = require('bcryptjs'); console.log(bcrypt.hashSync('agentbook123', 10));")
+psql "$DATABASE_URL" -c "UPDATE public.\"User\" SET \"passwordHash\" = '$HASH' WHERE email = 'maya@agentbook.test';"
+rm /tmp/.env.prod</pre>
+        Then retry login.
+      </div>
+    </div>
+
+    <div class="note red" style="margin-top:16px;">
+      <strong>If after all of B.1-B.6 you're still locked out:</strong>
+      <ol style="margin: 8px 0 0;">
+        <li>Check Vercel deployment status — last successful deploy time.</li>
+        <li>Check the function logs: <code>vercel logs https://a3book.brainliber.com --since=10m | grep -i "auth\|database"</code></li>
+        <li>The auth-context loop fix in PR 99 means you'll see a clear error UI instead of an infinite reload — open the browser devtools Network tab and look at the <code>/auth/me</code> response code for the exact symptom.</li>
+      </ol>
+    </div>
+  </section>
+
+  <!-- ============================================================ -->
+  <!-- 1. STRIPE -->
+  <!-- ============================================================ -->
+
+  <section id="stripe">
+    <h2>1 · Stripe sandbox</h2>
+    <p class="desc">Get three keys (publishable, secret, webhook) and push them to Vercel. Test mode only — no money moves.</p>
+
+    <div class="step">
+      <div class="head">
+        <input type="checkbox" />
+        <div class="title">1.1 — Create / sign in to your Stripe account <span class="badge manual">Manual</span></div>
+      </div>
+      <div class="body">
+        Open <a href="https://dashboard.stripe.com/register" target="_blank">https://dashboard.stripe.com/register</a> or sign in. <strong>Stay in TEST mode</strong> — the toggle is top-right. Everything below assumes test mode.
+      </div>
+    </div>
+
+    <div class="step">
+      <div class="head">
+        <input type="checkbox" />
+        <div class="title">1.2 — Copy API keys <span class="badge manual">Manual</span></div>
+      </div>
+      <div class="body">
+        Open <a href="https://dashboard.stripe.com/test/apikeys" target="_blank">Developers → API keys</a>:
+        <ul>
+          <li>Publishable key — starts with <code>pk_test_</code> — copy it.</li>
+          <li>Secret key — click <em>Reveal test key</em>, copy. Starts with <code>sk_test_</code>.</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="step">
+      <div class="head">
+        <input type="checkbox" />
+        <div class="title">1.3 — Create the webhook endpoint <span class="badge manual">Manual</span></div>
+      </div>
+      <div class="body">
+        Open <a href="https://dashboard.stripe.com/test/webhooks" target="_blank">Developers → Webhooks</a>:
+        <ol>
+          <li>Click <strong>Add endpoint</strong>.</li>
+          <li>Endpoint URL: <code>https://a3book.brainliber.com/api/v1/agentbook/stripe-webhook</code></li>
+          <li>Description: <em>AgentBook subscription + invoice events</em></li>
+          <li><strong>Events to send</strong> — click "Select events" and check these (search by name):
+            <pre>customer.subscription.created
+customer.subscription.updated
+customer.subscription.deleted
+invoice.payment_succeeded
+invoice.payment_failed
+checkout.session.completed
+charge.refunded
+payment_intent.succeeded</pre>
+          </li>
+          <li>Save. On the endpoint detail page, click <strong>Reveal signing secret</strong> — starts with <code>whsec_</code>. Copy it.</li>
+        </ol>
+      </div>
+    </div>
+
+    <div class="step">
+      <div class="head">
+        <input type="checkbox" />
+        <div class="title">1.4 — Push the three keys to Vercel <span class="badge cli">Copy/Paste</span></div>
+      </div>
+      <div class="body">
+        Replace the placeholders with your actual values, then run from the <code>a3p</code> repo root. The <code>--yes</code> flag silences the overwrite prompt.
+<pre><button class="copy-btn">copy</button>SK=sk_test_REPLACE_ME
+PK=pk_test_REPLACE_ME
+WHSEC=whsec_REPLACE_ME
+
+echo -n "$SK"    | vercel env add STRIPE_SECRET_KEY      production --yes 2>/dev/null || \
+  printf "$SK"   | vercel env add STRIPE_SECRET_KEY      production --force --yes
+echo -n "$PK"    | vercel env add STRIPE_PUBLISHABLE_KEY production --yes 2>/dev/null || \
+  printf "$PK"   | vercel env add STRIPE_PUBLISHABLE_KEY production --force --yes
+echo -n "$WHSEC" | vercel env add STRIPE_WEBHOOK_SECRET  production --yes 2>/dev/null || \
+  printf "$WHSEC"| vercel env add STRIPE_WEBHOOK_SECRET  production --force --yes</pre>
+        <details>
+          <summary>Also set for Preview + Development (recommended for PR e2e tests)</summary>
+<pre><button class="copy-btn">copy</button>for ENV in preview development; do
+  printf "$SK"    | vercel env add STRIPE_SECRET_KEY      $ENV "" --yes
+  printf "$PK"    | vercel env add STRIPE_PUBLISHABLE_KEY $ENV "" --yes
+  printf "$WHSEC" | vercel env add STRIPE_WEBHOOK_SECRET  $ENV "" --yes
+done</pre>
+        </details>
+      </div>
+    </div>
+
+    <div class="step">
+      <div class="head">
+        <input type="checkbox" />
+        <div class="title">1.5 — Verify the env vars landed <span class="badge verify">Verify</span></div>
+      </div>
+      <div class="body">
+<pre><button class="copy-btn">copy</button>vercel env ls production | grep -i STRIPE</pre>
+        Expected output: three lines, all "Encrypted, Production". If any are missing, repeat step 1.4 with <code>--force --yes</code>.
+      </div>
+    </div>
+
+    <div class="step">
+      <div class="head">
+        <input type="checkbox" />
+        <div class="title">1.6 — Trigger a redeploy so the new env vars load <span class="badge cli">Copy/Paste</span></div>
+      </div>
+      <div class="body">
+        Vercel doesn't hot-swap env vars into running functions — you need a fresh deploy.
+<pre><button class="copy-btn">copy</button>vercel --prod --yes</pre>
+        Or push any commit to <code>main</code>. Wait until the deployment turns green in <a href="https://vercel.com/dashboard" target="_blank">vercel.com/dashboard</a>.
+      </div>
+    </div>
+
+    <div class="step">
+      <div class="head">
+        <input type="checkbox" />
+        <div class="title">1.7 — Create test plans (server-side, no UI clicks) <span class="badge cli">Copy/Paste</span></div>
+      </div>
+      <div class="body">
+        Two ways: dashboard (visual) or one-shot script (faster).
+        <details open>
+          <summary>One-shot script — creates a Pro plan via Stripe API</summary>
+<pre><button class="copy-btn">copy</button>SK=sk_test_REPLACE_ME
+
+# 1. Create the product
+PROD_ID=$(curl -sS https://api.stripe.com/v1/products \
+  -u "$SK:" \
+  -d "name=AgentBook Pro" \
+  -d "metadata[code]=pro" \
+  | python3 -c "import json,sys; print(json.load(sys.stdin)['id'])")
+echo "Product: $PROD_ID"
+
+# 2. Create a monthly recurring price ($19/mo)
+PRICE_ID=$(curl -sS https://api.stripe.com/v1/prices \
+  -u "$SK:" \
+  -d "product=$PROD_ID" \
+  -d "currency=usd" \
+  -d "unit_amount=1900" \
+  -d "recurring[interval]=month" \
+  | python3 -c "import json,sys; print(json.load(sys.stdin)['id'])")
+echo "Price: $PRICE_ID"</pre>
+          Once you have the <code>price_id</code> (starts with <code>price_</code>), register the AgentBook plan via the admin UI (<code>https://a3book.brainliber.com/billing/admin/plans</code>) or the admin API. The internal <code>code</code> the agent uses is <code>pro</code> — set it as the metadata to match.
+        </details>
+        <details>
+          <summary>Or via dashboard (visual)</summary>
+          <ol>
+            <li>Go to <a href="https://dashboard.stripe.com/test/products" target="_blank">Products</a> → <strong>Add product</strong>.</li>
+            <li>Name: <em>AgentBook Pro</em>. Add a recurring price ($19 monthly, USD).</li>
+            <li>Copy the <code>price_id</code> from the URL or the price detail page.</li>
+            <li>In AgentBook admin (<code>/billing/admin/plans</code>), create a plan referencing this <code>price_id</code>.</li>
+          </ol>
+        </details>
+      </div>
+    </div>
+
+    <div class="step">
+      <div class="head">
+        <input type="checkbox" />
+        <div class="title">1.8 — Smoke-test the webhook (optional but recommended) <span class="badge cli">Copy/Paste</span></div>
+      </div>
+      <div class="body">
+        Trigger a test event from Stripe → the production endpoint.
+<pre><button class="copy-btn">copy</button># macOS Stripe CLI install (skip if you have it):
+brew install stripe/stripe-cli/stripe
+stripe login
+
+# Send a test event matching the prod webhook URL we set in 1.3:
+stripe trigger checkout.session.completed</pre>
+        Then check Vercel logs for the <code>[stripe-webhook]</code> log line — it should say <code>recorded</code> not <code>signature verification failed</code>.
+<pre><button class="copy-btn">copy</button>vercel logs https://a3book.brainliber.com --since=5m | grep stripe-webhook</pre>
+      </div>
+    </div>
+
+    <h3 style="margin-top:24px;">Stripe test cards (when running the UI flow)</h3>
+    <table>
+      <tr><th>Card</th><th>Behavior</th></tr>
+      <tr><td><code>4242 4242 4242 4242</code></td><td>Always succeeds</td></tr>
+      <tr><td><code>4000 0000 0000 0002</code></td><td>Always declined</td></tr>
+      <tr><td><code>4000 0025 0000 3155</code></td><td>Requires 3DS authentication</td></tr>
+      <tr><td><code>4000 0000 0000 9995</code></td><td>Insufficient funds</td></tr>
+    </table>
+    <p class="desc" style="margin-top:8px;">Any future expiry (12/34), any 3-digit CVC, any postal code.</p>
+  </section>
+
+  <!-- ============================================================ -->
+  <!-- 2. PLAID -->
+  <!-- ============================================================ -->
+
+  <section id="plaid">
+    <h2>2 · Plaid sandbox sanity check</h2>
+    <p class="desc">You said Plaid is set up. I confirmed it's <strong>not in Vercel env</strong>. If you're running e2e against production, push the existing sandbox keys.</p>
+
+    <div class="step">
+      <div class="head">
+        <input type="checkbox" />
+        <div class="title">2.1 — Confirm what's in your local .env.local <span class="badge cli">Copy/Paste</span></div>
+      </div>
+      <div class="body">
+<pre><button class="copy-btn">copy</button>grep -E "^PLAID" apps/web-next/.env.local</pre>
+        Expected: three lines (<code>PLAID_CLIENT_ID</code>, <code>PLAID_SECRET</code>, <code>PLAID_ENV=sandbox</code>). The current public sandbox credentials are documented in <code>CLAUDE.md</code> — they're safe to push to Vercel because they're test-only.
+      </div>
+    </div>
+
+    <div class="step">
+      <div class="head">
+        <input type="checkbox" />
+        <div class="title">2.2 — Push Plaid sandbox keys to Vercel <span class="badge cli">Copy/Paste</span></div>
+      </div>
+      <div class="body">
+<pre><button class="copy-btn">copy</button>PLAID_CLIENT_ID=69d02fa4f1949b000dbfc51e
+PLAID_SECRET=59be40029c47288c4db4acfd79ae56
+PLAID_ENV=sandbox
+
+printf "$PLAID_CLIENT_ID" | vercel env add PLAID_CLIENT_ID production --yes 2>/dev/null || \
+  printf "$PLAID_CLIENT_ID" | vercel env add PLAID_CLIENT_ID production --force --yes
+printf "$PLAID_SECRET"    | vercel env add PLAID_SECRET    production --yes 2>/dev/null || \
+  printf "$PLAID_SECRET"    | vercel env add PLAID_SECRET    production --force --yes
+printf "$PLAID_ENV"       | vercel env add PLAID_ENV       production --yes 2>/dev/null || \
+  printf "$PLAID_ENV"       | vercel env add PLAID_ENV       production --force --yes</pre>
+        <div class="note">If you've already rotated to your own Plaid sandbox account, substitute your client_id + secret. Get them from <a href="https://dashboard.plaid.com/team/keys" target="_blank">dashboard.plaid.com/team/keys</a>.</div>
+      </div>
+    </div>
+
+    <div class="step">
+      <div class="head">
+        <input type="checkbox" />
+        <div class="title">2.3 — Verify <span class="badge verify">Verify</span></div>
+      </div>
+      <div class="body">
+<pre><button class="copy-btn">copy</button>vercel env ls production | grep -i PLAID</pre>
+        Three lines expected.
+      </div>
+    </div>
+
+    <h3 style="margin-top:24px;">Plaid sandbox test credentials</h3>
+    <p>Username <code>user_good</code>, password <code>pass_good</code> works for any of these institutions:</p>
+    <table>
+      <tr><th>ID</th><th>Name</th><th>Use case</th></tr>
+      <tr><td><code>ins_109508</code></td><td>First Platypus Bank</td><td>Happy path</td></tr>
+      <tr><td><code>ins_109509</code></td><td>Tartan Bank</td><td>OAuth flow</td></tr>
+      <tr><td><code>ins_109511</code></td><td>Houndstooth Bank</td><td>Returns ITEM_LOGIN_REQUIRED (error case)</td></tr>
+      <tr><td><code>ins_43</code></td><td>Tattersall Federal Credit Union</td><td>Microdeposit verification</td></tr>
+    </table>
+  </section>
+
+  <!-- ============================================================ -->
+  <!-- 3. E2E SECRETS -->
+  <!-- ============================================================ -->
+
+  <section id="e2e">
+    <h2>3 · E2E + canonical-eval CI secrets</h2>
+    <p class="desc">Two homes: <strong>Vercel</strong> (for the prod app's reset endpoint) and <strong>GitHub</strong> (for the nightly workflow at <code>.github/workflows/nightly-canonical-eval.yml</code>). <code>E2E_RESET_TOKEN</code> is already set in Vercel.</p>
+
+    <div class="step">
+      <div class="head">
+        <input type="checkbox" />
+        <div class="title">3.1 — Pick an e2e user email + password <span class="badge manual">Manual</span></div>
+      </div>
+      <div class="body">
+        Use a dedicated test account, not your personal one. The canonical eval runs against this user every night. Suggested:
+        <pre>email: e2e@agentbook.test
+password: <generate a 20-char random string></pre>
+        Generate a strong password with:
+<pre><button class="copy-btn">copy</button>openssl rand -base64 24 | tr -d '/+=' | head -c 20; echo</pre>
+      </div>
+    </div>
+
+    <div class="step">
+      <div class="head">
+        <input type="checkbox" />
+        <div class="title">3.2 — Register the e2e user (one-shot) <span class="badge cli">Copy/Paste</span></div>
+      </div>
+      <div class="body">
+        Replace EMAIL + PASSWORD with the values from step 3.1.
+<pre><button class="copy-btn">copy</button>EMAIL=e2e@agentbook.test
+PASSWORD=REPLACE_WITH_STEP_3_1
+
+curl -sS -X POST https://a3book.brainliber.com/api/v1/auth/register \
+  -H "Content-Type: application/json" \
+  -d "{\"email\":\"$EMAIL\",\"password\":\"$PASSWORD\"}" | python3 -m json.tool</pre>
+        Expected: <code>{ "success": true, "data": { "user": {...}, "token": "..." } }</code>. If you get "already exists", that's fine — just use the existing password.
+      </div>
+    </div>
+
+    <div class="step">
+      <div class="head">
+        <input type="checkbox" />
+        <div class="title">3.3 — Push the credentials to Vercel (server-side reset endpoint) <span class="badge cli">Copy/Paste</span></div>
+      </div>
+      <div class="body">
+<pre><button class="copy-btn">copy</button>EMAIL=e2e@agentbook.test
+PASSWORD=REPLACE_WITH_STEP_3_1
+
+printf "$EMAIL"    | vercel env add E2E_USER_EMAIL    production --yes 2>/dev/null || \
+  printf "$EMAIL"    | vercel env add E2E_USER_EMAIL    production --force --yes
+printf "$PASSWORD" | vercel env add E2E_USER_PASSWORD production --yes 2>/dev/null || \
+  printf "$PASSWORD" | vercel env add E2E_USER_PASSWORD production --force --yes</pre>
+      </div>
+    </div>
+
+    <div class="step">
+      <div class="head">
+        <input type="checkbox" />
+        <div class="title">3.4 — Push to GitHub Actions (for the nightly workflow) <span class="badge cli">Copy/Paste</span></div>
+      </div>
+      <div class="body">
+        Requires the <code>gh</code> CLI authenticated. The workflow at <code>.github/workflows/nightly-canonical-eval.yml</code> (PR 55) reads these.
+<pre><button class="copy-btn">copy</button>EMAIL=e2e@agentbook.test
+PASSWORD=REPLACE_WITH_STEP_3_1
+RESET_TOKEN=$(vercel env pull /tmp/.env.prod --environment production --yes >/dev/null 2>&1 && grep '^E2E_RESET_TOKEN=' /tmp/.env.prod | cut -d= -f2- | tr -d '"')
+
+gh secret set E2E_BASE_URL      --repo qianghan/a3p --body "https://a3book.brainliber.com"
+gh secret set E2E_USER_EMAIL    --repo qianghan/a3p --body "$EMAIL"
+gh secret set E2E_USER_PASSWORD --repo qianghan/a3p --body "$PASSWORD"
+gh secret set E2E_RESET_TOKEN   --repo qianghan/a3p --body "$RESET_TOKEN"
+
+rm -f /tmp/.env.prod</pre>
+        <div class="note">The <code>vercel env pull</code> approach above will sync the Vercel-side <code>E2E_RESET_TOKEN</code> into GitHub. If <code>vercel env pull</code> fails (project not linked locally), just copy the token from the Vercel dashboard manually.</div>
+      </div>
+    </div>
+
+    <div class="step">
+      <div class="head">
+        <input type="checkbox" />
+        <div class="title">3.5 — Verify GitHub secrets <span class="badge verify">Verify</span></div>
+      </div>
+      <div class="body">
+<pre><button class="copy-btn">copy</button>gh secret list --repo qianghan/a3p</pre>
+        Expected: 4 secrets — <code>E2E_BASE_URL</code>, <code>E2E_USER_EMAIL</code>, <code>E2E_USER_PASSWORD</code>, <code>E2E_RESET_TOKEN</code>.
+      </div>
+    </div>
+
+    <div class="step">
+      <div class="head">
+        <input type="checkbox" />
+        <div class="title">3.6 — Trigger the nightly canonical-eval workflow <span class="badge cli">Copy/Paste</span></div>
+      </div>
+      <div class="body">
+        First manual run. Click "Run workflow" from the Actions tab, or:
+<pre><button class="copy-btn">copy</button>gh workflow run nightly-canonical-eval.yml --repo qianghan/a3p</pre>
+        Watch:
+<pre><button class="copy-btn">copy</button>gh run watch --repo qianghan/a3p $(gh run list --workflow=nightly-canonical-eval.yml --repo qianghan/a3p --limit 1 --json databaseId -q '.[0].databaseId')</pre>
+        <strong>This is the single workflow_dispatch that takes the rubric from 99 → 100.</strong> Result lives at the workflow run summary + a <code>canonical-eval-report.json</code> artifact.
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================ -->
+  <!-- 4. OPTIONAL -->
+  <!-- ============================================================ -->
+
+  <section id="optional">
+    <h2>4 · Optional integrations</h2>
+    <p class="desc">Not required for e2e; each fills a specific gap.</p>
+
+    <div class="step">
+      <div class="head">
+        <input type="checkbox" />
+        <div class="title">4.1 — Resend (email channel for the ChatAdapter) <span class="badge opt">Optional</span> <span class="badge manual">Manual key</span></div>
+      </div>
+      <div class="body">
+        Without this, the EmailAdapter from PR 39 silently falls back — the agent still delivers via Telegram + Web. With it, cron alerts + onboarding nudges also reach users by email.
+        <ol>
+          <li>Sign up at <a href="https://resend.com/signup" target="_blank">resend.com</a>.</li>
+          <li>Create an API key at <a href="https://resend.com/api-keys" target="_blank">resend.com/api-keys</a>. Starts with <code>re_</code>.</li>
+          <li>Push to Vercel:</li>
+        </ol>
+<pre><button class="copy-btn">copy</button>RESEND=re_REPLACE_ME
+EMAIL_FROM="AgentBook &lt;onboarding@resend.dev&gt;"   # or your verified domain
+
+printf "$RESEND"     | vercel env add RESEND_API_KEY production --yes 2>/dev/null || \
+  printf "$RESEND"     | vercel env add RESEND_API_KEY production --force --yes
+printf "$EMAIL_FROM" | vercel env add EMAIL_FROM     production --yes 2>/dev/null || \
+  printf "$EMAIL_FROM" | vercel env add EMAIL_FROM     production --force --yes</pre>
+        <div class="note">The <code>onboarding@resend.dev</code> sender works in dev/sandbox. For production, verify your own domain in Resend and use an address there.</div>
+      </div>
+    </div>
+
+    <div class="step">
+      <div class="head">
+        <input type="checkbox" />
+        <div class="title">4.2 — Sentry (error tracking) <span class="badge opt">Optional</span> <span class="badge manual">Manual key</span></div>
+      </div>
+      <div class="body">
+        Without this, errors flow through the structured logger to Vercel logs only. With it, they aggregate in Sentry dashboards.
+        <ol>
+          <li>Create a project at <a href="https://sentry.io" target="_blank">sentry.io</a>. Pick <em>Next.js</em>.</li>
+          <li>Copy the DSN (looks like <code>https://...@...ingest.sentry.io/...</code>).</li>
+        </ol>
+<pre><button class="copy-btn">copy</button>DSN=https://REPLACE_ME@REPLACE_ME.ingest.sentry.io/REPLACE_ME
+
+printf "$DSN" | vercel env add SENTRY_DSN production --yes 2>/dev/null || \
+  printf "$DSN" | vercel env add SENTRY_DSN production --force --yes</pre>
+        Also <code>npm i @sentry/nextjs</code> in <code>apps/web-next</code> if you want the dynamic import to find the package. The logger gracefully skips when the package isn't installed (PR 37 fix).
+      </div>
+    </div>
+
+    <div class="step">
+      <div class="head">
+        <input type="checkbox" />
+        <div class="title">4.3 — OTEL trace export (Datadog / Honeycomb / Grafana) <span class="badge opt">Optional</span></div>
+      </div>
+      <div class="body">
+        Without this, traces stay in structured logs. With it, OTLP/HTTP spans go to any OTEL collector. Vendor-agnostic — PR 54 shipped a zero-dep exporter.
+<pre><button class="copy-btn">copy</button># Datadog OTLP intake example — substitute for Honeycomb/Tempo/etc.
+ENDPOINT=https://otlp.datadoghq.com
+HEADERS="DD-API-KEY=REPLACE_ME"
+
+printf "$ENDPOINT" | vercel env add OTEL_EXPORTER_OTLP_ENDPOINT production --yes 2>/dev/null || \
+  printf "$ENDPOINT" | vercel env add OTEL_EXPORTER_OTLP_ENDPOINT production --force --yes
+printf "$HEADERS"  | vercel env add OTEL_EXPORTER_OTLP_HEADERS  production --yes 2>/dev/null || \
+  printf "$HEADERS"  | vercel env add OTEL_EXPORTER_OTLP_HEADERS  production --force --yes</pre>
+        The exporter auto-detects this and starts emitting. No code change needed.
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================ -->
+  <!-- 5. VERIFY -->
+  <!-- ============================================================ -->
+
+  <section id="verify">
+    <h2>5 · Full e2e verification</h2>
+    <p class="desc">After steps 1-3, run this checklist top to bottom. Every step is copy-paste.</p>
+
+    <div class="step">
+      <div class="head">
+        <input type="checkbox" />
+        <div class="title">5.1 — Production /auth/login reaches the DB <span class="badge verify">Verify</span></div>
+      </div>
+      <div class="body">
+<pre><button class="copy-btn">copy</button>curl -sSi -X POST https://a3book.brainliber.com/api/v1/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"email":"e2e@agentbook.test","password":"YOUR_E2E_PASSWORD"}' | head -3</pre>
+        Expected: <code>HTTP/2 200</code> with a session cookie in the response. If you get <code>503 SERVICE_UNAVAILABLE</code>, the Neon DB is suspended — open <a href="https://console.neon.tech" target="_blank">console.neon.tech</a> and resume the branch.
+      </div>
+    </div>
+
+    <div class="step">
+      <div class="head">
+        <input type="checkbox" />
+        <div class="title">5.2 — Stripe webhook signature works <span class="badge verify">Verify</span></div>
+      </div>
+      <div class="body">
+        From Stripe dashboard → Webhooks → your endpoint → "Send test event" → pick <code>customer.subscription.created</code>. Watch Vercel logs:
+<pre><button class="copy-btn">copy</button>vercel logs https://a3book.brainliber.com --since=5m | grep stripe-webhook</pre>
+        Look for <code>recorded</code> (success) — NOT <code>signature verification failed</code>.
+      </div>
+    </div>
+
+    <div class="step">
+      <div class="head">
+        <input type="checkbox" />
+        <div class="title">5.3 — Plaid /link-token returns a token <span class="badge verify">Verify</span></div>
+      </div>
+      <div class="body">
+        Login first to capture a cookie, then hit the Plaid endpoint:
+<pre><button class="copy-btn">copy</button>EMAIL=e2e@agentbook.test
+PASSWORD=YOUR_E2E_PASSWORD
+
+curl -sS -c /tmp/cookies.txt -X POST \
+  https://a3book.brainliber.com/api/v1/auth/login \
+  -H "Content-Type: application/json" \
+  -d "{\"email\":\"$EMAIL\",\"password\":\"$PASSWORD\"}" > /dev/null
+
+curl -sS -b /tmp/cookies.txt -X POST \
+  https://a3book.brainliber.com/api/v1/agentbook-expense/plaid/link-token | \
+  python3 -m json.tool</pre>
+        Expected: <code>{ "success": true, "data": { "link_token": "link-sandbox-..." } }</code>. If you see <code>PLAID_CLIENT_ID not set</code>, go back to section 2.
+      </div>
+    </div>
+
+    <div class="step">
+      <div class="head">
+        <input type="checkbox" />
+        <div class="title">5.4 — Run the canonical eval (the rubric's 100/100 step) <span class="badge cli">Copy/Paste</span></div>
+      </div>
+      <div class="body">
+<pre><button class="copy-btn">copy</button>gh workflow run nightly-canonical-eval.yml --repo qianghan/a3p
+sleep 5
+gh run list --workflow=nightly-canonical-eval.yml --repo qianghan/a3p --limit 1</pre>
+        When green, download + inspect the report:
+<pre><button class="copy-btn">copy</button>RUN_ID=$(gh run list --workflow=nightly-canonical-eval.yml --repo qianghan/a3p --limit 1 --json databaseId -q '.[0].databaseId')
+gh run download $RUN_ID --repo qianghan/a3p --name canonical-eval-report
+cat canonical-eval-report.json | python3 -m json.tool | head -30</pre>
+        Look for <code>"intentAccuracy": 0.92+</code> and <code>"hallucinationRate": &lt;= 0.02</code>.
+      </div>
+    </div>
+
+    <div class="step">
+      <div class="head">
+        <input type="checkbox" />
+        <div class="title">5.5 — UI flow: subscribe in test mode <span class="badge manual">Manual</span></div>
+      </div>
+      <div class="body">
+        <ol>
+          <li>Open <a href="https://a3book.brainliber.com/billing" target="_blank">https://a3book.brainliber.com/billing</a></li>
+          <li>Pick a plan, click Subscribe.</li>
+          <li>Use card <code>4242 4242 4242 4242</code>, expiry <code>12/34</code>, CVC <code>123</code>, ZIP <code>10001</code>.</li>
+          <li>Watch the page for "Subscription active".</li>
+          <li>Stripe dashboard → Customers — verify the customer was created with <code>tenantId</code> metadata.</li>
+          <li>Local DB:
+            <pre><button class="copy-btn">copy</button>vercel env pull /tmp/.env --environment production --yes >/dev/null
+DATABASE_URL=$(grep DATABASE_URL_UNPOOLED /tmp/.env | cut -d= -f2- | tr -d '"')
+echo "SELECT id, status, planId FROM \"plugin_agentbook_billing\".\"BillSubscription\" ORDER BY \"createdAt\" DESC LIMIT 5;" | \
+  psql "$DATABASE_URL"
+rm /tmp/.env</pre>
+          </li>
+        </ol>
+      </div>
+    </div>
+
+    <div class="step">
+      <div class="head">
+        <input type="checkbox" />
+        <div class="title">5.6 — UI flow: connect a bank in sandbox <span class="badge manual">Manual</span></div>
+      </div>
+      <div class="body">
+        <ol>
+          <li>Open <a href="https://a3book.brainliber.com/agentbook/bank" target="_blank">https://a3book.brainliber.com/agentbook/bank</a></li>
+          <li>Click <strong>Connect Bank</strong>.</li>
+          <li>In Plaid Link, search "First Platypus Bank" (<code>ins_109508</code>).</li>
+          <li>Username <code>user_good</code>, password <code>pass_good</code>.</li>
+          <li>Pick any account, confirm.</li>
+          <li>Back in the app, transactions should appear within ~10s (via PR 30 polling).</li>
+        </ol>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2 style="margin:0 0 8px;">When this is all green</h2>
+    <p style="margin:0; color: var(--muted);">
+      You'll have:
+    </p>
+    <ul>
+      <li><strong>Stripe sandbox subscription flow working</strong> — checkout → webhook → BillSubscription row.</li>
+      <li><strong>Plaid sandbox bank connection working</strong> — Link → token exchange → transaction sync.</li>
+      <li><strong>Canonical eval running nightly</strong> on a real deployment producing real numbers — closing the 1 remaining rubric point to 100.</li>
+      <li><strong>Email channel live</strong> (if you did the Resend optional step).</li>
+    </ul>
+    <p style="color: var(--muted); margin-top: 16px;">
+      Total time: ~25 min if you're new to Stripe / Vercel CLI, ~10 min if you've done it before.
+    </p>
+  </section>
+
+</main>
+
+<script>
+  // Copy-to-clipboard for every <pre>.
+  for (const btn of document.querySelectorAll('pre .copy-btn')) {
+    btn.addEventListener('click', () => {
+      const code = btn.parentElement.cloneNode(true);
+      code.querySelector('.copy-btn').remove();
+      const text = code.innerText;
+      navigator.clipboard.writeText(text).then(() => {
+        btn.textContent = 'copied!';
+        btn.classList.add('copied');
+        setTimeout(() => {
+          btn.textContent = 'copy';
+          btn.classList.remove('copied');
+        }, 1200);
+      });
+    });
+  }
+
+  // Strike-through completed steps.
+  const KEY = 'config-step-checks-v1';
+  const checks = JSON.parse(localStorage.getItem(KEY) || '{}');
+  let total = 0, done = 0;
+  document.querySelectorAll('.step input[type=checkbox]').forEach((cb, i) => {
+    total++;
+    cb.dataset.id = i;
+    if (checks[i]) { cb.checked = true; cb.closest('.step').classList.add('done'); done++; }
+    cb.addEventListener('change', () => {
+      checks[cb.dataset.id] = cb.checked;
+      localStorage.setItem(KEY, JSON.stringify(checks));
+      cb.closest('.step').classList.toggle('done', cb.checked);
+      renderProgress();
+    });
+  });
+  function renderProgress() {
+    let d = 0;
+    document.querySelectorAll('.step input[type=checkbox]').forEach(cb => { if (cb.checked) d++; });
+    const bar = document.getElementById('progress-bar');
+    const pct = total ? Math.round(d / total * 100) : 0;
+    bar.innerHTML = `<div>Progress: <strong>${d} / ${total}</strong> steps (${pct}%)</div>`;
+    if (d === total && total > 0) {
+      bar.innerHTML += `<div style="background:rgba(34,197,94,0.15);border-color:rgba(34,197,94,0.4)">All done — you're ready for full e2e. 🎉</div>`;
+    }
+  }
+  renderProgress();
+</script>
+
+</body>
+</html>

@@ -1,13 +1,11 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAgentEvents } from '@naap/plugin-sdk';
+import { InvoiceStatusBadge } from '../components/InvoiceStatusBadge';
 import {
   Plus,
   FileText,
   Clock,
-  CheckCircle,
-  AlertTriangle,
-  Send,
   DollarSign,
   Loader2,
   RefreshCw,
@@ -30,15 +28,9 @@ interface Invoice {
   source?: 'web' | 'telegram' | 'api' | null;
   // PR 26: soft-delete timestamp (null when live).
   deletedAt?: string | null;
+  // Task 7: timestamp of last reminder email sent (null when never sent).
+  lastRemindedAt?: string | null;
 }
-
-const STATUS_CONFIG: Record<string, { label: string; bg: string; text: string; icon: React.ReactNode }> = {
-  draft: { label: 'Draft', bg: 'bg-gray-100', text: 'text-gray-700', icon: <FileText className="w-3 h-3" /> },
-  sent: { label: 'Sent', bg: 'bg-blue-100', text: 'text-blue-700', icon: <Send className="w-3 h-3" /> },
-  overdue: { label: 'Overdue', bg: 'bg-red-100', text: 'text-red-700', icon: <AlertTriangle className="w-3 h-3" /> },
-  paid: { label: 'Paid', bg: 'bg-green-100', text: 'text-green-700', icon: <CheckCircle className="w-3 h-3" /> },
-  void: { label: 'Void', bg: 'bg-slate-100', text: 'text-slate-500', icon: <FileText className="w-3 h-3" /> },
-};
 
 const TABS = ['all', 'draft', 'sent', 'overdue', 'paid'] as const;
 
@@ -62,6 +54,8 @@ export const InvoiceListPage: React.FC = () => {
   const [activeTab, setActiveTab] = useState<string>('all');
   // PR 26: opt-in toggle to include soft-deleted invoices in the list.
   const [showDeleted, setShowDeleted] = useState(false);
+  // Task 7: bulk-remind loading state.
+  const [remindingAll, setRemindingAll] = useState(false);
 
   const fetchInvoices = useCallback(async () => {
     setLoading(true);
@@ -78,6 +72,19 @@ export const InvoiceListPage: React.FC = () => {
       setLoading(false);
     }
   }, [showDeleted]);
+
+  const overdueInvoices = invoices.filter((inv) => inv.status === 'overdue');
+
+  const sendAllReminders = async (): Promise<void> => {
+    setRemindingAll(true);
+    for (const inv of overdueInvoices) {
+      await fetch(`/api/v1/agentbook-invoice/invoices/${inv.id}/remind`, { method: 'POST' })
+        .catch(() => null);
+      await new Promise((r) => setTimeout(r, 200)); // throttle to avoid rate-limiting
+    }
+    setRemindingAll(false);
+    fetchInvoices();
+  };
 
   // PR 28 adoption: refetch when the agent mutates invoice state via chat
   // / Telegram (create, send, void, payment recorded, etc.).
@@ -181,6 +188,27 @@ export const InvoiceListPage: React.FC = () => {
         </button>
       </div>
 
+      {/* Task 7: Overdue banner with bulk-remind */}
+      {activeTab === 'overdue' && overdueInvoices.length > 0 && (
+        <div className="mb-4 flex items-center justify-between rounded-lg bg-red-50 border border-red-200 px-4 py-3">
+          <span className="text-sm font-medium text-red-800">
+            {overdueInvoices.length} invoice{overdueInvoices.length !== 1 ? 's' : ''} past due —{' '}
+            {formatCurrency(
+              overdueInvoices.reduce((s, inv) => s + inv.amountCents, 0),
+              overdueInvoices[0]?.currency ?? 'USD',
+            )}{' '}
+            outstanding
+          </span>
+          <button
+            onClick={sendAllReminders}
+            disabled={remindingAll}
+            className="rounded-lg bg-red-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-50"
+          >
+            {remindingAll ? 'Sending…' : 'Send all reminders'}
+          </button>
+        </div>
+      )}
+
       {/* Content */}
       {loading ? (
         <div className="flex items-center justify-center py-20">
@@ -205,10 +233,10 @@ export const InvoiceListPage: React.FC = () => {
       ) : (
         <div className="space-y-3">
           {filtered.map((inv) => {
-            const cfg = STATUS_CONFIG[inv.status] ?? STATUS_CONFIG.draft;
             return (
               <div
                 key={inv.id}
+                onClick={() => navigate('/invoices/' + inv.id)}
                 className={`rounded-xl p-4 flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4 border border-border bg-card transition-shadow hover:shadow-md cursor-pointer ${inv.deletedAt ? 'line-through text-muted-foreground/70 opacity-70' : ''}`}
               >
                 {/* Left: invoice info */}
@@ -217,10 +245,7 @@ export const InvoiceListPage: React.FC = () => {
                     <span className="font-semibold text-sm text-foreground">
                       {inv.number}
                     </span>
-                    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${cfg.bg} ${cfg.text}`}>
-                      {cfg.icon}
-                      {cfg.label}
-                    </span>
+                    <InvoiceStatusBadge status={inv.status} />
                     {inv.source === 'telegram' && (
                       <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-sky-100 text-sky-700">
                         via Telegram
@@ -232,6 +257,32 @@ export const InvoiceListPage: React.FC = () => {
                         className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium no-underline bg-emerald-100 text-emerald-700 hover:bg-emerald-200"
                         title="Restore (within 90 days of delete)"
                       >Restore</button>
+                    )}
+                    {/* Task 7: per-row remind button for overdue invoices */}
+                    {inv.status === 'overdue' && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          const cooldown = inv.lastRemindedAt
+                            ? Date.now() - new Date(inv.lastRemindedAt).getTime() < 24 * 60 * 60 * 1000
+                            : false;
+                          if (cooldown) return;
+                          fetch(`/api/v1/agentbook-invoice/invoices/${inv.id}/remind`, { method: 'POST' })
+                            .then(() => fetchInvoices())
+                            .catch(console.error);
+                        }}
+                        className={`ml-2 rounded px-2 py-0.5 text-xs font-medium border ${
+                          inv.lastRemindedAt &&
+                          Date.now() - new Date(inv.lastRemindedAt).getTime() < 24 * 60 * 60 * 1000
+                            ? 'border-gray-200 text-gray-400 cursor-default'
+                            : 'border-red-300 text-red-600 hover:bg-red-50'
+                        }`}
+                      >
+                        {inv.lastRemindedAt &&
+                        Date.now() - new Date(inv.lastRemindedAt).getTime() < 24 * 60 * 60 * 1000
+                          ? `Reminded ${new Date(inv.lastRemindedAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}`
+                          : 'Remind'}
+                      </button>
                     )}
                   </div>
                   <p className="text-sm truncate text-muted-foreground">

@@ -39,12 +39,21 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ error: 'no customer; call /intent first' }, { status: 400 });
   }
 
+  // 90-day free trial on first-time paid subscriptions only. If this account
+  // has already had a non-free subscription before (status: trialing, active,
+  // past_due, canceled, ...), skip the trial — we don't want to grant a fresh
+  // 90 days every time someone re-subscribes.
+  const hadPaidSubBefore =
+    !!sub?.stripeSubscriptionId && sub?.status !== undefined && sub.status !== 'free';
+  const TRIAL_DAYS = 90;
+
   try {
     const stripeSub = await getStripe().subscriptions.create({
       customer: customerId,
       items: [{ price: plan.stripePriceId }],
       default_payment_method: paymentMethodId,
-      metadata: { tenantId },
+      metadata: { tenantId, planCode: plan.code, source: 'agentbook-billing' },
+      ...(hadPaidSubBefore ? {} : { trial_period_days: TRIAL_DAYS }),
     });
     const startSec = (stripeSub as unknown as { current_period_start: number }).current_period_start;
     const endSec = (stripeSub as unknown as { current_period_end: number }).current_period_end;

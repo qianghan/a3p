@@ -22,7 +22,7 @@ export async function postUpdate(
   text: string,
   options: UpdateOptions = {}
 ): Promise<UpdateResult> {
-  const baseURL = process.env.E2E_BASE_URL || 'https://a3book.brainliber.com';
+  const baseURL = process.env.E2E_BASE_URL || 'https://agentbook.brainliber.com';
   const chatId = options.chatId ?? E2E_CHAT_ID;
 
   const update: any = {

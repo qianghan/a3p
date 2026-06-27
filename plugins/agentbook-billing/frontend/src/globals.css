@@ -1,0 +1,5 @@
+@import '../../../../packages/theme/src/shell-variables.css';
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;

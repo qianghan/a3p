@@ -25,10 +25,9 @@ if [ ! -f "package.json" ] || [ ! -d "apps/web-next" ]; then
   exit 1
 fi
 
-# Ensure DATABASE_URL is set
-# Vercel Neon integration may use project-prefixed names (e.g., a3p_DATABASE_URL)
-export DATABASE_URL="${DATABASE_URL:-${a3p_DATABASE_URL:-${POSTGRES_PRISMA_URL:-$a3p_POSTGRES_PRISMA_URL}}}"
-export DATABASE_URL_UNPOOLED="${DATABASE_URL_UNPOOLED:-${a3p_DATABASE_URL_UNPOOLED:-${POSTGRES_URL_NON_POOLING:-$a3p_POSTGRES_URL_NON_POOLING}}}"
+# Ensure DATABASE_URL is set (Supabase via Vercel Marketplace integration)
+export DATABASE_URL="${DATABASE_URL:-${POSTGRES_PRISMA_URL:-$POSTGRES_URL}}"
+export DATABASE_URL_UNPOOLED="${DATABASE_URL_UNPOOLED:-${POSTGRES_URL_NON_POOLING:-$POSTGRES_URL_NON_POOLING}}"
 
 echo "=== Vercel Build Pipeline ==="
 echo "Environment: ${VERCEL_ENV:-unknown}"
@@ -86,11 +85,54 @@ fi
 echo "[4/6] Syncing plugin registry..."
 npx tsx bin/sync-plugin-registry.ts
 
+# Step 4b: Enforce AgentBook-as-default plugin configuration.
+# Runs immediately after sync to guarantee AgentBook plugins are enabled and
+# marked isCore, regardless of prior DB state or sync failures. Non-fatal.
+echo "[4b/6] Enforcing AgentBook plugin defaults..."
+npx tsx bin/seed-agentbook-defaults.ts 2>&1 || echo "WARN: AgentBook defaults could not be applied (non-fatal)"
+
 # Step 5: Build Next.js app
 echo "[5/6] Building Next.js app..."
 cd apps/web-next || { echo "ERROR: Failed to cd to apps/web-next"; exit 1; }
 npm run build
 cd ../.. || { echo "ERROR: Failed to cd back to root"; exit 1; }
+
+# Step 5a: Dedup Prisma engine copies via symlinks.
+# PrismaPlugin copies the 16MB engine next to every chunk that references
+# @prisma/client (~30 copies × 5 variants = 535MB). We replace duplicates
+# with symlinks to a single canonical copy per variant in both the build
+# output and the standalone tree (which Vercel's function packager copies
+# from). Vercel preserves symlinks. Reclaims ~450MB.
+echo "[5a/6] Deduplicating Prisma engine binaries via symlinks..."
+dedup_dir() {
+  local dir="$1"
+  [ -d "$dir" ] || return 0
+  local reclaimed=0
+  for variant in libquery_engine-linux-arm64-openssl-3.0.x.so \
+                 libquery_engine-linux-musl-openssl-3.0.x.so \
+                 libquery_engine-rhel-openssl-3.0.x.so \
+                 libquery_engine-debian-openssl-3.0.x.so \
+                 libquery_engine-darwin-arm64.dylib; do
+    local canonical=""
+    # shellcheck disable=SC2206
+    local files=("$dir"/"$variant".node "$dir"/"$variant"\ [0-9]*.node)
+    for f in "${files[@]}"; do
+      [ -f "$f" ] && [ ! -L "$f" ] || continue
+      if [ -z "$canonical" ]; then
+        canonical="$f"
+      else
+        local size
+        size=$(stat -f %z "$f" 2>/dev/null || stat -c %s "$f")
+        rm "$f"
+        ln -s "$(basename "$canonical")" "$f"
+        reclaimed=$((reclaimed + size))
+      fi
+    done
+  done
+  echo "  $dir: reclaimed $((reclaimed / 1024 / 1024)) MB"
+}
+dedup_dir "apps/web-next/.next/server/chunks"
+dedup_dir "apps/web-next/.next/standalone/apps/web-next/.next/server/chunks"
 
 # Step 6: (Optional) One-time cleanup for PR 87 moved plugins
 # Set RUN_PLUGIN_CLEANUP=1 in Vercel env to run once, then remove.

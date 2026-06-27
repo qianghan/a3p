@@ -1433,6 +1433,10 @@ model AbTenantConfig {
   companyPhone          String?
   logoUrl               String?
   brandColor            String   @default("#1a1a2e")
+  defaultPaymentTerms   String?
+  defaultCurrency       String?
+  invoiceFooterNote     String?
+  invoiceThankYouMessage String?
   createdAt             DateTime @default(now())
   updatedAt             DateTime @updatedAt
 

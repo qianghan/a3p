@@ -1,5 +1,17 @@
 # A3P — Agent as a Product
 
+## Repository Independence — IMPORTANT
+
+This repo (`qianghan/a3p`) was originally forked from `livepeer/naap` but is now a fully independent product (AgentBook). The upstream remote has been removed.
+
+**Never do any of the following:**
+- `git remote add upstream` pointing to `livepeer/naap`
+- `git fetch upstream` / `git merge upstream` / `git rebase upstream`
+- Run `prisma db push` or any migration using credentials containing `neondb_owner`, `ep-hidden-paper`, `ep-frosty-pine`, or any `naap`/Livepeer Neon endpoint
+- Add or restore env vars prefixed with `a3p_` — those were naap/Neon vars inherited from the fork and have been permanently removed
+
+**Current database:** Supabase `agentbook-db` (instance `vefoeskvxthrcnggjtlf`) — managed via Vercel Marketplace integration, connected to project `a3p-plugin-build` for all environments. All `DATABASE_URL` vars point there.
+
 ## AgentBook
 
 AgentBook is an AI-powered accounting system for freelancers and small businesses. 4 plugins, 140 API endpoints, 41 Prisma models, 26 frontend pages, Gemini LLM integration, Telegram bot, Plaid bank sync.
@@ -11,6 +23,7 @@ AgentBook is an AI-powered accounting system for freelancers and small businesse
 | `agentbook/skills/architecture.md` | Architecture questions, adding endpoints/models, debugging | System overview, plugin structure, schema layout, API map, auth flow |
 | `agentbook/skills/product.md` | Feature questions, user stories, competitive analysis | Target users, differentiators, feature inventory, key workflows |
 | `agentbook/skills/workflows.md` | Implementation tasks, "how do I add X?" | File locations, dev patterns, testing guide, common operations |
+| `agentbook/skills/deployment.md` | Deploying to Vercel, build cost optimization, redeploys | Local build + `--prebuilt` flow (default), env pull, git auto-deploy controls |
 | `agentbook/users.md` | Testing, login credentials | Test accounts, seed data commands, local dev startup |
 | `agentbook/user-story.md` | Product planning, what users can do | 73 user stories across 10 categories, value scoring |
 
@@ -42,7 +55,14 @@ cd apps/web-next && NODE_OPTIONS="--max-old-space-size=4096" npm run dev
 | Jordan (side-hustle) | `jordan@agentbook.test` | `agentbook123` |
 | Admin | `admin@a3p.io` | `a3p-dev` |
 
-Re-seed: `npx tsx agentbook/seed-personas.ts`
+Re-seed (fresh DB): run in order — backends must be on :4050-4053 with Supabase DATABASE_URL:
+```bash
+npx tsx agentbook/seed-users.ts          # platform users (creates User records matching tenant IDs)
+npx tsx agentbook/seed-personas.ts       # agentbook financial data (clients, invoices, expenses)
+DATABASE_URL="$DATABASE_URL" npx tsx bin/sync-plugin-registry.ts   # plugin registry
+DATABASE_URL="$DATABASE_URL" npx tsx bin/seed-agentbook-defaults.ts # mark plugins as core
+DATABASE_URL="$DATABASE_URL" npx tsx bin/seed-naap-skills.ts        # agent skills (67)
+```
 
 ### Telegram Bot
 

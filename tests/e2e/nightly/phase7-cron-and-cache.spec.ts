@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test';
 import { loginAsE2eUser } from './helpers/auth';
 import { api } from './helpers/api';
 
-const BASE = process.env.E2E_BASE_URL || 'https://a3book.brainliber.com';
+const BASE = process.env.E2E_BASE_URL || 'https://agentbook.brainliber.com';
 const CRON_SECRET = process.env.CRON_SECRET || '';
 
 test.describe('@phase7-cron-and-cache', () => {

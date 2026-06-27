@@ -1,7 +1,7 @@
 {
   "$schema": "https://plugins.naap.io/schema/plugin.json",
   "name": "agentbook-tax",
-  "displayName": "AgentBook Tax & Reports",
+  "displayName": "Tax & Reports",
   "version": "1.0.0",
   "description": "Tax estimation, quarterly installments, deduction optimization, Schedule C/T2125 generation, P&L, balance sheet, cash flow reports, and proactive tax planning.",
   "isCore": true,

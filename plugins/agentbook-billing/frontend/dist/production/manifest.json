@@ -1,0 +1,19 @@
+{
+  "name": "agentbook-billing",
+  "displayName": "Billing",
+  "version": "1.0.0",
+  "bundleFile": "agentbook-billing.js",
+  "globalName": "NaapPluginAgentbookBilling",
+  "bundleHash": "ec5e697b",
+  "bundleSize": 74655,
+  "routes": [
+    "/billing",
+    "/billing/*",
+    "/admin/billing",
+    "/admin/billing/*"
+  ],
+  "category": "platform",
+  "description": "Subscription plans, payments, and entitlement gating for AgentBook.",
+  "buildTime": "2026-06-18T04:46:01.307Z",
+  "nodeEnv": "production"
+}

@@ -27,6 +27,7 @@ import { prisma as db } from '@naap/database';
 import { safeResolveAgentbookTenant } from '@/lib/agentbook-tenant';
 import { checkAndIncrement } from '@/lib/agentbook-rate-limit';
 import { t, parseLocaleHeader } from '@/lib/agentbook-i18n';
+import { getAppBaseUrl, getPluginBaseUrls } from '@/lib/agentbook-config';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -40,16 +41,6 @@ interface AgentMessageBody {
   // sessionId is captured client-side for debugging but the server resolves
   // the active session by tenantId — see handleAgentMessage Step 1.
   sessionId?: string;
-}
-
-function getBaseUrls(): Record<string, string> {
-  const host = process.env.AGENTBOOK_HOST || 'https://a3book.brainliber.com';
-  return {
-    '/api/v1/agentbook-core': process.env.AGENTBOOK_CORE_URL || host,
-    '/api/v1/agentbook-expense': process.env.AGENTBOOK_EXPENSE_URL || host,
-    '/api/v1/agentbook-invoice': process.env.AGENTBOOK_INVOICE_URL || host,
-    '/api/v1/agentbook-tax': process.env.AGENTBOOK_TAX_URL || host,
-  };
 }
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
@@ -114,7 +105,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     const skills = await db.abSkillManifest.findMany({
       where: { enabled: true, OR: [{ tenantId: null }, { tenantId }] },
     });
-    const baseUrls = getBaseUrls();
+    const baseUrls = getPluginBaseUrls(getAppBaseUrl(request));
 
     const brainResult = await handleAgentMessage(
       {

@@ -186,6 +186,7 @@ const ALLOWED_CDN_HOSTS = [
   'cdn.naap.io',
   'naap.dev',
   'vercel.app',
+  'brainliber.com',
 ];
 
 // Cache for loaded UMD plugins

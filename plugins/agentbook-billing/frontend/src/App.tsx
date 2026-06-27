@@ -3,6 +3,7 @@ import { MemoryRouter, Routes, Route } from 'react-router-dom';
 import { createPlugin } from '@naap/plugin-sdk';
 import { AdminApp } from './admin/AdminApp';
 import { UserApp } from './user/UserApp';
+import './globals.css';
 
 // Map shell URL → in-plugin route. Shell mounts this plugin at either
 // /admin/billing or /billing; everything else lands on the user view.

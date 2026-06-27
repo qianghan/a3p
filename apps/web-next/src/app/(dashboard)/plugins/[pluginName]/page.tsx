@@ -15,6 +15,7 @@ const DEFAULT_ALLOWED_HOSTS = [
   'naap.dev',
   'vercel.app',
   'blob.vercel-storage.com',
+  'brainliber.com',
 ];
 
 const ALLOWED_HOSTS = (() => {

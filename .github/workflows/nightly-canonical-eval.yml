@@ -71,7 +71,9 @@ jobs:
             -H "Content-Type: application/json" \
             -d "{\"email\":\"${E2E_USER_EMAIL}\",\"password\":\"${E2E_USER_PASSWORD}\"}" \
             "${E2E_BASE_URL}/api/v1/auth/login" > /dev/null
-          AUTH_COOKIE="$(grep -E '^[^#].*naap_auth_token' cookies.txt | awk '{print $6"="$7}')"
+          # The login route sets httpOnly:true, so curl prefixes the cookie-jar
+          # line with "#HttpOnly_". Accept that prefix as well as plain lines.
+          AUTH_COOKIE="$(grep -E '^(#HttpOnly_)?[^#].*naap_auth_token' cookies.txt | awk '{print $6"="$7}')"
           if [ -z "$AUTH_COOKIE" ]; then
             echo "::error::login did not produce naap_auth_token cookie"
             exit 1

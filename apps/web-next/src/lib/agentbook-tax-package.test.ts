@@ -297,6 +297,7 @@ describe('isAllowedReceiptHost (SSRF guard)', () => {
     expect(isAllowedReceiptHost('https://blob.vercel-storage.com/foo.jpg')).toBe(true);
     expect(isAllowedReceiptHost('https://abc.public.blob.vercel-storage.com/foo')).toBe(true);
     expect(isAllowedReceiptHost('https://a3book.brainliber.com/r.png')).toBe(true);
+    expect(isAllowedReceiptHost('https://agentbook.brainliber.com/r.png')).toBe(true);
   });
 
   it('rejects cloud-metadata and internal hosts', () => {

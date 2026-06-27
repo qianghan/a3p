@@ -13,12 +13,73 @@ const nextConfig = {
   // from workspace packages (e.g. @naap/database engine binaries).
   outputFileTracingRoot: path.join(__dirname, '../../'),
 
-  // Strip the macOS/Windows Prisma engines so Linux-only Vercel functions
-  // don't ship them.
+  // Strip build-tools, non-Linux binaries, and runtime-irrelevant heavy deps
+  // from the function bundle so we stay under Vercel's 250MB cap.
   outputFileTracingExcludes: {
     '**': [
-      '../../packages/database/src/generated/client/libquery_engine-darwin-*.node',
-      '../../packages/database/src/generated/client/libquery_engine-windows-*.node',
+      // Cross-platform Prisma engines — keep only the Linux ones for Vercel.
+      'packages/database/src/generated/client/libquery_engine-darwin-*.node',
+      'packages/database/src/generated/client/libquery_engine-windows-*.node',
+      'node_modules/@prisma/engines/libquery_engine-darwin-*.node',
+      'node_modules/@prisma/engines/libquery_engine-windows-*.node',
+      'node_modules/@prisma/engines/migration-engine-darwin-*',
+      'node_modules/@prisma/engines/migration-engine-windows-*',
+      // Prisma CLI — only the client is needed at runtime.
+      'node_modules/prisma/build/**',
+      'node_modules/prisma/preinstall/**',
+      // Non-Linux Next.js SWC binaries.
+      'node_modules/@next/swc-darwin-*/**',
+      'node_modules/@next/swc-win32-*/**',
+      'node_modules/@next/swc-linux-x64-musl/**',
+      // Sharp variants for arches we don't ship to.
+      'node_modules/@img/sharp-darwin-*/**',
+      'node_modules/@img/sharp-win32-*/**',
+      'node_modules/@img/sharp-libvips-darwin-*/**',
+      'node_modules/@img/sharp-libvips-win32-*/**',
+      // Build / dev toolchains — never executed at runtime.
+      'node_modules/typescript/**',
+      'node_modules/@swc/core-darwin-*/**',
+      'node_modules/@swc/core-win32-*/**',
+      'node_modules/@rspack/**',
+      'node_modules/@esbuild/**',
+      'node_modules/esbuild/**',
+      'node_modules/vite/**',
+      'node_modules/@vitejs/**',
+      'node_modules/nx/**',
+      'node_modules/@nx/**',
+      'node_modules/@babel/**',
+      'node_modules/@types/**',
+      // Test runtimes / browser sims — never imported by API routes.
+      'node_modules/happy-dom/**',
+      'node_modules/jsdom/**',
+      'node_modules/chromium-bidi/**',
+      'node_modules/puppeteer/**',
+      'node_modules/puppeteer-core/**',
+      'node_modules/playwright/**',
+      'node_modules/playwright-core/**',
+      'node_modules/@playwright/**',
+      // Crypto / chain libs not used by the AgentBook API surface.
+      'node_modules/viem/**',
+      'node_modules/ox/**',
+      'node_modules/ethers/**',
+      // DOM sanitizer used only in client components.
+      'node_modules/isomorphic-dompurify/**',
+      // Source maps and source-only files from deps.
+      'node_modules/**/*.map',
+      'node_modules/**/*.d.ts',
+      'node_modules/**/*.md',
+      'node_modules/**/*.markdown',
+      'node_modules/**/LICENSE',
+      'node_modules/**/LICENSE.txt',
+      'node_modules/**/CHANGELOG.md',
+      'node_modules/**/README.md',
+      // Monorepo content that isn't function-runtime.
+      'docs/**',
+      'tests/**',
+      'agentbook/**',
+      'examples/**',
+      'plugins/*/frontend/dist/**',
+      'plugins/*/frontend/src/**',
     ],
   },
 
@@ -41,8 +102,10 @@ const nextConfig = {
   },
 
   webpack: (config, { isServer }) => {
-    // Prisma + Next.js monorepo: copy engine binaries into the standalone
-    // bundle. Official fix for Prisma deployments on Vercel from a monorepo.
+    // Prisma + Next.js monorepo: PrismaPlugin places engine binaries next
+    // to chunks that reference @prisma/client. This works at runtime but
+    // produces ~30 duplicates of the ~16MB engine. bin/vercel-build.sh
+    // runs a post-build symlink-dedup pass to reclaim the space.
     if (isServer && process.env.NODE_ENV === 'production') {
       config.plugins = [...config.plugins, new PrismaPlugin()];
     }

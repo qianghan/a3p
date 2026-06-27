@@ -22,35 +22,72 @@ export function PlanList({ onEdit, onAdd }: Props): JSX.Element {
     load();
   };
 
-  if (err) return <div className="p-6 text-red-600">{err}</div>;
-  if (!plans) return <div className="p-6 text-gray-500">Loading…</div>;
+  if (err) return <div className="p-6 text-destructive">{err}</div>;
+  if (!plans) return <div className="p-6 text-muted-foreground">Loading…</div>;
 
   return (
     <div className="p-6">
-      <div className="mb-4 flex items-center justify-between">
-        <h2 className="text-xl font-semibold">Subscription plans</h2>
-        <button onClick={onAdd} className="rounded bg-blue-600 px-4 py-2 text-white">+ New plan from template</button>
+      <div className="mb-6 flex items-center justify-between">
+        <div>
+          <h2 className="text-xl font-semibold text-foreground">Subscription Plans</h2>
+          <p className="mt-0.5 text-sm text-muted-foreground">Admin view — manage plan templates</p>
+        </div>
+        <button
+          onClick={onAdd}
+          className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"
+        >
+          + New plan from template
+        </button>
       </div>
-      <table className="w-full text-sm">
-        <thead className="text-left text-gray-500">
-          <tr><th>Code</th><th>Name</th><th>Price</th><th>Telegram</th><th>Tax pkg</th><th></th></tr>
-        </thead>
-        <tbody>
-          {plans.map(p => (
-            <tr key={p.id} className="border-t">
-              <td className="py-2"><code>{p.code}</code></td>
-              <td>{p.name}</td>
-              <td>{fmtPrice(p.priceCents, p.currency, p.interval)}</td>
-              <td>{p.features.telegram_bot ? '✓' : '—'}</td>
-              <td>{p.features.tax_package_generation ? '✓' : '—'}</td>
-              <td className="text-right">
-                <button onClick={() => onEdit(p)} className="mr-2 text-blue-600">Edit</button>
-                <button onClick={() => archive(p)} className="text-red-600">Archive</button>
-              </td>
+      <div className="overflow-hidden rounded-lg border border-border">
+        <table className="w-full text-sm">
+          <thead className="border-b border-border bg-muted/50">
+            <tr>
+              <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wide text-muted-foreground">Code</th>
+              <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wide text-muted-foreground">Name</th>
+              <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wide text-muted-foreground">Price</th>
+              <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wide text-muted-foreground">Telegram</th>
+              <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wide text-muted-foreground">Tax pkg</th>
+              <th className="px-4 py-3 text-right text-xs font-medium uppercase tracking-wide text-muted-foreground">Actions</th>
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody className="divide-y divide-border">
+            {plans.map(p => (
+              <tr key={p.id} className="bg-card hover:bg-muted/30 transition-colors">
+                <td className="px-4 py-3">
+                  <code className="rounded bg-muted px-1.5 py-0.5 text-xs text-foreground">{p.code}</code>
+                </td>
+                <td className="px-4 py-3 font-medium text-foreground">{p.name}</td>
+                <td className="px-4 py-3 text-muted-foreground">{fmtPrice(p.priceCents, p.currency, p.interval)}</td>
+                <td className="px-4 py-3 text-center">
+                  {p.features.telegram_bot
+                    ? <span className="text-primary">✓</span>
+                    : <span className="text-muted-foreground">—</span>}
+                </td>
+                <td className="px-4 py-3 text-center">
+                  {p.features.tax_package_generation
+                    ? <span className="text-primary">✓</span>
+                    : <span className="text-muted-foreground">—</span>}
+                </td>
+                <td className="px-4 py-3 text-right">
+                  <button
+                    onClick={() => onEdit(p)}
+                    className="mr-3 text-primary hover:text-primary/80"
+                  >
+                    Edit
+                  </button>
+                  <button
+                    onClick={() => archive(p)}
+                    className="text-destructive hover:text-destructive/80"
+                  >
+                    Archive
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }

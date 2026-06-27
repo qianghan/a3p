@@ -73,7 +73,12 @@ export interface OAuthConfig {
 const LOCKOUT_THRESHOLD = 5;
 const LOCKOUT_WINDOW_MINUTES = 15;
 const LOCKOUT_DURATION_MINUTES = 30;
-const SESSION_DURATION_HOURS = 24;
+// Match the auth-cookie maxAge (7 days). Previously 24h — sessions would
+// die mid-week and the user would silently see 401s on every plugin API
+// call because the cookie still carried a stale token. validateSession
+// now also slides expiresAt forward on each use so active users never
+// hit this cliff.
+const SESSION_DURATION_HOURS = 24 * 7;
 
 /**
  * Resolve the canonical app URL.
@@ -375,10 +380,14 @@ export async function validateSession(token: string): Promise<AuthUser | null> {
     return null;
   }
 
-  // Update last used
+  // Sliding-window refresh: each successful validation pushes the
+  // session's expiresAt forward to (now + SESSION_DURATION_HOURS), so
+  // active users never expire. Idle users still expire after one full
+  // SESSION_DURATION_HOURS window.
+  const newExpiresAt = new Date(Date.now() + SESSION_DURATION_HOURS * 60 * 60 * 1000);
   await prisma.session.update({
     where: { id: session.id },
-    data: { lastUsedAt: new Date() },
+    data: { lastUsedAt: new Date(), expiresAt: newExpiresAt },
   });
 
   return getUserWithRoles(session.userId);

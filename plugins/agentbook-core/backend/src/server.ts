@@ -42,6 +42,137 @@ app.use((req, res, next) => {
   next();
 });
 
+// === Agent-brain outbound auth ===
+// Plugin endpoints in apps/web-next moved to safeResolveAgentbookTenant
+// (commit bf3aca2f). That resolver accepts either a real user session OR
+// CRON_SECRET + x-tenant-id for service-to-service calls. The agent
+// brain runs server-side, so it uses the latter path. Without the
+// bearer token, every skill execution returns 401 ('unauthorized').
+function brainHeaders(tenantId: string, extra?: Record<string, string>): Record<string, string> {
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    'x-tenant-id': tenantId,
+    ...(extra || {}),
+  };
+  const cronSecret = process.env.CRON_SECRET;
+  if (cronSecret) {
+    headers['Authorization'] = `Bearer ${cronSecret}`;
+  }
+  return headers;
+}
+
+// === Accountant Engagement (used when intent is unclear or skill couldn't execute) ===
+// Replaces flat "I couldn't complete that action" with an LLM-driven response
+// that either asks a clarifying question or suggests an actionable next step,
+// framed as a friendly accountant. Always returns a usable string — if Gemini
+// is unavailable it falls back to a deterministic local heuristic so the user
+// is never dead-ended.
+function localEngagementFallback(opts: {
+  userText: string;
+  selectedSkillName?: string;
+}): string {
+  const t = (opts.userText || '').toLowerCase();
+  // Topic-keyed clarifying questions. Use prefix matches (no trailing \b)
+  // so "incorporate" matches "incorporat", "refinancing" matches "refinanc".
+  if (/(mortgage|refinanc|invest|stock|crypto|401k|ira|rrsp|retire)/.test(t)) {
+    return "That's a personal-finance call I can't make for you, but I can pull together the numbers that would inform it — current cashflow, last 12-month revenue/expense trend, and a tax estimate. Want me to run any of those?";
+  }
+  if (/(incorporat|\bllc\b|s-?corp|c-?corp|sole prop|partnership|business entity|register.*business)/.test(t)) {
+    return "Entity choice depends on liability, tax bracket, and how you pay yourself — a CPA should make the final call. I can prep a P&L and tax estimate to make that conversation faster. Want me to do that?";
+  }
+  if (/(audit|\birs\b|\bcra\b|tax notice|letter from)/.test(t)) {
+    return "If you got something official, save it and don't reply yet. I can package your books — receipts, journal entries, tax summary — into a CPA-ready export. Want me to generate that?";
+  }
+  if (/(deadline|file by|when .* (tax|file|due)|tax due|due date)/.test(t)) {
+    return "Tax deadlines depend on your jurisdiction and entity type. What country/state are you in, and are you filing as sole prop, LLC, or corp?";
+  }
+  if (/(how.*file.*tax|how.*do.*tax|file my tax|do my tax)/.test(t)) {
+    return "I can prep your books for filing — P&L, tax summary, and a CPA-ready export. If you want self-serve filing, AgentBook supports US/Canada forms (T1, T2125, GST/HST). Which jurisdiction are you in?";
+  }
+  if (/(can.*deduct|write[- ]off|is.*deductible)/.test(t)) {
+    return "Most legitimate business expenses are deductible — what's the expense, and was it for business or personal use?";
+  }
+  if (/(travel|trip|mileage|drove|flew|hotel|airbnb|uber|lyft|taxi)/.test(t)) {
+    return "To log travel, tell me the amount and what it was for — e.g. \"spent $145 on a hotel for the Acme meeting\" or \"drove 45 miles to the client site\". Or do you want a travel-spend summary?";
+  }
+  if (/(invoice|estimate|quote)/.test(t)) {
+    return "I can create invoices and estimates. Tell me the client and amount, like \"invoice Acme $5000 for consulting\", and I'll draft it.";
+  }
+  if (/(spent|paid|bought|cost|purchase)/.test(t)) {
+    return "Sounds like you're logging an expense — could you tell me the amount and vendor? e.g. \"spent $24 at Starbucks today\".";
+  }
+  if (/(how much|total .*(spent|earned)|revenue|income|profit|owe)/.test(t)) {
+    return "Want a quick read? I can pull P&L for this month, expense-by-vendor, or your AR aging report. Which one?";
+  }
+  if (/^(hi|hey|hello|yo|sup|good (morning|afternoon|evening))\b/.test(t)) {
+    return "Hey! I keep your books in shape — log expenses, draft invoices, run reports, estimate tax. What's on your mind today?";
+  }
+  if (/(help|what can you|what do you do)/.test(t)) {
+    return "I'm your bookkeeping co-pilot. Try things like \"spent $24 on coffee\", \"invoice Acme $5000\", \"show me last month's P&L\", or \"scan this receipt\" with a photo attached.";
+  }
+  return "I want to help with that — could you give me one more detail? Is this an expense to log, an invoice to send, a question about your books, or something else?";
+}
+
+async function accountantEngagement(opts: {
+  userText: string;
+  selectedSkillName?: string;
+  attemptedAction?: string;
+  errorDetail?: string;
+  lowConfidence?: boolean;
+  recentConvo?: Array<{ question: string; answer: string }>;
+}): Promise<string> {
+  try {
+    const convoSnippet = (opts.recentConvo || [])
+      .slice(0, 3)
+      .map((c) => `User: ${c.question}\nAssistant: ${c.answer}`)
+      .join('\n');
+
+    const systemPrompt = [
+      'You are AgentBook, a friendly small-business accountant assistant talking with the user in chat (web or Telegram).',
+      'The classifier could not confidently route this message to a concrete action, or the action it tried failed.',
+      '',
+      'Your job in this reply is to KEEP THE CONVERSATION GOING — never end with a flat "I don\'t know". Pick ONE of these moves:',
+      '  1) ASK a single short clarifying question that an accountant would naturally ask',
+      '     (was that a business or personal expense? which client? for what period? do you mean income or expense?).',
+      '  2) SUGGEST a concrete next step the user can take — either rephrase the request so AgentBook can handle it, or do the action manually outside the app',
+      '     (e.g. "I can\'t file taxes for you, but I can prep a P&L and tax-summary export — want me to do that?").',
+      '  3) OFFER guidance — if it\'s a finance question AgentBook can\'t answer directly, share a brief accountant-style tip and propose an in-app follow-up.',
+      '',
+      'AgentBook CAN do (representative — not exhaustive):',
+      '  - Record / edit / split / categorize expenses; receipt scanning (image or PDF)',
+      '  - Create invoices, estimates, credit notes; send invoices; record payments',
+      '  - Track time (timer start/stop) and bill from time entries',
+      '  - Reports: P&L, balance sheet, cashflow, tax-summary, expense-by-vendor, aging report',
+      '  - Tax: estimate quarterly tax, prep US/Canada tax forms (T1, T2125, GST/HST)',
+      '  - Bank account sync (Plaid), bank-reconciliation summary',
+      '  - Manage recurring expense rules, budgets, vendor insights',
+      '  - Tax-package export for CPA hand-off',
+      '',
+      'Style rules: warm but brief, 1–3 short sentences, plain text (no markdown bullets in chat), no headers, never robotic. Don\'t say "I am an AI" or "as an AI". Don\'t pretend to do something you didn\'t. If you ask a question, end the message with the question.',
+    ].join('\n');
+
+    const userMessage = [
+      convoSnippet && `Recent conversation:\n${convoSnippet}`,
+      `User just said: "${opts.userText}"`,
+      opts.selectedSkillName && `Classifier guessed action: ${opts.selectedSkillName}${opts.lowConfidence ? ' (low confidence)' : ''}`,
+      opts.attemptedAction && `What I tried: ${opts.attemptedAction}`,
+      opts.errorDetail && `Why it didn\'t work: ${opts.errorDetail}`,
+      '',
+      'Respond now as the accountant assistant.',
+    ].filter(Boolean).join('\n');
+
+    const reply = await callGemini(systemPrompt, userMessage, 220);
+    if (reply && reply.trim()) {
+      // Strip any stray markdown fencing the model may add.
+      return reply.trim().replace(/^```[a-z]*\n?/i, '').replace(/\n?```$/i, '').trim();
+    }
+    console.warn('[accountantEngagement] Gemini returned empty — using local fallback');
+  } catch (err) {
+    console.warn('[accountantEngagement] LLM failed, using local fallback:', err);
+  }
+  return localEngagementFallback(opts);
+}
+
 // === Multi-Currency Formatter ===
 function fmtCurrency(cents: number, currency?: string): string {
   const symbols: Record<string, string> = { USD: '$', CAD: 'CA$', GBP: '\u00a3', EUR: '\u20ac', AUD: 'A$' };
@@ -1018,7 +1149,9 @@ const GEMINI_DEFAULT_TIMEOUT_MS = 20_000;
 export async function callGemini(systemPrompt: string, userMessage: string, maxTokens: number = 500): Promise<string | null> {
   // Resolve key + model: env var first (production), then DB config (legacy / overrides).
   let apiKey: string | null = process.env.GEMINI_API_KEY || null;
-  let model = process.env.GEMINI_MODEL_FAST || 'gemini-2.0-flash';
+  // gemini-2.0-flash was retired by Google in mid-2026 (returns 404
+  // NOT_FOUND). 2.5-flash is the current low-cost model.
+  let model = process.env.GEMINI_MODEL_FAST || 'gemini-2.5-flash';
   if (!apiKey) {
     // safe: AbLLMProviderConfig is admin-managed platform config (tenantId nullable). Per-tenant override scoping deferred to PR 3 (G-005).
     const llmConfig = await db.abLLMProviderConfig.findFirst({ where: { enabled: true, isDefault: true } });
@@ -1040,7 +1173,15 @@ export async function callGemini(systemPrompt: string, userMessage: string, maxT
       body: JSON.stringify({
         systemInstruction: { parts: [{ text: systemPrompt }] },
         contents: [{ role: 'user', parts: [{ text: userMessage }] }],
-        generationConfig: { maxOutputTokens: maxTokens, temperature: 0.3 },
+        // gemini-2.5-flash consumes output tokens on internal "thinking" by
+        // default — small maxOutputTokens budgets get burned before visible
+        // text emerges, producing truncated replies. Disable thinking for
+        // the agent's chat-grade outputs.
+        generationConfig: {
+          maxOutputTokens: maxTokens,
+          temperature: 0.3,
+          thinkingConfig: { thinkingBudget: 0 },
+        },
       }),
       signal: controller.signal,
     });
@@ -2698,7 +2839,7 @@ app.delete('/api/v1/agentbook-core/agent/memory/:id', async (req, res) => {
 
 // --- Helper: resolve or create a client by name ---
 async function resolveOrCreateClient(invoiceBase: string, tenantId: string, clientName: string): Promise<any> {
-  const H = { 'Content-Type': 'application/json', 'x-tenant-id': tenantId };
+  const H = brainHeaders(tenantId);
   const clientsRes = await fetch(`${invoiceBase}/api/v1/agentbook-invoice/clients`, { headers: H });
   const clientsData = await clientsRes.json() as any;
   let client = (clientsData.data || []).find((c: any) => c.name.toLowerCase().includes(clientName.toLowerCase()));
@@ -3096,7 +3237,7 @@ async function _executeClassificationCore(
   if (selectedSkill.name === 'query-invoices' && extractedParams.clientName) {
     try {
       const invoiceBase = baseUrls['/api/v1/agentbook-invoice'] || 'http://localhost:4052';
-      const clientsRes = await fetch(`${invoiceBase}/api/v1/agentbook-invoice/clients`, { headers: { 'Content-Type': 'application/json', 'x-tenant-id': tenantId } });
+      const clientsRes = await fetch(`${invoiceBase}/api/v1/agentbook-invoice/clients`, { headers: brainHeaders(tenantId) });
       const clientsData = await clientsRes.json() as any;
       const client = (clientsData.data || []).find((c: any) => c.name.toLowerCase().includes(extractedParams.clientName.toLowerCase()));
       if (client) extractedParams.clientId = client.id;
@@ -3154,7 +3295,7 @@ async function _executeClassificationCore(
   if (selectedSkill.name === 'edit-expense') {
     try {
       const expenseBase = baseUrls['/api/v1/agentbook-expense'] || 'http://localhost:4051';
-      const EH = { 'Content-Type': 'application/json', 'x-tenant-id': tenantId };
+      const EH = brainHeaders(tenantId);
       if (!extractedParams.expenseId || extractedParams.expenseId === 'last') {
         // Find most recent expense
         const res = await fetch(`${expenseBase}/api/v1/agentbook-expense/expenses?limit=1`, { headers: EH });
@@ -3175,7 +3316,7 @@ async function _executeClassificationCore(
     try {
       if (!extractedParams.expenseId || extractedParams.expenseId === 'last') {
         const expenseBase = baseUrls['/api/v1/agentbook-expense'] || 'http://localhost:4051';
-        const res = await fetch(`${expenseBase}/api/v1/agentbook-expense/expenses?limit=1`, { headers: { 'Content-Type': 'application/json', 'x-tenant-id': tenantId } });
+        const res = await fetch(`${expenseBase}/api/v1/agentbook-expense/expenses?limit=1`, { headers: brainHeaders(tenantId) });
         const data = await res.json() as any;
         if (data.data?.[0]) extractedParams.expenseId = data.data[0].id;
       }
@@ -3186,7 +3327,7 @@ async function _executeClassificationCore(
   if (selectedSkill.name === 'send-invoice') {
     try {
       const invoiceBase = baseUrls['/api/v1/agentbook-invoice'] || 'http://localhost:4052';
-      const H = { 'Content-Type': 'application/json', 'x-tenant-id': tenantId };
+      const H = brainHeaders(tenantId);
       let invoiceId = extractedParams.invoiceId;
       if (!invoiceId || invoiceId === 'last' || invoiceId === 'that') {
         // Find most recent invoice
@@ -3217,7 +3358,7 @@ async function _executeClassificationCore(
   if (selectedSkill.name === 'create-payment-link') {
     try {
       const invoiceBase = baseUrls['/api/v1/agentbook-invoice'] || 'http://localhost:4052';
-      const H = { 'Content-Type': 'application/json', 'x-tenant-id': tenantId };
+      const H = brainHeaders(tenantId);
       let invoiceId = extractedParams.invoiceId;
       if (!invoiceId || invoiceId === 'last' || invoiceId === 'that') {
         const listRes = await fetch(`${invoiceBase}/api/v1/agentbook-invoice/invoices?limit=1`, { headers: H });
@@ -3248,7 +3389,7 @@ async function _executeClassificationCore(
     try {
       const invoiceBase = baseUrls['/api/v1/agentbook-invoice'] || 'http://localhost:4052';
       if (!extractedParams.estimateId || extractedParams.estimateId === 'last') {
-        const res = await fetch(`${invoiceBase}/api/v1/agentbook-invoice/estimates?status=approved&limit=1`, { headers: { 'Content-Type': 'application/json', 'x-tenant-id': tenantId } });
+        const res = await fetch(`${invoiceBase}/api/v1/agentbook-invoice/estimates?status=approved&limit=1`, { headers: brainHeaders(tenantId) });
         const data = await res.json() as any;
         if (data.data?.[0]) extractedParams.estimateId = data.data[0].id;
       }
@@ -3259,7 +3400,7 @@ async function _executeClassificationCore(
   if (selectedSkill.name === 'void-invoice') {
     try {
       const invoiceBase = baseUrls['/api/v1/agentbook-invoice'] || 'http://localhost:4052';
-      const IH = { 'Content-Type': 'application/json', 'x-tenant-id': tenantId };
+      const IH = brainHeaders(tenantId);
       let invoiceId = extractedParams.invoiceId;
       if (!invoiceId || invoiceId === 'last') {
         const res = await fetch(`${invoiceBase}/api/v1/agentbook-invoice/invoices?limit=1`, { headers: IH });
@@ -3279,7 +3420,7 @@ async function _executeClassificationCore(
   if (selectedSkill.name === 'create-credit-note' && !extractedParams.invoiceId) {
     try {
       const invoiceBase = baseUrls['/api/v1/agentbook-invoice'] || 'http://localhost:4052';
-      const res = await fetch(`${invoiceBase}/api/v1/agentbook-invoice/invoices?limit=1`, { headers: { 'Content-Type': 'application/json', 'x-tenant-id': tenantId } });
+      const res = await fetch(`${invoiceBase}/api/v1/agentbook-invoice/invoices?limit=1`, { headers: brainHeaders(tenantId) });
       const data = await res.json() as any;
       if (data.data?.[0]) extractedParams.invoiceId = data.data[0].id;
       if (!extractedParams.reason) extractedParams.reason = 'Credit adjustment';
@@ -3290,7 +3431,7 @@ async function _executeClassificationCore(
   if (selectedSkill.name === 'record-payment') {
     try {
       const invoiceBase = baseUrls['/api/v1/agentbook-invoice'] || 'http://localhost:4052';
-      const H = { 'Content-Type': 'application/json', 'x-tenant-id': tenantId };
+      const H = brainHeaders(tenantId);
       if (extractedParams.clientName) {
         const client = await resolveOrCreateClient(invoiceBase, tenantId, extractedParams.clientName);
         if (client) {
@@ -3333,7 +3474,7 @@ async function _executeClassificationCore(
   if (selectedSkill.name === 'start-timer') {
     try {
       const invoiceBase = baseUrls['/api/v1/agentbook-invoice'] || 'http://localhost:4052';
-      const H = { 'Content-Type': 'application/json', 'x-tenant-id': tenantId };
+      const H = brainHeaders(tenantId);
       if (extractedParams.clientName) {
         const clientsRes = await fetch(`${invoiceBase}/api/v1/agentbook-invoice/clients`, { headers: H });
         const clientsData = await clientsRes.json() as any;
@@ -3355,7 +3496,7 @@ async function _executeClassificationCore(
   if (selectedSkill.name === 'send-reminder') {
     try {
       const invoiceBase = baseUrls['/api/v1/agentbook-invoice'] || 'http://localhost:4052';
-      const H = { 'Content-Type': 'application/json', 'x-tenant-id': tenantId };
+      const H = brainHeaders(tenantId);
       let message = '';
 
       if (extractedParams.invoiceId && extractedParams.invoiceId !== 'all') {
@@ -3403,7 +3544,7 @@ async function _executeClassificationCore(
   if (selectedSkill.name === 'tax-slip-scan') {
     try {
       const taxBase = baseUrls['/api/v1/agentbook-tax'] || 'http://localhost:4053';
-      const IH = { 'Content-Type': 'application/json', 'x-tenant-id': tenantId };
+      const IH = brainHeaders(tenantId);
 
       // Get image URL from attachments or params
       let imageUrl = extractedParams.imageUrl;
@@ -3460,7 +3601,7 @@ async function _executeClassificationCore(
   if (selectedSkill.name === 'tax-filing-start') {
     try {
       const taxBase = baseUrls['/api/v1/agentbook-tax'] || 'http://localhost:4053';
-      const IH = { 'Content-Type': 'application/json', 'x-tenant-id': tenantId };
+      const IH = brainHeaders(tenantId);
       const taxYear = extractedParams.taxYear || 2025;
 
       // Seed forms
@@ -3506,7 +3647,7 @@ async function _executeClassificationCore(
     if (selectedSkill.name === 'tax-filing-export') {
       try {
         const taxBase = baseUrls['/api/v1/agentbook-tax'] || 'http://localhost:4053';
-        const IH = { 'Content-Type': 'application/json', 'x-tenant-id': tenantId };
+        const IH = brainHeaders(tenantId);
         const format = extractedParams.format || 'json';
         const res = await fetch(`${taxBase}/api/v1/agentbook-tax/tax-filing/2025/export`, {
           method: 'POST', headers: IH, body: JSON.stringify({ format }),
@@ -3542,7 +3683,7 @@ async function _executeClassificationCore(
     if (selectedSkill.name === 'tax-filing-submit') {
       try {
         const taxBase = baseUrls['/api/v1/agentbook-tax'] || 'http://localhost:4053';
-        const IH = { 'Content-Type': 'application/json', 'x-tenant-id': tenantId };
+        const IH = brainHeaders(tenantId);
         const taxYear = extractedParams.taxYear || 2025;
         const res = await fetch(`${taxBase}/api/v1/agentbook-tax/tax-filing/${taxYear}/submit`, { method: 'POST', headers: IH });
         const data = await res.json() as any;
@@ -3584,7 +3725,7 @@ async function _executeClassificationCore(
   if (selectedSkill.name === 'categorize-expenses') {
     try {
       const expenseBase = baseUrls['/api/v1/agentbook-expense'] || 'http://localhost:4051';
-      const H = { 'Content-Type': 'application/json', 'x-tenant-id': tenantId };
+      const H = brainHeaders(tenantId);
 
       // Fetch uncategorized expenses
       const listRes = await fetch(`${expenseBase}/api/v1/agentbook-expense/expenses?limit=100`, { headers: H });
@@ -3677,6 +3818,131 @@ async function _executeClassificationCore(
     }
   }
 
+  // INTERNAL handler: record-invoice-payment — mark an invoice as paid via direct DB write
+  if (selectedSkill.name === 'record-invoice-payment') {
+    try {
+      const { invoiceRef, clientName, amountCents } = extractedParams ?? {};
+
+      // Resolve invoice: by ref number first, then by client name
+      let invoice: { id: string; number: string; amountCents: number; currency: string; status: string; client?: { name: string } | null } | null = null;
+
+      if (invoiceRef) {
+        const normalized = String(invoiceRef).replace(/^INV-/i, '');
+        invoice = await db.abInvoice.findFirst({
+          where: {
+            tenantId,
+            number: { contains: normalized },
+            status: { in: ['sent', 'viewed', 'overdue'] },
+            deletedAt: null,
+          },
+          include: { client: { select: { name: true } } },
+          orderBy: { createdAt: 'desc' },
+        });
+      } else if (clientName) {
+        invoice = await db.abInvoice.findFirst({
+          where: {
+            tenantId,
+            status: { in: ['sent', 'viewed', 'overdue'] },
+            deletedAt: null,
+            client: { name: { contains: String(clientName), mode: 'insensitive' } },
+          },
+          include: { client: { select: { name: true } } },
+          orderBy: { dueDate: 'asc' },
+        });
+      }
+
+      if (!invoice) {
+        const msg = invoiceRef
+          ? `I couldn't find an unpaid invoice matching "${invoiceRef}". Can you check the invoice number?`
+          : `I couldn't find an unpaid invoice for "${clientName ?? 'that client'}". Do you have the invoice number?`;
+        await db.abConversation.create({ data: { tenantId, question: text || '[record-invoice-payment]', answer: msg, queryType: 'agent', channel, skillUsed: 'record-invoice-payment' } });
+        return {
+          selectedSkill, extractedParams, confidence, skillUsed: 'record-invoice-payment', skillResponse: null,
+          responseData: { message: msg, skillUsed: 'record-invoice-payment', confidence, latencyMs: Date.now() - startTime },
+        };
+      }
+
+      // Calculate balance due
+      const payments = await db.abPayment.findMany({
+        where: { invoiceId: invoice.id },
+        select: { amountCents: true },
+      });
+      const totalPaid = payments.reduce((s, p) => s + p.amountCents, 0);
+      const balance = invoice.amountCents - totalPaid;
+
+      if (balance <= 0) {
+        return {
+          text: `${invoice.number} is already fully paid — no payment due.`,
+          actions: [],
+        };
+      }
+
+      const payAmount = amountCents ? Math.min(Number(amountCents), balance) : balance;
+
+      // Multiple unpaid invoices for same client — warn and confirm
+      if (!invoiceRef && clientName) {
+        const others = await db.abInvoice.count({
+          where: {
+            tenantId,
+            status: { in: ['sent', 'viewed', 'overdue'] },
+            deletedAt: null,
+            client: { name: { contains: String(clientName), mode: 'insensitive' } },
+          },
+        });
+        if (others > 1) {
+          const confirmMsg = `${clientName} has ${others} unpaid invoices. I'll record payment for the earliest due one: ${invoice.number} (${(balance / 100).toFixed(2)} ${invoice.currency}). To specify a different invoice, say the invoice number (e.g., "record payment for INV-2026-0004").`;
+          await db.abConversation.create({ data: { tenantId, question: text || '[record-invoice-payment]', answer: confirmMsg, queryType: 'agent', channel, skillUsed: 'record-invoice-payment' } });
+          return {
+            selectedSkill, extractedParams, confidence, skillUsed: 'record-invoice-payment', skillResponse: null,
+            responseData: { message: confirmMsg, actions: [], skillUsed: 'record-invoice-payment', confidence, latencyMs: Date.now() - startTime },
+          };
+        }
+      }
+
+      // Record the payment — use 'date' field (AbPayment schema uses date, not paidAt)
+      await db.abPayment.create({
+        data: {
+          invoiceId: invoice.id,
+          tenantId,
+          amountCents: payAmount,
+          method: 'manual',
+          date: new Date(),
+          feesCents: 0,
+        },
+      });
+
+      // Flip invoice to paid if fully settled
+      const newTotalPaid = totalPaid + payAmount;
+      if (newTotalPaid >= invoice.amountCents) {
+        await db.abInvoice.update({
+          where: { id: invoice.id },
+          data: { status: 'paid' },
+        });
+      }
+
+      const clientLabel = invoice.client?.name ? ` (${invoice.client.name})` : '';
+      const remaining = invoice.amountCents - newTotalPaid;
+      const fullyPaid = remaining <= 0;
+      const message = fullyPaid
+        ? `Done ✓ — ${invoice.number}${clientLabel} is now **Paid**. ${(payAmount / 100).toFixed(2)} ${invoice.currency} recorded.`
+        : `Recorded ${(payAmount / 100).toFixed(2)} ${invoice.currency} for ${invoice.number}${clientLabel}. Balance remaining: ${(remaining / 100).toFixed(2)} ${invoice.currency}.`;
+
+      await db.abConversation.create({ data: { tenantId, question: text || '[record-invoice-payment]', answer: message, queryType: 'agent', channel, skillUsed: 'record-invoice-payment' } });
+      await db.abEvent.create({ data: { tenantId, eventType: 'agent.message', actor: 'user', action: { skillUsed: 'record-invoice-payment', invoiceId: invoice.id, amountCents: payAmount, channel } } });
+
+      return {
+        selectedSkill, extractedParams, confidence, skillUsed: 'record-invoice-payment', skillResponse: null,
+        responseData: { message, skillUsed: 'record-invoice-payment', confidence, latencyMs: Date.now() - startTime },
+      };
+    } catch (err) {
+      console.error('Record-invoice-payment error:', err);
+      return {
+        selectedSkill, extractedParams, confidence: 0, skillUsed: 'record-invoice-payment', skillResponse: null,
+        responseData: { message: "I couldn't record the payment. Please try again.", skillUsed: 'record-invoice-payment', confidence: 0, latencyMs: Date.now() - startTime },
+      };
+    }
+  }
+
   let skillResponse: any = null;
   let skillError = false;
   try {
@@ -3687,7 +3953,7 @@ async function _executeClassificationCore(
         if (extractedParams[p]) qs.set(p, String(extractedParams[p]));
       }
       const getUrl = qs.toString() ? `${targetUrl}?${qs}` : targetUrl;
-      const getRes = await fetch(getUrl, { headers: { 'x-tenant-id': tenantId } });
+      const getRes = await fetch(getUrl, { headers: brainHeaders(tenantId) });
       skillResponse = await getRes.json();
     } else {
       // Resolve :id or {id} path parameters in URL
@@ -3706,7 +3972,7 @@ async function _executeClassificationCore(
 
       const fetchRes = await fetch(resolvedUrl, {
         method: endpoint.method || 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-tenant-id': tenantId },
+        headers: brainHeaders(tenantId),
         body: JSON.stringify(paramsCopy),
       });
       skillResponse = await fetchRes.json();
@@ -3730,7 +3996,12 @@ async function _executeClassificationCore(
   let chartData: any = null;
 
   if (skillError || !skillResponse?.success) {
-    // Provide specific error feedback based on skill and what went wrong
+    // Provide specific error feedback based on skill and what went wrong.
+    // For the catch-all paths (low-confidence general-question, missing
+    // endpoint, etc.) call accountantEngagement so the user gets a
+    // clarifying question or actionable suggestion instead of a flat
+    // "I don't know" — only the skill-specific branches below keep their
+    // canned guidance because those are precise enough to be useful.
     const errorDetail = skillResponse?.error || '';
     if (selectedSkill.name === 'record-expense') {
       if (!extractedParams.amountCents) {
@@ -3748,10 +4019,17 @@ async function _executeClassificationCore(
       message = "I couldn't record the payment. I need a client or invoice reference:\n• \"Got $5000 from Acme\"\n• \"Record payment for INV-2026-0001\"";
     } else if (selectedSkill.name === 'send-invoice') {
       message = "I couldn't find an invoice to send. Try:\n• \"Send invoice INV-2026-0001\"\n• Create one first: \"Invoice Acme $5000\"";
-    } else if (errorDetail) {
-      message = `I couldn't complete that action. ${errorDetail}`;
     } else {
-      message = `I couldn't complete that action (skill: ${selectedSkill.name}). Please try rephrasing or type /help ${selectedSkill.category || ''} for guidance.`;
+      // Catch-all: engage the user (clarify or suggest) instead of dead-ending.
+      // accountantEngagement is now infallible — falls back to a local heuristic
+      // when Gemini is unreachable.
+      message = await accountantEngagement({
+        userText: text,
+        selectedSkillName: selectedSkill.name,
+        attemptedAction: `${endpoint.method || 'POST'} ${endpoint.url}`,
+        errorDetail: errorDetail || (skillError ? 'request failed' : 'no response'),
+        lowConfidence: typeof confidence === 'number' && confidence < 0.6,
+      });
     }
   } else {
     const data = skillResponse.data;

@@ -11,6 +11,8 @@ export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 export const maxDuration = 30;
 
+const VALID_PAYMENT_TERMS = ['net-15', 'net-30', 'net-60', 'due-on-receipt'] as const;
+
 export async function GET(request: NextRequest): Promise<NextResponse> {
   try {
     const __resolved = await safeResolveAgentbookTenant(request);
@@ -41,6 +43,11 @@ interface UpdateConfigBody {
   autoApproveLimitCents?: number;
   autoRemindEnabled?: boolean;
   autoRemindDays?: number[];
+  // Invoice defaults
+  defaultPaymentTerms?: string | null;
+  defaultCurrency?: string | null;
+  invoiceFooterNote?: string | null;
+  invoiceThankYouMessage?: string | null;
 }
 
 export async function PUT(request: NextRequest): Promise<NextResponse> {
@@ -60,6 +67,31 @@ export async function PUT(request: NextRequest): Promise<NextResponse> {
     if (body.autoApproveLimitCents !== undefined) update.autoApproveLimitCents = body.autoApproveLimitCents;
     if (body.autoRemindEnabled !== undefined) update.autoRemindEnabled = body.autoRemindEnabled;
     if (body.autoRemindDays !== undefined) update.autoRemindDays = body.autoRemindDays;
+    // Invoice defaults
+    if (body.defaultPaymentTerms !== undefined) {
+      if (body.defaultPaymentTerms !== null && !VALID_PAYMENT_TERMS.includes(body.defaultPaymentTerms as typeof VALID_PAYMENT_TERMS[number])) {
+        return NextResponse.json({ error: 'invalid defaultPaymentTerms' }, { status: 400 });
+      }
+      update.defaultPaymentTerms = body.defaultPaymentTerms;
+    }
+    if (body.defaultCurrency !== undefined) {
+      if (body.defaultCurrency !== null && body.defaultCurrency.length !== 3) {
+        return NextResponse.json({ error: 'defaultCurrency must be a 3-letter ISO code' }, { status: 400 });
+      }
+      update.defaultCurrency = body.defaultCurrency;
+    }
+    if (body.invoiceFooterNote !== undefined) {
+      if (body.invoiceFooterNote !== null && body.invoiceFooterNote.length > 500) {
+        return NextResponse.json({ error: 'invoiceFooterNote exceeds 500 characters' }, { status: 400 });
+      }
+      update.invoiceFooterNote = body.invoiceFooterNote;
+    }
+    if (body.invoiceThankYouMessage !== undefined) {
+      if (body.invoiceThankYouMessage !== null && body.invoiceThankYouMessage.length > 200) {
+        return NextResponse.json({ error: 'invoiceThankYouMessage exceeds 200 characters' }, { status: 400 });
+      }
+      update.invoiceThankYouMessage = body.invoiceThankYouMessage;
+    }
 
     const config = await db.abTenantConfig.upsert({
       where: { userId: tenantId },

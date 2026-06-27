@@ -12,14 +12,21 @@ import { CPAPortalPage } from './pages/CPAPortal';
 import { AdminConfigPage } from './pages/AdminConfig';
 import { AgentsPage } from './pages/Agents';
 import { TelegramSettingsPage } from './pages/TelegramSettings';
+import { SettingsPage } from './pages/SettingsPage';
 import { ActivityPage } from './pages/Activity';
 import { HomeOfficePage } from './pages/HomeOffice';
 import { DeadLetterPage } from './pages/admin/DeadLetter';
 import { SkillMetricsPage } from './pages/SkillMetrics';
 import './globals.css';
 
+function getInitialRoute(): string {
+  const path = window.location.pathname;
+  if (path.startsWith('/agentbook/')) return path.replace('/agentbook', '');
+  return '/';
+}
+
 const AgentBookCoreApp: React.FC = () => (
-  <MemoryRouter>
+  <MemoryRouter initialEntries={[getInitialRoute()]}>
     <Routes>
       <Route path="/" element={<ChatPage />} />
       <Route path="/chat" element={<ChatPage />} />
@@ -38,6 +45,7 @@ const AgentBookCoreApp: React.FC = () => (
       <Route path="/agents" element={<AgentsPage />} />
       <Route path="/skill-metrics" element={<SkillMetricsPage />} />
       <Route path="/telegram" element={<TelegramSettingsPage />} />
+      <Route path="/settings" element={<SettingsPage />} />
       <Route path="/activity" element={<ActivityPage />} />
       <Route path="/home-office" element={<HomeOfficePage />} />
       <Route path="/*" element={<ChatPage />} />

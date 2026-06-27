@@ -1,15 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { SEED_TEMPLATES } from '@/lib/billing/templates';
-import { requireAdmin, HttpError } from '@/lib/billing/admin-auth';
+import { validateSession } from '@/lib/api/auth';
 
 export const runtime = 'nodejs';
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
-  try {
-    await requireAdmin(request);
-  } catch (err) {
-    const e = err as HttpError;
-    return NextResponse.json({ error: e.message }, { status: e.status });
+  const token = request.cookies.get('naap_auth_token')?.value;
+  if (!token || !(await validateSession(token))) {
+    return NextResponse.json({ error: 'not authenticated' }, { status: 401 });
   }
   return NextResponse.json({ templates: SEED_TEMPLATES });
 }

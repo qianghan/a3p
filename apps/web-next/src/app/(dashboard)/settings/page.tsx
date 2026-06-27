@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import * as Icons from 'lucide-react';
 import { Button, Input, Textarea, Label, Modal } from '@naap/ui';
+import { AgentBookSettingsPanel } from '@/components/settings/AgentBookSettingsPanel';
 
 /** Only allow http/https URLs for image sources to prevent XSS via javascript: URIs */
 function getSafeImageUrl(url: string | null | undefined): string | null {
@@ -64,6 +65,8 @@ export default function SettingsPage() {
   const { theme, notifications } = useShell();
   const { plugins, refreshPlugins } = usePlugins();
   const eventBus = useEvents();
+
+  const [settingsTab, setSettingsTab] = useState<'general' | 'agentbook'>('general');
 
   const [notificationSettings, setNotificationSettings] = useState({
     email: true,
@@ -596,15 +599,39 @@ export default function SettingsPage() {
   };
 
   return (
-    <div className="max-w-4xl mx-auto space-y-6">
-      <div>
-        <h1 className="text-lg font-semibold">Settings</h1>
-        <p className="text-muted-foreground mt-1">
-          Manage your account and application preferences
-        </p>
-      </div>
+    <div className="max-w-5xl mx-auto">
+      <div className="flex gap-8">
+        {/* Left tab nav */}
+        <nav className="w-44 shrink-0 pt-1 space-y-0.5">
+          {(['general', 'agentbook'] as const).map((tab) => (
+            <button
+              key={tab}
+              onClick={() => setSettingsTab(tab)}
+              className={`w-full text-left px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                settingsTab === tab
+                  ? 'bg-primary/10 text-primary'
+                  : 'text-muted-foreground hover:bg-muted hover:text-foreground'
+              }`}
+            >
+              {tab === 'general' ? 'General' : 'AgentBook'}
+            </button>
+          ))}
+        </nav>
 
-      {/* Profile Section */}
+        {/* Right content */}
+        <div className="flex-1 min-w-0">
+          {settingsTab === 'agentbook' ? (
+            <AgentBookSettingsPanel />
+          ) : (
+            <div className="space-y-6">
+              <div>
+                <h1 className="text-lg font-semibold">Settings</h1>
+                <p className="text-muted-foreground mt-1">
+                  Manage your account and application preferences
+                </p>
+              </div>
+
+              {/* Profile Section */}
       <section className="bg-card rounded-lg border p-4">
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-3">
@@ -1108,6 +1135,10 @@ export default function SettingsPage() {
           </Button>
         </div>
       </section>
+            </div>
+          )}
+        </div>
+      </div>
 
       {/* Uninstall Confirmation Modal */}
       <Modal

@@ -1,7 +1,7 @@
 {
   "$schema": "https://plugins.naap.io/schema/plugin.json",
   "name": "agentbook-expense",
-  "displayName": "AgentBook Expenses",
+  "displayName": "Expenses",
   "version": "1.0.0",
   "description": "Expense tracking, receipt OCR, auto-categorization, vendor patterns, recurring expense detection, and business/personal separation.",
   "isCore": true,
