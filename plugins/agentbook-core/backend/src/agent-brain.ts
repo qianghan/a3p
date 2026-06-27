@@ -768,7 +768,8 @@ export async function handleAgentMessage(
           activeEntities: [], parkedFills: [], turns: [],
         },
       });
-    } catch {
+    } catch (e) {
+      console.warn('[brain] thread create error (race or DB):', e instanceof Error ? e.message : e);
       // Race: another request created it — fetch it
       activeThread = await db.abConvThread.findFirst({
         where: { tenantId, channel, chatId, status: 'active' },
