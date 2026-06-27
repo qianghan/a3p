@@ -96,6 +96,7 @@ interface AgentRequest {
   text: string;
   tenantId: string;
   channel: string;
+  chatId?: string; // web: tenantId; telegram: String(chat.id); defaults to tenantId
   attachments?: { type: string; url: string }[];
   sessionAction?: string;
   feedback?: string;
@@ -198,6 +199,19 @@ function resolveSessionAction(
   if (UNDO_RE.test(trimmed)) return 'undo';
   if (CONFIRM_RE.test(trimmed)) return 'confirm';
   return null;
+}
+
+function pairTurns(
+  turns: Array<{ role: string; text: string }>,
+): Array<{ question: string; answer: string }> {
+  const pairs: Array<{ question: string; answer: string }> = [];
+  for (let i = 0; i + 1 < turns.length; i++) {
+    if (turns[i].role === 'user' && turns[i + 1].role === 'bot') {
+      pairs.push({ question: turns[i].text, answer: turns[i + 1].text });
+      i++;
+    }
+  }
+  return pairs;
 }
 
 function resolveBaseUrlForEndpoint(
@@ -404,7 +418,7 @@ export async function handleAgentMessage(
   ctx: AgentContext,
 ): Promise<AgentResponse> {
   const startTime = Date.now();
-  const { text, tenantId, channel, attachments, feedback } = req;
+  const { text, tenantId, channel, chatId: reqChatId, attachments, feedback } = req;
   const expenseBaseUrl = ctx.baseUrls['/api/v1/agentbook-expense'] || 'http://localhost:4051';
 
   // ── Step 0: Handle feedback / corrections ──────────────────────────────
@@ -738,13 +752,37 @@ export async function handleAgentMessage(
   }
 
   // ── Step 2: Context assembly ───────────────────────────────────────────
-  const [tenantConfig, conversation, memory, skills] = await Promise.all([
+  const chatId = reqChatId ?? tenantId; // web falls back to tenantId as chatId
+
+  // Find or create the active thread for this channel.
+  // One thread per [tenantId, channel, chatId] — history lives in thread.turns.
+  let activeThread = await db.abConvThread.findFirst({
+    where: { tenantId, channel, chatId, status: 'active' },
+    orderBy: { lastActiveAt: 'desc' },
+  });
+  if (!activeThread) {
+    try {
+      activeThread = await db.abConvThread.create({
+        data: {
+          tenantId, channel, chatId, status: 'active',
+          activeEntities: [], parkedFills: [], turns: [],
+        },
+      });
+    } catch {
+      // Race: another request created it — fetch it
+      activeThread = await db.abConvThread.findFirst({
+        where: { tenantId, channel, chatId, status: 'active' },
+        orderBy: { lastActiveAt: 'desc' },
+      });
+    }
+  }
+
+  // Convert thread turns into the {question, answer}[] format used downstream
+  const threadTurns = (activeThread?.turns as Array<{ role: string; text: string }>) ?? [];
+  const conversation = pairTurns(threadTurns);
+
+  const [tenantConfig, memory, skills] = await Promise.all([
     db.abTenantConfig.findFirst({ where: { userId: tenantId } }),
-    db.abConversation.findMany({
-      where: { tenantId },
-      orderBy: { createdAt: 'desc' },
-      take: 10,
-    }),
     retrieveRelevantMemories(tenantId, text),
     db.abSkillManifest.findMany({
       where: { enabled: true, OR: [{ tenantId: null }, { tenantId }] },
