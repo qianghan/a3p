@@ -1173,6 +1173,7 @@ async function callAgentBrain(
   attachments?: { type: string; url: string }[],
   sessionAction?: string,
   feedback?: string,
+  chatId?: string,
 ): Promise<{ success: true; data: { message: string; skillUsed?: string } } | { success: false; error: string }> {
   try {
     const skills = await db.abSkillManifest.findMany({
@@ -1180,7 +1181,7 @@ async function callAgentBrain(
     });
     const baseUrls = getBaseUrls();
     const brainResult = await handleAgentMessage(
-      { text: text || '', tenantId, channel: 'telegram', attachments, sessionAction, feedback },
+      { text: text || '', tenantId, channel: 'telegram', chatId, attachments, sessionAction, feedback },
       { skills, callGemini, baseUrls, classifyAndExecuteV1, classifyOnly, executeClassification },
     );
     if (brainResult?.success && brainResult.data?.message) {
@@ -3465,7 +3466,7 @@ function getBot(): Bot {
     }
 
     try {
-      const result = await callAgentBrain(tenantId, agentText, undefined, sessionAction, feedback);
+      const result = await callAgentBrain(tenantId, agentText, undefined, sessionAction, feedback, String(ctx.chat.id));
       if (result.success && result.data) {
         const reply: string = formatResponse(result.data);
 
@@ -3562,7 +3563,7 @@ function getBot(): Bot {
       if (!loop.evaluation.delegatedToBrain) return;
 
       // Delegated → agent brain
-      const result = await callAgentBrain(tenantId, text, undefined, undefined, undefined);
+      const result = await callAgentBrain(tenantId, text, undefined, undefined, undefined, String(ctx.chat.id));
       if (result.success && result.data) {
         const reply: string = formatResponse(result.data);
         try {
