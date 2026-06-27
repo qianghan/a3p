@@ -2906,13 +2906,24 @@ function getBot(): Bot {
     }
 
     // ── Daily-briefing setup + feedback dialog ──────────────────────────
-    // If the user is mid-setup, EVERY text goes through the setup flow
-    // until they save or cancel.
+    // If the user is mid-setup, route through the setup flow — unless the
+    // message is clearly an accounting/data query AND the setup is in a
+    // non-mandatory step (preview/tuning). In that case, auto-exit setup
+    // so the user isn't stuck when they want to ask about their books.
     {
       const ongoingSetup = await getSetupState(tenantId);
       if (ongoingSetup) {
-        await handleSetupTurn(tenantId, text, ongoingSetup, ctx);
-        return;
+        const isAccountingQuery =
+          /\b(spend|spent|expense|vendor|invoice|top|budget|revenue|profit|tax|report|balance|cash|list|show|give|how much|summary|earning|income)\b/i.test(text) &&
+          !/^(shorter|longer|skip|all|none|preview|sample|good|great|perfect|done|save|move|no tips|include|exclude|briefing|digest)\b/i.test(lower);
+        const isLateTurnStep = ongoingSetup.step === 'preview' || ongoingSetup.step === 'tuning';
+        if (isAccountingQuery && isLateTurnStep) {
+          await clearSetupState(tenantId);
+          // Fall through to normal brain processing below
+        } else {
+          await handleSetupTurn(tenantId, text, ongoingSetup, ctx);
+          return;
+        }
       }
       // Triggers for starting setup.
       if (
