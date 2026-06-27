@@ -214,6 +214,26 @@ function pairTurns(
   return pairs;
 }
 
+async function updateThreadTurns(
+  thread: any,
+  userText: string,
+  agentText: string,
+  intent?: string,
+): Promise<void> {
+  if (!thread || thread.id === 'ephemeral') return;
+  const KEEP = 8;
+  const existing = (thread.turns as any[]) ?? [];
+  const newTurns = [
+    ...existing,
+    { role: 'user', text: userText.slice(0, 300), at: new Date().toISOString() },
+    { role: 'bot',  text: agentText.slice(0, 300),  at: new Date().toISOString(), intent },
+  ].slice(-KEEP);
+  await db.abConvThread.update({
+    where: { id: thread.id },
+    data: { turns: newTurns as never, turnCount: { increment: 2 }, lastActiveAt: new Date() },
+  }).catch(() => {});
+}
+
 function resolveBaseUrlForEndpoint(
   endpoint: string,
   baseUrls: Record<string, string>,
@@ -895,6 +915,7 @@ export async function handleAgentMessage(
           },
         },
       }).catch(() => {});
+      updateThreadTurns(activeThread, text, planMessage, 'planner').catch(() => {});
 
       return buildResponse({
         message: planMessage,
@@ -967,6 +988,7 @@ export async function handleAgentMessage(
           data: { plan: planSteps as any, sessionId: session.id },
         },
       }).catch(() => {});
+      updateThreadTurns(activeThread, text, planMessage, 'planner').catch(() => {});
 
       return buildResponse({
         message: planMessage,
@@ -1011,6 +1033,7 @@ export async function handleAgentMessage(
       latencyMs: Date.now() - startTime,
     },
   }).catch(() => {});
+  updateThreadTurns(activeThread, text, responseData.message || '', responseData.skillUsed || v1Result.skillUsed).catch(() => {});
 
   return buildResponse({
     message: responseData.message,
