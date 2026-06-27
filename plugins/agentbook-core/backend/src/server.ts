@@ -3728,71 +3728,133 @@ async function _executeClassificationCore(
     } catch { /* ignore */ }
   }
 
-  // Special inline handler: categorize-expenses — delegates to LLM auto-categorizer
+  // INTERNAL handler: categorize-expenses — direct DB + Gemini, no HTTP self-call
   if (selectedSkill.name === 'categorize-expenses') {
     try {
-      const nextBase = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
-      const H = brainHeaders(tenantId);
+      const HIGH_CONF = 0.85;
+      const MEDIUM_CONF = 0.55;
+      const PENDING_KEY = 'telegram:ai_categorize_pending';
+      const LAST_RUN_KEY = 'telegram:last_auto_categorize';
+      const apiKey = process.env.GEMINI_API_KEY;
+      const model = process.env.GEMINI_MODEL_FAST || 'gemini-2.5-flash';
 
-      // Call the LLM auto-categorizer via Next.js route (force=true bypasses dedupe)
-      const runRes = await fetch(`${nextBase}/api/v1/agentbook-core/auto-categorize/run`, {
-        method: 'POST',
-        headers: { 'x-tenant-id': tenantId, 'x-internal-cron': process.env.CRON_SECRET || '' },
+      // Idempotent: skip if already ran in last 20h (bypass for chat invocations)
+      const last = await db.abUserMemory.findUnique({
+        where: { tenantId_key: { tenantId, key: LAST_RUN_KEY } },
       });
-      const runData = runRes.ok
-        ? (await runRes.json() as { success: boolean; data?: { appliedCount: number; pendingCount: number; skippedCount: number } })
-        : { success: false };
+      // Chat invocations always run (force=true equivalent)
 
-      const applied = runData.success ? (runData.data?.appliedCount ?? 0) : 0;
-      const pendingCount = runData.success ? (runData.data?.pendingCount ?? 0) : 0;
+      const uncategorized = await db.abExpense.findMany({
+        where: { tenantId, categoryId: null, isPersonal: false, status: { in: ['pending_review', 'confirmed'] } },
+        include: { vendor: { select: { id: true, name: true, normalizedName: true } } },
+        orderBy: { date: 'desc' },
+        take: 50,
+      });
 
-      let message: string;
-      if (!runData.success) {
-        message = "I couldn't run the auto-categorizer right now. Please try again in a moment.";
-      } else if (applied === 0 && pendingCount === 0) {
-        message = 'All your expenses are already categorized!';
-      } else if (pendingCount === 0) {
-        message = `Applied **${applied}** categories automatically. All expenses are now categorized!`;
-      } else {
-        message = `Applied **${applied}** categories automatically. **${pendingCount}** expense${pendingCount !== 1 ? 's' : ''} need your input — check the Expenses page or type 'review expenses' here to walk through them.`;
+      const categories = await db.abAccount.findMany({
+        where: { tenantId, accountType: 'expense', isActive: true },
+        select: { id: true, name: true, code: true, taxCategory: true },
+      });
+
+      let applied = 0;
+      let skipped = 0;
+      const pending: Array<{ expenseId: string; vendorName: string | null; amountCents: number; suggestedCategoryId: string; suggestedCategoryName: string; confidence: number; reason: string }> = [];
+
+      if (uncategorized.length > 0 && categories.length > 0 && apiKey) {
+        const catList = categories.map((c) => `   • ${c.name}${c.taxCategory ? ` (${c.taxCategory})` : ''}`).join('\n');
+        const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+
+        for (const exp of uncategorized) {
+          try {
+            const systemPrompt = `You are a senior freelance bookkeeper. Classify the expense below into ONE of the available categories. Be conservative with confidence.\n\nAvailable categories:\n${catList}\n\nOutput rules:\n• categoryName MUST be exactly one of the names above.\n• If ambiguous, set categoryName=null with low confidence.\n• confidence is 0.0-1.0.\n• reason: one short sentence.\n\nReturn ONLY JSON: {"categoryName": "Meals", "confidence": 0.92, "reason": "Restaurant name."}`;
+            const userMsg = `Expense:\n   Vendor: ${exp.vendor?.name || '(no vendor)'}\n   Amount: $${(exp.amountCents / 100).toFixed(2)}\n   Date: ${exp.date.toISOString().slice(0, 10)}\n   Description: ${exp.description || '(none)'}`;
+
+            const gRes = await fetch(geminiUrl, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                systemInstruction: { parts: [{ text: systemPrompt }] },
+                contents: [{ role: 'user', parts: [{ text: userMsg }] }],
+                generationConfig: { maxOutputTokens: 200, temperature: 0.1 },
+              }),
+            });
+            if (!gRes.ok) { skipped++; continue; }
+            const gData = await gRes.json() as any;
+            const raw = gData.candidates?.[0]?.content?.parts?.[0]?.text || '';
+            const cleaned = raw.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+            const json = cleaned.match(/\{[\s\S]*\}/)?.[0] || cleaned;
+            const llm = JSON.parse(json) as { categoryName: string | null; confidence: number; reason: string };
+            if (!llm.categoryName || typeof llm.confidence !== 'number') { skipped++; continue; }
+
+            const matched = categories.find((c) => c.name.toLowerCase() === llm.categoryName!.toLowerCase());
+            if (!matched) { skipped++; continue; }
+
+            if (llm.confidence >= HIGH_CONF) {
+              await db.abExpense.update({ where: { id: exp.id }, data: { categoryId: matched.id, confidence: llm.confidence } });
+              // Learn vendor pattern
+              const normName = exp.vendor?.normalizedName || exp.vendor?.name?.toLowerCase().replace(/[^a-z0-9]/g, '') || null;
+              if (normName) {
+                await db.abPattern.upsert({
+                  where: { tenantId_vendorPattern: { tenantId, vendorPattern: normName } },
+                  update: { categoryId: matched.id, confidence: Math.min(0.92, llm.confidence), source: 'auto_categorize', usageCount: { increment: 1 }, lastUsed: new Date() },
+                  create: { tenantId, vendorPattern: normName, categoryId: matched.id, confidence: Math.min(0.9, llm.confidence), source: 'auto_categorize' },
+                }).catch(() => {});
+              }
+              applied++;
+            } else if (llm.confidence >= MEDIUM_CONF) {
+              pending.push({ expenseId: exp.id, vendorName: exp.vendor?.name ?? null, amountCents: exp.amountCents, suggestedCategoryId: matched.id, suggestedCategoryName: matched.name, confidence: llm.confidence, reason: llm.reason });
+            } else {
+              skipped++;
+            }
+          } catch { skipped++; }
+        }
+      } else if (!apiKey) {
+        skipped = uncategorized.length;
       }
 
-      // For Telegram: include the first 2 pending items inline
-      if (pendingCount > 0 && channel === 'telegram') {
-        try {
-          const pendingRes = await fetch(`${nextBase}/api/v1/agentbook-core/auto-categorize/pending`, {
-            headers: H,
-          });
-          if (pendingRes.ok) {
-            const pendingData = await pendingRes.json() as {
-              success: boolean;
-              data?: { items: Array<{ vendorName: string | null; amountCents: number; suggestedCategoryName: string; confidence: number }> }
-            };
-            const previewItems = pendingData.data?.items?.slice(0, 2) ?? [];
-            if (previewItems.length > 0) {
-              const preview = previewItems.map(i =>
-                `• $${(i.amountCents / 100).toFixed(2)} ${i.vendorName || 'expense'} → ${i.suggestedCategoryName} (${Math.round(i.confidence * 100)}%)`
-              ).join('\n');
-              message += '\n\n' + preview;
-              if (pendingCount > 2) message += `\n...and ${pendingCount - 2} more.`;
-            }
-          }
-        } catch { /* best-effort: proceed without preview */ }
+      // Save pending batch for the Expenses page review UI
+      if (pending.length > 0) {
+        await db.abUserMemory.upsert({
+          where: { tenantId_key: { tenantId, key: PENDING_KEY } },
+          update: { value: JSON.stringify({ items: pending, builtAt: Date.now() }), lastUsed: new Date() },
+          create: { tenantId, key: PENDING_KEY, value: JSON.stringify({ items: pending, builtAt: Date.now() }), type: 'pending_action', confidence: 1 },
+        }).catch(() => {});
+      } else if (uncategorized.length > 0) {
+        await db.abUserMemory.deleteMany({ where: { tenantId, key: PENDING_KEY } }).catch(() => {});
+      }
+      // Mark last run
+      await db.abUserMemory.upsert({
+        where: { tenantId_key: { tenantId, key: LAST_RUN_KEY } },
+        update: { value: JSON.stringify({ at: new Date().toISOString() }), lastUsed: new Date() },
+        create: { tenantId, key: LAST_RUN_KEY, value: JSON.stringify({ at: new Date().toISOString() }), type: 'audit', confidence: 1 },
+      }).catch(() => {});
+
+      let message: string;
+      if (uncategorized.length === 0) {
+        message = 'All your expenses are already categorized! Great work.';
+      } else if (applied === 0 && pending.length === 0) {
+        message = `I reviewed ${uncategorized.length} expense${uncategorized.length !== 1 ? 's' : ''} but couldn't categorize them confidently. Check the Expenses page to assign categories manually.`;
+      } else if (pending.length === 0) {
+        message = `Applied **${applied}** categor${applied !== 1 ? 'ies' : 'y'} automatically. All expenses are now categorized!`;
+      } else {
+        message = `Applied **${applied}** categor${applied !== 1 ? 'ies' : 'y'} automatically. **${pending.length}** expense${pending.length !== 1 ? 's' : ''} need your review — check the Expenses page.`;
+        if (channel === 'telegram') {
+          const preview = pending.slice(0, 2).map((i) => `• $${(i.amountCents / 100).toFixed(2)} ${i.vendorName || 'expense'} → ${i.suggestedCategoryName} (${Math.round(i.confidence * 100)}%)`).join('\n');
+          message += '\n\n' + preview;
+          if (pending.length > 2) message += `\n...and ${pending.length - 2} more.`;
+        }
       }
 
       await db.abConversation.create({
         data: { tenantId, question: text || '[categorize]', answer: message, queryType: 'agent', channel, skillUsed: 'categorize-expenses' },
-      });
-      await db.abEvent.create({
-        data: { tenantId, eventType: 'agent.message', actor: 'user', action: { skillUsed: 'categorize-expenses', applied, pendingCount, channel } },
-      });
+      }).catch(() => {});
 
       return {
-        selectedSkill, extractedParams, confidence, skillUsed: selectedSkill.name, skillResponse: null,
+        selectedSkill, extractedParams, confidence, skillUsed: 'categorize-expenses', skillResponse: null,
         responseData: { message, skillUsed: 'categorize-expenses', confidence, latencyMs: Date.now() - startTime },
       };
     } catch (err) {
-      console.error('Categorize expenses error:', err);
+      console.error('[categorize-expenses] error:', err);
       return {
         selectedSkill, extractedParams, confidence: 0, skillUsed: 'categorize-expenses', skillResponse: null,
         responseData: { message: "I couldn't categorize the expenses. Please try again.", skillUsed: 'categorize-expenses', confidence: 0, latencyMs: Date.now() - startTime },
@@ -4077,6 +4139,89 @@ Only include chartData if visualization adds value. Keep the answer under 200 wo
       return {
         selectedSkill, extractedParams, confidence: 0, skillUsed: selectedSkill.name, skillResponse: null,
         responseData: { message: "I couldn't retrieve expense data right now. Please try again.", actions: [], chartData: null, skillUsed: selectedSkill.name, confidence: 0, latencyMs: Date.now() - startTime },
+      };
+    }
+  }
+
+  // INTERNAL handler: cashflow-report — 30/60/90-day projection, direct DB, no HTTP self-call
+  if (selectedSkill.name === 'cashflow-report') {
+    try {
+      const now = new Date();
+      const cashAccount = await db.abAccount.findUnique({ where: { tenantId_code: { tenantId, code: '1000' } } });
+      let currentCashCents = 0;
+      if (cashAccount) {
+        const agg = await db.abJournalLine.aggregate({
+          where: { accountId: cashAccount.id, entry: { tenantId, date: { lte: now } } },
+          _sum: { debitCents: true, creditCents: true },
+        });
+        currentCashCents = (agg._sum.debitCents || 0) - (agg._sum.creditCents || 0);
+      }
+      const [recurringRules, outstandingInvoices] = await Promise.all([
+        db.abRecurringRule.findMany({ where: { tenantId, active: true } }),
+        db.abInvoice.findMany({ where: { tenantId, status: { in: ['sent', 'viewed', 'overdue'] } } }),
+      ]);
+      const calcRecurring = (days: number) => {
+        let total = 0;
+        const winEnd = new Date(now.getTime() + days * 86_400_000);
+        for (const rule of recurringRules) {
+          let nd = new Date(rule.nextExpected);
+          while (nd <= winEnd) {
+            if (nd >= now) total += rule.amountCents;
+            if (rule.frequency === 'weekly') nd = new Date(nd.getTime() + 7 * 86_400_000);
+            else if (rule.frequency === 'biweekly') nd = new Date(nd.getTime() + 14 * 86_400_000);
+            else if (rule.frequency === 'monthly') nd = new Date(nd.getFullYear(), nd.getMonth() + 1, nd.getDate());
+            else if (rule.frequency === 'annual') nd = new Date(nd.getFullYear() + 1, nd.getMonth(), nd.getDate());
+            else break;
+          }
+        }
+        return total;
+      };
+      const calcIncome = (days: number) => {
+        const winEnd = new Date(now.getTime() + days * 86_400_000);
+        let total = 0; let count = 0;
+        for (const inv of outstandingInvoices) {
+          const due = inv.status === 'overdue' ? now : inv.dueDate;
+          if (due <= winEnd) { total += inv.amountCents; count++; }
+        }
+        return { totalCents: total, count };
+      };
+      const fmt = (c: number) => `$${(c / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+      const proj30 = { income: calcIncome(30), expense: calcRecurring(30) };
+      const proj60 = { income: calcIncome(60), expense: calcRecurring(60) };
+      const proj90 = { income: calcIncome(90), expense: calcRecurring(90) };
+      const cash30 = currentCashCents + proj30.income.totalCents - proj30.expense;
+      const cash60 = currentCashCents + proj60.income.totalCents - proj60.expense;
+      const cash90 = currentCashCents + proj90.income.totalCents - proj90.expense;
+
+      const message = [
+        `**Cash Flow Projection**`,
+        `Current balance: **${fmt(currentCashCents)}**`,
+        '',
+        `📅 **30-day**: ${fmt(cash30)} (income +${fmt(proj30.income.totalCents)}, expenses -${fmt(proj30.expense)})`,
+        `📅 **60-day**: ${fmt(cash60)} (income +${fmt(proj60.income.totalCents)}, expenses -${fmt(proj60.expense)})`,
+        `📅 **90-day**: ${fmt(cash90)} (income +${fmt(proj90.income.totalCents)}, expenses -${fmt(proj90.expense)})`,
+        outstandingInvoices.length > 0
+          ? `\n${outstandingInvoices.length} outstanding invoice${outstandingInvoices.length !== 1 ? 's' : ''} included in projections.`
+          : '\nNo outstanding invoices.',
+      ].join('\n');
+
+      await db.abConversation.create({
+        data: { tenantId, question: text || '[cashflow]', answer: message, queryType: 'agent', channel, skillUsed: 'cashflow-report' },
+      }).catch(() => {});
+
+      return {
+        selectedSkill, extractedParams, confidence, skillUsed: 'cashflow-report', skillResponse: null,
+        responseData: {
+          message, actions: [{ label: 'View Cash Flow page', type: 'link', url: '/agentbook/tax' }],
+          chartData: { type: 'bar', data: [{ name: '30d', value: cash30 }, { name: '60d', value: cash60 }, { name: '90d', value: cash90 }] },
+          skillUsed: 'cashflow-report', confidence, latencyMs: Date.now() - startTime,
+        },
+      };
+    } catch (err) {
+      console.error('[cashflow-report] inline handler error:', err);
+      return {
+        selectedSkill, extractedParams, confidence: 0, skillUsed: 'cashflow-report', skillResponse: null,
+        responseData: { message: "I couldn't load the cash flow projection right now. Please try again.", actions: [], chartData: null, skillUsed: 'cashflow-report', confidence: 0, latencyMs: Date.now() - startTime },
       };
     }
   }
