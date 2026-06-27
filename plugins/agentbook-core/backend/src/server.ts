@@ -3177,11 +3177,18 @@ async function _executeClassificationCore(
 
   // === 3. SKILL EXECUTION ===
   let endpoint = selectedSkill.endpoint as any;
+  // In production (Vercel) all plugins live on the same host — VERCEL_URL or NEXTAUTH_URL.
+  // In local dev with standalone Express backends, individual AGENTBOOK_*_URL vars override.
+  const _appBase =
+    process.env.AGENTBOOK_HOST ||
+    (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : '') ||
+    process.env.NEXTAUTH_URL ||
+    '';
   const baseUrls: Record<string, string> = {
-    '/api/v1/agentbook-expense': process.env.AGENTBOOK_EXPENSE_URL || 'http://localhost:4051',
-    '/api/v1/agentbook-core': process.env.AGENTBOOK_CORE_URL || 'http://localhost:4050',
-    '/api/v1/agentbook-invoice': process.env.AGENTBOOK_INVOICE_URL || 'http://localhost:4052',
-    '/api/v1/agentbook-tax': process.env.AGENTBOOK_TAX_URL || 'http://localhost:4053',
+    '/api/v1/agentbook-expense': process.env.AGENTBOOK_EXPENSE_URL || _appBase || 'http://localhost:4051',
+    '/api/v1/agentbook-core': process.env.AGENTBOOK_CORE_URL || _appBase || 'http://localhost:4050',
+    '/api/v1/agentbook-invoice': process.env.AGENTBOOK_INVOICE_URL || _appBase || 'http://localhost:4052',
+    '/api/v1/agentbook-tax': process.env.AGENTBOOK_TAX_URL || _appBase || 'http://localhost:4053',
   };
 
   // Resolve base URL
@@ -3914,6 +3921,162 @@ async function _executeClassificationCore(
       return {
         selectedSkill, extractedParams, confidence: 0, skillUsed: 'record-invoice-payment', skillResponse: null,
         responseData: { message: "I couldn't record the payment. Please try again.", skillUsed: 'record-invoice-payment', confidence: 0, latencyMs: Date.now() - startTime },
+      };
+    }
+  }
+
+  // INTERNAL handler: query-expenses / vendor-insights / expense-breakdown
+  // These skills previously made HTTP self-calls to /advisor/ask which fail on
+  // Vercel because VERCEL_URL resolves to a deployment-specific URL and the
+  // loopback has auth/routing issues. Query the DB directly instead.
+  if (['query-expenses', 'vendor-insights', 'expense-breakdown'].includes(selectedSkill.name)) {
+    try {
+      const question = String(extractedParams.question || text || '');
+      const q = question.toLowerCase();
+      const now = new Date();
+      const year = now.getFullYear();
+
+      // Date range from question
+      let startDate: Date;
+      let endDate: Date;
+      const monthNames = ['january','february','march','april','may','june','july','august','september','october','november','december'];
+      const mentionedMonths = monthNames
+        .map((name, i) => ({ i, found: q.includes(name) || q.includes(name.slice(0, 3)) }))
+        .filter(({ found }) => found)
+        .map(({ i }) => i);
+      if (mentionedMonths.length > 0) {
+        const minMonth = Math.min(...mentionedMonths);
+        const maxMonth = Math.max(...mentionedMonths);
+        startDate = new Date(year, minMonth, 1);
+        endDate = new Date(year, maxMonth + 1, 0, 23, 59, 59);
+      } else if (q.includes('last month')) {
+        startDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+        endDate = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59);
+      } else if (q.includes('this month')) {
+        startDate = new Date(now.getFullYear(), now.getMonth(), 1);
+        endDate = now;
+      } else if (q.includes('last quarter') || q.includes('this quarter')) {
+        const s = new Date(now); s.setMonth(s.getMonth() - 3);
+        startDate = s; endDate = now;
+      } else if (q.includes('last year')) {
+        startDate = new Date(year - 1, 0, 1);
+        endDate = new Date(year - 1, 11, 31, 23, 59, 59);
+      } else {
+        startDate = new Date(year, 0, 1);
+        endDate = now;
+      }
+
+      const expenses = await db.abExpense.findMany({
+        where: { tenantId, isPersonal: false, date: { gte: startDate, lte: endDate } },
+        include: { vendor: true },
+        orderBy: { date: 'desc' },
+      });
+
+      const catIds = [...new Set(expenses.map((e) => e.categoryId).filter(Boolean) as string[])];
+      const catAccounts = catIds.length > 0
+        ? await db.abAccount.findMany({ where: { id: { in: catIds }, tenantId }, select: { id: true, name: true } })
+        : [];
+      const catNameMap: Record<string, string> = Object.fromEntries(catAccounts.map((a) => [a.id, a.name]));
+
+      const total = expenses.reduce((s, e) => s + e.amountCents, 0);
+      const fmt = (cents: number) => `$${(cents / 100).toFixed(2)}`;
+
+      const byCatRaw: Record<string, number> = {};
+      for (const e of expenses) {
+        const name = e.categoryId ? (catNameMap[e.categoryId] || 'Uncategorized') : 'Uncategorized';
+        byCatRaw[name] = (byCatRaw[name] || 0) + e.amountCents;
+      }
+      const byCat = Object.entries(byCatRaw).sort(([, a], [, b]) => b - a).slice(0, 8);
+
+      const byVendorRaw: Record<string, number> = {};
+      for (const e of expenses) {
+        const name = (e.vendor as any)?.name || 'Unknown';
+        byVendorRaw[name] = (byVendorRaw[name] || 0) + e.amountCents;
+      }
+      const byVendor = Object.entries(byVendorRaw).sort(([, a], [, b]) => b - a).slice(0, 10);
+
+      const byMonthRaw: Record<string, number> = {};
+      for (const e of expenses) {
+        const d = new Date(e.date);
+        const key = d.toLocaleString('en-US', { month: 'short', year: 'numeric' });
+        byMonthRaw[key] = (byMonthRaw[key] || 0) + e.amountCents;
+      }
+      const byMonth = Object.entries(byMonthRaw).reverse();
+
+      const recentExpenses = expenses.slice(0, 20).map((e) => {
+        const vName = (e.vendor as any)?.name || 'Unknown';
+        const catName = e.categoryId ? (catNameMap[e.categoryId] || 'Uncategorized') : 'Uncategorized';
+        return `${new Date(e.date).toLocaleDateString()} | ${vName} | ${fmt(e.amountCents)} | ${catName}${e.description ? ' | ' + e.description : ''}`;
+      });
+
+      const contextStr = [
+        `Period: ${startDate.toLocaleDateString()} to ${endDate.toLocaleDateString()}`,
+        `Total expenses: ${fmt(total)} (${expenses.length} transactions)`,
+        `Top categories: ${byCat.map(([n, v]) => `${n}: ${fmt(v)}`).join(', ')}`,
+        `Top vendors: ${byVendor.map(([n, v]) => `${n}: ${fmt(v)}`).join(', ')}`,
+        byMonth.length > 1 ? `By month: ${byMonth.map(([m, v]) => `${m}: ${fmt(v)}`).join(', ')}` : '',
+        `\nRecent expenses (newest first):`,
+        `Date | Vendor | Amount | Category | Description`,
+        ...recentExpenses,
+      ].filter(Boolean).join('\n');
+
+      const sysPrompt = `You are AgentBook Expense Advisor — a friendly, concise financial expert.
+You have access to the user's expense data for the requested period.
+Answer the question directly using the data provided. Include specific dollar amounts.
+When listing top vendors or top spending, show the amounts prominently.
+Respond in JSON: { "answer": "your answer (use \\n for line breaks)", "chartData": { "type": "bar"|"pie", "data": [{ "name": "string", "value": number_in_cents }] } | null, "suggestedActions": [{ "label": "string", "type": "suggestion" }] }
+Only include chartData if visualization adds value. Keep the answer under 200 words.`;
+
+      const llmRaw = await callGemini(sysPrompt, `Context:\n${contextStr}\n\nQuestion: ${question}`, 600);
+
+      let answer = '';
+      let chartData: any = null;
+      const qeActions: any[] = [];
+
+      if (llmRaw) {
+        try {
+          const jsonMatch = llmRaw.match(/\{[\s\S]*\}/);
+          if (jsonMatch) {
+            const parsed = JSON.parse(jsonMatch[0]);
+            answer = parsed.answer || llmRaw;
+            chartData = parsed.chartData || null;
+            (parsed.suggestedActions || []).forEach((a: any) =>
+              qeActions.push({ label: a.label, type: a.type || 'suggestion' }));
+          } else {
+            answer = llmRaw;
+          }
+        } catch { answer = llmRaw; }
+      }
+
+      if (!answer) {
+        if (q.match(/vendor|who.*spend|top.*spend|spend.*most|constant|recurring|adobe/)) {
+          answer = byVendor.length > 0
+            ? `Top vendors (${startDate.toLocaleDateString()} – ${endDate.toLocaleDateString()}):\n\n` +
+              byVendor.slice(0, 8).map(([n, v], i) => `${i + 1}. **${n}**: ${fmt(v)}`).join('\n') +
+              `\n\nTotal: ${fmt(total)}`
+            : 'No expenses found for this period.';
+          if (byVendor.length > 0) chartData = { type: 'bar', data: byVendor.slice(0, 8).map(([name, value]) => ({ name, value })) };
+        } else {
+          answer = expenses.length === 0
+            ? `No business expenses found for ${startDate.toLocaleDateString()} – ${endDate.toLocaleDateString()}.`
+            : `You have ${expenses.length} expenses totaling ${fmt(total)} for this period.\n\nTop category: ${byCat[0] ? `**${byCat[0][0]}** (${fmt(byCat[0][1])})` : 'N/A'}\nTop vendor: ${byVendor[0] ? `**${byVendor[0][0]}** (${fmt(byVendor[0][1])})` : 'N/A'}`;
+        }
+      }
+
+      await db.abConversation.create({
+        data: { tenantId, question, answer, queryType: 'agent', channel, skillUsed: selectedSkill.name },
+      }).catch(() => {});
+
+      return {
+        selectedSkill, extractedParams, confidence, skillUsed: selectedSkill.name,
+        skillResponse: { success: true, data: { answer, chartData, actions: qeActions } },
+        responseData: { message: answer, actions: qeActions, chartData, skillUsed: selectedSkill.name, confidence, latencyMs: Date.now() - startTime },
+      };
+    } catch (err) {
+      console.error('[query-expenses] inline handler error:', err);
+      return {
+        selectedSkill, extractedParams, confidence: 0, skillUsed: selectedSkill.name, skillResponse: null,
+        responseData: { message: "I couldn't retrieve expense data right now. Please try again.", actions: [], chartData: null, skillUsed: selectedSkill.name, confidence: 0, latencyMs: Date.now() - startTime },
       };
     }
   }
