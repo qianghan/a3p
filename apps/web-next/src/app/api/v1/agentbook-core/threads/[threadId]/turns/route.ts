@@ -8,15 +8,16 @@ export const dynamic = 'force-dynamic';
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: { threadId: string } },
+  { params }: { params: Promise<{ threadId: string }> },
 ): Promise<NextResponse> {
   try {
     const __resolved = await safeResolveAgentbookTenant(request);
     if ('response' in __resolved) return __resolved.response;
     const { tenantId } = __resolved;
+    const { threadId } = await params;
 
     const thread = await db.abConvThread.findFirst({
-      where: { id: params.threadId, tenantId },
+      where: { id: threadId, tenantId },
     });
     if (!thread) {
       return NextResponse.json({ success: false, error: 'Thread not found' }, { status: 404 });

@@ -231,12 +231,7 @@ export const ChatPage: React.FC = () => {
   }, [messages, loading]);
 
   const loadThreadMessages = useCallback(async (thread: ThreadSummary) => {
-    // Selecting the active web thread returns to live mode.
-    if (thread.channel === 'web' && thread.status === 'active') {
-      setViewingChannel(null);
-      return;
-    }
-    setViewingChannel(thread.channel);
+    setViewingChannel(null);
     try {
       const res = await fetch(`${API}/threads/${thread.id}/turns`, { credentials: 'include' });
       const json = (await res.json()) as { success: boolean; data: ThreadTurn[] };
@@ -250,6 +245,10 @@ export const ChatPage: React.FC = () => {
       }
     } catch {
       // Non-fatal
+    }
+    // Only enter read-only viewing mode for non-web threads.
+    if (thread.channel !== 'web') {
+      setViewingChannel(thread.channel);
     }
   }, []);
 
@@ -515,6 +514,8 @@ export const ChatPage: React.FC = () => {
                 type="button"
                 onClick={() => {
                   setViewingChannel(null);
+                  const webThread = threads.find((t) => t.channel === 'web' && t.status === 'active');
+                  if (webThread) void loadThreadMessages(webThread);
                 }}
                 className="underline hover:text-foreground"
               >

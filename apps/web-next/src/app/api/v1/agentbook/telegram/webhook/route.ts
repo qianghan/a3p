@@ -4632,7 +4632,7 @@ function getBot(): Bot {
 
       if (action === 'session') {
         const sessionAction = parts[1];
-        const result = await callAgentBrain(tenantId, sessionAction || 'status', undefined, sessionAction);
+        const result = await callAgentBrain(tenantId, sessionAction || 'status', undefined, sessionAction, undefined, String(ctx.chat?.id ?? ctx.callbackQuery?.message?.chat?.id ?? ''));
         await ctx.answerCallbackQuery({ text: sessionAction === 'confirm' ? 'Executing…' : 'Cancelled' });
         if (result.success && result.data?.message) {
           try {
