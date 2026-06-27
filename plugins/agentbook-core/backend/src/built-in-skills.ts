@@ -9,8 +9,15 @@ export const BUILT_IN_SKILLS = [
     responseTemplate: 'Recorded: {{amountFormatted}} — {{description}} [{{categoryName}}]',
   },
   {
-    name: 'query-expenses', description: 'Query, search, list, or ask questions about expenses', category: 'bookkeeping',
-    triggerPatterns: ['show.*expense', 'list.*expense', 'last \\d+ expense', 'how much.*spen', 'recent expense', 'summary.*expense', 'expense.*summary', 'expense.*overview', 'spending.*summary'],
+    name: 'query-expenses', description: 'Query, search, list, or ask questions about expenses, spending, or vendors', category: 'bookkeeping',
+    triggerPatterns: [
+      'show.*expense', 'list.*expense', 'last \\d+ expense', 'how much.*spen', 'recent expense',
+      'summary.*expense', 'expense.*summary', 'expense.*overview', 'spending.*summary',
+      'top.*spend', 'spend.*most', 'most.*spend', 'biggest.*spend', 'highest.*spend',
+      'spend.*in.*', 'spend.*by', 'spend.*month', 'spending.*month',
+      'who.*spend', 'vendor.*spend', 'spending.*vendor', 'give.*spend',
+      'top.*vendor', 'vendor.*most', 'show.*spend', 'my.*spend',
+    ],
     parameters: { question: { type: 'string', required: true, extractHint: 'the full user message' } },
     endpoint: { method: 'POST', url: '/api/v1/agentbook-expense/advisor/ask' },
   },
@@ -98,10 +105,10 @@ export const BUILT_IN_SKILLS = [
     endpoint: { method: 'GET', url: '/api/v1/agentbook-expense/recurring-suggestions' },
   },
   {
-    name: 'vendor-insights', description: 'Show spending patterns by vendor — who you spend most with, trends', category: 'insights',
-    triggerPatterns: ['vendor.*spend', 'who.*spend.*most', 'top.*vendor', 'vendor.*pattern'],
-    parameters: {},
-    endpoint: { method: 'GET', url: '/api/v1/agentbook-expense/vendors' },
+    name: 'vendor-insights', description: 'Show spending patterns by vendor — who you spend most with, trends, top vendors by amount', category: 'insights',
+    triggerPatterns: ['vendor.*pattern', 'vendor.*trend', 'vendor.*insight'],
+    parameters: { question: { type: 'string', required: true, extractHint: 'the full user message' } },
+    endpoint: { method: 'POST', url: '/api/v1/agentbook-expense/advisor/ask' },
   },
   {
     name: 'query-invoices', description: 'List, search, or ask about invoices — outstanding, overdue, by client, by status', category: 'invoicing',
