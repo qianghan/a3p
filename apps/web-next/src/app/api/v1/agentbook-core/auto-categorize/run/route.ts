@@ -11,7 +11,12 @@ function isCronRequest(request: NextRequest): { ok: boolean; tenantId?: string }
   const cronSecret = process.env.CRON_SECRET;
   const provided = request.headers.get('x-internal-cron');
   const tenantId = request.headers.get('x-tenant-id') ?? undefined;
-  if (!cronSecret || !provided || !tenantId) return { ok: false };
+  if (!provided || !tenantId) return { ok: false };
+  // Dev mode: no CRON_SECRET set — allow any internal caller (with warning)
+  if (!cronSecret) {
+    console.warn('[auto-categorize/run] CRON_SECRET not set — accepting internal call in dev mode');
+    return { ok: true, tenantId };
+  }
   const a = Buffer.from(provided);
   const b = Buffer.from(cronSecret);
   if (a.length !== b.length) return { ok: false };

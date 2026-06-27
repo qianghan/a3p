@@ -84,19 +84,23 @@ function CategorizationReviewBanner({
     const catId = overrides[expenseId] ?? suggestedCategoryId;
     setApproving(prev => new Set(prev).add(expenseId));
     try {
-      await fetch(`${expenseApiBase}/expenses/${expenseId}/categorize`, {
+      const res = await fetch(`${expenseApiBase}/expenses/${expenseId}/categorize`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...authHeaders },
         body: JSON.stringify({ categoryId: catId, source: 'agent_confirmed' }),
       });
-      onApproved(expenseId);
+      if (res.ok) onApproved(expenseId);
+    } catch {
+      // Best-effort — item stays in banner if the request fails
     } finally {
       setApproving(prev => { const s = new Set(prev); s.delete(expenseId); return s; });
     }
   };
 
   const approveAll = async () => {
-    for (const item of items) {
+    // Snapshot items at the moment of click to avoid stale closure issues
+    const toApprove = items.filter(item => !approving.has(item.expenseId));
+    for (const item of toApprove) {
       await approve(item.expenseId, item.suggestedCategoryId);
     }
   };
