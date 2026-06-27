@@ -1439,6 +1439,13 @@ model AbTenantConfig {
   invoiceThankYouMessage String?
   createdAt             DateTime @default(now())
   updatedAt             DateTime @updatedAt
+  cashflowLowBalanceCents  Int?
+  cashflowMinRunwayMonths  Float?
+  cashflowAlertChannel     String  @default("telegram")
+  taxReserveAccountId      String?
+  taxReserveMode           String  @default("quarterly_estimate")
+  taxReservePercent        Float?
+  taxReserveFixedCents     Int?
 
   @@index([userId])
   @@schema("plugin_agentbook_core")
@@ -1623,8 +1630,31 @@ model AbFinancialSnapshot {
   topClients         Json // [{name, revenueCents, percentage}]
   categoryBreakdown  Json // [{category, amountCents}]
   createdAt          DateTime @default(now())
+  inflow30dCents         Int     @default(0)
+  outflow30dCents        Int     @default(0)
+  projectedCash30Cents   Int     @default(0)
+  projectedCash60Cents   Int     @default(0)
+  projectedCash90Cents   Int     @default(0)
+  taxReserveBalanceCents Int     @default(0)
 
   @@index([tenantId, snapshotDate])
+  @@schema("plugin_agentbook_core")
+}
+
+model AbCashflowScenario {
+  id           String    @id @default(uuid())
+  tenantId     String
+  name         String
+  description  String?
+  scenarioType String
+  params       Json
+  startMonth   DateTime?
+  isActive     Boolean   @default(true)
+  lastResult   Json?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@index([tenantId, isActive])
   @@schema("plugin_agentbook_core")
 }
 
