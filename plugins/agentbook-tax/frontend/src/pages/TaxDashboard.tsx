@@ -231,7 +231,7 @@ const BUSINESS_TYPES = [
   { value: 'corporation', label: 'Corporation' },
 ];
 
-function SettingsTab() {
+function SettingsTab({ onSaved }: { onSaved?: () => void }) {
   const [settings, setSettings] = useState<TaxSettings>(() => {
     try {
       const saved = localStorage.getItem('agentbook_tax_settings');
@@ -241,6 +241,8 @@ function SettingsTab() {
     }
   });
   const [saved, setSaved] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   const handleChange = (key: keyof TaxSettings, value: string) => {
     setSettings(prev => {
@@ -249,12 +251,32 @@ function SettingsTab() {
       return next;
     });
     setSaved(false);
+    setSaveError(null);
   };
 
-  const handleSave = () => {
-    localStorage.setItem('agentbook_tax_settings', JSON.stringify(settings));
-    setSaved(true);
-    setTimeout(() => setSaved(false), 2500);
+  const handleSave = async () => {
+    setSaving(true);
+    setSaveError(null);
+    try {
+      const res = await fetch('/api/v1/agentbook-core/tenant-config', {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          jurisdiction: settings.jurisdiction,
+          region: settings.region,
+          businessType: settings.businessType,
+        }),
+      });
+      if (!res.ok) throw new Error(`${res.status}`);
+      localStorage.setItem('agentbook_tax_settings', JSON.stringify(settings));
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2500);
+      onSaved?.();
+    } catch (e: unknown) {
+      setSaveError(String(e));
+    } finally {
+      setSaving(false);
+    }
   };
 
   const regionOptions = settings.jurisdiction === 'ca' ? CA_REGIONS : US_REGIONS;
@@ -320,16 +342,21 @@ function SettingsTab() {
         Tax calculations are estimates for planning purposes only. Consult a licensed tax professional for filing advice.
       </div>
 
+      {saveError && (
+        <p className="text-sm text-destructive">{saveError}</p>
+      )}
+
       <button
-        onClick={handleSave}
-        className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+        onClick={() => void handleSave()}
+        disabled={saving}
+        className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors disabled:opacity-50 ${
           saved
             ? 'bg-primary/10 text-primary'
             : 'bg-primary text-primary-foreground hover:opacity-90'
         }`}
       >
-        {saved ? <CheckCircle className="w-4 h-4" /> : null}
-        {saved ? 'Saved!' : 'Save Settings'}
+        {saved ? <CheckCircle className="w-4 h-4" /> : saving ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
+        {saved ? 'Saved!' : saving ? 'Saving…' : 'Save Settings'}
       </button>
     </div>
   );
@@ -408,7 +435,7 @@ export const TaxDashboardPage: React.FC = () => {
       )}
 
       {/* Settings tab content */}
-      {tab === 'settings' && <SettingsTab />}
+      {tab === 'settings' && <SettingsTab onSaved={fetchData} />}
     </div>
   );
 };
