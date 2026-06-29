@@ -204,8 +204,8 @@ export const BUILT_IN_SKILLS = [
   },
   {
     name: 'pnl-report', description: 'Show profit & loss report — revenue, expenses, net income', category: 'tax',
-    triggerPatterns: ['p.?&?.?l', 'profit.*loss', 'income.*statement', 'net.*income', 'how.*much.*profit'],
-    excludePatterns: ['notice of assessment', 'past.*filing', 'noa', 'previous tax', 'my t1 from', 'upload.*tax'],
+    triggerPatterns: ['\\bp\\s?&?\\s?l\\b', 'profit.*loss', 'income.*statement', 'net.*income', 'how.*much.*profit'],
+    excludePatterns: ['notice of assessment', 'past.*filing', 'noa', 'my t1 from'],
     parameters: { startDate: { type: 'string', required: false }, endDate: { type: 'string', required: false } },
     endpoint: { method: 'GET', url: '/api/v1/agentbook-tax/reports/pnl', queryParams: ['startDate', 'endDate'] },
   },
@@ -466,10 +466,12 @@ export const BUILT_IN_SKILLS = [
     category: 'tax',
     triggerPatterns: [
       'past.*filing', 'past filing', "last year.?s return", 'my t1 from', '\\bnoa\\b', 'notice of assessment',
-      'tax return 20\\d\\d', 'show.*my.*filing', 'show my filing', 'download my.*return', 'previous tax',
+      'tax return 20\\d\\d', 'show.*my.*filing', 'show my filing', 'download my.*return',
+      'previous tax (filing|return|t1|noa|slip)',
       'filed in 20\\d\\d', 'my.*2023.*return', 'my.*2024.*return', 'my.*2022.*return',
-      'uploaded.*tax', 'show.*past', 'list.*past.*tax',
+      'uploaded.*tax', 'list.*past.*tax',
     ],
+    excludePatterns: ['estimate', 'liability', 'how much.*owe', 'payment'],
     parameters: {
       year: { type: 'number', required: false, extractHint: '4-digit tax year if mentioned' },
       formType: { type: 'string', required: false, extractHint: 'form type like T1, NOA, 1040' },
