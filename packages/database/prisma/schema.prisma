@@ -2229,6 +2229,7 @@ model AbTaxFiling {
   notes         Json      @default("[]")
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
+  prefillSourceYear Int?
 
   @@unique([tenantId, taxYear, filingType])
   @@index([tenantId])
@@ -2251,6 +2252,28 @@ model AbTaxSlip {
 
   @@index([tenantId, taxYear])
   @@index([tenantId, slipType])
+  @@schema("plugin_agentbook_tax")
+}
+
+model AbPastTaxFiling {
+  id            String   @id @default(uuid())
+  tenantId      String
+  taxYear       Int
+  jurisdiction  String
+  region        String?
+  formType      String   @default("unknown")
+  blobUrl       String
+  blobKey       String
+  extractedData Json     @default("{}")
+  confidence    Float    @default(0)
+  status        String   @default("uploaded")
+  errorMsg      String?
+  notes         String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([tenantId, taxYear])
+  @@index([tenantId, jurisdiction, formType])
   @@schema("plugin_agentbook_tax")
 }
 
