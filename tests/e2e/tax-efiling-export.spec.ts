@@ -24,6 +24,7 @@ test.describe.serial('E-Filing XML Export', () => {
       const text = await res.text();
       expect(text).toContain('<?xml');
       expect(text).toContain('<Return');
+      expect(text).toContain('TaxYear');
     }
   });
 

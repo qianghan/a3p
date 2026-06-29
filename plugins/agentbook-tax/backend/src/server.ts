@@ -1724,7 +1724,7 @@ server.app.get('/api/v1/agentbook-tax/tax/export/netfile-xml', async (req: any, 
     res.setHeader('Content-Disposition', `attachment; filename="${result.filename}"`);
     res.send(result.content);
   } catch (err: any) {
-    res.status(500).json({ success: false, error: String(err) });
+    res.status(err.status || 500).json({ success: false, error: err.message });
   }
 });
 
@@ -1750,7 +1750,7 @@ server.app.get('/api/v1/agentbook-tax/tax/export/mef-xml', async (req: any, res)
     res.setHeader('Content-Disposition', `attachment; filename="${result.filename}"`);
     res.send(result.content);
   } catch (err: any) {
-    res.status(500).json({ success: false, error: String(err) });
+    res.status(err.status || 500).json({ success: false, error: err.message });
   }
 });
 
