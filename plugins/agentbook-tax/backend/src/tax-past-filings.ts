@@ -46,6 +46,10 @@ export async function uploadPastFiling(
   formType?: string,
   notes?: string,
 ): Promise<{ id: string; status: string }> {
+  if (!pdfBuffer.slice(0, 5).toString().startsWith('%PDF-')) {
+    throw Object.assign(new Error('File must be a PDF'), { status: 400 });
+  }
+
   const BLOB_TOKEN = process.env.BLOB_READ_WRITE_TOKEN;
   const timestamp = Date.now();
   const ft = formType || 'unknown';
@@ -85,7 +89,7 @@ export async function parsePastFiling(
       return;
     }
 
-    const filing = await db.abPastTaxFiling.findUnique({ where: { id: filingId } });
+    const filing = await db.abPastTaxFiling.findFirst({ where: { id: filingId, tenantId } });
     if (!filing) return;
 
     const model = (llmConfig as any).modelVision || (llmConfig as any).modelStandard || 'gemini-1.5-pro';

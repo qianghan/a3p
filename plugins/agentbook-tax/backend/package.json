@@ -19,6 +19,7 @@
     "@naap/plugin-server-sdk": "*",
     "@naap/database": "*",
     "@agentbook/jurisdictions": "*",
+    "@vercel/blob": "*",
     "cors": "^2.8.6",
     "dotenv": "^16.6.1",
     "express": "^4.21.0"
