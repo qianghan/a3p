@@ -87,7 +87,12 @@ Return JSON only: { "formType": "T1", "taxYear": 2024, "jurisdiction": "ca", "re
   }
 
   parseExtraction(raw: any, formType: string, taxYear: number): StandardTaxExtract {
-    const r = typeof raw === 'string' ? JSON.parse(raw) : raw;
+    let r: any;
+    try {
+      r = typeof raw === 'string' ? JSON.parse(raw) : raw;
+    } catch (e) {
+      throw new Error(`CaPastFilingPack.parseExtraction: malformed JSON for ${formType}: ${String(raw).slice(0, 200)}`);
+    }
 
     const base: StandardTaxExtract = {
       formType: r.formType || formType,
@@ -153,6 +158,7 @@ Return JSON only: { "formType": "T1", "taxYear": 2024, "jurisdiction": "ca", "re
     let line = `${year} (${jurisdiction}) [${extract.formType}]:\n`;
     line += `  Total income: ${fmt(extract.totalIncomeCents)} | Net: ${fmt(extract.netIncomeCents)} | Tax payable: ${fmt(extract.taxPayableCents)}\n`;
     if (rOrB) line += `  ${rOrB}${rrsp}\n`;
+    else if (rrsp) line += ` ${rrsp.trim()}\n`;
 
     const t2125 = extract.attachedForms?.['T2125'];
     if (t2125) {
