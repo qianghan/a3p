@@ -1697,6 +1697,64 @@ server.app.delete('/api/v1/agentbook-tax/past-filings/:id', async (req: any, res
 });
 
 // ============================================
+// E-FILING EXPORT
+// ============================================
+
+server.app.get('/api/v1/agentbook-tax/tax/export/netfile-xml', async (req: any, res) => {
+  try {
+    const tenantId: string = req.tenantId;
+    const taxYear = parseInt(req.query.year as string, 10) || new Date().getFullYear() - 1;
+
+    const filing = await db.abTaxFiling.findFirst({
+      where: { tenantId, taxYear, jurisdiction: 'ca' },
+    });
+    if (!filing) return res.status(404).json({ success: false, error: 'No CA filing found for this year' });
+
+    const config = await db.abTaxConfig.findUnique({ where: { tenantId } });
+    const region = config?.region || filing.region || 'ON';
+
+    const { getPastFilingPack } = await import('@agentbook/jurisdictions/past-filing-loader');
+    const pack = getPastFilingPack('ca');
+    if (!pack.generateEFileExport) return res.status(501).json({ success: false, error: 'E-file export not implemented for this pack' });
+
+    const forms = (filing.forms as Record<string, any>) || {};
+    const result = pack.generateEFileExport(forms, taxYear, region);
+
+    res.setHeader('Content-Type', 'application/xml');
+    res.setHeader('Content-Disposition', `attachment; filename="${result.filename}"`);
+    res.send(result.content);
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: String(err) });
+  }
+});
+
+server.app.get('/api/v1/agentbook-tax/tax/export/mef-xml', async (req: any, res) => {
+  try {
+    const tenantId: string = req.tenantId;
+    const taxYear = parseInt(req.query.year as string, 10) || new Date().getFullYear() - 1;
+
+    const filing = await db.abTaxFiling.findFirst({
+      where: { tenantId, taxYear, jurisdiction: 'us' },
+    });
+    if (!filing) return res.status(404).json({ success: false, error: 'No US filing found for this year' });
+
+    const { getPastFilingPack } = await import('@agentbook/jurisdictions/past-filing-loader');
+    const pack = getPastFilingPack('us');
+    if (!pack.generateEFileExport) return res.status(501).json({ success: false, error: 'E-file export not implemented for this pack' });
+
+    const forms = (filing.forms as Record<string, any>) || {};
+    const region = filing.region || '';
+    const result = pack.generateEFileExport(forms, taxYear, region);
+
+    res.setHeader('Content-Type', 'application/xml');
+    res.setHeader('Content-Disposition', `attachment; filename="${result.filename}"`);
+    res.send(result.content);
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: String(err) });
+  }
+});
+
+// ============================================
 // EXPORTS (used by Next.js route handlers on Vercel)
 // ============================================
 
