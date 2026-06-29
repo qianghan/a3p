@@ -1,14 +1,13 @@
 import type { PastFilingPack } from './interfaces.js';
 import { CaPastFilingPack } from './ca/past-filing-pack.js';
-// us: added in Task B2
-// import { UsPastFilingPack } from './us/past-filing-pack.js';
+import { UsPastFilingPack } from './us/past-filing-pack.js';
 // Future: import { NzPastFilingPack } from './nz/past-filing-pack.js';
 // Future: import { UkPastFilingPack } from './uk/past-filing-pack.js';
 // Future: import { AuPastFilingPack } from './au/past-filing-pack.js';
 
 const PACKS: Record<string, PastFilingPack> = {
   ca: new CaPastFilingPack(),
-  // us: new UsPastFilingPack(),  // added in Task B2
+  us: new UsPastFilingPack(),
   // nz: new NzPastFilingPack(),
   // uk: new UkPastFilingPack(),
   // au: new AuPastFilingPack(),
