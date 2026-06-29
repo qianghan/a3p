@@ -112,3 +112,4 @@ tests/e2e/nightly/playwright-report/
 * 2.yml
 * 2.yaml
 .env*.local
+.worktrees/
