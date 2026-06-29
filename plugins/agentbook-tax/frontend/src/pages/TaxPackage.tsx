@@ -11,6 +11,7 @@
 
 import React, { useEffect, useMemo, useState } from 'react';
 import { Download, FileText, Loader2, RefreshCw } from 'lucide-react';
+import { PastFilingsPage } from './PastFilings';
 
 const API = '/api/v1/agentbook-tax';
 
@@ -39,6 +40,34 @@ const fmtMoney = (cents: number, ccy = 'USD') =>
   });
 
 export const TaxPackagePage: React.FC = () => {
+  const [tab, setTab] = useState<'package' | 'past'>('package');
+
+  return (
+    <div>
+      {/* Tab bar */}
+      <div className="border-b border-border px-4 sm:px-6 flex gap-0">
+        {(['package', 'past'] as const).map((t) => (
+          <button
+            key={t}
+            onClick={() => setTab(t)}
+            className={[
+              'px-4 py-3 text-sm font-medium border-b-2 transition-colors',
+              tab === t
+                ? 'border-primary text-primary'
+                : 'border-transparent text-muted-foreground hover:text-foreground',
+            ].join(' ')}
+          >
+            {t === 'package' ? 'Year-end Package' : 'Past Filings'}
+          </button>
+        ))}
+      </div>
+
+      {tab === 'package' ? <TaxPackageContent /> : <PastFilingsPage />}
+    </div>
+  );
+};
+
+const TaxPackageContent: React.FC = () => {
   const lastYear = new Date().getUTCFullYear() - 1;
   const yearOptions = useMemo(() => {
     // Show 5 years back + the current year so users can also build a
