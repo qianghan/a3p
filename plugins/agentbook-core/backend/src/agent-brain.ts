@@ -68,6 +68,8 @@ async function brainAccountantFallback(
     '',
     'AgentBook can: record/edit/split/categorize expenses, scan receipts, create invoices/estimates/credit notes, record payments, track time, run reports (P&L, balance sheet, cashflow, tax-summary, expense-by-vendor, aging), estimate taxes, prep US/Canada tax forms, sync banks via Plaid, manage recurring rules and budgets.',
     '',
+    'IMPORTANT: For any summary or report request (expense summary, monthly report, financial overview, daily briefing, spending summary, how am I doing), NEVER ask for clarification — run the report for the current month by default and present results immediately.',
+    '',
     'Style: warm but brief, 1–3 short sentences, plain conversational text (no markdown bullets), never say "I am an AI", never end with a flat "I don\'t know". If asking a question, end the message with it.',
   ].join('\n');
 
@@ -96,6 +98,7 @@ interface AgentRequest {
   text: string;
   tenantId: string;
   channel: string;
+  chatId?: string; // web: tenantId; telegram: String(chat.id); defaults to tenantId
   attachments?: { type: string; url: string }[];
   sessionAction?: string;
   feedback?: string;
@@ -198,6 +201,39 @@ function resolveSessionAction(
   if (UNDO_RE.test(trimmed)) return 'undo';
   if (CONFIRM_RE.test(trimmed)) return 'confirm';
   return null;
+}
+
+function pairTurns(
+  turns: Array<{ role: string; text: string }>,
+): Array<{ question: string; answer: string }> {
+  const pairs: Array<{ question: string; answer: string }> = [];
+  for (let i = 0; i + 1 < turns.length; i++) {
+    if (turns[i].role === 'user' && turns[i + 1].role === 'bot') {
+      pairs.push({ question: turns[i].text, answer: turns[i + 1].text });
+      i++;
+    }
+  }
+  return pairs;
+}
+
+async function updateThreadTurns(
+  thread: any,
+  userText: string,
+  agentText: string,
+  intent?: string,
+): Promise<void> {
+  if (!thread || thread.id === 'ephemeral') return;
+  const KEEP = 8;
+  const existing = (thread.turns as any[]) ?? [];
+  const newTurns = [
+    ...existing,
+    { role: 'user', text: userText.slice(0, 300), at: new Date().toISOString() },
+    { role: 'bot',  text: agentText.slice(0, 300),  at: new Date().toISOString(), intent },
+  ].slice(-KEEP);
+  await db.abConvThread.update({
+    where: { id: thread.id },
+    data: { turns: newTurns as never, turnCount: { increment: 2 }, lastActiveAt: new Date() },
+  }).catch(() => {});
 }
 
 function resolveBaseUrlForEndpoint(
@@ -404,7 +440,7 @@ export async function handleAgentMessage(
   ctx: AgentContext,
 ): Promise<AgentResponse> {
   const startTime = Date.now();
-  const { text, tenantId, channel, attachments, feedback } = req;
+  const { text, tenantId, channel, chatId: reqChatId, attachments, feedback } = req;
   const expenseBaseUrl = ctx.baseUrls['/api/v1/agentbook-expense'] || 'http://localhost:4051';
 
   // ── Step 0: Handle feedback / corrections ──────────────────────────────
@@ -738,13 +774,38 @@ export async function handleAgentMessage(
   }
 
   // ── Step 2: Context assembly ───────────────────────────────────────────
-  const [tenantConfig, conversation, memory, skills] = await Promise.all([
+  const chatId = reqChatId ?? tenantId; // web falls back to tenantId as chatId
+
+  // Find or create the active thread for this channel.
+  // One thread per [tenantId, channel, chatId] — history lives in thread.turns.
+  let activeThread = await db.abConvThread.findFirst({
+    where: { tenantId, channel, chatId, status: 'active' },
+    orderBy: { lastActiveAt: 'desc' },
+  });
+  if (!activeThread) {
+    try {
+      activeThread = await db.abConvThread.create({
+        data: {
+          tenantId, channel, chatId, status: 'active',
+          activeEntities: [], parkedFills: [], turns: [],
+        },
+      });
+    } catch (e) {
+      console.warn('[brain] thread create error (race or DB):', e instanceof Error ? e.message : e);
+      // Race: another request created it — fetch it
+      activeThread = await db.abConvThread.findFirst({
+        where: { tenantId, channel, chatId, status: 'active' },
+        orderBy: { lastActiveAt: 'desc' },
+      });
+    }
+  }
+
+  // Convert thread turns into the {question, answer}[] format used downstream
+  const threadTurns = (activeThread?.turns as Array<{ role: string; text: string }>) ?? [];
+  const conversation = pairTurns(threadTurns);
+
+  const [tenantConfig, memory, skills] = await Promise.all([
     db.abTenantConfig.findFirst({ where: { userId: tenantId } }),
-    db.abConversation.findMany({
-      where: { tenantId },
-      orderBy: { createdAt: 'desc' },
-      take: 10,
-    }),
     retrieveRelevantMemories(tenantId, text),
     db.abSkillManifest.findMany({
       where: { enabled: true, OR: [{ tenantId: null }, { tenantId }] },
@@ -856,6 +917,7 @@ export async function handleAgentMessage(
           },
         },
       }).catch(() => {});
+      updateThreadTurns(activeThread, text, planMessage, 'planner').catch(() => {});
 
       return buildResponse({
         message: planMessage,
@@ -928,6 +990,7 @@ export async function handleAgentMessage(
           data: { plan: planSteps as any, sessionId: session.id },
         },
       }).catch(() => {});
+      updateThreadTurns(activeThread, text, planMessage, 'planner').catch(() => {});
 
       return buildResponse({
         message: planMessage,
@@ -972,6 +1035,7 @@ export async function handleAgentMessage(
       latencyMs: Date.now() - startTime,
     },
   }).catch(() => {});
+  updateThreadTurns(activeThread, text, responseData.message || '', responseData.skillUsed || v1Result.skillUsed).catch(() => {});
 
   return buildResponse({
     message: responseData.message,

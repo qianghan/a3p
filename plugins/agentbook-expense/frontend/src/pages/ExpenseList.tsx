@@ -46,6 +46,133 @@ interface CategorySummary {
 
 const API = '/api/v1/agentbook-expense';
 
+function confidenceColor(c: number): string {
+  if (c >= 0.80) return 'text-green-600';
+  if (c >= 0.65) return 'text-yellow-600';
+  return 'text-orange-600';
+}
+
+function CategorizationReviewBanner({
+  items,
+  expenseApiBase,
+  authHeaders,
+  categories,
+  uncategorizedPct,
+  uncategorizedCount,
+  onApproved,
+  onDismiss,
+}: {
+  items: Array<{
+    expenseId: string; vendorName: string | null; amountCents: number;
+    suggestedCategoryId: string; suggestedCategoryName: string;
+    confidence: number; description: string | null;
+  }>;
+  expenseApiBase: string;
+  authHeaders: Record<string, string>;
+  categories: Array<{ id: string; name: string }>;
+  uncategorizedPct: number;
+  uncategorizedCount: number;
+  onApproved: (expenseId: string) => void;
+  onDismiss: () => void;
+}) {
+  const [overrides, setOverrides] = React.useState<Record<string, string>>({});
+  const [approving, setApproving] = React.useState<Set<string>>(new Set());
+
+  if (items.length === 0 && uncategorizedPct <= 10) return null;
+
+  const approve = async (expenseId: string, suggestedCategoryId: string) => {
+    const catId = overrides[expenseId] ?? suggestedCategoryId;
+    setApproving(prev => new Set(prev).add(expenseId));
+    try {
+      const res = await fetch(`${expenseApiBase}/expenses/${expenseId}/categorize`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...authHeaders },
+        body: JSON.stringify({ categoryId: catId, source: 'agent_confirmed' }),
+      });
+      if (res.ok) onApproved(expenseId);
+    } catch {
+      // Best-effort — item stays in banner if the request fails
+    } finally {
+      setApproving(prev => { const s = new Set(prev); s.delete(expenseId); return s; });
+    }
+  };
+
+  const approveAll = async () => {
+    // Snapshot items at the moment of click to avoid stale closure issues
+    const toApprove = items.filter(item => !approving.has(item.expenseId));
+    for (const item of toApprove) {
+      await approve(item.expenseId, item.suggestedCategoryId);
+    }
+  };
+
+  return (
+    <div className="mb-4 rounded-lg border border-border bg-card p-4 shadow-sm">
+      <div className="flex items-center justify-between mb-3">
+        <span className="text-sm font-semibold">
+          {items.length > 0
+            ? `AI suggested categories for ${items.length} expense${items.length !== 1 ? 's' : ''}`
+            : `${uncategorizedCount} expense${uncategorizedCount !== 1 ? 's' : ''} need manual categorization`}
+        </span>
+        <button
+          onClick={onDismiss}
+          className="text-xs text-muted-foreground hover:text-foreground"
+        >
+          Dismiss for 24h ×
+        </button>
+      </div>
+      {items.length === 0 && (
+        <p className="text-sm text-muted-foreground mb-3">
+          AI couldn't confidently categorize these — open each expense to assign a category manually.
+        </p>
+      )}
+      <div className="space-y-3">
+        {items.map(item => {
+          const isApproving = approving.has(item.expenseId);
+          const amt = (item.amountCents / 100).toFixed(2);
+          const selectedCatId = overrides[item.expenseId] ?? item.suggestedCategoryId;
+          const selectedCatName = categories.find(c => c.id === selectedCatId)?.name ?? item.suggestedCategoryName;
+          return (
+            <div key={item.expenseId} className="flex flex-wrap items-center gap-2">
+              <span className="text-sm font-medium w-20 shrink-0">${amt}</span>
+              <span className="text-sm text-muted-foreground flex-1 min-w-0 truncate">
+                {item.description || item.vendorName || 'Expense'}
+              </span>
+              <span className="text-sm">→ {selectedCatName}</span>
+              <span className={`text-xs font-medium ${confidenceColor(item.confidence)}`}>
+                {Math.round(item.confidence * 100)}%
+              </span>
+              <button
+                onClick={() => approve(item.expenseId, item.suggestedCategoryId)}
+                disabled={isApproving}
+                className="text-xs px-2 py-1 rounded bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+              >
+                {isApproving ? '...' : '✓ Approve'}
+              </button>
+              <select
+                value={selectedCatId}
+                onChange={e => setOverrides(prev => ({ ...prev, [item.expenseId]: e.target.value }))}
+                className="text-xs border border-border rounded px-1 py-1 bg-background"
+              >
+                {categories.map(c => (
+                  <option key={c.id} value={c.id}>{c.name}</option>
+                ))}
+              </select>
+            </div>
+          );
+        })}
+      </div>
+      <div className="flex gap-2 mt-3 pt-3 border-t border-border">
+        <button
+          onClick={approveAll}
+          className="text-xs px-3 py-1.5 rounded bg-primary text-primary-foreground hover:bg-primary/90"
+        >
+          Approve all
+        </button>
+      </div>
+    </div>
+  );
+}
+
 const PAYMENT_LABELS: Record<string, string> = {
   credit_card: 'Credit Card', debit: 'Debit', cash: 'Cash',
   bank_transfer: 'Bank Transfer', unknown: '',
@@ -169,6 +296,19 @@ export const ExpenseListPage: React.FC = () => {
   // the row strikethrough, and exposes a Restore button.
   const [showDeleted, setShowDeleted] = useState(false);
 
+  // Auto-categorization review banner state
+  const [catPending, setCatPending] = useState<{
+    items: Array<{
+      expenseId: string; vendorName: string | null; amountCents: number;
+      suggestedCategoryId: string; suggestedCategoryName: string;
+      confidence: number; description: string | null;
+    }>;
+    uncategorizedPct: number;
+    uncategorizedCount: number;
+    totalCount: number;
+  } | null>(null);
+  const [catDismissed, setCatDismissed] = useState<boolean>(false);
+
   // Advisor state
   const [insights, setInsights] = useState<any[]>([]);
   const [chartResult, setChartResult] = useState<any>(null);
@@ -203,12 +343,26 @@ export const ExpenseListPage: React.FC = () => {
     }
 
     Promise.all([
-      fetch(`${API}/expenses?${qs}`).then(r => r.json()),
-      fetch(`${API}/category-summary?${catQs}`).then(r => r.json()),
+      fetch(`${API}/expenses?${qs}`).then(r => r.json()).catch(() => ({ success: false })),
+      fetch(`${API}/category-summary?${catQs}`).then(r => r.json()).catch(() => ({ success: false })),
     ]).then(([expData, catData]) => {
       if (expData.success) setExpenses(expData.data);
       if (catData.success) setCategorySummary(catData.data.categories);
-    }).catch(console.error).finally(() => setLoading(false));
+    }).finally(() => setLoading(false));
+
+    // Load auto-categorization pending suggestions
+    const DISMISS_KEY = 'ab_cat_review_dismissed';
+    const dismissed = localStorage.getItem(DISMISS_KEY);
+    const isDismissed = !!dismissed && Date.now() - Number(dismissed) < 24 * 60 * 60 * 1000;
+    setCatDismissed(isDismissed);
+    if (!isDismissed) {
+      fetch(`${window.location.origin}/api/v1/agentbook-core/auto-categorize/pending`, {
+        headers: {},
+      })
+        .then(r => r.json())
+        .then((d: any) => { if (d.success) setCatPending(d.data); })
+        .catch(() => {});
+    }
     // PR 28: lastChange in deps so the effect re-runs whenever the agent
     // mutates expense state via chat / Telegram.
   }, [filter, period, showDeleted, lastChange]);
@@ -548,6 +702,28 @@ export const ExpenseListPage: React.FC = () => {
           <span>Filtered by: <strong>{categorySummary.find(c => c.categoryId === selectedCategory)?.categoryName}</strong></span>
           <button onClick={() => setSelectedCategory(null)} className="text-primary hover:underline text-xs">Clear</button>
         </div>
+      )}
+
+      {catPending && !catDismissed && (catPending.items.length > 0 || catPending.uncategorizedPct > 10) && (
+        <CategorizationReviewBanner
+          items={catPending.items}
+          expenseApiBase={API}
+          authHeaders={{}}
+          uncategorizedPct={catPending.uncategorizedPct}
+          uncategorizedCount={catPending.uncategorizedCount ?? 0}
+          categories={categorySummary
+            .filter(c => c.categoryId !== null)
+            .map(c => ({ id: c.categoryId!, name: c.categoryName }))}
+          onApproved={(expenseId) => {
+            setCatPending(prev =>
+              prev ? { ...prev, items: prev.items.filter(i => i.expenseId !== expenseId) } : prev
+            );
+          }}
+          onDismiss={() => {
+            localStorage.setItem('ab_cat_review_dismissed', String(Date.now()));
+            setCatDismissed(true);
+          }}
+        />
       )}
 
       {loading && <p className="text-muted-foreground py-8 text-center">Loading expenses...</p>}

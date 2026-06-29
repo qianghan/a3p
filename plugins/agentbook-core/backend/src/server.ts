@@ -3177,11 +3177,18 @@ async function _executeClassificationCore(
 
   // === 3. SKILL EXECUTION ===
   let endpoint = selectedSkill.endpoint as any;
+  // In production (Vercel) all plugins live on the same host — VERCEL_URL or NEXTAUTH_URL.
+  // In local dev with standalone Express backends, individual AGENTBOOK_*_URL vars override.
+  const _appBase =
+    process.env.AGENTBOOK_HOST ||
+    (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : '') ||
+    process.env.NEXTAUTH_URL ||
+    '';
   const baseUrls: Record<string, string> = {
-    '/api/v1/agentbook-expense': process.env.AGENTBOOK_EXPENSE_URL || 'http://localhost:4051',
-    '/api/v1/agentbook-core': process.env.AGENTBOOK_CORE_URL || 'http://localhost:4050',
-    '/api/v1/agentbook-invoice': process.env.AGENTBOOK_INVOICE_URL || 'http://localhost:4052',
-    '/api/v1/agentbook-tax': process.env.AGENTBOOK_TAX_URL || 'http://localhost:4053',
+    '/api/v1/agentbook-expense': process.env.AGENTBOOK_EXPENSE_URL || _appBase || 'http://localhost:4051',
+    '/api/v1/agentbook-core': process.env.AGENTBOOK_CORE_URL || _appBase || 'http://localhost:4050',
+    '/api/v1/agentbook-invoice': process.env.AGENTBOOK_INVOICE_URL || _appBase || 'http://localhost:4052',
+    '/api/v1/agentbook-tax': process.env.AGENTBOOK_TAX_URL || _appBase || 'http://localhost:4053',
   };
 
   // Resolve base URL
@@ -3721,96 +3728,133 @@ async function _executeClassificationCore(
     } catch { /* ignore */ }
   }
 
-  // Special inline handler: categorize-expenses (no external endpoint)
+  // INTERNAL handler: categorize-expenses — direct DB + Gemini, no HTTP self-call
   if (selectedSkill.name === 'categorize-expenses') {
     try {
-      const expenseBase = baseUrls['/api/v1/agentbook-expense'] || 'http://localhost:4051';
-      const H = brainHeaders(tenantId);
+      const HIGH_CONF = 0.85;
+      const MEDIUM_CONF = 0.55;
+      const PENDING_KEY = 'telegram:ai_categorize_pending';
+      const LAST_RUN_KEY = 'telegram:last_auto_categorize';
+      const apiKey = process.env.GEMINI_API_KEY;
+      const model = process.env.GEMINI_MODEL_FAST || 'gemini-2.5-flash';
 
-      // Fetch uncategorized expenses
-      const listRes = await fetch(`${expenseBase}/api/v1/agentbook-expense/expenses?limit=100`, { headers: H });
-      const listData = await listRes.json() as any;
-      const uncategorized = (listData.data || []).filter((e: any) => !e.categoryId);
+      // Idempotent: skip if already ran in last 20h (bypass for chat invocations)
+      const last = await db.abUserMemory.findUnique({
+        where: { tenantId_key: { tenantId, key: LAST_RUN_KEY } },
+      });
+      // Chat invocations always run (force=true equivalent)
 
-      if (uncategorized.length === 0) {
-        const totalCount = (listData.data || []).length;
-        await db.abConversation.create({ data: { tenantId, question: text || '[categorize]', answer: 'All expenses are already categorized!', queryType: 'agent', channel, skillUsed: 'categorize-expenses' } });
-        return {
-          selectedSkill, extractedParams, confidence, skillUsed: selectedSkill.name, skillResponse: null,
-          responseData: { message: `All ${totalCount} expenses are already categorized!`, skillUsed: 'categorize-expenses', confidence, latencyMs: Date.now() - startTime },
-        };
-      }
-
-      // Load expense category accounts
-      const expenseAccounts = await db.abAccount.findMany({
-        where: { tenantId, accountType: 'expense', isActive: true },
-        select: { id: true, name: true },
+      const uncategorized = await db.abExpense.findMany({
+        where: { tenantId, categoryId: null, isPersonal: false, status: { in: ['pending_review', 'confirmed'] } },
+        include: { vendor: { select: { id: true, name: true, normalizedName: true } } },
+        orderBy: { date: 'desc' },
+        take: 50,
       });
 
-      const categoryKeywords: Record<string, string[]> = {
-        'Meals': ['lunch', 'dinner', 'breakfast', 'coffee', 'food', 'meal', 'restaurant', 'starbucks', 'mcdonald', 'uber eats', 'doordash', 'grubhub', 'snack', 'cafe', 'pizza', 'sushi', 'taco', 'burger'],
-        'Travel': ['flight', 'hotel', 'airbnb', 'uber', 'lyft', 'taxi', 'cab', 'train', 'bus', 'parking', 'gas', 'fuel', 'toll', 'rental car', 'travel', 'trip'],
-        'Software & Subscriptions': ['software', 'subscription', 'saas', 'aws', 'azure', 'gcp', 'github', 'figma', 'slack', 'zoom', 'notion', 'adobe', 'dropbox', 'heroku', 'vercel', 'netlify', 'hosting', 'domain', 'app', 'license'],
-        'Office Expenses': ['office', 'desk', 'chair', 'monitor', 'keyboard', 'mouse', 'printer', 'paper', 'ink', 'stapler', 'pens', 'notebook', 'whiteboard'],
-        'Supplies': ['supplies', 'supply', 'equipment', 'tool', 'hardware'],
-        'Advertising': ['advertising', 'marketing', 'facebook ads', 'google ads', 'promotion', 'campaign', 'sponsor'],
-        'Rent': ['rent', 'lease', 'coworking', 'wework', 'office space'],
-        'Utilities': ['electric', 'water', 'internet', 'phone', 'utility', 'utilities', 'wifi', 'cell', 'mobile plan'],
-        'Insurance': ['insurance', 'premium', 'coverage', 'liability'],
-        'Legal & Professional': ['lawyer', 'legal', 'attorney', 'accountant', 'cpa', 'consultant', 'audit', 'professional', 'notary'],
-        'Contract Labor': ['contractor', 'freelancer', 'freelance', 'subcontract', 'contract labor', 'outsource'],
-        'Commissions & Fees': ['commission', 'fee', 'stripe', 'paypal', 'processing', 'transaction fee', 'platform fee'],
-        'Bank Fees': ['bank fee', 'wire fee', 'overdraft', 'atm fee', 'monthly fee', 'service charge'],
-        'Car & Truck': ['car', 'truck', 'vehicle', 'mileage', 'oil change', 'tire', 'repair', 'auto'],
-      };
+      const categories = await db.abAccount.findMany({
+        where: { tenantId, accountType: 'expense', isActive: true },
+        select: { id: true, name: true, code: true, taxCategory: true },
+      });
 
-      let categorized = 0;
+      let applied = 0;
       let skipped = 0;
-      const results: string[] = [];
+      const pending: Array<{ expenseId: string; vendorName: string | null; amountCents: number; suggestedCategoryId: string; suggestedCategoryName: string; confidence: number; reason: string }> = [];
 
-      for (const exp of uncategorized) {
-        const desc = ((exp.description || '') + ' ' + (exp.vendorName || '')).toLowerCase();
-        let matchedCatId: string | null = null;
-        let matchedCatName: string | null = null;
+      if (uncategorized.length > 0 && categories.length > 0 && apiKey) {
+        const catList = categories.map((c) => `   • ${c.name}${c.taxCategory ? ` (${c.taxCategory})` : ''}`).join('\n');
+        const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
 
-        for (const [catName, keywords] of Object.entries(categoryKeywords)) {
-          if (keywords.some(kw => desc.includes(kw))) {
-            const account = expenseAccounts.find(a => a.name === catName);
-            if (account) {
-              matchedCatId = account.id;
-              matchedCatName = catName;
-              break;
+        for (const exp of uncategorized) {
+          try {
+            const systemPrompt = `You are a senior freelance bookkeeper. Classify the expense below into ONE of the available categories. Be conservative with confidence.\n\nAvailable categories:\n${catList}\n\nOutput rules:\n• categoryName MUST be exactly one of the names above.\n• If ambiguous, set categoryName=null with low confidence.\n• confidence is 0.0-1.0.\n• reason: one short sentence.\n\nReturn ONLY JSON: {"categoryName": "Meals", "confidence": 0.92, "reason": "Restaurant name."}`;
+            const userMsg = `Expense:\n   Vendor: ${exp.vendor?.name || '(no vendor)'}\n   Amount: $${(exp.amountCents / 100).toFixed(2)}\n   Date: ${exp.date.toISOString().slice(0, 10)}\n   Description: ${exp.description || '(none)'}`;
+
+            const gRes = await fetch(geminiUrl, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                systemInstruction: { parts: [{ text: systemPrompt }] },
+                contents: [{ role: 'user', parts: [{ text: userMsg }] }],
+                generationConfig: { maxOutputTokens: 200, temperature: 0.1 },
+              }),
+            });
+            if (!gRes.ok) { skipped++; continue; }
+            const gData = await gRes.json() as any;
+            const raw = gData.candidates?.[0]?.content?.parts?.[0]?.text || '';
+            const cleaned = raw.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+            const json = cleaned.match(/\{[\s\S]*\}/)?.[0] || cleaned;
+            const llm = JSON.parse(json) as { categoryName: string | null; confidence: number; reason: string };
+            if (!llm.categoryName || typeof llm.confidence !== 'number') { skipped++; continue; }
+
+            const matched = categories.find((c) => c.name.toLowerCase() === llm.categoryName!.toLowerCase());
+            if (!matched) { skipped++; continue; }
+
+            if (llm.confidence >= HIGH_CONF) {
+              await db.abExpense.update({ where: { id: exp.id }, data: { categoryId: matched.id, confidence: llm.confidence } });
+              // Learn vendor pattern
+              const normName = exp.vendor?.normalizedName || exp.vendor?.name?.toLowerCase().replace(/[^a-z0-9]/g, '') || null;
+              if (normName) {
+                await db.abPattern.upsert({
+                  where: { tenantId_vendorPattern: { tenantId, vendorPattern: normName } },
+                  update: { categoryId: matched.id, confidence: Math.min(0.92, llm.confidence), source: 'auto_categorize', usageCount: { increment: 1 }, lastUsed: new Date() },
+                  create: { tenantId, vendorPattern: normName, categoryId: matched.id, confidence: Math.min(0.9, llm.confidence), source: 'auto_categorize' },
+                }).catch(() => {});
+              }
+              applied++;
+            } else if (llm.confidence >= MEDIUM_CONF) {
+              pending.push({ expenseId: exp.id, vendorName: exp.vendor?.name ?? null, amountCents: exp.amountCents, suggestedCategoryId: matched.id, suggestedCategoryName: matched.name, confidence: llm.confidence, reason: llm.reason });
+            } else {
+              skipped++;
             }
-          }
+          } catch { skipped++; }
         }
+      } else if (!apiKey) {
+        skipped = uncategorized.length;
+      }
 
-        if (matchedCatId) {
-          await fetch(`${expenseBase}/api/v1/agentbook-expense/expenses/${exp.id}/categorize`, {
-            method: 'POST', headers: H,
-            body: JSON.stringify({ categoryId: matchedCatId, source: 'agent_auto' }),
-          });
-          const amt = (exp.amountCents / 100).toFixed(2);
-          results.push(`$${amt} ${exp.description || exp.vendorName || 'expense'} → **${matchedCatName}**`);
-          categorized++;
-        } else {
-          skipped++;
+      // Save pending batch for the Expenses page review UI
+      if (pending.length > 0) {
+        await db.abUserMemory.upsert({
+          where: { tenantId_key: { tenantId, key: PENDING_KEY } },
+          update: { value: JSON.stringify({ items: pending, builtAt: Date.now() }), lastUsed: new Date() },
+          create: { tenantId, key: PENDING_KEY, value: JSON.stringify({ items: pending, builtAt: Date.now() }), type: 'pending_action', confidence: 1 },
+        }).catch(() => {});
+      } else if (uncategorized.length > 0) {
+        await db.abUserMemory.deleteMany({ where: { tenantId, key: PENDING_KEY } }).catch(() => {});
+      }
+      // Mark last run
+      await db.abUserMemory.upsert({
+        where: { tenantId_key: { tenantId, key: LAST_RUN_KEY } },
+        update: { value: JSON.stringify({ at: new Date().toISOString() }), lastUsed: new Date() },
+        create: { tenantId, key: LAST_RUN_KEY, value: JSON.stringify({ at: new Date().toISOString() }), type: 'audit', confidence: 1 },
+      }).catch(() => {});
+
+      let message: string;
+      if (uncategorized.length === 0) {
+        message = 'All your expenses are already categorized! Great work.';
+      } else if (applied === 0 && pending.length === 0) {
+        message = `I reviewed ${uncategorized.length} expense${uncategorized.length !== 1 ? 's' : ''} but couldn't categorize them confidently. Check the Expenses page to assign categories manually.`;
+      } else if (pending.length === 0) {
+        message = `Applied **${applied}** categor${applied !== 1 ? 'ies' : 'y'} automatically. All expenses are now categorized!`;
+      } else {
+        message = `Applied **${applied}** categor${applied !== 1 ? 'ies' : 'y'} automatically. **${pending.length}** expense${pending.length !== 1 ? 's' : ''} need your review — check the Expenses page.`;
+        if (channel === 'telegram') {
+          const preview = pending.slice(0, 2).map((i) => `• $${(i.amountCents / 100).toFixed(2)} ${i.vendorName || 'expense'} → ${i.suggestedCategoryName} (${Math.round(i.confidence * 100)}%)`).join('\n');
+          message += '\n\n' + preview;
+          if (pending.length > 2) message += `\n...and ${pending.length - 2} more.`;
         }
       }
 
-      let message = `Categorized **${categorized}** of ${uncategorized.length} uncategorized expenses.`;
-      if (skipped > 0) message += ` ${skipped} couldn't be auto-categorized — you can categorize them manually.`;
-      if (results.length > 0) message += '\n\n' + results.slice(0, 15).join('\n');
-      if (results.length > 15) message += `\n...and ${results.length - 15} more.`;
-
-      await db.abConversation.create({ data: { tenantId, question: text || '[categorize]', answer: message, queryType: 'agent', channel, skillUsed: 'categorize-expenses' } });
-      await db.abEvent.create({ data: { tenantId, eventType: 'agent.message', actor: 'user', action: { skillUsed: 'categorize-expenses', categorized, skipped, channel } } });
+      await db.abConversation.create({
+        data: { tenantId, question: text || '[categorize]', answer: message, queryType: 'agent', channel, skillUsed: 'categorize-expenses' },
+      }).catch(() => {});
 
       return {
-        selectedSkill, extractedParams, confidence, skillUsed: selectedSkill.name, skillResponse: null,
+        selectedSkill, extractedParams, confidence, skillUsed: 'categorize-expenses', skillResponse: null,
         responseData: { message, skillUsed: 'categorize-expenses', confidence, latencyMs: Date.now() - startTime },
       };
     } catch (err) {
-      console.error('Categorize expenses error:', err);
+      console.error('[categorize-expenses] error:', err);
       return {
         selectedSkill, extractedParams, confidence: 0, skillUsed: 'categorize-expenses', skillResponse: null,
         responseData: { message: "I couldn't categorize the expenses. Please try again.", skillUsed: 'categorize-expenses', confidence: 0, latencyMs: Date.now() - startTime },
@@ -3939,6 +3983,299 @@ async function _executeClassificationCore(
       return {
         selectedSkill, extractedParams, confidence: 0, skillUsed: 'record-invoice-payment', skillResponse: null,
         responseData: { message: "I couldn't record the payment. Please try again.", skillUsed: 'record-invoice-payment', confidence: 0, latencyMs: Date.now() - startTime },
+      };
+    }
+  }
+
+  // INTERNAL handler: query-expenses / vendor-insights / expense-breakdown
+  // These skills previously made HTTP self-calls to /advisor/ask which fail on
+  // Vercel because VERCEL_URL resolves to a deployment-specific URL and the
+  // loopback has auth/routing issues. Query the DB directly instead.
+  if (['query-expenses', 'vendor-insights', 'expense-breakdown'].includes(selectedSkill.name)) {
+    try {
+      const question = String(extractedParams.question || text || '');
+      const q = question.toLowerCase();
+      const now = new Date();
+      const year = now.getFullYear();
+
+      // Date range from question
+      let startDate: Date;
+      let endDate: Date;
+      const monthNames = ['january','february','march','april','may','june','july','august','september','october','november','december'];
+      const mentionedMonths = monthNames
+        .map((name, i) => ({ i, found: q.includes(name) || q.includes(name.slice(0, 3)) }))
+        .filter(({ found }) => found)
+        .map(({ i }) => i);
+      if (mentionedMonths.length > 0) {
+        const minMonth = Math.min(...mentionedMonths);
+        const maxMonth = Math.max(...mentionedMonths);
+        startDate = new Date(year, minMonth, 1);
+        endDate = new Date(year, maxMonth + 1, 0, 23, 59, 59);
+      } else if (q.includes('last month')) {
+        startDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+        endDate = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59);
+      } else if (q.includes('this month')) {
+        startDate = new Date(now.getFullYear(), now.getMonth(), 1);
+        endDate = now;
+      } else if (q.includes('last quarter') || q.includes('this quarter')) {
+        const s = new Date(now); s.setMonth(s.getMonth() - 3);
+        startDate = s; endDate = now;
+      } else if (q.includes('last year')) {
+        startDate = new Date(year - 1, 0, 1);
+        endDate = new Date(year - 1, 11, 31, 23, 59, 59);
+      } else {
+        startDate = new Date(year, 0, 1);
+        endDate = now;
+      }
+
+      const expenses = await db.abExpense.findMany({
+        where: { tenantId, isPersonal: false, date: { gte: startDate, lte: endDate } },
+        include: { vendor: true },
+        orderBy: { date: 'desc' },
+      });
+
+      const catIds = [...new Set(expenses.map((e) => e.categoryId).filter(Boolean) as string[])];
+      const catAccounts = catIds.length > 0
+        ? await db.abAccount.findMany({ where: { id: { in: catIds }, tenantId }, select: { id: true, name: true } })
+        : [];
+      const catNameMap: Record<string, string> = Object.fromEntries(catAccounts.map((a) => [a.id, a.name]));
+
+      const total = expenses.reduce((s, e) => s + e.amountCents, 0);
+      const fmt = (cents: number) => `$${(cents / 100).toFixed(2)}`;
+
+      const byCatRaw: Record<string, number> = {};
+      for (const e of expenses) {
+        const name = e.categoryId ? (catNameMap[e.categoryId] || 'Uncategorized') : 'Uncategorized';
+        byCatRaw[name] = (byCatRaw[name] || 0) + e.amountCents;
+      }
+      const byCat = Object.entries(byCatRaw).sort(([, a], [, b]) => b - a).slice(0, 8);
+
+      const byVendorRaw: Record<string, number> = {};
+      for (const e of expenses) {
+        const name = (e.vendor as any)?.name || 'Unknown';
+        byVendorRaw[name] = (byVendorRaw[name] || 0) + e.amountCents;
+      }
+      const byVendor = Object.entries(byVendorRaw).sort(([, a], [, b]) => b - a).slice(0, 10);
+
+      const byMonthRaw: Record<string, number> = {};
+      for (const e of expenses) {
+        const d = new Date(e.date);
+        const key = d.toLocaleString('en-US', { month: 'short', year: 'numeric' });
+        byMonthRaw[key] = (byMonthRaw[key] || 0) + e.amountCents;
+      }
+      const byMonth = Object.entries(byMonthRaw).reverse();
+
+      const recentExpenses = expenses.slice(0, 20).map((e) => {
+        const vName = (e.vendor as any)?.name || 'Unknown';
+        const catName = e.categoryId ? (catNameMap[e.categoryId] || 'Uncategorized') : 'Uncategorized';
+        return `${new Date(e.date).toLocaleDateString()} | ${vName} | ${fmt(e.amountCents)} | ${catName}${e.description ? ' | ' + e.description : ''}`;
+      });
+
+      const contextStr = [
+        `Period: ${startDate.toLocaleDateString()} to ${endDate.toLocaleDateString()}`,
+        `Total expenses: ${fmt(total)} (${expenses.length} transactions)`,
+        `Top categories: ${byCat.map(([n, v]) => `${n}: ${fmt(v)}`).join(', ')}`,
+        `Top vendors: ${byVendor.map(([n, v]) => `${n}: ${fmt(v)}`).join(', ')}`,
+        byMonth.length > 1 ? `By month: ${byMonth.map(([m, v]) => `${m}: ${fmt(v)}`).join(', ')}` : '',
+        `\nRecent expenses (newest first):`,
+        `Date | Vendor | Amount | Category | Description`,
+        ...recentExpenses,
+      ].filter(Boolean).join('\n');
+
+      const sysPrompt = `You are AgentBook Expense Advisor — a friendly, concise financial expert.
+You have access to the user's expense data for the requested period.
+Answer the question directly using the data provided. Include specific dollar amounts.
+When listing top vendors or top spending, show the amounts prominently.
+Respond in JSON: { "answer": "your answer (use \\n for line breaks)", "chartData": { "type": "bar"|"pie", "data": [{ "name": "string", "value": number_in_cents }] } | null, "suggestedActions": [{ "label": "string", "type": "suggestion" }] }
+Only include chartData if visualization adds value. Keep the answer under 200 words.`;
+
+      const llmRaw = await callGemini(sysPrompt, `Context:\n${contextStr}\n\nQuestion: ${question}`, 600);
+
+      let answer = '';
+      let chartData: any = null;
+      const qeActions: any[] = [];
+
+      if (llmRaw) {
+        try {
+          const jsonMatch = llmRaw.match(/\{[\s\S]*\}/);
+          if (jsonMatch) {
+            const parsed = JSON.parse(jsonMatch[0]);
+            answer = parsed.answer || llmRaw;
+            chartData = parsed.chartData || null;
+            (parsed.suggestedActions || []).forEach((a: any) =>
+              qeActions.push({ label: a.label, type: a.type || 'suggestion' }));
+          } else {
+            answer = llmRaw;
+          }
+        } catch { answer = llmRaw; }
+      }
+
+      if (!answer) {
+        if (q.match(/vendor|who.*spend|top.*spend|spend.*most|constant|recurring|adobe/)) {
+          answer = byVendor.length > 0
+            ? `Top vendors (${startDate.toLocaleDateString()} – ${endDate.toLocaleDateString()}):\n\n` +
+              byVendor.slice(0, 8).map(([n, v], i) => `${i + 1}. **${n}**: ${fmt(v)}`).join('\n') +
+              `\n\nTotal: ${fmt(total)}`
+            : 'No expenses found for this period.';
+          if (byVendor.length > 0) chartData = { type: 'bar', data: byVendor.slice(0, 8).map(([name, value]) => ({ name, value })) };
+        } else {
+          answer = expenses.length === 0
+            ? `No business expenses found for ${startDate.toLocaleDateString()} – ${endDate.toLocaleDateString()}.`
+            : `You have ${expenses.length} expenses totaling ${fmt(total)} for this period.\n\nTop category: ${byCat[0] ? `**${byCat[0][0]}** (${fmt(byCat[0][1])})` : 'N/A'}\nTop vendor: ${byVendor[0] ? `**${byVendor[0][0]}** (${fmt(byVendor[0][1])})` : 'N/A'}`;
+        }
+      }
+
+      await db.abConversation.create({
+        data: { tenantId, question, answer, queryType: 'agent', channel, skillUsed: selectedSkill.name },
+      }).catch(() => {});
+
+      return {
+        selectedSkill, extractedParams, confidence, skillUsed: selectedSkill.name,
+        skillResponse: { success: true, data: { answer, chartData, actions: qeActions } },
+        responseData: { message: answer, actions: qeActions, chartData, skillUsed: selectedSkill.name, confidence, latencyMs: Date.now() - startTime },
+      };
+    } catch (err) {
+      console.error('[query-expenses] inline handler error:', err);
+      return {
+        selectedSkill, extractedParams, confidence: 0, skillUsed: selectedSkill.name, skillResponse: null,
+        responseData: { message: "I couldn't retrieve expense data right now. Please try again.", actions: [], chartData: null, skillUsed: selectedSkill.name, confidence: 0, latencyMs: Date.now() - startTime },
+      };
+    }
+  }
+
+  // INTERNAL handler: cashflow-report — 30/60/90-day projection, direct DB, no HTTP self-call
+  if (selectedSkill.name === 'cashflow-report') {
+    try {
+      const now = new Date();
+      const cashAccount = await db.abAccount.findUnique({ where: { tenantId_code: { tenantId, code: '1000' } } });
+      let currentCashCents = 0;
+      if (cashAccount) {
+        const agg = await db.abJournalLine.aggregate({
+          where: { accountId: cashAccount.id, entry: { tenantId, date: { lte: now } } },
+          _sum: { debitCents: true, creditCents: true },
+        });
+        currentCashCents = (agg._sum.debitCents || 0) - (agg._sum.creditCents || 0);
+      }
+      const [recurringRules, outstandingInvoices] = await Promise.all([
+        db.abRecurringRule.findMany({ where: { tenantId, active: true } }),
+        db.abInvoice.findMany({ where: { tenantId, status: { in: ['sent', 'viewed', 'overdue'] } } }),
+      ]);
+      const calcRecurring = (days: number) => {
+        let total = 0;
+        const winEnd = new Date(now.getTime() + days * 86_400_000);
+        for (const rule of recurringRules) {
+          let nd = new Date(rule.nextExpected);
+          while (nd <= winEnd) {
+            if (nd >= now) total += rule.amountCents;
+            if (rule.frequency === 'weekly') nd = new Date(nd.getTime() + 7 * 86_400_000);
+            else if (rule.frequency === 'biweekly') nd = new Date(nd.getTime() + 14 * 86_400_000);
+            else if (rule.frequency === 'monthly') nd = new Date(nd.getFullYear(), nd.getMonth() + 1, nd.getDate());
+            else if (rule.frequency === 'annual') nd = new Date(nd.getFullYear() + 1, nd.getMonth(), nd.getDate());
+            else break;
+          }
+        }
+        return total;
+      };
+      const calcIncome = (days: number) => {
+        const winEnd = new Date(now.getTime() + days * 86_400_000);
+        let total = 0; let count = 0;
+        for (const inv of outstandingInvoices) {
+          const due = inv.status === 'overdue' ? now : inv.dueDate;
+          if (due <= winEnd) { total += inv.amountCents; count++; }
+        }
+        return { totalCents: total, count };
+      };
+      const fmt = (c: number) => `$${(c / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+      const proj30 = { income: calcIncome(30), expense: calcRecurring(30) };
+      const proj60 = { income: calcIncome(60), expense: calcRecurring(60) };
+      const proj90 = { income: calcIncome(90), expense: calcRecurring(90) };
+      const cash30 = currentCashCents + proj30.income.totalCents - proj30.expense;
+      const cash60 = currentCashCents + proj60.income.totalCents - proj60.expense;
+      const cash90 = currentCashCents + proj90.income.totalCents - proj90.expense;
+
+      const message = [
+        `**Cash Flow Projection**`,
+        `Current balance: **${fmt(currentCashCents)}**`,
+        '',
+        `📅 **30-day**: ${fmt(cash30)} (income +${fmt(proj30.income.totalCents)}, expenses -${fmt(proj30.expense)})`,
+        `📅 **60-day**: ${fmt(cash60)} (income +${fmt(proj60.income.totalCents)}, expenses -${fmt(proj60.expense)})`,
+        `📅 **90-day**: ${fmt(cash90)} (income +${fmt(proj90.income.totalCents)}, expenses -${fmt(proj90.expense)})`,
+        outstandingInvoices.length > 0
+          ? `\n${outstandingInvoices.length} outstanding invoice${outstandingInvoices.length !== 1 ? 's' : ''} included in projections.`
+          : '\nNo outstanding invoices.',
+      ].join('\n');
+
+      await db.abConversation.create({
+        data: { tenantId, question: text || '[cashflow]', answer: message, queryType: 'agent', channel, skillUsed: 'cashflow-report' },
+      }).catch(() => {});
+
+      return {
+        selectedSkill, extractedParams, confidence, skillUsed: 'cashflow-report', skillResponse: null,
+        responseData: {
+          message, actions: [{ label: 'View Cash Flow page', type: 'link', url: '/agentbook/tax' }],
+          chartData: { type: 'bar', data: [{ name: '30d', value: cash30 }, { name: '60d', value: cash60 }, { name: '90d', value: cash90 }] },
+          skillUsed: 'cashflow-report', confidence, latencyMs: Date.now() - startTime,
+        },
+      };
+    } catch (err) {
+      console.error('[cashflow-report] inline handler error:', err);
+      return {
+        selectedSkill, extractedParams, confidence: 0, skillUsed: 'cashflow-report', skillResponse: null,
+        responseData: { message: "I couldn't load the cash flow projection right now. Please try again.", actions: [], chartData: null, skillUsed: 'cashflow-report', confidence: 0, latencyMs: Date.now() - startTime },
+      };
+    }
+  }
+
+  // INTERNAL handler: daily-briefing — financial snapshot + proactive alerts narrated by Gemini
+  if (selectedSkill.name === 'daily-briefing') {
+    try {
+      const coreBase = baseUrls['/api/v1/agentbook-core'] || 'http://localhost:4050';
+      const expenseBase = baseUrls['/api/v1/agentbook-expense'] || 'http://localhost:4051';
+      const H = brainHeaders(tenantId);
+      const [snapSettled, alertsSettled] = await Promise.allSettled([
+        fetch(`${coreBase}/api/v1/agentbook-core/financial-snapshot`, { headers: H }),
+        fetch(`${expenseBase}/api/v1/agentbook-expense/advisor/proactive-alerts`, { headers: H }),
+      ]);
+      const snapData = snapSettled.status === 'fulfilled'
+        ? await snapSettled.value.json().catch(() => null)
+        : null;
+      const alertData = alertsSettled.status === 'fulfilled'
+        ? await alertsSettled.value.json().catch(() => null)
+        : null;
+
+      const briefingSystem = [
+        'You are AgentBook, a friendly small-business accountant giving a morning briefing.',
+        'Summarize in 3–5 short sentences. Be specific with dollar amounts.',
+        'End with exactly one concrete action item the user can take today.',
+        'If any data is missing, briefly note it and focus on what you have.',
+        'Plain text only — no markdown, no bullet points.',
+      ].join('\n');
+
+      const briefingUser = [
+        snapData?.success
+          ? `Financial snapshot: ${JSON.stringify(snapData.data)}`
+          : 'Financial snapshot: unavailable.',
+        alertData?.success
+          ? `Alerts: ${JSON.stringify(alertData.data)}`
+          : 'Alerts: unavailable.',
+      ].join('\n');
+
+      const reply = await callGemini(briefingSystem, briefingUser, 350)
+        ?? "Here's a quick check: your books look normal but I couldn't load the full picture right now. Try again in a moment.";
+
+      await db.abConversation.create({
+        data: { tenantId, question: text || '[daily-briefing]', answer: reply, queryType: 'agent', channel, skillUsed: 'daily-briefing' },
+      }).catch(() => {});
+
+      return {
+        selectedSkill, extractedParams, confidence, skillUsed: 'daily-briefing', skillResponse: null,
+        responseData: { message: reply, skillUsed: 'daily-briefing', confidence, latencyMs: Date.now() - startTime },
+      };
+    } catch (err) {
+      console.error('Daily-briefing error:', err);
+      return {
+        selectedSkill, extractedParams, confidence: 0, skillUsed: 'daily-briefing', skillResponse: null,
+        responseData: { message: "I couldn't load your daily briefing right now. Please try again in a moment.", skillUsed: 'daily-briefing', confidence: 0, latencyMs: Date.now() - startTime },
       };
     }
   }

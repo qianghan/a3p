@@ -1,0 +1,1437 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AgentBook — Past Tax Filing Upload · Feature Plan</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: #0f1117;
+      color: #e1e4e8;
+      line-height: 1.6;
+    }
+    a { color: #58a6ff; text-decoration: none; }
+    a:hover { text-decoration: underline; }
+
+    /* Layout */
+    .sidebar {
+      position: fixed; top: 0; left: 0; bottom: 0; width: 240px;
+      background: #161b22; border-right: 1px solid #30363d;
+      padding: 24px 0; overflow-y: auto; z-index: 100;
+    }
+    .sidebar-logo {
+      padding: 0 20px 20px; font-size: 14px; font-weight: 700;
+      color: #58a6ff; border-bottom: 1px solid #21262d; margin-bottom: 12px;
+    }
+    .sidebar-logo span { color: #8b949e; font-weight: 400; font-size: 12px; display: block; }
+    .sidebar nav a {
+      display: block; padding: 6px 20px; font-size: 13px; color: #8b949e;
+      transition: color .15s, background .15s; border-left: 3px solid transparent;
+    }
+    .sidebar nav a:hover { color: #e1e4e8; background: #1c2128; text-decoration: none; }
+    .sidebar nav a.active { color: #58a6ff; border-left-color: #58a6ff; background: #1c2128; }
+    .sidebar nav .section-label {
+      padding: 16px 20px 4px; font-size: 11px; font-weight: 600;
+      text-transform: uppercase; letter-spacing: .05em; color: #484f58;
+    }
+
+    .main { margin-left: 240px; max-width: 900px; padding: 48px 40px; }
+
+    /* Hero */
+    .hero {
+      background: linear-gradient(135deg, #1c2128 0%, #161b22 100%);
+      border: 1px solid #30363d; border-radius: 12px;
+      padding: 32px 36px; margin-bottom: 40px;
+    }
+    .hero-badge {
+      display: inline-flex; align-items: center; gap: 6px;
+      background: #0d1117; border: 1px solid #30363d; border-radius: 20px;
+      padding: 4px 12px; font-size: 12px; color: #8b949e; margin-bottom: 16px;
+    }
+    .hero h1 { font-size: 28px; font-weight: 700; color: #f0f6fc; margin-bottom: 8px; }
+    .hero p { color: #8b949e; font-size: 15px; max-width: 600px; }
+    .hero-meta { display: flex; gap: 24px; margin-top: 20px; flex-wrap: wrap; }
+    .hero-meta .tag {
+      background: #21262d; border: 1px solid #30363d; border-radius: 6px;
+      padding: 4px 10px; font-size: 12px; color: #8b949e;
+    }
+    .hero-meta .tag strong { color: #e1e4e8; }
+
+    /* Sections */
+    h2 {
+      font-size: 20px; font-weight: 700; color: #f0f6fc;
+      margin: 40px 0 16px; padding-bottom: 8px;
+      border-bottom: 1px solid #21262d;
+      scroll-margin-top: 80px;
+    }
+    h3 { font-size: 15px; font-weight: 600; color: #e1e4e8; margin: 24px 0 10px; }
+    h4 { font-size: 13px; font-weight: 600; color: #8b949e; margin: 16px 0 8px; text-transform: uppercase; letter-spacing: .05em; }
+    p { margin-bottom: 12px; font-size: 14px; color: #c9d1d9; }
+
+    /* Cards */
+    .card {
+      background: #161b22; border: 1px solid #30363d; border-radius: 10px;
+      padding: 20px 24px; margin-bottom: 16px;
+    }
+    .card-row { display: flex; gap: 16px; margin-bottom: 16px; flex-wrap: wrap; }
+    .card-row .card { flex: 1; min-width: 200px; margin-bottom: 0; }
+
+    /* Status badges */
+    .badge {
+      display: inline-block; padding: 2px 8px; border-radius: 12px;
+      font-size: 11px; font-weight: 600;
+    }
+    .badge-green  { background: #1a4731; color: #3fb950; }
+    .badge-yellow { background: #3d2f00; color: #d29922; }
+    .badge-blue   { background: #102b47; color: #58a6ff; }
+    .badge-red    { background: #3d0f0f; color: #f85149; }
+    .badge-purple { background: #2a1a47; color: #a371f7; }
+
+    /* Pipeline diagram */
+    .pipeline {
+      display: flex; align-items: center; gap: 0; margin: 20px 0;
+      flex-wrap: wrap; overflow-x: auto;
+    }
+    .pipeline-step {
+      background: #21262d; border: 1px solid #30363d; border-radius: 8px;
+      padding: 10px 14px; font-size: 12px; color: #c9d1d9; white-space: nowrap;
+      min-width: 110px; text-align: center;
+    }
+    .pipeline-step .step-num {
+      display: block; font-size: 10px; color: #58a6ff; font-weight: 600; margin-bottom: 3px;
+    }
+    .pipeline-arrow {
+      color: #484f58; font-size: 18px; padding: 0 4px; flex-shrink: 0;
+    }
+
+    /* Table */
+    table { width: 100%; border-collapse: collapse; font-size: 13px; margin-bottom: 16px; }
+    th {
+      background: #21262d; color: #8b949e; font-weight: 600;
+      padding: 8px 12px; text-align: left; border-bottom: 1px solid #30363d;
+      font-size: 12px; text-transform: uppercase; letter-spacing: .04em;
+    }
+    td { padding: 8px 12px; border-bottom: 1px solid #1c2128; vertical-align: top; }
+    tr:last-child td { border-bottom: none; }
+    tr:hover td { background: #1c2128; }
+
+    /* Code block */
+    pre {
+      background: #0d1117; border: 1px solid #21262d; border-radius: 8px;
+      padding: 16px; font-size: 12px; font-family: "SF Mono", Menlo, monospace;
+      overflow-x: auto; color: #c9d1d9; margin-bottom: 16px; line-height: 1.5;
+    }
+    code { font-family: "SF Mono", Menlo, monospace; font-size: 12px; color: #79c0ff; }
+    pre code { color: #c9d1d9; }
+
+    /* Callout */
+    .callout {
+      border-left: 3px solid; border-radius: 0 8px 8px 0;
+      padding: 12px 16px; margin-bottom: 16px; font-size: 13px;
+    }
+    .callout-info  { border-color: #58a6ff; background: #102b47; color: #c9d1d9; }
+    .callout-warn  { border-color: #d29922; background: #3d2f00; color: #c9d1d9; }
+    .callout-green { border-color: #3fb950; background: #1a4731; color: #c9d1d9; }
+
+    /* List */
+    ul, ol { padding-left: 20px; margin-bottom: 12px; }
+    li { font-size: 14px; color: #c9d1d9; margin-bottom: 4px; }
+    li strong { color: #e1e4e8; }
+
+    /* Phase tracker */
+    .phases { display: flex; gap: 12px; margin: 20px 0; flex-wrap: wrap; }
+    .phase {
+      flex: 1; min-width: 160px; background: #161b22;
+      border: 1px solid #30363d; border-radius: 10px; padding: 16px;
+    }
+    .phase-header { display: flex; align-items: center; gap-8px; margin-bottom: 10px; }
+    .phase-num {
+      width: 24px; height: 24px; border-radius: 50%; display: inline-flex;
+      align-items: center; justify-content: center; font-size: 11px; font-weight: 700;
+      background: #21262d; color: #58a6ff; flex-shrink: 0; margin-right: 8px;
+    }
+    .phase h4 { margin: 0; text-transform: none; font-size: 13px; color: #e1e4e8; }
+    .phase ul { margin: 8px 0 0; padding-left: 16px; }
+    .phase li { font-size: 12px; color: #8b949e; margin-bottom: 3px; }
+
+    /* Efiling option cards */
+    .efile-option {
+      background: #161b22; border: 1px solid #30363d; border-radius: 10px;
+      padding: 16px 20px; margin-bottom: 12px; display: flex; gap: 16px; align-items: flex-start;
+    }
+    .efile-option .rank {
+      width: 32px; height: 32px; border-radius: 50%; display: flex;
+      align-items: center; justify-content: center; font-size: 13px; font-weight: 700;
+      flex-shrink: 0; margin-top: 2px;
+    }
+    .rank-free { background: #1a4731; color: #3fb950; }
+    .rank-paid { background: #3d2f00; color: #d29922; }
+    .efile-option .info { flex: 1; }
+    .efile-option .info h3 { margin: 0 0 4px; font-size: 14px; color: #e1e4e8; }
+    .efile-option .info p { margin: 0 0 6px; font-size: 13px; color: #8b949e; }
+
+    /* Divider */
+    hr { border: none; border-top: 1px solid #21262d; margin: 32px 0; }
+
+    /* Wireframe */
+    .wireframe {
+      background: #0d1117; border: 1px solid #21262d; border-radius: 10px;
+      padding: 20px; font-family: "SF Mono", Menlo, monospace; font-size: 12px;
+      color: #8b949e; margin: 16px 0; line-height: 1.7;
+    }
+
+    @media (max-width: 768px) {
+      .sidebar { display: none; }
+      .main { margin-left: 0; padding: 24px 16px; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- Sidebar -->
+<aside class="sidebar">
+  <div class="sidebar-logo">
+    AgentBook
+    <span>Tax Filing Upload · Feature Plan</span>
+  </div>
+  <nav>
+    <div class="section-label">Overview</div>
+    <a href="#overview" class="active">Summary</a>
+    <a href="#whats-new">What's New vs Existing</a>
+
+    <div class="section-label">Architecture</div>
+    <a href="#data-model">Data Model</a>
+    <a href="#upload-pipeline">Upload Pipeline</a>
+    <a href="#pdf-parsing">PDF Parsing (Gemini)</a>
+    <a href="#extracted-fields">Extracted Fields</a>
+    <a href="#api-endpoints">API Endpoints</a>
+
+    <div class="section-label">Intelligence</div>
+    <a href="#advisor-context">AI Advisor Context</a>
+    <a href="#prefill">Current Year Pre-fill</a>
+    <a href="#chat-skill">Chat Skill</a>
+
+    <div class="section-label">Frontend</div>
+    <a href="#ui">UI Design</a>
+
+    <div class="section-label">E-Filing</div>
+    <a href="#efiling-canada">Canada Options</a>
+    <a href="#efiling-us">US Options</a>
+    <a href="#efiling-roadmap">Roadmap</a>
+
+    <div class="section-label">Delivery</div>
+    <a href="#extensibility">Jurisdiction Extensibility</a>
+    <a href="#pr-cycle">PR Cycle &amp; Testing</a>
+    <a href="#phases">Phases</a>
+    <a href="#decisions">Resolved Decisions</a>
+  </nav>
+</aside>
+
+<!-- Main -->
+<main class="main">
+
+  <!-- Hero -->
+  <section class="hero" id="overview">
+    <div class="hero-badge">📄 Feature Plan · v1.0 · 2026-06-29</div>
+    <h1>Past Tax Filing Upload</h1>
+    <p>
+      Upload historical tax return PDFs (T1, T4, NOA, 1040, W-2, 1099), extract structured data via Gemini Vision, store originals in Vercel Blob, surface them in the Tax Plugin UI and chat, and use them to pre-fill and advise on the current year's return.
+    </p>
+    <div class="hero-meta">
+      <div class="tag"><strong>Jurisdictions:</strong> Canada + US</div>
+      <div class="tag"><strong>Extraction:</strong> Key totals + per-form detail</div>
+      <div class="tag"><strong>Plugin:</strong> agentbook-tax (port 4053)</div>
+      <div class="tag"><strong>Storage:</strong> Vercel Blob</div>
+      <div class="tag"><strong>Parser:</strong> Gemini Vision (PDF → images)</div>
+    </div>
+  </section>
+
+
+  <!-- What's New -->
+  <section id="whats-new">
+    <h2>What's New vs What Already Exists</h2>
+    <div class="callout callout-info">
+      The tax plugin already has a sophisticated slip (T4/T5/RRSP) OCR pipeline, a NETFILE-ready e-filing skeleton, and a year-end tax package generator. This feature builds on top of that foundation — it doesn't replace any of it.
+    </div>
+
+    <table>
+      <thead>
+        <tr><th>Capability</th><th>Already Exists?</th><th>Notes</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>OCR of current-year T4/T5/RRSP images</td>
+          <td><span class="badge badge-green">✓ Exists</span></td>
+          <td><code>AbTaxSlip</code> + <code>tax-slips.ts</code> — image-based, Gemini Vision</td>
+        </tr>
+        <tr>
+          <td>T1/T2125 form templates + auto-population</td>
+          <td><span class="badge badge-green">✓ Exists</span></td>
+          <td><code>AbTaxFormTemplate</code>, <code>tax-forms.ts</code>, <code>tax-filing.ts</code></td>
+        </tr>
+        <tr>
+          <td>Year-end tax package (PDF + CSV) in Blob</td>
+          <td><span class="badge badge-green">✓ Exists</span></td>
+          <td><code>AbTaxPackage</code>, <code>TaxPackage.tsx</code></td>
+        </tr>
+        <tr>
+          <td>E-filing skeleton with mock + partner API</td>
+          <td><span class="badge badge-green">✓ Exists</span></td>
+          <td><code>tax-efiling.ts</code>, <code>AbTaxFilingPartner</code></td>
+        </tr>
+        <tr>
+          <td><strong>Upload completed past returns as PDF</strong></td>
+          <td><span class="badge badge-red">✗ Missing</span></td>
+          <td>New: T1, NOA, T4, 1040, W-2, 1099-NEC PDFs</td>
+        </tr>
+        <tr>
+          <td><strong>PDF → structured data extraction</strong></td>
+          <td><span class="badge badge-red">✗ Missing</span></td>
+          <td>New: multi-page PDF parsing via Gemini Vision</td>
+        </tr>
+        <tr>
+          <td><strong>Past filing storage model</strong></td>
+          <td><span class="badge badge-red">✗ Missing</span></td>
+          <td>New: <code>AbPastTaxFiling</code> Prisma model</td>
+        </tr>
+        <tr>
+          <td><strong>AI advisor enriched with past data</strong></td>
+          <td><span class="badge badge-red">✗ Missing</span></td>
+          <td>New: inject past-filing context into Gemini prompts</td>
+        </tr>
+        <tr>
+          <td><strong>Current-year pre-fill from past</strong></td>
+          <td><span class="badge badge-red">✗ Missing</span></td>
+          <td>New: map last year's T1 fields → this year's T2125/T1 draft</td>
+        </tr>
+        <tr>
+          <td><strong>Chat skill: "show past filings"</strong></td>
+          <td><span class="badge badge-red">✗ Missing</span></td>
+          <td>New agent skill with blob URL links in chat</td>
+        </tr>
+        <tr>
+          <td><strong>UI section: Past Filings tab</strong></td>
+          <td><span class="badge badge-red">✗ Missing</span></td>
+          <td>New tab in TaxPackage page or separate route</td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+
+
+  <!-- Data Model -->
+  <section id="data-model">
+    <h2>Data Model</h2>
+    <p>One new Prisma model, one new Prisma enum (as a string field), and a minor extension to <code>AbTaxFiling</code>.</p>
+
+    <h3>New: AbPastTaxFiling</h3>
+    <pre><code>model AbPastTaxFiling {
+  id            String   @id @default(uuid())
+  tenantId      String
+
+  // What it is
+  taxYear       Int              // 2023, 2024, etc.
+  jurisdiction  String           // 'ca' | 'us'
+  region        String?          // 'ON' | 'CA' | 'NY' (province / state)
+  formType      String           // 'T1' | 'T4' | 'T4A' | 'T5' | 'NOA' | 'T2125'
+                                 // | '1040' | 'W-2' | '1099-NEC' | 'K-1'
+
+  // Storage
+  blobUrl       String           // Vercel Blob permanent URL (PDF)
+  blobKey       String           // pathname for deletion
+
+  // Extraction
+  extractedData Json  @default("{}")  // see Extracted Fields section below
+  confidence    Float @default(0)     // 0–1, LLM self-reported
+  status        String @default("uploaded")
+                                 // uploaded | parsing | confirmed | error
+
+  errorMsg      String?          // if status = 'error'
+  notes         String?          // user-added annotation
+
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([tenantId, taxYear])
+  @@index([tenantId, jurisdiction, formType])
+  @@schema("plugin_agentbook_tax")
+}
+</code></pre>
+
+    <h3>Extension to AbTaxFiling</h3>
+    <p>Add a nullable <code>sourceFilingId</code> so the current-year filing can track which past filing it was pre-filled from:</p>
+    <pre><code>model AbTaxFiling {
+  ...existing fields...
+  prefillSourceYear  Int?    // year whose AbPastTaxFiling data was used to pre-fill
+  ...
+}
+</code></pre>
+
+    <h3>extractedData JSON shape</h3>
+    <pre><code>// Canada T1
+{
+  "formType": "T1",
+  "taxYear": 2024,
+  "jurisdiction": "ca",
+  "region": "ON",
+  "keyLines": {
+    "10100": 8500000,   // employment income (cents)
+    "15000": 9200000,   // total income
+    "23200": 8800000,   // net income before adjustments
+    "26000": 8600000,   // taxable income
+    "43500": 1540000,   // basic federal tax
+    "48200": 1820000,   // total tax payable
+    "48400": 320000,    // refund (null if balance owing)
+    "48500": null,      // balance owing
+    "rrspRoom": 1460000 // RRSP deduction limit for next year
+  },
+  "attachedForms": {
+    "T2125": { "grossRevenue": 9200000, "netIncome": 8800000, "totalExpenses": 400000 }
+  }
+}
+
+// Canada NOA (Notice of Assessment)
+{
+  "formType": "NOA",
+  "assessmentDate": "2024-08-12",
+  "taxYear": 2023,
+  "noaLines": {
+    "totalIncome": 8500000,
+    "netIncome": 8100000,
+    "taxableIncome": 7900000,
+    "taxPayable": 1620000,
+    "refundOrBalance": 280000,  // positive = refund, negative = balance
+    "rrspDeductionLimit": 1380000,
+    "instalmentsRequired": false
+  }
+}
+
+// US 1040
+{
+  "formType": "1040",
+  "taxYear": 2024,
+  "jurisdiction": "us",
+  "region": "CA",
+  "keyLines": {
+    "1a": 7200000,    // wages
+    "8":  1800000,    // other income (Schedule C net)
+    "11": 8700000,    // AGI
+    "12": 1400000,    // standard/itemized deduction
+    "15": 7300000,    // taxable income
+    "22": 1100000,    // total tax
+    "25a": 900000,    // withholding (W-2)
+    "35a": 80000,     // refund (null if owed)
+    "37": null        // amount owed
+  }
+}
+</code></pre>
+  </section>
+
+
+  <!-- Upload Pipeline -->
+  <section id="upload-pipeline">
+    <h2>Upload Pipeline</h2>
+
+    <div class="pipeline">
+      <div class="pipeline-step"><span class="step-num">1</span>User drops PDF</div>
+      <div class="pipeline-arrow">→</div>
+      <div class="pipeline-step"><span class="step-num">2</span>POST /upload</div>
+      <div class="pipeline-arrow">→</div>
+      <div class="pipeline-step"><span class="step-num">3</span>Vercel Blob put()</div>
+      <div class="pipeline-arrow">→</div>
+      <div class="pipeline-step"><span class="step-num">4</span>Create DB record</div>
+      <div class="pipeline-arrow">→</div>
+      <div class="pipeline-step"><span class="step-num">5</span>Async parse</div>
+      <div class="pipeline-arrow">→</div>
+      <div class="pipeline-step"><span class="step-num">6</span>Gemini Vision</div>
+      <div class="pipeline-arrow">→</div>
+      <div class="pipeline-step"><span class="step-num">7</span>extractedData → DB</div>
+      <div class="pipeline-arrow">→</div>
+      <div class="pipeline-step"><span class="step-num">8</span>User confirms</div>
+    </div>
+
+    <h3>Step 5 — PDF rendering strategy</h3>
+    <div class="callout callout-warn">
+      Gemini Vision accepts images, not raw PDFs. We need to convert PDF pages to images before sending. Two options:
+    </div>
+    <div class="card-row">
+      <div class="card">
+        <h4>Option A — pdf-to-img (Node)</h4>
+        <p>Use <code>pdf2pic</code> (wraps <code>graphicsmagick</code> or <code>pdftocairo</code>) to render pages to PNG server-side. Works locally and in most Node environments.</p>
+        <p><span class="badge badge-yellow">⚠️ Requires native binaries</span> — not available in Vercel Functions by default. Works in the standalone backend (port 4053).</p>
+      </div>
+      <div class="card">
+        <h4>Option B — send PDF URL directly to Gemini</h4>
+        <p>Gemini <code>gemini-1.5-pro</code> and later models accept PDF files natively via the File API or inline base64. Pass the Blob URL directly.</p>
+        <p><span class="badge badge-green">✓ No native deps</span> — cleanest path. Gemini handles multi-page extraction.</p>
+      </div>
+    </div>
+    <div class="callout callout-green">
+      <strong>Recommendation: Option B.</strong> Pass the Vercel Blob URL (or base64 of the PDF) directly to Gemini 1.5 Pro via the <code>inlineData</code> part with MIME type <code>application/pdf</code>. Gemini reads all pages and extracts structured data in a single call. This avoids binary dependencies and works in both local backend and Vercel serverless.
+    </div>
+
+    <h3>File constraints</h3>
+    <ul>
+      <li>Accepted MIME types: <code>application/pdf</code> only</li>
+      <li>Max size: <strong>20 MB</strong> per file</li>
+      <li>Blob key pattern: <code>tax-filings/{tenantId}/{taxYear}/{formType}-{timestamp}.pdf</code></li>
+      <li>Blob access: <strong>private</strong> — signed URLs or proxy through API</li>
+    </ul>
+  </section>
+
+
+  <!-- PDF Parsing -->
+  <section id="pdf-parsing">
+    <h2>PDF Parsing — Gemini Prompts</h2>
+    <p>The jurisdiction-aware parsing agent uses a <code>TaxDocumentParser</code> class in <code>tax-past-filings.ts</code>. It selects the right system prompt based on detected or user-specified form type.</p>
+
+    <h3>Step 1 — Form Identification</h3>
+    <pre><code>SYSTEM: You are a tax document classifier. Given the first page of a tax document,
+identify:
+1. The form type: T1 | T4 | T4A | T5 | T3 | NOA | T2125 | RRSP | 1040 | W-2 | 1099-NEC | K-1 | other
+2. The tax year (4-digit year on the form)
+3. The jurisdiction: 'ca' (Canadian CRA form) or 'us' (IRS form)
+4. The province/state if visible
+
+Respond as JSON only:
+{ "formType": "T1", "taxYear": 2024, "jurisdiction": "ca", "region": "ON" }
+</code></pre>
+
+    <h3>Step 2 — Extraction (jurisdiction-specific)</h3>
+
+    <h4>Canada T1 General</h4>
+    <pre><code>SYSTEM: You are a Canadian CRA T1 General tax return parser.
+Extract the following line numbers from this T1 return (all monetary values in CENTS — multiply dollars by 100):
+
+Key lines to find:
+- Line 10100: Employment income
+- Line 13500: Business income (net)
+- Line 15000: Total income
+- Line 23200: Net income before adjustments
+- Line 26000: Taxable income
+- Line 43500: Basic federal tax
+- Line 48200: Total federal/provincial tax payable
+- Line 48400: Refund amount (blank if balance owing)
+- Line 48500: Balance owing (blank if refund)
+- RRSP deduction limit for following year (usually on bottom of page 4 or Schedule 7)
+
+Also extract any attached T2125 (business income/expenses) totals if present.
+
+Return JSON matching this schema exactly:
+{
+  "formType": "T1",
+  "taxYear": 2024,
+  "jurisdiction": "ca",
+  "region": "ON",
+  "keyLines": { "10100": 0, "13500": 0, "15000": 0, "23200": 0, "26000": 0,
+                "43500": 0, "48200": 0, "48400": null, "48500": null, "rrspRoom": 0 },
+  "attachedForms": { "T2125": { "grossRevenue": 0, "netIncome": 0, "totalExpenses": 0 } },
+  "confidence": 0.92
+}
+All null values are acceptable if a line is blank or not present on the form.
+</code></pre>
+
+    <h4>Canada NOA (Notice of Assessment)</h4>
+    <pre><code>SYSTEM: You are a CRA Notice of Assessment (NOA) parser.
+Extract: assessment date, tax year assessed, total income, net income,
+taxable income, total tax payable, refund or balance owing,
+RRSP deduction limit for next year, and whether instalments are required.
+
+Return JSON:
+{
+  "formType": "NOA",
+  "taxYear": 2023,
+  "assessmentDate": "2024-08-12",
+  "jurisdiction": "ca",
+  "noaLines": {
+    "totalIncome": 0, "netIncome": 0, "taxableIncome": 0,
+    "taxPayable": 0, "refundOrBalance": 0,
+    "rrspDeductionLimit": 0, "instalmentsRequired": false
+  },
+  "confidence": 0.95
+}
+</code></pre>
+
+    <h4>US Form 1040</h4>
+    <pre><code>SYSTEM: You are an IRS Form 1040 parser.
+Extract key lines (all values in CENTS):
+- Line 1a: Wages, salaries, tips
+- Line 2b: Taxable interest
+- Line 3b: Qualified dividends
+- Line 7: Capital gain/loss
+- Line 8: Other income (Schedule C)
+- Line 11: Adjusted gross income (AGI)
+- Line 12: Standard or itemized deduction
+- Line 15: Taxable income
+- Line 22: Total tax
+- Line 25a: Withholding (from W-2)
+- Line 35a: Amount of refund
+- Line 37: Amount you owe
+
+Return JSON:
+{
+  "formType": "1040",
+  "taxYear": 2024,
+  "jurisdiction": "us",
+  "region": "CA",
+  "keyLines": { "1a": 0, "2b": 0, "3b": 0, "7": 0, "8": 0,
+                "11": 0, "12": 0, "15": 0, "22": 0, "25a": 0,
+                "35a": null, "37": null },
+  "confidence": 0.90
+}
+</code></pre>
+
+    <h4>Canada T4 (as past filing)</h4>
+    <pre><code>SYSTEM: Parse this T4 Statement of Remuneration. Extract:
+Box 14 (employment income), Box 22 (income tax deducted),
+Box 16 (CPP contributions), Box 18 (EI premiums), employer name, tax year.
+
+Return JSON:
+{
+  "formType": "T4",
+  "taxYear": 2024,
+  "jurisdiction": "ca",
+  "employer": "Acme Corp",
+  "fields": { "box14": 0, "box22": 0, "box16": 0, "box18": 0 },
+  "confidence": 0.97
+}
+</code></pre>
+  </section>
+
+
+  <!-- Extracted Fields -->
+  <section id="extracted-fields">
+    <h2>Extracted Fields Summary</h2>
+    <table>
+      <thead><tr><th>Form</th><th>Jurisdiction</th><th>Key Fields Extracted</th><th>Used For</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><strong>T1 General</strong></td>
+          <td>CA</td>
+          <td>Lines 10100, 13500, 15000, 23200, 26000, 43500, 48200, 48400/48500, RRSP room</td>
+          <td>Advisor context, pre-fill, year-over-year comparison</td>
+        </tr>
+        <tr>
+          <td><strong>NOA</strong></td>
+          <td>CA</td>
+          <td>Assessment date, total income, tax payable, refund/balance, RRSP limit, instalments</td>
+          <td>Advisor "what did CRA actually assess", instalment guidance</td>
+        </tr>
+        <tr>
+          <td><strong>T2125</strong></td>
+          <td>CA</td>
+          <td>Gross revenue, net income, expense categories (advertising, meals, home office, vehicle)</td>
+          <td>Pre-fill business income section, home office % carry-forward</td>
+        </tr>
+        <tr>
+          <td><strong>T4</strong></td>
+          <td>CA</td>
+          <td>Box 14 (employment income), box 22 (tax deducted), box 16 (CPP), box 18 (EI), employer</td>
+          <td>T1 line 10100 pre-fill, advisor context for employees with side income</td>
+        </tr>
+        <tr>
+          <td><strong>RRSP receipt</strong></td>
+          <td>CA</td>
+          <td>Contribution amount, receipt date, issuer</td>
+          <td>RRSP contribution history, deduction room tracking</td>
+        </tr>
+        <tr>
+          <td><strong>1040</strong></td>
+          <td>US</td>
+          <td>Lines 1a, 8, 11 (AGI), 15, 22, 25a, 35a/37</td>
+          <td>Advisor context, QBI deduction history, SE tax base</td>
+        </tr>
+        <tr>
+          <td><strong>W-2</strong></td>
+          <td>US</td>
+          <td>Box 1 (wages), Box 2 (fed tax withheld), Box 4 (SS tax), Box 12 items, employer</td>
+          <td>1040 line 1a pre-fill, withholding comparison</td>
+        </tr>
+        <tr>
+          <td><strong>1099-NEC</strong></td>
+          <td>US</td>
+          <td>Box 1 (nonemployee comp), Box 4 (fed tax withheld), payer name</td>
+          <td>Schedule C pre-fill, SE tax calculation</td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+
+
+  <!-- API Endpoints -->
+  <section id="api-endpoints">
+    <h2>API Endpoints</h2>
+    <p>All endpoints under <code>/api/v1/agentbook-tax/past-filings</code> in the tax backend (port 4053).</p>
+    <table>
+      <thead><tr><th>Method</th><th>Path</th><th>Purpose</th><th>Auth</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><code>POST</code></td>
+          <td><code>/past-filings/upload</code></td>
+          <td>Upload PDF → Blob → create record (status: uploaded) → trigger async parse</td>
+          <td>tenant header</td>
+        </tr>
+        <tr>
+          <td><code>GET</code></td>
+          <td><code>/past-filings</code></td>
+          <td>List all past filings for tenant (grouped by year, ordered desc)</td>
+          <td>tenant header</td>
+        </tr>
+        <tr>
+          <td><code>GET</code></td>
+          <td><code>/past-filings/:id</code></td>
+          <td>Get single filing detail (extractedData, blobUrl)</td>
+          <td>tenant header</td>
+        </tr>
+        <tr>
+          <td><code>POST</code></td>
+          <td><code>/past-filings/:id/parse</code></td>
+          <td>Re-trigger parse (if status = error or user wants re-extract)</td>
+          <td>tenant header</td>
+        </tr>
+        <tr>
+          <td><code>POST</code></td>
+          <td><code>/past-filings/:id/confirm</code></td>
+          <td>Mark user has reviewed extracted data (status: confirmed)</td>
+          <td>tenant header</td>
+        </tr>
+        <tr>
+          <td><code>PATCH</code></td>
+          <td><code>/past-filings/:id</code></td>
+          <td>Update extractedData fields manually (user correction)</td>
+          <td>tenant header</td>
+        </tr>
+        <tr>
+          <td><code>DELETE</code></td>
+          <td><code>/past-filings/:id</code></td>
+          <td>Delete record + Vercel Blob file</td>
+          <td>tenant header</td>
+        </tr>
+        <tr>
+          <td><code>GET</code></td>
+          <td><code>/past-filings/prefill?year=2025</code></td>
+          <td>Return pre-fill data from year-1 confirmed filings, mapped to current T1/1040 fields</td>
+          <td>tenant header</td>
+        </tr>
+        <tr>
+          <td><code>GET</code></td>
+          <td><code>/past-filings/advisor-context?years=3</code></td>
+          <td>Return LLM-ready summary of last N years of confirmed past filings</td>
+          <td>tenant header</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <h3>POST /past-filings/upload — Request shape</h3>
+    <pre><code>// multipart/form-data
+file:         &lt;PDF binary&gt;       // required
+taxYear:      "2024"             // required
+jurisdiction: "ca"               // required — 'ca' | 'us'
+region:       "ON"               // optional — province/state
+formType:     "T1"               // optional — auto-detected by Gemini if omitted
+notes:        "From accountant"  // optional
+</code></pre>
+
+    <h3>GET /past-filings — Response shape</h3>
+    <pre><code>{
+  "success": true,
+  "data": [
+    {
+      "id": "uuid",
+      "taxYear": 2024,
+      "jurisdiction": "ca",
+      "region": "ON",
+      "formType": "T1",
+      "status": "confirmed",
+      "confidence": 0.92,
+      "blobUrl": "https://blob.vercel-storage.com/...",
+      "keyTotals": { "totalIncome": 9200000, "refundOrBalance": 320000 },
+      "createdAt": "2026-06-29T12:00:00Z"
+    }
+  ]
+}
+</code></pre>
+  </section>
+
+
+  <!-- AI Advisor Context -->
+  <section id="advisor-context">
+    <h2>AI Advisor Context Integration</h2>
+    <p>When the tax advisor (Gemini) generates a response, it will receive a <strong>past filings context block</strong> injected into the system prompt:</p>
+
+    <pre><code>// Injected into callGemini() system prompt in the tax advisor route
+
+const pastFilingContext = await buildAdvisorContext(tenantId, 3); // last 3 years
+
+// Example output injected as context:
+"""
+## Tenant Tax History (for reference)
+
+2024 (CA / ON):
+  - Total income: $92,000 | Net income: $88,000 | Taxable income: $86,000
+  - Tax paid: $18,200 | Refund received: $3,200
+  - RRSP room for 2025: $14,600
+  - Business income (T2125): Revenue $92K | Expenses $4K | Net $88K
+  - Source: user-uploaded T1 (confirmed)
+
+2023 (CA / ON):
+  - Total income: $85,000 | Net income: $81,000 | Taxable income: $79,000
+  - Tax paid: $16,200 | Balance owing: $0 | Refund: $2,800
+  - RRSP room for 2024: $13,800
+  - Source: user-uploaded NOA (confirmed)
+
+Use this history to:
+- Compare current year trends with prior years
+- Estimate tax owing relative to prior year instalments
+- Flag if RRSP room from prior year is still unused
+- Alert if income trajectory suggests higher bracket exposure
+"""
+</code></pre>
+
+    <div class="callout callout-info">
+      Context is only injected when confirmed past filings exist. If none are present, the advisor falls back to the current-year ledger data only (existing behavior, unchanged).
+    </div>
+
+    <h3>What the advisor can now answer (new)</h3>
+    <ul>
+      <li>"How does this year compare to last year?" → year-over-year income/tax comparison</li>
+      <li>"Do I still have RRSP room from 2023?" → pulled from NOA or T1 extraction</li>
+      <li>"Will I owe more or less than last year?" → compare current YTD estimate vs prior year tax</li>
+      <li>"What did I expense on home office last year?" → from T2125 extraction</li>
+      <li>"Should I pay instalments this year?" → based on NOA instalment flag + current trajectory</li>
+    </ul>
+  </section>
+
+
+  <!-- Pre-fill -->
+  <section id="prefill">
+    <h2>Current Year Pre-fill</h2>
+    <p>The <code>GET /past-filings/prefill?year=2025</code> endpoint returns a pre-fill map derived from the most recent confirmed past filing (year 2024 for a 2025 return). It maps extracted fields → current T1/1040 field IDs used in <code>AbTaxFormTemplate</code>.</p>
+
+    <h3>Canada T1 pre-fill map</h3>
+    <table>
+      <thead><tr><th>Past Filing Field</th><th>→</th><th>Current T1 Field (AbTaxFormTemplate)</th><th>Notes</th></tr></thead>
+      <tbody>
+        <tr><td>T2125.homeOfficePct</td><td>→</td><td><code>home_office_pct</code></td><td>Likely same % YoY</td></tr>
+        <tr><td>T1.region</td><td>→</td><td>Province (TaxConfig)</td><td>Auto-set if not already set</td></tr>
+        <tr><td>T2125.businessName</td><td>→</td><td><code>business_name</code></td><td>Defaults only if blank</td></tr>
+        <tr><td>T2125.industryCode</td><td>→</td><td><code>industry_code</code></td><td>Suggests, user can change</td></tr>
+        <tr><td>NOA.rrspDeductionLimit</td><td>→</td><td>Shown in advisor RRSP context</td><td>Not a T1 field but surfaced in UI</td></tr>
+      </tbody>
+    </table>
+
+    <div class="callout callout-warn">
+      Pre-fill never overwrites existing filled fields. It only populates fields that are currently empty (missing) in the current year's <code>AbTaxFiling.forms</code>. The user must confirm pre-filled data.
+    </div>
+
+    <h3>Pre-fill flow</h3>
+    <ol>
+      <li>User clicks "Pre-fill 2025 return from 2024 T1" in the UI</li>
+      <li>Frontend calls <code>GET /past-filings/prefill?year=2025</code></li>
+      <li>Backend returns field map → UI previews the suggestions</li>
+      <li>User reviews + confirms → <code>PATCH /filing/2025/fields</code> called for each accepted field</li>
+      <li><code>AbTaxFiling.prefillSourceYear</code> updated to record provenance</li>
+    </ol>
+  </section>
+
+
+  <!-- Chat Skill -->
+  <section id="chat-skill">
+    <h2>Chat Agent Skill: query-past-filings</h2>
+    <p>New built-in skill added to the agent brain (17th skill, before <code>general-question</code>).</p>
+
+    <pre><code>// In BUILT_IN_SKILLS array (server.ts, agentbook-core)
+{
+  name: "query-past-filings",
+  description: "Retrieve and link the user's uploaded past tax filings stored in Blob. Use when user asks about previous tax returns, NOAs, T1 history, or wants a link to a specific filing PDF.",
+  triggers: ["past filing", "last year's return", "my T1 from", "NOA", "notice of assessment",
+             "tax return 2022", "show my filings", "download my", "previous tax"],
+  handler: "inline",
+  schema: {
+    parameters: { year: { type: "number", optional: true }, formType: { type: "string", optional: true } }
+  }
+}
+</code></pre>
+
+    <h3>Example chat interaction</h3>
+    <div class="card">
+      <p style="color:#8b949e;font-size:12px;margin-bottom:8px">USER</p>
+      <p style="margin-bottom:12px">"Can you show me my 2023 tax return?"</p>
+      <p style="color:#8b949e;font-size:12px;margin-bottom:8px">AGENT</p>
+      <p>Found your 2023 T1 (confirmed, confidence 94%):</p>
+      <ul>
+        <li>Total income: $85,000</li>
+        <li>Refund received: $2,800</li>
+        <li>RRSP room for 2024: $13,800</li>
+        <li>📄 <a href="#">View PDF →</a> (opens Vercel Blob URL)</li>
+      </ul>
+    </div>
+
+    <div class="callout callout-info">
+      The blob URL is returned as a direct link in the chat response. For private blobs, we generate a short-lived signed URL via the backend proxy before returning it to the frontend.
+    </div>
+  </section>
+
+
+  <!-- UI -->
+  <section id="ui">
+    <h2>Frontend UI — Past Filings Tab</h2>
+    <p>Add a <strong>"Past Filings"</strong> tab to the existing Tax Package page (<code>TaxPackage.tsx</code>). This keeps the navigation consistent without adding a new sidebar route.</p>
+
+    <h3>Wireframe</h3>
+    <div class="wireframe">
+┌─────────────────────────────────────────────────────────────────┐
+│  📁 Tax Returns                                                  │
+│  ┌──────────────┬─────────────────┐                              │
+│  │ Year-end Pkg │  Past Filings   │  ← new tab                  │
+│  └──────────────┴─────────────────┘                              │
+│                                                                  │
+│  ┌─────────────────────────────────────────────────────────────┐ │
+│  │  📤 Upload a past tax return                                │ │
+│  │                                                             │ │
+│  │  ┌─────────────────────────────────────────────────────┐   │ │
+│  │  │                                                     │   │ │
+│  │  │   Drag &amp; drop PDF here, or click to browse          │   │ │
+│  │  │   T1, T4, T4A, NOA, 1040, W-2, 1099-NEC            │   │ │
+│  │  │                                                     │   │ │
+│  │  └─────────────────────────────────────────────────────┘   │ │
+│  │                                                             │ │
+│  │  Tax year: [2024 ▾]   Jurisdiction: [Canada ▾]             │ │
+│  │  Form type: [Auto-detect ▾]   [Upload]                     │ │
+│  └─────────────────────────────────────────────────────────────┘ │
+│                                                                  │
+│  Past filings                                                    │
+│  ┌─────────────────────────────────────────────────────────────┐ │
+│  │  2024 · T1 · Ontario  ● confirmed  conf: 92%               │ │
+│  │  Income $92K · Refund $3,200 · RRSP room $14,600           │ │
+│  │  [View PDF]  [Pre-fill 2025 return]  [⋯]                   │ │
+│  ├─────────────────────────────────────────────────────────────┤ │
+│  │  2024 · NOA · CA      ● confirmed  conf: 97%               │ │
+│  │  Assessed 2024-08-14 · Refund $3,200 · RRSP limit $14,600  │ │
+│  │  [View PDF]  [⋯]                                           │ │
+│  ├─────────────────────────────────────────────────────────────┤ │
+│  │  2023 · T1 · Ontario  ⏳ parsing...                         │ │
+│  │  Uploaded 2 minutes ago                                     │ │
+│  └─────────────────────────────────────────────────────────────┘ │
+└─────────────────────────────────────────────────────────────────┘
+    </div>
+
+    <h3>Status badge states</h3>
+    <table>
+      <thead><tr><th>Status</th><th>Badge</th><th>What user sees</th></tr></thead>
+      <tbody>
+        <tr><td>uploaded</td><td><span class="badge badge-blue">uploaded</span></td><td>Just uploaded, parsing queued</td></tr>
+        <tr><td>parsing</td><td><span class="badge badge-yellow">⏳ parsing</span></td><td>Gemini extraction in progress (spinner)</td></tr>
+        <tr><td>confirmed</td><td><span class="badge badge-green">● confirmed</span></td><td>User reviewed extracted data</td></tr>
+        <tr><td>error</td><td><span class="badge badge-red">✗ error</span></td><td>Parse failed — re-parse button shown</td></tr>
+      </tbody>
+    </table>
+
+    <h3>Pre-fill review modal</h3>
+    <p>When user clicks "Pre-fill 2025 return from 2024 T1", a modal opens showing each suggested field with current (empty) vs. suggested value. User can accept or reject each field individually before applying.</p>
+  </section>
+
+
+  <!-- E-Filing Canada -->
+  <section id="efiling-canada">
+    <h2>E-Filing — Canada</h2>
+    <p>CRA's NETFILE allows direct electronic filing. Several integration levels exist — ordered from simplest/free to most complex/powerful.</p>
+
+    <div class="efile-option">
+      <div class="rank rank-free">1</div>
+      <div class="info">
+        <h3>NETFILE XML Export (Free — Recommended MVP)</h3>
+        <p>Generate a CRA-spec NETFILE XML file from the user's completed T1 data in <code>AbTaxFiling</code>. User downloads the XML and submits it themselves at <a href="#">canada.ca/netfile</a>, or imports it into any NETFILE-certified app (StudioTax, CloudTax, UFile — all free for simple returns).</p>
+        <p><strong>Implementation:</strong> Add <code>/tax/export-netfile-xml</code> endpoint that serializes <code>AbTaxFiling.forms</code> into the CRA XML envelope format (schema published by CRA annually). No CRA certification needed to generate the XML — only to submit it directly. Estimated effort: 2–3 days.</p>
+        <span class="badge badge-green">Free · No CRA agreement · Works today</span>
+      </div>
+    </div>
+
+    <div class="efile-option">
+      <div class="rank rank-free">2</div>
+      <div class="info">
+        <h3>EFILE for Tax Preparers via CRA Represent a Client API (Free for Authorized Reps)</h3>
+        <p>AgentBook acts as an authorized representative. The user authenticates via "Represent a Client" (RA) on CRA My Account, grants AgentBook access. AgentBook then submits via EFILE using the T1013 authorization. CRA offers this to authorized accounting software — no NETFILE certification needed, but requires T1013 form flow.</p>
+        <p><strong>Effort:</strong> Medium (CRA OAuth + T1013 flow). <strong>User friction:</strong> Requires CRA My Account login. Best for premium tier.</p>
+        <span class="badge badge-blue">Free but moderate effort · Premium tier</span>
+      </div>
+    </div>
+
+    <div class="efile-option">
+      <div class="rank rank-paid">3</div>
+      <div class="info">
+        <h3>NETFILE Software Certification (Direct Submission)</h3>
+        <p>Apply to CRA's NETFILE Certified Software Program. Upon certification, AgentBook can call the NETFILE web service directly to submit T1 returns on behalf of users. Requires CRA review (6–12 months), security audit, and annual recertification. No dollar fee from CRA, but significant developer time.</p>
+        <p><strong>Best for:</strong> Premium tier at scale (&gt;1,000 filings/year).</p>
+        <span class="badge badge-yellow">Free CRA fee · High effort · Months of review</span>
+      </div>
+    </div>
+
+    <div class="efile-option">
+      <div class="rank rank-paid">4</div>
+      <div class="info">
+        <h3>Partner API — TaxCycle or Profile/Cantax (Paid)</h3>
+        <p>Enterprise tax software APIs that are already NETFILE-certified. Possible white-label integration for premium B2B users (accounting firms using AgentBook). Per-return pricing.</p>
+        <span class="badge badge-red">Paid per return · B2B only</span>
+      </div>
+    </div>
+  </section>
+
+
+  <!-- E-Filing US -->
+  <section id="efiling-us">
+    <h2>E-Filing — United States</h2>
+
+    <div class="efile-option">
+      <div class="rank rank-free">1</div>
+      <div class="info">
+        <h3>IRS MeF XML Export (Free — Recommended MVP)</h3>
+        <p>Generate an IRS Modernized e-File (MeF) compliant XML from the user's 1040 data. User gives this XML to their CPA who submits via ERO (Electronic Return Originator) software. Or user manually uploads to IRS Free File Fillable Forms. IRS publishes the MeF schema annually — no special certification needed to generate the XML.</p>
+        <p><strong>Effort:</strong> 2–3 days for 1040 schema, more for schedules (C, SE, etc.).</p>
+        <span class="badge badge-green">Free · No IRS agreement needed · Works today</span>
+      </div>
+    </div>
+
+    <div class="efile-option">
+      <div class="rank rank-free">2</div>
+      <div class="info">
+        <h3>IRS Free File Alliance (Conditional Free)</h3>
+        <p>IRS Free File partners offer free e-filing for taxpayers with AGI ≤ $79,000 (2025). Becoming a Free File Alliance member requires an agreement with IRS + significant compliance overhead. Not practical as a standalone integration for AgentBook.</p>
+        <p><strong>Alternative:</strong> Deep-link users to a partner (FreeTaxUSA, OLT) with pre-filled data via URL params — some partners accept this.</p>
+        <span class="badge badge-yellow">Complex · IRS agreement needed</span>
+      </div>
+    </div>
+
+    <div class="efile-option">
+      <div class="rank rank-paid">3</div>
+      <div class="info">
+        <h3>Direct IRS EFIN / MeF Submission (Premium)</h3>
+        <p>Obtain an EFIN (Electronic Filing Identification Number) from IRS, become an ERO or ESSP. Allows direct MeF submission. Heavy compliance burden — requires annual IRS suitability check, security plan, etc. Realistic only at significant scale.</p>
+        <span class="badge badge-red">High compliance burden · Scale required</span>
+      </div>
+    </div>
+
+    <div class="efile-option">
+      <div class="rank rank-paid">4</div>
+      <div class="info">
+        <h3>FreeTaxUSA / TaxSlayer White-Label API (Paid Partner)</h3>
+        <p>Several mid-tier tax software vendors offer white-label or data-passthrough APIs. Revenue share or per-return pricing. Best for a premium AgentBook tier where users want 1-click filing without CPA involvement.</p>
+        <span class="badge badge-red">Revenue share · Partner agreement needed</span>
+      </div>
+    </div>
+  </section>
+
+
+  <!-- E-Filing Roadmap -->
+  <section id="efiling-roadmap">
+    <h2>E-Filing Roadmap Summary</h2>
+    <table>
+      <thead><tr><th>Phase</th><th>Canada</th><th>US</th><th>Cost</th><th>Timeline</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><strong>MVP (free)</strong></td>
+          <td>NETFILE XML export → user submits at CRA or imports to StudioTax/CloudTax</td>
+          <td>MeF XML export → user gives to CPA or uses Free File Fillable Forms</td>
+          <td>$0</td>
+          <td>Phase 3</td>
+        </tr>
+        <tr>
+          <td><strong>Premium v1</strong></td>
+          <td>CRA Represent a Client API (T1013 flow) — 1-click with CRA My Account auth</td>
+          <td>Deep-link to FreeTaxUSA with pre-filled data</td>
+          <td>Dev time only</td>
+          <td>Phase 4</td>
+        </tr>
+        <tr>
+          <td><strong>Premium v2</strong></td>
+          <td>NETFILE Software Certification (direct submission)</td>
+          <td>EFIN + MeF direct submission</td>
+          <td>CRA/IRS process, 6–12 months</td>
+          <td>Future</td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+
+
+  <!-- Jurisdiction Extensibility -->
+  <section id="extensibility">
+    <h2>Jurisdiction Extensibility — Add NZ, UK, AU Without Core Changes</h2>
+    <p>
+      The upload, blob storage, DB, and parsing pipeline are <strong>jurisdiction-agnostic</strong>.
+      All jurisdiction-specific knowledge lives in a <code>PastFilingPack</code> interface added to
+      <code>packages/agentbook-jurisdictions/src/interfaces.ts</code> — the same pattern already used by
+      <code>TaxBracketProvider</code>, <code>SalesTaxEngine</code>, etc. Adding a new country = implement
+      the interface in a new directory. Zero changes to core pipeline code.
+    </p>
+
+    <h3>New interface: PastFilingPack</h3>
+    <pre><code>// packages/agentbook-jurisdictions/src/interfaces.ts (addition)
+
+export interface PastFilingFormDescriptor {
+  formType: string       // 'T1' | 'NOA' | 'IR3' | 'SA100' | 'ITR'
+  displayName: string    // "T1 General" | "IR3 Individual Return"
+  description: string
+  typicalPages?: number  // hint for Gemini (multi-page context)
+}
+
+export interface StandardTaxExtract {
+  formType: string
+  taxYear: number
+  jurisdiction: string
+  region?: string
+
+  // Universal summary fields (all in cents)
+  totalIncomeCents?: number
+  netIncomeCents?: number
+  taxableIncomeCents?: number
+  taxPayableCents?: number
+  refundOrBalanceCents?: number  // positive = refund, negative = owing
+  savingsRoomCents?: number      // RRSP (CA) | KiwiSaver credit (NZ) | ISA allowance (UK) | super (AU)
+
+  // Raw extracted fields — all amounts in cents
+  formFields: Record&lt;string, number | string | boolean | null&gt;
+  attachedForms: Record&lt;string, Record&lt;string, any&gt;&gt;
+
+  confidence: number
+}
+
+export interface PreFillSuggestion {
+  fieldId: string       // AbTaxFormTemplate field ID to populate
+  value: any
+  sourceField: string   // which formField key this came from
+  confidence: number
+}
+
+export interface EFileExport {
+  format: 'xml' | 'json' | 'pdf'
+  content: string       // serialised output
+  filename: string      // e.g. 'T1-2024-netfile.xml'
+  instructions: string  // user-facing: where/how to submit
+}
+
+export interface PastFilingPack {
+  jurisdiction: string  // 'ca' | 'us' | 'nz' | 'uk' | 'au'
+
+  // Which form types this pack recognises
+  supportedFormTypes(): PastFilingFormDescriptor[]
+
+  // Step 1: Gemini prompt to identify form type from first page
+  identificationPrompt(): string
+
+  // Step 2: Gemini prompt for deep extraction of a specific form type
+  extractionPrompt(formType: string, taxYear: number): string
+
+  // Parse Gemini's raw JSON into a StandardTaxExtract
+  parseExtraction(raw: any, formType: string, taxYear: number): StandardTaxExtract
+
+  // Map extracted data → current-year form fields for pre-fill
+  preFillMap(extract: StandardTaxExtract): PreFillSuggestion[]
+
+  // Plain-English summary for injection into Gemini advisor prompts
+  summarize(extract: StandardTaxExtract): string
+
+  // Optional: generate e-file export (XML, JSON) from completed AbTaxFiling
+  generateEFileExport?(forms: Record&lt;string, any&gt;, taxYear: number, region?: string): EFileExport
+}
+</code></pre>
+
+    <h3>Pack registry (loader)</h3>
+    <p>
+      <code>packages/agentbook-jurisdictions/src/past-filing-loader.ts</code> —
+      a thin registry that maps jurisdiction codes to pack instances:
+    </p>
+    <pre><code>// packages/agentbook-jurisdictions/src/past-filing-loader.ts
+
+import { CaPastFilingPack } from './ca/past-filing-pack.js';
+import { UsPastFilingPack } from './us/past-filing-pack.js';
+// New countries: import here and add one line below. Nothing else changes.
+
+const PACKS: Record&lt;string, PastFilingPack&gt; = {
+  ca: new CaPastFilingPack(),
+  us: new UsPastFilingPack(),
+};
+
+export function getPastFilingPack(jurisdiction: string): PastFilingPack {
+  const pack = PACKS[jurisdiction];
+  if (!pack) throw new Error(`No PastFilingPack for jurisdiction: ${jurisdiction}`);
+  return pack;
+}
+
+export function listSupportedJurisdictions(): string[] {
+  return Object.keys(PACKS);
+}
+</code></pre>
+
+    <h3>Adding NZ, UK, AU in a future wave</h3>
+    <table>
+      <thead><tr><th>Country</th><th>Key Forms</th><th>E-filing</th><th>Work Estimate</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><strong>New Zealand</strong></td>
+          <td>IR3 (individual), IR10 (financial statements), IR3NR (non-resident)</td>
+          <td>myIR (IRD online portal) — no public API; XML export for manual upload</td>
+          <td>1–2 days (pack only)</td>
+        </tr>
+        <tr>
+          <td><strong>United Kingdom</strong></td>
+          <td>SA100 (self assessment), SA103 (self-employment), P60 (employment)</td>
+          <td>HMRC MTD (Making Tax Digital) API — OAuth, free for registered software. Gov.UK developer portal.</td>
+          <td>1–2 days pack + 2–3 days HMRC OAuth for e-file</td>
+        </tr>
+        <tr>
+          <td><strong>Australia</strong></td>
+          <td>Individual Tax Return (ITR), Business Activity Statement (BAS), PAYG summary</td>
+          <td>ATO Standard Business Reporting (SBR) — requires ATO DSP registration. Free but multi-month process.</td>
+          <td>1–2 days pack + 3–4 days ATO integration for e-file</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <div class="callout callout-green">
+      <strong>Key point:</strong> All three countries need only a new <code>XxPastFilingPack</code> class and one line in <code>past-filing-loader.ts</code> for upload/parse/pre-fill/advisor support. E-filing integration is optional and independent — it can be added later via the same <code>generateEFileExport()</code> hook.
+    </div>
+  </section>
+
+
+  <!-- PR Cycle & Testing -->
+  <section id="pr-cycle">
+    <h2>PR Cycle &amp; Testing Strategy</h2>
+    <p>Each phase ships as its own PR. Every PR includes: backend unit tests, API integration tests, and E2E Playwright tests covering both the web UI and the chatbot path. No phase merges without passing E2E.</p>
+
+    <h3>PR Structure</h3>
+    <table>
+      <thead><tr><th>PR</th><th>Phase</th><th>What Ships</th><th>Tests Required</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><strong>PR-A</strong></td>
+          <td>Phase 1</td>
+          <td>Prisma model + migration + upload/list/delete endpoints + Blob storage + <code>PastFilingPack</code> interface</td>
+          <td>Unit: Blob upload mock, DB write. E2E: <code>tax-past-filings-upload.spec.ts</code></td>
+        </tr>
+        <tr>
+          <td><strong>PR-B</strong></td>
+          <td>Phase 2</td>
+          <td>CA + US packs + parse endpoint + form identification + extraction + confirm</td>
+          <td>Unit: Gemini mock → parseExtraction for T1, NOA, 1040, W-2. E2E: <code>tax-past-filings-parse.spec.ts</code></td>
+        </tr>
+        <tr>
+          <td><strong>PR-C</strong></td>
+          <td>Phase 3</td>
+          <td>Past Filings UI tab + upload dropzone + status polling + chat skill <code>query-past-filings</code> + advisor context injection</td>
+          <td>E2E: <code>tax-past-filings-ui.spec.ts</code>, <code>tax-past-filings-chat.spec.ts</code></td>
+        </tr>
+        <tr>
+          <td><strong>PR-D</strong></td>
+          <td>Phase 4</td>
+          <td>Pre-fill endpoint + pre-fill modal + NETFILE XML export (CA) + MeF XML export (US) + <code>prefillSourceYear</code></td>
+          <td>Unit: XML schema validation. E2E: <code>tax-past-filings-prefill.spec.ts</code>, <code>tax-efiling-export.spec.ts</code></td>
+        </tr>
+      </tbody>
+    </table>
+
+    <h3>E2E Test Files</h3>
+    <p>All in <code>tests/e2e/</code>, following the pattern of existing <code>agent-tax-filing.spec.ts</code>.</p>
+
+    <h4>tax-past-filings-upload.spec.ts</h4>
+    <pre><code>// PR-A coverage
+test('upload PDF → blob URL returned')
+test('file type validation: rejects non-PDF')
+test('file size validation: rejects &gt;20MB')
+test('list past filings returns uploaded record with status=uploaded')
+test('delete removes blob and DB record')
+test('duplicate upload to same year/formType creates separate record (no dedup)')
+</code></pre>
+
+    <h4>tax-past-filings-parse.spec.ts</h4>
+    <pre><code>// PR-B coverage — Gemini mocked with fixed JSON responses
+test('parse endpoint: CA T1 → StandardTaxExtract with correct key lines')
+test('parse endpoint: CA NOA → noaLines extracted correctly')
+test('parse endpoint: US 1040 → keyLines including AGI and refund')
+test('parse endpoint: US W-2 → box 1 and box 2 in cents')
+test('auto-detection: unknown form → identification step runs first')
+test('low-confidence parse: status stays parsing-unconfirmed, not confirmed')
+test('confirm endpoint: sets status to confirmed')
+test('re-parse on confirmed record: allowed, resets confidence')
+</code></pre>
+
+    <h4>tax-past-filings-ui.spec.ts</h4>
+    <pre><code>// PR-C coverage — Playwright browser tests
+test('Past Filings tab is visible in Tax Package page')
+test('upload dropzone accepts PDF drag-and-drop')
+test('year picker and jurisdiction picker appear above dropzone')
+test('after upload: new row appears with status=uploaded')
+test('status polling: row updates from uploading → confirmed within 15s (Gemini mock)')
+test('View PDF link opens blob URL in new tab')
+test('error state: re-parse button shown when status=error')
+test('delete: row disappears after confirmation')
+</code></pre>
+
+    <h4>tax-past-filings-chat.spec.ts</h4>
+    <pre><code>// PR-C coverage — chatbot path (API)
+test('query-past-filings: "show my past filings" returns skill=query-past-filings')
+test('query-past-filings: response includes blobUrl link for confirmed filing')
+test('query-past-filings: "what was my income in 2023?" uses past filing data')
+test('advisor context: tax estimate response mentions prior year comparison')
+test('advisor context: RRSP room from past NOA appears in response')
+test('Telegram path: past filing link clickable in Telegram message')
+</code></pre>
+
+    <h4>tax-past-filings-prefill.spec.ts</h4>
+    <pre><code>// PR-D coverage
+test('prefill endpoint returns suggestions for year-1 confirmed filings')
+test('pre-fill: home_office_pct suggestion from T2125 extractedData')
+test('pre-fill: does not overwrite existing non-empty fields')
+test('pre-fill: prefillSourceYear set on AbTaxFiling after apply')
+test('pre-fill modal: user can accept/reject individual suggestions')
+</code></pre>
+
+    <h4>tax-efiling-export.spec.ts</h4>
+    <pre><code>// PR-D coverage
+test('CA NETFILE XML export: valid XML with correct T1 envelope')
+test('CA NETFILE XML: validates against CRA schema (sample fixture)')
+test('US MeF XML export: correct IRS envelope for 1040')
+test('export endpoint: returns filename with jurisdiction + year')
+test('regression: existing e-filing mock submit still works')
+</code></pre>
+
+    <h3>Regression Guard</h3>
+    <div class="callout callout-warn">
+      Each PR must pass the <strong>full existing E2E suite</strong> before merge, including <code>agent-tax-filing.spec.ts</code>, <code>ca-consultant-tax-2026.spec.ts</code>, and <code>agent-brain.spec.ts</code>. The pre-fill and advisor-context changes touch shared code paths — these existing tests guard against regressions in slip OCR, T1 auto-population, and quarterly payment flows.
+    </div>
+
+    <h3>Chatbot path — Telegram regression</h3>
+    <p>The <code>query-past-filings</code> skill is tested both via the API channel (agent/message endpoint) and via the Telegram adapter. Telegram tests verify that blob URLs render as clickable links using Telegram's <code>InlineKeyboardMarkup</code>, not plain text.</p>
+  </section>
+
+
+  <!-- Phases -->
+  <section id="phases">
+    <h2>Delivery Phases</h2>
+
+    <div class="phases">
+      <div class="phase">
+        <div class="phase-header">
+          <span class="phase-num">1</span>
+          <h4>Upload + Blob + DB</h4>
+        </div>
+        <ul>
+          <li>AbPastTaxFiling Prisma model + migration</li>
+          <li>POST /upload endpoint</li>
+          <li>Vercel Blob private storage</li>
+          <li>File validation (PDF, 20MB)</li>
+          <li>GET /past-filings list</li>
+        </ul>
+      </div>
+      <div class="phase">
+        <div class="phase-header">
+          <span class="phase-num">2</span>
+          <h4>Gemini Parsing</h4>
+        </div>
+        <ul>
+          <li>Form type auto-detection</li>
+          <li>Extraction prompts (T1, NOA, T4, 1040, W-2)</li>
+          <li>tax-past-filings.ts module</li>
+          <li>POST /parse endpoint</li>
+          <li>Confirm + manual edit</li>
+        </ul>
+      </div>
+      <div class="phase">
+        <div class="phase-header">
+          <span class="phase-num">3</span>
+          <h4>UI + Chat</h4>
+        </div>
+        <ul>
+          <li>Past Filings tab in TaxPackage</li>
+          <li>Upload dropzone</li>
+          <li>Status badges + polling</li>
+          <li>query-past-filings chat skill</li>
+          <li>Advisor context injection</li>
+        </ul>
+      </div>
+      <div class="phase">
+        <div class="phase-header">
+          <span class="phase-num">4</span>
+          <h4>Pre-fill + E-filing</h4>
+        </div>
+        <ul>
+          <li>Pre-fill endpoint + modal</li>
+          <li>NETFILE XML export (CA)</li>
+          <li>MeF XML export (US)</li>
+          <li>AbTaxFiling.prefillSourceYear</li>
+          <li>Year-over-year advisor comparison</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+
+  <!-- Resolved Decisions -->
+  <section id="decisions">
+    <h2>Resolved Design Decisions</h2>
+
+    <table>
+      <thead><tr><th>#</th><th>Decision</th><th>Resolved</th></tr></thead>
+      <tbody>
+        <tr>
+          <td>1</td>
+          <td>Blob access: private or public?</td>
+          <td><span class="badge badge-green">Private blobs</span> — tax documents are sensitive. Download proxied through <code>GET /past-filings/:id/download</code> which generates a short-lived Vercel Blob signed URL and redirects. Blob URLs never exposed directly to the frontend.</td>
+        </tr>
+        <tr>
+          <td>2</td>
+          <td>Parsing: sync or async?</td>
+          <td><span class="badge badge-green">Async</span> — upload returns immediately with status <code>uploaded</code>. Parse runs in the background (same request context using <code>waitUntil</code> on Vercel, or a deferred call on the standalone backend). UI polls <code>GET /past-filings/:id</code> every 3s, shows spinner until <code>confirmed</code> or <code>error</code>.</td>
+        </tr>
+        <tr>
+          <td>3</td>
+          <td>Upload quota per tenant?</td>
+          <td><span class="badge badge-green">No hard limit initially</span> — Vercel Blob is cheap at this scale. A <code>checkQuota()</code> hook is stubbed in the upload handler (same pattern as <code>@naap/billing</code> used elsewhere), so a billing tier limit can be wired in later without touching core upload logic.</td>
+        </tr>
+        <tr>
+          <td>4</td>
+          <td>Multi-form PDFs (T1 + T4 bundled)?</td>
+          <td><span class="badge badge-green">Supported</span> — Gemini reads all pages and extracts whatever it finds. The single <code>AbPastTaxFiling</code> record stores the full PDF + extraction. User can upload again separately for cleaner per-form records, but bundled uploads are not rejected.</td>
+        </tr>
+        <tr>
+          <td>5</td>
+          <td>Where does e-filing XML generation live?</td>
+          <td><span class="badge badge-green">Tax backend (port 4053)</span> — owns all filing data and the <code>PastFilingPack.generateEFileExport()</code> interface. Exposed via <code>GET /tax/export/netfile-xml</code> and <code>GET /tax/export/mef-xml</code>, proxied through Next.js at <code>/api/v1/agentbook-tax/</code>.</td>
+        </tr>
+        <tr>
+          <td>6</td>
+          <td>Pre-fill: automatic or manual?</td>
+          <td><span class="badge badge-green">Manual</span> — user explicitly triggers pre-fill via "Pre-fill 2025 return from 2024 T1" button. A modal shows each suggestion with accept/reject per field before any change is applied. Automatic would feel invasive for tax documents.</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <hr />
+
+    <div class="callout callout-green">
+      <strong>Status: Plan approved.</strong> Implementation plan (task breakdown, file-level changes, order of work) will be generated next via the <code>writing-plans</code> skill.
+    </div>
+  </section>
+
+</main>
+
+<script>
+  // Highlight active sidebar link on scroll
+  const links = document.querySelectorAll('.sidebar nav a');
+  const sections = document.querySelectorAll('section[id], .hero[id]');
+  const observer = new IntersectionObserver((entries) => {
+    entries.forEach(e => {
+      if (e.isIntersecting) {
+        links.forEach(l => l.classList.remove('active'));
+        const active = document.querySelector(`.sidebar nav a[href="#${e.target.id}"]`);
+        if (active) active.classList.add('active');
+      }
+    });
+  }, { rootMargin: '-20% 0px -70% 0px' });
+  sections.forEach(s => observer.observe(s));
+</script>
+
+</body>
+</html>

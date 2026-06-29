@@ -1173,6 +1173,7 @@ async function callAgentBrain(
   attachments?: { type: string; url: string }[],
   sessionAction?: string,
   feedback?: string,
+  chatId?: string,
 ): Promise<{ success: true; data: { message: string; skillUsed?: string } } | { success: false; error: string }> {
   try {
     const skills = await db.abSkillManifest.findMany({
@@ -1180,7 +1181,7 @@ async function callAgentBrain(
     });
     const baseUrls = getBaseUrls();
     const brainResult = await handleAgentMessage(
-      { text: text || '', tenantId, channel: 'telegram', attachments, sessionAction, feedback },
+      { text: text || '', tenantId, channel: 'telegram', chatId, attachments, sessionAction, feedback },
       { skills, callGemini, baseUrls, classifyAndExecuteV1, classifyOnly, executeClassification },
     );
     if (brainResult?.success && brainResult.data?.message) {
@@ -2905,13 +2906,24 @@ function getBot(): Bot {
     }
 
     // ── Daily-briefing setup + feedback dialog ──────────────────────────
-    // If the user is mid-setup, EVERY text goes through the setup flow
-    // until they save or cancel.
+    // If the user is mid-setup, route through the setup flow — unless the
+    // message is clearly an accounting/data query AND the setup is in a
+    // non-mandatory step (preview/tuning). In that case, auto-exit setup
+    // so the user isn't stuck when they want to ask about their books.
     {
       const ongoingSetup = await getSetupState(tenantId);
       if (ongoingSetup) {
-        await handleSetupTurn(tenantId, text, ongoingSetup, ctx);
-        return;
+        const isAccountingQuery =
+          /\b(spend|spent|expense|vendor|invoice|top|budget|revenue|profit|tax|report|balance|cash|list|show|give|how much|summary|earning|income)\b/i.test(text) &&
+          !/^(shorter|longer|skip|all|none|preview|sample|good|great|perfect|done|save|move|no tips|include|exclude|briefing|digest)\b/i.test(lower);
+        const isLateTurnStep = ongoingSetup.step === 'preview' || ongoingSetup.step === 'tuning';
+        if (isAccountingQuery && isLateTurnStep) {
+          await clearSetupState(tenantId);
+          // Fall through to normal brain processing below
+        } else {
+          await handleSetupTurn(tenantId, text, ongoingSetup, ctx);
+          return;
+        }
       }
       // Triggers for starting setup.
       if (
@@ -3465,7 +3477,7 @@ function getBot(): Bot {
     }
 
     try {
-      const result = await callAgentBrain(tenantId, agentText, undefined, sessionAction, feedback);
+      const result = await callAgentBrain(tenantId, agentText, undefined, sessionAction, feedback, String(ctx.chat.id));
       if (result.success && result.data) {
         const reply: string = formatResponse(result.data);
 
@@ -3562,7 +3574,7 @@ function getBot(): Bot {
       if (!loop.evaluation.delegatedToBrain) return;
 
       // Delegated → agent brain
-      const result = await callAgentBrain(tenantId, text, undefined, undefined, undefined);
+      const result = await callAgentBrain(tenantId, text, undefined, undefined, undefined, String(ctx.chat.id));
       if (result.success && result.data) {
         const reply: string = formatResponse(result.data);
         try {
@@ -4631,7 +4643,7 @@ function getBot(): Bot {
 
       if (action === 'session') {
         const sessionAction = parts[1];
-        const result = await callAgentBrain(tenantId, sessionAction || 'status', undefined, sessionAction);
+        const result = await callAgentBrain(tenantId, sessionAction || 'status', undefined, sessionAction, undefined, String(ctx.chat?.id ?? ctx.callbackQuery?.message?.chat?.id ?? ''));
         await ctx.answerCallbackQuery({ text: sessionAction === 'confirm' ? 'Executing…' : 'Cancelled' });
         if (result.success && result.data?.message) {
           try {
