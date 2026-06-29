@@ -86,7 +86,7 @@ Return JSON only: { "formType": "1040", "taxYear": 2024, "jurisdiction": "us", "
       jurisdiction: 'us',
       region: r.region || undefined,
       formFields: r.formFields || {},
-      attachedForms: {},
+      attachedForms: r.attachedForms || {},
       confidence: typeof r.confidence === 'number' ? r.confidence : 0,
     };
 
@@ -106,7 +106,7 @@ Return JSON only: { "formType": "1040", "taxYear": 2024, "jurisdiction": "us", "
   }
 
   preFillMap(_extract: StandardTaxExtract): PreFillSuggestion[] {
-    // US pre-fill: no T1/T2125 field mapping for now — placeholder for future
+    // US pre-fill mapping — placeholder for future (W-2 box1 → wages, 1040 line 11 → AGI)
     return [];
   }
 
