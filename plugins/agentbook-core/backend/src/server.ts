@@ -3605,6 +3605,47 @@ async function _executeClassificationCore(
     }
   }
 
+  // INTERNAL handler: query-past-filings
+  if (selectedSkill.name === 'query-past-filings') {
+    try {
+      const taxBase = baseUrls['/api/v1/agentbook-tax'] || 'http://localhost:4053';
+      const IH = brainHeaders(tenantId);
+      const res = await fetch(`${taxBase}/api/v1/agentbook-tax/past-filings`, { headers: IH });
+      const data = await res.json() as any;
+      const filings: any[] = data.data || [];
+
+      if (filings.length === 0) {
+        const message = "You haven't uploaded any past tax filings yet. You can upload T1, NOA, 1040, W-2, and other returns on the **Tax Package** page → Past Filings tab.";
+        await db.abConversation.create({ data: { tenantId, question: text, answer: message, queryType: 'agent', channel, skillUsed: 'query-past-filings' } });
+        return { selectedSkill, extractedParams, confidence, skillUsed: 'query-past-filings', skillResponse: data,
+          responseData: { message, actions: [], chartData: null, skillUsed: 'query-past-filings', confidence, latencyMs: Date.now() - startTime } };
+      }
+
+      // Filter by year/formType if provided
+      let filtered = filings;
+      if (extractedParams.year) filtered = filtered.filter((f: any) => f.taxYear === extractedParams.year);
+      if (extractedParams.formType) filtered = filtered.filter((f: any) => f.formType?.toLowerCase() === String(extractedParams.formType).toLowerCase());
+
+      const list = filtered.slice(0, 8).map((f: any) => {
+        const statusIcon = f.status === 'confirmed' ? '✅' : f.status === 'error' ? '❌' : '⏳';
+        const conf = f.confidence > 0 ? ` (conf: ${Math.round(f.confidence * 100)}%)` : '';
+        const income = f.extractedData?.totalIncomeCents ?? f.extractedData?.keyLines?.['15000'];
+        const incomeStr = income != null ? ` · Income: $${(income / 100).toLocaleString()}` : '';
+        const downloadLink = `${taxBase.replace('localhost:4053', 'localhost:3000')}/api/v1/agentbook-tax/past-filings/${f.id}/download`;
+        return `${statusIcon} **${f.taxYear} ${f.formType}** (${f.jurisdiction.toUpperCase()}${f.region ? `/${f.region}` : ''})${conf}${incomeStr}\n   [📄 View PDF](${downloadLink})`;
+      }).join('\n\n');
+
+      const message = `Here are your past tax filings:\n\n${list}${filtered.length > 8 ? `\n\n…and ${filtered.length - 8} more. Open the Past Filings tab for the full list.` : ''}`;
+      await db.abConversation.create({ data: { tenantId, question: text, answer: message, queryType: 'agent', channel, skillUsed: 'query-past-filings' } });
+      return { selectedSkill, extractedParams, confidence, skillUsed: 'query-past-filings', skillResponse: data,
+        responseData: { message, actions: [], chartData: null, skillUsed: 'query-past-filings', confidence, latencyMs: Date.now() - startTime } };
+    } catch (err) {
+      console.error('[query-past-filings] error:', err);
+      return { selectedSkill, extractedParams, confidence: 0, skillUsed: 'query-past-filings', skillResponse: null,
+        responseData: { message: "I couldn't retrieve your past filings. Please try again.", actions: [], chartData: null, skillUsed: 'query-past-filings', confidence: 0, latencyMs: Date.now() - startTime } };
+    }
+  }
+
   if (selectedSkill.name === 'tax-filing-start') {
     try {
       const taxBase = baseUrls['/api/v1/agentbook-tax'] || 'http://localhost:4053';

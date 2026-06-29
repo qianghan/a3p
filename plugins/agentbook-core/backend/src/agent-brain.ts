@@ -51,13 +51,14 @@ async function brainAccountantFallback(
   callGemini: (sys: string, user: string, max?: number) => Promise<string | null>,
   userText: string,
   conversation: Array<{ question: string; answer: string }>,
+  pastFilingContext?: string,
 ): Promise<string> {
   const convoSnippet = (conversation || [])
     .slice(0, 3)
     .map((c) => `User: ${c.question}\nAssistant: ${c.answer}`)
     .join('\n');
 
-  const systemPrompt = [
+  const baseSystemPrompt = [
     'You are AgentBook, a friendly small-business accountant assistant talking in chat (web or Telegram).',
     'You could not confidently understand the user\'s intent.',
     '',
@@ -72,6 +73,7 @@ async function brainAccountantFallback(
     '',
     'Style: warm but brief, 1–3 short sentences, plain conversational text (no markdown bullets), never say "I am an AI", never end with a flat "I don\'t know". If asking a question, end the message with it.',
   ].join('\n');
+  const systemPrompt = pastFilingContext ? `${baseSystemPrompt}\n\n${pastFilingContext}` : baseSystemPrompt;
 
   const userMessage = [
     convoSnippet && `Recent conversation:\n${convoSnippet}`,
@@ -812,6 +814,22 @@ export async function handleAgentMessage(
     }),
   ]);
 
+  // Fetch past filing context for tax-related queries (fast path: only if tax keywords present)
+  let pastFilingContext = '';
+  const TAX_KEYWORDS = /tax|t1\b|t4\b|noa|1040|w-?2|rrsp|deduct|filing|refund|balance owing/i;
+  if (TAX_KEYWORDS.test(text || '')) {
+    try {
+      const taxBase = ctx.baseUrls['/api/v1/agentbook-tax'] || 'http://localhost:4053';
+      const pfRes = await fetch(`${taxBase}/api/v1/agentbook-tax/past-filings/advisor-context?years=3`, {
+        headers: { 'x-tenant-id': tenantId, ...(process.env.CRON_SECRET ? { Authorization: `Bearer ${process.env.CRON_SECRET}` } : {}) },
+      });
+      if (pfRes.ok) {
+        const pfData = await pfRes.json() as any;
+        pastFilingContext = pfData.data?.context || '';
+      }
+    } catch { /* non-fatal */ }
+  }
+
   // ── Step 2.5: Resolve referents using conversation context ───────────
   // PR 12 (G-014): rewrite pronouns ("fix it", "the last invoice") to
   // concrete entity refs BEFORE classification, so Stage-1 shortcuts and
@@ -843,7 +861,7 @@ export async function handleAgentMessage(
       resolvedText, tenantId, channel, attachments, memory, skills, conversation, tenantConfig,
     );
     if (!v1Result) {
-      const engaged = await brainAccountantFallback(ctx.callGemini, resolvedText, conversation);
+      const engaged = await brainAccountantFallback(ctx.callGemini, resolvedText, conversation, pastFilingContext);
       return buildResponse({
         message: engaged,
         skillUsed: 'none',
@@ -940,7 +958,7 @@ export async function handleAgentMessage(
       );
     }
     if (!v1Result) {
-      const engaged = await brainAccountantFallback(ctx.callGemini, text, conversation);
+      const engaged = await brainAccountantFallback(ctx.callGemini, text, conversation, pastFilingContext);
       return buildResponse({
         message: engaged,
         skillUsed: 'none',
