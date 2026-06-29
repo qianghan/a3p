@@ -15,14 +15,16 @@
     "test:watch": "vitest"
   },
   "dependencies": {
-    "@naap/billing": "*",
-    "@naap/plugin-server-sdk": "*",
-    "@naap/database": "*",
     "@agentbook/jurisdictions": "*",
+    "@naap/billing": "*",
+    "@naap/database": "*",
+    "@naap/plugin-server-sdk": "*",
+    "@types/multer": "^2.1.0",
     "@vercel/blob": "*",
     "cors": "^2.8.6",
     "dotenv": "^16.6.1",
-    "express": "^4.21.0"
+    "express": "^4.21.0",
+    "multer": "^2.2.0"
   },
   "devDependencies": {
     "@types/cors": "^2.8.17",

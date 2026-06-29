@@ -23,6 +23,14 @@ import { processSlipOCR, confirmSlip, listSlips } from './tax-slips.js';
 import { validateFiling, exportFiling } from './tax-export.js';
 import { submitFiling, checkFilingStatus, seedMockPartner } from './tax-efiling.js';
 import { checkQuota, incrementUsage } from '@naap/billing';
+import multer from 'multer';
+import {
+  uploadPastFiling, parsePastFiling, listPastFilings, getPastFiling,
+  confirmPastFiling, updatePastFiling, deletePastFiling,
+  buildAdvisorContext, getPrefillSuggestions,
+} from './tax-past-filings.js';
+
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024 } });
 
 // Read plugin.json for dev-only fields (devPort). When this module is
 // bundled by webpack (as happens when hosted inside a Next.js function on
@@ -1535,6 +1543,157 @@ server.app.get('/api/v1/agentbook-tax/tax-filing/:year/status', async (req, res)
     const result = await checkFilingStatus(tenantId, taxYear);
     res.json(result);
   } catch (err) { res.status(500).json({ success: false, error: String(err) }); }
+});
+
+// ============================================
+// PAST TAX FILINGS
+// ============================================
+
+server.app.post(
+  '/api/v1/agentbook-tax/past-filings/upload',
+  upload.single('file'),
+  async (req: any, res) => {
+    try {
+      const tenantId: string = req.tenantId;
+      const file = req.file;
+      if (!file) return res.status(400).json({ success: false, error: 'No file provided' });
+      if (file.mimetype !== 'application/pdf') {
+        return res.status(400).json({ success: false, error: 'Only PDF files are accepted' });
+      }
+      const taxYear = parseInt(req.body.taxYear, 10);
+      const jurisdiction = (req.body.jurisdiction || 'ca').toLowerCase();
+      if (!taxYear || taxYear < 2000 || taxYear > 2100) {
+        return res.status(400).json({ success: false, error: 'Valid taxYear required (e.g. 2024)' });
+      }
+
+      const result = await uploadPastFiling(
+        tenantId,
+        file.buffer,
+        taxYear,
+        jurisdiction,
+        req.body.region,
+        req.body.formType,
+        req.body.notes,
+      );
+
+      // Trigger async parse — fire and forget; errors stored on the record
+      setImmediate(() => {
+        parsePastFiling(tenantId, result.id, file.buffer).catch((e) =>
+          console.error('[past-filing] parse error:', e),
+        );
+      });
+
+      res.json({ success: true, data: result });
+    } catch (err) {
+      res.status(500).json({ success: false, error: String(err) });
+    }
+  },
+);
+
+server.app.get('/api/v1/agentbook-tax/past-filings', async (req: any, res) => {
+  try {
+    const data = await listPastFilings(req.tenantId);
+    const safe = data.map(({ blobUrl: _bu, blobKey: _bk, ...rest }: any) => rest);
+    res.json({ success: true, data: safe });
+  } catch (err) {
+    res.status(500).json({ success: false, error: String(err) });
+  }
+});
+
+server.app.get('/api/v1/agentbook-tax/past-filings/prefill', async (req: any, res) => {
+  try {
+    const targetYear = parseInt(req.query.year as string, 10) || new Date().getFullYear();
+    const suggestions = await getPrefillSuggestions(req.tenantId, targetYear);
+    res.json({ success: true, data: suggestions });
+  } catch (err) {
+    res.status(500).json({ success: false, error: String(err) });
+  }
+});
+
+server.app.get('/api/v1/agentbook-tax/past-filings/advisor-context', async (req: any, res) => {
+  try {
+    const years = parseInt(req.query.years as string, 10) || 3;
+    const context = await buildAdvisorContext(req.tenantId, years);
+    res.json({ success: true, data: { context } });
+  } catch (err) {
+    res.status(500).json({ success: false, error: String(err) });
+  }
+});
+
+server.app.get('/api/v1/agentbook-tax/past-filings/:id', async (req: any, res) => {
+  try {
+    const data = await getPastFiling(req.tenantId, req.params.id);
+    res.json({ success: true, data });
+  } catch (err: any) {
+    res.status(err.status || 500).json({ success: false, error: err.message });
+  }
+});
+
+server.app.get('/api/v1/agentbook-tax/past-filings/:id/download', async (req: any, res) => {
+  try {
+    const filing = await getPastFiling(req.tenantId, req.params.id);
+    const BLOB_TOKEN = process.env.BLOB_READ_WRITE_TOKEN;
+    if (filing.blobUrl.startsWith('local://') || !BLOB_TOKEN) {
+      // Dev fallback: return blob key as info
+      return res.json({ success: true, data: { blobKey: filing.blobKey, note: 'local dev — no real blob' } });
+    }
+    const { head } = await import('@vercel/blob');
+    const info = await head(filing.blobUrl, { token: BLOB_TOKEN });
+    res.redirect(302, info.downloadUrl);
+  } catch (err: any) {
+    res.status(err.status || 500).json({ success: false, error: err.message });
+  }
+});
+
+server.app.post('/api/v1/agentbook-tax/past-filings/:id/parse', async (req: any, res) => {
+  try {
+    const filing = await getPastFiling(req.tenantId, req.params.id);
+    // Re-fetch PDF from Blob and re-parse
+    let pdfBuffer: Buffer;
+    const BLOB_TOKEN = process.env.BLOB_READ_WRITE_TOKEN;
+    if (filing.blobUrl.startsWith('local://') || !BLOB_TOKEN) {
+      return res.status(400).json({ success: false, error: 'Re-parse requires Blob storage (not available in local dev)' });
+    }
+    const blobRes = await fetch(filing.blobUrl);
+    pdfBuffer = Buffer.from(await blobRes.arrayBuffer());
+
+    setImmediate(() => {
+      parsePastFiling(req.tenantId, filing.id, pdfBuffer).catch((e) =>
+        console.error('[past-filing] re-parse error:', e),
+      );
+    });
+    res.json({ success: true, data: { id: filing.id, status: 'parsing' } });
+  } catch (err: any) {
+    res.status(err.status || 500).json({ success: false, error: err.message });
+  }
+});
+
+server.app.post('/api/v1/agentbook-tax/past-filings/:id/confirm', async (req: any, res) => {
+  try {
+    const data = await confirmPastFiling(req.tenantId, req.params.id);
+    res.json({ success: true, data });
+  } catch (err: any) {
+    res.status(err.status || 500).json({ success: false, error: err.message });
+  }
+});
+
+server.app.patch('/api/v1/agentbook-tax/past-filings/:id', async (req: any, res) => {
+  try {
+    const { notes, extractedData } = req.body;
+    const data = await updatePastFiling(req.tenantId, req.params.id, { notes, extractedData });
+    res.json({ success: true, data });
+  } catch (err: any) {
+    res.status(err.status || 500).json({ success: false, error: err.message });
+  }
+});
+
+server.app.delete('/api/v1/agentbook-tax/past-filings/:id', async (req: any, res) => {
+  try {
+    await deletePastFiling(req.tenantId, req.params.id);
+    res.json({ success: true, data: { deleted: true } });
+  } catch (err: any) {
+    res.status(err.status || 500).json({ success: false, error: err.message });
+  }
 });
 
 // ============================================
