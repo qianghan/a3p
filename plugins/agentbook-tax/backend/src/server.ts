@@ -1584,8 +1584,8 @@ server.app.post(
       });
 
       res.json({ success: true, data: result });
-    } catch (err) {
-      res.status(500).json({ success: false, error: String(err) });
+    } catch (err: any) {
+      res.status(err.status || 500).json({ success: false, error: err.message });
     }
   },
 );
@@ -1595,8 +1595,8 @@ server.app.get('/api/v1/agentbook-tax/past-filings', async (req: any, res) => {
     const data = await listPastFilings(req.tenantId);
     const safe = data.map(({ blobUrl: _bu, blobKey: _bk, ...rest }: any) => rest);
     res.json({ success: true, data: safe });
-  } catch (err) {
-    res.status(500).json({ success: false, error: String(err) });
+  } catch (err: any) {
+    res.status(err.status || 500).json({ success: false, error: err.message });
   }
 });
 
@@ -1605,8 +1605,8 @@ server.app.get('/api/v1/agentbook-tax/past-filings/prefill', async (req: any, re
     const targetYear = parseInt(req.query.year as string, 10) || new Date().getFullYear();
     const suggestions = await getPrefillSuggestions(req.tenantId, targetYear);
     res.json({ success: true, data: suggestions });
-  } catch (err) {
-    res.status(500).json({ success: false, error: String(err) });
+  } catch (err: any) {
+    res.status(err.status || 500).json({ success: false, error: err.message });
   }
 });
 
@@ -1615,8 +1615,8 @@ server.app.get('/api/v1/agentbook-tax/past-filings/advisor-context', async (req:
     const years = parseInt(req.query.years as string, 10) || 3;
     const context = await buildAdvisorContext(req.tenantId, years);
     res.json({ success: true, data: { context } });
-  } catch (err) {
-    res.status(500).json({ success: false, error: String(err) });
+  } catch (err: any) {
+    res.status(err.status || 500).json({ success: false, error: err.message });
   }
 });
 
