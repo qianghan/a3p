@@ -239,17 +239,24 @@ ${JSON.stringify(ctx, null, 2)}`;
       body: JSON.stringify({
         systemInstruction: { parts: [{ text: systemPrompt }] },
         contents: [{ role: 'user', parts: [{ text: 'Generate the tip.' }] }],
-        generationConfig: { maxOutputTokens: 200, temperature: 0.4 },
+        // Higher ceiling + disabled thinking so Gemini 2.5 doesn't spend the
+        // budget on reasoning and return a mid-sentence truncated tip.
+        generationConfig: { maxOutputTokens: 512, temperature: 0.4, thinkingConfig: { thinkingBudget: 0 } },
       }),
     });
     if (!res.ok) return null;
-    const data = (await res.json()) as { candidates?: { content?: { parts?: { text?: string }[] } }[] };
-    const raw = (data.candidates?.[0]?.content?.parts?.[0]?.text || '').trim();
+    const data = (await res.json()) as { candidates?: { content?: { parts?: { text?: string }[] }; finishReason?: string }[] };
+    const candidate = data.candidates?.[0];
+    const raw = (candidate?.content?.parts?.[0]?.text || '').trim();
     if (!raw || raw === 'SKIP') return null;
-    // Reject anything that doesn't reference a number — tips must be
-    // actionable, not generic.
-    if (!/\d/.test(raw)) return null;
-    return raw.replace(/^[*•\-]\s*/, '').trim();
+    // Drop truncated output (hit the token cap mid-sentence) rather than ship
+    // a tip that ends like "…until your".
+    if (candidate?.finishReason && candidate.finishReason !== 'STOP') return null;
+    const cleaned = raw.replace(/^[*•\-]\s*/, '').trim();
+    // Tips must reference a number AND read as a complete sentence.
+    if (!/\d/.test(cleaned)) return null;
+    if (!/[.!?]$/.test(cleaned)) return null;
+    return cleaned;
   } catch {
     return null;
   }

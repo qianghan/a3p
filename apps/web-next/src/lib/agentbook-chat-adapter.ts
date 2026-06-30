@@ -29,6 +29,9 @@ import { sendAgentMessageEmail } from './email';
 export interface ChatMessageOptions {
   /** Disable Markdown / formatting parsing on the target platform. */
   plainText?: boolean;
+  /** Render the message as HTML (Telegram parse_mode=HTML). Takes precedence
+   *  over plainText/Markdown. Use when the message contains <b>/<code>/&amp; etc. */
+  html?: boolean;
   /** Inline buttons: each button row is a list of { text, callbackData }. */
   buttons?: Array<Array<{ text: string; callbackData: string }>>;
   /** Idempotency key to prevent duplicate sends from cron retries. */
@@ -72,7 +75,8 @@ class TelegramAdapter implements ChatAdapter {
   async sendMessage(chatId: string, text: string, opts?: ChatMessageOptions): Promise<ChatSendResult> {
     try {
       const body: Record<string, unknown> = { chat_id: chatId, text };
-      if (!opts?.plainText) body.parse_mode = 'Markdown';
+      if (opts?.html) body.parse_mode = 'HTML';
+      else if (!opts?.plainText) body.parse_mode = 'Markdown';
       if (opts?.buttons && opts.buttons.length > 0) {
         body.reply_markup = {
           inline_keyboard: opts.buttons.map((row) =>
@@ -113,18 +117,30 @@ class TelegramAdapter implements ChatAdapter {
 // an AbEvent with eventType='agent.message_for_user'. The Chat page renders
 // these as incoming messages on the next poll.
 
+/** Strip Telegram-HTML tags and decode entities to clean plain text for web. */
+function htmlToPlainText(s: string): string {
+  return s
+    .replace(/<\/?(b|strong|i|em|u|code|pre|a)[^>]*>/gi, '')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&amp;/g, '&');
+}
+
 class WebAdapter implements ChatAdapter {
   readonly channel = 'web';
 
   async sendMessage(tenantId: string, text: string, opts?: ChatMessageOptions): Promise<ChatSendResult> {
     try {
+      const stored = opts?.html ? htmlToPlainText(text) : text;
       await db.abEvent.create({
         data: {
           tenantId,
           eventType: 'agent.message_for_user',
           actor: 'agent',
           action: {
-            text,
+            text: stored,
             buttons: opts?.buttons ?? null,
             idempotencyKey: opts?.idempotencyKey ?? null,
           },

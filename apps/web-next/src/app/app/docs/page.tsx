@@ -3,7 +3,7 @@
 import React, { useEffect, useState } from 'react';
 import { FileText, Paperclip } from 'lucide-react';
 
-interface Expense { id: string; amountCents: number; vendor?: string | null; description?: string | null; date?: string; receiptUrl?: string | null }
+interface Expense { id: string; amountCents: number; vendorName?: string | null; description?: string | null; date?: string; receiptUrl?: string | null }
 
 const fmt$ = (c: number) => '$' + (c / 100).toLocaleString('en-US', { maximumFractionDigits: 0 });
 
@@ -32,7 +32,7 @@ export default function MobileDocs() {
           {items.map((e) => (
             <div key={e.id} style={{ padding: 14, borderRadius: 10, background: 'var(--card,#111)', border: '1px solid var(--border,#262626)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <div>
-                <p style={{ fontSize: 14, fontWeight: 500 }}>{e.vendor || e.description || 'Expense'}</p>
+                <p style={{ fontSize: 14, fontWeight: 500 }}>{e.vendorName || e.description || 'Expense'}</p>
                 <p style={{ fontSize: 12, color: 'var(--muted-foreground,#888)' }}>{e.date ? new Date(e.date).toLocaleDateString() : ''}</p>
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>

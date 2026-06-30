@@ -747,7 +747,7 @@ async function sendDigest(
     row.map((b) => ({ text: b.text, callbackData: b.callback_data })),
   );
   const results = await sendToAllChannels(tenantId, message, {
-    plainText: true,
+    html: true,
     subject: 'Your AgentBook morning summary',
     buttons,
   });
