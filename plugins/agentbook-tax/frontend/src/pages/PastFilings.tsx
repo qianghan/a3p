@@ -111,31 +111,48 @@ export const PastFilingsPage: React.FC = () => {
   const [applyingPrefill, setApplyingPrefill] = useState(false);
 
   const handlePrefill = async (targetYear: number) => {
-    const res = await fetch(`${API}/past-filings/prefill?year=${targetYear}`);
-    const j = await res.json();
-    if (j.success && j.data.length > 0) {
-      setPrefillSuggestions(j.data);
-      setAcceptedFields(new Set(j.data.map((s: any) => s.fieldId)));
-      setPrefillYear(targetYear);
-    } else {
-      alert(`No pre-fill data found from ${targetYear - 1} filings.`);
+    try {
+      const res = await fetch(`${API}/past-filings/prefill?year=${targetYear}`);
+      const j = await res.json();
+      if (j.success && j.data.length > 0) {
+        setPrefillSuggestions(j.data);
+        setAcceptedFields(new Set(j.data.map((s: any) => s.fieldId)));
+        setPrefillYear(targetYear);
+      } else {
+        alert(`No pre-fill data found from ${targetYear - 1} filings.`);
+      }
+    } catch (e) {
+      alert('Could not load pre-fill suggestions.');
     }
   };
 
   const applyPrefill = async () => {
     if (!prefillYear) return;
+    const yearApplied = prefillYear;
     setApplyingPrefill(true);
     const toApply = prefillSuggestions.filter((s) => acceptedFields.has(s.fieldId));
+    const failed: string[] = [];
     for (const s of toApply) {
-      await fetch(`/api/v1/agentbook-tax/tax-filing/${prefillYear}/field`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ formCode: 'T2125', fieldId: s.fieldId, value: s.value }),
-      });
+      try {
+        const res = await fetch(`${API}/tax-filing/${yearApplied}/field`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ formCode: 'T2125', fieldId: s.fieldId, value: s.value }),
+        });
+        if (!res.ok) failed.push(s.fieldId);
+      } catch {
+        failed.push(s.fieldId);
+      }
     }
+    await load();
     setApplyingPrefill(false);
     setPrefillYear(null);
-    alert(`Applied ${toApply.length} pre-fill suggestion(s) to your ${prefillYear} return.`);
+    const applied = toApply.length - failed.length;
+    if (failed.length > 0) {
+      alert(`Applied ${applied} field(s) to your ${yearApplied} return. ${failed.length} failed: ${failed.join(', ')}`);
+    } else {
+      alert(`Applied ${applied} pre-fill suggestion(s) to your ${yearApplied} return.`);
+    }
   };
 
   const handleDownload = (id: string) => {
