@@ -1,21 +1,29 @@
 'use client';
 
 import React, { useCallback, useEffect, useState } from 'react';
-import { Users, Plus, Play, Loader2, Check } from 'lucide-react';
+import { Users, Plus, Play, Loader2, Check, Landmark, FileText, CalendarClock, Download } from 'lucide-react';
 
 const API = '/api/v1/agentbook-payroll';
 
 interface Employee { id: string; name: string; payType: string; payRateCents: number; payFrequency: string; jurisdiction: string }
-interface Stub { id: string; employeeName: string; grossCents: number; federalTaxCents: number; ficaCents: number; netCents: number }
+interface Stub { id: string; employeeName: string; grossCents: number; federalTaxCents: number; stateTaxCents: number; ficaCents: number; netCents: number }
 interface PayRun { id: string; periodStart: string; periodEnd: string; status: string; stubs: Stub[] }
+interface Deposit { id: string; form: string; periodLabel: string; amountCents: number; dueDate: string; status: string }
+interface YearEndForm { formType: string; employeeName: string; year: number; boxes: Record<string, number> }
 
 const fmt$ = (c: number) => '$' + (c / 100).toLocaleString('en-US', { maximumFractionDigits: 0 });
 const JURIS = [{ v: 'us', l: '🇺🇸 US' }, { v: 'ca', l: '🇨🇦 CA' }, { v: 'uk', l: '🇬🇧 UK' }, { v: 'au', l: '🇦🇺 AU' }];
 const FREQ = ['weekly', 'biweekly', 'semimonthly', 'monthly'];
+const FORM_LABEL: Record<string, string> = { '941': 'Form 941', '940': 'Form 940', t4: 'T4 remittance', paye: 'PAYE/NI', bas: 'BAS (PAYG)' };
+
+type Tab = 'employees' | 'runs' | 'deposits' | 'yearend';
 
 export default function PayrollPage() {
+  const [tab, setTab] = useState<Tab>('employees');
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [runs, setRuns] = useState<PayRun[]>([]);
+  const [deposits, setDeposits] = useState<Deposit[]>([]);
+  const [forms, setForms] = useState<YearEndForm[]>([]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [showForm, setShowForm] = useState(false);
@@ -23,18 +31,23 @@ export default function PayrollPage() {
   const [salary, setSalary] = useState('');
   const [freq, setFreq] = useState('biweekly');
   const [juris, setJuris] = useState('us');
+  const year = new Date().getFullYear();
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [e, r] = await Promise.all([
+      const [e, r, d, y] = await Promise.all([
         fetch(`${API}/employees`).then((x) => x.json()),
         fetch(`${API}/pay-runs`).then((x) => x.json()),
+        fetch(`${API}/tax-deposits`).then((x) => x.json()),
+        fetch(`${API}/year-end?year=${year}`).then((x) => x.json()),
       ]);
       if (e?.success) setEmployees(e.data);
       if (r?.success) setRuns(r.data);
+      if (d?.success) setDeposits(d.data);
+      if (y?.success) setForms(y.data.forms);
     } finally { setLoading(false); }
-  }, []);
+  }, [year]);
   useEffect(() => { void load(); }, [load]);
 
   const addEmployee = async () => {
@@ -58,24 +71,31 @@ export default function PayrollPage() {
         method: 'POST', headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ periodStart: start.toISOString().slice(0, 10), periodEnd: now.toISOString().slice(0, 10) }),
       }).then((x) => x.json());
-      if (create?.success) {
-        await fetch(`${API}/pay-runs/${create.data.id}/process`, { method: 'POST' });
-      }
+      if (create?.success) await fetch(`${API}/pay-runs/${create.data.id}/process`, { method: 'POST' });
       await load();
     } finally { setBusy(false); }
   };
 
+  const markDepositPaid = async (id: string) => {
+    await fetch(`${API}/tax-deposits`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id }) });
+    await load();
+  };
+
   if (loading) return <div className="flex justify-center py-24"><Loader2 className="w-6 h-6 animate-spin text-primary" /></div>;
+
+  const TABS: { id: Tab; label: string; icon: React.ReactNode; count?: number }[] = [
+    { id: 'employees', label: 'Employees', icon: <Users className="w-4 h-4" />, count: employees.length },
+    { id: 'runs', label: 'Pay runs', icon: <Play className="w-4 h-4" />, count: runs.length },
+    { id: 'deposits', label: 'Tax deposits', icon: <Landmark className="w-4 h-4" />, count: deposits.filter((d) => d.status === 'pending').length },
+    { id: 'yearend', label: 'Year-end', icon: <FileText className="w-4 h-4" /> },
+  ];
 
   return (
     <div className="max-w-4xl mx-auto p-4 sm:p-6">
-      <div className="flex items-center justify-between mb-5">
-        <div>
-          <h1 className="text-xl font-bold text-foreground flex items-center gap-2"><Users className="w-5 h-5" /> Payroll</h1>
-          <p className="text-sm text-muted-foreground mt-0.5">Pay employees and contractors with automatic withholding.</p>
-        </div>
+      <div className="flex items-center justify-between mb-1">
+        <h1 className="text-xl font-bold text-foreground flex items-center gap-2"><Users className="w-5 h-5" /> Payroll</h1>
         <div className="flex gap-2">
-          <button onClick={() => setShowForm((s) => !s)} className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium border border-border hover:bg-muted">
+          <button onClick={() => { setTab('employees'); setShowForm((s) => !s); }} className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium border border-border hover:bg-muted">
             <Plus className="w-4 h-4" /> Employee
           </button>
           <button onClick={() => void runPayroll()} disabled={busy || employees.length === 0}
@@ -84,70 +104,160 @@ export default function PayrollPage() {
           </button>
         </div>
       </div>
+      <p className="text-sm text-muted-foreground mb-5">Pay employees and contractors with automatic withholding, deposits, and year-end forms.</p>
 
-      {showForm && (
-        <div className="rounded-xl border border-border bg-card p-4 mb-5 grid grid-cols-1 sm:grid-cols-5 gap-3 items-end">
-          <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Name" className="rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground" />
-          <input type="number" value={salary} onChange={(e) => setSalary(e.target.value)} placeholder="Annual salary" className="rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground" />
-          <select value={freq} onChange={(e) => setFreq(e.target.value)} className="rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground capitalize">
-            {FREQ.map((f) => <option key={f} value={f}>{f}</option>)}
-          </select>
-          <select value={juris} onChange={(e) => setJuris(e.target.value)} className="rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground">
-            {JURIS.map((j) => <option key={j.v} value={j.v}>{j.l}</option>)}
-          </select>
-          <button onClick={() => void addEmployee()} disabled={busy || !name || !salary} className="px-4 py-2 rounded-lg text-sm font-medium bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-50">Save</button>
-        </div>
-      )}
+      {/* Tabs */}
+      <div className="flex border-b border-border mb-5 overflow-x-auto">
+        {TABS.map((t) => (
+          <button key={t.id} onClick={() => setTab(t.id)}
+            className={`flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium border-b-2 -mb-px whitespace-nowrap transition-colors ${
+              tab === t.id ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-foreground'}`}>
+            {t.icon}{t.label}
+            {t.count !== undefined && t.count > 0 && (
+              <span className={`ml-0.5 text-xs px-1.5 rounded-full ${tab === t.id ? 'bg-primary/10 text-primary' : 'bg-muted text-muted-foreground'}`}>{t.count}</span>
+            )}
+          </button>
+        ))}
+      </div>
 
-      <h2 className="text-sm font-semibold text-foreground mb-2">Employees ({employees.length})</h2>
-      {employees.length === 0 ? (
-        <p className="text-sm text-muted-foreground py-6 text-center rounded-xl border border-border bg-card mb-6">No employees yet.</p>
-      ) : (
-        <div className="rounded-xl border border-border bg-card divide-y divide-border mb-6">
-          {employees.map((e) => (
-            <div key={e.id} className="flex items-center justify-between px-4 py-3">
-              <div><p className="text-sm font-medium text-foreground">{e.name}</p>
-                <p className="text-xs text-muted-foreground capitalize">{e.payFrequency} · {e.jurisdiction.toUpperCase()}</p></div>
-              <p className="text-sm text-foreground">{fmt$(e.payRateCents)}/yr</p>
+      {/* Employees */}
+      {tab === 'employees' && (
+        <>
+          {showForm && (
+            <div className="rounded-xl border border-border bg-card p-4 mb-4 grid grid-cols-1 sm:grid-cols-5 gap-3 items-end">
+              <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Name" className="rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground" />
+              <input type="number" value={salary} onChange={(e) => setSalary(e.target.value)} placeholder="Annual salary" className="rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground" />
+              <select value={freq} onChange={(e) => setFreq(e.target.value)} className="rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground capitalize">
+                {FREQ.map((f) => <option key={f} value={f}>{f}</option>)}
+              </select>
+              <select value={juris} onChange={(e) => setJuris(e.target.value)} className="rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground">
+                {JURIS.map((j) => <option key={j.v} value={j.v}>{j.l}</option>)}
+              </select>
+              <button onClick={() => void addEmployee()} disabled={busy || !name || !salary} className="px-4 py-2 rounded-lg text-sm font-medium bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-50">Save</button>
             </div>
-          ))}
-        </div>
+          )}
+          {employees.length === 0 ? (
+            <Empty icon={<Users className="w-6 h-6" />} title="No employees yet" hint="Add your first employee to run payroll." />
+          ) : (
+            <div className="rounded-xl border border-border bg-card divide-y divide-border">
+              {employees.map((e) => (
+                <div key={e.id} className="flex items-center justify-between px-4 py-3">
+                  <div className="flex items-center gap-3">
+                    <div className="w-9 h-9 rounded-full bg-primary/10 text-primary flex items-center justify-center text-sm font-medium">{e.name.slice(0, 2).toUpperCase()}</div>
+                    <div><p className="text-sm font-medium text-foreground">{e.name}</p>
+                      <p className="text-xs text-muted-foreground capitalize">{e.payFrequency} · {e.jurisdiction.toUpperCase()}</p></div>
+                  </div>
+                  <p className="text-sm font-medium text-foreground">{fmt$(e.payRateCents)}<span className="text-muted-foreground font-normal">/yr</span></p>
+                </div>
+              ))}
+            </div>
+          )}
+        </>
       )}
 
-      <h2 className="text-sm font-semibold text-foreground mb-2">Pay runs</h2>
-      {runs.length === 0 ? (
-        <p className="text-sm text-muted-foreground py-6 text-center rounded-xl border border-border bg-card">No pay runs yet.</p>
-      ) : (
-        <div className="space-y-3">
-          {runs.map((r) => {
-            const gross = r.stubs.reduce((s, st) => s + st.grossCents, 0);
-            const net = r.stubs.reduce((s, st) => s + st.netCents, 0);
-            return (
-              <div key={r.id} className="rounded-xl border border-border bg-card p-4">
-                <div className="flex items-center justify-between mb-2">
-                  <p className="text-sm font-medium text-foreground">
-                    {new Date(r.periodStart).toLocaleDateString()} – {new Date(r.periodEnd).toLocaleDateString()}
-                  </p>
-                  <span className="inline-flex items-center gap-1 text-xs font-medium text-green-600">
-                    {r.status === 'paid' && <Check className="w-3.5 h-3.5" />}{r.status}
-                  </span>
+      {/* Pay runs */}
+      {tab === 'runs' && (
+        runs.length === 0 ? <Empty icon={<Play className="w-6 h-6" />} title="No pay runs yet" hint="Click “Run payroll” to pay your team for the current period." /> : (
+          <div className="space-y-3">
+            {runs.map((r) => {
+              const gross = r.stubs.reduce((s, st) => s + st.grossCents, 0);
+              const net = r.stubs.reduce((s, st) => s + st.netCents, 0);
+              const tax = gross - net;
+              return (
+                <div key={r.id} className="rounded-xl border border-border bg-card p-4">
+                  <div className="flex items-center justify-between mb-3">
+                    <p className="text-sm font-medium text-foreground">{new Date(r.periodStart).toLocaleDateString()} – {new Date(r.periodEnd).toLocaleDateString()}</p>
+                    <span className="inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full bg-primary/10 text-primary capitalize">
+                      {r.status === 'paid' && <Check className="w-3.5 h-3.5" />}{r.status}</span>
+                  </div>
+                  <div className="grid grid-cols-3 gap-3 mb-3">
+                    <Mini label="Gross" value={fmt$(gross)} />
+                    <Mini label="Withheld" value={fmt$(tax)} />
+                    <Mini label="Net pay" value={fmt$(net)} accent />
+                  </div>
+                  <div className="divide-y divide-border border-t border-border">
+                    {r.stubs.map((st) => (
+                      <div key={st.id} className="flex items-center justify-between py-1.5 text-xs">
+                        <span className="text-foreground">{st.employeeName}</span>
+                        <span className="text-muted-foreground">gross {fmt$(st.grossCents)} · tax {fmt$(st.federalTaxCents + st.stateTaxCents + st.ficaCents)} · net <span className="text-foreground font-medium">{fmt$(st.netCents)}</span></span>
+                      </div>
+                    ))}
+                  </div>
                 </div>
-                <div className="flex gap-4 text-xs text-muted-foreground mb-2">
-                  <span>Gross {fmt$(gross)}</span><span>Net {fmt$(net)}</span><span>{r.stubs.length} employees</span>
-                </div>
-                <div className="divide-y divide-border">
-                  {r.stubs.map((st) => (
-                    <div key={st.id} className="flex items-center justify-between py-1.5 text-xs">
-                      <span className="text-foreground">{st.employeeName}</span>
-                      <span className="text-muted-foreground">gross {fmt$(st.grossCents)} · tax {fmt$(st.federalTaxCents + st.ficaCents)} · net <span className="text-foreground font-medium">{fmt$(st.netCents)}</span></span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            );
-          })}
-        </div>
+              );
+            })}
+          </div>
+        )
       )}
+
+      {/* Tax deposits */}
+      {tab === 'deposits' && (
+        deposits.length === 0 ? <Empty icon={<Landmark className="w-6 h-6" />} title="No tax deposits yet" hint="Processed pay runs accrue payroll-tax remittance obligations here." /> : (
+          <div className="rounded-xl border border-border bg-card divide-y divide-border">
+            {deposits.map((d) => {
+              const overdue = d.status === 'pending' && new Date(d.dueDate) < new Date();
+              return (
+                <div key={d.id} className="flex items-center justify-between px-4 py-3">
+                  <div className="flex items-center gap-3">
+                    <CalendarClock className={`w-4 h-4 ${overdue ? 'text-destructive' : 'text-muted-foreground'}`} />
+                    <div>
+                      <p className="text-sm font-medium text-foreground">{FORM_LABEL[d.form] || d.form} · {d.periodLabel}</p>
+                      <p className={`text-xs ${overdue ? 'text-destructive' : 'text-muted-foreground'}`}>Due {new Date(d.dueDate).toLocaleDateString()}{overdue ? ' · overdue' : ''}</p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <span className="text-sm font-medium text-foreground">{fmt$(d.amountCents)}</span>
+                    {d.status === 'paid'
+                      ? <span className="text-xs text-primary inline-flex items-center gap-1"><Check className="w-3.5 h-3.5" />paid</span>
+                      : <button onClick={() => void markDepositPaid(d.id)} className="text-xs px-2.5 py-1 rounded-md border border-border hover:bg-muted">Mark paid</button>}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )
+      )}
+
+      {/* Year-end */}
+      {tab === 'yearend' && (
+        <>
+          <p className="text-sm text-muted-foreground mb-3">{year} forms, generated from processed pay runs.</p>
+          {forms.length === 0 ? <Empty icon={<FileText className="w-6 h-6" />} title="No forms yet" hint={`Process payroll in ${year} to generate W-2 / T4 forms.`} /> : (
+            <div className="rounded-xl border border-border bg-card divide-y divide-border">
+              {forms.map((f, i) => (
+                <div key={i} className="flex items-center justify-between px-4 py-3">
+                  <div>
+                    <p className="text-sm font-medium text-foreground">{f.employeeName}</p>
+                    <p className="text-xs text-muted-foreground">{f.formType} · gross {fmt$(f.boxes.grossWagesCents || 0)} · tax {fmt$((f.boxes.incomeTaxWithheldCents || 0) + (f.boxes.ficaWithheldCents || 0))}</p>
+                  </div>
+                  <a href={`${API}/year-end?year=${year}`} target="_blank" rel="noreferrer" className="text-xs px-2.5 py-1 rounded-md border border-border hover:bg-muted inline-flex items-center gap-1">
+                    <Download className="w-3.5 h-3.5" />{f.formType}
+                  </a>
+                </div>
+              ))}
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+function Mini({ label, value, accent }: { label: string; value: string; accent?: boolean }) {
+  return (
+    <div className="rounded-lg bg-background border border-border p-2.5">
+      <p className="text-xs text-muted-foreground">{label}</p>
+      <p className={`text-sm font-bold ${accent ? 'text-primary' : 'text-foreground'}`}>{value}</p>
+    </div>
+  );
+}
+
+function Empty({ icon, title, hint }: { icon: React.ReactNode; title: string; hint: string }) {
+  return (
+    <div className="rounded-xl border border-dashed border-border bg-card py-12 text-center">
+      <div className="w-12 h-12 rounded-full bg-muted text-muted-foreground flex items-center justify-center mx-auto mb-3">{icon}</div>
+      <p className="text-sm font-medium text-foreground">{title}</p>
+      <p className="text-xs text-muted-foreground mt-1">{hint}</p>
     </div>
   );
 }

@@ -247,6 +247,8 @@ export function Sidebar() {
     const seenPlugins = new Set<string>();
     const uniquePlugins = (plugins || []).filter(p => {
       if (!p?.enabled) return false;
+      // Billing lives under Settings → AgentBook → Billing, not the main nav.
+      if (normalizePluginName(p.name).includes('billing')) return false;
       // Skip plugins the user hasn't installed (and aren't core).
       // The API returns all globally-enabled plugins with `installed: false`
       // for ones the user hasn't explicitly added — these should not appear
