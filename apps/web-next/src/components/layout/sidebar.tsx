@@ -27,7 +27,6 @@ import {
   Wallet,
   UserCheck,
   Banknote,
-  Smartphone,
   Receipt,
   Radio,
   BarChart3,
@@ -287,15 +286,14 @@ export function Sidebar() {
   const staticNetworkItems: NavItem[] = [];
 
   // Static main items for native (non-plugin) AgentBook pages that aren't in
-  // the plugin registry — Personal finance, Accountant/CPA, Payroll, Bills,
-  // and the mobile app. These ship as Next.js routes, so they need explicit
-  // sidebar entries.
+  // the plugin registry. Ordered by mental model: payables → payroll →
+  // personal → advisor. The mobile PWA is intentionally NOT a nav item — it's
+  // reached by installing the app (start_url /app), not from the desktop menu.
   const staticMainItems: NavItem[] = [
-    { name: 'Bills', href: '/agentbook/bills', icon: Receipt },
-    { name: 'Personal', href: '/personal', icon: Wallet },
-    { name: 'Accountant', href: '/accountant', icon: UserCheck },
+    { name: 'Bills', href: '/agentbook/expenses/bills', icon: Receipt },
     { name: 'Payroll', href: '/payroll', icon: Banknote },
-    { name: 'Mobile app', href: '/app', icon: Smartphone },
+    { name: 'Personal finance', href: '/personal', icon: Wallet },
+    { name: 'Accountant', href: '/accountant', icon: UserCheck },
   ];
 
   // Routes that should use exact matching only
