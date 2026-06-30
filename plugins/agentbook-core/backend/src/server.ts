@@ -3650,6 +3650,144 @@ async function _executeClassificationCore(
     }
   }
 
+  // INTERNAL handler: manage-bills — accounts payable via direct DB
+  if (selectedSkill.name === 'manage-bills') {
+    try {
+      const fmt = (c: number) => '$' + (c / 100).toLocaleString();
+      const action = String(extractedParams.action || 'list').toLowerCase();
+      if (action === 'create' && extractedParams.vendorName && extractedParams.amountCents) {
+        const due = extractedParams.dueDate ? new Date(extractedParams.dueDate as string) : new Date(Date.now() + 14 * 86400000);
+        const bill = await db.abBill.create({ data: { tenantId, vendorName: String(extractedParams.vendorName), amountCents: Number(extractedParams.amountCents), dueDate: isNaN(due.getTime()) ? new Date(Date.now() + 14 * 86400000) : due, status: 'open' } });
+        const message = `Recorded a bill: **${bill.vendorName}** for ${fmt(bill.amountCents)}, due ${new Date(bill.dueDate).toLocaleDateString()}.`;
+        await db.abConversation.create({ data: { tenantId, question: text, answer: message, queryType: 'agent', channel, skillUsed: 'manage-bills' } });
+        return { selectedSkill, extractedParams, confidence, skillUsed: 'manage-bills', skillResponse: { data: bill }, responseData: { message, actions: [], chartData: null, skillUsed: 'manage-bills', confidence, latencyMs: Date.now() - startTime } };
+      }
+      const bills = await db.abBill.findMany({ where: { tenantId, status: 'open' }, orderBy: { dueDate: 'asc' } });
+      const now = new Date();
+      const openCents = bills.reduce((s, b) => s + b.amountCents, 0);
+      const overdue = bills.filter((b) => b.dueDate < now);
+      let message: string;
+      if (bills.length === 0) {
+        message = "You have no open bills. Add one on the Bills page or say e.g. \"add a $800 rent bill due Friday\".";
+      } else {
+        const list = bills.slice(0, 8).map((b) => `${b.dueDate < now ? '🔴' : '🟡'} **${b.vendorName}** — ${fmt(b.amountCents)} due ${new Date(b.dueDate).toLocaleDateString()}`).join('\n');
+        message = `You owe **${fmt(openCents)}** across ${bills.length} open bill${bills.length === 1 ? '' : 's'}${overdue.length ? ` (${overdue.length} overdue)` : ''}:\n\n${list}`;
+      }
+      await db.abConversation.create({ data: { tenantId, question: text, answer: message, queryType: 'agent', channel, skillUsed: 'manage-bills' } });
+      return { selectedSkill, extractedParams, confidence, skillUsed: 'manage-bills', skillResponse: { data: bills }, responseData: { message, actions: [], chartData: null, skillUsed: 'manage-bills', confidence, latencyMs: Date.now() - startTime } };
+    } catch (err) {
+      console.error('[manage-bills] error:', err);
+      return { selectedSkill, extractedParams, confidence: 0, skillUsed: 'manage-bills', skillResponse: null, responseData: { message: "I couldn't load your bills. Please try again.", actions: [], chartData: null, skillUsed: 'manage-bills', confidence: 0, latencyMs: Date.now() - startTime } };
+    }
+  }
+
+  // INTERNAL handler: personal-snapshot — household finance via direct DB
+  if (selectedSkill.name === 'personal-snapshot') {
+    try {
+      const fmt = (c: number) => '$' + Math.round(c / 100).toLocaleString();
+      const monthStart = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
+      const [accounts, txns] = await Promise.all([
+        db.abPersonalAccount.findMany({ where: { tenantId, archived: false } }),
+        db.abPersonalTransaction.findMany({ where: { tenantId, date: { gte: monthStart } }, select: { amountCents: true } }),
+      ]);
+      if (accounts.length === 0) {
+        const message = "You haven't set up any personal accounts yet. Add your checking, savings, or credit cards on the Personal page to see your net worth.";
+        await db.abConversation.create({ data: { tenantId, question: text, answer: message, queryType: 'agent', channel, skillUsed: 'personal-snapshot' } });
+        return { selectedSkill, extractedParams, confidence, skillUsed: 'personal-snapshot', skillResponse: { data: null }, responseData: { message, actions: [], chartData: null, skillUsed: 'personal-snapshot', confidence, latencyMs: Date.now() - startTime } };
+      }
+      let assets = 0, liabilities = 0;
+      for (const a of accounts) { if (a.isAsset) assets += a.balanceCents; else liabilities += Math.abs(a.balanceCents); }
+      const net = assets - liabilities;
+      let income = 0, spending = 0;
+      for (const t of txns) { if (t.amountCents >= 0) income += t.amountCents; else spending += Math.abs(t.amountCents); }
+      const savingsRate = income > 0 ? Math.round(((income - spending) / income) * 100) : 0;
+      const message = `**Net worth: ${fmt(net)}** (${fmt(assets)} assets − ${fmt(liabilities)} liabilities).\nThis month: income ${fmt(income)}, spending ${fmt(spending)}, savings rate ${savingsRate}%.`;
+      await db.abConversation.create({ data: { tenantId, question: text, answer: message, queryType: 'agent', channel, skillUsed: 'personal-snapshot' } });
+      return { selectedSkill, extractedParams, confidence, skillUsed: 'personal-snapshot', skillResponse: { data: { net } }, responseData: { message, actions: [], chartData: null, skillUsed: 'personal-snapshot', confidence, latencyMs: Date.now() - startTime } };
+    } catch (err) {
+      console.error('[personal-snapshot] error:', err);
+      return { selectedSkill, extractedParams, confidence: 0, skillUsed: 'personal-snapshot', skillResponse: null, responseData: { message: "I couldn't load your personal finances. Please try again.", actions: [], chartData: null, skillUsed: 'personal-snapshot', confidence: 0, latencyMs: Date.now() - startTime } };
+    }
+  }
+
+  // INTERNAL handler: payroll-status — direct DB
+  if (selectedSkill.name === 'payroll-status') {
+    try {
+      const fmt = (c: number) => '$' + Math.round(c / 100).toLocaleString();
+      const [employees, lastRun] = await Promise.all([
+        db.abEmployee.findMany({ where: { tenantId, isActive: true } }),
+        db.abPayRun.findFirst({ where: { tenantId }, orderBy: { periodEnd: 'desc' }, include: { stubs: true } }),
+      ]);
+      let message: string;
+      if (employees.length === 0) {
+        message = "You don't have any employees set up. Add them on the Payroll page to run payroll.";
+      } else {
+        const names = employees.slice(0, 8).map((e) => `• ${e.name} (${fmt(e.payRateCents)}/yr, ${e.payFrequency})`).join('\n');
+        let runLine = 'No payroll has been run yet.';
+        if (lastRun) {
+          const gross = lastRun.stubs.reduce((s, st) => s + st.grossCents, 0);
+          const net = lastRun.stubs.reduce((s, st) => s + st.netCents, 0);
+          runLine = `Last run ${new Date(lastRun.periodStart).toLocaleDateString()}–${new Date(lastRun.periodEnd).toLocaleDateString()} (${lastRun.status}): gross ${fmt(gross)}, net ${fmt(net)}.`;
+        }
+        message = `You have **${employees.length} employee${employees.length === 1 ? '' : 's'}** on payroll:\n${names}\n\n${runLine}`;
+      }
+      await db.abConversation.create({ data: { tenantId, question: text, answer: message, queryType: 'agent', channel, skillUsed: 'payroll-status' } });
+      return { selectedSkill, extractedParams, confidence, skillUsed: 'payroll-status', skillResponse: { data: { count: employees.length } }, responseData: { message, actions: [], chartData: null, skillUsed: 'payroll-status', confidence, latencyMs: Date.now() - startTime } };
+    } catch (err) {
+      console.error('[payroll-status] error:', err);
+      return { selectedSkill, extractedParams, confidence: 0, skillUsed: 'payroll-status', skillResponse: null, responseData: { message: "I couldn't load payroll. Please try again.", actions: [], chartData: null, skillUsed: 'payroll-status', confidence: 0, latencyMs: Date.now() - startTime } };
+    }
+  }
+
+  // INTERNAL handler: run-payroll — preview only (tells user to process on Payroll page)
+  if (selectedSkill.name === 'run-payroll') {
+    try {
+      const fmt = (c: number) => '$' + Math.round(c / 100).toLocaleString();
+      const employees = await db.abEmployee.findMany({ where: { tenantId, isActive: true } });
+      if (employees.length === 0) {
+        const message = "There are no active employees to pay. Add them on the Payroll page first.";
+        await db.abConversation.create({ data: { tenantId, question: text, answer: message, queryType: 'agent', channel, skillUsed: 'run-payroll' } });
+        return { selectedSkill, extractedParams, confidence, skillUsed: 'run-payroll', skillResponse: { data: null }, responseData: { message, actions: [], chartData: null, skillUsed: 'run-payroll', confidence, latencyMs: Date.now() - startTime } };
+      }
+      const PERIODS: Record<string, number> = { weekly: 52, biweekly: 26, semimonthly: 24, monthly: 12 };
+      const totalGross = employees.reduce((s, e) => s + (e.payType === 'salary' ? Math.round(e.payRateCents / (PERIODS[e.payFrequency] ?? 26)) : e.payRateCents), 0);
+      const message = `Ready to run payroll for **${employees.length} employee${employees.length === 1 ? '' : 's'}** — about **${fmt(totalGross)}** gross this period. Open the **Payroll** page and click "Run payroll" to compute exact withholding and process it.`;
+      await db.abConversation.create({ data: { tenantId, question: text, answer: message, queryType: 'agent', channel, skillUsed: 'run-payroll' } });
+      return { selectedSkill, extractedParams, confidence, skillUsed: 'run-payroll', skillResponse: { data: { totalGross } }, responseData: { message, actions: [], chartData: null, skillUsed: 'run-payroll', confidence, latencyMs: Date.now() - startTime } };
+    } catch (err) {
+      console.error('[run-payroll] error:', err);
+      return { selectedSkill, extractedParams, confidence: 0, skillUsed: 'run-payroll', skillResponse: null, responseData: { message: "I couldn't prepare payroll. Please try again.", actions: [], chartData: null, skillUsed: 'run-payroll', confidence: 0, latencyMs: Date.now() - startTime } };
+    }
+  }
+
+  // INTERNAL handler: cpa-review — quick books-health check via direct DB
+  if (selectedSkill.name === 'cpa-review') {
+    try {
+      const fmt = (c: number) => '$' + Math.round(c / 100).toLocaleString();
+      const now = new Date();
+      const [uncategorized, missingReceipts, openBills] = await Promise.all([
+        db.abExpense.count({ where: { tenantId, deletedAt: null, status: 'confirmed', categoryId: null } }),
+        db.abExpense.count({ where: { tenantId, deletedAt: null, status: 'confirmed', receiptUrl: null } }),
+        db.abBill.findMany({ where: { tenantId, status: 'open' } }),
+      ]);
+      const overdue = openBills.filter((b) => b.dueDate < now);
+      const findings: string[] = [];
+      if (uncategorized > 0) findings.push(`🟡 ${uncategorized} uncategorized expense${uncategorized === 1 ? '' : 's'} — categorize so they flow to the right tax line.`);
+      if (missingReceipts > 0) findings.push(`🟡 ${missingReceipts} expense${missingReceipts === 1 ? '' : 's'} missing a receipt — attach for audit-readiness.`);
+      if (overdue.length > 0) findings.push(`🔴 ${overdue.length} overdue bill${overdue.length === 1 ? '' : 's'} (${fmt(overdue.reduce((s, b) => s + b.amountCents, 0))}) — review and pay.`);
+      const penalty = (uncategorized > 0 ? 8 : 0) + (missingReceipts > 0 ? 8 : 0) + (overdue.length > 0 ? 18 : 0);
+      const score = Math.max(0, 100 - penalty);
+      const message = findings.length === 0
+        ? `✅ **Books look healthy (${score}/100).** No issues found in a quick review. Open the **Accountant** page for a full report.`
+        : `**Books health: ${score}/100.** Top items:\n\n${findings.join('\n')}\n\nOpen the **Accountant** page for the full review.`;
+      await db.abConversation.create({ data: { tenantId, question: text, answer: message, queryType: 'agent', channel, skillUsed: 'cpa-review' } });
+      return { selectedSkill, extractedParams, confidence, skillUsed: 'cpa-review', skillResponse: { data: { score } }, responseData: { message, actions: [], chartData: null, skillUsed: 'cpa-review', confidence, latencyMs: Date.now() - startTime } };
+    } catch (err) {
+      console.error('[cpa-review] error:', err);
+      return { selectedSkill, extractedParams, confidence: 0, skillUsed: 'cpa-review', skillResponse: null, responseData: { message: "I couldn't review the books. Please try again.", actions: [], chartData: null, skillUsed: 'cpa-review', confidence: 0, latencyMs: Date.now() - startTime } };
+    }
+  }
+
   if (selectedSkill.name === 'tax-filing-start') {
     try {
       const taxBase = baseUrls['/api/v1/agentbook-tax'] || 'http://localhost:4053';

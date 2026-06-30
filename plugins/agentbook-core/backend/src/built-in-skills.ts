@@ -22,7 +22,7 @@ export const BUILT_IN_SKILLS = [
     endpoint: { method: 'POST', url: '/api/v1/agentbook-expense/advisor/ask' },
   },
   {
-    name: 'query-finance', description: 'Ask about cash balance, revenue, profit, tax, clients, or general financial questions', category: 'finance',
+    name: 'query-finance', description: 'Ask about cash balance, revenue, profit, tax (incl. combined W-2 + self-employment income), clients, or general financial questions', category: 'finance',
     triggerPatterns: ['balance', 'revenue', 'profit', 'loss', 'tax', 'client.*owe', 'outstanding', 'income', 'net '],
     // Tax / report / cash-flow / reconciliation / tax-filing utterances have
     // dedicated skills — exclude them here so query-finance doesn't shadow.
@@ -476,6 +476,54 @@ export const BUILT_IN_SKILLS = [
       year: { type: 'number', required: false, extractHint: '4-digit tax year if mentioned' },
       formType: { type: 'string', required: false, extractHint: 'form type like T1, NOA, 1040' },
     },
+    endpoint: { method: 'INTERNAL', url: '' },
+  },
+  {
+    name: 'manage-bills',
+    description: 'Record bills owed to vendors, list bills that are due or overdue, and report accounts payable. Use when the user mentions owing money, rent due, vendor bills, or asks what bills are due.',
+    category: 'bookkeeping',
+    triggerPatterns: ['bills? due', 'what.*owe', 'owe ', 'payable', 'rent.*due', 'bill from', 'add.*bill', 'record.*bill', 'overdue bill'],
+    excludePatterns: ['invoice', 'estimate'],
+    parameters: {
+      action: { type: 'string', required: false, extractHint: 'create or list (default list)' },
+      vendorName: { type: 'string', required: false, extractHint: 'vendor name when creating' },
+      amountCents: { type: 'number', required: false, extractHint: 'dollar amount times 100 when creating' },
+      dueDate: { type: 'date', required: false, extractHint: 'due date when creating' },
+    },
+    endpoint: { method: 'INTERNAL', url: '' },
+  },
+  {
+    name: 'personal-snapshot',
+    description: 'Answer personal/household finance questions — net worth, monthly spending, income, savings rate (kept separate from the business books).',
+    category: 'finance',
+    triggerPatterns: ['net worth', 'personal finance', 'household', 'family budget', 'savings rate', 'how much.*saved', 'my personal'],
+    excludePatterns: ['business'],
+    parameters: {},
+    endpoint: { method: 'INTERNAL', url: '' },
+  },
+  {
+    name: 'payroll-status',
+    description: 'Answer payroll questions — who is on payroll, how many employees, when the last pay run was and its totals.',
+    category: 'finance',
+    triggerPatterns: ['payroll', 'who.*payroll', 'employees', 'last payroll', 'pay run', 'who.*pay'],
+    excludePatterns: ['run payroll', 'process payroll'],
+    parameters: {},
+    endpoint: { method: 'INTERNAL', url: '' },
+  },
+  {
+    name: 'run-payroll',
+    description: 'Prepare a payroll run for the current period — compute gross, withholding, and net for each employee as a draft to review and process on the Payroll page.',
+    category: 'finance',
+    triggerPatterns: ['run payroll', 'process payroll', 'pay.*employees', 'do payroll'],
+    parameters: {},
+    endpoint: { method: 'INTERNAL', url: '' },
+  },
+  {
+    name: 'cpa-review',
+    description: 'Run an AI accountant review of the books and list the top actionable findings with a health score.',
+    category: 'finance',
+    triggerPatterns: ['review my books', 'cpa review', 'check my books', 'are my books', 'accountant review', 'books health', 'review the books'],
+    parameters: {},
     endpoint: { method: 'INTERNAL', url: '' },
   },
   {
