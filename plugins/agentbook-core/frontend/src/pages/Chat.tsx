@@ -1,5 +1,5 @@
-import React, { useEffect, useRef, useState } from 'react';
-import { Send, MessageSquare, Loader2, BookOpen, Activity } from 'lucide-react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { Send, MessageSquare, Loader2, BookOpen, Activity, Globe, Phone, ChevronLeft, ChevronRight } from 'lucide-react';
 import { useAgentEvents } from '@naap/plugin-sdk';
 import { PlanPreview, type PlanStep } from '../components/PlanPreview';
 
@@ -15,6 +15,23 @@ interface Citation {
   kind: string;
   label: string;
   details?: Record<string, unknown>;
+}
+
+interface ThreadTurn {
+  role: 'user' | 'bot';
+  text: string;
+  at: string;
+  intent?: string;
+}
+
+interface ThreadSummary {
+  id: string;
+  channel: string;
+  chatId: string;
+  status: string;
+  lastActiveAt: string;
+  summary: string | null;
+  lastTurn: ThreadTurn | null;
 }
 
 /**
@@ -67,21 +84,96 @@ interface AgentResponseData {
   citations?: Citation[];
 }
 
+function relativeTime(iso: string): string {
+  const diff = Date.now() - new Date(iso).getTime();
+  if (diff < 60000) return 'just now';
+  if (diff < 3600000) return `${Math.floor(diff / 60000)}m ago`;
+  if (diff < 86400000) return `${Math.floor(diff / 3600000)}h ago`;
+  return `${Math.floor(diff / 86400000)}d ago`;
+}
+
+function ChannelIcon({ channel }: { channel: string }): JSX.Element {
+  if (channel === 'telegram') return <Send className="w-3.5 h-3.5 text-blue-400" />;
+  if (channel === 'whatsapp') return <Phone className="w-3.5 h-3.5 text-green-400" />;
+  return <Globe className="w-3.5 h-3.5 text-muted-foreground" />;
+}
+
+function SessionsPanel({
+  threads,
+  activeThreadId,
+  onSelect,
+}: {
+  threads: ThreadSummary[];
+  activeThreadId: string | null;
+  onSelect: (t: ThreadSummary) => void;
+}): JSX.Element {
+  const channels = ['web', 'telegram', 'whatsapp', 'api'];
+  const grouped = channels.reduce<Record<string, ThreadSummary[]>>((acc, ch) => {
+    const items = threads.filter((t) => t.channel === ch);
+    if (items.length) acc[ch] = items;
+    return acc;
+  }, {});
+
+  return (
+    <div className="flex flex-col h-full overflow-y-auto">
+      {Object.entries(grouped).map(([ch, items]) => (
+        <div key={ch} className="mb-2">
+          <div className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/60 flex items-center gap-1.5">
+            <ChannelIcon channel={ch} />
+            {ch}
+          </div>
+          {items.map((t) => (
+            <button
+              key={t.id}
+              onClick={() => onSelect(t)}
+              className={`w-full text-left px-3 py-2 rounded-lg mx-1 mb-0.5 transition-colors ${
+                t.id === activeThreadId
+                  ? 'bg-primary/10 border border-primary/20'
+                  : 'hover:bg-muted/50'
+              }`}
+            >
+              <div className="flex items-center justify-between gap-1">
+                <span className="text-[11px] font-medium text-foreground truncate">
+                  {t.lastTurn?.text?.slice(0, 45) ?? 'No messages yet'}
+                </span>
+                <span className="text-[10px] text-muted-foreground shrink-0">
+                  {relativeTime(t.lastActiveAt)}
+                </span>
+              </div>
+            </button>
+          ))}
+        </div>
+      ))}
+      {threads.length === 0 && (
+        <p className="text-[11px] text-muted-foreground px-3 py-4">No sessions yet.</p>
+      )}
+    </div>
+  );
+}
+
 /**
  * AgentBook web chat surface. This is the default landing page for the plugin
  * (replacing the dashboard at /) — AgentBook is agent-first, so the chat IS the
  * homepage.
  *
+ * Task 9: loads conversation history on mount from the threads API, and renders
+ * a collapsible SessionsPanel showing threads grouped by channel (web, telegram,
+ * whatsapp, api). Selecting a non-web thread shows it in read-only mode.
+ *
  * When the agent returns plan.requiresConfirmation === true, the bubble renders
  * an inline <PlanPreview> with Proceed / Cancel buttons. Proceed re-submits
  * with sessionAction: 'confirm' and the stored sessionId; Cancel sends 'cancel'.
- * Closes G-012 (third and final rubric auto-fail clause).
  */
 export const ChatPage: React.FC = () => {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [sessionId, setSessionId] = useState<string | undefined>(undefined);
+  const [historyLoading, setHistoryLoading] = useState(true);
+  const [threads, setThreads] = useState<ThreadSummary[]>([]);
+  const [activeThreadId, setActiveThreadId] = useState<string | null>(null);
+  const [viewingChannel, setViewingChannel] = useState<string | null>(null);
+  const [panelOpen, setPanelOpen] = useState(true);
   const listRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -97,6 +189,40 @@ export const ChatPage: React.FC = () => {
     agentEventKinds['agent.step_started'] && !agentEventKinds['agent.plan_completed'],
   );
 
+  // Load threads + web history on mount.
+  useEffect(() => {
+    async function loadHistory() {
+      try {
+        const threadsRes = await fetch(`${API}/threads`, { credentials: 'include' });
+        const threadsJson = (await threadsRes.json()) as { success: boolean; data: ThreadSummary[] };
+        if (threadsJson.success) {
+          setThreads(threadsJson.data);
+          const webThread = threadsJson.data.find((t) => t.channel === 'web' && t.status === 'active');
+          if (webThread) {
+            setActiveThreadId(webThread.id);
+            const turnRes = await fetch(`${API}/threads/${webThread.id}/turns`, {
+              credentials: 'include',
+            });
+            const turnJson = (await turnRes.json()) as { success: boolean; data: ThreadTurn[] };
+            if (turnJson.success && turnJson.data.length > 0) {
+              setMessages(
+                turnJson.data.map((turn) => ({
+                  role: (turn.role === 'user' ? 'user' : 'agent') as 'user' | 'agent',
+                  text: turn.text,
+                })),
+              );
+            }
+          }
+        }
+      } catch {
+        // Non-fatal — start with empty history.
+      } finally {
+        setHistoryLoading(false);
+      }
+    }
+    void loadHistory();
+  }, []);
+
   // Auto-scroll to bottom when messages change.
   useEffect(() => {
     if (listRef.current) {
@@ -104,8 +230,31 @@ export const ChatPage: React.FC = () => {
     }
   }, [messages, loading]);
 
+  const loadThreadMessages = useCallback(async (thread: ThreadSummary) => {
+    setViewingChannel(null);
+    try {
+      const res = await fetch(`${API}/threads/${thread.id}/turns`, { credentials: 'include' });
+      const json = (await res.json()) as { success: boolean; data: ThreadTurn[] };
+      if (json.success) {
+        setMessages(
+          json.data.map((turn) => ({
+            role: (turn.role === 'user' ? 'user' : 'agent') as 'user' | 'agent',
+            text: turn.text,
+          })),
+        );
+      }
+    } catch {
+      // Non-fatal
+    }
+    // Only enter read-only viewing mode for non-web threads.
+    if (thread.channel !== 'web') {
+      setViewingChannel(thread.channel);
+    }
+  }, []);
+
   async function submit(text: string, sessionAction?: 'confirm' | 'cancel') {
     if (!text.trim() && !sessionAction) return;
+    if (viewingChannel) return;
     setLoading(true);
     // Only show the user bubble for free-text submissions, not for
     // Proceed/Cancel button clicks (which carry their own visual signal).
@@ -160,7 +309,7 @@ export const ChatPage: React.FC = () => {
 
   function handleSubmit(e?: React.FormEvent) {
     e?.preventDefault();
-    if (loading || !input.trim()) return;
+    if (loading || !input.trim() || viewingChannel) return;
     const text = input;
     setInput('');
     // Reset textarea height.
@@ -184,164 +333,224 @@ export const ChatPage: React.FC = () => {
     ta.style.height = `${Math.min(ta.scrollHeight, 160)}px`;
   }
 
+  const isReadOnly = Boolean(viewingChannel);
+
   return (
-    <div className="flex flex-col h-full bg-background">
-      {/* Header */}
-      <div className="flex items-center gap-3 px-4 py-3 border-b border-border bg-card">
-        <MessageSquare className="w-5 h-5 text-primary" />
-        <div>
-          <h1 className="text-base font-semibold">AgentBook</h1>
-          <p className="text-xs text-muted-foreground">
-            Your AI bookkeeper
-          </p>
-        </div>
-      </div>
-
-      {/* Message list */}
-      <div
-        ref={listRef}
-        className="flex-1 overflow-y-auto px-4 py-6 space-y-4"
-        data-testid="chat-messages"
-      >
-        {messages.length === 0 && !loading && (
-          <div className="text-center text-muted-foreground text-sm py-12 max-w-md mx-auto">
-            <MessageSquare className="w-8 h-8 mx-auto mb-3 text-muted-foreground/50" />
-            <p className="font-medium mb-1">Hi! Try:</p>
-            <p className="text-xs">&ldquo;log $5 coffee&rdquo;</p>
-            <p className="text-xs">&ldquo;how much have I spent this month?&rdquo;</p>
-            <p className="text-xs">&ldquo;send the latest draft invoice to acme&rdquo;</p>
-          </div>
-        )}
-
-        {messages.map((msg, i) => (
-          <div
-            key={i}
-            className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
-          >
-            <div
-              className={
-                msg.role === 'user'
-                  ? 'max-w-[80%] rounded-2xl px-4 py-2 bg-primary text-primary-foreground'
-                  : `max-w-[85%] rounded-2xl px-4 py-3 bg-card border ${msg.error ? 'border-destructive/40' : 'border-border'}`
-              }
+    <div className="flex h-full bg-background">
+      {/* Collapsible sessions sidebar */}
+      {panelOpen && (
+        <div className="w-56 shrink-0 border-r border-border bg-card flex flex-col">
+          <div className="flex items-center justify-between px-3 py-2.5 border-b border-border">
+            <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+              Sessions
+            </span>
+            <button
+              onClick={() => setPanelOpen(false)}
+              className="text-muted-foreground hover:text-foreground"
             >
-              {msg.text && (
-                <div className="text-sm whitespace-pre-wrap break-words">
-                  {msg.text}
-                </div>
-              )}
-              {msg.role === 'agent' && msg.plan?.requiresConfirmation && (
-                <PlanPreview
-                  steps={msg.plan.steps}
-                  onProceed={() => void submit('', 'confirm')}
-                  onCancel={() => void submit('', 'cancel')}
-                  disabled={loading}
-                />
-              )}
-              {msg.role === 'agent' && msg.citations && msg.citations.length > 0 && (
-                <div className="mt-2 pt-2 border-t border-border/50">
-                  <div className="text-[10px] text-muted-foreground/70 mb-1 flex items-center gap-1">
-                    <BookOpen className="w-3 h-3" />
-                    Based on
-                  </div>
-                  <div className="flex flex-wrap gap-1">
-                    {msg.citations.map((c, ci) => {
-                      const href = citationHref(c);
-                      const baseCls =
-                        'text-[10px] px-2 py-0.5 rounded-full border border-border/50';
-                      const linkCls =
-                        `${baseCls} bg-muted hover:bg-muted/70 text-muted-foreground hover:text-foreground transition-colors`;
-                      const plainCls = `${baseCls} bg-muted text-muted-foreground`;
-                      // Linkable citations (PR 56) become anchors with the
-                      // appropriate href; context-only stays as a plain span.
-                      return href ? (
-                        <a
-                          key={ci}
-                          href={href}
-                          title={c.details ? JSON.stringify(c.details) : c.kind}
-                          className={linkCls}
-                          data-testid="chat-citation"
-                        >
-                          {c.label}
-                        </a>
-                      ) : (
-                        <span
-                          key={ci}
-                          title={c.details ? JSON.stringify(c.details) : c.kind}
-                          className={plainCls}
-                          data-testid="chat-citation"
-                        >
-                          {c.label}
-                        </span>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
-              {msg.role === 'agent' && msg.skillUsed && !msg.error && (
-                <div className="mt-1 text-[10px] text-muted-foreground/70">
-                  {msg.skillUsed}
-                </div>
-              )}
-            </div>
+              <ChevronLeft className="w-4 h-4" />
+            </button>
           </div>
-        ))}
-
-        {loading && (
-          <div className="flex justify-start">
-            <div className="max-w-[85%] rounded-2xl px-4 py-3 bg-card border border-border">
-              <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                <Loader2 className="w-4 h-4 animate-spin" />
-                Thinking...
-              </div>
-            </div>
+          <div className="flex-1 overflow-y-auto py-2">
+            <SessionsPanel
+              threads={threads}
+              activeThreadId={activeThreadId}
+              onSelect={(t) => {
+                setActiveThreadId(t.id);
+                void loadThreadMessages(t);
+              }}
+            />
           </div>
-        )}
-
-        {/* PR 58 / Tier 1 #1: intermediate-state indicator for multi-step
-            plans. Surfaces when the agent is mid-plan but this tab isn't
-            actively waiting on a request (e.g. the user navigated back
-            after kicking off a long plan). */}
-        {!loading && planInProgress && (
-          <div className="flex justify-start" data-testid="agent-plan-indicator">
-            <div className="max-w-[85%] rounded-2xl px-4 py-2 bg-amber-500/10 border border-amber-500/20">
-              <div className="flex items-center gap-2 text-sm text-amber-700 dark:text-amber-400">
-                <Activity className="w-4 h-4 animate-pulse" />
-                Agent is running a multi-step plan in the background…
-              </div>
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* Input row */}
-      <form
-        onSubmit={handleSubmit}
-        className="border-t border-border bg-card px-4 py-3"
-      >
-        <div className="flex items-end gap-2 max-w-3xl mx-auto">
-          <textarea
-            ref={textareaRef}
-            name="message"
-            value={input}
-            onChange={handleInputChange}
-            onKeyDown={handleKeyDown}
-            placeholder="Ask anything... (Shift+Enter for newline)"
-            disabled={loading}
-            rows={1}
-            className="flex-1 resize-none rounded-xl border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/40 disabled:opacity-50"
-          />
-          <button
-            type="submit"
-            disabled={loading || !input.trim()}
-            aria-label="Send"
-            className="flex items-center gap-1 px-3 py-2 rounded-xl bg-primary text-primary-foreground text-sm font-medium hover:opacity-90 disabled:opacity-50"
-          >
-            <Send className="w-4 h-4" />
-            Send
-          </button>
         </div>
-      </form>
+      )}
+
+      {/* Main chat area */}
+      <div className="flex flex-col flex-1 min-w-0">
+        {/* Header */}
+        <div className="flex items-center gap-2 px-4 py-3 border-b border-border bg-card">
+          {!panelOpen && (
+            <button
+              onClick={() => setPanelOpen(true)}
+              className="text-muted-foreground hover:text-foreground mr-1"
+            >
+              <ChevronRight className="w-4 h-4" />
+            </button>
+          )}
+          <MessageSquare className="w-5 h-5 text-primary" />
+          <div className="flex-1">
+            <h1 className="text-base font-semibold">AgentBook</h1>
+            <p className="text-xs text-muted-foreground">Your AI bookkeeper</p>
+          </div>
+          {isReadOnly && (
+            <div className="flex items-center gap-1.5 text-[11px] text-amber-600 dark:text-amber-400 bg-amber-500/10 border border-amber-500/20 rounded-full px-2 py-0.5">
+              <ChannelIcon channel={viewingChannel!} />
+              Viewing {viewingChannel} history
+            </div>
+          )}
+        </div>
+
+        {/* Message list */}
+        <div
+          ref={listRef}
+          className="flex-1 overflow-y-auto px-4 py-6 space-y-4"
+          data-testid="chat-messages"
+        >
+          {historyLoading && (
+            <div className="flex justify-center py-8">
+              <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
+            </div>
+          )}
+
+          {!historyLoading && messages.length === 0 && !loading && (
+            <div className="text-center text-muted-foreground text-sm py-12 max-w-md mx-auto">
+              <MessageSquare className="w-8 h-8 mx-auto mb-3 text-muted-foreground/50" />
+              <p className="font-medium mb-1">Hi! Try:</p>
+              <p className="text-xs">&ldquo;give me a daily briefing&rdquo;</p>
+              <p className="text-xs">&ldquo;expense summary&rdquo;</p>
+              <p className="text-xs">&ldquo;log $5 coffee&rdquo;</p>
+            </div>
+          )}
+
+          {messages.map((msg, i) => (
+            <div
+              key={i}
+              className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
+            >
+              <div
+                className={
+                  msg.role === 'user'
+                    ? 'max-w-[80%] rounded-2xl px-4 py-2 bg-primary text-primary-foreground'
+                    : `max-w-[85%] rounded-2xl px-4 py-3 bg-card border ${msg.error ? 'border-destructive/40' : 'border-border'}`
+                }
+              >
+                {msg.text && (
+                  <div className="text-sm whitespace-pre-wrap break-words">{msg.text}</div>
+                )}
+                {msg.role === 'agent' && msg.plan?.requiresConfirmation && (
+                  <PlanPreview
+                    steps={msg.plan.steps}
+                    onProceed={() => void submit('', 'confirm')}
+                    onCancel={() => void submit('', 'cancel')}
+                    disabled={loading}
+                  />
+                )}
+                {msg.role === 'agent' && msg.citations && msg.citations.length > 0 && (
+                  <div className="mt-2 pt-2 border-t border-border/50">
+                    <div className="text-[10px] text-muted-foreground/70 mb-1 flex items-center gap-1">
+                      <BookOpen className="w-3 h-3" />
+                      Based on
+                    </div>
+                    <div className="flex flex-wrap gap-1">
+                      {msg.citations.map((c, ci) => {
+                        const href = citationHref(c);
+                        const baseCls =
+                          'text-[10px] px-2 py-0.5 rounded-full border border-border/50';
+                        // Linkable citations (PR 56) become anchors with the
+                        // appropriate href; context-only stays as a plain span.
+                        return href ? (
+                          <a
+                            key={ci}
+                            href={href}
+                            title={c.kind}
+                            className={`${baseCls} bg-muted hover:bg-muted/70 text-muted-foreground hover:text-foreground transition-colors`}
+                            data-testid="chat-citation"
+                          >
+                            {c.label}
+                          </a>
+                        ) : (
+                          <span
+                            key={ci}
+                            title={c.kind}
+                            className={`${baseCls} bg-muted text-muted-foreground`}
+                            data-testid="chat-citation"
+                          >
+                            {c.label}
+                          </span>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+                {msg.role === 'agent' && msg.skillUsed && !msg.error && (
+                  <div className="mt-1 text-[10px] text-muted-foreground/70">{msg.skillUsed}</div>
+                )}
+              </div>
+            </div>
+          ))}
+
+          {loading && (
+            <div className="flex justify-start">
+              <div className="max-w-[85%] rounded-2xl px-4 py-3 bg-card border border-border">
+                <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  Thinking...
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* PR 58 / Tier 1 #1: intermediate-state indicator for multi-step
+              plans. Surfaces when the agent is mid-plan but this tab isn't
+              actively waiting on a request (e.g. the user navigated back
+              after kicking off a long plan). */}
+          {!loading && planInProgress && (
+            <div className="flex justify-start" data-testid="agent-plan-indicator">
+              <div className="max-w-[85%] rounded-2xl px-4 py-2 bg-amber-500/10 border border-amber-500/20">
+                <div className="flex items-center gap-2 text-sm text-amber-700 dark:text-amber-400">
+                  <Activity className="w-4 h-4 animate-pulse" />
+                  Agent is running a plan in the background…
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Input row */}
+        <form onSubmit={handleSubmit} className="border-t border-border bg-card px-4 py-3">
+          {isReadOnly && (
+            <div className="text-xs text-muted-foreground mb-2 text-center">
+              Viewing {viewingChannel} history —{' '}
+              <button
+                type="button"
+                onClick={() => {
+                  setViewingChannel(null);
+                  const webThread = threads.find((t) => t.channel === 'web' && t.status === 'active');
+                  if (webThread) void loadThreadMessages(webThread);
+                }}
+                className="underline hover:text-foreground"
+              >
+                return to web chat
+              </button>
+            </div>
+          )}
+          <div className="flex items-end gap-2 max-w-3xl mx-auto">
+            <textarea
+              ref={textareaRef}
+              name="message"
+              value={input}
+              onChange={handleInputChange}
+              onKeyDown={handleKeyDown}
+              placeholder={
+                isReadOnly
+                  ? 'Return to web chat to send messages'
+                  : 'Ask anything… (Shift+Enter for newline)'
+              }
+              disabled={loading || isReadOnly}
+              rows={1}
+              className="flex-1 resize-none rounded-xl border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/40 disabled:opacity-50"
+            />
+            <button
+              type="submit"
+              disabled={loading || !input.trim() || isReadOnly}
+              aria-label="Send"
+              className="flex items-center gap-1 px-3 py-2 rounded-xl bg-primary text-primary-foreground text-sm font-medium hover:opacity-90 disabled:opacity-50"
+            >
+              <Send className="w-4 h-4" />
+              Send
+            </button>
+          </div>
+        </form>
+      </div>
     </div>
   );
 };

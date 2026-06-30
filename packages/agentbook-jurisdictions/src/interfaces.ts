@@ -133,3 +133,55 @@ export interface CalendarDeadline {
 export interface CalendarDeadlineProvider {
   getDeadlines(taxYear: number, region: string): CalendarDeadline[];
 }
+
+// ─── Past Filing Upload ──────────────────────────────────────────────────────
+
+export interface StandardTaxExtract {
+  formType: string
+  taxYear: number
+  jurisdiction: string
+  region?: string
+  totalIncomeCents?: number
+  netIncomeCents?: number
+  taxableIncomeCents?: number
+  taxPayableCents?: number
+  /** positive = refund, negative = balance owing */
+  refundOrBalanceCents?: number
+  /** RRSP room (CA) | KiwiSaver credit (NZ) | ISA allowance (UK) | super (AU) */
+  savingsRoomCents?: number
+  formFields: Record<string, number | string | boolean | null>
+  attachedForms: Record<string, Record<string, any>>
+  confidence: number
+}
+
+export interface PreFillSuggestion {
+  fieldId: string
+  value: any
+  sourceField: string
+  confidence: number
+}
+
+export interface EFileExport {
+  format: 'xml' | 'json' | 'pdf'
+  content: string
+  filename: string
+  instructions: string
+}
+
+export interface PastFilingFormDescriptor {
+  formType: string
+  displayName: string
+  description: string
+  typicalPages?: number
+}
+
+export interface PastFilingPack {
+  jurisdiction: string
+  supportedFormTypes(): PastFilingFormDescriptor[]
+  identificationPrompt(): string
+  extractionPrompt(formType: string, taxYear: number): string
+  parseExtraction(raw: any, formType: string, taxYear: number): StandardTaxExtract
+  preFillMap(extract: StandardTaxExtract): PreFillSuggestion[]
+  summarize(extract: StandardTaxExtract): string
+  generateEFileExport?(forms: Record<string, any>, taxYear: number, region?: string): EFileExport
+}

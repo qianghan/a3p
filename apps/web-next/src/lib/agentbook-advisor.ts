@@ -21,7 +21,7 @@ export async function advisorGemini(
 ): Promise<string | null> {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) return null;
-  const model = process.env.GEMINI_MODEL_FAST || 'gemini-2.0-flash';
+  const model = process.env.GEMINI_MODEL_FAST || 'gemini-2.5-flash';
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
   try {
     const res = await fetch(url, {

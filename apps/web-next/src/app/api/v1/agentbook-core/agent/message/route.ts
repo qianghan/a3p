@@ -112,6 +112,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         text,
         tenantId,
         channel: 'web',
+        chatId: tenantId, // web: one thread per tenant
         attachments: body.attachments,
         sessionAction: body.sessionAction,
         feedback: body.feedback,

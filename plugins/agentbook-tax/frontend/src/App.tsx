@@ -9,10 +9,19 @@ import { CashFlowPage } from './pages/CashFlow';
 import { AnalyticsPage } from './pages/Analytics';
 import { WhatIfPage } from './pages/WhatIf';
 import { TaxPackagePage } from './pages/TaxPackage';
+import { PastFilingsPage } from './pages/PastFilings';
 import './globals.css';
 
+function getInitialPath(): string {
+  if (typeof window === 'undefined') return '/';
+  const path = window.location.pathname.replace(/^\/agentbook/, '') || '/';
+  // /tax is the root dashboard — map to /
+  if (path === '/tax' || path === '') return '/';
+  return path;
+}
+
 const AgentbookTaxApp: React.FC = () => (
-  <MemoryRouter>
+  <MemoryRouter initialEntries={[getInitialPath()]}>
     <Routes>
       <Route path="/" element={<TaxDashboardPage />} />
       <Route path="/quarterly" element={<QuarterlyPage />} />
@@ -22,6 +31,7 @@ const AgentbookTaxApp: React.FC = () => (
       <Route path="/analytics" element={<AnalyticsPage />} />
       <Route path="/whatif" element={<WhatIfPage />} />
       <Route path="/tax-package" element={<TaxPackagePage />} />
+      <Route path="/past-filings" element={<PastFilingsPage />} />
       <Route path="/*" element={<TaxDashboardPage />} />
     </Routes>
   </MemoryRouter>
@@ -39,6 +49,8 @@ const plugin = createPlugin({
     '/agentbook/cashflow/*',
     '/agentbook/tax-package',
     '/agentbook/tax-package/*',
+    '/agentbook/tax/past-filings',
+    '/agentbook/tax/past-filings/*',
   ],
   App: AgentbookTaxApp,
 });

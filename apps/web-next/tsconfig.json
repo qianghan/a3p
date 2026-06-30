@@ -34,7 +34,9 @@
       "@naap/config": ["../../packages/config/src/index.ts"],
       "@naap/plugin-sdk": ["../../packages/plugin-sdk/src/index.ts"],
       "@agentbook-core/*": ["../../plugins/agentbook-core/backend/src/*"],
-      "@agentbook-tax/*": ["../../plugins/agentbook-tax/backend/src/*"]
+      "@agentbook-tax/*": ["../../plugins/agentbook-tax/backend/src/*"],
+      "@agentbook/jurisdictions": ["../../packages/agentbook-jurisdictions/src/index.ts"],
+      "@agentbook/jurisdictions/*": ["../../packages/agentbook-jurisdictions/src/*"]
     }
   },
   "include": [
@@ -44,6 +46,7 @@
     ".next/types/**/*.ts",
     "../../plugins/agentbook-core/backend/src/**/*.ts",
     "../../plugins/agentbook-tax/backend/src/**/*.ts",
+    "../../packages/agentbook-jurisdictions/src/**/*.ts",
     "../../packages/plugin-sdk/src/components/*.tsx"
   ],
   "exclude": [

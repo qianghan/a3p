@@ -21,6 +21,24 @@ const MULTI_INTENT_PATTERNS = [
   /first.+?then/i,
 ];
 
+/**
+ * Read-only / reporting skills that should never trigger the multi-step planner.
+ * "Show March AND Jan spending" is a single advisor call, not a two-step plan.
+ * Routing these through the planner causes HTTP self-calls with no auth,
+ * leading to TypeError: fetch failed for every step.
+ */
+const REPORTING_SKILLS = new Set([
+  'query-expenses',
+  'query-finance',
+  'expense-breakdown',
+  'vendor-insights',
+  'proactive-alerts',
+  'general-question',
+  'simulate-scenario',
+  'review-queue',
+  'manage-recurring',
+]);
+
 const CONDITIONAL_PATTERN = /if.+then/i;
 
 const DESTRUCTIVE_WORDS = [
@@ -51,7 +69,11 @@ export function assessComplexity(
   selectedSkill: { name: string; confirmBefore?: boolean } | null,
   confidence: number,
 ): 'simple' | 'complex' {
-  // Multi-intent keywords
+  // Read-only reporting skills never need multi-step planning — always execute directly.
+  // Multi-intent phrases ("March AND also Jan") are valid single-call queries here.
+  if (selectedSkill && REPORTING_SKILLS.has(selectedSkill.name)) return 'simple';
+
+  // Multi-intent keywords (only relevant for write/action skills)
   if (MULTI_INTENT_PATTERNS.some((p) => p.test(text))) return 'complex';
 
   // Skill requires confirmation before execution
@@ -335,6 +357,15 @@ export async function executeStep(
       return _match;
     });
 
+    // Build service-to-service auth headers (same pattern as brainHeaders() in server.ts).
+    // safeResolveAgentbookTenant requires CRON_SECRET bearer + x-tenant-id for non-cookie paths.
+    const serviceHeaders: Record<string, string> = {
+      'Content-Type': 'application/json',
+      'x-tenant-id': tenantId,
+    };
+    const cronSecret = process.env.CRON_SECRET;
+    if (cronSecret) serviceHeaders['Authorization'] = `Bearer ${cronSecret}`;
+
     if (method === 'GET') {
       const qs = new URLSearchParams(
         Object.entries(unusedParams)
@@ -344,20 +375,14 @@ export async function executeStep(
       url = `${baseUrl}${endpointPath}${qs ? `?${qs}` : ''}`;
       fetchOptions = {
         method: 'GET',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-tenant-id': tenantId,
-        },
+        headers: serviceHeaders,
         signal: controller.signal,
       };
     } else {
       url = `${baseUrl}${endpointPath}`;
       fetchOptions = {
         method,
-        headers: {
-          'Content-Type': 'application/json',
-          'x-tenant-id': tenantId,
-        },
+        headers: serviceHeaders,
         body: JSON.stringify(unusedParams),
         signal: controller.signal,
       };

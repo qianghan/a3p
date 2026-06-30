@@ -73,6 +73,27 @@ async function enforceQuota(
   return false;
 }
 
+// === Auto-categorization threshold trigger ===
+async function checkAndAutoCategorize(tenantId: string): Promise<void> {
+  try {
+    const [total, uncategorized] = await Promise.all([
+      db.abExpense.count({ where: { tenantId, isPersonal: false } }),
+      db.abExpense.count({ where: { tenantId, isPersonal: false, categoryId: null } }),
+    ]);
+    if (total === 0 || uncategorized / total <= 0.10) return;
+    const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
+    await fetch(`${baseUrl}/api/v1/agentbook-core/auto-categorize/run`, {
+      method: 'POST',
+      headers: {
+        'x-tenant-id': tenantId,
+        'x-internal-cron': process.env.CRON_SECRET || '',
+      },
+    });
+  } catch (err) {
+    console.warn('[expense] checkAndAutoCategorize failed (best-effort):', err instanceof Error ? err.message : err);
+  }
+}
+
 // === Health Check ===
 app.get('/healthz', async (_req, res) => {
   try {
@@ -247,6 +268,7 @@ app.post('/api/v1/agentbook-expense/expenses', async (req, res) => {
         confidence: resolvedConfidence,
       },
     });
+    void checkAndAutoCategorize(tenantId);
   } catch (err) {
     res.status(500).json({ success: false, error: String(err) });
   }
@@ -1622,6 +1644,7 @@ app.post('/api/v1/agentbook-expense/import/csv', async (req, res) => {
         importErrors: errors.slice(0, 20),  // cap error list
       },
     });
+    void checkAndAutoCategorize(tenantId);
   } catch (err) { res.status(500).json({ success: false, error: String(err) }); }
 });
 
@@ -2449,6 +2472,7 @@ app.post('/api/v1/agentbook-expense/import/cc-statement', async (req, res) => {
     });
 
     res.json({ success: true, data: results });
+    void checkAndAutoCategorize(tenantId);
   } catch (err) { res.status(500).json({ success: false, error: String(err) }); }
 });
 
