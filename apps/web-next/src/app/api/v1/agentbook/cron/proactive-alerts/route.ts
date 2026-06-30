@@ -22,6 +22,7 @@ import { timingSafeEqual } from 'node:crypto';
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma as db } from '@naap/database';
 import { sendToAllChannels } from '@/lib/agentbook-chat-adapter';
+import { sendPush } from '@/lib/web-push-send';
 import { reportError } from '@/lib/logger';
 
 export const runtime = 'nodejs';
@@ -238,7 +239,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   }
 
   try {
-    const tenants = await db.abTenantConfig.findMany({ select: { userId: true } });
+    const tenants = await db.abTenantConfig.findMany({ select: { userId: true, pushSubscription: true } });
     let tenantsProcessed = 0;
     let totalAlertsGenerated = 0;
     let totalAlertsSent = 0;
@@ -268,6 +269,14 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         }
 
         const sent = await notifyTenant(tenantId, formatAlert(alert));
+        // Also push to the mobile PWA if the tenant has subscribed (no-op
+        // until VAPID keys are configured; clears expired subscriptions).
+        if (tenant.pushSubscription) {
+          const result = await sendPush(tenant.pushSubscription, { title: alert.title, body: alert.message, url: '/app' });
+          if (result === 'gone') {
+            await db.abTenantConfig.updateMany({ where: { userId: tenantId }, data: { pushSubscription: undefined } });
+          }
+        }
         if (sent) {
           totalAlertsSent += 1;
           await db.abEvent.create({
