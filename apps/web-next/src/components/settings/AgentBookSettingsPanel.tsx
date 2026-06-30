@@ -537,14 +537,66 @@ function ChatHistoryTab(): React.ReactElement {
 
 // ── Main panel ────────────────────────────────────────────────────────────────
 
-type SettingsTab = 'profile' | 'invoice' | 'chatbots' | 'history';
+type SettingsTab = 'profile' | 'invoice' | 'chatbots' | 'history' | 'billing';
 
 const TABS: { key: SettingsTab; label: string }[] = [
   { key: 'profile',  label: 'Business Profile' },
   { key: 'invoice',  label: 'Invoice Defaults' },
+  { key: 'billing',  label: 'Billing' },
   { key: 'chatbots', label: 'Chatbots' },
   { key: 'history',  label: 'Chat History' },
 ];
+
+interface BillingPlan { id: string; code: string; name: string; description?: string | null; priceCents: number; interval: string }
+
+function BillingTab(): React.ReactElement {
+  const [plans, setPlans] = useState<BillingPlan[]>([]);
+  const [current, setCurrent] = useState<{ code?: string; name?: string; status?: string } | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    Promise.all([
+      fetch('/api/v1/agentbook-billing/plans').then((r) => r.json()).catch(() => null),
+      fetch('/api/v1/agentbook-billing/me/subscription').then((r) => r.json()).catch(() => null),
+    ]).then(([p, c]) => {
+      if (p?.plans) setPlans(p.plans);
+      if (c) setCurrent({ code: c.code ?? c.planCode ?? c.plan?.code, name: c.name ?? c.plan?.name, status: c.status });
+    }).finally(() => setLoading(false));
+  }, []);
+
+  const fmt = (cents: number) => cents === 0 ? 'Free' : `$${(cents / 100).toFixed(0)}`;
+
+  if (loading) return <div className="py-8 text-center text-sm text-muted-foreground">Loading billing…</div>;
+
+  return (
+    <div className="space-y-4">
+      <div>
+        <h3 className="text-sm font-semibold text-foreground mb-1">Your plan</h3>
+        <p className="text-sm text-muted-foreground">
+          {current?.name || current?.code
+            ? <>Currently on <span className="font-medium text-foreground capitalize">{current.name || current.code}</span>{current.status ? ` · ${current.status}` : ''}.</>
+            : 'You are on the Free plan.'}
+        </p>
+      </div>
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        {plans.map((p) => {
+          const isCurrent = current?.code === p.code;
+          return (
+            <div key={p.id} className={`rounded-xl border p-4 ${isCurrent ? 'border-primary' : 'border-border'} bg-card`}>
+              <div className="flex items-center justify-between mb-1">
+                <p className="text-sm font-semibold text-foreground">{p.name}</p>
+                {isCurrent && <span className="text-xs px-2 py-0.5 rounded-full bg-primary/10 text-primary">Current</span>}
+              </div>
+              <p className="text-2xl font-bold text-foreground">{fmt(p.priceCents)}<span className="text-xs font-normal text-muted-foreground">{p.priceCents > 0 ? `/${p.interval}` : ''}</span></p>
+              {p.description && <p className="text-xs text-muted-foreground mt-1.5">{p.description}</p>}
+            </div>
+          );
+        })}
+      </div>
+      <p className="text-xs text-muted-foreground">To change or cancel your plan, contact support or use the upgrade prompt in the app. Managed securely via Stripe.</p>
+    </div>
+  );
+}
 
 export function AgentBookSettingsPanel(): React.ReactElement {
   const [tab, setTab] = useState<SettingsTab>('profile');
@@ -757,6 +809,8 @@ export function AgentBookSettingsPanel(): React.ReactElement {
       )}
 
       {tab === 'history' && <ChatHistoryTab />}
+
+      {tab === 'billing' && <BillingTab />}
 
       {/* Save bar (profile + invoice tabs only) */}
       {(tab === 'profile' || tab === 'invoice') && (
