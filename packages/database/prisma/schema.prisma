@@ -24,7 +24,7 @@ datasource db {
   provider  = "postgresql"
   url       = env("DATABASE_URL")
   directUrl = env("DATABASE_URL_UNPOOLED")
-  schemas   = ["public", "plugin_community", "plugin_service_gateway", "plugin_agentbook_core", "plugin_agentbook_expense", "plugin_agentbook_invoice", "plugin_agentbook_tax", "plugin_agentbook_billing", "plugin_agentbook_personal", "plugin_agentbook_cpa"]
+  schemas   = ["public", "plugin_community", "plugin_service_gateway", "plugin_agentbook_core", "plugin_agentbook_expense", "plugin_agentbook_invoice", "plugin_agentbook_tax", "plugin_agentbook_billing", "plugin_agentbook_personal", "plugin_agentbook_cpa", "plugin_agentbook_payroll"]
 }
 
 // ============================================
@@ -3053,4 +3053,67 @@ model AbBookSignoff {
 
   @@unique([tenantId, period])
   @@schema("plugin_agentbook_cpa")
+}
+
+// ============================================================================
+// Payroll plugin (Phase 5, paid) — employees, pay runs, pay stubs. Withholding
+// is computed by pure per-jurisdiction calculators (US/CA/UK/AU). Isolated in
+// its own schema namespace; posts to the ledger on pay-run processing.
+// ============================================================================
+
+model AbEmployee {
+  id            String   @id @default(uuid())
+  tenantId      String
+  name          String
+  email         String?
+  type          String   @default("w2") // w2 | contractor_1099
+  payType       String   @default("salary") // salary | hourly
+  payRateCents  Int // annual salary cents (salary) or hourly rate cents (hourly)
+  payFrequency  String   @default("biweekly") // weekly | biweekly | semimonthly | monthly
+  jurisdiction  String   @default("us") // us | ca | uk | au
+  filingStatus  String   @default("single")
+  allowances    Int      @default(0)
+  startDate     DateTime @default(now())
+  isActive      Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([tenantId, isActive])
+  @@schema("plugin_agentbook_payroll")
+}
+
+model AbPayRun {
+  id          String      @id @default(uuid())
+  tenantId    String
+  periodStart DateTime
+  periodEnd   DateTime
+  status      String      @default("draft") // draft | processed | paid
+  journalEntryId String?
+  processedAt DateTime?
+  createdAt   DateTime    @default(now())
+
+  stubs AbPayStub[]
+
+  @@index([tenantId, status])
+  @@schema("plugin_agentbook_payroll")
+}
+
+model AbPayStub {
+  id               String   @id @default(uuid())
+  tenantId         String
+  payRunId         String
+  payRun           AbPayRun @relation(fields: [payRunId], references: [id], onDelete: Cascade)
+  employeeId       String
+  employeeName     String
+  grossCents       Int
+  federalTaxCents  Int
+  stateTaxCents    Int
+  ficaCents        Int // SS+Medicare (US) / CPP+EI (CA) / NI (UK) / super note (AU)
+  otherDeductCents Int      @default(0)
+  netCents         Int
+  createdAt        DateTime @default(now())
+
+  @@index([tenantId])
+  @@index([payRunId])
+  @@schema("plugin_agentbook_payroll")
 }
