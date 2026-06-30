@@ -16,9 +16,9 @@
   --text-muted: #94a3b8;
   --text-disabled: #cbd5e1;
 
-  --accent-green: #18794E;
-  --accent-green-light: #1E9960;
-  --accent-green-bright: #40BF86;
+  --accent-green: #0c6e57;
+  --accent-green-light: #149578;
+  --accent-green-bright: #1faf87;
   /* AgentBook brand palette (from the logo gradient) */
   --brand-deep: #0c6e57;
   --brand-primary: #149578;
@@ -38,7 +38,7 @@
   --card-foreground: 222 47% 11%;
   --popover: 0 0% 100%;
   --popover-foreground: 222 47% 11%;
-  --primary: 153 66% 28%;
+  --primary: 166 76% 33%;
   --primary-foreground: 0 0% 100%;
   --secondary: 210 40% 96%;
   --secondary-foreground: 222 47% 11%;
@@ -72,9 +72,9 @@
   --text-muted: rgba(255, 255, 255, 0.4);
   --text-disabled: rgba(255, 255, 255, 0.25);
 
-  --accent-green: #1E9960;
-  --accent-green-light: #40BF86;
-  --accent-green-bright: #6DB09C;
+  --accent-green: #149578;
+  --accent-green-light: #1faf87;
+  --accent-green-bright: #62cda2;
   /* AgentBook brand palette (from the logo gradient) */
   --brand-deep: #0c6e57;
   --brand-primary: #149578;
@@ -94,7 +94,7 @@
   --card-foreground: 0 0% 100%;
   --popover: 0 0% 14%;
   --popover-foreground: 0 0% 100%;
-  --primary: 153 66% 35%;
+  --primary: 166 70% 42%;
   --primary-foreground: 0 0% 100%;
   --secondary: 0 0% 14%;
   --secondary-foreground: 0 0% 100%;
