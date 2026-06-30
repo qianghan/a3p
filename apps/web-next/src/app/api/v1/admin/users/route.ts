@@ -7,6 +7,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { validateSession } from '@/lib/api/auth';
 import { success, errors, getAuthToken } from '@/lib/api/response';
+import { isSuspended } from '@/lib/admin-users';
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
   try {
@@ -34,6 +35,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         avatarUrl: true,
         address: true,
         emailVerified: true,
+        lockedUntil: true,
         createdAt: true,
         roles: {
           select: {
@@ -62,6 +64,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       walletAddress: user.address,
       roles: user.roles.map(ur => ur.role.name),
       emailVerified: !!user.emailVerified,
+      suspended: isSuspended(user.lockedUntil),
       createdAt: user.createdAt,
       lastLoginAt: null, // Not tracked in this schema
       _count: user._count,

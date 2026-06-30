@@ -32,6 +32,7 @@ interface SystemUser {
   walletAddress: string | null;
   roles: string[];
   emailVerified: boolean;
+  suspended?: boolean;
   createdAt: string;
   lastLoginAt: string | null;
   _count?: { teamMemberships: number };
@@ -39,14 +40,40 @@ interface SystemUser {
 
 export default function AdminUsersPage() {
   const router = useRouter();
-  const { hasRole } = useAuth();
+  const { hasRole, user: currentUser } = useAuth();
   const [users, setUsers] = useState<SystemUser[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedRole, setSelectedRole] = useState<string>('all');
+  const [openMenuId, setOpenMenuId] = useState<string | null>(null);
+  const [actionBusy, setActionBusy] = useState(false);
 
   const isAdmin = hasRole('system:admin');
+
+  async function doAction(userId: string, action: string) {
+    setActionBusy(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/v1/admin/users/${userId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ action }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setOpenMenuId(null);
+        await loadUsers();
+      } else {
+        setError(data.error?.message || data.error || 'Action failed');
+      }
+    } catch {
+      setError('Action failed');
+    } finally {
+      setActionBusy(false);
+    }
+  }
 
   useEffect(() => {
     if (!isAdmin) {
@@ -260,12 +287,61 @@ export default function AdminUsersPage() {
                   <td className="px-4 py-2.5 text-sm">
                     {user._count?.teamMemberships || 0}
                   </td>
-                  <td className="px-4 py-2.5 text-right">
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      icon={<MoreVertical className="w-4 h-4" />}
-                    />
+                  <td className="px-4 py-2.5 text-right relative">
+                    <div className="inline-flex items-center gap-2 justify-end">
+                      {user.suspended && <Badge variant="rose">Suspended</Badge>}
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        icon={<MoreVertical className="w-4 h-4" />}
+                        onClick={() => setOpenMenuId(openMenuId === user.id ? null : user.id)}
+                      />
+                    </div>
+                    {openMenuId === user.id && (
+                      <>
+                        <div className="fixed inset-0 z-10" onClick={() => setOpenMenuId(null)} />
+                        <div className="absolute right-4 z-20 mt-1 w-48 rounded-md border border-border bg-card shadow-lg py-1 text-left">
+                          {user.suspended ? (
+                            <button
+                              type="button"
+                              disabled={actionBusy}
+                              onClick={() => doAction(user.id, 'reactivate')}
+                              className="w-full text-left px-3 py-2 text-sm hover:bg-muted disabled:opacity-50"
+                            >
+                              Reactivate user
+                            </button>
+                          ) : (
+                            <button
+                              type="button"
+                              disabled={actionBusy || user.id === currentUser?.id}
+                              onClick={() => doAction(user.id, 'suspend')}
+                              className="w-full text-left px-3 py-2 text-sm text-destructive hover:bg-destructive/10 disabled:opacity-40"
+                            >
+                              Suspend user
+                            </button>
+                          )}
+                          {user.roles.includes('system:admin') ? (
+                            <button
+                              type="button"
+                              disabled={actionBusy || user.id === currentUser?.id}
+                              onClick={() => doAction(user.id, 'revokeAdmin')}
+                              className="w-full text-left px-3 py-2 text-sm hover:bg-muted disabled:opacity-40"
+                            >
+                              Remove admin
+                            </button>
+                          ) : (
+                            <button
+                              type="button"
+                              disabled={actionBusy}
+                              onClick={() => doAction(user.id, 'grantAdmin')}
+                              className="w-full text-left px-3 py-2 text-sm hover:bg-muted disabled:opacity-50"
+                            >
+                              Make admin
+                            </button>
+                          )}
+                        </div>
+                      </>
+                    )}
                   </td>
                 </tr>
               ))
