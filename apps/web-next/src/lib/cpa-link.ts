@@ -13,3 +13,15 @@ export async function resolveActiveLink(token: string): Promise<ResolvedLink | n
   if (link.expiresAt < new Date()) return null;
   return { id: link.id, tenantId: link.tenantId, token: link.token };
 }
+
+export interface ResolvedInvite { id: string; tenantId: string; cpaEmail: string; cpaName: string | null }
+
+/** Resolve a named-CPA invite token (pending/accepted + unexpired). */
+export async function resolveActiveInvite(token: string): Promise<ResolvedInvite | null> {
+  if (!token) return null;
+  const invite = await db.abCpaInvite.findUnique({ where: { token } });
+  if (!invite) return null;
+  if (invite.status === 'revoked') return null;
+  if (invite.expiresAt < new Date()) return null;
+  return { id: invite.id, tenantId: invite.tenantId, cpaEmail: invite.cpaEmail, cpaName: invite.cpaName };
+}
