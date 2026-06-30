@@ -3056,6 +3056,35 @@ model AbBookSignoff {
   @@schema("plugin_agentbook_cpa")
 }
 
+model AbCpaInvite {
+  id        String   @id @default(uuid())
+  tenantId  String
+  cpaEmail  String
+  cpaName   String?
+  token     String   @unique @default(cuid())
+  status    String   @default("pending") // pending | accepted | revoked
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([tenantId, status])
+  @@schema("plugin_agentbook_cpa")
+}
+
+model AbDocumentRequest {
+  id              String    @id @default(uuid())
+  tenantId        String
+  requestedByEmail String?
+  expenseId       String?
+  description     String
+  status          String    @default("open") // open | fulfilled
+  fulfilledUrl    String?
+  createdAt       DateTime  @default(now())
+  fulfilledAt     DateTime?
+
+  @@index([tenantId, status])
+  @@schema("plugin_agentbook_cpa")
+}
+
 // ============================================================================
 // Payroll plugin (Phase 5, paid) — employees, pay runs, pay stubs. Withholding
 // is computed by pure per-jurisdiction calculators (US/CA/UK/AU). Isolated in
