@@ -2,7 +2,7 @@
   "name": "AgentBook",
   "short_name": "AgentBook",
   "description": "Your AI-powered accounting agent — snap receipts, track time, manage invoices",
-  "start_url": "/agentbook",
+  "start_url": "/app",
   "display": "standalone",
   "background_color": "#0a0a0a",
   "theme_color": "#10b981",
@@ -15,8 +15,8 @@
   "categories": ["finance", "business", "productivity"],
   "screenshots": [],
   "shortcuts": [
-    { "name": "Record Expense", "url": "/agentbook/expenses/new", "description": "Snap a receipt or type an expense" },
-    { "name": "Timer", "url": "/agentbook/timer", "description": "Start or stop time tracking" },
-    { "name": "Tax Dashboard", "url": "/agentbook/tax", "description": "View tax estimate and reports" }
+    { "name": "Capture expense", "url": "/app/capture", "description": "Snap a receipt or type an expense" },
+    { "name": "Ask AgentBook", "url": "/app/chat", "description": "Ask about your finances" },
+    { "name": "Documents", "url": "/app/docs", "description": "Browse receipts and expenses" }
   ]
 }
