@@ -120,6 +120,8 @@ const protectedRoutes = [
   '/feedback',
   '/treasury',
   '/governance',
+  '/personal',
+  '/accountant',
   // Add plugin routes as protected
   ...Object.keys(PLUGIN_ROUTE_MAP),
 ];
