@@ -24,7 +24,7 @@ datasource db {
   provider  = "postgresql"
   url       = env("DATABASE_URL")
   directUrl = env("DATABASE_URL_UNPOOLED")
-  schemas   = ["public", "plugin_community", "plugin_service_gateway", "plugin_agentbook_core", "plugin_agentbook_expense", "plugin_agentbook_invoice", "plugin_agentbook_tax", "plugin_agentbook_billing"]
+  schemas   = ["public", "plugin_community", "plugin_service_gateway", "plugin_agentbook_core", "plugin_agentbook_expense", "plugin_agentbook_invoice", "plugin_agentbook_tax", "plugin_agentbook_billing", "plugin_agentbook_personal"]
 }
 
 // ============================================
@@ -2938,4 +2938,56 @@ model BillEvent {
 
   @@index([eventType, createdAt])
   @@schema("plugin_agentbook_billing")
+}
+
+// ============================================================================
+// Personal Finance plugin (Phase 3) — household/personal finance kept strictly
+// separate from the business books. Transactions flagged `businessFlag` are the
+// bridge to the business expense ledger.
+// ============================================================================
+
+model AbPersonalAccount {
+  id           String   @id @default(uuid())
+  tenantId     String
+  name         String
+  type         String // checking | savings | investment | credit | mortgage | cash
+  balanceCents Int      @default(0)
+  currency     String   @default("USD")
+  isAsset      Boolean  @default(true) // true = asset, false = liability (credit/mortgage)
+  plaidAccountId String?
+  archived     Boolean  @default(false)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([tenantId, archived])
+  @@schema("plugin_agentbook_personal")
+}
+
+model AbPersonalTransaction {
+  id           String   @id @default(uuid())
+  tenantId     String
+  accountId    String
+  description  String
+  amountCents  Int // positive = inflow/income, negative = outflow/spend
+  date         DateTime
+  category     String   @default("uncategorized")
+  businessFlag Boolean  @default(false) // marked as a business expense
+  notes        String?
+  createdAt    DateTime @default(now())
+
+  @@index([tenantId, date])
+  @@index([tenantId, accountId])
+  @@schema("plugin_agentbook_personal")
+}
+
+model AbPersonalBudget {
+  id                String   @id @default(uuid())
+  tenantId          String
+  category          String
+  monthlyLimitCents Int
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@unique([tenantId, category])
+  @@schema("plugin_agentbook_personal")
 }
