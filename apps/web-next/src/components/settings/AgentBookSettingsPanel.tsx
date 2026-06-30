@@ -19,6 +19,7 @@ interface TenantConfig {
   defaultCurrency: string | null;
   invoiceFooterNote: string | null;
   invoiceThankYouMessage: string | null;
+  accountingBasis?: string;
 }
 
 interface BotStatus {
@@ -702,6 +703,18 @@ export function AgentBookSettingsPanel(): React.ReactElement {
 
       {tab === 'invoice' && (
         <div className="space-y-5">
+          <div>
+            <label className="block text-sm font-medium text-foreground">Accounting basis</label>
+            <select value={form.accountingBasis ?? 'accrual'} onChange={(e) => set({ accountingBasis: e.target.value })}
+              className={inputCls}>
+              <option value="accrual">Accrual — revenue when invoiced</option>
+              <option value="cash">Cash — revenue when paid</option>
+            </select>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Changes how your Profit &amp; Loss recognizes income. Accrual counts invoices when issued;
+              cash counts payments when received. Check with your accountant before switching.
+            </p>
+          </div>
           <div>
             <label className="block text-sm font-medium text-foreground">Default payment terms</label>
             <select value={form.defaultPaymentTerms ?? 'net-30'} onChange={(e) => set({ defaultPaymentTerms: e.target.value })}

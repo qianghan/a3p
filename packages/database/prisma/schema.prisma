@@ -1420,6 +1420,7 @@ model AbTenantConfig {
   locale                String   @default("en-US")
   timezone              String   @default("America/New_York")
   fiscalYearStart       Int      @default(1) // month 1-12
+  accountingBasis       String   @default("accrual") // accrual | cash — drives P&L recognition
   autoApproveLimitCents Int      @default(50000) // $500 default
   autoRemindEnabled     Boolean  @default(false)
   autoRemindDays        Int      @default(3) // min days between reminders

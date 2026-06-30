@@ -40,6 +40,7 @@ interface UpdateConfigBody {
   locale?: string;
   timezone?: string;
   fiscalYearStart?: number;
+  accountingBasis?: string;
   autoApproveLimitCents?: number;
   autoRemindEnabled?: boolean;
   autoRemindDays?: number[];
@@ -64,6 +65,12 @@ export async function PUT(request: NextRequest): Promise<NextResponse> {
     if (body.locale) update.locale = body.locale;
     if (body.timezone) update.timezone = body.timezone;
     if (body.fiscalYearStart) update.fiscalYearStart = body.fiscalYearStart;
+    if (body.accountingBasis !== undefined) {
+      if (body.accountingBasis !== 'cash' && body.accountingBasis !== 'accrual') {
+        return NextResponse.json({ error: "accountingBasis must be 'cash' or 'accrual'" }, { status: 400 });
+      }
+      update.accountingBasis = body.accountingBasis;
+    }
     if (body.autoApproveLimitCents !== undefined) update.autoApproveLimitCents = body.autoApproveLimitCents;
     if (body.autoRemindEnabled !== undefined) update.autoRemindEnabled = body.autoRemindEnabled;
     if (body.autoRemindDays !== undefined) update.autoRemindDays = body.autoRemindDays;
