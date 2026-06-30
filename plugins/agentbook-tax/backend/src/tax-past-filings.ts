@@ -9,7 +9,7 @@ async function callGeminiWithPdf(
   model: string,
   systemPrompt: string,
   pdfBase64: string,
-  maxTokens = 2048,
+  maxTokens = 8192,
 ): Promise<string | null> {
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
   try {
@@ -22,17 +22,35 @@ async function callGeminiWithPdf(
           { inlineData: { mimeType: 'application/pdf', data: pdfBase64 } },
           { text: 'Extract the tax data from this document as JSON.' },
         ] }],
-        generationConfig: { maxOutputTokens: maxTokens, temperature: 0.1 },
+        generationConfig: {
+          maxOutputTokens: maxTokens,
+          temperature: 0.1,
+          // Disable thinking for structured extraction: Gemini 2.5 "thinking"
+          // models otherwise burn the output-token budget on internal reasoning
+          // and truncate the JSON (finishReason MAX_TOKENS). Ignored by models
+          // that don't support thinkingConfig.
+          thinkingConfig: { thinkingBudget: 0 },
+        },
       }),
     });
     if (!res.ok) return null;
     const data = await res.json() as any;
-    return data.candidates?.[0]?.content?.parts?.[0]?.text ?? null;
+    const parts = data.candidates?.[0]?.content?.parts;
+    if (!Array.isArray(parts)) return null;
+    // Concatenate all text parts (a model may split output across parts).
+    return parts.map((p: any) => p?.text || '').join('') || null;
   } catch { return null; }
 }
 
 function cleanJson(raw: string): string {
-  return raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
+  let s = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
+  // Defensive: if there is prose around the JSON, slice to the outermost braces.
+  const first = s.indexOf('{');
+  const last = s.lastIndexOf('}');
+  if (first > 0 || (last >= 0 && last < s.length - 1)) {
+    if (first >= 0 && last > first) s = s.slice(first, last + 1);
+  }
+  return s;
 }
 
 // ─── Upload ──────────────────────────────────────────────────────────────────
@@ -103,7 +121,7 @@ export async function parsePastFiling(
     if (formType === 'unknown') {
       const idPrompt = `You are a tax document classifier. Identify this document.
 Return JSON only: { "formType": "T1"|"T4"|"T4A"|"NOA"|"T2125"|"1040"|"W-2"|"1099-NEC"|"other", "taxYear": <number>, "jurisdiction": "ca"|"us", "region": "<province or state code>" }`;
-      const idRaw = await callGeminiWithPdf(llmConfig.apiKey, model, idPrompt, pdfBase64, 256);
+      const idRaw = await callGeminiWithPdf(llmConfig.apiKey, model, idPrompt, pdfBase64, 1024);
       if (idRaw) {
         try {
           const id = JSON.parse(cleanJson(idRaw));
