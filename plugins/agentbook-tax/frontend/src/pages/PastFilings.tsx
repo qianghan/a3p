@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { FileUp, Loader2, CheckCircle2, AlertCircle, RefreshCw, Download, ChevronDown } from 'lucide-react';
+import { FileUp, Loader2, CheckCircle2, AlertCircle, RefreshCw, Download } from 'lucide-react';
 
 const API = '/api/v1/agentbook-tax';
 const YEAR_OPTIONS = Array.from({ length: 6 }, (_, i) => new Date().getFullYear() - 1 - i);
@@ -105,6 +105,39 @@ export const PastFilingsPage: React.FC = () => {
     await load();
   };
 
+  const [prefillYear, setPrefillYear] = useState<number | null>(null);
+  const [prefillSuggestions, setPrefillSuggestions] = useState<any[]>([]);
+  const [acceptedFields, setAcceptedFields] = useState<Set<string>>(new Set());
+  const [applyingPrefill, setApplyingPrefill] = useState(false);
+
+  const handlePrefill = async (targetYear: number) => {
+    const res = await fetch(`${API}/past-filings/prefill?year=${targetYear}`);
+    const j = await res.json();
+    if (j.success && j.data.length > 0) {
+      setPrefillSuggestions(j.data);
+      setAcceptedFields(new Set(j.data.map((s: any) => s.fieldId)));
+      setPrefillYear(targetYear);
+    } else {
+      alert(`No pre-fill data found from ${targetYear - 1} filings.`);
+    }
+  };
+
+  const applyPrefill = async () => {
+    if (!prefillYear) return;
+    setApplyingPrefill(true);
+    const toApply = prefillSuggestions.filter((s) => acceptedFields.has(s.fieldId));
+    for (const s of toApply) {
+      await fetch(`/api/v1/agentbook-tax/tax-filing/${prefillYear}/field`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ formCode: 'T2125', fieldId: s.fieldId, value: s.value }),
+      });
+    }
+    setApplyingPrefill(false);
+    setPrefillYear(null);
+    alert(`Applied ${toApply.length} pre-fill suggestion(s) to your ${prefillYear} return.`);
+  };
+
   const handleDownload = (id: string) => {
     window.open(`${API}/past-filings/${id}/download`, '_blank');
   };
@@ -202,6 +235,12 @@ export const PastFilingsPage: React.FC = () => {
                     className="px-2.5 py-1.5 text-xs rounded-lg border border-border hover:bg-muted/50 inline-flex items-center gap-1">
                     <Download className="w-3 h-3" /> PDF
                   </button>
+                  {f.status === 'confirmed' && (
+                    <button onClick={() => handlePrefill(f.taxYear + 1)}
+                      className="px-2.5 py-1.5 text-xs rounded-lg border border-border hover:bg-muted/50 inline-flex items-center gap-1">
+                      Pre-fill {f.taxYear + 1}
+                    </button>
+                  )}
                   {f.status === 'error' && (
                     <button onClick={() => handleReParse(f.id)}
                       className="px-2.5 py-1.5 text-xs rounded-lg border border-border hover:bg-muted/50 inline-flex items-center gap-1">
@@ -224,6 +263,39 @@ export const PastFilingsPage: React.FC = () => {
           );
         })}
       </div>
+
+      {prefillYear !== null && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-background border border-border rounded-xl p-6 max-w-md w-full">
+            <h3 className="text-lg font-semibold mb-1">Pre-fill {prefillYear} Return</h3>
+            <p className="text-sm text-muted-foreground mb-4">Review suggestions from your {prefillYear - 1} filing. Accept or reject each field before applying.</p>
+            <div className="space-y-2 max-h-64 overflow-y-auto mb-4">
+              {prefillSuggestions.map((s) => (
+                <label key={s.fieldId} className="flex items-center gap-3 p-2 rounded-lg hover:bg-muted/30 cursor-pointer">
+                  <input type="checkbox" checked={acceptedFields.has(s.fieldId)}
+                    onChange={(e) => {
+                      const next = new Set(acceptedFields);
+                      e.target.checked ? next.add(s.fieldId) : next.delete(s.fieldId);
+                      setAcceptedFields(next);
+                    }} className="rounded" />
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium">{s.fieldId.replace(/_/g, ' ')}</p>
+                    <p className="text-xs text-muted-foreground">Value: {String(s.value)} (conf: {Math.round((s.confidence || 0) * 100)}%)</p>
+                  </div>
+                </label>
+              ))}
+            </div>
+            <div className="flex gap-2 justify-end">
+              <button onClick={() => setPrefillYear(null)} className="px-4 py-2 text-sm rounded-lg border border-border">Cancel</button>
+              <button onClick={applyPrefill} disabled={applyingPrefill || acceptedFields.size === 0}
+                className="px-4 py-2 text-sm rounded-lg bg-primary text-primary-foreground disabled:opacity-50 inline-flex items-center gap-2">
+                {applyingPrefill ? <Loader2 className="w-3 h-3 animate-spin" /> : null}
+                Apply {acceptedFields.size} field{acceptedFields.size !== 1 ? 's' : ''}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
