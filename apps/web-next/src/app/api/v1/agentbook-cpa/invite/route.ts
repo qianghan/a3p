@@ -8,6 +8,8 @@ import 'server-only';
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma as db } from '@naap/database';
 import { safeResolveAgentbookTenant } from '@/lib/agentbook-tenant';
+import { sendCpaInviteEmail } from '@/lib/email';
+import { joinUrl } from '@/lib/abs-url';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -42,7 +44,17 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     const invite = await db.abCpaInvite.create({
       data: { tenantId, cpaEmail: body.cpaEmail, cpaName: body.cpaName || null, expiresAt },
     });
-    return NextResponse.json({ success: true, data: { ...invite, url: `/cpa-portal/${invite.token}` } }, { status: 201 });
+
+    // Best-effort email delivery — the invite (and its manual link) stands even
+    // if sending fails (e.g. before a sending domain is verified in Resend).
+    const portalPath = `/cpa-portal/${invite.token}`;
+    const base = process.env.NEXT_PUBLIC_APP_URL || 'https://agentbook.brainliber.com';
+    const sent = await sendCpaInviteEmail(invite.cpaEmail, joinUrl(base, portalPath), invite.cpaName || undefined);
+
+    return NextResponse.json(
+      { success: true, data: { ...invite, url: portalPath, emailSent: sent.success, emailError: sent.success ? undefined : sent.error } },
+      { status: 201 },
+    );
   } catch (err) {
     console.error('[agentbook-cpa/invite POST] failed:', err);
     return NextResponse.json({ success: false, error: err instanceof Error ? err.message : String(err) }, { status: 500 });
