@@ -3163,3 +3163,18 @@ model AbPayrollTaxDeposit {
   @@index([tenantId, status])
   @@schema("plugin_agentbook_payroll")
 }
+
+/// Platform-wide payroll provider config, one row per jurisdiction. Selects
+/// which PayrollProvider handles a jurisdiction (default: the built-in
+/// calculator) and holds that provider's (encrypted) API key. Admin-managed.
+model AbPayrollProviderConfig {
+  id           String   @id @default(uuid())
+  jurisdiction String   @unique // us | ca | uk | au
+  provider     String   @default("calculator") // calculator | finch | check | deel
+  apiKeyEnc    String? // encrypted provider API key (null until configured)
+  enabled      Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@schema("plugin_agentbook_payroll")
+}
