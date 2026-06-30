@@ -1962,6 +1962,30 @@ model AbInvoice {
   @@schema("plugin_agentbook_invoice")
 }
 
+/// Deferred revenue schedule for retainers / subscriptions billed up front.
+/// The invoice's ledger entry is unchanged; this overlay tracks how much of
+/// the billed amount has been *recognized* over time so reports can show
+/// earned vs unearned revenue. One row per invoice that opts in.
+model AbDeferredRevenue {
+  id                    String   @id @default(uuid())
+  tenantId              String
+  invoiceId             String
+  totalAmountCents      Int
+  recognizedAmountCents Int      @default(0)
+  monthsRecognized      Int      @default(0) // how many monthly slices have run
+  startDate             DateTime
+  endDate               DateTime
+  periodMonths          Int
+  lastRecognizedPeriod  String? // "YYYY-MM" of the most recent recognition run
+  status                String   @default("active") // active | completed | cancelled
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  @@unique([tenantId, invoiceId])
+  @@index([tenantId, status])
+  @@schema("plugin_agentbook_invoice")
+}
+
 model AbInvoiceLine {
   id          String    @id @default(uuid())
   tenantId    String // G-009: denormalized from parent AbInvoice for direct tenant-filtered queries
