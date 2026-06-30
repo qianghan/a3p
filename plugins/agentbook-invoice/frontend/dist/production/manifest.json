@@ -1,12 +1,12 @@
 {
   "name": "agentbook-invoice",
-  "displayName": "Invoicing",
+  "displayName": "AgentBook Invoicing",
   "version": "1.0.0",
   "bundleFile": "agentbook-invoice.js",
   "stylesFile": "plugin-agentbook-invoice-frontend.css",
   "globalName": "NaapPluginAgentbookInvoice",
-  "bundleHash": "caccb917",
-  "bundleSize": 116787,
+  "bundleHash": "ce56d3d4",
+  "bundleSize": 120334,
   "routes": [
     "/agentbook/invoices",
     "/agentbook/invoices/*",
@@ -18,6 +18,6 @@
   ],
   "category": "finance",
   "description": "Invoice creation, PDF generation, payment tracking, accounts receivable, client management, estimates, and payment follow-up.",
-  "buildTime": "2026-06-18T05:00:36.690Z",
+  "buildTime": "2026-06-30T03:17:32.833Z",
   "nodeEnv": "production"
 }
