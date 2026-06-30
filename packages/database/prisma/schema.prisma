@@ -24,7 +24,7 @@ datasource db {
   provider  = "postgresql"
   url       = env("DATABASE_URL")
   directUrl = env("DATABASE_URL_UNPOOLED")
-  schemas   = ["public", "plugin_community", "plugin_service_gateway", "plugin_agentbook_core", "plugin_agentbook_expense", "plugin_agentbook_invoice", "plugin_agentbook_tax", "plugin_agentbook_billing", "plugin_agentbook_personal"]
+  schemas   = ["public", "plugin_community", "plugin_service_gateway", "plugin_agentbook_core", "plugin_agentbook_expense", "plugin_agentbook_invoice", "plugin_agentbook_tax", "plugin_agentbook_billing", "plugin_agentbook_personal", "plugin_agentbook_cpa"]
 }
 
 // ============================================
@@ -1421,6 +1421,8 @@ model AbTenantConfig {
   timezone              String   @default("America/New_York")
   fiscalYearStart       Int      @default(1) // month 1-12
   accountingBasis       String   @default("accrual") // accrual | cash — drives P&L recognition
+  aiCpaAutoFix          Boolean  @default(true) // allow the AI CPA to auto-correct bookkeeping (user can disable)
+  cpaReviewFrequency    String   @default("monthly") // monthly | off — AI CPA review cadence
   autoApproveLimitCents Int      @default(50000) // $500 default
   autoRemindEnabled     Boolean  @default(false)
   autoRemindDays        Int      @default(3) // min days between reminders
@@ -2990,4 +2992,65 @@ model AbPersonalBudget {
 
   @@unique([tenantId, category])
   @@schema("plugin_agentbook_personal")
+}
+
+// ============================================================================
+// CPA Handoff plugin (Phase 4) — share read-only books with an accountant,
+// collect their sign-off, and run an AI-CPA review that flags actionable
+// findings. Lives in its own schema namespace.
+// ============================================================================
+
+model AbCpaReviewLink {
+  id        String   @id @default(uuid())
+  tenantId  String
+  token     String   @unique @default(cuid())
+  label     String? // optional note, e.g. "For Jane @ Smith CPA"
+  expiresAt DateTime
+  status    String   @default("active") // active | revoked
+  createdAt DateTime @default(now())
+
+  comments AbCpaComment[]
+
+  @@index([tenantId, status])
+  @@schema("plugin_agentbook_cpa")
+}
+
+model AbCpaComment {
+  id          String          @id @default(uuid())
+  linkId      String
+  link        AbCpaReviewLink @relation(fields: [linkId], references: [id], onDelete: Cascade)
+  authorName  String?
+  authorEmail String?
+  body        String
+  createdAt   DateTime        @default(now())
+
+  @@index([linkId])
+  @@schema("plugin_agentbook_cpa")
+}
+
+model AbCpaReviewReport {
+  id           String   @id @default(uuid())
+  tenantId     String
+  period       String // "2026-06"
+  jurisdiction String
+  findings     Json     @default("[]") // [{severity, category, title, detail, actionItem, autoFixable}]
+  score        Int      @default(0) // 0-100 books-health score
+  status       String   @default("published") // draft | published
+  createdAt    DateTime @default(now())
+
+  @@unique([tenantId, period])
+  @@schema("plugin_agentbook_cpa")
+}
+
+model AbBookSignoff {
+  id        String   @id @default(uuid())
+  tenantId  String
+  period    String // "2026-06"
+  cpaName   String?
+  cpaEmail  String?
+  viaToken  String? // the review-link token used to sign off
+  signedAt  DateTime @default(now())
+
+  @@unique([tenantId, period])
+  @@schema("plugin_agentbook_cpa")
 }
