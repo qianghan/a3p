@@ -19,6 +19,11 @@
   --accent-green: #18794E;
   --accent-green-light: #1E9960;
   --accent-green-bright: #40BF86;
+  /* AgentBook brand palette (from the logo gradient) */
+  --brand-deep: #0c6e57;
+  --brand-primary: #149578;
+  --brand-bright: #1faf87;
+  --brand-mint: #62cda2;
 
   --accent-blue: #18794E;
   --accent-amber: #d97706;
@@ -70,6 +75,11 @@
   --accent-green: #1E9960;
   --accent-green-light: #40BF86;
   --accent-green-bright: #6DB09C;
+  /* AgentBook brand palette (from the logo gradient) */
+  --brand-deep: #0c6e57;
+  --brand-primary: #149578;
+  --brand-bright: #1faf87;
+  --brand-mint: #62cda2;
 
   --accent-blue: #1E9960;
   --accent-amber: #f59e0b;
