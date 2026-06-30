@@ -11,6 +11,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma as db } from '@naap/database';
 import { safeResolveAgentbookTenant } from '@/lib/agentbook-tenant';
 import { syncTransactionsForAccount, sanitizePlaidError } from '@/lib/agentbook-plaid';
+import { summarizeSyncRuns, type SyncRun } from '@/lib/plaid-sync-summary';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -25,17 +26,13 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       where: { tenantId, connected: true, accessTokenEnc: { not: null } },
     });
 
-    let totalAdded = 0;
-    let totalModified = 0;
-    let totalRemoved = 0;
+    const runs: SyncRun[] = [];
     const errors: { accountId: string; error: string }[] = [];
 
     for (const account of accounts) {
       try {
         const r = await syncTransactionsForAccount(account.id);
-        totalAdded += r.added;
-        totalModified += r.modified;
-        totalRemoved += r.removed;
+        runs.push({ added: r.added, modified: r.modified, removed: r.removed, hasMore: r.hasMore });
       } catch (err) {
         // Log full error server-side; only surface a sanitized string
         // (Plaid axios errors can leak the access token via err.config).
@@ -47,6 +44,12 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       }
     }
 
+    const summary = summarizeSyncRuns(runs);
+    // A failed account leaves its history un-pulled, so the backfill is only
+    // truly complete when every account drained AND none errored. Clients can
+    // re-POST while `complete` is false to finish a first-time history import.
+    const complete = summary.complete && errors.length === 0;
+
     await db.abEvent.create({
       data: {
         tenantId,
@@ -54,9 +57,10 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         actor: 'system',
         action: {
           accountsSynced: accounts.length,
-          transactionsImported: totalAdded,
-          modified: totalModified,
-          removed: totalRemoved,
+          transactionsImported: summary.transactionsImported,
+          modified: summary.modified,
+          removed: summary.removed,
+          complete,
           errorCount: errors.length,
         },
       },
@@ -66,9 +70,10 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       success: true,
       data: {
         accountsSynced: accounts.length,
-        transactionsImported: totalAdded,
-        modified: totalModified,
-        removed: totalRemoved,
+        transactionsImported: summary.transactionsImported,
+        modified: summary.modified,
+        removed: summary.removed,
+        complete,
         errors: errors.length > 0 ? errors : undefined,
         timestamp: new Date().toISOString(),
       },

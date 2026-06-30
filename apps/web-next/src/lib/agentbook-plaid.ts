@@ -165,10 +165,10 @@ export async function exchangePublicToken(
  */
 export async function syncTransactionsForAccount(
   accountId: string,
-): Promise<{ added: number; modified: number; removed: number; cursor: string | null }> {
+): Promise<{ added: number; modified: number; removed: number; cursor: string | null; hasMore: boolean }> {
   const account = await db.abBankAccount.findUnique({ where: { id: accountId } });
   if (!account || !account.connected || !account.accessTokenEnc) {
-    return { added: 0, modified: 0, removed: 0, cursor: null };
+    return { added: 0, modified: 0, removed: 0, cursor: null, hasMore: false };
   }
   const accessToken = decryptToken(account.accessTokenEnc);
   const client = getPlaidClient();
@@ -310,6 +310,9 @@ export async function syncTransactionsForAccount(
     modified: modified.length,
     removed: removed.length,
     cursor: cursor || null,
+    // True only when the per-run page cap truncated the pull (more history
+    // remains and will arrive on the next sync). False once fully drained.
+    hasMore,
   };
 }
 
