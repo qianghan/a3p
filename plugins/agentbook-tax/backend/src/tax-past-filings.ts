@@ -76,8 +76,15 @@ export async function uploadPastFiling(
   let blobUrl = `local://${blobKey}`;
   if (BLOB_TOKEN) {
     const { put } = await import('@vercel/blob');
+    // The provisioned Vercel Blob store is a PUBLIC store, so we cannot request
+    // `access: 'private'` (the API rejects it). We keep tax documents protected
+    // by: (1) `addRandomSuffix` so the URL is unguessable, (2) never returning
+    // blobUrl/blobKey in any API response, and (3) proxying every download
+    // through the authenticated `/:id/download` endpoint. Provision a dedicated
+    // private Blob store + token to upgrade to true private ACLs later.
     const blob = await put(blobKey, pdfBuffer, {
-      access: 'private',
+      access: 'public',
+      addRandomSuffix: true,
       token: BLOB_TOKEN,
       contentType: 'application/pdf',
     });
