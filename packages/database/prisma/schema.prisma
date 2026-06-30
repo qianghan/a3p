@@ -1987,6 +1987,29 @@ model AbDeferredRevenue {
   @@schema("plugin_agentbook_invoice")
 }
 
+/// Accounts-payable bill: money the business owes a vendor (rent, SaaS,
+/// contractor invoice). Bills are a payables tracker — they post to the
+/// ledger only when paid (Dr expense / Cr cash), so they hit both the cash
+/// and accrual P&L at payment date and never double-count.
+model AbBill {
+  id             String    @id @default(uuid())
+  tenantId       String
+  vendorName     String
+  description    String?
+  amountCents    Int
+  categoryCode   String? // expense account code to debit on payment (e.g. 6000)
+  dueDate        DateTime
+  status         String    @default("open") // open | paid | cancelled
+  paidDate       DateTime?
+  journalEntryId String? // ledger entry created at payment
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@index([tenantId, status])
+  @@index([tenantId, dueDate])
+  @@schema("plugin_agentbook_expense")
+}
+
 model AbInvoiceLine {
   id          String    @id @default(uuid())
   tenantId    String // G-009: denormalized from parent AbInvoice for direct tenant-filtered queries
