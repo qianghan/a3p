@@ -53,6 +53,10 @@ test('CPA link + AI review + unauthenticated accountant review', async ({ page }
   const ctx = await browser.newContext({ baseURL: BASE });
   const guest = await ctx.newPage();
   try {
+    // Navigate to the public review page first so relative fetch URLs resolve
+    // (and prove the page itself loads without auth).
+    await guest.goto(`/review/${token}`);
+    await guest.waitForTimeout(1_000);
     const pub = await apiGet(guest, `/api/v1/agentbook-cpa/public/${token}`);
     expect(pub.status, JSON.stringify(pub.data)).toBe(200);
     expect(pub.data.data.pnl).toBeTruthy();
