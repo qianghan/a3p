@@ -25,6 +25,10 @@ import {
   Command,
   // Plugin icons - referenced by name in plugin.json manifests
   Wallet,
+  UserCheck,
+  Banknote,
+  Smartphone,
+  Receipt,
   Radio,
   BarChart3,
   Video,
@@ -282,6 +286,18 @@ export function Sidebar() {
   // To add items, register them via shell configuration or create plugins.
   const staticNetworkItems: NavItem[] = [];
 
+  // Static main items for native (non-plugin) AgentBook pages that aren't in
+  // the plugin registry — Personal finance, Accountant/CPA, Payroll, Bills,
+  // and the mobile app. These ship as Next.js routes, so they need explicit
+  // sidebar entries.
+  const staticMainItems: NavItem[] = [
+    { name: 'Bills', href: '/agentbook/bills', icon: Receipt },
+    { name: 'Personal', href: '/personal', icon: Wallet },
+    { name: 'Accountant', href: '/accountant', icon: UserCheck },
+    { name: 'Payroll', href: '/payroll', icon: Banknote },
+    { name: 'Mobile app', href: '/app', icon: Smartphone },
+  ];
+
   // Routes that should use exact matching only
   const exactMatchRoutes = new Set([
     '/agentbook',
@@ -367,14 +383,24 @@ export function Sidebar() {
                   <div className="h-4 w-20 bg-muted/50 animate-pulse rounded" />
                 </div>
               ) : (
-                mainPlugins.map(item => (
-                  <NavLink
-                    key={item.href}
-                    item={item}
-                    isActive={isActive(item.href)}
-                    isOpen={isSidebarOpen}
-                  />
-                ))
+                <>
+                  {mainPlugins.map(item => (
+                    <NavLink
+                      key={item.href}
+                      item={item}
+                      isActive={isActive(item.href)}
+                      isOpen={isSidebarOpen}
+                    />
+                  ))}
+                  {staticMainItems.map(item => (
+                    <NavLink
+                      key={item.href}
+                      item={item}
+                      isActive={isActive(item.href)}
+                      isOpen={isSidebarOpen}
+                    />
+                  ))}
+                </>
               )}
             </div>
           )}
