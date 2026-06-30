@@ -1423,6 +1423,7 @@ model AbTenantConfig {
   accountingBasis       String   @default("accrual") // accrual | cash — drives P&L recognition
   aiCpaAutoFix          Boolean  @default(true) // allow the AI CPA to auto-correct bookkeeping (user can disable)
   cpaReviewFrequency    String   @default("monthly") // monthly | off — AI CPA review cadence
+  pushSubscription      Json? // Web Push PushSubscription for the mobile PWA
   autoApproveLimitCents Int      @default(50000) // $500 default
   autoRemindEnabled     Boolean  @default(false)
   autoRemindDays        Int      @default(3) // min days between reminders

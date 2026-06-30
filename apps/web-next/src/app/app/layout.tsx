@@ -1,9 +1,46 @@
 'use client';
 
-import React from 'react';
+import React, { useEffect } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { Home, Camera, FileText, MessageCircle } from 'lucide-react';
+
+/** base64url VAPID public key → Uint8Array for pushManager.subscribe. */
+function urlBase64ToUint8Array(base64: string): Uint8Array {
+  const padding = '='.repeat((4 - (base64.length % 4)) % 4);
+  const b64 = (base64 + padding).replace(/-/g, '+').replace(/_/g, '/');
+  const raw = atob(b64);
+  const out = new Uint8Array(raw.length);
+  for (let i = 0; i < raw.length; i++) out[i] = raw.charCodeAt(i);
+  return out;
+}
+
+/** Register the service worker and subscribe to Web Push (best-effort, once). */
+async function ensurePushSubscription(): Promise<void> {
+  try {
+    if (typeof window === 'undefined' || !('serviceWorker' in navigator) || !('PushManager' in window)) return;
+    const vapid = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
+    if (!vapid) return; // push not configured — skip silently
+    const reg = await navigator.serviceWorker.register('/sw.js');
+    if (Notification.permission === 'denied') return;
+    if (Notification.permission === 'default') {
+      const perm = await Notification.requestPermission();
+      if (perm !== 'granted') return;
+    }
+    const existing = await reg.pushManager.getSubscription();
+    const sub = existing ?? (await reg.pushManager.subscribe({
+      userVisibleOnly: true,
+      applicationServerKey: urlBase64ToUint8Array(vapid),
+    }));
+    await fetch('/api/v1/push/subscribe', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ subscription: sub }),
+    });
+  } catch {
+    /* push is optional — never block the app */
+  }
+}
 
 const TABS = [
   { href: '/app', label: 'Home', icon: Home },
@@ -14,6 +51,7 @@ const TABS = [
 
 export default function MobileAppLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
+  useEffect(() => { void ensurePushSubscription(); }, []);
   return (
     <div style={{ minHeight: '100dvh', display: 'flex', flexDirection: 'column', background: 'var(--background, #0a0a0a)' }}>
       <main style={{ flex: 1, overflowY: 'auto', paddingBottom: 72 }}>{children}</main>
