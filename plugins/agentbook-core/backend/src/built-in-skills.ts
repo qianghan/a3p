@@ -94,7 +94,7 @@ export const BUILT_IN_SKILLS = [
     triggerPatterns: ['review', 'pending.*review', 'need.*attention', 'flagged'],
     // Tax-form review utterances have dedicated CA tax skills (ca-t2125-review,
     // ca-t1-review, ca-gst-hst-review, ca-schedule-1-review).
-    excludePatterns: ['review.*t[12]|t2125|t1.*general|t1.*review|gst.*review|hst.*review|schedule.*1|review.*gst|review.*hst'],
+    excludePatterns: ['review.*t[12]|t2125|t1.*general|t1.*review|gst.*review|hst.*review|schedule.*1|review.*gst|review.*hst', 'books|cpa|accountant'],
     parameters: {},
     endpoint: { method: 'GET', url: '/api/v1/agentbook-expense/review-queue' },
   },
@@ -210,8 +210,9 @@ export const BUILT_IN_SKILLS = [
     endpoint: { method: 'GET', url: '/api/v1/agentbook-tax/reports/pnl', queryParams: ['startDate', 'endDate'] },
   },
   {
-    name: 'balance-sheet', description: 'Show balance sheet — assets, liabilities, equity', category: 'tax',
-    triggerPatterns: ['balance.*sheet', 'asset.*liabilit', 'net.*worth', 'equity'],
+    name: 'balance-sheet', description: 'Show the business balance sheet — assets, liabilities, equity', category: 'tax',
+    triggerPatterns: ['balance.*sheet', 'asset.*liabilit', 'equity'],
+    excludePatterns: ['personal', 'household', 'my net worth'],
     parameters: {},
     endpoint: { method: 'GET', url: '/api/v1/agentbook-tax/reports/balance-sheet', queryParams: ['asOfDate'] },
   },
