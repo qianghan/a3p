@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useAuth } from '@/contexts/auth-context';
 import { Loader2 } from 'lucide-react';
+import { Wordmark } from '@/components/brand/Wordmark';
 
 function formatOAuthError(errorCode: string): string {
   const errorMessages: Record<string, string> = {
@@ -54,9 +55,9 @@ export default function LoginForm() {
 
   return (
     <div className="w-full max-w-sm px-4">
-      {/* AgentBook logo + brand */}
+      {/* AgentBook wordmark + brand */}
       <div className="text-center mb-8">
-        <img src="/agentbook-logo.png" alt="AgentBook" className="h-14 w-auto mx-auto mb-3" />
+        <div className="mb-3"><Wordmark size={40} /></div>
         <h1 className="text-lg font-medium text-muted-foreground">Sign in to your account</h1>
       </div>
 
