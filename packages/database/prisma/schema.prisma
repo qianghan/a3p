@@ -3118,3 +3118,19 @@ model AbPayStub {
   @@index([payRunId])
   @@schema("plugin_agentbook_payroll")
 }
+
+model AbPayrollTaxDeposit {
+  id          String    @id @default(uuid())
+  tenantId    String
+  form        String // 941 | 940 | t4 | paye | bas
+  periodLabel String // "2026-Q2"
+  amountCents Int
+  dueDate     DateTime
+  status      String    @default("pending") // pending | paid
+  paidAt      DateTime?
+  createdAt   DateTime  @default(now())
+
+  @@unique([tenantId, form, periodLabel])
+  @@index([tenantId, status])
+  @@schema("plugin_agentbook_payroll")
+}
