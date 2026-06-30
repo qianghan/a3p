@@ -8,6 +8,7 @@
  */
 
 import { db } from './db/client.js';
+import { buildPastFilingContext } from './past-filing-context.js';
 import { retrieveRelevantMemories, learnFromInteraction, handleCorrection } from './agent-memory.js';
 import { assessComplexity, generatePlan, formatPlan, createSession, getActiveSession, updateSession, executeStep, buildUndoAction } from './agent-planner.js';
 import { PlanStep, Evaluation, assessStepQuality, buildFinalEvaluation, formatEvaluation } from './agent-evaluator.js';
@@ -818,16 +819,7 @@ export async function handleAgentMessage(
   let pastFilingContext = '';
   const TAX_KEYWORDS = /tax|t1\b|t4\b|noa|1040|w-?2|rrsp|deduct|filing|refund|balance owing/i;
   if (TAX_KEYWORDS.test(text || '')) {
-    try {
-      const taxBase = ctx.baseUrls['/api/v1/agentbook-tax'] || 'http://localhost:4053';
-      const pfRes = await fetch(`${taxBase}/api/v1/agentbook-tax/past-filings/advisor-context?years=3`, {
-        headers: { 'x-tenant-id': tenantId, ...(process.env.CRON_SECRET ? { Authorization: `Bearer ${process.env.CRON_SECRET}` } : {}) },
-      });
-      if (pfRes.ok) {
-        const pfData = await pfRes.json() as any;
-        pastFilingContext = pfData.data?.context || '';
-      }
-    } catch { /* non-fatal */ }
+    try { pastFilingContext = await buildPastFilingContext(tenantId, 3); } catch { /* non-fatal */ }
   }
 
   // ── Step 2.5: Resolve referents using conversation context ───────────
