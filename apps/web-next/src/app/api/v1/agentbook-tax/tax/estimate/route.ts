@@ -80,6 +80,15 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     const jurisdiction = tenantConfig?.jurisdiction || 'us';
     const region = tenantConfig?.region || '';
 
+    // Accounting basis: explicit ?basis= → tenant config → accrual (mirrors the P&L route).
+    const basisParam = (params.get('basis') || '').toLowerCase();
+    const accountingBasis =
+      basisParam === 'cash' || basisParam === 'accrual'
+        ? basisParam
+        : tenantConfig?.accountingBasis === 'cash'
+          ? 'cash'
+          : 'accrual';
+
     // W-2 (employed) income alongside self-employment, from tax config.
     // Stacks on income-tax brackets; withholding already paid is credited.
     const taxConfig = await db.abTaxConfig.findUnique({ where: { tenantId } });
@@ -99,29 +108,73 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     const revenueIds = revenueAccounts.map((a) => a.id);
     const expenseIds = expenseAccounts.map((a) => a.id);
 
-    const [revenueAgg, expenseAgg] = await Promise.all([
-      revenueIds.length > 0
-        ? db.abJournalLine.aggregate({
-            where: {
-              accountId: { in: revenueIds },
-              entry: { tenantId, date: { gte: startDate, lte: endDate } },
-            },
-            _sum: { creditCents: true, debitCents: true },
-          })
-        : Promise.resolve({ _sum: { creditCents: 0, debitCents: 0 } } as const),
-      expenseIds.length > 0
-        ? db.abJournalLine.aggregate({
-            where: {
-              accountId: { in: expenseIds },
-              entry: { tenantId, date: { gte: startDate, lte: endDate } },
-            },
-            _sum: { creditCents: true, debitCents: true },
-          })
-        : Promise.resolve({ _sum: { creditCents: 0, debitCents: 0 } } as const),
-    ]);
+    let grossRevenueCents: number;
+    let expensesCents: number;
 
-    const grossRevenueCents = (revenueAgg._sum.creditCents || 0) - (revenueAgg._sum.debitCents || 0);
-    const expensesCents = (expenseAgg._sum.debitCents || 0) - (expenseAgg._sum.creditCents || 0);
+    if (accountingBasis === 'cash') {
+      // Cash basis: revenue = customer payments received in the period; expenses =
+      // expense-account debits whose journal entry also credits the cash account
+      // (1000) — i.e. cash that actually left. Unpaid invoices/bills are excluded.
+      const cashAccount = await db.abAccount.findFirst({
+        where: { tenantId, code: '1000' },
+        select: { id: true },
+      });
+      const paymentsAgg = await db.abPayment.aggregate({
+        where: { tenantId, date: { gte: startDate, lte: endDate } },
+        _sum: { amountCents: true },
+      });
+      grossRevenueCents = paymentsAgg._sum.amountCents || 0;
+
+      if (cashAccount && expenseIds.length > 0) {
+        const debitLines = await db.abJournalLine.findMany({
+          where: {
+            accountId: { in: expenseIds },
+            entry: {
+              tenantId,
+              date: { gte: startDate, lte: endDate },
+              lines: { some: { accountId: cashAccount.id, creditCents: { gt: 0 } } },
+            },
+          },
+          select: { debitCents: true, creditCents: true },
+        });
+        expensesCents = debitLines.reduce((s, l) => s + (l.debitCents - l.creditCents), 0);
+      } else {
+        // No cash account configured — fall back to the accrual expense view.
+        const expenseAgg =
+          expenseIds.length > 0
+            ? await db.abJournalLine.aggregate({
+                where: { accountId: { in: expenseIds }, entry: { tenantId, date: { gte: startDate, lte: endDate } } },
+                _sum: { creditCents: true, debitCents: true },
+              })
+            : { _sum: { creditCents: 0, debitCents: 0 } };
+        expensesCents = (expenseAgg._sum.debitCents || 0) - (expenseAgg._sum.creditCents || 0);
+      }
+    } else {
+      // Accrual (default): journal-line aggregates over revenue/expense accounts.
+      const [revenueAgg, expenseAgg] = await Promise.all([
+        revenueIds.length > 0
+          ? db.abJournalLine.aggregate({
+              where: {
+                accountId: { in: revenueIds },
+                entry: { tenantId, date: { gte: startDate, lte: endDate } },
+              },
+              _sum: { creditCents: true, debitCents: true },
+            })
+          : Promise.resolve({ _sum: { creditCents: 0, debitCents: 0 } } as const),
+        expenseIds.length > 0
+          ? db.abJournalLine.aggregate({
+              where: {
+                accountId: { in: expenseIds },
+                entry: { tenantId, date: { gte: startDate, lte: endDate } },
+              },
+              _sum: { creditCents: true, debitCents: true },
+            })
+          : Promise.resolve({ _sum: { creditCents: 0, debitCents: 0 } } as const),
+      ]);
+      grossRevenueCents = (revenueAgg._sum.creditCents || 0) - (revenueAgg._sum.debitCents || 0);
+      expensesCents = (expenseAgg._sum.debitCents || 0) - (expenseAgg._sum.creditCents || 0);
+    }
+
     const netIncomeCents = grossRevenueCents - expensesCents;
 
     const seTaxCents = calcSelfEmploymentTax(netIncomeCents, jurisdiction);
@@ -148,6 +201,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         period,
         jurisdiction,
         region,
+        accountingBasis,
         grossRevenueCents,
         expensesCents,
         netIncomeCents,
