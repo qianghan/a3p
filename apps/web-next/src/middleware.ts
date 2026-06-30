@@ -122,6 +122,7 @@ const protectedRoutes = [
   '/governance',
   '/personal',
   '/accountant',
+  '/payroll',
   // Add plugin routes as protected
   ...Object.keys(PLUGIN_ROUTE_MAP),
 ];
