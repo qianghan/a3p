@@ -23,6 +23,7 @@ import {
   classifyOnly,
   executeClassification,
 } from '@agentbook-core/server';
+import { BUILT_IN_SKILLS } from '@agentbook-core/built-in-skills';
 import { prisma as db } from '@naap/database';
 import { safeResolveAgentbookTenant } from '@/lib/agentbook-tenant';
 import { checkAndIncrement } from '@/lib/agentbook-rate-limit';
@@ -102,9 +103,34 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   }
 
   try {
-    const skills = await db.abSkillManifest.findMany({
+    const dbSkills = await db.abSkillManifest.findMany({
       where: { enabled: true, OR: [{ tenantId: null }, { tenantId }] },
     });
+    // Merge in any BUILT_IN_SKILLS not yet seeded into AbSkillManifest, so a
+    // deploy that adds new built-in skills works immediately without a manual
+    // re-seed. DB rows take precedence (they may be customized per tenant).
+    const seenNames = new Set(dbSkills.map((s) => s.name));
+    const fallbackSkills = BUILT_IN_SKILLS
+      .filter((s) => !seenNames.has(s.name))
+      .map((s) => ({
+        id: `builtin-${s.name}`,
+        tenantId: null,
+        name: s.name,
+        description: s.description,
+        category: s.category,
+        triggerPatterns: (s as { triggerPatterns?: string[] }).triggerPatterns ?? [],
+        requirePatterns: (s as { requirePatterns?: string[] }).requirePatterns ?? [],
+        excludePatterns: (s as { excludePatterns?: string[] }).excludePatterns ?? [],
+        parameters: (s as { parameters?: unknown }).parameters ?? {},
+        endpoint: (s as { endpoint?: unknown }).endpoint ?? null,
+        responseTemplate: (s as { responseTemplate?: string }).responseTemplate ?? null,
+        confirmBefore: false,
+        enabled: true,
+        source: 'built_in',
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      }));
+    const skills = [...dbSkills, ...fallbackSkills] as typeof dbSkills;
     const baseUrls = getPluginBaseUrls(getAppBaseUrl(request));
 
     const brainResult = await handleAgentMessage(
