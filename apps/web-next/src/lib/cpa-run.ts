@@ -36,10 +36,16 @@ export async function runReviewForTenant(tenantId: string) {
     db.abBill.findMany({ where: { tenantId, status: 'open' } }),
     db.abAccount.findMany({ where: { tenantId, accountType: 'revenue', isActive: true }, select: { id: true } }),
     db.abAccount.findMany({ where: { tenantId, accountType: 'expense', isActive: true }, select: { id: true } }),
-    db.abAccount.findFirst({ where: { tenantId, code: '1000' }, select: { balanceCents: true } }),
+    db.abAccount.findFirst({ where: { tenantId, code: '1000' }, select: { id: true } }),
   ]);
 
   const overdue = openBills.filter((b) => b.dueDate < now);
+
+  // Cash on hand = debits − credits on the cash account (no stored balance).
+  const cashAgg = cashAccount
+    ? await db.abJournalLine.aggregate({ where: { accountId: cashAccount.id, entry: { tenantId } }, _sum: { debitCents: true, creditCents: true } })
+    : { _sum: { debitCents: 0, creditCents: 0 } };
+  const cashOnHandCents = (cashAgg._sum.debitCents || 0) - (cashAgg._sum.creditCents || 0);
 
   const [revAgg, expAgg] = await Promise.all([
     revenueAccounts.length
@@ -65,7 +71,7 @@ export async function runReviewForTenant(tenantId: string) {
     effectiveTaxRate,
     netIncomeCents,
     estimatedTaxCents,
-    cashOnHandCents: cashAccount?.balanceCents ?? 0,
+    cashOnHandCents,
     quarterlyTaxDueSoon: quarterlyDueSoon(now),
   };
 
