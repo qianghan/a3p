@@ -14,6 +14,7 @@ import { ToggleRight, AlertTriangle, CheckCircle2, Plus, Trash2, Power, PowerOff
 import { Button, Input, Badge } from '@naap/ui';
 import { useAuth } from '@/contexts/auth-context';
 import { AdminNav } from '@/components/admin/AdminNav';
+import { LLMProvidersSection } from '@/components/admin/LLMProvidersSection';
 
 interface Flag {
   key: string;
@@ -143,6 +144,9 @@ export default function AdminConfigPage() {
           ))}
         </div>
       )}
+
+      <hr className="border-border" />
+      <LLMProvidersSection />
     </div>
   );
 }
