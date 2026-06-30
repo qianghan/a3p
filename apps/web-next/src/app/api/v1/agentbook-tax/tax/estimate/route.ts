@@ -80,6 +80,13 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     const jurisdiction = tenantConfig?.jurisdiction || 'us';
     const region = tenantConfig?.region || '';
 
+    // W-2 (employed) income alongside self-employment, from tax config.
+    // Stacks on income-tax brackets; withholding already paid is credited.
+    const taxConfig = await db.abTaxConfig.findUnique({ where: { tenantId } });
+    const w2IncomeCents = taxConfig?.w2IncomeAnnual ?? 0;
+    const w2WithheldCents = taxConfig?.w2WithheldYtd ?? 0;
+    const combinedMode = w2IncomeCents > 0 || w2WithheldCents > 0;
+
     const yearStart = new Date(new Date().getFullYear(), 0, 1);
     const startDate = parseDate(params.get('startDate'), yearStart);
     const endDate = parseDate(params.get('endDate'), new Date());
@@ -121,11 +128,15 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     const seDeduction = jurisdiction === 'us' ? Math.round(seTaxCents / 2) : 0;
     const taxableIncomeCents = Math.max(0, netIncomeCents - seDeduction);
     const brackets = jurisdiction === 'ca' ? CA_FEDERAL_BRACKETS : US_FEDERAL_BRACKETS;
-    const incomeTaxCents = calcProgressiveTax(taxableIncomeCents, brackets);
+    // W-2 wages stack on top of self-employment income for bracket placement.
+    const incomeTaxCents = calcProgressiveTax(taxableIncomeCents + w2IncomeCents, brackets);
     const totalTaxCents = seTaxCents + incomeTaxCents;
+    // What is still owed after crediting W-2 tax already withheld this year.
+    const amountOwedCents = Math.max(0, totalTaxCents - w2WithheldCents);
     const period = params.get('period') || currentPeriod();
-    const effectiveRate = netIncomeCents > 0
-      ? parseFloat((totalTaxCents / netIncomeCents * 100).toFixed(2))
+    const incomeBaseCents = netIncomeCents + w2IncomeCents;
+    const effectiveRate = incomeBaseCents > 0
+      ? parseFloat((totalTaxCents / incomeBaseCents * 100).toFixed(2))
       : 0;
 
     // The legacy plugin frontend reads top-level snake_case dollar fields
@@ -143,6 +154,11 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         seTaxCents,
         incomeTaxCents,
         totalTaxCents,
+        // Combined business + W-2 context (zeros/false when no W-2 configured)
+        combinedMode,
+        w2IncomeCents,
+        w2WithheldCents,
+        amountOwedCents,
         effectiveRate,
         calculatedAt: new Date().toISOString(),
         dateRange: { startDate: startDate.toISOString(), endDate: endDate.toISOString() },
@@ -154,6 +170,10 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       total_revenue: grossRevenueCents / 100,
       total_expenses: expensesCents / 100,
       net_income: netIncomeCents / 100,
+      combined_mode: combinedMode,
+      w2_income: w2IncomeCents / 100,
+      w2_withheld: w2WithheldCents / 100,
+      amount_owed: amountOwedCents / 100,
       quarterly_payments: [],
     });
   } catch (err) {

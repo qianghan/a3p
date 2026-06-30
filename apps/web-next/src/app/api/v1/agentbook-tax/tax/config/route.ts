@@ -44,6 +44,8 @@ interface ConfigBody {
   region?: string;
   retirementType?: string | null;
   homeOfficeMethod?: string | null;
+  w2IncomeAnnual?: number | null;
+  w2WithheldYtd?: number | null;
 }
 
 export async function PUT(request: NextRequest): Promise<NextResponse> {
@@ -52,13 +54,15 @@ export async function PUT(request: NextRequest): Promise<NextResponse> {
     if ('response' in __resolved) return __resolved.response;
     const { tenantId } = __resolved;
     const body = (await request.json().catch(() => ({}))) as ConfigBody;
-    const { filingStatus, region, retirementType, homeOfficeMethod } = body;
+    const { filingStatus, region, retirementType, homeOfficeMethod, w2IncomeAnnual, w2WithheldYtd } = body;
 
     const update: Record<string, unknown> = {};
     if (filingStatus !== undefined) update.filingStatus = filingStatus;
     if (region !== undefined) update.region = region;
     if (retirementType !== undefined) update.retirementType = retirementType;
     if (homeOfficeMethod !== undefined) update.homeOfficeMethod = homeOfficeMethod;
+    if (w2IncomeAnnual !== undefined) update.w2IncomeAnnual = w2IncomeAnnual;
+    if (w2WithheldYtd !== undefined) update.w2WithheldYtd = w2WithheldYtd;
 
     const config = await db.abTaxConfig.upsert({
       where: { tenantId },
@@ -69,6 +73,8 @@ export async function PUT(request: NextRequest): Promise<NextResponse> {
         region: region || '',
         retirementType: retirementType || null,
         homeOfficeMethod: homeOfficeMethod || null,
+        w2IncomeAnnual: w2IncomeAnnual ?? null,
+        w2WithheldYtd: w2WithheldYtd ?? null,
       },
     });
 

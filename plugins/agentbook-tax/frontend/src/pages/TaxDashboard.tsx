@@ -24,6 +24,10 @@ interface TaxEstimate {
   total_revenue: number;
   total_expenses: number;
   net_income: number;
+  combined_mode?: boolean;
+  w2_income?: number;
+  w2_withheld?: number;
+  amount_owed?: number;
   quarterly_payments: {
     quarter: string;
     amount_due: number;
@@ -37,6 +41,8 @@ interface TaxSettings {
   jurisdiction: string;
   region: string;
   businessType: string;
+  w2IncomeAnnual: number | null;
+  w2WithheldYtd: number | null;
 }
 
 function formatCurrency(n: number) {
@@ -88,7 +94,20 @@ function DashboardTab({ data, onRefresh }: { data: TaxEstimate; onRefresh: () =>
         {data.net_income > 0 && (
           <p className="mt-2 text-sm text-muted-foreground">
             on {formatCurrency(data.net_income)} net income
+            {data.combined_mode && data.w2_income ? ` + ${formatCurrency(data.w2_income)} W-2` : ''}
           </p>
+        )}
+        {data.combined_mode && (
+          <div className="mt-3 inline-flex flex-col items-center gap-1">
+            <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-primary/10 text-primary">
+              Combined (business + personal W-2)
+            </span>
+            {data.amount_owed != null && (
+              <span className="text-xs text-muted-foreground">
+                {formatCurrency(data.amount_owed)} still owed after W-2 withholding
+              </span>
+            )}
+          </div>
         )}
       </div>
 
@@ -231,18 +250,41 @@ const BUSINESS_TYPES = [
   { value: 'corporation', label: 'Corporation' },
 ];
 
+const DEFAULT_SETTINGS: TaxSettings = {
+  jurisdiction: 'us', region: '', businessType: 'sole_proprietor',
+  w2IncomeAnnual: null, w2WithheldYtd: null,
+};
+
 function SettingsTab({ onSaved }: { onSaved?: () => void }) {
   const [settings, setSettings] = useState<TaxSettings>(() => {
     try {
       const saved = localStorage.getItem('agentbook_tax_settings');
-      return saved ? JSON.parse(saved) : { jurisdiction: 'us', region: '', businessType: 'sole_proprietor' };
+      return saved ? { ...DEFAULT_SETTINGS, ...JSON.parse(saved) } : { ...DEFAULT_SETTINGS };
     } catch {
-      return { jurisdiction: 'us', region: '', businessType: 'sole_proprietor' };
+      return { ...DEFAULT_SETTINGS };
     }
   });
   const [saved, setSaved] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+
+  // Hydrate W-2 fields from the persisted tax config (source of truth for the
+  // estimate calculation; localStorage only caches jurisdiction/region/type).
+  useEffect(() => {
+    let active = true;
+    fetch('/api/v1/agentbook-tax/tax/config')
+      .then(r => (r.ok ? r.json() : null))
+      .then(json => {
+        if (!active || !json?.data) return;
+        setSettings(prev => ({
+          ...prev,
+          w2IncomeAnnual: json.data.w2IncomeAnnual ?? null,
+          w2WithheldYtd: json.data.w2WithheldYtd ?? null,
+        }));
+      })
+      .catch(() => { /* keep defaults */ });
+    return () => { active = false; };
+  }, []);
 
   const handleChange = (key: keyof TaxSettings, value: string) => {
     setSettings(prev => {
@@ -250,6 +292,13 @@ function SettingsTab({ onSaved }: { onSaved?: () => void }) {
       if (key === 'jurisdiction') next.region = '';
       return next;
     });
+    setSaved(false);
+    setSaveError(null);
+  };
+
+  // W-2 inputs are entered in whole dollars; stored in cents (null when blank).
+  const handleW2Change = (key: 'w2IncomeAnnual' | 'w2WithheldYtd', dollars: string) => {
+    setSettings(prev => ({ ...prev, [key]: dollars ? Math.round(Number(dollars) * 100) : null }));
     setSaved(false);
     setSaveError(null);
   };
@@ -268,6 +317,16 @@ function SettingsTab({ onSaved }: { onSaved?: () => void }) {
         }),
       });
       if (!res.ok) throw new Error(`${res.status}`);
+      // Persist W-2 income/withholding to the tax config (drives the estimate).
+      const taxRes = await fetch('/api/v1/agentbook-tax/tax/config', {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          w2IncomeAnnual: settings.w2IncomeAnnual,
+          w2WithheldYtd: settings.w2WithheldYtd,
+        }),
+      });
+      if (!taxRes.ok) throw new Error(`tax config ${taxRes.status}`);
       localStorage.setItem('agentbook_tax_settings', JSON.stringify(settings));
       setSaved(true);
       setTimeout(() => setSaved(false), 2500);
@@ -333,6 +392,36 @@ function SettingsTab({ onSaved }: { onSaved?: () => void }) {
                 <option key={o.value} value={o.value}>{o.label}</option>
               ))}
             </select>
+          </div>
+
+          <div>
+            <label className="block text-xs font-medium text-muted-foreground mb-1.5">
+              W-2 annual income (if employed alongside this business)
+            </label>
+            <input
+              type="number"
+              min="0"
+              placeholder="0"
+              value={settings.w2IncomeAnnual != null ? settings.w2IncomeAnnual / 100 : ''}
+              onChange={e => handleW2Change('w2IncomeAnnual', e.target.value)}
+              className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/40"
+            />
+            <p className="text-xs text-muted-foreground mt-1">Your gross W-2 salary, before tax. Leave blank if none.</p>
+          </div>
+
+          <div>
+            <label className="block text-xs font-medium text-muted-foreground mb-1.5">
+              W-2 income tax withheld (year to date)
+            </label>
+            <input
+              type="number"
+              min="0"
+              placeholder="0"
+              value={settings.w2WithheldYtd != null ? settings.w2WithheldYtd / 100 : ''}
+              onChange={e => handleW2Change('w2WithheldYtd', e.target.value)}
+              className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/40"
+            />
+            <p className="text-xs text-muted-foreground mt-1">Federal/income tax already withheld from your paycheck this year.</p>
           </div>
         </div>
       </div>
