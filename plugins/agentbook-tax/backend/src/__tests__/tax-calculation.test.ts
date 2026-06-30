@@ -108,6 +108,63 @@ function calculateFullTaxEstimate(
 }
 
 // ---------------------------------------------------------------------------
+// Helper: combined business + W-2 estimate (mirrors server.ts estimate route)
+// SE tax applies only to self-employment net; W-2 wages stack on income-tax
+// brackets; W-2 withholding is credited against the total liability.
+// ---------------------------------------------------------------------------
+
+function calculateCombinedEstimate(
+  netIncomeCents: number,
+  jurisdiction: string,
+  w2IncomeCents: number,
+  w2WithheldCents: number,
+): {
+  seTaxCents: number;
+  incomeTaxCents: number;
+  totalTaxCents: number;
+  amountOwedCents: number;
+} {
+  const seTaxCents = calcSelfEmploymentTax(netIncomeCents, jurisdiction);
+  const seDeductionCents = jurisdiction === 'us' ? Math.round(seTaxCents / 2) : 0;
+  const taxableIncomeCents = Math.max(0, netIncomeCents - seDeductionCents);
+  const brackets = getBrackets(jurisdiction);
+  const incomeTaxCents = calcProgressiveTax(taxableIncomeCents + w2IncomeCents, brackets);
+  const totalTaxCents = seTaxCents + incomeTaxCents;
+  const amountOwedCents = Math.max(0, totalTaxCents - w2WithheldCents);
+  return { seTaxCents, incomeTaxCents, totalTaxCents, amountOwedCents };
+}
+
+describe('combined W-2 + self-employment estimate', () => {
+  it('SE tax is unchanged by W-2 income (employer withholds FICA separately)', () => {
+    const withoutW2 = calculateCombinedEstimate(80_000_00, 'us', 0, 0);
+    const withW2 = calculateCombinedEstimate(80_000_00, 'us', 50_000_00, 0);
+    expect(withW2.seTaxCents).toBe(withoutW2.seTaxCents);
+  });
+
+  it('W-2 wages stack on SE income, pushing income tax into higher brackets', () => {
+    const withoutW2 = calculateCombinedEstimate(80_000_00, 'us', 0, 0);
+    const withW2 = calculateCombinedEstimate(80_000_00, 'us', 50_000_00, 0);
+    expect(withW2.incomeTaxCents).toBeGreaterThan(withoutW2.incomeTaxCents);
+  });
+
+  it('W-2 withholding is credited against the total liability', () => {
+    const est = calculateCombinedEstimate(80_000_00, 'us', 50_000_00, 12_000_00);
+    expect(est.amountOwedCents).toBe(est.totalTaxCents - 12_000_00);
+  });
+
+  it('amount owed never goes negative when withholding exceeds liability', () => {
+    const est = calculateCombinedEstimate(10_000_00, 'us', 5_000_00, 99_000_00);
+    expect(est.amountOwedCents).toBe(0);
+  });
+
+  it('with no W-2 configured, results match the business-only estimate', () => {
+    const combined = calculateCombinedEstimate(80_000_00, 'us', 0, 0);
+    const businessOnly = calculateFullTaxEstimate(80_000_00, 'us');
+    expect(combined.totalTaxCents).toBe(businessOnly.totalTaxCents);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // P&L and Balance Sheet structural helpers
 // ---------------------------------------------------------------------------
 

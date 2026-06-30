@@ -2169,6 +2169,8 @@ model AbTaxConfig {
   region           String
   retirementType   String?
   homeOfficeMethod String?
+  w2IncomeAnnual   Int? // W-2 gross wages in cents (employed income alongside self-employment)
+  w2WithheldYtd    Int? // income tax withheld YTD on W-2 income, in cents
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
 
