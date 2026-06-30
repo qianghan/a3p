@@ -21,9 +21,14 @@ export default function MobileCapture() {
     try {
       const form = new FormData();
       form.append('file', file);
-      const r = await fetch('/api/v1/agentbook-expense/receipts/upload-blob', { method: 'POST', body: form });
+      // Store + OCR the receipt; prefill the fields for the user to confirm.
+      const r = await fetch('/api/v1/agentbook-expense/receipts/scan', { method: 'POST', body: form });
       const j = await r.json();
-      if (r.ok && (j.url || j.data?.url)) setReceiptUrl(j.url || j.data.url);
+      if (r.ok && j.success) {
+        if (j.data.receiptUrl) setReceiptUrl(j.data.receiptUrl);
+        if (j.data.amountCents != null) setAmount(String(j.data.amountCents / 100));
+        if (j.data.vendor) setVendor(j.data.vendor);
+      }
     } catch {
       /* photo optional — keep going */
     } finally {
