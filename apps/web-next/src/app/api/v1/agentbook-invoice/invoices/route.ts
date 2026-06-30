@@ -85,6 +85,8 @@ interface CreateInvoiceBody {
   lines?: InvoiceLine[];
   status?: string;
   currency?: string;
+  /** When set (2-60), recognize this invoice's revenue evenly over N months. */
+  deferOverMonths?: number;
 }
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
@@ -105,7 +107,12 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         } catch {
           body = {};
         }
-        const { clientId, issuedDate, dueDate, lines, status, currency } = body;
+        const { clientId, issuedDate, dueDate, lines, status, currency, deferOverMonths } = body;
+        // Clamp deferral months to a sane range; ignore anything outside it.
+        const deferMonths =
+          typeof deferOverMonths === 'number' && deferOverMonths >= 2 && deferOverMonths <= 60
+            ? Math.floor(deferOverMonths)
+            : null;
 
         if (!clientId || !lines || !Array.isArray(lines) || lines.length === 0) {
           return {
@@ -195,6 +202,24 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
               where: { id: clientId },
               data: { totalBilledCents: { increment: totalAmountCents } },
             });
+
+            // Optional deferred-revenue schedule (retainers/subscriptions).
+            if (deferMonths) {
+              const start = new Date(issuedDate || Date.now());
+              const end = new Date(start);
+              end.setMonth(end.getMonth() + deferMonths);
+              await tx.abDeferredRevenue.create({
+                data: {
+                  tenantId,
+                  invoiceId: inv.id,
+                  totalAmountCents,
+                  recognizedAmountCents: 0,
+                  startDate: start,
+                  endDate: end,
+                  periodMonths: deferMonths,
+                },
+              });
+            }
 
             await tx.abEvent.create({
               data: {

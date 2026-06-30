@@ -229,6 +229,13 @@ router.get('/agentbook-tax/tax/estimate', async (req: any, res) => {
     const jurisdiction = tenantConfig?.jurisdiction || 'us';
     const region = tenantConfig?.region || '';
 
+    // W-2 (employed) income alongside self-employment, from tax config.
+    // Stacks on income-tax brackets; withholding already paid is credited.
+    const taxConfig = await db.abTaxConfig.findUnique({ where: { tenantId } });
+    const w2IncomeCents = taxConfig?.w2IncomeAnnual ?? 0;
+    const w2WithheldCents = taxConfig?.w2WithheldYtd ?? 0;
+    const combinedMode = w2IncomeCents > 0 || w2WithheldCents > 0;
+
     // 2. Aggregate revenue and expenses from journal lines
     // Revenue accounts = accountType 'revenue', Expense accounts = accountType 'expense'
     const revenueAccounts = await db.abAccount.findMany({
@@ -279,8 +286,12 @@ router.get('/agentbook-tax/tax/estimate', async (req: any, res) => {
     const seDeduction = jurisdiction === 'us' ? Math.round(seTaxCents / 2) : 0;
     const taxableIncomeCents = Math.max(0, netIncomeCents - seDeduction);
     const brackets = getBrackets(jurisdiction);
-    const incomeTaxCents = calcProgressiveTax(taxableIncomeCents, brackets);
+    // W-2 wages stack on top of self-employment income for bracket placement.
+    const combinedTaxableCents = taxableIncomeCents + w2IncomeCents;
+    const incomeTaxCents = calcProgressiveTax(combinedTaxableCents, brackets);
     const totalTaxCents = seTaxCents + incomeTaxCents;
+    // What is still owed after crediting W-2 tax already withheld this year.
+    const amountOwedCents = Math.max(0, totalTaxCents - w2WithheldCents);
 
     const period = req.query.period as string || currentPeriod();
 
@@ -335,8 +346,13 @@ router.get('/agentbook-tax/tax/estimate', async (req: any, res) => {
         seTaxCents,
         incomeTaxCents,
         totalTaxCents,
-        effectiveRate: netIncomeCents > 0
-          ? parseFloat((totalTaxCents / netIncomeCents * 100).toFixed(2))
+        // Combined business + W-2 context (zeros/false when no W-2 configured)
+        combinedMode,
+        w2IncomeCents,
+        w2WithheldCents,
+        amountOwedCents,
+        effectiveRate: (netIncomeCents + w2IncomeCents) > 0
+          ? parseFloat((totalTaxCents / (netIncomeCents + w2IncomeCents) * 100).toFixed(2))
           : 0,
         calculatedAt: estimate.calculatedAt,
         dateRange: { startDate: startDate.toISOString(), endDate: endDate.toISOString() },
@@ -1082,7 +1098,7 @@ router.get('/agentbook-tax/tax/config', async (req: any, res) => {
 router.put('/agentbook-tax/tax/config', async (req: any, res) => {
   try {
     const tenantId: string = req.tenantId;
-    const { filingStatus, region, retirementType, homeOfficeMethod } = req.body;
+    const { filingStatus, region, retirementType, homeOfficeMethod, w2IncomeAnnual, w2WithheldYtd } = req.body;
 
     const config = await db.abTaxConfig.upsert({
       where: { tenantId },
@@ -1091,6 +1107,8 @@ router.put('/agentbook-tax/tax/config', async (req: any, res) => {
         ...(region !== undefined && { region }),
         ...(retirementType !== undefined && { retirementType }),
         ...(homeOfficeMethod !== undefined && { homeOfficeMethod }),
+        ...(w2IncomeAnnual !== undefined && { w2IncomeAnnual }),
+        ...(w2WithheldYtd !== undefined && { w2WithheldYtd }),
       },
       create: {
         tenantId,
@@ -1098,6 +1116,8 @@ router.put('/agentbook-tax/tax/config', async (req: any, res) => {
         region: region || '',
         retirementType: retirementType || null,
         homeOfficeMethod: homeOfficeMethod || null,
+        w2IncomeAnnual: w2IncomeAnnual ?? null,
+        w2WithheldYtd: w2WithheldYtd ?? null,
       },
     });
 

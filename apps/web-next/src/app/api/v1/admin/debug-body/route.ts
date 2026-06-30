@@ -11,11 +11,15 @@ import 'server-only';
 import { NextRequest, NextResponse } from 'next/server';
 import * as crypto from 'crypto';
 import { getStripe } from '@/lib/billing/stripe';
+import { requireAdmin } from '@/lib/admin-guard';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
+  const guard = await requireAdmin(request);
+  if ('response' in guard) return guard.response;
+
   const headers: Record<string, string> = {};
   request.headers.forEach((v, k) => { headers[k] = v; });
 

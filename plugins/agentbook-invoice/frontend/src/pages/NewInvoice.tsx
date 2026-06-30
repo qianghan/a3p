@@ -52,6 +52,9 @@ export const NewInvoicePage: React.FC = () => {
   const [description, setDescription] = useState('');
   const [terms, setTerms] = useState('net-30');
   const [invoiceDate, setInvoiceDate] = useState(new Date().toISOString().slice(0, 10));
+  // Deferred revenue (retainers/subscriptions): recognize evenly over N months.
+  const [deferEnabled, setDeferEnabled] = useState(false);
+  const [deferMonths, setDeferMonths] = useState(12);
   const [lineItems, setLineItems] = useState<LineItem[]>([
     { id: uid(), description: '', quantity: 1, rate: 0 },
   ]);
@@ -189,6 +192,7 @@ export const NewInvoicePage: React.FC = () => {
           status,
           currency: tenantCurrency,
           lines: bookedLines,
+          ...(deferEnabled && deferMonths >= 2 ? { deferOverMonths: deferMonths } : {}),
           ...(isForeign && fxRate && originalTotalCents != null
             ? {
                 originalCurrency: currency,
@@ -330,6 +334,31 @@ export const NewInvoicePage: React.FC = () => {
                 className={fieldClass}
               />
             </div>
+          </div>
+          {/* Deferred revenue — retainers/subscriptions billed up front */}
+          <div className="rounded-lg border border-border bg-muted/30 p-3">
+            <label className="flex items-center gap-2 text-sm font-medium text-foreground cursor-pointer">
+              <input
+                type="checkbox"
+                checked={deferEnabled}
+                onChange={(e) => setDeferEnabled(e.target.checked)}
+              />
+              Recognize revenue over time (retainer / subscription)
+            </label>
+            {deferEnabled && (
+              <div className="mt-2 flex items-center gap-2">
+                <span className="text-sm text-muted-foreground">Over</span>
+                <input
+                  type="number"
+                  min={2}
+                  max={60}
+                  value={deferMonths}
+                  onChange={(e) => setDeferMonths(Math.max(2, Math.min(60, Number(e.target.value) || 2)))}
+                  className="w-20 rounded-lg border border-border bg-background px-2 py-1 text-sm text-foreground"
+                />
+                <span className="text-sm text-muted-foreground">months — earned evenly each month.</span>
+              </div>
+            )}
           </div>
           {/* Currency selector — multi-currency (PR 13) */}
           <div className="mt-4 grid grid-cols-1 sm:grid-cols-3 gap-4">
