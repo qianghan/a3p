@@ -2,11 +2,12 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Users, MessageSquare, Key, Blocks } from 'lucide-react';
+import { Users, MessageSquare, Key, Blocks, Sparkles } from 'lucide-react';
 
 const adminTabs = [
   { name: 'Users', href: '/admin/users', icon: Users },
   { name: 'Plugins', href: '/admin/plugins', icon: Blocks },
+  { name: 'Skills', href: '/admin/skills', icon: Sparkles },
   { name: 'Feedback', href: '/admin/feedback', icon: MessageSquare },
   { name: 'Secrets', href: '/admin/secrets', icon: Key },
 ];
