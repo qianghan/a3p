@@ -108,8 +108,13 @@ export async function parsePastFiling(
   await db.abPastTaxFiling.update({ where: { id: filingId }, data: { status: 'parsing', errorMsg: null } });
 
   try {
+    // Resolve key + model the same way core callGemini does: env var first
+    // (production), then the DB LLM config (legacy / local-dev overrides).
     const llmConfig = await db.abLLMProviderConfig.findFirst({ where: { enabled: true, isDefault: true } });
-    if (!llmConfig || llmConfig.provider !== 'gemini' || !llmConfig.apiKey) {
+    const apiKey = process.env.GEMINI_API_KEY
+      || (llmConfig?.provider === 'gemini' ? llmConfig?.apiKey : null)
+      || null;
+    if (!apiKey) {
       await db.abPastTaxFiling.update({ where: { id: filingId }, data: { status: 'error', errorMsg: 'No Gemini config' } });
       return;
     }
@@ -117,7 +122,11 @@ export async function parsePastFiling(
     const filing = await db.abPastTaxFiling.findFirst({ where: { id: filingId, tenantId } });
     if (!filing) return;
 
-    const model = (llmConfig as any).modelVision || (llmConfig as any).modelStandard || 'gemini-1.5-pro';
+    const model = process.env.GEMINI_MODEL_VISION
+      || (llmConfig as any)?.modelVision
+      || process.env.GEMINI_MODEL_FAST
+      || (llmConfig as any)?.modelStandard
+      || 'gemini-2.5-flash';
     const pdfBase64 = pdfBuffer.toString('base64');
 
     // Step 1: identify form type if unknown
@@ -128,7 +137,7 @@ export async function parsePastFiling(
     if (formType === 'unknown') {
       const idPrompt = `You are a tax document classifier. Identify this document.
 Return JSON only: { "formType": "T1"|"T4"|"T4A"|"NOA"|"T2125"|"1040"|"W-2"|"1099-NEC"|"other", "taxYear": <number>, "jurisdiction": "ca"|"us", "region": "<province or state code>" }`;
-      const idRaw = await callGeminiWithPdf(llmConfig.apiKey, model, idPrompt, pdfBase64, 1024);
+      const idRaw = await callGeminiWithPdf(apiKey, model, idPrompt, pdfBase64, 1024);
       if (idRaw) {
         try {
           const id = JSON.parse(cleanJson(idRaw));
@@ -148,7 +157,7 @@ Return JSON only: { "formType": "T1"|"T4"|"T4A"|"NOA"|"T2125"|"1040"|"W-2"|"1099
     }
 
     const extractPrompt = pack.extractionPrompt(formType, taxYear);
-    const extractRaw = await callGeminiWithPdf(llmConfig.apiKey, model, extractPrompt, pdfBase64, 2048);
+    const extractRaw = await callGeminiWithPdf(apiKey, model, extractPrompt, pdfBase64, 8192);
 
     if (!extractRaw) {
       await db.abPastTaxFiling.update({ where: { id: filingId }, data: { status: 'error', errorMsg: 'Gemini returned no response' } });
