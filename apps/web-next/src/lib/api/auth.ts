@@ -67,6 +67,12 @@ export interface OAuthConfig {
     clientSecret: string;
     redirectUri: string;
   };
+  microsoft?: {
+    clientId: string;
+    clientSecret: string;
+    redirectUri: string;
+    tenant: string;
+  };
 }
 
 // Lockout configuration
@@ -110,6 +116,16 @@ export function getOAuthConfig(): OAuthConfig {
       clientId: process.env.GITHUB_CLIENT_ID,
       clientSecret: process.env.GITHUB_CLIENT_SECRET,
       redirectUri: process.env.GITHUB_REDIRECT_URI || `${appUrl}/api/v1/auth/callback/github`,
+    };
+  }
+
+  if (process.env.MICROSOFT_CLIENT_ID && process.env.MICROSOFT_CLIENT_SECRET) {
+    config.microsoft = {
+      clientId: process.env.MICROSOFT_CLIENT_ID,
+      clientSecret: process.env.MICROSOFT_CLIENT_SECRET,
+      redirectUri: process.env.MICROSOFT_REDIRECT_URI || `${appUrl}/api/v1/auth/callback/microsoft`,
+      // 'common' allows both personal (Outlook/Hotmail) and work/school (Office 365) accounts.
+      tenant: process.env.MICROSOFT_TENANT || 'common',
     };
   }
 
@@ -464,8 +480,20 @@ export async function logout(token: string): Promise<void> {
 /**
  * Get OAuth authorization URL
  */
-export function getOAuthUrl(provider: 'google' | 'github', state: string): string | null {
+export function getOAuthUrl(provider: 'google' | 'github' | 'microsoft', state: string): string | null {
   const oauthConfig = getOAuthConfig();
+
+  if (provider === 'microsoft' && oauthConfig.microsoft) {
+    const params = new URLSearchParams({
+      client_id: oauthConfig.microsoft.clientId,
+      redirect_uri: oauthConfig.microsoft.redirectUri,
+      response_type: 'code',
+      response_mode: 'query',
+      scope: 'openid email profile User.Read',
+      state,
+    });
+    return `https://login.microsoftonline.com/${oauthConfig.microsoft.tenant}/oauth2/v2.0/authorize?${params.toString()}`;
+  }
 
   if (provider === 'google' && oauthConfig.google) {
     const params = new URLSearchParams({
@@ -495,7 +523,7 @@ export function getOAuthUrl(provider: 'google' | 'github', state: string): strin
  * Handle OAuth callback
  */
 export async function handleOAuthCallback(
-  provider: 'google' | 'github',
+  provider: 'google' | 'github' | 'microsoft',
   code: string
 ): Promise<AuthResult> {
   const oauthConfig = getOAuthConfig();
@@ -504,6 +532,41 @@ export async function handleOAuthCallback(
   let providerAccountId: string | null = null;
   let displayName: string | null = null;
   let avatarUrl: string | null = null;
+
+  if (provider === 'microsoft' && oauthConfig.microsoft) {
+    // Exchange code for tokens
+    const tokenRes = await fetch(
+      `https://login.microsoftonline.com/${oauthConfig.microsoft.tenant}/oauth2/v2.0/token`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({
+          code,
+          client_id: oauthConfig.microsoft.clientId,
+          client_secret: oauthConfig.microsoft.clientSecret,
+          redirect_uri: oauthConfig.microsoft.redirectUri,
+          grant_type: 'authorization_code',
+          scope: 'openid email profile User.Read',
+        }),
+      }
+    );
+
+    const tokens = await tokenRes.json();
+    if (!tokens.access_token) {
+      throw new Error('Failed to get access token from Microsoft');
+    }
+
+    // Get user info from Microsoft Graph
+    const userRes = await fetch('https://graph.microsoft.com/v1.0/me', {
+      headers: { Authorization: `Bearer ${tokens.access_token}` },
+    });
+
+    const userInfo = await userRes.json();
+    providerAccountId = userInfo.id ? String(userInfo.id) : null;
+    displayName = userInfo.displayName || null;
+    // Personal accounts expose `mail`; work/school accounts may only have UPN.
+    email = userInfo.mail || userInfo.userPrincipalName || null;
+  }
 
   if (provider === 'google' && oauthConfig.google) {
     // Exchange code for tokens
@@ -648,6 +711,7 @@ export function getAvailableProviders(): string[] {
   const providers: string[] = [];
   if (oauthConfig.google) providers.push('google');
   if (oauthConfig.github) providers.push('github');
+  if (oauthConfig.microsoft) providers.push('microsoft');
   return providers;
 }
 

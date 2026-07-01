@@ -15,7 +15,7 @@ export async function GET(request: NextRequest, { params }: RouteParams): Promis
   try {
     const { provider } = await params;
 
-    if (provider !== 'google' && provider !== 'github') {
+    if (provider !== 'google' && provider !== 'github' && provider !== 'microsoft') {
       return errors.badRequest('Invalid OAuth provider');
     }
 

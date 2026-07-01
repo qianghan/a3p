@@ -25,7 +25,7 @@ export interface AuthState {
 
 export interface AuthContextValue extends AuthState {
   login: (email: string, password: string) => Promise<void>;
-  loginWithOAuth: (provider: 'google' | 'github') => Promise<void>;
+  loginWithOAuth: (provider: 'google' | 'github' | 'microsoft') => Promise<void>;
   loginWithWallet: (address: string, signature: string) => Promise<void>;
   logout: () => Promise<void>;
   refreshSession: () => Promise<void>;
@@ -241,7 +241,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [router]);
 
-  const loginWithOAuth = useCallback(async (provider: 'google' | 'github') => {
+  const loginWithOAuth = useCallback(async (provider: 'google' | 'github' | 'microsoft') => {
     try {
       const response = await fetch(`${API_BASE}/v1/auth/oauth/${provider}`, {
         credentials: 'include',

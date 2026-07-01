@@ -14,7 +14,7 @@ export async function GET(request: NextRequest, { params }: RouteParams): Promis
   try {
     const { provider } = await params;
 
-    if (provider !== 'google' && provider !== 'github') {
+    if (provider !== 'google' && provider !== 'github' && provider !== 'microsoft') {
       return NextResponse.redirect(new URL('/login?error=invalid_provider', request.url));
     }
 
@@ -80,7 +80,7 @@ export async function POST(request: NextRequest, { params }: RouteParams): Promi
   try {
     const { provider } = await params;
 
-    if (provider !== 'google' && provider !== 'github') {
+    if (provider !== 'google' && provider !== 'github' && provider !== 'microsoft') {
       return NextResponse.json(
         { success: false, error: { code: 'INVALID_PROVIDER', message: 'Invalid OAuth provider' } },
         { status: 400 }

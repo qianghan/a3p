@@ -57,7 +57,66 @@ function escapeHtml(str: string): string {
 }
 
 /**
- * AgentBook verification email template
+ * Shared branded email scaffold — teal AgentBook header, single CTA, footer.
+ * Keeps every transactional email visually consistent and on-brand. All
+ * dynamic HTML passed in (`intro`, `extraHtml`) must already be escaped/trusted.
+ */
+function buildBrandedEmail(params: {
+  title: string;
+  preheader: string;
+  heading: string;
+  intro: string;
+  ctaText: string;
+  ctaUrl: string;
+  extraHtml?: string;
+  footnote: string;
+}): string {
+  const { title, preheader, heading, intro, ctaText, ctaUrl, extraHtml = '', footnote } = params;
+  return `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>${title}</title>
+</head>
+<body style="margin:0;padding:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;background-color:#f4f6f8;line-height:1.6;">
+  <div style="display:none;max-height:0;overflow:hidden;opacity:0;">${preheader}</div>
+  <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background-color:#f4f6f8;padding:40px 20px;">
+    <tr><td align="center">
+      <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:520px;background:#ffffff;border-radius:14px;box-shadow:0 4px 16px rgba(10,35,27,0.08);overflow:hidden;">
+        <!-- Header -->
+        <tr><td style="background:linear-gradient(135deg,#0c6e57 0%,#149578 55%,#1faf87 100%);padding:34px 40px;text-align:center;">
+          <span style="font-size:22px;font-weight:700;letter-spacing:-0.4px;color:#ffffff;">agent<span style="color:#8ff0cf;">book</span></span>
+          <p style="margin:8px 0 0;font-size:13px;color:rgba(255,255,255,0.85);">AI bookkeeping, automated</p>
+        </td></tr>
+        <!-- Body -->
+        <tr><td style="padding:40px;">
+          <h1 style="margin:0 0 16px;font-size:20px;font-weight:600;color:#0a231b;">${heading}</h1>
+          <div style="margin:0 0 22px;font-size:15px;color:#4b5563;">${intro}</div>
+          ${extraHtml}
+          <table role="presentation" cellspacing="0" cellpadding="0" style="margin:8px auto 0;"><tr>
+            <td style="border-radius:9px;background:linear-gradient(135deg,#149578 0%,#1faf87 100%);box-shadow:0 2px 6px rgba(20,149,120,0.35);">
+              <a href="${ctaUrl}" style="display:inline-block;padding:14px 34px;font-size:15px;font-weight:600;color:#ffffff;text-decoration:none;">${ctaText}</a>
+            </td>
+          </tr></table>
+          <p style="margin:26px 0 0;font-size:13px;color:#6b7280;">${footnote}</p>
+          <p style="margin:14px 0 0;font-size:12px;color:#9ca3af;">If the button doesn't work, copy and paste this link into your browser:<br>
+            <a href="${ctaUrl}" style="color:#149578;word-break:break-all;">${ctaUrl}</a></p>
+        </td></tr>
+        <!-- Footer -->
+        <tr><td style="padding:22px 40px;background:#f9fafb;border-top:1px solid #eef0f2;text-align:center;">
+          <p style="margin:0 0 4px;font-size:12px;color:#6b7280;"><a href="${APP_URL}" style="color:#149578;text-decoration:none;font-weight:600;">AgentBook</a> &middot; AI bookkeeping for freelancers &amp; small business</p>
+          <p style="margin:0;font-size:11px;color:#b0b7c0;"><a href="${APP_URL}/docs" style="color:#9ca3af;text-decoration:none;">Help center</a></p>
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>
+</body>
+</html>`;
+}
+
+/**
+ * AgentBook welcome + email-verification template
  */
 function buildVerificationEmailHtml(params: {
   verifyUrl: string;
@@ -65,130 +124,41 @@ function buildVerificationEmailHtml(params: {
 }): string {
   const { verifyUrl, displayName } = params;
   const safeName = displayName ? escapeHtml(displayName) : '';
-  const greeting = safeName ? `Hi ${safeName}` : 'Hi there';
+  const greeting = safeName ? `Hi ${safeName},` : 'Hi there,';
 
-  return `<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Verify your email - AgentBook</title>
-</head>
-<body style="margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; background-color: #f4f6f8; line-height: 1.6;">
-  <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background-color: #f4f6f8; padding: 40px 20px;">
-    <tr>
-      <td align="center">
-        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width: 520px; background: #ffffff; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.08); overflow: hidden;">
-          <!-- Header -->
-          <tr>
-            <td style="background: linear-gradient(135deg, #0a0f1a 0%, #1a2744 100%); padding: 32px 40px; text-align: center;">
-              <h1 style="margin: 0; font-size: 24px; font-weight: 600; color: #ffffff; letter-spacing: -0.5px;">AgentBook</h1>
-              <p style="margin: 8px 0 0; font-size: 14px; color: rgba(255,255,255,0.8);">AI bookkeeping, automated</p>
-            </td>
-          </tr>
-          <!-- Body -->
-          <tr>
-            <td style="padding: 40px;">
-              <p style="margin: 0 0 16px; font-size: 16px; color: #1f2937;">${greeting},</p>
-              <p style="margin: 0 0 24px; font-size: 16px; color: #4b5563;">
-                Welcome to AgentBook — AI-powered bookkeeping for freelancers and small businesses.
-                Your books are about to get a lot easier.
-              </p>
-              <p style="margin: 0 0 24px; font-size: 16px; color: #4b5563;">
-                Please verify your email address by clicking the button below:
-              </p>
-              <table role="presentation" cellspacing="0" cellpadding="0" style="margin: 0 auto;">
-                <tr>
-                  <td style="border-radius: 8px; background: linear-gradient(135deg, #149578 0%, #1faf87 100%);">
-                    <a href="${verifyUrl}" style="display: inline-block; padding: 14px 32px; font-size: 16px; font-weight: 600; color: #ffffff; text-decoration: none;">Verify Email Address</a>
-                  </td>
-                </tr>
-              </table>
-              <p style="margin: 24px 0 0; font-size: 14px; color: #6b7280;">
-                This link expires in 24 hours. If you didn't create an account, you can safely ignore this email.
-              </p>
-              <p style="margin: 16px 0 0; font-size: 13px; color: #9ca3af;">
-                If the button doesn't work, copy and paste this link into your browser:<br>
-                <a href="${verifyUrl}" style="color: #149578; word-break: break-all;">${verifyUrl}</a>
-              </p>
-            </td>
-          </tr>
-          <!-- Footer -->
-          <tr>
-            <td style="padding: 24px 40px; background: #f9fafb; border-top: 1px solid #e5e7eb; text-align: center;">
-              <p style="margin: 0; font-size: 12px; color: #9ca3af;">
-                <a href="${APP_URL}" style="color: #149578; text-decoration: none;">AgentBook</a>
-              </p>
-            </td>
-          </tr>
-        </table>
-      </td>
-    </tr>
-  </table>
-</body>
-</html>`;
+  return buildBrandedEmail({
+    title: 'Welcome to AgentBook — verify your email',
+    preheader: 'Confirm your email to activate your AgentBook account.',
+    heading: 'Welcome to AgentBook 👋',
+    intro: `<p style="margin:0 0 14px;">${greeting}</p>
+      <p style="margin:0;">Thanks for signing up. AgentBook is your AI bookkeeper — snap a receipt, connect your bank, and just ask for the numbers. Confirm your email to activate your account:</p>`,
+    extraHtml: `<table role="presentation" cellspacing="0" cellpadding="0" style="margin:0 0 24px;"><tr><td style="font-size:14px;color:#4b5563;">
+        <div style="margin:3px 0;">📸&nbsp;&nbsp;Snap a photo of any receipt — we categorize it</div>
+        <div style="margin:3px 0;">🏦&nbsp;&nbsp;Connect your bank for automatic expense tracking</div>
+        <div style="margin:3px 0;">💬&nbsp;&nbsp;Ask "how much did I spend on travel?" in plain English</div>
+      </td></tr></table>`,
+    ctaText: 'Verify email address',
+    ctaUrl: verifyUrl,
+    footnote: "This link expires in 24 hours. If you didn't create an AgentBook account, you can safely ignore this email.",
+  });
 }
 
 /**
- * Password reset email template
+ * AgentBook password-reset template
  */
 function buildPasswordResetEmailHtml(params: { resetUrl: string }): string {
   const { resetUrl } = params;
 
-  return `<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Reset your password - AgentBook</title>
-</head>
-<body style="margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; background-color: #f4f6f8; line-height: 1.6;">
-  <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background-color: #f4f6f8; padding: 40px 20px;">
-    <tr>
-      <td align="center">
-        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width: 520px; background: #ffffff; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.08); overflow: hidden;">
-          <tr>
-            <td style="background: linear-gradient(135deg, #0a0f1a 0%, #1a2744 100%); padding: 32px 40px; text-align: center;">
-              <h1 style="margin: 0; font-size: 24px; font-weight: 600; color: #ffffff;">AgentBook</h1>
-              <p style="margin: 8px 0 0; font-size: 14px; color: rgba(255,255,255,0.8);">AI bookkeeping, automated</p>
-            </td>
-          </tr>
-          <tr>
-            <td style="padding: 40px;">
-              <p style="margin: 0 0 16px; font-size: 16px; color: #1f2937;">Hi there,</p>
-              <p style="margin: 0 0 24px; font-size: 16px; color: #4b5563;">
-                We received a request to reset your AgentBook account password. 
-                Click the button below to choose a new password:
-              </p>
-              <table role="presentation" cellspacing="0" cellpadding="0" style="margin: 0 auto;">
-                <tr>
-                  <td style="border-radius: 8px; background: linear-gradient(135deg, #149578 0%, #1faf87 100%);">
-                    <a href="${resetUrl}" style="display: inline-block; padding: 14px 32px; font-size: 16px; font-weight: 600; color: #ffffff; text-decoration: none;">Reset Password</a>
-                  </td>
-                </tr>
-              </table>
-              <p style="margin: 24px 0 0; font-size: 14px; color: #6b7280;">
-                This link expires in 1 hour. If you didn't request a password reset, you can safely ignore this email.
-              </p>
-              <p style="margin: 16px 0 0; font-size: 13px; color: #9ca3af;">
-                If the button doesn't work, copy and paste this link into your browser:<br>
-                <a href="${resetUrl}" style="color: #149578; word-break: break-all;">${resetUrl}</a>
-              </p>
-            </td>
-          </tr>
-          <tr>
-            <td style="padding: 24px 40px; background: #f9fafb; border-top: 1px solid #e5e7eb; text-align: center;">
-              <p style="margin: 0; font-size: 12px; color: #9ca3af;">
-                <a href="${APP_URL}" style="color: #149578; text-decoration: none;">AgentBook</a>
-              </p>
-            </td>
-          </tr>
-        </table>
-      </td>
-    </tr>
-  </table>
-</body>
-</html>`;
+  return buildBrandedEmail({
+    title: 'Reset your AgentBook password',
+    preheader: 'Choose a new password for your AgentBook account.',
+    heading: 'Reset your password',
+    intro: `<p style="margin:0 0 14px;">Hi there,</p>
+      <p style="margin:0;">We received a request to reset the password for your AgentBook account. Click below to choose a new one:</p>`,
+    ctaText: 'Choose a new password',
+    ctaUrl: resetUrl,
+    footnote: "This link expires in 1 hour. If you didn't request a password reset, you can safely ignore this email — your password won't change.",
+  });
 }
 
 /**
