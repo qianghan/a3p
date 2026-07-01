@@ -306,6 +306,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [router]);
 
   const logout = useCallback(async () => {
+    // Mark an intentional sign-out so the ProtectedRoute guard doesn't race us
+    // to /login when it sees the cleared session on a protected page.
+    if (typeof window !== 'undefined') (window as unknown as { __abSigningOut?: boolean }).__abSigningOut = true;
     const token = getToken();
     if (token) {
       try {
@@ -327,8 +330,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       sessionExpiresAt: null,
       authErrorStatus: null,
     });
-    // Force hard navigation to clear any cached state
-    window.location.href = '/login';
+    // Force hard navigation to clear any cached state. Explicit sign-out lands
+    // on the marketing landing page (the front door), not the sign-in form.
+    window.location.href = '/';
   }, [getToken, router]);
 
   const refreshSession = useCallback(async () => {
@@ -416,6 +420,11 @@ export function RequireAuth({
 
   useEffect(() => {
     if (!isLoading && !isAuthenticated) {
+      // Intentional sign-out is navigating to the landing page ('/') itself —
+      // don't hijack it with a /login redirect.
+      if (typeof window !== 'undefined' && (window as unknown as { __abSigningOut?: boolean }).__abSigningOut) {
+        return;
+      }
       // Three cases:
       //   1. 401 or 200-without-user → explicit invalid session: clear cookie
       //      via /logout and redirect to /login. Middleware will then allow
