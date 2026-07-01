@@ -4,6 +4,7 @@ import { useState, useEffect, Suspense } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Mail, Loader2, CheckCircle, AlertCircle } from 'lucide-react';
+import { Wordmark } from '@/components/brand/Wordmark';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || '/api';
 
@@ -42,8 +43,8 @@ function VerifyEmailInner() {
       });
 
       if (!response.ok) {
-        const data = await response.json();
-        throw new Error(data.message || 'Verification failed');
+        const data = await response.json().catch(() => null);
+        throw new Error(data?.error?.message || 'Verification failed');
       }
 
       setStatus('success');
@@ -83,6 +84,7 @@ function VerifyEmailInner() {
   if (status === 'verifying') {
     return (
       <div className="w-full max-w-sm px-4 text-center">
+        <div className="mb-5"><Wordmark size={32} /></div>
         <Loader2 className="h-8 w-8 animate-spin text-muted-foreground mx-auto mb-5" />
         <h1 className="text-lg font-medium text-foreground">Verifying your email...</h1>
         <p className="text-[13px] text-muted-foreground mt-2">
@@ -96,6 +98,7 @@ function VerifyEmailInner() {
   if (status === 'success') {
     return (
       <div className="w-full max-w-sm px-4 text-center">
+        <div className="mb-5"><Wordmark size={32} /></div>
         <div className="flex justify-center mb-5">
           <div className="p-2.5 bg-green-500/10 rounded-full">
             <CheckCircle className="h-8 w-8 text-green-500" />
@@ -119,6 +122,7 @@ function VerifyEmailInner() {
   if (status === 'error') {
     return (
       <div className="w-full max-w-sm px-4 text-center">
+        <div className="mb-5"><Wordmark size={32} /></div>
         <div className="flex justify-center mb-5">
           <div className="p-2.5 bg-destructive/10 rounded-full">
             <AlertCircle className="h-8 w-8 text-destructive" />
@@ -141,6 +145,7 @@ function VerifyEmailInner() {
   // Pending state (waiting for verification, no token)
   return (
     <div className="w-full max-w-sm px-4 text-center">
+      <div className="mb-5"><Wordmark size={32} /></div>
       <div className="flex justify-center mb-5">
         <div className="p-2.5 bg-muted rounded-full">
           <Mail className="h-8 w-8 text-muted-foreground" />
