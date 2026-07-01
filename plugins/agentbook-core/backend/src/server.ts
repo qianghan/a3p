@@ -4228,6 +4228,7 @@ async function _executeClassificationCore(
         where: {
           tenantId,
           isPersonal: false,
+          deletedAt: null,
           date: { gte: startDate, lte: endDate },
           ...(wantsUncategorizedOnly ? { categoryId: null } : {}),
         },
