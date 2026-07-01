@@ -1,6 +1,8 @@
 import Link from 'next/link';
 import { Rocket, Settings, Sparkles, LifeBuoy, ArrowRight } from 'lucide-react';
 import { Wordmark } from '@/components/brand/Wordmark';
+import { DocsSidebar } from '@/components/docs/docs-sidebar';
+import { getNavigation } from '@/lib/docs/content';
 
 export const metadata = {
   title: 'AgentBook Docs',
@@ -42,8 +44,15 @@ const popular = [
 ];
 
 export default function DocsHomePage() {
+  const navigation = getNavigation();
   return (
-    <div className="px-4 lg:px-8">
+    <div className="flex">
+      <aside className="hidden lg:block w-64 shrink-0 border-r border-border">
+        <div className="sticky top-14 h-[calc(100vh-3.5rem)] overflow-y-auto py-6 px-4">
+          <DocsSidebar navigation={navigation} />
+        </div>
+      </aside>
+      <main className="flex-1 min-w-0 px-4 lg:px-8">
       {/* Hero */}
       <div className="max-w-3xl mx-auto pt-16 pb-10 text-center">
         <div className="flex items-center justify-center gap-2 mb-5">
@@ -103,6 +112,7 @@ export default function DocsHomePage() {
           })}
         </div>
       </div>
+      </main>
     </div>
   );
 }

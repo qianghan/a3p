@@ -11,6 +11,7 @@ import {
   Users,
   ChevronDown,
   File,
+  ArrowLeft,
 } from 'lucide-react';
 import { useState } from 'react';
 
@@ -65,6 +66,13 @@ export function DocsSidebar({ navigation, className = '' }: DocsSidebarProps) {
 
   return (
     <nav className={`space-y-1 ${className}`}>
+      <Link
+        href="/agentbook"
+        className="flex items-center gap-2 px-3 py-2 mb-3 rounded-lg text-sm font-medium text-primary hover:bg-primary/10 transition-colors"
+      >
+        <ArrowLeft size={16} />
+        Back to the app
+      </Link>
       {navigation.map((section) => (
         <SidebarSection
           key={section.title}
