@@ -1,6 +1,7 @@
 import 'server-only';
 import { prisma } from '@naap/database';
 import { invalidateAccount } from '@naap/billing';
+import { processInviteePaid, applyPendingCredits } from '@/lib/billing/referrals';
 import type Stripe from 'stripe';
 
 export async function applyEvent(event: Stripe.Event): Promise<void> {
@@ -46,6 +47,23 @@ export async function applyEvent(event: Stripe.Event): Promise<void> {
         },
       });
       invalidateAccount(tenantId);
+      // If this account was invited and is now actively paying, settle its
+      // referrer's reward (reliable trigger — tenantId is known here, so it
+      // doesn't depend on invoice.paid/subscription event ordering).
+      if (sub.status === 'active') {
+        try {
+          await processInviteePaid(tenantId);
+        } catch (e) {
+          console.error('[stripe-webhook] processInviteePaid (sub.active) failed', e);
+        }
+      }
+      // Now that this account has a Stripe customer, flush any banked referral
+      // credit it earned before subscribing.
+      try {
+        await applyPendingCredits(tenantId);
+      } catch (e) {
+        console.error('[stripe-webhook] applyPendingCredits failed', e);
+      }
       break;
     }
     case 'customer.subscription.deleted': {
@@ -59,11 +77,31 @@ export async function applyEvent(event: Stripe.Event): Promise<void> {
       invalidateAccount(tenantId);
       break;
     }
-    case 'invoice.paid':
+    case 'invoice.paid': {
+      // Subscription status is flipped by customer.subscription.updated.
+      // Here we settle referral rewards: if this paying account was invited,
+      // credit their referrer 1 free month (idempotent, capped at 12).
+      const invoice = event.data.object as Stripe.Invoice;
+      const customerId =
+        typeof invoice.customer === 'string' ? invoice.customer : invoice.customer?.id ?? null;
+      if (customerId) {
+        const sub = await prisma.billSubscription.findFirst({
+          where: { stripeCustomerId: customerId },
+          select: { accountId: true },
+        });
+        if (sub?.accountId) {
+          try {
+            await processInviteePaid(sub.accountId);
+          } catch (e) {
+            console.error('[stripe-webhook] processInviteePaid failed', e);
+          }
+        }
+      }
+      console.log('[stripe-webhook] invoice.paid recorded');
+      break;
+    }
     case 'invoice.payment_failed':
-      // No DB writes here; the matching customer.subscription.updated
-      // event flips status. Logged for observability.
-      console.log('[stripe-webhook]', event.type, 'recorded');
+      console.log('[stripe-webhook] invoice.payment_failed recorded');
       break;
     case 'checkout.session.completed': {
       // Customer-invoice payment via Stripe Checkout (NOT subscription).

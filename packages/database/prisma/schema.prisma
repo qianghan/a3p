@@ -2943,6 +2943,35 @@ model BillEvent {
   @@schema("plugin_agentbook_billing")
 }
 
+// Referral program. One code per tenant (referrer); an invitee who signs up
+// via that code and later pays earns the referrer 1 free month (cap 12).
+model BillReferralCode {
+  id        String   @id @default(uuid())
+  tenantId  String   @unique
+  code      String   @unique
+  createdAt DateTime @default(now())
+
+  @@schema("plugin_agentbook_billing")
+}
+
+// One row per invited tenant. status: joined -> paid. rewardMonths is 0 or 1
+// (0 once the referrer hits the 12-month cap). creditedAt guards double-credit.
+model BillReferral {
+  id               String    @id @default(uuid())
+  referrerTenantId String
+  code             String
+  inviteeTenantId  String    @unique
+  inviteeEmail     String?
+  status           String    @default("joined")
+  rewardMonths     Int       @default(0)
+  joinedAt         DateTime  @default(now())
+  paidAt           DateTime?
+  creditedAt       DateTime?
+
+  @@index([referrerTenantId])
+  @@schema("plugin_agentbook_billing")
+}
+
 // ============================================================================
 // Personal Finance plugin (Phase 3) — household/personal finance kept strictly
 // separate from the business books. Transactions flagged `businessFlag` are the

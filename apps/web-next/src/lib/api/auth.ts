@@ -11,6 +11,7 @@ import {
   sendVerificationEmail as sendEmailVerification,
   sendPasswordResetEmail as sendEmailPasswordReset,
 } from '../email';
+import { recordReferralJoin } from '../billing/referrals';
 
 const RESEND_COOLDOWN_MS = 15 * 60 * 1000; // 15 minutes
 const resendCooldownMap = new Map<string, number>();
@@ -271,7 +272,8 @@ async function createSession(userId: string): Promise<{ token: string; expiresAt
 export async function register(
   email: string,
   password: string,
-  displayName?: string
+  displayName?: string,
+  ref?: string
 ): Promise<RegisterResult> {
   if (!email || !password) {
     throw new Error('Email and password are required');
@@ -322,6 +324,13 @@ export async function register(
   sendVerificationEmail(user.id).catch((err) => {
     console.error('[AUTH] Failed to send verification email:', (err as Error).message);
   });
+
+  // Record referral attribution (non-blocking; guards unknown/self/dup inside).
+  if (ref) {
+    recordReferralJoin(ref, user.id, email).catch((err) => {
+      console.error('[AUTH] Failed to record referral:', (err as Error).message);
+    });
+  }
 
   return { created: true };
 }
@@ -524,7 +533,8 @@ export function getOAuthUrl(provider: 'google' | 'github' | 'microsoft', state: 
  */
 export async function handleOAuthCallback(
   provider: 'google' | 'github' | 'microsoft',
-  code: string
+  code: string,
+  ref?: string
 ): Promise<AuthResult> {
   const oauthConfig = getOAuthConfig();
 
@@ -677,6 +687,12 @@ export async function handleOAuthCallback(
           },
         },
       });
+      // Referral attribution for OAuth signups (new user only).
+      if (ref) {
+        recordReferralJoin(ref, user.id, email ?? undefined).catch((err) => {
+          console.error('[AUTH] Failed to record OAuth referral:', (err as Error).message);
+        });
+      }
     }
 
     // Link OAuth account
