@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { Fraunces, Newsreader, JetBrains_Mono } from 'next/font/google';
+import { Wordmark } from '@/components/brand/Wordmark';
 
 // ─── Type-as-design ─────────────────────────────────────────────────────────
 // Fraunces: a variable serif with optical sizing — characterful at display
@@ -70,8 +71,8 @@ export default function LandingPage() {
           ['--ink-soft' as string]: '#3a342c',
           ['--muted' as string]: '#7a7163',
           ['--rule' as string]: '#d6cdb6',
-          ['--accent' as string]: '#b04d2e', // terracotta — ledger-ink red
-          ['--accent-soft' as string]: '#d77a59',
+          ['--accent' as string]: '#149578', // brand teal
+          ['--accent-soft' as string]: '#62cda2', // brand mint
           ['--money' as string]: '#1d4d3a', // deep emerald
           background: 'var(--paper)',
           color: 'var(--ink)',
@@ -143,12 +144,7 @@ export default function LandingPage() {
       <header className="container-rule pt-6 sm:pt-8">
         <div className="flex items-center justify-between">
           <Link href="/" className="flex items-baseline gap-2.5 group">
-            <span
-              className="display text-[28px] sm:text-[30px] leading-none"
-              style={{ fontWeight: 500, letterSpacing: '-0.04em' }}
-            >
-              AgentBook
-            </span>
+            <Wordmark size={28} />
             <span className="num text-[10.5px] tracking-[0.22em] uppercase text-[var(--muted)] hidden sm:inline">
               est. 2026
             </span>
@@ -709,12 +705,7 @@ export default function LandingPage() {
       <footer className="container-rule py-12">
         <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-8">
           <div>
-            <div
-              className="display text-[36px] leading-none"
-              style={{ fontWeight: 500, letterSpacing: '-0.04em' }}
-            >
-              AgentBook
-            </div>
+            <Wordmark size={36} />
             <p className="mt-3 text-[13px] text-[var(--muted)] max-w-[44ch] leading-[1.5]">
               An AI accountant for the people who never wanted to be one. Built for solo
               founders, freelancers, and the small-team operators who run it all.
