@@ -72,7 +72,7 @@ export const PastFilingsPage: React.FC = () => {
       fd.append('taxYear', String(year));
       fd.append('jurisdiction', jurisdiction);
       if (formType) fd.append('formType', formType);
-      const res = await fetch(`${API}/past-filings/upload`, { method: 'POST', body: fd });
+      const res = await fetch(`${API}/past-filings`, { method: 'POST', body: fd });
       const j = await res.json();
       if (!j.success) { setError(j.error || 'Upload failed'); return; }
       await load();
