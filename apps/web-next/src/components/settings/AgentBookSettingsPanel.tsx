@@ -635,6 +635,72 @@ function CopyField({ value, label }: { value: string; label: string }): React.Re
   );
 }
 
+function shareCaption(code: string, shareUrl: string): string {
+  return `I do my books & taxes with AgentBook — AI bookkeeping that saves me on tax-prep fees and hours of admin. Use my code ${code} to get started: ${shareUrl}`;
+}
+
+function ShareCard({ code, shareUrl }: { code: string; shareUrl: string }): React.ReactElement {
+  const [copied, setCopied] = useState(false);
+  const caption = shareCaption(code, shareUrl);
+  const cardUrl = `/api/v1/agentbook-billing/referrals/card/${encodeURIComponent(code)}`;
+
+  const copyCaption = useCallback(() => {
+    navigator.clipboard.writeText(caption).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  }, [caption]);
+
+  const shareLinks = [
+    { label: 'X', href: `https://twitter.com/intent/tweet?text=${encodeURIComponent(caption)}` },
+    {
+      label: 'LinkedIn',
+      href: `https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(shareUrl)}`,
+    },
+    { label: 'WhatsApp', href: `https://wa.me/?text=${encodeURIComponent(caption)}` },
+  ];
+
+  return (
+    <div className="rounded-xl border border-border bg-card p-4">
+      <p className="text-xs text-muted-foreground mb-2">Your shareable card</p>
+      {/* eslint-disable-next-line @next/next/no-img-element -- server-generated PNG, not an optimizable static asset */}
+      <img
+        src={cardUrl}
+        alt="AgentBook referral card"
+        className="w-full max-w-md rounded-lg border border-border"
+      />
+      <div className="mt-3 flex flex-wrap items-center gap-2">
+        <button
+          type="button"
+          onClick={copyCaption}
+          className="flex items-center gap-1.5 rounded-lg border border-border px-3 py-2 text-sm text-foreground hover:bg-muted transition-colors"
+        >
+          {copied ? <Check size={14} className="text-emerald-500" /> : <Copy size={14} />}
+          {copied ? 'Copied caption' : 'Copy caption'}
+        </button>
+        <a
+          href={cardUrl}
+          download={`agentbook-referral-${code}.png`}
+          className="flex items-center gap-1.5 rounded-lg border border-border px-3 py-2 text-sm text-foreground hover:bg-muted transition-colors"
+        >
+          Download image
+        </a>
+        {shareLinks.map((s) => (
+          <a
+            key={s.label}
+            href={s.href}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="rounded-lg border border-border px-3 py-2 text-sm text-foreground hover:bg-muted transition-colors"
+          >
+            Share on {s.label}
+          </a>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function ReferralsTab(): React.ReactElement {
   const [summary, setSummary] = useState<ReferralSummary | null>(null);
   const [loading, setLoading] = useState(true);
@@ -677,6 +743,8 @@ function ReferralsTab(): React.ReactElement {
         <CopyField label="Your referral code" value={code} />
         <CopyField label="Your share link" value={shareUrl} />
       </div>
+
+      <ShareCard code={code} shareUrl={shareUrl} />
 
       <div className="rounded-xl border border-border bg-card p-4">
         <div className="flex items-center justify-between mb-2">
