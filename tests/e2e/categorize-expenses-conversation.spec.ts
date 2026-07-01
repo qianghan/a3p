@@ -54,8 +54,15 @@ test('categorize-expenses conversation is now actionable end to end', async ({ p
   // Turn 3 equivalent: "List them here so I can do it"
   const turn3 = await sendMessage(page, 'List them here so I can do it');
   console.log('TURN 3 (list them here):', turn3);
-  // Must NOT dead-end with a generic clarifying question.
-  expect(turn3).not.toMatch(/what would you like me to list/i);
+  // Must NOT dead-end asking what "them" refers to (any phrasing of that
+  // failure) — passes the actionability rubric's (a) by routing to a real
+  // expense list instead. Known, documented limitation: this is a pattern
+  // heuristic (routes to "list my expenses"), not true entity-level context
+  // memory, so it isn't guaranteed to scope to exactly the 4 previously
+  // discussed — it must still return *real* data, not re-ask the question.
+  expect(turn3).not.toMatch(/what would you like me to list|not sure what.*(refers?|means?)|tell me what you'?d like/i);
+  const turn3DollarMatches = turn3.match(/\$[\d,]+\.\d{2}/g) || [];
+  expect(turn3DollarMatches.length, `turn 3 must return real data, got: ${turn3}`).toBeGreaterThan(0);
 
   // Turn 4 equivalent: "List the non categorized expenses"
   const turn4 = await sendMessage(page, 'List the non categorized expenses');
