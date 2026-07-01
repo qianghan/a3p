@@ -54,13 +54,10 @@ export interface TocHeading {
 const CONTENT_DIR = path.join(process.cwd(), 'src/content/docs');
 
 const SECTION_META: Record<string, { title: string; order: number; icon: string }> = {
-  'getting-started': { title: 'Getting Started', order: 1, icon: 'Rocket' },
-  concepts: { title: 'Core Concepts', order: 2, icon: 'BookOpen' },
-  guides: { title: 'Guides', order: 3, icon: 'Map' },
-  'api-reference': { title: 'API Reference', order: 4, icon: 'Code' },
-  examples: { title: 'Examples', order: 5, icon: 'FileCode' },
-  prompts: { title: 'AI Prompt Templates', order: 6, icon: 'Sparkles' },
-  community: { title: 'Community', order: 7, icon: 'Users' },
+  setup: { title: 'Set up', order: 1, icon: 'Rocket' },
+  configure: { title: 'Configure', order: 2, icon: 'Settings' },
+  working: { title: 'Working day-to-day', order: 3, icon: 'Sparkles' },
+  troubleshooting: { title: 'Troubleshooting', order: 4, icon: 'LifeBuoy' },
 };
 
 // ---------------------------------------------------------------------------

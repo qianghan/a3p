@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { Moon, Sun, Menu, X, ArrowLeft } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { DocsSearch } from './docs-search';
+import { Wordmark } from '@/components/brand/Wordmark';
 
 interface DocsHeaderProps {
   onToggleSidebar: () => void;
@@ -39,15 +40,9 @@ export function DocsHeader({ onToggleSidebar, isSidebarOpen }: DocsHeaderProps) 
         </button>
 
         {/* Logo */}
-        <Link href="/docs" className="flex items-center gap-2.5 mr-6 shrink-0">
-          <div className="w-8 h-8 bg-gradient-to-br from-primary to-primary/70 rounded-lg flex items-center justify-center text-primary-foreground font-bold shadow-lg shadow-primary/20">
-            <svg viewBox="0 0 24 24" className="w-4 h-4 fill-current">
-              <path d="M4 8h2v2H4V8zm4 4h2v2H8v-2zm4 4h2v2h-2v-2zm-8 4h2v2H4v-2zm12-8h2v2h-2v-2zm4 4h2v2h-2v-2z" />
-            </svg>
-          </div>
-          <span className="font-bold text-lg tracking-tight text-foreground">
-            NaaP <span className="text-muted-foreground font-normal text-sm">Docs</span>
-          </span>
+        <Link href="/docs" className="flex items-center gap-2 mr-6 shrink-0">
+          <Wordmark size={20} />
+          <span className="text-muted-foreground font-normal text-sm">docs</span>
         </Link>
 
         {/* Search */}
