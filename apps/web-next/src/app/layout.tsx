@@ -23,7 +23,7 @@ export const metadata: Metadata = {
   authors: [{ name: 'AgentBook' }],
   creator: 'AgentBook',
   icons: {
-    icon: '/agentbook-logo.png',
+    icon: '/icon.svg',
   },
   metadataBase: new URL(process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3001'),
   openGraph: {

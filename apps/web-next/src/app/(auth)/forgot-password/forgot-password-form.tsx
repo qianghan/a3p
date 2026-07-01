@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { Loader2, ArrowLeft, CheckCircle } from 'lucide-react';
+import { Wordmark } from '@/components/brand/Wordmark';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || '/api';
 
@@ -78,9 +79,9 @@ export default function ForgotPasswordForm() {
 
   return (
     <div className="w-full max-w-sm px-4">
-      {/* AgentBook logo */}
+      {/* AgentBook wordmark */}
       <div className="text-center mb-8">
-        <img src="/agentbook-logo.png" alt="AgentBook" className="h-14 w-auto mx-auto mb-3" />
+        <div className="mb-3"><Wordmark size={40} /></div>
         <h1 className="text-lg font-medium text-muted-foreground">Reset your password</h1>
         <p className="mt-1 text-[13px] text-muted-foreground/60">
           Enter your email and we&apos;ll send you a reset link
