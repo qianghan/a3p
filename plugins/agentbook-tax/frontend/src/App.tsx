@@ -1,6 +1,7 @@
 import React from 'react';
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
 import { createPlugin } from '@naap/plugin-sdk';
+import { TaxLayout } from './pages/TaxLayout';
 import { TaxDashboardPage } from './pages/TaxDashboard';
 import { QuarterlyPage } from './pages/Quarterly';
 import { DeductionsPage } from './pages/Deductions';
@@ -20,19 +21,24 @@ function getInitialPath(): string {
   return path;
 }
 
+// All primary Tax pages share the TaxLayout tab bar so every page is always
+// one click from every other — previously only Dashboard was a discoverable
+// entry point, so following a link into e.g. Tax Package was a dead end.
 const AgentbookTaxApp: React.FC = () => (
   <MemoryRouter initialEntries={[getInitialPath()]}>
     <Routes>
-      <Route path="/" element={<TaxDashboardPage />} />
-      <Route path="/quarterly" element={<QuarterlyPage />} />
-      <Route path="/deductions" element={<DeductionsPage />} />
-      <Route path="/reports" element={<ReportsPage />} />
-      <Route path="/cashflow" element={<CashFlowPage />} />
-      <Route path="/analytics" element={<AnalyticsPage />} />
-      <Route path="/whatif" element={<WhatIfPage />} />
-      <Route path="/tax-package" element={<TaxPackagePage />} />
+      <Route element={<TaxLayout />}>
+        <Route path="/" element={<TaxDashboardPage />} />
+        <Route path="/quarterly" element={<QuarterlyPage />} />
+        <Route path="/deductions" element={<DeductionsPage />} />
+        <Route path="/reports" element={<ReportsPage />} />
+        <Route path="/cashflow" element={<CashFlowPage />} />
+        <Route path="/analytics" element={<AnalyticsPage />} />
+        <Route path="/whatif" element={<WhatIfPage />} />
+        <Route path="/tax-package" element={<TaxPackagePage />} />
+        <Route path="/*" element={<TaxDashboardPage />} />
+      </Route>
       <Route path="/past-filings" element={<PastFilingsPage />} />
-      <Route path="/*" element={<TaxDashboardPage />} />
     </Routes>
   </MemoryRouter>
 );
