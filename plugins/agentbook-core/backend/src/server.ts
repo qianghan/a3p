@@ -4494,6 +4494,8 @@ Only include chartData if visualization adds value. Keep the answer under 200 wo
 
   let skillResponse: any = null;
   let skillError = false;
+  let skillErrorMessage = '';
+  let attemptedUrl = targetUrl;
   try {
     if (endpoint.method === 'GET') {
       const queryParams = (endpoint.queryParams || []) as string[];
@@ -4502,6 +4504,7 @@ Only include chartData if visualization adds value. Keep the answer under 200 wo
         if (extractedParams[p]) qs.set(p, String(extractedParams[p]));
       }
       const getUrl = qs.toString() ? `${targetUrl}?${qs}` : targetUrl;
+      attemptedUrl = getUrl;
       const getRes = await fetch(getUrl, { headers: brainHeaders(tenantId) });
       skillResponse = await getRes.json();
     } else {
@@ -4518,6 +4521,7 @@ Only include chartData if visualization adds value. Keep the answer under 200 wo
         if (paramsCopy[key]) { const val = paramsCopy[key]; delete paramsCopy[key]; return encodeURIComponent(String(val)); }
         return _;
       });
+      attemptedUrl = resolvedUrl;
 
       const fetchRes = await fetch(resolvedUrl, {
         method: endpoint.method || 'POST',
@@ -4527,8 +4531,9 @@ Only include chartData if visualization adds value. Keep the answer under 200 wo
       skillResponse = await fetchRes.json();
     }
   } catch (err) {
-    console.error('Skill execution error:', err);
+    console.error('Skill execution error:', err, 'url=', attemptedUrl);
     skillError = true;
+    skillErrorMessage = err instanceof Error ? err.message : String(err);
   }
 
   // Post-processing: resolve category name for newly created expenses
@@ -4551,7 +4556,7 @@ Only include chartData if visualization adds value. Keep the answer under 200 wo
     // clarifying question or actionable suggestion instead of a flat
     // "I don't know" — only the skill-specific branches below keep their
     // canned guidance because those are precise enough to be useful.
-    const errorDetail = skillResponse?.error || '';
+    const errorDetail = skillResponse?.error || skillErrorMessage || '';
     if (selectedSkill.name === 'record-expense') {
       if (!extractedParams.amountCents) {
         message = "I couldn't find the amount. Try including a number, e.g.:\n• \"Spent $45 on lunch\"\n• \"Paid 132.99 for gas\"";
