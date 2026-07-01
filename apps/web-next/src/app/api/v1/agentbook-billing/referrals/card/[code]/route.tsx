@@ -1,6 +1,7 @@
 import { ImageResponse } from 'next/og';
 import { NextRequest } from 'next/server';
 import { prisma } from '@naap/database';
+import { enforceRateLimit } from '@/lib/api/rate-limit';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -15,9 +16,13 @@ const INK = '#0a231b';
  * peace of mind / ROI), the referral code front and center. Public (no auth)
  * so it renders correctly when the share link unfurls in chat apps and can be
  * downloaded directly. 404s for an unknown code so cards can't be spoofed for
- * codes that were never issued.
+ * codes that were never issued. Rate-limited per IP — unauthenticated and does
+ * non-trivial image rendering, so it's a plausible cost/DoS surface otherwise.
  */
-export async function GET(_request: NextRequest, { params }: { params: Promise<{ code: string }> }) {
+export async function GET(request: NextRequest, { params }: { params: Promise<{ code: string }> }) {
+  const limited = enforceRateLimit(request, { keyPrefix: 'referral-card', maxRequests: 60, windowMs: 60_000 });
+  if (limited) return limited;
+
   const { code: raw } = await params;
   const code = raw.trim().toUpperCase();
   const owner = await prisma.billReferralCode.findUnique({ where: { code } });
