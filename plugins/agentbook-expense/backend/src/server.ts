@@ -76,9 +76,14 @@ async function enforceQuota(
 // === Auto-categorization threshold trigger ===
 async function checkAndAutoCategorize(tenantId: string): Promise<void> {
   try {
+    // Scoped to match what a run can actually fix (pending_review/confirmed
+    // only) — otherwise expenses in other statuses (e.g. rejected) trigger
+    // needless runs forever since they can never drop below the threshold.
     const [total, uncategorized] = await Promise.all([
       db.abExpense.count({ where: { tenantId, isPersonal: false } }),
-      db.abExpense.count({ where: { tenantId, isPersonal: false, categoryId: null } }),
+      db.abExpense.count({
+        where: { tenantId, isPersonal: false, categoryId: null, status: { in: ['pending_review', 'confirmed'] } },
+      }),
     ]);
     if (total === 0 || uncategorized / total <= 0.10) return;
     const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';

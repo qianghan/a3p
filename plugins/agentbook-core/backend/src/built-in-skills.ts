@@ -17,6 +17,14 @@ export const BUILT_IN_SKILLS = [
       'spend.*in.*', 'spend.*by', 'spend.*month', 'spending.*month',
       'who.*spend', 'vendor.*spend', 'spending.*vendor', 'give.*spend',
       'top.*vendor', 'vendor.*most', 'show.*spend', 'my.*spend',
+      // Bare continuation phrases ("list them", "show these") — no entity for
+      // pronoun resolution to bind to (see agent-brain.ts resolveReferents),
+      // so route them here as the most common "list X" intent in this bot
+      // rather than dead-ending in a generic clarifying question. Heuristic,
+      // not true conversational memory — may occasionally misfire if the
+      // immediately preceding topic wasn't expenses.
+      'list (them|these|those)\\b', 'show (them|these|those)\\b',
+      'list.*so i can', 'list.*here',
     ],
     parameters: { question: { type: 'string', required: true, extractHint: 'the full user message' } },
     endpoint: { method: 'POST', url: '/api/v1/agentbook-expense/advisor/ask' },
