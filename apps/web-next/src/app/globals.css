@@ -394,3 +394,32 @@
     border-color: var(--accent-emerald);
   }
 }
+
+/* ── UX consistency & accessibility ──────────────────────────────────────────
+   App-wide defaults so every surface shares the same keyboard-focus, selection,
+   and motion behavior. `:where()` keeps specificity at 0 so components can still
+   override locally. */
+
+/* Uniform, visible keyboard-focus ring in brand teal (mouse clicks unaffected). */
+:where(a, button, [role='button'], input, select, textarea, summary, [tabindex]:not([tabindex='-1'])):focus-visible {
+  outline: 2px solid hsl(var(--primary));
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* Brand-tinted text selection. */
+::selection {
+  background: hsl(var(--primary) / 0.25);
+}
+
+/* Respect users who prefer reduced motion. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
