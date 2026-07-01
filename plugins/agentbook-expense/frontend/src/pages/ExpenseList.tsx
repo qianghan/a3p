@@ -122,7 +122,7 @@ function CategorizationReviewBanner({
       </div>
       {items.length === 0 && (
         <p className="text-sm text-muted-foreground mb-3">
-          AI couldn't confidently categorize these — open each expense to assign a category manually.
+          AI couldn't confidently categorize these — set a category directly on each row in the expense list below.
         </p>
       )}
       <div className="space-y-3">
@@ -161,14 +161,16 @@ function CategorizationReviewBanner({
           );
         })}
       </div>
-      <div className="flex gap-2 mt-3 pt-3 border-t border-border">
-        <button
-          onClick={approveAll}
-          className="text-xs px-3 py-1.5 rounded bg-primary text-primary-foreground hover:bg-primary/90"
-        >
-          Approve all
-        </button>
-      </div>
+      {items.length > 0 && (
+        <div className="flex gap-2 mt-3 pt-3 border-t border-border">
+          <button
+            onClick={approveAll}
+            className="text-xs px-3 py-1.5 rounded bg-primary text-primary-foreground hover:bg-primary/90"
+          >
+            Approve all
+          </button>
+        </div>
+      )}
     </div>
   );
 }
@@ -486,6 +488,41 @@ export const ExpenseListPage: React.FC = () => {
 
   const total = filtered.reduce((s, e) => s + e.amountCents, 0);
 
+  // Category options for the inline "categorize" picker on uncategorized rows.
+  const categoryOptions = useMemo(
+    () =>
+      categorySummary
+        .filter(c => c.categoryId !== null)
+        .map(c => ({ id: c.categoryId as string, name: c.categoryName })),
+    [categorySummary],
+  );
+  const [categorizingId, setCategorizingId] = useState<string | null>(null);
+
+  // Assign a category to an expense from the inline row picker, then update the
+  // row in place (source: 'user' so the agent learns this vendor→category rule).
+  const categorizeExpense = async (expenseId: string, categoryId: string) => {
+    if (!categoryId) return;
+    setCategorizingId(expenseId);
+    try {
+      const res = await fetch(`${API}/expenses/${expenseId}/categorize`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ categoryId, source: 'user' }),
+      });
+      if (res.ok) {
+        const name = categoryOptions.find(c => c.id === categoryId)?.name ?? null;
+        setExpenses(prev => prev.map(e => (e.id === expenseId ? { ...e, categoryId, categoryName: name } : e)));
+        setCatPending(prev =>
+          prev ? { ...prev, items: prev.items.filter(i => i.expenseId !== expenseId) } : prev,
+        );
+      }
+    } catch {
+      // leave the row uncategorized on failure
+    } finally {
+      setCategorizingId(null);
+    }
+  };
+
   // Check if bank is connected
   const [bankConnected, setBankConnected] = useState<boolean | null>(null);
   useEffect(() => {
@@ -781,7 +818,21 @@ export const ExpenseListPage: React.FC = () => {
                           {CATEGORY_ICONS[expense.categoryName] || '📁'} {expense.categoryName}
                         </span>
                       ) : (
-                        <span className="text-xs text-amber-500">Uncategorized</span>
+                        <select
+                          aria-label="Categorize expense"
+                          defaultValue=""
+                          disabled={categorizingId === expense.id || categoryOptions.length === 0}
+                          onClick={(e) => e.stopPropagation()}
+                          onChange={(e) => categorizeExpense(expense.id, e.target.value)}
+                          className="text-xs border border-amber-500/40 text-amber-600 rounded px-1.5 py-1 bg-background disabled:opacity-50"
+                        >
+                          <option value="" disabled>
+                            {categorizingId === expense.id ? 'Saving…' : 'Categorize…'}
+                          </option>
+                          {categoryOptions.map(c => (
+                            <option key={c.id} value={c.id}>{c.name}</option>
+                          ))}
+                        </select>
                       )}
                     </td>
                     <td className="px-4 py-3">
@@ -857,8 +908,22 @@ export const ExpenseListPage: React.FC = () => {
               </div>
             </div>
             <div className="flex items-center gap-1.5 flex-wrap">
-              {expense.categoryName && (
+              {expense.categoryName ? (
                 <span className="px-2 py-0.5 rounded-full text-[10px] bg-primary/10 text-primary font-medium">{expense.categoryName}</span>
+              ) : (
+                <select
+                  aria-label="Categorize expense"
+                  defaultValue=""
+                  disabled={categorizingId === expense.id || categoryOptions.length === 0}
+                  onClick={(e) => e.stopPropagation()}
+                  onChange={(e) => categorizeExpense(expense.id, e.target.value)}
+                  className="text-[10px] border border-amber-500/40 text-amber-600 rounded px-1.5 py-0.5 bg-background disabled:opacity-50"
+                >
+                  <option value="" disabled>{categorizingId === expense.id ? 'Saving…' : 'Categorize…'}</option>
+                  {categoryOptions.map(c => (
+                    <option key={c.id} value={c.id}>{c.name}</option>
+                  ))}
+                </select>
               )}
               {expense.isPersonal && <span className="px-2 py-0.5 rounded-full text-[10px] bg-amber-100 text-amber-700 font-medium">Personal</span>}
               {expense.tags?.split(',').filter(Boolean).slice(0, 2).map(t => (
