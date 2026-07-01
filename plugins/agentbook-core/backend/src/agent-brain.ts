@@ -10,7 +10,7 @@
 import { db } from './db/client.js';
 import { buildPastFilingContext } from './past-filing-context.js';
 import { retrieveRelevantMemories, learnFromInteraction, handleCorrection } from './agent-memory.js';
-import { assessComplexity, generatePlan, formatPlan, createSession, getActiveSession, updateSession, executeStep, buildUndoAction } from './agent-planner.js';
+import { assessComplexity, generatePlan, formatPlan, createSession, getActiveSession, updateSession, executeStep, buildUndoAction, resolveStepParams } from './agent-planner.js';
 import { PlanStep, Evaluation, assessStepQuality, buildFinalEvaluation, formatEvaluation } from './agent-evaluator.js';
 
 // Deterministic local engagement fallback when LLM is unreachable.
@@ -703,7 +703,17 @@ export async function handleAgentMessage(
           },
         }).catch(() => {});
 
-        const result = await executeStep(step, tenantId, ctx.skills, ctx.baseUrls);
+        // Resolve {{steps[N].output...}} placeholders against prior steps'
+        // results before executing — the planner's LLM-generated plans use
+        // this syntax for inter-step data flow (e.g. "find the last expense"
+        // -> "edit that expense") but the step objects otherwise carry the
+        // literal unresolved template string into the HTTP call.
+        const { params: resolvedParams, unresolved } = resolveStepParams(step.params || {}, plan);
+        step.params = resolvedParams;
+
+        const result = unresolved.length > 0
+          ? { success: false, error: `Couldn't resolve prior step output: ${unresolved.join(', ')}` }
+          : await executeStep(step, tenantId, ctx.skills, ctx.baseUrls);
         step.result = result;
         step.quality = assessStepQuality(step);
         step.status = result?.success ? 'done' : 'failed';
