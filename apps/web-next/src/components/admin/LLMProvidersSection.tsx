@@ -22,6 +22,7 @@ interface LLMConfig {
   modelStandard: string;
   modelPremium: string;
   modelVision: string;
+  source?: 'env' | 'db'; // 'env' = configured via environment variable (read-only here)
 }
 
 const BASE = '/api/v1/agentbook-core/admin/llm-configs';
@@ -116,13 +117,20 @@ export function LLMProvidersSection() {
                   <span className="font-medium">{c.name}</span>
                   <Badge variant="secondary">{c.provider}</Badge>
                   {c.isDefault && <Badge variant="amber">default</Badge>}
+                  {c.source === 'env' && <Badge variant="secondary">environment</Badge>}
                   {!c.enabled && <Badge variant="rose">disabled</Badge>}
                 </div>
                 <p className="text-xs text-muted-foreground truncate mt-0.5 font-mono">{c.modelStandard} · key {c.apiKey}</p>
               </div>
-              {!c.isDefault && <Button variant="ghost" size="sm" loading={busy === c.id} onClick={() => setDefault(c.id)} icon={<Star size={14} />}>Default</Button>}
-              <Button variant="ghost" size="sm" loading={busy === c.id} onClick={() => test(c.id)} icon={<Zap size={14} />}>Test</Button>
-              <Button variant="ghost" size="sm" onClick={() => remove(c.id)} icon={<Trash2 size={14} />} className="text-destructive hover:bg-destructive/10" />
+              {c.source === 'env' ? (
+                <span className="text-xs text-muted-foreground whitespace-nowrap">Set via environment variable</span>
+              ) : (
+                <>
+                  {!c.isDefault && <Button variant="ghost" size="sm" loading={busy === c.id} onClick={() => setDefault(c.id)} icon={<Star size={14} />}>Default</Button>}
+                  <Button variant="ghost" size="sm" loading={busy === c.id} onClick={() => test(c.id)} icon={<Zap size={14} />}>Test</Button>
+                  <Button variant="ghost" size="sm" onClick={() => remove(c.id)} icon={<Trash2 size={14} />} className="text-destructive hover:bg-destructive/10" />
+                </>
+              )}
             </div>
           ))}
         </div>
