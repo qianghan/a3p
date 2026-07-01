@@ -35,10 +35,22 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
   for (const { tenantId } of tenantRows) {
     try {
+      // Scope the count to the same expenses autoCategorizeForTenant() can
+      // actually act on (pending_review/confirmed). Without this, an expense
+      // in any other status (e.g. rejected/voided) with no category counts
+      // toward "uncategorized" forever — a permanent false-positive nudge,
+      // since it's structurally impossible for a run to ever resolve it and
+      // it doesn't match what the Expenses page shows as needing attention.
+      const uncategorizedWhere = {
+        isPersonal: false,
+        categoryId: null,
+        status: { in: ['pending_review', 'confirmed'] as const },
+      };
+
       // Check threshold before running
       const [total, uncategorized] = await Promise.all([
         db.abExpense.count({ where: { tenantId, isPersonal: false } }),
-        db.abExpense.count({ where: { tenantId, isPersonal: false, categoryId: null } }),
+        db.abExpense.count({ where: { tenantId, ...uncategorizedWhere } }),
       ]);
 
       if (total === 0 || uncategorized / total <= 0.10) {
@@ -52,7 +64,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       // Re-check after run
       const [total2, uncategorized2] = await Promise.all([
         db.abExpense.count({ where: { tenantId, isPersonal: false } }),
-        db.abExpense.count({ where: { tenantId, isPersonal: false, categoryId: null } }),
+        db.abExpense.count({ where: { tenantId, ...uncategorizedWhere } }),
       ]);
 
       if (total2 === 0 || uncategorized2 / total2 <= 0.10) {

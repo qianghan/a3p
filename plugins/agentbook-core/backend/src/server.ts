@@ -4012,20 +4012,28 @@ async function _executeClassificationCore(
         create: { tenantId, key: LAST_RUN_KEY, value: JSON.stringify({ at: new Date().toISOString() }), type: 'audit', confidence: 1 },
       }).catch(() => {});
 
+      // Concrete list of what still needs a category — used whenever the run
+      // didn't resolve everything, so the user has actual data to act on
+      // instead of a bare "check the Expenses page" pointer.
+      const uncategorizedList = uncategorized
+        .slice(0, 10)
+        .map((e) => `• ${new Date(e.date).toLocaleDateString()} — $${(e.amountCents / 100).toFixed(2)} ${e.vendor?.name || '(no vendor)'}`)
+        .join('\n');
+      const uncategorizedListSuffix =
+        uncategorized.length > 10 ? `\n...and ${uncategorized.length - 10} more.` : '';
+
       let message: string;
       if (uncategorized.length === 0) {
         message = 'All your expenses are already categorized! Great work.';
       } else if (applied === 0 && pending.length === 0) {
-        message = `I reviewed ${uncategorized.length} expense${uncategorized.length !== 1 ? 's' : ''} but couldn't categorize them confidently. Check the Expenses page to assign categories manually.`;
+        message = `I reviewed ${uncategorized.length} expense${uncategorized.length !== 1 ? 's' : ''} but couldn't categorize ${uncategorized.length !== 1 ? 'them' : 'it'} confidently:\n\n${uncategorizedList}${uncategorizedListSuffix}\n\nReply with a category for one (e.g. "the Staples one is Office Supplies"), or open the Expenses page to assign them there.`;
       } else if (pending.length === 0) {
         message = `Applied **${applied}** categor${applied !== 1 ? 'ies' : 'y'} automatically. All expenses are now categorized!`;
       } else {
-        message = `Applied **${applied}** categor${applied !== 1 ? 'ies' : 'y'} automatically. **${pending.length}** expense${pending.length !== 1 ? 's' : ''} need your review — check the Expenses page.`;
-        if (channel === 'telegram') {
-          const preview = pending.slice(0, 2).map((i) => `• $${(i.amountCents / 100).toFixed(2)} ${i.vendorName || 'expense'} → ${i.suggestedCategoryName} (${Math.round(i.confidence * 100)}%)`).join('\n');
-          message += '\n\n' + preview;
-          if (pending.length > 2) message += `\n...and ${pending.length - 2} more.`;
-        }
+        message = `Applied **${applied}** categor${applied !== 1 ? 'ies' : 'y'} automatically. **${pending.length}** expense${pending.length !== 1 ? 's' : ''} need your review:`;
+        const preview = pending.slice(0, 5).map((i) => `• $${(i.amountCents / 100).toFixed(2)} ${i.vendorName || 'expense'} → ${i.suggestedCategoryName} (${Math.round(i.confidence * 100)}%)`).join('\n');
+        message += '\n\n' + preview;
+        if (pending.length > 5) message += `\n...and ${pending.length - 5} more — check the Expenses page.`;
       }
 
       await db.abConversation.create({
@@ -4211,11 +4219,24 @@ async function _executeClassificationCore(
         endDate = now;
       }
 
+      // "uncategorized"/"non categorized" narrows the query itself, so every
+      // downstream total/breakdown/list is scoped to what was actually asked
+      // about rather than the full period (previously only the LLM's own
+      // reading of the question did this filtering, non-deterministically).
+      const wantsUncategorizedOnly = /uncategoriz|non[\s-]?categoriz|not\s+categoriz/.test(q);
       const expenses = await db.abExpense.findMany({
-        where: { tenantId, isPersonal: false, date: { gte: startDate, lte: endDate } },
+        where: {
+          tenantId,
+          isPersonal: false,
+          date: { gte: startDate, lte: endDate },
+          ...(wantsUncategorizedOnly ? { categoryId: null } : {}),
+        },
         include: { vendor: true },
         orderBy: { date: 'desc' },
       });
+      // "list"/"show me"/etc. — guarantee actual line items reach the user,
+      // regardless of whether the LLM's summary chose to enumerate them.
+      const wantsList = /\b(list|show me|enumerate|which (ones|expenses|transactions)|line items|each (one|expense))\b/.test(q);
 
       const catIds = [...new Set(expenses.map((e) => e.categoryId).filter(Boolean) as string[])];
       const catAccounts = catIds.length > 0
@@ -4306,6 +4327,14 @@ Only include chartData if visualization adds value. Keep the answer under 200 wo
             ? `No business expenses found for ${startDate.toLocaleDateString()} – ${endDate.toLocaleDateString()}.`
             : `You have ${expenses.length} expenses totaling ${fmt(total)} for this period.\n\nTop category: ${byCat[0] ? `**${byCat[0][0]}** (${fmt(byCat[0][1])})` : 'N/A'}\nTop vendor: ${byVendor[0] ? `**${byVendor[0][0]}** (${fmt(byVendor[0][1])})` : 'N/A'}`;
         }
+      }
+
+      // Guarantee the actual line items reach the user when they asked to
+      // "list"/"show" them — deterministic, not dependent on the LLM's own
+      // judgment about whether to enumerate (it previously often summarized
+      // into an aggregate even when explicitly asked for a list).
+      if (wantsList && recentExpenses.length > 0 && !recentExpenses.some((line) => answer.includes(line))) {
+        answer += `\n\nHere ${recentExpenses.length === 1 ? 'it is' : 'they are'}:\n${recentExpenses.join('\n')}`;
       }
 
       await db.abConversation.create({

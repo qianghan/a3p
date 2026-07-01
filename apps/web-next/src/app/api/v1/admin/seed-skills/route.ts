@@ -1,24 +1,33 @@
 /**
  * One-shot admin: seed AbSkillManifest with the 16 built-in skills.
  *
- * Auth: pass `?secret=…` matching CRON_SECRET. Designed to be hit
- * once after a fresh DB to populate skills, then forgotten.
+ * Auth: pass `?secret=…` matching CRON_SECRET, OR an admin session — mirrors
+ * the same admin-session fallback the sibling /admin/skills route already
+ * uses, so re-seeding after editing BUILT_IN_SKILLS doesn't require knowing
+ * (or rotating) the CRON_SECRET.
  */
 
 import 'server-only';
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma as db } from '@naap/database';
 import { BUILT_IN_SKILLS } from '@agentbook-core/built-in-skills';
+import { requireAdmin } from '@/lib/admin-guard';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
 
-export async function POST(request: NextRequest): Promise<NextResponse> {
+async function authorize(request: NextRequest): Promise<NextResponse | null> {
   const secret = request.nextUrl.searchParams.get('secret') || request.headers.get('x-admin-secret');
-  if (!process.env.CRON_SECRET || secret !== process.env.CRON_SECRET) {
-    return NextResponse.json({ success: false, error: 'unauthorized' }, { status: 401 });
-  }
+  if (process.env.CRON_SECRET && secret === process.env.CRON_SECRET) return null;
+  const guard = await requireAdmin(request);
+  if ('response' in guard) return guard.response as NextResponse;
+  return null;
+}
+
+export async function POST(request: NextRequest): Promise<NextResponse> {
+  const denied = await authorize(request);
+  if (denied) return denied;
 
   let created = 0;
   let updated = 0;
