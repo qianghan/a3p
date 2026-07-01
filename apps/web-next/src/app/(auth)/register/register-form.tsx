@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { Loader2 } from 'lucide-react';
@@ -20,6 +20,18 @@ export default function RegisterForm() {
     confirmPassword: '',
     displayName: '',
   });
+  const [ref, setRef] = useState<string | null>(null);
+
+  // Capture a referral code from ?ref= and stash it in a cookie so it also
+  // survives the OAuth sign-up round-trip.
+  useEffect(() => {
+    const code = new URLSearchParams(window.location.search).get('ref');
+    if (code) {
+      const clean = code.trim().toUpperCase().slice(0, 32);
+      setRef(clean);
+      document.cookie = `ab_ref=${encodeURIComponent(clean)}; path=/; max-age=${60 * 60 * 24 * 30}; SameSite=Lax`;
+    }
+  }, []);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setFormData(prev => ({ ...prev, [e.target.name]: e.target.value }));
@@ -48,6 +60,7 @@ export default function RegisterForm() {
           email: formData.email,
           password: formData.password,
           displayName: formData.displayName,
+          ...(ref ? { ref } : {}),
         }),
       });
       if (!response.ok) {

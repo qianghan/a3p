@@ -41,7 +41,7 @@ export async function GET(request: NextRequest, { params }: RouteParams): Promis
     }
 
     // Handle the callback
-    const result = await handleOAuthCallback(provider, code);
+    const result = await handleOAuthCallback(provider, code, request.cookies.get('ab_ref')?.value);
 
     // Redirect to agentbook home with auth cookie
     const response = NextResponse.redirect(new URL('/agentbook', request.url));
@@ -100,7 +100,7 @@ export async function POST(request: NextRequest, { params }: RouteParams): Promi
     // For POST requests, state verification is optional (handled by frontend)
 
     // Handle the callback
-    const result = await handleOAuthCallback(provider, code);
+    const result = await handleOAuthCallback(provider, code, request.cookies.get('ab_ref')?.value);
 
     // Return response with auth cookie
     const response = NextResponse.json({
