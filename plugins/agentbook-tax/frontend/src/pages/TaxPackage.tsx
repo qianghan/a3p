@@ -40,7 +40,14 @@ const fmtMoney = (cents: number, ccy = 'USD') =>
   });
 
 export const TaxPackagePage: React.FC = () => {
-  const [tab, setTab] = useState<'package' | 'past'>('package');
+  // Open the Prior-year returns tab directly when linked with ?tab=past
+  // (e.g. the "Upload prior-year returns" CTA on the Tax dashboard).
+  const [tab, setTab] = useState<'package' | 'past'>(
+    typeof window !== 'undefined' &&
+      new URLSearchParams(window.location.search).get('tab') === 'past'
+      ? 'past'
+      : 'package',
+  );
 
   return (
     <div>
@@ -57,7 +64,7 @@ export const TaxPackagePage: React.FC = () => {
                 : 'border-transparent text-muted-foreground hover:text-foreground',
             ].join(' ')}
           >
-            {t === 'package' ? 'Year-end Package' : 'Past Filings'}
+            {t === 'package' ? 'Year-end Package' : 'Prior-year returns'}
           </button>
         ))}
       </div>

@@ -13,6 +13,8 @@ import {
   AlertCircle,
   Globe,
   Building2,
+  FileUp,
+  ArrowRight,
 } from 'lucide-react';
 
 interface TaxEstimate {
@@ -110,6 +112,24 @@ function DashboardTab({ data, onRefresh }: { data: TaxEstimate; onRefresh: () =>
           </div>
         )}
       </div>
+
+      {/* Prior-year returns CTA — surfaces the upload / past-filings workflow,
+          which otherwise lives one level down as a tab inside Tax Package. */}
+      <a
+        href="/agentbook/tax-package?tab=past"
+        className="group flex items-center gap-4 rounded-xl border border-primary/30 bg-primary/5 p-4 sm:p-5 hover:bg-primary/10 transition-colors"
+      >
+        <div className="p-2.5 rounded-lg bg-primary/10 shrink-0">
+          <FileUp className="w-5 h-5 text-primary" />
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="font-medium text-foreground">Upload prior-year returns</div>
+          <p className="text-sm text-muted-foreground">
+            Bring last year&apos;s tax returns — we&apos;ll extract the figures and use them to prefill and advise.
+          </p>
+        </div>
+        <ArrowRight className="w-4 h-4 text-primary shrink-0 transition-transform group-hover:translate-x-0.5" />
+      </a>
 
       {/* Breakdown cards */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
