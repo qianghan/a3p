@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { notFound, redirect } from 'next/navigation';
+import { redirect } from 'next/navigation';
 import { MDXRemote } from 'next-mdx-remote/rsc';
 import remarkGfm from 'remark-gfm';
 import rehypeSlug from 'rehype-slug';
@@ -23,13 +23,13 @@ export async function generateMetadata({ params }: { params: Promise<{ slug: str
     // Section-level slug — redirect will fire from the page, so use section name
     if (slug.length === 1) {
       const label = slug[0].replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
-      return { title: `${label} - NaaP Docs` };
+      return { title: `${label} - AgentBook Docs` };
     }
     return { title: 'Not Found' };
   }
 
   return {
-    title: `${doc.frontmatter.title} - NaaP Docs`,
+    title: `${doc.frontmatter.title} - AgentBook Docs`,
     description: doc.frontmatter.description,
   };
 }
@@ -39,14 +39,16 @@ export default async function DocPage({ params }: { params: Promise<{ slug: stri
   const doc = getDocBySlug(slug);
 
   if (!doc) {
-    // If the slug matches a section directory, redirect to its first page
+    // If the slug matches a section directory, redirect to its first page.
     if (slug.length === 1) {
       const firstDoc = getFirstDocInSection(slug[0]);
       if (firstDoc) {
         redirect(`/docs/${firstDoc.slug.join('/')}`);
       }
     }
-    notFound();
+    // Unknown/removed doc (e.g. old NaaP dev-doc URLs after the rewrite):
+    // send readers to the help-center home instead of a dead end.
+    redirect('/docs');
   }
 
   const navigation = getNavigation();

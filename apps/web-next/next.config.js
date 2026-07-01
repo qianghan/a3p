@@ -164,6 +164,19 @@ const nextConfig = {
     ];
   },
 
+  async redirects() {
+    // The old NaaP developer-docs sections were removed in the AgentBook docs
+    // rewrite. Redirect their URLs to the new help-center home so inbound links
+    // never dead-end (this also sidesteps a legacy 500 on missing doc slugs).
+    const OLD_DOC_SECTIONS = [
+      'getting-started', 'concepts', 'guides', 'api-reference', 'examples', 'prompts', 'community',
+    ];
+    return OLD_DOC_SECTIONS.flatMap((section) => [
+      { source: `/docs/${section}`, destination: '/docs', permanent: true },
+      { source: `/docs/${section}/:path*`, destination: '/docs', permanent: true },
+    ]);
+  },
+
   async rewrites() {
     const rewrites = [];
     if (process.env.NODE_ENV === 'development' && process.env.LEGACY_API_PROXY === 'true') {
