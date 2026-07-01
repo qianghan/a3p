@@ -13,6 +13,6 @@
   ],
   "category": "finance",
   "description": "Double-entry ledger, chart of accounts, journal entries, constraint engine, and tenant configuration for the AgentBook accounting system.",
-  "buildTime": "2026-06-30T15:51:20.017Z",
+  "buildTime": "2026-07-01T18:26:40.474Z",
   "nodeEnv": "production"
 }
