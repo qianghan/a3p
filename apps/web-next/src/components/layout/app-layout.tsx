@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { Sidebar } from './sidebar';
 import { TopBar } from './top-bar';
 import { useShell, useEvents } from '@/contexts/shell-context';
+import { InviteBanner } from '@/components/referrals/invite-banner';
 
 // Constants — must match sidebar.tsx
 const SIDEBAR_DEFAULT_WIDTH = 240;
@@ -72,6 +73,7 @@ export function AppLayout({ children }: AppLayoutProps) {
           <TopBar />
           <main className="flex-1 overflow-y-auto">
             <div className="px-5 py-4">
+              <InviteBanner />
               {children}
             </div>
           </main>
