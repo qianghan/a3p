@@ -23,6 +23,11 @@ const PatchBody = z.object({
     bank_connections: z.number().int(),
   }).optional(),
   sortOrder: z.number().int().optional(),
+  // Attach a Stripe product/price created out-of-band (e.g. migrating a plan
+  // that predates live-mode Stripe setup) — POST only supports creating both
+  // together, so this is the way to wire IDs onto an existing plan row.
+  stripeProductId: z.string().min(1).optional(),
+  stripePriceId: z.string().min(1).optional(),
 });
 
 export async function PATCH(
