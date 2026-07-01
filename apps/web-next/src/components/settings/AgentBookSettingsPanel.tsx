@@ -4,6 +4,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Send, Key, Loader2, Trash2, RefreshCw, CheckCircle, XCircle,
   AlertCircle, ExternalLink, Search, ChevronDown, ChevronUp,
+  Copy, Check, Gift, Users,
 } from 'lucide-react';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -537,15 +538,20 @@ function ChatHistoryTab(): React.ReactElement {
 
 // ── Main panel ────────────────────────────────────────────────────────────────
 
-type SettingsTab = 'profile' | 'invoice' | 'chatbots' | 'history' | 'billing';
+type SettingsTab = 'profile' | 'invoice' | 'chatbots' | 'history' | 'billing' | 'referrals';
 
 const TABS: { key: SettingsTab; label: string }[] = [
-  { key: 'profile',  label: 'Business Profile' },
-  { key: 'invoice',  label: 'Invoice Defaults' },
-  { key: 'billing',  label: 'Billing' },
-  { key: 'chatbots', label: 'Chatbots' },
-  { key: 'history',  label: 'Chat History' },
+  { key: 'profile',   label: 'Business Profile' },
+  { key: 'invoice',   label: 'Invoice Defaults' },
+  { key: 'billing',   label: 'Billing' },
+  { key: 'referrals', label: 'Referrals' },
+  { key: 'chatbots',  label: 'Chatbots' },
+  { key: 'history',   label: 'Chat History' },
 ];
+
+function isSettingsTab(v: string | undefined | null): v is SettingsTab {
+  return !!v && TABS.some((t) => t.key === v);
+}
 
 interface BillingPlan { id: string; code: string; name: string; description?: string | null; priceCents: number; interval: string }
 
@@ -598,8 +604,140 @@ function BillingTab(): React.ReactElement {
   );
 }
 
-export function AgentBookSettingsPanel(): React.ReactElement {
-  const [tab, setTab] = useState<SettingsTab>('profile');
+interface ReferralInvitee { maskedEmail: string | null; status: string; joinedAt: string; paidAt: string | null }
+interface ReferralSummary { code: string; shareUrl: string; monthsEarned: number; monthsCap: number; invitees: ReferralInvitee[] }
+
+function CopyField({ value, label }: { value: string; label: string }): React.ReactElement {
+  const [copied, setCopied] = useState(false);
+  const copy = useCallback(() => {
+    navigator.clipboard.writeText(value).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  }, [value]);
+  return (
+    <div>
+      <label className="text-xs text-muted-foreground">{label}</label>
+      <div className="mt-1 flex items-center gap-2">
+        <code className="flex-1 min-w-0 truncate rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground">
+          {value}
+        </code>
+        <button
+          type="button"
+          onClick={copy}
+          className="shrink-0 flex items-center gap-1.5 rounded-lg border border-border px-3 py-2 text-sm text-foreground hover:bg-muted transition-colors"
+        >
+          {copied ? <Check size={14} className="text-emerald-500" /> : <Copy size={14} />}
+          {copied ? 'Copied' : 'Copy'}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function ReferralsTab(): React.ReactElement {
+  const [summary, setSummary] = useState<ReferralSummary | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetch('/api/v1/agentbook-billing/referrals/me', { credentials: 'include' })
+      .then((r) => r.json())
+      .then((d) => { if (d.success) setSummary(d.data); else setErr(d.error || 'Failed to load'); })
+      .catch(() => setErr('Failed to load'))
+      .finally(() => setLoading(false));
+  }, []);
+
+  if (loading) return <div className="py-8 text-center text-sm text-muted-foreground">Loading referrals…</div>;
+  if (err || !summary) return <div className="py-8 text-center text-sm text-destructive">{err || 'Failed to load'}</div>;
+
+  const { code, shareUrl, monthsEarned, monthsCap, invitees } = summary;
+  const pct = Math.min(100, Math.round((monthsEarned / monthsCap) * 100));
+  const paidCount = invitees.filter((i) => i.status === 'paid').length;
+
+  const encouragement =
+    monthsEarned >= monthsCap
+      ? "You've earned a full free year — amazing! Keep sharing to help more friends save on their books."
+      : paidCount === 0
+        ? 'Share your link — when a friend signs up and pays, you get 1 month free.'
+        : `${monthsCap - monthsEarned} more paid invite${monthsCap - monthsEarned === 1 ? '' : 's'} to reach a full year free.`;
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <h3 className="text-sm font-semibold text-foreground mb-1 flex items-center gap-1.5">
+          <Gift size={16} className="text-primary" /> Invite friends, earn free months
+        </h3>
+        <p className="text-sm text-muted-foreground">
+          For every friend who signs up with your link and pays, you get 1 month free — up to a full year.
+        </p>
+      </div>
+
+      <div className="grid gap-3 sm:grid-cols-2">
+        <CopyField label="Your referral code" value={code} />
+        <CopyField label="Your share link" value={shareUrl} />
+      </div>
+
+      <div className="rounded-xl border border-border bg-card p-4">
+        <div className="flex items-center justify-between mb-2">
+          <span className="text-sm font-medium text-foreground">{monthsEarned} / {monthsCap} months earned</span>
+          <span className="text-xs text-muted-foreground">{paidCount} paid invite{paidCount === 1 ? '' : 's'}</span>
+        </div>
+        <div className="h-2 rounded-full bg-muted overflow-hidden">
+          <div className="h-full rounded-full bg-primary transition-all" style={{ width: `${pct}%` }} />
+        </div>
+        <p className="text-xs text-muted-foreground mt-2">{encouragement}</p>
+      </div>
+
+      <div>
+        <h4 className="text-sm font-semibold text-foreground mb-2 flex items-center gap-1.5">
+          <Users size={14} /> Your invitees
+        </h4>
+        {invitees.length === 0 ? (
+          <p className="text-sm text-muted-foreground py-4 text-center rounded-lg border border-dashed border-border">
+            No invites yet — share your link above to get started.
+          </p>
+        ) : (
+          <div className="rounded-lg border border-border overflow-hidden">
+            <table className="w-full text-sm">
+              <thead className="bg-muted/50 text-xs text-muted-foreground">
+                <tr>
+                  <th className="text-left px-3 py-2 font-medium">Invitee</th>
+                  <th className="text-left px-3 py-2 font-medium">Status</th>
+                  <th className="text-left px-3 py-2 font-medium">Joined</th>
+                  <th className="text-left px-3 py-2 font-medium">Paid</th>
+                </tr>
+              </thead>
+              <tbody>
+                {invitees.map((inv, i) => (
+                  <tr key={i} className="border-t border-border">
+                    <td className="px-3 py-2 text-foreground">{inv.maskedEmail || '—'}</td>
+                    <td className="px-3 py-2">
+                      <span
+                        className={`text-xs px-2 py-0.5 rounded-full ${
+                          inv.status === 'paid'
+                            ? 'bg-emerald-500/10 text-emerald-500'
+                            : 'bg-amber-500/10 text-amber-500'
+                        }`}
+                      >
+                        {inv.status === 'paid' ? 'Paid' : 'Joined'}
+                      </span>
+                    </td>
+                    <td className="px-3 py-2 text-muted-foreground">{new Date(inv.joinedAt).toLocaleDateString()}</td>
+                    <td className="px-3 py-2 text-muted-foreground">{inv.paidAt ? new Date(inv.paidAt).toLocaleDateString() : '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+export function AgentBookSettingsPanel({ initialTab }: { initialTab?: string }): React.ReactElement {
+  const [tab, setTab] = useState<SettingsTab>(isSettingsTab(initialTab) ? initialTab : 'profile');
   const [form, setForm] = useState<TenantConfig | null>(null);
   const [pendingLogoUrl, setPendingLogoUrl] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
@@ -811,6 +949,8 @@ export function AgentBookSettingsPanel(): React.ReactElement {
       {tab === 'history' && <ChatHistoryTab />}
 
       {tab === 'billing' && <BillingTab />}
+
+      {tab === 'referrals' && <ReferralsTab />}
 
       {/* Save bar (profile + invoice tabs only) */}
       {(tab === 'profile' || tab === 'invoice') && (

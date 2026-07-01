@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { Reorder } from 'framer-motion';
 import { useAuth } from '@/contexts/auth-context';
 import { useShell, useEvents } from '@/contexts/shell-context';
@@ -61,12 +61,16 @@ interface TenantConfigEntry {
 
 export default function SettingsPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { user, logout, isAuthenticated } = useAuth();
   const { theme, notifications } = useShell();
   const { plugins, refreshPlugins } = usePlugins();
   const eventBus = useEvents();
 
-  const [settingsTab, setSettingsTab] = useState<'general' | 'agentbook'>('general');
+  // Deep-linkable via ?tab=agentbook (e.g. the "Invite a friend" banner).
+  const [settingsTab, setSettingsTab] = useState<'general' | 'agentbook'>(
+    searchParams.get('tab') === 'agentbook' ? 'agentbook' : 'general',
+  );
 
   const [notificationSettings, setNotificationSettings] = useState({
     email: true,
@@ -621,7 +625,7 @@ export default function SettingsPage() {
         {/* Right content */}
         <div className="flex-1 min-w-0">
           {settingsTab === 'agentbook' ? (
-            <AgentBookSettingsPanel />
+            <AgentBookSettingsPanel initialTab={searchParams.get('subtab') ?? undefined} />
           ) : (
             <div className="space-y-6">
               <div>
