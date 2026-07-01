@@ -22,6 +22,19 @@ test('register renders the wordmark', async ({ page }) => {
   expect(await page.locator('img[src="/agentbook-logo.png"]').count()).toBe(0);
 });
 
+test('forgot-password renders the wordmark, not the old PNG', async ({ page }) => {
+  await page.goto('/forgot-password');
+  await expect(page.locator('[aria-label="AgentBook"]').first()).toBeVisible({ timeout: 15_000 });
+  expect(await page.locator('img[src="/agentbook-logo.png"]').count()).toBe(0);
+});
+
+test('reset-password renders the wordmark, not the old PNG', async ({ page }) => {
+  // A token is required for the form (rather than the "invalid link" state) to render.
+  await page.goto('/reset-password?token=preview');
+  await expect(page.locator('[aria-label="AgentBook"]').first()).toBeVisible({ timeout: 15_000 });
+  expect(await page.locator('img[src="/agentbook-logo.png"]').count()).toBe(0);
+});
+
 test('brand favicon svg resolves', async ({ request }) => {
   const res = await request.get('/icon.svg');
   expect(res.status()).toBe(200);

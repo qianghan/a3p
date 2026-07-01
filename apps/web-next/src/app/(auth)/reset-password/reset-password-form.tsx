@@ -4,6 +4,7 @@ import { useState, Suspense } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Loader2, CheckCircle, AlertCircle } from 'lucide-react';
+import { Wordmark } from '@/components/brand/Wordmark';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || '/api';
 
@@ -130,9 +131,9 @@ function ResetPasswordFormInner() {
 
   return (
     <div className="w-full max-w-sm px-4">
-      {/* AgentBook logo */}
+      {/* AgentBook wordmark */}
       <div className="text-center mb-8">
-        <img src="/agentbook-logo.png" alt="AgentBook" className="h-14 w-auto mx-auto mb-3" />
+        <div className="mb-3"><Wordmark size={40} /></div>
         <h1 className="text-lg font-medium text-muted-foreground">Choose a new password</h1>
       </div>
 
