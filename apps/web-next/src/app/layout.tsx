@@ -25,6 +25,7 @@ export const metadata: Metadata = {
   icons: {
     icon: '/icon.svg',
   },
+  manifest: '/manifest.json',
   metadataBase: new URL(process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3001'),
   openGraph: {
     type: 'website',

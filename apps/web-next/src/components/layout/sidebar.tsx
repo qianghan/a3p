@@ -366,6 +366,7 @@ export function Sidebar() {
             onClick={isMobile ? closeMobileMenu : toggleSidebar}
             className="p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors shrink-0"
             title={isMobile ? 'Close' : (isSidebarOpen ? 'Collapse' : 'Expand')}
+            aria-label={isMobile ? 'Close menu' : (isSidebarOpen ? 'Collapse sidebar' : 'Expand sidebar')}
           >
             {isMobile ? <X size={14} /> : (isSidebarOpen ? <ChevronLeft size={14} /> : <ChevronRight size={14} />)}
           </button>
@@ -388,6 +389,7 @@ export function Sidebar() {
           <button
             className="w-full flex items-center justify-center py-1.5 rounded-md text-muted-foreground hover:bg-muted/50 hover:text-foreground transition-colors duration-100"
             title="Search (⌘K)"
+            aria-label="Search"
           >
             <Search size={16} />
           </button>
@@ -547,6 +549,7 @@ function SectionHeader({
         onClick={onToggle}
         className="w-full flex items-center justify-center py-2 text-muted-foreground/60 hover:text-muted-foreground transition-all"
         title={`${title} (${expanded ? 'collapse' : 'expand'})`}
+        aria-label={`${title} (${expanded ? 'collapse' : 'expand'})`}
       >
         {Icon ? <Icon size={14} /> : (
           <div className="w-5 h-[2px] bg-current rounded-full opacity-50" />
