@@ -2,6 +2,7 @@ import 'server-only';
 import crypto from 'crypto';
 import { prisma } from '@naap/database';
 import { getStripe } from './stripe';
+import { createNotification } from '../notifications';
 
 /**
  * Referral program core.
@@ -150,6 +151,30 @@ export async function processInviteePaid(inviteeTenantId: string): Promise<void>
   });
 
   await applyPendingCredits(ref.referrerTenantId);
+
+  // Closes the gap found during the notifications feature design: today the
+  // referrer only learns their reward was earned by manually re-checking
+  // Settings > Referrals. Best-effort — a notification failure shouldn't
+  // roll back the reward itself, which is why this runs after the update.
+  try {
+    const maskedInvitee = maskEmail(ref.inviteeEmail) ?? 'Someone you invited';
+    await createNotification({
+      category: 'referral_thanks',
+      severity: 'success',
+      title: reward > 0 ? "You earned a free month!" : 'Thanks for spreading the word',
+      body:
+        reward > 0
+          ? `${maskedInvitee} just subscribed to AgentBook through your invite — you've earned 1 free month, applied to your account.`
+          : `${maskedInvitee} just subscribed to AgentBook through your invite. You've already reached the ${MONTHS_CAP}-month referral cap, but thank you for spreading the word!`,
+      ctaLabel: 'View your referrals',
+      ctaUrl: '/settings?tab=agentbook&subtab=referrals',
+      createdByType: 'system',
+      audienceType: 'single',
+      audienceFilter: { tenantId: ref.referrerTenantId },
+    });
+  } catch (err) {
+    console.warn('[referrals] referral_thanks notification failed:', err);
+  }
 }
 
 /**
