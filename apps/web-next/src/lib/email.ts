@@ -328,3 +328,40 @@ export async function sendCpaInviteEmail(
     return { success: false, error: err instanceof Error ? err.message : String(err) };
   }
 }
+
+/**
+ * Notification-center email — admin broadcasts and system-triggered
+ * notifications (referral thank-you, tax deadline, etc.) all render through
+ * this one function so the email always matches the in-app card. Uses the
+ * same branded scaffold as verification/password-reset, not a separate
+ * template. Title/body are user- or admin-composed text, so both are
+ * escaped before going into the trusted `buildBrandedEmail` slots.
+ */
+export async function sendNotificationEmail(
+  to: string,
+  params: { title: string; body: string; ctaLabel?: string; ctaUrl?: string },
+): Promise<{ success: boolean; messageId?: string; error?: string }> {
+  const client = getResendClient();
+  if (!client) {
+    if (process.env.NODE_ENV !== 'production') console.log('[EMAIL] (no RESEND_API_KEY) Notification:', params.title);
+    return { success: false, error: 'Email service not configured' };
+  }
+
+  const html = buildBrandedEmail({
+    title: params.title,
+    preheader: params.body.slice(0, 140),
+    heading: escapeHtml(params.title),
+    intro: escapeHtml(params.body),
+    ctaText: params.ctaLabel || 'Open AgentBook',
+    ctaUrl: params.ctaUrl || APP_URL,
+    footnote: 'You can manage which notifications you receive in Settings → Notifications.',
+  });
+
+  try {
+    const result = await client.emails.send({ from: EMAIL_FROM, to, subject: params.title, html });
+    return { success: true, messageId: (result as unknown as { data?: { id?: string } })?.data?.id };
+  } catch (err) {
+    console.error('[EMAIL] Failed to send notification email:', err instanceof Error ? err.message : err);
+    return { success: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
