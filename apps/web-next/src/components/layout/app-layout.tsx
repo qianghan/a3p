@@ -6,6 +6,7 @@ import { TopBar } from './top-bar';
 import { useShell, useEvents } from '@/contexts/shell-context';
 import { useIsMobile } from '@/hooks/use-is-mobile';
 import { InviteBanner } from '@/components/referrals/invite-banner';
+import { InstallAppBanner } from '@/components/pwa/InstallAppBanner';
 
 // Constants — must match sidebar.tsx
 const SIDEBAR_DEFAULT_WIDTH = 240;
@@ -80,6 +81,7 @@ export function AppLayout({ children }: AppLayoutProps) {
           <main className="flex-1 overflow-y-auto">
             <div className="px-5 py-4">
               <InviteBanner />
+              <InstallAppBanner />
               {children}
             </div>
           </main>
