@@ -1,7 +1,9 @@
 'use client';
 
 import { usePathname } from 'next/navigation';
-import { Bell } from 'lucide-react';
+import { Bell, Menu } from 'lucide-react';
+import { useShell } from '@/contexts/shell-context';
+import { useIsMobile } from '@/hooks/use-is-mobile';
 
 /**
  * Derive a human-readable view title from the current pathname.
@@ -38,14 +40,27 @@ function useViewTitle(): string {
  */
 export function TopBar() {
   const title = useViewTitle();
+  const { toggleMobileMenu } = useShell();
+  const isMobile = useIsMobile();
 
   return (
     <div className="shrink-0 h-12 border-b border-border/40">
       <div className="flex h-full items-center justify-between px-4 gap-4">
-        {/* Left side — view title */}
-        <h1 className="text-[13px] font-semibold text-foreground truncate">
-          {title}
-        </h1>
+        {/* Left side — hamburger (mobile only) + view title */}
+        <div className="flex items-center gap-2 min-w-0">
+          {isMobile && (
+            <button
+              onClick={toggleMobileMenu}
+              className="p-1.5 -ml-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors shrink-0"
+              aria-label="Open menu"
+            >
+              <Menu size={18} />
+            </button>
+          )}
+          <h1 className="text-[13px] font-semibold text-foreground truncate">
+            {title}
+          </h1>
+        </div>
 
         {/* Right side — contextual actions */}
         <div className="flex items-center gap-1">
