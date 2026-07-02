@@ -4,6 +4,7 @@ import React, { useEffect } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { Home, Camera, FileText, MessageCircle } from 'lucide-react';
+import { initOfflineQueueReplay } from '@/lib/offline-queue';
 
 /** base64url VAPID public key → Uint8Array for pushManager.subscribe. */
 function urlBase64ToUint8Array(base64: string): Uint8Array {
@@ -15,13 +16,24 @@ function urlBase64ToUint8Array(base64: string): Uint8Array {
   return out;
 }
 
-/** Register the service worker and subscribe to Web Push (best-effort, once). */
-async function ensurePushSubscription(): Promise<void> {
+/** Register the service worker — needed for offline caching and the
+ * background-sync queue regardless of whether push is configured, so this
+ * runs unconditionally rather than bailing early when push isn't set up. */
+async function registerServiceWorker(): Promise<ServiceWorkerRegistration | null> {
   try {
-    if (typeof window === 'undefined' || !('serviceWorker' in navigator) || !('PushManager' in window)) return;
+    if (typeof window === 'undefined' || !('serviceWorker' in navigator)) return null;
+    return await navigator.serviceWorker.register('/sw.js');
+  } catch {
+    return null;
+  }
+}
+
+/** Subscribe to Web Push, if configured (best-effort, once). */
+async function ensurePushSubscription(reg: ServiceWorkerRegistration | null): Promise<void> {
+  try {
+    if (!reg || typeof window === 'undefined' || !('PushManager' in window)) return;
     const vapid = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
     if (!vapid) return; // push not configured — skip silently
-    const reg = await navigator.serviceWorker.register('/sw.js');
     if (Notification.permission === 'denied') return;
     if (Notification.permission === 'default') {
       const perm = await Notification.requestPermission();
@@ -51,7 +63,10 @@ const TABS = [
 
 export default function MobileAppLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
-  useEffect(() => { void ensurePushSubscription(); }, []);
+  useEffect(() => {
+    void registerServiceWorker().then((reg) => { void ensurePushSubscription(reg); });
+    initOfflineQueueReplay();
+  }, []);
   return (
     <div style={{ minHeight: '100dvh', display: 'flex', flexDirection: 'column', background: 'var(--background, #0a0a0a)' }}>
       <main style={{ flex: 1, overflowY: 'auto', paddingBottom: 72 }}>{children}</main>

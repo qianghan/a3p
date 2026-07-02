@@ -1,7 +1,21 @@
 'use client';
 
 import React, { useRef, useState } from 'react';
-import { Camera, Check } from 'lucide-react';
+import { Camera, Check, CloudOff } from 'lucide-react';
+import { queueExpense, queueReceipt } from '@/lib/offline-queue';
+
+/** True when there's no connection at all — either `fetch()` itself threw
+ * (TypeError, happens if the service worker isn't yet controlling the page)
+ * or the service worker intercepted the request and answered with its own
+ * synthetic offline response (the normal case once it's active — `fetch()`
+ * doesn't throw for that, since the SW is what's answering). Distinct from
+ * a real error response, which means the request reached the server and
+ * got a considered answer — no point queuing that; it'll fail the same way
+ * again. */
+function isOfflineFailure(e: unknown, response?: Response): boolean {
+  if (e instanceof TypeError) return true;
+  return response?.headers.get('X-Agentbook-Offline') === '1';
+}
 
 export default function MobileCapture() {
   const fileRef = useRef<HTMLInputElement>(null);
@@ -12,50 +26,77 @@ export default function MobileCapture() {
   const [uploading, setUploading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [done, setDone] = useState(false);
+  const [queuedOffline, setQueuedOffline] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const onPhoto = async (file: File) => {
     setPhotoName(file.name);
     setUploading(true);
     setError(null);
+    let response: Response | undefined;
     try {
       const form = new FormData();
       form.append('file', file);
       // Store + OCR the receipt; prefill the fields for the user to confirm.
-      const r = await fetch('/api/v1/agentbook-expense/receipts/scan', { method: 'POST', body: form });
-      const j = await r.json();
-      if (r.ok && j.success) {
+      response = await fetch('/api/v1/agentbook-expense/receipts/scan', { method: 'POST', body: form });
+      const j = await response.json();
+      if (response.ok && j.success) {
         if (j.data.receiptUrl) setReceiptUrl(j.data.receiptUrl);
         if (j.data.amountCents != null) setAmount(String(j.data.amountCents / 100));
         if (j.data.vendor) setVendor(j.data.vendor);
+      } else if (isOfflineFailure(undefined, response)) {
+        await queueReceipt(file).catch(() => {});
       }
-    } catch {
-      /* photo optional — keep going */
+    } catch (e) {
+      // No signal to OCR the receipt right now — queue the photo itself so
+      // it still gets uploaded once back online, and let the user carry on
+      // typing the amount/vendor by hand instead of blocking on it.
+      if (isOfflineFailure(e, response)) await queueReceipt(file).catch(() => {});
     } finally {
       setUploading(false);
     }
   };
 
+  const queueAndClear = async (payload: Record<string, unknown>) => {
+    // No connection — don't lose the entry. Queue it for background sync
+    // (or a same-tab retry on `online`, on browsers like iOS Safari with no
+    // Background Sync API) instead of just erroring.
+    await queueExpense(payload).catch(() => { setError('Could not save — please try again.'); return; });
+    setQueuedOffline(true);
+    setAmount(''); setVendor(''); setPhotoName(null); setReceiptUrl(null);
+    setTimeout(() => setQueuedOffline(false), 3500);
+  };
+
   const save = async () => {
     setSaving(true);
     setError(null);
+    const payload = {
+      amountCents: Math.round(Number(amount) * 100),
+      vendor: vendor.trim() || undefined,
+      description: vendor.trim() || 'Expense',
+      ...(receiptUrl ? { receiptUrl } : {}),
+    };
+    let response: Response | undefined;
     try {
-      const r = await fetch('/api/v1/agentbook-expense/expenses', {
+      response = await fetch('/api/v1/agentbook-expense/expenses', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
-          amountCents: Math.round(Number(amount) * 100),
-          vendor: vendor.trim() || undefined,
-          description: vendor.trim() || 'Expense',
-          ...(receiptUrl ? { receiptUrl } : {}),
-        }),
+        body: JSON.stringify(payload),
       });
-      if (!r.ok) throw new Error((await r.json()).error || `${r.status}`);
+      if (isOfflineFailure(undefined, response)) {
+        await queueAndClear(payload);
+        return;
+      }
+      if (!response.ok) throw new Error((await response.json()).error || `${response.status}`);
       setDone(true);
       setAmount(''); setVendor(''); setPhotoName(null); setReceiptUrl(null);
       setTimeout(() => setDone(false), 2500);
     } catch (e) {
-      setError(String(e));
+      if (isOfflineFailure(e, response)) {
+        await queueAndClear(payload);
+      } else {
+        setError(String(e));
+      }
     } finally {
       setSaving(false);
     }
@@ -85,8 +126,10 @@ export default function MobileCapture() {
         <input value={vendor} onChange={(e) => setVendor(e.target.value)} placeholder="Vendor / description"
           style={inputStyle} />
         <button onClick={() => void save()} disabled={saving || !amount}
-          style={{ padding: 14, borderRadius: 12, border: 'none', background: '#10b981', color: '#04130c', fontSize: 15, fontWeight: 600, opacity: saving || !amount ? 0.5 : 1 }}>
-          {done ? <span><Check style={{ width: 16, height: 16, verticalAlign: -3 }} /> Saved</span> : saving ? 'Saving…' : 'Save expense'}
+          style={{ padding: 14, borderRadius: 12, border: 'none', background: queuedOffline ? '#f59e0b' : '#10b981', color: '#04130c', fontSize: 15, fontWeight: 600, opacity: saving || !amount ? 0.5 : 1 }}>
+          {done ? <span><Check style={{ width: 16, height: 16, verticalAlign: -3 }} /> Saved</span>
+            : queuedOffline ? <span><CloudOff style={{ width: 16, height: 16, verticalAlign: -3 }} /> Saved — will sync when online</span>
+            : saving ? 'Saving…' : 'Save expense'}
         </button>
         {error && <p style={{ color: '#ef4444', fontSize: 13 }}>{error}</p>}
       </div>

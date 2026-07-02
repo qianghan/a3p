@@ -94,9 +94,14 @@ async function networkFirstWithCache(request) {
   } catch {
     const cached = await caches.match(request);
     if (cached) return cached;
+    // X-Agentbook-Offline lets callers (e.g. the capture page) tell "the
+    // device has no connection" apart from a real 503 the server sent on
+    // purpose — `fetch()` never throws for this response since the SW
+    // itself is what's answering, so a plain instanceof-TypeError check on
+    // the client can't tell the difference without this marker.
     return new Response(JSON.stringify({ success: false, error: 'Offline', cached: false }), {
       status: 503,
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', 'X-Agentbook-Offline': '1' },
     });
   }
 }
@@ -111,14 +116,77 @@ self.addEventListener('sync', (event) => {
   }
 });
 
+// Offline-queue schema shared with src/lib/offline-queue.ts. This file is a
+// plain static asset (not bundled through webpack), so the IndexedDB access
+// is duplicated here rather than imported — same DB name/version/stores.
+const OFFLINE_DB_NAME = 'agentbook-offline';
+const OFFLINE_DB_VERSION = 1;
+const EXPENSE_STORE = 'expense-queue';
+const RECEIPT_STORE = 'receipt-queue';
+
+function openOfflineDb() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(OFFLINE_DB_NAME, OFFLINE_DB_VERSION);
+    req.onupgradeneeded = () => {
+      const db = req.result;
+      if (!db.objectStoreNames.contains(EXPENSE_STORE)) db.createObjectStore(EXPENSE_STORE, { keyPath: 'id', autoIncrement: true });
+      if (!db.objectStoreNames.contains(RECEIPT_STORE)) db.createObjectStore(RECEIPT_STORE, { keyPath: 'id', autoIncrement: true });
+    };
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+function getAll(db, store) {
+  return new Promise((resolve, reject) => {
+    const req = db.transaction(store, 'readonly').objectStore(store).getAll();
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+function deleteItem(db, store, id) {
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(store, 'readwrite');
+    tx.objectStore(store).delete(id);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
 async function replayExpenseQueue() {
-  // Read from IndexedDB and POST each queued expense
-  // TODO: Implement IndexedDB queue read + replay
-  console.log('[SW] Replaying expense queue');
+  const db = await openOfflineDb();
+  const items = await getAll(db, EXPENSE_STORE);
+  for (const item of items) {
+    try {
+      const res = await fetch('/api/v1/agentbook-expense/expenses', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(item.payload),
+      });
+      // A real rejection (validation error, auth expired) needs the user's
+      // attention, not a silent drop — leave it queued either way and let
+      // the next sync (or the in-app fallback) try again.
+      if (res.ok) await deleteItem(db, EXPENSE_STORE, item.id);
+    } catch {
+      break; // still offline — the next sync event will retry from here
+    }
+  }
 }
 
 async function replayReceiptQueue() {
-  console.log('[SW] Replaying receipt queue');
+  const db = await openOfflineDb();
+  const items = await getAll(db, RECEIPT_STORE);
+  for (const item of items) {
+    try {
+      const form = new FormData();
+      form.append('file', item.file, item.fileName);
+      const res = await fetch('/api/v1/agentbook-expense/receipts/scan', { method: 'POST', body: form });
+      if (res.ok) await deleteItem(db, RECEIPT_STORE, item.id);
+    } catch {
+      break;
+    }
+  }
 }
 
 // Push notifications
