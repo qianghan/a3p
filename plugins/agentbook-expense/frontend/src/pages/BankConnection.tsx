@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { usePlaidLink } from 'react-plaid-link';
 import { Building2, Link2, RefreshCw, CheckCircle, AlertCircle, Plus, Clock, Loader2 } from 'lucide-react';
 import { ChatCTA } from '@naap/plugin-sdk';
@@ -39,6 +39,15 @@ interface ReconciliationSummary {
 
 const API = '/api/v1/agentbook-expense';
 
+// Plaid's hosted Link UI can occasionally freeze mid-flow (observed in sandbox:
+// the account-selection "Continue" pane sometimes never advances and never
+// calls onSuccess/onExit). Without a watchdog the user is stuck staring at
+// Plaid's full-viewport overlay (z-index 2147483647, so nothing we render can
+// cover it) with no way back except abandoning the tab. window.confirm is used
+// for the recovery prompt specifically because it renders as browser chrome,
+// which is the only thing guaranteed to sit above Plaid's overlay.
+const PLAID_STUCK_TIMEOUT_MS = 45000;
+
 function fmt(cents: number) {
   return '$' + (Math.abs(cents) / 100).toLocaleString('en-US', { minimumFractionDigits: 2 });
 }
@@ -52,6 +61,14 @@ export const BankConnectionPage: React.FC = () => {
   const [linkToken, setLinkToken] = useState<string | null>(null);
   const [connecting, setConnecting] = useState(false);
   const [syncResult, setSyncResult] = useState<any>(null);
+  const watchdogRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const clearPlaidWatchdog = useCallback(() => {
+    if (watchdogRef.current) {
+      clearTimeout(watchdogRef.current);
+      watchdogRef.current = null;
+    }
+  }, []);
 
   const fetchData = useCallback(async () => {
     try {
@@ -86,6 +103,7 @@ export const BankConnectionPage: React.FC = () => {
   };
 
   const onPlaidSuccess = useCallback(async (publicToken: string, metadata: any) => {
+    clearPlaidWatchdog();
     setConnecting(true);
     try {
       const res = await fetch(`${API}/plaid/exchange`, {
@@ -107,17 +125,37 @@ export const BankConnectionPage: React.FC = () => {
     }
     setConnecting(false);
     setLinkToken(null);
-  }, [fetchData]);
+  }, [fetchData, clearPlaidWatchdog]);
 
-  const { open: openPlaidLink, ready: plaidReady } = usePlaidLink({
+  const { open: openPlaidLink, ready: plaidReady, exit: exitPlaidLink } = usePlaidLink({
     token: linkToken,
     onSuccess: onPlaidSuccess,
-    onExit: () => { setLinkToken(null); setConnecting(false); },
+    onExit: () => { clearPlaidWatchdog(); setLinkToken(null); setConnecting(false); },
   });
 
+  const armPlaidWatchdog = useCallback(() => {
+    clearPlaidWatchdog();
+    watchdogRef.current = setTimeout(() => {
+      const keepWaiting = !window.confirm(
+        'Bank connection is taking longer than expected.\n\nClick OK to cancel and try again, or Cancel to keep waiting a bit longer.'
+      );
+      if (keepWaiting) {
+        armPlaidWatchdog();
+      } else {
+        exitPlaidLink({ force: true });
+        setLinkToken(null);
+        setConnecting(false);
+      }
+    }, PLAID_STUCK_TIMEOUT_MS);
+  }, [clearPlaidWatchdog, exitPlaidLink]);
+
   useEffect(() => {
-    if (linkToken && plaidReady) openPlaidLink();
-  }, [linkToken, plaidReady, openPlaidLink]);
+    if (linkToken && plaidReady) {
+      openPlaidLink();
+      armPlaidWatchdog();
+    }
+    return clearPlaidWatchdog;
+  }, [linkToken, plaidReady, openPlaidLink, armPlaidWatchdog, clearPlaidWatchdog]);
 
   const handleSync = async () => {
     setSyncing(true);
