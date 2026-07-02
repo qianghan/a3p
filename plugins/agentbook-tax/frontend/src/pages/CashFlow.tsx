@@ -36,7 +36,23 @@ export const CashFlowPage: React.FC = () => {
       const res = await fetch('/api/v1/agentbook-tax/cashflow/projection');
       if (!res.ok) throw new Error('Failed to fetch cash flow data');
       const json = await res.json();
-      setData(json);
+      if (!json.success) throw new Error(json.error || 'Failed to fetch cash flow data');
+      // QA-P3-003: the API returns { data: { currentCashCents, projections:
+      // [{ days, projectedCashCents, expectedIncome: { totalCents }, expectedExpenses }] } }
+      // (amounts in cents, no envelope-unwrapped flat shape) — this page was
+      // reading a `current_balance`/`projected_balance` shape in dollars that
+      // never existed, so the balance showed $NaN and the projection cards
+      // silently rendered nothing at all.
+      const raw = json.data;
+      setData({
+        current_balance: (raw.currentCashCents ?? 0) / 100,
+        projections: (raw.projections ?? []).map((p: { days: number; projectedCashCents: number; expectedIncome?: { totalCents: number }; expectedExpenses: number }) => ({
+          period: `${p.days}-day`,
+          projected_balance: (p.projectedCashCents ?? 0) / 100,
+          expected_income: (p.expectedIncome?.totalCents ?? 0) / 100,
+          expected_expenses: (p.expectedExpenses ?? 0) / 100,
+        })),
+      });
     } catch (err: any) {
       setError(err.message);
     } finally {

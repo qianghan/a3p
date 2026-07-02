@@ -61,6 +61,66 @@ function formatCurrency(n: number) {
   return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(n);
 }
 
+/**
+ * QA-P3-002: every report card fetched data successfully but rendered
+ * nothing — `setReportData` stored the raw `{success, data: {...}}` envelope
+ * directly, and none of `sections`/`rows`/`net_income` exist on that outer
+ * object (each report's real shape lives one level deeper, with its own
+ * field names), so `renderReportContent` always rendered an empty
+ * `<div>`. This maps each report's actual API response into the ReportData
+ * shape the render logic expects.
+ */
+function transformReport(key: string, json: { success: boolean; data?: any; error?: string }): ReportData {
+  if (!json.success || !json.data) {
+    return { title: 'Error', rows: [{ label: json.error || 'Failed to load report data', amount: 0 }] };
+  }
+  const d = json.data;
+  const toRows = (items: Array<{ name: string; amountCents?: number; balanceCents?: number }>): ReportRow[] =>
+    items.map((i) => ({ label: i.name, amount: (i.amountCents ?? i.balanceCents ?? 0) / 100 }));
+
+  switch (key) {
+    case 'pnl':
+      return {
+        title: 'Profit & Loss',
+        sections: [
+          { heading: 'Revenue', rows: toRows(d.revenue ?? []) },
+          { heading: 'Expenses', rows: toRows(d.expenses ?? []) },
+        ],
+        net_income: (d.netIncomeCents ?? 0) / 100,
+      };
+    case 'balance-sheet':
+      return {
+        title: 'Balance Sheet',
+        sections: [
+          { heading: 'Assets', rows: [...toRows(d.assets ?? []), { label: 'Total Assets', amount: (d.totalAssetsCents ?? 0) / 100 }] },
+          { heading: 'Liabilities', rows: [...toRows(d.liabilities ?? []), { label: 'Total Liabilities', amount: (d.totalLiabilitiesCents ?? 0) / 100 }] },
+          { heading: 'Equity', rows: [...toRows(d.equity ?? []), { label: 'Total Equity', amount: (d.totalEquityCents ?? 0) / 100 }] },
+        ],
+      };
+    case 'cashflow':
+      return {
+        title: 'Cash Flow',
+        rows: [
+          ...(d.months ?? []).map((m: { month: string; netCents: number }) => ({ label: m.month, amount: m.netCents / 100 })),
+          { label: 'Total Net Cash Flow', amount: (d.totalNetCents ?? 0) / 100 },
+        ],
+      };
+    case 'trial-balance':
+      return {
+        title: 'Trial Balance',
+        rows: [
+          ...(d.lines ?? []).map((l: { name: string; debitCents: number; creditCents: number }) => ({
+            label: l.name,
+            amount: (l.debitCents - l.creditCents) / 100,
+          })),
+          { label: 'Difference (should be $0)', amount: ((d.totalDebitCents ?? 0) - (d.totalCreditCents ?? 0)) / 100 },
+        ],
+      };
+    default:
+      return { title: 'Report', rows: [] };
+  }
+}
+
 export const ReportsPage: React.FC = () => {
   const [expanded, setExpanded] = useState<string | null>(null);
   const [reportData, setReportData] = useState<Record<string, ReportData>>({});
@@ -80,8 +140,8 @@ export const ReportsPage: React.FC = () => {
     try {
       const res = await fetch(endpoint);
       if (!res.ok) throw new Error('Failed to load report');
-      const data = await res.json();
-      setReportData((prev) => ({ ...prev, [key]: data }));
+      const json = await res.json();
+      setReportData((prev) => ({ ...prev, [key]: transformReport(key, json) }));
     } catch {
       setReportData((prev) => ({
         ...prev,
