@@ -1,0 +1,32 @@
+<svg viewBox="0 0 640 220" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Safari toolbar with the Share icon highlighted">
+  <rect width="640" height="220" fill="#f4ecd9"/>
+
+  <!-- address bar -->
+  <rect x="24" y="24" width="592" height="46" rx="12" fill="#ffffff" stroke="#d6cdb6" stroke-width="1.5"/>
+  <circle cx="52" cy="47" r="6" fill="#7a7163" opacity="0.35"/>
+  <text x="70" y="52" font-family="-apple-system,Helvetica Neue,Arial,sans-serif" font-size="15" fill="#7a7163">agentbook.brainliber.com</text>
+
+  <!-- toolbar -->
+  <rect x="24" y="128" width="592" height="68" rx="16" fill="#ffffff" stroke="#d6cdb6" stroke-width="1.5"/>
+
+  <!-- back / forward -->
+  <path d="M96 148l-11 14 11 14" stroke="#7a7163" stroke-width="2.4" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M150 148l11 14-11 14" stroke="#c9c0af" stroke-width="2.4" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+
+  <!-- share icon, highlighted -->
+  <circle cx="320" cy="162" r="34" fill="#149578" opacity="0.14"/>
+  <circle cx="320" cy="162" r="34" fill="none" stroke="#149578" stroke-width="2.5" stroke-dasharray="3 4"/>
+  <g transform="translate(320,162)">
+    <path d="M0 -13v22" stroke="#0c6e57" stroke-width="2.6" stroke-linecap="round"/>
+    <path d="M-9 -4l9-9 9 9" stroke="#0c6e57" stroke-width="2.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+    <rect x="-15" y="-2" width="30" height="24" rx="4" stroke="#0c6e57" stroke-width="2.6" fill="none"/>
+  </g>
+
+  <!-- bookmarks / tabs -->
+  <path d="M470 148c-8 0-14 8-14 14s6 14 14 14 14-8 14-14-6-14-14-14z" stroke="#c9c0af" stroke-width="2.4" fill="none"/>
+  <rect x="524" y="149" width="26" height="26" rx="6" stroke="#c9c0af" stroke-width="2.4" fill="none"/>
+
+  <!-- callout -->
+  <path d="M320 118v-8" stroke="#0c6e57" stroke-width="2" stroke-linecap="round"/>
+  <text x="320" y="102" text-anchor="middle" font-family="-apple-system,Helvetica Neue,Arial,sans-serif" font-size="16" font-weight="600" fill="#0c6e57">Tap Share</text>
+</svg>

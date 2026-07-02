@@ -1,0 +1,29 @@
+<svg viewBox="0 0 640 220" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Chrome address bar with the install icon highlighted, and the three-dot menu's Install app option">
+  <rect width="640" height="220" fill="#f4ecd9"/>
+
+  <!-- address bar -->
+  <rect x="24" y="70" width="592" height="50" rx="25" fill="#ffffff" stroke="#d6cdb6" stroke-width="1.5"/>
+  <circle cx="56" cy="95" r="6" fill="#7a7163" opacity="0.35"/>
+  <text x="76" y="101" font-family="Roboto,Helvetica Neue,Arial,sans-serif" font-size="15" fill="#7a7163">agentbook.brainliber.com</text>
+
+  <!-- install icon in address bar, highlighted -->
+  <circle cx="520" cy="95" r="26" fill="#149578" opacity="0.14"/>
+  <circle cx="520" cy="95" r="26" fill="none" stroke="#149578" stroke-width="2.5" stroke-dasharray="3 4"/>
+  <g transform="translate(520,95)">
+    <rect x="-11" y="-9" width="22" height="16" rx="2" stroke="#0c6e57" stroke-width="2.2" fill="none"/>
+    <path d="M0 -12v10M-5 -4l5 5 5-5" stroke="#0c6e57" stroke-width="2.2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M-6 11h12" stroke="#0c6e57" stroke-width="2.2" stroke-linecap="round"/>
+  </g>
+
+  <!-- three-dot menu icon (alt path) -->
+  <g transform="translate(578,95)">
+    <circle cx="0" cy="-8" r="3" fill="#7a7163"/>
+    <circle cx="0" cy="0" r="3" fill="#7a7163"/>
+    <circle cx="0" cy="8" r="3" fill="#7a7163"/>
+  </g>
+
+  <!-- callout -->
+  <path d="M520 132v8" stroke="#0c6e57" stroke-width="2" stroke-linecap="round"/>
+  <text x="520" y="160" text-anchor="middle" font-family="Roboto,Helvetica Neue,Arial,sans-serif" font-size="16" font-weight="600" fill="#0c6e57">Tap to install</text>
+  <text x="520" y="182" text-anchor="middle" font-family="Roboto,Helvetica Neue,Arial,sans-serif" font-size="12.5" fill="#7a7163">or menu ⋮ → Install app</text>
+</svg>

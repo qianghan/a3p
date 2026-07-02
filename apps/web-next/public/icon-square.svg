@@ -1,0 +1,12 @@
+<svg viewBox="0 0 110 110" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="AgentBook">
+  <defs>
+    <linearGradient id="ai" x1="20" y1="92" x2="90" y2="22" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#0c6e57"/><stop offset="0.5" stop-color="#149578"/><stop offset="1" stop-color="#62cda2"/>
+    </linearGradient>
+    <linearGradient id="bg" x1="0" y1="0" x2="110" y2="110" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#222a31"/><stop offset="1" stop-color="#10151a"/>
+    </linearGradient>
+  </defs>
+  <rect width="110" height="110" fill="url(#bg)"/>
+  <text x="55" y="84" text-anchor="middle" font-family="SF Pro Display,Helvetica Neue,system-ui,Arial,sans-serif" font-size="80" font-weight="720" letter-spacing="-3" fill="url(#ai)">a</text>
+</svg>

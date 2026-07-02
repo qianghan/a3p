@@ -1,0 +1,15 @@
+<svg viewBox="0 0 110 110" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="AgentBook">
+  <defs>
+    <linearGradient id="ai" x1="26" y1="82" x2="84" y2="28" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#0c6e57"/><stop offset="0.5" stop-color="#149578"/><stop offset="1" stop-color="#62cda2"/>
+    </linearGradient>
+    <linearGradient id="bg" x1="0" y1="0" x2="110" y2="110" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#222a31"/><stop offset="1" stop-color="#10151a"/>
+    </linearGradient>
+  </defs>
+  <!-- Full-bleed background, no rounding — the OS applies its own mask shape.
+       Glyph sized down and centered within the ~80% maskable safe zone so it
+       survives circular/squircle/rounded-square masking on any platform. -->
+  <rect width="110" height="110" fill="url(#bg)"/>
+  <text x="55" y="78" text-anchor="middle" font-family="SF Pro Display,Helvetica Neue,system-ui,Arial,sans-serif" font-size="58" font-weight="720" letter-spacing="-2" fill="url(#ai)">a</text>
+</svg>
