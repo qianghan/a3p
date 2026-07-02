@@ -34,7 +34,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     const compareStartDate = params.get('compareStartDate');
     const compareEndDate = params.get('compareEndDate');
 
-    const currentWhere: Record<string, unknown> = { tenantId, isPersonal: false };
+    const currentWhere: Record<string, unknown> = { tenantId, isPersonal: false, deletedAt: null };
     if (startDate || endDate) {
       const date: Record<string, Date> = {};
       if (startDate) date.gte = new Date(startDate);
@@ -52,6 +52,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
           where: {
             tenantId,
             isPersonal: false,
+            deletedAt: null,
             date: { gte: new Date(compareStartDate), lte: new Date(compareEndDate) },
           },
         })
@@ -110,7 +111,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       };
     }).sort((a, b) => b.totalCents - a.totalCents);
 
-    const personalWhere: Record<string, unknown> = { tenantId, isPersonal: true };
+    const personalWhere: Record<string, unknown> = { tenantId, isPersonal: true, deletedAt: null };
     if (startDate || endDate) {
       const date: Record<string, Date> = {};
       if (startDate) date.gte = new Date(startDate);

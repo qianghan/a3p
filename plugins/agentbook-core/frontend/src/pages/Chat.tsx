@@ -102,10 +102,12 @@ function SessionsPanel({
   threads,
   activeThreadId,
   onSelect,
+  loadError,
 }: {
   threads: ThreadSummary[];
   activeThreadId: string | null;
   onSelect: (t: ThreadSummary) => void;
+  loadError: boolean;
 }): JSX.Element {
   const channels = ['web', 'telegram', 'whatsapp', 'api'];
   const grouped = channels.reduce<Record<string, ThreadSummary[]>>((acc, ch) => {
@@ -145,7 +147,13 @@ function SessionsPanel({
         </div>
       ))}
       {threads.length === 0 && (
-        <p className="text-[11px] text-muted-foreground px-3 py-4">No sessions yet.</p>
+        // QA-P5-004: a failed fetch used to degrade into this exact same
+        // "No sessions yet." text, indistinguishable from a genuinely new
+        // user's empty state — a returning user with real history had no
+        // way to tell "you have nothing" from "we couldn't load it."
+        <p className="text-[11px] text-muted-foreground px-3 py-4">
+          {loadError ? "Couldn't load your sessions. Refresh to try again." : 'No sessions yet.'}
+        </p>
       )}
     </div>
   );
@@ -171,6 +179,7 @@ export const ChatPage: React.FC = () => {
   const [sessionId, setSessionId] = useState<string | undefined>(undefined);
   const [historyLoading, setHistoryLoading] = useState(true);
   const [threads, setThreads] = useState<ThreadSummary[]>([]);
+  const [threadsLoadError, setThreadsLoadError] = useState(false);
   const [activeThreadId, setActiveThreadId] = useState<string | null>(null);
   const [viewingChannel, setViewingChannel] = useState<string | null>(null);
   const [panelOpen, setPanelOpen] = useState(true);
@@ -213,9 +222,14 @@ export const ChatPage: React.FC = () => {
               );
             }
           }
+        } else {
+          // QA-P5-004: a well-formed { success: false } response was as
+          // silent as a thrown network exception — both left threads empty
+          // with no way to distinguish "no history" from "couldn't load."
+          setThreadsLoadError(true);
         }
       } catch {
-        // Non-fatal — start with empty history.
+        setThreadsLoadError(true);
       } finally {
         setHistoryLoading(false);
       }
@@ -355,6 +369,7 @@ export const ChatPage: React.FC = () => {
             <SessionsPanel
               threads={threads}
               activeThreadId={activeThreadId}
+              loadError={threadsLoadError}
               onSelect={(t) => {
                 setActiveThreadId(t.id);
                 void loadThreadMessages(t);

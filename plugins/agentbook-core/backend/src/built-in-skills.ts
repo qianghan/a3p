@@ -3,7 +3,14 @@ export const BUILT_IN_SKILLS = [
     name: 'record-expense', description: 'Record a business or personal expense', category: 'bookkeeping',
     triggerPatterns: ['\\$\\d', 'spent ', 'paid ', 'bought ', 'purchased '],
     requirePatterns: ['\\$\\s*[\\d,]+\\.?\\d{0,2}|\\d+\\s*(?:dollars|bucks)|(?:spent|paid|bought|purchased|cost)\\s+\\$?[\\d,]+\\.?\\d{0,2}'],
-    excludePatterns: ['^invoice\\s', 'what\\s*if\\b', 'got.*\\$.*from', 'alert.*when|notify.*when|automat', 'received.*payment', '^(?:estimate|quote|proposal)\\s'],
+    // F4-03: '^invoice\\s' only caught the word at message start, so
+    // "send an invoice to Acme for $500" / "I need to invoice Acme Corp
+    // $500" fell through to record-expense's generic failure instead of
+    // create-invoice. Match invoice-creation *intent* (a create/send verb
+    // near "invoice", or "to invoice") anywhere in the message, without
+    // excluding invoice-*paying* phrasing ("paid an invoice from the
+    // plumber for $200"), which should still record as an expense.
+    excludePatterns: ['\\bto\\s+invoice\\b|\\binvoice\\s+to\\b|\\b(?:send|create|issue|write|prepare|make|draft)\\s+(?:an?\\s+)?invoice\\b', 'what\\s*if\\b', 'got.*\\$.*from', 'alert.*when|notify.*when|automat', 'received.*payment', '^(?:estimate|quote|proposal)\\s'],
     parameters: { amountCents: { type: 'number', required: true, extractHint: 'dollar amount times 100' }, vendor: { type: 'string', required: false, extractHint: 'business name' }, description: { type: 'string', required: false }, date: { type: 'date', required: false, default: 'today' } },
     endpoint: { method: 'POST', url: '/api/v1/agentbook-expense/expenses' },
     responseTemplate: 'Recorded: {{amountFormatted}} — {{description}} [{{categoryName}}]',

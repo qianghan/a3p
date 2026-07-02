@@ -6,6 +6,7 @@ import { usePathname } from 'next/navigation';
 import { useAuth } from '@/contexts/auth-context';
 import { useShell, useEvents } from '@/contexts/shell-context';
 import { usePlugins, type PluginManifest } from '@/contexts/plugin-context';
+import { useIsMobile } from '@/hooks/use-is-mobile';
 import { WorkspaceSwitcher } from './workspace-switcher';
 import {
   Activity,
@@ -13,6 +14,7 @@ import {
   ChevronRight,
   ChevronDown,
   ChevronUp,
+  X,
   Shield,
   Users,
   ShoppingBag,
@@ -111,11 +113,19 @@ const SIDEBAR_COLLAPSED_WIDTH = 52;
 export function Sidebar() {
   const pathname = usePathname();
   const { hasRole } = useAuth();
-  const { isSidebarOpen, toggleSidebar } = useShell();
+  const { isSidebarOpen, toggleSidebar, isMobileMenuOpen, closeMobileMenu } = useShell();
   const { plugins, isLoading, version, refreshPlugins } = usePlugins();
   const eventBus = useEvents();
+  const isMobile = useIsMobile();
 
   const isAdmin = hasRole('system:admin');
+
+  // Close the mobile drawer on navigation — a link tap should take the user
+  // to the page, not leave the overlay covering it.
+  useEffect(() => {
+    closeMobileMenu();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pathname]);
 
   // Sidebar width for resizing
   const [sidebarWidth, setSidebarWidth] = useState(() => {
@@ -319,32 +329,50 @@ export function Sidebar() {
     return pathname === href || pathname.startsWith(href + '/');
   };
 
-  // Calculate actual width
-  const actualWidth = isSidebarOpen ? sidebarWidth : SIDEBAR_COLLAPSED_WIDTH;
+  // Calculate actual width. On mobile the drawer always shows full content
+  // (a collapsed 52px rail as a full-screen overlay makes no sense) —
+  // desktop's collapse/resize state is left untouched either way.
+  const actualWidth = isMobile ? sidebarWidth : (isSidebarOpen ? sidebarWidth : SIDEBAR_COLLAPSED_WIDTH);
+  const effectiveOpen = isMobile ? true : isSidebarOpen;
 
   return (
-    <aside
-      ref={sidebarRef}
-      style={{ width: actualWidth }}
-      className={`fixed left-0 top-0 z-40 h-screen bg-background transition-all duration-200 flex flex-col ${
-        isResizing ? 'select-none' : ''
-      }`}
-    >
+    <>
+      {/* QA-P5-001: backdrop — only on mobile, only while the drawer is open.
+          Closes the drawer on click so it never traps the user. */}
+      {isMobile && isMobileMenuOpen && (
+        <div
+          className="fixed inset-0 z-40 bg-black/50"
+          onClick={closeMobileMenu}
+          aria-hidden="true"
+        />
+      )}
+      <aside
+        ref={sidebarRef}
+        style={{ width: actualWidth }}
+        aria-hidden={isMobile && !isMobileMenuOpen}
+        className={`fixed left-0 top-0 h-screen bg-background flex flex-col ${
+          isResizing ? 'select-none' : ''
+        } ${
+          isMobile
+            ? `z-50 shadow-2xl transition-transform duration-200 ${isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full pointer-events-none'}`
+            : 'z-40 transition-all duration-200'
+        }`}
+      >
       {/* Workspace Identity — Linear-style unified control */}
       <div className="shrink-0 px-3 pt-3 pb-1 space-y-1">
         <div className="flex items-center justify-between">
-          <WorkspaceSwitcher isOpen={isSidebarOpen} />
+          <WorkspaceSwitcher isOpen={effectiveOpen} />
           <button
-            onClick={toggleSidebar}
+            onClick={isMobile ? closeMobileMenu : toggleSidebar}
             className="p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors shrink-0"
-            title={isSidebarOpen ? 'Collapse' : 'Expand'}
+            title={isMobile ? 'Close' : (isSidebarOpen ? 'Collapse' : 'Expand')}
           >
-            {isSidebarOpen ? <ChevronLeft size={14} /> : <ChevronRight size={14} />}
+            {isMobile ? <X size={14} /> : (isSidebarOpen ? <ChevronLeft size={14} /> : <ChevronRight size={14} />)}
           </button>
         </div>
 
         {/* Search trigger — compact row */}
-        {isSidebarOpen && (
+        {effectiveOpen && (
           <button
             className="w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-muted-foreground hover:bg-muted/50 hover:text-foreground transition-colors duration-100 group"
             title="Search (⌘K)"
@@ -356,7 +384,7 @@ export function Sidebar() {
             </kbd>
           </button>
         )}
-        {!isSidebarOpen && (
+        {!effectiveOpen && (
           <button
             className="w-full flex items-center justify-center py-1.5 rounded-md text-muted-foreground hover:bg-muted/50 hover:text-foreground transition-colors duration-100"
             title="Search (⌘K)"
@@ -374,7 +402,7 @@ export function Sidebar() {
             title="Main"
             expanded={mainExpanded}
             onToggle={toggleMainExpanded}
-            isOpen={isSidebarOpen}
+            isOpen={effectiveOpen}
           />
           {mainExpanded && (
             <div className="space-y-0.5 mt-1">
@@ -389,7 +417,7 @@ export function Sidebar() {
                       key={item.href}
                       item={item}
                       isActive={isActive(item.href)}
-                      isOpen={isSidebarOpen}
+                      isOpen={effectiveOpen}
                     />
                   ))}
                   {staticMainItems.map(item => (
@@ -397,7 +425,7 @@ export function Sidebar() {
                       key={item.href}
                       item={item}
                       isActive={isActive(item.href)}
-                      isOpen={isSidebarOpen}
+                      isOpen={effectiveOpen}
                     />
                   ))}
                 </>
@@ -412,7 +440,7 @@ export function Sidebar() {
             title="Network"
             expanded={networkExpanded}
             onToggle={toggleNetworkExpanded}
-            isOpen={isSidebarOpen}
+            isOpen={effectiveOpen}
           />
           {networkExpanded && (
             <div className="space-y-0.5 mt-1">
@@ -421,7 +449,7 @@ export function Sidebar() {
                   key={item.href}
                   item={item}
                   isActive={isActive(item.href)}
-                  isOpen={isSidebarOpen}
+                  isOpen={effectiveOpen}
                 />
               ))}
               {staticNetworkItems.map(item => (
@@ -429,7 +457,7 @@ export function Sidebar() {
                   key={item.href}
                   item={item}
                   isActive={isActive(item.href)}
-                  isOpen={isSidebarOpen}
+                  isOpen={effectiveOpen}
                 />
               ))}
             </div>
@@ -442,7 +470,7 @@ export function Sidebar() {
             title="More"
             expanded={moreExpanded}
             onToggle={toggleMoreExpanded}
-            isOpen={isSidebarOpen}
+            isOpen={effectiveOpen}
             icon={MoreHorizontal}
           />
           {moreExpanded && (
@@ -450,17 +478,17 @@ export function Sidebar() {
               <NavLink
                 item={{ name: 'Feedback', href: '/feedback', icon: MessageSquare }}
                 isActive={isActive('/feedback')}
-                isOpen={isSidebarOpen}
+                isOpen={effectiveOpen}
               />
               <NavLink
                 item={{ name: 'Teams', href: '/teams', icon: Users }}
                 isActive={isActive('/teams')}
-                isOpen={isSidebarOpen}
+                isOpen={effectiveOpen}
               />
               <NavLink
                 item={{ name: 'Docs', href: '/docs', icon: BookOpen }}
                 isActive={isActive('/docs')}
-                isOpen={isSidebarOpen}
+                isOpen={effectiveOpen}
               />
             </div>
           )}
@@ -473,13 +501,13 @@ export function Sidebar() {
           <NavLink
             item={{ name: 'Admin', href: '/admin/users', icon: Shield }}
             isActive={isActive('/admin')}
-            isOpen={isSidebarOpen}
+            isOpen={effectiveOpen}
           />
         </div>
       )}
 
-      {/* Resize Handle - Only show when sidebar is open */}
-      {isSidebarOpen && (
+      {/* Resize Handle - only on desktop; drag-to-resize doesn't apply to a touch overlay */}
+      {!isMobile && isSidebarOpen && (
         <div
           ref={resizeHandleRef}
           onMouseDown={handleMouseDown}
@@ -495,7 +523,8 @@ export function Sidebar() {
           </div>
         </div>
       )}
-    </aside>
+      </aside>
+    </>
   );
 }
 

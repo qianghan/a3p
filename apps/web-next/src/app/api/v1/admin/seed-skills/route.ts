@@ -35,6 +35,19 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     const existing = await db.abSkillManifest.findFirst({
       where: { tenantId: null, name: skill.name },
     });
+    // requirePatterns/excludePatterns/confirmBefore/postActions were missing
+    // from both branches below — editing any of those fields in
+    // BUILT_IN_SKILLS had zero effect on live routing no matter how many
+    // times this endpoint was called, because an existing DB row's values
+    // (from whatever they were originally seeded as) were never overwritten.
+    // Found while re-seeding after the F4-03 invoice-routing fix, which
+    // silently didn't take effect until this was fixed.
+    const s = skill as typeof skill & {
+      requirePatterns?: string[];
+      excludePatterns?: string[];
+      confirmBefore?: boolean;
+      postActions?: unknown;
+    };
     if (existing) {
       await db.abSkillManifest.update({
         where: { id: existing.id },
@@ -42,9 +55,13 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
           description: skill.description,
           category: skill.category,
           triggerPatterns: skill.triggerPatterns,
+          requirePatterns: s.requirePatterns ?? [],
+          excludePatterns: s.excludePatterns ?? [],
           parameters: skill.parameters as never,
           endpoint: skill.endpoint as never,
           responseTemplate: (skill as { responseTemplate?: string }).responseTemplate || null,
+          confirmBefore: s.confirmBefore ?? false,
+          postActions: (s.postActions as never) ?? undefined,
           source: 'built_in',
         },
       });
@@ -57,9 +74,13 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
           description: skill.description,
           category: skill.category,
           triggerPatterns: skill.triggerPatterns,
+          requirePatterns: s.requirePatterns ?? [],
+          excludePatterns: s.excludePatterns ?? [],
           parameters: skill.parameters as never,
           endpoint: skill.endpoint as never,
           responseTemplate: (skill as { responseTemplate?: string }).responseTemplate || null,
+          confirmBefore: s.confirmBefore ?? false,
+          postActions: (s.postActions as never) ?? undefined,
           source: 'built_in',
           enabled: true,
         },

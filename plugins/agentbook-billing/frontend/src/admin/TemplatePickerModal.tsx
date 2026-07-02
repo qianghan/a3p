@@ -5,7 +5,17 @@ interface Props { onClose: () => void; onPicked: (t: PlanTemplate) => void; }
 
 export function TemplatePickerModal({ onClose, onPicked }: Props): JSX.Element {
   const [tpls, setTpls] = useState<PlanTemplate[] | null>(null);
-  useEffect(() => { billingApi.listTemplates().then(setTpls); }, []);
+  const [error, setError] = useState<string | null>(null);
+  // F6-2: listTemplates() had no .catch() — a 403 (e.g. a stale/non-admin
+  // session slipping past the client-side RequireRole guard added to
+  // AdminApp) left this modal stuck on "Loading…" forever with an
+  // unhandled promise rejection in the console and no way for the user to
+  // know what happened.
+  useEffect(() => {
+    billingApi.listTemplates().then(setTpls).catch((err) => {
+      setError(err instanceof Error ? err.message : 'Failed to load plan templates.');
+    });
+  }, []);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
@@ -23,7 +33,9 @@ export function TemplatePickerModal({ onClose, onPicked }: Props): JSX.Element {
             ×
           </button>
         </div>
-        {!tpls ? (
+        {error ? (
+          <div className="py-6 text-center text-sm text-destructive">{error}</div>
+        ) : !tpls ? (
           <div className="py-6 text-center text-muted-foreground">Loading…</div>
         ) : (
           <div className="grid grid-cols-3 gap-3">

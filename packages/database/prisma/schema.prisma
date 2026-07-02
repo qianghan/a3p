@@ -2409,6 +2409,69 @@ model AbEngagementLog {
   @@schema("plugin_agentbook_core")
 }
 
+// Admin/system notification center (2026-07-01 design). One row per message
+// (admin broadcast or system trigger); fan-out to recipients is a separate
+// table because a broadcast is one-to-many and needs per-recipient read
+// state, which AbEngagementLog's per-tenant-row shape doesn't support.
+model AbNotification {
+  id             String    @id @default(uuid())
+  category       String // feature | reward | referral_thanks | tax_deadline | invoice_due | expense_review | admin_broadcast
+  severity       String    @default("info") // info | success | warning | urgent
+  title          String
+  body           String
+  ctaLabel       String?
+  ctaUrl         String?
+  createdByType  String // admin | system
+  createdBy      String? // admin user.id; null when system-triggered
+  audienceType   String // all | plan | segment | list | single
+  audienceFilter Json? // segment DSL — see SegmentFilter in lib/notifications.ts; only meaningful for 'segment'
+  status         String    @default("pending") // pending | dispatching | sent | canceled
+  scheduledFor   DateTime? // null = send immediately
+  dispatchedAt   DateTime?
+  createdAt      DateTime  @default(now())
+
+  recipients AbNotificationRecipient[]
+
+  @@index([category, createdAt])
+  @@index([status, scheduledFor])
+  @@schema("plugin_agentbook_core")
+}
+
+model AbNotificationRecipient {
+  id             String    @id @default(uuid())
+  notificationId String
+  tenantId       String
+  channel        String // in_app | email
+  deliveredAt    DateTime?
+  readAt         DateTime?
+  actedAt        DateTime?
+  dismissedAt    DateTime?
+  emailStatus    String? // sent | failed | skipped_opted_out
+
+  notification AbNotification @relation(fields: [notificationId], references: [id], onDelete: Cascade)
+
+  @@unique([notificationId, tenantId, channel])
+  @@index([tenantId, readAt])
+  @@index([tenantId, deliveredAt])
+  @@schema("plugin_agentbook_core")
+}
+
+// Per-tenant, per-category channel opt-in. Absence of a row means "on" for
+// both channels (matches today's implicit behavior) — see resolvePreference()
+// in notifications.ts. tax_deadline/invoice_due/expense_review are enforced
+// as always-on regardless of this row's values (compliance-style categories,
+// same treatment as password-reset email).
+model AbNotificationPreference {
+  tenantId     String
+  category     String
+  inAppEnabled Boolean  @default(true)
+  emailEnabled Boolean  @default(true)
+  updatedAt    DateTime @updatedAt
+
+  @@unique([tenantId, category])
+  @@schema("plugin_agentbook_core")
+}
+
 model AbTenantAccess {
   id          String    @id @default(uuid())
   tenantId    String

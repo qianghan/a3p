@@ -55,6 +55,23 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       orderBy: { createdAt: 'desc' },
     });
 
+    // Plan + referral stats — joined separately (tenantId == user.id, no FK
+    // relation defined between `public` and `plugin_agentbook_billing`
+    // schemas) and merged in-memory rather than per-user queries.
+    const [subscriptions, sentCounts, paidReferrals] = await Promise.all([
+      prisma.billSubscription.findMany({ select: { accountId: true, plan: { select: { name: true, code: true } } } }),
+      prisma.billReferral.groupBy({ by: ['referrerTenantId'], _count: { _all: true } }),
+      prisma.billReferral.findMany({ where: { status: 'paid' }, select: { referrerTenantId: true, rewardMonths: true } }),
+    ]);
+    const planByTenant = new Map(subscriptions.map((s) => [s.accountId, s.plan]));
+    const sentByTenant = new Map(sentCounts.map((r) => [r.referrerTenantId, r._count._all]));
+    const paidByTenant = new Map<string, number>();
+    const rewardByTenant = new Map<string, number>();
+    for (const r of paidReferrals) {
+      paidByTenant.set(r.referrerTenantId, (paidByTenant.get(r.referrerTenantId) ?? 0) + 1);
+      rewardByTenant.set(r.referrerTenantId, (rewardByTenant.get(r.referrerTenantId) ?? 0) + r.rewardMonths);
+    }
+
     // Transform the data to include roles as an array of strings
     const users = usersData.map(user => ({
       id: user.id,
@@ -68,6 +85,10 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       createdAt: user.createdAt,
       lastLoginAt: null, // Not tracked in this schema
       _count: user._count,
+      planName: planByTenant.get(user.id)?.name ?? null,
+      invitesSent: sentByTenant.get(user.id) ?? 0,
+      invitesPaid: paidByTenant.get(user.id) ?? 0,
+      rewardMonthsEarned: rewardByTenant.get(user.id) ?? 0,
     }));
 
     return success({ users });

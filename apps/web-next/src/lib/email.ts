@@ -60,6 +60,10 @@ function escapeHtml(str: string): string {
  * Shared branded email scaffold — teal AgentBook header, single CTA, footer.
  * Keeps every transactional email visually consistent and on-brand. All
  * dynamic HTML passed in (`intro`, `extraHtml`) must already be escaped/trusted.
+ *
+ * QA-P5-007: link text uses #0c6e57 (the darker end of the header gradient),
+ * not the brand's primary #149578 — #149578 is only 3.75:1 against white,
+ * failing WCAG AA for normal-size text. #0c6e57 clears ~6.4:1.
  */
 function buildBrandedEmail(params: {
   title: string;
@@ -101,11 +105,11 @@ function buildBrandedEmail(params: {
           </tr></table>
           <p style="margin:26px 0 0;font-size:13px;color:#6b7280;">${footnote}</p>
           <p style="margin:14px 0 0;font-size:12px;color:#9ca3af;">If the button doesn't work, copy and paste this link into your browser:<br>
-            <a href="${ctaUrl}" style="color:#149578;word-break:break-all;">${ctaUrl}</a></p>
+            <a href="${ctaUrl}" style="color:#0c6e57;word-break:break-all;">${ctaUrl}</a></p>
         </td></tr>
         <!-- Footer -->
         <tr><td style="padding:22px 40px;background:#f9fafb;border-top:1px solid #eef0f2;text-align:center;">
-          <p style="margin:0 0 4px;font-size:12px;color:#6b7280;"><a href="${APP_URL}" style="color:#149578;text-decoration:none;font-weight:600;">AgentBook</a> &middot; AI bookkeeping for freelancers &amp; small business</p>
+          <p style="margin:0 0 4px;font-size:12px;color:#6b7280;"><a href="${APP_URL}" style="color:#0c6e57;text-decoration:none;font-weight:600;">AgentBook</a> &middot; AI bookkeeping for freelancers &amp; small business</p>
           <p style="margin:0;font-size:11px;color:#b0b7c0;"><a href="${APP_URL}/docs" style="color:#9ca3af;text-decoration:none;">Help center</a></p>
         </td></tr>
       </table>
@@ -306,10 +310,10 @@ export async function sendCpaInviteEmail(
         </tr></table>
         <p style="margin:24px 0 0;font-size:14px;color:#6b7280;">This invitation link will expire. If you weren't expecting it, you can ignore this email.</p>
         <p style="margin:16px 0 0;font-size:13px;color:#9ca3af;">If the button doesn't work, copy and paste this link:<br>
-          <a href="${inviteUrl}" style="color:#149578;word-break:break-all;">${inviteUrl}</a></p>
+          <a href="${inviteUrl}" style="color:#0c6e57;word-break:break-all;">${inviteUrl}</a></p>
       </td></tr>
       <tr><td style="padding:24px 40px;background:#f9fafb;border-top:1px solid #e5e7eb;text-align:center;">
-        <p style="margin:0;font-size:12px;color:#9ca3af;"><a href="${APP_URL}" style="color:#149578;text-decoration:none;">AgentBook</a></p>
+        <p style="margin:0;font-size:12px;color:#9ca3af;"><a href="${APP_URL}" style="color:#0c6e57;text-decoration:none;">AgentBook</a></p>
       </td></tr>
     </table>
   </td></tr></table>
@@ -325,6 +329,43 @@ export async function sendCpaInviteEmail(
     return { success: true, messageId: (result as unknown as { data?: { id?: string } })?.data?.id };
   } catch (err) {
     console.error('[EMAIL] Failed to send CPA invite:', err instanceof Error ? err.message : err);
+    return { success: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+/**
+ * Notification-center email — admin broadcasts and system-triggered
+ * notifications (referral thank-you, tax deadline, etc.) all render through
+ * this one function so the email always matches the in-app card. Uses the
+ * same branded scaffold as verification/password-reset, not a separate
+ * template. Title/body are user- or admin-composed text, so both are
+ * escaped before going into the trusted `buildBrandedEmail` slots.
+ */
+export async function sendNotificationEmail(
+  to: string,
+  params: { title: string; body: string; ctaLabel?: string; ctaUrl?: string },
+): Promise<{ success: boolean; messageId?: string; error?: string }> {
+  const client = getResendClient();
+  if (!client) {
+    if (process.env.NODE_ENV !== 'production') console.log('[EMAIL] (no RESEND_API_KEY) Notification:', params.title);
+    return { success: false, error: 'Email service not configured' };
+  }
+
+  const html = buildBrandedEmail({
+    title: params.title,
+    preheader: params.body.slice(0, 140),
+    heading: escapeHtml(params.title),
+    intro: escapeHtml(params.body),
+    ctaText: params.ctaLabel || 'Open AgentBook',
+    ctaUrl: params.ctaUrl || APP_URL,
+    footnote: 'You can manage which notifications you receive in Settings → Notifications.',
+  });
+
+  try {
+    const result = await client.emails.send({ from: EMAIL_FROM, to, subject: params.title, html });
+    return { success: true, messageId: (result as unknown as { data?: { id?: string } })?.data?.id };
+  } catch (err) {
+    console.error('[EMAIL] Failed to send notification email:', err instanceof Error ? err.message : err);
     return { success: false, error: err instanceof Error ? err.message : String(err) };
   }
 }
