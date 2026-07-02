@@ -97,8 +97,8 @@ All Medium-severity items below were **fixed and independently re-verified live 
 
 | Finding | Notes |
 |---|---|
-| QA-P5-005 — one icon-only button with no `aria-label` (dashboard sidebar) | Single occurrence found; not re-checked on other pages |
-| QA-P5-006 — PWA manifest and service worker both build/serve correctly, but no page links `<link rel="manifest">`, so "Add to Home Screen" can't fire | Cheap, same-session fixable — add the tag to `/app/layout.tsx` at minimum |
+| QA-P5-005 — icon-only sidebar buttons with no `aria-label` | **Fixed — [#193](https://github.com/qianghan/a3p/pull/193).** Found 3 occurrences on closer look (collapse/expand toggle, collapsed search trigger, collapsed section-header toggle), not just the one originally spotted — all fixed together. |
+| QA-P5-006 — PWA manifest and service worker both build/serve correctly, but no page links `<link rel="manifest">`, so "Add to Home Screen" can't fire | **Fixed — [#193](https://github.com/qianghan/a3p/pull/193).** Added via Next's Metadata API on the root layout, since the `/app/*` PWA shell's own layout is a client component and can't export `metadata` directly. |
 | F1-03/F1-04 | Minor copy/consistency nits from Phase 1, backlog-only per the plan's own rubric |
 
 ---
