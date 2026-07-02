@@ -29,8 +29,16 @@ const INVITEE_ID = `e2e-sr-invitee-${RUN_ID}`;
 
 let prisma: typeof import('@naap/database').prisma;
 
+// Admin routes (admin-guard.ts / admin/users/[id]) accept either an
+// Authorization Bearer header or the naap_auth_token cookie via getAuthToken().
 function authHeaders(token: string) {
   return { authorization: `Bearer ${token}` };
+}
+
+// The agentbook-billing/sales-rep/* routes use safeResolveAgentbookTenant,
+// which only reads the naap_auth_token cookie — no Bearer header support.
+function cookieAuthHeaders(token: string) {
+  return { cookie: `naap_auth_token=${token}` };
 }
 
 test.describe.serial('Sales rep commission program', () => {
@@ -138,7 +146,7 @@ test.describe.serial('Sales rep commission program', () => {
       },
     });
 
-    const res = await request.get(`${WEB}/api/v1/agentbook-billing/sales-rep/summary`, { headers: authHeaders(REP_TOKEN) });
+    const res = await request.get(`${WEB}/api/v1/agentbook-billing/sales-rep/summary`, { headers: cookieAuthHeaders(REP_TOKEN) });
     expect(res.status(), await res.text()).toBe(200);
     const body = await res.json();
     expect(body.data.invitees).toHaveLength(1);
@@ -148,18 +156,18 @@ test.describe.serial('Sales rep commission program', () => {
   });
 
   test('3. rep submits an invoice; duplicate submission for the same period is rejected', async ({ request }) => {
-    const first = await request.post(`${WEB}/api/v1/agentbook-billing/sales-rep/payouts`, { headers: authHeaders(REP_TOKEN) });
+    const first = await request.post(`${WEB}/api/v1/agentbook-billing/sales-rep/payouts`, { headers: cookieAuthHeaders(REP_TOKEN) });
     expect(first.status(), await first.text()).toBe(200);
     const firstBody = await first.json();
     expect(firstBody.data.totalCents).toBe(380);
     expect(firstBody.data.invoiceNumber).toMatch(/^COMM-\d{4}-\d{4}$/);
 
-    const dup = await request.post(`${WEB}/api/v1/agentbook-billing/sales-rep/payouts`, { headers: authHeaders(REP_TOKEN) });
+    const dup = await request.post(`${WEB}/api/v1/agentbook-billing/sales-rep/payouts`, { headers: cookieAuthHeaders(REP_TOKEN) });
     expect(dup.status()).toBe(400);
     const dupBody = await dup.json();
     expect(dupBody.error).toContain('Already submitted');
 
-    const list = await request.get(`${WEB}/api/v1/agentbook-billing/sales-rep/payouts`, { headers: authHeaders(REP_TOKEN) });
+    const list = await request.get(`${WEB}/api/v1/agentbook-billing/sales-rep/payouts`, { headers: cookieAuthHeaders(REP_TOKEN) });
     const listBody = await list.json();
     expect(listBody.data.payouts).toHaveLength(1);
     expect(listBody.data.payouts[0].status).toBe('submitted');
@@ -167,7 +175,7 @@ test.describe.serial('Sales rep commission program', () => {
 
   test('4. rep sets bank details; admin reviews and marks the invoice paid', async ({ request }) => {
     const saveBank = await request.post(`${WEB}/api/v1/agentbook-billing/sales-rep/bank-details`, {
-      headers: authHeaders(REP_TOKEN),
+      headers: cookieAuthHeaders(REP_TOKEN),
       data: { bankDetails: 'Test Bank, Acct 000111222, Routing 999888777' },
     });
     expect(saveBank.status()).toBe(200);
