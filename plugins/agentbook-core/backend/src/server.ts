@@ -1247,7 +1247,7 @@ app.post('/api/v1/agentbook-core/ask', async (req, res) => {
       else if (q.includes('this month')) { since = new Date(now.getFullYear(), now.getMonth(), 1); periodLabel = 'month-to-date'; }
 
       const expenses = await db.abExpense.findMany({
-        where: { tenantId, isPersonal: false, date: { gte: since } },
+        where: { tenantId, isPersonal: false, deletedAt: null, date: { gte: since } },
         include: { vendor: true },
       });
       const total = expenses.reduce((s: number, e: any) => s + e.amountCents, 0);
