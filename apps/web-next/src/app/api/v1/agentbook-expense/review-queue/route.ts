@@ -18,7 +18,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     if ('response' in __resolved) return __resolved.response;
     const { tenantId } = __resolved;
     const expenses = await db.abExpense.findMany({
-      where: { tenantId, status: 'pending_review' },
+      where: { tenantId, status: 'pending_review', deletedAt: null },
       include: { vendor: { select: { name: true } } },
       orderBy: { createdAt: 'desc' },
     });
