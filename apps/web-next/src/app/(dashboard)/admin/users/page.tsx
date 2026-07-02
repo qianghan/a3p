@@ -54,6 +54,10 @@ export default function AdminUsersPage() {
   const [selectedRole, setSelectedRole] = useState<string>('all');
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
   const [actionBusy, setActionBusy] = useState(false);
+  const [promoteTarget, setPromoteTarget] = useState<SystemUser | null>(null);
+  const [promotePlan, setPromotePlan] = useState<'pro' | 'business'>('pro');
+  const [promoteCommissionPercent, setPromoteCommissionPercent] = useState('20');
+  const [promoteFrequency, setPromoteFrequency] = useState<'monthly' | 'quarterly' | 'annual'>('quarterly');
 
   const isAdmin = hasRole('system:admin');
 
@@ -76,6 +80,55 @@ export default function AdminUsersPage() {
       }
     } catch {
       setError('Action failed');
+    } finally {
+      setActionBusy(false);
+    }
+  }
+
+  async function doPromoteToSalesRep() {
+    if (!promoteTarget) return;
+    const commissionBps = Math.round(Number(promoteCommissionPercent) * 100);
+    setActionBusy(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/v1/admin/users/${promoteTarget.id}/sales-rep`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ plan: promotePlan, commissionBps, payoutFrequency: promoteFrequency }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setPromoteTarget(null);
+        setOpenMenuId(null);
+        await loadUsers();
+      } else {
+        setError(data.error?.message || data.error || 'Failed to promote to sales rep');
+      }
+    } catch {
+      setError('Failed to promote to sales rep');
+    } finally {
+      setActionBusy(false);
+    }
+  }
+
+  async function doRevokeSalesRep(userId: string) {
+    setActionBusy(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/v1/admin/users/${userId}/sales-rep`, {
+        method: 'DELETE',
+        credentials: 'include',
+      });
+      const data = await res.json();
+      if (data.success) {
+        setOpenMenuId(null);
+        await loadUsers();
+      } else {
+        setError(data.error?.message || data.error || 'Failed to revoke sales rep');
+      }
+    } catch {
+      setError('Failed to revoke sales rep');
     } finally {
       setActionBusy(false);
     }
@@ -379,6 +432,29 @@ export default function AdminUsersPage() {
                               Make admin
                             </button>
                           )}
+                          {user.roles.includes('sales_rep') ? (
+                            <button
+                              type="button"
+                              disabled={actionBusy}
+                              onClick={() => doRevokeSalesRep(user.id)}
+                              className="w-full text-left px-3 py-2 text-sm hover:bg-muted disabled:opacity-40"
+                            >
+                              Remove sales rep
+                            </button>
+                          ) : (
+                            <button
+                              type="button"
+                              disabled={actionBusy}
+                              onClick={() => {
+                                setPromoteTarget(user);
+                                setOpenMenuId(null);
+                              }}
+                              className="w-full text-left px-3 py-2 text-sm hover:bg-muted disabled:opacity-50 flex items-center gap-2"
+                            >
+                              <Gift className="w-3.5 h-3.5" />
+                              Promote to sales rep
+                            </button>
+                          )}
                         </div>
                       </>
                     )}
@@ -389,6 +465,60 @@ export default function AdminUsersPage() {
           </tbody>
         </table>
       </div>
+
+      {promoteTarget && (
+        <div className="fixed inset-0 z-30 flex items-center justify-center bg-black/40">
+          <div className="w-full max-w-sm rounded-lg border border-border bg-card p-5 shadow-xl">
+            <h3 className="text-base font-semibold mb-1">Promote to sales rep</h3>
+            <p className="text-sm text-muted-foreground mb-4">
+              {promoteTarget.email || promoteTarget.displayName} gets a free comped plan and their own
+              commission-tracked referral link — no Stripe charge.
+            </p>
+            <div className="space-y-3">
+              <div>
+                <label className="block text-xs font-medium text-muted-foreground mb-1">Comped plan</label>
+                <Select
+                  value={promotePlan}
+                  onChange={(e) => setPromotePlan(e.target.value as 'pro' | 'business')}
+                >
+                  <option value="pro">Pro</option>
+                  <option value="business">Business</option>
+                </Select>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-muted-foreground mb-1">Commission %</label>
+                <Input
+                  type="number"
+                  min={1}
+                  max={100}
+                  step={1}
+                  value={promoteCommissionPercent}
+                  onChange={(e) => setPromoteCommissionPercent(e.target.value)}
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-muted-foreground mb-1">Payout frequency</label>
+                <Select
+                  value={promoteFrequency}
+                  onChange={(e) => setPromoteFrequency(e.target.value as 'monthly' | 'quarterly' | 'annual')}
+                >
+                  <option value="monthly">Monthly</option>
+                  <option value="quarterly">Quarterly</option>
+                  <option value="annual">Annual</option>
+                </Select>
+              </div>
+            </div>
+            <div className="mt-5 flex justify-end gap-2">
+              <Button variant="secondary" onClick={() => setPromoteTarget(null)} disabled={actionBusy}>
+                Cancel
+              </Button>
+              <Button onClick={doPromoteToSalesRep} disabled={actionBusy}>
+                Promote
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -2,6 +2,7 @@ import 'server-only';
 import { prisma } from '@naap/database';
 import { invalidateAccount } from '@naap/billing';
 import { processInviteePaid, applyPendingCredits } from '@/lib/billing/referrals';
+import { accrueSalesRepCommission } from '@/lib/billing/sales-rep';
 import type Stripe from 'stripe';
 
 export async function applyEvent(event: Stripe.Event): Promise<void> {
@@ -80,7 +81,10 @@ export async function applyEvent(event: Stripe.Event): Promise<void> {
     case 'invoice.paid': {
       // Subscription status is flipped by customer.subscription.updated.
       // Here we settle referral rewards: if this paying account was invited,
-      // credit their referrer 1 free month (idempotent, capped at 12).
+      // credit their referrer 1 free month (idempotent, capped at 12). Also
+      // accrues sales rep commission — unlike processInviteePaid (first
+      // payment only), this runs on EVERY recurring payment, since a rep
+      // earns commission on ongoing revenue, not a one-time reward.
       const invoice = event.data.object as Stripe.Invoice;
       const customerId =
         typeof invoice.customer === 'string' ? invoice.customer : invoice.customer?.id ?? null;
@@ -94,6 +98,11 @@ export async function applyEvent(event: Stripe.Event): Promise<void> {
             await processInviteePaid(sub.accountId);
           } catch (e) {
             console.error('[stripe-webhook] processInviteePaid failed', e);
+          }
+          try {
+            await accrueSalesRepCommission(sub.accountId, invoice, event.id);
+          } catch (e) {
+            console.error('[stripe-webhook] accrueSalesRepCommission failed', e);
           }
         }
       }

@@ -2967,6 +2967,12 @@ model BillSubscription {
   currentPeriodEnd     DateTime?
   cancelAtPeriodEnd    Boolean   @default(false)
   canceledAt           DateTime?
+  // Display-only marker for admin UI ("comped" vs "paying"). Sales rep
+  // promotion sets this to 'manual' on a subscription with no Stripe IDs.
+  // Never read by the entitlement logic in packages/billing/src/plans.ts,
+  // which only looks at status + planId — a manual row grants full plan
+  // access with zero changes to that engine.
+  billingSource        String    @default("stripe")
   createdAt            DateTime  @default(now())
   updatedAt            DateTime  @updatedAt
 
@@ -3009,10 +3015,17 @@ model BillEvent {
 // Referral program. One code per tenant (referrer); an invitee who signs up
 // via that code and later pays earns the referrer 1 free month (cap 12).
 model BillReferralCode {
-  id        String   @id @default(uuid())
-  tenantId  String   @unique
-  code      String   @unique
-  createdAt DateTime @default(now())
+  id         String   @id @default(uuid())
+  tenantId   String   @unique
+  code       String   @unique
+  // Set when this code belongs to a promoted sales rep (SalesRepProfile.tenantId)
+  // instead of an ordinary peer referrer. Mutually exclusive switch: when set,
+  // signups through this code accrue commission (accrueSalesRepCommission)
+  // instead of the peer reward-months flow (processInviteePaid still runs for
+  // status tracking, but rewardMonths has no effect for a sales-rep code since
+  // rep tenants are excluded from the reward-months UI/summary).
+  salesRepId String?
+  createdAt  DateTime @default(now())
 
   @@schema("plugin_agentbook_billing")
 }
@@ -3032,6 +3045,82 @@ model BillReferral {
   creditedAt       DateTime?
 
   @@index([referrerTenantId])
+  @@schema("plugin_agentbook_billing")
+}
+
+// ============================================================================
+// Sales Rep commission program — admin promotes a user to sales rep: comped
+// subscription, own referral code, % commission on referred revenue instead
+// of peer reward-months. See docs/plans (jolly-wondering-engelbart) for design.
+// ============================================================================
+
+// One row per promoted rep. tenantId doubles as the rep's own AgentBook
+// tenant id (a rep is a normal comped tenant, not a separate entity).
+model SalesRepProfile {
+  tenantId         String    @id
+  status           String    @default("active") // active | suspended | removed
+  commissionBps    Int // basis points, e.g. 2000 = 20%
+  payoutFrequency  String    @default("quarterly") // monthly | quarterly | annual
+  billingSource    String    @default("manual") // marker only, mirrors BillSubscription.billingSource
+  bankDetailsEnc   String? // ciphertext via agentbook-bank-token.ts encryptToken()
+  bankDetailsSetAt DateTime?
+  promotedBy       String
+  promotedAt       DateTime  @default(now())
+  removedAt        DateTime?
+  removedBy        String?
+
+  @@schema("plugin_agentbook_billing")
+}
+
+// One row per revenue event attributed to a rep's referral. Created from the
+// Stripe webhook's invoice.paid handler — fires on every recurring payment,
+// not just the invitee's first (unlike BillReferral/processInviteePaid).
+model SalesRepCommissionAccrual {
+  id                String    @id @default(uuid())
+  salesRepId        String
+  inviteeTenantId   String
+  billReferralId    String
+  stripeEventId     String // idempotency key — the invoice.paid event.id
+  revenueCents      Int
+  // Locked in at accrual time from SalesRepProfile.commissionBps — a later
+  // rate change never retroactively recalculates historical accruals.
+  commissionBpsUsed Int
+  commissionCents   Int
+  periodStart       DateTime
+  periodEnd         DateTime
+  payoutId          String? // null until bundled into a SalesRepPayout
+  reversedAt        DateTime? // manual clawback marker (e.g. refund/chargeback)
+  createdAt         DateTime  @default(now())
+
+  @@unique([salesRepId, stripeEventId])
+  @@index([salesRepId, payoutId])
+  @@schema("plugin_agentbook_billing")
+}
+
+// One row per commission invoice cycle. Deliberately separate from AbInvoice
+// (the rep's own client-invoicing books) — this is the platform's payable to
+// the rep, not the rep's own revenue, and must stay immutable once submitted
+// for audit purposes (no endpoint ever edits totalCents/invoiceNumber/period
+// after creation).
+model SalesRepPayout {
+  id               String    @id @default(uuid())
+  salesRepId       String
+  invoiceNumber    String    @unique // COMM-2026-0007, own sequence
+  periodLabel      String
+  periodStart      DateTime
+  periodEnd        DateTime
+  totalCents       Int // snapshotted at submission
+  status           String    @default("submitted") // submitted | approved | paid | rejected
+  invoicePdfHtml   String?
+  submittedAt      DateTime  @default(now())
+  reviewedAt       DateTime?
+  reviewedBy       String?
+  paidAt           DateTime?
+  paidBy           String?
+  paymentReference String?
+  rejectionReason  String?
+
+  @@index([salesRepId, status])
   @@schema("plugin_agentbook_billing")
 }
 
