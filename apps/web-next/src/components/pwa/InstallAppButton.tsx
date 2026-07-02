@@ -1,34 +1,8 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import Link from 'next/link';
-
-type Platform = 'ios' | 'android' | 'desktop' | 'unsupported';
-
-interface BeforeInstallPromptEvent extends Event {
-  prompt: () => Promise<void>;
-  userChoice: Promise<{ outcome: 'accepted' | 'dismissed' }>;
-}
-
-function detectPlatform(): Platform {
-  if (typeof navigator === 'undefined') return 'unsupported';
-  const ua = navigator.userAgent;
-  // iPadOS 13+ reports as "Macintosh" but exposes multi-touch — the
-  // standard sniff for telling it apart from a real Mac.
-  const isIOS = /iPhone|iPad|iPod/.test(ua) || (ua.includes('Macintosh') && navigator.maxTouchPoints > 1);
-  if (isIOS) return 'ios';
-  if (/Android/.test(ua)) return 'android';
-  return 'desktop';
-}
-
-function isStandalone(): boolean {
-  if (typeof window === 'undefined') return false;
-  return (
-    window.matchMedia?.('(display-mode: standalone)').matches ||
-    // iOS Safari's own (non-standard, still the only signal it exposes)
-    (window.navigator as Navigator & { standalone?: boolean }).standalone === true
-  );
-}
+import { usePwaInstall } from '@/hooks/use-pwa-install';
 
 /**
  * Install-app control for the marketing site. Android/desktop Chromium
@@ -39,52 +13,23 @@ function isStandalone(): boolean {
  * a link to the fully illustrated version in the docs.
  */
 export function InstallAppButton() {
-  const [platform, setPlatform] = useState<Platform>('unsupported');
-  const [installed, setInstalled] = useState(false);
-  const [deferredPrompt, setDeferredPrompt] = useState<BeforeInstallPromptEvent | null>(null);
+  const { platform, canOfferInstall, promptInstall } = usePwaInstall();
   const [showIosSteps, setShowIosSteps] = useState(false);
-
-  useEffect(() => {
-    setPlatform(detectPlatform());
-    setInstalled(isStandalone());
-
-    const onBeforeInstallPrompt = (e: Event) => {
-      e.preventDefault();
-      setDeferredPrompt(e as BeforeInstallPromptEvent);
-    };
-    const onInstalled = () => setInstalled(true);
-
-    window.addEventListener('beforeinstallprompt', onBeforeInstallPrompt);
-    window.addEventListener('appinstalled', onInstalled);
-    return () => {
-      window.removeEventListener('beforeinstallprompt', onBeforeInstallPrompt);
-      window.removeEventListener('appinstalled', onInstalled);
-    };
-  }, []);
 
   const handleClick = useCallback(async () => {
     if (platform === 'ios') {
       setShowIosSteps(true);
       return;
     }
-    if (deferredPrompt) {
-      await deferredPrompt.prompt();
-      const { outcome } = await deferredPrompt.userChoice;
-      if (outcome === 'accepted') setInstalled(true);
-      setDeferredPrompt(null);
-      return;
+    const outcome = await promptInstall();
+    if (outcome === 'unavailable') {
+      // Already dismissed once this session, or a non-Chromium browser —
+      // send them to the full guide instead of doing nothing.
+      window.location.href = '/docs/setup/install-app';
     }
-    // Android/desktop without a captured prompt (already dismissed once,
-    // or a non-Chromium browser) — send them to the full guide instead
-    // of doing nothing.
-    window.location.href = '/docs/setup/install-app';
-  }, [platform, deferredPrompt]);
+  }, [platform, promptInstall]);
 
-  // Nothing to offer: already installed, or a desktop browser that never
-  // fired the event (no point advertising an action that won't do anything).
-  if (installed) return null;
-  if (platform === 'desktop' && !deferredPrompt) return null;
-  if (platform === 'unsupported') return null;
+  if (!canOfferInstall) return null;
 
   return (
     <>
