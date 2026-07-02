@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { Fraunces, Newsreader, JetBrains_Mono } from 'next/font/google';
 import { Wordmark } from '@/components/brand/Wordmark';
+import { InstallAppButton } from '@/components/pwa/InstallAppButton';
 
 // ─── Type-as-design ─────────────────────────────────────────────────────────
 // Fraunces: a variable serif with optical sizing — characterful at display
@@ -157,6 +158,7 @@ export default function LandingPage() {
             <a className="ab-link hidden sm:inline" href="#how">How it works</a>
             <a className="ab-link hidden sm:inline" href="#pricing">Pricing</a>
             <a className="ab-link hidden md:inline" href="#voices">Voices</a>
+            <InstallAppButton />
             <Link
               href="/login"
               className="ab-link num text-[12px] tracking-[0.14em] uppercase"

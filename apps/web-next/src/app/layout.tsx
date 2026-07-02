@@ -23,9 +23,23 @@ export const metadata: Metadata = {
   authors: [{ name: 'AgentBook' }],
   creator: 'AgentBook',
   icons: {
-    icon: '/icon.svg',
+    icon: [
+      { url: '/icon.svg', type: 'image/svg+xml' },
+      { url: '/favicon-32.png', sizes: '32x32', type: 'image/png' },
+      { url: '/icon-192.png', sizes: '192x192', type: 'image/png' },
+    ],
+    apple: '/apple-touch-icon.png',
   },
   manifest: '/manifest.json',
+  // iOS ignores the web manifest for "Add to Home Screen" polish — these
+  // meta tags are what actually control the standalone title and status
+  // bar once installed. Without appleWebApp.capable, Safari opens the
+  // installed icon in a regular browser tab instead of standalone mode.
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: 'black-translucent',
+    title: 'AgentBook',
+  },
   metadataBase: new URL(process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3001'),
   openGraph: {
     type: 'website',
