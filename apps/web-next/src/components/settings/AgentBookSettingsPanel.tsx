@@ -538,13 +538,14 @@ function ChatHistoryTab(): React.ReactElement {
 
 // ── Main panel ────────────────────────────────────────────────────────────────
 
-type SettingsTab = 'profile' | 'invoice' | 'chatbots' | 'history' | 'billing' | 'referrals';
+type SettingsTab = 'profile' | 'invoice' | 'chatbots' | 'history' | 'billing' | 'referrals' | 'notifications';
 
 const TABS: { key: SettingsTab; label: string }[] = [
   { key: 'profile',   label: 'Business Profile' },
   { key: 'invoice',   label: 'Invoice Defaults' },
   { key: 'billing',   label: 'Billing' },
   { key: 'referrals', label: 'Referrals' },
+  { key: 'notifications', label: 'Notifications' },
   { key: 'chatbots',  label: 'Chatbots' },
   { key: 'history',   label: 'Chat History' },
 ];
@@ -804,6 +805,115 @@ function ReferralsTab(): React.ReactElement {
   );
 }
 
+interface NotificationPreference {
+  category: string;
+  locked: boolean;
+  inAppEnabled: boolean;
+  emailEnabled: boolean;
+}
+
+const NOTIFICATION_CATEGORY_LABELS: Record<string, { label: string; description: string }> = {
+  feature: { label: 'New features', description: 'What just shipped and how to use it' },
+  reward: { label: 'Discounts & rewards', description: 'Promotions and special offers' },
+  referral_thanks: { label: 'Referral thank-yous', description: 'When someone you invited pays, and your reward' },
+  admin_broadcast: { label: 'Announcements', description: 'General updates from the AgentBook team' },
+  tax_deadline: { label: 'Tax deadlines', description: 'Upcoming filing dates — always on' },
+  invoice_due: { label: 'Invoice reminders', description: 'Your own invoices approaching their due date — always on' },
+  expense_review: { label: 'Expense review', description: "Expenses that need your attention — always on" },
+};
+
+function NotificationsPreferencesTab(): React.ReactElement {
+  const [prefs, setPrefs] = useState<NotificationPreference[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState<string | null>(null);
+  const [savingCategory, setSavingCategory] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetch('/api/v1/agentbook-core/notifications/preferences', { credentials: 'include' })
+      .then((r) => r.json())
+      .then((d) => { if (d.success) setPrefs(d.data.preferences); else setErr('Failed to load preferences'); })
+      .catch(() => setErr('Failed to load preferences'))
+      .finally(() => setLoading(false));
+  }, []);
+
+  const updatePref = async (category: string, field: 'inAppEnabled' | 'emailEnabled', value: boolean) => {
+    setSavingCategory(category);
+    const prev = prefs;
+    setPrefs((p) => p.map((pr) => (pr.category === category ? { ...pr, [field]: value } : pr)));
+    try {
+      const res = await fetch('/api/v1/agentbook-core/notifications/preferences', {
+        method: 'PUT',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ category, [field]: value }),
+      });
+      const data = await res.json();
+      if (!data.success) setPrefs(prev); // revert on failure
+    } catch {
+      setPrefs(prev);
+    } finally {
+      setSavingCategory(null);
+    }
+  };
+
+  if (loading) return <div className="py-8 text-center text-sm text-muted-foreground">Loading preferences…</div>;
+  if (err) return <div className="py-8 text-center text-sm text-destructive">{err}</div>;
+
+  return (
+    <div className="space-y-4">
+      <div>
+        <h3 className="text-sm font-semibold text-foreground mb-1">Notifications</h3>
+        <p className="text-sm text-muted-foreground">
+          Choose what you hear about, and how. Tax, invoice, and expense-review reminders can&apos;t be turned off — they&apos;re about your own money.
+        </p>
+      </div>
+
+      <div className="rounded-lg border border-border overflow-hidden">
+        <table className="w-full text-sm">
+          <thead className="bg-muted/50 text-xs text-muted-foreground">
+            <tr>
+              <th className="text-left px-3 py-2 font-medium">Category</th>
+              <th className="text-center px-3 py-2 font-medium w-24">In-app</th>
+              <th className="text-center px-3 py-2 font-medium w-24">Email</th>
+            </tr>
+          </thead>
+          <tbody>
+            {prefs.map((pref) => {
+              const meta = NOTIFICATION_CATEGORY_LABELS[pref.category] || { label: pref.category, description: '' };
+              return (
+                <tr key={pref.category} className="border-t border-border">
+                  <td className="px-3 py-3">
+                    <div className="font-medium text-foreground">{meta.label}</div>
+                    <div className="text-xs text-muted-foreground mt-0.5">{meta.description}</div>
+                  </td>
+                  <td className="px-3 py-3 text-center">
+                    <input
+                      type="checkbox"
+                      checked={pref.inAppEnabled}
+                      disabled={pref.locked || savingCategory === pref.category}
+                      onChange={(e) => updatePref(pref.category, 'inAppEnabled', e.target.checked)}
+                      className="h-4 w-4 accent-primary disabled:opacity-40"
+                    />
+                  </td>
+                  <td className="px-3 py-3 text-center">
+                    <input
+                      type="checkbox"
+                      checked={pref.emailEnabled}
+                      disabled={pref.locked || savingCategory === pref.category}
+                      onChange={(e) => updatePref(pref.category, 'emailEnabled', e.target.checked)}
+                      className="h-4 w-4 accent-primary disabled:opacity-40"
+                    />
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
 export function AgentBookSettingsPanel({ initialTab }: { initialTab?: string }): React.ReactElement {
   const [tab, setTab] = useState<SettingsTab>(isSettingsTab(initialTab) ? initialTab : 'profile');
   const [form, setForm] = useState<TenantConfig | null>(null);
@@ -1019,6 +1129,8 @@ export function AgentBookSettingsPanel({ initialTab }: { initialTab?: string }):
       {tab === 'billing' && <BillingTab />}
 
       {tab === 'referrals' && <ReferralsTab />}
+
+      {tab === 'notifications' && <NotificationsPreferencesTab />}
 
       {/* Save bar (profile + invoice tabs only) */}
       {(tab === 'profile' || tab === 'invoice') && (

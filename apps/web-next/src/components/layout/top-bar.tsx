@@ -1,9 +1,10 @@
 'use client';
 
 import { usePathname } from 'next/navigation';
-import { Bell, Menu } from 'lucide-react';
+import { Menu } from 'lucide-react';
 import { useShell } from '@/contexts/shell-context';
 import { useIsMobile } from '@/hooks/use-is-mobile';
+import { NotificationBell } from './notification-bell';
 
 /**
  * Derive a human-readable view title from the current pathname.
@@ -64,14 +65,7 @@ export function TopBar() {
 
         {/* Right side — contextual actions */}
         <div className="flex items-center gap-1">
-          {/* Notifications */}
-          <button
-            className="relative p-2 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors duration-100"
-            aria-label="Notifications"
-          >
-            <Bell size={16} />
-            <span className="absolute top-1.5 right-1.5 h-1.5 w-1.5 bg-primary rounded-full" />
-          </button>
+          <NotificationBell />
         </div>
       </div>
     </div>
