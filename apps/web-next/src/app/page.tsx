@@ -48,7 +48,7 @@ function Hairline({ className = '' }: { className?: string }) {
 function Marker({ n, label }: { n: string; label: string }) {
   return (
     <div className="flex items-baseline gap-3 text-[12px] tracking-[0.18em] uppercase text-[var(--muted)]">
-      <span className="font-[var(--font-num)] text-[var(--accent)] font-medium">{n}</span>
+      <span className="font-[var(--font-num)] text-[var(--accent-text)] font-medium">{n}</span>
       <span className="font-[var(--font-num)]">{label}</span>
     </div>
   );
@@ -71,8 +71,12 @@ export default function LandingPage() {
           ['--ink-soft' as string]: '#3a342c',
           ['--muted' as string]: '#7a7163',
           ['--rule' as string]: '#d6cdb6',
-          ['--accent' as string]: '#149578', // brand teal
-          ['--accent-soft' as string]: '#62cda2', // brand mint
+          ['--accent' as string]: '#149578', // brand teal — 3.75:1 on --paper, large-text/background use only
+          ['--accent-soft' as string]: '#62cda2', // brand mint — background/fill use only, fails AA as text
+          // QA-P5-007: small (~11-12px) uppercase labels using --accent
+          // directly failed WCAG AA (3.75:1, needs 4.5:1). Large headings
+          // and background/pill fills already clear AA and keep --accent.
+          ['--accent-text' as string]: '#0c6e57',
           ['--money' as string]: '#1d4d3a', // deep emerald
           background: 'var(--paper)',
           color: 'var(--ink)',
@@ -181,7 +185,7 @@ export default function LandingPage() {
                   <p>drove 24 miles to acme today, then $14 for parking</p>
                 </div>
                 <div className="flex gap-3">
-                  <span className="text-[var(--accent)] num text-[11px] pt-1 shrink-0 w-6">AB</span>
+                  <span className="text-[var(--accent-text)] num text-[11px] pt-1 shrink-0 w-6">AB</span>
                   <p>
                     Logged. <span className="num">24 mi</span> to Acme (client visit, billable),{' '}
                     <span className="num">$14.00</span> parking under Travel.{' '}
@@ -193,7 +197,7 @@ export default function LandingPage() {
                   <p>send the invoice to acme for last month</p>
                 </div>
                 <div className="flex gap-3">
-                  <span className="text-[var(--accent)] num text-[11px] pt-1 shrink-0 w-6">AB</span>
+                  <span className="text-[var(--accent-text)] num text-[11px] pt-1 shrink-0 w-6">AB</span>
                   <p>
                     Drafted INV-2026-042 — <span className="num">$4,840</span>, net-30. Want me to send
                     it now or hold for review?
@@ -357,7 +361,7 @@ export default function LandingPage() {
               },
             ].map((s) => (
               <div key={s.title} className="border-t border-[var(--ink)] pt-5">
-                <span className="num text-[12px] tracking-[0.18em] uppercase text-[var(--accent)]">
+                <span className="num text-[12px] tracking-[0.18em] uppercase text-[var(--accent-text)]">
                   {s.n}
                 </span>
                 <h3 className="mt-2 text-[26px] leading-tight" style={{ fontWeight: 500 }}>
@@ -429,7 +433,7 @@ export default function LandingPage() {
               key={f.n}
               className="col-span-12 md:col-span-6 lg:col-span-4 border-t border-[var(--ink)] pt-5"
             >
-              <span className="num text-[11.5px] text-[var(--accent)] tracking-[0.18em] uppercase">
+              <span className="num text-[11.5px] text-[var(--accent-text)] tracking-[0.18em] uppercase">
                 {f.n}
               </span>
               <h3 className="mt-2 text-[22px] leading-[1.18]" style={{ fontWeight: 500 }}>

@@ -71,6 +71,11 @@ export function InvoiceDetailPage(): JSX.Element {
   const [invoice, setInvoice] = useState<InvoiceDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
+  // Separate from `err` — that state gates whether the whole page renders
+  // (see the `if (err || !invoice)` guard below), so reusing it for an
+  // action failure on an already-loaded invoice would blow away the entire
+  // page instead of showing an inline message.
+  const [actionError, setActionError] = useState<string | null>(null);
   const [actionBusy, setActionBusy] = useState<string | null>(null);
   const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null);
   const [showPayModal, setShowPayModal] = useState(false);
@@ -91,41 +96,56 @@ export function InvoiceDetailPage(): JSX.Element {
 
   useEffect(() => { reload(); }, [reload]);
 
+  // QA-P5-003: these three handlers passed String(e) straight into the
+  // toast — a real user saw the raw "TypeError: Failed to fetch" exception
+  // text for 3.5s, then it vanished with no lasting trace. Now shows a
+  // human-readable message via the toast AND a persistent inline banner
+  // (actionError, rendered near the buttons below), so a user who reads it
+  // a moment late — or wants to act on it — still can.
   const doSend = async (): Promise<void> => {
-    setErr(null);
+    setActionError(null);
     setActionBusy('send');
     try {
       const r = await fetch(`/api/v1/agentbook-invoice/invoices/${id}/send`, { method: 'POST' });
       if (!r.ok) throw new Error(`${r.status}`);
       reload();
       showToast('Invoice marked as issued');
-    } catch (e: unknown) { showToast(String(e), 'error'); }
-    finally { setActionBusy(null); }
+    } catch {
+      const msg = "Couldn't send this invoice — check your connection and try again.";
+      showToast(msg, 'error');
+      setActionError(msg);
+    } finally { setActionBusy(null); }
   };
 
   const doVoid = async (): Promise<void> => {
     if (!window.confirm('Void this invoice? This will reverse the journal entry and cannot be undone.')) return;
-    setErr(null);
+    setActionError(null);
     setActionBusy('void');
     try {
       const r = await fetch(`/api/v1/agentbook-invoice/invoices/${id}/void`, { method: 'POST' });
       if (!r.ok) throw new Error(`${r.status}`);
       reload();
       showToast('Invoice voided');
-    } catch (e: unknown) { showToast(String(e), 'error'); }
-    finally { setActionBusy(null); }
+    } catch {
+      const msg = "Couldn't void this invoice — check your connection and try again.";
+      showToast(msg, 'error');
+      setActionError(msg);
+    } finally { setActionBusy(null); }
   };
 
   const doRemind = async (): Promise<void> => {
-    setErr(null);
+    setActionError(null);
     setActionBusy('remind');
     try {
       const r = await fetch(`/api/v1/agentbook-invoice/invoices/${id}/remind`, { method: 'POST' });
       if (!r.ok) throw new Error(`${r.status}`);
       reload();
       showToast('Reminder sent');
-    } catch (e: unknown) { showToast(String(e), 'error'); }
-    finally { setActionBusy(null); }
+    } catch {
+      const msg = "Couldn't send a reminder — check your connection and try again.";
+      showToast(msg, 'error');
+      setActionError(msg);
+    } finally { setActionBusy(null); }
   };
 
   const openPdf = (): void => {
@@ -264,8 +284,8 @@ export function InvoiceDetailPage(): JSX.Element {
         )}
       </div>
 
-      {err && (
-        <div className="rounded-lg border border-destructive/20 bg-destructive/10 p-3 text-sm text-destructive">{err}</div>
+      {actionError && (
+        <div className="rounded-lg border border-destructive/20 bg-destructive/10 p-3 text-sm text-destructive">{actionError}</div>
       )}
 
       {/* Summary totals */}
