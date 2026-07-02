@@ -496,7 +496,7 @@ export async function executeStep(
     // from. Default to an even split, remainder cents on the last row so the
     // sum matches exactly, rather than failing the whole step outright.
     if (step.action === 'split-expense' && Array.isArray(unusedParams.splits) && unusedParams.splits.length >= 2) {
-      const splits = unusedParams.splits as Array<{ amountCents?: number }>;
+      const splits = unusedParams.splits as Array<{ amountCents?: number; percent?: number }>;
       const hasRealAmounts = splits.some((s) => (s.amountCents || 0) > 0);
       if (!hasRealAmounts) {
         try {
@@ -507,10 +507,15 @@ export async function executeStep(
             const getJson = await getRes.json();
             const totalCents = getJson?.data?.amountCents;
             if (typeof totalCents === 'number' && totalCents > 0) {
-              const share = Math.floor(totalCents / splits.length);
+              const percentTotal = splits.reduce((sum, s) => sum + (s.percent || 0), 0);
+              const usePercent = Math.abs(percentTotal - 100) < 0.5;
+              const shares = usePercent
+                ? splits.map((s) => Math.round(totalCents * (s.percent || 0) / 100))
+                : splits.map(() => Math.floor(totalCents / splits.length));
+              const runningTotal = shares.slice(0, -1).reduce((a, b) => a + b, 0);
               unusedParams.splits = splits.map((s, i) => ({
                 ...s,
-                amountCents: i === splits.length - 1 ? totalCents - share * (splits.length - 1) : share,
+                amountCents: i === splits.length - 1 ? totalCents - runningTotal : shares[i],
               }));
             }
           }

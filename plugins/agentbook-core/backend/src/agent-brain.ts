@@ -427,8 +427,12 @@ function describeDestructiveAction(classification: any, fallbackText: string): s
       return `Issue a credit note${params.invoiceId ? ` against ${params.invoiceId}` : ''}`;
     case 'edit-expense':
       return `Edit expense ${params.expenseId || 'last'}`;
-    case 'split-expense':
-      return `Split expense ${params.expenseId || 'last'} ${params.businessPercent ? `(${params.businessPercent}% business)` : ''}`;
+    case 'split-expense': {
+      const categories = Array.isArray(params.splits)
+        ? params.splits.map((s: any) => s?.category).filter(Boolean)
+        : [];
+      return `Split expense ${params.expenseId || 'last'}${categories.length ? ` (${categories.join(' / ')})` : ''}`;
+    }
     case 'record-payment':
       return `Record payment${params.amountCents ? ` of $${(params.amountCents / 100).toFixed(2)}` : ''}${params.clientName ? ` from ${params.clientName}` : ''}`;
     default:
