@@ -19,6 +19,8 @@ import {
   Mail,
   Calendar,
   Search,
+  Bell,
+  Gift,
 } from 'lucide-react';
 import { Button, Input, Select, Badge } from '@naap/ui';
 import { useAuth } from '@/contexts/auth-context';
@@ -36,6 +38,10 @@ interface SystemUser {
   createdAt: string;
   lastLoginAt: string | null;
   _count?: { teamMemberships: number };
+  planName?: string | null;
+  invitesSent?: number;
+  invitesPaid?: number;
+  rewardMonthsEarned?: number;
 }
 
 export default function AdminUsersPage() {
@@ -209,6 +215,12 @@ export default function AdminUsersPage() {
               <th className="px-4 py-2.5 text-left text-[11px] font-medium text-muted-foreground uppercase tracking-wider">
                 Teams
               </th>
+              <th className="px-4 py-2.5 text-left text-[11px] font-medium text-muted-foreground uppercase tracking-wider">
+                Plan
+              </th>
+              <th className="px-4 py-2.5 text-left text-[11px] font-medium text-muted-foreground uppercase tracking-wider">
+                Referrals
+              </th>
               <th className="px-4 py-2.5 text-right text-[11px] font-medium text-muted-foreground uppercase tracking-wider">
                 Actions
               </th>
@@ -217,7 +229,7 @@ export default function AdminUsersPage() {
           <tbody className="divide-y divide-border">
             {filteredUsers.length === 0 ? (
               <tr>
-                <td colSpan={6} className="px-4 py-8 text-center text-muted-foreground">
+                <td colSpan={8} className="px-4 py-8 text-center text-muted-foreground">
                   <Users className="w-8 h-8 mx-auto mb-3 opacity-50" />
                   <p className="text-sm">No users found</p>
                 </td>
@@ -287,6 +299,26 @@ export default function AdminUsersPage() {
                   <td className="px-4 py-2.5 text-sm">
                     {user._count?.teamMemberships || 0}
                   </td>
+                  <td className="px-4 py-2.5 text-sm">
+                    {user.planName ? (
+                      <Badge variant="blue">{user.planName}</Badge>
+                    ) : (
+                      <span className="text-muted-foreground">—</span>
+                    )}
+                  </td>
+                  <td className="px-4 py-2.5 text-sm text-muted-foreground">
+                    {(user.invitesSent ?? 0) > 0 ? (
+                      <div className="flex items-center gap-1">
+                        <Gift className="w-3 h-3" />
+                        <span>{user.invitesPaid ?? 0}/{user.invitesSent} paid</span>
+                        {(user.rewardMonthsEarned ?? 0) > 0 && (
+                          <Badge variant="emerald">{user.rewardMonthsEarned}mo earned</Badge>
+                        )}
+                      </div>
+                    ) : (
+                      <span>—</span>
+                    )}
+                  </td>
                   <td className="px-4 py-2.5 text-right relative">
                     <div className="inline-flex items-center gap-2 justify-end">
                       {user.suspended && <Badge variant="rose">Suspended</Badge>}
@@ -301,6 +333,14 @@ export default function AdminUsersPage() {
                       <>
                         <div className="fixed inset-0 z-10" onClick={() => setOpenMenuId(null)} />
                         <div className="absolute right-4 z-20 mt-1 w-48 rounded-md border border-border bg-card shadow-lg py-1 text-left">
+                          <button
+                            type="button"
+                            onClick={() => router.push(`/admin/notifications?tenantId=${user.id}`)}
+                            className="w-full text-left px-3 py-2 text-sm hover:bg-muted flex items-center gap-2"
+                          >
+                            <Bell className="w-3.5 h-3.5" />
+                            Send notification
+                          </button>
                           {user.suspended ? (
                             <button
                               type="button"
