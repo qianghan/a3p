@@ -25,9 +25,9 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     const [expenseCount, invoiceCount, clientCount, vendorCount, revenueAccts, expenseAccts] =
       await Promise.all([
         db.abExpense.count({
-          where: { tenantId, date: { gte: yearStart, lte: yearEnd }, isPersonal: false },
+          where: { tenantId, date: { gte: yearStart, lte: yearEnd }, isPersonal: false, deletedAt: null },
         }),
-        db.abInvoice.count({ where: { tenantId, issuedDate: { gte: yearStart, lte: yearEnd } } }),
+        db.abInvoice.count({ where: { tenantId, issuedDate: { gte: yearStart, lte: yearEnd }, deletedAt: null } }),
         db.abClient.count({ where: { tenantId } }),
         db.abVendor.count({ where: { tenantId } }),
         db.abAccount.findMany({ where: { tenantId, accountType: 'revenue' }, select: { id: true } }),

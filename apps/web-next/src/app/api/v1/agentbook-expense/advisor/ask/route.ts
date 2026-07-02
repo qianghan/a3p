@@ -91,7 +91,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
     // Fetch expenses with vendor
     const expenses = await db.abExpense.findMany({
-      where: { tenantId, isPersonal: false, date: { gte: startDate, lte: endDate } },
+      where: { tenantId, isPersonal: false, deletedAt: null, date: { gte: startDate, lte: endDate } },
       include: { vendor: true },
       orderBy: { date: 'desc' },
     });
