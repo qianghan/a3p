@@ -5,6 +5,7 @@ import { prisma as db } from '@naap/database';
 import { autoCategorizeForTenant } from '@/lib/agentbook-auto-categorize';
 import { sendToAllChannels } from '@/lib/agentbook-chat-adapter';
 import { reportError } from '@/lib/logger';
+import { createNotification } from '@/lib/notifications';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -92,6 +93,22 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
             action: { uncategorized: uncategorized2, total: total2 },
           },
         });
+        try {
+          await createNotification({
+            category: 'expense_review',
+            severity: 'warning',
+            title: `${uncategorized2} expenses need review`,
+            body: "I couldn't auto-categorize these — take a look when you get a chance.",
+            ctaLabel: 'Review expenses',
+            ctaUrl: '/agentbook/expenses',
+            createdByType: 'system',
+            createdBy: 'auto-categorize-watchdog-cron',
+            audienceType: 'single',
+            audienceFilter: { tenantId },
+          });
+        } catch (err) {
+          reportError(`[auto-cat-watchdog] notification failed for tenant ${tenantId}`, err);
+        }
         results.push({ tenantId, action: 'nudged' });
       } else {
         results.push({ tenantId, action: 'nudge_skipped_cooldown' });

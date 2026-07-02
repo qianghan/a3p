@@ -14,10 +14,17 @@
  * /invoices/[id]/remind route's own docstring) — this only records the
  * reminder + bumps lastRemindedAt, same as that route does when a user
  * triggers a reminder manually.
+ *
+ * Also raises an in-app `invoice_due` notification for the invoice's OWN
+ * tenant (the freelancer who issued it) — distinct from the reminder above,
+ * which is addressed to the invoice's client and just isn't delivered yet.
+ * Covers invoices due within 3 days (heads-up) as well as already-overdue
+ * ones, on the same 3-day cooldown.
  */
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma as db } from '@naap/database';
 import { reportError } from '@/lib/logger';
+import { createNotification } from '@/lib/notifications';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -33,15 +40,16 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   try {
     const now = new Date();
     const cooldownCutoff = new Date(now.getTime() - REMINDER_COOLDOWN_DAYS * 24 * 60 * 60 * 1000);
+    const dueSoonCutoff = new Date(now.getTime() + REMINDER_COOLDOWN_DAYS * 24 * 60 * 60 * 1000);
 
     const overdue = await db.abInvoice.findMany({
       where: {
         status: { in: ['sent', 'viewed', 'overdue'] },
-        dueDate: { lt: now },
+        dueDate: { lte: dueSoonCutoff },
         deletedAt: null,
         OR: [{ lastRemindedAt: null }, { lastRemindedAt: { lt: cooldownCutoff } }],
       },
-      include: { payments: true },
+      include: { payments: true, client: { select: { name: true } } },
       take: 200,
     });
 
@@ -51,6 +59,8 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         const totalPaid = inv.payments.reduce((s, p) => s + p.amountCents, 0);
         const balance = inv.amountCents - totalPaid;
         const daysOverdue = Math.max(0, Math.floor((now.getTime() - inv.dueDate.getTime()) / 86_400_000));
+        const isOverdue = daysOverdue > 0;
+        const daysUntilDue = Math.max(0, Math.ceil((inv.dueDate.getTime() - now.getTime()) / 86_400_000));
         const tone = daysOverdue > 30 ? 'urgent' : daysOverdue > 14 ? 'firm' : 'gentle';
 
         await db.abInvoice.update({ where: { id: inv.id }, data: { lastRemindedAt: now } });
@@ -62,6 +72,27 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
             action: { invoiceId: inv.id, tone, daysOverdue, balance, delivered: false, note: 'email send deferred; lastRemindedAt + audit event recorded (cron)' },
           },
         });
+
+        const amount = `$${(balance / 100).toFixed(2)}`;
+        try {
+          await createNotification({
+            category: 'invoice_due',
+            severity: isOverdue ? (daysOverdue > 14 ? 'urgent' : 'warning') : 'info',
+            title: isOverdue
+              ? `Invoice ${inv.number} is ${daysOverdue} day${daysOverdue === 1 ? '' : 's'} overdue`
+              : `Invoice ${inv.number} is due in ${daysUntilDue} day${daysUntilDue === 1 ? '' : 's'}`,
+            body: `${amount} owed by ${inv.client?.name ?? 'client'}.`,
+            ctaLabel: 'View invoice',
+            ctaUrl: `/agentbook/invoices/${inv.id}`,
+            createdByType: 'system',
+            createdBy: 'payment-reminders-cron',
+            audienceType: 'single',
+            audienceFilter: { tenantId: inv.tenantId },
+          });
+        } catch (err) {
+          reportError(`[payment-reminders] notification failed for invoice ${inv.id}`, err);
+        }
+
         sent++;
       } catch (err) {
         reportError(`[payment-reminders] invoice ${inv.id}`, err);
