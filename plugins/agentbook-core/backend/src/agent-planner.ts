@@ -420,6 +420,31 @@ export async function executeStep(
     }
   }
 
+  // edit-expense/split-expense steps generated as a single-step plan (no
+  // separate "find the last expense" step ahead of them — the LLM doesn't
+  // always produce the 3-step shape) carry the literal string "last"/"that"
+  // as expenseId, which the target endpoint can't resolve to a real row.
+  // Mirrors the identical "resolve last expense" pre-processing server.ts's
+  // direct-execution path already has for these two skills — that logic
+  // only covers the non-planner path, so plans reaching here via the
+  // planner never got it.
+  if ((step.action === 'edit-expense' || step.action === 'split-expense')) {
+    const currentExpenseId = step.params?.expenseId;
+    if (!currentExpenseId || currentExpenseId === 'last' || currentExpenseId === 'that') {
+      try {
+        const res = await fetch(`${baseUrl}/api/v1/agentbook-expense/expenses?limit=1`, {
+          headers: { 'x-tenant-id': tenantId, ...(process.env.CRON_SECRET ? { Authorization: `Bearer ${process.env.CRON_SECRET}` } : {}) },
+        });
+        const data = await res.json() as any;
+        if (data?.data?.[0]?.id) {
+          step = { ...step, params: { ...step.params, expenseId: data.data[0].id } };
+        }
+      } catch (err) {
+        console.warn(`${step.action} last-expense resolution failed:`, err);
+      }
+    }
+  }
+
   const method = (endpoint.method ?? 'GET').toUpperCase();
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 30_000);
