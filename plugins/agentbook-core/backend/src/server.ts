@@ -4810,13 +4810,44 @@ Only include chartData if visualization adds value. Keep the answer under 200 wo
       if (s.profitThisMonthCents !== undefined) message += `\n**Profit: $${(s.profitThisMonthCents / 100).toFixed(2)}**`;
       if (s.outstandingInvoicesCents !== undefined) message += `\nOutstanding Invoices: $${(s.outstandingInvoicesCents / 100).toFixed(2)}`;
 
-    // Money moves / suggestions
-    } else if (data?.moves && Array.isArray(data.moves)) {
+    // Money moves / suggestions. The endpoint returns the array as `data`
+    // directly (not `{moves: [...]}`), so the `data?.moves` shape this
+    // branch checked for never matched — every call fell through to the
+    // raw-JSON catch-all below. Accept a bare array of move-shaped objects
+    // as well as the nested-moves shape.
+    } else if ((data?.moves && Array.isArray(data.moves)) || (Array.isArray(data) && data.length > 0 && data[0]?.urgency && data[0]?.title)) {
+      const moves = data.moves ?? data;
       message = '**Money Moves**\n';
-      for (const m of data.moves.slice(0, 8)) {
-        const icon = m.priority === 'high' ? '\u{1F534}' : m.priority === 'medium' ? '\u{1F7E1}' : '\u{1F7E2}';
-        message += `\n${icon} **${m.title}**\n  ${m.description}`;
+      for (const m of moves.slice(0, 8)) {
+        const icon = m.priority === 'high' || m.urgency === 'important' ? '\u{1F534}' : m.priority === 'medium' ? '\u{1F7E1}' : '\u{1F7E2}';
+        message += `\n${icon} **${m.title}**${m.description ? `\n  ${m.description}` : ''}`;
         if (m.savingsCents) message += ` (save $${(m.savingsCents / 100).toFixed(2)})`;
+      }
+
+    // Review queue — expenses needing manual attention (low confidence,
+    // pending, flagged). Was falling through to the raw-JSON catch-all for
+    // both the empty-queue and has-items cases.
+    } else if (selectedSkill.name === 'review-queue' && Array.isArray(data)) {
+      if (data.length === 0) {
+        message = "You're all caught up — nothing needs review right now.";
+      } else {
+        message = `**${data.length} expense${data.length === 1 ? '' : 's'} need${data.length === 1 ? 's' : ''} review**\n`;
+        for (const e of data.slice(0, 10)) {
+          message += `\n• ${fmtCurrency(e.amountCents, e.currency)} — ${e.vendorName || e.description || 'Expense'}${e.categoryName ? ` [${e.categoryName}]` : ' [uncategorized]'}`;
+        }
+        if (data.length > 10) message += `\n…and ${data.length - 10} more. Visit the Expenses page to review them.`;
+      }
+
+    // Recurring-expense pattern suggestions. Same raw-JSON-dump bug as
+    // review-queue above.
+    } else if (selectedSkill.name === 'manage-recurring' && Array.isArray(data)) {
+      if (data.length === 0) {
+        message = "No recurring patterns detected yet — I'll suggest one once I see a vendor charge you a similar amount a few times.";
+      } else {
+        message = `**${data.length} recurring pattern${data.length === 1 ? '' : 's'} detected**\n`;
+        for (const s of data.slice(0, 10)) {
+          message += `\n• ${s.vendorName} — ~$${((s.avgAmountCents || 0) / 100).toFixed(2)} ${s.frequency}`;
+        }
       }
 
     // Reconciliation summary
