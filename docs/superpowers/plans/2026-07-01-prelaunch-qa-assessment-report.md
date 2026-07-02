@@ -7,14 +7,14 @@
 
 ## 1. Launch verdict
 
-**Conditional go.** The two Critical, launch-blocking defects that existed when this pass started have been fixed and verified live:
+**Conditional go — updated 2026-07-02, see §8 for the full session-2 addendum.** The two Critical, launch-blocking defects that existed when this pass started have been fixed and verified live:
 
 1. **Every chat-driven write action was completely broken** (record-expense, split-expense, edit-expense, and by the same code path create-invoice/categorize-expenses) — the single most fundamental capability of an "AI bookkeeping assistant" had no working path via chat at all. **Fixed and verified end-to-end.**
 2. **The daily payment-reminders cron was unauthenticated and 500ing every single day**, silently never reminding anyone about an overdue invoice. **Fixed and verified.**
 
-One Critical defect remains open and unfixed: **Plaid bank-connect never completes** (QA-P2-001) — Plaid's own UI reports success but the account never persists. This is the highest-priority open item and should be resolved before general availability, though it does not block a limited/beta launch if bank-sync is not advertised as day-one-reliable, since a user can still enter expenses manually and via chat.
+One Critical defect remains open and unfixed: **Plaid bank-connect never completes** (QA-P2-001) — Plaid's own UI reports success but the account never persists. This is the highest-priority open item and should be resolved before general availability, though it does not block a limited/beta launch if bank-sync is not advertised as day-one-reliable, since a user can still enter expenses manually and via chat. **Tracked as an independent, separately-running background task — status not re-checked in the session-2 pass.**
 
-Everything else found is High/Medium/Low severity with either a workaround or a clear, cheap fix path — detailed below with an explicit fix-now vs. backlog decision for each.
+As of session 2 (2026-07-02): all 9 numbered High/Medium findings from the original backlog (§5) are now fixed and independently re-verified live, plus a deeper follow-on bug in split-expense (found via a genuine regression, not part of the original 9) is now fixed. One new Medium-severity bug was found during the session-2 closing audit (cashflow projection math — §8.4) and is not yet fixed. **Net: Plaid bank-connect (Critical, separately tracked) is the only remaining item standing between this and an unconditional go.**
 
 ---
 
@@ -68,26 +68,31 @@ Also landed earlier in this session, ahead of the QA pass: the referral program 
 
 ### High
 
-| Finding | Why not fixed now | Recommended next step |
-|---|---|---|
-| QA-P3-001 — Analytics: category-breakdown 503s (all other `reports/*` routes in the same plugin work); Top Vendors shows `$NaN` | Backend route-registration bug + separate frontend/backend payload-shape mismatch — two distinct root causes bundled in one page, needs backend code-level investigation | Dev triage `reports/category-breakdown`'s handler registration; align vendors payload shape with what the frontend expects |
-| QA-P3-002 — Reports page: all 4 report types fetch data successfully (200) but never render it — a silent no-op | Page-level rendering gap (fetch has nowhere to go) — real fix needs a decision on render surface (inline/modal/download) | Product + dev: decide the intended render surface, then wire it |
-| QA-P5-001 — Dashboard sidebar has **no mobile breakpoint at all** (confirmed via source: zero `matchMedia`/responsive classes across `sidebar.tsx`/`app-layout.tsx`/`shell-context.tsx`) | Real responsive-design work (off-canvas drawer + hamburger pattern), not a one-line fix; affects every `(dashboard)` route via one shared component | Should be prioritized before any mobile-web traffic push; the fix is centralized (one shared shell), so it will resolve every affected page at once |
-| QA-P3-005 (4 remaining sibling sites) — same missing `deletedAt` filter in `advisor/ask` (dead-code twin), `category-summary`, `agentbook-tax/reports/annual-summary`, and `query-finance` | Fixed the highest-traffic site (`query-expenses`) this session; the other 4 share the identical one-line fix but weren't independently verified against live data in this pass | Apply the same `deletedAt: null` fix to the other 4 sites; low risk, high confidence, same pattern already proven twice (PR #176, PR #179) |
-| F4-03 / QA-P3-006 — "send an invoice to Acme for $500" misroutes to record-expense's generic failure message instead of invoice creation | `record-expense`'s `excludePatterns: ['^invoice\s', ...]` only anchors at the message *start*; widening it risks new false-negatives elsewhere in routing and needs its own regression pass, not a same-session drive-by | Fix the exclude pattern (e.g. `\binvoice\b` combined with send/create verbs) and add a regression test covering both phrasings before shipping |
+All High-severity items below were **fixed and independently re-verified live in session 2** — see §8.1 for the fix/PR mapping. Kept here (struck through in spirit, not literally) as a record of what was originally found.
+
+| Finding | Status |
+|---|---|
+| QA-P3-001 — Analytics: category-breakdown 503s; Top Vendors shows `$NaN` | **Fixed — PR #183** |
+| QA-P3-002 — Reports page: all 4 report types fetch data successfully but never render it | **Fixed — PR #183** |
+| QA-P5-001 — Dashboard sidebar has no mobile breakpoint | **Fixed — PR #185** |
+| QA-P3-005 (4 remaining sibling sites) — missing `deletedAt` filter | **Fixed — PR #182** |
+| F4-03 / QA-P3-006 — invoice misroutes to record-expense's generic failure | **Fixed — PR #182** |
 
 ### Medium
 
-| Finding | Notes |
+All Medium-severity items below were **fixed and independently re-verified live in session 2**, except QA-P2-002 (product decision, not a bug) and F6-1/F6-2 (fixed as an access-control gate, not a rewrite/removal decision).
+
+| Finding | Status |
 |---|---|
-| QA-P3-003 — Cashflow page shows `$NaN` for current balance (backend value is correct; pure frontend field-mismatch) | Workaround exists (Tax Dashboard's own net-income figure shows the real number) |
-| QA-P5-002 — Add-expense form fails completely silently on network error (console-only, no user feedback) | |
-| QA-P5-003 — Invoice-send failure shows the raw `TypeError: Failed to fetch` string as a toast, fading in 3.5s; same pattern in `doVoid()` and the remind handler | Confirmed systemic within one file — fix should cover all 3 call sites together |
-| QA-P5-004 — A failed dashboard data fetch renders identically to the legitimate "no sessions yet" empty state | |
-| QA-P5-007 — Brand teal gradient color (`#62cda2`) fails WCAG AA contrast outright on white (1.95:1); primary teal (`#149578`) is large-text-only pass (3.75:1) | Formula-based estimate per plan scope — needs a follow-up grep-for-usage pass to convert to confirmed on-screen violations before treating as a hard blocker |
-| QA-P2-002 — a second, working mobile-oriented PWA shell (`/app/*`) exists, is not dead code, but isn't linked from anywhere in the main app | Product decision (discoverability), not a bug |
-| F4-04/F4-05/F4-06 — assorted Medium-severity chatbot phrasing/routing gaps from Phase 4 | Lower priority than the Critical/High items above; revisit after F4-03 |
-| F6-1/F6-2 — an orphaned `agentbook-billing` plugin has UI surfaces and at least one unhandled 500 | Needs a product decision on whether this plugin ships at all before deciding whether to fix or remove |
+| QA-P3-003 — Cashflow page shows `$NaN` | **Fixed — PR #183** |
+| QA-P5-002 — Add-expense form fails silently on network error | **Fixed — PR #186** |
+| QA-P5-003 — Invoice-send failure shows raw `TypeError` string | **Fixed — PR #186** |
+| QA-P5-004 — Failed dashboard fetch renders identically to empty state | **Fixed — PR #186** |
+| QA-P5-007 — Brand teal contrast fails WCAG AA | **Fixed — PR #186** |
+| QA-P2-002 — second PWA shell (`/app/*`) not linked from main app | Still open — product decision (discoverability), not a bug |
+| F4-04/F4-05/F4-06 — chatbot phrasing/routing gaps, raw-JSON-dump responses | **Fixed — PR #184** (money-moves, review-queue, manage-recurring formatters) |
+| F6-1/F6-2 — orphaned `agentbook-billing` plugin, no admin gate + unhandled 500 | **Fixed — PR #184** (admin role gate added, load-error handling added; the underlying "should this plugin ship" product question is still open) |
+| **NEW** — Cashflow projection (`/agentbook/cashflow`, `/cashflow/projection` endpoint) returns identical figures for the 30/60/90-day windows | **Found in session-2 closing audit, not fixed.** Root cause confirmed at the API level: the backend sums *all* outstanding invoices regardless of due date into every window, and `recurringExpenses` is empty for all three. Not a `$NaN`/crash — the page renders a real balance and 3 populated cards, so it passes the original QA-P3-003 pass criteria, but the numbers are methodologically wrong. Needs the projection query to actually bucket by `dueDate` and wire in recurring-expense forecasting. |
 
 ### Low
 
@@ -117,3 +122,69 @@ Also landed earlier in this session, ahead of the QA pass: the referral program 
 - Two independent code-reading theories about F4-01's root cause disagreed with each other; the resolution came from empirical live probing (comparing a direct authenticated call against the same call made internally), not more code reading. Worth defaulting to this approach sooner when static analysis of async/service-to-service code paths stalls.
 - The error-message builder that hid F4-01's real cause behind "please try again" for months is now fixed to surface the caught exception's message — this should make the next infrastructure-level failure in this code path immediately diagnosable instead of requiring another multi-hour investigation.
 - `deletedAt`-filter omissions have now recurred in 6 separate query sites across two PRs (#176, #179) — worth a dedicated sweep of every `db.abExpense.findMany`/`findFirst` call site in one pass rather than fixing them one QA-finding at a time.
+
+---
+
+## 8. Session 2 addendum (2026-07-02)
+
+Continuation of the QA-fix sprint: closed all remaining Medium+ findings from §5, shipped the 4-PR admin notifications feature, and ran an independent closing audit rather than trusting the fixing session's own verification.
+
+### 8.1 QA-fix sprint — all 9 items closed
+
+| # | Finding | Fix | PR |
+|---|---|---|---|
+| 1 | `deletedAt` sweep — 4 remaining sibling sites (`advisor/ask`, `category-summary` ×3 sites, `agentbook-tax/reports/annual-summary`, `query-finance`) | Added `deletedAt: null` to each where-clause | [#182](https://github.com/qianghan/a3p/pull/182) |
+| 2 | F4-03 — invoice misrouted to record-expense | Widened `record-expense`'s `excludePatterns` to match invoice-creation intent anywhere in the message, not just at the start | [#182](https://github.com/qianghan/a3p/pull/182) |
+| 3 | QA-P3-001 — Analytics 503 + Top Vendors `$NaN` | The `category-breakdown`/`spending-trend` routes never existed as native Next.js handlers — requests silently fell through to a dead pre-Next.js proxy. Built both routes; added merged vendor totals | [#183](https://github.com/qianghan/a3p/pull/183) |
+| 4 | QA-P3-002 — Reports page fetches but never renders | Frontend was storing the raw API envelope directly instead of transforming it into the shape the render logic expected; added `transformReport()` per report type | [#183](https://github.com/qianghan/a3p/pull/183) |
+| 5 | QA-P3-003 — Cashflow `$NaN` | Frontend expected a flat dollar-denominated shape; API returns a nested cents-denominated shape. Added the transform | [#183](https://github.com/qianghan/a3p/pull/183) |
+| 6 | QA-P5-001 — no mobile breakpoint on the dashboard shell | Added `useIsMobile()`, an off-canvas drawer + hamburger + backdrop, auto-close on navigation | [#185](https://github.com/qianghan/a3p/pull/185) |
+| 7 | QA-P5-002/003/004 — silent/raw-error failure states | Added visible error banners (add-expense), a separate `actionError` state that doesn't blank the whole invoice-detail page, and a distinct "couldn't load" state for the chat sessions panel | [#186](https://github.com/qianghan/a3p/pull/186) |
+| 8 | QA-P5-007 — brand teal contrast fails WCAG AA | Added a `--accent-text` token (`#0c6e57`, ~6.4:1) for small text; left large headings on the original accent (already AA-compliant at that size) | [#186](https://github.com/qianghan/a3p/pull/186) |
+| 9 | F4-04/F4-05/F4-06, F6-1/F6-2 | Response formatter gained branches for money-moves, review-queue, manage-recurring (were dumping raw JSON); `agentbook-billing`'s admin UI had zero client-side role gate — added one; a stuck-forever "Loading…" modal on a 403 now shows an error state | [#184](https://github.com/qianghan/a3p/pull/184) |
+
+Also found and fixed along the way (not originally numbered, same bug class as #1): the `/api/v1/admin/seed-skills` endpoint never persisted `requirePatterns`/`excludePatterns`/`confirmBefore`/`postActions` on update — meaning fix #2 above had *zero effect* on live routing no matter how many times the endpoint was called, until this was also fixed (PR #182).
+
+### 8.2 Independent closing audit — 11/12 PASS, 1 regression found and fixed
+
+Two audits were run with the fixing session deliberately excluded from grading its own work: exact repro steps and exact expected values were specified up front, then a fresh agent executed them live against production.
+
+**Result: 11 of 12 checks passed.** The one failure — replying "yes" to a split-expense plan sometimes produced an LLM-generated clarifying question instead of executing — led to §8.3 below.
+
+### 8.3 The F4-02 split-expense saga — three PRs to fully close
+
+The regression above was traced through three layers, each shipped as its own PR once verified live:
+
+1. **PR #188** — narrow fix: a single-step plan sometimes carries `expenseId: "last"`/`"that"` literally, which the endpoint can't resolve. Added the same "resolve last expense" pre-processing the direct-execution path already had. **Documented as incomplete** in its own PR body: the skill's declared parameter schema (`{expenseId, businessPercent}`) still didn't match its endpoint's real contract (`splits: [{category, amountCents, isPersonal}]`), and neither LLM prompt in the pipeline (classification or planning) even sees the parameters object — only `description` — so the LLM had no accurate signal regardless of the expenseId fix.
+
+2. **PR #190** — the real schema fix, plus a second root cause found while re-verifying live: **Stage-1/2 classification (memory shortcuts, manifest trigger-pattern match) selects `split-expense` without ever calling an LLM at all**, so messages like "split my last expense between Meals and Travel" reached execution with empty params no matter how good the description was. Fixed by (a) rewriting the description to describe the real contract, (b) adding direct-text extraction (categories + optional percent) as a fallback in the execution pre-processing step, covering whichever stage selected the skill, (c) resolving category names to real `categoryId`s against the tenant's chart of accounts, (d) honoring an explicit percentage when given (was previously always forcing an even split, silently ignoring e.g. "30% personal"), mirrored into the planner's identical even-split-default step, and (e) adding a response formatter (was dumping raw JSON, same bug class as #9 above).
+
+3. **PR #191** — found during this PR's own launch-verification pass: the new formatter labeled every split row "(business)"/"(personal)" from `isPersonal` alone, so a *category* split ("between Meals and Travel") looked identical to a plain business split in the chat reply, even though the underlying `categoryId` was correctly stored. Fixed to show resolved category names when more than one distinct category is present in the split.
+
+**Verified live, all three scenarios:** category split (Meals/Travel, correctly labeled), even business/personal split, and an explicit 30%/70% business/personal split — all execute correctly with accurate natural-language confirmations.
+
+### 8.4 Admin notifications — 4-PR feature, 3 merged, 1 pending
+
+| PR | Scope | Status |
+|---|---|---|
+| #180 | Data model (`AbNotification`/`AbNotificationRecipient`/`AbNotificationPreference`), `createNotification()`/`dispatchNotification()` core, referral-thank-you trigger | Merged |
+| #181 | Admin composer + log page, segment targeting/preview, scheduled-send cron, enhanced `/admin/users` | Merged |
+| #187 | User-facing bell (top bar, polls every 30s), full `/notifications` inbox page, Settings → Notifications preferences tab | Merged |
+| PR-4 (branch `feat/notifications-pr4-date-triggers`) | Date-driven triggers: `tax_deadline` (calendar-check cron), `invoice_due` (payment-reminders cron), `expense_review` (auto-categorize-watchdog cron) | **Deployed to production, not yet merged** — awaiting confirmation from the cron's own next natural scheduled run before merge, since manually invoking these crons was correctly blocked (bulk writes across every tenant, no scoping/consent for that specific action) |
+
+**A genuinely pre-existing bug was found and fixed while building PR-4**: the `calendar-check` cron (hourly) referenced `AbCalendarEvent` fields (`alertSent`, `title`) that have never existed in the schema (it's always been `status`/`titleKey`), and treated the schema's `leadTimeDays: Int[]` as a scalar. This meant the cron has thrown a `PrismaClientValidationError` on every single run since it was written — silently, forever, never firing a single deadline alert. Also found: nothing in the codebase ever populated `AbCalendarEvent` at all — the jurisdiction packages' deadline tables (`@agentbook/jurisdictions`) were pure data, never consumed by the web app. PR-4 fixes the field mismatches and adds per-tenant seeding from the jurisdiction packs, so this is now a real, working feature rather than a decade-old silent no-op.
+
+### 8.5 Independent verification results (this addendum)
+
+Two fresh audits, run after all of the above shipped, explicitly re-checking for regressions rather than re-confirming the fixing work:
+
+**Regression sweep — 7 PASS, 1 could-not-verify (tooling limit, not a defect), 1 new bug found:**
+- PASS: invoice routing (F4-03), `deletedAt` sweep (Trial Balance differences to $0.00), Analytics/Reports/Cashflow (no 503, no `$NaN`), mobile sidebar (no horizontal overflow, drawer opens/closes correctly), billing admin gate (Maya sees the UI, Alex sees a permission message), chatbot response formatting, notification bell + inbox.
+- Could not verify: error-state UX on a forced network failure — the audit tooling had no request-interception capability; structural evidence (validation gates, correct button states) looked fine, but the actual toast/banner-on-failure path wasn't exercised.
+- **New finding**: the cashflow projection endpoint returns identical figures for all three time windows (see §5 Medium table) — a real methodology bug, not launch-blocking on its own since it still renders correctly.
+
+**Split-expense + notifications spot-check:** confirmed the percent-based and even-split cases compute correctly; caught the category-label display gap that became PR #191; confirmed the notification preferences endpoint correctly locks the 3 compliance categories (`tax_deadline`/`invoice_due`/`expense_review`) against being disabled.
+
+### 8.6 Updated launch verdict
+
+Unchanged from the original Critical blocker: **Plaid bank-connect (QA-P2-001)** is the only item standing between this and an unconditional go, and it's being tracked as an independent background task outside this QA pass's scope. Every other Medium+ finding from the original assessment is now fixed and independently verified live. One new Medium finding (cashflow projection math) is open but non-blocking. Recommend: ship with bank-sync not advertised as day-one-reliable, prioritize the Plaid fix immediately post-launch, and schedule the cashflow-projection fix as a fast-follow.
