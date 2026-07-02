@@ -21,6 +21,7 @@ export const NewExpensePage: React.FC = () => {
   const [isPersonal, setIsPersonal] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [success, setSuccess] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
 
   // Receipt OCR state (G-031 — closes the "non-functional theater" finding).
   const [receiptStatus, setReceiptStatus] = useState<
@@ -127,6 +128,7 @@ export const NewExpensePage: React.FC = () => {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setSubmitting(true);
+    setSubmitError(null);
     try {
       const body: Record<string, unknown> = {
         amountCents: Math.round(parseFloat(amount) * 100),
@@ -150,9 +152,15 @@ export const NewExpensePage: React.FC = () => {
         setAmount(''); setVendor(''); setDescription('');
         setReceiptStatus({ kind: 'idle' });
         setTimeout(() => setSuccess(false), 3000);
+      } else {
+        // QA-P5-002: this branch didn't exist — a well-formed error response
+        // (e.g. a validation failure) was as silent as a thrown network
+        // exception. The form just sat there with no feedback either way.
+        setSubmitError(typeof data.error === 'string' ? data.error : 'Could not save this expense. Please try again.');
       }
     } catch (err) {
       console.error(err);
+      setSubmitError('Could not save this expense — check your connection and try again.');
     } finally {
       setSubmitting(false);
     }
@@ -167,6 +175,12 @@ export const NewExpensePage: React.FC = () => {
 
       {success && (
         <div className="bg-green-500/10 text-green-500 p-4 rounded-lg mb-6">Expense recorded successfully!</div>
+      )}
+      {submitError && (
+        <div className="bg-destructive/10 text-destructive p-4 rounded-lg mb-6 flex items-center gap-2">
+          <AlertCircle className="w-4 h-4 shrink-0" />
+          {submitError}
+        </div>
       )}
 
       {/* Receipt Upload Zone — wired for real (G-031) */}

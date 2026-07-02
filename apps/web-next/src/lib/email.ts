@@ -60,6 +60,10 @@ function escapeHtml(str: string): string {
  * Shared branded email scaffold — teal AgentBook header, single CTA, footer.
  * Keeps every transactional email visually consistent and on-brand. All
  * dynamic HTML passed in (`intro`, `extraHtml`) must already be escaped/trusted.
+ *
+ * QA-P5-007: link text uses #0c6e57 (the darker end of the header gradient),
+ * not the brand's primary #149578 — #149578 is only 3.75:1 against white,
+ * failing WCAG AA for normal-size text. #0c6e57 clears ~6.4:1.
  */
 function buildBrandedEmail(params: {
   title: string;
@@ -101,11 +105,11 @@ function buildBrandedEmail(params: {
           </tr></table>
           <p style="margin:26px 0 0;font-size:13px;color:#6b7280;">${footnote}</p>
           <p style="margin:14px 0 0;font-size:12px;color:#9ca3af;">If the button doesn't work, copy and paste this link into your browser:<br>
-            <a href="${ctaUrl}" style="color:#149578;word-break:break-all;">${ctaUrl}</a></p>
+            <a href="${ctaUrl}" style="color:#0c6e57;word-break:break-all;">${ctaUrl}</a></p>
         </td></tr>
         <!-- Footer -->
         <tr><td style="padding:22px 40px;background:#f9fafb;border-top:1px solid #eef0f2;text-align:center;">
-          <p style="margin:0 0 4px;font-size:12px;color:#6b7280;"><a href="${APP_URL}" style="color:#149578;text-decoration:none;font-weight:600;">AgentBook</a> &middot; AI bookkeeping for freelancers &amp; small business</p>
+          <p style="margin:0 0 4px;font-size:12px;color:#6b7280;"><a href="${APP_URL}" style="color:#0c6e57;text-decoration:none;font-weight:600;">AgentBook</a> &middot; AI bookkeeping for freelancers &amp; small business</p>
           <p style="margin:0;font-size:11px;color:#b0b7c0;"><a href="${APP_URL}/docs" style="color:#9ca3af;text-decoration:none;">Help center</a></p>
         </td></tr>
       </table>
@@ -306,10 +310,10 @@ export async function sendCpaInviteEmail(
         </tr></table>
         <p style="margin:24px 0 0;font-size:14px;color:#6b7280;">This invitation link will expire. If you weren't expecting it, you can ignore this email.</p>
         <p style="margin:16px 0 0;font-size:13px;color:#9ca3af;">If the button doesn't work, copy and paste this link:<br>
-          <a href="${inviteUrl}" style="color:#149578;word-break:break-all;">${inviteUrl}</a></p>
+          <a href="${inviteUrl}" style="color:#0c6e57;word-break:break-all;">${inviteUrl}</a></p>
       </td></tr>
       <tr><td style="padding:24px 40px;background:#f9fafb;border-top:1px solid #e5e7eb;text-align:center;">
-        <p style="margin:0;font-size:12px;color:#9ca3af;"><a href="${APP_URL}" style="color:#149578;text-decoration:none;">AgentBook</a></p>
+        <p style="margin:0;font-size:12px;color:#9ca3af;"><a href="${APP_URL}" style="color:#0c6e57;text-decoration:none;">AgentBook</a></p>
       </td></tr>
     </table>
   </td></tr></table>
