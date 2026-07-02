@@ -98,9 +98,18 @@ export const BUILT_IN_SKILLS = [
     confirmBefore: true,
   },
   {
-    name: 'split-expense', description: 'Split an expense into business and personal portions', category: 'bookkeeping',
+    // Description doubles as the LLM's only guide for both intent
+    // classification and plan generation (neither prompt sees the
+    // `parameters` schema below) — it must describe the endpoint's real
+    // contract (an array of category/amount rows) or the LLM has nothing
+    // accurate to extract from and reverts to inventing a shape like
+    // { businessPercent: 50 } that the endpoint has never accepted.
+    name: 'split-expense', description: "Split an expense into two or more parts — either across different categories (e.g. half Meals, half Travel) or between business and personal use, optionally by an explicit percentage (e.g. \"30% personal\"). Requires a splits array of { category, amountCents, isPersonal } entries whose amounts add up exactly to the expense's total; omit category on a part to keep the expense's existing category. If the user gives a percentage, compute amountCents from it; if they give categories but no ratio, split the total evenly.", category: 'bookkeeping',
     triggerPatterns: ['split.*expense', 'part.*business.*personal', 'half.*personal'],
-    parameters: { expenseId: { type: 'string', required: false }, businessPercent: { type: 'number', required: false, default: 50 } },
+    parameters: {
+      expenseId: { type: 'string', required: false, extractHint: 'expense ID or "last"' },
+      splits: { type: 'array', required: true, extractHint: 'at least 2 entries of { category, amountCents, isPersonal }, summing to the expense total' },
+    },
     endpoint: { method: 'POST', url: '/api/v1/agentbook-expense/expenses/:id/split' },
     confirmBefore: true,
   },

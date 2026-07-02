@@ -3325,14 +3325,83 @@ async function _executeClassificationCore(
     } catch (err) { console.warn('Edit-expense resolution error:', err); }
   }
 
-  // Pre-processing: split-expense — resolve expense ID
+  // Pre-processing: split-expense — resolve expense ID, backfill split amounts
   if (selectedSkill.name === 'split-expense') {
     try {
+      const expenseBase = baseUrls['/api/v1/agentbook-expense'] || 'http://localhost:4051';
       if (!extractedParams.expenseId || extractedParams.expenseId === 'last') {
-        const expenseBase = baseUrls['/api/v1/agentbook-expense'] || 'http://localhost:4051';
         const res = await fetch(`${expenseBase}/api/v1/agentbook-expense/expenses?limit=1`, { headers: brainHeaders(tenantId) });
         const data = await res.json() as any;
         if (data.data?.[0]) extractedParams.expenseId = data.data[0].id;
+      }
+
+      // Stage-1/2 classification (memory shortcuts, manifest trigger-pattern
+      // match) never calls an LLM at all — it only recognizes THAT this is a
+      // split-expense request, not what to split it into. So a message like
+      // "split my last expense between Meals and Travel" reaches here with
+      // extractedParams still `{}`: no categories, no amounts. Only Stage-3
+      // classification (skipped whenever an earlier stage already matched)
+      // or the planner would have called an LLM to read the categories out
+      // of the text. Backfill that gap here so it's covered regardless of
+      // which stage selected this skill.
+      if (!Array.isArray(extractedParams.splits) || extractedParams.splits.length < 2) {
+        try {
+          const raw = await callGemini(
+            'Extract how a user wants to split an expense into two or more parts. ' +
+            'Respond as JSON only: an array of { "category": string|null, "isPersonal": boolean, "percent": number|null }, one per part, in the order mentioned. ' +
+            'Use null for category when the user means a business/personal split rather than named categories. ' +
+            'Only set percent when the user gave an explicit ratio/percentage (e.g. "30% personal") — leave it null for an unweighted split ("between Meals and Travel"), and percentages must add up to 100. ' +
+            'If nothing about the split is specified beyond "split it", respond with [].',
+            text,
+            200,
+          );
+          if (raw) {
+            const cleaned = raw.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+            const parts = JSON.parse(cleaned);
+            if (Array.isArray(parts) && parts.length >= 2) {
+              // The endpoint takes a real categoryId, not a free-text name —
+              // resolve each named category against the tenant's chart of
+              // accounts; unmatched/unnamed parts fall back to the expense's
+              // own category (the endpoint already defaults categoryId when
+              // omitted).
+              const namedCount = parts.filter((p: any) => p?.category).length;
+              const categories = namedCount > 0
+                ? await db.abAccount.findMany({ where: { tenantId, accountType: 'expense' }, select: { id: true, name: true } })
+                : [];
+              extractedParams.splits = parts.map((p: any) => {
+                const match = p?.category
+                  ? categories.find((c) => c.name.toLowerCase().includes(String(p.category).toLowerCase()) || String(p.category).toLowerCase().includes(c.name.toLowerCase()))
+                  : undefined;
+                return { categoryId: match?.id, isPersonal: Boolean(p?.isPersonal), percent: typeof p?.percent === 'number' ? p.percent : undefined };
+              });
+            }
+          }
+        } catch (err) { console.warn('Split-expense category extraction error:', err); }
+      }
+
+      // The LLM classifier only sees the skill's description, not this
+      // endpoint's exact contract — it commonly names the split categories
+      // ("half Meals, half Travel") without amounts. Mirrors the identical
+      // even-split backfill agent-planner.ts already does for the planner
+      // path; that logic only covers plans, so a single-turn split routed
+      // through this direct-execution path never got it.
+      const splits = Array.isArray(extractedParams.splits) ? extractedParams.splits as Array<{ amountCents?: number; percent?: number }> : null;
+      if (splits && splits.length >= 2 && !splits.some((s) => (s.amountCents || 0) > 0) && extractedParams.expenseId) {
+        const getRes = await fetch(`${expenseBase}/api/v1/agentbook-expense/expenses/${extractedParams.expenseId}`, { headers: brainHeaders(tenantId) });
+        const getJson = await getRes.json() as any;
+        const totalCents = getJson?.data?.amountCents;
+        if (typeof totalCents === 'number' && totalCents > 0) {
+          const percentTotal = splits.reduce((sum, s) => sum + (s.percent || 0), 0);
+          const usePercent = Math.abs(percentTotal - 100) < 0.5;
+          const shares = usePercent
+            ? splits.map((s) => Math.round(totalCents * (s.percent || 0) / 100))
+            : splits.map(() => Math.floor(totalCents / splits.length));
+          const runningTotal = shares.slice(0, -1).reduce((a, b) => a + b, 0);
+          extractedParams.splits = splits.map((s, i) => ({
+            ...s,
+            amountCents: i === splits.length - 1 ? totalCents - runningTotal : shares[i],
+          }));
+        }
       }
     } catch (err) { console.warn('Split-expense resolution error:', err); }
   }
@@ -4836,6 +4905,15 @@ Only include chartData if visualization adds value. Keep the answer under 200 wo
           message += `\n• ${fmtCurrency(e.amountCents, e.currency)} — ${e.vendorName || e.description || 'Expense'}${e.categoryName ? ` [${e.categoryName}]` : ' [uncategorized]'}`;
         }
         if (data.length > 10) message += `\n…and ${data.length - 10} more. Visit the Expenses page to review them.`;
+      }
+
+    // Split-expense result — {expenseId, splits: [...]}. Same raw-JSON-dump
+    // bug as review-queue/manage-recurring above.
+    } else if (selectedSkill.name === 'split-expense' && Array.isArray(data?.splits)) {
+      const parts = data.splits as Array<{ amountCents: number; isPersonal: boolean; categoryId?: string }>;
+      message = `**Expense split into ${parts.length} parts**\n`;
+      for (const p of parts) {
+        message += `\n• $${(p.amountCents / 100).toFixed(2)}${p.isPersonal ? ' (personal)' : ' (business)'}`;
       }
 
     // Recurring-expense pattern suggestions. Same raw-JSON-dump bug as
