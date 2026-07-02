@@ -4911,9 +4911,21 @@ Only include chartData if visualization adds value. Keep the answer under 200 wo
     // bug as review-queue/manage-recurring above.
     } else if (selectedSkill.name === 'split-expense' && Array.isArray(data?.splits)) {
       const parts = data.splits as Array<{ amountCents: number; isPersonal: boolean; categoryId?: string }>;
+      const categoryIds = [...new Set(parts.map((p) => p.categoryId).filter(Boolean))] as string[];
+      // Every part landed on the SAME categoryId (the expense's own, per the
+      // endpoint's default) whenever the user didn't name distinct
+      // categories — showing that one name on every row would look like a
+      // category split that didn't happen, so only label rows once there's
+      // more than one distinct category among them.
+      const categoryNames = categoryIds.length > 1
+        ? new Map((await db.abAccount.findMany({ where: { id: { in: categoryIds }, tenantId }, select: { id: true, name: true } })).map((c) => [c.id, c.name]))
+        : new Map<string, string>();
       message = `**Expense split into ${parts.length} parts**\n`;
       for (const p of parts) {
-        message += `\n• $${(p.amountCents / 100).toFixed(2)}${p.isPersonal ? ' (personal)' : ' (business)'}`;
+        const label = p.categoryId && categoryNames.has(p.categoryId)
+          ? categoryNames.get(p.categoryId)
+          : p.isPersonal ? 'personal' : 'business';
+        message += `\n• $${(p.amountCents / 100).toFixed(2)} (${label})`;
       }
 
     // Recurring-expense pattern suggestions. Same raw-JSON-dump bug as
