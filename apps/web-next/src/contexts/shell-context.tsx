@@ -381,6 +381,14 @@ export interface ShellContext {
 export interface ShellContextValue extends ShellContext {
   isSidebarOpen: boolean;
   toggleSidebar: () => void;
+  // QA-P5-001: mobile drawer state, separate from isSidebarOpen (which means
+  // "expanded vs. collapsed rail" on desktop — a different concept from
+  // "overlay shown vs. hidden" on mobile). Deliberately not persisted to
+  // localStorage — the drawer should always start closed on a fresh mobile
+  // page load, regardless of the desktop sidebar preference.
+  isMobileMenuOpen: boolean;
+  toggleMobileMenu: () => void;
+  closeMobileMenu: () => void;
   isDark: boolean;
   toggleTheme: () => void;
 }
@@ -905,6 +913,9 @@ export function ShellProvider({ children }: { children: ReactNode }) {
     return stored !== 'false';
   });
 
+  // Mobile drawer state (QA-P5-001) — always starts closed, never persisted.
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+
   // Theme state
   const [isDark, setIsDark] = useState(() => {
     if (typeof window === 'undefined') return true;
@@ -934,6 +945,15 @@ export function ShellProvider({ children }: { children: ReactNode }) {
       localStorage.setItem(STORAGE_KEYS.SIDEBAR, String(next));
       return next;
     });
+  }, []);
+
+  // Toggle mobile drawer
+  const toggleMobileMenu = useCallback(() => {
+    setIsMobileMenuOpen(prev => !prev);
+  }, []);
+
+  const closeMobileMenu = useCallback(() => {
+    setIsMobileMenuOpen(false);
   }, []);
 
   // Toggle theme
@@ -1215,12 +1235,15 @@ export function ShellProvider({ children }: { children: ReactNode }) {
     version: '2.0.0',
     isSidebarOpen,
     toggleSidebar,
+    isMobileMenuOpen,
+    toggleMobileMenu,
+    closeMobileMenu,
     isDark,
     toggleTheme,
   }), [
     auth, navigate, eventBus, theme, notifications, integrations, logger,
     permissions, tenant, tenantContext, team, api, capabilities,
-    isSidebarOpen, toggleSidebar, isDark, toggleTheme
+    isSidebarOpen, toggleSidebar, isMobileMenuOpen, toggleMobileMenu, closeMobileMenu, isDark, toggleTheme
   ]);
 
   return (

@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { Sidebar } from './sidebar';
 import { TopBar } from './top-bar';
 import { useShell, useEvents } from '@/contexts/shell-context';
+import { useIsMobile } from '@/hooks/use-is-mobile';
 import { InviteBanner } from '@/components/referrals/invite-banner';
 
 // Constants — must match sidebar.tsx
@@ -33,6 +34,7 @@ interface AppLayoutProps {
 export function AppLayout({ children }: AppLayoutProps) {
   const { isSidebarOpen } = useShell();
   const eventBus = useEvents();
+  const isMobile = useIsMobile();
 
   // Track sidebar width (syncs with sidebar resize via event bus)
   const [sidebarWidth, setSidebarWidth] = useState(() => {
@@ -56,17 +58,21 @@ export function AppLayout({ children }: AppLayoutProps) {
     if (saved) setSidebarWidth(parseInt(saved, 10));
   }, []);
 
-  const actualWidth = isSidebarOpen ? sidebarWidth : SIDEBAR_COLLAPSED_WIDTH;
+  // QA-P5-001: on mobile the sidebar is an off-canvas overlay (see
+  // sidebar.tsx), not a permanent column — reserving paddingLeft for it here
+  // was what squeezed every dashboard page's content into a ~135px column at
+  // 375px width, with page titles and dollar figures truncating/wrapping.
+  const actualWidth = isMobile ? 0 : (isSidebarOpen ? sidebarWidth : SIDEBAR_COLLAPSED_WIDTH);
 
   return (
     <div className="h-screen bg-background overflow-hidden">
       {/* Sidebar — fixed, frame level */}
       <Sidebar />
 
-      {/* Content region — offset by sidebar, with gap for the dark frame */}
+      {/* Content region — offset by sidebar on desktop, with gap for the dark frame */}
       <div
         style={{ paddingLeft: actualWidth }}
-        className="h-screen pt-2 pr-2 pb-2 transition-all duration-200"
+        className={`h-screen ${isMobile ? '' : 'pt-2 pr-2 pb-2'} transition-all duration-200`}
       >
         {/* Floating content panel */}
         <div className="h-full flex flex-col rounded-lg overflow-hidden bg-card border border-border/60">
