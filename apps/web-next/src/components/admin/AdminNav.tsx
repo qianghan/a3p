@@ -2,10 +2,11 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Users, MessageSquare, Key, Blocks, Sparkles, Banknote, ToggleRight } from 'lucide-react';
+import { Users, MessageSquare, Key, Blocks, Sparkles, Banknote, ToggleRight, Bell } from 'lucide-react';
 
 const adminTabs = [
   { name: 'Users', href: '/admin/users', icon: Users },
+  { name: 'Notifications', href: '/admin/notifications', icon: Bell },
   { name: 'Plugins', href: '/admin/plugins', icon: Blocks },
   { name: 'Skills', href: '/admin/skills', icon: Sparkles },
   { name: 'Payroll', href: '/admin/payroll', icon: Banknote },
