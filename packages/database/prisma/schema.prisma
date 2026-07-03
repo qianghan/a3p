@@ -3152,9 +3152,10 @@ model SalesRepFeeRebate {
   tenantId                  String    @unique // one-time-per-tenure — see sales-rep.html §3
   applicationId             String
   annualFeeCentsPaid        Int
-  thresholdCents            Int       // 5x annualFeeCentsPaid at window open
+  multipleApplied           Float     // snapshot of PartnerProgramSettings.rebateCommissionMultiple at window-open
+  thresholdCents            Int       // annualFeeCentsPaid * multipleApplied, computed once and frozen
   windowStart               DateTime  // rep activation date
-  windowEnd                 DateTime  // windowStart + 90 days
+  windowEnd                 DateTime  // windowStart + rebateWindowDays
   cumulativeCommissionCents Int       @default(0) // updated as SalesRepCommissionAccrual rows land
   status                    String    @default("pending") // pending|earned|expired|paid
   earnedAt                  DateTime?
@@ -3162,6 +3163,20 @@ model SalesRepFeeRebate {
   stripeRefundId            String?
 
   @@index([status, windowEnd])
+  @@schema("plugin_agentbook_billing")
+}
+
+// Singleton (one row, id "singleton") admin-managed settings for the whole
+// program. Frozen per-rebate via SalesRepFeeRebate.multipleApplied so
+// changing this later never retroactively alters a window someone is
+// already inside — see sales-rep.html §3 for the researched default.
+model PartnerProgramSettings {
+  id                       String   @id @default("singleton")
+  rebateCommissionMultiple Float    @default(1.0)
+  rebateWindowDays         Int      @default(90)
+  updatedBy                String?
+  updatedAt                DateTime @updatedAt
+
   @@schema("plugin_agentbook_billing")
 }
 
