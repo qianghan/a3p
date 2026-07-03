@@ -1902,7 +1902,25 @@ app.post('/api/v1/agentbook-core/accounts/seed-jurisdiction', async (req, res) =
       { code: '6700', name: 'Bank Fees', accountType: 'expense', taxCategory: 'Line 27a' },
     ];
 
-    const accounts = US_ACCOUNTS; // TODO: Select based on jurisdiction
+    const STUDENT_ACCOUNTS = [
+      { code: '1000', name: 'Cash', accountType: 'asset' },
+      { code: '1200', name: 'Checking / Debit Account', accountType: 'asset' },
+      { code: '3000', name: "Owner's Equity", accountType: 'equity' },
+      { code: '4000', name: 'Part-Time Job Income', accountType: 'revenue' },
+      { code: '4100', name: 'Tutoring / Gig Income', accountType: 'revenue', taxCategory: 'Schedule C' },
+      { code: '4200', name: 'Scholarship / Grant Income', accountType: 'revenue' },
+      { code: '4300', name: 'Family Support / Allowance', accountType: 'revenue' },
+      { code: '5000', name: 'Tuition & Fees', accountType: 'expense', taxCategory: '1098-T / T2202' },
+      { code: '5100', name: 'Textbooks & Course Materials', accountType: 'expense' },
+      { code: '5200', name: 'Rent / Housing', accountType: 'expense' },
+      { code: '5300', name: 'Meal Plan / Groceries', accountType: 'expense' },
+      { code: '5400', name: 'Transportation', accountType: 'expense' },
+      { code: '5500', name: 'Phone & Software Subscriptions', accountType: 'expense' },
+      { code: '5600', name: 'Student Loan Interest', accountType: 'expense', taxCategory: '1098-E' },
+    ];
+
+    // TODO: also select US_ACCOUNTS variants by jurisdiction when a CA chart lands.
+    const accounts = config?.businessType === 'student' ? STUDENT_ACCOUNTS : US_ACCOUNTS;
 
     const created = await db.$transaction(
       accounts.map(a => db.abAccount.upsert({
@@ -3716,6 +3734,61 @@ async function _executeClassificationCore(
       console.error('[query-past-filings] error:', err);
       return { selectedSkill, extractedParams, confidence: 0, skillUsed: 'query-past-filings', skillResponse: null,
         responseData: { message: "I couldn't retrieve your past filings. Please try again.", actions: [], chartData: null, skillUsed: 'query-past-filings', confidence: 0, latencyMs: Date.now() - startTime } };
+    }
+  }
+
+  // INTERNAL handler: scholarship-taxability — guided decision-tree answer via Gemini,
+  // grounded in a fixed rule set (not the model's general knowledge) to reduce
+  // hallucination risk on tax content. See docs/superpowers/specs/2026-07-03-
+  // scholarship-taxability-skill-content.md for the source rules and review notes.
+  if (selectedSkill.name === 'scholarship-taxability') {
+    try {
+      const jurisdiction = (classification.tenantConfig?.jurisdiction || 'us').toLowerCase();
+      const rules = [
+        'US rules (IRS Pub 970):',
+        '- A scholarship/fellowship is tax-free only if the student is a degree candidate AND the money is spent on tuition, required fees, or required course materials.',
+        '- Money spent on room/board, travel, or optional equipment is taxable — report it on Form 1040 line 1 with an "SCH" notation.',
+        '- A stipend tied to teaching/research duties (e.g. a TA/RA position) is taxable as payment for services regardless of the label "fellowship" — this is the most common thing people get wrong.',
+        '- Advanced note (mention only if relevant): some students deliberately report a bit of otherwise-tax-free scholarship as taxable to free up more tuition expense for the AOTC, since the credit can be worth more than the tax owed — flag this as something to calculate carefully, not a default recommendation.',
+        '- US 529 withdrawals: qualified (tuition/fees/books/room-board up to cost of attendance) are tax-free. Non-qualified withdrawals — only the earnings portion, not original contributions — are taxable to the recipient plus typically a 10% penalty.',
+        '- Education credits: if the student is claimed as someone else\'s dependent, the student CANNOT claim AOTC/LLC themselves regardless of who paid — only the person claiming the dependency can. AOTC is up to $2,500/student/year (100% of first $2,000 + 25% of next $2,000), first 4 years of a degree, at least half-time, 40% refundable. LLC is up to $2,000 per return (not per student), 20% of up to $10,000 of expenses, no degree/year-limit requirement — better fit for grad students or part-time enrollment. Expenses paid with tax-free scholarship or a tax-free 529 withdrawal cannot also be counted toward either credit.',
+        '- Income phase-out thresholds change yearly — do not state a specific dollar figure as current; tell the user to verify this year\'s IRS figures.',
+        '',
+        'Canada rules (CRA):',
+        '- A full-time student\'s scholarship/bursary/fellowship is fully tax-exempt if the program qualifies for the education amount (reported on T4A box 105, excluded via line 13010). Part-time students only get the exemption up to tuition plus program-material costs.',
+        '- The T2202 tuition credit is non-refundable (15% federal) and most students with low income can\'t use it all right away — but it carries forward indefinitely, or up to $5,000 (minus any amount the student already used) can be transferred to a spouse, parent, or grandparent. Mention this proactively — it is genuinely useful and under-known.',
+        '- RESP: the EAP portion (accumulated growth + government grants) is taxable to the STUDENT (reported on T4A) but usually results in little or no tax owed because of the student\'s low income plus the basic personal amount and tuition credit. The original contribution (PSE) portion is never taxable to anyone.',
+      ].join('\n');
+
+      const system = [
+        'You are AgentBook, explaining a student\'s tax question about a scholarship, grant, stipend, or RESP/529 withdrawal.',
+        `The user's tax jurisdiction is ${jurisdiction === 'ca' ? 'Canada' : 'the United States'} — answer using only that jurisdiction\'s rules below unless the user explicitly asks about the other one.`,
+        'Use ONLY the rules given below — do not invent dollar thresholds or rules not listed here.',
+        'Lead with the plain-English answer (tax-free vs taxable, and which part) before explaining the mechanism.',
+        'End with one sentence noting AgentBook is not a CPA or e-file agent and to verify current-year dollar figures.',
+        'Plain text, 3-6 sentences, no markdown headers.',
+        '',
+        rules,
+      ].join('\n');
+
+      const question = String(extractedParams.question || text || 'Is my scholarship taxable?');
+      const reply = await callGemini(system, question, 400)
+        ?? "I couldn't work through that just now — try asking again in a moment, or check the IRS Pub 970 (US) / CRA line 13010 (Canada) guidance directly.";
+
+      await db.abConversation.create({
+        data: { tenantId, question: text || question, answer: reply, queryType: 'agent', channel, skillUsed: 'scholarship-taxability' },
+      }).catch(() => {});
+
+      return {
+        selectedSkill, extractedParams, confidence, skillUsed: 'scholarship-taxability', skillResponse: null,
+        responseData: { message: reply, skillUsed: 'scholarship-taxability', confidence, latencyMs: Date.now() - startTime },
+      };
+    } catch (err) {
+      console.error('[scholarship-taxability] error:', err);
+      return {
+        selectedSkill, extractedParams, confidence: 0, skillUsed: 'scholarship-taxability', skillResponse: null,
+        responseData: { message: "I couldn't work through that just now. Please try again in a moment.", skillUsed: 'scholarship-taxability', confidence: 0, latencyMs: Date.now() - startTime },
+      };
     }
   }
 

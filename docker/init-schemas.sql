@@ -21,6 +21,7 @@ CREATE SCHEMA IF NOT EXISTS plugin_agentbook_core;
 CREATE SCHEMA IF NOT EXISTS plugin_agentbook_expense;
 CREATE SCHEMA IF NOT EXISTS plugin_agentbook_invoice;
 CREATE SCHEMA IF NOT EXISTS plugin_agentbook_tax;
+CREATE SCHEMA IF NOT EXISTS plugin_agentbook_startup;
 
 -- ============================================================
 -- Row Level Security Policies (defense-in-depth)

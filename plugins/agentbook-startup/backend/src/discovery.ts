@@ -1,0 +1,73 @@
+import { getJurisdictionPack } from '@agentbook/jurisdictions';
+import type { StartupProfile } from '@agentbook/jurisdictions';
+
+export interface CatalogEntry {
+  programCode: string;
+  name: string;
+  authority: string;
+  sourceUrl: string;
+}
+
+export interface ProgramRecommendation {
+  programCode: string;
+  name: string;
+  authority: string;
+  sourceUrl: string;
+  status: string;
+  confidence: number;
+  reasoning: string;
+  estValueLowCents: number | null;
+  estValueHighCents: number | null;
+}
+
+export interface RecommendationsResult {
+  jurisdiction: string;
+  programs: ProgramRecommendation[];
+  message?: string;
+}
+
+export function computeRecommendations(
+  jurisdiction: string,
+  profile: StartupProfile,
+  catalog: CatalogEntry[],
+): RecommendationsResult {
+  const pack = getJurisdictionPack(jurisdiction);
+  if (!pack?.taxBenefits) {
+    return {
+      jurisdiction,
+      programs: [],
+      message: 'Startup tax benefits are not yet available for your jurisdiction.',
+    };
+  }
+
+  const taxBenefits = pack.taxBenefits;
+  const summaries = taxBenefits.listPrograms(profile);
+  const programs = summaries.map((summary): ProgramRecommendation => {
+    const assessment = taxBenefits.assessEligibility(summary.programCode, profile);
+    const catalogEntry = catalog.find((c) => c.programCode === summary.programCode);
+    return {
+      programCode: summary.programCode,
+      name: catalogEntry?.name ?? summary.name,
+      authority: catalogEntry?.authority ?? summary.authority,
+      sourceUrl: catalogEntry?.sourceUrl ?? '',
+      status: assessment.status,
+      confidence: assessment.confidence,
+      reasoning: assessment.reasoning,
+      estValueLowCents: assessment.estValueLowCents,
+      estValueHighCents: assessment.estValueHighCents,
+    };
+  });
+
+  // Story A6: never a silent empty state. Distinct from the
+  // unsupported-jurisdiction message above — this profile's jurisdiction
+  // IS supported, it just doesn't roughly match any tracked program yet.
+  if (programs.length === 0) {
+    return {
+      jurisdiction,
+      programs,
+      message: "No tracked programs match your profile yet — as your company grows (R&D spend, incorporation, headcount), check back for new recommendations.",
+    };
+  }
+
+  return { jurisdiction, programs };
+}

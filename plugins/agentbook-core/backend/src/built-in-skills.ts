@@ -339,6 +339,12 @@ export const BUILT_IN_SKILLS = [
     endpoint: { method: 'GET', url: '/api/v1/agentbook-tax/tax-filing/2025' },
   },
   {
+    name: 'scholarship-taxability', description: 'Explain whether a scholarship, grant, RESP/529 withdrawal, or stipend is taxable, and whether AOTC/Lifetime Learning Credit or the Canadian tuition transfer applies', category: 'tax',
+    triggerPatterns: ['scholarship', 'is.*grant.*taxable', 'fellowship', 'financial aid.*tax', 'tuition.*credit', 'education.*credit', 'AOTC', 'american opportunity', 'lifetime learning', '\\bresp\\b', '\\b529\\b', 't2202', '1098-?t', 'is.*taxable'],
+    parameters: { question: { type: 'string', required: true, extractHint: 'the full user question about the scholarship/grant/stipend/withdrawal' } },
+    endpoint: { method: 'INTERNAL', url: '' },
+  },
+  {
     name: 'tax-filing-field', description: 'Provide a value for a missing tax filing field', category: 'tax',
     triggerPatterns: [],
     parameters: { formCode: { type: 'string', required: true }, fieldId: { type: 'string', required: true }, value: { type: 'string', required: true } },
@@ -550,6 +556,15 @@ export const BUILT_IN_SKILLS = [
     triggerPatterns: ['review my books', 'cpa review', 'check my books', 'are my books', 'accountant review', 'books health', 'review the books'],
     parameters: {},
     endpoint: { method: 'INTERNAL', url: '' },
+  },
+  {
+    name: 'us-rd-credit-finder',
+    description: 'Check whether the business likely qualifies for the US federal R&D tax credit, QSBS eligibility tracking, or Delaware franchise tax optimization, with an estimated dollar range',
+    category: 'tax_benefits',
+    triggerPatterns: ['r&d credit', 'r and d credit', 'research credit', 'research and development credit', 'startup tax benefit', 'qsbs', 'franchise tax'],
+    parameters: {},
+    endpoint: { method: 'GET', url: '/api/v1/agentbook-startup/recommendations' },
+    responseTemplate: 'Based on your company profile, here is what you may qualify for: {{programs}}',
   },
   {
     name: 'general-question', description: 'Answer any general financial or accounting question', category: 'finance',

@@ -53,6 +53,7 @@ const BUSINESS_TYPES = [
   { label: 'Sole proprietor', value: 'sole_proprietor' },
   { label: 'Consultant', value: 'consultant' },
   { label: 'Contractor', value: 'contractor' },
+  { label: 'Student', value: 'student' },
 ];
 
 const JURISDICTIONS = [
@@ -115,30 +116,36 @@ const SCRIPT: Record<StepId, (state: OnboardingState) => ChatMessage[]> = {
       },
     ];
   },
-  currency: () => [
+  currency: (state) => [
     {
       role: 'agent',
       text:
-        "Great. I'll seed your chart of accounts now — that's the underlying structure that lets you run a P&L, balance sheet, and tax reports. Takes one second.",
-      suggestions: [{ label: "Set up accounts", value: 'seed' }],
+        state.businessType === 'student'
+          ? "Great. I'll set up a few categories for you — things like tuition, textbooks, part-time job income, and scholarships. Takes one second, and there's nothing to fill in yourself."
+          : "Great. I'll seed your chart of accounts now — that's the underlying structure that lets you run a P&L, balance sheet, and tax reports. Takes one second.",
+      suggestions: [{ label: state.businessType === 'student' ? 'Set up my categories' : 'Set up accounts', value: 'seed' }],
     },
   ],
-  accounts: () => [
+  accounts: (state) => [
     {
       role: 'agent',
       text:
-        "Accounts ready. Last thing — want to log your first expense to try it out? It's how you'll typically interact with me.",
+        state.businessType === 'student'
+          ? "Done. Last thing — want to log something to try it out? A campus job paycheck, a tutoring payment, or a textbook you bought all work."
+          : "Accounts ready. Last thing — want to log your first expense to try it out? It's how you'll typically interact with me.",
       suggestions: [
         { label: 'Yes, log one now', value: 'try' },
         { label: 'Skip — go to chat', value: '__skip__' },
       ],
     },
   ],
-  first_expense: () => [
+  first_expense: (state) => [
     {
       role: 'agent',
       text:
-        "Perfect — go to the chat (top of the page) and type something like 'log $5 coffee' or drop a receipt photo. I'll handle the rest.",
+        state.businessType === 'student'
+          ? "Perfect — go to the chat (top of the page) and type something like 'log $40 textbooks' or drop a receipt photo. Come tax season, I'll also help you figure out things like whether a scholarship is taxable — no guessing required."
+          : "Perfect — go to the chat (top of the page) and type something like 'log $5 coffee' or drop a receipt photo. I'll handle the rest.",
     },
     { role: 'agent', text: "Setup complete. Welcome to AgentBook!", highlight: true },
   ],
