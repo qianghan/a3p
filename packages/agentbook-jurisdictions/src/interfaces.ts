@@ -185,3 +185,100 @@ export interface PastFilingPack {
   summarize(extract: StandardTaxExtract): string
   generateEFileExport?(forms: Record<string, any>, taxYear: number, region?: string): EFileExport
 }
+
+// ─── Startup Tax Benefits ────────────────────────────────────────────────────
+// Jurisdiction-agnostic contract for the agentbook-startup plugin's 5-phase
+// workflow (recommend → collect → draft → review → submit). One implementation
+// per jurisdiction pack. See startup.html §8.2.
+
+export interface StartupProfile {
+  companyType?: string; // 'c_corp' | 'ccpc' | 'ltd' | 'llc' | ...
+  incorporatedAt?: Date;
+  headcount?: number;
+  annualRdSpendCents?: number;
+  equityRaisedCents?: number;
+}
+
+export interface TaxBenefitProgramSummary {
+  programCode: string;
+  name: string;
+  authority: string;
+  typicalValueLowCents: number | null;
+  typicalValueHighCents: number | null;
+}
+
+export interface EligibilityAssessment {
+  status: 'not_qualified' | 'possibly_qualified' | 'qualified';
+  confidence: number; // 0–1
+  reasoning: string;
+  estValueLowCents: number | null;
+  estValueHighCents: number | null;
+}
+
+export interface DocumentRequirement {
+  docType: string;
+  label: string;
+  description: string;
+  required: boolean;
+}
+
+export interface ApplicationInputs {
+  profile: StartupProfile;
+  documents?: Record<string, unknown>;
+  answers?: Record<string, unknown>;
+}
+
+export interface DraftField {
+  label: string;
+  value: string | number;
+  sourceType: 'book_entry' | 'document' | 'user_input' | 'computed';
+  sourceRef?: string;
+}
+
+export interface DraftResult {
+  programCode: string;
+  sections: Record<string, DraftField[]>;
+  completeness: number; // 0–1: fraction of fields populated without a pending decision point
+}
+
+export interface DecisionPoint {
+  sequenceOrder: number;
+  kind: 'approval' | 'key_input';
+  prompt: string;
+  options?: string[];
+}
+
+export interface AuditFinding {
+  severity: 'low' | 'medium' | 'high';
+  issue: string;
+  recommendation: string;
+  ruleRef: string;
+}
+
+export interface AuditRiskAssessment {
+  riskLevel: 'low' | 'medium' | 'high';
+  findings: AuditFinding[];
+}
+
+export interface SubmissionInstructions {
+  channel: 'mail' | 'portal' | 'cpa_handoff';
+  summary: string;
+  steps: string[];
+}
+
+export interface Deadline {
+  label: string;
+  date: Date;
+  urgency: 'critical' | 'important' | 'informational';
+}
+
+export interface TaxBenefitProvider {
+  listPrograms(profile: StartupProfile): TaxBenefitProgramSummary[];
+  assessEligibility(programCode: string, profile: StartupProfile): EligibilityAssessment;
+  getRequiredDocuments(programCode: string): DocumentRequirement[];
+  draftApplication(programCode: string, inputs: ApplicationInputs): DraftResult;
+  getDecisionPoints(programCode: string, draft: DraftResult): DecisionPoint[];
+  assessAuditRisk(programCode: string, draft: DraftResult): AuditRiskAssessment;
+  getSubmissionInstructions(programCode: string): SubmissionInstructions;
+  getFilingDeadlines(programCode: string, fiscalYearEnd: Date): Deadline[];
+}
