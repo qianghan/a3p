@@ -7,10 +7,24 @@
 
 import React, { Suspense, useState, useEffect, useCallback, useMemo } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { Bell, Send, AlertTriangle, CheckCircle2, Clock, Users as UsersIcon } from 'lucide-react';
+import { Bell, Send, AlertTriangle, CheckCircle2, Clock, Users as UsersIcon, Sparkles, Gift, Megaphone, Wand2 } from 'lucide-react';
 import { Button, Input, Select, Badge } from '@naap/ui';
 import { useAuth } from '@/contexts/auth-context';
 import { AdminNav } from '@/components/admin/AdminNav';
+import { getTemplatesFor, type NotificationTemplate } from '@/lib/notification-templates';
+
+const SEVERITY_DOT: Record<string, string> = {
+  info: 'bg-blue-500',
+  success: 'bg-emerald-500',
+  warning: 'bg-amber-500',
+  urgent: 'bg-red-500',
+};
+
+const CATEGORY_ICON: Record<string, React.ComponentType<{ className?: string }>> = {
+  feature: Sparkles,
+  reward: Gift,
+  admin_broadcast: Megaphone,
+};
 
 const CATEGORIES = [
   { value: 'feature', label: 'New feature' },
@@ -50,6 +64,18 @@ function AdminNotificationsInner() {
   const [bodyText, setBodyText] = useState('');
   const [ctaLabel, setCtaLabel] = useState('');
   const [ctaUrl, setCtaUrl] = useState('');
+  const [appliedTemplateId, setAppliedTemplateId] = useState<string | null>(null);
+
+  const templates = useMemo(() => getTemplatesFor(category), [category]);
+
+  const applyTemplate = useCallback((t: NotificationTemplate) => {
+    setTitle(t.title);
+    setBodyText(t.body);
+    setCtaLabel(t.ctaLabel ?? '');
+    setCtaUrl(t.ctaUrl ?? '');
+    setSeverity(t.severity);
+    setAppliedTemplateId(t.id);
+  }, []);
   const [audienceType, setAudienceType] = useState('all');
   const [planCodesInput, setPlanCodesInput] = useState('');
   const [signupAfter, setSignupAfter] = useState('');
@@ -220,7 +246,11 @@ function AdminNotificationsInner() {
         <div className="grid grid-cols-2 gap-3">
           <div>
             <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Category</label>
-            <Select value={category} onChange={(e) => setCategory(e.target.value)} className="mt-1">
+            <Select
+              value={category}
+              onChange={(e) => { setCategory(e.target.value); setAppliedTemplateId(null); }}
+              className="mt-1"
+            >
               {CATEGORIES.map((c) => (
                 <option key={c.value} value={c.value} disabled={c.value === 'referral_thanks'}>
                   {c.label}
@@ -238,6 +268,55 @@ function AdminNotificationsInner() {
             </Select>
           </div>
         </div>
+
+        {templates.length > 0 && (
+          <div>
+            <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
+              <Wand2 className="w-3.5 h-3.5" /> Start from a template
+            </label>
+            <div className="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {templates.map((t) => {
+                const Icon = CATEGORY_ICON[category] ?? Sparkles;
+                const isApplied = appliedTemplateId === t.id;
+                return (
+                  <button
+                    key={t.id}
+                    type="button"
+                    onClick={() => applyTemplate(t)}
+                    className={`text-left rounded-lg border p-3 transition-colors ${
+                      isApplied
+                        ? 'border-primary bg-primary/5 ring-1 ring-primary/30'
+                        : 'border-border bg-background hover:border-primary/50 hover:bg-muted/40'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="flex items-center gap-1.5 text-xs font-semibold text-foreground">
+                        <Icon className="w-3.5 h-3.5 text-primary" /> {t.name}
+                      </span>
+                      {isApplied && <Badge variant="secondary">Applied</Badge>}
+                    </div>
+                    {/* Mini live preview — mirrors the end-user notification bell's row styling */}
+                    <div className="rounded-md border border-border/60 bg-card px-2.5 py-2">
+                      <div className="flex items-start gap-2">
+                        <span className={`mt-1 h-1.5 w-1.5 rounded-full shrink-0 ${SEVERITY_DOT[t.severity]}`} />
+                        <div className="min-w-0">
+                          <div className="text-xs font-medium text-foreground truncate">{t.title}</div>
+                          <div className="text-[11px] text-muted-foreground line-clamp-2 mt-0.5">{t.body}</div>
+                          {t.ctaLabel && (
+                            <span className="inline-block mt-1.5 text-[11px] font-medium text-primary">{t.ctaLabel} →</span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+            <p className="text-[11px] text-muted-foreground mt-1.5">
+              Applying a template fills the fields below — replace anything in [brackets] before sending.
+            </p>
+          </div>
+        )}
 
         <div>
           <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Title</label>
