@@ -24,7 +24,7 @@ datasource db {
   provider  = "postgresql"
   url       = env("DATABASE_URL")
   directUrl = env("DATABASE_URL_UNPOOLED")
-  schemas   = ["public", "plugin_community", "plugin_service_gateway", "plugin_agentbook_core", "plugin_agentbook_expense", "plugin_agentbook_invoice", "plugin_agentbook_tax", "plugin_agentbook_billing", "plugin_agentbook_personal", "plugin_agentbook_cpa", "plugin_agentbook_payroll"]
+  schemas   = ["public", "plugin_community", "plugin_service_gateway", "plugin_agentbook_core", "plugin_agentbook_expense", "plugin_agentbook_invoice", "plugin_agentbook_tax", "plugin_agentbook_billing", "plugin_agentbook_personal", "plugin_agentbook_cpa", "plugin_agentbook_payroll", "plugin_agentbook_startup"]
 }
 
 // ============================================
@@ -3269,4 +3269,112 @@ model AbPayrollProviderConfig {
   updatedAt    DateTime @updatedAt
 
   @@schema("plugin_agentbook_payroll")
+}
+
+// ============================================
+// AGENTBOOK STARTUP TAX BENEFITS PLUGIN
+// Discover/draft/audit/track government tax-benefit programs for startups.
+// See startup.html §8.3 for the full design.
+// ============================================
+
+model StartupBenefitProfile {
+  tenantId           String    @id
+  addOnStatus        String    @default("trial_discovery") // trial_discovery | active | canceled
+  companyType        String?   // c_corp | ccpc | ltd | llc ...
+  incorporatedAt     DateTime?
+  headcount          Int?
+  annualRdSpendCents Int?
+  equityRaisedCents  Int?
+  lastAssessedAt     DateTime?
+
+  @@schema("plugin_agentbook_startup")
+}
+
+model StartupBenefitProgram {
+  id                    String   @id @default(uuid())
+  jurisdiction          String   // "us" | "ca" | "uk"
+  programCode           String   // "us_rd_credit_41" | "ca_sred" | "uk_seis" ...
+  name                  String
+  authority             String   // "IRS" | "CRA" | "HMRC"
+  typicalValueLowCents  Int?
+  typicalValueHighCents Int?
+  eligibilityCriteria   Json
+  requiredDocuments     Json
+  sourceUrl             String
+  lastVerifiedAt        DateTime
+  enabled               Boolean  @default(true)
+
+  @@unique([jurisdiction, programCode])
+  @@schema("plugin_agentbook_startup")
+}
+
+model StartupBenefitEligibilityAssessment {
+  id                String   @id @default(uuid())
+  tenantId          String
+  programId         String
+  status            String   // not_qualified | possibly_qualified | qualified
+  confidence        Float
+  reasoning         String
+  estValueLowCents  Int?
+  estValueHighCents Int?
+  assessedAt        DateTime @default(now())
+
+  @@index([tenantId, programId])
+  @@schema("plugin_agentbook_startup")
+}
+
+model StartupBenefitApplication {
+  id              String    @id @default(uuid())
+  tenantId        String
+  programId       String
+  status          String    // recommended|docs_pending|drafting|decision_pending|
+                             // ready_for_review|audit_reviewed|submitted|monitoring|closed
+  draft           Json      // structured, provenance-tagged draft content
+  auditRiskLevel  String?   // low | medium | high
+  submittedAt     DateTime?
+  confirmationRef String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([tenantId, status])
+  @@schema("plugin_agentbook_startup")
+}
+
+model StartupBenefitDocument {
+  id            String   @id @default(uuid())
+  applicationId String
+  docType       String
+  blobUrl       String
+  extractedData Json?
+  status        String   @default("uploaded") // requested|uploaded|verified|rejected
+  uploadedAt    DateTime @default(now())
+
+  @@index([applicationId])
+  @@schema("plugin_agentbook_startup")
+}
+
+model StartupBenefitDecisionPoint {
+  id             String    @id @default(uuid())
+  applicationId  String
+  sequenceOrder  Int
+  kind           String    // approval | key_input
+  prompt         String
+  options        Json?
+  response       Json?
+  respondedAt    DateTime?
+  blocksProgress Boolean   @default(true)
+
+  @@index([applicationId, sequenceOrder])
+  @@schema("plugin_agentbook_startup")
+}
+
+model StartupBenefitAuditReview {
+  id            String   @id @default(uuid())
+  applicationId String   @unique
+  riskLevel     String   // low | medium | high
+  findings      Json     // [{severity, issue, recommendation, ruleRef}]
+  reviewedAt    DateTime @default(now())
+  modelVersion  String
+
+  @@schema("plugin_agentbook_startup")
 }
