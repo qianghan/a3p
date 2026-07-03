@@ -8,8 +8,8 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
-import { Users, DollarSign, Landmark, CheckCircle2, XCircle } from 'lucide-react';
-import { Button, Input, Badge } from '@naap/ui';
+import { Users, DollarSign, Landmark, CheckCircle2, XCircle, Pencil, History } from 'lucide-react';
+import { Button, Input, Select, Badge } from '@naap/ui';
 import { useAuth } from '@/contexts/auth-context';
 import { AdminNav } from '@/components/admin/AdminNav';
 
@@ -20,6 +20,7 @@ interface Rep {
   status: string;
   commissionBps: number;
   payoutFrequency: string;
+  planCode: string;
   hasBankDetails: boolean;
   lifetimePaidCents: number;
   pendingSubmittedCents: number;
@@ -51,6 +52,12 @@ export default function AdminSalesRepsPage() {
   const [bankDetails, setBankDetails] = useState<string | null>(null);
   const [paymentReference, setPaymentReference] = useState('');
   const [busy, setBusy] = useState(false);
+  const [editTarget, setEditTarget] = useState<Rep | null>(null);
+  const [editPlan, setEditPlan] = useState<'pro' | 'business'>('pro');
+  const [editCommissionPercent, setEditCommissionPercent] = useState('20');
+  const [editFrequency, setEditFrequency] = useState<'monthly' | 'quarterly' | 'annual'>('quarterly');
+  const [historyTarget, setHistoryTarget] = useState<Rep | null>(null);
+  const [historyPayouts, setHistoryPayouts] = useState<Payout[] | null>(null);
 
   const isAdmin = hasRole('system:admin');
 
@@ -138,6 +145,49 @@ export default function AdminSalesRepsPage() {
     }
   };
 
+  const openEdit = (rep: Rep) => {
+    setEditTarget(rep);
+    setEditPlan(rep.planCode === 'business' ? 'business' : 'pro');
+    setEditCommissionPercent(String(rep.commissionBps / 100));
+    setEditFrequency((rep.payoutFrequency as 'monthly' | 'quarterly' | 'annual') || 'quarterly');
+  };
+
+  const saveEdit = async () => {
+    if (!editTarget) return;
+    const commissionBps = Math.round(Number(editCommissionPercent) * 100);
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/v1/admin/users/${editTarget.tenantId}/sales-rep`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
+        body: JSON.stringify({ plan: editPlan, commissionBps, payoutFrequency: editFrequency }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setEditTarget(null);
+        await load();
+      } else {
+        setError(data.error?.message || data.error || 'Failed to update sales rep');
+      }
+    } catch {
+      setError('Failed to update sales rep');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const openHistory = async (rep: Rep) => {
+    setHistoryTarget(rep);
+    setHistoryPayouts(null);
+    try {
+      const res = await fetch(`/api/v1/admin/sales-reps/payouts?salesRepId=${rep.tenantId}`, { credentials: 'include' });
+      const data = await res.json();
+      if (data.success) setHistoryPayouts(data.data.payouts);
+    } catch {
+      setHistoryPayouts([]);
+    }
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -204,6 +254,7 @@ export default function AdminSalesRepsPage() {
               <th className="pb-2">Bank details</th>
               <th className="pb-2 text-right">Lifetime paid</th>
               <th className="pb-2 text-right">Paid this year</th>
+              <th className="pb-2" />
             </tr>
           </thead>
           <tbody>
@@ -230,6 +281,16 @@ export default function AdminSalesRepsPage() {
                       </span>
                     )}
                   </div>
+                </td>
+                <td className="py-2 text-right whitespace-nowrap">
+                  <button type="button" onClick={() => openHistory(r)} className="p-1.5 rounded hover:bg-muted text-muted-foreground" title="Payout history">
+                    <History className="w-4 h-4" />
+                  </button>
+                  {r.status === 'active' && (
+                    <button type="button" onClick={() => openEdit(r)} className="p-1.5 rounded hover:bg-muted text-muted-foreground" title="Edit commission / frequency">
+                      <Pencil className="w-4 h-4" />
+                    </button>
+                  )}
                 </td>
               </tr>
             ))}
@@ -267,6 +328,87 @@ export default function AdminSalesRepsPage() {
               <Button onClick={markPaid} disabled={busy}>
                 <CheckCircle2 className="w-4 h-4 mr-1" /> Mark paid
               </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {editTarget && (
+        <div className="fixed inset-0 z-30 flex items-center justify-center bg-black/40">
+          <div className="w-full max-w-sm rounded-lg border border-border bg-card p-5 shadow-xl">
+            <h3 className="text-base font-semibold mb-1">Edit {editTarget.email || editTarget.displayName}</h3>
+            <p className="text-sm text-muted-foreground mb-4">
+              Changes apply going forward only — already-accrued commission keeps its original rate.
+            </p>
+            <div className="space-y-3">
+              <div>
+                <label className="block text-xs font-medium text-muted-foreground mb-1">Comped plan</label>
+                <Select value={editPlan} onChange={(e) => setEditPlan(e.target.value as 'pro' | 'business')}>
+                  <option value="pro">Pro</option>
+                  <option value="business">Business</option>
+                </Select>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-muted-foreground mb-1">Commission %</label>
+                <Input
+                  type="number" min={1} max={100} step={1}
+                  value={editCommissionPercent}
+                  onChange={(e) => setEditCommissionPercent(e.target.value)}
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-muted-foreground mb-1">Payout frequency</label>
+                <Select value={editFrequency} onChange={(e) => setEditFrequency(e.target.value as 'monthly' | 'quarterly' | 'annual')}>
+                  <option value="monthly">Monthly</option>
+                  <option value="quarterly">Quarterly</option>
+                  <option value="annual">Annual</option>
+                </Select>
+              </div>
+            </div>
+            <div className="mt-5 flex justify-end gap-2">
+              <Button variant="secondary" onClick={() => setEditTarget(null)} disabled={busy}>Cancel</Button>
+              <Button onClick={saveEdit} disabled={busy}>Save</Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {historyTarget && (
+        <div className="fixed inset-0 z-30 flex items-center justify-center bg-black/40">
+          <div className="w-full max-w-lg rounded-lg border border-border bg-card p-5 shadow-xl">
+            <h3 className="text-base font-semibold mb-3">
+              Payout history — {historyTarget.email || historyTarget.displayName}
+            </h3>
+            {historyPayouts === null ? (
+              <p className="text-sm text-muted-foreground">Loading…</p>
+            ) : historyPayouts.length === 0 ? (
+              <p className="text-sm text-muted-foreground">No invoices submitted yet.</p>
+            ) : (
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-left text-xs text-muted-foreground border-b border-border">
+                    <th className="pb-2">Invoice</th>
+                    <th className="pb-2">Period</th>
+                    <th className="pb-2">Status</th>
+                    <th className="pb-2 text-right">Amount</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {historyPayouts.map((p) => (
+                    <tr key={p.id} className="border-b border-border/50 last:border-0">
+                      <td className="py-2 font-mono text-xs">{p.invoiceNumber}</td>
+                      <td className="py-2 text-muted-foreground">{p.periodLabel}</td>
+                      <td className="py-2">
+                        <Badge variant={p.status === 'paid' ? 'emerald' : p.status === 'rejected' ? 'rose' : 'blue'}>{p.status}</Badge>
+                      </td>
+                      <td className="py-2 text-right">{money(p.totalCents)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+            <div className="mt-5 flex justify-end">
+              <Button variant="secondary" onClick={() => setHistoryTarget(null)}>Close</Button>
             </div>
           </div>
         </div>

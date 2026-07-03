@@ -474,6 +474,13 @@ export default function AdminUsersPage() {
               {promoteTarget.email || promoteTarget.displayName} gets a free comped plan and their own
               commission-tracked referral link — no Stripe charge.
             </p>
+            {(promoteTarget.invitesSent ?? 0) > 0 && (
+              <div className="rounded-md bg-amber-500/10 text-amber-700 text-xs px-3 py-2 mb-4">
+                This user already has {promoteTarget.invitesSent} existing referral{promoteTarget.invitesSent === 1 ? '' : 's'}
+                {' '}({promoteTarget.invitesPaid ?? 0} paid). Their referral link stays the same on promotion, so anyone who
+                signed up through it — past or future — will start earning commission on renewal payments going forward.
+              </div>
+            )}
             <div className="space-y-3">
               <div>
                 <label className="block text-xs font-medium text-muted-foreground mb-1">Comped plan</label>

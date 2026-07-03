@@ -27,6 +27,14 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   const users = await prisma.user.findMany({ where: { id: { in: userIds } }, select: { id: true, email: true, displayName: true } });
   const userMap = new Map(users.map((u) => [u.id, u]));
 
+  // planCode lets the admin UI prefill an "edit" form with the rep's current
+  // comped tier instead of defaulting back to Pro every time.
+  const subs = await prisma.billSubscription.findMany({
+    where: { accountId: { in: userIds } },
+    include: { plan: { select: { code: true } } },
+  });
+  const planCodeByRep = new Map(subs.map((s) => [s.accountId, s.plan.code]));
+
   const payoutTotals = await prisma.salesRepPayout.groupBy({
     by: ['salesRepId', 'status'],
     _sum: { totalCents: true },
@@ -63,6 +71,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       status: p.status,
       commissionBps: p.commissionBps,
       payoutFrequency: p.payoutFrequency,
+      planCode: planCodeByRep.get(p.tenantId) ?? 'pro',
       hasBankDetails: !!p.bankDetailsEnc,
       promotedAt: p.promotedAt.toISOString(),
       lifetimePaidCents: paidByRep.get(p.tenantId) ?? 0,

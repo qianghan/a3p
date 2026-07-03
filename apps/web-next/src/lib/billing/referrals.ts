@@ -133,10 +133,24 @@ export async function getReferralSummary(tenantId: string): Promise<ReferralSumm
  * Called from the Stripe webhook when an invitee's first payment succeeds.
  * Flips their referral joined -> paid, assigns the reward (respecting the cap),
  * then attempts to apply any banked credit to the referrer.
+ *
+ * Sales-rep-owned codes (BillReferralCode.salesRepId set) skip the
+ * reward-months path entirely — those referrals earn the rep commission via
+ * accrueSalesRepCommission instead, not free months. Still flips status so
+ * the rep's own dashboard shows the invitee as converted.
  */
 export async function processInviteePaid(inviteeTenantId: string): Promise<void> {
   const ref = await prisma.billReferral.findUnique({ where: { inviteeTenantId } });
   if (!ref || ref.status === 'paid') return; // no referral, or already processed (idempotent)
+
+  const referralCode = await prisma.billReferralCode.findFirst({ where: { code: ref.code } });
+  if (referralCode?.salesRepId) {
+    await prisma.billReferral.update({
+      where: { id: ref.id },
+      data: { status: 'paid', paidAt: new Date() },
+    });
+    return;
+  }
 
   const prior = await prisma.billReferral.aggregate({
     where: { referrerTenantId: ref.referrerTenantId },

@@ -7,6 +7,20 @@ import { encryptToken, decryptToken } from '../agentbook-bank-token';
 export type PayoutFrequency = 'monthly' | 'quarterly' | 'annual';
 
 /**
+ * Money-moving actions (submitting an invoice, changing where payment goes)
+ * require the rep still be active — a removed rep keeps read access to their
+ * own history (getSalesRepSummary), but can't submit new claims or redirect
+ * where an already-submitted invoice gets paid.
+ */
+async function requireActiveSalesRep(tenantId: string) {
+  const profile = await prisma.salesRepProfile.findUnique({ where: { tenantId } });
+  if (!profile || profile.status !== 'active') {
+    throw new Error('Not an active sales rep.');
+  }
+  return profile;
+}
+
+/**
  * Sales rep commission accrual — see docs/plans (jolly-wondering-engelbart)
  * for the full design. Sibling to referrals.ts, but fires on EVERY recurring
  * payment (unlike processInviteePaid, which is first-payment-only), since
@@ -164,7 +178,7 @@ export async function listSalesRepPayouts(tenantId: string) {
  * money-moving action the caller must surface to the rep.
  */
 export async function submitSalesRepPayout(tenantId: string): Promise<{ id: string; invoiceNumber: string; totalCents: number }> {
-  const profile = await prisma.salesRepProfile.findUniqueOrThrow({ where: { tenantId } });
+  const profile = await requireActiveSalesRep(tenantId);
   const period = closedPeriod(profile.payoutFrequency as PayoutFrequency, new Date());
 
   const alreadySubmitted = await prisma.salesRepPayout.findFirst({
@@ -188,28 +202,40 @@ export async function submitSalesRepPayout(tenantId: string): Promise<{ id: stri
   });
   const invoiceNumber = `COMM-${year}-${String(countThisYear + 1).padStart(4, '0')}`;
 
-  const payout = await prisma.$transaction(async (tx) => {
-    const created = await tx.salesRepPayout.create({
-      data: {
-        salesRepId: tenantId,
-        invoiceNumber,
-        periodLabel: `${period.start.toISOString().slice(0, 10)} to ${period.end.toISOString().slice(0, 10)}`,
-        periodStart: period.start,
-        periodEnd: period.end,
-        totalCents,
-      },
+  try {
+    const payout = await prisma.$transaction(async (tx) => {
+      // The unique constraint on [salesRepId, periodStart, periodEnd] is the
+      // real guard — the findFirst check above is just a fast, friendly
+      // pre-check for the common (non-racing) case.
+      const created = await tx.salesRepPayout.create({
+        data: {
+          salesRepId: tenantId,
+          invoiceNumber,
+          periodLabel: `${period.start.toISOString().slice(0, 10)} to ${period.end.toISOString().slice(0, 10)}`,
+          periodStart: period.start,
+          periodEnd: period.end,
+          totalCents,
+        },
+      });
+      await tx.salesRepCommissionAccrual.updateMany({
+        where: { id: { in: bundle.map((a) => a.id) } },
+        data: { payoutId: created.id },
+      });
+      return created;
     });
-    await tx.salesRepCommissionAccrual.updateMany({
-      where: { id: { in: bundle.map((a) => a.id) } },
-      data: { payoutId: created.id },
-    });
-    return created;
-  });
 
-  return { id: payout.id, invoiceNumber: payout.invoiceNumber, totalCents: payout.totalCents };
+    return { id: payout.id, invoiceNumber: payout.invoiceNumber, totalCents: payout.totalCents };
+  } catch (err) {
+    const isDuplicatePeriod = err instanceof Error && 'code' in err && (err as { code?: string }).code === 'P2002';
+    if (isDuplicatePeriod) {
+      throw new Error(`Already submitted an invoice for this ${profile.payoutFrequency} period.`);
+    }
+    throw err;
+  }
 }
 
 export async function setSalesRepBankDetails(tenantId: string, plaintext: string): Promise<void> {
+  await requireActiveSalesRep(tenantId);
   await prisma.salesRepProfile.update({
     where: { tenantId },
     data: { bankDetailsEnc: encryptToken(plaintext), bankDetailsSetAt: new Date() },

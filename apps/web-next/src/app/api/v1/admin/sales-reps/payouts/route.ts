@@ -1,6 +1,8 @@
 /**
- * GET /api/v1/admin/sales-reps/payouts?status=submitted — all commission
- * invoices across all reps, optionally filtered by status. Admin-only.
+ * GET /api/v1/admin/sales-reps/payouts?status=submitted&salesRepId=... — all
+ * commission invoices, optionally filtered by status and/or a specific rep
+ * (the latter powers the roster's per-rep payout history drill-down).
+ * Admin-only.
  */
 import 'server-only';
 import { NextRequest, NextResponse } from 'next/server';
@@ -22,7 +24,11 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   if (!sessionUser.roles.includes(ADMIN_ROLE)) return errors.forbidden('Admin permission required');
 
   const status = request.nextUrl.searchParams.get('status');
-  const where = status && VALID_STATUSES.has(status) ? { status } : {};
+  const salesRepId = request.nextUrl.searchParams.get('salesRepId');
+  const where = {
+    ...(status && VALID_STATUSES.has(status) ? { status } : {}),
+    ...(salesRepId ? { salesRepId } : {}),
+  };
 
   const payouts = await prisma.salesRepPayout.findMany({ where, orderBy: { submittedAt: 'desc' } });
   const repIds = [...new Set(payouts.map((p) => p.salesRepId))];

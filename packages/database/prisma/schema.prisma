@@ -3120,6 +3120,11 @@ model SalesRepPayout {
   paymentReference String?
   rejectionReason  String?
 
+  // Guards against a race between the app-level "already submitted this
+  // period" check and the actual insert — two concurrent submit calls (e.g.
+  // two tabs) would otherwise both pass the check and create duplicate
+  // invoices for the same period.
+  @@unique([salesRepId, periodStart, periodEnd])
   @@index([salesRepId, status])
   @@schema("plugin_agentbook_billing")
 }
