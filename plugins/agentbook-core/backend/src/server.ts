@@ -1902,7 +1902,25 @@ app.post('/api/v1/agentbook-core/accounts/seed-jurisdiction', async (req, res) =
       { code: '6700', name: 'Bank Fees', accountType: 'expense', taxCategory: 'Line 27a' },
     ];
 
-    const accounts = US_ACCOUNTS; // TODO: Select based on jurisdiction
+    const STUDENT_ACCOUNTS = [
+      { code: '1000', name: 'Cash', accountType: 'asset' },
+      { code: '1200', name: 'Checking / Debit Account', accountType: 'asset' },
+      { code: '3000', name: "Owner's Equity", accountType: 'equity' },
+      { code: '4000', name: 'Part-Time Job Income', accountType: 'revenue' },
+      { code: '4100', name: 'Tutoring / Gig Income', accountType: 'revenue', taxCategory: 'Schedule C' },
+      { code: '4200', name: 'Scholarship / Grant Income', accountType: 'revenue' },
+      { code: '4300', name: 'Family Support / Allowance', accountType: 'revenue' },
+      { code: '5000', name: 'Tuition & Fees', accountType: 'expense', taxCategory: '1098-T / T2202' },
+      { code: '5100', name: 'Textbooks & Course Materials', accountType: 'expense' },
+      { code: '5200', name: 'Rent / Housing', accountType: 'expense' },
+      { code: '5300', name: 'Meal Plan / Groceries', accountType: 'expense' },
+      { code: '5400', name: 'Transportation', accountType: 'expense' },
+      { code: '5500', name: 'Phone & Software Subscriptions', accountType: 'expense' },
+      { code: '5600', name: 'Student Loan Interest', accountType: 'expense', taxCategory: '1098-E' },
+    ];
+
+    // TODO: also select US_ACCOUNTS variants by jurisdiction when a CA chart lands.
+    const accounts = config?.businessType === 'student' ? STUDENT_ACCOUNTS : US_ACCOUNTS;
 
     const created = await db.$transaction(
       accounts.map(a => db.abAccount.upsert({
