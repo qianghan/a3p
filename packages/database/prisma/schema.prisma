@@ -3057,17 +3057,20 @@ model BillReferral {
 // One row per promoted rep. tenantId doubles as the rep's own AgentBook
 // tenant id (a rep is a normal comped tenant, not a separate entity).
 model SalesRepProfile {
-  tenantId         String    @id
-  status           String    @default("active") // active | suspended | removed
-  commissionBps    Int // basis points, e.g. 2000 = 20%
-  payoutFrequency  String    @default("quarterly") // monthly | quarterly | annual
-  billingSource    String    @default("manual") // marker only, mirrors BillSubscription.billingSource
-  bankDetailsEnc   String? // ciphertext via agentbook-bank-token.ts encryptToken()
-  bankDetailsSetAt DateTime?
-  promotedBy       String
-  promotedAt       DateTime  @default(now())
-  removedAt        DateTime?
-  removedBy        String?
+  tenantId                       String    @id
+  status                         String    @default("active") // active | suspended | removed
+  commissionBps                  Int // basis points, e.g. 2000 = 20%
+  payoutFrequency                String    @default("quarterly") // monthly | quarterly | annual
+  billingSource                  String    @default("manual") // marker only, mirrors BillSubscription.billingSource
+  stripeConnectAccountId         String? // acct_xxx — Stripe Connect Express account for real payouts
+  stripeConnectChargesEnabled    Boolean   @default(false)
+  stripeConnectPayoutsEnabled    Boolean   @default(false)
+  stripeConnectDetailsSubmitted  Boolean   @default(false)
+  stripeConnectUpdatedAt         DateTime?
+  promotedBy                     String
+  promotedAt                     DateTime  @default(now())
+  removedAt                      DateTime?
+  removedBy                      String?
 
   @@schema("plugin_agentbook_billing")
 }
@@ -3119,6 +3122,8 @@ model SalesRepPayout {
   paidBy           String?
   paymentReference String?
   rejectionReason  String?
+  payoutMethod     String    @default("stripe") // stripe | manual — manual is an admin-only fallback
+  stripeTransferId String? // tr_xxx — set once actually paid via a real Stripe transfer
 
   // Guards against a race between the app-level "already submitted this
   // period" check and the actual insert — two concurrent submit calls (e.g.

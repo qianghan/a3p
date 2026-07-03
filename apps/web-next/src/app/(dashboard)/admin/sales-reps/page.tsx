@@ -2,16 +2,20 @@
 
 /**
  * Admin Sales Rep Review — pending commission invoices to review and pay,
- * plus a roster overview of all promoted reps. Bank details are only ever
- * decrypted here, on demand, right before marking a payout paid.
+ * plus a roster overview of all promoted reps. Paying a rep sends a real
+ * Stripe transfer to their Connect account (see sales-rep-connect.ts) —
+ * "mark paid manually" is an explicit fallback for the rare case Connect
+ * isn't viable for a given rep.
  */
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
-import { Users, DollarSign, Landmark, CheckCircle2, XCircle, Pencil, History } from 'lucide-react';
+import { Users, Landmark, CheckCircle2, XCircle, Pencil, History, CreditCard } from 'lucide-react';
 import { Button, Input, Select, Badge } from '@naap/ui';
 import { useAuth } from '@/contexts/auth-context';
 import { AdminNav } from '@/components/admin/AdminNav';
+
+type PayoutMethodStatus = 'not_started' | 'pending' | 'active';
 
 interface Rep {
   tenantId: string;
@@ -21,11 +25,21 @@ interface Rep {
   commissionBps: number;
   payoutFrequency: string;
   planCode: string;
-  hasBankDetails: boolean;
+  payoutStatus: PayoutMethodStatus;
   lifetimePaidCents: number;
   pendingSubmittedCents: number;
   paidThisYearCents: number;
   crossed1099Threshold: boolean;
+}
+
+function PayoutStatusBadge({ status }: { status: PayoutMethodStatus }) {
+  if (status === 'active') {
+    return <span className="inline-flex items-center gap-1 text-emerald-600 text-xs"><Landmark className="w-3.5 h-3.5" /> Connected</span>;
+  }
+  if (status === 'pending') {
+    return <span className="inline-flex items-center gap-1 text-amber-600 text-xs"><Landmark className="w-3.5 h-3.5" /> Pending</span>;
+  }
+  return <span className="text-xs text-muted-foreground">Not set up</span>;
 }
 
 interface Payout {
@@ -49,8 +63,9 @@ export default function AdminSalesRepsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [reviewPayout, setReviewPayout] = useState<Payout | null>(null);
-  const [bankDetails, setBankDetails] = useState<string | null>(null);
+  const [reviewPayoutStatus, setReviewPayoutStatus] = useState<PayoutMethodStatus | null>(null);
   const [paymentReference, setPaymentReference] = useState('');
+  const [showManualFallback, setShowManualFallback] = useState(false);
   const [busy, setBusy] = useState(false);
   const [editTarget, setEditTarget] = useState<Rep | null>(null);
   const [editPlan, setEditPlan] = useState<'pro' | 'business'>('pro');
@@ -88,25 +103,26 @@ export default function AdminSalesRepsPage() {
 
   const openReview = async (payout: Payout) => {
     setReviewPayout(payout);
-    setBankDetails(null);
+    setReviewPayoutStatus(null);
     setPaymentReference('');
+    setShowManualFallback(false);
     try {
       const res = await fetch(`/api/v1/admin/sales-reps/payouts/${payout.id}`, { credentials: 'include' });
       const data = await res.json();
-      if (data.success) setBankDetails(data.data.bankDetails);
+      if (data.success) setReviewPayoutStatus(data.data.payoutStatus);
     } catch {
-      // Non-fatal — admin can still mark paid without seeing bank details again.
+      // Non-fatal — admin can still act from the review modal without this.
     }
   };
 
-  const markPaid = async () => {
+  const markPaid = async (payoutMethod: 'stripe' | 'manual') => {
     if (!reviewPayout) return;
     setBusy(true);
     setError(null);
     try {
       const res = await fetch(`/api/v1/admin/sales-reps/payouts/${reviewPayout.id}`, {
         method: 'PATCH', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
-        body: JSON.stringify({ action: 'markPaid', paymentReference: paymentReference || undefined }),
+        body: JSON.stringify({ action: 'markPaid', payoutMethod, paymentReference: paymentReference || undefined }),
       });
       const data = await res.json();
       if (data.success) {
@@ -203,7 +219,7 @@ export default function AdminSalesRepsPage() {
         <Users className="w-5 h-5" /> Sales Reps
       </h1>
       <p className="text-sm text-muted-foreground mb-4">
-        Review submitted commission invoices and pay them manually, then mark them paid here.
+        Review submitted commission invoices and pay reps directly via Stripe.
       </p>
 
       {error && <div className="rounded-md bg-destructive/10 text-destructive text-sm px-3 py-2 mb-4">{error}</div>}
@@ -251,7 +267,7 @@ export default function AdminSalesRepsPage() {
               <th className="pb-2">Status</th>
               <th className="pb-2">Commission</th>
               <th className="pb-2">Payout freq.</th>
-              <th className="pb-2">Bank details</th>
+              <th className="pb-2">Payout method</th>
               <th className="pb-2 text-right">Lifetime paid</th>
               <th className="pb-2 text-right">Paid this year</th>
               <th className="pb-2" />
@@ -264,13 +280,7 @@ export default function AdminSalesRepsPage() {
                 <td className="py-2"><Badge variant={r.status === 'active' ? 'emerald' : 'secondary'}>{r.status}</Badge></td>
                 <td className="py-2">{(r.commissionBps / 100).toFixed(0)}%</td>
                 <td className="py-2 text-muted-foreground">{r.payoutFrequency}</td>
-                <td className="py-2">
-                  {r.hasBankDetails ? (
-                    <span className="inline-flex items-center gap-1 text-emerald-600 text-xs"><Landmark className="w-3.5 h-3.5" /> On file</span>
-                  ) : (
-                    <span className="text-xs text-muted-foreground">Not set</span>
-                  )}
-                </td>
+                <td className="py-2"><PayoutStatusBadge status={r.payoutStatus} /></td>
                 <td className="py-2 text-right">{money(r.lifetimePaidCents)}</td>
                 <td className="py-2 text-right">
                   <div className="flex items-center justify-end gap-2">
@@ -309,26 +319,61 @@ export default function AdminSalesRepsPage() {
             </p>
             <div className="rounded-md bg-muted/50 p-3 mb-3">
               <div className="text-xs font-medium text-muted-foreground mb-1 flex items-center gap-1">
-                <DollarSign className="w-3.5 h-3.5" /> Bank details
+                <Landmark className="w-3.5 h-3.5" /> Payout method
               </div>
-              <p className="text-sm whitespace-pre-wrap">{bankDetails ?? 'Loading…'}</p>
+              {reviewPayoutStatus === null ? (
+                <p className="text-sm text-muted-foreground">Loading…</p>
+              ) : (
+                <PayoutStatusBadge status={reviewPayoutStatus} />
+              )}
+              {reviewPayoutStatus && reviewPayoutStatus !== 'active' && (
+                <p className="text-xs text-muted-foreground mt-1.5">
+                  This rep hasn&apos;t finished Stripe verification — a direct Stripe payout isn&apos;t available yet.
+                </p>
+              )}
             </div>
-            <label className="block text-xs font-medium text-muted-foreground mb-1">Payment reference (optional)</label>
-            <Input
-              placeholder="Wire confirmation #, transfer ID, etc."
-              value={paymentReference}
-              onChange={(e) => setPaymentReference(e.target.value)}
-              className="mb-4"
-            />
-            <div className="flex justify-end gap-2">
-              <Button variant="secondary" onClick={() => setReviewPayout(null)} disabled={busy}>Cancel</Button>
-              <Button variant="destructive" onClick={reject} disabled={busy}>
-                <XCircle className="w-4 h-4 mr-1" /> Reject
-              </Button>
-              <Button onClick={markPaid} disabled={busy}>
-                <CheckCircle2 className="w-4 h-4 mr-1" /> Mark paid
-              </Button>
-            </div>
+
+            {!showManualFallback ? (
+              <div className="flex justify-end gap-2">
+                <Button variant="secondary" onClick={() => setReviewPayout(null)} disabled={busy}>Cancel</Button>
+                <Button variant="destructive" onClick={reject} disabled={busy}>
+                  <XCircle className="w-4 h-4 mr-1" /> Reject
+                </Button>
+                <Button
+                  onClick={() => markPaid('stripe')}
+                  disabled={busy || reviewPayoutStatus !== 'active'}
+                  title={reviewPayoutStatus !== 'active' ? "Rep hasn't finished Stripe verification yet" : undefined}
+                >
+                  <CreditCard className="w-4 h-4 mr-1" /> Pay {money(reviewPayout.totalCents)} via Stripe
+                </Button>
+              </div>
+            ) : (
+              <>
+                <label className="block text-xs font-medium text-muted-foreground mb-1">Payment reference (optional)</label>
+                <Input
+                  placeholder="Wire confirmation #, transfer ID, etc."
+                  value={paymentReference}
+                  onChange={(e) => setPaymentReference(e.target.value)}
+                  className="mb-4"
+                />
+                <div className="flex justify-end gap-2">
+                  <Button variant="secondary" onClick={() => setShowManualFallback(false)} disabled={busy}>Back</Button>
+                  <Button onClick={() => markPaid('manual')} disabled={busy}>
+                    <CheckCircle2 className="w-4 h-4 mr-1" /> Confirm marked paid manually
+                  </Button>
+                </div>
+              </>
+            )}
+
+            {!showManualFallback && (
+              <button
+                type="button"
+                onClick={() => setShowManualFallback(true)}
+                className="mt-3 text-xs text-muted-foreground hover:text-foreground underline"
+              >
+                Paid outside Stripe instead? Mark paid manually
+              </button>
+            )}
           </div>
         </div>
       )}

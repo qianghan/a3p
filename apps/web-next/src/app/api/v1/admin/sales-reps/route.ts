@@ -9,6 +9,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { validateSession } from '@/lib/api/auth';
 import { errors, success, getAuthToken } from '@/lib/api/response';
+import { connectStatus } from '@/lib/billing/sales-rep';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -72,7 +73,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       commissionBps: p.commissionBps,
       payoutFrequency: p.payoutFrequency,
       planCode: planCodeByRep.get(p.tenantId) ?? 'pro',
-      hasBankDetails: !!p.bankDetailsEnc,
+      payoutStatus: connectStatus(p),
       promotedAt: p.promotedAt.toISOString(),
       lifetimePaidCents: paidByRep.get(p.tenantId) ?? 0,
       pendingSubmittedCents: pendingByRep.get(p.tenantId) ?? 0,

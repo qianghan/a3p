@@ -8,17 +8,19 @@
  */
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { useRouter } from 'next/navigation';
-import { Users, DollarSign, FileText, Landmark, Copy, Check } from 'lucide-react';
+import { useRouter, useSearchParams } from 'next/navigation';
+import { Users, DollarSign, FileText, Landmark, Copy, Check, ExternalLink, Loader2 } from 'lucide-react';
 import { Button, Input, Badge } from '@naap/ui';
 import { useAuth } from '@/contexts/auth-context';
+
+type PayoutMethodStatus = 'not_started' | 'pending' | 'active';
 
 interface SalesRepSummary {
   profile: {
     commissionBps: number;
     payoutFrequency: string;
     status: string;
-    hasBankDetails: boolean;
+    payoutStatus: PayoutMethodStatus;
     referralCode: string | null;
   };
   invitees: Array<{ maskedEmail: string | null; status: string; joinedAt: string; paidAt: string | null; commissionCents: number }>;
@@ -40,6 +42,7 @@ const money = (cents: number) => `$${(cents / 100).toFixed(2)}`;
 
 export default function SalesRepDashboardPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { hasRole, isLoading: authLoading } = useAuth();
   const [summary, setSummary] = useState<SalesRepSummary | null>(null);
   const [payouts, setPayouts] = useState<Payout[]>([]);
@@ -48,7 +51,7 @@ export default function SalesRepDashboardPage() {
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [copied, setCopied] = useState(false);
-  const [bankDetails, setBankDetails] = useState('');
+  const [connectBusy, setConnectBusy] = useState(false);
 
   const isSalesRep = hasRole('sales_rep');
 
@@ -75,8 +78,18 @@ export default function SalesRepDashboardPage() {
   useEffect(() => {
     if (authLoading) return;
     if (!isSalesRep) { router.push('/agentbook'); return; }
+
+    const stripeConnect = searchParams.get('stripe_connect');
+    if (stripeConnect === 'return' || stripeConnect === 'refresh') {
+      router.replace('/sales-rep');
+      fetch('/api/v1/agentbook-billing/sales-rep/connect/refresh', { method: 'POST', credentials: 'include' })
+        .catch(() => {})
+        .finally(load);
+      return;
+    }
+
     load();
-  }, [authLoading, isSalesRep, load, router]);
+  }, [authLoading, isSalesRep, load, router, searchParams]);
 
   const flash = (m: string) => { setSuccessMsg(m); setTimeout(() => setSuccessMsg(null), 4000); };
 
@@ -110,27 +123,39 @@ export default function SalesRepDashboardPage() {
     }
   };
 
-  const saveBankDetails = async () => {
-    if (!bankDetails.trim()) return;
-    setBusy(true);
+  const startOnboarding = async () => {
+    setConnectBusy(true);
     setError(null);
     try {
-      const res = await fetch('/api/v1/agentbook-billing/sales-rep/bank-details', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
-        body: JSON.stringify({ bankDetails: bankDetails.trim() }),
-      });
+      const res = await fetch('/api/v1/agentbook-billing/sales-rep/connect/onboard', { method: 'POST', credentials: 'include' });
       const data = await res.json();
-      if (data.success) {
-        setBankDetails('');
-        flash('Bank details saved.');
-        await load();
+      if (data.success && data.data?.url) {
+        window.location.href = data.data.url;
       } else {
-        setError(data.error || 'Failed to save bank details');
+        setError(data.error || 'Failed to start Stripe onboarding');
+        setConnectBusy(false);
       }
     } catch {
-      setError('Failed to save bank details');
+      setError('Failed to start Stripe onboarding');
+      setConnectBusy(false);
+    }
+  };
+
+  const openDashboardLink = async () => {
+    setConnectBusy(true);
+    setError(null);
+    try {
+      const res = await fetch('/api/v1/agentbook-billing/sales-rep/connect/dashboard-link', { credentials: 'include' });
+      const data = await res.json();
+      if (data.success && data.data?.url) {
+        window.open(data.data.url, '_blank', 'noopener,noreferrer');
+      } else {
+        setError(data.error || 'Failed to open Stripe dashboard');
+      }
+    } catch {
+      setError('Failed to open Stripe dashboard');
     } finally {
-      setBusy(false);
+      setConnectBusy(false);
     }
   };
 
@@ -262,23 +287,46 @@ export default function SalesRepDashboardPage() {
         )}
       </div>
 
-      {/* Bank details */}
+      {/* Payout method */}
       <div className="rounded-lg border border-border bg-card p-4">
         <div className="flex items-center gap-2 text-sm font-medium mb-2">
-          <Landmark className="w-4 h-4" /> Payout bank details
-          {summary.profile.hasBankDetails && <Badge variant="emerald">On file</Badge>}
+          <Landmark className="w-4 h-4" /> Payout method
+          {summary.profile.payoutStatus === 'active' && <Badge variant="emerald">Connected</Badge>}
+          {summary.profile.payoutStatus === 'pending' && <Badge variant="blue">Verification pending</Badge>}
         </div>
-        <p className="text-xs text-muted-foreground mb-3">
-          Stored encrypted. Only decrypted by admin at the moment they send a payment.
-        </p>
-        <div className="flex items-center gap-2">
-          <Input
-            placeholder="Bank name, account/routing number, or payout email"
-            value={bankDetails}
-            onChange={(e) => setBankDetails(e.target.value)}
-          />
-          <Button onClick={saveBankDetails} disabled={busy || !bankDetails.trim()}>Save</Button>
-        </div>
+        {summary.profile.payoutStatus === 'active' ? (
+          <>
+            <p className="text-xs text-muted-foreground mb-3">
+              Payouts go straight to your bank account via Stripe. Manage your bank details or payout schedule
+              directly in your Stripe Express dashboard.
+            </p>
+            <Button variant="secondary" onClick={openDashboardLink} disabled={connectBusy}>
+              {connectBusy ? <Loader2 className="w-4 h-4 animate-spin mr-1.5" /> : <ExternalLink className="w-4 h-4 mr-1.5" />}
+              Open Stripe dashboard
+            </Button>
+          </>
+        ) : summary.profile.payoutStatus === 'pending' ? (
+          <>
+            <p className="text-xs text-muted-foreground mb-3">
+              You started setup with Stripe but haven&apos;t finished verification yet. Finish it to receive payouts.
+            </p>
+            <Button onClick={startOnboarding} disabled={connectBusy}>
+              {connectBusy && <Loader2 className="w-4 h-4 animate-spin mr-1.5" />}
+              Continue setup
+            </Button>
+          </>
+        ) : (
+          <>
+            <p className="text-xs text-muted-foreground mb-3">
+              Set up payouts with Stripe to get paid directly to your bank account. Stripe collects your bank
+              details and verifies your identity — AgentBook never sees or stores them.
+            </p>
+            <Button onClick={startOnboarding} disabled={connectBusy}>
+              {connectBusy && <Loader2 className="w-4 h-4 animate-spin mr-1.5" />}
+              Set up payouts with Stripe
+            </Button>
+          </>
+        )}
       </div>
     </div>
   );

@@ -1,11 +1,13 @@
 /**
- * GET   /api/v1/admin/sales-reps/payouts/[id] — payout detail + decrypted
- *   bank details. The ONLY place plaintext bank details are ever exposed —
- *   at the moment admin actually needs them to send payment.
- * PATCH /api/v1/admin/sales-reps/payouts/[id] — mark paid or rejected.
- *   Only touches status/paidAt/paidBy/paymentReference/rejectionReason —
- *   never totalCents/invoiceNumber/period, which stay immutable after
- *   submission for audit purposes.
+ * GET   /api/v1/admin/sales-reps/payouts/[id] — payout detail + the rep's
+ *   Stripe Connect payout readiness (replaces the old plaintext bank-details
+ *   exposure — admin never sees raw bank data now, Stripe holds it).
+ * PATCH /api/v1/admin/sales-reps/payouts/[id] — mark paid (via a real Stripe
+ *   transfer when the rep is Connect-ready, or a manual fallback otherwise)
+ *   or reject. Only touches status/paidAt/paidBy/paymentReference/
+ *   rejectionReason/payoutMethod/stripeTransferId — never totalCents/
+ *   invoiceNumber/period, which stay immutable after submission for audit
+ *   purposes.
  * Admin-only.
  */
 import 'server-only';
@@ -13,7 +15,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { validateSession } from '@/lib/api/auth';
 import { errors, success, getAuthToken } from '@/lib/api/response';
-import { getSalesRepBankDetails } from '@/lib/billing/sales-rep';
+import { connectStatus } from '@/lib/billing/sales-rep';
+import { payRepViaStripeTransfer, StripePayoutError } from '@/lib/billing/sales-rep-connect';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -40,7 +43,7 @@ export async function GET(
   const payout = await prisma.salesRepPayout.findUnique({ where: { id } });
   if (!payout) return errors.notFound('Payout');
 
-  const bankDetails = await getSalesRepBankDetails(payout.salesRepId);
+  const profile = await prisma.salesRepProfile.findUnique({ where: { tenantId: payout.salesRepId } });
   const user = await prisma.user.findUnique({ where: { id: payout.salesRepId }, select: { email: true, displayName: true } });
 
   return success({
@@ -53,7 +56,7 @@ export async function GET(
       submittedAt: payout.submittedAt.toISOString(),
     },
     salesRep: { email: user?.email ?? null, displayName: user?.displayName ?? null },
-    bankDetails, // plaintext — admin-only, shown once to complete the payment
+    payoutStatus: profile ? connectStatus(profile) : 'not_started',
   });
 }
 
@@ -74,11 +77,24 @@ export async function PATCH(
   if (payout.status === 'paid') return errors.badRequest('Payout is already marked paid');
 
   if (action === 'markPaid') {
-    const paymentReference = typeof body?.paymentReference === 'string' ? body.paymentReference : null;
-    await prisma.salesRepPayout.update({
-      where: { id },
-      data: { status: 'paid', paidAt: new Date(), paidBy: sessionUser.id, paymentReference },
-    });
+    // Default to a real Stripe transfer. 'manual' is an explicit admin
+    // escape hatch for the rare case Connect isn't viable for a given rep.
+    const payoutMethod = body?.payoutMethod === 'manual' ? 'manual' : 'stripe';
+
+    if (payoutMethod === 'manual') {
+      const paymentReference = typeof body?.paymentReference === 'string' ? body.paymentReference : null;
+      await prisma.salesRepPayout.update({
+        where: { id },
+        data: { status: 'paid', paidAt: new Date(), paidBy: sessionUser.id, paymentReference, payoutMethod: 'manual' },
+      });
+    } else {
+      try {
+        await payRepViaStripeTransfer(id, sessionUser.id);
+      } catch (err) {
+        if (err instanceof StripePayoutError) return errors.badRequest(err.message);
+        throw err;
+      }
+    }
   } else if (action === 'reject') {
     const rejectionReason = typeof body?.rejectionReason === 'string' ? body.rejectionReason : 'No reason given';
     await prisma.salesRepPayout.update({

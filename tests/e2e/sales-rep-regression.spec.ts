@@ -12,8 +12,8 @@
  *      creating duplicate invoices for the same period — only an app-level
  *      check-then-act race. Fixed with a unique constraint.
  *   3. A revoked rep's session could still hit submitSalesRepPayout /
- *      setSalesRepBankDetails directly (no status check beyond the accrual
- *      function). Fixed with a shared active-status guard.
+ *      the Stripe Connect onboarding endpoints directly (no status check
+ *      beyond the accrual function). Fixed with a shared active-status guard.
  *
  * Runs against local dev + local Postgres, same conventions as
  * sales-rep-program.spec.ts.
@@ -130,7 +130,7 @@ test.describe.serial('Sales rep regression fixes', () => {
     await prisma.user.delete({ where: { id: repId } });
   });
 
-  test('3. a removed rep cannot submit invoices or change bank details, but can still read their summary', async ({ request }) => {
+  test('3. a removed rep cannot submit invoices or start Stripe onboarding, but can still read their summary', async ({ request }) => {
     const { repId, repToken } = await seedRep('revoked', { status: 'removed' });
 
     const summary = await request.get(`${WEB}/api/v1/agentbook-billing/sales-rep/summary`, { headers: cookieAuthHeaders(repToken) });
@@ -141,14 +141,15 @@ test.describe.serial('Sales rep regression fixes', () => {
     const submitBody = await submit.json();
     expect(submitBody.error).toContain('Not an active sales rep');
 
-    const bankDetails = await request.post(`${WEB}/api/v1/agentbook-billing/sales-rep/bank-details`, {
+    const onboard = await request.post(`${WEB}/api/v1/agentbook-billing/sales-rep/connect/onboard`, {
       headers: cookieAuthHeaders(repToken),
-      data: { bankDetails: 'Attempted post-removal change' },
     });
-    expect(bankDetails.status()).toBe(403);
+    expect(onboard.status()).toBe(400);
+    const onboardBody = await onboard.json();
+    expect(onboardBody.error).toContain('Not an active sales rep');
 
     const profile = await prisma.salesRepProfile.findUnique({ where: { tenantId: repId } });
-    expect(profile?.bankDetailsEnc).toBeNull(); // the blocked write never landed
+    expect(profile?.stripeConnectAccountId).toBeNull(); // the blocked onboarding attempt never created an account
 
     await prisma.salesRepProfile.delete({ where: { tenantId: repId } });
     await prisma.billReferralCode.deleteMany({ where: { tenantId: repId } });

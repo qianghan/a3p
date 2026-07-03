@@ -3,9 +3,18 @@ import { prisma } from '@naap/database';
 import { invalidateAccount } from '@naap/billing';
 import { processInviteePaid, applyPendingCredits } from '@/lib/billing/referrals';
 import { accrueSalesRepCommission } from '@/lib/billing/sales-rep';
+import { refreshConnectStatusByAccountId } from '@/lib/billing/sales-rep-connect';
 import type Stripe from 'stripe';
 
 export async function applyEvent(event: Stripe.Event): Promise<void> {
+  // Connect account events (e.g. a sales rep's onboarding progress) arrive on
+  // this same endpoint/secret once "listen to events on connected accounts"
+  // is enabled in the Stripe dashboard — disambiguated by event.account.
+  if (event.account && event.type === 'account.updated') {
+    await refreshConnectStatusByAccountId(event.account);
+    return;
+  }
+
   switch (event.type) {
     case 'customer.subscription.created':
     case 'customer.subscription.updated': {

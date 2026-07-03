@@ -2,7 +2,6 @@ import 'server-only';
 import { prisma } from '@naap/database';
 import type Stripe from 'stripe';
 import { maskEmail } from './referrals';
-import { encryptToken, decryptToken } from '../agentbook-bank-token';
 
 export type PayoutFrequency = 'monthly' | 'quarterly' | 'annual';
 
@@ -12,7 +11,7 @@ export type PayoutFrequency = 'monthly' | 'quarterly' | 'annual';
  * own history (getSalesRepSummary), but can't submit new claims or redirect
  * where an already-submitted invoice gets paid.
  */
-async function requireActiveSalesRep(tenantId: string) {
+export async function requireActiveSalesRep(tenantId: string) {
   const profile = await prisma.salesRepProfile.findUnique({ where: { tenantId } });
   if (!profile || profile.status !== 'active') {
     throw new Error('Not an active sales rep.');
@@ -105,12 +104,20 @@ function closedPeriod(frequency: PayoutFrequency, now: Date): { start: Date; end
   return periodBounds(frequency, new Date(current.start.getTime() - 1));
 }
 
+export type PayoutMethodStatus = 'not_started' | 'pending' | 'active';
+
+export function connectStatus(profile: { stripeConnectAccountId: string | null; stripeConnectPayoutsEnabled: boolean }): PayoutMethodStatus {
+  if (profile.stripeConnectPayoutsEnabled) return 'active';
+  if (profile.stripeConnectAccountId) return 'pending';
+  return 'not_started';
+}
+
 export interface SalesRepSummary {
   profile: {
     commissionBps: number;
     payoutFrequency: PayoutFrequency;
     status: string;
-    hasBankDetails: boolean;
+    payoutStatus: PayoutMethodStatus;
     referralCode: string | null;
   };
   invitees: Array<{ maskedEmail: string | null; status: string; joinedAt: string; paidAt: string | null; commissionCents: number }>;
@@ -151,7 +158,7 @@ export async function getSalesRepSummary(tenantId: string): Promise<SalesRepSumm
       commissionBps: profile.commissionBps,
       payoutFrequency: profile.payoutFrequency as PayoutFrequency,
       status: profile.status,
-      hasBankDetails: !!profile.bankDetailsEnc,
+      payoutStatus: connectStatus(profile),
       referralCode: referralCode?.code ?? null,
     },
     invitees: referrals.map((r) => ({
@@ -234,17 +241,3 @@ export async function submitSalesRepPayout(tenantId: string): Promise<{ id: stri
   }
 }
 
-export async function setSalesRepBankDetails(tenantId: string, plaintext: string): Promise<void> {
-  await requireActiveSalesRep(tenantId);
-  await prisma.salesRepProfile.update({
-    where: { tenantId },
-    data: { bankDetailsEnc: encryptToken(plaintext), bankDetailsSetAt: new Date() },
-  });
-}
-
-/** Admin-only — decrypts bank details at the moment of actually sending payment. */
-export async function getSalesRepBankDetails(tenantId: string): Promise<string | null> {
-  const profile = await prisma.salesRepProfile.findUnique({ where: { tenantId } });
-  if (!profile?.bankDetailsEnc) return null;
-  return decryptToken(profile.bankDetailsEnc);
-}

@@ -173,13 +173,7 @@ test.describe.serial('Sales rep commission program', () => {
     expect(listBody.data.payouts[0].status).toBe('submitted');
   });
 
-  test('4. rep sets bank details; admin reviews and marks the invoice paid', async ({ request }) => {
-    const saveBank = await request.post(`${WEB}/api/v1/agentbook-billing/sales-rep/bank-details`, {
-      headers: cookieAuthHeaders(REP_TOKEN),
-      data: { bankDetails: 'Test Bank, Acct 000111222, Routing 999888777' },
-    });
-    expect(saveBank.status()).toBe(200);
-
+  test('4. admin reviews the invoice, sees the rep has not set up Stripe payouts yet, and marks it paid manually', async ({ request }) => {
     const adminList = await request.get(`${WEB}/api/v1/admin/sales-reps/payouts?status=submitted`, { headers: authHeaders(ADMIN_TOKEN) });
     const adminListBody = await adminList.json();
     const payout = adminListBody.data.payouts.find((p: { salesRepId: string }) => p.salesRepId === REP_ID);
@@ -188,23 +182,31 @@ test.describe.serial('Sales rep commission program', () => {
     const detail = await request.get(`${WEB}/api/v1/admin/sales-reps/payouts/${payout.id}`, { headers: authHeaders(ADMIN_TOKEN) });
     expect(detail.status()).toBe(200);
     const detailBody = await detail.json();
-    expect(detailBody.data.bankDetails).toBe('Test Bank, Acct 000111222, Routing 999888777');
+    expect(detailBody.data.payoutStatus).toBe('not_started'); // rep never started Stripe Connect onboarding
+
+    // Stripe transfer is refused for a rep who isn't Connect-ready.
+    const stripeAttempt = await request.patch(`${WEB}/api/v1/admin/sales-reps/payouts/${payout.id}`, {
+      headers: authHeaders(ADMIN_TOKEN),
+      data: { action: 'markPaid', payoutMethod: 'stripe' },
+    });
+    expect(stripeAttempt.status()).toBe(400);
 
     const markPaid = await request.patch(`${WEB}/api/v1/admin/sales-reps/payouts/${payout.id}`, {
       headers: authHeaders(ADMIN_TOKEN),
-      data: { action: 'markPaid', paymentReference: 'E2E-WIRE-1' },
+      data: { action: 'markPaid', payoutMethod: 'manual', paymentReference: 'E2E-WIRE-1' },
     });
     expect(markPaid.status()).toBe(200);
 
     const updated = await prisma.salesRepPayout.findUnique({ where: { id: payout.id } });
     expect(updated?.status).toBe('paid');
+    expect(updated?.payoutMethod).toBe('manual');
     expect(updated?.paymentReference).toBe('E2E-WIRE-1');
     expect(updated?.totalCents).toBe(380); // immutable — unchanged by the mark-paid action
 
     // Already-paid invoices can't be marked paid again.
     const second = await request.patch(`${WEB}/api/v1/admin/sales-reps/payouts/${payout.id}`, {
       headers: authHeaders(ADMIN_TOKEN),
-      data: { action: 'markPaid' },
+      data: { action: 'markPaid', payoutMethod: 'manual' },
     });
     expect(second.status()).toBe(400);
   });
