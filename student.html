@@ -397,37 +397,68 @@
     <section id="plan">
       <div class="num">10</div>
       <h2>Phased Plan</h2>
+
       <div class="card">
-        <div class="card-head"><span class="card-id">PHASE A</span><h5>Persona plumbing</h5></div>
-        <ul><li>Add <code>"student"</code> as a <code>businessType</code> value; persona-conditional onboarding copy/steps; student default expense categories.</li></ul>
+        <div class="card-head"><span class="card-id">PHASE A</span><h5>Persona plumbing</h5> <span class="pill pill-high">Shipped &amp; validated in prod</span></div>
+        <ul>
+          <li><code>"student"</code> added as a <code>businessType</code> value (no new role/schema) — <a href="https://github.com/qianghan/a3p/pull/201">PR #201</a>.</li>
+          <li>Onboarding (chat + legacy wizard) branches copy at the categories, first-log, and completion steps.</li>
+          <li>Student-specific default chart of accounts (tuition, textbooks, tutoring/gig income, scholarships, student loan interest) replacing the Schedule-C set, in both the live Next.js route and the legacy Express server.</li>
+          <li>Regression test <code>tests/e2e/student-persona.spec.ts</code> passing against <code>agentbook.brainliber.com</code> — registers a throwaway account, confirms the student chart of accounts lands and the freelancer one doesn't.</li>
+        </ul>
       </div>
+
       <div class="card">
-        <div class="card-head"><span class="card-id">PHASE B</span><h5>Student Free plan + .edu verification</h5></div>
-        <ul><li>New <code>BillPlan</code> row; verification integration; upgrade nudge once gig/freelance volume crosses a fair-use threshold.</li></ul>
+        <div class="card-head"><span class="card-id">PHASE B</span><h5>Student Free plan + verification</h5> <span class="pill pill-info">Scoped, needs a decision</span></div>
+        <ul>
+          <li><strong>Smaller than originally scoped.</strong> A <code>$0</code> <code>free</code> <code>BillPlan</code> row already exists and every new signup defaults to it — there is no new billing primitive to build. The open question is purely: does a verified student get anything <em>different</em> from today's generic free tier, and if so, what gates it?</li>
+          <li>Three verification options, increasing cost and anti-abuse strength: (1) none — <code>businessType=student</code> is self-declared, same as freelancer/consultant today; (2) a lightweight in-house check (.edu email domain match at signup, no vendor contract, ships in a day); (3) a paid vendor (SheerID/ID.me) — real anti-fraud, but a contract/budget decision, not an engineering one.</li>
+          <li>If students get an enhanced free tier (e.g. <code>telegram_bot: true</code>, a higher AI-message quota than the generic free plan's 100/mo), that's a new <code>BillPlan</code> row + a gate on the businessType/verification flag — small, but needs the quotas decided first.</li>
+        </ul>
       </div>
+
       <div class="card">
-        <div class="card-head"><span class="card-id">PHASE C</span><h5>Scholarship-taxability and education-credit skills</h5></div>
-        <ul><li>Decision-tree skill for scholarship/grant taxability; education-credit (AOTC/LLC, tuition transfer) guidance surfaced in the agent brain.</li></ul>
+        <div class="card-head"><span class="card-id">PHASE C</span><h5>Scholarship-taxability &amp; education-credit skill</h5> <span class="pill pill-info">Scoped, needs content sign-off</span></div>
+        <ul>
+          <li>Mechanically small — follows the existing pattern exactly: add a manifest to <code>BUILT_IN_SKILLS</code> in <code>plugins/agentbook-core/backend/src/server.ts</code>, an inline handler in <code>classifyAndExecuteV1()</code>, seed via <code>POST /agent/seed-skills</code>.</li>
+          <li>The real work is the <em>content</em>: the actual decision-tree rules (US: qualified vs. non-qualified scholarship expenses, AOTC/LLC eligibility and phase-outs, dependent-status restrictions; Canada: T2202 tuition transfer, RESP EAP vs. capital-withdrawal treatment). I can draft this from the research already done in &sect;2, but it's tax guidance a real user will act on — see the sign-off question below.</li>
+        </ul>
       </div>
+
       <div class="card">
-        <div class="card-head"><span class="card-id">PHASE D</span><h5>International track</h5></div>
-        <ul><li>Visa-status branch in onboarding; treaty-lookup skill; Sprintax/GLACIER hand-off links; 1042-S-aware document scanning.</li></ul>
+        <div class="card-head"><span class="card-id">PHASE D</span><h5>International / visa track</h5> <span class="pill pill-info">Scoped, needs a schema decision</span></div>
+        <ul>
+          <li>Unlike Phase A, this genuinely needs a small schema addition — nothing in <code>AbTenantConfig</code> today captures visa status or home country. A migration (e.g. <code>visaStatus</code>, <code>homeCountry</code> fields) is a real, reviewable change, not a config value.</li>
+          <li>Treaty-lookup skill needs a country &rarr; treaty-terms data table. I have verified data for a couple of major sending countries (China Art. 20, India Art. 21) from &sect;2's research; a table covering the top ~10 F-1/J-1 source countries is a research task I can do, but again — see the sign-off question.</li>
+          <li>Sprintax/GLACIER hand-off: a static informational link costs nothing and can ship immediately. An actual referral/affiliate partnership is a business-development conversation only you can start.</li>
+          <li>1042-S-aware document scanning extends the existing Gemini OCR skill — feasible, needs a few sample 1042-S images to tune the extraction prompt against.</li>
+        </ul>
       </div>
+
       <div class="card">
-        <div class="card-head"><span class="card-id">PHASE E</span><h5>Campus distribution</h5></div>
-        <ul><li>Student-ambassador referral codes; international-student-office and financial-aid-office partnership outreach; parent-share link.</li></ul>
+        <div class="card-head"><span class="card-id">PHASE E</span><h5>Campus distribution</h5> <span class="pill pill-high">Cheaper than scoped — reuses shipped infra</span></div>
+        <ul>
+          <li><strong>Student-ambassador referral codes need zero new schema.</strong> <code>BillReferralCode</code>/<code>BillReferral</code> (shipped in <a href="https://github.com/qianghan/a3p/pull/169">PR #169-171/#180</a>) already give every tenant a unique code, invite tracking, and a reward-months mechanism via <code>GET /api/v1/agentbook-billing/referrals/me</code>. A "student ambassador" is just this same code, distributed through a campus channel instead of word of mouth — no new engineering, a copy/positioning exercise at most.</li>
+          <li><strong>The parent read-only share link needs zero new schema too.</strong> <code>AbCpaReviewLink</code> + the <code>/review/[token]</code> route (shipped) already expose a scoped, revocable, expirable read-only P&amp;L/summary link with no CPA-specific coupling in the data it returns. Reusing it for "share a summary with a parent" is a UI entry point + copy change, not a new access-control model.</li>
+          <li>International-student-office / financial-aid-office / peer-coaching-center partnerships are pure business development — outreach, a pitch, a relationship. That part is entirely yours; I can draft outreach copy or a one-pager if useful, but I can't make the calls.</li>
+        </ul>
       </div>
     </section>
 
     <section id="open">
       <div class="num">11</div>
-      <h2>Open Decisions</h2>
-      <ul>
-        <li>Which .edu/student-verification vendor to integrate (SheerID vs a lighter-weight in-house check) — cost per verification vs fraud tolerance.</li>
-        <li>Where the Student Free &rarr; Pro fair-use line sits (income threshold? gig-transaction count?) so the free tier doesn't become a permanent shelter for real self-employment income.</li>
-        <li>Whether to build a proprietary treaty-lookup table in-house or license one, given how narrow and high-stakes international tax-treaty data is.</li>
-        <li>Formal partnership conversations with Sprintax/GLACIER (referral vs pure informational link) versus staying arm's-length.</li>
-      </ul>
+      <h2>Open Decisions — Inputs Needed From You</h2>
+      <p>Everything below is a business/product judgment call, not an engineering unknown — I've scoped each phase down to the point where the only thing blocking a start is one of these.</p>
+      <ol>
+        <li><strong>Phase B verification:</strong> ship with no verification (self-declared, same trust level as every other businessType today), a free .edu-email check, or a paid vendor (SheerID/ID.me)? Recommendation: no verification for now — there's no differentiated pricing to protect yet, so there's nothing to defraud.</li>
+        <li><strong>Phase B quotas:</strong> should <code>businessType=student</code> get anything different from today's generic free plan, or is "free tier already exists, just point students at it" good enough for now?</li>
+        <li><strong>Phase C content sign-off:</strong> I can draft the scholarship-taxability and education-credit rule content from the research in &sect;2 — do you want that as a starting draft for your own review, or do you want a tax professional to vet the ruleset before anything ships, given AgentBook would be giving tax guidance a user acts on?</li>
+        <li><strong>C vs. D priority:</strong> Phase C serves the larger domestic segment; Phase D requires a real schema migration and touches immigration-adjacent guidance (higher stakes if wrong). Recommendation: C first. Agree, or is the international segment the priority for another reason (e.g. a specific university partnership already in motion)?</li>
+        <li><strong>Phase D schema:</strong> OK to add the small <code>AbTenantConfig</code> migration (visa status, home country) needed for the international track, or hold off until there's a concrete user/partnership to build it for?</li>
+        <li><strong>Phase D partnership:</strong> pursue an actual Sprintax/GLACIER referral relationship (needs your outreach — I can draft the pitch) or ship a plain informational link for now and revisit later?</li>
+        <li><strong>Phase E ambassador economics:</strong> reuse the existing referral reward (currently free months, which mainly appeals to someone already paying) as-is, or does a student ambassador need different economics (e.g. a gift card / cash incentive) since most students will be on the free tier and a "free month" has no value to them?</li>
+        <li><strong>Phase E campus outreach:</strong> do you want a draft outreach email / one-pager for financial-aid and international-student offices, or are you driving that relationship-building entirely yourself?</li>
+      </ol>
     </section>
 
   </main>
