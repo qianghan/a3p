@@ -3180,9 +3180,6 @@ model PartnerProgramSettings {
   @@schema("plugin_agentbook_billing")
 }
 
-// Admin-curated marketing videos (sales-rep.html §15) — hosted on YouTube
-// and simply linked; AgentBook never stores or transcodes the media
-// itself. Visible to active reps only, ordered by sortOrder.
 // ============================================================================
 // Content Library plugin (packages/content-library) — a generic, gated
 // content catalog with NO knowledge of tenants, sales reps, or any other

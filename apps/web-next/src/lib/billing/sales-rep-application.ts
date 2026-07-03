@@ -55,11 +55,11 @@ export async function checkPartnerEligibility(tenantId: string): Promise<Eligibi
  * makes the second transaction wait for the first to commit, so it reads
  * the already-merged value rather than the stale one.
  */
-export async function withLockedDraftApplication<T>(
+export async function withLockedDraftApplication(
   tenantId: string,
   applicationId: string,
   mutate: (application: { answers: unknown; jurisdiction: string }) => Prisma.SalesRepApplicationUpdateInput,
-): Promise<T> {
+) {
   return prisma.$transaction(async (tx) => {
     const rows = await tx.$queryRaw<Array<{ id: string; tenantId: string; status: string; answers: unknown; jurisdiction: string }>>`
       SELECT id, "tenantId", status, answers, jurisdiction
@@ -76,7 +76,7 @@ export async function withLockedDraftApplication<T>(
     }
 
     const data = mutate(application);
-    return tx.salesRepApplication.update({ where: { id: applicationId }, data }) as unknown as T;
+    return tx.salesRepApplication.update({ where: { id: applicationId }, data });
   });
 }
 

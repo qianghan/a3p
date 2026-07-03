@@ -8,8 +8,8 @@ export const dynamic = 'force-dynamic';
 /**
  * PATCH /api/v1/agentbook-billing/sales-rep/application/[id] — save
  * progress on steps 1-2 of the application (fit answers + jurisdiction).
- * Only the owning tenant's own draft can be updated; submission (steps
- * 3-5: disclosures, e-sign, finalize) is a separate, later PR.
+ * Only the owning tenant's own draft can be updated; steps 3-5
+ * (disclosures, e-sign, finalize) live under ./acknowledge and ./submit.
  */
 export async function PATCH(
   request: NextRequest,

@@ -88,6 +88,23 @@ export default function PartnerApplicationPage() {
         setReferralPlan((app.answers?.referralPlan as string) || '');
         setJurisdiction(app.jurisdiction);
       }
+      // Resume at the furthest step the applicant already reached, rather
+      // than always dropping a returning draft back at step 1 — "save and
+      // come back" (sales-rep.html §4) should resume progress, not just
+      // preserve the field values.
+      if (app?.status === 'draft') {
+        const previewRes = await getJson(
+          `/api/v1/agentbook-billing/sales-rep/application/${app.id}/contract-preview`,
+        );
+        if (previewRes.success) {
+          setPreview(previewRes.data);
+          const hasAnyAcknowledgment =
+            previewRes.data.taxpayerNoticeAcknowledged ||
+            previewRes.data.sections.some((s: LiabilitySection) => s.acknowledged);
+          if (previewRes.data.readyToSign) setStep(5);
+          else if (hasAnyAcknowledgment) setStep(3);
+        }
+      }
     } catch {
       setError('Failed to load the Partner Program application.');
     } finally {
@@ -103,10 +120,10 @@ export default function PartnerApplicationPage() {
   }, []);
 
   useEffect(() => {
-    if (application?.status === 'draft' && step >= 3) {
+    if (application?.status === 'draft' && step >= 3 && !preview) {
       loadPreview(application.id);
     }
-  }, [application, step, loadPreview]);
+  }, [application, step, preview, loadPreview]);
 
   const startApplication = async () => {
     setBusy(true);
@@ -116,6 +133,10 @@ export default function PartnerApplicationPage() {
       setApplication(res.data.application);
       setJurisdiction(res.data.application.jurisdiction);
       setStep(1);
+      // Clear out any preview left over from a prior application (e.g.
+      // "Apply again" after a rejection) — otherwise step 3 would briefly
+      // render stale acknowledgment state from the superseded application.
+      setPreview(null);
     } else {
       setError(res.error || 'Failed to start your application.');
     }

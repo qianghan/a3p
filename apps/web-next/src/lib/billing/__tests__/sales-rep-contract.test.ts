@@ -21,7 +21,19 @@ const txMock = {
   salesRepApplication: { update: (...a: unknown[]) => salesRepApplicationUpdate(...a) },
 };
 
+const { FakePrismaClientKnownRequestError } = vi.hoisted(() => {
+  class FakePrismaClientKnownRequestError extends Error {
+    code: string;
+    constructor(message: string, code: string) {
+      super(message);
+      this.code = code;
+    }
+  }
+  return { FakePrismaClientKnownRequestError };
+});
+
 vi.mock('@naap/database', () => ({
+  Prisma: { PrismaClientKnownRequestError: FakePrismaClientKnownRequestError },
   prisma: {
     salesRepApplication: {
       findUnique: (...a: unknown[]) => salesRepApplicationFindUnique(...a),
@@ -288,7 +300,9 @@ describe('signAndSubmitApplication', () => {
     expect(transactionMock).toHaveBeenCalledTimes(1);
     expect(salesRepApplicationUpdate).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: { id: 'app1' },
+        // status: 'draft' in the where clause is the double-submit guard —
+        // see the regression test below.
+        where: { id: 'app1', status: 'draft' },
         data: expect.objectContaining({ status: 'submitted' }),
       }),
     );
@@ -305,6 +319,40 @@ describe('signAndSubmitApplication', () => {
       }),
     );
     expect(result.contract).toEqual({ id: 'contract1', commissionBpsAtSigning: DEFAULT_COMMISSION_BPS });
+  });
+
+  it('translates a double-submit race (P2025: the where.status=draft guard matched nothing) into a clean message, not a raw Prisma error', async () => {
+    salesRepApplicationFindUnique.mockResolvedValue(fullyAcknowledged());
+    userFindUnique.mockResolvedValue(null);
+    transactionMock.mockRejectedValueOnce(
+      new FakePrismaClientKnownRequestError('Record to update not found.', 'P2025'),
+    );
+
+    await expect(
+      signAndSubmitApplication('t1', 'app1', { signedByName: 'Jane Doe', signerIp: '1.1.1.1', signerUserAgent: 'ua' }),
+    ).rejects.toThrow('This application has already been submitted.');
+  });
+
+  it('translates a double-submit race (P2002: two concurrent transactions both created a contract) into a clean message', async () => {
+    salesRepApplicationFindUnique.mockResolvedValue(fullyAcknowledged());
+    userFindUnique.mockResolvedValue(null);
+    transactionMock.mockRejectedValueOnce(
+      new FakePrismaClientKnownRequestError('Unique constraint failed on the fields: (`applicationId`)', 'P2002'),
+    );
+
+    await expect(
+      signAndSubmitApplication('t1', 'app1', { signedByName: 'Jane Doe', signerIp: '1.1.1.1', signerUserAgent: 'ua' }),
+    ).rejects.toThrow('This application has already been submitted.');
+  });
+
+  it('re-throws an unrelated database error verbatim rather than masking it', async () => {
+    salesRepApplicationFindUnique.mockResolvedValue(fullyAcknowledged());
+    userFindUnique.mockResolvedValue(null);
+    transactionMock.mockRejectedValueOnce(new Error('connection reset'));
+
+    await expect(
+      signAndSubmitApplication('t1', 'app1', { signedByName: 'Jane Doe', signerIp: '1.1.1.1', signerUserAgent: 'ua' }),
+    ).rejects.toThrow('connection reset');
   });
 
   it('refuses to sign into a jurisdiction with no contract template on file', async () => {

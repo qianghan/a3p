@@ -104,7 +104,24 @@ SIGNATURE
 Representative: {{signedByName}}          Date: {{signedAt}}
 (Electronically signed.)`;
 
-const CA_BODY = US_BODY.replace(
+/**
+ * String.replace() silently no-ops if `search` isn't found — a future edit
+ * to US_BODY that isn't mirrored here would quietly ship a CA/UK/AU
+ * contract that's just the US text, with no test necessarily catching it.
+ * Fail fast at module load instead.
+ */
+function replaceOrThrow(source: string, search: string, replacement: string): string {
+  if (!source.includes(search)) {
+    throw new Error(
+      `sales-rep-contract-templates: expected US_BODY to contain the text being replaced — ` +
+        `it has drifted out of sync with a jurisdiction delta. Fragment: ${JSON.stringify(search.slice(0, 40))}...`,
+    );
+  }
+  return source.replace(search, replacement);
+}
+
+const CA_BODY = replaceOrThrow(
+  US_BODY,
   `6. TAX REPORTING
    Representative will provide a completed Form W-9 before any payment is issued.
    Company will issue Form 1099-NEC for any calendar year in which payments to
@@ -120,7 +137,8 @@ const CA_BODY = US_BODY.replace(
    own responsibility, not Company's.`,
 );
 
-const UK_BODY = US_BODY.replace(
+const UK_BODY = replaceOrThrow(
+  US_BODY,
   `5. INDEPENDENT CONTRACTOR STATUS
    Representative is an independent contractor, not an employee, agent (beyond the
    limited referral authority above), partner, or joint venturer of Company.
@@ -146,7 +164,8 @@ const UK_BODY = US_BODY.replace(
    Representative is responsible for reporting this income to HMRC themselves.`,
 );
 
-const AU_BODY = US_BODY.replace(
+const AU_BODY = replaceOrThrow(
+  US_BODY,
   `6. TAX REPORTING
    Representative will provide a completed Form W-9 before any payment is issued.
    Company will issue Form 1099-NEC for any calendar year in which payments to

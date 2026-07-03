@@ -209,33 +209,46 @@ export async function signAndSubmitApplication(
     signedAt: signedAt.toISOString().slice(0, 10),
   });
 
-  const [, contract] = await prisma.$transaction([
-    prisma.salesRepApplication.update({
-      where: { id: applicationId },
-      data: {
-        status: 'submitted',
-        submittedAt: signedAt,
-        eligibilityPlanCode: sub.plan.code,
-        eligibilityInterval: sub.plan.interval,
-        annualFeeCentsPaid: sub.plan.priceCents,
-      },
-    }),
-    prisma.salesRepContract.create({
-      data: {
-        applicationId,
-        templateVersion: template.version,
-        renderedHtml,
-        signedByName,
-        signedAt,
-        signerIp: input.signerIp,
-        signerUserAgent: input.signerUserAgent,
-        commissionBpsAtSigning: DEFAULT_COMMISSION_BPS,
-      },
-    }),
-  ]);
+  // where.status guards against a double-click/retry race: if another
+  // in-flight submit already flipped this application to 'submitted', this
+  // update matches zero rows and throws P2025 rather than silently
+  // reapplying (and the applicationId-unique SalesRepContract would also
+  // collide with P2002) — both are translated below into one clean,
+  // user-facing message instead of a raw Prisma error string.
+  try {
+    const [, contract] = await prisma.$transaction([
+      prisma.salesRepApplication.update({
+        where: { id: applicationId, status: 'draft' },
+        data: {
+          status: 'submitted',
+          submittedAt: signedAt,
+          eligibilityPlanCode: sub.plan.code,
+          eligibilityInterval: sub.plan.interval,
+          annualFeeCentsPaid: sub.plan.priceCents,
+        },
+      }),
+      prisma.salesRepContract.create({
+        data: {
+          applicationId,
+          templateVersion: template.version,
+          renderedHtml,
+          signedByName,
+          signedAt,
+          signerIp: input.signerIp,
+          signerUserAgent: input.signerUserAgent,
+          commissionBpsAtSigning: DEFAULT_COMMISSION_BPS,
+        },
+      }),
+    ]);
 
-  return {
-    application: await prisma.salesRepApplication.findUniqueOrThrow({ where: { id: applicationId } }),
-    contract,
-  };
+    return {
+      application: await prisma.salesRepApplication.findUniqueOrThrow({ where: { id: applicationId } }),
+      contract,
+    };
+  } catch (err) {
+    if (err instanceof Prisma.PrismaClientKnownRequestError && (err.code === 'P2025' || err.code === 'P2002')) {
+      throw new Error('This application has already been submitted.');
+    }
+    throw err;
+  }
 }

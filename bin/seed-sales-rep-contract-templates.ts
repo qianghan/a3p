@@ -6,11 +6,13 @@
  * Without these rows the application-submission flow (step 5, e-sign) has
  * nothing to render or sign against.
  *
- * Idempotent: safe to re-run. Re-running after editing
- * sales-rep-contract-templates.ts bumps `version` and updates the content,
- * but never touches `legallyReviewed` — that flag is a real legal sign-off
- * event and must be flipped by hand (or a dedicated admin action), never by
- * this script.
+ * Idempotent and content-aware: re-running with unchanged content is a
+ * no-op (no version churn). Re-running after actually editing
+ * sales-rep-contract-templates.ts bumps `version`, updates the content, AND
+ * resets `legallyReviewed` back to false — a lawyer's sign-off on the OLD
+ * wording does not carry over to different wording, even a small edit.
+ * Flipping `legallyReviewed` to true is a real legal sign-off event and
+ * must be done by hand (or a dedicated admin action) after each such reset.
  *
  * Usage:
  *   DATABASE_URL="..." npx tsx bin/seed-sales-rep-contract-templates.ts
@@ -18,6 +20,29 @@
 
 import { PrismaClient } from '../packages/database/src/generated/client/index.js';
 import { CONTRACT_TEMPLATE_SEEDS } from '../apps/web-next/src/lib/billing/sales-rep-contract-templates.js';
+
+/**
+ * JSON.stringify is key-order-sensitive, but Postgres JSONB does not
+ * preserve the original key-insertion order on round-trip — comparing
+ * `existing.liabilityClauses` (read back from JSONB) against the seed's JS
+ * object literal via plain JSON.stringify would report "changed" on every
+ * single run even when nothing actually changed, defeating the no-op path
+ * and spuriously resetting legallyReviewed on every re-run. Sort keys
+ * (recursively) before stringifying so the comparison is order-independent.
+ */
+function canonicalJson(value: unknown): string {
+  return JSON.stringify(value, (_key, v) => {
+    if (v && typeof v === 'object' && !Array.isArray(v)) {
+      return Object.keys(v)
+        .sort()
+        .reduce((sorted: Record<string, unknown>, k) => {
+          sorted[k] = (v as Record<string, unknown>)[k];
+          return sorted;
+        }, {});
+    }
+    return v;
+  });
+}
 
 async function main(): Promise<void> {
   const dbUrl =
@@ -39,6 +64,17 @@ async function main(): Promise<void> {
         where: { jurisdiction: seed.jurisdiction },
       });
 
+      const contentChanged =
+        !existing ||
+        existing.bodyTemplate !== seed.bodyTemplate ||
+        existing.taxFormType !== seed.taxFormType ||
+        canonicalJson(existing.liabilityClauses) !== canonicalJson(seed.liabilityClauses);
+
+      if (existing && !contentChanged) {
+        console.log(`[seed-sales-rep-contract-templates] ${seed.jurisdiction}: unchanged, skipping`);
+        continue;
+      }
+
       await prisma.salesRepContractTemplate.upsert({
         where: { jurisdiction: seed.jurisdiction },
         create: {
@@ -54,11 +90,13 @@ async function main(): Promise<void> {
           bodyTemplate: seed.bodyTemplate,
           liabilityClauses: seed.liabilityClauses,
           taxFormType: seed.taxFormType,
-          // legallyReviewed intentionally omitted — never reset by this script.
+          // A prior sign-off covered different text — it doesn't carry
+          // forward to this edit, however small.
+          legallyReviewed: false,
         },
       });
       console.log(
-        `[seed-sales-rep-contract-templates] ${seed.jurisdiction}: ${existing ? `updated to v${(existing.version ?? 0) + 1}` : 'created v1'}`,
+        `[seed-sales-rep-contract-templates] ${seed.jurisdiction}: ${existing ? `updated to v${(existing.version ?? 0) + 1} (legallyReviewed reset to false)` : 'created v1'}`,
       );
     }
   } finally {
