@@ -15,6 +15,8 @@ export interface JurisdictionPack {
   mileageRate: import('./interfaces.js').MileageRateProvider;
   deductions: import('./interfaces.js').DeductionRuleSet;
   calendarDeadlines: import('./interfaces.js').CalendarDeadlineProvider;
+  /** Optional — only jurisdictions with a shipped Startup Tax Benefits pack implement this (US in PR 7.1; CA/UK land in PR 7.7/7.8). */
+  taxBenefits?: import('./interfaces.js').TaxBenefitProvider;
 }
 
 const packs: Map<string, JurisdictionPack> = new Map();

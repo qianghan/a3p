@@ -1,0 +1,472 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>AgentBook for Students — Persona, Onboarding &amp; Go-to-Market Design</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<style>
+  :root {
+    --bg: #FAFBFA;
+    --bg-panel: #F2F6F5;
+    --ink: #17211F;
+    --ink-soft: #4C5C58;
+    --ink-faint: #7C8B87;
+    --border: #DEE7E4;
+    --border-strong: #C4D2CE;
+    --teal: #0D766B;
+    --teal-dark: #0A5A52;
+    --teal-tint: #E4F1EF;
+    --amber: #92400E;
+    --amber-tint: #FDF1DE;
+    --amber-border: #F0D9B0;
+    --red: #9F1D1D;
+    --red-tint: #FBEAEA;
+    --red-border: #EFC6C6;
+    --green: #196C46;
+    --green-tint: #E7F4ED;
+    --green-border: #BFE1CE;
+    --blue: #1D4E8F;
+    --blue-tint: #EAF0FB;
+    --blue-border: #C6D8F0;
+    --purple: #5B3FA0;
+    --purple-tint: #EFEAFB;
+    --purple-border: #D7CBF0;
+    --serif: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, "Times New Roman", serif;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    --mono: ui-monospace, "SF Mono", "Cascadia Code", Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--sans); font-size: 16px; line-height: 1.6; -webkit-font-smoothing: antialiased; }
+  a { color: var(--teal-dark); }
+  a:hover { color: var(--teal); }
+  .shell { display: grid; grid-template-columns: 260px minmax(0, 900px); justify-content: center; gap: 56px; max-width: 1280px; margin: 0 auto; padding: 48px 24px 120px; }
+  .cover { grid-column: 1 / -1; max-width: 900px; margin: 0 auto 8px; padding-bottom: 40px; border-bottom: 1px solid var(--border); }
+  .eyebrow { font-family: var(--mono); font-size: 12.5px; letter-spacing: 0.09em; text-transform: uppercase; color: var(--teal-dark); font-weight: 600; }
+  .cover h1 { font-family: var(--serif); font-size: 42px; line-height: 1.15; margin: 14px 0 12px; text-wrap: balance; letter-spacing: -0.01em; }
+  .cover .dek { font-size: 18px; color: var(--ink-soft); max-width: 66ch; margin: 0 0 22px; }
+  .meta-row { display: flex; flex-wrap: wrap; gap: 10px 28px; font-size: 13.5px; color: var(--ink-faint); font-family: var(--mono); }
+  .meta-row b { color: var(--ink-soft); font-weight: 600; }
+  .toc { position: sticky; top: 32px; align-self: start; font-size: 13.5px; }
+  .toc-title { font-family: var(--mono); text-transform: uppercase; letter-spacing: 0.08em; font-size: 11.5px; color: var(--ink-faint); margin-bottom: 10px; }
+  .toc ol { list-style: none; margin: 0; padding: 0; counter-reset: toc; }
+  .toc li { counter-increment: toc; margin-bottom: 2px; }
+  .toc a { display: block; padding: 5px 8px 5px 0; color: var(--ink-soft); text-decoration: none; border-left: 2px solid transparent; padding-left: 10px; }
+  .toc a::before { content: counter(toc) "  "; font-family: var(--mono); color: var(--ink-faint); }
+  .toc a:hover { color: var(--teal-dark); border-left-color: var(--border-strong); }
+  main { min-width: 0; }
+  section { margin-bottom: 64px; scroll-margin-top: 24px; }
+  section > .num { font-family: var(--mono); color: var(--teal-dark); font-size: 13px; font-weight: 700; letter-spacing: 0.04em; }
+  h2 { font-family: var(--serif); font-size: 28px; margin: 4px 0 18px; letter-spacing: -0.01em; text-wrap: balance; }
+  h3 { font-family: var(--serif); font-size: 20px; margin: 32px 0 12px; }
+  h4 { font-size: 15px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--ink-soft); margin: 24px 0 10px; }
+  p { margin: 0 0 14px; max-width: 74ch; }
+  ul, ol { max-width: 74ch; padding-left: 22px; }
+  li { margin-bottom: 6px; }
+  strong { color: var(--ink); }
+  code { font-family: var(--mono); font-size: 0.88em; background: var(--bg-panel); border: 1px solid var(--border); border-radius: 4px; padding: 1px 5px; }
+  blockquote { margin: 18px 0; padding: 4px 18px; border-left: 3px solid var(--teal); background: var(--teal-tint); border-radius: 0 6px 6px 0; color: var(--ink-soft); max-width: 70ch; }
+  blockquote p:last-child { margin-bottom: 0; }
+  .callout { border: 1px solid var(--border-strong); background: var(--bg-panel); border-radius: 10px; padding: 16px 20px; margin: 18px 0; }
+  .callout.risk { background: var(--red-tint); border-color: var(--red-border); }
+  .callout.risk h5, .callout.decision h5, .callout.note h5 { margin: 0 0 6px; font-size: 13px; text-transform: uppercase; letter-spacing: 0.04em; }
+  .callout.risk h5 { color: var(--red); }
+  .callout.decision { background: var(--blue-tint); border-color: var(--blue-border); }
+  .callout.decision h5 { color: var(--blue); }
+  .callout.note { background: var(--amber-tint); border-color: var(--amber-border); }
+  .callout.note h5 { color: var(--amber); }
+  .callout p:last-child { margin-bottom: 0; }
+  .table-wrap { overflow-x: auto; margin: 16px 0 28px; border: 1px solid var(--border); border-radius: 10px; }
+  table { border-collapse: collapse; width: 100%; font-size: 14px; min-width: 640px; }
+  th, td { text-align: left; padding: 10px 14px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  thead th { background: var(--bg-panel); font-size: 11.5px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--ink-soft); position: sticky; top: 0; }
+  tbody tr:last-child td { border-bottom: none; }
+  tbody tr:hover { background: #F5F9F8; }
+  .pill { display: inline-block; font-size: 11px; font-weight: 700; letter-spacing: 0.03em; text-transform: uppercase; padding: 2.5px 8px; border-radius: 99px; white-space: nowrap; line-height: 1.5; }
+  .pill-high { background: var(--green-tint); color: var(--green); border: 1px solid var(--green-border); }
+  .pill-med { background: var(--amber-tint); color: var(--amber); border: 1px solid var(--amber-border); }
+  .pill-low { background: var(--red-tint); color: var(--red); border: 1px solid var(--red-border); }
+  .pill-info { background: var(--blue-tint); color: var(--blue); border: 1px solid var(--blue-border); }
+  .pill-neutral { background: var(--bg-panel); color: var(--ink-soft); border: 1px solid var(--border-strong); }
+  .pill-new { background: var(--purple-tint); color: var(--purple); border: 1px solid var(--purple-border); }
+  .journey { display: grid; grid-template-columns: repeat(4, 1fr); gap: 0; margin: 24px 0 8px; }
+  .journey-step { position: relative; padding: 16px 14px 18px; border-top: 3px solid var(--teal); background: var(--bg-panel); }
+  .journey-step:not(:last-child) { border-right: 1px dashed var(--border-strong); }
+  .journey-step .jn { font-family: var(--mono); font-size: 11px; color: var(--teal-dark); font-weight: 700; }
+  .journey-step h5 { margin: 6px 0 6px; font-size: 14px; font-family: var(--serif); }
+  .journey-step p { margin: 0; font-size: 12.5px; color: var(--ink-soft); }
+  @media (max-width: 760px) { .journey { grid-template-columns: 1fr; } .journey-step:not(:last-child) { border-right: none; border-bottom: 1px dashed var(--border-strong); } }
+  .card { border: 1px solid var(--border); border-radius: 10px; padding: 18px 20px; margin-bottom: 14px; background: #fff; }
+  .card-head { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; margin-bottom: 8px; }
+  .card-head .card-id { font-family: var(--mono); font-weight: 700; color: var(--teal-dark); font-size: 14px; }
+  .card-head h5 { margin: 0; font-size: 16px; }
+  .card ul { margin: 8px 0 0; padding-left: 20px; font-size: 14px; }
+  .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+  @media (max-width: 700px) { .two-col { grid-template-columns: 1fr; } }
+  .msg-card { border: 1px solid var(--border-strong); border-radius: 10px; padding: 16px 18px; background: #fff; margin-bottom: 12px; }
+  .msg-card .tag { font-family: var(--mono); font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--teal-dark); font-weight: 700; }
+  .msg-card .headline { font-family: var(--serif); font-size: 17px; margin: 6px 0 6px; }
+  .msg-card .sub { font-size: 13.5px; color: var(--ink-soft); margin: 0; }
+  footer { max-width: 900px; margin: 60px auto 0; padding-top: 24px; border-top: 1px solid var(--border); font-size: 13px; color: var(--ink-faint); font-family: var(--mono); }
+  @media (max-width: 980px) { .shell { grid-template-columns: 1fr; } .toc { position: static; margin-bottom: 32px; } }
+</style>
+</head>
+<body>
+
+<div class="cover">
+  <div class="eyebrow">AgentBook Product Design — Draft for Review</div>
+  <h1>AgentBook for Students</h1>
+  <p class="dek">A go-to-market and onboarding design for the 18+, still-studying, low/no-income segment — reusing AgentBook's existing architecture (no new role, no new schema) with a persona-tuned onboarding flow, a free/near-free acquisition tier, and a two-sided message: unlock every dollar a first-time filer is entitled to, and become the finance habit that follows them into their first real job.</p>
+  <div class="meta-row">
+    <span><b>Status:</b> Design for review</span>
+    <span><b>Segment:</b> Domestic + international students, 18+</span>
+    <span><b>Schema change:</b> none required</span>
+    <span><b>New role:</b> not needed — see &sect;3</span>
+  </div>
+</div>
+
+<div class="shell">
+  <nav class="toc">
+    <div class="toc-title">Contents</div>
+    <ol>
+      <li><a href="#why">Why This Segment</a></li>
+      <li><a href="#research">Market Research — Existing Tools</a></li>
+      <li><a href="#role">Role Decision — No New Role Needed</a></li>
+      <li><a href="#personas">Student Personas</a></li>
+      <li><a href="#onboarding">Onboarding Redesign</a></li>
+      <li><a href="#intl">International Students</a></li>
+      <li><a href="#messaging">Marketing &amp; Message Kit</a></li>
+      <li><a href="#pricing">Pricing &amp; Growth Loop</a></li>
+      <li><a href="#risks">Risks &amp; Compliance Guardrails</a></li>
+      <li><a href="#plan">Phased Plan</a></li>
+      <li><a href="#open">Open Decisions</a></li>
+    </ol>
+  </nav>
+
+  <main>
+
+    <section id="why">
+      <div class="num">01</div>
+      <h2>Why This Segment, Why Now</h2>
+      <p>AgentBook has three personas today — Maya, Alex, Jordan — all of whom already run a business with real revenue. Students are a different shape of user: <strong>little or no self-employment income, a first-ever tax filing, financial dependence that's only partly resolved, and a fear of tax season that has nothing to do with complexity of their finances and everything to do with never having done it before.</strong> None of AgentBook's messaging, onboarding copy, or default categories speak to that user today.</p>
+      <p>The strategic case isn't the revenue from this cohort in year one — it's small, most students pay $0–$9/month for anything. It's <strong>acquisition cost and lifetime value</strong>. A student who starts logging a campus job and a tutoring side-hustle in AgentBook at 19 is the exact same person who becomes Jordan (side-hustle + W-2) at 23 and Alex (agency) at 28. Every incumbent below in <a href="#research">&sect;2</a> treats the student as a once-a-year tax-season transaction. AgentBook can instead be the first financial habit a young adult ever forms — which is a much higher-leverage acquisition play than competing on tax-prep price alone.</p>
+    </section>
+
+    <section id="research">
+      <div class="num">02</div>
+      <h2>Market Research — What Already Exists</h2>
+      <p>Findings below are compiled from current product pages, pricing pages, and comparison sources for the US and Canadian markets (2026 filing season for tax year 2025).</p>
+
+      <h3>US tax filing — free and student-marketed tools</h3>
+      <p>The recurring pattern across every US product: <strong>1099-NEC gig income is the universal free-tier breaker.</strong> Nearly every "free for students" product collapses the moment a student has DoorDash, tutoring, or freelance income alongside a campus job.</p>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Product</th><th>Free-tier coverage</th><th>Where students get pushed to pay</th></tr></thead>
+          <tbody>
+            <tr><td><strong>TurboTax</strong></td><td>Free Edition: simple Form 1040 only — W-2, standard deduction, EITC, Child Tax Credit, student loan interest. Dedicated "TurboTax for Students" page. ~37% of filers qualify. Runs a student-athlete NIL tax-education partnership with INFLCR.</td><td><strong>Education credits (AOTC/Lifetime Learning, Form 8863/1098-T) are not covered by Free.</strong> Any 1099-NEC gig income forces Premium (~$139 federal); Deluxe runs ~$69–79 federal + ~$59/state.</td></tr>
+            <tr><td><strong>H&amp;R Block Free Online</strong></td><td>Broader than TurboTax — covers 1098-T education credits, 1098-E student loan interest, 1099-R/G/INT/DIV without upsell. ~52% of filers qualify.</td><td>1099-NEC gig income and brokerage Schedule D still force Deluxe ($65) or a Self-Employed tier.</td></tr>
+            <tr><td><strong>FreeTaxUSA</strong></td><td>Federal always free, including 1098-T and 1099-NEC/self-employment — the most permissive major free federal tier. Dedicated student ($0 federal, 1098-T) landing page.</td><td>State return is $15.99; optional Deluxe support add-on is $7.99. No education-credit gating.</td></tr>
+            <tr><td><strong>Cash App Taxes</strong></td><td>100% free — federal + one state, including Schedule C gig income and 1098-T education credits, no upsells at all (Cash App monetizes elsewhere).</td><td><strong>No multi-state or part-year-resident returns</strong> — exactly the scenario of a student whose school state differs from their home state.</td></tr>
+            <tr><td><strong>TaxSlayer Simply Free</strong></td><td>Markets education credits and student loan interest directly to students; 30% student discount via Student Beans/ID.me on paid tiers.</td><td>Excludes 1099-NEC entirely on the free tier.</td></tr>
+            <tr><td><strong>IRS Free File / Direct File</strong></td><td>Free File: 8 partners, AGI cap $89,000 (TY2025).</td><td>Direct File — the government's own free-filing tool — is <strong>discontinued for the 2026 filing season</strong> and never supported gig income or education credits anyway.</td></tr>
+            <tr><td><strong>Campus VITA clinics</strong></td><td>Free, IRS-trained in-person filing, no software upsell (UCLA, SDSU, Texas A&amp;M-Corpus Christi among others run one).</td><td>Income-capped (~$69K), seasonal-only, zero digital product between visits.</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p><strong>The gap:</strong> the most-marketed "free for students" products (TurboTax, H&amp;R Block) use the education-credit + gig-income combination as their exact upsell trigger — and that combination is the norm for this segment, not the edge case. FreeTaxUSA and Cash App Taxes handle it for free but carry zero student brand presence or education layer.</p>
+
+      <h3>Canada</h3>
+      <p>Canada's market is structurally different from the US — genuinely free, NETFILE-certified filing is the default, not the exception, so a paid or freemium product here has to win on proactive guidance, not on "free."</p>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Product</th><th>Coverage</th><th>Notes</th></tr></thead>
+          <tbody>
+            <tr><td><strong>Wealthsimple Tax</strong></td><td>Pay-what-you-want (including $0), NETFILE-certified, handles T2202 tuition credits, RESP withdrawals, T4/T4A, self-employment.</td><td>Closest thing to a "students love this" brand in Canada — strong r/PersonalFinanceCanada sentiment — but zero education or companion layer beyond the return itself.</td></tr>
+            <tr><td><strong>UFile</strong></td><td>Paid generally, but <strong>free for all Canadian post-secondary students</strong> via a Canadian Federation of Students partnership (promo code), distributed through student unions.</td><td>Distribution through student unions is a channel worth studying, not just a pricing tactic.</td></tr>
+            <tr><td><strong>H&amp;R Block Canada</strong></td><td>All tiers free for filers <strong>25 and under, regardless of complexity</strong> — the most generous major-brand age cutoff found in this research.</td><td>Strong direct incumbent for the exact age band AgentBook is targeting.</td></tr>
+            <tr><td><strong>TurboTax Canada Free</strong></td><td>Simple returns only (employment, tuition, childcare); no self-employment or investment income.</td><td>Expert Assist upsell is $70–150.</td></tr>
+            <tr><td><strong>StudioTax / CloudTax / GenuTax</strong></td><td>Free or near-free NETFILE-certified alternatives.</td><td>Utilitarian software UX, no engagement outside tax season.</td></tr>
+            <tr><td><strong>CVITP / campus tax clinics</strong></td><td>CRA-partnered, income-capped (~$35K), often student-run — McMaster's student-run Tax Squad alone has delivered an estimated $9M in refunds.</td><td>High trust, real scale for a volunteer program, but no digital product between filing seasons.</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="callout note">
+        <h5>Mechanics worth building into onboarding directly</h5>
+        <p>Scholarships are fully tax-exempt for full-time Canadian students; RESP capital withdrawals are non-taxable, while EAP (growth/grant) withdrawals are taxable to the student but usually net to zero against the basic personal amount (~$16,452). This is exactly the kind of "sounds scary, is actually fine" fact that belongs in the scholarship-taxability wizard in &sect;5.</p>
+      </div>
+
+      <h3>International / nonresident students</h3>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Product</th><th>Role</th></tr></thead>
+          <tbody>
+            <tr><td><strong>Sprintax Returns</strong></td><td>The dominant US tool for nonresident-alien students (F-1/J-1). Handles Form 1040NR, Form 8843, treaty-benefit determination. Often free via a university-purchased code; otherwise <strong>$44.95/state</strong>, with a FICA refund (Form 843/8316) sold as a separate paid add-on. A companion product, Sprintax Calculus, sells payroll/withholding compliance to 700+ institutions, not to individual students.</td></tr>
+            <tr><td><strong>GLACIER Tax Prep</strong></td><td>Sprintax's main competitor, <strong>$49 flat</strong> — but does not e-file; the return must be mailed. Also typically free via a university license.</td></tr>
+            <tr><td colspan="2">No comparable "Sprintax for Canada" brand exists at scale — small shops like Accufile (~$40 CAD) serve this population, but most Canadian international-student guidance still routes through CVITP clinics and general CRA nonresident/deemed-resident guidance.</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>Mechanics: F-1/J-1 students are exempt individuals under the Substantial Presence Test for their first 5 calendar years and are FICA-exempt in that window; standard TurboTax/H&amp;R Block don't support Form 1040-NR at all, which is why the university-licensed tools own this niche outright. Treaties matter specifically: the China&ndash;US treaty (Article 20) exempts scholarships and limited wages; the India&ndash;US treaty (Article 21) is unusual in letting Indian nonresident students claim the standard deduction, which every other nonresident treaty nationality cannot do.</p>
+      <div class="callout risk">
+        <h5>Equity gap worth naming in marketing</h5>
+        <p>International students are barred from every free domestic tool above (TurboTax Free, Cash App Taxes, FreeTaxUSA's free federal tier) purely because Form 1040-NR isn't 1040 — they must pay Sprintax or GLACIER while their domestic classmates file free. That's a real, sympathetic inequity AgentBook can name honestly without overclaiming what it can do about the filing itself (see &sect;6).</p>
+      </div>
+
+      <h3>Personal finance, budgeting, and credit-building apps</h3>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Product</th><th>Price</th><th>Student fit</th></tr></thead>
+          <tbody>
+            <tr><td><strong>Mint</strong></td><td>Shut down Jan 1, 2024</td><td>Intuit migrated users to Credit Karma, which never replicated Mint's budgeting/subscription-tracking features — a real, still-open gap in the market.</td></tr>
+            <tr><td><strong>YNAB</strong></td><td>$14.99/mo or $109/yr — but <strong>a confirmed free 365-day full-access plan for college students</strong> (undergrad, grad, and explicitly international students too) via ynab.com/college, verified by student ID or transcript.</td><td>The single closest existing analog to a "students get the real product free" acquisition play. Zero-based budgeting suits variable/gig income but has a real learning curve for a first-time earner.</td></tr>
+            <tr><td><strong>Copilot Money</strong></td><td>$13/mo, iOS/Mac only, no Android app, no student discount.</td><td>Premium/design-led positioning with essentially no student fit.</td></tr>
+            <tr><td><strong>Empower Personal Dashboard</strong></td><td>Free aggregation/net-worth tier; paid wealth management from 0.89%, $100K minimum.</td><td>Free tools are usable but the whole product is a lead-gen funnel for six-figure-plus portfolios — weak fit.</td></tr>
+            <tr><td><strong>Monarch Money</strong></td><td>$99.99–199/yr, no free tier, no confirmed student discount.</td><td>Fastest-growing "Mint replacement" (20x subscriber growth, $75M Series B in 2025) but priced above what students will pay.</td></tr>
+            <tr><td><strong>Step / Chime Credit Builder</strong></td><td>Free, no credit check, no interest.</td><td>Deposit-based secured cards that report to bureaus once the user turns 18 — the closest credit-building analog to what a student-life companion needs, and worth a partnership/integration conversation rather than a build.</td></tr>
+            <tr><td><strong>Extra / Self</strong></td><td>Extra $20&ndash;25/mo; Self $25&ndash;48/mo (installment, ~24 months).</td><td>Paid alternatives for a stronger credit tradeline — better fit for slightly older users willing to pay, not typical undergrads.</td></tr>
+            <tr><td><strong>Bank-bundled tools</strong> (BofA Erica, RBC NOMI, TD MySpend, Scotiabank)</td><td>Free with a student chequing/checking account.</td><td>Real budgeting-insight competitors bundled into an account switch that's already high-friction — AgentBook doesn't need to beat these, just be easier to add on top of whatever bank a student already has.</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>Financial-literacy platforms and university programs — the whitespace</h3>
+      <p>Three sponsor-funded gamified/K-12 financial-literacy platforms exist — <strong>Banzai</strong> (bootstrapped, Provo UT, ~900 bank/credit-union sponsors, 5M+ students reached, all 50 states), <strong>EVERFI</strong> (46M+ learners historically, now independently owned after Blackbaud sold it in Dec 2024), and <strong>Zogo</strong> (gamified, bank-sponsored, ~700K+ users mostly under 24, acquired by Peak6 in 2021). All three are extensive at the K-12 level and all have <strong>effectively vacated the college-student market</strong> — EVERFI's only college-adjacent product targets high schoolers preparing for college costs, not enrolled undergrads, and Banzai's higher-ed offering is a thin resource collection, not a product. Meanwhile individual universities run their own in-house programs — Ohio State's peer-coaching "Scarlet &amp; Gray Financial," UCLA's Financial Wellness Program (which itself licenses EVERFI modules), Michigan's credit-bearing "Financially Savvy Student" course, McGill's "Frugal Scholar" — all staffed by volunteer peer coaches or professional counselors, none of which have a digital, always-on product behind them.</p>
+      <div class="callout note">
+        <h5>Net read</h5>
+        <p>Nobody has combined (a) a genuinely free/near-free filing-adjacent product, (b) an education-credit and gig-income-aware wizard built specifically for students, and (c) a year-round spend-tracking companion that graduates the user into a full accounting product. Wealthsimple Tax and H&amp;R Block Canada own Canadian sentiment on the filing side; FreeTaxUSA and Cash App Taxes quietly handle the hardest US cases for free but have no student brand; Sprintax/GLACIER own the nonresident-alien mechanics; YNAB owns the "free real product for students" acquisition playbook in budgeting; and Banzai/EVERFI/university coaching programs own pre-college financial literacy but have abandoned the enrolled-college-student moment entirely. That last gap — a digital, always-on financial companion for currently-enrolled students, sitting between the K-12 literacy platforms and the post-grad accounting tools — is exactly the seam AgentBook can occupy, and campus financial-aid/international-student offices and peer-coaching centers are a plausible distribution partner rather than a competitor for it, the same way Sprintax and GLACIER got their university footholds.</p>
+      </div>
+      <p>Stats worth carrying into messaging directly: Gen Z has the <strong>lowest financial literacy rate of any generation, 38%</strong> on the TIAA Institute&ndash;GFLEC P-Fin Index (2025/2026 wave) versus 47% nationally; <strong>76% of teens report money-related anxiety</strong> (Greenlight, 2024); <strong>42% of Gen Z live paycheck-to-paycheck</strong> and <strong>63% of community-college students</strong> do (Bank of America 2026 / Center for Community College Student Engagement); and in Trellis's Fall 2024 survey of 53,000+ undergrads, <strong>62% worry about running out of money before month's end</strong> and 42% have less than $100 in savings. These support the fear-reduction and companion pillars in &sect;7 with real numbers rather than an assumed pain point.</p>
+    </section>
+
+    <section id="role">
+      <div class="num">03</div>
+      <h2>Role Decision — No New Role Needed</h2>
+      <p><strong>Recommendation: do not introduce a "student" role. Keep the student as an ordinary individual account and add <code>"student"</code> as a value of the existing <code>AbTenantConfig.businessType</code> field.</strong></p>
+      <p>That field already exists (<code>businessType String @default("freelancer")</code>) and already drives Maya/Alex/Jordan-style persona behavior without any concept of a formal role or permission tier. A role, in this codebase, is an auth/authorization primitive (<code>public.Role</code>) that gates what a user is <em>allowed to do</em>. A student doesn't need different permissions from a freelancer — they need different <strong>defaults, copy, and emphasis</strong>. That's exactly what a <code>businessType</code> value is for.</p>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>What changes per <code>businessType = "student"</code></th><th>What does NOT change</th></tr></thead>
+          <tbody>
+            <tr><td>Onboarding wizard steps and copy (&sect;5)</td><td>Auth model, session handling, <code>public.Role</code>/<code>Team</code> tables</td></tr>
+            <tr><td>Default expense categories (tuition, textbooks, campus meal plan, rent-split, part-time job, tutoring/gig income, scholarship/grant)</td><td>Ledger engine, journal entry validation, double-entry constraints</td></tr>
+            <tr><td>Agent personality defaults (more explanatory, less "CFO" tone; see <code>AbAgentPersonality</code>)</td><td>Plugin registry, API surface, billing infrastructure</td></tr>
+            <tr><td>Which tax skills are surfaced first (education credits, dependent-status check, scholarship taxability, treaty lookup for international students)</td><td>Number of plugins (still 4) or skills (still additive, no forking of existing skills)</td></tr>
+            <tr><td>Pricing tier eligibility (&sect;8) gated by <code>.edu</code>/student verification, not a new billing primitive</td><td><code>BillPlan</code>/Stripe product model — reuse existing plan machinery with a new discounted plan row</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>This mirrors the same pattern already validated by the in-flight Startup plugin design: a persona is a <em>configuration and content</em> concern, not a schema concern. It keeps the change additive and low-risk — a new <code>businessType</code> enum value, a handful of persona-conditional branches in onboarding/prompt-building code, and no new tables, roles, or permission checks anywhere in the stack.</p>
+    </section>
+
+    <section id="personas">
+      <div class="num">04</div>
+      <h2>Student Personas</h2>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Persona</th><th>Profile</th><th>Core need</th></tr></thead>
+          <tbody>
+            <tr><td><strong>Riley</strong></td><td>20, sophomore, US, campus job (W-2) + occasional tutoring on Wyzant (1099-NEC), first tax return ever, parents claim her as a dependent</td><td>Doesn't know what a dependent status even means for her own return. Terrified of "doing it wrong." Needs the AOTC/1098-T explained in plain English — the exact case TurboTax Free won't cover.</td></tr>
+            <tr><td><strong>Marcus</strong></td><td>22, senior, Canada, part-time retail (T4) + a small Etsy shop selling prints, files with Wealthsimple Tax already</td><td>Wants year-round expense tracking for the Etsy side so tax season is five minutes, not a scramble — the exact Jordan-shaped growth path AgentBook already understands.</td></tr>
+            <tr><td><strong>Wei</strong></td><td>21, international, F-1 visa, China, on-campus job + a small OPT-eligible freelance design gig, uses Sprintax through her university every March</td><td>Needs day-to-day money management and a plain-English explanation of treaty-exempt income and FICA-exemption status — not a replacement for Sprintax's 1040NR mechanics. See &sect;6.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="onboarding">
+      <div class="num">05</div>
+      <h2>Onboarding Redesign</h2>
+      <p>The current 7-step wizard (jurisdiction, currency, fiscal year, chart of accounts, ...) is built for someone who already thinks of themselves as running a business. Students don't, and jargon at step one is where they bounce. The student path should collapse to <strong>four screens</strong>, with the existing wizard fully preserved for the freelancer/business path.</p>
+      <div class="journey">
+        <div class="journey-step"><div class="jn">SCREEN 1</div><h5>Are you someone's dependent?</h5><p>Plain-language yes/no/not-sure, with a one-line explainer. This single answer reorders which tax skills get surfaced first and whether a "share a summary with a parent" prompt appears later.</p></div>
+        <div class="journey-step"><div class="jn">SCREEN 2</div><h5>Where do you go to school, and where's home?</h5><p>Sets jurisdiction + region automatically. A "studying on a visa?" toggle here routes straight into the international track (&sect;6) instead of a generic country picker.</p></div>
+        <div class="journey-step"><div class="jn">SCREEN 3</div><h5>Where does your money come from?</h5><p>A checklist, not a chart of accounts: campus job, tutoring/gig apps, scholarship or grant, RESP/529 withdrawal, allowance/family support, freelance/side hustle. Each checked box silently seeds the right default categories and skill priorities.</p></div>
+        <div class="journey-step"><div class="jn">SCREEN 4</div><h5>Connect a bank or start manually</h5><p>Same Plaid flow as every other persona — but framed as "see your spending instantly" rather than "reconcile your books," and with an explicit skip-for-now path since many students share a parent's account initially.</p></div>
+      </div>
+      <h3>Onboarding features that make it attractive, not just short</h3>
+      <ul>
+        <li><strong>.edu / student-status verification unlocks the free tier</strong> instantly (same pattern as GitHub Student Pack, Spotify, Amazon Prime Student) — no credit card, no "trial that becomes a charge" anxiety, which is the single biggest trust-killer for a first-time signer-up in this age group.</li>
+        <li><strong>"First return ever" explainer mode</strong> — inline tooltips on every unfamiliar term (W-2, 1098-T, dependent, standard deduction) rather than a link out to a glossary. This is the direct counter to the fear-of-doing-it-wrong that &sect;2's research shows no incumbent addresses in-product.</li>
+        <li><strong>Scholarship/grant taxability wizard</strong> — a short decision tree (tuition/fees/required books = generally tax-free; room/board/stipends = generally taxable) surfaced the moment a student checks "scholarship or grant" in Screen 3. No mainstream product makes this a guided flow; it's usually a paragraph of IRS/CRA prose.</li>
+        <li><strong>Gig-income auto-categorization from day one</strong> — reuses the existing Plaid sync + AI categorization engine so a DoorDash or Wyzant deposit is recognized and pre-labeled before the student ever manually enters an expense category.</li>
+        <li><strong>Optional read-only parent/guardian share link</strong> — reuses the existing CPA-portal share pattern (a scoped, read-only report link), not a new access-control role. Builds trust for a segment that is often still financially entangled with parents without making "student" a second-class or supervised account.</li>
+        <li><strong>Mobile-first from minute one</strong> — the PWA install banner, offline-capable receipt capture, and background sync AgentBook shipped in the last few weeks (#194–#196) are a real differentiator for a mobile-native audience; the onboarding flow should surface the install prompt earlier for this persona than it does today.</li>
+        <li><strong>Telegram-first daily habit</strong> — the existing Telegram-first architecture is arguably the single best fit for students of any AgentBook persona: no app to install, receipt photos from a phone that's already in hand, and the exact zero-friction channel every incumbent above lacks between tax seasons.</li>
+      </ul>
+    </section>
+
+    <section id="intl">
+      <div class="num">06</div>
+      <h2>International Students</h2>
+      <p>International students are a distinct compliance regime, not just a locale variant, and the product needs to say so explicitly rather than funnel them through the domestic wizard.</p>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Difference</th><th>Implication for AgentBook</th></tr></thead>
+          <tbody>
+            <tr><td><strong>US: nonresident alien status</strong> for F-1/J-1 holders in their first 5 calendar years — files Form 1040NR, not 1040; generally can't claim the standard deduction (narrow India-treaty exception); is FICA-exempt on on-campus/CPT/OPT wages.</td><td>AgentBook should <strong>not</strong> attempt to be the 1040NR filing engine — that's Sprintax/GLACIER's job and universities already pay for those seats. AgentBook's honest lane is everyday spend tracking, deadline reminders, and a plain-English "what does nonresident alien even mean for me" explainer, with an outbound hand-off to the student's university-licensed Sprintax/GLACIER seat when it's time to actually file.</td></tr>
+            <tr><td><strong>Tax treaties</strong> — many home countries have a US or Canada treaty exempting scholarship income or wages up to a threshold; income is often reported on <strong>Form 1042-S</strong> instead of (or alongside) a W-2.</td><td>A treaty-lookup skill keyed on home country + visa type, and 1098-T/1042-S-aware document scanning rather than assuming every income document is a W-2.</td></tr>
+            <tr><td><strong>Visa-restricted work</strong> — most F-1/J-1 students cannot legally take on arbitrary gig-platform or freelance income the way the domestic "side hustle" story assumes; only specific authorized categories (on-campus, CPT, OPT) are allowed.</td><td>The gig-income messaging and default categories from &sect;5 must branch for the international track — don't market "track your DoorDash side hustle" to a visa holder for whom that could be a status violation. This is a compliance-sensitive copy difference, not just a feature toggle.</td></tr>
+            <tr><td><strong>No SSN/SIN at signup</strong> — many international students haven't been issued one yet, or use an ITIN instead.</td><td>Onboarding must accept "I don't have this yet" as a valid, complete answer rather than blocking on it — most identity-gated flows elsewhere in AgentBook assume a completed jurisdiction profile.</td></tr>
+            <tr><td><strong>Canada</strong> — international students on a study permit may still be required or entitled to file (e.g. to claim the GST/HST credit) even with zero income, and residency-for-tax-purposes is determined by residential ties, not visa status.</td><td>A "you might be owed money even with $0 income" nudge is a strong, honest acquisition hook that costs nothing to build (it's a rules check, not a filing) and that no Canadian incumbent foregrounds for this segment.</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="callout decision">
+        <h5>Positioning decision</h5>
+        <p>Don't compete with Sprintax on 1040NR mechanics — the volume per user is low, the regulatory risk of getting a nonresident return wrong is high, and universities already provide it for free. Compete on everything Sprintax doesn't do: daily spend tracking, remittance/currency awareness for money sent home or received from family abroad, deadline reminders, and translating "what does my 1042-S mean" into plain language. Partner-link to Sprintax/GLACIER for the filing step itself.</p>
+      </div>
+    </section>
+
+    <section id="messaging">
+      <div class="num">07</div>
+      <h2>Marketing &amp; Message Kit</h2>
+      <p>Master narrative: <strong>"Your first W-2 shouldn't be scarier than your first exam."</strong> Two value pillars, both needed — tax filing is the acquisition hook, the finance companion is the retention story.</p>
+
+      <h3>Pillar 1 — Benefits of filing (correctly)</h3>
+      <div class="msg-card">
+        <div class="tag">Money left on the table</div>
+        <div class="headline">"H&amp;R Block's free tier covers your 1098-T. TurboTax's doesn't — and won't tell you that until you're halfway through."</div>
+        <p class="sub">A direct, factual comparison ad (per &sect;2 research) aimed at the exact moment a student hits an unexpected upgrade wall on a competitor.</p>
+      </div>
+      <div class="msg-card">
+        <div class="tag">Fear reduction</div>
+        <div class="headline">"You don't need to understand tax law. You need someone to read your W-2 to you."</div>
+        <p class="sub">Directly targets first-time-filer anxiety — the single most-cited pain point for this segment and the one no incumbent's UI addresses head-on.</p>
+      </div>
+      <div class="msg-card">
+        <div class="tag">Dependent-status stakes</div>
+        <div class="headline">"Filing wrong doesn't just cost you money — it can cost your parents' return too."</div>
+        <p class="sub">Surfaces the dependent/independent interaction early, which is both genuinely useful and a natural parent-facing referral moment.</p>
+      </div>
+      <div class="msg-card">
+        <div class="tag">Free money, zero income</div>
+        <div class="headline">"Even if you made $0 this year, you might be owed a GST/HST credit." <span class="pill pill-info">Canada</span></div>
+        <p class="sub">An honest, low-effort hook unique to the Canadian international-student research finding in &sect;6.</p>
+      </div>
+
+      <h3>Pillar 2 — AgentBook as a year-round companion</h3>
+      <div class="msg-card">
+        <div class="tag">Habit, not scramble</div>
+        <div class="headline">"Text us a photo of the receipt now. Thank yourself in April."</div>
+        <p class="sub">Leans on the Telegram-first architecture and the PWA capabilities shipped in #194–#196 to sell a daily habit, not a seasonal chore.</p>
+      </div>
+      <div class="msg-card">
+        <div class="tag">Grows with you</div>
+        <div class="headline">"The same app that tracks your tutoring gigs at 20 files your freelance business at 25."</div>
+        <p class="sub">Makes the Jordan/Alex growth path explicit and visible to the student, turning today's low-ARPU signup into tomorrow's full-price customer.</p>
+      </div>
+      <div class="msg-card">
+        <div class="tag">Campus channel</div>
+        <div class="headline">"Ask your international student office, financial aid office, or econ club about AgentBook."</div>
+        <p class="sub">Distribution via campus partnerships and student-ambassador referral codes, mirroring how Sprintax and GLACIER got their university footholds.</p>
+      </div>
+
+      <div class="callout risk">
+        <h5>Copy guardrail</h5>
+        <p>Every "free money" and "we found you a refund" message must be paired with a visible statement that AgentBook drafts guidance, not filed returns, and is not a registered CPA/e-file agent — the same disclosure pattern used for the Startup plugin. Tax-season scam and phishing volume specifically targets students; overclaiming here is both a compliance risk and a trust risk with a skeptical audience.</p>
+      </div>
+    </section>
+
+    <section id="pricing">
+      <div class="num">08</div>
+      <h2>Pricing &amp; Growth Loop</h2>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Tier</th><th>Price</th><th>Who</th></tr></thead>
+          <tbody>
+            <tr><td><strong>Student Free</strong></td><td>$0 — gated by .edu email or student-status verification</td><td>Full expense tracking, receipt scan, Telegram bot, education-credit and scholarship-taxability guidance. This is the acquisition tier — most students should never see a paywall for the core habit.</td></tr>
+            <tr><td><strong>AgentBook Pro</strong></td><td>$19/mo (existing plan)</td><td>The natural graduation tier once a student has real 1099-NEC/self-employment volume — same product, no persona-specific pricing hack, just "you've outgrown the free tier's fair-use line."</td></tr>
+            <tr><td><strong>AgentBook Business</strong></td><td>$49/mo (existing plan)</td><td>Unchanged — the Jordan/Alex endpoint of the growth path in &sect;7.</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>The growth loop: free habit formation in college &rarr; light paid usage once gig/freelance income appears (Pro) &rarr; full paid usage after graduation into a real business (Business). No new billing primitive is required — a new <code>BillPlan</code> row for "Student Free" gated by a verification check, reusing the exact Stripe/plan machinery already live for Pro/Business. YNAB's confirmed 365-day free full-access student plan (&sect;2) is the direct precedent that this works as an acquisition mechanic rather than pure margin giveaway — students who get the whole product free during school convert into paying users once their financial life gets more complex than the free tier's fair-use line.</p>
+    </section>
+
+    <section id="risks">
+      <div class="num">09</div>
+      <h2>Risks &amp; Compliance Guardrails</h2>
+      <ul>
+        <li><strong>Not a filing engine.</strong> AgentBook drafts guidance and categorizes income; it is not a registered e-file agent or CPA firm, and should route actual submission through IRS Free File/certified partners (US) or NETFILE-certified software (Canada) — same posture as the Startup plugin design.</li>
+        <li><strong>Visa-status sensitivity.</strong> Never market gig/freelance income features to the international track without the visa-authorization caveat — see &sect;6.</li>
+        <li><strong>Verification abuse.</strong> .edu-gated free tier needs a real verification provider (SheerID-style) rather than a simple email-domain regex, to avoid a free-tier abuse vector.</li>
+        <li><strong>Parent-share link scope.</strong> The optional read-only summary must be a deliberately scoped, revocable link — not a second login or a shared password — to avoid creating an ad hoc second "role" through the back door of a feature.</li>
+      </ul>
+    </section>
+
+    <section id="plan">
+      <div class="num">10</div>
+      <h2>Phased Plan</h2>
+
+      <div class="card">
+        <div class="card-head"><span class="card-id">PHASE A</span><h5>Persona plumbing</h5> <span class="pill pill-high">Shipped &amp; validated in prod</span></div>
+        <ul>
+          <li><code>"student"</code> added as a <code>businessType</code> value (no new role/schema) — <a href="https://github.com/qianghan/a3p/pull/201">PR #201</a>.</li>
+          <li>Onboarding (chat + legacy wizard) branches copy at the categories, first-log, and completion steps.</li>
+          <li>Student-specific default chart of accounts (tuition, textbooks, tutoring/gig income, scholarships, student loan interest) replacing the Schedule-C set, in both the live Next.js route and the legacy Express server.</li>
+          <li>Regression test <code>tests/e2e/student-persona.spec.ts</code> passing against <code>agentbook.brainliber.com</code> — registers a throwaway account, confirms the student chart of accounts lands and the freelancer one doesn't.</li>
+        </ul>
+      </div>
+
+      <div class="card">
+        <div class="card-head"><span class="card-id">PHASE B</span><h5>Student Free plan + verification</h5> <span class="pill pill-info">Scoped, needs a decision</span></div>
+        <ul>
+          <li><strong>Smaller than originally scoped.</strong> A <code>$0</code> <code>free</code> <code>BillPlan</code> row already exists and every new signup defaults to it — there is no new billing primitive to build. The open question is purely: does a verified student get anything <em>different</em> from today's generic free tier, and if so, what gates it?</li>
+          <li>Three verification options, increasing cost and anti-abuse strength: (1) none — <code>businessType=student</code> is self-declared, same as freelancer/consultant today; (2) a lightweight in-house check (.edu email domain match at signup, no vendor contract, ships in a day); (3) a paid vendor (SheerID/ID.me) — real anti-fraud, but a contract/budget decision, not an engineering one.</li>
+          <li>If students get an enhanced free tier (e.g. <code>telegram_bot: true</code>, a higher AI-message quota than the generic free plan's 100/mo), that's a new <code>BillPlan</code> row + a gate on the businessType/verification flag — small, but needs the quotas decided first.</li>
+        </ul>
+      </div>
+
+      <div class="card">
+        <div class="card-head"><span class="card-id">PHASE C</span><h5>Scholarship-taxability &amp; education-credit skill</h5> <span class="pill pill-info">Scoped, needs content sign-off</span></div>
+        <ul>
+          <li>Mechanically small — follows the existing pattern exactly: add a manifest to <code>BUILT_IN_SKILLS</code> in <code>plugins/agentbook-core/backend/src/server.ts</code>, an inline handler in <code>classifyAndExecuteV1()</code>, seed via <code>POST /agent/seed-skills</code>.</li>
+          <li>The real work is the <em>content</em>: the actual decision-tree rules (US: qualified vs. non-qualified scholarship expenses, AOTC/LLC eligibility and phase-outs, dependent-status restrictions; Canada: T2202 tuition transfer, RESP EAP vs. capital-withdrawal treatment). I can draft this from the research already done in &sect;2, but it's tax guidance a real user will act on — see the sign-off question below.</li>
+        </ul>
+      </div>
+
+      <div class="card">
+        <div class="card-head"><span class="card-id">PHASE D</span><h5>International / visa track</h5> <span class="pill pill-info">Scoped, needs a schema decision</span></div>
+        <ul>
+          <li>Unlike Phase A, this genuinely needs a small schema addition — nothing in <code>AbTenantConfig</code> today captures visa status or home country. A migration (e.g. <code>visaStatus</code>, <code>homeCountry</code> fields) is a real, reviewable change, not a config value.</li>
+          <li>Treaty-lookup skill needs a country &rarr; treaty-terms data table. I have verified data for a couple of major sending countries (China Art. 20, India Art. 21) from &sect;2's research; a table covering the top ~10 F-1/J-1 source countries is a research task I can do, but again — see the sign-off question.</li>
+          <li>Sprintax/GLACIER hand-off: a static informational link costs nothing and can ship immediately. An actual referral/affiliate partnership is a business-development conversation only you can start.</li>
+          <li>1042-S-aware document scanning extends the existing Gemini OCR skill — feasible, needs a few sample 1042-S images to tune the extraction prompt against.</li>
+        </ul>
+      </div>
+
+      <div class="card">
+        <div class="card-head"><span class="card-id">PHASE E</span><h5>Campus distribution</h5> <span class="pill pill-high">Cheaper than scoped — reuses shipped infra</span></div>
+        <ul>
+          <li><strong>Student-ambassador referral codes need zero new schema.</strong> <code>BillReferralCode</code>/<code>BillReferral</code> (shipped in <a href="https://github.com/qianghan/a3p/pull/169">PR #169-171/#180</a>) already give every tenant a unique code, invite tracking, and a reward-months mechanism via <code>GET /api/v1/agentbook-billing/referrals/me</code>. A "student ambassador" is just this same code, distributed through a campus channel instead of word of mouth — no new engineering, a copy/positioning exercise at most.</li>
+          <li><strong>The parent read-only share link needs zero new schema too.</strong> <code>AbCpaReviewLink</code> + the <code>/review/[token]</code> route (shipped) already expose a scoped, revocable, expirable read-only P&amp;L/summary link with no CPA-specific coupling in the data it returns. Reusing it for "share a summary with a parent" is a UI entry point + copy change, not a new access-control model.</li>
+          <li>International-student-office / financial-aid-office / peer-coaching-center partnerships are pure business development — outreach, a pitch, a relationship. That part is entirely yours; I can draft outreach copy or a one-pager if useful, but I can't make the calls.</li>
+        </ul>
+      </div>
+    </section>
+
+    <section id="open">
+      <div class="num">11</div>
+      <h2>Open Decisions — Inputs Needed From You</h2>
+      <p>Everything below is a business/product judgment call, not an engineering unknown — I've scoped each phase down to the point where the only thing blocking a start is one of these.</p>
+      <ol>
+        <li><strong>Phase B verification:</strong> ship with no verification (self-declared, same trust level as every other businessType today), a free .edu-email check, or a paid vendor (SheerID/ID.me)? Recommendation: no verification for now — there's no differentiated pricing to protect yet, so there's nothing to defraud.</li>
+        <li><strong>Phase B quotas:</strong> should <code>businessType=student</code> get anything different from today's generic free plan, or is "free tier already exists, just point students at it" good enough for now?</li>
+        <li><strong>Phase C content sign-off:</strong> I can draft the scholarship-taxability and education-credit rule content from the research in &sect;2 — do you want that as a starting draft for your own review, or do you want a tax professional to vet the ruleset before anything ships, given AgentBook would be giving tax guidance a user acts on?</li>
+        <li><strong>C vs. D priority:</strong> Phase C serves the larger domestic segment; Phase D requires a real schema migration and touches immigration-adjacent guidance (higher stakes if wrong). Recommendation: C first. Agree, or is the international segment the priority for another reason (e.g. a specific university partnership already in motion)?</li>
+        <li><strong>Phase D schema:</strong> OK to add the small <code>AbTenantConfig</code> migration (visa status, home country) needed for the international track, or hold off until there's a concrete user/partnership to build it for?</li>
+        <li><strong>Phase D partnership:</strong> pursue an actual Sprintax/GLACIER referral relationship (needs your outreach — I can draft the pitch) or ship a plain informational link for now and revisit later?</li>
+        <li><strong>Phase E ambassador economics:</strong> reuse the existing referral reward (currently free months, which mainly appeals to someone already paying) as-is, or does a student ambassador need different economics (e.g. a gift card / cash incentive) since most students will be on the free tier and a "free month" has no value to them?</li>
+        <li><strong>Phase E campus outreach:</strong> do you want a draft outreach email / one-pager for financial-aid and international-student offices, or are you driving that relationship-building entirely yourself?</li>
+      </ol>
+    </section>
+
+  </main>
+</div>
+
+<footer>
+  agentbook · student persona design · draft for review
+</footer>
+
+</body>
+</html>

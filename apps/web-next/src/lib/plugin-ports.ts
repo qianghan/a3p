@@ -27,6 +27,7 @@ export const PLUGIN_PORTS: Record<string, number> = {
   'agentbook-expense': 4051,
   'agentbook-invoice': 4052,
   'agentbook-tax': 4053,
+  'agentbook-startup': 4054,
 };
 
 /** Default port when plugin is not found */

@@ -144,7 +144,7 @@ export const OnboardingPage: React.FC = () => {
 
           {activeStep.id === 'business_type' && (
             <div className="space-y-3">
-              {['freelancer', 'sole_proprietor', 'consultant', 'contractor'].map(type => (
+              {['freelancer', 'sole_proprietor', 'consultant', 'contractor', 'student'].map(type => (
                 <button key={type} onClick={() => setBusinessType(type)}
                   className={`w-full p-3 rounded-lg border text-left capitalize ${businessType === type ? 'border-primary bg-primary/10' : 'border-border'}`}>
                   {type.replace('_', ' ')}
