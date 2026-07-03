@@ -5,7 +5,9 @@
   "type": "module",
   "main": "./src/server.ts",
   "exports": {
-    ".": "./src/server.ts"
+    ".": "./src/server.ts",
+    "./discovery": "./src/discovery.ts",
+    "./catalog/us-programs": "./src/catalog/us-programs.ts"
   },
   "scripts": {
     "dev": "tsx watch src/server.ts",
