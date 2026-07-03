@@ -10,6 +10,13 @@ const salesRepApplicationCreate = vi.fn();
 const salesRepApplicationUpdate = vi.fn();
 const abTenantConfigFindUnique = vi.fn();
 const salesRepProfileFindUnique = vi.fn();
+// Row(s) returned by the `FOR UPDATE` lock query inside withLockedDraftApplication.
+const queryRawRows = vi.fn();
+
+const txMock = {
+  $queryRaw: (..._a: unknown[]) => queryRawRows(),
+  salesRepApplication: { update: (...a: unknown[]) => salesRepApplicationUpdate(...a) },
+};
 
 vi.mock('@naap/database', () => ({
   prisma: {
@@ -29,6 +36,7 @@ vi.mock('@naap/database', () => ({
     salesRepProfile: {
       findUnique: (...a: unknown[]) => salesRepProfileFindUnique(...a),
     },
+    $transaction: (fn: (tx: typeof txMock) => Promise<unknown>) => fn(txMock),
   },
 }));
 
@@ -48,6 +56,7 @@ beforeEach(() => {
   abTenantConfigFindUnique.mockReset();
   salesRepProfileFindUnique.mockReset();
   salesRepProfileFindUnique.mockResolvedValue(null); // default: not already a rep by any path
+  queryRawRows.mockReset();
 });
 
 const paidAnnualSub = {
@@ -182,19 +191,19 @@ describe('startOrResumeApplication', () => {
 
 describe('saveApplicationDraft', () => {
   it('refuses to update another tenant\'s application', async () => {
-    salesRepApplicationFindUnique.mockResolvedValue({ id: 'app1', tenantId: 'other-tenant', status: 'draft' });
+    queryRawRows.mockResolvedValue([{ id: 'app1', tenantId: 'other-tenant', status: 'draft' }]);
     await expect(saveApplicationDraft('t1', 'app1', { jurisdiction: 'uk' })).rejects.toThrow('not found');
   });
 
   it('refuses to update an application that is no longer a draft', async () => {
-    salesRepApplicationFindUnique.mockResolvedValue({ id: 'app1', tenantId: 't1', status: 'submitted' });
+    queryRawRows.mockResolvedValue([{ id: 'app1', tenantId: 't1', status: 'submitted' }]);
     await expect(saveApplicationDraft('t1', 'app1', { jurisdiction: 'uk' })).rejects.toThrow('already been submitted');
   });
 
   it('merges new answers into existing answers rather than replacing them', async () => {
-    salesRepApplicationFindUnique.mockResolvedValue({
-      id: 'app1', tenantId: 't1', status: 'draft', answers: { motivation: 'friends' },
-    });
+    queryRawRows.mockResolvedValue([
+      { id: 'app1', tenantId: 't1', status: 'draft', answers: { motivation: 'friends' } },
+    ]);
     salesRepApplicationUpdate.mockResolvedValue({});
 
     await saveApplicationDraft('t1', 'app1', { answers: { channel: 'linkedin' } });
@@ -202,5 +211,15 @@ describe('saveApplicationDraft', () => {
       where: { id: 'app1' },
       data: { answers: { motivation: 'friends', channel: 'linkedin' } },
     });
+  });
+
+  it('locks the row for the duration of the read-modify-write (uses a transaction, not a bare update)', async () => {
+    queryRawRows.mockResolvedValue([
+      { id: 'app1', tenantId: 't1', status: 'draft', answers: {} },
+    ]);
+    salesRepApplicationUpdate.mockResolvedValue({});
+
+    await saveApplicationDraft('t1', 'app1', { jurisdiction: 'au' });
+    expect(queryRawRows).toHaveBeenCalled();
   });
 });

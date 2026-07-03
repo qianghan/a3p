@@ -44,6 +44,42 @@ export async function checkPartnerEligibility(tenantId: string): Promise<Eligibi
   return { eligible: true };
 }
 
+/**
+ * Row-locks a draft application and runs `mutate` against it inside the
+ * same transaction, then persists the result. Both saveApplicationDraft and
+ * setApplicationAcknowledgment merge into the same JSON `answers` field —
+ * without a lock, two near-simultaneous requests (rapid checkbox clicks
+ * before the first PATCH's disabled-state re-render commits, a flaky
+ * retry, two tabs) each read the pre-write value and the second write
+ * silently clobbers the first (a classic lost-update race). `FOR UPDATE`
+ * makes the second transaction wait for the first to commit, so it reads
+ * the already-merged value rather than the stale one.
+ */
+export async function withLockedDraftApplication<T>(
+  tenantId: string,
+  applicationId: string,
+  mutate: (application: { answers: unknown; jurisdiction: string }) => Prisma.SalesRepApplicationUpdateInput,
+): Promise<T> {
+  return prisma.$transaction(async (tx) => {
+    const rows = await tx.$queryRaw<Array<{ id: string; tenantId: string; status: string; answers: unknown; jurisdiction: string }>>`
+      SELECT id, "tenantId", status, answers, jurisdiction
+      FROM "plugin_agentbook_billing"."SalesRepApplication"
+      WHERE id = ${applicationId}
+      FOR UPDATE
+    `;
+    const application = rows[0];
+    if (!application || application.tenantId !== tenantId) {
+      throw new Error('Application not found.');
+    }
+    if (application.status !== 'draft') {
+      throw new Error('This application has already been submitted and can no longer be edited here.');
+    }
+
+    const data = mutate(application);
+    return tx.salesRepApplication.update({ where: { id: applicationId }, data }) as unknown as T;
+  });
+}
+
 export async function getLatestApplication(tenantId: string) {
   return prisma.salesRepApplication.findFirst({
     where: { tenantId },
@@ -115,21 +151,14 @@ export async function saveApplicationDraft(
   applicationId: string,
   updates: { answers?: Record<string, unknown>; jurisdiction?: string },
 ) {
-  const application = await prisma.salesRepApplication.findUnique({ where: { id: applicationId } });
-  if (!application || application.tenantId !== tenantId) {
-    throw new Error('Application not found.');
-  }
-  if (application.status !== 'draft') {
-    throw new Error('This application has already been submitted and can no longer be edited here.');
-  }
-
-  const data: Prisma.SalesRepApplicationUpdateInput = {};
-  if (updates.answers) {
-    data.answers = { ...(application.answers as Record<string, unknown>), ...updates.answers } as Prisma.InputJsonValue;
-  }
-  if (updates.jurisdiction) {
-    data.jurisdiction = updates.jurisdiction;
-  }
-
-  return prisma.salesRepApplication.update({ where: { id: applicationId }, data });
+  return withLockedDraftApplication(tenantId, applicationId, (application) => {
+    const data: Prisma.SalesRepApplicationUpdateInput = {};
+    if (updates.answers) {
+      data.answers = { ...(application.answers as Record<string, unknown>), ...updates.answers } as Prisma.InputJsonValue;
+    }
+    if (updates.jurisdiction) {
+      data.jurisdiction = updates.jurisdiction;
+    }
+    return data;
+  });
 }
