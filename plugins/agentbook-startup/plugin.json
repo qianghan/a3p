@@ -36,8 +36,8 @@
     "entry": "./frontend/dist/production/agentbook-startup.js",
     "devPort": 3055,
     "routes": [
-      "/agentbook/startup",
-      "/agentbook/startup/*"
+      "/plugins/agentbook-startup",
+      "/plugins/agentbook-startup/*"
     ],
     "navigation": {
       "label": "Startup Tax Benefits",

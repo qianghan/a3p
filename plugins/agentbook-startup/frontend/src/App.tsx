@@ -4,9 +4,14 @@ import { createPlugin } from '@naap/plugin-sdk';
 import { StartupDiscoveryPage } from './pages/StartupDiscoveryPage';
 import './globals.css';
 
+// Non-core plugins (isCore: false in plugin.json) are namespaced under
+// /plugins/{dirName} by packages/database/src/plugin-discovery.ts's
+// normalizePluginRoutes() — the shell ignores plugin.json's own "routes"
+// list for non-core plugins and always mounts here instead. Confirmed via
+// bin/sync-plugin-registry.ts output during PR 7.3 verification.
 function getInitialPath(): string {
   if (typeof window === 'undefined') return '/';
-  const path = window.location.pathname.replace(/^\/agentbook\/startup/, '') || '/';
+  const path = window.location.pathname.replace(/^\/plugins\/agentbook-startup/, '') || '/';
   return path === '' ? '/' : path;
 }
 
@@ -21,7 +26,7 @@ const AgentbookStartupApp: React.FC = () => (
 const plugin = createPlugin({
   name: 'agentbook-startup',
   version: '1.0.0',
-  routes: ['/agentbook/startup', '/agentbook/startup/*'],
+  routes: ['/plugins/agentbook-startup', '/plugins/agentbook-startup/*'],
   App: AgentbookStartupApp,
 });
 
