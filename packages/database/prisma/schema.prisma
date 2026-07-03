@@ -3071,7 +3071,97 @@ model SalesRepProfile {
   promotedAt                     DateTime  @default(now())
   removedAt                      DateTime?
   removedBy                      String?
+  referralLinkActive             Boolean   @default(true) // self-serve pause/resume — does not touch the contract or role
 
+  @@schema("plugin_agentbook_billing")
+}
+
+// One row per self-serve application to become a sales rep (the Partner
+// Program). Not unique-per-tenant — a rejected applicant can reapply after
+// the cooldown, so history is kept the same way SalesRepPayout keeps a full
+// history rather than a single mutable row. "Latest for tenant" queries
+// order by createdAt desc.
+model SalesRepApplication {
+  id                   String    @id @default(uuid())
+  tenantId             String
+  status               String    @default("draft") // draft|submitted|under_review|more_info_requested|approved|rejected
+  jurisdiction         String
+  answers              Json      // step 1 (fit/motivation) + step 4 (taxpayer-info ack) responses
+  eligibilityPlanCode  String    // snapshot: plan they qualified with at submission time
+  eligibilityInterval  String    // snapshot: must be "year" — enforced at submit time, not just apply time
+  annualFeeCentsPaid   Int       // snapshot of what they actually paid for the term this application covers
+  aiRiskLevel          String?   // low | medium | high
+  aiRecommendation     String?   // approve | reject | more_info
+  aiConcerns           Json?
+  aiReasoning          String?
+  reviewedBy           String?
+  reviewedAt           DateTime?
+  reviewDecision       String?   // approve | reject | more_info
+  reviewNotes          String?
+  moreInfoRequestedAt  DateTime?
+  moreInfoMessage      String?
+  submittedAt          DateTime?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+
+  @@index([tenantId, status])
+  @@index([tenantId, createdAt])
+  @@schema("plugin_agentbook_billing")
+}
+
+// Admin-managed catalog, one row per jurisdiction. Versioned so a signed
+// SalesRepContract snapshot never silently changes meaning after the fact —
+// only the template gets edited; past signatures reference the version they
+// actually saw via SalesRepContract.templateVersion.
+model SalesRepContractTemplate {
+  id               String   @id @default(uuid())
+  jurisdiction     String   @unique
+  version          Int      @default(1)
+  bodyTemplate     String   // placeholders: {{commissionBps}}, {{annualFeeCents}}, {{rebateThresholdCents}}
+  liabilityClauses Json     // structured per-section clauses shown at application step 3
+  taxFormType      String   // "1099-NEC" | "T4A" | "self_assessment_notice" | "abn_notice"
+  legallyReviewed  Boolean  @default(false)
+  effectiveFrom    DateTime @default(now())
+
+  @@schema("plugin_agentbook_billing")
+}
+
+// Immutable signed snapshot — the actual bonded contract. Frozen at signing
+// time; later edits to SalesRepContractTemplate never alter a signature
+// that already exists, by design.
+model SalesRepContract {
+  id                     String   @id @default(uuid())
+  applicationId          String   @unique
+  templateVersion        Int
+  renderedHtml           String   // frozen copy of the agreement exactly as presented at signing
+  signedByName           String
+  signedAt               DateTime @default(now())
+  signerIp               String
+  signerUserAgent        String
+  commissionBpsAtSigning Int
+
+  @@schema("plugin_agentbook_billing")
+}
+
+// Tracks the one-time, first-90-days annual-fee rebate — deliberately its
+// own model rather than a field on SalesRepPayout, since money flows the
+// opposite direction (a refund of what the rep paid, not a payout of
+// commission owed) and the eligibility window is time-boxed and one-shot.
+model SalesRepFeeRebate {
+  id                        String    @id @default(uuid())
+  tenantId                  String    @unique // one-time-per-tenure — see sales-rep.html §3
+  applicationId             String
+  annualFeeCentsPaid        Int
+  thresholdCents            Int       // 5x annualFeeCentsPaid at window open
+  windowStart               DateTime  // rep activation date
+  windowEnd                 DateTime  // windowStart + 90 days
+  cumulativeCommissionCents Int       @default(0) // updated as SalesRepCommissionAccrual rows land
+  status                    String    @default("pending") // pending|earned|expired|paid
+  earnedAt                  DateTime?
+  paidAt                    DateTime?
+  stripeRefundId            String?
+
+  @@index([status, windowEnd])
   @@schema("plugin_agentbook_billing")
 }
 
