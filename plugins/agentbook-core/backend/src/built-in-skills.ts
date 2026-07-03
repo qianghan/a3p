@@ -339,6 +339,12 @@ export const BUILT_IN_SKILLS = [
     endpoint: { method: 'GET', url: '/api/v1/agentbook-tax/tax-filing/2025' },
   },
   {
+    name: 'scholarship-taxability', description: 'Explain whether a scholarship, grant, RESP/529 withdrawal, or stipend is taxable, and whether AOTC/Lifetime Learning Credit or the Canadian tuition transfer applies', category: 'tax',
+    triggerPatterns: ['scholarship', 'is.*grant.*taxable', 'fellowship', 'financial aid.*tax', 'tuition.*credit', 'education.*credit', 'AOTC', 'american opportunity', 'lifetime learning', '\\bresp\\b', '\\b529\\b', 't2202', '1098-?t', 'is.*taxable'],
+    parameters: { question: { type: 'string', required: true, extractHint: 'the full user question about the scholarship/grant/stipend/withdrawal' } },
+    endpoint: { method: 'INTERNAL', url: '' },
+  },
+  {
     name: 'tax-filing-field', description: 'Provide a value for a missing tax filing field', category: 'tax',
     triggerPatterns: [],
     parameters: { formCode: { type: 'string', required: true }, fieldId: { type: 'string', required: true }, value: { type: 'string', required: true } },
