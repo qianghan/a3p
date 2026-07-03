@@ -155,14 +155,27 @@ export default function SalesRepDashboardPage() {
       {successMsg && <div className="rounded-md bg-emerald-500/10 text-emerald-600 text-sm px-3 py-2">{successMsg}</div>}
 
       {/* Referral link */}
-      <div className="rounded-lg border border-border bg-card p-4">
-        <div className="text-xs font-medium text-muted-foreground mb-2">Your referral link</div>
-        <div className="flex items-center gap-2">
-          <Input readOnly value={shareUrl ?? ''} className="font-mono text-sm" />
-          <Button onClick={copyLink} variant="secondary">
-            {copied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
-          </Button>
+      <div className="grid gap-4 sm:grid-cols-[1fr_auto] sm:items-start">
+        <div className="rounded-lg border border-border bg-card p-4">
+          <div className="text-xs font-medium text-muted-foreground mb-2">Your referral link</div>
+          <div className="flex items-center gap-2">
+            <Input readOnly value={shareUrl ?? ''} className="font-mono text-sm" />
+            <Button onClick={copyLink} variant="secondary">
+              {copied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
+            </Button>
+          </div>
         </div>
+        {summary.profile.referralCode && (
+          <div className="rounded-lg border border-border bg-card p-4">
+            <div className="text-xs font-medium text-muted-foreground mb-2">Or let them scan</div>
+            {/* eslint-disable-next-line @next/next/no-img-element -- server-generated PNG, not an optimizable static asset */}
+            <img
+              src={`/api/v1/agentbook-billing/referrals/qr-card/${encodeURIComponent(summary.profile.referralCode)}`}
+              alt="Scan to join AgentBook"
+              className="w-full max-w-[160px] rounded-lg border border-border"
+            />
+          </div>
+        )}
       </div>
 
       {/* Revenue tiles */}
