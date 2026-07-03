@@ -133,6 +133,28 @@ async function main(): Promise<void> {
       `  Enabled WorkflowPlugins: ${enabledPlugins.map((p) => `${p.name}(${p.order})`).join(', ')}\n` +
       `  Core PluginPackages:     ${corePackages.map((p) => p.name).join(', ')}`,
     );
+
+    // ── sales_rep Role ────────────────────────────────────────────────────────
+    // Product-level role (scope 'agentbook'), not a platform-infra role, so
+    // this is seeded here rather than in services/base-svc's initializeDefaultRoles().
+    await prisma.role.upsert({
+      where: { name: 'sales_rep' },
+      create: {
+        name: 'sales_rep',
+        displayName: 'Sales Rep',
+        description: 'Promoted affiliate — comped plan, referral commission tracking, own dashboard.',
+        permissions: [{ resource: 'sales-rep-dashboard', action: 'read' }],
+        canAssign: [],
+        inherits: [],
+        scope: 'agentbook',
+        isSystem: false,
+      },
+      update: {
+        displayName: 'Sales Rep',
+        description: 'Promoted affiliate — comped plan, referral commission tracking, own dashboard.',
+      },
+    });
+    console.log('[seed-agentbook-defaults] Role: ensured sales_rep exists');
   } finally {
     await prisma.$disconnect();
   }

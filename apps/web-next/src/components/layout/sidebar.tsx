@@ -119,6 +119,7 @@ export function Sidebar() {
   const isMobile = useIsMobile();
 
   const isAdmin = hasRole('system:admin');
+  const isSalesRep = hasRole('sales_rep');
 
   // Close the mobile drawer on navigation — a link tap should take the user
   // to the page, not leave the overlay covering it.
@@ -498,13 +499,22 @@ export function Sidebar() {
       </div>
 
       {/* Bottom Section - Fixed (only role-gated items) */}
-      {isAdmin && (
+      {(isAdmin || isSalesRep) && (
         <div className="shrink-0 p-2 border-t border-border/50">
-          <NavLink
-            item={{ name: 'Admin', href: '/admin/users', icon: Shield }}
-            isActive={isActive('/admin')}
-            isOpen={effectiveOpen}
-          />
+          {isSalesRep && (
+            <NavLink
+              item={{ name: 'Sales Rep', href: '/sales-rep', icon: Banknote }}
+              isActive={isActive('/sales-rep')}
+              isOpen={effectiveOpen}
+            />
+          )}
+          {isAdmin && (
+            <NavLink
+              item={{ name: 'Admin', href: '/admin/users', icon: Shield }}
+              isActive={isActive('/admin')}
+              isOpen={effectiveOpen}
+            />
+          )}
         </div>
       )}
 

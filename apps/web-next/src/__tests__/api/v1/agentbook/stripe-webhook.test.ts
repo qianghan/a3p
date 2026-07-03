@@ -10,6 +10,7 @@ const billSubscriptionUpsert = vi.fn();
 const billSubscriptionUpdate = vi.fn();
 const billPlanFindFirst = vi.fn();
 const planCacheInvalidate = vi.fn();
+const salesRepProfileFindFirst = vi.fn();
 const billAddOnPriceFindUnique = vi.fn();
 const billAddOnFindUnique = vi.fn();
 const billAddOnSubUpsert = vi.fn();
@@ -32,6 +33,7 @@ vi.mock('@naap/database', () => ({
       update: (...a: unknown[]) => billSubscriptionUpdate(...a),
     },
     billPlan: { findFirst: (...a: unknown[]) => billPlanFindFirst(...a) },
+    salesRepProfile: { findFirst: (...a: unknown[]) => salesRepProfileFindFirst(...a) },
     billAddOnPrice: { findUnique: (...a: unknown[]) => billAddOnPriceFindUnique(...a) },
     billAddOn: { findUnique: (...a: unknown[]) => billAddOnFindUnique(...a) },
     billAddOnSubscription: {
@@ -55,17 +57,20 @@ beforeEach(() => {
   billSubscriptionUpdate.mockReset();
   billPlanFindFirst.mockReset();
   planCacheInvalidate.mockReset();
+  salesRepProfileFindFirst.mockReset();
   billAddOnPriceFindUnique.mockReset();
   billAddOnFindUnique.mockReset();
   billAddOnSubUpsert.mockReset();
   billAddOnSubUpdate.mockReset();
   process.env.STRIPE_WEBHOOK_SECRET = 'whsec_test';
   process.env.STRIPE_SECRET_KEY = 'sk_test_dummy';
+  delete process.env.STRIPE_CONNECT_WEBHOOK_SECRET;
 });
 
 afterEach(() => {
   delete process.env.STRIPE_WEBHOOK_SECRET;
   delete process.env.STRIPE_SECRET_KEY;
+  delete process.env.STRIPE_CONNECT_WEBHOOK_SECRET;
 });
 
 function req(body: string, sig: string | null): NextRequest {
@@ -148,6 +153,27 @@ describe('Stripe webhook', () => {
     const r = await POST(req('{}', 'sig'));
     expect(r.status).toBe(200);
     expect(billSubscriptionUpsert).not.toHaveBeenCalled();
+  });
+
+  it('falls back to STRIPE_CONNECT_WEBHOOK_SECRET when the platform secret fails to verify', async () => {
+    process.env.STRIPE_CONNECT_WEBHOOK_SECRET = 'whsec_connect_test';
+    constructEvent
+      .mockImplementationOnce(() => { throw new Error('bad sig for platform secret'); })
+      .mockReturnValueOnce({ id: 'evt_5', type: 'account.updated', account: 'acct_123', data: { object: {} } });
+    billEventCreate.mockResolvedValue({});
+    billEventUpdate.mockResolvedValue({});
+    salesRepProfileFindFirst.mockResolvedValue(null);
+    const r = await POST(req('{}', 'sig'));
+    expect(r.status).toBe(200);
+    expect(constructEvent).toHaveBeenCalledTimes(2);
+  });
+
+  it('returns 400 when neither configured secret verifies', async () => {
+    process.env.STRIPE_CONNECT_WEBHOOK_SECRET = 'whsec_connect_test';
+    constructEvent.mockImplementation(() => { throw new Error('bad sig'); });
+    const r = await POST(req('{}', 'sig'));
+    expect(r.status).toBe(400);
+    expect(billEventCreate).not.toHaveBeenCalled();
   });
 
   it('syncs a BillAddOnSubscription when the event has addOnCode metadata, without touching BillPlan', async () => {

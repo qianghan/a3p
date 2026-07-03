@@ -702,6 +702,28 @@ function ShareCard({ code, shareUrl }: { code: string; shareUrl: string }): Reac
   );
 }
 
+function QrCard({ code }: { code: string }): React.ReactElement {
+  const qrUrl = `/api/v1/agentbook-billing/referrals/qr-card/${encodeURIComponent(code)}`;
+  return (
+    <div className="rounded-xl border border-border bg-card p-4">
+      <p className="text-xs text-muted-foreground mb-2">Or let them scan</p>
+      {/* eslint-disable-next-line @next/next/no-img-element -- server-generated PNG, not an optimizable static asset */}
+      <img
+        src={qrUrl}
+        alt="Scan to join AgentBook"
+        className="w-full max-w-[200px] rounded-lg border border-border"
+      />
+      <a
+        href={qrUrl}
+        download={`agentbook-qr-${code}.png`}
+        className="mt-3 inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-2 text-sm text-foreground hover:bg-muted transition-colors"
+      >
+        Download QR code
+      </a>
+    </div>
+  );
+}
+
 function ReferralsTab(): React.ReactElement {
   const [summary, setSummary] = useState<ReferralSummary | null>(null);
   const [loading, setLoading] = useState(true);
@@ -745,7 +767,10 @@ function ReferralsTab(): React.ReactElement {
         <CopyField label="Your share link" value={shareUrl} />
       </div>
 
-      <ShareCard code={code} shareUrl={shareUrl} />
+      <div className="grid gap-3 sm:grid-cols-[1fr_auto] sm:items-start">
+        <ShareCard code={code} shareUrl={shareUrl} />
+        <QrCard code={code} />
+      </div>
 
       <div className="rounded-xl border border-border bg-card p-4">
         <div className="flex items-center justify-between mb-2">
