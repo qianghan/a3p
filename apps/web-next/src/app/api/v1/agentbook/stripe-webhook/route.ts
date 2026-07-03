@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getStripe } from '@/lib/billing/stripe';
 import { prisma } from '@naap/database';
 import { applyEvent } from './handlers';
+import type Stripe from 'stripe';
 
 // Stripe webhooks must run on Node runtime (raw body + signature verify)
 export const runtime = 'nodejs';
@@ -12,14 +13,27 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   if (!sig) return NextResponse.json({ error: 'missing signature' }, { status: 400 });
 
   const rawBody = await request.text();
-  const secret = process.env.STRIPE_WEBHOOK_SECRET;
-  if (!secret) return NextResponse.json({ error: 'webhook secret not configured' }, { status: 500 });
+  // Two separate Stripe webhook endpoints deliver here: the platform one
+  // (STRIPE_WEBHOOK_SECRET) and a Connect one scoped to connected-account
+  // events like account.updated (STRIPE_CONNECT_WEBHOOK_SECRET) — each has
+  // its own signing secret, so we try both rather than knowing in advance
+  // which endpoint sent a given request.
+  const secrets = [process.env.STRIPE_WEBHOOK_SECRET, process.env.STRIPE_CONNECT_WEBHOOK_SECRET].filter(
+    (s): s is string => !!s,
+  );
+  if (secrets.length === 0) return NextResponse.json({ error: 'webhook secret not configured' }, { status: 500 });
 
-  let event;
-  try {
-    event = getStripe().webhooks.constructEvent(rawBody, sig, secret);
-  } catch (err) {
-    console.warn('[stripe-webhook] signature verification failed:', err);
+  let event: Stripe.Event | undefined;
+  for (const secret of secrets) {
+    try {
+      event = getStripe().webhooks.constructEvent(rawBody, sig, secret);
+      break;
+    } catch {
+      // try the next configured secret
+    }
+  }
+  if (!event) {
+    console.warn('[stripe-webhook] signature verification failed for all configured secrets');
     return NextResponse.json({ error: 'invalid signature' }, { status: 400 });
   }
 
