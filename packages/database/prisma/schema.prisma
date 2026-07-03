@@ -3035,6 +3035,67 @@ model BillReferral {
   @@schema("plugin_agentbook_billing")
 }
 
+// First add-on-style purchase primitive (independent of BillPlan tiers).
+// See startup.html §8.7 and docs/superpowers/plans/2026-07-03-startup-billing-addon-pr7.2.md.
+// One row per add-on product — v1 has exactly one: "startup_tax_benefits".
+model BillAddOn {
+  id        String   @id @default(uuid())
+  code      String   @unique
+  name      String
+  interval  String   @default("year")
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  prices        BillAddOnPrice[]
+  subscriptions BillAddOnSubscription[]
+
+  @@schema("plugin_agentbook_billing")
+}
+
+// Configurable pricing — one row per (addOn, region, tier). Nothing about
+// price points, the founding-member slot cap, or its cutoff date is
+// hardcoded in application code; all of it is admin-editable data.
+model BillAddOnPrice {
+  id             String    @id @default(uuid())
+  addOnId        String
+  region         String    // "us" | "ca" | "uk"
+  currency       String    // "usd" | "cad" | "gbp"
+  tier           String    // "founding_member" | "standard" | "scaled"
+  priceCents     Int
+  stripePriceId  String?
+  maxSlots       Int?      // null = unlimited
+  availableUntil DateTime? // null = no time limit
+  isActive       Boolean   @default(true)
+  createdAt      DateTime  @default(now())
+
+  addOn         BillAddOn                @relation(fields: [addOnId], references: [id])
+  subscriptions BillAddOnSubscription[]
+
+  @@unique([addOnId, region, tier])
+  @@schema("plugin_agentbook_billing")
+}
+
+// One active row per (account, add-on). priceId records which tier the
+// account locked in — a founding-member subscriber keeps that Stripe
+// Price (and its $99 renewal amount) even after the 250-slot cap fills.
+model BillAddOnSubscription {
+  id                   String    @id @default(uuid())
+  accountId            String
+  addOnId              String
+  priceId              String
+  status               String    // active | canceled
+  stripeCustomerId     String?
+  stripeSubscriptionId String?
+  startedAt            DateTime  @default(now())
+  canceledAt           DateTime?
+
+  addOn BillAddOn      @relation(fields: [addOnId], references: [id])
+  price BillAddOnPrice @relation(fields: [priceId], references: [id])
+
+  @@unique([accountId, addOnId])
+  @@schema("plugin_agentbook_billing")
+}
+
 // ============================================================================
 // Personal Finance plugin (Phase 3) — household/personal finance kept strictly
 // separate from the business books. Transactions flagged `businessFlag` are the
