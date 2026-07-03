@@ -32,6 +32,21 @@
     }
   },
 
+  "frontend": {
+    "entry": "./frontend/dist/production/agentbook-startup.js",
+    "devPort": 3055,
+    "routes": [
+      "/agentbook/startup",
+      "/agentbook/startup/*"
+    ],
+    "navigation": {
+      "label": "Startup Tax Benefits",
+      "icon": "Rocket",
+      "order": 20,
+      "group": "finance"
+    }
+  },
+
   "integrations": {
     "required": [],
     "optional": []
