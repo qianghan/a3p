@@ -3180,6 +3180,24 @@ model PartnerProgramSettings {
   @@schema("plugin_agentbook_billing")
 }
 
+// Admin-curated marketing videos (sales-rep.html §15) — hosted on YouTube
+// and simply linked; AgentBook never stores or transcodes the media
+// itself. Visible to active reps only, ordered by sortOrder.
+model PartnerMarketingVideo {
+  id             String    @id @default(uuid())
+  title          String
+  youtubeVideoId String    // extracted + validated server-side, not the raw pasted URL
+  description    String?
+  sortOrder      Int       @default(0)
+  isActive       Boolean   @default(true)
+  createdBy      String
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@index([isActive, sortOrder])
+  @@schema("plugin_agentbook_billing")
+}
+
 // One row per revenue event attributed to a rep's referral. Created from the
 // Stripe webhook's invoice.paid handler — fires on every recurring payment,
 // not just the invitee's first (unlike BillReferral/processInviteePaid).
