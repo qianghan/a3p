@@ -558,6 +558,15 @@ export const BUILT_IN_SKILLS = [
     endpoint: { method: 'INTERNAL', url: '' },
   },
   {
+    name: 'us-rd-credit-finder',
+    description: 'Check whether the business likely qualifies for the US federal R&D tax credit, QSBS eligibility tracking, or Delaware franchise tax optimization, with an estimated dollar range',
+    category: 'tax_benefits',
+    triggerPatterns: ['r&d credit', 'r and d credit', 'research credit', 'research and development credit', 'startup tax benefit', 'qsbs', 'franchise tax'],
+    parameters: {},
+    endpoint: { method: 'GET', url: '/api/v1/agentbook-startup/recommendations' },
+    responseTemplate: 'Based on your company profile, here is what you may qualify for: {{programs}}',
+  },
+  {
     name: 'general-question', description: 'Answer any general financial or accounting question', category: 'finance',
     triggerPatterns: [],
     parameters: { question: { type: 'string', required: true, extractHint: 'the full user message' } },

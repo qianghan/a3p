@@ -25,6 +25,7 @@ const PLUGIN_ENV_MAP: Record<string, string> = {
   'agentbook-expense': 'AGENTBOOK_EXPENSE_URL',
   'agentbook-invoice': 'AGENTBOOK_INVOICE_URL',
   'agentbook-tax': 'AGENTBOOK_TAX_URL',
+  'agentbook-startup': 'AGENTBOOK_STARTUP_URL',
 };
 
 /** Short aliases so both `/api/v1/gateway/...` and `/api/v1/service-gateway/...` resolve. */

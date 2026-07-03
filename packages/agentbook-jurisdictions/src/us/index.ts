@@ -8,6 +8,7 @@ import { usContractorReport } from './contractor-report.js';
 import { usMileageRate } from './mileage-rate.js';
 import { usDeductions } from './deductions.js';
 import { usCalendarDeadlines } from './calendar-deadlines.js';
+import { usTaxBenefits } from './tax-benefits.js';
 
 export const usPack: JurisdictionPack = {
   id: 'us',
@@ -21,4 +22,5 @@ export const usPack: JurisdictionPack = {
   mileageRate: usMileageRate,
   deductions: usDeductions,
   calendarDeadlines: usCalendarDeadlines,
+  taxBenefits: usTaxBenefits,
 };
