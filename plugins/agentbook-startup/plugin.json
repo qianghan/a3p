@@ -1,0 +1,49 @@
+{
+  "$schema": "https://plugins.naap.io/schema/plugin.json",
+  "name": "agentbook-startup",
+  "displayName": "Startup Tax Benefits",
+  "version": "1.0.0",
+  "description": "Discovers government tax-benefit programs a startup qualifies for (R&D tax credit, QSBS tracking, Delaware franchise tax optimization, and more), drafts the application with human decision points, runs an audit-risk review, and tracks it through to a decision.",
+  "isCore": false,
+  "author": {
+    "name": "A3P Team",
+    "email": "team@a3p.io",
+    "url": "https://a3p.io"
+  },
+  "repository": "https://github.com/a3p/plugins/tree/main/agentbook-startup",
+  "license": "MIT",
+  "keywords": ["startup", "tax-credit", "r&d-credit", "qsbs", "franchise-tax"],
+  "category": "finance",
+
+  "shell": {
+    "minVersion": "0.1.0",
+    "maxVersion": "2.x"
+  },
+
+  "backend": {
+    "entry": "./backend/dist/server.js",
+    "devPort": 4054,
+    "port": 4154,
+    "healthCheck": "/healthz",
+    "apiPrefix": "/api/v1/agentbook-startup",
+    "resources": {
+      "memory": "256Mi",
+      "cpu": "0.25"
+    }
+  },
+
+  "integrations": {
+    "required": [],
+    "optional": []
+  },
+
+  "permissions": {
+    "shell": ["navigation", "notifications", "theme"],
+    "apis": [],
+    "external": []
+  },
+
+  "config": {
+    "schema": {}
+  }
+}
