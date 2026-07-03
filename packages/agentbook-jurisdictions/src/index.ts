@@ -1,4 +1,4 @@
-export { loadJurisdictionPack, getJurisdictionPack, type JurisdictionPack } from './loader.js';
+export { loadJurisdictionPack, getJurisdictionPack, loadBuiltInPacks, type JurisdictionPack } from './loader.js';
 export { type TaxBracketProvider, type SelfEmploymentTaxCalculator, type SalesTaxEngine } from './interfaces.js';
 export { type TaxFormGenerator, type InstallmentSchedule, type ContractorReportGenerator } from './interfaces.js';
 export { type ChartOfAccountsTemplate, type MileageRateProvider, type DeductionRuleSet } from './interfaces.js';
