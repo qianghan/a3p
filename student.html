@@ -409,19 +409,20 @@
       </div>
 
       <div class="card">
-        <div class="card-head"><span class="card-id">PHASE B</span><h5>Student Free plan + verification</h5> <span class="pill pill-info">Scoped, needs a decision</span></div>
+        <div class="card-head"><span class="card-id">PHASE B</span><h5>Student Free plan + verification</h5> <span class="pill pill-high">Resolved — no build needed</span></div>
         <ul>
-          <li><strong>Smaller than originally scoped.</strong> A <code>$0</code> <code>free</code> <code>BillPlan</code> row already exists and every new signup defaults to it — there is no new billing primitive to build. The open question is purely: does a verified student get anything <em>different</em> from today's generic free tier, and if so, what gates it?</li>
-          <li>Three verification options, increasing cost and anti-abuse strength: (1) none — <code>businessType=student</code> is self-declared, same as freelancer/consultant today; (2) a lightweight in-house check (.edu email domain match at signup, no vendor contract, ships in a day); (3) a paid vendor (SheerID/ID.me) — real anti-fraud, but a contract/budget decision, not an engineering one.</li>
-          <li>If students get an enhanced free tier (e.g. <code>telegram_bot: true</code>, a higher AI-message quota than the generic free plan's 100/mo), that's a new <code>BillPlan</code> row + a gate on the businessType/verification flag — small, but needs the quotas decided first.</li>
+          <li>Decided: no verification, no enhanced quotas. <code>businessType=student</code> is self-declared like every other value, and students land on the existing <code>$0</code> <code>free</code> <code>BillPlan</code> like anyone else. Nothing to build — Phase A already covers this in full.</li>
         </ul>
       </div>
 
       <div class="card">
-        <div class="card-head"><span class="card-id">PHASE C</span><h5>Scholarship-taxability &amp; education-credit skill</h5> <span class="pill pill-info">Scoped, needs content sign-off</span></div>
+        <div class="card-head"><span class="card-id">PHASE C</span><h5>Scholarship-taxability &amp; education-credit skill</h5> <span class="pill pill-high">Shipped &amp; validated in prod</span></div>
         <ul>
-          <li>Mechanically small — follows the existing pattern exactly: add a manifest to <code>BUILT_IN_SKILLS</code> in <code>plugins/agentbook-core/backend/src/server.ts</code>, an inline handler in <code>classifyAndExecuteV1()</code>, seed via <code>POST /agent/seed-skills</code>.</li>
-          <li>The real work is the <em>content</em>: the actual decision-tree rules (US: qualified vs. non-qualified scholarship expenses, AOTC/LLC eligibility and phase-outs, dependent-status restrictions; Canada: T2202 tuition transfer, RESP EAP vs. capital-withdrawal treatment). I can draft this from the research already done in &sect;2, but it's tax guidance a real user will act on — see the sign-off question below.</li>
+          <li>Rule content drafted in <code>docs/superpowers/specs/2026-07-03-scholarship-taxability-skill-content.md</code> for your review — US (qualified vs. non-qualified scholarship expenses, AOTC/LLC eligibility, dependent-status restrictions) and Canada (T2202 tuition transfer/carry-forward, RESP EAP vs. capital-withdrawal treatment).</li>
+          <li>Implemented as a new <code>scholarship-taxability</code> INTERNAL skill, jurisdiction-aware, answers grounded in the fixed rule set (not the model's general knowledge) via a constrained Gemini prompt.</li>
+          <li><strong>Found and fixed two real routing bugs along the way:</strong> <code>query-finance</code>'s broad <code>tax</code> trigger and <code>record-expense</code>'s dollar-amount trigger were both shadowing the new skill in the regex fast-path (the latter briefly recorded a bogus expense instead of answering the tax question). Both now exclude scholarship/education-credit phrasing, matching the exclude-list pattern already used for ~15 other tax skills.</li>
+          <li>Also surfaced a stale-state class of bug twice: the onboarding plugin frontend bundle from Phase A had never been rebuilt to the CDN (source changed, deployed bundle didn't), and the skill-manifest DB table needed an explicit reseed after each exclude-pattern fix since <code>query-finance</code>/<code>record-expense</code> were already seeded with the old rules. Both fixed and reseeded.</li>
+          <li><code>tests/e2e/student-persona.spec.ts</code> passes both cases against <code>agentbook.brainliber.com</code>.</li>
         </ul>
       </div>
 
