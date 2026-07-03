@@ -15,6 +15,7 @@
     "test:watch": "vitest"
   },
   "dependencies": {
+    "@agentbook/jurisdictions": "*",
     "@naap/database": "*",
     "@naap/plugin-server-sdk": "*",
     "cors": "^2.8.6",

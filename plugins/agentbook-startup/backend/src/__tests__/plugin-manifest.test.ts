@@ -6,9 +6,13 @@ const manifestPath = fileURLToPath(new URL('../../../plugin.json', import.meta.u
 const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
 
 describe('agentbook-startup plugin.json', () => {
-  it('is non-core and ships with no frontend routes yet (PR 7.1 is a dark launch)', () => {
+  it('is non-core (add-on gated) — isCore stays false even now that PR 7.3 ships a frontend', () => {
     expect(manifest.isCore).toBe(false);
-    expect(manifest.frontend).toBeUndefined();
+  });
+
+  it('mounts under /plugins/agentbook-startup — the namespace normalizePluginRoutes() forces for non-core plugins', () => {
+    expect(manifest.frontend.routes).toEqual(['/plugins/agentbook-startup', '/plugins/agentbook-startup/*']);
+    expect(manifest.frontend.devPort).toBe(3055);
   });
 
   it('registers the backend on the expected dev port and API prefix', () => {
