@@ -7,7 +7,7 @@ import 'server-only';
 import { NextRequest, NextResponse } from 'next/server';
 import { validateSession } from '@/lib/api/auth';
 import { errors, success, getAuthToken } from '@/lib/api/response';
-import { listAllMarketingVideos, createMarketingVideo } from '@/lib/billing/partner-marketing-videos';
+import { listAllPartnerMarketingVideos, addPartnerMarketingVideo } from '@/lib/billing/partner-marketing-kit';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -27,7 +27,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   const auth = await requireAdmin(request);
   if (auth.error) return auth.error;
 
-  const videos = await listAllMarketingVideos();
+  const videos = await listAllPartnerMarketingVideos();
   return success({ videos });
 }
 
@@ -47,7 +47,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   }
 
   try {
-    const video = await createMarketingVideo({ title, url, description, sortOrder, createdBy: sessionUser.id });
+    const video = await addPartnerMarketingVideo({ title, url, description, sortOrder, createdBy: sessionUser.id });
     return success({ video });
   } catch (err) {
     return errors.badRequest(err instanceof Error ? err.message : String(err));

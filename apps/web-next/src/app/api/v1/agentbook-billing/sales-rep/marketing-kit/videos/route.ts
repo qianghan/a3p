@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { listActiveMarketingVideos } from '@/lib/billing/partner-marketing-videos';
-import { requireActiveSalesRep } from '@/lib/billing/sales-rep';
+import { listPartnerMarketingVideos } from '@/lib/billing/partner-marketing-kit';
 import { safeResolveAgentbookTenant } from '@/lib/agentbook-tenant';
 
 export const runtime = 'nodejs';
@@ -18,11 +17,9 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   if ('response' in resolved) return resolved.response;
 
   try {
-    await requireActiveSalesRep(resolved.tenantId);
+    const videos = await listPartnerMarketingVideos(resolved.tenantId);
+    return NextResponse.json({ success: true, data: { videos } });
   } catch {
     return NextResponse.json({ success: false, error: 'Not an active sales rep.' }, { status: 403 });
   }
-
-  const videos = await listActiveMarketingVideos();
-  return NextResponse.json({ success: true, data: { videos } });
 }

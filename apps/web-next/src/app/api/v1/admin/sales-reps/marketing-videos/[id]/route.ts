@@ -7,7 +7,7 @@ import 'server-only';
 import { NextRequest, NextResponse } from 'next/server';
 import { validateSession } from '@/lib/api/auth';
 import { errors, success, getAuthToken } from '@/lib/api/response';
-import { updateMarketingVideo } from '@/lib/billing/partner-marketing-videos';
+import { editPartnerMarketingVideo } from '@/lib/billing/partner-marketing-kit';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -41,7 +41,7 @@ export async function PATCH(
   };
 
   try {
-    const video = await updateMarketingVideo(id, { title, url, description, sortOrder, isActive });
+    const video = await editPartnerMarketingVideo(id, { title, url, description, sortOrder, isActive });
     return success({ video });
   } catch (err) {
     return errors.badRequest(err instanceof Error ? err.message : String(err));

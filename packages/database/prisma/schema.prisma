@@ -24,7 +24,7 @@ datasource db {
   provider  = "postgresql"
   url       = env("DATABASE_URL")
   directUrl = env("DATABASE_URL_UNPOOLED")
-  schemas   = ["public", "plugin_community", "plugin_service_gateway", "plugin_agentbook_core", "plugin_agentbook_expense", "plugin_agentbook_invoice", "plugin_agentbook_tax", "plugin_agentbook_billing", "plugin_agentbook_personal", "plugin_agentbook_cpa", "plugin_agentbook_payroll"]
+  schemas   = ["public", "plugin_community", "plugin_service_gateway", "plugin_agentbook_core", "plugin_agentbook_expense", "plugin_agentbook_invoice", "plugin_agentbook_tax", "plugin_agentbook_billing", "plugin_agentbook_personal", "plugin_agentbook_cpa", "plugin_agentbook_payroll", "plugin_content_library"]
 }
 
 // ============================================
@@ -3183,19 +3183,37 @@ model PartnerProgramSettings {
 // Admin-curated marketing videos (sales-rep.html §15) — hosted on YouTube
 // and simply linked; AgentBook never stores or transcodes the media
 // itself. Visible to active reps only, ordered by sortOrder.
-model PartnerMarketingVideo {
+// ============================================================================
+// Content Library plugin (packages/content-library) — a generic, gated
+// content catalog with NO knowledge of tenants, sales reps, or any other
+// feature. `category` and `entitlementKey` are opaque strings the calling
+// feature defines; access control happens entirely in the caller, before
+// this module is ever touched. Deliberately its own schema namespace so it
+// can be promoted to a standalone plugin later (own backend, own frontend
+// bundle) with zero data migration if it grows beyond a shared library.
+//
+// Today's only consumer: the Partner Marketing Kit (sales-rep.html §15)
+// uses category="partner_marketing_kit", entitlementKey="sales_rep_active"
+// — see apps/web-next/src/lib/billing/partner-marketing-kit.ts for the
+// thin adapter that wires the actual sales-rep entitlement check.
+// ============================================================================
+
+model ContentAsset {
   id             String    @id @default(uuid())
+  category       String    // caller-defined grouping, e.g. "partner_marketing_kit"
+  entitlementKey String    // caller-defined and caller-checked; opaque to this module
+  assetType      String    @default("youtube_video")
   title          String
-  youtubeVideoId String    // extracted + validated server-side, not the raw pasted URL
   description    String?
+  youtubeVideoId String?   // populated when assetType = "youtube_video"
   sortOrder      Int       @default(0)
   isActive       Boolean   @default(true)
   createdBy      String
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
 
-  @@index([isActive, sortOrder])
-  @@schema("plugin_agentbook_billing")
+  @@index([category, entitlementKey, isActive, sortOrder])
+  @@schema("plugin_content_library")
 }
 
 // One row per revenue event attributed to a rep's referral. Created from the
