@@ -55,5 +55,6 @@ export function getPluginBaseUrls(appBase: string): Record<string, string> {
     '/api/v1/agentbook-expense': process.env.AGENTBOOK_EXPENSE_URL ?? appBase,
     '/api/v1/agentbook-invoice': process.env.AGENTBOOK_INVOICE_URL ?? appBase,
     '/api/v1/agentbook-tax':     process.env.AGENTBOOK_TAX_URL     ?? appBase,
+    '/api/v1/agentbook-startup': process.env.AGENTBOOK_STARTUP_URL ?? appBase,
   };
 }
