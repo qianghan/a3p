@@ -7,13 +7,22 @@
  * - Background sync: queued operations (receipt upload, expense recording)
  */
 
-const CACHE_NAME = 'agentbook-v1';
-const STATIC_CACHE = 'agentbook-static-v1';
-const API_CACHE = 'agentbook-api-v1';
+// Bump these on every change that affects caching behavior. Next.js's HTML
+// shell references content-hashed JS chunk filenames that change on every
+// deploy — a service worker that never busts its own cache names will
+// eventually serve a shell whose chunk references no longer exist after a
+// new deploy, which is what causes an infinite loading loop (the client
+// keeps trying to fetch/hydrate against chunks that 404). Bumping the
+// version here forces `activate` to purge every old cache below.
+const CACHE_NAME = 'agentbook-v2';
+const STATIC_CACHE = 'agentbook-static-v2';
+const API_CACHE = 'agentbook-api-v2';
 
-// Static assets to pre-cache
+// Static assets to pre-cache. Deliberately does NOT include '/agentbook' —
+// precaching a navigable HTML document is exactly the risky part, since its
+// chunk references go stale on every deploy. '/manifest.json' is static
+// metadata, safe to precache.
 const PRECACHE_URLS = [
-  '/agentbook',
   '/manifest.json',
 ];
 
@@ -57,9 +66,23 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Navigation: network-first
+  // Navigation (the HTML shell itself): network-only, no caching. This is
+  // the request whose response references content-hashed JS chunk
+  // filenames that change on every deploy — caching it (even as a "fallback
+  // only" via networkFirstWithCache) risks later serving a shell that
+  // points at chunks which no longer exist post-deploy, which is what
+  // caused the infinite loading loop. If the network genuinely fails,
+  // degrade to a minimal offline page rather than a possibly-stale shell.
   if (event.request.mode === 'navigate') {
-    event.respondWith(networkFirstWithCache(event.request));
+    event.respondWith(
+      fetch(event.request).catch(
+        () =>
+          new Response(
+            '<!doctype html><meta charset="utf-8"><title>Offline</title><body style="font-family:sans-serif;padding:2rem;text-align:center">You\'re offline. Reconnect and reload to continue.</body>',
+            { status: 503, headers: { 'Content-Type': 'text/html' } }
+          )
+      )
+    );
     return;
   }
 
