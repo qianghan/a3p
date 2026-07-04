@@ -1,11 +1,13 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor, fireEvent } from '@testing-library/react';
+import { MemoryRouter } from 'react-router-dom';
 import { StartupDiscoveryPage } from '../pages/StartupDiscoveryPage';
 
 const getProfile = vi.fn();
 const saveProfile = vi.fn();
 const getRecommendations = vi.fn();
 const getAddOnTeaser = vi.fn();
+const createApplication = vi.fn();
 
 vi.mock('../lib/api', () => ({
   startupApi: {
@@ -13,19 +15,28 @@ vi.mock('../lib/api', () => ({
     saveProfile: (input: unknown) => saveProfile(input),
     getRecommendations: () => getRecommendations(),
     getAddOnTeaser: () => getAddOnTeaser(),
+    createApplication: (programCode: string) => createApplication(programCode),
   },
   formatCents: (cents: number) => `$${(cents / 100).toLocaleString()}`,
 }));
 
+function renderPage() {
+  return render(
+    <MemoryRouter>
+      <StartupDiscoveryPage />
+    </MemoryRouter>,
+  );
+}
+
 beforeEach(() => {
-  getProfile.mockReset(); saveProfile.mockReset(); getRecommendations.mockReset(); getAddOnTeaser.mockReset();
+  getProfile.mockReset(); saveProfile.mockReset(); getRecommendations.mockReset(); getAddOnTeaser.mockReset(); createApplication.mockReset();
   getProfile.mockResolvedValue(null);
   getAddOnTeaser.mockResolvedValue({ active: false, price: { tier: 'founding_member', priceCents: 9900, currency: 'usd' } });
 });
 
 describe('StartupDiscoveryPage', () => {
   it('renders the intake form when no profile is saved yet', async () => {
-    render(<StartupDiscoveryPage />);
+    renderPage();
     await waitFor(() => expect(getProfile).toHaveBeenCalled());
     expect(screen.getByLabelText(/company type/i)).toBeTruthy();
     expect(screen.getByLabelText(/annual r&d spend/i)).toBeTruthy();
@@ -41,7 +52,7 @@ describe('StartupDiscoveryPage', () => {
         reasoning: 'Likely qualifies under the four-part test.', estValueLowCents: 4_000_000, estValueHighCents: 8_000_000,
       }],
     });
-    render(<StartupDiscoveryPage />);
+    renderPage();
     await waitFor(() => expect(getProfile).toHaveBeenCalled());
 
     fireEvent.change(screen.getByLabelText(/company type/i), { target: { value: 'c_corp' } });
@@ -58,14 +69,14 @@ describe('StartupDiscoveryPage', () => {
   it('shows the jurisdiction-unsupported message when the backend returns one', async () => {
     saveProfile.mockResolvedValue({ tenantId: 't1', companyType: null, incorporatedAt: null, headcount: null, annualRdSpendCents: null, equityRaisedCents: null });
     getRecommendations.mockResolvedValue({ jurisdiction: 'ca', programs: [], message: 'Startup tax benefits are not yet available for your jurisdiction.' });
-    render(<StartupDiscoveryPage />);
+    renderPage();
     await waitFor(() => expect(getProfile).toHaveBeenCalled());
     fireEvent.click(screen.getByRole('button', { name: /see what i qualify for/i }));
     await waitFor(() => expect(screen.getByText(/not yet available for your jurisdiction/i)).toBeTruthy());
   });
 
   it('shows the founding-member price teaser without a purchase button', async () => {
-    render(<StartupDiscoveryPage />);
+    renderPage();
     await waitFor(() => expect(getAddOnTeaser).toHaveBeenCalled());
     expect(screen.getByText(/\$99/)).toBeTruthy();
     expect(screen.queryByRole('button', { name: /subscribe|buy|purchase/i })).toBeNull();

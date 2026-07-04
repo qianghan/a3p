@@ -38,6 +38,55 @@ export interface AddOnPriceTeaser {
   price: { tier: string; priceCents: number; currency: string } | null;
 }
 
+export interface DocumentRequirement {
+  docType: string;
+  label: string;
+  description: string;
+  required: boolean;
+}
+
+export interface DraftField {
+  label: string;
+  value: string | number;
+  sourceType: 'book_entry' | 'document' | 'user_input' | 'computed';
+  sourceRef?: string;
+}
+
+export interface StartupBenefitApplication {
+  id: string;
+  tenantId: string;
+  programId: string;
+  status: string;
+  draft: { programCode: string; sections: Record<string, DraftField[]>; completeness: number };
+  auditRiskLevel: string | null;
+  submittedAt: string | null;
+  confirmationRef: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface StartupBenefitDocument {
+  id: string;
+  applicationId: string;
+  docType: string;
+  blobUrl: string;
+  extractedData: Record<string, unknown> | null;
+  status: string;
+  uploadedAt: string;
+}
+
+export interface StartupBenefitDecisionPoint {
+  id: string;
+  applicationId: string;
+  sequenceOrder: number;
+  kind: 'approval' | 'key_input';
+  prompt: string;
+  options: string[] | null;
+  response: unknown;
+  respondedAt: string | null;
+  blocksProgress: boolean;
+}
+
 async function json<T>(r: Response): Promise<T> {
   if (!r.ok) throw new Error(`${r.status} ${await r.text()}`);
   return (await r.json()) as T;
@@ -54,6 +103,24 @@ export const startupApi = {
     json<RecommendationsResponse>(await fetch('/api/v1/agentbook-startup/recommendations')),
   getAddOnTeaser: async (): Promise<AddOnPriceTeaser> =>
     json<AddOnPriceTeaser>(await fetch('/api/v1/agentbook-billing/me/addons?code=startup_tax_benefits&region=us')),
+  createApplication: (programCode: string): Promise<{ application: StartupBenefitApplication; documentChecklist: DocumentRequirement[] }> =>
+    json(fetch('/api/v1/agentbook-startup/applications', {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ programCode }),
+    })),
+  getApplication: (id: string): Promise<{ application: StartupBenefitApplication; documents: StartupBenefitDocument[]; decisionPoints: StartupBenefitDecisionPoint[] }> =>
+    json(fetch(`/api/v1/agentbook-startup/applications/${id}`)),
+  uploadDocument: (applicationId: string, docType: string, file: File): Promise<{ document: StartupBenefitDocument }> => {
+    const form = new FormData();
+    form.append('docType', docType);
+    form.append('file', file);
+    return json(fetch(`/api/v1/agentbook-startup/applications/${applicationId}/documents`, { method: 'POST', body: form }));
+  },
+  triggerDraft: (applicationId: string): Promise<{ application: StartupBenefitApplication; decisionPoints: StartupBenefitDecisionPoint[] }> =>
+    json(fetch(`/api/v1/agentbook-startup/applications/${applicationId}/draft`, { method: 'POST' })),
+  respondToDecisionPoint: (decisionPointId: string, response: string): Promise<{ application: StartupBenefitApplication; decisionPoints: StartupBenefitDecisionPoint[] }> =>
+    json(fetch(`/api/v1/agentbook-startup/decision-points/${decisionPointId}/respond`, {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ response }),
+    })),
 };
 
 export function formatCents(cents: number): string {

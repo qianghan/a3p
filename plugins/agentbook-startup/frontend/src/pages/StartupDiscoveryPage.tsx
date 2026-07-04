@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   Rocket, Building2, Users, TrendingUp, Wallet, Search, Loader2,
-  Info, ExternalLink, Landmark, Sparkles, CheckCircle2, HelpCircle, XCircle,
+  Info, ExternalLink, Landmark, Sparkles, CheckCircle2, HelpCircle, XCircle, FileText,
 } from 'lucide-react';
 import { ChatCTA } from '@naap/plugin-sdk';
 import { startupApi, formatCents, type ProgramRecommendation, type AddOnPriceTeaser } from '../lib/api';
@@ -34,7 +35,11 @@ function StatusBadge({ status }: { status: string }) {
   );
 }
 
-function ProgramCard({ program }: { program: ProgramRecommendation }) {
+function ProgramCard({ program, onStart, starting }: {
+  program: ProgramRecommendation;
+  onStart: (programCode: string) => void;
+  starting: boolean;
+}) {
   const range = program.estValueLowCents !== null && program.estValueHighCents !== null
     ? `${formatCents(program.estValueLowCents)} – ${formatCents(program.estValueHighCents)}`
     : null;
@@ -54,21 +59,35 @@ function ProgramCard({ program }: { program: ProgramRecommendation }) {
         </p>
       )}
       <p className="text-sm text-foreground/90">{program.reasoning}</p>
-      {program.sourceUrl && (
-        <a
-          href={program.sourceUrl}
-          target="_blank"
-          rel="noreferrer"
-          className="inline-flex items-center gap-1 text-sm text-primary hover:underline mt-2"
-        >
-          Learn more <ExternalLink className="w-3.5 h-3.5" />
-        </a>
-      )}
+      <div className="flex items-center gap-4 mt-2">
+        {program.sourceUrl && (
+          <a
+            href={program.sourceUrl}
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex items-center gap-1 text-sm text-primary hover:underline"
+          >
+            Learn more <ExternalLink className="w-3.5 h-3.5" />
+          </a>
+        )}
+        {program.status !== 'not_qualified' && (
+          <button
+            type="button"
+            disabled={starting}
+            onClick={() => onStart(program.programCode)}
+            className="inline-flex items-center gap-1.5 text-sm font-medium text-primary hover:underline disabled:opacity-50"
+          >
+            {starting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <FileText className="w-3.5 h-3.5" />}
+            Start application
+          </button>
+        )}
+      </div>
     </div>
   );
 }
 
 export function StartupDiscoveryPage() {
+  const navigate = useNavigate();
   const [companyType, setCompanyType] = useState('');
   const [headcount, setHeadcount] = useState('');
   const [annualRdSpend, setAnnualRdSpend] = useState('');
@@ -76,6 +95,7 @@ export function StartupDiscoveryPage() {
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<{ programs: ProgramRecommendation[]; message?: string } | null>(null);
   const [teaser, setTeaser] = useState<AddOnPriceTeaser | null>(null);
+  const [startingProgramCode, setStartingProgramCode] = useState<string | null>(null);
 
   useEffect(() => {
     startupApi.getProfile().then((profile) => {
@@ -102,6 +122,16 @@ export function StartupDiscoveryPage() {
       setResult(recs);
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function handleStart(programCode: string) {
+    setStartingProgramCode(programCode);
+    try {
+      const { application, documentChecklist } = await startupApi.createApplication(programCode);
+      navigate(`/applications/${application.id}`, { state: { documentChecklist } });
+    } finally {
+      setStartingProgramCode(null);
     }
   }
 
@@ -207,7 +237,14 @@ export function StartupDiscoveryPage() {
           {result.message}
         </div>
       )}
-      {result?.programs.map((program) => <ProgramCard key={program.programCode} program={program} />)}
+      {result?.programs.map((program) => (
+        <ProgramCard
+          key={program.programCode}
+          program={program}
+          onStart={handleStart}
+          starting={startingProgramCode === program.programCode}
+        />
+      ))}
 
       {teaser?.price && !teaser.active && (
         <div className="bg-primary/5 border border-primary/20 rounded-lg p-4 mt-6 flex items-start gap-2">
