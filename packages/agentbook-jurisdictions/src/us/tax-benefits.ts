@@ -5,6 +5,7 @@ import type {
   EligibilityAssessment,
   DocumentRequirement,
   ApplicationInputs,
+  DraftField,
   DraftResult,
   DecisionPoint,
   AuditRiskAssessment,
@@ -18,6 +19,7 @@ interface USProgramDef {
   assess(profile: StartupProfile): EligibilityAssessment;
   documents: DocumentRequirement[];
   decisionPoints(draft: DraftResult): DecisionPoint[];
+  draftSections(inputs: ApplicationInputs): Record<string, DraftField[]>;
   submissionInstructions: SubmissionInstructions;
   filingDeadlines(fiscalYearEnd: Date): Deadline[];
 }
@@ -74,6 +76,31 @@ const rdTaxCredit41: USProgramDef = {
       options: ['approve', 'reject'],
     },
   ],
+  draftSections: (inputs) => {
+    const qre: DraftField[] = [];
+    if (typeof inputs.profile.annualRdSpendCents === 'number') {
+      qre.push({ label: 'Annual R&D spend', value: inputs.profile.annualRdSpendCents / 100, sourceType: 'book_entry' });
+    }
+    const payroll = inputs.documents?.payroll_register as { totalWagesCents?: number; _id?: string } | undefined;
+    if (payroll?.totalWagesCents != null && payroll._id) {
+      qre.push({ label: 'Payroll register total wages', value: payroll.totalWagesCents / 100, sourceType: 'document', sourceRef: payroll._id });
+    }
+    const timeAlloc = inputs.documents?.project_time_allocation as { qualifiedPercent?: number; _id?: string } | undefined;
+    if (timeAlloc?.qualifiedPercent != null && timeAlloc._id) {
+      qre.push({ label: 'Qualified research time allocation', value: `${Math.round(timeAlloc.qualifiedPercent * 100)}%`, sourceType: 'document', sourceRef: timeAlloc._id });
+    }
+
+    const confirmation: DraftField[] = [];
+    const answer = inputs.answers?.['1'];
+    if (typeof answer === 'string') {
+      confirmation.push({ label: 'Four-part test confirmed', value: answer, sourceType: 'user_input', sourceRef: '1' });
+    }
+
+    return {
+      'Qualified Research Expenses': qre,
+      'Four-Part Test Confirmation': confirmation,
+    };
+  },
   submissionInstructions: {
     channel: 'cpa_handoff',
     summary: 'File Form 6765 attached to your federal income tax return. If pre-revenue with under $5M gross receipts, elect the payroll tax offset via Form 8974 instead.',
@@ -134,6 +161,17 @@ const qsbsTracking: USProgramDef = {
       prompt: 'Enter the exact date qualified small business stock was issued — this starts your 5-year holding period clock under IRC §1202.',
     },
   ],
+  draftSections: (inputs) => {
+    const section: DraftField[] = [];
+    if (inputs.profile.companyType) {
+      section.push({ label: 'Company type', value: inputs.profile.companyType, sourceType: 'book_entry' });
+    }
+    const answer = inputs.answers?.['1'];
+    if (typeof answer === 'string') {
+      section.push({ label: 'Share issuance date', value: answer, sourceType: 'user_input', sourceRef: '1' });
+    }
+    return { 'Share Issuance': section };
+  },
   submissionInstructions: {
     channel: 'cpa_handoff',
     summary: 'No annual filing is required now. QSBS status is claimed on Form 8949/Schedule D when shares are eventually sold — track eligibility today so the exclusion is not lost for lack of records.',
@@ -192,6 +230,17 @@ const deFranchiseOptimization: USProgramDef = {
       prompt: 'Enter total authorized shares and total gross assets from your balance sheet — required to calculate whether the Assumed Par Value Capital Method saves more than the default Authorized Shares Method.',
     },
   ],
+  draftSections: (inputs) => {
+    const section: DraftField[] = [];
+    if (inputs.profile.companyType) {
+      section.push({ label: 'Company type', value: inputs.profile.companyType, sourceType: 'book_entry' });
+    }
+    const answer = inputs.answers?.['1'];
+    if (typeof answer === 'string') {
+      section.push({ label: 'Authorized shares & gross assets', value: answer, sourceType: 'user_input', sourceRef: '1' });
+    }
+    return { 'Franchise Tax Method Selection': section };
+  },
   submissionInstructions: {
     channel: 'portal',
     summary: "File Delaware's Annual Franchise Tax Report through the Delaware Division of Corporations portal (corp.delaware.gov), selecting the Assumed Par Value Capital Method if it produces a lower tax than the default.",
@@ -230,15 +279,21 @@ function requireProgram(programCode: string): USProgramDef {
   return program;
 }
 
-/** Conservative, generic draft. Real drafting (reading books/documents) ships in PR 7.4 — this just proves the interface shape. */
+/**
+ * Populates every section computable from books/documents/decision-point
+ * answers, tagging each field with where it came from (story C4). Each
+ * program's sections map 1:1 either to book/document-derived data or a
+ * single decision point, so "fraction of sections with at least one field"
+ * doubles as "fraction of fields populated without a pending decision
+ * point" — the completeness contract the interface documents.
+ */
 function draftApplication(programCode: string, inputs: ApplicationInputs): DraftResult {
   const program = requireProgram(programCode);
-  const hasProfile = Object.keys(inputs.profile ?? {}).length > 0;
-  return {
-    programCode: program.summary.programCode,
-    sections: {},
-    completeness: hasProfile ? 0.5 : 0,
-  };
+  const sections = program.draftSections(inputs);
+  const sectionCount = Object.keys(sections).length;
+  const populatedSectionCount = Object.values(sections).filter((fields) => fields.length > 0).length;
+  const completeness = sectionCount === 0 ? 0 : populatedSectionCount / sectionCount;
+  return { programCode: program.summary.programCode, sections, completeness };
 }
 
 /** Conservative by design (bias toward flagging, per startup.html §11) — a low-completeness draft is never called low risk. */
