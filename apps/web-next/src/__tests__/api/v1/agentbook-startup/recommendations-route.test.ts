@@ -21,7 +21,7 @@ vi.mock('@naap/database', () => ({
     startupBenefitEligibilityAssessment: { create: (...a: unknown[]) => assessmentCreate(...a) },
   },
 }));
-vi.mock('@naap/plugin-agentbook-startup-backend/discovery', () => ({
+vi.mock('@/lib/agentbook-startup/discovery', () => ({
   computeRecommendations: (...a: unknown[]) => computeRecommendationsMock(...a),
 }));
 
