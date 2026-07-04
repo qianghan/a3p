@@ -91,3 +91,39 @@ test('student businessType seeds a student chart of accounts, not the freelancer
   expect(names).not.toContain('Contract Labor');
   expect(names).not.toContain('Legal & Professional');
 });
+
+test('scholarship-taxability skill answers a scholarship tax question', async ({ page }) => {
+  const suffix = test.info().testId.replace(/[^a-z0-9]/gi, '').slice(0, 12);
+  const email = `e2e-scholar-${suffix}@agentbook.test`;
+  const password = 'e2e-scholar-2026-x';
+
+  await page.goto('/login');
+
+  const reg = await page.evaluate(async ({ email, password }) => {
+    const r = await fetch('/api/v1/auth/register', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ email, password, displayName: 'E2E Scholar' }),
+    });
+    return { status: r.status, data: await r.json().catch(() => null) };
+  }, { email, password });
+  expect(reg.status, JSON.stringify(reg.data)).toBeLessThan(300);
+
+  await page.goto('/login');
+  await page.fill('input[type="email"]', email);
+  await page.fill('input[type="password"]', password);
+  await page.click('button[type="submit"]');
+  await page.waitForURL(/\/dashboard|\/agentbook|\/$/, { timeout: 20_000 });
+  await page.waitForTimeout(2_000);
+
+  const res = await apiPost(page, '/api/v1/agentbook-core/agent/message', {
+    text: 'I got a $10,000 scholarship this year, $8,000 went to tuition and $2,000 to my dorm room. Is any of it taxable?',
+  });
+  expect(res.status, JSON.stringify(res.data)).toBe(200);
+  const data = res.data?.data ?? res.data;
+  const message: string = data?.message || '';
+  expect(data?.skillUsed, JSON.stringify(data)).toBe('scholarship-taxability');
+  expect(message.length).toBeGreaterThan(20);
+  // Should surface the tuition-vs-room&board split without inventing a wrong answer.
+  expect(/tuition|room|board|taxable|tax-free|tax free/i.test(message)).toBeTruthy();
+});

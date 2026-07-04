@@ -35,6 +35,8 @@ type StepId =
   | 'welcome'
   | 'business_type'
   | 'jurisdiction'
+  | 'visa_status'
+  | 'visa_country'
   | 'region'
   | 'currency'
   | 'accounts'
@@ -46,6 +48,8 @@ interface OnboardingState {
   jurisdiction?: string;
   region?: string;
   currency?: string;
+  visaStatus?: string;
+  homeCountry?: string;
 }
 
 const BUSINESS_TYPES = [
@@ -105,6 +109,25 @@ const SCRIPT: Record<StepId, (state: OnboardingState) => ChatMessage[]> = {
       { role: 'agent', text: subPrompt, suggestions: [{ label: 'Skip', value: '__skip__' }] },
     ];
   },
+  // Student-only branch — asked instead of going straight from jurisdiction
+  // to region/currency. Not shown to any other persona.
+  visa_status: () => [
+    {
+      role: 'agent',
+      text: "One more thing since you're a student — are you studying on an international student visa (like an F-1/J-1 in the US, or a study permit in Canada)?",
+      suggestions: [
+        { label: "No, I'm a domestic student", value: 'domestic' },
+        { label: 'Yes, I am', value: 'international' },
+      ],
+    },
+  ],
+  visa_country: () => [
+    {
+      role: 'agent',
+      text: "Got it. What country are you from? This helps me flag tax-treaty benefits that might apply to you — for example, scholarship or wage exemptions some countries have with the US or Canada.",
+      suggestions: [{ label: 'Skip for now', value: '__skip__' }],
+    },
+  ],
   region: (state) => {
     const j = JURISDICTIONS.find((x) => x.value === state.jurisdiction);
     const defaultCur = j?.defaultCurrency ?? 'USD';
@@ -233,6 +256,28 @@ export const OnboardingChatPage: React.FC = () => {
           if (value !== '__skip__') {
             nextState = { ...state, region: value.toUpperCase() };
             await persistConfig({ region: value.toUpperCase() });
+          }
+          // Only students get asked about visa/international status — every
+          // other persona goes straight to currency, unchanged from before.
+          nextStep = state.businessType === 'student' ? 'visa_status' : 'region';
+          break;
+        }
+        case 'visa_status': {
+          if (value === 'international') {
+            nextState = { ...state, visaStatus: 'international' };
+            await persistConfig({ visaStatus: 'international' });
+            nextStep = 'visa_country';
+          } else {
+            nextState = { ...state, visaStatus: 'domestic' };
+            await persistConfig({ visaStatus: 'domestic' });
+            nextStep = 'region';
+          }
+          break;
+        }
+        case 'visa_country': {
+          if (value !== '__skip__') {
+            nextState = { ...state, homeCountry: value.toLowerCase() };
+            await persistConfig({ homeCountry: value.toLowerCase() });
           }
           nextStep = 'region';
           break;

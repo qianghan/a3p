@@ -538,13 +538,14 @@ function ChatHistoryTab(): React.ReactElement {
 
 // ── Main panel ────────────────────────────────────────────────────────────────
 
-type SettingsTab = 'profile' | 'invoice' | 'chatbots' | 'history' | 'billing' | 'referrals' | 'notifications';
+type SettingsTab = 'profile' | 'invoice' | 'chatbots' | 'history' | 'billing' | 'referrals' | 'sharing' | 'notifications';
 
 const TABS: { key: SettingsTab; label: string }[] = [
   { key: 'profile',   label: 'Business Profile' },
   { key: 'invoice',   label: 'Invoice Defaults' },
   { key: 'billing',   label: 'Billing' },
   { key: 'referrals', label: 'Referrals' },
+  { key: 'sharing',   label: 'Sharing' },
   { key: 'notifications', label: 'Notifications' },
   { key: 'chatbots',  label: 'Chatbots' },
   { key: 'history',   label: 'Chat History' },
@@ -826,6 +827,108 @@ function ReferralsTab(): React.ReactElement {
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+// Reuses the CPA review-link mechanism (AbCpaReviewLink + /review/[token]) —
+// a link is `{ tenantId, token, label, expiresAt }` with no CPA-specific
+// concept baked into creation, so a "share with a parent" flow is the same
+// endpoint with different label/copy, not a new access-control model.
+interface ShareLink { id: string; token: string; label: string | null; expiresAt: string; status: string }
+
+function ParentShareTab(): React.ReactElement {
+  const [links, setLinks] = useState<ShareLink[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [creating, setCreating] = useState(false);
+  const [origin, setOrigin] = useState('');
+  const [copiedId, setCopiedId] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    try {
+      const r = await fetch('/api/v1/agentbook-cpa/link', { credentials: 'include' }).then((x) => x.json());
+      if (r?.success) setLinks(r.data);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    setOrigin(window.location.origin);
+    void load();
+  }, [load]);
+
+  const createLink = useCallback(async () => {
+    setCreating(true);
+    try {
+      await fetch('/api/v1/agentbook-cpa/link', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ label: 'Parent summary', validityDays: 365 }),
+      });
+      await load();
+    } finally {
+      setCreating(false);
+    }
+  }, [load]);
+
+  const copy = useCallback((link: ShareLink) => {
+    navigator.clipboard.writeText(`${origin}/review/${link.token}`).then(() => {
+      setCopiedId(link.id);
+      setTimeout(() => setCopiedId(null), 2000);
+    });
+  }, [origin]);
+
+  const active = links.filter((l) => l.status === 'active');
+
+  if (loading) return <div className="py-8 text-center text-sm text-muted-foreground">Loading…</div>;
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <h3 className="text-sm font-semibold text-foreground mb-1">Share a summary with a parent</h3>
+        <p className="text-sm text-muted-foreground">
+          Create a read-only link showing your income and spending summary — no login required to view it, and
+          you can create as many as you like. It never shows your full transaction detail or lets anyone make changes.
+        </p>
+      </div>
+
+      <button
+        type="button"
+        onClick={() => void createLink()}
+        disabled={creating}
+        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-50"
+      >
+        {creating ? <Loader2 size={14} className="animate-spin" /> : <Gift size={14} />}
+        Create a new link
+      </button>
+
+      {active.length === 0 ? (
+        <p className="text-sm text-muted-foreground py-4 text-center rounded-lg border border-dashed border-border">
+          No active links yet — create one above to share with a parent or guardian.
+        </p>
+      ) : (
+        <div className="space-y-2">
+          {active.map((l) => (
+            <div key={l.id} className="flex items-center justify-between gap-2 text-sm">
+              <code className="flex-1 min-w-0 truncate rounded-lg border border-border bg-background px-3 py-2 text-xs text-foreground">
+                {origin}/review/{l.token}
+              </code>
+              <span className="text-xs text-muted-foreground shrink-0">
+                expires {new Date(l.expiresAt).toLocaleDateString()}
+              </span>
+              <button
+                type="button"
+                onClick={() => copy(l)}
+                className="shrink-0 flex items-center gap-1.5 rounded-lg border border-border px-3 py-2 text-sm text-foreground hover:bg-muted transition-colors"
+              >
+                {copiedId === l.id ? <Check size={14} className="text-emerald-500" /> : <Copy size={14} />}
+                {copiedId === l.id ? 'Copied' : 'Copy'}
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -1154,6 +1257,8 @@ export function AgentBookSettingsPanel({ initialTab }: { initialTab?: string }):
       {tab === 'billing' && <BillingTab />}
 
       {tab === 'referrals' && <ReferralsTab />}
+
+      {tab === 'sharing' && <ParentShareTab />}
 
       {tab === 'notifications' && <NotificationsPreferencesTab />}
 

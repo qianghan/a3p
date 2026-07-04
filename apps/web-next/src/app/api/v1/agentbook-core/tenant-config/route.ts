@@ -36,6 +36,8 @@ interface UpdateConfigBody {
   businessType?: string;
   jurisdiction?: string;
   region?: string;
+  visaStatus?: string | null;
+  homeCountry?: string | null;
   currency?: string;
   locale?: string;
   timezone?: string;
@@ -63,6 +65,13 @@ export async function PUT(request: NextRequest): Promise<NextResponse> {
     if (body.businessType) update.businessType = body.businessType;
     if (body.jurisdiction) update.jurisdiction = body.jurisdiction;
     if (body.region !== undefined) update.region = body.region;
+    if (body.visaStatus !== undefined) {
+      if (body.visaStatus !== null && body.visaStatus !== 'international' && body.visaStatus !== 'domestic') {
+        return NextResponse.json({ error: "visaStatus must be 'international', 'domestic', or null" }, { status: 400 });
+      }
+      update.visaStatus = body.visaStatus;
+    }
+    if (body.homeCountry !== undefined) update.homeCountry = body.homeCountry;
     if (body.currency) update.currency = body.currency;
     if (body.locale) update.locale = body.locale;
     if (body.timezone) update.timezone = body.timezone;

@@ -1416,6 +1416,8 @@ model AbTenantConfig {
   businessType          String   @default("freelancer")
   jurisdiction          String   @default("us") // us | ca | ...
   region                String   @default("") // state/province code
+  visaStatus            String?  // f1 | j1 | other-nonresident | null (domestic) — student-persona international track
+  homeCountry           String?  // ISO 3166-1 alpha-2, e.g. "cn" | "in" — drives treaty-lookup skill
   currency              String   @default("USD")
   locale                String   @default("en-US")
   timezone              String   @default("America/New_York")

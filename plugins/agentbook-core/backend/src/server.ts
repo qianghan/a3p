@@ -3686,7 +3686,7 @@ async function _executeClassificationCore(
           message += '\n\n\u2705 Auto-confirmed (high confidence). Re-populate your filing to update fields.';
         }
       } else {
-        message = "I couldn't read that tax slip. Please try a clearer photo, or make sure it's a Canadian tax document (T4, T5, RRSP receipt, etc.).";
+        message = "I couldn't read that tax slip. Please try a clearer photo — I can read T4/T5/RRSP receipts, W-2, 1099-NEC, 1098-T, 1098-E, and 1042-S.";
       }
 
       await db.abConversation.create({ data: { tenantId, question: text || '[tax slip]', answer: message, queryType: 'agent', channel, skillUsed: 'tax-slip-scan' } });
@@ -3788,6 +3788,71 @@ async function _executeClassificationCore(
       return {
         selectedSkill, extractedParams, confidence: 0, skillUsed: 'scholarship-taxability', skillResponse: null,
         responseData: { message: "I couldn't work through that just now. Please try again in a moment.", skillUsed: 'scholarship-taxability', confidence: 0, latencyMs: Date.now() - startTime },
+      };
+    }
+  }
+
+  // INTERNAL handler: international-student-tax-help — nonresident-alien
+  // status, treaty, FICA, 1042-S explainer. Deliberately does NOT attempt to
+  // be a 1040NR filing engine — the discovery research behind this feature
+  // (student.html §6) found that's Sprintax/GLACIER's job, already paid for
+  // by most universities; this skill's honest lane is the everyday
+  // "what does this even mean for me" explanation plus a hand-off link.
+  // Treaty specifics are given ONLY for the two treaties actually verified
+  // in that research (China/India) — every other country gets an honest
+  // "check the treaty table yourself" pointer rather than a fabricated rule,
+  // since wrong treaty guidance is exactly the kind of thing that could get
+  // someone's nonresident return wrong.
+  if (selectedSkill.name === 'international-student-tax-help') {
+    try {
+      const homeCountry = (classification.tenantConfig?.homeCountry || '').toLowerCase();
+      const jurisdiction = (classification.tenantConfig?.jurisdiction || 'us').toLowerCase();
+
+      const treatyNote = homeCountry === 'cn'
+        ? "Since you're from China: the US-China tax treaty (Article 20) can exempt scholarship income and a limited amount of wages from US tax — worth specifically asking Sprintax/GLACIER to check this for you."
+        : homeCountry === 'in'
+          ? "Since you're from India: the US-India tax treaty (Article 21) is unusual in letting Indian nonresident students claim the US standard deduction, which almost no other treaty nationality can do — make sure whichever tool you file with applies this."
+          : "I don't have verified treaty specifics for your country memorized — treaty terms vary a lot and I'd rather send you to the real table than guess. Check IRS Publication 901 (tax treaty tables) or ask Sprintax/GLACIER directly; they apply this automatically when you file.";
+
+      const rules = [
+        `The user is on an international student visa (F-1/J-1 or similar), tax jurisdiction ${jurisdiction === 'ca' ? 'Canada' : 'the United States'}.`,
+        'US nonresident-alien basics: F-1/J-1 students are "exempt individuals" under the Substantial Presence Test for their first 5 calendar years in the US, which means they file Form 1040-NR, not the regular 1040 that domestic students use, and generally CANNOT claim the standard deduction (an unusual exception exists for India, per treaty — see below).',
+        'FICA exemption: on-campus employment, and work authorized under CPT/OPT, is exempt from FICA (Social Security + Medicare) tax withholding during nonresident status. If an employer withheld it anyway, that\'s refundable via Form 843 + Form 8316.',
+        'Form 8843 is required for every F-1/J-1 visa holder every year, even with zero US income — it\'s the form that establishes exempt-individual status, not an income tax return by itself.',
+        'Form 1042-S is issued instead of (or alongside) a W-2 when income is treaty-exempt or otherwise subject to nonresident withholding — if the user mentions getting one, it means some or all of that income has already had treaty rules applied by the payer.',
+        `Treaty specifics: ${treatyNote}`,
+        'AgentBook is not a 1040-NR filing engine — that\'s a different form with different rules than domestic tools (TurboTax/H&R Block/FreeTaxUSA) even support, and most universities already provide a licensed Sprintax or GLACIER Tax Prep seat through the international student office. Point the user there for the actual filing; AgentBook\'s job is explaining what these terms mean and tracking everyday spending in the meantime.',
+        'Visa-work-authorization caveat: unlike a domestic side-hustle, F-1/J-1 students generally cannot take on arbitrary gig-platform or freelance income — only specific authorized categories (on-campus, CPT, OPT). Do not encourage untracked "side income" the way you might for a domestic student.',
+      ].join('\n');
+
+      const system = [
+        'You are AgentBook, explaining nonresident-alien tax status to an international student on a visa.',
+        'Use ONLY the facts given below — do not invent treaty terms, dollar thresholds, or filing mechanics not listed here.',
+        'Lead with the plain-English answer to what they actually asked, then the relevant background.',
+        'If the question is really "how do I file my 1040-NR," say plainly that AgentBook doesn\'t do that and point to Sprintax/GLACIER (usually free through their university).',
+        'End with one sentence noting AgentBook is not a CPA, immigration advisor, or e-file agent.',
+        'Plain text, 3-6 sentences, no markdown headers.',
+        '',
+        rules,
+      ].join('\n');
+
+      const question = String(extractedParams.question || text || 'What does nonresident alien status mean for my taxes?');
+      const reply = await callGemini(system, question, 400)
+        ?? "I couldn't work through that just now — Sprintax (sprintax.com) and GLACIER Tax Prep are the two main tools for nonresident student tax filing, often free through your university's international student office.";
+
+      await db.abConversation.create({
+        data: { tenantId, question: text || question, answer: reply, queryType: 'agent', channel, skillUsed: 'international-student-tax-help' },
+      }).catch(() => {});
+
+      return {
+        selectedSkill, extractedParams, confidence, skillUsed: 'international-student-tax-help', skillResponse: null,
+        responseData: { message: reply, skillUsed: 'international-student-tax-help', confidence, latencyMs: Date.now() - startTime },
+      };
+    } catch (err) {
+      console.error('[international-student-tax-help] error:', err);
+      return {
+        selectedSkill, extractedParams, confidence: 0, skillUsed: 'international-student-tax-help', skillResponse: null,
+        responseData: { message: "I couldn't work through that just now. Please try again in a moment.", skillUsed: 'international-student-tax-help', confidence: 0, latencyMs: Date.now() - startTime },
       };
     }
   }
