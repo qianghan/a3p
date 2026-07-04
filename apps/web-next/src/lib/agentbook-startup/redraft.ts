@@ -42,11 +42,16 @@ export async function redraftApplication(applicationId: string): Promise<{ statu
   const existingOrders = new Set(decisionPoints.map((dp) => dp.sequenceOrder));
   const newPoints = expectedPoints.filter((p) => !existingOrders.has(p.sequenceOrder));
   if (newPoints.length > 0) {
+    // skipDuplicates backstops the read-then-write race above (e.g. two
+    // near-simultaneous redraft calls both computing the same "missing"
+    // sequenceOrder) — relies on the @@unique([applicationId, sequenceOrder])
+    // constraint on this model to actually detect the conflict.
     await prisma.startupBenefitDecisionPoint.createMany({
       data: newPoints.map((p) => ({
         applicationId, sequenceOrder: p.sequenceOrder, kind: p.kind, prompt: p.prompt,
         options: p.options ?? undefined, blocksProgress: true,
       })),
+      skipDuplicates: true,
     });
   }
 

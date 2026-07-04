@@ -66,8 +66,9 @@ export async function POST(
 
   let extractedData: Record<string, unknown> = {};
   const apiKey = process.env.GEMINI_API_KEY;
-  if (apiKey && requirement) {
-    const prompt = buildExtractionPrompt(docType, requirement);
+  const ocrAttempted = Boolean(apiKey && requirement);
+  if (ocrAttempted) {
+    const prompt = buildExtractionPrompt(docType, requirement!);
     const model = process.env.GEMINI_MODEL_VISION || 'gemini-2.5-flash';
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
     try {
@@ -94,7 +95,12 @@ export async function POST(
     data: { applicationId: application.id, docType, blobUrl, extractedData, status: 'uploaded' },
   });
 
-  void incrementUsage(tenantId, 'ocr_scans', 1).catch(() => {});
+  // Only spend the ocr_scans quota unit when an OCR attempt actually ran —
+  // an unmatched/mistyped docType or missing GEMINI_API_KEY skips the Gemini
+  // call above and must not be charged.
+  if (ocrAttempted) {
+    void incrementUsage(tenantId, 'ocr_scans', 1).catch(() => {});
+  }
 
   return NextResponse.json({ document });
 }

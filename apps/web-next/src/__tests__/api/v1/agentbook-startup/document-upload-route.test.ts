@@ -90,4 +90,21 @@ describe('POST /api/v1/agentbook-startup/applications/[id]/documents', () => {
     expect(j.document.extractedData).toEqual({ totalWagesCents: 2500000, confidence: 0.9 });
     expect(incrementUsageMock).toHaveBeenCalledWith('tenant-1', 'ocr_scans', 1);
   });
+
+  it('does not increment ocr_scans usage when the docType has no matching program requirement (OCR skipped)', async () => {
+    documentCreate.mockResolvedValue({ id: 'doc-2', applicationId: 'app-1', docType: 'unmatched_doc_type', blobUrl: 'https://blob.example/doc.pdf', extractedData: {}, status: 'uploaded' });
+    const r = await POST(multipartReq('unmatched_doc_type'), { params: Promise.resolve({ id: 'app-1' }) });
+    expect(r.status).toBe(200);
+    expect(global.fetch).not.toHaveBeenCalled();
+    expect(incrementUsageMock).not.toHaveBeenCalled();
+  });
+
+  it('does not increment ocr_scans usage when GEMINI_API_KEY is unset (OCR skipped)', async () => {
+    delete (process.env as Record<string, string | undefined>).GEMINI_API_KEY;
+    documentCreate.mockResolvedValue({ id: 'doc-3', applicationId: 'app-1', docType: 'payroll_register', blobUrl: 'https://blob.example/doc.pdf', extractedData: {}, status: 'uploaded' });
+    const r = await POST(multipartReq('payroll_register'), { params: Promise.resolve({ id: 'app-1' }) });
+    expect(r.status).toBe(200);
+    expect(global.fetch).not.toHaveBeenCalled();
+    expect(incrementUsageMock).not.toHaveBeenCalled();
+  });
 });

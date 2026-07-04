@@ -59,6 +59,10 @@ describe('redraftApplication', () => {
     expect(result.status).toBe(200);
     expect(decisionPointCreateMany).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.arrayContaining([expect.objectContaining({ sequenceOrder: 1 })]),
+      // Backstops the read-then-write race between the existingOrders check
+      // and the insert — relies on the model's @@unique([applicationId,
+      // sequenceOrder]) constraint to actually detect a concurrent conflict.
+      skipDuplicates: true,
     }));
     expect((result.body.application as { status: string }).status).toBe('decision_pending');
   });
