@@ -175,10 +175,15 @@ const qsbsTracking: USProgramDef = {
     if (typeof answer === 'string') {
       shareIssuance.push({ label: 'Share issuance date', value: answer, sourceType: 'user_input', sourceRef: '1' });
     }
-    // Kept as two sections (not one) so completeness can't reach 1.0 from
-    // companyType alone — the decision point must be answered too. Mirrors
-    // the R&D credit program's existing two-section pattern above.
-    return { 'Company Details': companyDetails, 'Share Issuance': shareIssuance };
+    const supportingDocuments = documentPresenceFields(inputs, [
+      { docType: 'stock_issuance_record', label: 'Stock issuance record' },
+      { docType: 'cap_table', label: 'Capitalization table' },
+    ]);
+    // Three sections (not one) so completeness can't reach 1.0 from
+    // companyType alone — the decision point must be answered AND at least
+    // one supporting document uploaded. Mirrors the R&D credit program's
+    // existing multi-section pattern above.
+    return { 'Company Details': companyDetails, 'Share Issuance': shareIssuance, 'Supporting Documents': supportingDocuments };
   },
   submissionInstructions: {
     channel: 'cpa_handoff',
@@ -248,8 +253,12 @@ const deFranchiseOptimization: USProgramDef = {
     if (typeof answer === 'string') {
       methodSelection.push({ label: 'Authorized shares & gross assets', value: answer, sourceType: 'user_input', sourceRef: '1' });
     }
-    // Two sections (not one) — see the identical note on QSBS above.
-    return { 'Company Details': companyDetails, 'Franchise Tax Method Selection': methodSelection };
+    const supportingDocuments = documentPresenceFields(inputs, [
+      { docType: 'annual_report_draft', label: 'Delaware annual report draft' },
+      { docType: 'authorized_shares_certificate', label: 'Authorized shares certificate' },
+    ]);
+    // Three sections (not one) — see the identical note on QSBS above.
+    return { 'Company Details': companyDetails, 'Franchise Tax Method Selection': methodSelection, 'Supporting Documents': supportingDocuments };
   },
   submissionInstructions: {
     channel: 'portal',
@@ -287,6 +296,27 @@ function requireProgram(programCode: string): USProgramDef {
   const program = PROGRAM_REGISTRY[programCode];
   if (!program) throw new Error(`Unknown US tax benefit program: ${programCode}`);
   return program;
+}
+
+/**
+ * Surfaces uploaded evidentiary documents as document-sourced DraftFields
+ * for programs (QSBS, DE franchise) that don't extract a specific computed
+ * value out of the document — the document's mere presence is the evidence.
+ * Without this, uploading a program's required documents had no visible
+ * effect on the draft at all.
+ */
+function documentPresenceFields(
+  inputs: ApplicationInputs,
+  requirements: { docType: string; label: string }[],
+): DraftField[] {
+  const fields: DraftField[] = [];
+  for (const req of requirements) {
+    const doc = inputs.documents?.[req.docType] as { _id?: string } | undefined;
+    if (doc?._id) {
+      fields.push({ label: req.label, value: 'Uploaded', sourceType: 'document', sourceRef: doc._id });
+    }
+  }
+  return fields;
 }
 
 /**

@@ -3682,7 +3682,7 @@ model StartupBenefitDecisionPoint {
   respondedAt    DateTime?
   blocksProgress Boolean   @default(true)
 
-  @@index([applicationId, sequenceOrder])
+  @@unique([applicationId, sequenceOrder])
   @@schema("plugin_agentbook_startup")
 }
 

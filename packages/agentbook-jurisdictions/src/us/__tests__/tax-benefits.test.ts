@@ -49,13 +49,15 @@ describe('usTaxBenefits.draftApplication', () => {
     expect(risk.riskLevel).not.toBe('low');
   });
 
-  it('drafts QSBS from profile + an answered key_input decision point, in separate sections', () => {
+  it('drafts QSBS from profile + an answered key_input decision point + an uploaded document, in separate sections', () => {
     const draft = usTaxBenefits.draftApplication('us_qsbs_tracking', {
       profile: { companyType: 'c_corp' },
+      documents: { stock_issuance_record: { _id: 'doc-3' } },
       answers: { '1': '2024-03-15' },
     });
     expect(draft.sections['Company Details'][0]).toMatchObject({ label: 'Company type', value: 'c_corp', sourceType: 'book_entry' });
     expect(draft.sections['Share Issuance'][0]).toMatchObject({ label: 'Share issuance date', value: '2024-03-15', sourceType: 'user_input', sourceRef: '1' });
+    expect(draft.sections['Supporting Documents'][0]).toMatchObject({ label: 'Stock issuance record', value: 'Uploaded', sourceType: 'document', sourceRef: 'doc-3' });
     expect(draft.completeness).toBe(1);
   });
 
@@ -65,6 +67,17 @@ describe('usTaxBenefits.draftApplication', () => {
     });
     expect(draft.sections['Company Details'].length).toBeGreaterThan(0);
     expect(draft.sections['Share Issuance']).toEqual([]);
+    expect(draft.sections['Supporting Documents']).toEqual([]);
+    expect(draft.completeness).toBeLessThan(1);
+  });
+
+  it('does not reach full completeness for QSBS without at least one supporting document, even once the decision point is answered', () => {
+    const draft = usTaxBenefits.draftApplication('us_qsbs_tracking', {
+      profile: { companyType: 'c_corp' },
+      answers: { '1': '2024-03-15' },
+    });
+    expect(draft.sections['Share Issuance'].length).toBeGreaterThan(0);
+    expect(draft.sections['Supporting Documents']).toEqual([]);
     expect(draft.completeness).toBeLessThan(1);
   });
 
@@ -74,7 +87,18 @@ describe('usTaxBenefits.draftApplication', () => {
     });
     expect(draft.sections['Company Details'].length).toBeGreaterThan(0);
     expect(draft.sections['Franchise Tax Method Selection']).toEqual([]);
+    expect(draft.sections['Supporting Documents']).toEqual([]);
     expect(draft.completeness).toBeLessThan(1);
+  });
+
+  it('drafts DE franchise optimization supporting documents from uploaded evidence', () => {
+    const draft = usTaxBenefits.draftApplication('us_de_franchise_optimization', {
+      profile: { companyType: 'c_corp' },
+      documents: { authorized_shares_certificate: { _id: 'doc-4' } },
+      answers: { '1': 'authorized shares method' },
+    });
+    expect(draft.sections['Supporting Documents'][0]).toMatchObject({ label: 'Authorized shares certificate', value: 'Uploaded', sourceType: 'document', sourceRef: 'doc-4' });
+    expect(draft.completeness).toBe(1);
   });
 
   it('throws for an unknown program code (matches existing requireProgram behavior)', () => {
