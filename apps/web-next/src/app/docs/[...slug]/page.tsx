@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { redirect } from 'next/navigation';
+import { notFound, redirect } from 'next/navigation';
 import { MDXRemote } from 'next-mdx-remote/rsc';
 import remarkGfm from 'remark-gfm';
 import rehypeSlug from 'rehype-slug';
@@ -20,8 +20,9 @@ export async function generateMetadata({ params }: { params: Promise<{ slug: str
   const { slug } = await params;
   const doc = getDocBySlug(slug);
   if (!doc) {
-    // Section-level slug — redirect will fire from the page, so use section name
-    if (slug.length === 1) {
+    // Section-level slug that resolves to a real section — redirect will
+    // fire from the page, so use the section name as the title.
+    if (slug.length === 1 && getFirstDocInSection(slug[0])) {
       const label = slug[0].replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
       return { title: `${label} - AgentBook Docs` };
     }
@@ -45,9 +46,15 @@ export default async function DocPage({ params }: { params: Promise<{ slug: stri
       if (firstDoc) {
         redirect(`/docs/${firstDoc.slug.join('/')}`);
       }
+      // A single-segment slug that isn't a known section either (e.g. a
+      // mistyped URL) — show the docs 404 boundary. Routing this through
+      // redirect() instead (like the multi-segment branch below) hits a
+      // production-only bug where an on-demand-rendered single-segment
+      // catch-all path 500s instead of redirecting.
+      notFound();
     }
-    // Unknown/removed doc (e.g. old NaaP dev-doc URLs after the rewrite):
-    // send readers to the help-center home instead of a dead end.
+    // Unknown/removed multi-segment doc (e.g. old NaaP dev-doc URLs after
+    // the rewrite): send readers to the help-center home instead of a dead end.
     redirect('/docs');
   }
 
