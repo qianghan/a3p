@@ -87,6 +87,35 @@ export interface StartupBenefitDecisionPoint {
   blocksProgress: boolean;
 }
 
+export interface AuditFinding {
+  severity: 'low' | 'medium' | 'high';
+  issue: string;
+  recommendation: string;
+  ruleRef: string;
+}
+
+export interface AuditOverride {
+  findingIndex: number;
+  reason: string | null;
+  overriddenAt: string;
+}
+
+export interface StartupBenefitAuditReview {
+  id: string;
+  applicationId: string;
+  riskLevel: 'low' | 'medium' | 'high';
+  findings: AuditFinding[];
+  overrides: AuditOverride[];
+  reviewedAt: string;
+  modelVersion: string;
+}
+
+export interface ProgramInfo {
+  name: string;
+  authority: string;
+  sourceUrl: string;
+}
+
 async function json<T>(r: Response): Promise<T> {
   if (!r.ok) throw new Error(`${r.status} ${await r.text()}`);
   return (await r.json()) as T;
@@ -114,6 +143,8 @@ export const startupApi = {
     documents: StartupBenefitDocument[];
     decisionPoints: StartupBenefitDecisionPoint[];
     documentChecklist: DocumentRequirement[];
+    auditReview: StartupBenefitAuditReview | null;
+    program: ProgramInfo | null;
   }> =>
     json(await fetch(`/api/v1/agentbook-startup/applications/${id}`)),
   uploadDocument: async (applicationId: string, docType: string, file: File): Promise<{ document: StartupBenefitDocument }> => {
@@ -127,6 +158,12 @@ export const startupApi = {
   respondToDecisionPoint: async (decisionPointId: string, response: string): Promise<{ application: StartupBenefitApplication; decisionPoints: StartupBenefitDecisionPoint[] }> =>
     json(await fetch(`/api/v1/agentbook-startup/decision-points/${decisionPointId}/respond`, {
       method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ response }),
+    })),
+  runAuditReview: async (applicationId: string): Promise<{ application: StartupBenefitApplication; auditReview: StartupBenefitAuditReview }> =>
+    json(await fetch(`/api/v1/agentbook-startup/applications/${applicationId}/audit-review`, { method: 'POST' })),
+  overrideAuditFinding: async (applicationId: string, findingIndex: number, reason?: string): Promise<{ application: StartupBenefitApplication; auditReview: StartupBenefitAuditReview }> =>
+    json(await fetch(`/api/v1/agentbook-startup/applications/${applicationId}/audit-review/override`, {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ findingIndex, reason }),
     })),
 };
 
