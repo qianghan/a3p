@@ -103,29 +103,29 @@ export const startupApi = {
     json<RecommendationsResponse>(await fetch('/api/v1/agentbook-startup/recommendations')),
   getAddOnTeaser: async (): Promise<AddOnPriceTeaser> =>
     json<AddOnPriceTeaser>(await fetch('/api/v1/agentbook-billing/me/addons?code=startup_tax_benefits&region=us')),
-  createApplication: (programCode: string): Promise<{ application: StartupBenefitApplication; documentChecklist: DocumentRequirement[] }> =>
-    json(fetch('/api/v1/agentbook-startup/applications', {
+  createApplication: async (programCode: string): Promise<{ application: StartupBenefitApplication; documentChecklist: DocumentRequirement[] }> =>
+    json(await fetch('/api/v1/agentbook-startup/applications', {
       method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ programCode }),
     })),
-  listApplications: (): Promise<{ applications: StartupBenefitApplication[] }> =>
-    json(fetch('/api/v1/agentbook-startup/applications')),
-  getApplication: (id: string): Promise<{
+  listApplications: async (): Promise<{ applications: StartupBenefitApplication[] }> =>
+    json(await fetch('/api/v1/agentbook-startup/applications')),
+  getApplication: async (id: string): Promise<{
     application: StartupBenefitApplication;
     documents: StartupBenefitDocument[];
     decisionPoints: StartupBenefitDecisionPoint[];
     documentChecklist: DocumentRequirement[];
   }> =>
-    json(fetch(`/api/v1/agentbook-startup/applications/${id}`)),
-  uploadDocument: (applicationId: string, docType: string, file: File): Promise<{ document: StartupBenefitDocument }> => {
+    json(await fetch(`/api/v1/agentbook-startup/applications/${id}`)),
+  uploadDocument: async (applicationId: string, docType: string, file: File): Promise<{ document: StartupBenefitDocument }> => {
     const form = new FormData();
     form.append('docType', docType);
     form.append('file', file);
-    return json(fetch(`/api/v1/agentbook-startup/applications/${applicationId}/documents`, { method: 'POST', body: form }));
+    return json(await fetch(`/api/v1/agentbook-startup/applications/${applicationId}/documents`, { method: 'POST', body: form }));
   },
-  triggerDraft: (applicationId: string): Promise<{ application: StartupBenefitApplication; decisionPoints: StartupBenefitDecisionPoint[] }> =>
-    json(fetch(`/api/v1/agentbook-startup/applications/${applicationId}/draft`, { method: 'POST' })),
-  respondToDecisionPoint: (decisionPointId: string, response: string): Promise<{ application: StartupBenefitApplication; decisionPoints: StartupBenefitDecisionPoint[] }> =>
-    json(fetch(`/api/v1/agentbook-startup/decision-points/${decisionPointId}/respond`, {
+  triggerDraft: async (applicationId: string): Promise<{ application: StartupBenefitApplication; decisionPoints: StartupBenefitDecisionPoint[] }> =>
+    json(await fetch(`/api/v1/agentbook-startup/applications/${applicationId}/draft`, { method: 'POST' })),
+  respondToDecisionPoint: async (decisionPointId: string, response: string): Promise<{ application: StartupBenefitApplication; decisionPoints: StartupBenefitDecisionPoint[] }> =>
+    json(await fetch(`/api/v1/agentbook-startup/decision-points/${decisionPointId}/respond`, {
       method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ response }),
     })),
 };
