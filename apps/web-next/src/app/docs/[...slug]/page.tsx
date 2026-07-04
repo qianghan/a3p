@@ -1,6 +1,5 @@
 import Link from 'next/link';
 import { notFound, redirect } from 'next/navigation';
-import { MDXRemote } from 'next-mdx-remote/rsc';
 import remarkGfm from 'remark-gfm';
 import rehypeSlug from 'rehype-slug';
 import { getDocBySlug, getAllDocSlugs, getNavigation, extractHeadings, getPrevNext, getFirstDocInSection } from '@/lib/docs/content';
@@ -57,6 +56,15 @@ export default async function DocPage({ params }: { params: Promise<{ slug: stri
     // the rewrite): send readers to the help-center home instead of a dead end.
     redirect('/docs');
   }
+
+  // Loaded lazily, only once a real doc is confirmed to exist. Output file
+  // tracing doesn't reliably bundle this pure-ESM package for this route's
+  // on-demand (non-statically-generated) render path — a static top-level
+  // import would throw ERR_MODULE_NOT_FOUND for *every* request that falls
+  // through to this function, including the redirect/notFound branches above
+  // that never need it at all (this is exactly what caused unmatched
+  // single-segment URLs to 500 instead of redirecting/404ing).
+  const { MDXRemote } = await import('next-mdx-remote/rsc');
 
   const navigation = getNavigation();
   const headings = extractHeadings(doc.content);
