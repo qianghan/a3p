@@ -20,9 +20,15 @@ export const maxDuration = 30;
 function generateLinkCode(): string {
   // 6 chars from an unambiguous alphabet (no 0/O/1/I) — read aloud/typed easily.
   const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-  const bytes = crypto.randomBytes(6);
+  // 256 isn't a multiple of alphabet.length (33), so `byte % alphabet.length`
+  // would bias toward the first few letters. Reject bytes above the last full
+  // multiple of the alphabet length so every character stays equally likely.
+  const maxValid = 256 - (256 % alphabet.length);
   let code = '';
-  for (let i = 0; i < 6; i++) code += alphabet[bytes[i] % alphabet.length];
+  while (code.length < 6) {
+    const byte = crypto.randomBytes(1)[0];
+    if (byte < maxValid) code += alphabet[byte % alphabet.length];
+  }
   return `LINK-${code}`;
 }
 
