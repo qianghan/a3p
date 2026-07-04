@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@naap/database';
 import { safeResolveAgentbookTenant } from '@/lib/agentbook-tenant';
+import { getJurisdictionPack } from '@agentbook/jurisdictions';
+import '@/lib/agentbook-startup/discovery';
 
 export const runtime = 'nodejs';
 
@@ -18,10 +20,15 @@ export async function GET(
     return NextResponse.json({ error: 'not found' }, { status: 404 });
   }
 
-  const [documents, decisionPoints] = await Promise.all([
+  const [documents, decisionPoints, program] = await Promise.all([
     prisma.startupBenefitDocument.findMany({ where: { applicationId: id }, orderBy: { uploadedAt: 'asc' } }),
     prisma.startupBenefitDecisionPoint.findMany({ where: { applicationId: id }, orderBy: { sequenceOrder: 'asc' } }),
+    prisma.startupBenefitProgram.findUnique({ where: { id: application.programId } }),
   ]);
 
-  return NextResponse.json({ application, documents, decisionPoints });
+  const documentChecklist = program
+    ? getJurisdictionPack(program.jurisdiction)?.taxBenefits?.getRequiredDocuments(program.programCode) ?? []
+    : [];
+
+  return NextResponse.json({ application, documents, decisionPoints, documentChecklist });
 }

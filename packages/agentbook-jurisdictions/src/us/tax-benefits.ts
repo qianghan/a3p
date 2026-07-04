@@ -90,9 +90,13 @@ const rdTaxCredit41: USProgramDef = {
       qre.push({ label: 'Qualified research time allocation', value: `${Math.round(timeAlloc.qualifiedPercent * 100)}%`, sourceType: 'document', sourceRef: timeAlloc._id });
     }
 
+    // Only 'approve' counts as resolving this section — a 'reject' answer
+    // means the four-part test wasn't confirmed, so the section must stay
+    // unpopulated (not "complete with a negative answer"), keeping
+    // completeness/audit-risk conservative per the interface's contract.
     const confirmation: DraftField[] = [];
     const answer = inputs.answers?.['1'];
-    if (typeof answer === 'string') {
+    if (answer === 'approve') {
       confirmation.push({ label: 'Four-part test confirmed', value: answer, sourceType: 'user_input', sourceRef: '1' });
     }
 
@@ -162,15 +166,19 @@ const qsbsTracking: USProgramDef = {
     },
   ],
   draftSections: (inputs) => {
-    const section: DraftField[] = [];
+    const companyDetails: DraftField[] = [];
     if (inputs.profile.companyType) {
-      section.push({ label: 'Company type', value: inputs.profile.companyType, sourceType: 'book_entry' });
+      companyDetails.push({ label: 'Company type', value: inputs.profile.companyType, sourceType: 'book_entry' });
     }
+    const shareIssuance: DraftField[] = [];
     const answer = inputs.answers?.['1'];
     if (typeof answer === 'string') {
-      section.push({ label: 'Share issuance date', value: answer, sourceType: 'user_input', sourceRef: '1' });
+      shareIssuance.push({ label: 'Share issuance date', value: answer, sourceType: 'user_input', sourceRef: '1' });
     }
-    return { 'Share Issuance': section };
+    // Kept as two sections (not one) so completeness can't reach 1.0 from
+    // companyType alone — the decision point must be answered too. Mirrors
+    // the R&D credit program's existing two-section pattern above.
+    return { 'Company Details': companyDetails, 'Share Issuance': shareIssuance };
   },
   submissionInstructions: {
     channel: 'cpa_handoff',
@@ -231,15 +239,17 @@ const deFranchiseOptimization: USProgramDef = {
     },
   ],
   draftSections: (inputs) => {
-    const section: DraftField[] = [];
+    const companyDetails: DraftField[] = [];
     if (inputs.profile.companyType) {
-      section.push({ label: 'Company type', value: inputs.profile.companyType, sourceType: 'book_entry' });
+      companyDetails.push({ label: 'Company type', value: inputs.profile.companyType, sourceType: 'book_entry' });
     }
+    const methodSelection: DraftField[] = [];
     const answer = inputs.answers?.['1'];
     if (typeof answer === 'string') {
-      section.push({ label: 'Authorized shares & gross assets', value: answer, sourceType: 'user_input', sourceRef: '1' });
+      methodSelection.push({ label: 'Authorized shares & gross assets', value: answer, sourceType: 'user_input', sourceRef: '1' });
     }
-    return { 'Franchise Tax Method Selection': section };
+    // Two sections (not one) — see the identical note on QSBS above.
+    return { 'Company Details': companyDetails, 'Franchise Tax Method Selection': methodSelection };
   },
   submissionInstructions: {
     channel: 'portal',

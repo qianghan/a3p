@@ -8,6 +8,7 @@ const saveProfile = vi.fn();
 const getRecommendations = vi.fn();
 const getAddOnTeaser = vi.fn();
 const createApplication = vi.fn();
+const listApplications = vi.fn();
 
 vi.mock('../lib/api', () => ({
   startupApi: {
@@ -16,6 +17,7 @@ vi.mock('../lib/api', () => ({
     getRecommendations: () => getRecommendations(),
     getAddOnTeaser: () => getAddOnTeaser(),
     createApplication: (programCode: string) => createApplication(programCode),
+    listApplications: () => listApplications(),
   },
   formatCents: (cents: number) => `$${(cents / 100).toLocaleString()}`,
 }));
@@ -29,9 +31,11 @@ function renderPage() {
 }
 
 beforeEach(() => {
-  getProfile.mockReset(); saveProfile.mockReset(); getRecommendations.mockReset(); getAddOnTeaser.mockReset(); createApplication.mockReset();
+  getProfile.mockReset(); saveProfile.mockReset(); getRecommendations.mockReset(); getAddOnTeaser.mockReset();
+  createApplication.mockReset(); listApplications.mockReset();
   getProfile.mockResolvedValue(null);
   getAddOnTeaser.mockResolvedValue({ active: false, price: { tier: 'founding_member', priceCents: 9900, currency: 'usd' } });
+  listApplications.mockResolvedValue({ applications: [] });
 });
 
 describe('StartupDiscoveryPage', () => {
@@ -80,5 +84,15 @@ describe('StartupDiscoveryPage', () => {
     await waitFor(() => expect(getAddOnTeaser).toHaveBeenCalled());
     expect(screen.getByText(/\$99/)).toBeTruthy();
     expect(screen.queryByRole('button', { name: /subscribe|buy|purchase/i })).toBeNull();
+  });
+
+  it('lists in-progress applications so a founder can resume one later (story C5)', async () => {
+    listApplications.mockResolvedValue({
+      applications: [{ id: 'app-1', status: 'decision_pending', draft: { programCode: 'us_rd_credit_41' } }],
+    });
+    renderPage();
+    await waitFor(() => expect(listApplications).toHaveBeenCalled());
+    expect(await screen.findByText(/your applications/i)).toBeTruthy();
+    expect(screen.getByText(/your input needed/i)).toBeTruthy();
   });
 });

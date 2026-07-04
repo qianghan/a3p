@@ -1,5 +1,6 @@
 import { prisma } from '@naap/database';
 import { getJurisdictionPack } from '@agentbook/jurisdictions';
+import '@/lib/agentbook-startup/discovery'; // side effect: loadBuiltInPacks() — see PR #207
 
 export async function redraftApplication(applicationId: string): Promise<{ status: number; body: Record<string, unknown> }> {
   const application = await prisma.startupBenefitApplication.findUnique({ where: { id: applicationId } });

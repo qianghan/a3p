@@ -107,7 +107,14 @@ export const startupApi = {
     json(fetch('/api/v1/agentbook-startup/applications', {
       method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ programCode }),
     })),
-  getApplication: (id: string): Promise<{ application: StartupBenefitApplication; documents: StartupBenefitDocument[]; decisionPoints: StartupBenefitDecisionPoint[] }> =>
+  listApplications: (): Promise<{ applications: StartupBenefitApplication[] }> =>
+    json(fetch('/api/v1/agentbook-startup/applications')),
+  getApplication: (id: string): Promise<{
+    application: StartupBenefitApplication;
+    documents: StartupBenefitDocument[];
+    decisionPoints: StartupBenefitDecisionPoint[];
+    documentChecklist: DocumentRequirement[];
+  }> =>
     json(fetch(`/api/v1/agentbook-startup/applications/${id}`)),
   uploadDocument: (applicationId: string, docType: string, file: File): Promise<{ document: StartupBenefitDocument }> => {
     const form = new FormData();

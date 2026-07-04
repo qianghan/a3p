@@ -82,4 +82,21 @@ describe('ApplicationDetailPage', () => {
     await waitFor(() => expect(getApplication).toHaveBeenCalled());
     expect(screen.queryByRole('button', { name: /approve/i })).toBeNull();
   });
+
+  it('shows the document checklist from server data alone, with no router state (story C5: survives a refresh/direct visit)', async () => {
+    getApplication.mockResolvedValue({
+      application: { id: 'app-1', status: 'docs_pending', draft: { programCode: 'us_rd_credit_41', sections: {}, completeness: 0 } },
+      documents: [],
+      decisionPoints: [],
+      documentChecklist: [{ docType: 'payroll_register', label: 'Payroll register', description: 'Wages paid.', required: true }],
+    });
+    // No `state` passed to MemoryRouter's initialEntries — simulates a page
+    // load with zero router history (refresh, bookmark, direct navigation).
+    render(
+      <MemoryRouter initialEntries={[{ pathname: '/applications/app-1' }]}>
+        <Routes><Route path="/applications/:id" element={<ApplicationDetailPage />} /></Routes>
+      </MemoryRouter>,
+    );
+    expect(await screen.findByText(/Payroll register/i)).toBeTruthy();
+  });
 });

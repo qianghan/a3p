@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { useParams, useLocation } from 'react-router-dom';
+import { useParams } from 'react-router-dom';
 import {
   FileText, Upload, Loader2, CheckCircle2, XCircle, HelpCircle,
   BookOpen, File as FileIcon, Sparkles, Send,
@@ -110,21 +110,24 @@ function DecisionPointCard({
 
 export function ApplicationDetailPage() {
   const { id } = useParams<{ id: string }>();
-  const location = useLocation();
-  const documentChecklist = (location.state as { documentChecklist?: DocumentRequirement[] } | null)?.documentChecklist ?? [];
 
   const [application, setApplication] = useState<StartupBenefitApplication | null>(null);
   const [documents, setDocuments] = useState<StartupBenefitDocument[]>([]);
   const [decisionPoints, setDecisionPoints] = useState<StartupBenefitDecisionPoint[]>([]);
+  const [documentChecklist, setDocumentChecklist] = useState<DocumentRequirement[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [uploadingDocType, setUploadingDocType] = useState<string | null>(null);
 
+  // Sourced from the server (not router state) so refreshing, bookmarking,
+  // or returning to this page later — story C5 — still shows the correct
+  // checklist and draft, not an empty page.
   const refresh = useCallback(async () => {
     if (!id) return;
     const data = await startupApi.getApplication(id);
     setApplication(data.application);
     setDocuments(data.documents);
     setDecisionPoints(data.decisionPoints);
+    setDocumentChecklist(data.documentChecklist ?? []);
   }, [id]);
 
   useEffect(() => {

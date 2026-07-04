@@ -2,10 +2,46 @@ import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Rocket, Building2, Users, TrendingUp, Wallet, Search, Loader2,
-  Info, ExternalLink, Landmark, Sparkles, CheckCircle2, HelpCircle, XCircle, FileText,
+  Info, ExternalLink, Landmark, Sparkles, CheckCircle2, HelpCircle, XCircle, FileText, ArrowRight, AlertCircle,
 } from 'lucide-react';
 import { ChatCTA } from '@naap/plugin-sdk';
-import { startupApi, formatCents, type ProgramRecommendation, type AddOnPriceTeaser } from '../lib/api';
+import { startupApi, formatCents, type ProgramRecommendation, type AddOnPriceTeaser, type StartupBenefitApplication } from '../lib/api';
+
+const APPLICATION_STATUS_LABEL: Record<string, string> = {
+  recommended: 'Recommended',
+  docs_pending: 'Documents needed',
+  drafting: 'Drafting',
+  decision_pending: 'Your input needed',
+  ready_for_review: 'Ready for review',
+  audit_reviewed: 'Audit reviewed',
+  submitted: 'Submitted',
+  monitoring: 'Monitoring',
+  closed: 'Closed',
+};
+
+function MyApplicationsList({ applications }: { applications: StartupBenefitApplication[] }) {
+  const navigate = useNavigate();
+  if (applications.length === 0) return null;
+  return (
+    <div className="mb-6">
+      <h2 className="text-sm font-semibold text-foreground mb-2">Your applications</h2>
+      {applications.map((app) => (
+        <button
+          key={app.id}
+          type="button"
+          onClick={() => navigate(`/applications/${app.id}`)}
+          className="w-full flex items-center justify-between bg-card border border-border rounded-lg p-3 mb-2 text-left hover:bg-muted/50 transition-colors"
+        >
+          <span className="text-sm text-foreground">{app.draft?.programCode ?? 'Application'}</span>
+          <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+            {APPLICATION_STATUS_LABEL[app.status] ?? app.status}
+            <ArrowRight className="w-3.5 h-3.5" />
+          </span>
+        </button>
+      ))}
+    </div>
+  );
+}
 
 const STATUS_LABEL: Record<string, string> = {
   qualified: 'Qualified',
@@ -96,6 +132,12 @@ export function StartupDiscoveryPage() {
   const [result, setResult] = useState<{ programs: ProgramRecommendation[]; message?: string } | null>(null);
   const [teaser, setTeaser] = useState<AddOnPriceTeaser | null>(null);
   const [startingProgramCode, setStartingProgramCode] = useState<string | null>(null);
+  const [startError, setStartError] = useState<string | null>(null);
+  const [applications, setApplications] = useState<StartupBenefitApplication[]>([]);
+
+  useEffect(() => {
+    startupApi.listApplications().then((r) => setApplications(r.applications)).catch(() => setApplications([]));
+  }, []);
 
   useEffect(() => {
     startupApi.getProfile().then((profile) => {
@@ -127,9 +169,12 @@ export function StartupDiscoveryPage() {
 
   async function handleStart(programCode: string) {
     setStartingProgramCode(programCode);
+    setStartError(null);
     try {
-      const { application, documentChecklist } = await startupApi.createApplication(programCode);
-      navigate(`/applications/${application.id}`, { state: { documentChecklist } });
+      const { application } = await startupApi.createApplication(programCode);
+      navigate(`/applications/${application.id}`);
+    } catch (err) {
+      setStartError(err instanceof Error ? err.message : 'Could not start this application — please try again.');
     } finally {
       setStartingProgramCode(null);
     }
@@ -150,6 +195,8 @@ export function StartupDiscoveryPage() {
       </p>
 
       <ChatCTA example="Am I eligible for the R&D tax credit?" />
+
+      <MyApplicationsList applications={applications} />
 
       <form onSubmit={handleSubmit} className="space-y-4 mb-6">
         <div>
@@ -230,6 +277,13 @@ export function StartupDiscoveryPage() {
           {loading ? 'Checking…' : 'See what I qualify for'}
         </button>
       </form>
+
+      {startError && (
+        <div className="bg-destructive/10 text-destructive rounded-lg p-4 mb-3 flex items-start gap-2 text-sm">
+          <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+          {startError}
+        </div>
+      )}
 
       {result?.message && (
         <div className="bg-amber-500/10 text-amber-700 border border-amber-500/20 rounded-lg p-4 mb-3 flex items-start gap-2 text-sm">

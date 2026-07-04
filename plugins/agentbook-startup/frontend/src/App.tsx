@@ -21,6 +21,7 @@ const AgentbookStartupApp: React.FC = () => (
     <Routes>
       <Route path="/" element={<StartupDiscoveryPage />} />
       <Route path="/applications/:id" element={<ApplicationDetailPage />} />
+      <Route path="*" element={<StartupDiscoveryPage />} />
     </Routes>
   </MemoryRouter>
 );
