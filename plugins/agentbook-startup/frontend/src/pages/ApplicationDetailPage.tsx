@@ -7,8 +7,9 @@ import {
 import {
   startupApi,
   type StartupBenefitApplication, type StartupBenefitDocument, type StartupBenefitDecisionPoint,
-  type DocumentRequirement, type DraftField,
+  type DocumentRequirement, type DraftField, type StartupBenefitAuditReview, type ProgramInfo,
 } from '../lib/api';
+import { AuditReviewSection } from '../components/AuditReviewSection';
 
 const SOURCE_LABEL: Record<DraftField['sourceType'], string> = {
   book_entry: 'From your books',
@@ -115,6 +116,8 @@ export function ApplicationDetailPage() {
   const [documents, setDocuments] = useState<StartupBenefitDocument[]>([]);
   const [decisionPoints, setDecisionPoints] = useState<StartupBenefitDecisionPoint[]>([]);
   const [documentChecklist, setDocumentChecklist] = useState<DocumentRequirement[]>([]);
+  const [auditReview, setAuditReview] = useState<StartupBenefitAuditReview | null>(null);
+  const [program, setProgram] = useState<ProgramInfo | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [uploadingDocType, setUploadingDocType] = useState<string | null>(null);
 
@@ -128,6 +131,8 @@ export function ApplicationDetailPage() {
     setDocuments(data.documents);
     setDecisionPoints(data.decisionPoints);
     setDocumentChecklist(data.documentChecklist ?? []);
+    setAuditReview(data.auditReview);
+    setProgram(data.program);
   }, [id]);
 
   useEffect(() => {
@@ -246,11 +251,13 @@ export function ApplicationDetailPage() {
         ))}
       </div>
 
-      {application.status === 'ready_for_review' && (
+      <AuditReviewSection application={application} auditReview={auditReview} program={program} onChange={refresh} />
+
+      {application.status === 'audit_reviewed' && (
         <div className="bg-primary/5 border border-primary/20 rounded-lg p-4 flex items-start gap-2">
           <Sparkles className="w-4 h-4 shrink-0 mt-0.5 text-primary" />
           <p className="text-sm text-muted-foreground">
-            This draft is complete and every decision point is resolved — it&apos;s ready for review.
+            This application has passed audit review and is ready for you to file.
           </p>
         </div>
       )}

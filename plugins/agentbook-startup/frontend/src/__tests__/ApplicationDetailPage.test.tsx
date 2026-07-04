@@ -36,6 +36,8 @@ describe('ApplicationDetailPage', () => {
       application: { id: 'app-1', status: 'decision_pending', draft: { programCode: 'us_rd_credit_41', sections: { 'Qualified Research Expenses': [{ label: 'Annual R&D spend', value: 4000, sourceType: 'book_entry' }] }, completeness: 0.5 } },
       documents: [],
       decisionPoints: [{ id: 'dp-1', sequenceOrder: 1, kind: 'approval', prompt: 'Confirm the four-part test.', options: ['approve', 'reject'], response: null, respondedAt: null, blocksProgress: true }],
+      auditReview: null,
+      program: null,
     });
     renderAt('app-1');
     await waitFor(() => expect(getApplication).toHaveBeenCalledWith('app-1'));
@@ -49,6 +51,8 @@ describe('ApplicationDetailPage', () => {
       application: { id: 'app-1', status: 'decision_pending', draft: { programCode: 'us_rd_credit_41', sections: {}, completeness: 0 } },
       documents: [],
       decisionPoints: [{ id: 'dp-1', sequenceOrder: 1, kind: 'approval', prompt: 'Confirm the four-part test.', options: ['approve', 'reject'], response: null, respondedAt: null, blocksProgress: true }],
+      auditReview: null,
+      program: null,
     });
     respondToDecisionPoint.mockResolvedValue({});
     renderAt('app-1');
@@ -63,6 +67,8 @@ describe('ApplicationDetailPage', () => {
       application: { id: 'app-1', status: 'decision_pending', draft: { programCode: 'us_qsbs_tracking', sections: {}, completeness: 0 } },
       documents: [],
       decisionPoints: [{ id: 'dp-2', sequenceOrder: 1, kind: 'key_input', prompt: 'Enter the share issuance date.', options: null, response: null, respondedAt: null, blocksProgress: true }],
+      auditReview: null,
+      program: null,
     });
     respondToDecisionPoint.mockResolvedValue({});
     renderAt('app-1');
@@ -77,10 +83,35 @@ describe('ApplicationDetailPage', () => {
       application: { id: 'app-1', status: 'ready_for_review', draft: { programCode: 'us_rd_credit_41', sections: {}, completeness: 1 } },
       documents: [],
       decisionPoints: [{ id: 'dp-1', sequenceOrder: 1, kind: 'approval', prompt: 'Confirm the four-part test.', options: ['approve', 'reject'], response: 'approve', respondedAt: '2026-01-01', blocksProgress: true }],
+      auditReview: null,
+      program: null,
     });
     renderAt('app-1');
     await waitFor(() => expect(getApplication).toHaveBeenCalled());
     expect(screen.queryByRole('button', { name: /approve/i })).toBeNull();
+  });
+
+  it('shows the "Run audit review" action once the draft reaches ready_for_review, and the "ready to file" banner once audit_reviewed', async () => {
+    getApplication.mockResolvedValue({
+      application: { id: 'app-1', status: 'ready_for_review', draft: { programCode: 'us_rd_credit_41', sections: {}, completeness: 1 } },
+      documents: [],
+      decisionPoints: [],
+      auditReview: null,
+      program: null,
+    });
+    renderAt('app-1');
+    expect(await screen.findByRole('button', { name: /run audit review/i })).toBeTruthy();
+    expect(screen.queryByText(/passed audit review/i)).toBeNull();
+
+    getApplication.mockResolvedValue({
+      application: { id: 'app-1', status: 'audit_reviewed', draft: { programCode: 'us_rd_credit_41', sections: {}, completeness: 1 } },
+      documents: [],
+      decisionPoints: [],
+      auditReview: { id: 'r1', applicationId: 'app-1', riskLevel: 'low', findings: [], overrides: [], reviewedAt: '2026-01-01', modelVersion: 'us-audit-v1' },
+      program: { name: 'Federal R&D Tax Credit (IRC §41)', authority: 'IRS', sourceUrl: 'https://www.irs.gov/forms-pubs/about-form-6765' },
+    });
+    renderAt('app-1');
+    expect(await screen.findByText(/passed audit review/i)).toBeTruthy();
   });
 
   it('shows the document checklist from server data alone, with no router state (story C5: survives a refresh/direct visit)', async () => {
@@ -89,6 +120,8 @@ describe('ApplicationDetailPage', () => {
       documents: [],
       decisionPoints: [],
       documentChecklist: [{ docType: 'payroll_register', label: 'Payroll register', description: 'Wages paid.', required: true }],
+      auditReview: null,
+      program: null,
     });
     // No `state` passed to MemoryRouter's initialEntries — simulates a page
     // load with zero router history (refresh, bookmark, direct navigation).
