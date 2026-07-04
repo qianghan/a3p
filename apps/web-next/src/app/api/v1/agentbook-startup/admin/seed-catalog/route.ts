@@ -13,7 +13,7 @@ import 'server-only';
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@naap/database';
 import { requireAdmin, type HttpError } from '@/lib/billing/admin-auth';
-import { US_STARTUP_BENEFIT_PROGRAMS } from '@naap/plugin-agentbook-startup-backend/catalog/us-programs';
+import { US_STARTUP_BENEFIT_PROGRAMS } from '@/lib/agentbook-startup/us-programs';
 
 export const runtime = 'nodejs';
 

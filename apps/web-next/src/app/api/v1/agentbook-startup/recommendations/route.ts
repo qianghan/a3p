@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@naap/database';
-import { computeRecommendations } from '@naap/plugin-agentbook-startup-backend/discovery';
+import { computeRecommendations } from '@/lib/agentbook-startup/discovery';
 import { safeResolveAgentbookTenant } from '@/lib/agentbook-tenant';
 
 export const runtime = 'nodejs';
