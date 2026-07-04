@@ -2,6 +2,7 @@ import React from 'react';
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
 import { createPlugin } from '@naap/plugin-sdk';
 import { StartupDiscoveryPage } from './pages/StartupDiscoveryPage';
+import { ApplicationDetailPage } from './pages/ApplicationDetailPage';
 import './globals.css';
 
 // Non-core plugins (isCore: false in plugin.json) are namespaced under
@@ -18,7 +19,9 @@ function getInitialPath(): string {
 const AgentbookStartupApp: React.FC = () => (
   <MemoryRouter initialEntries={[getInitialPath()]}>
     <Routes>
-      <Route path="/*" element={<StartupDiscoveryPage />} />
+      <Route path="/" element={<StartupDiscoveryPage />} />
+      <Route path="/applications/:id" element={<ApplicationDetailPage />} />
+      <Route path="*" element={<StartupDiscoveryPage />} />
     </Routes>
   </MemoryRouter>
 );

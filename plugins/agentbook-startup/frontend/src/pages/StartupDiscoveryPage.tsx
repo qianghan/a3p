@@ -1,10 +1,47 @@
 import React, { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   Rocket, Building2, Users, TrendingUp, Wallet, Search, Loader2,
-  Info, ExternalLink, Landmark, Sparkles, CheckCircle2, HelpCircle, XCircle,
+  Info, ExternalLink, Landmark, Sparkles, CheckCircle2, HelpCircle, XCircle, FileText, ArrowRight, AlertCircle,
 } from 'lucide-react';
 import { ChatCTA } from '@naap/plugin-sdk';
-import { startupApi, formatCents, type ProgramRecommendation, type AddOnPriceTeaser } from '../lib/api';
+import { startupApi, formatCents, type ProgramRecommendation, type AddOnPriceTeaser, type StartupBenefitApplication } from '../lib/api';
+
+const APPLICATION_STATUS_LABEL: Record<string, string> = {
+  recommended: 'Recommended',
+  docs_pending: 'Documents needed',
+  drafting: 'Drafting',
+  decision_pending: 'Your input needed',
+  ready_for_review: 'Ready for review',
+  audit_reviewed: 'Audit reviewed',
+  submitted: 'Submitted',
+  monitoring: 'Monitoring',
+  closed: 'Closed',
+};
+
+function MyApplicationsList({ applications }: { applications: StartupBenefitApplication[] }) {
+  const navigate = useNavigate();
+  if (applications.length === 0) return null;
+  return (
+    <div className="mb-6">
+      <h2 className="text-sm font-semibold text-foreground mb-2">Your applications</h2>
+      {applications.map((app) => (
+        <button
+          key={app.id}
+          type="button"
+          onClick={() => navigate(`/applications/${app.id}`)}
+          className="w-full flex items-center justify-between bg-card border border-border rounded-lg p-3 mb-2 text-left hover:bg-muted/50 transition-colors"
+        >
+          <span className="text-sm text-foreground">{app.draft?.programCode ?? 'Application'}</span>
+          <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+            {APPLICATION_STATUS_LABEL[app.status] ?? app.status}
+            <ArrowRight className="w-3.5 h-3.5" />
+          </span>
+        </button>
+      ))}
+    </div>
+  );
+}
 
 const STATUS_LABEL: Record<string, string> = {
   qualified: 'Qualified',
@@ -34,7 +71,11 @@ function StatusBadge({ status }: { status: string }) {
   );
 }
 
-function ProgramCard({ program }: { program: ProgramRecommendation }) {
+function ProgramCard({ program, onStart, starting }: {
+  program: ProgramRecommendation;
+  onStart: (programCode: string) => void;
+  starting: boolean;
+}) {
   const range = program.estValueLowCents !== null && program.estValueHighCents !== null
     ? `${formatCents(program.estValueLowCents)} – ${formatCents(program.estValueHighCents)}`
     : null;
@@ -54,21 +95,35 @@ function ProgramCard({ program }: { program: ProgramRecommendation }) {
         </p>
       )}
       <p className="text-sm text-foreground/90">{program.reasoning}</p>
-      {program.sourceUrl && (
-        <a
-          href={program.sourceUrl}
-          target="_blank"
-          rel="noreferrer"
-          className="inline-flex items-center gap-1 text-sm text-primary hover:underline mt-2"
-        >
-          Learn more <ExternalLink className="w-3.5 h-3.5" />
-        </a>
-      )}
+      <div className="flex items-center gap-4 mt-2">
+        {program.sourceUrl && (
+          <a
+            href={program.sourceUrl}
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex items-center gap-1 text-sm text-primary hover:underline"
+          >
+            Learn more <ExternalLink className="w-3.5 h-3.5" />
+          </a>
+        )}
+        {program.status !== 'not_qualified' && (
+          <button
+            type="button"
+            disabled={starting}
+            onClick={() => onStart(program.programCode)}
+            className="inline-flex items-center gap-1.5 text-sm font-medium text-primary hover:underline disabled:opacity-50"
+          >
+            {starting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <FileText className="w-3.5 h-3.5" />}
+            Start application
+          </button>
+        )}
+      </div>
     </div>
   );
 }
 
 export function StartupDiscoveryPage() {
+  const navigate = useNavigate();
   const [companyType, setCompanyType] = useState('');
   const [headcount, setHeadcount] = useState('');
   const [annualRdSpend, setAnnualRdSpend] = useState('');
@@ -76,6 +131,13 @@ export function StartupDiscoveryPage() {
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<{ programs: ProgramRecommendation[]; message?: string } | null>(null);
   const [teaser, setTeaser] = useState<AddOnPriceTeaser | null>(null);
+  const [startingProgramCode, setStartingProgramCode] = useState<string | null>(null);
+  const [startError, setStartError] = useState<string | null>(null);
+  const [applications, setApplications] = useState<StartupBenefitApplication[]>([]);
+
+  useEffect(() => {
+    startupApi.listApplications().then((r) => setApplications(r.applications)).catch(() => setApplications([]));
+  }, []);
 
   useEffect(() => {
     startupApi.getProfile().then((profile) => {
@@ -105,6 +167,19 @@ export function StartupDiscoveryPage() {
     }
   }
 
+  async function handleStart(programCode: string) {
+    setStartingProgramCode(programCode);
+    setStartError(null);
+    try {
+      const { application } = await startupApi.createApplication(programCode);
+      navigate(`/applications/${application.id}`);
+    } catch (err) {
+      setStartError(err instanceof Error ? err.message : 'Could not start this application — please try again.');
+    } finally {
+      setStartingProgramCode(null);
+    }
+  }
+
   const inputClass = 'w-full pl-9 pr-4 py-2 bg-background border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary text-sm';
 
   return (
@@ -120,6 +195,8 @@ export function StartupDiscoveryPage() {
       </p>
 
       <ChatCTA example="Am I eligible for the R&D tax credit?" />
+
+      <MyApplicationsList applications={applications} />
 
       <form onSubmit={handleSubmit} className="space-y-4 mb-6">
         <div>
@@ -201,13 +278,27 @@ export function StartupDiscoveryPage() {
         </button>
       </form>
 
+      {startError && (
+        <div className="bg-destructive/10 text-destructive rounded-lg p-4 mb-3 flex items-start gap-2 text-sm">
+          <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+          {startError}
+        </div>
+      )}
+
       {result?.message && (
         <div className="bg-amber-500/10 text-amber-700 border border-amber-500/20 rounded-lg p-4 mb-3 flex items-start gap-2 text-sm">
           <Info className="w-4 h-4 shrink-0 mt-0.5" />
           {result.message}
         </div>
       )}
-      {result?.programs.map((program) => <ProgramCard key={program.programCode} program={program} />)}
+      {result?.programs.map((program) => (
+        <ProgramCard
+          key={program.programCode}
+          program={program}
+          onStart={handleStart}
+          starting={startingProgramCode === program.programCode}
+        />
+      ))}
 
       {teaser?.price && !teaser.active && (
         <div className="bg-primary/5 border border-primary/20 rounded-lg p-4 mt-6 flex items-start gap-2">
