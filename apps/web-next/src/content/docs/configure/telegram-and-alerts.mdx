@@ -10,11 +10,24 @@ AgentBook goes where you are. Connect Telegram to capture expenses, ask question
 
 ### Connect Telegram
 
-1. Go to **Configure → Notifications** and start the Telegram connection.
-2. Open the bot it links you to and send the code (or tap **Start**).
-3. Your Telegram chat is now tied to your account — messages there act on your books.
+Telegram bots are self-serve — you create your own bot in about a minute, then hand its token to AgentBook.
+
+1. Go to **Settings → Chatbots** and open the **Telegram** card.
+2. Open **@BotFather** in Telegram, send `/newbot`, and follow the prompts to name your bot.
+
+   ![Telegram conversation with BotFather: sending /newbot, naming the bot, and receiving the API token](/docs/telegram/botfather-conversation.svg)
+
+3. Copy the API token BotFather gives you and paste it into the Telegram card, then select **Connect Bot**.
+
+   ![Settings, Chatbots tab, Telegram card not yet connected, showing the three setup steps and a field to paste a bot token](/docs/telegram/settings-chatbots-telegram-not-connected.svg)
+
+4. Open your new bot in Telegram and send `/start`. Your chat is now tied to your AgentBook account — messages there act on your books.
+
+   ![Telegram card after connecting, showing the bot username, active webhook, linked chats, and a disconnect option](/docs/telegram/settings-chatbots-telegram-connected.svg)
 
 From Telegram you can snap a receipt photo, say *"log $12 parking"*, or ask *"what did I spend on software this quarter?"* — the same agent, same data.
+
+> **Tip:** The bot is yours — only messages sent to it reach your books. Disconnect and reconnect anytime from the same card.
 
 ### Proactive alerts
 

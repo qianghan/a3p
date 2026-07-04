@@ -33,6 +33,14 @@ interface BotStatus {
   lastError?: string | null;
 }
 
+interface WhatsAppStatus {
+  platformConfigured: boolean;
+  agentbookWhatsAppNumber: string | null;
+  linkCode: string | null;
+  phoneNumbers: string[];
+  linkedAt: string | null;
+}
+
 interface SetupResult {
   botUsername: string;
   webhookRegistered: boolean;
@@ -419,14 +427,129 @@ function TelegramCard(): React.ReactElement {
 }
 
 function WhatsAppCard(): React.ReactElement {
+  const [status, setStatus] = useState<WhatsAppStatus | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [disconnecting, setDisconnecting] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
+
+  const fetchStatus = async (): Promise<void> => {
+    try {
+      const res = await fetch(`${API}/whatsapp/status`);
+      const d = await res.json();
+      if (d.success) setStatus(d.data);
+      else setError('Could not load WhatsApp status');
+    } catch {
+      setError('Could not load WhatsApp status');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => { void fetchStatus(); }, []);
+
+  const handleDisconnect = async (): Promise<void> => {
+    if (!confirm('Disconnect WhatsApp? You can reconnect anytime with the same code.')) return;
+    setDisconnecting(true);
+    try {
+      await fetch(`${API}/whatsapp/disconnect`, { method: 'DELETE' });
+      setSuccess('WhatsApp disconnected.');
+      await fetchStatus();
+    } catch {
+      setError('Could not disconnect. Please try again.');
+    } finally {
+      setDisconnecting(false);
+    }
+  };
+
+  const copyCode = async (): Promise<void> => {
+    if (!status?.linkCode) return;
+    await navigator.clipboard.writeText(status.linkCode);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  const connected = (status?.phoneNumbers?.length ?? 0) > 0;
+
   return (
-    <div className="flex items-center gap-3 rounded-xl border border-dashed border-border/50 bg-card px-4 py-3 opacity-50">
-      <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-green-500/10 text-lg">💬</div>
-      <div className="flex-1">
-        <div className="text-sm font-semibold text-muted-foreground">WhatsApp</div>
-        <div className="text-xs text-muted-foreground">Business API integration</div>
+    <div className="rounded-xl border border-border bg-card overflow-hidden">
+      <div className="flex items-center gap-3 border-b border-border px-4 py-3">
+        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-green-500/10 text-lg">💬</div>
+        <div className="flex-1">
+          <div className="text-sm font-semibold text-foreground">WhatsApp</div>
+          <div className="text-xs text-muted-foreground">
+            {connected ? status?.phoneNumbers.join(', ') : 'Record expenses and manage finances via chat'}
+          </div>
+        </div>
+        {connected && (
+          <span className="rounded-full bg-primary/10 px-2.5 py-0.5 text-xs font-medium text-primary">● Connected</span>
+        )}
+        {status !== null && !connected && (
+          <span className="rounded-full bg-muted px-2.5 py-0.5 text-xs text-muted-foreground">Not connected</span>
+        )}
       </div>
-      <span className="rounded-full bg-muted px-2.5 py-0.5 text-xs text-muted-foreground">Coming soon</span>
+      <div className="px-4 py-4">
+        {error && (
+          <div className="mb-3 flex items-start gap-2 rounded-lg border border-destructive/20 bg-destructive/10 p-3 text-sm text-destructive">
+            <XCircle className="mt-0.5 h-4 w-4 shrink-0" />{error}
+          </div>
+        )}
+        {success && (
+          <div className="mb-3 flex items-start gap-2 rounded-lg border border-primary/20 bg-primary/10 p-3 text-sm text-foreground">
+            <CheckCircle className="mt-0.5 h-4 w-4 shrink-0 text-primary" />{success}
+          </div>
+        )}
+        {loading ? (
+          <div className="flex items-center justify-center gap-2 py-6 text-muted-foreground">
+            <Loader2 className="h-4 w-4 animate-spin" /><span className="text-sm">Loading…</span>
+          </div>
+        ) : !status?.platformConfigured ? (
+          <div className="rounded-lg bg-muted px-3 py-2 text-xs text-muted-foreground">
+            WhatsApp isn't set up for this workspace yet — check back soon.
+          </div>
+        ) : connected ? (
+          <div className="space-y-3">
+            <div className="rounded-lg bg-background px-3 py-2">
+              <div className="text-xs text-muted-foreground">Linked number{status.phoneNumbers.length > 1 ? 's' : ''}</div>
+              <div className="text-sm font-medium text-foreground">{status.phoneNumbers.join(', ')}</div>
+            </div>
+            <div className="flex items-center justify-between pt-1">
+              <button onClick={() => { void fetchStatus(); setError(null); setSuccess(null); }}
+                className="text-xs text-muted-foreground hover:text-foreground">
+                <RefreshCw className="h-3.5 w-3.5" />
+              </button>
+              <button onClick={() => void handleDisconnect()} disabled={disconnecting}
+                className="flex items-center gap-1.5 text-xs text-destructive hover:text-destructive/80">
+                {disconnecting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
+                Disconnect
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            <ol className="space-y-1.5 text-sm text-muted-foreground">
+              <li className="flex gap-2">
+                <span className="mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-muted text-xs">1</span>
+                Open WhatsApp and message{' '}
+                <span className="mx-1 font-mono text-xs text-foreground">{status?.agentbookWhatsAppNumber ?? 'AgentBook'}</span>
+              </li>
+              <li className="flex gap-2">
+                <span className="mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-muted text-xs">2</span>
+                Send your code:{' '}
+                <code className="mx-1 rounded bg-muted px-1 py-0.5 text-xs">{status?.linkCode ?? '…'}</code>
+                <button onClick={() => void copyCode()} className="text-primary hover:text-primary/80">
+                  {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+                </button>
+              </li>
+              <li className="flex gap-2">
+                <span className="mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-muted text-xs">3</span>
+                You&apos;re connected — start typing expenses naturally
+              </li>
+            </ol>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
