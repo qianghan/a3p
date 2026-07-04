@@ -38,6 +38,7 @@ const sections = [
 
 const popular = [
   { label: 'Get started in five minutes', href: '/docs/setup/quickstart' },
+  { label: 'AgentBook for students', href: '/docs/setup/for-students' },
   { label: 'Connect your bank', href: '/docs/setup/connect-bank' },
   { label: 'How much tax should I set aside?', href: '/docs/working/reports-and-tax' },
   { label: 'Fix a miscategorized expense', href: '/docs/troubleshooting/fix-a-miscategorized-expense' },

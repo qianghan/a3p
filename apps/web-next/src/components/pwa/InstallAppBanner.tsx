@@ -89,10 +89,26 @@ function IosInstallModal({ onClose }: { onClose: () => void }) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
     document.addEventListener('keydown', onKey);
-    document.body.style.overflow = 'hidden';
+    // Plain `body.overflow: hidden` doesn't reliably lock scroll on iOS
+    // Safari/WebKit — the page can still shift under the fixed overlay,
+    // which is what made this look "cluttered": the background bleeding
+    // through behind the modal as the user's thumb moved. Locking both
+    // <html> and <body> to `position: fixed` at the current scroll offset
+    // is the standard iOS-safe scroll-lock.
+    const scrollY = window.scrollY;
+    const { documentElement: html, body } = document;
+    const prev = { htmlOverflow: html.style.overflow, bodyPosition: body.style.position, bodyTop: body.style.top, bodyWidth: body.style.width };
+    html.style.overflow = 'hidden';
+    body.style.position = 'fixed';
+    body.style.top = `-${scrollY}px`;
+    body.style.width = '100%';
     return () => {
       document.removeEventListener('keydown', onKey);
-      document.body.style.overflow = '';
+      html.style.overflow = prev.htmlOverflow;
+      body.style.position = prev.bodyPosition;
+      body.style.top = prev.bodyTop;
+      body.style.width = prev.bodyWidth;
+      window.scrollTo(0, scrollY);
     };
   }, [onClose]);
 
@@ -106,7 +122,8 @@ function IosInstallModal({ onClose }: { onClose: () => void }) {
     >
       <div
         onClick={(e) => e.stopPropagation()}
-        className="w-full max-w-[420px] rounded-xl border border-border bg-card p-6"
+        className="w-full max-w-[420px] rounded-xl border border-border bg-card p-5 sm:p-6"
+        style={{ paddingBottom: 'max(1.25rem, env(safe-area-inset-bottom))' }}
       >
         <div className="flex items-start justify-between gap-4">
           <h2 className="text-base font-semibold text-foreground">Add to your Home Screen</h2>
@@ -116,17 +133,17 @@ function IosInstallModal({ onClose }: { onClose: () => void }) {
         </div>
         <p className="mt-1 text-sm text-muted-foreground">iOS needs a few manual taps in Safari — about 10 seconds.</p>
 
-        <ol className="mt-5 space-y-4">
-          <Step n={1}>Tap the <Share size={13} className="inline -mt-0.5 mx-0.5" /> <strong>Share</strong> icon in Safari&apos;s toolbar.</Step>
+        <ol className="mt-5 space-y-5">
+          <Step n={1} icon={<Share size={14} />}>Tap the <strong>Share</strong> icon in Safari&apos;s toolbar.</Step>
           <Step n={2}>Scroll down and tap <strong>Add to Home Screen</strong>.</Step>
           <Step n={3}>Tap <strong>Add</strong> in the top-right corner.</Step>
         </ol>
 
-        <div className="mt-6 pt-4 border-t border-border flex items-center justify-between">
+        <div className="mt-6 pt-4 border-t border-border flex items-center justify-between gap-3">
           <a href="/docs/setup/install-app" className="text-xs font-medium text-primary hover:underline">
             Full illustrated guide →
           </a>
-          <button onClick={onClose} className="text-sm font-medium px-3 py-1.5 rounded-md border border-border hover:bg-muted transition-colors">
+          <button onClick={onClose} className="shrink-0 text-sm font-medium px-3 py-1.5 rounded-md border border-border hover:bg-muted transition-colors">
             Got it
           </button>
         </div>
@@ -135,13 +152,16 @@ function IosInstallModal({ onClose }: { onClose: () => void }) {
   );
 }
 
-function Step({ n, children }: { n: number; children: React.ReactNode }) {
+function Step({ n, icon, children }: { n: number; icon?: React.ReactNode; children: React.ReactNode }) {
   return (
     <li className="flex items-start gap-3">
       <span className="shrink-0 flex items-center justify-center w-5 h-5 rounded-full bg-primary text-primary-foreground text-[11px] font-medium">
         {n}
       </span>
-      <span className="text-sm text-foreground leading-relaxed pt-px">{children}</span>
+      <span className="flex items-start gap-1.5 text-sm text-foreground leading-relaxed">
+        {icon && <span className="shrink-0 mt-0.5">{icon}</span>}
+        <span>{children}</span>
+      </span>
     </li>
   );
 }
