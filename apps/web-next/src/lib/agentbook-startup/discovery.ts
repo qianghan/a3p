@@ -9,8 +9,15 @@
  * and its `discovery.test.ts` counterpart become deletable in favor of a
  * shared import — keep both files in sync until then.
  */
-import { getJurisdictionPack } from '@agentbook/jurisdictions';
+import { getJurisdictionPack, loadBuiltInPacks } from '@agentbook/jurisdictions';
 import type { StartupProfile } from '@agentbook/jurisdictions';
+
+// The Express backend (plugins/agentbook-startup/backend/src/server.ts) calls
+// this once at process startup. Next.js has no equivalent single entrypoint
+// for this module, so it's called here at import time instead — without it,
+// getJurisdictionPack() always returns undefined and every jurisdiction looks
+// unsupported.
+loadBuiltInPacks();
 
 export interface CatalogEntry {
   programCode: string;
