@@ -45,6 +45,11 @@ export async function POST(
     return NextResponse.json({ error: 'a written reason is required to override a high-severity finding' }, { status: 400 });
   }
 
+  // Known limitation: read-modify-write with no transaction/version guard.
+  // Two overrides on different findings for the same application racing
+  // here can drop one silently (last write wins). Narrow blast radius (two
+  // near-simultaneous overrides on one application) — acceptable for now,
+  // worth a follow-up if it proves to matter in practice.
   const existingOverrides = (review.overrides as unknown as OverrideRecord[] | null) ?? [];
   const overrides = [
     ...existingOverrides.filter((o) => o.findingIndex !== findingIndex),

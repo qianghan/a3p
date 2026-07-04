@@ -28,6 +28,12 @@ export async function runAuditReview(applicationId: string): Promise<{ status: n
       modelVersion: AUDIT_REVIEW_MODEL_VERSION,
       overrides: [],
     },
+    // A fresh run is a reissue (startup.html §11: "a bad model version can be
+    // identified and its reviews reissued") — intentionally clears prior
+    // overrides rather than carrying a stale justification forward onto a
+    // newly recomputed findings list, even if the underlying finding is
+    // unchanged. Conservative by design: re-confirming costs the founder one
+    // click, silently trusting an old override on a new assessment does not.
     update: {
       riskLevel: assessment.riskLevel,
       findings: assessment.findings as object,
