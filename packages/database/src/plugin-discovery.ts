@@ -68,17 +68,6 @@ export function getBundleUrl(cdnBase: string, dirName: string, version: string):
   return `${cdnBase}/${dirName}/${version}/${dirName}.js`;
 }
 
-/**
- * Build the CDN stylesheet URL for a plugin.
- * @param cdnBase - CDN base path
- * @param dirName - Plugin directory name in kebab-case
- * @param version - Semver version string
- * @returns Full URL path to the plugin CSS stylesheet
- */
-export function getStylesUrl(cdnBase: string, dirName: string, version: string): string {
-  return `${cdnBase}/${dirName}/${version}/${dirName}.css`;
-}
-
 // ─── Plugin Discovery ────────────────────────────────────────────────────────
 
 export interface DiscoveredPlugin {
@@ -219,7 +208,11 @@ export function toWorkflowPluginData(
     if (manifestPath) {
       const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
       if (manifest.stylesFile) {
-        stylesUrl = getStylesUrl(cdnBase, plugin.dirName, plugin.version);
+        // Build the URL from the manifest's actual emitted filename — Rollup
+        // names the CSS after the entry/package (e.g.
+        // plugin-agentbook-startup-frontend.css, not {dirName}.css), and
+        // bin/build-plugins.sh copies build output verbatim without renaming.
+        stylesUrl = `${cdnBase}/${plugin.dirName}/${plugin.version}/${manifest.stylesFile}`;
       }
       // No stylesFile in manifest → stylesUrl stays undefined (correct for headless plugins)
     }
