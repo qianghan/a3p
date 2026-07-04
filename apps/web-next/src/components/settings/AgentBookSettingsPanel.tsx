@@ -661,10 +661,11 @@ function ChatHistoryTab(): React.ReactElement {
 
 // ── Main panel ────────────────────────────────────────────────────────────────
 
-type SettingsTab = 'profile' | 'invoice' | 'chatbots' | 'history' | 'billing' | 'referrals' | 'sharing' | 'notifications';
+type SettingsTab = 'profile' | 'personal' | 'invoice' | 'chatbots' | 'history' | 'billing' | 'referrals' | 'sharing' | 'notifications';
 
 const TABS: { key: SettingsTab; label: string }[] = [
   { key: 'profile',   label: 'Business Profile' },
+  { key: 'personal',  label: 'Personal Profile' },
   { key: 'invoice',   label: 'Invoice Defaults' },
   { key: 'billing',   label: 'Billing' },
   { key: 'referrals', label: 'Referrals' },
@@ -1056,6 +1057,279 @@ function ParentShareTab(): React.ReactElement {
   );
 }
 
+// ── Personal Profile ─────────────────────────────────────────────────────────
+//
+// Distinct from the Business Profile tab (TenantConfig): this is per-user
+// personal context — name, DOB, address, marital status, dependents,
+// employment, self-reported income — that the agent brain reads to give
+// richer, contextual answers instead of answering generically (see
+// personal-profile-context.ts in the agentbook-core backend). Deliberately
+// excludes government tax ID (SSN/SIN).
+
+interface PersonalProfile {
+  firstName: string | null;
+  lastName: string | null;
+  dateOfBirth: string | null;
+  addressLine1: string | null;
+  addressLine2: string | null;
+  city: string | null;
+  state: string | null;
+  postalCode: string | null;
+  country: string | null;
+  maritalStatus: string | null;
+  dependentsCount: number | null;
+  employmentType: string | null;
+  occupation: string | null;
+  estimatedAnnualIncomeCents: number | null;
+  isComplete: boolean;
+}
+
+const MARITAL_STATUS_OPTIONS = [
+  { value: '', label: 'Prefer not to say' },
+  { value: 'single', label: 'Single' },
+  { value: 'married_joint', label: 'Married, filing jointly' },
+  { value: 'married_separate', label: 'Married, filing separately' },
+  { value: 'head_of_household', label: 'Head of household' },
+  { value: 'widowed', label: 'Widowed' },
+];
+
+const EMPLOYMENT_TYPE_OPTIONS = [
+  { value: '', label: 'Prefer not to say' },
+  { value: 'w2', label: 'Employed (W-2)' },
+  { value: 'self_employed', label: 'Self-employed' },
+  { value: 'mixed', label: 'Both employed & self-employed' },
+  { value: 'unemployed', label: 'Not currently working' },
+  { value: 'retired', label: 'Retired' },
+];
+
+function PersonalProfileTab(): React.ReactElement {
+  const [profile, setProfile] = useState<PersonalProfile | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
+  const [uploadYear, setUploadYear] = useState(String(new Date().getFullYear() - 1));
+  const [uploadJurisdiction, setUploadJurisdiction] = useState('us');
+  const [uploading, setUploading] = useState(false);
+  const uploadFileRef = useRef<HTMLInputElement>(null);
+
+  const fetchProfile = useCallback(async () => {
+    try {
+      const res = await fetch(`${API}/personal-profile`);
+      const d = await res.json();
+      if (d.success) setProfile(d.data);
+      else setError(d.error || 'Could not load your profile');
+    } catch {
+      setError('Could not load your profile');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { void fetchProfile(); }, [fetchProfile]);
+
+  const set = (patch: Partial<PersonalProfile>) => setProfile((p) => (p ? { ...p, ...patch } : p));
+
+  const handleSave = async (): Promise<void> => {
+    if (!profile) return;
+    setSaving(true); setError(null); setSuccess(null);
+    try {
+      const res = await fetch(`${API}/personal-profile`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          firstName: profile.firstName,
+          lastName: profile.lastName,
+          dateOfBirth: profile.dateOfBirth,
+          addressLine1: profile.addressLine1,
+          addressLine2: profile.addressLine2,
+          city: profile.city,
+          state: profile.state,
+          postalCode: profile.postalCode,
+          country: profile.country,
+          maritalStatus: profile.maritalStatus || null,
+          dependentsCount: profile.dependentsCount,
+          employmentType: profile.employmentType || null,
+          occupation: profile.occupation,
+          estimatedAnnualIncomeCents: profile.estimatedAnnualIncomeCents,
+        }),
+      });
+      const d = await res.json();
+      if (d.success) {
+        setProfile(d.data);
+        setSuccess('Profile saved.');
+      } else {
+        setError(d.error || 'Save failed');
+      }
+    } catch {
+      setError('Save failed. Please try again.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>): Promise<void> => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploading(true); setError(null); setSuccess(null);
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      fd.append('taxYear', uploadYear);
+      fd.append('jurisdiction', uploadJurisdiction);
+      const res = await fetch('/api/v1/agentbook-tax/past-filings', { method: 'POST', body: fd });
+      const d = await res.json();
+      if (d.success) {
+        setSuccess(`${uploadYear} return uploaded — we'll extract the details in the background.`);
+      } else {
+        setError(d.error || 'Upload failed');
+      }
+    } catch {
+      setError('Upload failed. Please try again.');
+    } finally {
+      setUploading(false);
+      if (uploadFileRef.current) uploadFileRef.current.value = '';
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center gap-2 py-6 text-muted-foreground">
+        <Loader2 className="h-4 w-4 animate-spin" /><span className="text-sm">Loading…</span>
+      </div>
+    );
+  }
+  if (!profile) {
+    return <div className="py-8 text-center text-sm text-destructive">{error || 'Could not load your profile'}</div>;
+  }
+
+  const inputCls = 'mt-1 w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-primary/30';
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <h3 className="text-sm font-semibold text-foreground mb-1">Your personal profile</h3>
+        <p className="text-sm text-muted-foreground">
+          The more your agent knows about you, the more useful its tax and financial advice can be.
+          This stays private to your account.
+        </p>
+      </div>
+
+      {error && (
+        <div className="flex items-start gap-2 rounded-lg border border-destructive/20 bg-destructive/10 p-3 text-sm text-destructive">
+          <XCircle className="mt-0.5 h-4 w-4 shrink-0" />{error}
+        </div>
+      )}
+      {success && (
+        <div className="flex items-start gap-2 rounded-lg border border-primary/20 bg-primary/10 p-3 text-sm text-foreground">
+          <CheckCircle className="mt-0.5 h-4 w-4 shrink-0 text-primary" />{success}
+        </div>
+      )}
+
+      <div className="grid gap-4 sm:grid-cols-2">
+        <div>
+          <label className="block text-sm font-medium text-foreground">First name</label>
+          <input type="text" value={profile.firstName ?? ''} onChange={(e) => set({ firstName: e.target.value || null })} className={inputCls} />
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-foreground">Last name</label>
+          <input type="text" value={profile.lastName ?? ''} onChange={(e) => set({ lastName: e.target.value || null })} className={inputCls} />
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-foreground">Date of birth</label>
+          <input type="date" value={profile.dateOfBirth ? profile.dateOfBirth.slice(0, 10) : ''}
+            onChange={(e) => set({ dateOfBirth: e.target.value || null })} className={inputCls} />
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-foreground">Occupation</label>
+          <input type="text" value={profile.occupation ?? ''} onChange={(e) => set({ occupation: e.target.value || null })} className={inputCls} placeholder="Graphic designer" />
+        </div>
+      </div>
+
+      <div>
+        <label className="block text-sm font-medium text-foreground">Address</label>
+        <input type="text" value={profile.addressLine1 ?? ''} onChange={(e) => set({ addressLine1: e.target.value || null })}
+          className={inputCls} placeholder="Street address" />
+        <div className="mt-2 grid gap-2 sm:grid-cols-3">
+          <input type="text" value={profile.city ?? ''} onChange={(e) => set({ city: e.target.value || null })}
+            className={inputCls.replace('mt-1 ', '')} placeholder="City" />
+          <input type="text" value={profile.state ?? ''} onChange={(e) => set({ state: e.target.value || null })}
+            className={inputCls.replace('mt-1 ', '')} placeholder="State / Province" />
+          <input type="text" value={profile.postalCode ?? ''} onChange={(e) => set({ postalCode: e.target.value || null })}
+            className={inputCls.replace('mt-1 ', '')} placeholder="Postal code" />
+        </div>
+        <input type="text" value={profile.country ?? ''} onChange={(e) => set({ country: e.target.value || null })}
+          className={`${inputCls} mt-2`} placeholder="Country" />
+      </div>
+
+      <div className="grid gap-4 sm:grid-cols-2">
+        <div>
+          <label className="block text-sm font-medium text-foreground">Marital status</label>
+          <select value={profile.maritalStatus ?? ''} onChange={(e) => set({ maritalStatus: e.target.value || null })} className={inputCls}>
+            {MARITAL_STATUS_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+          </select>
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-foreground">Dependents</label>
+          <input type="number" min={0} value={profile.dependentsCount ?? ''}
+            onChange={(e) => set({ dependentsCount: e.target.value === '' ? null : Math.max(0, parseInt(e.target.value, 10) || 0) })}
+            className={inputCls} placeholder="0" />
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-foreground">Employment</label>
+          <select value={profile.employmentType ?? ''} onChange={(e) => set({ employmentType: e.target.value || null })} className={inputCls}>
+            {EMPLOYMENT_TYPE_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+          </select>
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-foreground">Estimated annual income</label>
+          <div className="relative mt-1">
+            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">$</span>
+            <input type="number" min={0} step={1000}
+              value={profile.estimatedAnnualIncomeCents != null ? Math.round(profile.estimatedAnnualIncomeCents / 100) : ''}
+              onChange={(e) => set({ estimatedAnnualIncomeCents: e.target.value === '' ? null : Math.max(0, parseInt(e.target.value, 10) || 0) * 100 })}
+              className="w-full rounded-lg border border-border bg-background py-2 pl-7 pr-3 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-primary/30"
+              placeholder="75,000" />
+          </div>
+        </div>
+      </div>
+
+      <button type="button" onClick={() => void handleSave()} disabled={saving}
+        className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-50">
+        {saving ? 'Saving…' : 'Save profile'}
+      </button>
+
+      <div className="rounded-xl border border-border bg-card p-4">
+        <h4 className="text-sm font-semibold text-foreground mb-1">Upload past tax returns</h4>
+        <p className="text-xs text-muted-foreground mb-3">
+          Add your last 1-2 years of returns (PDF) so your agent has real history to work from —
+          the same context it already uses to answer tax questions in chat.
+        </p>
+        <div className="flex flex-wrap items-center gap-2">
+          <select value={uploadYear} onChange={(e) => setUploadYear(e.target.value)}
+            className="rounded-lg border border-border bg-background px-2 py-1.5 text-sm text-foreground">
+            {[0, 1, 2].map((back) => {
+              const year = String(new Date().getFullYear() - 1 - back);
+              return <option key={year} value={year}>{year}</option>;
+            })}
+          </select>
+          <select value={uploadJurisdiction} onChange={(e) => setUploadJurisdiction(e.target.value)}
+            className="rounded-lg border border-border bg-background px-2 py-1.5 text-sm text-foreground">
+            <option value="us">United States</option>
+            <option value="ca">Canada</option>
+          </select>
+          <input ref={uploadFileRef} type="file" accept="application/pdf" className="hidden" onChange={(e) => void handleUpload(e)} />
+          <button type="button" onClick={() => uploadFileRef.current?.click()} disabled={uploading}
+            className="flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-sm text-muted-foreground hover:bg-muted disabled:opacity-50">
+            {uploading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
+            {uploading ? 'Uploading…' : 'Choose PDF'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 interface NotificationPreference {
   category: string;
   locked: boolean;
@@ -1319,6 +1593,8 @@ export function AgentBookSettingsPanel({ initialTab }: { initialTab?: string }):
           </div>
         </div>
       )}
+
+      {tab === 'personal' && <PersonalProfileTab />}
 
       {tab === 'invoice' && (
         <div className="space-y-5">

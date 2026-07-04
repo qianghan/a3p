@@ -1457,6 +1457,37 @@ model AbTenantConfig {
   @@schema("plugin_agentbook_core")
 }
 
+// One-per-user personal context (distinct from AbTenantConfig, which is the
+// business profile) so the agent brain can give richer, contextual answers —
+// especially for tax and personal-finance questions — instead of answering
+// generically. Deliberately excludes government tax ID (SSN/SIN): everything
+// else an accountant would want to know, but not the highest-sensitivity PII
+// tier. See plugins/agentbook-core/backend/src/personal-profile-context.ts
+// for how this gets summarized into the LLM system prompt.
+model AbPersonalProfile {
+  id                         String    @id @default(uuid())
+  userId                     String    @unique
+  firstName                  String?
+  lastName                   String?
+  dateOfBirth                DateTime?
+  addressLine1               String?
+  addressLine2               String?
+  city                       String?
+  state                      String?
+  postalCode                 String?
+  country                    String?
+  maritalStatus              String? // single | married_joint | married_separate | head_of_household | widowed
+  dependentsCount            Int?
+  employmentType             String? // w2 | self_employed | mixed | unemployed | retired
+  occupation                 String?
+  estimatedAnnualIncomeCents Int? // self-reported, broad — distinct from AbTaxConfig.w2IncomeAnnual which is precise/tax-specific
+  completedAt                DateTime? // set once the user saves a profile meeting the completeness bar
+  createdAt                  DateTime  @default(now())
+  updatedAt                  DateTime  @updatedAt
+
+  @@schema("plugin_agentbook_core")
+}
+
 /// PR 24 — Daily backup notification.
 ///
 /// Each successful daily-backup cron run writes one row per tenant
