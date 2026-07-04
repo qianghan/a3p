@@ -8,6 +8,7 @@ import type { NextRequest } from 'next/server';
 // Routes with their own page.tsx (/marketplace, /agentbook) are excluded.
 // /plugins/* paths are handled by the dynamic [pluginName] route automatically.
 const PLUGIN_ROUTE_MAP: Record<string, string> = {
+  '/forum': 'community',
   // AgentBook — specific sub-paths BEFORE the catch-all
   '/agentbook/expenses': 'agentbookExpense',
   '/agentbook/receipts': 'agentbookExpense',
@@ -121,6 +122,7 @@ const protectedRoutes = [
   '/teams',
   '/releases',
   '/feedback',
+  '/marketplace',
   '/treasury',
   '/governance',
   '/personal',

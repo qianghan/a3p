@@ -23,6 +23,20 @@ function getAdminEmailAllowlist(): string[] {
     .filter(Boolean);
 }
 
+/**
+ * Single source of truth for "is this user an admin" — the same two-tier
+ * check `requireAdmin` enforces, exposed standalone for callers that need
+ * to know admin status without gating the whole request on it (e.g. a page
+ * that shows different content to admins vs. everyone else, rather than
+ * 403ing non-admins outright).
+ */
+export function isAdminUser(user: { roles?: string[] | null; email?: string | null }): boolean {
+  const roles = Array.isArray(user.roles) ? user.roles : [];
+  const isAdminByRole = roles.includes('admin') || roles.includes('system:admin');
+  const isAdminByEmail = !!user.email && getAdminEmailAllowlist().includes(user.email.toLowerCase());
+  return isAdminByRole || isAdminByEmail;
+}
+
 export type AdminGuardResult =
   | { user: { id: string; email: string; roles?: string[] }; tenantId: string }
   | { response: Response };
@@ -44,12 +58,8 @@ export async function requireAdmin(request: NextRequest): Promise<AdminGuardResu
   const roles = Array.isArray((user as { roles?: unknown }).roles)
     ? ((user as { roles: string[] }).roles)
     : [];
-  const isAdminByRole = roles.includes('admin') || roles.includes('system:admin');
 
-  const adminEmails = getAdminEmailAllowlist();
-  const isAdminByEmail = adminEmails.includes(user.email.toLowerCase());
-
-  if (!isAdminByRole && !isAdminByEmail) {
+  if (!isAdminUser({ roles, email: user.email })) {
     return { response: NextResponse.json({ error: 'admin required' }, { status: 403 }) };
   }
 
