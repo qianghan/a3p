@@ -7,6 +7,7 @@ import { useShell, useEvents } from '@/contexts/shell-context';
 import { useIsMobile } from '@/hooks/use-is-mobile';
 import { InviteBanner } from '@/components/referrals/invite-banner';
 import { InstallAppBanner } from '@/components/pwa/InstallAppBanner';
+import { ProfileCompletionBanner } from '@/components/personal/ProfileCompletionBanner';
 
 // Constants — must match sidebar.tsx
 const SIDEBAR_DEFAULT_WIDTH = 240;
@@ -82,6 +83,7 @@ export function AppLayout({ children }: AppLayoutProps) {
             <div className="px-5 py-4">
               <InviteBanner />
               <InstallAppBanner />
+              <ProfileCompletionBanner />
               {children}
             </div>
           </main>

@@ -9,6 +9,7 @@
 
 import { db } from './db/client.js';
 import { buildPastFilingContext } from './past-filing-context.js';
+import { buildPersonalProfileContext } from './personal-profile-context.js';
 import { retrieveRelevantMemories, learnFromInteraction, handleCorrection } from './agent-memory.js';
 import { assessComplexity, generatePlan, formatPlan, createSession, getActiveSession, updateSession, executeStep, buildUndoAction, resolveStepParams } from './agent-planner.js';
 import { PlanStep, Evaluation, assessStepQuality, buildFinalEvaluation, formatEvaluation } from './agent-evaluator.js';
@@ -53,6 +54,7 @@ async function brainAccountantFallback(
   userText: string,
   conversation: Array<{ question: string; answer: string }>,
   pastFilingContext?: string,
+  personalProfileContext?: string,
 ): Promise<string> {
   const convoSnippet = (conversation || [])
     .slice(0, 3)
@@ -74,7 +76,8 @@ async function brainAccountantFallback(
     '',
     'Style: warm but brief, 1–3 short sentences, plain conversational text (no markdown bullets), never say "I am an AI", never end with a flat "I don\'t know". If asking a question, end the message with it.',
   ].join('\n');
-  const systemPrompt = pastFilingContext ? `${baseSystemPrompt}\n\n${pastFilingContext}` : baseSystemPrompt;
+  const extraContext = [personalProfileContext, pastFilingContext].filter(Boolean).join('\n\n');
+  const systemPrompt = extraContext ? `${baseSystemPrompt}\n\n${extraContext}` : baseSystemPrompt;
 
   const userMessage = [
     convoSnippet && `Recent conversation:\n${convoSnippet}`,
@@ -821,12 +824,16 @@ export async function handleAgentMessage(
   const threadTurns = (activeThread?.turns as Array<{ role: string; text: string }>) ?? [];
   const conversation = pairTurns(threadTurns);
 
-  const [tenantConfig, memory, skills] = await Promise.all([
+  const [tenantConfig, memory, skills, personalProfileContext] = await Promise.all([
     db.abTenantConfig.findFirst({ where: { userId: tenantId } }),
     retrieveRelevantMemories(tenantId, text),
     db.abSkillManifest.findMany({
       where: { enabled: true, OR: [{ tenantId: null }, { tenantId }] },
     }),
+    // Unconditional (not keyword-gated like pastFilingContext below): a single
+    // indexed read by userId, and personal context makes every answer richer,
+    // not just tax ones.
+    buildPersonalProfileContext(tenantId).catch(() => ''),
   ]);
 
   // Fetch past filing context for tax-related queries (fast path: only if tax keywords present)
@@ -867,7 +874,7 @@ export async function handleAgentMessage(
       resolvedText, tenantId, channel, attachments, memory, skills, conversation, tenantConfig,
     );
     if (!v1Result) {
-      const engaged = await brainAccountantFallback(ctx.callGemini, resolvedText, conversation, pastFilingContext);
+      const engaged = await brainAccountantFallback(ctx.callGemini, resolvedText, conversation, pastFilingContext, personalProfileContext);
       return buildResponse({
         message: engaged,
         skillUsed: 'none',
@@ -964,7 +971,7 @@ export async function handleAgentMessage(
       );
     }
     if (!v1Result) {
-      const engaged = await brainAccountantFallback(ctx.callGemini, text, conversation, pastFilingContext);
+      const engaged = await brainAccountantFallback(ctx.callGemini, text, conversation, pastFilingContext, personalProfileContext);
       return buildResponse({
         message: engaged,
         skillUsed: 'none',
