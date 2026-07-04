@@ -77,4 +77,14 @@ describe('GET /api/v1/agentbook-startup/recommendations', () => {
     await GET(req());
     expect(computeRecommendationsMock).toHaveBeenCalledWith('us', expect.anything(), expect.anything());
   });
+
+  it('surfaces the real error message and a short stack trace instead of an empty 500', async () => {
+    profileFindUnique.mockResolvedValue({ tenantId: 'tenant-1', companyType: null, incorporatedAt: null, headcount: null, annualRdSpendCents: null, equityRaisedCents: null });
+    tenantConfigFindUnique.mockRejectedValue(new Error('boom: db unreachable'));
+    const r = await GET(req());
+    expect(r.status).toBe(500);
+    const j = await r.json();
+    expect(j.error).toBe('boom: db unreachable');
+    expect(typeof j.stack).toBe('string');
+  });
 });
