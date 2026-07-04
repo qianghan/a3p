@@ -126,6 +126,8 @@ export async function PUT(request: NextRequest): Promise<NextResponse> {
         businessType: body.businessType || 'freelancer',
         jurisdiction: body.jurisdiction || 'us',
         region: body.region || '',
+        visaStatus: body.visaStatus ?? null,
+        homeCountry: body.homeCountry ?? null,
         currency: body.currency || 'USD',
         locale: body.locale || 'en-US',
         timezone: body.timezone || 'America/New_York',
