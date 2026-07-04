@@ -1490,6 +1490,24 @@ model AbTelegramBot {
   @@schema("plugin_agentbook_core")
 }
 
+// Unlike AbTelegramBot (each tenant brings their own bot), WhatsApp Business
+// Cloud API is one centrally-owned AgentBook number shared by every tenant —
+// there's no way for a tenant to self-provision their own number. A tenant
+// links by messaging the shared number with their own `linkCode`; the
+// webhook adds the sending phone number to `phoneNumbers` on a match. See
+// apps/web-next/src/app/api/v1/agentbook/whatsapp/webhook/route.ts.
+model AbWhatsAppLink {
+  id           String    @id @default(uuid())
+  tenantId     String    @unique
+  phoneNumbers Json      @default("[]") // E.164 numbers linked to this tenant
+  linkCode     String    @unique // shown in Settings, e.g. "LINK-A1B2C3"
+  linkedAt     DateTime? // set once the first phone number links
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@schema("plugin_agentbook_core")
+}
+
 model AbAccount {
   id          String   @id @default(uuid())
   tenantId    String

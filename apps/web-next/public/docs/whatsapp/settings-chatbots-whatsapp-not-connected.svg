@@ -1,0 +1,48 @@
+<svg viewBox="0 0 640 340" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Settings, Chatbots tab, WhatsApp card not yet connected, showing the AgentBook WhatsApp number and a one-time link code">
+  <rect width="640" height="340" fill="#f4ecd9"/>
+
+  <!-- tab strip -->
+  <rect x="24" y="20" width="592" height="40" rx="10" fill="#efe4cb"/>
+  <text x="44" y="45" font-family="-apple-system,Helvetica Neue,Arial,sans-serif" font-size="13" fill="#7a7163">Profile</text>
+  <text x="116" y="45" font-family="-apple-system,Helvetica Neue,Arial,sans-serif" font-size="13" fill="#7a7163">Notifications</text>
+  <rect x="228" y="24" width="90" height="32" rx="8" fill="#149578"/>
+  <text x="273" y="45" text-anchor="middle" font-family="-apple-system,Helvetica Neue,Arial,sans-serif" font-size="13" font-weight="600" fill="#ffffff">Chatbots</text>
+  <text x="340" y="45" font-family="-apple-system,Helvetica Neue,Arial,sans-serif" font-size="13" fill="#7a7163">Billing</text>
+
+  <!-- card -->
+  <rect x="24" y="76" width="592" height="248" rx="16" fill="#ffffff" stroke="#d6cdb6" stroke-width="1.5"/>
+
+  <!-- header -->
+  <line x1="24" y1="140" x2="616" y2="140" stroke="#ece2c8" stroke-width="1.5"/>
+  <rect x="44" y="96" width="36" height="36" rx="10" fill="#25a35a" opacity="0.12"/>
+  <text x="62" y="120" text-anchor="middle" font-size="18">💬</text>
+  <text x="94" y="112" font-family="-apple-system,Helvetica Neue,Arial,sans-serif" font-size="15" font-weight="600" fill="#3d3627">WhatsApp</text>
+  <text x="94" y="130" font-family="-apple-system,Helvetica Neue,Arial,sans-serif" font-size="12" fill="#7a7163">Record expenses and manage finances via chat</text>
+  <rect x="518" y="100" width="98" height="24" rx="12" fill="#ece2c8"/>
+  <text x="567" y="116" text-anchor="middle" font-family="-apple-system,Helvetica Neue,Arial,sans-serif" font-size="11" fill="#7a7163">Not connected</text>
+
+  <!-- steps -->
+  <g font-family="-apple-system,Helvetica Neue,Arial,sans-serif" font-size="14" fill="#5b5344">
+    <circle cx="60" cy="168" r="10" fill="#ece2c8"/>
+    <text x="60" y="172" text-anchor="middle" font-size="11" fill="#7a7163">1</text>
+    <text x="82" y="173">Open WhatsApp and message</text>
+    <rect x="292" y="160" width="150" height="20" rx="5" fill="#f4ecd9"/>
+    <text x="367" y="174" text-anchor="middle" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="12" fill="#5b5344">+1 (555) 010-0199</text>
+
+    <circle cx="60" cy="206" r="10" fill="#ece2c8"/>
+    <text x="60" y="210" text-anchor="middle" font-size="11" fill="#7a7163">2</text>
+    <text x="82" y="211">Send your code:</text>
+    <rect x="210" y="196" width="120" height="24" rx="6" fill="#f4ecd9"/>
+    <text x="270" y="212" text-anchor="middle" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="13" font-weight="600" fill="#0c6e57">LINK-A1B2C3</text>
+    <path d="M344 202a5 5 0 1 1 0 12 5 5 0 0 1 0-12z" fill="none" stroke="#149578" stroke-width="1.6"/>
+    <rect x="346" y="204" width="7" height="9" rx="1.5" fill="none" stroke="#149578" stroke-width="1.4"/>
+
+    <circle cx="60" cy="248" r="10" fill="#ece2c8"/>
+    <text x="60" y="252" text-anchor="middle" font-size="11" fill="#7a7163">3</text>
+    <text x="82" y="253">You're connected — start typing expenses naturally</text>
+  </g>
+
+  <!-- callout -->
+  <path d="M330 292v14" stroke="#0c6e57" stroke-width="2" stroke-linecap="round"/>
+  <text x="330" y="284" text-anchor="middle" font-family="-apple-system,Helvetica Neue,Arial,sans-serif" font-size="14" font-weight="600" fill="#0c6e57">Settings → Chatbots → WhatsApp</text>
+</svg>

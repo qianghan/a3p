@@ -19,7 +19,7 @@ export default function DocsNotFound() {
           Back to Docs
         </Link>
         <Link
-          href="/docs/getting-started/quickstart"
+          href="/docs/setup/quickstart"
           className="inline-flex items-center gap-2 px-4 py-2 border border-border rounded-lg font-medium hover:bg-muted transition-colors"
         >
           Quick Start

@@ -3,10 +3,10 @@
  *
  * The agent brain produces a string reply plus optional structured actions
  * (PlanPreview steps, inline buttons, etc.). To deliver the reply we must
- * call platform-specific APIs — Telegram's HTTP endpoint, a WebSocket push
- * for the web client, future Slack/WhatsApp/Discord. Without this
- * abstraction, every caller (cron jobs, webhook handlers, the agent brain
- * itself) hand-rolls a Telegram fetch and couples the codebase to one
+ * call platform-specific APIs — Telegram's HTTP endpoint, WhatsApp's Cloud
+ * API, a WebSocket push for the web client, future Slack/Discord. Without
+ * this abstraction, every caller (cron jobs, webhook handlers, the agent
+ * brain itself) hand-rolls a Telegram fetch and couples the codebase to one
  * channel.
  *
  * This module defines the `ChatAdapter` interface that all channels
@@ -102,6 +102,58 @@ class TelegramAdapter implements ChatAdapter {
       return {
         delivered: false,
         channel: 'telegram',
+        error: err instanceof Error ? err.message : String(err),
+      };
+    }
+  }
+}
+
+// =========================================================================
+// WhatsApp adapter — one shared AgentBook-owned number via Business Cloud API
+// =========================================================================
+//
+// Unlike Telegram (each tenant brings their own bot), a WhatsApp Business
+// number is centrally owned — WHATSAPP_ACCESS_TOKEN/WHATSAPP_PHONE_NUMBER_ID
+// are platform-wide env vars, not per-tenant. Which tenant a destination
+// phone number belongs to is resolved by the caller (via AbWhatsAppLink)
+// before this adapter is ever invoked; this class only knows how to send.
+
+class WhatsAppAdapter implements ChatAdapter {
+  readonly channel = 'whatsapp';
+  constructor(
+    private readonly accessToken: string,
+    private readonly phoneNumberId: string,
+  ) {}
+
+  async sendMessage(phoneNumber: string, text: string, _opts?: ChatMessageOptions): Promise<ChatSendResult> {
+    try {
+      const res = await fetch(`https://graph.facebook.com/v21.0/${this.phoneNumberId}/messages`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${this.accessToken}`,
+        },
+        body: JSON.stringify({
+          messaging_product: 'whatsapp',
+          to: phoneNumber,
+          type: 'text',
+          text: { body: text },
+        }),
+      });
+      if (!res.ok) {
+        const errBody = await res.text().catch(() => '');
+        return { delivered: false, channel: 'whatsapp', error: `HTTP ${res.status}${errBody ? `: ${errBody}` : ''}` };
+      }
+      const data = (await res.json()) as { messages?: Array<{ id?: string }> };
+      return {
+        delivered: true,
+        channel: 'whatsapp',
+        messageId: data.messages?.[0]?.id,
+      };
+    } catch (err) {
+      return {
+        delivered: false,
+        channel: 'whatsapp',
         error: err instanceof Error ? err.message : String(err),
       };
     }
@@ -216,6 +268,22 @@ export async function resolveAdaptersForTenant(
     }
   }
 
+  // WhatsApp is opt-in per tenant: only included once they've linked at
+  // least one phone number (see AbWhatsAppLink) and the shared platform
+  // credentials are configured.
+  const waToken = process.env.WHATSAPP_ACCESS_TOKEN;
+  const waPhoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID;
+  if (waToken && waPhoneNumberId) {
+    const link = await db.abWhatsAppLink.findUnique({ where: { tenantId } });
+    const phoneNumbers = (link?.phoneNumbers as string[] | null | undefined) ?? [];
+    if (phoneNumbers.length > 0) {
+      const adapter = new WhatsAppAdapter(waToken, waPhoneNumberId);
+      for (const phoneNumber of phoneNumbers) {
+        out.push({ adapter, chatId: phoneNumber });
+      }
+    }
+  }
+
   // PR 39: include the Email adapter when the tenant has a verified email
   // and RESEND_API_KEY is configured. The verified-only gate avoids
   // accidental delivery to a typo-address that the user hasn't proven they
@@ -249,4 +317,4 @@ export async function sendToAllChannels(
 }
 
 // Exposed for tests / advanced callers that need a specific channel.
-export { TelegramAdapter, WebAdapter, EmailAdapter };
+export { TelegramAdapter, WebAdapter, EmailAdapter, WhatsAppAdapter };
