@@ -3722,6 +3722,7 @@ model StartupBenefitAuditReview {
   applicationId String   @unique
   riskLevel     String   // low | medium | high
   findings      Json     // [{severity, issue, recommendation, ruleRef}]
+  overrides     Json     @default("[]") // [{findingIndex, reason, overriddenAt}]
   reviewedAt    DateTime @default(now())
   modelVersion  String
 
