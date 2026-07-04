@@ -233,3 +233,59 @@ test('parent read-only share link can be created and viewed', async ({ page }) =
   }, token);
   expect(viewRes.status, JSON.stringify(viewRes.data)).toBe(200);
 });
+
+test('marketplace is admin-only by default; community plugin is registered non-core', async ({ page }) => {
+  const suffix = test.info().testId.replace(/[^a-z0-9]/gi, '').slice(0, 12);
+  const email = `e2e-mkt-${suffix}@agentbook.test`;
+  const password = 'e2e-mkt-2026-x';
+
+  await page.goto('/login');
+  const reg = await page.evaluate(async ({ email, password }) => {
+    const r = await fetch('/api/v1/auth/register', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ email, password, displayName: 'E2E Marketplace' }),
+    });
+    return { status: r.status, data: await r.json().catch(() => null) };
+  }, { email, password });
+  expect(reg.status, JSON.stringify(reg.data)).toBeLessThan(300);
+
+  await page.goto('/login');
+  await page.fill('input[type="email"]', email);
+  await page.fill('input[type="password"]', password);
+  await page.click('button[type="submit"]');
+  await page.waitForURL(/\/dashboard|\/agentbook|\/$/, { timeout: 20_000 });
+  await page.waitForTimeout(2_000);
+
+  // Non-admin: marketplace should be invisible by default.
+  const vis = await apiGet(page, '/api/v1/marketplace/visibility');
+  expect(vis.status, JSON.stringify(vis.data)).toBe(200);
+  expect(vis.data?.data?.visible, JSON.stringify(vis.data)).toBe(false);
+  expect(vis.data?.data?.isAdmin).toBe(false);
+
+  // The marketplace page itself should render the "not available" state,
+  // not the full browse UI, for this non-admin user.
+  await page.goto('/marketplace');
+  await page.waitForTimeout(1_500);
+  const bodyText = await page.evaluate(() => document.body.innerText);
+  expect(bodyText).toContain("isn't available yet");
+});
+
+test('admin sees marketplace visible and community plugin registered', async ({ page }) => {
+  await page.goto('/login');
+  await page.fill('input[type="email"]', 'admin@a3p.io');
+  await page.fill('input[type="password"]', 'a3p-dev');
+  await page.click('button[type="submit"]');
+  await page.waitForURL(/\/dashboard|\/agentbook|\/$/, { timeout: 20_000 });
+  await page.waitForTimeout(2_000);
+
+  const vis = await apiGet(page, '/api/v1/marketplace/visibility');
+  expect(vis.status, JSON.stringify(vis.data)).toBe(200);
+  expect(vis.data?.data?.isAdmin, JSON.stringify(vis.data)).toBe(true);
+  expect(vis.data?.data?.visible).toBe(true);
+
+  const core = await apiGet(page, '/api/v1/admin/plugins/core');
+  expect(core.status, JSON.stringify(core.data)).toBe(200);
+  const names: string[] = (core.data?.data?.plugins ?? []).map((p: { name: string }) => p.name);
+  expect(names).toContain('community');
+});
