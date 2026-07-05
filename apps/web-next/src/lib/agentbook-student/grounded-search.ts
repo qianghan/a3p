@@ -39,11 +39,24 @@ interface GroundingChunk {
   web?: { uri?: string; title?: string };
 }
 
+/** Does a string look like a bare domain (e.g. "collegeboard.org")? */
+function looksLikeDomain(s: string | undefined | null): string | null {
+  if (!s) return null;
+  const t = s.trim().toLowerCase();
+  if (/\s/.test(t) || !/^[a-z0-9.-]+\.[a-z]{2,}$/.test(t)) return null;
+  return t.replace(/^www\./, '');
+}
+
 function hostsFromChunks(chunks: GroundingChunk[] | undefined): Set<string> {
   const hosts = new Set<string>();
   for (const c of chunks ?? []) {
+    // Gemini grounding chunk `web.uri` is usually a vertexaisearch redirect
+    // URL, NOT the real page domain — so we ALSO harvest `web.title`, which is
+    // typically the real site's bare domain, and treat that as a grounded host.
     const h = hostOf(c.web?.uri);
     if (h) hosts.add(h);
+    const titleDomain = looksLikeDomain(c.web?.title);
+    if (titleDomain) hosts.add(titleDomain);
   }
   return hosts;
 }
@@ -130,14 +143,25 @@ export function extractGroundedCandidates<T extends { title?: unknown; sourceUrl
   } catch {
     return [];
   }
-  return parsed
-    .filter((c) => {
-      if (!c || typeof c.title !== 'string' || typeof c.sourceUrl !== 'string' || !c.sourceUrl) return false;
-      const host = hostOf(c.sourceUrl as string);
-      if (!host) return false;
-      // Keep only grounded hosts; if the API returned no grounding metadata at
-      // all, allow through rather than dropping everything.
-      return groundedHosts.size === 0 || groundedHosts.has(host);
-    })
-    .slice(0, limit);
+
+  // A well-formed candidate has a title and a parseable absolute sourceUrl.
+  const wellFormed = parsed.filter((c) => {
+    if (!c || typeof c.title !== 'string' || typeof c.sourceUrl !== 'string' || !c.sourceUrl) return false;
+    return hostOf(c.sourceUrl as string) !== null;
+  });
+
+  // Two-tier hallucination guard:
+  //  1. Prefer candidates whose host is in the grounded set (real search cite).
+  //  2. But Gemini grounding chunks frequently expose only redirect hosts, so
+  //     a strict match can drop everything even on a genuinely grounded answer.
+  //     When the grounded response yielded well-formed candidates but none
+  //     match, fall back to trusting those (a search DID run) rather than
+  //     showing nothing. If there was no grounding metadata at all, likewise
+  //     allow well-formed candidates through.
+  const strict = wellFormed.filter((c) => {
+    const host = hostOf(c.sourceUrl as string)!;
+    return groundedHosts.has(host);
+  });
+  const chosen = strict.length > 0 ? strict : wellFormed;
+  return chosen.slice(0, limit);
 }
