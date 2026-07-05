@@ -21,7 +21,38 @@ interface TenantConfig {
   invoiceFooterNote: string | null;
   invoiceThankYouMessage: string | null;
   accountingBasis?: string;
+  businessType?: string;
+  visaStatus?: string | null;
+  homeCountry?: string | null;
 }
+
+// Matches the onboarding chat's BUSINESS_TYPES so a user can declare (or
+// switch to) any persona after signup — previously businessType was only
+// settable during onboarding, leaving students with no way to self-identify.
+const BUSINESS_TYPE_OPTIONS = [
+  { value: 'freelancer', label: 'Freelancer' },
+  { value: 'sole_proprietor', label: 'Sole proprietor' },
+  { value: 'consultant', label: 'Consultant' },
+  { value: 'contractor', label: 'Contractor' },
+  { value: 'student', label: 'Student' },
+];
+
+// ISO alpha-2 values so they match the treaty lookup in the
+// international-student-tax-help skill (which recognises cn/in specifically);
+// everything else still gets the skill's generic "check the treaty table"
+// guidance. A select (vs a free-text field) keeps the data clean.
+const HOME_COUNTRY_OPTIONS = [
+  { value: '', label: 'Select…' },
+  { value: 'cn', label: 'China' },
+  { value: 'in', label: 'India' },
+  { value: 'kr', label: 'South Korea' },
+  { value: 'ca', label: 'Canada' },
+  { value: 'ng', label: 'Nigeria' },
+  { value: 'vn', label: 'Vietnam' },
+  { value: 'mx', label: 'Mexico' },
+  { value: 'br', label: 'Brazil' },
+  { value: 'other', label: 'Other' },
+];
 
 interface BotStatus {
   configured: boolean;
@@ -1540,6 +1571,58 @@ export function AgentBookSettingsPanel({ initialTab }: { initialTab?: string }):
             brandColor={form.brandColor}
             pendingLogoUrl={pendingLogoUrl}
           />
+          <div>
+            <label className="block text-sm font-medium text-foreground">Business type</label>
+            <select
+              value={form.businessType ?? 'freelancer'}
+              onChange={(e) => {
+                const bt = e.target.value;
+                // Clear student-only fields when switching away, so a former
+                // student isn't left flagged as an international student (the
+                // tax skill reads visaStatus/homeCountry regardless of type).
+                set(bt === 'student' ? { businessType: bt } : { businessType: bt, visaStatus: null, homeCountry: null });
+              }}
+              className={inputCls}
+            >
+              {BUSINESS_TYPE_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+            </select>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Tailors your categories, tax guidance, and the agent&apos;s tone. Pick <strong>Student</strong> to unlock scholarship &amp; education-credit help.
+            </p>
+          </div>
+          {form.businessType === 'student' && (
+            <div className="rounded-lg border border-border bg-muted/30 p-4 space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-foreground">Are you an international student?</label>
+                <select
+                  value={form.visaStatus ?? 'domestic'}
+                  onChange={(e) => set({ visaStatus: e.target.value })}
+                  className={inputCls}
+                >
+                  <option value="domestic">No — domestic student</option>
+                  <option value="international">Yes — studying on a visa (F-1/J-1 or study permit)</option>
+                </select>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Lets the agent explain nonresident-alien status, tax treaties, and 1042-S for you.
+                </p>
+              </div>
+              {form.visaStatus === 'international' && (
+                <div>
+                  <label className="block text-sm font-medium text-foreground">Home country</label>
+                  <select
+                    value={form.homeCountry ?? ''}
+                    onChange={(e) => set({ homeCountry: e.target.value || null })}
+                    className={inputCls}
+                  >
+                    {HOME_COUNTRY_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                  </select>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Helps flag tax-treaty benefits that may apply to you.
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
           <div>
             <label className="block text-sm font-medium text-foreground">Company name</label>
             <input type="text" value={form.companyName ?? ''} onChange={(e) => set({ companyName: e.target.value || null })}
