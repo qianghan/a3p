@@ -176,9 +176,13 @@
       <div class="num">04</div>
       <h2>Plugin 1 — Scholarship Copilot</h2>
       <p><strong>Value:</strong> most students leave scholarship money unclaimed simply because finding relevant ones and managing overlapping deadlines is exhausting. The agent turns "I know I should apply for scholarships" into a managed, deadline-aware shortlist.</p>
+      <div class="callout good">
+        <h5>Discovery architecture — grounded agentic search (the critical mechanism)</h5>
+        <p>Discovery is powered by <strong>grounded agentic search, not the LLM's memory</strong>. The agent issues real searches, fetches the actual pages, extracts structured fields (deadline, amount, eligibility, link), and <strong>every surfaced result carries a live source link</strong>; anything it can't ground to a fetchable source is dropped, never shown. The LLM's role is retrieve → extract → verify → rank — never recall — which maps onto the agent brain's existing executor/verifier split. Localization comes from two places, not from a bigger database: (1) <strong>profile-driven query construction &amp; eligibility filtering</strong> using what AgentBook already knows (school, program, level, city, <code>visaStatus</code>/<code>homeCountry</code>, need, interests) — so an international student never sees a citizens-only award; and (2) a cached, shared <strong>per-school context object</strong> (the school's aid/department pages, region, known local employers) — the first student at a school seeds it, everyone after benefits. Search runs <strong>school → region → national</strong>, highest-relevance first. A small curated catalog and paste-in remain as reliability fallbacks, not the primary source.</p>
+      </div>
       <h4>What it does</h4>
       <ul>
-        <li><strong>Match:</strong> scores the student's profile (school, program, year, citizenship/visa, need, interests, GPA band) against a scholarship catalog and surfaces a ranked shortlist — or the student pastes in a specific scholarship they've found.</li>
+        <li><strong>Match:</strong> grounded search scoped by the student's profile and their school's context object surfaces a ranked, source-linked shortlist (school aid pages and department/community awards first, national aggregators as backstop) — the student can also paste in a specific scholarship they've found.</li>
         <li><strong>Manage the application:</strong> for each one the student chooses to pursue, a tracked application with a requirements checklist, deadline, required documents, and essay prompts.</li>
         <li><strong>Consult, don't write-for:</strong> drafts an essay <em>outline</em> and talking points from the student's own profile; critiques the student's draft against the prompt; flags each scholarship's AI-use policy so the student never unknowingly violates one.</li>
         <li><strong>Never submit:</strong> the student submits on the scholarship's own site; AgentBook tracks submitted/awarded/declined and nags on deadlines.</li>
@@ -195,7 +199,7 @@
       <p><strong>Value:</strong> a first job or co-op search is a volume game of tailored applications, tracked statuses, and interview prep — precisely the admin load an agent removes while leaving the student in control of what actually gets sent.</p>
       <h4>What it does</h4>
       <ul>
-        <li><strong>Match / intake:</strong> the student pastes a posting (or picks from a light curated co-op catalog); the agent extracts the role's key requirements.</li>
+        <li><strong>Match / intake:</strong> the same grounded-search engine as §4, but jobs have far better <em>structured</em> sources — so discovery leans on public ATS boards (Greenhouse/Lever/Ashby company boards are public structured JSON), a location-based jobs API, and the school's own co-op/career portal (the agent guides the student to it rather than scraping behind login), filtered by city + level + work authorization. The student can also paste a posting; the agent extracts its key requirements.</li>
         <li><strong>Tailor:</strong> drafts a résumé variant and a cover-letter first pass aligned to that specific posting, built from the student's stored profile — student edits before anything is used.</li>
         <li><strong>Track:</strong> one board of applications with status (applied → screen → interview → offer/declined), deadlines, and follow-up reminders.</li>
         <li><strong>Prep:</strong> generates likely interview questions for the role and runs mock-interview practice with feedback.</li>
@@ -235,8 +239,8 @@
         <table>
           <thead><tr><th>Tempting but out of scope for v1</th><th>What we do instead</th></tr></thead>
           <tbody>
-            <tr><td>Scrape / integrate live scholarship databases</td><td>A small curated seed catalog + "paste the scholarship you found." The agent's value is the <em>consulting &amp; tracking layer</em>, not being a search engine.</td></tr>
-            <tr><td>Integrate Indeed/LinkedIn/job-board APIs and auto-apply</td><td>Paste-a-posting + a light co-op catalog. Auto-apply is prohibited anyway (ToS + it hurts the student).</td></tr>
+            <tr><td>Build/maintain brittle per-site scrapers for scholarships</td><td><strong>Grounded agentic search</strong> over a search API + fetching public pages + a cached per-school context object (§4). The line: use search + public feeds and always cite the source — never reverse-engineer individual sites. The agent's edge is profile-driven relevance, eligibility filtering, and the consulting/tracking layer, not owning a database.</td></tr>
+            <tr><td>Reverse-engineer Indeed/LinkedIn or auto-apply</td><td>Public ATS JSON (Greenhouse/Lever/Ashby) + a location jobs API + paste-a-posting (§5). Auto-apply is prohibited anyway (ToS + it hurts the student).</td></tr>
             <tr><td>Rental/MLS/Zillow integration, live listing feeds</td><td>Student saves the listings they're already looking at; the agent evaluates them against real budget data.</td></tr>
             <tr><td>Three separate bespoke data models + three separate trackers</td><td><strong>One shared "opportunity" tracker</strong> (item + status + deadline + checklist + decision points) with a <code>kind</code> discriminator (scholarship / job / housing) and a kind-specific JSON payload. Roommate-matching is the only part that needs its own model. This mirrors the Startup plugin's single application/decision-point shape rather than tripling it.</td></tr>
             <tr><td>A rich multi-tier pricing matrix</td><td>One price: $49/yr (regional CAD equivalent). One obvious yes.</td></tr>
@@ -309,10 +313,10 @@
         <ul><li>Seed the <code>student_success</code> <code>BillAddOn</code> (one tier, $49/yr, regional prices). Add the plugin→add-on map + <code>hasAddOn()</code> check in the personalized-plugins route, default-open. Ship with the non-regression test first (TDD): non-subscriber's plugin list is unchanged; subscriber sees the gated plugins.</li></ul></div>
       <div class="card"><div class="card-head"><span class="card-id">PR 2</span><h5>Shared consulting spine</h5></div>
         <ul><li><code>AbStudentOpportunity</code> + <code>AbStudentDecisionPoint</code> models (mirroring the startup shape), the shared list+conversation UX shell, and one plugin scaffold wired end to end.</li></ul></div>
-      <div class="card"><div class="card-head"><span class="card-id">PR 3</span><h5>Scholarship Copilot</h5></div>
-        <ul><li>Matching against a small seed catalog + paste-in, application tracking, outline/critique consulting, AI-policy guardrail. Highest-value, lowest-risk plugin ships first.</li></ul></div>
+      <div class="card"><div class="card-head"><span class="card-id">PR 3</span><h5>Scholarship Copilot (incl. grounded-search spine)</h5></div>
+        <ul><li>The per-school context object + grounded agentic search with mandatory source-citation and eligibility filtering (§4) — built here since it's the shared discovery engine — plus application tracking, outline/critique consulting, and the AI-policy guardrail. Paste-in + small catalog as fallbacks. Highest-value, lowest-risk plugin ships first and proves the paid value.</li></ul></div>
       <div class="card"><div class="card-head"><span class="card-id">PR 4</span><h5>Career &amp; Co-op Copilot</h5></div>
-        <ul><li>Paste-a-posting intake, résumé/cover-letter tailoring, application board, interview prep, visa-aware work-authorization context.</li></ul></div>
+        <ul><li>Reuses PR 3's discovery spine but swaps in the better structured job sources (public ATS JSON + location jobs API + school co-op portal, §5); résumé/cover-letter tailoring, application board, interview prep, visa-aware work-authorization context.</li></ul></div>
       <div class="card"><div class="card-head"><span class="card-id">PR 5</span><h5>Housing — Part A (listing evaluation)</h5></div>
         <ul><li>Saved listings + side-by-side compare + affordability check against the personal-finance snapshot. Ships independently of roommate matching.</li></ul></div>
       <div class="card"><div class="card-head"><span class="card-id">PR 6</span><h5>Housing — Part B (roommate matching)</h5></div>
@@ -353,6 +357,7 @@
         <li><strong>Regional pricing:</strong> confirm the CAD price point (e.g. $49 USD / $65 CAD), and whether UK/AU are in scope at launch or US/CA only (matching where the student personas are focused).</li>
         <li><strong>Roommate-matching legal review:</strong> if Part B is in scope at all, it needs a liability/privacy review before release (§6). Do you want to green-light that review now, or defer Part B entirely until the first three ship and prove demand?</li>
         <li><strong>Prove-before-building:</strong> are you comfortable shipping Scholarship first and measuring paid conversion before committing to build all three (§13), or do you want the full bundle built up front?</li>
+        <li><strong>Search provider &amp; cost:</strong> grounded agentic search means per-user search + LLM calls at discovery time (justified by the paid gate — free users never incur it). Which search capability — the AI-SDK web-search tool via the Vercel AI Gateway, or a dedicated search API — and is there a per-user monthly discovery cap to bound cost?</li>
       </ol>
     </section>
 
