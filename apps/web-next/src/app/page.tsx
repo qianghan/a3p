@@ -318,7 +318,7 @@ export default function LandingPage() {
               {
                 tag: 'Student',
                 copy:
-                  "Your first paycheck, a scholarship that might not all be tax-free, a tutoring gig on the side. We translate the parts nobody teaches you, in plain English — US or Canada.",
+                  "Your first paycheck, a scholarship that might not all be tax-free, a tutoring gig on the side. We translate the parts nobody teaches you, in plain English — US or Canada. Add Student Success to hunt scholarships, jobs, and housing with cited, real searches.",
               },
             ].map((p) => (
               <div key={p.tag} className="border-l-2 border-[var(--rule)] pl-5">
