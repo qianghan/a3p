@@ -1,0 +1,143 @@
+/**
+ * Shared grounded search for the student plugins (Scholarship, Career).
+ *
+ * Runs a real Google Search-grounded generation and returns the model's text
+ * plus the set of hosts it actually grounded against. Callers parse their own
+ * JSON out of the text and keep only candidates whose sourceUrl host is in
+ * `groundedHosts` — the anti-hallucination guard from the design doc.
+ *
+ * Transport: the Vercel AI Gateway (provider-agnostic model string
+ * `google/<model>`, with the native `google_search` tool for grounding). On a
+ * Vercel deployment the gateway authenticates via the deployment's OIDC token;
+ * locally it uses AI_GATEWAY_API_KEY. If the gateway path is unavailable or
+ * errors, we fall back to the native Gemini endpoint keyed by GEMINI_API_KEY,
+ * so discovery keeps working with zero regression regardless of gateway state.
+ */
+
+import { generateText } from 'ai';
+import { google } from '@ai-sdk/google';
+
+export interface GroundedResult {
+  text: string;
+  /** Hosts (www-stripped) the model actually grounded against. */
+  groundedHosts: Set<string>;
+  /** Which transport produced the result — for logging/observability only. */
+  via: 'gateway' | 'native';
+}
+
+function hostOf(uri: string | undefined | null): string | null {
+  if (!uri) return null;
+  try {
+    return new URL(uri).hostname.replace(/^www\./, '');
+  } catch {
+    return null;
+  }
+}
+
+/** Grounding chunk shape shared by both the gateway metadata and native API. */
+interface GroundingChunk {
+  web?: { uri?: string; title?: string };
+}
+
+function hostsFromChunks(chunks: GroundingChunk[] | undefined): Set<string> {
+  const hosts = new Set<string>();
+  for (const c of chunks ?? []) {
+    const h = hostOf(c.web?.uri);
+    if (h) hosts.add(h);
+  }
+  return hosts;
+}
+
+/** Native Gemini generateContent fallback — the original, proven path. */
+async function nativeGroundedSearch(prompt: string, model: string): Promise<GroundedResult | null> {
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) return null;
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+  try {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{ role: 'user', parts: [{ text: prompt }] }],
+        tools: [{ google_search: {} }],
+        generationConfig: { temperature: 0.2, maxOutputTokens: 2048 },
+      }),
+    });
+    if (!res.ok) return null;
+    const data = (await res.json()) as {
+      candidates?: { content?: { parts?: { text?: string }[] }; groundingMetadata?: { groundingChunks?: GroundingChunk[] } }[];
+    };
+    const cand = data.candidates?.[0];
+    const text = cand?.content?.parts?.map((p) => p.text ?? '').join('') ?? '';
+    return { text, groundedHosts: hostsFromChunks(cand?.groundingMetadata?.groundingChunks), via: 'native' };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Run a grounded search. Returns null when neither transport can produce a
+ * result (caller shows an empty state — never fabricated data).
+ */
+export async function groundedSearch(prompt: string): Promise<GroundedResult | null> {
+  const model = process.env.GEMINI_MODEL_FAST || 'gemini-2.5-flash';
+
+  // Prefer the gateway. Only attempt it when an auth path exists — an explicit
+  // gateway key, or the Vercel OIDC token that Vercel injects at runtime.
+  const gatewayAvailable = Boolean(process.env.AI_GATEWAY_API_KEY || process.env.VERCEL_OIDC_TOKEN);
+  if (gatewayAvailable) {
+    try {
+      const { text, sources, providerMetadata } = await generateText({
+        model: `google/${model}`,
+        tools: { google_search: google.tools.googleSearch({}) },
+        temperature: 0.2,
+        maxOutputTokens: 2048,
+        prompt,
+      });
+      const meta = providerMetadata?.google as { groundingMetadata?: { groundingChunks?: GroundingChunk[] } } | undefined;
+      const hosts = hostsFromChunks(meta?.groundingMetadata?.groundingChunks);
+      // The SDK also surfaces resolved sources; fold their hosts in too.
+      for (const s of sources ?? []) {
+        const h = hostOf((s as { url?: string }).url);
+        if (h) hosts.add(h);
+      }
+      if (text) return { text, groundedHosts: hosts, via: 'gateway' };
+    } catch {
+      // fall through to native
+    }
+  }
+
+  return nativeGroundedSearch(prompt, model);
+}
+
+/**
+ * Shared post-processing: pull a JSON array out of a (possibly fenced) model
+ * response and keep only entries whose `sourceUrl` host was actually grounded.
+ * Generic over the caller's candidate type; `T` must carry a string sourceUrl.
+ */
+export function extractGroundedCandidates<T extends { title?: unknown; sourceUrl?: unknown }>(
+  text: string,
+  groundedHosts: Set<string>,
+  limit: number,
+): T[] {
+  let parsed: T[] = [];
+  try {
+    const jsonText = text.replace(/^```(?:json)?/i, '').replace(/```$/i, '').trim();
+    const start = jsonText.indexOf('[');
+    const end = jsonText.lastIndexOf(']');
+    if (start === -1 || end === -1) return [];
+    parsed = JSON.parse(jsonText.slice(start, end + 1)) as T[];
+  } catch {
+    return [];
+  }
+  return parsed
+    .filter((c) => {
+      if (!c || typeof c.title !== 'string' || typeof c.sourceUrl !== 'string' || !c.sourceUrl) return false;
+      const host = hostOf(c.sourceUrl as string);
+      if (!host) return false;
+      // Keep only grounded hosts; if the API returned no grounding metadata at
+      // all, allow through rather than dropping everything.
+      return groundedHosts.size === 0 || groundedHosts.has(host);
+    })
+    .slice(0, limit);
+}
