@@ -289,3 +289,44 @@ test('admin sees marketplace visible and community plugin registered', async ({ 
   const names: string[] = (core.data?.data?.plugins ?? []).map((p: { name: string }) => p.name);
   expect(names).toContain('community');
 });
+
+test('student sees student-aware chat prompts (UX visibility)', async ({ page }) => {
+  // Riley is a seeded US student account (businessType=student).
+  await page.goto('/login');
+  await page.fill('input[type="email"]', 'riley@agentbook.test');
+  await page.fill('input[type="password"]', 'agentbook123');
+  await page.click('button[type="submit"]');
+  // Wait for the redirect OFF /login (a hostname-matching regex would false-
+  // match on "agentbook.brainliber.com" before auth completes).
+  await page.waitForURL((u) => !u.pathname.startsWith('/login'), { timeout: 20_000 });
+  await page.waitForTimeout(2_000);
+  // The chat is a UMD plugin that mounts client-side, then fetches
+  // tenant-config to decide the empty-state prompts — give it time.
+  await page.goto('/agentbook');
+  await page.waitForFunction(
+    () => /As a student, try|Is my scholarship taxable/i.test(document.body.innerText),
+    { timeout: 30_000 },
+  );
+  const body = await page.evaluate(() => document.body.innerText);
+  expect(/Is my scholarship taxable/i.test(body)).toBeTruthy();
+});
+
+test('Business Profile settings exposes a Student business-type option', async ({ page }) => {
+  await page.goto('/login');
+  await page.fill('input[type="email"]', 'riley@agentbook.test');
+  await page.fill('input[type="password"]', 'agentbook123');
+  await page.click('button[type="submit"]');
+  await page.waitForURL((u) => !u.pathname.startsWith('/login'), { timeout: 20_000 });
+  await page.waitForTimeout(2_000);
+  await page.goto('/settings?tab=agentbook');
+  // The AgentBook settings panel (with Business Profile) renders under ?tab=agentbook.
+  await page.waitForFunction(
+    () => /Business type/i.test(document.body.innerText),
+    { timeout: 30_000 },
+  );
+  const hasStudentOption = await page.evaluate(() => {
+    const selects = Array.from(document.querySelectorAll('select'));
+    return selects.some((s) => Array.from(s.options).some((o) => o.value === 'student'));
+  });
+  expect(hasStudentOption).toBeTruthy();
+});
