@@ -1,0 +1,52 @@
+{
+  "$schema": "https://plugins.naap.io/schema/plugin.json",
+  "name": "agentbook-scholarship",
+  "displayName": "Scholarship Copilot",
+  "version": "1.0.0",
+  "description": "Finds scholarships you're actually eligible for with grounded, source-cited search, then helps you manage each application — deadlines, requirements, and essay critique. It consults; you decide and submit.",
+  "isCore": false,
+  "author": {
+    "name": "A3P Team",
+    "email": "team@a3p.io",
+    "url": "https://a3p.io"
+  },
+  "repository": "https://github.com/a3p/plugins/tree/main/agentbook-scholarship",
+  "license": "MIT",
+  "keywords": ["student", "scholarship", "financial-aid", "education"],
+  "category": "finance",
+
+  "shell": {
+    "minVersion": "0.1.0",
+    "maxVersion": "2.x"
+  },
+
+  "frontend": {
+    "entry": "./frontend/dist/production/agentbook-scholarship.js",
+    "devPort": 3056,
+    "routes": [
+      "/plugins/agentbook-scholarship",
+      "/plugins/agentbook-scholarship/*"
+    ],
+    "navigation": {
+      "label": "Scholarships",
+      "icon": "GraduationCap",
+      "order": 30,
+      "group": "finance"
+    }
+  },
+
+  "integrations": {
+    "required": [],
+    "optional": []
+  },
+
+  "permissions": {
+    "shell": ["navigation", "notifications", "theme"],
+    "apis": [],
+    "external": []
+  },
+
+  "config": {
+    "schema": {}
+  }
+}

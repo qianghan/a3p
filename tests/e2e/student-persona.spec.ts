@@ -348,3 +348,52 @@ test('add-on visibility gate does not regress the plugin list (identity until a 
   expect(names).toContain('agentbookcore');
   expect(plugins.length).toBeGreaterThan(1);
 });
+
+test('scholarship plugin is hidden + API 402 for a non-subscriber', async ({ page }) => {
+  const suffix = test.info().testId.replace(/[^a-z0-9]/gi, '').slice(0, 12);
+  const email = `e2e-nosub-${suffix}@agentbook.test`;
+  const password = 'e2e-nosub-2026-x';
+  await page.goto('/login');
+  const reg = await page.evaluate(async ({ email, password }) => {
+    const r = await fetch('/api/v1/auth/register', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ email, password, displayName: 'E2E NoSub' }),
+    });
+    return { status: r.status };
+  }, { email, password });
+  expect(reg.status).toBeLessThan(300);
+  await page.goto('/login');
+  await page.fill('input[type="email"]', email);
+  await page.fill('input[type="password"]', password);
+  await page.click('button[type="submit"]');
+  await page.waitForURL((u) => !u.pathname.startsWith('/login'), { timeout: 20_000 });
+  await page.waitForTimeout(2_000);
+
+  // Plugin hidden from the personalized list.
+  const list = await apiGet(page, '/api/v1/base/plugins/personalized');
+  const names = ((list.data?.data?.plugins ?? []) as { name: string }[]).map((p) => p.name.toLowerCase().replace(/[-_]/g, ''));
+  expect(names).not.toContain('agentbookscholarship');
+
+  // API is gated (defense in depth) — 402 Payment Required.
+  const gated = await apiGet(page, '/api/v1/agentbook-scholarship/opportunities');
+  expect(gated.status).toBe(402);
+});
+
+test('subscribed student sees the scholarship plugin and its API works', async ({ page }) => {
+  // Riley has an active student_success subscription (seeded for validation).
+  await page.goto('/login');
+  await page.fill('input[type="email"]', 'riley@agentbook.test');
+  await page.fill('input[type="password"]', 'agentbook123');
+  await page.click('button[type="submit"]');
+  await page.waitForURL((u) => !u.pathname.startsWith('/login'), { timeout: 20_000 });
+  await page.waitForTimeout(2_000);
+
+  const list = await apiGet(page, '/api/v1/base/plugins/personalized');
+  const names = ((list.data?.data?.plugins ?? []) as { name: string }[]).map((p) => p.name.toLowerCase().replace(/[-_]/g, ''));
+  expect(names, JSON.stringify(names)).toContain('agentbookscholarship');
+
+  // The gated CRUD endpoint is reachable (200) for the subscriber.
+  const opps = await apiGet(page, '/api/v1/agentbook-scholarship/opportunities');
+  expect(opps.status, JSON.stringify(opps.data)).toBe(200);
+  expect(Array.isArray(opps.data?.data)).toBeTruthy();
+});

@@ -46,11 +46,18 @@ describe('filterByAddOn', () => {
     expect(withAddon).toHaveLength(3); // all three unlocked
   });
 
-  it('production map is empty today, so the gate is a no-op for all current plugins', () => {
-    // Guards the "provably no regression" claim: until a student plugin
-    // ships and is added to the map, nothing is gated in prod.
-    const plugins = [P('agentbook-core'), P('agentbook-startup'), P('community')];
-    const out = filterByAddOn(plugins, PLUGIN_REQUIRED_ADDON, new Set());
-    expect(out).toHaveLength(plugins.length);
+  it('production map gates only student plugins, never the existing free/core ones', () => {
+    // Non-regression guard: whatever is in the real map, the existing
+    // plugins (core, startup, community, etc.) are never gated by it.
+    const existing = [P('agentbook-core'), P('agentbook-startup'), P('agentbook-tax'), P('community')];
+    const out = filterByAddOn(existing, PLUGIN_REQUIRED_ADDON, new Set());
+    expect(out).toHaveLength(existing.length);
+  });
+
+  it('production map hides agentbook-scholarship without the student_success add-on', () => {
+    const withoutAddon = filterByAddOn([P('agentbook-scholarship')], PLUGIN_REQUIRED_ADDON, new Set());
+    expect(withoutAddon).toHaveLength(0);
+    const withAddon = filterByAddOn([P('agentbook-scholarship')], PLUGIN_REQUIRED_ADDON, new Set(['student_success']));
+    expect(withAddon).toHaveLength(1);
   });
 });
