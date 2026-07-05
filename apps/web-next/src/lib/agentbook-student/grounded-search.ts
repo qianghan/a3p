@@ -73,7 +73,15 @@ async function nativeGroundedSearch(prompt: string, model: string): Promise<Grou
       body: JSON.stringify({
         contents: [{ role: 'user', parts: [{ text: prompt }] }],
         tools: [{ google_search: {} }],
-        generationConfig: { temperature: 0.2, maxOutputTokens: 2048 },
+        // gemini-2.5-flash spends "thinking" tokens from the output budget by
+        // default; with a small cap the JSON array gets truncated mid-object
+        // and fails to parse. Disable thinking for this structured task and
+        // give the answer generous headroom.
+        generationConfig: {
+          temperature: 0.2,
+          maxOutputTokens: 8192,
+          thinkingConfig: { thinkingBudget: 0 },
+        },
       }),
     });
     if (!res.ok) return null;
@@ -104,7 +112,10 @@ export async function groundedSearch(prompt: string): Promise<GroundedResult | n
         model: `google/${model}`,
         tools: { google_search: google.tools.googleSearch({}) },
         temperature: 0.2,
-        maxOutputTokens: 2048,
+        maxOutputTokens: 8192,
+        // Disable thinking so the output budget goes to the JSON answer, not
+        // hidden reasoning tokens (matches the native path).
+        providerOptions: { google: { thinkingConfig: { thinkingBudget: 0 } } },
         prompt,
       });
       const meta = providerMetadata?.google as { groundingMetadata?: { groundingChunks?: GroundingChunk[] } } | undefined;
@@ -128,21 +139,59 @@ export async function groundedSearch(prompt: string): Promise<GroundedResult | n
  * response and keep only entries whose `sourceUrl` host was actually grounded.
  * Generic over the caller's candidate type; `T` must carry a string sourceUrl.
  */
+/**
+ * Pull the candidate objects out of a model response that may be wrapped in
+ * prose and/or markdown fences, contain citation markers like "[1]", or be
+ * truncated. Grounded Gemini responses are verbose, so array-framing tricks
+ * (first-'['..last-']') are unreliable. Instead we scan the WHOLE text for
+ * every outermost, balanced `{...}` object (string-aware, brace-depth
+ * counting) and parse each independently. A trailing truncated object is
+ * simply skipped; the caller's title+sourceUrl check discards any non-candidate
+ * objects that slip through.
+ */
+function scanJsonObjects<T>(text: string): T[] {
+  const out: T[] = [];
+  const n = text.length;
+  let i = 0;
+  while (i < n) {
+    if (text[i] !== '{') { i++; continue; }
+    let depth = 0;
+    let inStr = false;
+    let esc = false;
+    const objStart = i;
+    let closed = false;
+    for (; i < n; i++) {
+      const ch = text[i];
+      if (inStr) {
+        if (esc) esc = false;
+        else if (ch === '\\') esc = true;
+        else if (ch === '"') inStr = false;
+      } else if (ch === '"') {
+        inStr = true;
+      } else if (ch === '{') {
+        depth++;
+      } else if (ch === '}') {
+        depth--;
+        if (depth === 0) {
+          try { out.push(JSON.parse(text.slice(objStart, i + 1)) as T); } catch { /* skip */ }
+          i++;
+          closed = true;
+          break;
+        }
+      }
+    }
+    if (!closed) break; // unbalanced tail (truncated) — stop
+  }
+  return out;
+}
+
 export function extractGroundedCandidates<T extends { title?: unknown; sourceUrl?: unknown }>(
   text: string,
   groundedHosts: Set<string>,
   limit: number,
 ): T[] {
-  let parsed: T[] = [];
-  try {
-    const jsonText = text.replace(/^```(?:json)?/i, '').replace(/```$/i, '').trim();
-    const start = jsonText.indexOf('[');
-    const end = jsonText.lastIndexOf(']');
-    if (start === -1 || end === -1) return [];
-    parsed = JSON.parse(jsonText.slice(start, end + 1)) as T[];
-  } catch {
-    return [];
-  }
+  const parsed = scanJsonObjects<T>(text);
+  if (parsed.length === 0) return [];
 
   // A well-formed candidate has a title and a parseable absolute sourceUrl.
   const wellFormed = parsed.filter((c) => {
