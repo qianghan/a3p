@@ -3777,3 +3777,33 @@ model AbStudentDecisionPoint {
   @@index([opportunityId])
   @@schema("plugin_agentbook_student")
 }
+
+// Opt-in roommate-matching profile. PRIVACY BY DESIGN:
+//  - One per tenant; does NOT exist until the student explicitly opts in.
+//  - `active` gates discoverability: a profile is only visible to other
+//    students' match queries while active=true. Deactivating (or deleting)
+//    removes it from every pool immediately.
+//  - Deliberately stores NO contact information and NO precise address — only
+//    a self-chosen display handle, a coarse area, a budget range, a move-in
+//    month, and lifestyle tags. AgentBook shows compatibility only; it never
+//    messages anyone or exchanges contact details on the student's behalf.
+//  - `consentAt` records the explicit consent timestamp captured at opt-in.
+model AbRoommateProfile {
+  id             String    @id @default(uuid())
+  tenantId       String    @unique
+  active         Boolean   @default(false)
+  displayHandle  String    // self-chosen, not a legal name
+  jurisdiction   String    // us | ca — coarse match scope
+  area           String    // city / neighbourhood / campus, free text
+  budgetMinCents Int?
+  budgetMaxCents Int?
+  moveInMonth    String?   // e.g. "2026-09"
+  lifestyle      Json      @default("[]") // string tags: ["non-smoker","quiet",...]
+  bio            String?   // short free-text intro (no contact info)
+  consentAt      DateTime? // explicit opt-in consent timestamp
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@index([active, jurisdiction])
+  @@schema("plugin_agentbook_student")
+}

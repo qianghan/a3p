@@ -32,6 +32,50 @@ export interface ListingInput {
 
 export const STATUS_FLOW = ['considering', 'applied', 'toured', 'secured', 'passed'] as const;
 
+export interface RoommateProfile {
+  id: string;
+  active: boolean;
+  displayHandle: string;
+  jurisdiction: string;
+  area: string;
+  budgetMinCents: number | null;
+  budgetMaxCents: number | null;
+  moveInMonth: string | null;
+  lifestyle: string[];
+  bio: string | null;
+  consentAt: string | null;
+}
+
+export interface RoommateProfileInput {
+  active: boolean;
+  consent?: boolean;
+  displayHandle: string;
+  jurisdiction: string;
+  area: string;
+  budgetMinCents?: number | null;
+  budgetMaxCents?: number | null;
+  moveInMonth?: string | null;
+  lifestyle?: string[];
+  bio?: string | null;
+}
+
+export interface RoommateMatch {
+  displayHandle: string;
+  area: string;
+  budgetMinCents: number | null;
+  budgetMaxCents: number | null;
+  moveInMonth: string | null;
+  lifestyle: string[];
+  bio: string | null;
+  score: number;
+  reasons: string[];
+}
+
+export const LIFESTYLE_TAGS = [
+  'non-smoker', 'smoker-ok', 'quiet', 'social', 'early-riser', 'night-owl',
+  'pet-friendly', 'no-pets', 'tidy', 'vegetarian', 'grad-student', 'undergrad',
+] as const;
+
 async function json<T>(r: Response): Promise<T> {
   const body = (await r.json().catch(() => null)) as { success?: boolean; data?: T; error?: string } | null;
   if (!r.ok || !body?.success) throw new Error(body?.error || `${r.status}`);
@@ -61,6 +105,25 @@ export const housingApi = {
     const r = await fetch(`${BASE}/opportunities/${id}`, { method: 'DELETE', credentials: 'include' });
     if (!r.ok) throw new Error(`${r.status}`);
   },
+};
+
+export const roommateApi = {
+  getProfile: async (): Promise<RoommateProfile | null> =>
+    json<RoommateProfile | null>(await fetch(`${BASE}/roommate/profile`, { credentials: 'include' })),
+
+  saveProfile: async (input: RoommateProfileInput): Promise<RoommateProfile> =>
+    json<RoommateProfile>(await fetch(`${BASE}/roommate/profile`, {
+      method: 'PUT', credentials: 'include', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(input),
+    })),
+
+  withdraw: async (): Promise<void> => {
+    const r = await fetch(`${BASE}/roommate/profile`, { method: 'DELETE', credentials: 'include' });
+    if (!r.ok) throw new Error(`${r.status}`);
+  },
+
+  matches: async (): Promise<{ matches: RoommateMatch[]; note: string }> =>
+    json<{ matches: RoommateMatch[]; note: string }>(await fetch(`${BASE}/roommate/matches`, { credentials: 'include' })),
 };
 
 export function fmtCents(cents: number | null): string {

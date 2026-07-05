@@ -506,3 +506,72 @@ test('subscribed student sees all three student plugins; housing affordability +
   }, id);
   expect(del).toBe(200);
 });
+
+test('roommate matching: non-subscriber gets 402 on profile + matches', async ({ page }) => {
+  const suffix = test.info().testId.replace(/[^a-z0-9]/gi, '').slice(0, 12);
+  const email = `e2e-noroom-${suffix}@agentbook.test`;
+  const password = 'e2e-noroom-2026-x';
+  await page.goto('/login');
+  await page.evaluate(async ({ email, password }) => {
+    await fetch('/api/v1/auth/register', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ email, password, displayName: 'E2E NoRoom' }),
+    });
+  }, { email, password });
+  await page.goto('/login');
+  await page.fill('input[type="email"]', email);
+  await page.fill('input[type="password"]', password);
+  await page.click('button[type="submit"]');
+  await page.waitForURL((u) => !u.pathname.startsWith('/login'), { timeout: 20_000 });
+  await page.waitForTimeout(1500);
+
+  expect((await apiGet(page, '/api/v1/agentbook-housing/roommate/profile')).status).toBe(402);
+  expect((await apiGet(page, '/api/v1/agentbook-housing/roommate/matches')).status).toBe(402);
+});
+
+test('roommate matching: subscriber opt-in requires consent, then round-trips + matches', async ({ page }) => {
+  await page.goto('/login');
+  await page.fill('input[type="email"]', 'riley@agentbook.test');
+  await page.fill('input[type="password"]', 'agentbook123');
+  await page.click('button[type="submit"]');
+  await page.waitForURL((u) => !u.pathname.startsWith('/login'), { timeout: 20_000 });
+  await page.waitForTimeout(1500);
+
+  // Activating without consent is rejected.
+  const noConsent = await apiPut(page, '/api/v1/agentbook-housing/roommate/profile', {
+    active: true, consent: false, displayHandle: 'RileyR', jurisdiction: 'us', area: 'E2E Test City',
+  });
+  expect(noConsent.status).toBe(400);
+
+  // With consent it activates and stores minimal fields.
+  const live = await apiPut(page, '/api/v1/agentbook-housing/roommate/profile', {
+    active: true, consent: true, displayHandle: 'RileyR', jurisdiction: 'us',
+    area: 'E2E Test City', budgetMinCents: 80000, budgetMaxCents: 150000,
+    moveInMonth: '2026-09', lifestyle: ['non-smoker', 'quiet'], bio: 'Grad student, tidy.',
+  });
+  expect(live.status, JSON.stringify(live.data)).toBe(200);
+  expect(live.data?.data?.active).toBe(true);
+  expect(live.data?.data?.consentAt).toBeTruthy();
+
+  // Matches endpoint responds for an active profile and never leaks tenantId.
+  const matches = await apiGet(page, '/api/v1/agentbook-housing/roommate/matches');
+  expect(matches.status, JSON.stringify(matches.data)).toBe(200);
+  expect(Array.isArray(matches.data?.data?.matches)).toBe(true);
+  for (const m of matches.data?.data?.matches ?? []) {
+    expect(m.tenantId).toBeUndefined();
+  }
+
+  // Turning off empties the match feed (and removes us from the pool).
+  const off = await apiPut(page, '/api/v1/agentbook-housing/roommate/profile', {
+    active: false, displayHandle: 'RileyR', jurisdiction: 'us', area: 'E2E Test City',
+  });
+  expect(off.status).toBe(200);
+  expect(off.data?.data?.active).toBe(false);
+
+  // Clean up so reruns start fresh.
+  const del = await page.evaluate(async () => {
+    const r = await fetch('/api/v1/agentbook-housing/roommate/profile', { method: 'DELETE', credentials: 'include' });
+    return r.status;
+  });
+  expect(del).toBe(200);
+});

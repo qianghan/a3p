@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useCallback } from 'react';
-import { Home, Loader2, Plus, Trash2, MapPin, ExternalLink, Wallet } from 'lucide-react';
+import { Home, Loader2, Plus, Trash2, MapPin, ExternalLink, Wallet, Users } from 'lucide-react';
 import { housingApi, fmtCents, type Listing, type Affordability, type ListingInput, STATUS_FLOW } from '../lib/api';
+import { RoommatesPanel } from './RoommatesPanel';
 
 const inputCls =
   'w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-primary/30';
@@ -14,6 +15,7 @@ function verdict(rentCents: number | null, maxCents: number | null): { label: st
 }
 
 export const HousingPage: React.FC = () => {
+  const [tab, setTab] = useState<'listings' | 'roommates'>('listings');
   const [items, setItems] = useState<Listing[]>([]);
   const [aff, setAff] = useState<Affordability | null>(null);
   const [loading, setLoading] = useState(true);
@@ -78,10 +80,27 @@ export const HousingPage: React.FC = () => {
           <Home className="w-5 h-5" /> Housing Copilot
         </h1>
         <p className="text-sm text-muted-foreground mt-0.5">
-          Save the rentals you&apos;re considering and compare them — with an affordability check against your real budget.
+          Compare the rentals you&apos;re considering against your real budget, and find compatible roommates.
         </p>
       </div>
 
+      {/* Tabs */}
+      <div className="flex gap-1 mb-6 border-b border-border">
+        {([['listings', 'Listings', Home], ['roommates', 'Roommates', Users]] as const).map(([key, label, Icon]) => (
+          <button
+            key={key}
+            onClick={() => setTab(key)}
+            className={`inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium border-b-2 -mb-px ${tab === key ? 'border-primary text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground'}`}
+          >
+            <Icon className="w-4 h-4" /> {label}
+          </button>
+        ))}
+      </div>
+
+      {tab === 'roommates' ? (
+        <RoommatesPanel />
+      ) : (
+      <>
       {/* Affordability summary */}
       <div className="rounded-xl border border-border bg-card p-4 mb-6">
         <div className="flex items-center gap-2 text-sm font-medium text-foreground mb-1">
@@ -168,6 +187,8 @@ export const HousingPage: React.FC = () => {
             );
           })}
         </div>
+      )}
+      </>
       )}
     </div>
   );
