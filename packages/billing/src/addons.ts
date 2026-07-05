@@ -30,6 +30,30 @@ export async function hasAddOn(tenantId: string, code: string): Promise<boolean>
 }
 
 /**
+ * The set of add-on codes a tenant currently holds an ACTIVE subscription
+ * for. Same account resolution and fail-closed posture as hasAddOn — any
+ * error returns an empty set (deny), never a partial/optimistic list. Used
+ * to gate plugin visibility in a single query instead of calling hasAddOn
+ * per plugin. Only active add-ons count (a deactivated add-on hides its
+ * plugins even from existing subscribers), matching hasAddOn's isActive check.
+ */
+export async function activeAddOnCodes(tenantId: string): Promise<Set<string>> {
+  try {
+    const accountId = await resolveAccountId(tenantId);
+    const subs = await prisma.billAddOnSubscription.findMany({
+      where: { accountId, status: 'active' },
+      select: { addOn: { select: { code: true, isActive: true } } },
+    });
+    return new Set(
+      subs.filter((s) => s.addOn?.isActive).map((s) => s.addOn.code),
+    );
+  } catch (err) {
+    console.error('[billing] activeAddOnCodes failed, returning empty (fail-closed):', err);
+    return new Set<string>();
+  }
+}
+
+/**
  * Pick which price tier a NEW subscriber should be offered for a given
  * region: founding_member while slots/time remain, else standard.
  * "scaled" is never auto-assigned — it's for a future admin-driven

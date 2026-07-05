@@ -330,3 +330,21 @@ test('Business Profile settings exposes a Student business-type option', async (
   });
   expect(hasStudentOption).toBeTruthy();
 });
+
+test('add-on visibility gate does not regress the plugin list (identity until a gated plugin ships)', async ({ page }) => {
+  await page.goto('/login');
+  await page.fill('input[type="email"]', 'riley@agentbook.test');
+  await page.fill('input[type="password"]', 'agentbook123');
+  await page.click('button[type="submit"]');
+  await page.waitForURL((u) => !u.pathname.startsWith('/login'), { timeout: 20_000 });
+  await page.waitForTimeout(2_000);
+
+  const res = await apiGet(page, '/api/v1/base/plugins/personalized');
+  expect(res.status, JSON.stringify(res.data)).toBe(200);
+  const plugins = (res.data?.data?.plugins ?? res.data?.plugins ?? []) as { name: string }[];
+  const names = plugins.map((p) => p.name.toLowerCase().replace(/[-_]/g, ''));
+  // Core plugins must still be present — the gate is default-open + empty-map
+  // identity today, so nothing should be hidden.
+  expect(names).toContain('agentbookcore');
+  expect(plugins.length).toBeGreaterThan(1);
+});
