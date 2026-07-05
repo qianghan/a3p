@@ -397,3 +397,49 @@ test('subscribed student sees the scholarship plugin and its API works', async (
   expect(opps.status, JSON.stringify(opps.data)).toBe(200);
   expect(Array.isArray(opps.data?.data)).toBeTruthy();
 });
+
+test('career plugin is hidden + API 402 for a non-subscriber', async ({ page }) => {
+  const suffix = test.info().testId.replace(/[^a-z0-9]/gi, '').slice(0, 12);
+  const email = `e2e-nocareer-${suffix}@agentbook.test`;
+  const password = 'e2e-nocareer-2026-x';
+  await page.goto('/login');
+  const reg = await page.evaluate(async ({ email, password }) => {
+    const r = await fetch('/api/v1/auth/register', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ email, password, displayName: 'E2E NoCareer' }),
+    });
+    return { status: r.status };
+  }, { email, password });
+  expect(reg.status).toBeLessThan(300);
+  await page.goto('/login');
+  await page.fill('input[type="email"]', email);
+  await page.fill('input[type="password"]', password);
+  await page.click('button[type="submit"]');
+  await page.waitForURL((u) => !u.pathname.startsWith('/login'), { timeout: 20_000 });
+  await page.waitForTimeout(2_000);
+
+  const list = await apiGet(page, '/api/v1/base/plugins/personalized');
+  const names = ((list.data?.data?.plugins ?? []) as { name: string }[]).map((p) => p.name.toLowerCase().replace(/[-_]/g, ''));
+  expect(names).not.toContain('agentbookcareer');
+
+  const gated = await apiGet(page, '/api/v1/agentbook-career/opportunities');
+  expect(gated.status).toBe(402);
+});
+
+test('subscribed student sees BOTH scholarship and career plugins + APIs work', async ({ page }) => {
+  await page.goto('/login');
+  await page.fill('input[type="email"]', 'riley@agentbook.test');
+  await page.fill('input[type="password"]', 'agentbook123');
+  await page.click('button[type="submit"]');
+  await page.waitForURL((u) => !u.pathname.startsWith('/login'), { timeout: 20_000 });
+  await page.waitForTimeout(2_000);
+
+  const list = await apiGet(page, '/api/v1/base/plugins/personalized');
+  const names = ((list.data?.data?.plugins ?? []) as { name: string }[]).map((p) => p.name.toLowerCase().replace(/[-_]/g, ''));
+  expect(names, JSON.stringify(names)).toContain('agentbookscholarship');
+  expect(names, JSON.stringify(names)).toContain('agentbookcareer');
+
+  const career = await apiGet(page, '/api/v1/agentbook-career/opportunities');
+  expect(career.status, JSON.stringify(career.data)).toBe(200);
+  expect(Array.isArray(career.data?.data)).toBeTruthy();
+});

@@ -31,7 +31,7 @@ import { normalizePluginName } from '@/lib/plugins/normalize';
  */
 export const PLUGIN_REQUIRED_ADDON: Record<string, string> = {
   agentbookscholarship: 'student_success',
-  // 'agentbookcareer': 'student_success',   // future
+  agentbookcareer: 'student_success',
   // 'agentbookhousing': 'student_success',  // future
 };
 
