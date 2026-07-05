@@ -24,7 +24,7 @@ datasource db {
   provider  = "postgresql"
   url       = env("DATABASE_URL")
   directUrl = env("DATABASE_URL_UNPOOLED")
-  schemas   = ["public", "plugin_community", "plugin_service_gateway", "plugin_agentbook_core", "plugin_agentbook_expense", "plugin_agentbook_invoice", "plugin_agentbook_tax", "plugin_agentbook_billing", "plugin_agentbook_personal", "plugin_agentbook_cpa", "plugin_agentbook_payroll", "plugin_content_library", "plugin_agentbook_startup"]
+  schemas   = ["public", "plugin_community", "plugin_service_gateway", "plugin_agentbook_core", "plugin_agentbook_expense", "plugin_agentbook_invoice", "plugin_agentbook_tax", "plugin_agentbook_billing", "plugin_agentbook_personal", "plugin_agentbook_cpa", "plugin_agentbook_payroll", "plugin_content_library", "plugin_agentbook_startup", "plugin_agentbook_student"]
 }
 
 // ============================================
@@ -3727,4 +3727,53 @@ model StartupBenefitAuditReview {
   modelVersion  String
 
   @@schema("plugin_agentbook_startup")
+}
+
+// ============================================
+// STUDENT SUCCESS ADD-ON — shared consulting spine
+// ============================================
+// One tracked "opportunity" model shared by all three student plugins
+// (Scholarship, Career/Co-op, Housing), discriminated by `kind`, mirroring
+// the startup plugin's application + decision-point shape. Gated behind the
+// `student_success` add-on. The consulting contract: the agent discovers,
+// drafts, and tracks; wherever a judgment call arises it creates a
+// DecisionPoint that blocks progress until the student answers. The agent
+// never submits anything to an external party.
+
+model AbStudentOpportunity {
+  id           String    @id @default(uuid())
+  tenantId     String
+  kind         String    // scholarship | job | housing
+  title        String
+  status       String    @default("discovered") // discovered|shortlisted|preparing|ready|submitted|closed
+  sourceUrl    String?   // the grounded-search source or user-pasted link (always cite-able)
+  sourceLabel  String?   // human label for the source
+  deadline     DateTime?
+  amountCents  Int?      // award amount / rent / salary — kind-specific
+  currency     String?   // ISO 4217, for amountCents
+  payload      Json      @default("{}") // kind-specific structured fields (eligibility, requirements, drafts)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  decisionPoints AbStudentDecisionPoint[]
+
+  @@index([tenantId, kind, status])
+  @@schema("plugin_agentbook_student")
+}
+
+model AbStudentDecisionPoint {
+  id             String    @id @default(uuid())
+  opportunityId  String
+  opportunity    AbStudentOpportunity @relation(fields: [opportunityId], references: [id], onDelete: Cascade)
+  sequenceOrder  Int
+  kind           String    // approval | key_input
+  prompt         String
+  options        Json?
+  response       Json?
+  respondedAt    DateTime?
+  blocksProgress Boolean   @default(true)
+
+  @@unique([opportunityId, sequenceOrder])
+  @@index([opportunityId])
+  @@schema("plugin_agentbook_student")
 }
