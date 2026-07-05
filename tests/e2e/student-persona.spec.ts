@@ -61,7 +61,7 @@ test('student businessType seeds a student chart of accounts, not the freelancer
   await page.fill('input[type="email"]', email);
   await page.fill('input[type="password"]', password);
   await page.click('button[type="submit"]');
-  await page.waitForURL(/\/dashboard|\/agentbook|\/$/, { timeout: 20_000 });
+  await page.waitForURL((u) => !u.pathname.startsWith('/login'), { timeout: 20_000 });
   await page.waitForTimeout(2_000);
 
   const CORE = '/api/v1/agentbook-core';
@@ -113,7 +113,7 @@ test('scholarship-taxability skill answers a scholarship tax question', async ({
   await page.fill('input[type="email"]', email);
   await page.fill('input[type="password"]', password);
   await page.click('button[type="submit"]');
-  await page.waitForURL(/\/dashboard|\/agentbook|\/$/, { timeout: 20_000 });
+  await page.waitForURL((u) => !u.pathname.startsWith('/login'), { timeout: 20_000 });
   await page.waitForTimeout(2_000);
 
   const res = await apiPost(page, '/api/v1/agentbook-core/agent/message', {
@@ -148,7 +148,7 @@ test('student visa/home-country fields persist via tenant-config', async ({ page
   await page.fill('input[type="email"]', email);
   await page.fill('input[type="password"]', password);
   await page.click('button[type="submit"]');
-  await page.waitForURL(/\/dashboard|\/agentbook|\/$/, { timeout: 20_000 });
+  await page.waitForURL((u) => !u.pathname.startsWith('/login'), { timeout: 20_000 });
   await page.waitForTimeout(2_000);
 
   const CORE = '/api/v1/agentbook-core';
@@ -181,7 +181,7 @@ test('international-student-tax-help skill routes correctly and cites the verifi
   await page.fill('input[type="email"]', email);
   await page.fill('input[type="password"]', password);
   await page.click('button[type="submit"]');
-  await page.waitForURL(/\/dashboard|\/agentbook|\/$/, { timeout: 20_000 });
+  await page.waitForURL((u) => !u.pathname.startsWith('/login'), { timeout: 20_000 });
   await page.waitForTimeout(2_000);
 
   const CORE = '/api/v1/agentbook-core';
@@ -218,7 +218,7 @@ test('parent read-only share link can be created and viewed', async ({ page }) =
   await page.fill('input[type="email"]', email);
   await page.fill('input[type="password"]', password);
   await page.click('button[type="submit"]');
-  await page.waitForURL(/\/dashboard|\/agentbook|\/$/, { timeout: 20_000 });
+  await page.waitForURL((u) => !u.pathname.startsWith('/login'), { timeout: 20_000 });
   await page.waitForTimeout(2_000);
 
   const create = await apiPost(page, '/api/v1/agentbook-cpa/link', { label: 'Parent summary', validityDays: 365 });
@@ -254,7 +254,7 @@ test('marketplace is admin-only by default; community plugin is registered non-c
   await page.fill('input[type="email"]', email);
   await page.fill('input[type="password"]', password);
   await page.click('button[type="submit"]');
-  await page.waitForURL(/\/dashboard|\/agentbook|\/$/, { timeout: 20_000 });
+  await page.waitForURL((u) => !u.pathname.startsWith('/login'), { timeout: 20_000 });
   await page.waitForTimeout(2_000);
 
   // Non-admin: marketplace should be invisible by default.
@@ -276,7 +276,7 @@ test('admin sees marketplace visible and community plugin registered', async ({ 
   await page.fill('input[type="email"]', 'admin@a3p.io');
   await page.fill('input[type="password"]', 'a3p-dev');
   await page.click('button[type="submit"]');
-  await page.waitForURL(/\/dashboard|\/agentbook|\/$/, { timeout: 20_000 });
+  await page.waitForURL((u) => !u.pathname.startsWith('/login'), { timeout: 20_000 });
   await page.waitForTimeout(2_000);
 
   const vis = await apiGet(page, '/api/v1/marketplace/visibility');
