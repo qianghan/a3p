@@ -9,6 +9,8 @@ import {
   Loader2,
 } from 'lucide-react';
 import { ChatCTA } from '@naap/plugin-sdk';
+import { formatMoney } from '@agentbook/i18n';
+import { useTenantCurrency } from '../hooks/useTenantCurrency';
 
 interface ReportRow {
   label: string;
@@ -57,8 +59,8 @@ const REPORTS = [
   },
 ];
 
-function formatCurrency(n: number) {
-  return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(n);
+function formatCurrency(n: number, currency: string = 'USD') {
+  return formatMoney(Math.round(n * 100), currency);
 }
 
 /**
@@ -125,6 +127,7 @@ export const ReportsPage: React.FC = () => {
   const [expanded, setExpanded] = useState<string | null>(null);
   const [reportData, setReportData] = useState<Record<string, ReportData>>({});
   const [loadingReport, setLoadingReport] = useState<string | null>(null);
+  const currency = useTenantCurrency();
 
   const toggleReport = async (key: string, endpoint: string) => {
     if (expanded === key) {
@@ -168,7 +171,7 @@ export const ReportsPage: React.FC = () => {
             className={`text-sm font-medium ${row.amount < 0 ? 'text-red-600' : ''}`}
             style={row.amount >= 0 ? { color: 'var(--text-primary)' } : undefined}
           >
-            {formatCurrency(row.amount)}
+            {formatCurrency(row.amount, currency)}
           </span>
         </div>
       ))}
@@ -196,7 +199,7 @@ export const ReportsPage: React.FC = () => {
               Net Income
             </span>
             <span className={`text-base font-bold ${data.net_income >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-              {formatCurrency(data.net_income)}
+              {formatCurrency(data.net_income, currency)}
             </span>
           </div>
         )}

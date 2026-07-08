@@ -7,6 +7,8 @@ import {
   Loader2,
   RefreshCw,
 } from 'lucide-react';
+import { formatMoney } from '@agentbook/i18n';
+import { useTenantCurrency } from '../hooks/useTenantCurrency';
 
 interface Projection {
   period: string;
@@ -20,14 +22,15 @@ interface CashFlowData {
   projections: Projection[];
 }
 
-function formatCurrency(n: number) {
-  return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(n);
+function formatCurrency(n: number, currency: string = 'USD') {
+  return formatMoney(Math.round(n * 100), currency);
 }
 
 export const CashFlowPage: React.FC = () => {
   const [data, setData] = useState<CashFlowData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const currency = useTenantCurrency();
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -123,7 +126,7 @@ export const CashFlowPage: React.FC = () => {
             data.current_balance >= 0 ? 'text-emerald-600' : 'text-red-600'
           }`}
         >
-          {formatCurrency(data.current_balance)}
+          {formatCurrency(data.current_balance, currency)}
         </p>
       </div>
 
@@ -146,7 +149,7 @@ export const CashFlowPage: React.FC = () => {
               <p
                 className={`text-2xl font-bold mb-4 ${isPositive ? 'text-green-600' : 'text-red-600'}`}
               >
-                {formatCurrency(p.projected_balance)}
+                {formatCurrency(p.projected_balance, currency)}
               </p>
 
               <div className="space-y-3">
@@ -157,7 +160,7 @@ export const CashFlowPage: React.FC = () => {
                   <div className="flex-1">
                     <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>Expected Income</p>
                     <p className="text-sm font-semibold text-green-600">
-                      {formatCurrency(p.expected_income)}
+                      {formatCurrency(p.expected_income, currency)}
                     </p>
                   </div>
                 </div>
@@ -169,7 +172,7 @@ export const CashFlowPage: React.FC = () => {
                   <div className="flex-1">
                     <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>Expected Expenses</p>
                     <p className="text-sm font-semibold text-red-600">
-                      {formatCurrency(p.expected_expenses)}
+                      {formatCurrency(p.expected_expenses, currency)}
                     </p>
                   </div>
                 </div>

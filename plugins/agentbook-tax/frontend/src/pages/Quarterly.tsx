@@ -9,6 +9,8 @@ import {
   RefreshCw,
 } from 'lucide-react';
 import { ChatCTA } from '@naap/plugin-sdk';
+import { formatMoney } from '@agentbook/i18n';
+import { useTenantCurrency } from '../hooks/useTenantCurrency';
 
 interface Quarter {
   id: string;
@@ -19,8 +21,8 @@ interface Quarter {
   status: 'paid' | 'upcoming' | 'overdue';
 }
 
-function formatCurrency(n: number) {
-  return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(n);
+function formatCurrency(n: number, currency: string = 'USD') {
+  return formatMoney(Math.round(n * 100), currency);
 }
 
 function formatDate(d: string) {
@@ -60,6 +62,7 @@ export const QuarterlyPage: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [paymentAmounts, setPaymentAmounts] = useState<Record<string, string>>({});
   const [submitting, setSubmitting] = useState<string | null>(null);
+  const currency = useTenantCurrency();
 
   const fetchQuarters = useCallback(async () => {
     setLoading(true);
@@ -170,7 +173,7 @@ export const QuarterlyPage: React.FC = () => {
                     <DollarSign className="w-3.5 h-3.5" /> Amount Due
                   </span>
                   <span className="text-sm font-bold" style={{ color: 'var(--text-primary)' }}>
-                    {formatCurrency(q.amount_due)}
+                    {formatCurrency(q.amount_due, currency)}
                   </span>
                 </div>
                 <div className="flex items-center justify-between">
@@ -178,7 +181,7 @@ export const QuarterlyPage: React.FC = () => {
                     <CheckCircle className="w-3.5 h-3.5" /> Amount Paid
                   </span>
                   <span className="text-sm font-medium text-green-600">
-                    {formatCurrency(q.amount_paid)}
+                    {formatCurrency(q.amount_paid, currency)}
                   </span>
                 </div>
                 {remaining > 0 && (
@@ -187,7 +190,7 @@ export const QuarterlyPage: React.FC = () => {
                       Remaining
                     </span>
                     <span className="text-sm font-bold text-amber-600">
-                      {formatCurrency(remaining)}
+                      {formatCurrency(remaining, currency)}
                     </span>
                   </div>
                 )}
