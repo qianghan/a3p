@@ -243,6 +243,8 @@ function DashboardTab({ data, onRefresh }: { data: TaxEstimate; onRefresh: () =>
 const JURISDICTION_OPTIONS = [
   { value: 'us', label: '🇺🇸 United States' },
   { value: 'ca', label: '🇨🇦 Canada' },
+  { value: 'uk', label: '🇬🇧 United Kingdom' },
+  { value: 'au', label: '🇦🇺 Australia' },
 ];
 
 const US_REGIONS = [
@@ -262,12 +264,32 @@ const CA_REGIONS = [
   { value: 'QC', label: 'Quebec' },
 ];
 
+const UK_REGIONS = [
+  { value: '', label: 'National' },
+];
+
+const AU_REGIONS = [
+  { value: '', label: 'Federal only' },
+  { value: 'NSW', label: 'New South Wales' },
+  { value: 'VIC', label: 'Victoria' },
+  { value: 'QLD', label: 'Queensland' },
+  { value: 'WA', label: 'Western Australia' },
+  { value: 'SA', label: 'South Australia' },
+  { value: 'TAS', label: 'Tasmania' },
+  { value: 'ACT', label: 'Australian Capital Territory' },
+  { value: 'NT', label: 'Northern Territory' },
+];
+
 const BUSINESS_TYPES = [
-  { value: 'sole_proprietor', label: 'Sole Proprietor / Freelancer' },
-  { value: 'llc_single', label: 'Single-member LLC' },
-  { value: 'llc_multi', label: 'Multi-member LLC' },
-  { value: 'scorp', label: 'S-Corporation' },
+  { value: 'sole_proprietor', label: 'Sole Proprietor / Freelancer (US)' },
+  { value: 'llc_single', label: 'Single-member LLC (US)' },
+  { value: 'llc_multi', label: 'Multi-member LLC (US)' },
+  { value: 'scorp', label: 'S-Corporation (US)' },
   { value: 'corporation', label: 'Corporation' },
+  { value: 'sole_trader', label: 'Sole Trader (AU/UK)' },
+  { value: 'pty_ltd', label: 'Proprietary Limited / Pty Ltd (AU)' },
+  { value: 'partnership', label: 'Partnership' },
+  { value: 'trust', label: 'Trust (AU)' },
 ];
 
 const DEFAULT_SETTINGS: TaxSettings = {
@@ -358,7 +380,10 @@ function SettingsTab({ onSaved }: { onSaved?: () => void }) {
     }
   };
 
-  const regionOptions = settings.jurisdiction === 'ca' ? CA_REGIONS : US_REGIONS;
+  const regionOptions = settings.jurisdiction === 'ca' ? CA_REGIONS
+    : settings.jurisdiction === 'uk' ? UK_REGIONS
+    : settings.jurisdiction === 'au' ? AU_REGIONS
+    : US_REGIONS;
 
   return (
     <div className="max-w-lg space-y-6">
@@ -386,7 +411,7 @@ function SettingsTab({ onSaved }: { onSaved?: () => void }) {
 
           <div>
             <label className="block text-xs font-medium text-muted-foreground mb-1.5">
-              Province / State
+              Province / State / Territory
             </label>
             <select
               value={settings.region}
