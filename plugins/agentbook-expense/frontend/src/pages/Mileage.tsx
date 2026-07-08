@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Car, Download, Plus, X } from 'lucide-react';
 import { ChatCTA } from '@naap/plugin-sdk';
+import { formatMoney } from '@agentbook/i18n';
 
 const API = '/api/v1/agentbook-expense';
 
@@ -52,11 +53,7 @@ interface Client {
   name: string;
 }
 
-const fmtMoney = (cents: number, ccy = 'USD') =>
-  (cents / 100).toLocaleString(ccy === 'CAD' ? 'en-CA' : 'en-US', {
-    style: 'currency',
-    currency: ccy,
-  });
+const fmtMoney = (cents: number, ccy = 'USD') => formatMoney(cents, ccy);
 
 export const MileagePage: React.FC = () => {
   const [entries, setEntries] = useState<MileageEntry[]>([]);
@@ -72,18 +69,21 @@ export const MileagePage: React.FC = () => {
   const [purpose, setPurpose] = useState('');
   const [clientId, setClientId] = useState('');
   const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [tenantCurrency, setTenantCurrency] = useState('USD');
 
   const load = async () => {
     try {
-      const [sumRes, cliRes] = await Promise.all([
+      const [sumRes, cliRes, tenantRes] = await Promise.all([
         fetch(`${API}/mileage?summary=true`).then((r) => r.json()),
         fetch(`/api/v1/agentbook-invoice/clients?limit=200`).then((r) => r.json()).catch(() => ({ data: [] })),
+        fetch('/api/v1/agentbook-core/tenant-config').then((r) => r.json()).catch(() => null),
       ]);
       if (sumRes.success && sumRes.data) {
         setEntries(sumRes.data.entries || []);
         setSummary(sumRes.data.summary || null);
       }
       if (cliRes?.data) setClients(cliRes.data);
+      if (tenantRes?.data?.currency) setTenantCurrency(tenantRes.data.currency);
     } catch (err) {
       console.warn('[mileage] load failed:', err);
     }
@@ -145,7 +145,7 @@ export const MileagePage: React.FC = () => {
 
   const ytd = summary?.ytd;
   const ytdUnit: 'mi' | 'km' = entries[0]?.unit || 'mi';
-  const currency = entries.find((e) => e.jurisdiction === 'ca') ? 'CAD' : 'USD';
+  const currency = tenantCurrency;
 
   return (
     <div className="px-4 py-5 sm:p-6 max-w-3xl mx-auto">
@@ -285,7 +285,7 @@ export const MileagePage: React.FC = () => {
         )}
         {entries.map((e) => {
           const cli = e.clientId ? clients.find((c) => c.id === e.clientId) : null;
-          const ccy = e.jurisdiction === 'ca' ? 'CAD' : 'USD';
+          const ccy = tenantCurrency;
           return (
             <div key={e.id} className="bg-card border border-border rounded-lg p-3 flex items-center justify-between">
               <div className="min-w-0">

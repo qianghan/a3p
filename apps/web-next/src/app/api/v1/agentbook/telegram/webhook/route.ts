@@ -14,6 +14,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { randomBytes } from 'node:crypto';
 import { Bot, type Context as GrammyContext } from 'grammy';
 import { prisma as db } from '@naap/database';
+import { formatMoney } from '@agentbook/i18n';
 import { handleAgentMessage } from '@agentbook-core/agent-brain';
 import { callGemini, classifyAndExecuteV1, classifyOnly, executeClassification } from '@agentbook-core/server';
 import { runAgentLoop, type BotContext, type ActiveExpense as BotActive } from '@/lib/agentbook-bot-agent';
@@ -1794,7 +1795,7 @@ interface MileageRecordedData {
 }
 
 async function renderMileageStepResult(
-  _tenantId: string,
+  tenantId: string,
   ctx: InvoiceReplyCtx,
   result: { success: boolean; data?: unknown; error?: string } | undefined,
 ): Promise<void> {
@@ -1808,10 +1809,12 @@ async function renderMileageStepResult(
     : data.clientNameHint
       ? escHtml(data.clientNameHint)
       : escHtml(data.purpose || 'this trip');
-  const dollars = (data.deductibleAmountCents / 100).toLocaleString(
-    data.jurisdiction === 'ca' ? 'en-CA' : 'en-US',
-    { style: 'currency', currency: data.jurisdiction === 'ca' ? 'CAD' : 'USD' },
-  );
+  // The deductible amount is computed from the tenant's own bookkeeping, so
+  // it must follow the tenant's configured currency — not a guess derived
+  // from which jurisdiction's mileage rate was applied (a US-jurisdiction
+  // tenant can still have a non-USD currency configured).
+  const tenantConfig = await db.abTenantConfig.findUnique({ where: { userId: tenantId }, select: { currency: true } });
+  const dollars = formatMoney(data.deductibleAmountCents, tenantConfig?.currency || 'USD');
   const rateLabel = data.jurisdiction === 'ca' ? 'CRA rate' : 'IRS std rate';
   const lines: string[] = [
     `📒 ${data.miles} ${data.unit} to ${target} = <b>${dollars}</b> deductible (${rateLabel}). On the books.`,
