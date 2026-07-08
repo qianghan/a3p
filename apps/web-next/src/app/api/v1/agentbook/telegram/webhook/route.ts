@@ -4491,12 +4491,26 @@ function getBot(): Bot {
         });
         await ctx.answerCallbackQuery({ text: '🏠 Marked as personal' });
         const updated = await getActiveExpense(tenantId);
-        if (updated) {
-          try {
-            await ctx.editMessageText(formatExpenseSummary(updated, '🏠 Marked as personal — excluded from business books.'), { parse_mode: 'HTML' });
-          } catch {
-            await ctx.reply(formatExpenseSummary(updated, '🏠 Marked as personal — excluded from business books.'), { parse_mode: 'HTML' });
-          }
+        // Keep the draft actionable (same reasoning as the cat: handler —
+        // editing without a keyboard stranded the draft with no way to book
+        // it). A personal expense passes the confirm gate without a category.
+        const lead = '🏠 Marked as personal — excluded from business books. Tap ✅ to put it on the books.';
+        const personalReplyMarkup = {
+          inline_keyboard: [
+            [
+              { text: '✅ Confirm — book it', callback_data: `confirm:${expenseId}` },
+              { text: '📁 Change category', callback_data: `change_cat:${expenseId}` },
+            ],
+            [
+              { text: '💼 Make business', callback_data: `business:${expenseId}` },
+              { text: '❌ Reject', callback_data: `reject:${expenseId}` },
+            ],
+          ],
+        };
+        try {
+          await ctx.editMessageText(updated ? formatExpenseSummary(updated, lead) : lead, { parse_mode: 'HTML', reply_markup: personalReplyMarkup });
+        } catch {
+          await ctx.reply(updated ? formatExpenseSummary(updated, lead) : lead, { parse_mode: 'HTML', reply_markup: personalReplyMarkup });
         }
         return;
       }
@@ -4513,12 +4527,26 @@ function getBot(): Bot {
         });
         await ctx.answerCallbackQuery({ text: '💼 Marked as business' });
         const updated = await getActiveExpense(tenantId);
-        if (updated) {
-          try {
-            await ctx.editMessageText(formatExpenseSummary(updated, '💼 Marked as a business expense.'), { parse_mode: 'HTML' });
-          } catch {
-            await ctx.reply(formatExpenseSummary(updated, '💼 Marked as a business expense.'), { parse_mode: 'HTML' });
-          }
+        // Keep the draft actionable. A business expense still needs a category
+        // to pass the confirm gate, so Change category sits right next to
+        // Confirm — no dead-end.
+        const lead = '💼 Marked as a business expense. Tap ✅ to book it (add a category first if it doesn\'t have one).';
+        const businessReplyMarkup = {
+          inline_keyboard: [
+            [
+              { text: '✅ Confirm — book it', callback_data: `confirm:${expenseId}` },
+              { text: '📁 Change category', callback_data: `change_cat:${expenseId}` },
+            ],
+            [
+              { text: '🏠 Make personal', callback_data: `personal:${expenseId}` },
+              { text: '❌ Reject', callback_data: `reject:${expenseId}` },
+            ],
+          ],
+        };
+        try {
+          await ctx.editMessageText(updated ? formatExpenseSummary(updated, lead) : lead, { parse_mode: 'HTML', reply_markup: businessReplyMarkup });
+        } catch {
+          await ctx.reply(updated ? formatExpenseSummary(updated, lead) : lead, { parse_mode: 'HTML', reply_markup: businessReplyMarkup });
         }
         return;
       }
