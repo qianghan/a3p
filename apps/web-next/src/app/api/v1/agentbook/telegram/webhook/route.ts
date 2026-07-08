@@ -4628,15 +4628,33 @@ function getBot(): Bot {
         if (ctx.chat?.id) await focusThreadExpense(tenantId, ctx.chat.id, expenseId);
         await ctx.answerCallbackQuery({ text: `✅ Categorized as ${account.name}` });
         const updated = await getActiveExpense(tenantId);
-        const lead = `✅ Categorized as <b>${escHtml(account.name)}</b>. I'll remember this for future ${expense.vendorId ? 'expenses from this vendor' : 'similar expenses'}.`;
+        // The draft is now categorized but still pending_review — the
+        // confirmation gate (confirm handler) refuses to book without a
+        // category, and until now this edit stripped the keyboard, leaving
+        // the user categorized with no way to book it (they'd get re-prompted
+        // to categorize on the next review pass — the reported loop). Re-attach
+        // a Confirm button so a category pick flows straight into booking.
+        const lead = `✅ Categorized as <b>${escHtml(account.name)}</b>. I'll remember this for future ${expense.vendorId ? 'expenses from this vendor' : 'similar expenses'}. Tap ✅ to put it on the books.`;
+        const catReplyMarkup = {
+          inline_keyboard: [
+            [
+              { text: '✅ Confirm — book it', callback_data: `confirm:${expenseId}` },
+              { text: '📁 Change category', callback_data: `change_cat:${expenseId}` },
+            ],
+            [
+              { text: expense.isPersonal ? '💼 Make business' : '🏠 Make personal', callback_data: `${expense.isPersonal ? 'business' : 'personal'}:${expenseId}` },
+              { text: '❌ Reject', callback_data: `reject:${expenseId}` },
+            ],
+          ],
+        };
         try {
           if (updated) {
-            await ctx.editMessageText(formatExpenseSummary(updated, lead), { parse_mode: 'HTML' });
+            await ctx.editMessageText(formatExpenseSummary(updated, lead), { parse_mode: 'HTML', reply_markup: catReplyMarkup });
           } else {
-            await ctx.editMessageText(lead, { parse_mode: 'HTML' });
+            await ctx.editMessageText(lead, { parse_mode: 'HTML', reply_markup: catReplyMarkup });
           }
         } catch {
-          await ctx.reply(updated ? formatExpenseSummary(updated, lead) : lead, { parse_mode: 'HTML' });
+          await ctx.reply(updated ? formatExpenseSummary(updated, lead) : lead, { parse_mode: 'HTML', reply_markup: catReplyMarkup });
         }
         return;
       }

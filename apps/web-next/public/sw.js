@@ -14,9 +14,9 @@
 // new deploy, which is what causes an infinite loading loop (the client
 // keeps trying to fetch/hydrate against chunks that 404). Bumping the
 // version here forces `activate` to purge every old cache below.
-const CACHE_NAME = 'agentbook-v2';
-const STATIC_CACHE = 'agentbook-static-v2';
-const API_CACHE = 'agentbook-api-v2';
+const CACHE_NAME = 'agentbook-v3';
+const STATIC_CACHE = 'agentbook-static-v3';
+const API_CACHE = 'agentbook-api-v3';
 
 // Static assets to pre-cache. Deliberately does NOT include '/agentbook' —
 // precaching a navigable HTML document is exactly the risky part, since its
@@ -109,14 +109,24 @@ async function cacheFirst(request) {
 async function networkFirstWithCache(request) {
   try {
     const response = await fetch(request);
-    if (response.ok) {
-      const cache = await caches.open(API_CACHE);
-      cache.put(request, response.clone());
+    // Only GET responses are cacheable. Cache.put() THROWS on a POST/PUT/etc.
+    // request ("Request method 'POST' is unsupported"); if that throw escapes
+    // it lands in the catch below and we'd return the synthetic offline
+    // response — telling the client a mutation failed when the server in fact
+    // succeeded. That both hid the result (receipt scan never prefilled) and
+    // caused duplicate writes (the "offline" expense got queued and later
+    // replayed). So: never cache non-GET, and swallow any cache error so it
+    // can never be mistaken for a network failure.
+    if (response.ok && request.method === 'GET') {
+      caches.open(API_CACHE).then((cache) => cache.put(request, response.clone())).catch(() => {});
     }
     return response;
   } catch {
-    const cached = await caches.match(request);
-    if (cached) return cached;
+    // Genuine network failure. Only GETs have a meaningful cached fallback.
+    if (request.method === 'GET') {
+      const cached = await caches.match(request);
+      if (cached) return cached;
+    }
     // X-Agentbook-Offline lets callers (e.g. the capture page) tell "the
     // device has no connection" apart from a real 503 the server sent on
     // purpose — `fetch()` never throws for this response since the SW
