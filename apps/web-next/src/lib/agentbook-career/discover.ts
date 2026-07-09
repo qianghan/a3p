@@ -10,12 +10,15 @@
 
 import { groundedSearch, extractGroundedCandidates } from '@/lib/agentbook-student/grounded-search';
 import { countryNameFor } from '@/lib/agentbook-student/jurisdiction';
+import { filterLiveCandidates } from '@/lib/agentbook-student/link-check';
+import { parseDeadline, isDeadlinePassed } from '@/lib/agentbook-student/deadline';
 
 export interface JobCandidate {
   title: string;
   employer: string | null;
   location: string | null;
   compText: string | null; // free-text pay as found — verify at source
+  deadlineText: string | null; // application deadline if the posting states one — most won't
   summary: string;
   sourceUrl: string;
   sourceLabel: string;
@@ -54,16 +57,21 @@ export async function discoverJobs(
     isIntl
       ? 'The student is an international student on a visa — ONLY include roles they can legally hold (on-campus positions, or roles compatible with CPT/OPT). Exclude anything requiring citizenship, permanent residency, or security clearance. Note work-authorization caveats in the summary.'
       : '',
-    'For each: exact role title, employer, location, pay if stated, a one-line summary, and the source URL.',
+    'For each: exact role title, employer, location, pay if stated, application deadline if stated, a one-line summary, and the source URL.',
     'Return ONLY a JSON array (no prose/markdown fence):',
-    '[{"title":"","employer":null,"location":null,"compText":null,"summary":"","sourceUrl":"","sourceLabel":""}]',
+    '[{"title":"","employer":null,"location":null,"compText":null,"deadlineText":null,"summary":"","sourceUrl":"","sourceLabel":""}]',
     'Every object MUST have a real sourceUrl you actually found. If unsure a posting is real/current, omit it.',
   ].filter(Boolean).join('\n');
 
   const result = await groundedSearch(prompt);
   if (!result) return { candidates: [], note: 'Search is temporarily unavailable.' };
 
-  const candidates = extractGroundedCandidates<JobCandidate>(result.text, result.groundedHosts, 12);
+  const grounded = extractGroundedCandidates<JobCandidate>(result.text, result.groundedHosts, 12);
+  // Same two quality gates as scholarship discovery: drop dead source links,
+  // and drop postings whose stated application deadline has already passed.
+  const live = await filterLiveCandidates(grounded, (c) => c.sourceUrl);
+  const now = new Date();
+  const candidates = live.filter((c) => !isDeadlinePassed(parseDeadline(c.deadlineText), now));
 
   const note = candidates.length === 0
     ? "No matching roles found right now. Try a broader search, or paste a posting you've found and I'll help you tailor and track your application."

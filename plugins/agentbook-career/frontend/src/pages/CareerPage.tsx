@@ -120,7 +120,7 @@ export const CareerPage: React.FC = () => {
                   <div className="min-w-0">
                     <div className="text-sm font-medium text-foreground">{c.title}</div>
                     <div className="mt-0.5 text-xs text-muted-foreground">
-                      {[c.employer, c.location, c.compText].filter(Boolean).join(' · ')}
+                      {[c.employer, c.location, c.compText, c.deadlineText && `Deadline: ${c.deadlineText}`].filter(Boolean).join(' · ')}
                     </div>
                     {c.summary && <div className="mt-1 text-xs text-muted-foreground">{c.summary}</div>}
                     <a href={c.sourceUrl} target="_blank" rel="noopener noreferrer"
