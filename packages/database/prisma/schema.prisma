@@ -3579,9 +3579,10 @@ model AbPayStub {
   grossCents       Int
   federalTaxCents  Int
   stateTaxCents    Int
-  ficaCents        Int // SS+Medicare (US) / CPP+EI (CA) / NI (UK) / super note (AU)
+  ficaCents        Int // SS+Medicare (US) / CPP+EI (CA) / NI (UK) / 0 (AU — see sgCents)
   otherDeductCents Int      @default(0)
   netCents         Int
+  sgCents          Int      @default(0) // Superannuation Guarantee (AU) — employer-side, additive on top of gross, never subtracted from netCents
   createdAt        DateTime @default(now())
 
   @@index([tenantId])
@@ -3592,7 +3593,7 @@ model AbPayStub {
 model AbPayrollTaxDeposit {
   id          String    @id @default(uuid())
   tenantId    String
-  form        String // 941 | 940 | t4 | paye | bas
+  form        String // 941 | 940 | t4 | paye | bas | sg
   periodLabel String // "2026-Q2"
   amountCents Int
   dueDate     DateTime

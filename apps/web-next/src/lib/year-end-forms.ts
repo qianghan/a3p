@@ -8,6 +8,7 @@ export interface YearEndStub {
   federalTaxCents: number;
   stateTaxCents: number;
   ficaCents: number;
+  sgCents?: number; // Superannuation Guarantee (AU) — optional, defaults to 0
 }
 
 export interface YearEndForm {
@@ -27,12 +28,13 @@ export function buildYearEndForm(
   year: number,
   stubs: YearEndStub[],
 ): YearEndForm {
-  let gross = 0, fed = 0, state = 0, fica = 0;
+  let gross = 0, fed = 0, state = 0, fica = 0, sg = 0;
   for (const s of stubs) {
     gross += s.grossCents;
     fed += s.federalTaxCents;
     state += s.stateTaxCents;
     fica += s.ficaCents;
+    sg += s.sgCents ?? 0;
   }
   const formType = FORM_TYPE[jurisdiction] ?? 'W-2';
   // Box labels differ per form; keep canonical keys the UI can render.
@@ -42,5 +44,8 @@ export function buildYearEndForm(
     stateTaxWithheldCents: state,
     ficaWithheldCents: fica,
   };
+  // Superannuation contributions are reported separately on an AU Payment
+  // Summary (they're not withheld from the employee's pay, unlike FICA/CPP/NI).
+  if (sg > 0) boxes.superannuationPaidCents = sg;
   return { formType, employeeName, year, boxes };
 }

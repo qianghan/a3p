@@ -81,6 +81,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
             ficaCents: pay.ficaCents,
             otherDeductCents: pay.otherDeductCents,
             netCents: pay.netCents,
+            sgCents: pay.sgCents,
           },
         });
       }
