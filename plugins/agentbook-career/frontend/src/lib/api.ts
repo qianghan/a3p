@@ -17,6 +17,7 @@ export interface Candidate {
   employer: string | null;
   location: string | null;
   compText: string | null;
+  deadlineText: string | null;
   summary: string;
   sourceUrl: string;
   sourceLabel: string;
@@ -46,7 +47,7 @@ export const careerApi = {
       body: JSON.stringify({
         title: c.title, sourceUrl: c.sourceUrl ?? null, sourceLabel: c.sourceLabel ?? null,
         employer: c.employer ?? null, location: c.location ?? null,
-        compText: c.compText ?? null, summary: c.summary ?? null,
+        compText: c.compText ?? null, deadline: c.deadlineText ?? null, summary: c.summary ?? null,
       }),
     })),
 

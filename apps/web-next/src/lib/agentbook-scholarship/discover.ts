@@ -11,6 +11,8 @@
 
 import { groundedSearch, extractGroundedCandidates } from '@/lib/agentbook-student/grounded-search';
 import { countryNameFor } from '@/lib/agentbook-student/jurisdiction';
+import { filterLiveCandidates } from '@/lib/agentbook-student/link-check';
+import { parseDeadline, isDeadlinePassed } from '@/lib/agentbook-student/deadline';
 
 export interface ScholarshipCandidate {
   title: string;
@@ -68,7 +70,14 @@ export async function discoverScholarships(
   const result = await groundedSearch(prompt);
   if (!result) return { candidates: [], note: 'Search is temporarily unavailable.' };
 
-  const candidates = extractGroundedCandidates<ScholarshipCandidate>(result.text, result.groundedHosts, 12);
+  const grounded = extractGroundedCandidates<ScholarshipCandidate>(result.text, result.groundedHosts, 12);
+  // Drop any candidate whose source link doesn't actually resolve (the
+  // host-matching guard above only confirms a domain was grounded, never
+  // that the specific page the model cited still exists) and any whose
+  // stated deadline has clearly passed.
+  const live = await filterLiveCandidates(grounded, (c) => c.sourceUrl);
+  const now = new Date();
+  const candidates = live.filter((c) => !isDeadlinePassed(parseDeadline(c.deadlineText), now));
 
   const note = candidates.length === 0
     ? 'No matching scholarships found right now. Try a broader search, or paste one you\'ve found and I\'ll help you track and apply.'

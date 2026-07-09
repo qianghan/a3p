@@ -9,6 +9,7 @@ import 'server-only';
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma as db } from '@naap/database';
 import { requireStudentAddon } from '@/lib/agentbook-student/guard';
+import { isUrlLive } from '@/lib/agentbook-student/link-check';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -50,6 +51,13 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     if (!body.title || !body.title.trim()) {
       return NextResponse.json({ success: false, error: 'title is required' }, { status: 400 });
     }
+    const sourceUrl = body.sourceUrl?.trim() || null;
+    if (sourceUrl && !(await isUrlLive(sourceUrl))) {
+      return NextResponse.json(
+        { success: false, error: "That link doesn't seem to load right now — double-check the URL and try again." },
+        { status: 422 },
+      );
+    }
     const rentCents =
       typeof body.rentCents === 'number' && Number.isFinite(body.rentCents) && body.rentCents >= 0
         ? Math.round(body.rentCents)
@@ -60,7 +68,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         kind: KIND,
         title: body.title.trim(),
         status: 'considering',
-        sourceUrl: body.sourceUrl?.trim() || null,
+        sourceUrl,
         amountCents: rentCents,
         currency: body.currency?.trim() || null,
         payload: {
