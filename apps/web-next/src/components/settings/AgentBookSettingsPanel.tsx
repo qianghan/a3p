@@ -6,6 +6,9 @@ import {
   AlertCircle, ExternalLink, Search, ChevronDown, ChevronUp,
   Copy, Check, Gift, Users,
 } from 'lucide-react';
+import { JURISDICTION_OPTIONS, defaultCurrencyFor } from '@/lib/jurisdiction-currency';
+
+const CURRENCY_OPTIONS = ['USD', 'CAD', 'GBP', 'AUD', 'EUR', 'JPY', 'CHF', 'MXN', 'BRL', 'INR'];
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -17,13 +20,14 @@ interface TenantConfig {
   logoUrl: string | null;
   brandColor: string;
   defaultPaymentTerms: string | null;
-  defaultCurrency: string | null;
   invoiceFooterNote: string | null;
   invoiceThankYouMessage: string | null;
   accountingBasis?: string;
   businessType?: string;
+  taxEntityType?: string | null;
   jurisdiction?: string;
   region?: string;
+  currency?: string;
   visaStatus?: string | null;
   homeCountry?: string | null;
   university?: string | null;
@@ -54,19 +58,6 @@ const DEGREE_OPTIONS = [
   { value: "Master's", label: "Master's" },
   { value: 'PhD', label: 'PhD' },
   { value: 'Other', label: 'Other' },
-];
-
-// Matches the onboarding chat's JURISDICTIONS. Nothing else in Settings
-// exposes this field — a student who never went through onboarding's
-// jurisdiction step is silently defaulted to "us" (the Prisma column
-// default), which is exactly what skewed scholarship/co-op search results
-// toward US-only results for non-US students. Surfacing it here lets a
-// student correct it directly instead of it being an invisible default.
-const JURISDICTION_OPTIONS = [
-  { value: 'us', label: '🇺🇸 United States' },
-  { value: 'ca', label: '🇨🇦 Canada' },
-  { value: 'uk', label: '🇬🇧 United Kingdom' },
-  { value: 'au', label: '🇦🇺 Australia' },
 ];
 
 // ISO alpha-2 values so they match the treaty lookup in the
@@ -128,8 +119,6 @@ const PAYMENT_TERMS = [
   { value: 'net-60', label: 'Net 60' },
   { value: 'due-on-receipt', label: 'Due on receipt' },
 ];
-
-const CURRENCIES = ['USD', 'EUR', 'GBP', 'CAD', 'AUD', 'JPY', 'CHF', 'MXN', 'BRL', 'INR'];
 
 const CHANNELS = ['all', 'web', 'telegram', 'api'] as const;
 type Channel = typeof CHANNELS[number];
@@ -1641,28 +1630,49 @@ export function AgentBookSettingsPanel({ initialTab }: { initialTab?: string }):
               <strong>Startup</strong> for startup tax benefits.
             </p>
           </div>
+          <div className="rounded-lg border border-border bg-muted/30 p-4 space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-foreground">Country</label>
+              <select
+                value={form.jurisdiction ?? 'us'}
+                onChange={(e) => {
+                  const jurisdiction = e.target.value;
+                  set({ jurisdiction, currency: defaultCurrencyFor(jurisdiction) });
+                }}
+                className={inputCls}
+              >
+                {JURISDICTION_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+              </select>
+              <p className="mt-1 text-xs text-muted-foreground">
+                {form.businessType === 'student'
+                  ? "Where you study — scholarship and co-op/internship search is localized to this country, so an incorrect setting here is the most common reason results look off."
+                  : 'Drives tax guidance, jurisdiction-specific documents, and your default currency. Configured here only — Tax Dashboard reflects this setting.'}
+              </p>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-foreground">
+                {form.businessType === 'student' ? 'State / Province' : 'State / Province / Territory'}{' '}
+                <span className="font-normal text-muted-foreground">(optional)</span>
+              </label>
+              <input type="text" value={form.region ?? ''} onChange={(e) => set({ region: e.target.value || undefined })}
+                className={inputCls} placeholder="ON" />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-foreground">Currency</label>
+              <select
+                value={form.currency ?? defaultCurrencyFor(form.jurisdiction)}
+                onChange={(e) => set({ currency: e.target.value })}
+                className={inputCls}
+              >
+                {CURRENCY_OPTIONS.map((c) => <option key={c} value={c}>{c}</option>)}
+              </select>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Defaults from your country, but you can override it (e.g. invoicing overseas clients).
+              </p>
+            </div>
+          </div>
           {form.businessType === 'student' ? (
             <div className="rounded-lg border border-border bg-muted/30 p-4 space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-foreground">Country</label>
-                <select
-                  value={form.jurisdiction ?? 'us'}
-                  onChange={(e) => set({ jurisdiction: e.target.value })}
-                  className={inputCls}
-                >
-                  {JURISDICTION_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-                </select>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  Where you study — scholarship and co-op/internship search is localized to this country, so an incorrect setting here is the most common reason results look off.
-                </p>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-foreground">
-                  State / Province <span className="font-normal text-muted-foreground">(optional)</span>
-                </label>
-                <input type="text" value={form.region ?? ''} onChange={(e) => set({ region: e.target.value || undefined })}
-                  className={inputCls} placeholder="ON" />
-              </div>
               <div>
                 <label className="block text-sm font-medium text-foreground">Are you an international student?</label>
                 <select
@@ -1847,13 +1857,6 @@ export function AgentBookSettingsPanel({ initialTab }: { initialTab?: string }):
             <select value={form.defaultPaymentTerms ?? 'net-30'} onChange={(e) => set({ defaultPaymentTerms: e.target.value })}
               className={inputCls}>
               {PAYMENT_TERMS.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
-            </select>
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-foreground">Default currency</label>
-            <select value={form.defaultCurrency ?? 'USD'} onChange={(e) => set({ defaultCurrency: e.target.value })}
-              className={inputCls}>
-              {CURRENCIES.map((c) => <option key={c} value={c}>{c}</option>)}
             </select>
           </div>
           <div>

@@ -1414,6 +1414,7 @@ model AbTenantConfig {
   id                    String   @id @default(uuid())
   userId                String   @unique
   businessType          String   @default("freelancer")
+  taxEntityType         String?  // sole_proprietor | llc_single | llc_multi | scorp | corporation | sole_trader | pty_ltd | partnership | trust — tax filing entity type, deliberately separate from businessType (persona/plugin-classification) so Tax Dashboard's entity-type picker can never overwrite it
   jurisdiction          String   @default("us") // us | ca | ...
   region                String   @default("") // state/province code
   visaStatus            String?  // f1 | j1 | other-nonresident | null (domestic) — student-persona international track

@@ -136,7 +136,7 @@ export async function parsePastFiling(
 
     if (formType === 'unknown') {
       const idPrompt = `You are a tax document classifier. Identify this document.
-Return JSON only: { "formType": "T1"|"T4"|"T4A"|"NOA"|"T2125"|"1040"|"W-2"|"1099-NEC"|"other", "taxYear": <number>, "jurisdiction": "ca"|"us", "region": "<province or state code>" }`;
+Return JSON only: { "formType": "T1"|"T4"|"T4A"|"NOA"|"T2125"|"1040"|"W-2"|"1099-NEC"|"income-statement"|"notice-of-assessment"|"payg-instalment"|"other", "taxYear": <number>, "jurisdiction": "ca"|"us"|"au", "region": "<province, state, or territory code>" }`;
       const idRaw = await callGeminiWithPdf(apiKey, model, idPrompt, pdfBase64, 1024);
       if (idRaw) {
         try {
