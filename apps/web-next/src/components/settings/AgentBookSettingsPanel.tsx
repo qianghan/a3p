@@ -24,6 +24,12 @@ interface TenantConfig {
   businessType?: string;
   visaStatus?: string | null;
   homeCountry?: string | null;
+  university?: string | null;
+  major?: string | null;
+  degree?: string | null;
+  graduationYear?: number | null;
+  businessDescription?: string | null;
+  businessTags?: string[];
 }
 
 // Matches the onboarding chat's BUSINESS_TYPES so a user can declare (or
@@ -34,7 +40,18 @@ const BUSINESS_TYPE_OPTIONS = [
   { value: 'sole_proprietor', label: 'Sole proprietor' },
   { value: 'consultant', label: 'Consultant' },
   { value: 'contractor', label: 'Contractor' },
+  { value: 'agency', label: 'Agency' },
+  { value: 'startup', label: 'Startup' },
   { value: 'student', label: 'Student' },
+];
+
+const DEGREE_OPTIONS = [
+  { value: '', label: 'Select…' },
+  { value: "Associate's", label: "Associate's" },
+  { value: "Bachelor's", label: "Bachelor's" },
+  { value: "Master's", label: "Master's" },
+  { value: 'PhD', label: 'PhD' },
+  { value: 'Other', label: 'Other' },
 ];
 
 // ISO alpha-2 values so they match the treaty lookup in the
@@ -150,7 +167,10 @@ async function saveConfig(patch: Partial<TenantConfig>): Promise<void> {
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify(patch),
   });
-  if (!r.ok) throw new Error(`Save failed: ${r.status}`);
+  if (!r.ok) {
+    const d = await r.json().catch(() => null) as { error?: string } | null;
+    throw new Error(d?.error || `Save failed: ${r.status}`);
+  }
 }
 
 async function uploadLogo(file: File): Promise<string> {
@@ -1514,13 +1534,25 @@ export function AgentBookSettingsPanel({ initialTab }: { initialTab?: string }):
 
   const handleSave = async (): Promise<void> => {
     if (!form) return;
+    if (form.businessType === 'student') {
+      const missing = [
+        !form.university && 'university',
+        !form.major && 'major',
+        !form.degree && 'degree',
+        !form.graduationYear && 'graduationYear',
+      ].filter((f): f is string => !!f);
+      if (missing.length > 0) {
+        setErr(`Student business type requires: ${missing.join(', ')}`);
+        return;
+      }
+    }
     setSaving(true);
     setErr(null);
     try {
       await saveConfig(form);
       showToast('Settings saved');
     } catch (e2: unknown) {
-      setErr(String(e2));
+      setErr(e2 instanceof Error ? e2.message : String(e2));
     } finally {
       setSaving(false);
     }
@@ -1565,12 +1597,14 @@ export function AgentBookSettingsPanel({ initialTab }: { initialTab?: string }):
 
       {tab === 'profile' && (
         <div className="space-y-5">
-          <ProfilePreview
-            companyName={form.companyName ?? ''}
-            logoUrl={form.logoUrl}
-            brandColor={form.brandColor}
-            pendingLogoUrl={pendingLogoUrl}
-          />
+          {form.businessType !== 'student' && (
+            <ProfilePreview
+              companyName={form.companyName ?? ''}
+              logoUrl={form.logoUrl}
+              brandColor={form.brandColor}
+              pendingLogoUrl={pendingLogoUrl}
+            />
+          )}
           <div>
             <label className="block text-sm font-medium text-foreground">Business type</label>
             <select
@@ -1587,10 +1621,12 @@ export function AgentBookSettingsPanel({ initialTab }: { initialTab?: string }):
               {BUSINESS_TYPE_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
             </select>
             <p className="mt-1 text-xs text-muted-foreground">
-              Tailors your categories, tax guidance, and the agent&apos;s tone. Pick <strong>Student</strong> to unlock scholarship &amp; education-credit help.
+              Tailors your categories, tax guidance, and the agent&apos;s tone, and which plugins you see.
+              Pick <strong>Student</strong> to unlock scholarship, career &amp; housing help, or{' '}
+              <strong>Startup</strong> for startup tax benefits.
             </p>
           </div>
-          {form.businessType === 'student' && (
+          {form.businessType === 'student' ? (
             <div className="rounded-lg border border-border bg-muted/30 p-4 space-y-4">
               <div>
                 <label className="block text-sm font-medium text-foreground">Are you an international student?</label>
@@ -1621,59 +1657,137 @@ export function AgentBookSettingsPanel({ initialTab }: { initialTab?: string }):
                   </p>
                 </div>
               )}
+              <div>
+                <label className="block text-sm font-medium text-foreground">
+                  University <span className="text-destructive">*</span>
+                </label>
+                <input type="text" required value={form.university ?? ''} onChange={(e) => set({ university: e.target.value || null })}
+                  className={inputCls} placeholder="University of Toronto" />
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Required — used to match scholarship and co-op/internship opportunities to you.
+                </p>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-foreground">
+                  Major <span className="text-destructive">*</span>
+                </label>
+                <input type="text" required value={form.major ?? ''} onChange={(e) => set({ major: e.target.value || null })}
+                  className={inputCls} placeholder="Computer Science" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-foreground">
+                  Degree <span className="text-destructive">*</span>
+                </label>
+                <select required value={form.degree ?? ''} onChange={(e) => set({ degree: e.target.value || null })} className={inputCls}>
+                  {DEGREE_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-foreground">
+                  Graduation year <span className="text-destructive">*</span>
+                </label>
+                <input
+                  type="number"
+                  required
+                  value={form.graduationYear ?? ''}
+                  onChange={(e) => set({ graduationYear: e.target.value ? parseInt(e.target.value, 10) : null })}
+                  className={inputCls}
+                  placeholder="2027"
+                  min={1950}
+                  max={2100}
+                />
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Required — co-op/internship timing depends on when you graduate.
+                </p>
+              </div>
             </div>
+          ) : (
+            <>
+              <div>
+                <label className="block text-sm font-medium text-foreground">Company name</label>
+                <input type="text" value={form.companyName ?? ''} onChange={(e) => set({ companyName: e.target.value || null })}
+                  className={inputCls} placeholder="Acme Corp" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-foreground">Email</label>
+                <input type="email" value={form.companyEmail ?? ''} onChange={(e) => set({ companyEmail: e.target.value || null })}
+                  className={inputCls} placeholder="billing@acme.com" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-foreground">Phone</label>
+                <input type="tel" value={form.companyPhone ?? ''} onChange={(e) => set({ companyPhone: e.target.value || null })}
+                  className={inputCls} placeholder="+1 555 000 0000" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-foreground">Address</label>
+                <textarea value={form.companyAddress ?? ''} onChange={(e) => set({ companyAddress: e.target.value || null })}
+                  rows={3} className={inputCls} placeholder="123 Main St, Suite 100" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-foreground">
+                  Description <span className="font-normal text-muted-foreground">(what does your business do?)</span>
+                </label>
+                <textarea
+                  value={form.businessDescription ?? ''}
+                  onChange={(e) => set({ businessDescription: e.target.value || null })}
+                  rows={3}
+                  maxLength={500}
+                  className={inputCls}
+                  placeholder="e.g. We build and sell a SaaS analytics dashboard for e-commerce merchants."
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-foreground">
+                  Tags <span className="font-normal text-muted-foreground">(comma-separated, helps classify your business)</span>
+                </label>
+                <input
+                  type="text"
+                  value={(form.businessTags ?? []).join(', ')}
+                  onChange={(e) =>
+                    set({
+                      businessTags: e.target.value
+                        .split(',')
+                        .map((t) => t.trim())
+                        .filter(Boolean),
+                    })
+                  }
+                  className={inputCls}
+                  placeholder="saas, e-commerce, b2b"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-foreground">Logo</label>
+                <div className="mt-1 flex items-center gap-3">
+                  {(pendingLogoUrl ?? form.logoUrl) ? (
+                    <img src={pendingLogoUrl ?? form.logoUrl ?? ''} alt="logo" className="h-12 w-12 rounded border object-contain" />
+                  ) : (
+                    <div className="flex h-12 w-12 items-center justify-center rounded border border-border bg-muted text-xs text-muted-foreground">No logo</div>
+                  )}
+                  <input ref={fileRef} type="file" accept="image/png,image/jpeg,image/svg+xml,image/webp" className="hidden" onChange={handleLogoChange} />
+                  <button type="button" onClick={() => fileRef.current?.click()} disabled={uploading}
+                    className="rounded-lg border border-border px-3 py-1.5 text-sm text-muted-foreground hover:bg-muted disabled:opacity-50">
+                    {uploading ? 'Uploading…' : 'Choose file'}
+                  </button>
+                  <span className="text-xs text-muted-foreground">PNG, JPEG, SVG, WebP · max 2MB</span>
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-foreground">Accent colour</label>
+                <div className="mt-1 flex items-center gap-3">
+                  <input type="color" value={form.brandColor} onChange={(e) => set({ brandColor: e.target.value })}
+                    className="h-9 w-12 cursor-pointer rounded border border-border" />
+                  <input
+                    type="text"
+                    value={form.brandColor}
+                    onChange={(e) => {
+                      if (/^#[0-9a-fA-F]{0,6}$/.test(e.target.value)) set({ brandColor: e.target.value });
+                    }}
+                    className="w-28 rounded-lg border border-border px-3 py-1.5 font-mono text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-primary/30"
+                  />
+                </div>
+              </div>
+            </>
           )}
-          <div>
-            <label className="block text-sm font-medium text-foreground">Company name</label>
-            <input type="text" value={form.companyName ?? ''} onChange={(e) => set({ companyName: e.target.value || null })}
-              className={inputCls} placeholder="Acme Corp" />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-foreground">Email</label>
-            <input type="email" value={form.companyEmail ?? ''} onChange={(e) => set({ companyEmail: e.target.value || null })}
-              className={inputCls} placeholder="billing@acme.com" />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-foreground">Phone</label>
-            <input type="tel" value={form.companyPhone ?? ''} onChange={(e) => set({ companyPhone: e.target.value || null })}
-              className={inputCls} placeholder="+1 555 000 0000" />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-foreground">Address</label>
-            <textarea value={form.companyAddress ?? ''} onChange={(e) => set({ companyAddress: e.target.value || null })}
-              rows={3} className={inputCls} placeholder="123 Main St, Suite 100" />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-foreground">Logo</label>
-            <div className="mt-1 flex items-center gap-3">
-              {(pendingLogoUrl ?? form.logoUrl) ? (
-                <img src={pendingLogoUrl ?? form.logoUrl ?? ''} alt="logo" className="h-12 w-12 rounded border object-contain" />
-              ) : (
-                <div className="flex h-12 w-12 items-center justify-center rounded border border-border bg-muted text-xs text-muted-foreground">No logo</div>
-              )}
-              <input ref={fileRef} type="file" accept="image/png,image/jpeg,image/svg+xml,image/webp" className="hidden" onChange={handleLogoChange} />
-              <button type="button" onClick={() => fileRef.current?.click()} disabled={uploading}
-                className="rounded-lg border border-border px-3 py-1.5 text-sm text-muted-foreground hover:bg-muted disabled:opacity-50">
-                {uploading ? 'Uploading…' : 'Choose file'}
-              </button>
-              <span className="text-xs text-muted-foreground">PNG, JPEG, SVG, WebP · max 2MB</span>
-            </div>
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-foreground">Accent colour</label>
-            <div className="mt-1 flex items-center gap-3">
-              <input type="color" value={form.brandColor} onChange={(e) => set({ brandColor: e.target.value })}
-                className="h-9 w-12 cursor-pointer rounded border border-border" />
-              <input
-                type="text"
-                value={form.brandColor}
-                onChange={(e) => {
-                  if (/^#[0-9a-fA-F]{0,6}$/.test(e.target.value)) set({ brandColor: e.target.value });
-                }}
-                className="w-28 rounded-lg border border-border px-3 py-1.5 font-mono text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-primary/30"
-              />
-            </div>
-          </div>
         </div>
       )}
 

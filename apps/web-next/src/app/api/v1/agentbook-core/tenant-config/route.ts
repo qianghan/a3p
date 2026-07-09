@@ -32,12 +32,22 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   }
 }
 
+const VALID_BUSINESS_TYPES = ['freelancer', 'sole_proprietor', 'consultant', 'contractor', 'agency', 'startup', 'student'] as const;
+
 interface UpdateConfigBody {
   businessType?: string;
   jurisdiction?: string;
   region?: string;
   visaStatus?: string | null;
   homeCountry?: string | null;
+  // Student businessType only
+  university?: string | null;
+  major?: string | null;
+  degree?: string | null;
+  graduationYear?: number | null;
+  // Non-student businessType only — classification, also drives plugin-visibility gating
+  businessDescription?: string | null;
+  businessTags?: string[];
   currency?: string;
   locale?: string;
   timezone?: string;
@@ -53,6 +63,13 @@ interface UpdateConfigBody {
   defaultCurrency?: string | null;
   invoiceFooterNote?: string | null;
   invoiceThankYouMessage?: string | null;
+  // Business identity — rendered/edited in the Profile tab but previously
+  // missing from this whitelist, so saving them silently no-op'd.
+  companyName?: string | null;
+  companyEmail?: string | null;
+  companyPhone?: string | null;
+  companyAddress?: string | null;
+  brandColor?: string;
 }
 
 export async function PUT(request: NextRequest): Promise<NextResponse> {
@@ -61,8 +78,17 @@ export async function PUT(request: NextRequest): Promise<NextResponse> {
     if ('response' in __resolved) return __resolved.response;
     const { tenantId } = __resolved;
     const body = (await request.json().catch(() => ({}))) as UpdateConfigBody;
+    const existing = await db.abTenantConfig.findUnique({
+      where: { userId: tenantId },
+      select: { businessType: true, university: true, major: true, degree: true, graduationYear: true },
+    });
     const update: Record<string, unknown> = {};
-    if (body.businessType) update.businessType = body.businessType;
+    if (body.businessType) {
+      if (!VALID_BUSINESS_TYPES.includes(body.businessType as typeof VALID_BUSINESS_TYPES[number])) {
+        return NextResponse.json({ error: `businessType must be one of: ${VALID_BUSINESS_TYPES.join(', ')}` }, { status: 400 });
+      }
+      update.businessType = body.businessType;
+    }
     if (body.jurisdiction) update.jurisdiction = body.jurisdiction;
     if (body.region !== undefined) update.region = body.region;
     if (body.visaStatus !== undefined) {
@@ -72,6 +98,17 @@ export async function PUT(request: NextRequest): Promise<NextResponse> {
       update.visaStatus = body.visaStatus;
     }
     if (body.homeCountry !== undefined) update.homeCountry = body.homeCountry;
+    if (body.university !== undefined) update.university = body.university;
+    if (body.major !== undefined) update.major = body.major;
+    if (body.degree !== undefined) update.degree = body.degree;
+    if (body.graduationYear !== undefined) update.graduationYear = body.graduationYear;
+    if (body.businessDescription !== undefined) update.businessDescription = body.businessDescription;
+    if (body.businessTags !== undefined) update.businessTags = body.businessTags;
+    if (body.companyName !== undefined) update.companyName = body.companyName;
+    if (body.companyEmail !== undefined) update.companyEmail = body.companyEmail;
+    if (body.companyPhone !== undefined) update.companyPhone = body.companyPhone;
+    if (body.companyAddress !== undefined) update.companyAddress = body.companyAddress;
+    if (body.brandColor) update.brandColor = body.brandColor;
     if (body.currency) update.currency = body.currency;
     if (body.locale) update.locale = body.locale;
     if (body.timezone) update.timezone = body.timezone;
@@ -116,6 +153,33 @@ export async function PUT(request: NextRequest): Promise<NextResponse> {
         return NextResponse.json({ error: 'invoiceThankYouMessage exceeds 200 characters' }, { status: 400 });
       }
       update.invoiceThankYouMessage = body.invoiceThankYouMessage;
+    }
+
+    // Student businessType requires university/major/degree/graduationYear —
+    // scholarship and co-op/internship search skills key off these (timing
+    // in particular depends on graduationYear), so an incomplete profile
+    // silently degrades that advice. Checked against the resulting state
+    // (this update merged onto whatever already exists), not just the
+    // fields in this body, so switching to student and filling them in
+    // later still gets caught.
+    const effectiveBusinessType = body.businessType ?? existing?.businessType;
+    if (effectiveBusinessType === 'student') {
+      const effectiveUniversity = body.university !== undefined ? body.university : existing?.university;
+      const effectiveMajor = body.major !== undefined ? body.major : existing?.major;
+      const effectiveDegree = body.degree !== undefined ? body.degree : existing?.degree;
+      const effectiveGraduationYear = body.graduationYear !== undefined ? body.graduationYear : existing?.graduationYear;
+      const missing = [
+        !effectiveUniversity && 'university',
+        !effectiveMajor && 'major',
+        !effectiveDegree && 'degree',
+        !effectiveGraduationYear && 'graduationYear',
+      ].filter((f): f is string => !!f);
+      if (missing.length > 0) {
+        return NextResponse.json(
+          { error: `Student business type requires: ${missing.join(', ')}` },
+          { status: 400 },
+        );
+      }
     }
 
     const config = await db.abTenantConfig.upsert({

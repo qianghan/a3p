@@ -121,6 +121,18 @@ export function Sidebar() {
   const isAdmin = hasRole('system:admin');
   const isSalesRep = hasRole('sales_rep');
 
+  // Business type drives visibility of native pages that aren't part of the
+  // plugin registry (e.g. Payroll makes no sense for a student). Plugin-
+  // registry items are filtered server-side by business-type-gate.ts; this
+  // covers the handful of hardcoded staticMainItems below.
+  const [businessType, setBusinessType] = useState<string | null>(null);
+  useEffect(() => {
+    fetch('/api/v1/agentbook-core/tenant-config')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((json: { data?: { businessType?: string } } | null) => setBusinessType(json?.data?.businessType ?? null))
+      .catch(() => setBusinessType(null));
+  }, []);
+
   // Close the mobile drawer on navigation — a link tap should take the user
   // to the page, not leave the overlay covering it.
   useEffect(() => {
@@ -304,7 +316,9 @@ export function Sidebar() {
   // reached by installing the app (start_url /app), not from the desktop menu.
   const staticMainItems: NavItem[] = [
     { name: 'Bills', href: '/agentbook/expenses/bills', icon: Receipt },
-    { name: 'Payroll', href: '/payroll', icon: Banknote },
+    // Payroll doesn't apply to students (no employees to pay) — hidden once
+    // a business type is configured and it isn't relevant.
+    ...(businessType === 'student' ? [] : [{ name: 'Payroll', href: '/payroll', icon: Banknote }]),
     { name: 'Personal finance', href: '/personal', icon: Wallet },
     { name: 'Accountant', href: '/accountant', icon: UserCheck },
   ];

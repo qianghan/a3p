@@ -19,7 +19,18 @@ import { prisma } from '@/lib/db';
 import { validateSession } from '@/lib/api/auth';
 import { success, errors, getAuthToken } from '@/lib/api/response';
 import { normalizePluginName } from '@/lib/plugins/normalize';
-import { makeAddOnGate } from '@/lib/plugins/addon-gate';
+import { makeAddOnGate, type GateablePlugin } from '@/lib/plugins/addon-gate';
+import { makeBusinessTypeGate } from '@/lib/plugins/business-type-gate';
+
+async function makeCombinedGate(
+  tenantId: string | null,
+): Promise<<T extends GateablePlugin>(plugins: T[]) => T[]> {
+  const [addOnGate, businessGate] = await Promise.all([
+    makeAddOnGate(tenantId),
+    makeBusinessTypeGate(tenantId),
+  ]);
+  return <T extends GateablePlugin>(plugins: T[]) => addOnGate(businessGate(plugins));
+}
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
   try {
@@ -65,8 +76,8 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     );
 
     if (!userIdOrAddress) {
-      // No user context → owns no add-ons; hide add-on-gated plugins.
-      const gateAnon = await makeAddOnGate(null);
+      // No user context → owns no add-ons and no business type; hide gated plugins.
+      const gateAnon = await makeCombinedGate(null);
       return success({ plugins: gateAnon(globalPlugins) });
     }
 
@@ -77,15 +88,15 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     }
 
     if (!user) {
-      // User doesn't exist yet → owns no add-ons; hide add-on-gated plugins.
-      const gateAnon = await makeAddOnGate(null);
+      // User doesn't exist yet → owns no add-ons and no business type; hide gated plugins.
+      const gateAnon = await makeCombinedGate(null);
       return success({ plugins: gateAnon(globalPlugins) });
     }
 
-    // Add-on visibility gate for this user (identity no-op until a gated
-    // plugin exists — see makeAddOnGate). Applied to every user-facing
-    // plugin list below.
-    const gate = await makeAddOnGate(user.id);
+    // Combined add-on + business-type visibility gate for this user (identity
+    // no-op until a gated plugin exists — see makeAddOnGate/makeBusinessTypeGate).
+    // Applied to every user-facing plugin list below.
+    const gate = await makeCombinedGate(user.id);
 
     // If team context, get team-specific plugin preferences
     if (teamId) {
