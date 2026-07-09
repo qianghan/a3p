@@ -14,8 +14,11 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@naap/database';
 import { requireAdmin, type HttpError } from '@/lib/billing/admin-auth';
 import { US_STARTUP_BENEFIT_PROGRAMS } from '@/lib/agentbook-startup/us-programs';
+import { AU_STARTUP_BENEFIT_PROGRAMS } from '@/lib/agentbook-startup/au-programs';
 
 export const runtime = 'nodejs';
+
+const ALL_STARTUP_BENEFIT_PROGRAMS = [...US_STARTUP_BENEFIT_PROGRAMS, ...AU_STARTUP_BENEFIT_PROGRAMS];
 
 const ADDON_CODE = 'startup_tax_benefits';
 
@@ -58,7 +61,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   let programsUpdated = 0;
   const now = new Date();
 
-  for (const program of US_STARTUP_BENEFIT_PROGRAMS) {
+  for (const program of ALL_STARTUP_BENEFIT_PROGRAMS) {
     const existing = await prisma.startupBenefitProgram.findUnique({
       where: { jurisdiction_programCode: { jurisdiction: program.jurisdiction, programCode: program.programCode } },
     });
