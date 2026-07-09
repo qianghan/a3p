@@ -6,6 +6,10 @@ describe('auTaxBenefits.listPrograms / assessEligibility', () => {
     expect(auTaxBenefits.listPrograms({}).map((p) => p.programCode)).not.toContain('au_rd_tax_incentive');
   });
 
+  it('does not list the R&D Tax Incentive for spend below the $20,000 minimum threshold either — listing it would just get immediately rejected by assessEligibility', () => {
+    expect(auTaxBenefits.listPrograms({ annualRdSpendCents: 1_000_000 }).map((p) => p.programCode)).not.toContain('au_rd_tax_incentive');
+  });
+
   it('treats R&D spend under the $20,000 minimum as not qualified', () => {
     const assessment = auTaxBenefits.assessEligibility('au_rd_tax_incentive', { annualRdSpendCents: 1_000_000 });
     expect(assessment.status).toBe('not_qualified');

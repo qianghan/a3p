@@ -38,9 +38,12 @@ const rdTaxIncentive: AUProgramDef = {
     name: 'R&D Tax Incentive',
     authority: 'AusIndustry / ATO',
     typicalValueLowCents: 1_350_000, // 13.5% of a $100,000 spend (base-rate company)
-    typicalValueHighCents: 18_500_000, // 18.5% of a $100,000 spend (non-base-rate company)
+    typicalValueHighCents: 1_850_000, // 18.5% of a $100,000 spend (non-base-rate company)
   },
-  roughlyApplies: (profile) => !!profile.annualRdSpendCents && profile.annualRdSpendCents > 0,
+  // Gated on the real $20,000 minimum expenditure threshold (not just >0, unlike
+  // the US R&D credit which has no hard minimum) — otherwise listPrograms()
+  // would surface this program for a spend that assess() immediately rejects.
+  roughlyApplies: (profile) => !!profile.annualRdSpendCents && profile.annualRdSpendCents >= 2_000_000,
   assess: (profile) => {
     const spend = profile.annualRdSpendCents ?? 0;
     if (spend <= 0) {

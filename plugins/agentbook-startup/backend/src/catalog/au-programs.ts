@@ -7,7 +7,7 @@ export const AU_STARTUP_BENEFIT_PROGRAMS: StartupBenefitProgramSeed[] = [
     name: 'R&D Tax Incentive',
     authority: 'AusIndustry / ATO',
     typicalValueLowCents: 1_350_000,
-    typicalValueHighCents: 18_500_000,
+    typicalValueHighCents: 1_850_000,
     eligibilityCriteria: [
       'Eligible R&D expenditure must be at least $20,000 in the income year, unless the R&D was conducted through a Research Service Provider (RSP).',
       'Activities must include at least one "core R&D activity" — an experimental activity whose outcome could not be known or determined in advance based on current knowledge, conducted for the purpose of generating new knowledge.',
