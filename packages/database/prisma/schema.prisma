@@ -1418,6 +1418,12 @@ model AbTenantConfig {
   region                String   @default("") // state/province code
   visaStatus            String?  // f1 | j1 | other-nonresident | null (domestic) — student-persona international track
   homeCountry           String?  // ISO 3166-1 alpha-2, e.g. "cn" | "in" — drives treaty-lookup skill
+  university            String?  // student businessType only
+  major                 String?  // student businessType only
+  degree                String?  // student businessType only — e.g. "Bachelor's", "Master's"
+  graduationYear         Int?     // student businessType only
+  businessDescription   String?  // non-student businessType only — free text, what the business does
+  businessTags          String[] @default([]) // non-student businessType only — classification tags, also drives plugin-visibility gating
   currency              String   @default("USD")
   locale                String   @default("en-US")
   timezone              String   @default("America/New_York")
