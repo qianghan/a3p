@@ -32,24 +32,25 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   }
 }
 
-// `businessType` is dual-purpose and this whitelist has to cover both uses:
-//   - persona/plugin-classification (Settings > Business Profile, drives
-//     business-type-gate.ts): freelancer, sole_proprietor, consultant,
-//     contractor, agency, startup, student
-//   - tax-filing entity type (Tax Dashboard > Settings, PUTs straight to
-//     this same field): sole_proprietor, llc_single, llc_multi, scorp,
-//     corporation, sole_trader, pty_ltd, partnership, trust
-// A prior whitelist here only covered the first list, which silently 400'd
-// every Tax Dashboard entity-type save except "sole_proprietor" (the one
-// value the two lists share) — regression caught while investigating the
-// AU jurisdiction/entity picker.
-const VALID_BUSINESS_TYPES = [
-  'freelancer', 'sole_proprietor', 'consultant', 'contractor', 'agency', 'startup', 'student',
-  'llc_single', 'llc_multi', 'scorp', 'corporation', 'sole_trader', 'pty_ltd', 'partnership', 'trust',
+// Persona/plugin-classification only — drives business-type-gate.ts and the
+// student-completeness check below. Tax-filing entity type (sole_trader,
+// LLC, S-corp, etc.) is a SEPARATE field (taxEntityType, validated further
+// down) precisely so the Tax Dashboard's entity-type picker can never
+// overwrite this and silently un-classify a student/startup tenant — see
+// VALID_TAX_ENTITY_TYPES for why these used to share one field.
+const VALID_BUSINESS_TYPES = ['freelancer', 'sole_proprietor', 'consultant', 'contractor', 'agency', 'startup', 'student'] as const;
+
+// Tax Dashboard's "Tax filing entity type" selector. Used to live on the
+// same `businessType` column as VALID_BUSINESS_TYPES above (sharing one
+// field caused a real production bug: setting your entity type could
+// silently hide a student's/startup's plugins). Now its own field.
+const VALID_TAX_ENTITY_TYPES = [
+  'sole_proprietor', 'llc_single', 'llc_multi', 'scorp', 'corporation', 'sole_trader', 'pty_ltd', 'partnership', 'trust',
 ] as const;
 
 interface UpdateConfigBody {
   businessType?: string;
+  taxEntityType?: string | null;
   jurisdiction?: string;
   region?: string;
   visaStatus?: string | null;
@@ -74,7 +75,6 @@ interface UpdateConfigBody {
   autoRemindDays?: number[];
   // Invoice defaults
   defaultPaymentTerms?: string | null;
-  defaultCurrency?: string | null;
   invoiceFooterNote?: string | null;
   invoiceThankYouMessage?: string | null;
   // Business identity — rendered/edited in the Profile tab but previously
@@ -102,6 +102,12 @@ export async function PUT(request: NextRequest): Promise<NextResponse> {
         return NextResponse.json({ error: `businessType must be one of: ${VALID_BUSINESS_TYPES.join(', ')}` }, { status: 400 });
       }
       update.businessType = body.businessType;
+    }
+    if (body.taxEntityType !== undefined) {
+      if (body.taxEntityType !== null && !VALID_TAX_ENTITY_TYPES.includes(body.taxEntityType as typeof VALID_TAX_ENTITY_TYPES[number])) {
+        return NextResponse.json({ error: `taxEntityType must be one of: ${VALID_TAX_ENTITY_TYPES.join(', ')}` }, { status: 400 });
+      }
+      update.taxEntityType = body.taxEntityType;
     }
     if (body.jurisdiction) update.jurisdiction = body.jurisdiction;
     if (body.region !== undefined) update.region = body.region;
@@ -149,12 +155,6 @@ export async function PUT(request: NextRequest): Promise<NextResponse> {
         return NextResponse.json({ error: 'invalid defaultPaymentTerms' }, { status: 400 });
       }
       update.defaultPaymentTerms = body.defaultPaymentTerms;
-    }
-    if (body.defaultCurrency !== undefined) {
-      if (body.defaultCurrency !== null && body.defaultCurrency.length !== 3) {
-        return NextResponse.json({ error: 'defaultCurrency must be a 3-letter ISO code' }, { status: 400 });
-      }
-      update.defaultCurrency = body.defaultCurrency;
     }
     if (body.invoiceFooterNote !== undefined) {
       if (body.invoiceFooterNote !== null && body.invoiceFooterNote.length > 500) {

@@ -40,9 +40,7 @@ interface TaxEstimate {
 }
 
 interface TaxSettings {
-  jurisdiction: string;
-  region: string;
-  businessType: string;
+  taxEntityType: string;
   w2IncomeAnnual: number | null;
   w2WithheldYtd: number | null;
 }
@@ -240,47 +238,18 @@ function DashboardTab({ data, onRefresh }: { data: TaxEstimate; onRefresh: () =>
   );
 }
 
-const JURISDICTION_OPTIONS = [
-  { value: 'us', label: '🇺🇸 United States' },
-  { value: 'ca', label: '🇨🇦 Canada' },
-  { value: 'uk', label: '🇬🇧 United Kingdom' },
-  { value: 'au', label: '🇦🇺 Australia' },
-];
+// Display-only — jurisdiction/region are configured in Business Profile
+// (Settings), not here. This is just for rendering the read-only line below;
+// it isn't a source of truth (that's apps/web-next's jurisdiction-currency.ts,
+// which this plugin package can't import across the build boundary).
+const JURISDICTION_LABELS: Record<string, string> = {
+  us: '🇺🇸 United States',
+  ca: '🇨🇦 Canada',
+  uk: '🇬🇧 United Kingdom',
+  au: '🇦🇺 Australia',
+};
 
-const US_REGIONS = [
-  { value: '', label: 'Federal only' },
-  { value: 'CA', label: 'California' },
-  { value: 'NY', label: 'New York' },
-  { value: 'TX', label: 'Texas' },
-  { value: 'FL', label: 'Florida' },
-  { value: 'WA', label: 'Washington' },
-];
-
-const CA_REGIONS = [
-  { value: '', label: 'Federal only' },
-  { value: 'ON', label: 'Ontario' },
-  { value: 'BC', label: 'British Columbia' },
-  { value: 'AB', label: 'Alberta' },
-  { value: 'QC', label: 'Quebec' },
-];
-
-const UK_REGIONS = [
-  { value: '', label: 'National' },
-];
-
-const AU_REGIONS = [
-  { value: '', label: 'Federal only' },
-  { value: 'NSW', label: 'New South Wales' },
-  { value: 'VIC', label: 'Victoria' },
-  { value: 'QLD', label: 'Queensland' },
-  { value: 'WA', label: 'Western Australia' },
-  { value: 'SA', label: 'South Australia' },
-  { value: 'TAS', label: 'Tasmania' },
-  { value: 'ACT', label: 'Australian Capital Territory' },
-  { value: 'NT', label: 'Northern Territory' },
-];
-
-const BUSINESS_TYPES = [
+const TAX_ENTITY_TYPES = [
   { value: 'sole_proprietor', label: 'Sole Proprietor / Freelancer (US)' },
   { value: 'llc_single', label: 'Single-member LLC (US)' },
   { value: 'llc_multi', label: 'Multi-member LLC (US)' },
@@ -293,7 +262,7 @@ const BUSINESS_TYPES = [
 ];
 
 const DEFAULT_SETTINGS: TaxSettings = {
-  jurisdiction: 'us', region: '', businessType: 'sole_proprietor',
+  taxEntityType: 'sole_proprietor',
   w2IncomeAnnual: null, w2WithheldYtd: null,
 };
 
@@ -309,9 +278,15 @@ function SettingsTab({ onSaved }: { onSaved?: () => void }) {
   const [saved, setSaved] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [jurisdiction, setJurisdiction] = useState<string | null>(null);
+  const [region, setRegion] = useState<string>('');
 
   // Hydrate W-2 fields from the persisted tax config (source of truth for the
-  // estimate calculation; localStorage only caches jurisdiction/region/type).
+  // estimate calculation; localStorage only caches taxEntityType), and the
+  // tax filing entity type + jurisdiction/region from the tenant config.
+  // Jurisdiction/region are configured in Business Profile now, not here —
+  // this is read-only, so no separate "reset region on jurisdiction change"
+  // logic is needed any more.
   useEffect(() => {
     let active = true;
     fetch('/api/v1/agentbook-tax/tax/config')
@@ -325,15 +300,22 @@ function SettingsTab({ onSaved }: { onSaved?: () => void }) {
         }));
       })
       .catch(() => { /* keep defaults */ });
+    fetch('/api/v1/agentbook-core/tenant-config')
+      .then(r => (r.ok ? r.json() : null))
+      .then(json => {
+        if (!active || !json?.data) return;
+        setJurisdiction(json.data.jurisdiction ?? 'us');
+        setRegion(json.data.region ?? '');
+        if (json.data.taxEntityType) {
+          setSettings(prev => ({ ...prev, taxEntityType: json.data.taxEntityType }));
+        }
+      })
+      .catch(() => { /* keep defaults */ });
     return () => { active = false; };
   }, []);
 
-  const handleChange = (key: keyof TaxSettings, value: string) => {
-    setSettings(prev => {
-      const next = { ...prev, [key]: value };
-      if (key === 'jurisdiction') next.region = '';
-      return next;
-    });
+  const handleEntityTypeChange = (value: string) => {
+    setSettings(prev => ({ ...prev, taxEntityType: value }));
     setSaved(false);
     setSaveError(null);
   };
@@ -352,11 +334,7 @@ function SettingsTab({ onSaved }: { onSaved?: () => void }) {
       const res = await fetch('/api/v1/agentbook-core/tenant-config', {
         method: 'PUT',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
-          jurisdiction: settings.jurisdiction,
-          region: settings.region,
-          businessType: settings.businessType,
-        }),
+        body: JSON.stringify({ taxEntityType: settings.taxEntityType }),
       });
       if (!res.ok) throw new Error(`${res.status}`);
       // Persist W-2 income/withholding to the tax config (drives the estimate).
@@ -380,11 +358,6 @@ function SettingsTab({ onSaved }: { onSaved?: () => void }) {
     }
   };
 
-  const regionOptions = settings.jurisdiction === 'ca' ? CA_REGIONS
-    : settings.jurisdiction === 'uk' ? UK_REGIONS
-    : settings.jurisdiction === 'au' ? AU_REGIONS
-    : US_REGIONS;
-
   return (
     <div className="max-w-lg space-y-6">
       <div>
@@ -394,46 +367,29 @@ function SettingsTab({ onSaved }: { onSaved?: () => void }) {
         </p>
 
         <div className="space-y-3">
-          <div>
-            <label className="block text-xs font-medium text-muted-foreground mb-1.5">
-              <Globe className="inline w-3.5 h-3.5 mr-1" />Country
-            </label>
-            <select
-              value={settings.jurisdiction}
-              onChange={e => handleChange('jurisdiction', e.target.value)}
-              className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/40"
-            >
-              {JURISDICTION_OPTIONS.map(o => (
-                <option key={o.value} value={o.value}>{o.label}</option>
-              ))}
-            </select>
+          <div className="rounded-lg border border-border bg-background px-3 py-2.5 text-sm">
+            <p className="text-xs font-medium text-muted-foreground mb-1">
+              <Globe className="inline w-3.5 h-3.5 mr-1" />Jurisdiction
+            </p>
+            <p className="text-foreground">
+              {jurisdiction ? (JURISDICTION_LABELS[jurisdiction] ?? jurisdiction.toUpperCase()) : 'Loading…'}
+              {region ? ` (${region})` : ''}
+            </p>
+            <p className="text-xs text-muted-foreground mt-1">
+              Configured in <a href="/settings" className="text-primary underline">Business Profile ↗</a> — change your country/region there, it applies everywhere including here.
+            </p>
           </div>
 
           <div>
             <label className="block text-xs font-medium text-muted-foreground mb-1.5">
-              Province / State / Territory
+              <Building2 className="inline w-3.5 h-3.5 mr-1" />Tax filing entity type
             </label>
             <select
-              value={settings.region}
-              onChange={e => handleChange('region', e.target.value)}
+              value={settings.taxEntityType}
+              onChange={e => handleEntityTypeChange(e.target.value)}
               className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/40"
             >
-              {regionOptions.map(o => (
-                <option key={o.value} value={o.value}>{o.label}</option>
-              ))}
-            </select>
-          </div>
-
-          <div>
-            <label className="block text-xs font-medium text-muted-foreground mb-1.5">
-              <Building2 className="inline w-3.5 h-3.5 mr-1" />Business Type
-            </label>
-            <select
-              value={settings.businessType}
-              onChange={e => handleChange('businessType', e.target.value)}
-              className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/40"
-            >
-              {BUSINESS_TYPES.map(o => (
+              {TAX_ENTITY_TYPES.map(o => (
                 <option key={o.value} value={o.value}>{o.label}</option>
               ))}
             </select>

@@ -60,19 +60,62 @@ describe('PUT /api/v1/agentbook-core/tenant-config', () => {
     expect(call.update.businessType).toBe('startup');
   });
 
-  // businessType is dual-purpose: persona/plugin-classification (this
-  // field) AND the Tax Dashboard's tax-filing entity type, which PUTs to
-  // the same field. Regression guard — a prior whitelist here only covered
-  // the persona list and 400'd every entity type except sole_proprietor.
-  it.each(['llc_single', 'llc_multi', 'scorp', 'corporation', 'sole_trader', 'pty_ltd', 'partnership', 'trust'])(
-    'accepts the tax-entity-type value %s (Tax Dashboard Settings tab)',
-    async (entityType) => {
-      const res = await PUT(putReq({ businessType: entityType }));
+  // businessType (persona/plugin-classification) and taxEntityType (Tax
+  // Dashboard's filing entity type) used to share one field, which meant
+  // configuring your tax entity type could silently un-classify a student
+  // or startup tenant. Now separate fields/whitelists.
+  describe('taxEntityType is a separate field from businessType', () => {
+    it.each(['llc_single', 'llc_multi', 'scorp', 'corporation', 'sole_trader', 'pty_ltd', 'partnership', 'trust'])(
+      'rejects the tax-entity-type value %s when sent as businessType',
+      async (entityType) => {
+        const res = await PUT(putReq({ businessType: entityType }));
+        expect(res.status).toBe(400);
+        expect(configUpsert).not.toHaveBeenCalled();
+      },
+    );
+
+    it.each(['sole_proprietor', 'llc_single', 'llc_multi', 'scorp', 'corporation', 'sole_trader', 'pty_ltd', 'partnership', 'trust'])(
+      'accepts the tax-entity-type value %s via taxEntityType',
+      async (entityType) => {
+        const res = await PUT(putReq({ taxEntityType: entityType }));
+        expect(res.status).toBe(200);
+        const call = configUpsert.mock.calls[0][0] as { update: Record<string, unknown> };
+        expect(call.update.taxEntityType).toBe(entityType);
+        expect(call.update.businessType).toBeUndefined();
+      },
+    );
+
+    it('rejects an unknown taxEntityType', async () => {
+      const res = await PUT(putReq({ taxEntityType: 'astronaut' }));
+      expect(res.status).toBe(400);
+      expect(configUpsert).not.toHaveBeenCalled();
+    });
+
+    it('allows clearing taxEntityType back to null', async () => {
+      const res = await PUT(putReq({ taxEntityType: null }));
       expect(res.status).toBe(200);
       const call = configUpsert.mock.calls[0][0] as { update: Record<string, unknown> };
-      expect(call.update.businessType).toBe(entityType);
-    },
-  );
+      expect(call.update.taxEntityType).toBeNull();
+    });
+
+    it('setting businessType and taxEntityType together updates both fields independently', async () => {
+      const res = await PUT(putReq({ businessType: 'startup', taxEntityType: 'pty_ltd' }));
+      expect(res.status).toBe(200);
+      const call = configUpsert.mock.calls[0][0] as { update: Record<string, unknown> };
+      expect(call.update.businessType).toBe('startup');
+      expect(call.update.taxEntityType).toBe('pty_ltd');
+    });
+  });
+
+  // defaultCurrency was a dead, unused field (no downstream consumer besides
+  // the UI that wrote it) — removed entirely now that currency is
+  // configured once in Business Profile.
+  it('ignores a defaultCurrency field in the request body (removed, no longer handled)', async () => {
+    const res = await PUT(putReq({ defaultCurrency: 'GBP' }));
+    expect(res.status).toBe(200);
+    const call = configUpsert.mock.calls[0][0] as { update: Record<string, unknown> };
+    expect(call.update.defaultCurrency).toBeUndefined();
+  });
 
   // These fields were previously missing from the PUT whitelist, so editing
   // them in Settings silently no-op'd — regression guard for that fix.
