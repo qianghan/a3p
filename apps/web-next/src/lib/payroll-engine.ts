@@ -19,6 +19,7 @@ export interface PayResult {
   ficaCents: number; // SS+Medicare (US) / CPP+EI (CA) / NI (UK) / 0 (AU, super is employer-side)
   otherDeductCents: number;
   netCents: number;
+  sgCents: number; // Superannuation Guarantee (AU only) — additive on top of gross, never subtracted from netCents; 0 elsewhere
 }
 
 interface Bracket { upTo: number; rate: number } // annual cents thresholds
@@ -65,7 +66,7 @@ function calcUS(input: PayInput): PayResult {
   const ficaCents = ssCents + medicareCents;
   const stateTaxCents = 0; // state withholding configured per-state later
   const netCents = input.grossCents - federalTaxCents - ficaCents - stateTaxCents;
-  return { grossCents: input.grossCents, federalTaxCents, stateTaxCents, ficaCents, otherDeductCents: 0, netCents };
+  return { grossCents: input.grossCents, federalTaxCents, stateTaxCents, ficaCents, otherDeductCents: 0, netCents, sgCents: 0 };
 }
 
 // --- Canada -----------------------------------------------------------------
@@ -85,7 +86,7 @@ function calcCA(input: PayInput): PayResult {
   const eiAnnual = Math.min(Math.round(annual * 0.0166), CA_EI_MAX);
   const ficaCents = Math.round((cppAnnual + eiAnnual) / input.payPeriodsPerYear);
   const netCents = input.grossCents - federalTaxCents - ficaCents;
-  return { grossCents: input.grossCents, federalTaxCents, stateTaxCents: 0, ficaCents, otherDeductCents: 0, netCents };
+  return { grossCents: input.grossCents, federalTaxCents, stateTaxCents: 0, ficaCents, otherDeductCents: 0, netCents, sgCents: 0 };
 }
 
 // --- UK ---------------------------------------------------------------------
@@ -103,24 +104,31 @@ function calcUK(input: PayInput): PayResult {
   const niAnnual = annual > UK_PA ? Math.round((annual - UK_PA) * 0.08) : 0;
   const ficaCents = Math.round(niAnnual / input.payPeriodsPerYear);
   const netCents = input.grossCents - federalTaxCents - ficaCents;
-  return { grossCents: input.grossCents, federalTaxCents, stateTaxCents: 0, ficaCents, otherDeductCents: 0, netCents };
+  return { grossCents: input.grossCents, federalTaxCents, stateTaxCents: 0, ficaCents, otherDeductCents: 0, netCents, sgCents: 0 };
 }
 
 // --- Australia --------------------------------------------------------------
-// PAYG: $18,200 tax-free, then 16/30/37/45%. Super (11.5%) is employer-side,
-// not withheld from net, so ficaCents = 0 here.
+// PAYG: $18,200 tax-free, then 16/30/37/45%. Superannuation Guarantee (12% as
+// of 1 July 2025) is employer-side — paid on top of gross, never withheld
+// from net pay, so ficaCents stays 0 here (see sgCents instead).
 const AUD = (n: number) => Math.round(n * 100);
 const AU_BANDS: Bracket[] = [
   { upTo: AUD(18200), rate: 0 }, { upTo: AUD(45000), rate: 0.16 },
   { upTo: AUD(135000), rate: 0.30 }, { upTo: AUD(190000), rate: 0.37 },
   { upTo: Infinity, rate: 0.45 },
 ];
+const AU_SG_RATE = 0.12;
 
 function calcAU(input: PayInput): PayResult {
   const annual = input.grossCents * input.payPeriodsPerYear;
   const federalTaxCents = Math.round(progressive(annual, AU_BANDS) / input.payPeriodsPerYear);
   const netCents = input.grossCents - federalTaxCents;
-  return { grossCents: input.grossCents, federalTaxCents, stateTaxCents: 0, ficaCents: 0, otherDeductCents: 0, netCents };
+  // Ordinary Time Earnings (the SG base) isn't tracked separately from gross
+  // pay in this simplified engine (no overtime/allowance breakdown), so gross
+  // is used as the OTE proxy — a reasonable approximation for a salaried/hourly
+  // employee with no overtime.
+  const sgCents = Math.round(input.grossCents * AU_SG_RATE);
+  return { grossCents: input.grossCents, federalTaxCents, stateTaxCents: 0, ficaCents: 0, otherDeductCents: 0, netCents, sgCents };
 }
 
 export function calcPay(input: PayInput): PayResult {
