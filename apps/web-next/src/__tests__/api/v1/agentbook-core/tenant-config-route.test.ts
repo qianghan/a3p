@@ -60,6 +60,20 @@ describe('PUT /api/v1/agentbook-core/tenant-config', () => {
     expect(call.update.businessType).toBe('startup');
   });
 
+  // businessType is dual-purpose: persona/plugin-classification (this
+  // field) AND the Tax Dashboard's tax-filing entity type, which PUTs to
+  // the same field. Regression guard — a prior whitelist here only covered
+  // the persona list and 400'd every entity type except sole_proprietor.
+  it.each(['llc_single', 'llc_multi', 'scorp', 'corporation', 'sole_trader', 'pty_ltd', 'partnership', 'trust'])(
+    'accepts the tax-entity-type value %s (Tax Dashboard Settings tab)',
+    async (entityType) => {
+      const res = await PUT(putReq({ businessType: entityType }));
+      expect(res.status).toBe(200);
+      const call = configUpsert.mock.calls[0][0] as { update: Record<string, unknown> };
+      expect(call.update.businessType).toBe(entityType);
+    },
+  );
+
   // These fields were previously missing from the PUT whitelist, so editing
   // them in Settings silently no-op'd — regression guard for that fix.
   it('persists companyName, companyEmail, companyPhone, companyAddress, brandColor', async () => {
