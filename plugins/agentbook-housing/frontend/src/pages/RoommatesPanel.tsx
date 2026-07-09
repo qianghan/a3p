@@ -164,6 +164,8 @@ export const RoommatesPanel: React.FC = () => {
           <select className={inputCls} value={jurisdiction} onChange={(e) => setJurisdiction(e.target.value)}>
             <option value="us">United States</option>
             <option value="ca">Canada</option>
+            <option value="uk">United Kingdom</option>
+            <option value="au">Australia</option>
           </select>
           <input className={inputCls} placeholder="Area / campus* (e.g. Boston, UBC)" value={area} onChange={(e) => setArea(e.target.value)} />
           <input className={inputCls} placeholder="Move-in month (e.g. 2026-09)" value={moveIn} onChange={(e) => setMoveIn(e.target.value)} />

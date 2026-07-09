@@ -28,7 +28,11 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       {
         jurisdiction: (cfg?.jurisdiction ?? 'us').toLowerCase(),
         region: cfg?.region ?? '',
+        school: cfg?.university ?? null,
+        program: cfg?.major ?? null,
+        level: cfg?.degree ?? null,
         visaStatus: cfg?.visaStatus ?? null,
+        homeCountry: cfg?.homeCountry ?? null,
       },
       body.query?.trim() || undefined,
     );

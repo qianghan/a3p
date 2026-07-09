@@ -10,6 +10,7 @@
  */
 
 import { groundedSearch, extractGroundedCandidates } from '@/lib/agentbook-student/grounded-search';
+import { countryNameFor } from '@/lib/agentbook-student/jurisdiction';
 
 export interface ScholarshipCandidate {
   title: string;
@@ -39,12 +40,15 @@ export async function discoverScholarships(
   ctx: StudentSearchContext,
   freeText?: string,
 ): Promise<{ candidates: ScholarshipCandidate[]; note: string }> {
-  const country = ctx.jurisdiction === 'ca' ? 'Canada' : 'the United States';
+  const country = countryNameFor(ctx.jurisdiction);
   const who = [
     ctx.level && `${ctx.level} student`,
     ctx.program && `studying ${ctx.program}`,
     ctx.school && `at ${ctx.school}`,
-    ctx.region && `in ${ctx.region}, ${country}`,
+    // Country is always named, whether or not a state/province is set —
+    // relying on region to carry it meant a profile with a school but no
+    // region silently dropped the country from the prompt entirely.
+    ctx.region ? `in ${ctx.region}, ${country}` : `in ${country}`,
     ctx.visaStatus === 'international' && `an international student${ctx.homeCountry ? ` from ${ctx.homeCountry}` : ''}`,
   ].filter(Boolean).join(', ') || `a student in ${country}`;
 
