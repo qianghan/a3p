@@ -14,14 +14,16 @@ function useViewTitle(): string {
   const pathname = usePathname();
 
   const titles: Record<string, string> = {
-    '/': 'AgentBook',
-    '/agentbook': 'AgentBook',
+    '/': 'Dashboard',
+    '/agentbook': 'Dashboard',
     '/settings': 'Settings',
     '/teams': 'Teams',
     '/marketplace': 'Marketplace',
     '/feedback': 'Feedback',
     '/docs': 'Documentation',
     '/admin/users': 'Admin',
+    '/accountant': 'Account Access',
+    '/personal': 'Personal finance',
   };
 
   if (titles[pathname]) return titles[pathname];

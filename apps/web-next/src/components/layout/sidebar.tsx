@@ -7,6 +7,8 @@ import { useAuth } from '@/contexts/auth-context';
 import { useShell, useEvents } from '@/contexts/shell-context';
 import { usePlugins, type PluginManifest } from '@/contexts/plugin-context';
 import { useIsMobile } from '@/hooks/use-is-mobile';
+import { normalizePluginName } from '@/lib/plugins/normalize';
+import { pluginNavGroup, NAV_GROUP_LABEL, type NavGroupId } from '@/lib/plugins/nav-groups';
 import { WorkspaceSwitcher } from './workspace-switcher';
 import {
   Activity,
@@ -41,6 +43,16 @@ import {
   Globe,
   Package,
   Puzzle,
+  FileText,
+  Calculator,
+  Rocket,
+  GraduationCap,
+  Briefcase,
+  Home,
+  CreditCard,
+  // Section header icons
+  Landmark,
+  Target,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -48,11 +60,6 @@ interface NavItem {
   name: string;
   href: string;
   icon: React.ComponentType<{ className?: string; size?: number }>;
-}
-
-/** Normalize plugin name for deduplication (my-wallet == myWallet == mywallet) */
-function normalizePluginName(name: string): string {
-  return name.toLowerCase().replace(/[-_]/g, '');
 }
 
 function getPluginNavSection(plugin: PluginManifest): 'main' | 'network' {
@@ -75,18 +82,32 @@ function getPluginNavSection(plugin: PluginManifest): 'main' | 'network' {
  * Map of icon names to Lucide components.
  * Add entries here when new plugins define icons in their plugin.json.
  * This avoids importing the entire lucide-react library (tree-shaking safe).
+ *
+ * Every AgentBook plugin's declared icon is listed here — until this map was
+ * extended, 9 of 10 plugins silently rendered the generic Box fallback
+ * because their plugin.json icon names (Receipt, FileText, Calculator, ...)
+ * had never been added.
  */
 const ICON_MAP: Record<string, LucideIcon> = {
   Activity,
   BarChart3,
+  BookOpen,
   Box,
+  Briefcase,
+  Calculator,
   Code,
+  CreditCard,
   Cpu,
+  FileText,
   Globe,
+  GraduationCap,
+  Home,
   LayoutDashboard,
   Package,
   Puzzle,
   Radio,
+  Receipt,
+  Rocket,
   ShoppingBag,
   Upload,
   Users,
@@ -103,6 +124,25 @@ function resolveIcon(iconName?: string): LucideIcon {
   if (!iconName) return Box;
   return ICON_MAP[iconName] || Box;
 }
+
+/** Section-header icon per group — mainly so the collapsed icon-only rail stays scannable across 5 sections instead of 3. */
+const SECTION_ICON: Record<NavGroupId, LucideIcon> = {
+  accounting: Landmark,
+  personal: Wallet,
+  'for-your-business': Target,
+  'advisors-community': UserCheck,
+  resources: MoreHorizontal,
+};
+
+const SECTION_ORDER: NavGroupId[] = ['accounting', 'personal', 'for-your-business', 'advisors-community', 'resources'];
+
+const DEFAULT_SECTION_EXPANDED: Record<NavGroupId, boolean> = {
+  accounting: true,
+  personal: true,
+  'for-your-business': true,
+  'advisors-community': true,
+  resources: false,
+};
 
 // Sidebar width constants — tighter default for Linear-style density
 const SIDEBAR_MIN_WIDTH = 200;
@@ -131,6 +171,18 @@ export function Sidebar() {
       .then((r) => (r.ok ? r.json() : null))
       .then((json: { data?: { businessType?: string } } | null) => setBusinessType(json?.data?.businessType ?? null))
       .catch(() => setBusinessType(null));
+  }, []);
+
+  // Marketplace defaults to admin-only visibility (see
+  // /api/v1/marketplace/visibility's own doc comment) — mirror that same
+  // check here so the nav link only appears for someone who can actually use
+  // the page, instead of linking everyone to a "not available yet" screen.
+  const [marketplaceVisible, setMarketplaceVisible] = useState(false);
+  useEffect(() => {
+    fetch('/api/v1/marketplace/visibility')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((json: { data?: { visible?: boolean } } | null) => setMarketplaceVisible(json?.data?.visible ?? false))
+      .catch(() => setMarketplaceVisible(false));
   }, []);
 
   // Close the mobile drawer on navigation — a link tap should take the user
@@ -217,56 +269,40 @@ export function Sidebar() {
     };
   }, [eventBus, refreshPlugins]);
 
-  // Collapsible section states - persist to localStorage
-  const [mainExpanded, setMainExpanded] = useState(true);
-  const [networkExpanded, setNetworkExpanded] = useState(true);
-  const [moreExpanded, setMoreExpanded] = useState(false);
+  // Collapsible section states - persist to localStorage. One map for all
+  // 5 grouped sections (Dashboard is a standalone link, not a section) —
+  // replaces the old 3 separate main/network/more booleans+toggles, since
+  // every section now behaves identically.
+  const [sectionExpanded, setSectionExpanded] = useState<Record<NavGroupId, boolean>>(DEFAULT_SECTION_EXPANDED);
 
   // Load collapsed states from localStorage
   useEffect(() => {
-    if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem('naap_sidebar_sections');
-      if (saved) {
-        try {
-          const parsed = JSON.parse(saved);
-          setMainExpanded(parsed.main ?? true);
-          setNetworkExpanded(parsed.network ?? true);
-          setMoreExpanded(parsed.more ?? false);
-        } catch {}
-      }
-    }
+    if (typeof window === 'undefined') return;
+    const saved = localStorage.getItem('naap_sidebar_sections');
+    if (!saved) return;
+    try {
+      const parsed = JSON.parse(saved) as Partial<Record<NavGroupId, boolean>>;
+      setSectionExpanded((prev) => ({ ...prev, ...parsed }));
+    } catch {}
   }, []);
 
-  // Save collapsed states
-  const saveSectionState = (section: string, expanded: boolean) => {
-    if (typeof window !== 'undefined') {
-      const current = localStorage.getItem('naap_sidebar_sections');
-      const parsed = current ? JSON.parse(current) : {};
-      parsed[section] = expanded;
-      localStorage.setItem('naap_sidebar_sections', JSON.stringify(parsed));
-    }
+  const toggleSection = (section: NavGroupId) => {
+    setSectionExpanded((prev) => {
+      const next = { ...prev, [section]: !prev[section] };
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('naap_sidebar_sections', JSON.stringify(next));
+      }
+      return next;
+    });
   };
 
-  const toggleMainExpanded = () => {
-    const next = !mainExpanded;
-    setMainExpanded(next);
-    saveSectionState('main', next);
-  };
-
-  const toggleNetworkExpanded = () => {
-    const next = !networkExpanded;
-    setNetworkExpanded(next);
-    saveSectionState('network', next);
-  };
-
-  const toggleMoreExpanded = () => {
-    const next = !moreExpanded;
-    setMoreExpanded(next);
-    saveSectionState('more', next);
-  };
-
-  // Memoize plugin lists
-  const { mainPlugins, networkPlugins } = useMemo(() => {
+  // Memoize plugin lists — grouped by purpose (Accounting, For your business,
+  // Advisors & Community) instead of one flat "Main" list. agentbook-core is
+  // pulled out separately as the standalone "Dashboard" link. Any plugin
+  // whose metadata puts it in the old 'network' bucket (none do today, but
+  // the underlying classification is left in place for compatibility) folds
+  // into "Resources" rather than getting its own now-removed section.
+  const { dashboardItem, groupedPlugins } = useMemo(() => {
     const seenPlugins = new Set<string>();
     const uniquePlugins = (plugins || []).filter(p => {
       if (!p?.enabled) return false;
@@ -285,43 +321,65 @@ export function Sidebar() {
       return true;
     });
 
-    const main = uniquePlugins
-      .filter(p => getPluginNavSection(p) === 'main')
-      .sort((a, b) => a.order - b.order)
-      .map(plugin => ({
-        name: plugin.displayName,
-        href: plugin.routes?.[0]?.replace('/*', '') || `/plugins/${plugin.name}`,
-        icon: resolveIcon(plugin.icon),
-      }));
+    let dashboard: NavItem | null = null;
+    const groups: Record<NavGroupId, NavItem[]> = {
+      accounting: [],
+      personal: [],
+      'for-your-business': [],
+      'advisors-community': [],
+      resources: [],
+    };
 
-    const network = uniquePlugins
-      .filter(p => getPluginNavSection(p) === 'network')
-      .sort((a, b) => a.order - b.order)
-      .map(plugin => ({
-        name: plugin.displayName,
+    const sorted = [...uniquePlugins].sort((a, b) => a.order - b.order);
+    for (const plugin of sorted) {
+      const normalized = normalizePluginName(plugin.name);
+      const item: NavItem = {
+        name: normalized === 'agentbookcore' ? 'Dashboard' : plugin.displayName,
         href: plugin.routes?.[0]?.replace('/*', '') || `/plugins/${plugin.name}`,
-        icon: resolveIcon(plugin.icon),
-      }));
+        icon: normalized === 'agentbookcore' ? LayoutDashboard : resolveIcon(plugin.icon),
+      };
+      if (normalized === 'agentbookcore') {
+        dashboard = item;
+        continue;
+      }
+      const section = getPluginNavSection(plugin) === 'network' ? 'resources' : pluginNavGroup(normalized);
+      groups[section].push(item);
+    }
 
-    return { mainPlugins: main, networkPlugins: network };
+    return { dashboardItem: dashboard, groupedPlugins: groups };
   }, [plugins, version]);
 
-  // Static network items are loaded from shell config rather than hardcoded.
-  // To add items, register them via shell configuration or create plugins.
-  const staticNetworkItems: NavItem[] = [];
+  // Native (non-plugin) pages, assigned to the same groups as their
+  // conceptual peers among the plugins above.
+  const nativeGroups: Record<NavGroupId, NavItem[]> = {
+    accounting: [
+      { name: 'Bills', href: '/agentbook/expenses/bills', icon: Receipt },
+      // Payroll doesn't apply to students (no employees to pay) — hidden once
+      // a business type is configured and it isn't relevant.
+      ...(businessType === 'student' ? [] : [{ name: 'Payroll', href: '/payroll', icon: Banknote }]),
+    ],
+    personal: [
+      { name: 'Personal finance', href: '/personal', icon: Wallet },
+    ],
+    'for-your-business': [],
+    'advisors-community': [
+      { name: 'Account Access', href: '/accountant', icon: UserCheck },
+    ],
+    resources: [
+      ...(marketplaceVisible ? [{ name: 'Marketplace', href: '/marketplace', icon: ShoppingBag }] : []),
+      { name: 'Feedback', href: '/feedback', icon: MessageSquare },
+      { name: 'Teams', href: '/teams', icon: Users },
+      { name: 'Docs', href: '/docs', icon: BookOpen },
+    ],
+  };
 
-  // Static main items for native (non-plugin) AgentBook pages that aren't in
-  // the plugin registry. Ordered by mental model: payables → payroll →
-  // personal → advisor. The mobile PWA is intentionally NOT a nav item — it's
-  // reached by installing the app (start_url /app), not from the desktop menu.
-  const staticMainItems: NavItem[] = [
-    { name: 'Bills', href: '/agentbook/expenses/bills', icon: Receipt },
-    // Payroll doesn't apply to students (no employees to pay) — hidden once
-    // a business type is configured and it isn't relevant.
-    ...(businessType === 'student' ? [] : [{ name: 'Payroll', href: '/payroll', icon: Banknote }]),
-    { name: 'Personal finance', href: '/personal', icon: Wallet },
-    { name: 'Accountant', href: '/accountant', icon: UserCheck },
-  ];
+  const sectionItems: Record<NavGroupId, NavItem[]> = {
+    accounting: [...groupedPlugins.accounting, ...nativeGroups.accounting],
+    personal: [...groupedPlugins.personal, ...nativeGroups.personal],
+    'for-your-business': [...groupedPlugins['for-your-business'], ...nativeGroups['for-your-business']],
+    'advisors-community': [...groupedPlugins['advisors-community'], ...nativeGroups['advisors-community']],
+    resources: [...groupedPlugins.resources, ...nativeGroups.resources],
+  };
 
   // Routes that should use exact matching only
   const exactMatchRoutes = new Set([
@@ -414,103 +472,57 @@ export function Sidebar() {
 
       {/* Scrollable Navigation */}
       <div className="flex-1 overflow-y-auto overflow-x-hidden scrollbar-thin scrollbar-thumb-muted/50 scrollbar-track-transparent px-2 py-2">
-        {/* Main Section */}
-        <nav className="mb-2">
-          <SectionHeader
-            title="Main"
-            expanded={mainExpanded}
-            onToggle={toggleMainExpanded}
-            isOpen={effectiveOpen}
-          />
-          {mainExpanded && (
-            <div className="space-y-0.5 mt-1">
-              {isLoading ? (
-                <div className="py-2 px-3">
-                  <div className="h-4 w-20 bg-muted/50 animate-pulse rounded" />
-                </div>
-              ) : (
-                <>
-                  {mainPlugins.map(item => (
-                    <NavLink
-                      key={item.href}
-                      item={item}
-                      isActive={isActive(item.href)}
-                      isOpen={effectiveOpen}
-                    />
-                  ))}
-                  {staticMainItems.map(item => (
-                    <NavLink
-                      key={item.href}
-                      item={item}
-                      isActive={isActive(item.href)}
-                      isOpen={effectiveOpen}
-                    />
-                  ))}
-                </>
-              )}
-            </div>
-          )}
-        </nav>
-
-        {/* Network Section */}
-        <nav className="mb-2">
-          <SectionHeader
-            title="Network"
-            expanded={networkExpanded}
-            onToggle={toggleNetworkExpanded}
-            isOpen={effectiveOpen}
-          />
-          {networkExpanded && (
-            <div className="space-y-0.5 mt-1">
-              {networkPlugins.map(item => (
+        {isLoading ? (
+          <div className="py-2 px-3">
+            <div className="h-4 w-20 bg-muted/50 animate-pulse rounded" />
+          </div>
+        ) : (
+          <>
+            {/* Dashboard — standalone, not grouped with anything */}
+            {dashboardItem && (
+              <nav className="mb-2 space-y-0.5">
                 <NavLink
-                  key={item.href}
-                  item={item}
-                  isActive={isActive(item.href)}
+                  item={dashboardItem}
+                  isActive={isActive(dashboardItem.href)}
                   isOpen={effectiveOpen}
                 />
-              ))}
-              {staticNetworkItems.map(item => (
-                <NavLink
-                  key={item.href}
-                  item={item}
-                  isActive={isActive(item.href)}
-                  isOpen={effectiveOpen}
-                />
-              ))}
-            </div>
-          )}
-        </nav>
+              </nav>
+            )}
 
-        {/* More Section (Collapsible) */}
-        <nav className="mb-2">
-          <SectionHeader
-            title="More"
-            expanded={moreExpanded}
-            onToggle={toggleMoreExpanded}
-            isOpen={effectiveOpen}
-            icon={MoreHorizontal}
-          />
-          {moreExpanded && (
-            <div className="space-y-0.5 mt-1">
-              <NavLink
-                item={{ name: 'Feedback', href: '/feedback', icon: MessageSquare }}
-                isActive={isActive('/feedback')}
-                isOpen={effectiveOpen}
-              />
-              <NavLink
-                item={{ name: 'Teams', href: '/teams', icon: Users }}
-                isActive={isActive('/teams')}
-                isOpen={effectiveOpen}
-              />
-              <NavLink
-                item={{ name: 'Docs', href: '/docs', icon: BookOpen }}
-                isActive={isActive('/docs')}
-                isOpen={effectiveOpen}
-              />
-            </div>
-          )}
-        </nav>
+            {SECTION_ORDER.map((section) => {
+              const items = sectionItems[section];
+              // "For your business" only exists for tenants a plugin actually
+              // applies to (student/startup) — an empty section here would
+              // just be dead chrome, so it's omitted entirely rather than
+              // shown collapsed-and-empty.
+              if (items.length === 0) return null;
+              const icon = SECTION_ICON[section];
+              return (
+                <nav key={section} className="mb-2">
+                  <SectionHeader
+                    title={NAV_GROUP_LABEL[section]}
+                    expanded={sectionExpanded[section]}
+                    onToggle={() => toggleSection(section)}
+                    isOpen={effectiveOpen}
+                    icon={icon}
+                  />
+                  {sectionExpanded[section] && (
+                    <div className="space-y-0.5 mt-1">
+                      {items.map(item => (
+                        <NavLink
+                          key={item.href}
+                          item={item}
+                          isActive={isActive(item.href)}
+                          isOpen={effectiveOpen}
+                        />
+                      ))}
+                    </div>
+                  )}
+                </nav>
+              );
+            })}
+          </>
+        )}
       </div>
 
       {/* Bottom Section - Fixed (only role-gated items) */}
