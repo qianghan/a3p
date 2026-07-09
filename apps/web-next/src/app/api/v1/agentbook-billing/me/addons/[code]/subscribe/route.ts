@@ -8,7 +8,7 @@ import { safeResolveAgentbookTenant } from '@/lib/agentbook-tenant';
 export const runtime = 'nodejs';
 
 const Body = z.object({
-  region: z.enum(['us', 'ca', 'uk']),
+  region: z.enum(['us', 'ca', 'uk', 'au']),
   paymentMethodId: z.string(),
 });
 

@@ -7,6 +7,7 @@ const getProfile = vi.fn();
 const saveProfile = vi.fn();
 const getRecommendations = vi.fn();
 const getAddOnTeaser = vi.fn();
+const getTenantJurisdiction = vi.fn();
 const createApplication = vi.fn();
 const listApplications = vi.fn();
 
@@ -15,7 +16,8 @@ vi.mock('../lib/api', () => ({
     getProfile: () => getProfile(),
     saveProfile: (input: unknown) => saveProfile(input),
     getRecommendations: () => getRecommendations(),
-    getAddOnTeaser: () => getAddOnTeaser(),
+    getAddOnTeaser: (region: string) => getAddOnTeaser(region),
+    getTenantJurisdiction: () => getTenantJurisdiction(),
     createApplication: (programCode: string) => createApplication(programCode),
     listApplications: () => listApplications(),
   },
@@ -32,8 +34,10 @@ function renderPage() {
 
 beforeEach(() => {
   getProfile.mockReset(); saveProfile.mockReset(); getRecommendations.mockReset(); getAddOnTeaser.mockReset();
+  getTenantJurisdiction.mockReset();
   createApplication.mockReset(); listApplications.mockReset();
   getProfile.mockResolvedValue(null);
+  getTenantJurisdiction.mockResolvedValue('us');
   getAddOnTeaser.mockResolvedValue({ active: false, price: { tier: 'founding_member', priceCents: 9900, currency: 'usd' } });
   listApplications.mockResolvedValue({ applications: [] });
 });
@@ -84,6 +88,12 @@ describe('StartupDiscoveryPage', () => {
     await waitFor(() => expect(getAddOnTeaser).toHaveBeenCalled());
     expect(screen.getByText(/\$99/)).toBeTruthy();
     expect(screen.queryByRole('button', { name: /subscribe|buy|purchase/i })).toBeNull();
+  });
+
+  it('requests the addon teaser for the tenant\'s own jurisdiction, not a hardcoded region', async () => {
+    getTenantJurisdiction.mockResolvedValue('au');
+    renderPage();
+    await waitFor(() => expect(getAddOnTeaser).toHaveBeenCalledWith('au'));
   });
 
   it('lists in-progress applications so a founder can resume one later (story C5)', async () => {

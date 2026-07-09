@@ -3122,8 +3122,8 @@ model BillAddOn {
 model BillAddOnPrice {
   id             String    @id @default(uuid())
   addOnId        String
-  region         String    // "us" | "ca" | "uk"
-  currency       String    // "usd" | "cad" | "gbp"
+  region         String    // "us" | "ca" | "uk" | "au"
+  currency       String    // "usd" | "cad" | "gbp" | "aud"
   tier           String    // "founding_member" | "standard" | "scaled"
   priceCents     Int
   stripePriceId  String?

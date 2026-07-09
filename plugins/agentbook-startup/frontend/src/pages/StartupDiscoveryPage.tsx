@@ -147,7 +147,10 @@ export function StartupDiscoveryPage() {
       setAnnualRdSpend(profile.annualRdSpendCents != null ? String(profile.annualRdSpendCents / 100) : '');
       setEquityRaised(profile.equityRaisedCents != null ? String(profile.equityRaisedCents / 100) : '');
     });
-    startupApi.getAddOnTeaser().then(setTeaser).catch(() => setTeaser(null));
+    startupApi.getTenantJurisdiction()
+      .then((jurisdiction) => startupApi.getAddOnTeaser(jurisdiction))
+      .then(setTeaser)
+      .catch(() => setTeaser(null));
   }, []);
 
   async function handleSubmit(e: React.FormEvent) {

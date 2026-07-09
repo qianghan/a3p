@@ -130,8 +130,21 @@ export const startupApi = {
     }))).profile,
   getRecommendations: async (): Promise<RecommendationsResponse> =>
     json<RecommendationsResponse>(await fetch('/api/v1/agentbook-startup/recommendations')),
-  getAddOnTeaser: async (): Promise<AddOnPriceTeaser> =>
-    json<AddOnPriceTeaser>(await fetch('/api/v1/agentbook-billing/me/addons?code=startup_tax_benefits&region=us')),
+  getAddOnTeaser: async (region: string = 'us'): Promise<AddOnPriceTeaser> =>
+    json<AddOnPriceTeaser>(await fetch(`/api/v1/agentbook-billing/me/addons?code=startup_tax_benefits&region=${region}`)),
+  // The addon pricing catalog is keyed by region (us/ca/uk/au), not currency,
+  // so an AU tenant must pass 'au' here to see AUD pricing rather than the
+  // US teaser. Falls back to 'us' on any failure — the teaser is cosmetic,
+  // not worth failing the page over.
+  getTenantJurisdiction: async (): Promise<string> => {
+    try {
+      const r = await fetch('/api/v1/agentbook-core/tenant-config');
+      const j = await r.json();
+      return j?.data?.jurisdiction || 'us';
+    } catch {
+      return 'us';
+    }
+  },
   createApplication: async (programCode: string): Promise<{ application: StartupBenefitApplication; documentChecklist: DocumentRequirement[] }> =>
     json(await fetch('/api/v1/agentbook-startup/applications', {
       method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ programCode }),

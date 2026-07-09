@@ -63,15 +63,25 @@ describe('POST /api/v1/agentbook-startup/admin/seed-catalog', () => {
     expect([401, 403]).toContain(r.status);
   });
 
-  it('seeds the 3 US programs and 9 add-on price rows for an admin', async () => {
+  it('seeds the 3 US programs and 12 add-on price rows (us/ca/uk/au x 3 tiers) for an admin', async () => {
     validateSession.mockResolvedValue(adminUser);
     const r = await POST(adminReq());
     expect(r.status).toBe(200);
     expect(programCreate).toHaveBeenCalledTimes(3);
-    expect(priceCreate).toHaveBeenCalledTimes(9);
+    expect(priceCreate).toHaveBeenCalledTimes(12);
     const j = await r.json();
     expect(j.programs).toEqual({ created: 3, updated: 0 });
-    expect(j.addOnPrices).toEqual({ created: 9, updated: 0 });
+    expect(j.addOnPrices).toEqual({ created: 12, updated: 0 });
+  });
+
+  it('seeds the au region with its own researched AUD pricing, not US parity', async () => {
+    validateSession.mockResolvedValue(adminUser);
+    await POST(adminReq());
+    const auCalls = priceCreate.mock.calls.filter(([{ data }]) => data.region === 'au');
+    expect(auCalls).toHaveLength(3);
+    expect(auCalls.find(([{ data }]) => data.tier === 'founding_member')?.[0].data).toMatchObject({ currency: 'aud', priceCents: 12900 });
+    expect(auCalls.find(([{ data }]) => data.tier === 'standard')?.[0].data).toMatchObject({ currency: 'aud', priceCents: 29900 });
+    expect(auCalls.find(([{ data }]) => data.tier === 'scaled')?.[0].data).toMatchObject({ currency: 'aud', priceCents: 59900 });
   });
 
   it('is idempotent — re-running updates instead of duplicating', async () => {
@@ -81,7 +91,7 @@ describe('POST /api/v1/agentbook-startup/admin/seed-catalog', () => {
     const r = await POST(adminReq());
     const j = await r.json();
     expect(j.programs).toEqual({ created: 0, updated: 3 });
-    expect(j.addOnPrices).toEqual({ created: 0, updated: 9 });
+    expect(j.addOnPrices).toEqual({ created: 0, updated: 12 });
     expect(programCreate).not.toHaveBeenCalled();
     expect(priceCreate).not.toHaveBeenCalled();
   });
