@@ -22,6 +22,8 @@ interface TenantConfig {
   invoiceThankYouMessage: string | null;
   accountingBasis?: string;
   businessType?: string;
+  jurisdiction?: string;
+  region?: string;
   visaStatus?: string | null;
   homeCountry?: string | null;
   university?: string | null;
@@ -52,6 +54,19 @@ const DEGREE_OPTIONS = [
   { value: "Master's", label: "Master's" },
   { value: 'PhD', label: 'PhD' },
   { value: 'Other', label: 'Other' },
+];
+
+// Matches the onboarding chat's JURISDICTIONS. Nothing else in Settings
+// exposes this field — a student who never went through onboarding's
+// jurisdiction step is silently defaulted to "us" (the Prisma column
+// default), which is exactly what skewed scholarship/co-op search results
+// toward US-only results for non-US students. Surfacing it here lets a
+// student correct it directly instead of it being an invisible default.
+const JURISDICTION_OPTIONS = [
+  { value: 'us', label: '🇺🇸 United States' },
+  { value: 'ca', label: '🇨🇦 Canada' },
+  { value: 'uk', label: '🇬🇧 United Kingdom' },
+  { value: 'au', label: '🇦🇺 Australia' },
 ];
 
 // ISO alpha-2 values so they match the treaty lookup in the
@@ -1628,6 +1643,26 @@ export function AgentBookSettingsPanel({ initialTab }: { initialTab?: string }):
           </div>
           {form.businessType === 'student' ? (
             <div className="rounded-lg border border-border bg-muted/30 p-4 space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-foreground">Country</label>
+                <select
+                  value={form.jurisdiction ?? 'us'}
+                  onChange={(e) => set({ jurisdiction: e.target.value })}
+                  className={inputCls}
+                >
+                  {JURISDICTION_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                </select>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Where you study — scholarship and co-op/internship search is localized to this country, so an incorrect setting here is the most common reason results look off.
+                </p>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-foreground">
+                  State / Province <span className="font-normal text-muted-foreground">(optional)</span>
+                </label>
+                <input type="text" value={form.region ?? ''} onChange={(e) => set({ region: e.target.value || undefined })}
+                  className={inputCls} placeholder="ON" />
+              </div>
               <div>
                 <label className="block text-sm font-medium text-foreground">Are you an international student?</label>
                 <select

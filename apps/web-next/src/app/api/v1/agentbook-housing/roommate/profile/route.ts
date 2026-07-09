@@ -17,6 +17,11 @@ export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 export const maxDuration = 30;
 
+// Matches AbTenantConfig's supported jurisdictions — previously hardcoded to
+// us/ca only, which silently forced UK/AU students into the wrong bucket
+// (or blocked them from activating a profile at all).
+const VALID_ROOMMATE_JURISDICTIONS = ['us', 'ca', 'uk', 'au'] as const;
+
 export async function GET(request: NextRequest): Promise<NextResponse> {
   const guard = await requireStudentAddon(request);
   if ('response' in guard) return guard.response;
@@ -73,18 +78,19 @@ export async function PUT(request: NextRequest): Promise<NextResponse> {
     const handle = (body.displayHandle ?? '').trim();
     const area = (body.area ?? '').trim();
     const jurisdiction = (body.jurisdiction ?? '').trim().toLowerCase();
+    const validJurisdiction = VALID_ROOMMATE_JURISDICTIONS.includes(jurisdiction as typeof VALID_ROOMMATE_JURISDICTIONS[number]);
     if (active) {
       if (!handle) return NextResponse.json({ success: false, error: 'A display handle is required.' }, { status: 400 });
       if (!area) return NextResponse.json({ success: false, error: 'An area is required.' }, { status: 400 });
-      if (jurisdiction !== 'us' && jurisdiction !== 'ca') {
-        return NextResponse.json({ success: false, error: 'Jurisdiction must be "us" or "ca".' }, { status: 400 });
+      if (!validJurisdiction) {
+        return NextResponse.json({ success: false, error: `Jurisdiction must be one of: ${VALID_ROOMMATE_JURISDICTIONS.join(', ')}` }, { status: 400 });
       }
     }
 
     const data = {
       active,
       displayHandle: handle || 'Student',
-      jurisdiction: jurisdiction === 'ca' ? 'ca' : 'us',
+      jurisdiction: validJurisdiction ? jurisdiction : 'us',
       area,
       budgetMinCents: cleanCents(body.budgetMinCents),
       budgetMaxCents: cleanCents(body.budgetMaxCents),
