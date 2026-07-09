@@ -63,15 +63,24 @@ describe('POST /api/v1/agentbook-startup/admin/seed-catalog', () => {
     expect([401, 403]).toContain(r.status);
   });
 
-  it('seeds the 3 US programs and 12 add-on price rows (us/ca/uk/au x 3 tiers) for an admin', async () => {
+  it('seeds the 3 US + 3 AU programs and 12 add-on price rows (us/ca/uk/au x 3 tiers) for an admin', async () => {
     validateSession.mockResolvedValue(adminUser);
     const r = await POST(adminReq());
     expect(r.status).toBe(200);
-    expect(programCreate).toHaveBeenCalledTimes(3);
+    expect(programCreate).toHaveBeenCalledTimes(6);
     expect(priceCreate).toHaveBeenCalledTimes(12);
     const j = await r.json();
-    expect(j.programs).toEqual({ created: 3, updated: 0 });
+    expect(j.programs).toEqual({ created: 6, updated: 0 });
     expect(j.addOnPrices).toEqual({ created: 12, updated: 0 });
+  });
+
+  it('seeds all 3 au_* program codes with jurisdiction "au"', async () => {
+    validateSession.mockResolvedValue(adminUser);
+    await POST(adminReq());
+    const auProgramCalls = programCreate.mock.calls.filter(([{ data }]) => data.jurisdiction === 'au');
+    expect(auProgramCalls.map(([{ data }]) => data.programCode).sort()).toEqual([
+      'au_esic_offset', 'au_rd_tax_incentive', 'au_small_business_cgt_concessions',
+    ]);
   });
 
   it('seeds the au region with its own researched AUD pricing, not US parity', async () => {
@@ -90,7 +99,7 @@ describe('POST /api/v1/agentbook-startup/admin/seed-catalog', () => {
     priceFindUnique.mockResolvedValue({ id: 'existing-price' });
     const r = await POST(adminReq());
     const j = await r.json();
-    expect(j.programs).toEqual({ created: 0, updated: 3 });
+    expect(j.programs).toEqual({ created: 0, updated: 6 });
     expect(j.addOnPrices).toEqual({ created: 0, updated: 12 });
     expect(programCreate).not.toHaveBeenCalled();
     expect(priceCreate).not.toHaveBeenCalled();

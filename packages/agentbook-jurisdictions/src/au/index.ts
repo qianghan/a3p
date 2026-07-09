@@ -8,6 +8,7 @@ import { auContractorReport } from './contractor-report.js';
 import { auMileageRate } from './mileage-rate.js';
 import { auDeductions } from './deductions.js';
 import { auCalendarDeadlines } from './calendar-deadlines.js';
+import { auTaxBenefits } from './tax-benefits.js';
 
 export const auPack: JurisdictionPack = {
   id: 'au',
@@ -21,4 +22,5 @@ export const auPack: JurisdictionPack = {
   mileageRate: auMileageRate,
   deductions: auDeductions,
   calendarDeadlines: auCalendarDeadlines,
+  taxBenefits: auTaxBenefits,
 };
