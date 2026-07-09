@@ -8,6 +8,17 @@ describe('parseDeadline', () => {
     expect(parseDeadline('3/1/2027')?.getFullYear()).toBe(2027);
   });
 
+  it('parses a bare ISO date (YYYY-MM-DD) as the exact calendar date written, regardless of the runtime timezone', () => {
+    // Plain `new Date('2027-03-01')` parses as UTC midnight per spec; reading
+    // it back with local calendar-day getters (as isDeadlinePassed does)
+    // would silently shift it to Feb 28 in any timezone behind UTC. This
+    // exact regression was caught by self-review before merge.
+    const d = parseDeadline('2027-03-01');
+    expect(d?.getFullYear()).toBe(2027);
+    expect(d?.getMonth()).toBe(2); // 0-indexed: March
+    expect(d?.getDate()).toBe(1);
+  });
+
   it('returns null for non-date free text — never treated as expired', () => {
     expect(parseDeadline('Rolling')).toBeNull();
     expect(parseDeadline('Ongoing')).toBeNull();

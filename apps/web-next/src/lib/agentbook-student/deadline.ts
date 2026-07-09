@@ -15,6 +15,20 @@ export function parseDeadline(text: string | null | undefined): Date | null {
   if (!text) return null;
   const trimmed = text.trim();
   if (!trimmed) return null;
+
+  // A bare ISO date (YYYY-MM-DD) is parsed by `new Date()` as UTC midnight
+  // per spec, while every other format below is parsed in local time —
+  // reading a UTC-midnight value back out with isDeadlinePassed's local
+  // calendar-day getters silently shifts it a day earlier in any timezone
+  // behind UTC. Parse the components directly so the calendar date is
+  // exactly what was written, independent of the runtime's timezone.
+  const isoMatch = /^(\d{4})-(\d{2})-(\d{2})$/.exec(trimmed);
+  if (isoMatch) {
+    const [, y, m, d] = isoMatch;
+    const date = new Date(Number(y), Number(m) - 1, Number(d));
+    return Number.isNaN(date.getTime()) ? null : date;
+  }
+
   const parsed = new Date(trimmed);
   return Number.isNaN(parsed.getTime()) ? null : parsed;
 }
