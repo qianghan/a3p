@@ -32,7 +32,21 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   }
 }
 
-const VALID_BUSINESS_TYPES = ['freelancer', 'sole_proprietor', 'consultant', 'contractor', 'agency', 'startup', 'student'] as const;
+// `businessType` is dual-purpose and this whitelist has to cover both uses:
+//   - persona/plugin-classification (Settings > Business Profile, drives
+//     business-type-gate.ts): freelancer, sole_proprietor, consultant,
+//     contractor, agency, startup, student
+//   - tax-filing entity type (Tax Dashboard > Settings, PUTs straight to
+//     this same field): sole_proprietor, llc_single, llc_multi, scorp,
+//     corporation, sole_trader, pty_ltd, partnership, trust
+// A prior whitelist here only covered the first list, which silently 400'd
+// every Tax Dashboard entity-type save except "sole_proprietor" (the one
+// value the two lists share) — regression caught while investigating the
+// AU jurisdiction/entity picker.
+const VALID_BUSINESS_TYPES = [
+  'freelancer', 'sole_proprietor', 'consultant', 'contractor', 'agency', 'startup', 'student',
+  'llc_single', 'llc_multi', 'scorp', 'corporation', 'sole_trader', 'pty_ltd', 'partnership', 'trust',
+] as const;
 
 interface UpdateConfigBody {
   businessType?: string;
