@@ -4,6 +4,7 @@ import remarkGfm from 'remark-gfm';
 import rehypeSlug from 'rehype-slug';
 import { getDocBySlug, getAllDocSlugs, getNavigation, extractHeadings, getPrevNext, getFirstDocInSection } from '@/lib/docs/content';
 import { DocsSidebar } from '@/components/docs/docs-sidebar';
+import { MobileDocsSidebar } from '@/components/docs/mobile-docs-sidebar';
 import { getMdxComponents } from '@/components/docs/mdx-components';
 import { DocPageClient } from './doc-page-client';
 
@@ -73,6 +74,7 @@ export default async function DocPage({ params }: { params: Promise<{ slug: stri
 
   return (
     <div className="flex">
+      <MobileDocsSidebar navigation={navigation} />
       {/* Sidebar */}
       <aside className="hidden lg:block w-64 shrink-0 border-r border-border">
         <div className="sticky top-14 h-[calc(100vh-3.5rem)] overflow-y-auto py-6 px-4">
