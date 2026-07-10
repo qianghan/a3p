@@ -388,9 +388,6 @@ export function Sidebar() {
     '/teams',
     '/marketplace',
     '/feedback',
-    '/releases',
-    '/treasury',
-    '/governance',
   ]);
 
   const isActive = (href: string) => {
