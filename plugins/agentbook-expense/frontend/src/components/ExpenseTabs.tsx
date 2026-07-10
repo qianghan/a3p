@@ -2,19 +2,25 @@ import React from 'react';
 
 /**
  * Page-level tab bar shared by ExpenseList and Bills — Bills is a sibling
- * top-level route within this plugin, not a separate sidebar destination.
+ * route within this plugin, not a separate sidebar destination.
  *
  * Plain <a> links, not react-router navigate(): each tab is its own
- * top-level /agentbook/* route (see the plugin's routes list in App.tsx),
- * so a real browser navigation is required for the URL, browser refresh,
- * and deep-links to all resolve to the right tab — mirrors the fix already
- * applied in agentbook-tax's TaxLayout.tsx for the same Dashboard/Tax
- * Package tab bar, which hit this same bug with client-only nav.
+ * top-level route, so a real browser navigation is required for the URL,
+ * browser refresh, and deep-links to all resolve to the right tab — mirrors
+ * the fix already applied in agentbook-tax's TaxLayout.tsx for the same
+ * Dashboard/Tax Package tab bar, which hit this same bug with client-only
+ * nav. The Bills href is /agentbook/expenses/bills, NOT /agentbook/bills —
+ * plugin.json's frontend.routes (the DB-backed registry the Next.js
+ * catch-all page actually matches against) only registers
+ * /agentbook/expenses/* for this plugin; /agentbook/bills isn't a
+ * registered route and falls through to agentbook-core's /agentbook/*
+ * wildcard instead. App.tsx's internal getInitialRoute() already handles
+ * /agentbook/expenses/bills via its `path.includes('/bills')` check.
  */
 
 const TABS = [
   { id: 'expenses' as const, label: 'Expenses', href: '/agentbook/expenses' },
-  { id: 'bills' as const, label: 'Bills', href: '/agentbook/bills' },
+  { id: 'bills' as const, label: 'Bills', href: '/agentbook/expenses/bills' },
 ];
 
 export const ExpenseTabs: React.FC<{ active: 'expenses' | 'bills' }> = ({ active }) => {
