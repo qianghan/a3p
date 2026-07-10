@@ -353,7 +353,6 @@ export function Sidebar() {
   // conceptual peers among the plugins above.
   const nativeGroups: Record<NavGroupId, NavItem[]> = {
     accounting: [
-      { name: 'Bills', href: '/agentbook/expenses/bills', icon: Receipt },
       // Payroll doesn't apply to students (no employees to pay) — hidden once
       // a business type is configured and it isn't relevant.
       ...(businessType === 'student' ? [] : [{ name: 'Payroll', href: '/payroll', icon: Banknote }]),
