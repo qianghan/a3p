@@ -41,10 +41,13 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     // the library only creates an unsaved, in-memory Grant when none is
     // found; nothing persists it for us). Load the existing one on a
     // reconnect, otherwise create+save a new one, then reference whichever
-    // grantId actually exists in storage.
-    const grant = details.grantId
-      ? await provider.Grant.find(details.grantId)
-      : new provider.Grant({ accountId: user.id, clientId });
+    // grantId actually exists in storage. Grant.find() can resolve to
+    // undefined if the stored grant expired/was deleted between interaction
+    // creation and consent submission (14-day Grant TTL vs 1-hour Interaction
+    // TTL makes this rare, but not impossible) — fall back to a fresh Grant
+    // rather than throwing on `.addOIDCScope()` of an undefined value.
+    const grant = (details.grantId && await provider.Grant.find(details.grantId))
+      || new provider.Grant({ accountId: user.id, clientId });
     grant.addOIDCScope('agentbook:full');
     const grantId = await grant.save();
 
