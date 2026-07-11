@@ -3210,11 +3210,20 @@ async function _executeClassificationCore(
     const cfg = await db.abTenantConfig.findUnique({ where: { userId: tenantId } });
     const eligible = cfg?.businessType === 'student' && (await hasAddOn(tenantId, 'student_success'));
     if (!eligible) {
+      // confidence must stay >= 0.6 here — agent-brain.ts's assessComplexity()
+      // treats confidence < 0.6 as 'complex' and re-routes through the
+      // planner (agent-planner.ts::executeStep), a separate execution path
+      // that does NOT run this gate and lacks this file's baseUrls
+      // resolution, producing a raw "Failed to parse URL" step failure
+      // instead of this message. Confirmed live in production: dropping
+      // this to 0 (an earlier, seemingly-cosmetic alignment with other
+      // blocked-path responses in this file) broke the nudge entirely for
+      // ineligible tenants.
       return {
-        selectedSkill, extractedParams, confidence: 0, skillUsed: selectedSkill.name, skillResponse: null,
+        selectedSkill, extractedParams, confidence: 1, skillUsed: selectedSkill.name, skillResponse: null,
         responseData: {
           message: 'Scholarship, co-op, and roommate search are part of Student Success — enable it in your Business Profile settings to use them.',
-          skillUsed: selectedSkill.name, confidence: 0, latencyMs: Date.now() - startTime,
+          skillUsed: selectedSkill.name, confidence: 1, latencyMs: Date.now() - startTime,
         },
       };
     }
