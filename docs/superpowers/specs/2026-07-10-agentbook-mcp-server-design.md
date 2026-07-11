@@ -11,10 +11,13 @@ management.
 ## Context
 
 AgentBook (`apps/web-next` + Express plugin backends) already has a single
-conversational entry point, agent-brain's `POST /agentbook-core/agent/message`
+conversational entry point, agent-brain's `POST /api/v1/agentbook-core/agent/message`
 (`plugins/agentbook-core/backend/src/agent-brain.ts:445`), which routes free
 text across all 77 built-in skills and already implements a preview-then-confirm
-gate for destructive actions. Auth today is a custom session-cookie system
+gate for destructive actions: a response can carry `data.plan = { steps, requiresConfirmation: true }`
+with the human-readable preview in `data.message`, and the write only executes
+once a follow-up call passes `sessionAction: 'confirm'` (matched against text
+like "yes"/"confirm" via `CONFIRM_RE`, `agent-brain.ts:191,205,480`). Auth today is a custom session-cookie system
 (`apps/web-next/src/lib/api/auth.ts`) — OAuth exists only as a *client*
 (login via Google/GitHub/Microsoft), never as an *issuer*. There is no existing
 MCP code anywhere in the repo. Tenancy is 1:1 (`tenantId === user.id`,
@@ -49,38 +52,47 @@ from; the load-bearing facts are captured above and inline below.
 
 New components, all additive to the existing codebase:
 
-- **OAuth 2.1 authorization server**: `oidc-provider`-backed, mounted as new
-  Next.js routes — `/oauth/authorize`, `/oauth/token`, `/oauth/register`
-  (Dynamic Client Registration), `/.well-known/oauth-authorization-server`,
-  `/.well-known/oauth-protected-resource`.
+- **OAuth 2.1 authorization server**: `oidc-provider`-backed, mounted under
+  `/api/v1/oauth/*` (`authorize`, `token`, `register` for Dynamic Client
+  Registration) — deliberately kept under the existing `/api` prefix so it
+  needs **no** middleware change. Only the two spec-mandated discovery
+  documents, `/.well-known/oauth-authorization-server` and
+  `/.well-known/oauth-protected-resource`, sit outside `/api` and need one
+  middleware allowlist addition (see Regression risk assessment).
 - **New Prisma tables** (via a thin adapter satisfying `oidc-provider`'s
-  storage interface): OAuth clients, authorization codes, access/refresh
-  tokens, consent grants, and a lightweight `McpToolCallAuditLog`. All new
-  tables; zero changes to existing schema.
-- **MCP server endpoint**: `apps/web-next/src/app/api/mcp/route.ts`, using
+  storage interface): a single generic `OidcModel` table (type+id keyed,
+  mirroring `oidc-provider`'s own adapter contract — one table serves every
+  token/code/client/grant kind, matching how the library's reference
+  adapters work) plus a persisted `McpConsentGrant` table for "skip consent
+  on reconnect." All new; zero changes to existing schema. (A tool-call
+  audit log was considered and deferred — see Out of scope.)
+- **MCP server endpoint**: `apps/web-next/src/app/api/v1/mcp/route.ts`, using
   `@modelcontextprotocol/sdk`'s Streamable HTTP transport, exposing the one
   `ask_agentbook` tool.
 - **Login/consent reuses the existing session system unmodified.** A user
-  hitting `/oauth/authorize` for the first time logs into AgentBook the
-  normal way (existing cookie/login page), then sees a one-time consent
-  screen ("Claude wants to access your AgentBook — Allow?"). Approval is
-  persisted (`ConsentGrant`) so reconnecting later skips the prompt.
+  hitting `/api/v1/oauth/authorize` for the first time logs into AgentBook
+  the normal way (existing cookie/login page, including its existing
+  same-origin-only `?redirect=` guard), then sees a one-time consent screen
+  ("Claude wants to access your AgentBook — Allow?"). Approval is persisted
+  (`McpConsentGrant`) so reconnecting later skips the prompt.
 - **New "Connected Apps" section in existing Settings** to list and revoke
-  authorized MCP clients.
+  authorized MCP clients — revocation must actually invalidate the
+  underlying `OidcModel` token rows immediately (by grant ID), not just mark
+  consent revoked and let tokens expire on their own TTL.
 
 ## End-to-end flow
 
 1. User adds a custom connector in Claude pointed at
-   `https://agentbook.brainliber.com/api/mcp`.
+   `https://agentbook.brainliber.com/api/v1/mcp`.
 2. Claude discovers the `.well-known` OAuth metadata, then self-registers as
    a client via Dynamic Client Registration — no manual developer-portal step.
-3. Claude opens a browser to `/oauth/authorize` with a PKCE challenge. Login
-   (if needed) uses the existing, unmodified login page; then the new consent
-   screen.
+3. Claude opens a browser to `/api/v1/oauth/authorize` with a PKCE challenge.
+   Login (if needed) uses the existing, unmodified login page; then the new
+   consent screen.
 4. On approval, AgentBook redirects back with an authorization code; Claude
-   exchanges it (+ PKCE verifier) at `/oauth/token` for a short-lived access
-   token and a refresh token, scoped to a single `agentbook:full` scope (no
-   granular per-skill scopes in v1).
+   exchanges it (+ PKCE verifier) at `/api/v1/oauth/token` for a short-lived
+   access token and a refresh token, scoped to a single `agentbook:full`
+   scope (no granular per-skill scopes in v1).
 5. Every MCP call carries `Authorization: Bearer <token>`. The MCP route
    validates the token, resolves `userId`/`tenantId` the same way existing
    proxy routes do, and returns `401` + `WWW-Authenticate` on an
@@ -98,20 +110,25 @@ New components, all additive to the existing codebase:
    `readOnlyHint: false` so spec-compliant clients apply their own native
    confirmation UI as a first layer of defense.
 2. When a request maps to a destructive skill, agent-brain returns its
-   existing preview-and-confirm shape unchanged.
+   existing preview-and-confirm shape unchanged: `data.plan.requiresConfirmation
+   === true`, with the human-readable preview text in `data.message`.
 3. Rather than handing that preview back as plain text (which a calling model
    could misinterpret and auto-confirm), the MCP route issues an
    **`elicitation/create`** request back to the client — a real MCP-spec
    mechanism for the server to collect a structured response from the
    *human*, not the model. Claude Desktop/Code support this today.
-4. Only an explicit human "yes" via elicitation triggers the confirm call
-   back to agent-brain that actually executes the write.
-5. For clients without elicitation support (expected initially for
-   ChatGPT/Codex), the tool falls back to returning the preview as text with
-   an explicit instruction that the model must surface it and only re-call
-   with confirmation after real user approval. This fallback is a weaker
-   guarantee and will be documented as such, not advertised as fully safe
-   until those clients add elicitation support.
+4. Only an explicit human "yes" via elicitation triggers a follow-up call to
+   agent-brain with `sessionAction: 'confirm'`, which actually executes the
+   write.
+5. **v1 requires elicitation support to allow any destructive action** —
+   consistent with Decision #3 (Claude first). A client that doesn't
+   advertise elicitation capability gets a clear refusal from the tool
+   ("this connection doesn't support secure confirmation for actions that
+   write data — read-only questions still work") rather than a weaker
+   text-relayed confirmation a calling model could auto-approve without a
+   real human ever seeing it. A text-relay fallback would reopen exactly the
+   gap Decision #2 exists to close, so it's deferred until a real
+   non-elicitation client actually needs write access (see Out of scope).
 
 ## Error handling
 
@@ -122,11 +139,14 @@ New components, all additive to the existing codebase:
 - Agent-brain downstream failure (5xx/timeout) → MCP tool returns a proper
   MCP error result with a generic message and a logged correlation ID; no
   stack traces or internal URLs leaked.
-- Rate limiting on `/oauth/token` and `/api/mcp` (simple per-token/per-IP
-  sliding window; no new infra dependency for v1).
-- The login page's post-login return-to param (needed so `/oauth/authorize`
-  can resume after login) must be allowlisted to same-origin internal paths
-  only — open-redirect is a real risk class here and worth explicit guarding.
+- Rate limiting on `/api/v1/oauth/token` and `/api/v1/mcp` (simple
+  per-token/per-IP sliding window; no new infra dependency for v1).
+- The login page's post-login return-to param already has a same-origin-only
+  guard (`raw.startsWith('/') && !raw.startsWith('//')`,
+  `login-form.tsx:31-37`) from before this project — the new
+  `/oauth-consent` flow reuses that existing param and guard as-is rather
+  than introducing a new redirect mechanism, so open-redirect risk here is
+  already covered by existing code, not new surface to secure.
 
 ## Testing & validation
 
@@ -147,28 +167,40 @@ New components, all additive to the existing codebase:
 **Overall: low.**
 
 Additive, zero-risk-to-existing-product surface:
-- All new Prisma tables — no existing schema touched.
-- All new routes (`/oauth/*`, `/.well-known/oauth-*`, `/api/mcp`) — nothing
-  existing calls them; they call agent-brain's already-public endpoint the
-  same way web/Telegram already do.
+- All new Prisma tables — no existing schema touched. (`middleware.ts`'s
+  `publicRoutes` array already begins with a plain `/api` prefix match that
+  runs before any cookie/session gating, so every route under
+  `/api/v1/oauth/*` and `/api/v1/mcp` is exempt with zero changes — verified
+  against the actual middleware logic, not assumed from the array's
+  contents.)
+- All new routes — nothing existing calls them; they call agent-brain's
+  already-public endpoint the same way web/Telegram already do.
 - Agent-brain (classification, skills, confirm-gate) — completely unchanged;
-  MCP is a third caller using a new, additive `channel` value.
-- Existing login page/session system — reused as-is (plus a same-origin
-  allowlisted return-to param if not already present).
+  MCP is a third caller using a new, additive `channel: 'mcp'` string value,
+  which agent-brain stores as free-form text with no enum validation to
+  break (confirmed in `agent-brain.ts`/`server.ts`).
+- Existing login page/session system — reused as-is, including its
+  pre-existing return-to redirect guard.
 
-The one non-additive touch: `middleware.ts` gets a small, isolated addition
-of `/oauth/*` and `/api/mcp` to the existing "handles its own auth" allowlist
-— the same pattern already used for every other API route. The existing
-web-login E2E suite passing unchanged is the direct proof nothing else
-shifted.
+The one non-additive touch: `middleware.ts`'s `publicRoutes` array gets one
+line added for `/.well-known` (the two OAuth/MCP discovery documents are the
+only part of this design that can't live under the already-exempt `/api`
+prefix, per RFC 8414/9728 convention). The existing web-login E2E suite
+passing unchanged is the direct proof nothing else shifted.
 
 The real risk isn't regression to the existing product — it's whether the
 *new* OAuth surface is implemented correctly, since this is genuinely new
 security-critical code for this codebase. Mitigations: use a vetted library
 (`oidc-provider`) instead of hand-rolled crypto, scope v1 to human-confirmed
-writes only, and ship behind an `AGENTBOOK_MCP_ENABLED` feature flag so the
-entire surface can be killed instantly without a redeploy if an issue
-surfaces post-launch — nothing else in the app depends on it.
+writes only, and ship behind the existing DB-backed `FeatureFlag` mechanism
+(key `agentbook.mcp.enabled`) — the same already-tested dark-ship pattern
+used elsewhere in this codebase — so the entire surface can be killed
+instantly without a redeploy if an issue surfaces post-launch. Also worth
+flagging even though it's not "regression" in the strict sense: adding
+`oidc-provider` + `@modelcontextprotocol/sdk` to `apps/web-next`'s
+dependency tree has a real but bounded cost — bundle size and cold-start
+time for the functions that import them — worth an explicit check during
+implementation, not just an additive-code argument.
 
 ## Out of scope for v1
 
@@ -180,3 +212,12 @@ surfaces post-launch — nothing else in the app depends on it.
   possible future phase once the single conversational tool has live usage
   data to justify it.
 - Full ChatGPT/Codex validation — best-effort only in v1.
+- A tool-call audit log — genuinely useful eventually, but nothing in v1
+  reads it (no admin view, nothing surfaced in Connected Apps), so it's
+  premature: added scope with no v1 consumer. Revisit once there's a real
+  need (support debugging, abuse investigation) to shape what it should
+  actually capture.
+- A text-relayed confirmation fallback for MCP clients without elicitation
+  support — deferred per Decision #3/Confirmation Flow item 5 above, since
+  it would reopen the exact safety gap Decision #2 exists to close. Build it
+  only once a real non-elicitation client needs write access.

@@ -4,15 +4,16 @@
 
 **Goal:** Let Claude (and best-effort ChatGPT/Codex) use AgentBook via an OAuth 2.1-authenticated MCP server, so onboarding is "add a connector, log in, approve" with no manual API keys.
 
-**Architecture:** An `oidc-provider`-backed OAuth 2.1 authorization server and an `@modelcontextprotocol/sdk`-based MCP endpoint, both added as new, additive routes inside `apps/web-next`. The MCP server exposes one tool, `ask_agentbook`, that thin-wraps agent-brain's existing `POST /agentbook-core/agent/message` — the same call the existing web/Telegram proxies already make. Destructive actions require human-visible confirmation via MCP's `elicitation/create` mechanism.
+**Architecture:** An `oidc-provider`-backed OAuth 2.1 authorization server and an `@modelcontextprotocol/sdk`-based MCP endpoint, both added as new, additive routes inside `apps/web-next`. The MCP server exposes one tool, `ask_agentbook`, that thin-wraps agent-brain's existing `POST /api/v1/agentbook-core/agent/message` — the same call the existing web/Telegram proxies already make. Destructive actions require human-visible confirmation via MCP's `elicitation/create` mechanism, checking agent-brain's real `data.plan.requiresConfirmation` field (not an invented one) and resuming via `sessionAction: 'confirm'`.
 
 **Tech Stack:** Next.js 15 App Router (`apps/web-next`), Prisma (`packages/database`), `oidc-provider` (new dep), `@modelcontextprotocol/sdk` (new dep), Vitest (unit), Playwright (e2e, `tests/e2e`).
 
 ## Global Constraints
 
 - Never reference or push against the old `livepeer/naap` Neon endpoint (`neondb_owner`, `ep-hidden-paper`, `ep-frosty-pine`) — this repo's DB is Supabase `agentbook-db` (CLAUDE.md).
-- New Prisma models go in `packages/database/prisma/schema.prisma`, end with `@@schema("public")` (app-level, not plugin-scoped), following the `id String @id @default(uuid())` / `createdAt DateTime @default(now())` / `updatedAt DateTime @updatedAt` conventions used throughout the file (e.g. `AbTelegramBot` at schema.prisma:1474-1489, `FeatureFlag` at schema.prisma:318-328).
-- New runtime dependencies go in `apps/web-next/package.json` `dependencies`, caret-pinned (`^x.y.z`), matching every other third-party entry there.
+- New Prisma models go in `packages/database/prisma/schema.prisma`, end with `@@schema("public")` (app-level, not plugin-scoped — matching `FeatureFlag` at schema.prisma:318-328, which is `public`; note `AbTelegramBot` at schema.prisma:1474-1489 is `plugin_agentbook_core`-scoped and is cited below only for its field-naming conventions, not its schema namespace), following the `id String @id @default(uuid())` / `createdAt DateTime @default(now())` / `updatedAt DateTime @updatedAt` conventions used throughout the file.
+- New runtime dependencies go in `apps/web-next/package.json` `dependencies`, caret-pinned (`^x.y.z`), matching every third-party entry there except `next` itself, which is exact-pinned (`"15.5.12"`, no caret).
+- **Merge Task 1's schema change promptly once opened.** This repo's Vercel build runs `prisma db push --accept-data-loss` on every deploy (`bin/vercel-build.sh:75-82`); a slow-merging schema PR racing a concurrent deploy from an older commit is a known sharp edge here (see `feedback_vercel_deploy_race_and_db_push`), not specific to this plan but worth calling out since Task 1 is the one task that touches the schema.
 - Unit tests are Vitest, colocated as `*.test.ts` beside the module under test (e.g. `apps/web-next/src/lib/agentbook-fx.ts` + `.test.ts`), following the `vi.mock('@naap/database', ...)` / `vi.mock('server-only', ...)` pattern from `apps/web-next/src/lib/agentbook-fx.test.ts:1-14`.
 - E2E tests are Playwright under `tests/e2e`, run via `cd tests/e2e && npx playwright test --config=playwright.config.ts`.
 - The feature flag is DB-backed via the existing `FeatureFlag` model + `apps/web-next/src/lib/admin-feature-flags.ts` helpers (not a raw `NEXT_PUBLIC_*_ENABLED` env var) — this is the established, already-tested pattern for dark-shipping features without a redeploy.
@@ -30,7 +31,7 @@
 - Test: `packages/database/src/oidc-adapter.test.ts` (new)
 
 **Interfaces:**
-- Produces: `OidcModel`, `McpConsentGrant`, `McpToolCallAuditLog` Prisma models, all `@@schema("public")`.
+- Produces: `OidcModel`, `McpConsentGrant` Prisma models, both `@@schema("public")`. (A tool-call audit log was considered and deferred — nothing in this plan reads one; see spec's Out of scope.)
 
 - [ ] **Step 1: Add the models to schema.prisma**
 
@@ -65,20 +66,6 @@ model McpConsentGrant {
   revokedAt DateTime?
 
   @@unique([userId, clientId])
-  @@schema("public")
-}
-
-model McpToolCallAuditLog {
-  id             String   @id @default(uuid())
-  tenantId       String
-  clientId       String
-  toolName       String
-  skillUsed      String?
-  wasDestructive Boolean  @default(false)
-  confirmed      Boolean?
-  createdAt      DateTime @default(now())
-
-  @@index([tenantId, createdAt])
   @@schema("public")
 }
 ```
@@ -256,6 +243,10 @@ Edit `apps/web-next/package.json`, add to `dependencies` (alphabetical, matching
 "oidc-provider": "^9.0.0",
 ```
 Run: `npm install --workspace=apps/web-next` (or repo's standard install command if `npm install` at the workspace is blocked in your environment — coordinate with whoever has install permissions before continuing).
+
+- [ ] **Step 1a: Check the bundle-size/cold-start cost before building on top of these deps**
+
+Run: `cd apps/web-next && npx next build 2>&1 | tail -40` and compare the reported function sizes for any route under `api/v1/oauth`/`api/v1/mcp` (once they exist, later tasks) against a pre-change baseline. `oidc-provider` and `@modelcontextprotocol/sdk` are both server-only and not bundled into client JS, so the main cost is per-function cold-start on Vercel — acceptable for v1, but worth a real number here rather than assuming it away.
 
 - [ ] **Step 2: Write the failing flag test**
 
@@ -606,6 +597,27 @@ export async function nodeRequestResponseFromWeb(request: NextRequest): Promise<
 Run: `npx vitest run apps/web-next/src/lib/mcp/node-web-adapter.test.ts`
 Expected: PASS (1 test).
 
+**This is the highest-risk file in the whole plan** — it's the one place hand-rolling Node HTTP primitives instead of using a library, and it's reused unchanged by Phase 2's MCP Streamable HTTP route (Task 7), which needs long-lived/streaming responses, not just one-shot JSON. The single happy-path test above is not sufficient before Task 7 depends on it — add the following before moving on:
+
+- [ ] **Step 4b: Add a header-casing/multi-value test, since oidc-provider (Koa-based) is sensitive to this**
+
+```ts
+it('lower-cases header names and preserves multiple Set-Cookie values, matching Node http semantics', async () => {
+  const request = new NextRequest('http://localhost/api/v1/oauth/authorize', {
+    headers: { 'Content-Type': 'application/json', Authorization: 'Bearer abc' },
+  });
+  const { nodeReq, nodeRes, responsePromise } = await nodeRequestResponseFromWeb(request);
+  expect(nodeReq.headers['content-type']).toBe('application/json');
+  expect(nodeReq.headers['authorization']).toBe('Bearer abc');
+
+  nodeRes.setHeader('set-cookie', ['a=1; Path=/', 'b=2; Path=/']);
+  nodeRes.end();
+  const response = await responsePromise;
+  expect(response.headers.get('set-cookie')).toContain('a=1');
+});
+```
+Run: `npx vitest run apps/web-next/src/lib/mcp/node-web-adapter.test.ts` — expect PASS (2 tests). If `Headers.set()` collapses the two `Set-Cookie` values into one comma-joined string (a real `Headers` API quirk), switch the response-building loop in the implementation to `headers.append()` for repeated header names instead of `headers.set()`, and re-run.
+
 - [ ] **Step 5: Commit both Task 4 and 4a together**
 
 ```bash
@@ -616,12 +628,15 @@ git commit -m "feat(mcp): Node/Web request adapter + mount oidc-provider at /api
 ### Task 5: Login/consent interaction UI
 
 **Files:**
-- Create: `apps/web-next/src/app/(auth)/oauth-consent/page.tsx`
-- Modify: `apps/web-next/src/lib/mcp/oauth-provider.ts` (add `features.interactions` config pointing at this page)
+- Create: `apps/web-next/src/app/(auth)/oauth-consent/page.tsx`, `consent-form.tsx`
+- Create: `apps/web-next/src/app/api/v1/oauth/interaction/route.ts` (GET — fetches interaction details for the consent screen)
+- Modify: `apps/web-next/src/lib/mcp/oauth-provider.ts` (add `features.interactions` config pointing at the consent page)
 
 **Interfaces:**
-- Consumes: `validateSession` from `apps/web-next/src/lib/api/auth.ts:394`; the existing login page's `?redirect=` param convention (`login-form.tsx:31-37`); `McpConsentGrant` from Task 1.
+- Consumes: `validateSession` (`auth.ts:394`); the existing login page's `?redirect=` param + guard (`login-form.tsx:31-37`); `McpConsentGrant` (Task 1); `nodeRequestResponseFromWeb` (Task 4a).
 - Produces: a rendered consent screen at `/oauth-consent?uid=<interaction-uid>`.
+
+**Important correctness note:** `oidc-provider`'s `interactionDetails(req, res)` and `interactionResult(req, res, result)` read/write a real Koa-style request/response — specifically, they read the interaction session from a signed cookie on the actual incoming request. They **cannot** be called with empty stand-ins (`{ headers: {} } as any`); that would fail to locate the interaction at runtime, not just work unreliably. Because a Next.js Server Component (`page.tsx`) doesn't receive a raw `NextRequest` the way a route handler does, the interaction lookup is done via a small GET API route (reusing Task 4a's tested adapter) instead of calling `oidc-provider` directly from the page.
 
 - [ ] **Step 1: Point oidc-provider's interaction flow at the new page**
 
@@ -634,15 +649,44 @@ interactions: {
 },
 ```
 
-- [ ] **Step 2: Implement the consent page**
+- [ ] **Step 2: Implement the interaction-details API route (has a real `NextRequest`, so the adapter works correctly here)**
+
+```ts
+// apps/web-next/src/app/api/v1/oauth/interaction/route.ts
+import { NextRequest, NextResponse } from 'next/server';
+import { getOAuthProvider } from '@/lib/mcp/oauth-provider';
+import { nodeRequestResponseFromWeb } from '@/lib/mcp/node-web-adapter';
+import { validateSession } from '@/lib/api/auth';
+import { prisma } from '@naap/database';
+
+export async function GET(request: NextRequest): Promise<NextResponse> {
+  const token = request.cookies.get('naap_auth_token')?.value;
+  const user = token ? await validateSession(token) : null;
+  if (!user) return NextResponse.json({ error: 'unauthenticated' }, { status: 401 });
+
+  const provider = getOAuthProvider();
+  const { nodeReq, nodeRes } = await nodeRequestResponseFromWeb(request);
+  const details = await provider.interactionDetails(nodeReq, nodeRes);
+  const clientId = details.params.client_id as string;
+
+  const existingGrant = await prisma.mcpConsentGrant.findUnique({
+    where: { userId_clientId: { userId: user.id, clientId } },
+  });
+
+  return NextResponse.json({
+    clientId,
+    alreadyGranted: Boolean(existingGrant && !existingGrant.revokedAt),
+  });
+}
+```
+
+- [ ] **Step 3: Implement the consent page (server-side login gate only) + client form (fetches details)**
 
 ```tsx
 // apps/web-next/src/app/(auth)/oauth-consent/page.tsx
 import { redirect } from 'next/navigation';
 import { cookies } from 'next/headers';
 import { validateSession } from '@/lib/api/auth';
-import { getOAuthProvider } from '@/lib/mcp/oauth-provider';
-import { prisma } from '@naap/database';
 import { ConsentForm } from './consent-form';
 
 export default async function OAuthConsentPage({
@@ -659,42 +703,22 @@ export default async function OAuthConsentPage({
     redirect(`/login?redirect=${encodeURIComponent(`/oauth-consent?uid=${uid}`)}`);
   }
 
-  const provider = getOAuthProvider();
-  const details = await provider.interactionDetails(
-    { headers: {}, method: 'GET' } as any,
-    {} as any,
-  );
-  const clientId = details.params.client_id as string;
-
-  const existingGrant = await prisma.mcpConsentGrant.findUnique({
-    where: { userId_clientId: { userId: user!.id, clientId } },
-  });
-
-  return (
-    <ConsentForm
-      uid={uid}
-      clientId={clientId}
-      alreadyGranted={Boolean(existingGrant && !existingGrant.revokedAt)}
-    />
-  );
+  return <ConsentForm uid={uid} />;
 }
 ```
 
 ```tsx
 // apps/web-next/src/app/(auth)/oauth-consent/consent-form.tsx
 'use client';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 
-export function ConsentForm({
-  uid,
-  clientId,
-  alreadyGranted,
-}: {
-  uid: string;
-  clientId: string;
-  alreadyGranted: boolean;
-}) {
+export function ConsentForm({ uid }: { uid: string }) {
+  const [details, setDetails] = useState<{ clientId: string; alreadyGranted: boolean } | null>(null);
   const [submitting, setSubmitting] = useState(false);
+
+  useEffect(() => {
+    fetch(`/api/v1/oauth/interaction?uid=${uid}`).then((r) => r.json()).then(setDetails);
+  }, [uid]);
 
   async function respond(allow: boolean) {
     setSubmitting(true);
@@ -707,14 +731,16 @@ export function ConsentForm({
     window.location.href = redirectTo;
   }
 
+  if (!details) return null;
+
   return (
     <div className="max-w-md mx-auto mt-24 p-6 rounded-xl border border-border bg-card">
       <h1 className="text-lg font-semibold mb-2">Connect to AgentBook</h1>
       <p className="text-sm text-muted-foreground mb-6">
-        <strong>{clientId}</strong> wants to access your AgentBook data —
+        <strong>{details.clientId}</strong> wants to access your AgentBook data —
         expenses, invoices, tax info — and take actions on your behalf
         (you'll always be asked to confirm before anything is recorded or sent).
-        {alreadyGranted && ' You previously approved this app.'}
+        {details.alreadyGranted && ' You previously approved this app.'}
       </p>
       <div className="flex gap-3">
         <button
@@ -737,59 +763,71 @@ export function ConsentForm({
 }
 ```
 
-- [ ] **Step 2: Implement the consent-decision route that finishes the interaction**
+- [ ] **Step 4: Implement the consent-decision route that finishes the interaction**
+
+Uses the Task 4a adapter to give `interactionDetails`/`interactionResult` a real request/response — the same fix applied here as in the interaction-details route above, since fake `{ headers: {} } as any` stand-ins would fail to locate the interaction's session cookie at runtime. Note `request.json()` and the adapter's own body read both consume the request's body stream, so the JSON payload is read via a `clone()` first to avoid a double-read error:
 
 ```ts
 // apps/web-next/src/app/api/v1/oauth/consent-decision/route.ts
 import { NextRequest, NextResponse } from 'next/server';
-import { cookies } from 'next/headers';
 import { validateSession } from '@/lib/api/auth';
 import { getOAuthProvider } from '@/lib/mcp/oauth-provider';
+import { nodeRequestResponseFromWeb } from '@/lib/mcp/node-web-adapter';
 import { prisma } from '@naap/database';
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
-  const { uid, allow } = await request.json();
-  const token = (await cookies()).get('naap_auth_token')?.value;
+  const { uid, allow } = await request.clone().json();
+  const token = request.cookies.get('naap_auth_token')?.value;
   const user = token ? await validateSession(token) : null;
   if (!user) return NextResponse.json({ error: 'unauthenticated' }, { status: 401 });
 
   const provider = getOAuthProvider();
-  const details = await provider.interactionDetails({ headers: {} } as any, {} as any);
+  const { nodeReq, nodeRes } = await nodeRequestResponseFromWeb(request);
+  const details = await provider.interactionDetails(nodeReq, nodeRes);
   const clientId = details.params.client_id as string;
 
+  let redirectTo: string;
   if (!allow) {
-    const result = { error: 'access_denied' };
-    const redirectTo = await provider.interactionResult({} as any, {} as any, result);
-    return NextResponse.json({ redirectTo });
+    redirectTo = await provider.interactionResult(nodeReq, nodeRes, { error: 'access_denied' });
+  } else {
+    await prisma.mcpConsentGrant.upsert({
+      where: { userId_clientId: { userId: user.id, clientId } },
+      create: { userId: user.id, clientId, scope: 'agentbook:full' },
+      update: { revokedAt: null, grantedAt: new Date() },
+    });
+    redirectTo = await provider.interactionResult(nodeReq, nodeRes, {
+      login: { accountId: user.id },
+      consent: { grantId: details.grantId },
+    });
   }
 
-  await prisma.mcpConsentGrant.upsert({
-    where: { userId_clientId: { userId: user.id, clientId } },
-    create: { userId: user.id, clientId, scope: 'agentbook:full' },
-    update: { revokedAt: null, grantedAt: new Date() },
-  });
-
-  const result = {
-    login: { accountId: user.id },
-    consent: { grantId: details.grantId },
-  };
-  const redirectTo = await provider.interactionResult({} as any, {} as any, result);
-  return NextResponse.json({ redirectTo });
+  const response = NextResponse.json({ redirectTo, uid });
+  // oidc-provider may write its own interaction/session bookkeeping cookies
+  // onto the stand-in Node response — forward them onto the real one rather
+  // than silently dropping them. Verify this against the pinned oidc-provider
+  // version during implementation; exact cookie names/behavior aren't
+  // something to assert without running the real library.
+  for (const [key, value] of Object.entries(nodeRes.getHeaders())) {
+    if (key.toLowerCase() === 'set-cookie' && value) {
+      (Array.isArray(value) ? value : [String(value)]).forEach((v) => response.headers.append('set-cookie', v));
+    }
+  }
+  return response;
 }
 ```
 
-- [ ] **Step 3: Manual verification (no automated test yet — covered by Task 12's full e2e flow)**
+- [ ] **Step 5: Manual verification (no automated test yet — covered by Task 11's scripted e2e flow)**
 
-Start `apps/web-next` locally, use a scripted OAuth client (built in Task 12) to hit `/api/v1/oauth/authorize`, confirm it redirects to `/oauth-consent?uid=...` and, if unauthenticated, further to `/login?redirect=...` first.
+Start `apps/web-next` locally, use a scripted OAuth client (built in Task 11) to hit `/api/v1/oauth/authorize`, confirm it redirects to `/oauth-consent?uid=...` and, if unauthenticated, further to `/login?redirect=...` first.
 
-- [ ] **Step 4: Commit**
+- [ ] **Step 6: Commit**
 
 ```bash
 git add apps/web-next/src/app/\(auth\)/oauth-consent apps/web-next/src/app/api/v1/oauth/consent-decision apps/web-next/src/lib/mcp/oauth-provider.ts
 git commit -m "feat(mcp): login/consent interaction UI reusing existing session auth"
 ```
 
-**PR checkpoint — Phase 1 complete.** At this point AgentBook has a working, independently-testable OAuth 2.1 authorization server (DCR, authorize, consent, token, revoke) with zero MCP-specific code yet. This is PR #1–3 worth of work depending on how finely you want to slice review (schema+adapter / discovery+DCR / interaction+token are natural split points if a reviewer wants smaller diffs).
+**PR checkpoint — Phase 1 complete.** At this point AgentBook has a working, independently-testable OAuth 2.1 authorization server (DCR, authorize, consent, token, revoke) with zero MCP-specific code yet. Natural split points if a reviewer wants smaller diffs: **PR #1** = Task 1 + Task 2 (schema, adapter, provider bootstrap, feature flag — Task 2 must ship with Task 1, since Tasks 3 and 4 both import `getOAuthProvider` from the module Task 2 creates); **PR #2** = Tasks 3 + 4 + 4a (discovery, DCR, Node/Web adapter); **PR #3** = Task 5 (interaction/consent + token exchange).
 
 ---
 
@@ -920,12 +958,14 @@ git commit -m "feat(mcp): bearer token validation + tenant resolution for MCP re
 - Consumes: `authenticateMcpRequest` (Task 6), `isMcpEnabled` (Task 2), `nodeRequestResponseFromWeb` (Task 4a). Mirrors the proxy pattern in `apps/web-next/src/app/api/v1/agentbook/core/[...path]/route.ts:1-66` (env var `AGENTBOOK_CORE_URL`, `x-tenant-id` header, `POST /api/v1/agentbook-core/agent/message`).
 - Produces: `callAgentBrain(params: { text: string; tenantId: string; conversationId?: string }): Promise<AgentResponse>`; the live `/api/v1/mcp` endpoint.
 
-- [ ] **Step 1: Write the failing test for the agent-brain wrapper**
+- [ ] **Step 1: Write the failing tests for the agent-brain wrapper**
+
+`AgentResponse.data.plan` mirrors agent-brain's real shape (`plugins/agentbook-core/backend/src/agent-brain.ts:167`: `plan?: { steps: PlanStep[]; requiresConfirmation: boolean }`) — not an invented field. `callAgentBrain` also needs a real error path: agent-brain is a separate Express service reachable over the network, and a downstream 5xx/timeout must not leak a raw error to the calling AI client.
 
 ```ts
 // apps/web-next/src/lib/mcp/ask-agentbook-tool.test.ts
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
-import { callAgentBrain } from './ask-agentbook-tool';
+import { callAgentBrain, AgentBrainError } from './ask-agentbook-tool';
 
 const originalFetch = global.fetch;
 
@@ -953,6 +993,27 @@ describe('callAgentBrain', () => {
     expect(body).toEqual({ text: 'top spending?', tenantId: 'user-1', channel: 'mcp' });
     expect(result.data.message).toBe('You spent $42 this week.');
   });
+
+  it('surfaces a real plan.requiresConfirmation shape, not an invented field', async () => {
+    (global.fetch as any).mockResolvedValue({
+      ok: true,
+      text: async () => JSON.stringify({
+        success: true,
+        data: { message: 'Record $42 to Uber as Travel?', plan: { steps: [{ id: '1' }], requiresConfirmation: true } },
+      }),
+    });
+    const result = await callAgentBrain({ text: 'log $42 uber ride', tenantId: 'user-1' });
+    expect(result.data.plan?.requiresConfirmation).toBe(true);
+  });
+
+  it('throws a safe AgentBrainError with a correlation id on network failure, no raw error leaked', async () => {
+    (global.fetch as any).mockRejectedValue(new Error('ECONNREFUSED 10.0.0.5:4150 — internal detail'));
+    await expect(callAgentBrain({ text: 'hi', tenantId: 'user-1' })).rejects.toMatchObject({
+      name: 'AgentBrainError',
+      message: expect.not.stringContaining('10.0.0.5'),
+      correlationId: expect.any(String),
+    });
+  });
 });
 ```
 
@@ -966,6 +1027,7 @@ Expected: FAIL with `Cannot find module './ask-agentbook-tool'`.
 ```ts
 // apps/web-next/src/lib/mcp/ask-agentbook-tool.ts
 import 'server-only';
+import crypto from 'crypto';
 import { PLUGIN_PORTS, DEFAULT_PORT } from '@/lib/plugin-ports';
 
 const CORE_URL = process.env.AGENTBOOK_CORE_URL || `http://localhost:${PLUGIN_PORTS['agentbook-core'] || DEFAULT_PORT}`;
@@ -977,8 +1039,17 @@ export interface AgentResponse {
     skillUsed?: string;
     confidence?: number;
     sessionId?: string;
-    plan?: unknown;
+    plan?: { steps: unknown[]; requiresConfirmation: boolean };
   };
+}
+
+export class AgentBrainError extends Error {
+  correlationId: string;
+  constructor(message: string, correlationId: string) {
+    super(message);
+    this.name = 'AgentBrainError';
+    this.correlationId = correlationId;
+  }
 }
 
 export async function callAgentBrain(params: {
@@ -987,26 +1058,37 @@ export async function callAgentBrain(params: {
   conversationId?: string;
   sessionAction?: 'confirm' | 'cancel';
 }): Promise<AgentResponse> {
-  const response = await fetch(`${CORE_URL}/api/v1/agentbook-core/agent/message`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json', 'x-tenant-id': params.tenantId },
-    body: JSON.stringify({
-      text: params.text,
-      tenantId: params.tenantId,
-      channel: 'mcp',
-      chatId: params.conversationId,
-      sessionAction: params.sessionAction,
-    }),
-  });
-  const body = await response.text();
-  return JSON.parse(body) as AgentResponse;
+  const correlationId = crypto.randomUUID();
+  try {
+    const response = await fetch(`${CORE_URL}/api/v1/agentbook-core/agent/message`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-tenant-id': params.tenantId },
+      body: JSON.stringify({
+        text: params.text,
+        tenantId: params.tenantId,
+        channel: 'mcp',
+        chatId: params.conversationId,
+        sessionAction: params.sessionAction,
+      }),
+    });
+    const body = await response.text();
+    if (!response.ok) {
+      console.error(`[mcp:${correlationId}] agent-brain returned ${response.status}`, body);
+      throw new AgentBrainError('AgentBook is temporarily unavailable — try again shortly.', correlationId);
+    }
+    return JSON.parse(body) as AgentResponse;
+  } catch (err) {
+    if (err instanceof AgentBrainError) throw err;
+    console.error(`[mcp:${correlationId}] agent-brain call failed`, err);
+    throw new AgentBrainError('AgentBook is temporarily unavailable — try again shortly.', correlationId);
+  }
 }
 ```
 
 - [ ] **Step 4: Run to verify it passes**
 
 Run: `npx vitest run apps/web-next/src/lib/mcp/ask-agentbook-tool.test.ts`
-Expected: PASS (1 test).
+Expected: PASS (3 tests).
 
 - [ ] **Step 5: Wire the MCP endpoint using the SDK's Streamable HTTP transport**
 
@@ -1042,8 +1124,16 @@ async function handle(request: NextRequest): Promise<Response> {
       annotations: { readOnlyHint: false, destructiveHint: true },
     },
     async ({ message, conversationId }) => {
-      const result = await callAgentBrain({ text: message, tenantId: auth.tenantId, conversationId });
-      return { content: [{ type: 'text', text: result.data.message }] };
+      try {
+        const result = await callAgentBrain({ text: message, tenantId: auth.tenantId, conversationId });
+        return { content: [{ type: 'text', text: result.data.message }] };
+      } catch (err) {
+        // AgentBrainError's message is already safe to surface (no stack
+        // traces/internal URLs); the correlationId is logged server-side
+        // (Task 7's callAgentBrain), not sent to the client.
+        const message = err instanceof Error ? err.message : 'AgentBook is temporarily unavailable.';
+        return { content: [{ type: 'text', text: message }], isError: true };
+      }
     },
   );
 
@@ -1074,73 +1164,42 @@ git commit -m "feat(mcp): MCP endpoint + ask_agentbook tool wrapping agent-brain
 ### Task 8: Elicitation-based confirmation for destructive actions
 
 **Files:**
-- Modify: `apps/web-next/src/lib/mcp/ask-agentbook-tool.ts` (detect `needsConfirmation` shape)
-- Modify: `apps/web-next/src/app/api/v1/mcp/route.ts` (call `server.server.elicitInput` when supported)
-- Test: `apps/web-next/src/lib/mcp/ask-agentbook-tool.test.ts` (extend)
+- Modify: `apps/web-next/src/app/api/v1/mcp/route.ts` (call `elicitation/create` when the plan requires confirmation; refuse gracefully when the client can't support it)
+- Test: a small `describe('destructive action handling')` block; the MCP SDK's request-handling isn't itself unit-testable without a running transport, so this is covered by Task 11's scripted e2e test, not a new unit test here.
 
 **Interfaces:**
-- Consumes: agent-brain's existing preview-and-confirm response shape (unchanged, per `agent-brain.ts`).
-- Produces: `AgentResponse['data']` extended with `needsConfirmation?: { preview: string }`; the tool handler issues `elicitation/create` before executing a confirmed write.
+- Consumes: `AgentResponse.data.plan.requiresConfirmation` (Task 7's corrected type — matches agent-brain's real shape, `agent-brain.ts:167`) and `AgentResponse.data.message` (the human-readable preview, via agent-brain's own `formatPlan`).
+- Produces: the tool handler issues `elicitation/create` before executing a confirmed write, resuming via `sessionAction: 'confirm'` (agent-brain's real confirm mechanism, `agent-brain.ts:191,205,480` — matched against text like "yes"/"confirm", not a bespoke MCP-side field).
 
-- [ ] **Step 1: Extend the failing test**
+**v1 requires elicitation support for any destructive action — no text-relay fallback.** A calling AI model relaying a preview as plain text and being trusted to only "confirm" after real user approval is exactly the gap Decision #2 (human-visible confirmation) exists to close; a client that can't do elicitation gets a clear, honest refusal for writes instead. This directly matches "Claude first" (Decision #3) — Claude Desktop/Code support elicitation today.
 
-Add to `apps/web-next/src/lib/mcp/ask-agentbook-tool.test.ts`:
-```ts
-it('surfaces needsConfirmation from agent-brain without executing the action', async () => {
-  (global.fetch as any).mockResolvedValue({
-    ok: true,
-    text: async () => JSON.stringify({
-      success: true,
-      data: { message: 'Record $42 to Uber as Travel?', needsConfirmation: { preview: 'Record $42 to Uber as Travel?' } },
-    }),
-  });
-  const result = await callAgentBrain({ text: 'log $42 uber ride', tenantId: 'user-1' });
-  expect(result.data.needsConfirmation?.preview).toBe('Record $42 to Uber as Travel?');
-});
-```
+- [ ] **Step 1: Wire elicitation into the tool handler**
 
-- [ ] **Step 2: Run to verify it fails**
-
-Run: `npx vitest run apps/web-next/src/lib/mcp/ask-agentbook-tool.test.ts`
-Expected: FAIL — `AgentResponse` type doesn't yet declare `needsConfirmation`.
-
-- [ ] **Step 3: Extend the `AgentResponse` type**
-
-In `apps/web-next/src/lib/mcp/ask-agentbook-tool.ts`, extend the interface:
-```ts
-export interface AgentResponse {
-  success: boolean;
-  data: {
-    message: string;
-    skillUsed?: string;
-    confidence?: number;
-    sessionId?: string;
-    plan?: unknown;
-    needsConfirmation?: { preview: string };
-  };
-}
-```
-
-- [ ] **Step 4: Run to verify it passes**
-
-Run: `npx vitest run apps/web-next/src/lib/mcp/ask-agentbook-tool.test.ts`
-Expected: PASS (2 tests).
-
-- [ ] **Step 5: Wire elicitation into the tool handler**
-
-In `apps/web-next/src/app/api/v1/mcp/route.ts`, replace the tool callback body:
+In `apps/web-next/src/app/api/v1/mcp/route.ts`, replace the tool callback body from Task 7:
 ```ts
 async ({ message, conversationId }, extra) => {
-  const result = await callAgentBrain({ text: message, tenantId: auth.tenantId, conversationId });
+  try {
+    const result = await callAgentBrain({ text: message, tenantId: auth.tenantId, conversationId });
 
-  if (result.data.needsConfirmation) {
-    const supportsElicitation = Boolean(extra.sendRequest); // capability check per MCP SDK
-    if (supportsElicitation) {
+    if (result.data.plan?.requiresConfirmation) {
+      const supportsElicitation = Boolean(extra.sendRequest); // capability check per MCP SDK
+      if (!supportsElicitation) {
+        return {
+          content: [{
+            type: 'text',
+            text: 'This connection doesn\'t support secure confirmation for actions that write ' +
+              'data, so I can\'t proceed with that. Read-only questions still work — or reconnect ' +
+              'using a client with elicitation support (e.g. Claude Desktop/Code).',
+          }],
+          isError: true,
+        };
+      }
+
       const elicited = await extra.sendRequest(
         {
           method: 'elicitation/create',
           params: {
-            message: result.data.needsConfirmation.preview,
+            message: result.data.message,
             requestedSchema: {
               type: 'object',
               properties: { confirm: { type: 'boolean', title: 'Proceed with this action?' } },
@@ -1164,24 +1223,18 @@ async ({ message, conversationId }, extra) => {
       return { content: [{ type: 'text', text: confirmed.data.message }] };
     }
 
-    // Fallback for clients without elicitation support (documented as weaker guarantee).
-    return {
-      content: [{
-        type: 'text',
-        text: `${result.data.needsConfirmation.preview}\n\nShow this to the user and only call ` +
-          `ask_agentbook again with the same message plus "yes, confirm" after they explicitly approve.`,
-      }],
-    };
+    return { content: [{ type: 'text', text: result.data.message }] };
+  } catch (err) {
+    const errMessage = err instanceof Error ? err.message : 'AgentBook is temporarily unavailable.';
+    return { content: [{ type: 'text', text: errMessage }], isError: true };
   }
-
-  return { content: [{ type: 'text', text: result.data.message }] };
 },
 ```
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 2: Commit**
 
 ```bash
-git add apps/web-next/src/lib/mcp/ask-agentbook-tool.ts apps/web-next/src/lib/mcp/ask-agentbook-tool.test.ts apps/web-next/src/app/api/v1/mcp/route.ts
+git add apps/web-next/src/app/api/v1/mcp/route.ts
 git commit -m "feat(mcp): elicitation-based human confirmation for destructive actions"
 ```
 
@@ -1190,12 +1243,13 @@ git commit -m "feat(mcp): elicitation-based human confirmation for destructive a
 **Files:**
 - Create: `apps/web-next/src/lib/mcp/rate-limit.ts`
 - Test: `apps/web-next/src/lib/mcp/rate-limit.test.ts`
-- Modify: `apps/web-next/src/app/api/v1/mcp/route.ts` (rate limit + audit log write)
+- Modify: `apps/web-next/src/app/api/v1/mcp/route.ts` (rate limit)
+- Modify: `apps/web-next/src/app/api/v1/oauth/[...oidc]/route.ts` (rate limit the token endpoint)
 - Modify: `apps/web-next/src/app/(dashboard)/settings/page.tsx` (add "Connected Apps" section between Plugin Personalization at line 832 and Appearance at line 1013)
-- Create: `apps/web-next/src/app/api/v1/oauth/connected-apps/route.ts` (list + revoke)
+- Create: `apps/web-next/src/app/api/v1/oauth/connected-apps/route.ts` (list + revoke, with real immediate token invalidation)
 
 **Interfaces:**
-- Consumes: `McpConsentGrant`, `McpToolCallAuditLog` (Task 1).
+- Consumes: `McpConsentGrant`, `PrismaOidcAdapter` (Task 1).
 - Produces: `checkRateLimit(key: string, limit: number, windowMs: number): Promise<boolean>`; `GET/DELETE /api/v1/oauth/connected-apps`.
 
 - [ ] **Step 1: Write the failing rate-limit test**
@@ -1245,29 +1299,34 @@ Note: in-memory is per-instance and acceptable for v1 abuse-dampening, not a har
 Run: `npx vitest run apps/web-next/src/lib/mcp/rate-limit.test.ts`
 Expected: PASS (1 test).
 
-- [ ] **Step 5: Wire rate limiting + audit logging into the MCP route**
+- [ ] **Step 5: Wire rate limiting into both the MCP route and the token endpoint**
 
-In `apps/web-next/src/app/api/v1/mcp/route.ts`, after successful auth:
+The spec calls for rate limiting on *both* endpoints, not just the MCP one — the token endpoint is the more attractive target for abuse (it's what actually mints credentials). In `apps/web-next/src/app/api/v1/mcp/route.ts`, after successful auth:
 ```ts
 const allowed = await checkRateLimit(`mcp:${auth.userId}`, 60, 60_000); // 60 calls/min/user
 if (!allowed) {
   return NextResponse.json({ error: { code: 'rate_limited', message: 'Too many requests' } }, { status: 429 });
 }
 ```
-And inside the tool handler, after computing `result`:
+In `apps/web-next/src/app/api/v1/oauth/[...oidc]/route.ts` (Task 4), rate limit by client IP before delegating to `provider.callback()`, since token requests aren't behind `authenticateMcpRequest` (that's what they're issuing):
 ```ts
-await prisma.mcpToolCallAuditLog.create({
-  data: {
-    tenantId: auth.tenantId,
-    clientId: auth.clientId,
-    toolName: 'ask_agentbook',
-    skillUsed: result.data.skillUsed,
-    wasDestructive: Boolean(result.data.needsConfirmation),
-  },
-});
+async function handle(request: NextRequest): Promise<Response> {
+  if (request.nextUrl.pathname.endsWith('/token')) {
+    const ip = request.headers.get('x-forwarded-for') ?? 'unknown';
+    const allowed = await checkRateLimit(`oauth-token:${ip}`, 20, 60_000); // 20 token requests/min/IP
+    if (!allowed) return NextResponse.json({ error: 'rate_limited' }, { status: 429 });
+  }
+  const provider = getOAuthProvider();
+  const { nodeReq, nodeRes, responsePromise } = await nodeRequestResponseFromWeb(request);
+  provider.callback()(nodeReq, nodeRes);
+  return responsePromise;
+}
 ```
+(Per-tool-call audit logging was considered here and deferred — see spec's Out of scope; nothing in this plan reads an audit log yet, so it isn't written either.)
 
-- [ ] **Step 6: Implement the connected-apps list/revoke route**
+- [ ] **Step 6: Implement the connected-apps list/revoke route, with real immediate token revocation**
+
+Revocation must actually invalidate the underlying tokens, not just mark consent revoked and let them expire on their own TTL (up to 30 days for a refresh token, per Task 2's `ttl` config) — that's the difference between "revoked" and "revoked in up to a month." `revokeByGrantId` already exists from Task 1's adapter; this wires it in rather than leaving it as a follow-up comment.
 
 ```ts
 // apps/web-next/src/app/api/v1/oauth/connected-apps/route.ts
@@ -1275,6 +1334,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
 import { validateSession } from '@/lib/api/auth';
 import { prisma } from '@naap/database';
+import { PrismaOidcAdapter } from '@naap/database/src/oidc-adapter';
 
 export async function GET(): Promise<NextResponse> {
   const token = (await cookies()).get('naap_auth_token')?.value;
@@ -1294,16 +1354,35 @@ export async function DELETE(request: NextRequest): Promise<NextResponse> {
   if (!user) return NextResponse.json({ error: 'unauthenticated' }, { status: 401 });
 
   const { clientId } = await request.json();
-  await prisma.mcpConsentGrant.updateMany({
-    where: { userId: user.id, clientId },
+  const grant = await prisma.mcpConsentGrant.findUnique({
+    where: { userId_clientId: { userId: user.id, clientId } },
+  });
+  if (!grant) return NextResponse.json({ error: 'not_found' }, { status: 404 });
+
+  await prisma.mcpConsentGrant.update({
+    where: { id: grant.id },
     data: { revokedAt: new Date() },
   });
-  // oidc-provider tokens for this grant are pruned by TTL; for immediate
-  // revocation, also call provider AccessToken/RefreshToken revokeByGrantId
-  // via the same PrismaOidcAdapter used in Task 1.
+
+  // Grant rows created via oidc-provider's own Grant model share the same
+  // grantId used to key AccessToken/RefreshToken rows in OidcModel — find
+  // any Grant rows for this (userId, clientId) and revoke by grantId so
+  // outstanding tokens die immediately rather than waiting out their TTL.
+  const grantAdapter = new PrismaOidcAdapter('Grant');
+  const oidcGrants = await prisma.oidcModel.findMany({
+    where: { type: 'Grant', payload: { path: ['accountId'], equals: user.id } },
+  });
+  for (const g of oidcGrants) {
+    const payload = g.payload as { clientId?: string };
+    if (payload.clientId === clientId) {
+      await grantAdapter.revokeByGrantId(g.id);
+    }
+  }
+
   return NextResponse.json({ success: true });
 }
 ```
+Note: the exact `Grant` payload shape (whether `clientId` is a top-level field, and whether Prisma's JSON path filtering works this way for the installed Postgres provider) should be verified against the actual `oidc-provider` version during implementation — this is the same category of "verify against the real library" caveat as Task 5's cookie forwarding.
 
 - [ ] **Step 7: Add the "Connected Apps" section to Settings**
 
@@ -1321,11 +1400,11 @@ In `apps/web-next/src/app/(dashboard)/settings/page.tsx`, insert a new `<section
 - [ ] **Step 8: Commit**
 
 ```bash
-git add apps/web-next/src/lib/mcp/rate-limit.ts apps/web-next/src/lib/mcp/rate-limit.test.ts apps/web-next/src/app/api/v1/mcp/route.ts apps/web-next/src/app/api/v1/oauth/connected-apps apps/web-next/src/app/\(dashboard\)/settings/page.tsx
-git commit -m "feat(mcp): rate limiting, tool-call audit log, and Connected Apps revoke UI"
+git add apps/web-next/src/lib/mcp/rate-limit.ts apps/web-next/src/lib/mcp/rate-limit.test.ts apps/web-next/src/app/api/v1/mcp/route.ts apps/web-next/src/app/api/v1/oauth/[...oidc]/route.ts apps/web-next/src/app/api/v1/oauth/connected-apps apps/web-next/src/app/\(dashboard\)/settings/page.tsx
+git commit -m "feat(mcp): rate limiting on MCP + token endpoints, Connected Apps revoke UI with real token invalidation"
 ```
 
-**PR checkpoint — Phase 3 complete (PR #6–7).** Destructive actions now require a real human confirmation via elicitation (with a documented fallback), abuse is rate-limited, every tool call is audited, and users can see/revoke connected apps from Settings.
+**PR checkpoint — Phase 3 complete (PR #6–7).** Destructive actions now require a real human confirmation via elicitation — with a graceful refusal, not a weaker fallback, for clients that can't support it — abuse is rate-limited on both the MCP and token endpoints, and users can see/revoke connected apps from Settings with immediate token invalidation.
 
 ---
 
@@ -1461,13 +1540,26 @@ git commit -m "test(mcp): full OAuth handshake + tool call e2e coverage"
 - [ ] **Step 4: Ask a read-only question** ("what's my top spending category this month?") and confirm a sensible answer comes back
 - [ ] **Step 5: Trigger a destructive action** ("log a $12 coffee expense") and confirm Claude surfaces a real confirmation prompt (via elicitation) before anything is written — verify the expense actually appears in AgentBook only after confirming
 - [ ] **Step 6: Revoke the connection from AgentBook Settings** and confirm the next Claude tool call fails with a re-auth prompt, not a silent success
+- [ ] **Step 7: Reconnect and exercise a real multi-turn confirm sequence** — ask Claude something that maps to a destructive skill, decline the elicitation prompt, confirm nothing was written, then repeat and accept — not just a single-shot happy path, since the confirm/decline branch is the actual safety-critical code path in this whole plan
 
-**PR checkpoint — Phase 4 complete (PR #8–9).** MCP server is documented, has full automated OAuth-flow coverage, and has been validated against a real Claude client end-to-end, including the safety-critical confirmation path.
+**PR checkpoint — Phase 4 complete (PR #8–9).** MCP server is documented, has full automated OAuth-flow coverage, and has been validated against a real Claude client end-to-end, including the safety-critical confirmation path in both its accept and decline branches.
 
 ---
 
 ## Self-Review Notes
 
-- **Spec coverage**: every spec section (Decisions 1–4, Architecture, End-to-end flow, Confirmation flow, Error handling, Testing, Regression risk, Out-of-scope) maps to at least one task above. Out-of-scope items (granular scopes, multi-tenant consent, structured per-capability tools, full ChatGPT/Codex validation) are intentionally absent from this plan, matching the spec.
-- **Type consistency checked**: `AgentResponse` is defined once in Task 7 and only extended (not redefined) in Task 8; `authenticateMcpRequest`'s return shape (`{ userId, tenantId, clientId }` or `{ error }`) is used identically in Tasks 7–9.
+- **Spec coverage**: every spec section (Decisions 1–4, Architecture, End-to-end flow, Confirmation flow, Error handling, Testing, Regression risk, Out-of-scope) maps to at least one task above. Out-of-scope items (granular scopes, multi-tenant consent, structured per-capability tools, full ChatGPT/Codex validation, a tool-call audit log, and the text-relay confirmation fallback) are intentionally absent from this plan, matching the spec.
+- **Type consistency checked**: `AgentResponse` is defined once in Task 7 (matching agent-brain's real `plan.requiresConfirmation` shape) and only consumed, not redefined, in Task 8; `authenticateMcpRequest`'s return shape (`{ userId, tenantId, clientId }` or `{ error }`) is used identically in Tasks 7–9.
 - **Regression proof points are concrete, not asserted**: Task 3 Step 5 and Task 11 Step 3 both explicitly re-run pre-existing e2e specs and require them to still pass — this is the plan's actual evidence for the spec's "low regression risk" claim, not just a repeated claim.
+
+### Revision log — external review pass (2026-07-10)
+
+This plan and its spec were independently reviewed by three reviewers (fact-accuracy against the live codebase, spec/plan consistency and completeness, over-engineering and regression-risk critique) before any code was written. Confirmed and fixed:
+
+- **Real bug, not style**: `needsConfirmation: { preview: string }` was an invented field — agent-brain's actual confirm-gate shape is `data.plan.requiresConfirmation: boolean` + `data.message` (preview text), resumed via `sessionAction: 'confirm'`. Fixed throughout Tasks 7–8 and the spec's Confirmation Flow section.
+- **Real bug, not style**: Task 5's original `interactionDetails`/`interactionResult` calls used empty stand-ins (`{ headers: {} } as any`) — `oidc-provider` reads a real session cookie from the actual request to locate an interaction, so this would have failed at runtime. Fixed by routing through Task 4a's tested Node/Web adapter with the real incoming request in both the new interaction-details route and the consent-decision route.
+- **Route/middleware inconsistency between spec and plan**: the spec originally described bare `/oauth/*` and `/api/mcp` routes needing two middleware allowlist additions; the plan had already (correctly) put everything under the already-exempt `/api/v1/*` prefix, needing only a `.well-known` addition. Spec updated to match the plan's lower-risk scheme.
+- **Scope cut (YAGNI)**: `McpToolCallAuditLog` removed from v1 — nothing in the 12 tasks reads it. Revisit once there's a real consumer.
+- **Safety-alignment fix**: the original text-relay fallback for non-elicitation clients directly reopened the gap Decision #2 exists to close. v1 now requires elicitation for any destructive action and gives a clear refusal otherwise, consistent with "Claude first."
+- **Completeness gaps closed**: rate limiting now covers the token endpoint (not just MCP), `callAgentBrain` now has real error handling with a correlation ID instead of letting `JSON.parse` throw, and Connected Apps revocation now actually calls `revokeByGrantId` instead of leaving it as a code comment.
+- **Minor precision fixes**: endpoint path citations now include `/api/v1`; the `AbTelegramBot` schema-citation note was corrected (it's `plugin_agentbook_core`-scoped, not `public`); `next`'s exact-pin exception to the caret-pinning convention is now noted; a schema-PR-merge-promptly note was added given this repo's known `prisma db push --accept-data-loss` deploy-race sharp edge; a bundle-size/cold-start check step was added for the two new dependencies.
