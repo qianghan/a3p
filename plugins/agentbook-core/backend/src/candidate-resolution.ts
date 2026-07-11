@@ -7,11 +7,14 @@
  * Resolution order:
  *   1. Ordinal ("first"..."fifth", "#2", "2nd") — index into candidates.
  *   2. Fuzzy — score each candidate by how many of its title's (plus any
- *      extraMatchFields', e.g. "employer") significant words (4+ chars)
- *      appear in the user's message; highest score wins.
+ *      extraMatchFields', e.g. "employer") words (2+ chars, excluding common
+ *      stopwords like "the", "of", "to") appear in the user's message;
+ *      highest score wins.
  *
  * Returns null if candidates is empty, or if neither resolution succeeds.
  */
+const FUZZY_MATCH_STOPWORDS = new Set(['the', 'a', 'an', 'to', 'of', 'in', 'on', 'at', 'for', 'and', 'or', 'is', 'it', 'that', 'this', 'with', 'from', 'by', 'as']);
+
 export function resolveOrdinalOrFuzzyCandidate<T extends { title: string }>(
   candidates: T[],
   text: string,
@@ -37,7 +40,7 @@ export function resolveOrdinalOrFuzzyCandidate<T extends { title: string }>(
   let bestScore = 0;
   for (const c of candidates) {
     const fieldValues = [c.title, ...extraMatchFields.map((f) => (c as any)[f])].filter(Boolean).join(' ');
-    const words = fieldValues.toLowerCase().split(/\W+/).filter((w: string) => w.length > 0);
+    const words = fieldValues.toLowerCase().split(/\W+/).filter((w: string) => w.length >= 2 && !FUZZY_MATCH_STOPWORDS.has(w));
     const score = words.filter((w: string) => lowerText.includes(w)).length;
     if (score > bestScore) { bestScore = score; best = c; }
   }

@@ -33,6 +33,11 @@ describe('resolveOrdinalOrFuzzyCandidate', () => {
     expect(resolveOrdinalOrFuzzyCandidate(SCHOLARSHIPS, 'save the TD one')).toBe(SCHOLARSHIPS[1]);
   });
 
+  it('does not let a shared stopword between titles override an actual content-word match', () => {
+    const candidates = [{ title: 'Path to Success Fund' }, { title: 'STEM Achievement Award' }];
+    expect(resolveOrdinalOrFuzzyCandidate(candidates, 'I want to save that award')).toBe(candidates[1]);
+  });
+
   it('matches against extraMatchFields (e.g. employer) in addition to title', () => {
     expect(resolveOrdinalOrFuzzyCandidate(JOBS, 'save the shopify one', ['employer'])).toBe(JOBS[0]);
     expect(resolveOrdinalOrFuzzyCandidate(JOBS, 'save the rbc one', ['employer'])).toBe(JOBS[1]);
