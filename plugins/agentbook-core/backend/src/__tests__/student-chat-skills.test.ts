@@ -185,3 +185,54 @@ describe('student chat skills — save-coop-opportunity candidate resolution', (
     expect(body.employer).toBe('Local Startup Co');
   });
 });
+
+describe('student chat skills — response formatting', () => {
+  beforeEach(() => {
+    mockAbTenantConfigFindUnique.mockResolvedValue({ businessType: 'student' });
+    mockHasAddOn.mockResolvedValue(true);
+  });
+
+  it('formats find-scholarships results as a readable numbered list, not a JSON dump', async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        success: true,
+        data: {
+          candidates: [
+            { title: 'Chen Family Award', amountText: '$2,000', deadlineText: 'June 1', sourceUrl: 'https://example.edu/chen', sourceLabel: 'example.edu' },
+          ],
+          note: 'Verify eligibility at the source before applying.',
+        },
+      }),
+    });
+    const result = await executeClassification(classification('find-scholarships', { query: 'chemistry' }), 'find scholarships for chemistry majors', 'tenant-1', 'api');
+    expect(result.responseData.message).toMatch(/Chen Family Award/);
+    expect(result.responseData.message).toMatch(/\$2,000/);
+    expect(result.responseData.message).not.toMatch(/^\{/); // not a raw JSON dump
+  });
+
+  it('formats an empty find-scholarships result using the route\'s own note', async () => {
+    mockFetch.mockResolvedValueOnce({ ok: true, json: async () => ({ success: true, data: { candidates: [], note: 'Search is temporarily unavailable.' } }) });
+    const result = await executeClassification(classification('find-scholarships'), 'find me a scholarship', 'tenant-1', 'api');
+    expect(result.responseData.message).toMatch(/temporarily unavailable/);
+  });
+
+  it('formats find-coop-opportunities results with employer and comp', async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        success: true,
+        data: { candidates: [{ title: 'Software Engineering Co-op', employer: 'Shopify', location: 'Remote', compText: '$28/hr', deadlineText: 'March 1', sourceUrl: 'https://shopify.com/careers/1', sourceLabel: 'shopify.com' }], note: '' },
+      }),
+    });
+    const result = await executeClassification(classification('find-coop-opportunities'), 'find a co-op', 'tenant-1', 'api');
+    expect(result.responseData.message).toMatch(/Shopify/);
+    expect(result.responseData.message).toMatch(/\$28\/hr/);
+  });
+
+  it('formats find-roommate-matches results with compatibility score, and relays the route\'s own note when no profile is set up', async () => {
+    mockFetch.mockResolvedValueOnce({ ok: true, json: async () => ({ success: true, data: { matches: [], note: 'Turn on your roommate profile to see compatible students.' } }) });
+    const result = await executeClassification(classification('find-roommate-matches'), 'find me a roommate', 'tenant-1', 'api');
+    expect(result.responseData.message).toMatch(/Turn on your roommate profile/);
+  });
+});

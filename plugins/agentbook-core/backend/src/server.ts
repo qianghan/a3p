@@ -5330,6 +5330,46 @@ Only include chartData if visualization adds value. Keep the answer under 200 wo
           message += `\n• ${l.description}: ${fmtCurrency(l.amountCents, data.currency)}`;
         });
       }
+    // Scholarship search results
+    } else if (selectedSkill.name === 'find-scholarships' && Array.isArray(data?.candidates)) {
+      if (data.candidates.length === 0) {
+        message = data.note || "I couldn't find any groundable scholarship matches right now — try broadening your search or checking back later.";
+      } else {
+        message = `**${data.candidates.length} scholarship${data.candidates.length === 1 ? '' : 's'} found**\n`;
+        data.candidates.slice(0, 5).forEach((c: any, i: number) => {
+          message += `\n${i + 1}. **${c.title}**${c.amountText ? ` — ${c.amountText}` : ''}${c.deadlineText ? ` (due ${c.deadlineText})` : ''}\n   ${c.sourceLabel || c.sourceUrl}`;
+        });
+        if (data.note) message += `\n\n_${data.note}_`;
+        message += '\n\nSay "save the first one" (or name one) to add it to your shortlist.';
+      }
+
+    // Co-op / job search results
+    } else if (selectedSkill.name === 'find-coop-opportunities' && Array.isArray(data?.candidates)) {
+      if (data.candidates.length === 0) {
+        message = data.note || "I couldn't find any groundable co-op/job matches right now — try broadening your search or checking back later.";
+      } else {
+        message = `**${data.candidates.length} opportunit${data.candidates.length === 1 ? 'y' : 'ies'} found**\n`;
+        data.candidates.slice(0, 5).forEach((c: any, i: number) => {
+          message += `\n${i + 1}. **${c.title}**${c.employer ? ` at ${c.employer}` : ''}${c.location ? ` (${c.location})` : ''}${c.compText ? ` — ${c.compText}` : ''}\n   ${c.sourceLabel || c.sourceUrl}`;
+        });
+        if (data.note) message += `\n\n_${data.note}_`;
+        message += '\n\nSay "save the first one" (or name one) to add it to your shortlist.';
+      }
+
+    // Roommate matches
+    } else if (selectedSkill.name === 'find-roommate-matches' && Array.isArray(data?.matches)) {
+      if (data.matches.length === 0) {
+        message = data.note || 'No compatible students found yet.';
+      } else {
+        message = `**${data.matches.length} compatible student${data.matches.length === 1 ? '' : 's'}**\n`;
+        data.matches.slice(0, 5).forEach((m: any) => {
+          const min = m.budgetMinCents != null ? `$${(m.budgetMinCents / 100).toFixed(0)}` : '?';
+          const max = m.budgetMaxCents != null ? `$${(m.budgetMaxCents / 100).toFixed(0)}` : '?';
+          message += `\n• **${m.displayHandle}** — ${m.area}, budget ${min}-${max} (${Math.round((m.score || 0) * 100)}% match)\n   ${m.reasons?.[0] || ''}`;
+        });
+        if (data.note) message += `\n\n_${data.note}_`;
+      }
+
     } else {
       message = JSON.stringify(data).slice(0, 300);
     }
