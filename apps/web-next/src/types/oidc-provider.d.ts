@@ -41,6 +41,21 @@ declare module 'oidc-provider' {
     [key: string]: unknown;
   }
 
+  // An AccessToken model instance
+  // (node_modules/oidc-provider/lib/models/access_token.js +
+  // .../base_token.js). `find()` (base_model.js) resolves `undefined` if the
+  // token doesn't exist, is malformed, or has expired (expiration is checked
+  // as part of `verify()`, which throws internally and is swallowed) —
+  // otherwise an instance built from the adapter-stored payload, restricted
+  // to the `IN_PAYLOAD` allow-list (`accountId`, `clientId`, `scope`,
+  // `grantId`, `sid`, ... — only the two fields this codebase reads are
+  // typed here).
+  export interface AccessTokenInstance {
+    accountId: string;
+    clientId: string;
+    [key: string]: unknown;
+  }
+
   export class Provider {
     constructor(issuer: string, configuration?: Configuration);
     readonly issuer: string;
@@ -65,6 +80,18 @@ declare module 'oidc-provider' {
     Grant: {
       new (payload: { accountId: string; clientId: string }): GrantInstance;
       find(id: string): Promise<GrantInstance>;
+    };
+    // Dynamically generated per-provider AccessToken model class
+    // (node_modules/oidc-provider/lib/models/access_token.js), lazily
+    // instantiated by the real `Provider#AccessToken` getter
+    // (node_modules/oidc-provider/lib/provider.js) — same pattern as `Grant`
+    // above. `find()` returns `undefined` for a missing/malformed/expired
+    // token; see `AccessTokenInstance` above for what a hit resolves with.
+    AccessToken: {
+      find(
+        token: string,
+        options?: { ignoreExpiration?: boolean }
+      ): Promise<AccessTokenInstance | undefined>;
     };
     [key: string]: unknown;
   }
