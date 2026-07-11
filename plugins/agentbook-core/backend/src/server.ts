@@ -16,6 +16,7 @@ import { handleDashboardOverview } from './dashboard/overview.js';
 import { handleDashboardActivity } from './dashboard/activity.js';
 import { handleDashboardAgentSummary } from './dashboard/agent-summary.js';
 import { listPastFilingsForTenant, buildPastFilingContext } from './past-filing-context.js';
+import { resolveOrdinalOrFuzzyCandidate } from './candidate-resolution.js';
 
 // Read plugin.json for dev-only fields. When bundled by webpack (Next.js
 // on Vercel), `new URL(..., import.meta.url)` is incompatible with fs —
@@ -4403,6 +4404,79 @@ async function _executeClassificationCore(
       return {
         selectedSkill, extractedParams, confidence: 0, skillUsed: 'record-invoice-payment', skillResponse: null,
         responseData: { message: "I couldn't record the payment. Please try again.", skillUsed: 'record-invoice-payment', confidence: 0, latencyMs: Date.now() - startTime },
+      };
+    }
+  }
+
+  // INTERNAL handler: save-scholarship — resolve a candidate from the prior
+  // find-scholarships turn (ordinal or fuzzy title match), or fall back to
+  // a direct free-text description, then save it via the scholarship
+  // opportunities endpoint.
+  if (selectedSkill.name === 'save-scholarship') {
+    try {
+      const lastConvo = await db.abConversation.findFirst({
+        where: { tenantId, skillUsed: 'find-scholarships' },
+        orderBy: { createdAt: 'desc' },
+      });
+      const candidates: any[] = (lastConvo?.data as any)?.data?.candidates ?? [];
+      let chosen: any = resolveOrdinalOrFuzzyCandidate(candidates, text || '');
+
+      if (!chosen && extractedParams.title) {
+        chosen = {
+          title: String(extractedParams.title),
+          amountText: extractedParams.amountText ? String(extractedParams.amountText) : null,
+          deadlineText: extractedParams.deadlineText ? String(extractedParams.deadlineText) : null,
+          sourceUrl: extractedParams.sourceUrl ? String(extractedParams.sourceUrl) : null,
+        };
+      }
+
+      if (!chosen) {
+        return {
+          selectedSkill, extractedParams, confidence, skillUsed: 'save-scholarship', skillResponse: null,
+          responseData: {
+            message: "I'm not sure which scholarship you mean — try \"find scholarships\" first, then \"save the first one\", or tell me the name directly.",
+            skillUsed: 'save-scholarship', confidence, latencyMs: Date.now() - startTime,
+          },
+        };
+      }
+
+      const scholarshipBase = baseUrls['/api/v1/agentbook-scholarship'] || 'http://localhost:3000';
+      const saveRes = await fetch(`${scholarshipBase}/api/v1/agentbook-scholarship/opportunities`, {
+        method: 'POST',
+        headers: brainHeaders(tenantId),
+        body: JSON.stringify({
+          title: chosen.title,
+          sourceUrl: chosen.sourceUrl || null,
+          sourceLabel: chosen.sourceLabel || null,
+          deadline: chosen.deadlineText || null,
+          amountText: chosen.amountText || null,
+          eligibilitySummary: chosen.eligibilitySummary || null,
+        }),
+      });
+      const saveData = await saveRes.json() as any;
+      if (!saveRes.ok || !saveData.success) {
+        return {
+          selectedSkill, extractedParams, confidence, skillUsed: 'save-scholarship', skillResponse: saveData,
+          responseData: {
+            message: `Couldn't save that scholarship. ${saveData.error || 'Please try again.'}`,
+            skillUsed: 'save-scholarship', confidence, latencyMs: Date.now() - startTime,
+          },
+        };
+      }
+      const detailParts = [chosen.amountText, chosen.deadlineText ? `due ${chosen.deadlineText}` : null].filter(Boolean);
+      const detail = detailParts.length ? ` (${detailParts.join(', ')})` : '';
+      return {
+        selectedSkill, extractedParams, confidence, skillUsed: 'save-scholarship', skillResponse: saveData,
+        responseData: {
+          message: `Saved "${chosen.title}"${detail} to your shortlist — view it anytime in Scholarships.`,
+          skillUsed: 'save-scholarship', confidence, latencyMs: Date.now() - startTime,
+        },
+      };
+    } catch (err) {
+      console.error('[save-scholarship] error:', err);
+      return {
+        selectedSkill, extractedParams, confidence: 0, skillUsed: 'save-scholarship', skillResponse: null,
+        responseData: { message: "I couldn't save that scholarship. Please try again.", skillUsed: 'save-scholarship', confidence: 0, latencyMs: Date.now() - startTime },
       };
     }
   }
