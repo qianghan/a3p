@@ -147,6 +147,7 @@ const publicRoutes = [
   '/_next',
   '/favicon.ico',
   '/docs',
+  '/.well-known',
 ];
 
 /**
