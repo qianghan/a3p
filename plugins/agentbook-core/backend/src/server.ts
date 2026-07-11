@@ -3211,10 +3211,10 @@ async function _executeClassificationCore(
     const eligible = cfg?.businessType === 'student' && (await hasAddOn(tenantId, 'student_success'));
     if (!eligible) {
       return {
-        selectedSkill, extractedParams, confidence: 1, skillUsed: selectedSkill.name, skillResponse: null,
+        selectedSkill, extractedParams, confidence: 0, skillUsed: selectedSkill.name, skillResponse: null,
         responseData: {
           message: 'Scholarship, co-op, and roommate search are part of Student Success — enable it in your Business Profile settings to use them.',
-          skillUsed: selectedSkill.name, confidence: 1, latencyMs: Date.now() - startTime,
+          skillUsed: selectedSkill.name, confidence: 0, latencyMs: Date.now() - startTime,
         },
       };
     }
@@ -4408,16 +4408,39 @@ async function _executeClassificationCore(
     }
   }
 
+  // save-scholarship's broad triggers ('save that', 'save the X one') win
+  // any ambiguous phrase over save-coop-opportunity's narrower ones (which
+  // require an explicit co-op/internship/job keyword) purely by BUILT_IN_SKILLS
+  // array order — so "save the first one" always classifies as
+  // save-scholarship even right after a co-op search, since that's exactly
+  // the phrase the find-coop-opportunities response template tells users to
+  // say. When there's no direct free-text description (extractedParams.title
+  // unset — i.e. this is a referential "save the one I just found", not an
+  // explicit new description), check which find-* skill actually ran most
+  // recently and re-dispatch to the correct save handler if it disagrees
+  // with the classifier's guess.
+  if (selectedSkill.name === 'save-scholarship' && !extractedParams.title) {
+    const recentFind = await db.abConversation.findFirst({
+      where: { tenantId, skillUsed: { in: ['find-scholarships', 'find-coop-opportunities'] } },
+      orderBy: { createdAt: 'desc' },
+    });
+    if (recentFind?.skillUsed === 'find-coop-opportunities') {
+      selectedSkill = { ...selectedSkill, name: 'save-coop-opportunity' };
+    }
+  }
+
   // INTERNAL handler: save-scholarship — resolve a candidate from the prior
   // find-scholarships turn (ordinal or fuzzy title match), or fall back to
   // a direct free-text description, then save it via the scholarship
   // opportunities endpoint.
   if (selectedSkill.name === 'save-scholarship') {
     try {
-      const lastConvo = await db.abConversation.findFirst({
+      const recentRows = await db.abConversation.findMany({
         where: { tenantId, skillUsed: 'find-scholarships' },
         orderBy: { createdAt: 'desc' },
+        take: 5,
       });
+      const lastConvo = recentRows.find((r: any) => Array.isArray((r.data as any)?.data?.candidates) && (r.data as any).data.candidates.length > 0) ?? recentRows[0];
       const candidates: any[] = (lastConvo?.data as any)?.data?.candidates ?? [];
       let chosen: any = resolveOrdinalOrFuzzyCandidate(candidates, text || '');
 
@@ -4485,10 +4508,12 @@ async function _executeClassificationCore(
   // save-scholarship, for career/job candidates.
   if (selectedSkill.name === 'save-coop-opportunity') {
     try {
-      const lastConvo = await db.abConversation.findFirst({
+      const recentRows = await db.abConversation.findMany({
         where: { tenantId, skillUsed: 'find-coop-opportunities' },
         orderBy: { createdAt: 'desc' },
+        take: 5,
       });
+      const lastConvo = recentRows.find((r: any) => Array.isArray((r.data as any)?.data?.candidates) && (r.data as any).data.candidates.length > 0) ?? recentRows[0];
       const candidates: any[] = (lastConvo?.data as any)?.data?.candidates ?? [];
       let chosen: any = resolveOrdinalOrFuzzyCandidate(candidates, text || '', ['employer']);
 
@@ -5350,7 +5375,7 @@ Only include chartData if visualization adds value. Keep the answer under 200 wo
       } else {
         message = `**${data.candidates.length} opportunit${data.candidates.length === 1 ? 'y' : 'ies'} found**\n`;
         data.candidates.slice(0, 5).forEach((c: any, i: number) => {
-          message += `\n${i + 1}. **${c.title}**${c.employer ? ` at ${c.employer}` : ''}${c.location ? ` (${c.location})` : ''}${c.compText ? ` — ${c.compText}` : ''}\n   ${c.sourceLabel || c.sourceUrl}`;
+          message += `\n${i + 1}. **${c.title}**${c.employer ? ` at ${c.employer}` : ''}${c.location ? ` (${c.location})` : ''}${c.compText ? ` — ${c.compText}` : ''}${c.deadlineText ? ` (due ${c.deadlineText})` : ''}\n   ${c.sourceLabel || c.sourceUrl}`;
         });
         if (data.note) message += `\n\n_${data.note}_`;
         message += '\n\nSay "save the first one" (or name one) to add it to your shortlist.';

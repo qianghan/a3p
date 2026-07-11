@@ -2,12 +2,14 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 const mockAbTenantConfigFindUnique = vi.fn();
 const mockAbConversationFindFirst = vi.fn();
+const mockAbConversationFindMany = vi.fn(async () => []);
 
 vi.mock('../db/client.js', () => ({
   db: {
     abTenantConfig: { findUnique: (...args: any[]) => mockAbTenantConfigFindUnique(...args) },
     abConversation: {
       findFirst: (...args: any[]) => mockAbConversationFindFirst(...args),
+      findMany: (...args: any[]) => mockAbConversationFindMany(...args),
       create: vi.fn(async () => ({})),
     },
     abAccount: { findMany: vi.fn(async () => []) },
@@ -42,7 +44,13 @@ function classification(name: string, extractedParams: Record<string, any> = {})
 }
 
 beforeEach(() => {
-  vi.clearAllMocks();
+  // resetAllMocks (not clearAllMocks) so that queued mockResolvedValueOnce
+  // values from a test that never consumed them (e.g. a save-* test whose
+  // disambiguation branch didn't fire, or a directly-classified skill that
+  // skips the findFirst disambiguation call entirely) don't leak into and
+  // get consumed by a later, unrelated test.
+  vi.resetAllMocks();
+  mockAbConversationFindMany.mockImplementation(async () => []);
 });
 
 describe('student chat skills — eligibility gate', () => {
@@ -99,6 +107,7 @@ describe('student chat skills — save-scholarship candidate resolution', () => 
 
   it('resolves "save the first one" via ordinal to the first candidate and posts it', async () => {
     mockAbConversationFindFirst.mockResolvedValueOnce({ skillUsed: 'find-scholarships', data: { success: true, data: { candidates: CANDIDATES } } });
+    mockAbConversationFindMany.mockResolvedValueOnce([{ skillUsed: 'find-scholarships', data: { success: true, data: { candidates: CANDIDATES } } }]);
     mockFetch.mockResolvedValueOnce({ ok: true, json: async () => ({ success: true, data: { id: 'opp-1' } }) });
     const result = await executeClassification(classification('save-scholarship'), 'save the first one', 'tenant-1', 'api');
     expect(mockFetch).toHaveBeenCalledTimes(1);
@@ -111,6 +120,7 @@ describe('student chat skills — save-scholarship candidate resolution', () => 
 
   it('resolves "save the TD one" via fuzzy title match to the second candidate', async () => {
     mockAbConversationFindFirst.mockResolvedValueOnce({ skillUsed: 'find-scholarships', data: { success: true, data: { candidates: CANDIDATES } } });
+    mockAbConversationFindMany.mockResolvedValueOnce([{ skillUsed: 'find-scholarships', data: { success: true, data: { candidates: CANDIDATES } } }]);
     mockFetch.mockResolvedValueOnce({ ok: true, json: async () => ({ success: true, data: { id: 'opp-2' } }) });
     await executeClassification(classification('save-scholarship'), 'save the TD one', 'tenant-1', 'api');
     const [, opts] = mockFetch.mock.calls[0];
@@ -152,6 +162,7 @@ describe('student chat skills — save-coop-opportunity candidate resolution', (
 
   it('resolves "save the first one" via ordinal and posts it', async () => {
     mockAbConversationFindFirst.mockResolvedValueOnce({ skillUsed: 'find-coop-opportunities', data: { success: true, data: { candidates: JOB_CANDIDATES } } });
+    mockAbConversationFindMany.mockResolvedValueOnce([{ skillUsed: 'find-coop-opportunities', data: { success: true, data: { candidates: JOB_CANDIDATES } } }]);
     mockFetch.mockResolvedValueOnce({ ok: true, json: async () => ({ success: true, data: { id: 'job-1' } }) });
     const result = await executeClassification(classification('save-coop-opportunity'), 'save the first one', 'tenant-1', 'api');
     const [url, opts] = mockFetch.mock.calls[0];
@@ -164,11 +175,24 @@ describe('student chat skills — save-coop-opportunity candidate resolution', (
 
   it('resolves "save the RBC one" via fuzzy employer/title match', async () => {
     mockAbConversationFindFirst.mockResolvedValueOnce({ skillUsed: 'find-coop-opportunities', data: { success: true, data: { candidates: JOB_CANDIDATES } } });
+    mockAbConversationFindMany.mockResolvedValueOnce([{ skillUsed: 'find-coop-opportunities', data: { success: true, data: { candidates: JOB_CANDIDATES } } }]);
     mockFetch.mockResolvedValueOnce({ ok: true, json: async () => ({ success: true, data: { id: 'job-2' } }) });
     await executeClassification(classification('save-coop-opportunity'), 'save the RBC one', 'tenant-1', 'api');
     const [, opts] = mockFetch.mock.calls[0];
     const body = JSON.parse((opts as any).body);
     expect(body.title).toBe('Data Analyst Intern');
+  });
+
+  it('routes "save the first one" to save-coop-opportunity (not save-scholarship) when the prior turn was a co-op search', async () => {
+    mockAbConversationFindFirst.mockResolvedValueOnce({ skillUsed: 'find-coop-opportunities', data: { success: true, data: { candidates: JOB_CANDIDATES } } });
+    mockAbConversationFindMany.mockResolvedValueOnce([{ skillUsed: 'find-coop-opportunities', data: { success: true, data: { candidates: JOB_CANDIDATES } } }]);
+    mockFetch.mockResolvedValueOnce({ ok: true, json: async () => ({ success: true, data: { id: 'job-1' } }) });
+    const result = await executeClassification(classification('save-scholarship'), 'save the first one', 'tenant-1', 'api');
+    const [url, opts] = mockFetch.mock.calls[0];
+    expect(url).toContain('/api/v1/agentbook-career/opportunities');
+    const body = JSON.parse((opts as any).body);
+    expect(body.title).toBe('Software Engineering Co-op');
+    expect(result.responseData.message).toMatch(/Software Engineering Co-op/);
   });
 
   it('falls back to direct free-text extraction when there is no prior find-coop-opportunities turn', async () => {
