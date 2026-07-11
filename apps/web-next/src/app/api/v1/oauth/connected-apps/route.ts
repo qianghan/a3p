@@ -63,22 +63,14 @@ export async function DELETE(request: NextRequest): Promise<NextResponse> {
   });
   if (!grant) return NextResponse.json({ error: 'not_found' }, { status: 404 });
 
-  // Mark our own durable consent record revoked first. This is the
-  // "has the user consented" record the /consent-decision and /authorize
-  // flows check on future connection attempts; it has no direct link to
-  // oidc-provider's own Grant id, so it doesn't by itself invalidate any
-  // already-issued tokens (see below).
-  await prisma.mcpConsentGrant.update({
-    where: { id: grant.id },
-    data: { revokedAt: new Date() },
-  });
-
-  // Real, immediate revocation of already-issued tokens. oidc-provider's own
-  // Grant model persists `accountId`/`clientId` verbatim in its payload
-  // (verified against node_modules/oidc-provider/lib/models/grant.js
-  // IN_PAYLOAD: camelCase, not the RFC's snake_case) but does NOT store its
-  // own `grantId` in that payload -- only the five grant-bound consumable
-  // models (AccessToken, RefreshToken, AuthorizationCode, DeviceCode,
+  // Real, immediate revocation of already-issued tokens MUST happen BEFORE we
+  // mark our own consent record revoked (see catch block below for why the
+  // ordering matters). oidc-provider's own Grant model persists
+  // `accountId`/`clientId` verbatim in its payload (verified against
+  // node_modules/oidc-provider/lib/models/grant.js IN_PAYLOAD: camelCase, not
+  // the RFC's snake_case) but does NOT store its own `grantId` in that
+  // payload -- only the five grant-bound consumable models (AccessToken,
+  // RefreshToken, AuthorizationCode, DeviceCode,
   // BackchannelAuthenticationRequest -- see
   // node_modules/oidc-provider/lib/models/mixins/has_grant_id.js) carry a
   // `grantId` field, which PrismaOidcAdapter.upsert promotes to the
@@ -105,12 +97,37 @@ export async function DELETE(request: NextRequest): Promise<NextResponse> {
   });
 
   const grantAdapter = new PrismaOidcAdapter('Grant');
-  await Promise.all(
-    oidcGrants.flatMap((g) => [
-      grantAdapter.revokeByGrantId(g.id),
-      grantAdapter.destroy(g.id),
-    ]),
-  );
+  try {
+    await Promise.all(
+      oidcGrants.flatMap((g) => [
+        grantAdapter.revokeByGrantId(g.id),
+        grantAdapter.destroy(g.id),
+      ]),
+    );
+  } catch (err) {
+    // Token destruction failed partway through (PrismaOidcAdapter has no
+    // shared-transaction hook we can wrap this and the mcpConsentGrant update
+    // in together -- it's hardwired to the module-level `prisma` singleton,
+    // not an injectable client). Leaving the consent record unmarked here is
+    // deliberate: if we'd already flipped `revokedAt` before this step (as
+    // the original implementation did), a failure here would leave the UI
+    // showing "revoked" while the underlying bearer/refresh tokens for this
+    // grant are still live until their natural TTL -- exactly the gap this
+    // feature exists to close. Returning an error (not {success:true}) lets
+    // the caller retry, which is safe: revokeByGrantId/destroy are idempotent
+    // against already-deleted rows.
+    console.error('connected-apps DELETE: token revocation failed', err);
+    return NextResponse.json({ error: 'revocation_failed' }, { status: 500 });
+  }
+
+  // Only now that outstanding tokens are confirmed destroyed do we mark our
+  // own durable consent record revoked. This is the "has the user consented"
+  // record the /consent-decision and /authorize flows check on future
+  // connection attempts.
+  await prisma.mcpConsentGrant.update({
+    where: { id: grant.id },
+    data: { revokedAt: new Date() },
+  });
 
   return NextResponse.json({ success: true });
 }

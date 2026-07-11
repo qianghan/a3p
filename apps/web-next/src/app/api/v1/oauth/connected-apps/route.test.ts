@@ -157,4 +157,26 @@ describe('DELETE /api/v1/oauth/connected-apps', () => {
 
     expect(res.status).toBe(400);
   });
+
+  it('does NOT mark the consent record revoked and returns an error when token destruction throws partway through', async () => {
+    // Regression test for the non-atomic ordering bug: the original
+    // implementation marked mcpConsentGrant revoked BEFORE destroying the
+    // underlying oidc-provider tokens, so a failure here would leave the UI
+    // showing "revoked" while the real bearer/refresh tokens stayed live.
+    // The fix reorders this so destruction happens first and is confirmed
+    // before the consent record is ever touched.
+    mockCookieGet.mockReturnValue({ value: 'tok' });
+    mockValidateSession.mockResolvedValue({ id: 'user-1' });
+    mockFindUnique.mockResolvedValue({ id: 'consent-1', userId: 'user-1', clientId: 'client-a' });
+    mockOidcModelFindMany.mockResolvedValue([{ id: 'grant-xyz' }]);
+    mockRevokeByGrantId.mockResolvedValue(undefined);
+    mockDestroy.mockRejectedValue(new Error('db hiccup mid-destroy'));
+
+    const res = await DELETE(makeRequest({ clientId: 'client-a' }));
+    const body = await res.json();
+
+    expect(res.status).not.toBe(200);
+    expect(body).not.toEqual({ success: true });
+    expect(mockUpdate).not.toHaveBeenCalled();
+  });
 });
