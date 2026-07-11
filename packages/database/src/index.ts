@@ -21,6 +21,9 @@ export { DevApiProjectResolutionError, resolveDevApiProjectId } from './dev-api/
 export { parseApiKey, deriveKeyLookupId, getKeyPrefix, hashApiKey } from './dev-api/key-utils';
 export { encryptToken, decryptToken } from './dev-api/token-encryption';
 
+// oidc-provider adapter (backs the OAuth 2.1 authorization server, see oauth-provider.ts)
+export { PrismaOidcAdapter } from './oidc-adapter';
+
 // Type for transaction client
 export type TransactionClient = Omit<
   GeneratedPrismaClient,
