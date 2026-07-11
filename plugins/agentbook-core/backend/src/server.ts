@@ -4481,6 +4481,81 @@ async function _executeClassificationCore(
     }
   }
 
+  // INTERNAL handler: save-coop-opportunity — same resolution pattern as
+  // save-scholarship, for career/job candidates.
+  if (selectedSkill.name === 'save-coop-opportunity') {
+    try {
+      const lastConvo = await db.abConversation.findFirst({
+        where: { tenantId, skillUsed: 'find-coop-opportunities' },
+        orderBy: { createdAt: 'desc' },
+      });
+      const candidates: any[] = (lastConvo?.data as any)?.data?.candidates ?? [];
+      let chosen: any = resolveOrdinalOrFuzzyCandidate(candidates, text || '', ['employer']);
+
+      if (!chosen && extractedParams.title) {
+        chosen = {
+          title: String(extractedParams.title),
+          employer: extractedParams.employer ? String(extractedParams.employer) : null,
+          location: extractedParams.location ? String(extractedParams.location) : null,
+          compText: extractedParams.compText ? String(extractedParams.compText) : null,
+          deadlineText: extractedParams.deadlineText ? String(extractedParams.deadlineText) : null,
+          sourceUrl: extractedParams.sourceUrl ? String(extractedParams.sourceUrl) : null,
+        };
+      }
+
+      if (!chosen) {
+        return {
+          selectedSkill, extractedParams, confidence, skillUsed: 'save-coop-opportunity', skillResponse: null,
+          responseData: {
+            message: "I'm not sure which opportunity you mean — try \"find co-ops\" first, then \"save the first one\", or tell me the role directly.",
+            skillUsed: 'save-coop-opportunity', confidence, latencyMs: Date.now() - startTime,
+          },
+        };
+      }
+
+      const careerBase = baseUrls['/api/v1/agentbook-career'] || 'http://localhost:3000';
+      const saveRes = await fetch(`${careerBase}/api/v1/agentbook-career/opportunities`, {
+        method: 'POST',
+        headers: brainHeaders(tenantId),
+        body: JSON.stringify({
+          title: chosen.title,
+          sourceUrl: chosen.sourceUrl || null,
+          sourceLabel: chosen.sourceLabel || null,
+          deadline: chosen.deadlineText || null,
+          employer: chosen.employer || null,
+          location: chosen.location || null,
+          compText: chosen.compText || null,
+          summary: chosen.summary || null,
+        }),
+      });
+      const saveData = await saveRes.json() as any;
+      if (!saveRes.ok || !saveData.success) {
+        return {
+          selectedSkill, extractedParams, confidence, skillUsed: 'save-coop-opportunity', skillResponse: saveData,
+          responseData: {
+            message: `Couldn't save that opportunity. ${saveData.error || 'Please try again.'}`,
+            skillUsed: 'save-coop-opportunity', confidence, latencyMs: Date.now() - startTime,
+          },
+        };
+      }
+      const detailParts = [chosen.employer, chosen.compText, chosen.deadlineText ? `due ${chosen.deadlineText}` : null].filter(Boolean);
+      const detail = detailParts.length ? ` (${detailParts.join(', ')})` : '';
+      return {
+        selectedSkill, extractedParams, confidence, skillUsed: 'save-coop-opportunity', skillResponse: saveData,
+        responseData: {
+          message: `Saved "${chosen.title}"${detail} to your shortlist — view it anytime in Co-ops & Jobs.`,
+          skillUsed: 'save-coop-opportunity', confidence, latencyMs: Date.now() - startTime,
+        },
+      };
+    } catch (err) {
+      console.error('[save-coop-opportunity] error:', err);
+      return {
+        selectedSkill, extractedParams, confidence: 0, skillUsed: 'save-coop-opportunity', skillResponse: null,
+        responseData: { message: "I couldn't save that opportunity. Please try again.", skillUsed: 'save-coop-opportunity', confidence: 0, latencyMs: Date.now() - startTime },
+      };
+    }
+  }
+
   // INTERNAL handler: query-expenses / vendor-insights / expense-breakdown
   // These skills previously made HTTP self-calls to /advisor/ask which fail on
   // Vercel because VERCEL_URL resolves to a deployment-specific URL and the

@@ -138,3 +138,50 @@ describe('student chat skills — save-scholarship candidate resolution', () => 
     expect(result.responseData.message).toMatch(/not sure which/i);
   });
 });
+
+describe('student chat skills — save-coop-opportunity candidate resolution', () => {
+  const JOB_CANDIDATES = [
+    { title: 'Software Engineering Co-op', employer: 'Shopify', location: 'Remote', compText: '$28/hr', deadlineText: 'March 1', sourceUrl: 'https://shopify.com/careers/1', sourceLabel: 'shopify.com' },
+    { title: 'Data Analyst Intern', employer: 'RBC', location: 'Toronto, ON', compText: '$25/hr', deadlineText: 'February 15', sourceUrl: 'https://rbc.com/careers/2', sourceLabel: 'rbc.com' },
+  ];
+
+  beforeEach(() => {
+    mockAbTenantConfigFindUnique.mockResolvedValue({ businessType: 'student' });
+    mockHasAddOn.mockResolvedValue(true);
+  });
+
+  it('resolves "save the first one" via ordinal and posts it', async () => {
+    mockAbConversationFindFirst.mockResolvedValueOnce({ skillUsed: 'find-coop-opportunities', data: { success: true, data: { candidates: JOB_CANDIDATES } } });
+    mockFetch.mockResolvedValueOnce({ ok: true, json: async () => ({ success: true, data: { id: 'job-1' } }) });
+    const result = await executeClassification(classification('save-coop-opportunity'), 'save the first one', 'tenant-1', 'api');
+    const [url, opts] = mockFetch.mock.calls[0];
+    expect(url).toContain('/api/v1/agentbook-career/opportunities');
+    const body = JSON.parse((opts as any).body);
+    expect(body.title).toBe('Software Engineering Co-op');
+    expect(body.employer).toBe('Shopify');
+    expect(result.responseData.message).toMatch(/Software Engineering Co-op/);
+  });
+
+  it('resolves "save the RBC one" via fuzzy employer/title match', async () => {
+    mockAbConversationFindFirst.mockResolvedValueOnce({ skillUsed: 'find-coop-opportunities', data: { success: true, data: { candidates: JOB_CANDIDATES } } });
+    mockFetch.mockResolvedValueOnce({ ok: true, json: async () => ({ success: true, data: { id: 'job-2' } }) });
+    await executeClassification(classification('save-coop-opportunity'), 'save the data analyst one', 'tenant-1', 'api');
+    const [, opts] = mockFetch.mock.calls[0];
+    const body = JSON.parse((opts as any).body);
+    expect(body.title).toBe('Data Analyst Intern');
+  });
+
+  it('falls back to direct free-text extraction when there is no prior find-coop-opportunities turn', async () => {
+    mockAbConversationFindFirst.mockResolvedValueOnce(null);
+    mockFetch.mockResolvedValueOnce({ ok: true, json: async () => ({ success: true, data: { id: 'job-3' } }) });
+    await executeClassification(
+      classification('save-coop-opportunity', { title: 'Marketing Intern', employer: 'Local Startup Co' }),
+      'save this marketing intern role at Local Startup Co',
+      'tenant-1', 'api',
+    );
+    const [, opts] = mockFetch.mock.calls[0];
+    const body = JSON.parse((opts as any).body);
+    expect(body.title).toBe('Marketing Intern');
+    expect(body.employer).toBe('Local Startup Co');
+  });
+});
