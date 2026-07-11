@@ -21,3 +21,13 @@ export async function checkRateLimit(key: string, limit: number, windowMs: numbe
   hits.set(key, timestamps);
   return true;
 }
+
+/**
+ * Test-only escape hatch: the number of distinct keys currently tracked in
+ * the in-memory `hits` map. Used to assert callers don't mint unbounded
+ * per-call unique keys (which would leak memory forever on a pre-auth
+ * endpoint) — not for use outside tests.
+ */
+export function __getRateLimitKeyCountForTest(): number {
+  return hits.size;
+}
