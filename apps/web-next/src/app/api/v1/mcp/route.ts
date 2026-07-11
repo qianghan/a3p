@@ -7,26 +7,7 @@ import { authenticateMcpRequest } from '@/lib/mcp/authenticate-mcp-request';
 import { isMcpEnabled } from '@/lib/mcp/mcp-flag';
 import { callAgentBrain } from '@/lib/mcp/ask-agentbook-tool';
 import { nodeRequestResponseFromWeb } from '@/lib/mcp/node-web-adapter';
-
-interface McpSession {
-  server: McpServer;
-  transport: StreamableHTTPServerTransport;
-}
-
-/**
- * Module-level session store, keyed by the MCP `Mcp-Session-Id` header value.
- *
- * This is deliberately in-memory and per-instance. It survives across HTTP
- * requests only as long as Vercel/Fluid Compute happens to route a session's
- * follow-up requests to the same warm function instance — there is no
- * cross-instance replication. That is an accepted, fail-safe trade-off (see
- * docs/superpowers/plans/2026-07-10-agentbook-mcp-server.md Task 8/8-fix
- * notes): if the instance holding a session recycles mid-elicitation, the
- * pending `elicitation/create` request simply times out (safe) rather than
- * silently producing a wrong answer. It is not correctness-critical data —
- * losing it just means the client has to re-`initialize`.
- */
-const sessions = new Map<string, McpSession>();
+import { type McpSession, resolveSessionForRequest, sessions } from './session-store';
 
 function registerAskAgentbookTool(server: McpServer, tenantId: string): void {
   server.registerTool(
@@ -141,6 +122,8 @@ async function createSession(tenantId: string): Promise<McpSession> {
 
   session.server = server;
   session.transport = transport;
+  session.tenantId = tenantId;
+  session.lastUsedAt = Date.now();
 
   await server.connect(transport);
   return session;
@@ -164,27 +147,44 @@ async function handle(request: NextRequest): Promise<Response> {
   // so this also matches clients that send `mcp-session-id` in any casing.
   const sessionId = request.headers.get('mcp-session-id');
 
-  let session = sessionId ? sessions.get(sessionId) : undefined;
+  // `resolveSessionForRequest` also re-validates that a *reused* session
+  // still belongs to the tenant that's authenticated on *this* request — a
+  // session is created once for the tenant resolved at `initialize` time,
+  // and without this check a still-live session for tenant A could be
+  // ridden by a later request that happens to authenticate as tenant B
+  // (e.g. a stale/leaked `Mcp-Session-Id` presented alongside a different
+  // bearer token), reading/writing tenant A's financial data under tenant
+  // B's request. On mismatch the session is destroyed outright rather than
+  // just rejecting this one request — see session-store.ts. It also
+  // opportunistically evicts idle sessions past `SESSION_IDLE_TTL_MS` on
+  // every call, bounding memory growth from clients that never send
+  // `DELETE` (crash, force-quit, network drop).
+  const lookup = resolveSessionForRequest(sessionId, auth.tenantId, Date.now());
 
-  if (sessionId && !session) {
+  if (lookup.kind === 'tenant-mismatch') {
+    return NextResponse.json(
+      { error: 'Session does not belong to the authenticated tenant' },
+      { status: 403 },
+    );
+  }
+
+  if (lookup.kind === 'unknown') {
     // The client believes it has a live session (it's sending an ID) but
     // this instance has no record of it — most likely a warm instance that
-    // recycled between requests. Per the spec ("Requests with invalid
-    // session IDs are rejected with 404 Not Found"), tell the client the
-    // session is gone so it re-`initialize`s, rather than silently minting a
-    // brand-new session under the ID it already has cached (which would
-    // desync the transport's internal `this.sessionId` from what the client
-    // thinks it is).
+    // recycled between requests, or the session idled out. Per the spec
+    // ("Requests with invalid session IDs are rejected with 404 Not Found"),
+    // tell the client the session is gone so it re-`initialize`s, rather
+    // than silently minting a brand-new session under the ID it already has
+    // cached (which would desync the transport's internal `this.sessionId`
+    // from what the client thinks it is).
     return NextResponse.json({ error: 'Unknown or expired MCP session' }, { status: 404 });
   }
 
-  if (!session) {
-    // No session ID at all: this must be a fresh `initialize` request (any
-    // other request type without a session ID is rejected by the new
-    // transport's own `validateSession` with 400, which is the correct
-    // spec-mandated behavior).
-    session = await createSession(auth.tenantId);
-  }
+  // No session ID at all: this must be a fresh `initialize` request (any
+  // other request type without a session ID is rejected by the new
+  // transport's own `validateSession` with 400, which is the correct
+  // spec-mandated behavior).
+  const session = lookup.kind === 'reuse' ? lookup.session : await createSession(auth.tenantId);
 
   const { nodeReq, nodeRes, responsePromise } = await nodeRequestResponseFromWeb(request);
   // Deliberately NOT awaited before returning: `nodeRequestResponseFromWeb`'s
