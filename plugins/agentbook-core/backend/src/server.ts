@@ -11,10 +11,12 @@ import { db } from './db/client.js';
 import { handleAgentMessage } from './agent-brain.js';
 import { BUILT_IN_SKILLS } from './built-in-skills.js';
 import { selectSkillByPatterns } from './skill-routing.js';
+import { hasAddOn } from '@naap/billing';
 import { handleDashboardOverview } from './dashboard/overview.js';
 import { handleDashboardActivity } from './dashboard/activity.js';
 import { handleDashboardAgentSummary } from './dashboard/agent-summary.js';
 import { listPastFilingsForTenant, buildPastFilingContext } from './past-filing-context.js';
+import { resolveOrdinalOrFuzzyCandidate } from './candidate-resolution.js';
 
 // Read plugin.json for dev-only fields. When bundled by webpack (Next.js
 // on Vercel), `new URL(..., import.meta.url)` is incompatible with fs —
@@ -3200,6 +3202,24 @@ async function _executeClassificationCore(
   const startTime = Date.now();
   let { selectedSkill, extractedParams, confidence } = classification;
 
+  // Eligibility gate: scholarship/co-op/roommate search + save are part of
+  // the Student Success add-on. Checked here (execution time), not at
+  // classification time — see docs/superpowers/specs/2026-07-10-student-chat-skills-design.md.
+  const STUDENT_CHAT_SKILLS = ['find-scholarships', 'save-scholarship', 'find-coop-opportunities', 'save-coop-opportunity', 'find-roommate-matches'];
+  if (STUDENT_CHAT_SKILLS.includes(selectedSkill.name)) {
+    const cfg = await db.abTenantConfig.findUnique({ where: { userId: tenantId } });
+    const eligible = cfg?.businessType === 'student' && (await hasAddOn(tenantId, 'student_success'));
+    if (!eligible) {
+      return {
+        selectedSkill, extractedParams, confidence: 0, skillUsed: selectedSkill.name, skillResponse: null,
+        responseData: {
+          message: 'Scholarship, co-op, and roommate search are part of Student Success — enable it in your Business Profile settings to use them.',
+          skillUsed: selectedSkill.name, confidence: 0, latencyMs: Date.now() - startTime,
+        },
+      };
+    }
+  }
+
   // === 3. SKILL EXECUTION ===
   let endpoint = selectedSkill.endpoint as any;
   // In production (Vercel) all plugins live on the same host — VERCEL_URL or NEXTAUTH_URL.
@@ -3214,6 +3234,9 @@ async function _executeClassificationCore(
     '/api/v1/agentbook-core': process.env.AGENTBOOK_CORE_URL || _appBase || 'http://localhost:4050',
     '/api/v1/agentbook-invoice': process.env.AGENTBOOK_INVOICE_URL || _appBase || 'http://localhost:4052',
     '/api/v1/agentbook-tax': process.env.AGENTBOOK_TAX_URL || _appBase || 'http://localhost:4053',
+    '/api/v1/agentbook-scholarship': _appBase || 'http://localhost:3000',
+    '/api/v1/agentbook-career': _appBase || 'http://localhost:3000',
+    '/api/v1/agentbook-housing': _appBase || 'http://localhost:3000',
   };
 
   // Resolve base URL
@@ -4385,6 +4408,179 @@ async function _executeClassificationCore(
     }
   }
 
+  // save-scholarship's broad triggers ('save that', 'save the X one') win
+  // any ambiguous phrase over save-coop-opportunity's narrower ones (which
+  // require an explicit co-op/internship/job keyword) purely by BUILT_IN_SKILLS
+  // array order — so "save the first one" always classifies as
+  // save-scholarship even right after a co-op search, since that's exactly
+  // the phrase the find-coop-opportunities response template tells users to
+  // say. When there's no direct free-text description (extractedParams.title
+  // unset — i.e. this is a referential "save the one I just found", not an
+  // explicit new description), check which find-* skill actually ran most
+  // recently and re-dispatch to the correct save handler if it disagrees
+  // with the classifier's guess.
+  if (selectedSkill.name === 'save-scholarship' && !extractedParams.title) {
+    const recentFind = await db.abConversation.findFirst({
+      where: { tenantId, skillUsed: { in: ['find-scholarships', 'find-coop-opportunities'] } },
+      orderBy: { createdAt: 'desc' },
+    });
+    if (recentFind?.skillUsed === 'find-coop-opportunities') {
+      selectedSkill = { ...selectedSkill, name: 'save-coop-opportunity' };
+    }
+  }
+
+  // INTERNAL handler: save-scholarship — resolve a candidate from the prior
+  // find-scholarships turn (ordinal or fuzzy title match), or fall back to
+  // a direct free-text description, then save it via the scholarship
+  // opportunities endpoint.
+  if (selectedSkill.name === 'save-scholarship') {
+    try {
+      const recentRows = await db.abConversation.findMany({
+        where: { tenantId, skillUsed: 'find-scholarships' },
+        orderBy: { createdAt: 'desc' },
+        take: 5,
+      });
+      const lastConvo = recentRows.find((r: any) => Array.isArray((r.data as any)?.data?.candidates) && (r.data as any).data.candidates.length > 0) ?? recentRows[0];
+      const candidates: any[] = (lastConvo?.data as any)?.data?.candidates ?? [];
+      let chosen: any = resolveOrdinalOrFuzzyCandidate(candidates, text || '');
+
+      if (!chosen && extractedParams.title) {
+        chosen = {
+          title: String(extractedParams.title),
+          amountText: extractedParams.amountText ? String(extractedParams.amountText) : null,
+          deadlineText: extractedParams.deadlineText ? String(extractedParams.deadlineText) : null,
+          sourceUrl: extractedParams.sourceUrl ? String(extractedParams.sourceUrl) : null,
+        };
+      }
+
+      if (!chosen) {
+        return {
+          selectedSkill, extractedParams, confidence, skillUsed: 'save-scholarship', skillResponse: null,
+          responseData: {
+            message: "I'm not sure which scholarship you mean — try \"find scholarships\" first, then \"save the first one\", or tell me the name directly.",
+            skillUsed: 'save-scholarship', confidence, latencyMs: Date.now() - startTime,
+          },
+        };
+      }
+
+      const scholarshipBase = baseUrls['/api/v1/agentbook-scholarship'] || 'http://localhost:3000';
+      const saveRes = await fetch(`${scholarshipBase}/api/v1/agentbook-scholarship/opportunities`, {
+        method: 'POST',
+        headers: brainHeaders(tenantId),
+        body: JSON.stringify({
+          title: chosen.title,
+          sourceUrl: chosen.sourceUrl || null,
+          sourceLabel: chosen.sourceLabel || null,
+          deadline: chosen.deadlineText || null,
+          amountText: chosen.amountText || null,
+          eligibilitySummary: chosen.eligibilitySummary || null,
+        }),
+      });
+      const saveData = await saveRes.json() as any;
+      if (!saveRes.ok || !saveData.success) {
+        return {
+          selectedSkill, extractedParams, confidence, skillUsed: 'save-scholarship', skillResponse: saveData,
+          responseData: {
+            message: `Couldn't save that scholarship. ${saveData.error || 'Please try again.'}`,
+            skillUsed: 'save-scholarship', confidence, latencyMs: Date.now() - startTime,
+          },
+        };
+      }
+      const detailParts = [chosen.amountText, chosen.deadlineText ? `due ${chosen.deadlineText}` : null].filter(Boolean);
+      const detail = detailParts.length ? ` (${detailParts.join(', ')})` : '';
+      return {
+        selectedSkill, extractedParams, confidence, skillUsed: 'save-scholarship', skillResponse: saveData,
+        responseData: {
+          message: `Saved "${chosen.title}"${detail} to your shortlist — view it anytime in Scholarships.`,
+          skillUsed: 'save-scholarship', confidence, latencyMs: Date.now() - startTime,
+        },
+      };
+    } catch (err) {
+      console.error('[save-scholarship] error:', err);
+      return {
+        selectedSkill, extractedParams, confidence: 0, skillUsed: 'save-scholarship', skillResponse: null,
+        responseData: { message: "I couldn't save that scholarship. Please try again.", skillUsed: 'save-scholarship', confidence: 0, latencyMs: Date.now() - startTime },
+      };
+    }
+  }
+
+  // INTERNAL handler: save-coop-opportunity — same resolution pattern as
+  // save-scholarship, for career/job candidates.
+  if (selectedSkill.name === 'save-coop-opportunity') {
+    try {
+      const recentRows = await db.abConversation.findMany({
+        where: { tenantId, skillUsed: 'find-coop-opportunities' },
+        orderBy: { createdAt: 'desc' },
+        take: 5,
+      });
+      const lastConvo = recentRows.find((r: any) => Array.isArray((r.data as any)?.data?.candidates) && (r.data as any).data.candidates.length > 0) ?? recentRows[0];
+      const candidates: any[] = (lastConvo?.data as any)?.data?.candidates ?? [];
+      let chosen: any = resolveOrdinalOrFuzzyCandidate(candidates, text || '', ['employer']);
+
+      if (!chosen && extractedParams.title) {
+        chosen = {
+          title: String(extractedParams.title),
+          employer: extractedParams.employer ? String(extractedParams.employer) : null,
+          location: extractedParams.location ? String(extractedParams.location) : null,
+          compText: extractedParams.compText ? String(extractedParams.compText) : null,
+          deadlineText: extractedParams.deadlineText ? String(extractedParams.deadlineText) : null,
+          sourceUrl: extractedParams.sourceUrl ? String(extractedParams.sourceUrl) : null,
+        };
+      }
+
+      if (!chosen) {
+        return {
+          selectedSkill, extractedParams, confidence, skillUsed: 'save-coop-opportunity', skillResponse: null,
+          responseData: {
+            message: "I'm not sure which opportunity you mean — try \"find co-ops\" first, then \"save the first one\", or tell me the role directly.",
+            skillUsed: 'save-coop-opportunity', confidence, latencyMs: Date.now() - startTime,
+          },
+        };
+      }
+
+      const careerBase = baseUrls['/api/v1/agentbook-career'] || 'http://localhost:3000';
+      const saveRes = await fetch(`${careerBase}/api/v1/agentbook-career/opportunities`, {
+        method: 'POST',
+        headers: brainHeaders(tenantId),
+        body: JSON.stringify({
+          title: chosen.title,
+          sourceUrl: chosen.sourceUrl || null,
+          sourceLabel: chosen.sourceLabel || null,
+          deadline: chosen.deadlineText || null,
+          employer: chosen.employer || null,
+          location: chosen.location || null,
+          compText: chosen.compText || null,
+          summary: chosen.summary || null,
+        }),
+      });
+      const saveData = await saveRes.json() as any;
+      if (!saveRes.ok || !saveData.success) {
+        return {
+          selectedSkill, extractedParams, confidence, skillUsed: 'save-coop-opportunity', skillResponse: saveData,
+          responseData: {
+            message: `Couldn't save that opportunity. ${saveData.error || 'Please try again.'}`,
+            skillUsed: 'save-coop-opportunity', confidence, latencyMs: Date.now() - startTime,
+          },
+        };
+      }
+      const detailParts = [chosen.employer, chosen.compText, chosen.deadlineText ? `due ${chosen.deadlineText}` : null].filter(Boolean);
+      const detail = detailParts.length ? ` (${detailParts.join(', ')})` : '';
+      return {
+        selectedSkill, extractedParams, confidence, skillUsed: 'save-coop-opportunity', skillResponse: saveData,
+        responseData: {
+          message: `Saved "${chosen.title}"${detail} to your shortlist — view it anytime in Co-ops & Jobs.`,
+          skillUsed: 'save-coop-opportunity', confidence, latencyMs: Date.now() - startTime,
+        },
+      };
+    } catch (err) {
+      console.error('[save-coop-opportunity] error:', err);
+      return {
+        selectedSkill, extractedParams, confidence: 0, skillUsed: 'save-coop-opportunity', skillResponse: null,
+        responseData: { message: "I couldn't save that opportunity. Please try again.", skillUsed: 'save-coop-opportunity', confidence: 0, latencyMs: Date.now() - startTime },
+      };
+    }
+  }
+
   // INTERNAL handler: query-expenses / vendor-insights / expense-breakdown
   // These skills previously made HTTP self-calls to /advisor/ask which fail on
   // Vercel because VERCEL_URL resolves to a deployment-specific URL and the
@@ -5159,6 +5355,46 @@ Only include chartData if visualization adds value. Keep the answer under 200 wo
           message += `\n• ${l.description}: ${fmtCurrency(l.amountCents, data.currency)}`;
         });
       }
+    // Scholarship search results
+    } else if (selectedSkill.name === 'find-scholarships' && Array.isArray(data?.candidates)) {
+      if (data.candidates.length === 0) {
+        message = data.note || "I couldn't find any groundable scholarship matches right now — try broadening your search or checking back later.";
+      } else {
+        message = `**${data.candidates.length} scholarship${data.candidates.length === 1 ? '' : 's'} found**\n`;
+        data.candidates.slice(0, 5).forEach((c: any, i: number) => {
+          message += `\n${i + 1}. **${c.title}**${c.amountText ? ` — ${c.amountText}` : ''}${c.deadlineText ? ` (due ${c.deadlineText})` : ''}\n   ${c.sourceLabel || c.sourceUrl}`;
+        });
+        if (data.note) message += `\n\n_${data.note}_`;
+        message += '\n\nSay "save the first one" (or name one) to add it to your shortlist.';
+      }
+
+    // Co-op / job search results
+    } else if (selectedSkill.name === 'find-coop-opportunities' && Array.isArray(data?.candidates)) {
+      if (data.candidates.length === 0) {
+        message = data.note || "I couldn't find any groundable co-op/job matches right now — try broadening your search or checking back later.";
+      } else {
+        message = `**${data.candidates.length} opportunit${data.candidates.length === 1 ? 'y' : 'ies'} found**\n`;
+        data.candidates.slice(0, 5).forEach((c: any, i: number) => {
+          message += `\n${i + 1}. **${c.title}**${c.employer ? ` at ${c.employer}` : ''}${c.location ? ` (${c.location})` : ''}${c.compText ? ` — ${c.compText}` : ''}${c.deadlineText ? ` (due ${c.deadlineText})` : ''}\n   ${c.sourceLabel || c.sourceUrl}`;
+        });
+        if (data.note) message += `\n\n_${data.note}_`;
+        message += '\n\nSay "save the first one" (or name one) to add it to your shortlist.';
+      }
+
+    // Roommate matches
+    } else if (selectedSkill.name === 'find-roommate-matches' && Array.isArray(data?.matches)) {
+      if (data.matches.length === 0) {
+        message = data.note || 'No compatible students found yet.';
+      } else {
+        message = `**${data.matches.length} compatible student${data.matches.length === 1 ? '' : 's'}**\n`;
+        data.matches.slice(0, 5).forEach((m: any) => {
+          const min = m.budgetMinCents != null ? `$${(m.budgetMinCents / 100).toFixed(0)}` : '?';
+          const max = m.budgetMaxCents != null ? `$${(m.budgetMaxCents / 100).toFixed(0)}` : '?';
+          message += `\n• **${m.displayHandle}** — ${m.area}, budget ${min}-${max} (${Math.round((m.score || 0) * 100)}% match)\n   ${m.reasons?.[0] || ''}`;
+        });
+        if (data.note) message += `\n\n_${data.note}_`;
+      }
+
     } else {
       message = JSON.stringify(data).slice(0, 300);
     }
