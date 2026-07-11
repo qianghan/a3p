@@ -11,6 +11,7 @@ import { db } from './db/client.js';
 import { handleAgentMessage } from './agent-brain.js';
 import { BUILT_IN_SKILLS } from './built-in-skills.js';
 import { selectSkillByPatterns } from './skill-routing.js';
+import { hasAddOn } from '@naap/billing';
 import { handleDashboardOverview } from './dashboard/overview.js';
 import { handleDashboardActivity } from './dashboard/activity.js';
 import { handleDashboardAgentSummary } from './dashboard/agent-summary.js';
@@ -3200,6 +3201,24 @@ async function _executeClassificationCore(
   const startTime = Date.now();
   let { selectedSkill, extractedParams, confidence } = classification;
 
+  // Eligibility gate: scholarship/co-op/roommate search + save are part of
+  // the Student Success add-on. Checked here (execution time), not at
+  // classification time — see docs/superpowers/specs/2026-07-10-student-chat-skills-design.md.
+  const STUDENT_CHAT_SKILLS = ['find-scholarships', 'save-scholarship', 'find-coop-opportunities', 'save-coop-opportunity', 'find-roommate-matches'];
+  if (STUDENT_CHAT_SKILLS.includes(selectedSkill.name)) {
+    const cfg = await db.abTenantConfig.findUnique({ where: { userId: tenantId } });
+    const eligible = cfg?.businessType === 'student' && (await hasAddOn(tenantId, 'student_success'));
+    if (!eligible) {
+      return {
+        selectedSkill, extractedParams, confidence: 1, skillUsed: selectedSkill.name, skillResponse: null,
+        responseData: {
+          message: 'Scholarship, co-op, and roommate search are part of Student Success — enable it in your Business Profile settings to use them.',
+          skillUsed: selectedSkill.name, confidence: 1, latencyMs: Date.now() - startTime,
+        },
+      };
+    }
+  }
+
   // === 3. SKILL EXECUTION ===
   let endpoint = selectedSkill.endpoint as any;
   // In production (Vercel) all plugins live on the same host — VERCEL_URL or NEXTAUTH_URL.
@@ -3214,6 +3233,9 @@ async function _executeClassificationCore(
     '/api/v1/agentbook-core': process.env.AGENTBOOK_CORE_URL || _appBase || 'http://localhost:4050',
     '/api/v1/agentbook-invoice': process.env.AGENTBOOK_INVOICE_URL || _appBase || 'http://localhost:4052',
     '/api/v1/agentbook-tax': process.env.AGENTBOOK_TAX_URL || _appBase || 'http://localhost:4053',
+    '/api/v1/agentbook-scholarship': _appBase || 'http://localhost:3000',
+    '/api/v1/agentbook-career': _appBase || 'http://localhost:3000',
+    '/api/v1/agentbook-housing': _appBase || 'http://localhost:3000',
   };
 
   // Resolve base URL
