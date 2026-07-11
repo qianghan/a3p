@@ -74,4 +74,35 @@ describe('nodeRequestResponseFromWeb', () => {
     const response = await responsePromise;
     expect(response.status).toBe(200);
   });
+
+  it('respects an explicit base64 encoding when buffering a write() chunk', async () => {
+    const request = new NextRequest('http://localhost/api/v1/oauth/authorize', { method: 'GET' });
+    const { nodeRes, responsePromise } = await nodeRequestResponseFromWeb(request);
+
+    const original = 'hello éè world'; // includes non-ASCII bytes when base64-decoded
+    const base64Chunk = Buffer.from(original, 'utf8').toString('base64');
+
+    nodeRes.statusCode = 200;
+    // A naive `Buffer.from(chunk)` (defaulting to utf8) would misinterpret
+    // this base64 string as literal utf8 text instead of decoding it.
+    nodeRes.write(base64Chunk, 'base64');
+    nodeRes.end();
+
+    const response = await responsePromise;
+    expect(await response.text()).toBe(original);
+  });
+
+  it('respects an explicit base64 encoding when buffering an end() chunk', async () => {
+    const request = new NextRequest('http://localhost/api/v1/oauth/authorize', { method: 'GET' });
+    const { nodeRes, responsePromise } = await nodeRequestResponseFromWeb(request);
+
+    const original = 'goodbye éè world';
+    const base64Chunk = Buffer.from(original, 'utf8').toString('base64');
+
+    nodeRes.statusCode = 200;
+    nodeRes.end(base64Chunk, 'base64');
+
+    const response = await responsePromise;
+    expect(await response.text()).toBe(original);
+  });
 });

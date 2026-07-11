@@ -39,12 +39,20 @@ export async function nodeRequestResponseFromWeb(request: NextRequest): Promise<
   const chunks: Buffer[] = [];
   const originalWrite = nodeRes.write.bind(nodeRes);
   const originalEnd = nodeRes.end.bind(nodeRes);
+  // `write(chunk, encoding?, callback?)` / `end(chunk?, encoding?, callback?)`
+  // are overloaded: the arg right after `chunk` is either a `BufferEncoding`
+  // string or (if omitted) the callback itself. Only a string in that
+  // position is a real encoding.
+  const encodingFromRest = (rest: unknown[]): BufferEncoding | undefined =>
+    typeof rest[0] === 'string' ? (rest[0] as BufferEncoding) : undefined;
   (nodeRes.write as unknown as (...args: unknown[]) => boolean) = (
     chunk: unknown,
     ...rest: unknown[]
   ) => {
     if (chunk !== undefined && chunk !== null) {
-      chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk as string));
+      chunks.push(
+        Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk as string, encodingFromRest(rest))
+      );
     }
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     return (originalWrite as any)(chunk, ...rest);
@@ -56,7 +64,9 @@ export async function nodeRequestResponseFromWeb(request: NextRequest): Promise<
       ...rest: unknown[]
     ) => {
       if (chunk !== undefined && chunk !== null && typeof chunk !== 'function') {
-        chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk as string));
+        chunks.push(
+          Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk as string, encodingFromRest(rest))
+        );
       }
       const headers = new Headers();
       for (const [key, value] of Object.entries(nodeRes.getHeaders())) {
