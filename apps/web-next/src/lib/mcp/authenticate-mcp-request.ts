@@ -11,6 +11,18 @@ function unauthorized(message: string): { error: NextResponse } {
   return { error: response };
 }
 
+function serviceUnavailable(message: string): { error: NextResponse } {
+  const response = NextResponse.json(
+    { error: { code: 'temporarily_unavailable', message } },
+    { status: 503 },
+  );
+  response.headers.set(
+    'WWW-Authenticate',
+    `Bearer error="temporarily_unavailable", error_description="${message}"`,
+  );
+  return { error: response };
+}
+
 export async function authenticateMcpRequest(
   request: NextRequest,
 ): Promise<{ userId: string; tenantId: string; clientId: string } | { error: NextResponse }> {
@@ -21,7 +33,18 @@ export async function authenticateMcpRequest(
   }
 
   const provider = getOAuthProvider();
-  const found = await provider.AccessToken.find(token);
+  let found;
+  try {
+    found = await provider.AccessToken.find(token);
+  } catch (err) {
+    // provider.AccessToken.find() only swallows verify()-time errors
+    // (expired/malformed tokens) internally; the preceding adapter.find()
+    // DB lookup (PrismaOidcAdapter -> prisma.oidcModel.findFirst) is not
+    // guarded by oidc-provider itself, so a genuine infra failure (DB
+    // connection drop, timeout, etc.) propagates as a rejection here.
+    console.error('authenticateMcpRequest: AccessToken.find() failed', err);
+    return serviceUnavailable('Token validation is temporarily unavailable');
+  }
   if (!found) {
     return unauthorized('Token not found or expired');
   }

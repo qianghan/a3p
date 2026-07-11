@@ -42,4 +42,23 @@ describe('authenticateMcpRequest', () => {
     const result = await authenticateMcpRequest(request);
     expect(result).toEqual({ userId: 'user-1', tenantId: 'user-1', clientId: 'client-abc' });
   });
+
+  it('resolves with a clean 503 error (not a thrown/unhandled rejection) when AccessToken.find rejects', async () => {
+    const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    findAccessToken.mockRejectedValue(new Error('connection refused'));
+    const request = new NextRequest('http://localhost/api/v1/mcp', {
+      headers: { authorization: 'Bearer some-token' },
+    });
+
+    const result = await authenticateMcpRequest(request);
+
+    expect('error' in result).toBe(true);
+    if ('error' in result) {
+      expect(result.error.status).toBe(503);
+      const body = await result.error.clone().json();
+      expect(body.error.code).toBe('temporarily_unavailable');
+      expect(JSON.stringify(body)).not.toContain('connection refused');
+    }
+    consoleErrorSpy.mockRestore();
+  });
 });
