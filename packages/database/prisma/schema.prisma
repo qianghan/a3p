@@ -327,6 +327,39 @@ model FeatureFlag {
   @@schema("public")
 }
 
+// One generic table serves every oidc-provider model kind (AccessToken,
+// AuthorizationCode, RefreshToken, Client, Grant, Interaction, Session, ...)
+// — this mirrors oidc-provider's own adapter contract, which is type+id keyed.
+model OidcModel {
+  id        String    @id
+  type      String
+  payload   Json
+  grantId   String?
+  userCode  String?
+  uid       String?
+  expiresAt DateTime?
+
+  @@unique([type, id])
+  @@index([type, uid])
+  @@index([type, grantId])
+  @@index([type, userCode])
+  @@schema("public")
+}
+
+// Persisted user consent, separate from oidc-provider's own ephemeral Grant
+// model, so a returning user skips the consent screen on reconnect.
+model McpConsentGrant {
+  id        String    @id @default(uuid())
+  userId    String
+  clientId  String
+  scope     String
+  grantedAt DateTime  @default(now())
+  revokedAt DateTime?
+
+  @@unique([userId, clientId])
+  @@schema("public")
+}
+
 // ============================================
 // CORE PLATFORM - PLUGIN MANAGEMENT
 // ============================================
