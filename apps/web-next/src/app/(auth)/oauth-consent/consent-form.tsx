@@ -1,5 +1,6 @@
 'use client';
 import { useEffect, useState } from 'react';
+import { getCsrfToken } from '@/lib/api/csrf';
 
 export function ConsentForm({ uid }: { uid: string }) {
   const [details, setDetails] = useState<{ clientId: string; alreadyGranted: boolean } | null>(null);
@@ -11,9 +12,14 @@ export function ConsentForm({ uid }: { uid: string }) {
 
   async function respond(allow: boolean) {
     setSubmitting(true);
+    // The server now enforces CSRF on this mutation (it grants/denies a
+    // durable consent record) the same way every other cookie-authenticated
+    // mutation in this codebase does — see ConnectedAppsList.tsx for the
+    // established client-side pattern this mirrors.
+    const csrfToken = await getCsrfToken();
     const res = await fetch('/api/v1/oauth/consent-decision', {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', 'X-CSRF-Token': csrfToken },
       body: JSON.stringify({ uid, allow }),
     });
     const { redirectTo } = await res.json();

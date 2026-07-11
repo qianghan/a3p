@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { validateSession } from '@/lib/api/auth';
+import { validateCSRF } from '@/lib/api/csrf';
 import { getOAuthProvider } from '@/lib/mcp/oauth-provider';
 import { nodeRequestResponseFromWeb } from '@/lib/mcp/node-web-adapter';
+import { isMcpEnabled } from '@/lib/mcp/mcp-flag';
 import { prisma } from '@naap/database';
 
 // Finishes the interaction oidc-provider is waiting on: records/denies
@@ -14,9 +16,28 @@ import { prisma } from '@naap/database';
 // and the adapter's own body read both consume the request's body stream, so
 // the JSON payload is read via `clone()` first to avoid a double-read error.
 export async function POST(request: NextRequest): Promise<NextResponse> {
+  // Kill switch: this route both reads and (on `allow: true`) creates new
+  // consent grants — with the flag off there should be no way to complete a
+  // new connection, even if a stale consent page somehow got rendered.
+  if (!(await isMcpEnabled())) {
+    return NextResponse.json({ error: 'MCP is not enabled for this deployment' }, { status: 503 });
+  }
+
   const { uid, allow } = await request.clone().json();
   const token = request.cookies.get('naap_auth_token')?.value;
-  const user = token ? await validateSession(token) : null;
+  if (!token) return NextResponse.json({ error: 'unauthenticated' }, { status: 401 });
+
+  // This is a cookie-authenticated mutation (it grants/denies a durable
+  // consent record and drives oidc-provider's interaction state), so it
+  // needs the same CSRF check this codebase already applies to every other
+  // cookie-authenticated mutation route (see e.g.
+  // developer/keys/[id]/route.ts's DELETE handler) — without it, a
+  // cross-site request riding the user's session cookie could force a
+  // consent decision on their behalf.
+  const csrfError = validateCSRF(request, token);
+  if (csrfError) return csrfError;
+
+  const user = await validateSession(token);
   if (!user) return NextResponse.json({ error: 'unauthenticated' }, { status: 401 });
 
   const provider = getOAuthProvider();

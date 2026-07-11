@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
 import { validateSession } from '@/lib/api/auth';
+import { validateCSRF } from '@/lib/api/csrf';
 import { prisma, PrismaOidcAdapter } from '@naap/database';
 
 export interface ConnectedAppSummary {
@@ -10,6 +11,14 @@ export interface ConnectedAppSummary {
   grantedAt: string;
 }
 
+// Deliberately NOT gated behind `isMcpEnabled()`, unlike the rest of the
+// OAuth surface (DCR, authorize, token, consent). If the MCP feature flag is
+// switched off after a user already connected an app, they must still be
+// able to see and revoke what they previously granted — an admin flipping
+// the kill switch should not strand users with a connection they can no
+// longer manage. The flag only needs to block *new* grants/tokens from being
+// minted (enforced in [...oidc]/route.ts and consent-decision/route.ts);
+// GET/DELETE here never mint anything.
 export async function GET(): Promise<NextResponse> {
   const token = (await cookies()).get('naap_auth_token')?.value;
   const user = token ? await validateSession(token) : null;
@@ -50,7 +59,17 @@ export async function GET(): Promise<NextResponse> {
 
 export async function DELETE(request: NextRequest): Promise<NextResponse> {
   const token = (await cookies()).get('naap_auth_token')?.value;
-  const user = token ? await validateSession(token) : null;
+  if (!token) return NextResponse.json({ error: 'unauthenticated' }, { status: 401 });
+
+  // Cookie-authenticated mutation (revokes a grant + destroys live tokens) —
+  // needs the same CSRF check every other cookie-authenticated mutation in
+  // this codebase applies (see e.g. developer/keys/[id]/route.ts's DELETE).
+  // The frontend (ConnectedAppsList.tsx) already sends `X-CSRF-Token`; the
+  // server just wasn't checking it.
+  const csrfError = validateCSRF(request, token);
+  if (csrfError) return csrfError;
+
+  const user = await validateSession(token);
   if (!user) return NextResponse.json({ error: 'unauthenticated' }, { status: 401 });
 
   const { clientId } = await request.json();

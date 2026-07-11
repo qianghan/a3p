@@ -98,13 +98,18 @@ describe('GET /api/v1/oauth/connected-apps', () => {
 });
 
 describe('DELETE /api/v1/oauth/connected-apps', () => {
-  function makeRequest(body: unknown): NextRequest {
+  function makeRequest(body: unknown, opts: { csrf?: string | null } = {}): NextRequest {
+    const csrf = opts.csrf === undefined ? 'a-well-formed-csrf-token' : opts.csrf;
+    const headers: Record<string, string> = { 'content-type': 'application/json' };
+    if (csrf) headers['X-CSRF-Token'] = csrf;
     return new NextRequest('http://localhost/api/v1/oauth/connected-apps', {
       method: 'DELETE',
       body: JSON.stringify(body),
-      headers: { 'content-type': 'application/json' },
+      headers,
     });
   }
+
+  afterEach(() => vi.unstubAllEnvs());
 
   it('returns 401 when there is no valid session', async () => {
     mockCookieGet.mockReturnValue(undefined);
@@ -112,6 +117,18 @@ describe('DELETE /api/v1/oauth/connected-apps', () => {
     const res = await DELETE(makeRequest({ clientId: 'client-a' }));
 
     expect(res.status).toBe(401);
+  });
+
+  it('returns 403 when the request has no X-CSRF-Token header (Finding 4: CSRF was not enforced here)', async () => {
+    vi.stubEnv('NODE_ENV', 'production');
+    mockCookieGet.mockReturnValue({ value: 'tok' });
+
+    const res = await DELETE(makeRequest({ clientId: 'client-a' }, { csrf: null }));
+
+    expect(res.status).toBe(403);
+    // Must fail before ever reaching session validation / the database.
+    expect(mockValidateSession).not.toHaveBeenCalled();
+    expect(mockFindUnique).not.toHaveBeenCalled();
   });
 
   it('returns 404 when the caller has no grant for the given client', async () => {
@@ -178,5 +195,24 @@ describe('DELETE /api/v1/oauth/connected-apps', () => {
     expect(res.status).not.toBe(200);
     expect(body).not.toEqual({ success: true });
     expect(mockUpdate).not.toHaveBeenCalled();
+  });
+});
+
+describe('GET/DELETE /api/v1/oauth/connected-apps — deliberately NOT gated by the MCP flag (Finding 1 scoping decision)', () => {
+  it('GET is not affected by mcp-flag import at all (no such import in the route)', async () => {
+    // This is a documentation-style assertion: connected-apps intentionally
+    // has no `isMcpEnabled()` check (see route.ts's comment) so existing
+    // users can always see/revoke what they already connected, even if the
+    // flag is later switched off. There is nothing to mock/toggle here — the
+    // absence of the check IS the behavior under test, exercised implicitly
+    // by every other passing GET/DELETE test in this file needing no flag
+    // mock at all.
+    mockCookieGet.mockReturnValue({ value: 'tok' });
+    mockValidateSession.mockResolvedValue({ id: 'user-1' });
+    mockFindMany.mockResolvedValue([]);
+    mockOidcModelFindMany.mockResolvedValue([]);
+
+    const res = await GET();
+    expect(res.status).toBe(200);
   });
 });
