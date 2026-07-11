@@ -1,0 +1,65 @@
+---
+title: "Connect Claude via MCP"
+description: "Use AgentBook directly from Claude Desktop or Claude API with live access to your books."
+order: 5
+---
+
+## Connect Claude via MCP
+
+AgentBook works as a **Model Context Protocol (MCP) server**, so you can access your books and manage finances directly from Claude or any MCP-compatible client. Chat with your bookkeeper in one place.
+
+### What you can do
+
+Once connected, Claude can:
+
+- **Query your books** — "What's my expense summary this month?" "How much tax should I set aside?"
+- **Record transactions** — "Log $50 coffee" "Create an invoice for $2,000 to Acme Inc"
+- **Analyze finances** — "Show me my vendor breakdown" "What's my cash flow looking like?"
+- **Draft plans** — "What if I buy a $3,000 laptop?" "How much can I spend this quarter?"
+
+### Add AgentBook to Claude
+
+#### Option 1: Claude Desktop
+
+1. Open **Claude Desktop Settings** (gear icon, bottom-left)
+2. Go to **Connectors**
+3. Click **+ Add custom connector**
+4. Paste this URL: `https://agentbook.brainliber.com/api/v1/mcp`
+5. Click **Add**
+6. You'll be redirected to log in with your AgentBook account
+7. Grant Claude access to your books
+8. Done — Claude now has access to your AgentBook data
+
+#### Option 2: Claude API / Web
+
+1. Go to [claude.ai](https://claude.ai) and open **Settings**
+2. Navigate to **Connectors**
+3. Click **+ Add custom connector**
+4. Paste this URL: `https://agentbook.brainliber.com/api/v1/mcp`
+5. Follow the login and approval flow
+6. Start chatting — Claude will suggest AgentBook actions when relevant
+
+### Important: Confirm before saving
+
+**Write actions always require your approval inside Claude.** Before the agent records an expense, creates an invoice, or changes your books, Claude will show you exactly what's about to happen and ask for your confirmation. This is a deliberate safety feature — nothing is saved without your explicit "yes."
+
+This means:
+- You stay in control of every transaction
+- Mistakes are caught before they hit your books
+- You can review and modify proposals before confirming
+
+### Troubleshooting
+
+**I don't see AgentBook in my connectors**
+
+Make sure the MCP server is running and your AgentBook account is active. You may need to refresh Claude or reload your browser.
+
+**Claude says it can't access my data**
+
+Check that you've granted Claude permission during the login flow. Go to your [AgentBook account settings](/docs/configure/business-profile) and verify that the connection is still active.
+
+**I want to revoke access**
+
+You can disconnect Claude from your AgentBook account under **Configure → Integrations** (or revoke it at the OAuth provider level). Once revoked, Claude will no longer have access to your books.
+
+Next: [Ask the agent](/docs/working/ask-the-agent)
