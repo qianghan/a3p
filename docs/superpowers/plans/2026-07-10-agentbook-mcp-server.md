@@ -345,6 +345,8 @@ export function getOAuthProvider(): Provider {
 }
 ```
 
+> **Fix round 1 (post-review):** the snippet above omits a `jwks` option, so oidc-provider generates ephemeral signing keys per process — unsafe on Vercel, where separate warm serverless instances would each mint incompatible keys. The shipped implementation adds `AGENTBOOK_MCP_JWKS` (a JSON-stringified JWK Set, `{ "keys": [...] }`) as a plain `process.env` var, following this repo's existing secret convention (`STRIPE_SECRET_KEY`, `TELEGRAM_BOT_TOKEN`). Unset → falls back to ephemeral keys with a one-time `console.warn` (fine for local dev); set-but-malformed → throws at startup. See `.superpowers/sdd/task-2-report.md` ("Fix round 1") for details.
+
 - [ ] **Step 7: Commit**
 
 ```bash
