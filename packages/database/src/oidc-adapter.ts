@@ -35,19 +35,26 @@ export class PrismaOidcAdapter {
   }
 
   async findByUserCode(userCode: string): Promise<Record<string, unknown> | undefined> {
-    const row = await prisma.oidcModel.findFirst({ where: { type: this.type, userCode } });
+    const row = await prisma.oidcModel.findFirst({
+      where: { type: this.type, userCode, OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }] },
+    });
     return row ? (row.payload as Record<string, unknown>) : undefined;
   }
 
   async findByUid(uid: string): Promise<Record<string, unknown> | undefined> {
-    const row = await prisma.oidcModel.findFirst({ where: { type: this.type, uid } });
+    const row = await prisma.oidcModel.findFirst({
+      where: { type: this.type, uid, OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }] },
+    });
     return row ? (row.payload as Record<string, unknown>) : undefined;
   }
 
   async consume(id: string): Promise<void> {
+    const row = await prisma.oidcModel.findUnique({ where: { type_id: { type: this.type, id } } });
+    if (!row) return;
+    const payload = { ...(row.payload as Record<string, unknown>), consumed: Math.floor(Date.now() / 1000) };
     await prisma.oidcModel.updateMany({
       where: { type: this.type, id },
-      data: { payload: { consumed: Math.floor(Date.now() / 1000) } as any },
+      data: { payload: payload as any },
     });
   }
 

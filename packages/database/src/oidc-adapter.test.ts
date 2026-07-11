@@ -52,4 +52,58 @@ describe('PrismaOidcAdapter', () => {
     const result = await adapter.find('token-123');
     expect(result).toEqual({ foo: 'bar' });
   });
+
+  it('consume merges a consumed timestamp into the existing payload instead of overwriting it', async () => {
+    (prisma.oidcModel.findUnique as any).mockResolvedValue({
+      payload: { foo: 'bar', accountId: 'acct-1', grantId: 'grant-1' },
+    });
+    const adapter = new PrismaOidcAdapter('AuthorizationCode');
+    await adapter.consume('code-123');
+
+    expect(prisma.oidcModel.findUnique).toHaveBeenCalledWith({
+      where: { type_id: { type: 'AuthorizationCode', id: 'code-123' } },
+    });
+
+    const call = (prisma.oidcModel.updateMany as any).mock.calls[0][0];
+    expect(call.where).toEqual({ type: 'AuthorizationCode', id: 'code-123' });
+    expect(call.data.payload).toEqual(
+      expect.objectContaining({ foo: 'bar', accountId: 'acct-1', grantId: 'grant-1' })
+    );
+    expect(typeof call.data.payload.consumed).toBe('number');
+  });
+
+  it('consume is a no-op when the record does not exist', async () => {
+    (prisma.oidcModel.findUnique as any).mockResolvedValue(null);
+    const adapter = new PrismaOidcAdapter('AuthorizationCode');
+    await adapter.consume('missing-id');
+    expect(prisma.oidcModel.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('findByUserCode returns undefined for an expired record', async () => {
+    (prisma.oidcModel.findFirst as any).mockResolvedValue(null);
+    const adapter = new PrismaOidcAdapter('DeviceCode');
+    const result = await adapter.findByUserCode('expired-user-code');
+    expect(result).toBeUndefined();
+    expect(prisma.oidcModel.findFirst).toHaveBeenCalledWith({
+      where: {
+        type: 'DeviceCode',
+        userCode: 'expired-user-code',
+        OR: [{ expiresAt: null }, { expiresAt: { gt: expect.any(Date) } }],
+      },
+    });
+  });
+
+  it('findByUid returns undefined for an expired record', async () => {
+    (prisma.oidcModel.findFirst as any).mockResolvedValue(null);
+    const adapter = new PrismaOidcAdapter('Session');
+    const result = await adapter.findByUid('expired-uid');
+    expect(result).toBeUndefined();
+    expect(prisma.oidcModel.findFirst).toHaveBeenCalledWith({
+      where: {
+        type: 'Session',
+        uid: 'expired-uid',
+        OR: [{ expiresAt: null }, { expiresAt: { gt: expect.any(Date) } }],
+      },
+    });
+  });
 });
