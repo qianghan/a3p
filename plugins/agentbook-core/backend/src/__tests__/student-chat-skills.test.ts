@@ -165,7 +165,7 @@ describe('student chat skills — save-coop-opportunity candidate resolution', (
   it('resolves "save the RBC one" via fuzzy employer/title match', async () => {
     mockAbConversationFindFirst.mockResolvedValueOnce({ skillUsed: 'find-coop-opportunities', data: { success: true, data: { candidates: JOB_CANDIDATES } } });
     mockFetch.mockResolvedValueOnce({ ok: true, json: async () => ({ success: true, data: { id: 'job-2' } }) });
-    await executeClassification(classification('save-coop-opportunity'), 'save the data analyst one', 'tenant-1', 'api');
+    await executeClassification(classification('save-coop-opportunity'), 'save the RBC one', 'tenant-1', 'api');
     const [, opts] = mockFetch.mock.calls[0];
     const body = JSON.parse((opts as any).body);
     expect(body.title).toBe('Data Analyst Intern');
