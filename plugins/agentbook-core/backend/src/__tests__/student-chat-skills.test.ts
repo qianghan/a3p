@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 const mockAbTenantConfigFindUnique = vi.fn();
 const mockAbConversationFindFirst = vi.fn();
-const mockAbConversationFindMany = vi.fn(async () => []);
+const mockAbConversationFindMany = vi.fn();
 
 vi.mock('../db/client.js', () => ({
   db: {
