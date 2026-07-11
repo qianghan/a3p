@@ -24,7 +24,9 @@
 - **Modify:** `plugins/agentbook-core/backend/src/built-in-skills.ts` — add 5 skill manifest entries; add `excludePatterns` to the existing `scholarship-taxability` entry.
 - **Modify:** `plugins/agentbook-core/backend/src/server.ts` — import `hasAddOn`; add 3 `baseUrls` entries; add the eligibility gate; add `save-scholarship`/`save-coop-opportunity` INTERNAL handlers; add 3 response-formatting branches.
 - **Modify:** `plugins/agentbook-core/backend/src/__tests__/skill-routing-canonical.test.ts` — add routing/collision-avoidance cases for the 5 new skills.
-- **Create:** `plugins/agentbook-core/backend/src/__tests__/student-chat-skills.test.ts` — eligibility gate tests, candidate-resolution tests, response-formatting tests, all calling the real `executeClassification` with mocked `db`/`hasAddOn`/`fetch`.
+- **Create:** `plugins/agentbook-core/backend/src/candidate-resolution.ts` — shared `resolveOrdinalOrFuzzyCandidate()` helper used by both `save-scholarship` and `save-coop-opportunity`, so the ordinal/fuzzy-match logic exists in exactly one place.
+- **Create:** `plugins/agentbook-core/backend/src/__tests__/candidate-resolution.test.ts` — unit tests for the shared helper.
+- **Create:** `plugins/agentbook-core/backend/src/__tests__/student-chat-skills.test.ts` — eligibility gate tests, candidate-resolution integration tests, response-formatting tests, all calling the real `executeClassification` with mocked `db`/`hasAddOn`/`fetch`.
 - **Create:** `bin/seed-student-chat-test-account.ts` — one-off script granting a test tenant `businessType='student'` + an active `student_success` subscription, for production e2e verification.
 
 ---
@@ -342,14 +344,149 @@ beyond the gate."
 
 ---
 
-## Task 3: `save-scholarship` — candidate resolution + save
+## Task 3: Shared candidate-resolution helper
+
+**Files:**
+- Create: `plugins/agentbook-core/backend/src/candidate-resolution.ts`
+- Test: `plugins/agentbook-core/backend/src/__tests__/candidate-resolution.test.ts`
+
+**Interfaces:**
+- Produces: `resolveOrdinalOrFuzzyCandidate<T extends { title: string }>(candidates: T[], text: string, extraMatchFields?: string[]): T | null` — exported for both Task 4 (`save-scholarship`, called with no extra fields) and Task 5 (`save-coop-opportunity`, called with `extraMatchFields: ['employer']`).
+
+- [ ] **Step 1: Write the failing tests**
+
+Create `plugins/agentbook-core/backend/src/__tests__/candidate-resolution.test.ts`:
+
+```ts
+import { describe, it, expect } from 'vitest';
+import { resolveOrdinalOrFuzzyCandidate } from '../candidate-resolution';
+
+const SCHOLARSHIPS = [
+  { title: 'Chen Family Award', amountText: '$2,000' },
+  { title: 'TD Community Scholarship', amountText: '$1,000' },
+];
+
+const JOBS = [
+  { title: 'Software Engineering Co-op', employer: 'Shopify' },
+  { title: 'Data Analyst Intern', employer: 'RBC' },
+];
+
+describe('resolveOrdinalOrFuzzyCandidate', () => {
+  it('returns null for an empty candidate list', () => {
+    expect(resolveOrdinalOrFuzzyCandidate([], 'save the first one')).toBeNull();
+  });
+
+  it('resolves "first" to index 0', () => {
+    expect(resolveOrdinalOrFuzzyCandidate(SCHOLARSHIPS, 'save the first one')).toBe(SCHOLARSHIPS[0]);
+  });
+
+  it('resolves "second" to index 1', () => {
+    expect(resolveOrdinalOrFuzzyCandidate(SCHOLARSHIPS, 'save the second one')).toBe(SCHOLARSHIPS[1]);
+  });
+
+  it('resolves "#2" / "2nd" to index 1', () => {
+    expect(resolveOrdinalOrFuzzyCandidate(SCHOLARSHIPS, 'save #2')).toBe(SCHOLARSHIPS[1]);
+    expect(resolveOrdinalOrFuzzyCandidate(SCHOLARSHIPS, 'save the 2nd one')).toBe(SCHOLARSHIPS[1]);
+  });
+
+  it('falls back to fuzzy title match when there is no ordinal', () => {
+    expect(resolveOrdinalOrFuzzyCandidate(SCHOLARSHIPS, 'save the TD one')).toBe(SCHOLARSHIPS[1]);
+  });
+
+  it('matches against extraMatchFields (e.g. employer) in addition to title', () => {
+    expect(resolveOrdinalOrFuzzyCandidate(JOBS, 'save the shopify one', ['employer'])).toBe(JOBS[0]);
+    expect(resolveOrdinalOrFuzzyCandidate(JOBS, 'save the rbc one', ['employer'])).toBe(JOBS[1]);
+  });
+
+  it('returns null when nothing resolves (no ordinal, no fuzzy match)', () => {
+    expect(resolveOrdinalOrFuzzyCandidate(SCHOLARSHIPS, 'save that one please')).toBeNull();
+  });
+});
+```
+
+- [ ] **Step 2: Run test to verify it fails**
+
+Run: `cd plugins/agentbook-core/backend && npx vitest run src/__tests__/candidate-resolution.test.ts`
+Expected: FAIL — `../candidate-resolution` doesn't exist yet.
+
+- [ ] **Step 3: Implement the helper**
+
+Create `plugins/agentbook-core/backend/src/candidate-resolution.ts`:
+
+```ts
+/**
+ * Resolve which candidate a follow-up message like "save the first one" or
+ * "save the TD one" refers to, against the candidate list from a prior
+ * find-* skill turn. Shared by save-scholarship and save-coop-opportunity
+ * so the resolution logic exists in exactly one place.
+ *
+ * Resolution order:
+ *   1. Ordinal ("first"..."fifth", "#2", "2nd") — index into candidates.
+ *   2. Fuzzy — score each candidate by how many of its title's (plus any
+ *      extraMatchFields', e.g. "employer") significant words (4+ chars)
+ *      appear in the user's message; highest score wins.
+ *
+ * Returns null if candidates is empty, or if neither resolution succeeds.
+ */
+export function resolveOrdinalOrFuzzyCandidate<T extends { title: string }>(
+  candidates: T[],
+  text: string,
+  extraMatchFields: string[] = [],
+): T | null {
+  if (candidates.length === 0) return null;
+  const lowerText = (text || '').toLowerCase();
+
+  const ordinalWords: Record<string, number> = { first: 0, second: 1, third: 2, fourth: 3, fifth: 4 };
+  let ordinalIndex: number | null = null;
+  for (const [word, idx] of Object.entries(ordinalWords)) {
+    if (new RegExp(`\\b${word}\\b`, 'i').test(lowerText)) { ordinalIndex = idx; break; }
+  }
+  if (ordinalIndex === null) {
+    const numMatch = lowerText.match(/#\s*(\d+)|\b(\d+)(?:st|nd|rd|th)\b/);
+    if (numMatch) ordinalIndex = parseInt(numMatch[1] || numMatch[2], 10) - 1;
+  }
+  if (ordinalIndex !== null && candidates[ordinalIndex]) {
+    return candidates[ordinalIndex];
+  }
+
+  let best: T | null = null;
+  let bestScore = 0;
+  for (const c of candidates) {
+    const fieldValues = [c.title, ...extraMatchFields.map((f) => (c as any)[f])].filter(Boolean).join(' ');
+    const words = fieldValues.toLowerCase().split(/\W+/).filter((w: string) => w.length >= 4);
+    const score = words.filter((w: string) => lowerText.includes(w)).length;
+    if (score > bestScore) { bestScore = score; best = c; }
+  }
+  return best;
+}
+```
+
+- [ ] **Step 4: Run test to verify it passes**
+
+Run: `cd plugins/agentbook-core/backend && npx vitest run src/__tests__/candidate-resolution.test.ts`
+Expected: PASS — all 7 tests pass.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add plugins/agentbook-core/backend/src/candidate-resolution.ts plugins/agentbook-core/backend/src/__tests__/candidate-resolution.test.ts
+git commit -m "feat(agent-brain): shared ordinal/fuzzy candidate-resolution helper
+
+Extracted so save-scholarship and save-coop-opportunity (next two
+tasks) share one implementation of 'save the first one' / 'save the
+TD one' resolution instead of duplicating it."
+```
+
+---
+
+## Task 4: `save-scholarship` — candidate resolution + save
 
 **Files:**
 - Modify: `plugins/agentbook-core/backend/src/server.ts`
 - Test: `plugins/agentbook-core/backend/src/__tests__/student-chat-skills.test.ts`
 
 **Interfaces:**
-- Consumes: `db.abConversation.findFirst({ where: { tenantId, skillUsed: 'find-scholarships' }, orderBy: { createdAt: 'desc' } })` (same query shape `edit-expense`'s pre-processing already uses); `baseUrls['/api/v1/agentbook-scholarship']`; `brainHeaders(tenantId)` (already defined in `server.ts`).
+- Consumes: `resolveOrdinalOrFuzzyCandidate` from Task 3 (`./candidate-resolution.js`, called with no `extraMatchFields`); `db.abConversation.findFirst({ where: { tenantId, skillUsed: 'find-scholarships' }, orderBy: { createdAt: 'desc' } })` (same query shape `edit-expense`'s pre-processing already uses); `baseUrls['/api/v1/agentbook-scholarship']`; `brainHeaders(tenantId)` (already defined in `server.ts`).
 - Produces: the `save-scholarship` INTERNAL handler's `return` shape `{ selectedSkill, extractedParams, confidence, skillUsed: 'save-scholarship', skillResponse, responseData: { message, skillUsed, confidence, latencyMs } }`.
 
 - [ ] **Step 1: Write the failing tests**
@@ -418,7 +555,13 @@ Expected: FAIL — `save-scholarship` has no INTERNAL handler yet, so it falls t
 
 - [ ] **Step 3: Implement the `save-scholarship` INTERNAL handler**
 
-In `plugins/agentbook-core/backend/src/server.ts`, add this block among the other INTERNAL handlers (e.g., directly after the `record-invoice-payment` block, anywhere before the generic HTTP execution section starting at `// === 3. SKILL EXECUTION ===`'s generic fetch code):
+In `plugins/agentbook-core/backend/src/server.ts`, add the import (near the other local imports at the top of the file):
+
+```ts
+import { resolveOrdinalOrFuzzyCandidate } from './candidate-resolution.js';
+```
+
+Then add this block among the other INTERNAL handlers (e.g., directly after the `record-invoice-payment` block, anywhere before the generic HTTP execution section starting at `// === 3. SKILL EXECUTION ===`'s generic fetch code):
 
 ```ts
   // INTERNAL handler: save-scholarship — resolve a candidate from the prior
@@ -432,30 +575,7 @@ In `plugins/agentbook-core/backend/src/server.ts`, add this block among the othe
         orderBy: { createdAt: 'desc' },
       });
       const candidates: any[] = (lastConvo?.data as any)?.data?.candidates ?? [];
-      const lowerText = (text || '').toLowerCase();
-      let chosen: any = null;
-
-      if (candidates.length > 0) {
-        const ordinalWords: Record<string, number> = { first: 0, second: 1, third: 2, fourth: 3, fifth: 4 };
-        let ordinalIndex: number | null = null;
-        for (const [word, idx] of Object.entries(ordinalWords)) {
-          if (new RegExp(`\\b${word}\\b`, 'i').test(lowerText)) { ordinalIndex = idx; break; }
-        }
-        if (ordinalIndex === null) {
-          const numMatch = lowerText.match(/#\s*(\d+)|\b(\d+)(?:st|nd|rd|th)\b/);
-          if (numMatch) ordinalIndex = parseInt(numMatch[1] || numMatch[2], 10) - 1;
-        }
-        if (ordinalIndex !== null && candidates[ordinalIndex]) {
-          chosen = candidates[ordinalIndex];
-        } else {
-          let bestScore = 0;
-          for (const c of candidates) {
-            const words = String(c.title || '').toLowerCase().split(/\W+/).filter((w: string) => w.length >= 4);
-            const score = words.filter((w: string) => lowerText.includes(w)).length;
-            if (score > bestScore) { bestScore = score; chosen = c; }
-          }
-        }
-      }
+      let chosen: any = resolveOrdinalOrFuzzyCandidate(candidates, text || '');
 
       if (!chosen && extractedParams.title) {
         chosen = {
@@ -537,14 +657,14 @@ Posts to the existing scholarship opportunities endpoint."
 
 ---
 
-## Task 4: `save-coop-opportunity` — same pattern for career/job candidates
+## Task 5: `save-coop-opportunity` — same pattern for career/job candidates
 
 **Files:**
 - Modify: `plugins/agentbook-core/backend/src/server.ts`
 - Test: `plugins/agentbook-core/backend/src/__tests__/student-chat-skills.test.ts`
 
 **Interfaces:**
-- Consumes: same pattern as Task 3, filtered on `skillUsed: 'find-coop-opportunities'`; `baseUrls['/api/v1/agentbook-career']`.
+- Consumes: `resolveOrdinalOrFuzzyCandidate` from Task 3 (`./candidate-resolution.js`, called with `extraMatchFields: ['employer']`), filtered on `skillUsed: 'find-coop-opportunities'`; `baseUrls['/api/v1/agentbook-career']`.
 - Produces: the `save-coop-opportunity` INTERNAL handler.
 
 - [ ] **Step 1: Write the failing tests**
@@ -607,7 +727,7 @@ Expected: FAIL — no `save-coop-opportunity` handler yet.
 
 - [ ] **Step 3: Implement the `save-coop-opportunity` INTERNAL handler**
 
-Add directly after the `save-scholarship` block from Task 3:
+Add directly after the `save-scholarship` block from Task 4:
 
 ```ts
   // INTERNAL handler: save-coop-opportunity — same resolution pattern as
@@ -619,30 +739,7 @@ Add directly after the `save-scholarship` block from Task 3:
         orderBy: { createdAt: 'desc' },
       });
       const candidates: any[] = (lastConvo?.data as any)?.data?.candidates ?? [];
-      const lowerText = (text || '').toLowerCase();
-      let chosen: any = null;
-
-      if (candidates.length > 0) {
-        const ordinalWords: Record<string, number> = { first: 0, second: 1, third: 2, fourth: 3, fifth: 4 };
-        let ordinalIndex: number | null = null;
-        for (const [word, idx] of Object.entries(ordinalWords)) {
-          if (new RegExp(`\\b${word}\\b`, 'i').test(lowerText)) { ordinalIndex = idx; break; }
-        }
-        if (ordinalIndex === null) {
-          const numMatch = lowerText.match(/#\s*(\d+)|\b(\d+)(?:st|nd|rd|th)\b/);
-          if (numMatch) ordinalIndex = parseInt(numMatch[1] || numMatch[2], 10) - 1;
-        }
-        if (ordinalIndex !== null && candidates[ordinalIndex]) {
-          chosen = candidates[ordinalIndex];
-        } else {
-          let bestScore = 0;
-          for (const c of candidates) {
-            const words = `${c.title || ''} ${c.employer || ''}`.toLowerCase().split(/\W+/).filter((w: string) => w.length >= 4);
-            const score = words.filter((w: string) => lowerText.includes(w)).length;
-            if (score > bestScore) { bestScore = score; chosen = c; }
-          }
-        }
-      }
+      let chosen: any = resolveOrdinalOrFuzzyCandidate(candidates, text || '', ['employer']);
 
       if (!chosen && extractedParams.title) {
         chosen = {
@@ -727,7 +824,7 @@ endpoint."
 
 ---
 
-## Task 5: Response formatting for the 3 "find" skills
+## Task 6: Response formatting for the 3 "find" skills
 
 **Files:**
 - Modify: `plugins/agentbook-core/backend/src/server.ts`
@@ -877,7 +974,7 @@ fallback."
 
 ---
 
-## Task 6: Full verification, worktree cleanup, PR, deploy, and production e2e verification
+## Task 7: Full verification, worktree cleanup, PR, deploy, and production e2e verification
 
 **Files:**
 - Create: `bin/seed-student-chat-test-account.ts`
@@ -1084,8 +1181,8 @@ git worktree remove .worktrees/prod-deploy-student-chat-skills --force
 
 ## Plan Self-Review
 
-**Spec coverage:** All 5 skills (Task 1), eligibility gate (Task 2), baseUrls (Task 2), save-flow candidate resolution (Tasks 3-4), response formatting (Task 5), and the full delivery pipeline including the required `seed-skills` call (Task 6) are covered. The design doc's "explicitly out of scope" items (conversational roommate-profile setup, housing-listing search, affordability chat skill, pre-classification filtering) have no corresponding tasks, as intended.
+**Spec coverage:** All 5 skills (Task 1), eligibility gate (Task 2), baseUrls (Task 2), the shared candidate-resolution helper (Task 3), save-flow integration for both scholarship and career (Tasks 4-5), response formatting (Task 6), and the full delivery pipeline including the required `seed-skills` call (Task 7) are covered. The design doc's "explicitly out of scope" items (conversational roommate-profile setup, housing-listing search, affordability chat skill, pre-classification filtering) have no corresponding tasks, as intended.
 
 **Placeholder scan:** No TBD/TODO; every step has complete, real code.
 
-**Type consistency:** `save-scholarship`/`save-coop-opportunity` both return the same `{ selectedSkill, extractedParams, confidence, skillUsed, skillResponse, responseData: { message, skillUsed, confidence, latencyMs } }` shape used elsewhere in `server.ts` (matches `categorize-expenses`'s established INTERNAL-handler return shape). `STUDENT_CHAT_SKILLS` (Task 2) is referenced by name only (as a literal array), not imported across tasks, since it's declared once in Task 2 and all later tasks' code lives in the same file/function scope.
+**Type consistency:** `save-scholarship`/`save-coop-opportunity` both return the same `{ selectedSkill, extractedParams, confidence, skillUsed, skillResponse, responseData: { message, skillUsed, confidence, latencyMs } }` shape used elsewhere in `server.ts` (matches `categorize-expenses`'s established INTERNAL-handler return shape). Both call the same `resolveOrdinalOrFuzzyCandidate` from Task 3 rather than duplicating resolution logic (revised per user request during pre-flight review — Tasks 4 and 5 originally each had their own copy). `STUDENT_CHAT_SKILLS` (Task 2) is referenced by name only (as a literal array), not imported across tasks, since it's declared once in Task 2 and all later tasks' code lives in the same file/function scope.
