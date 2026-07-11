@@ -27,16 +27,72 @@ async function handle(request: NextRequest): Promise<Response> {
       inputSchema: { message: z.string(), conversationId: z.string().optional() },
       annotations: { readOnlyHint: false, destructiveHint: true },
     },
-    async ({ message, conversationId }) => {
+    async ({ message, conversationId }, extra) => {
       try {
         const result = await callAgentBrain({ text: message, tenantId: auth.tenantId, conversationId });
+
+        if (result.data.plan?.requiresConfirmation) {
+          // Real capability check: whether *this* server instance recorded an
+          // `elicitation` capability from the client's `initialize` handshake.
+          // NOTE — see Task 8 report: under this route's current stateless
+          // transport (`sessionIdGenerator: undefined`, a fresh McpServer per
+          // HTTP request), `getClientCapabilities()` is verified to always
+          // return undefined here, because the `initialize` request is
+          // handled by a *different*, already-discarded server instance. This
+          // check is still the objectively correct one (`extra.sendRequest`
+          // is a non-optional field, always present regardless of client
+          // capability, so `Boolean(extra.sendRequest)` can never be false
+          // and would be dead code) — it just can't succeed until the
+          // transport is made session-aware. Once that lands, this check
+          // starts working correctly with no further change needed here.
+          const supportsElicitation = Boolean(server.server.getClientCapabilities()?.elicitation);
+          if (!supportsElicitation) {
+            return {
+              content: [{
+                type: 'text',
+                text: 'This connection doesn\'t support secure confirmation for actions that write ' +
+                  'data, so I can\'t proceed with that. Read-only questions still work — or reconnect ' +
+                  'using a client with elicitation support (e.g. Claude Desktop/Code).',
+              }],
+              isError: true,
+            };
+          }
+
+          const elicited = await extra.sendRequest(
+            {
+              method: 'elicitation/create',
+              params: {
+                message: result.data.message,
+                requestedSchema: {
+                  type: 'object',
+                  properties: { confirm: { type: 'boolean', title: 'Proceed with this action?' } },
+                  required: ['confirm'],
+                },
+              },
+            },
+            z.object({ action: z.enum(['accept', 'decline', 'cancel']), content: z.object({ confirm: z.boolean() }).optional() }),
+          );
+
+          if (elicited.action !== 'accept' || !elicited.content?.confirm) {
+            return { content: [{ type: 'text', text: 'Action cancelled — nothing was recorded.' }] };
+          }
+
+          const confirmed = await callAgentBrain({
+            text: message,
+            tenantId: auth.tenantId,
+            conversationId,
+            sessionAction: 'confirm',
+          });
+          return { content: [{ type: 'text', text: confirmed.data.message }] };
+        }
+
         return { content: [{ type: 'text', text: result.data.message }] };
       } catch (err) {
         // AgentBrainError's message is already safe to surface (no stack
         // traces/internal URLs); the correlationId is logged server-side
         // (Task 7's callAgentBrain), not sent to the client.
-        const message = err instanceof Error ? err.message : 'AgentBook is temporarily unavailable.';
-        return { content: [{ type: 'text', text: message }], isError: true };
+        const errMessage = err instanceof Error ? err.message : 'AgentBook is temporarily unavailable.';
+        return { content: [{ type: 'text', text: errMessage }], isError: true };
       }
     },
   );
