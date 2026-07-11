@@ -4,6 +4,8 @@
 // uses (see src/lib/mcp/oauth-provider.ts) — not a full port of the library's
 // configuration schema.
 declare module 'oidc-provider' {
+  import type { IncomingMessage, ServerResponse } from 'http';
+
   export interface Configuration {
     [key: string]: unknown;
   }
@@ -11,7 +13,8 @@ declare module 'oidc-provider' {
   export class Provider {
     constructor(issuer: string, configuration?: Configuration);
     readonly issuer: string;
-    callback(): unknown;
+    // Real Node request handler — see oidc-provider's Koa `app.callback()`.
+    callback(): (req: IncomingMessage, res: ServerResponse) => void;
     [key: string]: unknown;
   }
 
