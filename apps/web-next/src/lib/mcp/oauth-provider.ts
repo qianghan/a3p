@@ -76,6 +76,36 @@ export function getOAuthProvider(): Provider {
       revocation: { enabled: true },
       devInteractions: { enabled: false }, // we render our own login/consent (Task 5)
     },
+    interactions: {
+      // Every interaction (login + consent) is rendered by our own page —
+      // devInteractions is disabled above, so this is the only login/consent
+      // UI oidc-provider will redirect the user-agent to. `Configuration`'s
+      // index signature (`[key: string]: unknown`) can't propagate parameter
+      // types into this nested function, so they're annotated explicitly
+      // (only `interaction.uid` is actually used).
+      url(_ctx: unknown, interaction: { uid: string }) {
+        return `/oauth-consent?uid=${interaction.uid}`;
+      },
+    },
+    // `cookies.short.path` is normally unset, and oidc-provider derives the
+    // `_interaction` cookie's `Set-Cookie: path=` from `interactions.url()`'s
+    // *pathname only* (`/oauth-consent`) — see
+    // node_modules/oidc-provider/lib/actions/authorization/interactions.js.
+    // That scopes the cookie so the browser only sends it back on requests
+    // under `/oauth-consent`, which would silently break the consent flow:
+    // the client form's `fetch()` calls to `/api/v1/oauth/interaction` and
+    // `/api/v1/oauth/consent-decision` (Task 5) are outside that path, so
+    // `interactionDetails`/`interactionResult` would throw
+    // `SessionNotFound: interaction session id cookie not found` for every
+    // real browser request — confirmed by a live manual repro against
+    // oidc-provider@9.9.1 during Task 5 implementation. Setting `path: '/'`
+    // here widens the cookie to the whole origin so both the consent page
+    // and its API routes receive it. (The `_interaction_resume` cookie is
+    // unaffected — its own `path` is set *after* spreading `cookies.short`
+    // in oidc-provider's source, so it always wins regardless of this.)
+    cookies: {
+      short: { path: '/' },
+    },
     pkce: { required: () => true }, // OAuth 2.1: PKCE mandatory for every client
     scopes: ['agentbook:full'],
     ttl: {
