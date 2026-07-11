@@ -16,6 +16,7 @@ import {
 import * as Icons from 'lucide-react';
 import { Button, Input, Textarea, Label, Modal } from '@naap/ui';
 import { AgentBookSettingsPanel } from '@/components/settings/AgentBookSettingsPanel';
+import { ConnectedAppsList } from '@/components/settings/ConnectedAppsList';
 
 /** Only allow http/https URLs for image sources to prevent XSS via javascript: URIs */
 function getSafeImageUrl(url: string | null | undefined): string | null {
@@ -1007,6 +1008,15 @@ export default function SettingsPage() {
             )}
           </div>
         )}
+      </section>
+
+      {/* Connected Apps Section */}
+      <section className="bg-card rounded-lg border p-4">
+        <div className="flex items-center gap-3 mb-4">
+          <Shield className="h-5 w-5 text-muted-foreground" />
+          <h2 className="text-sm font-semibold">Connected Apps</h2>
+        </div>
+        <ConnectedAppsList />
       </section>
 
       {/* Appearance Section */}

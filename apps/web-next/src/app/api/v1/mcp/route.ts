@@ -7,6 +7,7 @@ import { authenticateMcpRequest } from '@/lib/mcp/authenticate-mcp-request';
 import { isMcpEnabled } from '@/lib/mcp/mcp-flag';
 import { callAgentBrain } from '@/lib/mcp/ask-agentbook-tool';
 import { nodeRequestResponseFromWeb } from '@/lib/mcp/node-web-adapter';
+import { checkRateLimit } from '@/lib/mcp/rate-limit';
 import { type McpSession, resolveSessionForRequest, sessions } from './session-store';
 
 function registerAskAgentbookTool(server: McpServer, tenantId: string): void {
@@ -136,6 +137,15 @@ async function handle(request: NextRequest): Promise<Response> {
 
   const auth = await authenticateMcpRequest(request);
   if ('error' in auth) return auth.error;
+
+  // Applied once per incoming request, right after auth succeeds and before
+  // any session lookup/creation — so it covers `initialize` (session
+  // creation) and every subsequent call on a reused session identically,
+  // regardless of which branch below actually handles the request.
+  const rateLimitAllowed = await checkRateLimit(`mcp:${auth.userId}`, 60, 60_000); // 60 calls/min/user
+  if (!rateLimitAllowed) {
+    return NextResponse.json({ error: { code: 'rate_limited', message: 'Too many requests' } }, { status: 429 });
+  }
 
   // Per the MCP Streamable HTTP spec, once a session is established the
   // client must echo it back on every subsequent request in the
