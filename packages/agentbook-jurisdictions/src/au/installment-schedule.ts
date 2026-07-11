@@ -13,7 +13,10 @@ export const auInstallmentSchedule: InstallmentSchedule = {
   },
   calculateAmount(method: string, ytdIncomeCents: number, priorYearTaxCents: number): number {
     if (method === 'current_year') {
-      // Estimate based on current-year income, rough 30% combined rate (income tax + Medicare)
+      // Estimate annual tax at a rough 30% combined rate (income tax + Medicare),
+      // then divide into 4 equal quarterly instalments (the `* 0.25`) — the same
+      // "annual estimate / number of instalments" shape as the prior_year branch
+      // below (`priorYearTaxCents / 4`). Matches us/ca/uk's identical pattern.
       return Math.round(ytdIncomeCents * 0.25 * 0.30);
     }
     // Prior-year method (instalment amount from ATO notice): divide prior year tax by 4

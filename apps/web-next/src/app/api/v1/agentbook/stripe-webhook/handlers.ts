@@ -2,9 +2,19 @@ import 'server-only';
 import { prisma } from '@naap/database';
 import { invalidateAccount } from '@naap/billing';
 import { processInviteePaid, applyPendingCredits } from '@/lib/billing/referrals';
+import { accrueSalesRepCommission } from '@/lib/billing/sales-rep';
+import { refreshConnectStatusByAccountId } from '@/lib/billing/sales-rep-connect';
 import type Stripe from 'stripe';
 
 export async function applyEvent(event: Stripe.Event): Promise<void> {
+  // Connect account events (e.g. a sales rep's onboarding progress) arrive on
+  // this same endpoint/secret once "listen to events on connected accounts"
+  // is enabled in the Stripe dashboard — disambiguated by event.account.
+  if (event.account && event.type === 'account.updated') {
+    await refreshConnectStatusByAccountId(event.account);
+    return;
+  }
+
   switch (event.type) {
     case 'customer.subscription.created':
     case 'customer.subscription.updated': {
@@ -14,6 +24,31 @@ export async function applyEvent(event: Stripe.Event): Promise<void> {
         console.warn('[stripe-webhook] subscription missing tenantId metadata, skipping');
         return;
       }
+
+      const addOnCode = sub.metadata?.addOnCode as string | undefined;
+      if (addOnCode) {
+        const priceIdMeta = sub.metadata?.priceId as string | undefined;
+        const price = priceIdMeta
+          ? await prisma.billAddOnPrice.findUnique({ where: { id: priceIdMeta } })
+          : null;
+        if (!price) {
+          console.error('[stripe-webhook] add-on price not found for priceId', priceIdMeta);
+          return;
+        }
+        const addOnCustomerId = typeof sub.customer === 'string' ? sub.customer : sub.customer.id;
+        await prisma.billAddOnSubscription.upsert({
+          where: { accountId_addOnId: { accountId: tenantId, addOnId: price.addOnId } },
+          create: {
+            accountId: tenantId, addOnId: price.addOnId, priceId: price.id,
+            status: sub.status, stripeCustomerId: addOnCustomerId, stripeSubscriptionId: sub.id,
+          },
+          update: {
+            priceId: price.id, status: sub.status, stripeSubscriptionId: sub.id, canceledAt: null,
+          },
+        });
+        return;
+      }
+
       const priceId = sub.items.data[0]?.price.id;
       const plan = priceId
         ? await prisma.billPlan.findFirst({ where: { stripePriceId: priceId } })
@@ -70,6 +105,18 @@ export async function applyEvent(event: Stripe.Event): Promise<void> {
       const sub = event.data.object as Stripe.Subscription;
       const tenantId = (sub.metadata?.tenantId as string | undefined) ?? null;
       if (!tenantId) return;
+
+      const addOnCode = sub.metadata?.addOnCode as string | undefined;
+      if (addOnCode) {
+        const addOn = await prisma.billAddOn.findUnique({ where: { code: addOnCode } });
+        if (!addOn) return;
+        await prisma.billAddOnSubscription.update({
+          where: { accountId_addOnId: { accountId: tenantId, addOnId: addOn.id } },
+          data: { status: 'canceled', canceledAt: new Date() },
+        });
+        return;
+      }
+
       await prisma.billSubscription.update({
         where: { accountId: tenantId },
         data: { status: 'canceled', canceledAt: new Date() },
@@ -80,7 +127,10 @@ export async function applyEvent(event: Stripe.Event): Promise<void> {
     case 'invoice.paid': {
       // Subscription status is flipped by customer.subscription.updated.
       // Here we settle referral rewards: if this paying account was invited,
-      // credit their referrer 1 free month (idempotent, capped at 12).
+      // credit their referrer 1 free month (idempotent, capped at 12). Also
+      // accrues sales rep commission — unlike processInviteePaid (first
+      // payment only), this runs on EVERY recurring payment, since a rep
+      // earns commission on ongoing revenue, not a one-time reward.
       const invoice = event.data.object as Stripe.Invoice;
       const customerId =
         typeof invoice.customer === 'string' ? invoice.customer : invoice.customer?.id ?? null;
@@ -94,6 +144,11 @@ export async function applyEvent(event: Stripe.Event): Promise<void> {
             await processInviteePaid(sub.accountId);
           } catch (e) {
             console.error('[stripe-webhook] processInviteePaid failed', e);
+          }
+          try {
+            await accrueSalesRepCommission(sub.accountId, invoice, event.id);
+          } catch (e) {
+            console.error('[stripe-webhook] accrueSalesRepCommission failed', e);
           }
         }
       }

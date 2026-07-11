@@ -1,10 +1,10 @@
 import Link from 'next/link';
-import { redirect } from 'next/navigation';
-import { MDXRemote } from 'next-mdx-remote/rsc';
+import { notFound, redirect } from 'next/navigation';
 import remarkGfm from 'remark-gfm';
 import rehypeSlug from 'rehype-slug';
 import { getDocBySlug, getAllDocSlugs, getNavigation, extractHeadings, getPrevNext, getFirstDocInSection } from '@/lib/docs/content';
 import { DocsSidebar } from '@/components/docs/docs-sidebar';
+import { MobileDocsSidebar } from '@/components/docs/mobile-docs-sidebar';
 import { getMdxComponents } from '@/components/docs/mdx-components';
 import { DocPageClient } from './doc-page-client';
 
@@ -20,8 +20,9 @@ export async function generateMetadata({ params }: { params: Promise<{ slug: str
   const { slug } = await params;
   const doc = getDocBySlug(slug);
   if (!doc) {
-    // Section-level slug — redirect will fire from the page, so use section name
-    if (slug.length === 1) {
+    // Section-level slug that resolves to a real section — redirect will
+    // fire from the page, so use the section name as the title.
+    if (slug.length === 1 && getFirstDocInSection(slug[0])) {
       const label = slug[0].replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
       return { title: `${label} - AgentBook Docs` };
     }
@@ -45,11 +46,26 @@ export default async function DocPage({ params }: { params: Promise<{ slug: stri
       if (firstDoc) {
         redirect(`/docs/${firstDoc.slug.join('/')}`);
       }
+      // A single-segment slug that isn't a known section either (e.g. a
+      // mistyped URL) — show the docs 404 boundary. Routing this through
+      // redirect() instead (like the multi-segment branch below) hits a
+      // production-only bug where an on-demand-rendered single-segment
+      // catch-all path 500s instead of redirecting.
+      notFound();
     }
-    // Unknown/removed doc (e.g. old NaaP dev-doc URLs after the rewrite):
-    // send readers to the help-center home instead of a dead end.
+    // Unknown/removed multi-segment doc (e.g. old NaaP dev-doc URLs after
+    // the rewrite): send readers to the help-center home instead of a dead end.
     redirect('/docs');
   }
+
+  // Loaded lazily, only once a real doc is confirmed to exist. Output file
+  // tracing doesn't reliably bundle this pure-ESM package for this route's
+  // on-demand (non-statically-generated) render path — a static top-level
+  // import would throw ERR_MODULE_NOT_FOUND for *every* request that falls
+  // through to this function, including the redirect/notFound branches above
+  // that never need it at all (this is exactly what caused unmatched
+  // single-segment URLs to 500 instead of redirecting/404ing).
+  const { MDXRemote } = await import('next-mdx-remote/rsc');
 
   const navigation = getNavigation();
   const headings = extractHeadings(doc.content);
@@ -58,6 +74,7 @@ export default async function DocPage({ params }: { params: Promise<{ slug: stri
 
   return (
     <div className="flex">
+      <MobileDocsSidebar navigation={navigation} />
       {/* Sidebar */}
       <aside className="hidden lg:block w-64 shrink-0 border-r border-border">
         <div className="sticky top-14 h-[calc(100vh-3.5rem)] overflow-y-auto py-6 px-4">

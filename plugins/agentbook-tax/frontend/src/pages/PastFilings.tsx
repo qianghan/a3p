@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { FileUp, Loader2, CheckCircle2, AlertCircle, RefreshCw, Download } from 'lucide-react';
+import { useTenantCurrency } from '../hooks/useTenantCurrency';
 
 const API = '/api/v1/agentbook-tax';
 const YEAR_OPTIONS = Array.from({ length: 6 }, (_, i) => new Date().getFullYear() - 1 - i);
@@ -18,9 +19,11 @@ interface PastFiling {
   createdAt: string;
 }
 
-function fmtCents(c?: number, ccy = 'CAD'): string {
+const CURRENCY_LOCALE: Record<string, string> = { USD: 'en-US', CAD: 'en-CA', GBP: 'en-GB', AUD: 'en-AU' };
+
+function fmtCents(c?: number, ccy = 'USD'): string {
   if (c == null) return '—';
-  return (c / 100).toLocaleString(ccy === 'CAD' ? 'en-CA' : 'en-US', { style: 'currency', currency: ccy });
+  return (c / 100).toLocaleString(CURRENCY_LOCALE[ccy] ?? 'en-US', { style: 'currency', currency: ccy });
 }
 
 function StatusBadge({ status }: { status: string }) {
@@ -34,7 +37,8 @@ export const PastFilingsPage: React.FC = () => {
   const [filings, setFilings] = useState<PastFiling[]>([]);
   const [uploading, setUploading] = useState(false);
   const [year, setYear] = useState(YEAR_OPTIONS[0]);
-  const [jurisdiction, setJurisdiction] = useState<'ca' | 'us'>('ca');
+  const [jurisdiction, setJurisdiction] = useState<'ca' | 'us' | 'au'>('ca');
+  const tenantCurrency = useTenantCurrency();
   const [formType, setFormType] = useState('');
   const [error, setError] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -173,7 +177,7 @@ export const PastFilingsPage: React.FC = () => {
         >
           <FileUp className="w-8 h-8 mx-auto mb-2 text-muted-foreground" />
           <p className="text-sm font-medium mb-1">Drag &amp; drop PDF here, or click to browse</p>
-          <p className="text-xs text-muted-foreground">T1 · T4 · T4A · NOA · 1040 · W-2 · 1099-NEC · max 20 MB</p>
+          <p className="text-xs text-muted-foreground">T1 · T4 · T4A · NOA · 1040 · W-2 · 1099-NEC · Income Statement · max 20 MB</p>
           <input ref={fileRef} type="file" accept="application/pdf" className="hidden"
             onChange={(e) => { const f = e.target.files?.[0]; if (f) handleUpload(f); e.target.value = ''; }} />
         </div>
@@ -188,10 +192,11 @@ export const PastFilingsPage: React.FC = () => {
           </div>
           <div>
             <label className="text-xs text-muted-foreground block mb-1">Jurisdiction</label>
-            <select value={jurisdiction} onChange={(e) => setJurisdiction(e.target.value as 'ca' | 'us')}
+            <select value={jurisdiction} onChange={(e) => setJurisdiction(e.target.value as 'ca' | 'us' | 'au')}
               className="p-2 border border-border rounded-lg bg-background text-sm">
               <option value="ca">Canada</option>
               <option value="us">United States</option>
+              <option value="au">Australia</option>
             </select>
           </div>
           <div>
@@ -201,6 +206,8 @@ export const PastFilingsPage: React.FC = () => {
               <option value="">Auto-detect</option>
               {jurisdiction === 'ca'
                 ? ['T1', 'T4', 'T4A', 'T5', 'NOA', 'T2125', 'RRSP'].map((f) => <option key={f} value={f}>{f}</option>)
+                : jurisdiction === 'au'
+                ? ['income-statement', 'notice-of-assessment', 'payg-instalment'].map((f) => <option key={f} value={f}>{f}</option>)
                 : ['1040', 'W-2', '1099-NEC', '1099-MISC', 'K-1'].map((f) => <option key={f} value={f}>{f}</option>)}
             </select>
           </div>
@@ -218,7 +225,7 @@ export const PastFilingsPage: React.FC = () => {
       )}
       <div className="space-y-2">
         {filings.map((f) => {
-          const ccy = f.jurisdiction === 'ca' ? 'CAD' : 'USD';
+          const ccy = tenantCurrency;
           const data = f.extractedData || {};
           const income = data.totalIncomeCents ?? data.keyLines?.['15000'] ?? data.noaLines?.totalIncome;
           const refund = data.refundOrBalanceCents ?? data.keyLines?.['48400'] ?? data.noaLines?.refundOrBalance;

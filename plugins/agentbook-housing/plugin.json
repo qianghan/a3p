@@ -1,0 +1,52 @@
+{
+  "$schema": "https://plugins.naap.io/schema/plugin.json",
+  "name": "agentbook-housing",
+  "displayName": "Housing Copilot",
+  "version": "1.0.0",
+  "description": "Save the rentals you're considering and compare them side by side, with an affordability check against your real budget from AgentBook's personal finances. You decide; it does the math.",
+  "isCore": false,
+  "author": {
+    "name": "A3P Team",
+    "email": "team@a3p.io",
+    "url": "https://a3p.io"
+  },
+  "repository": "https://github.com/a3p/plugins/tree/main/agentbook-housing",
+  "license": "MIT",
+  "keywords": ["student", "housing", "rent", "budget", "affordability"],
+  "category": "finance",
+
+  "shell": {
+    "minVersion": "0.1.0",
+    "maxVersion": "2.x"
+  },
+
+  "frontend": {
+    "entry": "./frontend/dist/production/agentbook-housing.js",
+    "devPort": 3058,
+    "routes": [
+      "/plugins/agentbook-housing",
+      "/plugins/agentbook-housing/*"
+    ],
+    "navigation": {
+      "label": "Housing",
+      "icon": "Home",
+      "order": 32,
+      "group": "finance"
+    }
+  },
+
+  "integrations": {
+    "required": [],
+    "optional": []
+  },
+
+  "permissions": {
+    "shell": ["navigation", "notifications", "theme"],
+    "apis": [],
+    "external": []
+  },
+
+  "config": {
+    "schema": {}
+  }
+}

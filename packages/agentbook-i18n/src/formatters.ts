@@ -22,6 +22,25 @@ export function formatCurrency(amountCents: number, locale: string, currency: st
   }
 }
 
+/** Currency code -> a sensible display locale for that currency's home market. */
+const CURRENCY_LOCALES: Record<string, string> = {
+  USD: 'en-US',
+  CAD: 'en-CA',
+  GBP: 'en-GB',
+  AUD: 'en-AU',
+  EUR: 'de-DE',
+};
+
+/**
+ * Format amount in cents to a currency string, inferring a sensible display
+ * locale from the currency code so call sites that only have a tenant's
+ * `currency` field (not a separate locale) don't need to hardcode 'en-US'.
+ * formatMoney(4500, 'AUD') -> "$45.00" (en-AU formatting)
+ */
+export function formatMoney(amountCents: number, currency: string = 'USD'): string {
+  return formatCurrency(amountCents, CURRENCY_LOCALES[currency] ?? 'en-US', currency);
+}
+
 /**
  * Format date to locale-aware string.
  * formatDate('2026-03-22', 'en-US') -> "Mar 22, 2026"

@@ -11,6 +11,7 @@ export { planCache, PlanCache, type CachedPlan } from './cache.js';
 export { getCurrentPlan, getCurrentPlanStrict, _resetCacheForTests, type CurrentPlan } from './plans.js';
 export { canUseFeature } from './features.js';
 export { checkQuota, incrementUsage, getUsage, type QuotaCheck } from './quotas.js';
+export { hasAddOn, activeAddOnCodes, resolveAddOnPrice, type ResolvedAddOnPrice } from './addons.js';
 
 import { planCache } from './cache.js';
 

@@ -18,10 +18,24 @@ function urlBase64ToUint8Array(base64: string): Uint8Array {
 
 /** Register the service worker — needed for offline caching and the
  * background-sync queue regardless of whether push is configured, so this
- * runs unconditionally rather than bailing early when push isn't set up. */
+ * runs unconditionally rather than bailing early when push isn't set up.
+ *
+ * Also guards against the infinite-loading-loop failure mode: this worker
+ * registers at the root scope ('/'), so it takes over every page under it —
+ * not just /app/* — including /agentbook. When a new worker activates after
+ * a deploy (skipWaiting + clients.claim in sw.js), a tab that's already open
+ * keeps running its old JS against the new worker's caching rules with no
+ * way to reconcile. Reloading once on `controllerchange` lets it pick up
+ * the deploy that just landed instead of getting stuck. */
+let swReloadedOnce = false;
 async function registerServiceWorker(): Promise<ServiceWorkerRegistration | null> {
   try {
     if (typeof window === 'undefined' || !('serviceWorker' in navigator)) return null;
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (swReloadedOnce) return;
+      swReloadedOnce = true;
+      window.location.reload();
+    });
     return await navigator.serviceWorker.register('/sw.js');
   } catch {
     return null;

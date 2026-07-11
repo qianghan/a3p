@@ -78,7 +78,7 @@ export default function AccountantPage() {
   return (
     <div className="max-w-4xl mx-auto p-4 sm:p-6">
       <div className="mb-5">
-        <h1 className="text-xl font-bold text-foreground flex items-center gap-2"><Users className="w-5 h-5" /> Accountant</h1>
+        <h1 className="text-xl font-bold text-foreground flex items-center gap-2"><Users className="w-5 h-5" /> Account Access</h1>
         <p className="text-sm text-muted-foreground mt-0.5">Share read-only books with your CPA and get an AI review.</p>
       </div>
 

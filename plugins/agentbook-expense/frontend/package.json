@@ -9,6 +9,7 @@
     "preview": "vite preview --port 3051 --host 0.0.0.0 --strictPort"
   },
   "dependencies": {
+    "@agentbook/i18n": "*",
     "@naap/plugin-sdk": "*",
     "@naap/theme": "*",
     "@naap/types": "*",

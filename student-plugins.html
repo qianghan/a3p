@@ -1,0 +1,372 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>AgentBook Student Success — Three-Plugin Add-On, Product &amp; Plan Design</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<style>
+  :root {
+    --bg: #FAFBFA; --bg-panel: #F2F6F5; --ink: #17211F; --ink-soft: #4C5C58; --ink-faint: #7C8B87;
+    --border: #DEE7E4; --border-strong: #C4D2CE; --teal: #0D766B; --teal-dark: #0A5A52; --teal-tint: #E4F1EF;
+    --amber: #92400E; --amber-tint: #FDF1DE; --amber-border: #F0D9B0; --red: #9F1D1D; --red-tint: #FBEAEA; --red-border: #EFC6C6;
+    --green: #196C46; --green-tint: #E7F4ED; --green-border: #BFE1CE; --blue: #1D4E8F; --blue-tint: #EAF0FB; --blue-border: #C6D8F0;
+    --purple: #5B3FA0; --purple-tint: #EFEAFB; --purple-border: #D7CBF0;
+    --serif: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, "Times New Roman", serif;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    --mono: ui-monospace, "SF Mono", "Cascadia Code", Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--sans); font-size: 16px; line-height: 1.6; -webkit-font-smoothing: antialiased; }
+  a { color: var(--teal-dark); } a:hover { color: var(--teal); }
+  .shell { display: grid; grid-template-columns: 260px minmax(0, 900px); justify-content: center; gap: 56px; max-width: 1280px; margin: 0 auto; padding: 48px 24px 120px; }
+  .cover { grid-column: 1 / -1; max-width: 900px; margin: 0 auto 8px; padding-bottom: 40px; border-bottom: 1px solid var(--border); }
+  .eyebrow { font-family: var(--mono); font-size: 12.5px; letter-spacing: 0.09em; text-transform: uppercase; color: var(--teal-dark); font-weight: 600; }
+  .cover h1 { font-family: var(--serif); font-size: 42px; line-height: 1.15; margin: 14px 0 12px; text-wrap: balance; letter-spacing: -0.01em; }
+  .cover .dek { font-size: 18px; color: var(--ink-soft); max-width: 66ch; margin: 0 0 22px; }
+  .meta-row { display: flex; flex-wrap: wrap; gap: 10px 28px; font-size: 13.5px; color: var(--ink-faint); font-family: var(--mono); }
+  .meta-row b { color: var(--ink-soft); font-weight: 600; }
+  .toc { position: sticky; top: 32px; align-self: start; font-size: 13.5px; }
+  .toc-title { font-family: var(--mono); text-transform: uppercase; letter-spacing: 0.08em; font-size: 11.5px; color: var(--ink-faint); margin-bottom: 10px; }
+  .toc ol { list-style: none; margin: 0; padding: 0; counter-reset: toc; }
+  .toc li { counter-increment: toc; margin-bottom: 2px; }
+  .toc a { display: block; padding: 5px 8px 5px 0; color: var(--ink-soft); text-decoration: none; border-left: 2px solid transparent; padding-left: 10px; }
+  .toc a::before { content: counter(toc) "  "; font-family: var(--mono); color: var(--ink-faint); }
+  .toc a:hover { color: var(--teal-dark); border-left-color: var(--border-strong); }
+  main { min-width: 0; }
+  section { margin-bottom: 64px; scroll-margin-top: 24px; }
+  section > .num { font-family: var(--mono); color: var(--teal-dark); font-size: 13px; font-weight: 700; letter-spacing: 0.04em; }
+  h2 { font-family: var(--serif); font-size: 28px; margin: 4px 0 18px; letter-spacing: -0.01em; text-wrap: balance; }
+  h3 { font-family: var(--serif); font-size: 20px; margin: 32px 0 12px; }
+  h4 { font-size: 15px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--ink-soft); margin: 24px 0 10px; }
+  p { margin: 0 0 14px; max-width: 74ch; }
+  ul, ol { max-width: 74ch; padding-left: 22px; } li { margin-bottom: 6px; } strong { color: var(--ink); }
+  code { font-family: var(--mono); font-size: 0.88em; background: var(--bg-panel); border: 1px solid var(--border); border-radius: 4px; padding: 1px 5px; }
+  blockquote { margin: 18px 0; padding: 4px 18px; border-left: 3px solid var(--teal); background: var(--teal-tint); border-radius: 0 6px 6px 0; color: var(--ink-soft); max-width: 70ch; }
+  blockquote p:last-child { margin-bottom: 0; }
+  .callout { border: 1px solid var(--border-strong); background: var(--bg-panel); border-radius: 10px; padding: 16px 20px; margin: 18px 0; }
+  .callout.risk { background: var(--red-tint); border-color: var(--red-border); }
+  .callout.risk h5, .callout.decision h5, .callout.note h5 { margin: 0 0 6px; font-size: 13px; text-transform: uppercase; letter-spacing: 0.04em; }
+  .callout.risk h5 { color: var(--red); }
+  .callout.decision { background: var(--blue-tint); border-color: var(--blue-border); } .callout.decision h5 { color: var(--blue); }
+  .callout.note { background: var(--amber-tint); border-color: var(--amber-border); } .callout.note h5 { color: var(--amber); }
+  .callout.good { background: var(--green-tint); border-color: var(--green-border); } .callout.good h5 { color: var(--green); margin: 0 0 6px; font-size: 13px; text-transform: uppercase; letter-spacing: 0.04em; }
+  .callout p:last-child { margin-bottom: 0; }
+  .table-wrap { overflow-x: auto; margin: 16px 0 28px; border: 1px solid var(--border); border-radius: 10px; }
+  table { border-collapse: collapse; width: 100%; font-size: 14px; min-width: 640px; }
+  th, td { text-align: left; padding: 10px 14px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  thead th { background: var(--bg-panel); font-size: 11.5px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--ink-soft); position: sticky; top: 0; }
+  tbody tr:last-child td { border-bottom: none; } tbody tr:hover { background: #F5F9F8; }
+  .pill { display: inline-block; font-size: 11px; font-weight: 700; letter-spacing: 0.03em; text-transform: uppercase; padding: 2.5px 8px; border-radius: 99px; white-space: nowrap; line-height: 1.5; }
+  .pill-high { background: var(--green-tint); color: var(--green); border: 1px solid var(--green-border); }
+  .pill-med { background: var(--amber-tint); color: var(--amber); border: 1px solid var(--amber-border); }
+  .pill-info { background: var(--blue-tint); color: var(--blue); border: 1px solid var(--blue-border); }
+  .pill-new { background: var(--purple-tint); color: var(--purple); border: 1px solid var(--purple-border); }
+  .pill-reuse { background: var(--teal-tint); color: var(--teal-dark); border: 1px solid var(--border-strong); }
+  .journey { display: grid; grid-template-columns: repeat(5, 1fr); gap: 0; margin: 24px 0 8px; }
+  .journey-step { position: relative; padding: 16px 14px 18px; border-top: 3px solid var(--teal); background: var(--bg-panel); }
+  .journey-step:not(:last-child) { border-right: 1px dashed var(--border-strong); }
+  .journey-step .jn { font-family: var(--mono); font-size: 11px; color: var(--teal-dark); font-weight: 700; }
+  .journey-step h5 { margin: 6px 0 6px; font-size: 13.5px; font-family: var(--serif); }
+  .journey-step p { margin: 0; font-size: 12px; color: var(--ink-soft); }
+  @media (max-width: 760px) { .journey { grid-template-columns: 1fr; } .journey-step:not(:last-child) { border-right: none; border-bottom: 1px dashed var(--border-strong); } }
+  .card { border: 1px solid var(--border); border-radius: 10px; padding: 18px 20px; margin-bottom: 14px; background: #fff; }
+  .card-head { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; margin-bottom: 8px; }
+  .card-head .card-id { font-family: var(--mono); font-weight: 700; color: var(--teal-dark); font-size: 14px; }
+  .card-head h5 { margin: 0; font-size: 16px; }
+  .card ul { margin: 8px 0 0; padding-left: 20px; font-size: 14px; }
+  footer { max-width: 900px; margin: 60px auto 0; padding-top: 24px; border-top: 1px solid var(--border); font-size: 13px; color: var(--ink-faint); font-family: var(--mono); }
+  @media (max-width: 980px) { .shell { grid-template-columns: 1fr; } .toc { position: static; margin-bottom: 32px; } }
+</style>
+</head>
+<body>
+
+<div class="cover">
+  <div class="eyebrow">AgentBook Product &amp; Plan Design — Draft for Review</div>
+  <h1>Student Success — a three-plugin add-on</h1>
+  <p class="dek">A single $49/year add-on that unlocks three agent-powered copilots for the hardest logistics of student life — scholarships, jobs &amp; co-ops, and housing. The agent <strong>consults and manages the process</strong> (finds matches, drafts, tracks deadlines, preps you) — it never auto-submits on your behalf. Everything already shipped for students (personal finance, tax, scholarship-taxability) stays free.</p>
+  <div class="meta-row">
+    <span><b>Status:</b> Design for review</span>
+    <span><b>Add-on:</b> <code>student_success</code> — $49/yr</span>
+    <span><b>Plugins:</b> 3 new, gated per-subscriber</span>
+    <span><b>Regression policy:</b> strictly additive</span>
+  </div>
+</div>
+
+<div class="shell">
+  <nav class="toc">
+    <div class="toc-title">Contents</div>
+    <ol>
+      <li><a href="#why">Why This, Why Now</a></li>
+      <li><a href="#bundle">The Bundle &amp; Pricing</a></li>
+      <li><a href="#model">The Consulting Model</a></li>
+      <li><a href="#p1">Plugin 1 — Scholarship Copilot</a></li>
+      <li><a href="#p2">Plugin 2 — Career &amp; Co-op Copilot</a></li>
+      <li><a href="#p3">Plugin 3 — Housing &amp; Roommate Match</a></li>
+      <li><a href="#boundaries">Anti-Over-Engineering Boundaries</a></li>
+      <li><a href="#ux">UX</a></li>
+      <li><a href="#arch">Architecture — Reuse vs New</a></li>
+      <li><a href="#marketing">Marketing Messaging</a></li>
+      <li><a href="#nonreg">Non-Regression Guarantees</a></li>
+      <li><a href="#plan">Phased PR Plan</a></li>
+      <li><a href="#review">Design Review</a></li>
+      <li><a href="#open">Open Decisions</a></li>
+    </ol>
+  </nav>
+
+  <main>
+
+    <section id="why">
+      <div class="num">01</div>
+      <h2>Why This, Why Now</h2>
+      <p>The free student layer already shipped (persona onboarding, student chart of accounts, the scholarship-taxability and international-student skills) makes AgentBook <em>useful</em> to a student. It does not yet give them a reason to <em>pay</em>. This add-on is that reason — and it's priced so low that the decision is trivial.</p>
+      <p>The three chores it targets — chasing scholarships, landing a first job/co-op, and finding somewhere affordable to live (ideally with a roommate to split it) — are the three most time-consuming, most anxiety-inducing, least-guided logistics of student life. They're also a natural fit for an agent: each is a <strong>search → shortlist → application-process → deadline</strong> loop where the tedious part (finding matches, drafting first passes, tracking what's due when) is exactly what an agent is good at, and the judgment part (which to pursue, what to actually say, what to submit) stays firmly with the student.</p>
+      <p><strong>The economic shape is deliberately the same as the Startup Tax Benefits add-on:</strong> genuinely new value delivered as a paid add-on, additive to revenue per account — not a repackaging of anything currently free. At $49/year (≈ $4/month, one coffee) it's priced to be an easy yes for a student, not to maximize margin per user. The bet is volume and habit, not ARPU.</p>
+    </section>
+
+    <section id="bundle">
+      <div class="num">02</div>
+      <h2>The Bundle &amp; Pricing</h2>
+      <p><strong>One add-on, three plugins, unlocked together.</strong> A student subscribes once to <code>student_success</code>; all three plugins become visible and usable for that student only. Everyone else never sees them. Nothing about the free tier changes.</p>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Tier</th><th>Price</th><th>What it unlocks</th></tr></thead>
+          <tbody>
+            <tr><td><strong>Free</strong> (unchanged)</td><td>$0</td><td>Everything already shipped: personal finance, tax estimates, scholarship-taxability guidance, international-student help, expense/receipt tracking, the agent chat. A student never loses anything by not subscribing.</td></tr>
+            <tr><td><strong>Student Success</strong> add-on</td><td><strong>$49/yr</strong> (USD); regional CAD price via the existing region matrix</td><td>Scholarship Copilot + Career &amp; Co-op Copilot + Housing &amp; Roommate Match — all three, gated to the subscriber.</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="callout good">
+        <h5>Mechanism already exists — reuse, don't rebuild</h5>
+        <p>The add-on billing system shipped with the Startup plugin is exactly what this needs: <code>BillAddOn</code> (code, name, <code>interval="year"</code>), <code>BillAddOnPrice</code> (region × tier × <code>priceCents</code> + Stripe price id), <code>BillAddOnSubscription</code> (one active sub per account per add-on), plus <code>hasAddOn(tenantId, code)</code> / <code>resolveAddOnPrice(code, region)</code> helpers and the <code>/api/v1/agentbook-billing/…/addons</code> catalog + subscribe + cancel routes. A new seed row (mirroring <code>bin/seed-startup-benefit-addon.ts</code>) creates the <code>student_success</code> add-on. <strong>Keep it to one tier</strong> — no founding-member/scaled ladder like the startup add-on; a student add-on wants one obvious price, not a pricing decision.</p>
+      </div>
+      <div class="callout note">
+        <h5>Honest gap: the pay → visibility wiring does not exist yet</h5>
+        <p>The <code>hasAddOn()</code> helper exists, but <strong>nothing currently checks it when building a user's plugin list</strong> — <code>/api/v1/base/plugins/personalized</code> gates by <code>isCore</code> and team membership only, not by subscription. So "pay and these three plugins appear only for you" is <em>new shared wiring</em>, not an existing feature. It's a small, well-contained change — a plugin → required-add-on map plus a <code>hasAddOn()</code> filter — but note it must be applied in <strong>both</strong> code paths of that route (the personal-context branch and the team-context branch), not one spot. It also retroactively lets the Startup plugin be subscription-gated. It is the single most important thing to get right, and §9 treats it as the core non-regression risk.</p>
+      </div>
+    </section>
+
+    <section id="model">
+      <div class="num">03</div>
+      <h2>The Consulting Model — agent drafts, student decides, student submits</h2>
+      <p>All three plugins share one interaction contract, lifted directly from the Startup plugin's proven <code>StartupBenefitApplication</code> + <code>StartupBenefitDecisionPoint</code> pattern: an item moves through phases, and wherever the agent hits a judgment call it creates a <strong>decision point</strong> that blocks progress until the student answers. The agent never submits anything to an external party.</p>
+      <div class="journey">
+        <div class="journey-step"><div class="jn">PHASE 1</div><h5>Discover</h5><p>Agent matches the student's profile against a shortlist of opportunities (or the student pastes a specific one in).</p></div>
+        <div class="journey-step"><div class="jn">PHASE 2</div><h5>Shortlist</h5><p>Student picks which ones to actually pursue. Nothing proceeds without this explicit choice.</p></div>
+        <div class="journey-step"><div class="jn">PHASE 3</div><h5>Prepare</h5><p>Agent drafts first-pass materials (essay outline, tailored résumé, affordability check) with provenance tags. Judgment calls become decision points.</p></div>
+        <div class="journey-step"><div class="jn">PHASE 4</div><h5>Review</h5><p>Student edits everything. The agent critiques the student's own writing rather than replacing it. Deadlines tracked throughout.</p></div>
+        <div class="journey-step"><div class="jn">PHASE 5</div><h5>Submit &amp; track</h5><p><strong>The student submits on the real site themselves.</strong> AgentBook records the status and reminds on follow-ups.</p></div>
+      </div>
+      <div class="callout decision">
+        <h5>The one rule that makes this safe to ship</h5>
+        <p>AgentBook <strong>never</strong> auto-submits a scholarship, a job application, or a rental enquiry. It finds, drafts, critiques, tracks, and reminds. The student always performs the outward-facing action. This isn't a limitation to apologize for — it's the honest, integrity-preserving posture that keeps a student from being disqualified for AI-submitted content or banned for bot applications (see §7). It's the same "decision points, not a black box" principle the Startup add-on is built on.</p>
+      </div>
+      <div class="callout risk">
+        <h5>Advice posture — guidance, not a guarantee</h5>
+        <p>Scholarship eligibility, and especially work-authorization for international students, are consequential and easy to get wrong. Every plugin carries the same disclaimer stance the shipped tax skills already use: <strong>AgentBook offers guidance, not professional/legal/immigration advice, and the student should verify with the authoritative source</strong> — the scholarship's own rules, the employer, or their school's financial-aid / international-student office. Work-authorization output in particular (§5) is framed as "here's what to check," never "you are eligible."</p>
+      </div>
+      <div class="callout note">
+        <h5>What happens when a subscription lapses</h5>
+        <p>The plugins disappear from view (the visibility gate hides them), but <strong>the student's tracked data is never deleted</strong> — opportunities, drafts, and application statuses persist in their tenant. Re-subscribing restores full access exactly where they left off. On lapse the student is offered a one-click export of their tracked items so they're never locked out of their own data. This is a first-class requirement, not an afterthought — losing a half-finished scholarship application because a $49 charge failed would be a serious trust breach.</p>
+      </div>
+    </section>
+
+    <section id="p1">
+      <div class="num">04</div>
+      <h2>Plugin 1 — Scholarship Copilot</h2>
+      <p><strong>Value:</strong> most students leave scholarship money unclaimed simply because finding relevant ones and managing overlapping deadlines is exhausting. The agent turns "I know I should apply for scholarships" into a managed, deadline-aware shortlist.</p>
+      <div class="callout good">
+        <h5>Discovery architecture — grounded agentic search (the critical mechanism)</h5>
+        <p>Discovery is powered by <strong>grounded agentic search, not the LLM's memory</strong>. The agent issues real searches, fetches the actual pages, extracts structured fields (deadline, amount, eligibility, link), and <strong>every surfaced result carries a live source link</strong>; anything it can't ground to a fetchable source is dropped, never shown. The LLM's role is retrieve → extract → verify → rank — never recall — which maps onto the agent brain's existing executor/verifier split. Localization comes from two places, not from a bigger database: (1) <strong>profile-driven query construction &amp; eligibility filtering</strong> using what AgentBook already knows (school, program, level, city, <code>visaStatus</code>/<code>homeCountry</code>, need, interests) — so an international student never sees a citizens-only award; and (2) a cached, shared <strong>per-school context object</strong> (the school's aid/department pages, region, known local employers) — the first student at a school seeds it, everyone after benefits. Search runs <strong>school → region → national</strong>, highest-relevance first. A small curated catalog and paste-in remain as reliability fallbacks, not the primary source.</p>
+      </div>
+      <h4>What it does</h4>
+      <ul>
+        <li><strong>Match:</strong> grounded search scoped by the student's profile and their school's context object surfaces a ranked, source-linked shortlist (school aid pages and department/community awards first, national aggregators as backstop) — the student can also paste in a specific scholarship they've found.</li>
+        <li><strong>Manage the application:</strong> for each one the student chooses to pursue, a tracked application with a requirements checklist, deadline, required documents, and essay prompts.</li>
+        <li><strong>Consult, don't write-for:</strong> drafts an essay <em>outline</em> and talking points from the student's own profile; critiques the student's draft against the prompt; flags each scholarship's AI-use policy so the student never unknowingly violates one.</li>
+        <li><strong>Never submit:</strong> the student submits on the scholarship's own site; AgentBook tracks submitted/awarded/declined and nags on deadlines.</li>
+      </ul>
+      <div class="callout risk">
+        <h5>Integrity guardrail (non-negotiable)</h5>
+        <p>A growing number of scholarships disqualify AI-written essays and require the student to attest to authorship. The plugin must <strong>lead</strong> with this: it produces outlines and critique, and explicitly frames the essay as the student's to write. Auto-generating a full submittable essay would put the student at real risk — so the product simply doesn't offer that button.</p>
+      </div>
+    </section>
+
+    <section id="p2">
+      <div class="num">05</div>
+      <h2>Plugin 2 — Career &amp; Co-op Copilot</h2>
+      <p><strong>Value:</strong> a first job or co-op search is a volume game of tailored applications, tracked statuses, and interview prep — precisely the admin load an agent removes while leaving the student in control of what actually gets sent.</p>
+      <h4>What it does</h4>
+      <ul>
+        <li><strong>Match / intake:</strong> the same grounded-search engine as §4, but jobs have far better <em>structured</em> sources — so discovery leans on public ATS boards (Greenhouse/Lever/Ashby company boards are public structured JSON), a location-based jobs API, and the school's own co-op/career portal (the agent guides the student to it rather than scraping behind login), filtered by city + level + work authorization. The student can also paste a posting; the agent extracts its key requirements.</li>
+        <li><strong>Tailor:</strong> drafts a résumé variant and a cover-letter first pass aligned to that specific posting, built from the student's stored profile — student edits before anything is used.</li>
+        <li><strong>Track:</strong> one board of applications with status (applied → screen → interview → offer/declined), deadlines, and follow-up reminders.</li>
+        <li><strong>Prep:</strong> generates likely interview questions for the role and runs mock-interview practice with feedback.</li>
+        <li><strong>Never auto-apply:</strong> the student submits on the employer's / platform's own site. This is also a hard requirement of most job platforms' terms — bot submissions get accounts banned and hurt the student.</li>
+      </ul>
+      <div class="callout note">
+        <h5>International-student aware</h5>
+        <p>Reuses the <code>visaStatus</code>/<code>homeCountry</code> signal already on <code>AbTenantConfig</code> (shipped with the international-student work): for an F-1/J-1 student the plugin surfaces work-authorization context (on-campus / CPT / OPT) rather than pretending every posting is open to them — the same compliance-sensitive branch established in the student persona design.</p>
+      </div>
+    </section>
+
+    <section id="p3">
+      <div class="num">06</div>
+      <h2>Plugin 3 — Housing &amp; Roommate Match</h2>
+      <p><strong>Value:</strong> two problems in one — "can I afford this place?" and "who can I split it with?" The first is a natural cross-plugin play with AgentBook's free personal-finance data; the second is a genuine network feature that gets better as more students use it.</p>
+      <h4>Part A — Listing evaluation</h4>
+      <ul>
+        <li>Student saves listings they're considering (paste a URL or enter the details); the agent compares rent, location, commute, and lease terms side by side.</li>
+        <li><strong>Affordability check via existing data:</strong> reads the student's <code>/api/v1/agentbook-personal/snapshot</code> (income, spend, budget — already shipped) and answers "can you actually afford this, and what's left over?" — a concrete reason the housing plugin is better <em>inside</em> AgentBook than as a standalone tool.</li>
+      </ul>
+      <h4>Part B — Roommate matching</h4>
+      <ul>
+        <li>Opt-in only: a student publishes a lightweight match profile (budget range, target area, move-in window, a few lifestyle prefs).</li>
+        <li>The agent surfaces compatible fellow students; contact details are exchanged <strong>only after both sides opt in to a match</strong>.</li>
+      </ul>
+      <div class="callout risk">
+        <h5>This is the one genuinely novel &amp; sensitive piece — design for safety first</h5>
+        <p>Roommate matching is the only part of this whole design that isn't a variation on something already shipped, and it carries real privacy/safety <em>and liability</em> weight (it introduces strangers to each other; if a match goes badly, AgentBook is in the middle of it). Requirements: <strong>opt-in only</strong>; <strong>no PII (name, email, exact address, phone) revealed until a mutual match</strong>; in-app connection first, not raw contact dumps; report/block; and a clear "AgentBook doesn't vet people — meet safely" notice. <strong>It also needs a legal/liability review before any release</strong> — a two-sided introductions marketplace is a different risk class than a single-user tool. Decision posture: the add-on is fully valuable with plugins 1, 2, and Housing Part A alone; Part B is a fast-follow that <strong>may be cut entirely</strong> if the safety/liability review doesn't clear. It must never hold the rest of the add-on hostage.</p>
+      </div>
+    </section>
+
+    <section id="boundaries">
+      <div class="num">07</div>
+      <h2>Anti-Over-Engineering Boundaries</h2>
+      <p>The fastest way to sink this is to try to build live integrations. The design explicitly does <strong>not</strong> do the following in v1 — and the value proposition holds without them:</p>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Tempting but out of scope for v1</th><th>What we do instead</th></tr></thead>
+          <tbody>
+            <tr><td>Build/maintain brittle per-site scrapers for scholarships</td><td><strong>Grounded agentic search</strong> over a search API + fetching public pages + a cached per-school context object (§4). The line: use search + public feeds and always cite the source — never reverse-engineer individual sites. The agent's edge is profile-driven relevance, eligibility filtering, and the consulting/tracking layer, not owning a database.</td></tr>
+            <tr><td>Reverse-engineer Indeed/LinkedIn or auto-apply</td><td>Public ATS JSON (Greenhouse/Lever/Ashby) + a location jobs API + paste-a-posting (§5). Auto-apply is prohibited anyway (ToS + it hurts the student).</td></tr>
+            <tr><td>Rental/MLS/Zillow integration, live listing feeds</td><td>Student saves the listings they're already looking at; the agent evaluates them against real budget data.</td></tr>
+            <tr><td>Three separate bespoke data models + three separate trackers</td><td><strong>One shared "opportunity" tracker</strong> (item + status + deadline + checklist + decision points) with a <code>kind</code> discriminator (scholarship / job / housing) and a kind-specific JSON payload. Roommate-matching is the only part that needs its own model. This mirrors the Startup plugin's single application/decision-point shape rather than tripling it.</td></tr>
+            <tr><td>A rich multi-tier pricing matrix</td><td>One price: $49/yr (regional CAD equivalent). One obvious yes.</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>Rule of thumb baked into the plan: <strong>the student brings the raw opportunity; the agent does the thinking on top.</strong> Integrations are a later phase, added only where a specific one proves its worth — never a prerequisite for launch.</p>
+    </section>
+
+    <section id="ux">
+      <div class="num">08</div>
+      <h2>UX — simple and effective</h2>
+      <ul>
+        <li><strong>One nav group, "Student Success,"</strong> appears in the sidebar only for subscribers (the same visibility gate as the plugins themselves). Non-subscribers see a single, un-naggy upgrade card in Settings, not scattered locked features.</li>
+        <li><strong>Consistent spine, not forced-identical.</strong> Scholarship and Career genuinely share the "tracked items on the left, per-item consulting conversation on the right" shape — they're both linear application processes. Housing is honestly different: evaluation is a <em>comparison table</em> of saved listings, and roommate matching (if built) is a <em>feed</em>, not an application queue. What's consistent across all three is the underlying consulting conversation and the decision-point contract — not a pixel-identical layout. Forcing housing into a scholarship-shaped list would hurt it, so we don't.</li>
+        <li><strong>One upgrade CTA, one price, one click</strong> — reusing the existing add-on subscribe flow. No configuration, no tier choice.</li>
+        <li><strong>The free experience is untouched.</strong> A non-subscribing student sees exactly what they see today. Nothing they use disappears behind a paywall — this add-on only ever <em>adds</em>.</li>
+      </ul>
+    </section>
+
+    <section id="arch">
+      <div class="num">09</div>
+      <h2>Architecture — Reuse vs New</h2>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Piece</th><th>Status</th><th>Detail</th></tr></thead>
+          <tbody>
+            <tr><td>Add-on billing (catalog, subscribe, cancel, <code>hasAddOn</code>)</td><td><span class="pill pill-reuse">Reuse</span></td><td>Add one <code>student_success</code> <code>BillAddOn</code> + price rows via a seed script modeled on <code>bin/seed-startup-benefit-addon.ts</code>.</td></tr>
+            <tr><td>Consulting state machine (application + decision points)</td><td><span class="pill pill-reuse">Reuse pattern</span></td><td>One shared <code>AbStudentOpportunity</code> + <code>AbStudentDecisionPoint</code> modeled on <code>StartupBenefitApplication</code>/<code>StartupBenefitDecisionPoint</code>.</td></tr>
+            <tr><td>Affordability data for housing</td><td><span class="pill pill-reuse">Reuse</span></td><td>Read the shipped <code>GET /api/v1/agentbook-personal/snapshot</code>.</td></tr>
+            <tr><td>Plugin scaffolds, CDN bundles, registry sync, marketplace gating</td><td><span class="pill pill-reuse">Reuse</span></td><td>Same pattern just used to restore the community plugin — 3 plugin dirs, <code>isCore=false</code>, registered via <code>sync-plugin-registry</code>.</td></tr>
+            <tr><td><strong>Add-on → plugin visibility enforcement</strong></td><td><span class="pill pill-new">New (shared)</span></td><td>The one real new primitive: a plugin→required-add-on map checked with <code>hasAddOn()</code> in <code>/api/v1/base/plugins/personalized</code> — applied in <strong>both</strong> the personal-context and team-context branches of that route (verified: it's two code paths, not one). Default-open (a plugin with no required add-on behaves exactly as today), so it cannot regress existing plugins. Benefits the Startup plugin too.</td></tr>
+            <tr><td>Three plugins' domain logic (matching, drafting, trackers) + curated seed catalogs</td><td><span class="pill pill-new">New</span></td><td>The actual product work — but bounded by §7.</td></tr>
+            <tr><td>Roommate-match model + safety flow</td><td><span class="pill pill-new">New</span></td><td>The only genuinely novel schema; can be phased last (§6).</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="marketing">
+      <div class="num">10</div>
+      <h2>Marketing Messaging</h2>
+      <ul>
+        <li><strong>Landing page:</strong> the existing "Student" persona card (shipped) gets a companion line for the paid layer — e.g. a small "Student Success — $49/yr" band under the free-tier message: <em>"Free forever for your money &amp; taxes. For $49 a year, an agent that helps you land scholarships, jobs, and a place to live."</em> Keep the free/paid split explicit so the free value isn't muddied.</li>
+        <li><strong>Docs:</strong> extend the shipped <code>/docs/setup/for-students</code> page with a "Student Success add-on" section describing the three copilots and — importantly — the consult-not-submit promise, so the honesty is a selling point, not fine print.</li>
+        <li><strong>Message spine:</strong> "The boring logistics of student life, handled by an agent — you stay in the driver's seat." Lead with time saved and anxiety removed, not with "AI does it for you" (which would undercut the integrity posture and attract the wrong expectation).</li>
+      </ul>
+      <div class="callout note">
+        <h5>Why pay, when free alternatives exist for each?</h5>
+        <p>Honest framing, because a student will ask it: free scholarship-search sites, LinkedIn/Indeed, and Facebook housing groups already exist, and AgentBook is <strong>not</strong> trying to out-search them. The $49 value is the <em>opposite</em> of search — it's one agent that already knows the student (their profile, their real budget from the free finance layer, their visa status), tracks every application and deadline across all three domains in one place, and does the drafting/critique/prep the free tools don't. The pitch is "stop juggling six tabs and a spreadsheet," not "a better search engine." If that consulting-and-tracking value doesn't land clearly in the product, students won't pay — which is why §13 names it the biggest risk, not the visibility wiring.</p>
+      </div>
+    </section>
+
+    <section id="nonreg">
+      <div class="num">11</div>
+      <h2>Non-Regression Guarantees</h2>
+      <ul>
+        <li><strong>Strictly additive.</strong> New add-on row, new plugins, new models, new routes. No existing plugin's code path changes except the single shared visibility check.</li>
+        <li><strong>The visibility check is default-open.</strong> A plugin with no entry in the required-add-on map is returned exactly as today — so existing free plugins (core, expense, invoice, tax, personal, community) are provably unaffected. This must be covered by a test asserting the current plugin list is unchanged for a non-subscriber.</li>
+        <li><strong>Free tier is never reduced.</strong> Nothing currently free moves behind the paywall — enforced by the same test.</li>
+        <li><strong>Fail-closed billing.</strong> <code>hasAddOn()</code> already returns <code>false</code> on any error, so a billing outage hides the paid plugins rather than exposing them free or breaking the free app.</li>
+        <li><strong>Build/deploy discipline:</strong> isolated worktree, prebuilt Vercel deploy, e2e validation against prod — the workflow now established for every AgentBook change this cycle.</li>
+      </ul>
+    </section>
+
+    <section id="plan">
+      <div class="num">12</div>
+      <h2>Phased PR Plan</h2>
+      <div class="card"><div class="card-head"><span class="card-id">PR 1</span><h5>Add-on + visibility wiring (the foundation)</h5></div>
+        <ul><li>Seed the <code>student_success</code> <code>BillAddOn</code> (one tier, $49/yr, regional prices). Add the plugin→add-on map + <code>hasAddOn()</code> check in the personalized-plugins route, default-open. Ship with the non-regression test first (TDD): non-subscriber's plugin list is unchanged; subscriber sees the gated plugins.</li></ul></div>
+      <div class="card"><div class="card-head"><span class="card-id">PR 2</span><h5>Shared consulting spine</h5></div>
+        <ul><li><code>AbStudentOpportunity</code> + <code>AbStudentDecisionPoint</code> models (mirroring the startup shape), the shared list+conversation UX shell, and one plugin scaffold wired end to end.</li></ul></div>
+      <div class="card"><div class="card-head"><span class="card-id">PR 3</span><h5>Scholarship Copilot (incl. grounded-search spine)</h5></div>
+        <ul><li>The per-school context object + grounded agentic search with mandatory source-citation and eligibility filtering (§4) — built here since it's the shared discovery engine — plus application tracking, outline/critique consulting, and the AI-policy guardrail. Paste-in + small catalog as fallbacks. Highest-value, lowest-risk plugin ships first and proves the paid value.</li></ul></div>
+      <div class="card"><div class="card-head"><span class="card-id">PR 4</span><h5>Career &amp; Co-op Copilot</h5></div>
+        <ul><li>Reuses PR 3's discovery spine but swaps in the better structured job sources (public ATS JSON + location jobs API + school co-op portal, §5); résumé/cover-letter tailoring, application board, interview prep, visa-aware work-authorization context.</li></ul></div>
+      <div class="card"><div class="card-head"><span class="card-id">PR 5</span><h5>Housing — Part A (listing evaluation)</h5></div>
+        <ul><li>Saved listings + side-by-side compare + affordability check against the personal-finance snapshot. Ships independently of roommate matching.</li></ul></div>
+      <div class="card"><div class="card-head"><span class="card-id">PR 6</span><h5>Housing — Part B (roommate matching)</h5></div>
+        <ul><li>Opt-in match profile, mutual-consent contact exchange, report/block, safety notice. Last on purpose — most novel, most sensitive; the add-on is already valuable without it.</li></ul></div>
+      <div class="card"><div class="card-head"><span class="card-id">PR 7</span><h5>Marketing + docs</h5></div>
+        <ul><li>Landing-page paid-layer band, <code>for-students</code> docs section, upgrade CTA in Settings.</li></ul></div>
+    </section>
+
+    <section id="review">
+      <div class="num">13</div>
+      <h2>Design Review — the five checks, applied</h2>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Check</th><th>How this design satisfies it</th></tr></thead>
+          <tbody>
+            <tr><td><strong>Highest quality</strong></td><td>Reuses proven, shipped mechanisms (add-on billing, decision-point consulting, snapshot data, plugin/CDN pattern) rather than inventing. Every new piece has a named existing template. TDD on the one risky primitive (visibility gate).</td></tr>
+            <tr><td><strong>No regression</strong></td><td>The only shared change (visibility check) is default-open and test-guarded so existing free plugins and the free tier are provably untouched; billing fails closed. §11.</td></tr>
+            <tr><td><strong>Avoid over-engineering</strong></td><td>§7 explicitly bans scrapers, live integrations, auto-apply, per-plugin duplicate models, and pricing tiers. One shared opportunity model; one price; student brings the raw input.</td></tr>
+            <tr><td><strong>Simple &amp; effective UX</strong></td><td>Identical list+conversation shape across all three plugins; one nav group; one upgrade click; free experience byte-for-byte unchanged. §8.</td></tr>
+            <tr><td><strong>Marketing communicates value</strong></td><td>Explicit free/paid split, time-saved-and-anxiety-removed spine, consult-not-submit framed as a trust selling point. §10.</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="callout risk">
+        <h5>The single biggest risk to this shipping well</h5>
+        <p>It is <strong>not</strong> the visibility wiring (that's small and test-guarded). It's demand: <strong>will students actually pay $49 when free alternatives exist for each individual task?</strong> The whole bet rests on the consulting-and-tracking-in-one-place value (§10) being obvious in the product. Mitigation: ship the highest-value, clearest-win plugin first (Scholarship, PR 3), measure conversion before building all three, and be willing to stop at one or two plugins if the paid value doesn't convert — rather than completing the full bundle on faith.</p>
+      </div>
+      <p style="font-size:13.5px;color:var(--ink-faint)">Review method: an adversarial reviewer plus claim-verification subagents checked this doc against the codebase and the five dimensions. Findings incorporated in this revision: advice-disclaimer posture (§3), subscription-lapse data-retention (§3), the visibility gate is two code paths not one (§2, §9), housing's UX is honestly different from the linear plugins (§8), an explicit "why pay vs. free" answer (§10), roommate matching hardened to "needs legal review / may be cut" (§6), and the biggest-risk reframing above. One claim the fact-check flagged as "missing" — the shipped Student landing card and <code>for-students</code> docs page — was re-verified as present on <code>origin/main</code> (the checker had read a stale local working tree); the doc's "shipped" claims stand.</p>
+    </section>
+
+    <section id="open">
+      <div class="num">14</div>
+      <h2>Open Decisions — inputs needed from you</h2>
+      <ol>
+        <li><strong>Roommate matching in v1 or deferred?</strong> It's the highest-value differentiator <em>and</em> the highest-risk piece. Recommendation: ship the add-on with plugins 1, 2, and Housing Part A first; land roommate matching (Part B) as a fast follow once the safety flow is reviewed. Agree, or do you want it in the first release?</li>
+        <li><strong>Seed catalogs:</strong> for scholarships and co-ops, do you want me to compile a small starter catalog (which needs sourcing and light vetting), or launch paste-in-only and add a catalog later?</li>
+        <li><strong>Verification:</strong> should the $49 add-on require the same student-status check we deferred in the free-tier design, now that money is involved — or is self-declared fine since paying is itself a weak signal of genuine intent?</li>
+        <li><strong>Regional pricing:</strong> confirm the CAD price point (e.g. $49 USD / $65 CAD), and whether UK/AU are in scope at launch or US/CA only (matching where the student personas are focused).</li>
+        <li><strong>Roommate-matching legal review:</strong> if Part B is in scope at all, it needs a liability/privacy review before release (§6). Do you want to green-light that review now, or defer Part B entirely until the first three ship and prove demand?</li>
+        <li><strong>Prove-before-building:</strong> are you comfortable shipping Scholarship first and measuring paid conversion before committing to build all three (§13), or do you want the full bundle built up front?</li>
+        <li><strong>Search provider &amp; cost:</strong> grounded agentic search means per-user search + LLM calls at discovery time (justified by the paid gate — free users never incur it). Which search capability — the AI-SDK web-search tool via the Vercel AI Gateway, or a dedicated search API — and is there a per-user monthly discovery cap to bound cost?</li>
+      </ol>
+    </section>
+
+  </main>
+</div>
+
+<footer>
+  agentbook · student success add-on · product &amp; plan design · draft for review
+</footer>
+
+</body>
+</html>

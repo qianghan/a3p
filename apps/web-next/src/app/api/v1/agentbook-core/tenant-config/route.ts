@@ -32,10 +32,37 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   }
 }
 
+// Persona/plugin-classification only — drives business-type-gate.ts and the
+// student-completeness check below. Tax-filing entity type (sole_trader,
+// LLC, S-corp, etc.) is a SEPARATE field (taxEntityType, validated further
+// down) precisely so the Tax Dashboard's entity-type picker can never
+// overwrite this and silently un-classify a student/startup tenant — see
+// VALID_TAX_ENTITY_TYPES for why these used to share one field.
+const VALID_BUSINESS_TYPES = ['freelancer', 'sole_proprietor', 'consultant', 'contractor', 'agency', 'startup', 'student'] as const;
+
+// Tax Dashboard's "Tax filing entity type" selector. Used to live on the
+// same `businessType` column as VALID_BUSINESS_TYPES above (sharing one
+// field caused a real production bug: setting your entity type could
+// silently hide a student's/startup's plugins). Now its own field.
+const VALID_TAX_ENTITY_TYPES = [
+  'sole_proprietor', 'llc_single', 'llc_multi', 'scorp', 'corporation', 'sole_trader', 'pty_ltd', 'partnership', 'trust',
+] as const;
+
 interface UpdateConfigBody {
   businessType?: string;
+  taxEntityType?: string | null;
   jurisdiction?: string;
   region?: string;
+  visaStatus?: string | null;
+  homeCountry?: string | null;
+  // Student businessType only
+  university?: string | null;
+  major?: string | null;
+  degree?: string | null;
+  graduationYear?: number | null;
+  // Non-student businessType only — classification, also drives plugin-visibility gating
+  businessDescription?: string | null;
+  businessTags?: string[];
   currency?: string;
   locale?: string;
   timezone?: string;
@@ -48,9 +75,15 @@ interface UpdateConfigBody {
   autoRemindDays?: number[];
   // Invoice defaults
   defaultPaymentTerms?: string | null;
-  defaultCurrency?: string | null;
   invoiceFooterNote?: string | null;
   invoiceThankYouMessage?: string | null;
+  // Business identity — rendered/edited in the Profile tab but previously
+  // missing from this whitelist, so saving them silently no-op'd.
+  companyName?: string | null;
+  companyEmail?: string | null;
+  companyPhone?: string | null;
+  companyAddress?: string | null;
+  brandColor?: string;
 }
 
 export async function PUT(request: NextRequest): Promise<NextResponse> {
@@ -59,10 +92,43 @@ export async function PUT(request: NextRequest): Promise<NextResponse> {
     if ('response' in __resolved) return __resolved.response;
     const { tenantId } = __resolved;
     const body = (await request.json().catch(() => ({}))) as UpdateConfigBody;
+    const existing = await db.abTenantConfig.findUnique({
+      where: { userId: tenantId },
+      select: { businessType: true, university: true, major: true, degree: true, graduationYear: true },
+    });
     const update: Record<string, unknown> = {};
-    if (body.businessType) update.businessType = body.businessType;
+    if (body.businessType) {
+      if (!VALID_BUSINESS_TYPES.includes(body.businessType as typeof VALID_BUSINESS_TYPES[number])) {
+        return NextResponse.json({ error: `businessType must be one of: ${VALID_BUSINESS_TYPES.join(', ')}` }, { status: 400 });
+      }
+      update.businessType = body.businessType;
+    }
+    if (body.taxEntityType !== undefined) {
+      if (body.taxEntityType !== null && !VALID_TAX_ENTITY_TYPES.includes(body.taxEntityType as typeof VALID_TAX_ENTITY_TYPES[number])) {
+        return NextResponse.json({ error: `taxEntityType must be one of: ${VALID_TAX_ENTITY_TYPES.join(', ')}` }, { status: 400 });
+      }
+      update.taxEntityType = body.taxEntityType;
+    }
     if (body.jurisdiction) update.jurisdiction = body.jurisdiction;
     if (body.region !== undefined) update.region = body.region;
+    if (body.visaStatus !== undefined) {
+      if (body.visaStatus !== null && body.visaStatus !== 'international' && body.visaStatus !== 'domestic') {
+        return NextResponse.json({ error: "visaStatus must be 'international', 'domestic', or null" }, { status: 400 });
+      }
+      update.visaStatus = body.visaStatus;
+    }
+    if (body.homeCountry !== undefined) update.homeCountry = body.homeCountry;
+    if (body.university !== undefined) update.university = body.university;
+    if (body.major !== undefined) update.major = body.major;
+    if (body.degree !== undefined) update.degree = body.degree;
+    if (body.graduationYear !== undefined) update.graduationYear = body.graduationYear;
+    if (body.businessDescription !== undefined) update.businessDescription = body.businessDescription;
+    if (body.businessTags !== undefined) update.businessTags = body.businessTags;
+    if (body.companyName !== undefined) update.companyName = body.companyName;
+    if (body.companyEmail !== undefined) update.companyEmail = body.companyEmail;
+    if (body.companyPhone !== undefined) update.companyPhone = body.companyPhone;
+    if (body.companyAddress !== undefined) update.companyAddress = body.companyAddress;
+    if (body.brandColor) update.brandColor = body.brandColor;
     if (body.currency) update.currency = body.currency;
     if (body.locale) update.locale = body.locale;
     if (body.timezone) update.timezone = body.timezone;
@@ -90,12 +156,6 @@ export async function PUT(request: NextRequest): Promise<NextResponse> {
       }
       update.defaultPaymentTerms = body.defaultPaymentTerms;
     }
-    if (body.defaultCurrency !== undefined) {
-      if (body.defaultCurrency !== null && body.defaultCurrency.length !== 3) {
-        return NextResponse.json({ error: 'defaultCurrency must be a 3-letter ISO code' }, { status: 400 });
-      }
-      update.defaultCurrency = body.defaultCurrency;
-    }
     if (body.invoiceFooterNote !== undefined) {
       if (body.invoiceFooterNote !== null && body.invoiceFooterNote.length > 500) {
         return NextResponse.json({ error: 'invoiceFooterNote exceeds 500 characters' }, { status: 400 });
@@ -109,6 +169,33 @@ export async function PUT(request: NextRequest): Promise<NextResponse> {
       update.invoiceThankYouMessage = body.invoiceThankYouMessage;
     }
 
+    // Student businessType requires university/major/degree/graduationYear —
+    // scholarship and co-op/internship search skills key off these (timing
+    // in particular depends on graduationYear), so an incomplete profile
+    // silently degrades that advice. Checked against the resulting state
+    // (this update merged onto whatever already exists), not just the
+    // fields in this body, so switching to student and filling them in
+    // later still gets caught.
+    const effectiveBusinessType = body.businessType ?? existing?.businessType;
+    if (effectiveBusinessType === 'student') {
+      const effectiveUniversity = body.university !== undefined ? body.university : existing?.university;
+      const effectiveMajor = body.major !== undefined ? body.major : existing?.major;
+      const effectiveDegree = body.degree !== undefined ? body.degree : existing?.degree;
+      const effectiveGraduationYear = body.graduationYear !== undefined ? body.graduationYear : existing?.graduationYear;
+      const missing = [
+        !effectiveUniversity && 'university',
+        !effectiveMajor && 'major',
+        !effectiveDegree && 'degree',
+        !effectiveGraduationYear && 'graduationYear',
+      ].filter((f): f is string => !!f);
+      if (missing.length > 0) {
+        return NextResponse.json(
+          { error: `Student business type requires: ${missing.join(', ')}` },
+          { status: 400 },
+        );
+      }
+    }
+
     const config = await db.abTenantConfig.upsert({
       where: { userId: tenantId },
       update,
@@ -117,6 +204,8 @@ export async function PUT(request: NextRequest): Promise<NextResponse> {
         businessType: body.businessType || 'freelancer',
         jurisdiction: body.jurisdiction || 'us',
         region: body.region || '',
+        visaStatus: body.visaStatus ?? null,
+        homeCountry: body.homeCountry ?? null,
         currency: body.currency || 'USD',
         locale: body.locale || 'en-US',
         timezone: body.timezone || 'America/New_York',

@@ -3,12 +3,10 @@
  * Vercel cron: "0 * * * *" (every hour)
  *
  * Also seeds AbCalendarEvent rows per tenant from the jurisdiction packs'
- * static deadline tables (@agentbook/jurisdictions) — nothing else in the
- * codebase ever wrote to this table, so it was always empty and every field
- * this route read/wrote (alertSent, title, leadTimeDays as a scalar) had
- * already drifted from the AbCalendarEvent schema (status, titleKey,
- * leadTimeDays: Int[]) — every run threw a PrismaClientValidationError,
- * caught below and reported as a generic 500, so no alert has ever fired.
+ * static deadline tables (@agentbook/jurisdictions). This route's field
+ * usage (status, titleKey, leadTimeDays: Int[]) already matches the current
+ * AbCalendarEvent schema for every jurisdiction, including au — locked in by
+ * src/__tests__/api/v1/agentbook/cron/calendar-check-route.test.ts.
  */
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma as db, Prisma } from '@naap/database';

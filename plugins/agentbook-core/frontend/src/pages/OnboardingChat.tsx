@@ -35,6 +35,8 @@ type StepId =
   | 'welcome'
   | 'business_type'
   | 'jurisdiction'
+  | 'visa_status'
+  | 'visa_country'
   | 'region'
   | 'currency'
   | 'accounts'
@@ -46,6 +48,8 @@ interface OnboardingState {
   jurisdiction?: string;
   region?: string;
   currency?: string;
+  visaStatus?: string;
+  homeCountry?: string;
 }
 
 const BUSINESS_TYPES = [
@@ -53,6 +57,7 @@ const BUSINESS_TYPES = [
   { label: 'Sole proprietor', value: 'sole_proprietor' },
   { label: 'Consultant', value: 'consultant' },
   { label: 'Contractor', value: 'contractor' },
+  { label: 'Student', value: 'student' },
 ];
 
 const JURISDICTIONS = [
@@ -104,6 +109,25 @@ const SCRIPT: Record<StepId, (state: OnboardingState) => ChatMessage[]> = {
       { role: 'agent', text: subPrompt, suggestions: [{ label: 'Skip', value: '__skip__' }] },
     ];
   },
+  // Student-only branch — asked instead of going straight from jurisdiction
+  // to region/currency. Not shown to any other persona.
+  visa_status: () => [
+    {
+      role: 'agent',
+      text: "One more thing since you're a student — are you studying on an international student visa (like an F-1/J-1 in the US, or a study permit in Canada)?",
+      suggestions: [
+        { label: "No, I'm a domestic student", value: 'domestic' },
+        { label: 'Yes, I am', value: 'international' },
+      ],
+    },
+  ],
+  visa_country: () => [
+    {
+      role: 'agent',
+      text: "Got it. What country are you from? This helps me flag tax-treaty benefits that might apply to you — for example, scholarship or wage exemptions some countries have with the US or Canada.",
+      suggestions: [{ label: 'Skip for now', value: '__skip__' }],
+    },
+  ],
   region: (state) => {
     const j = JURISDICTIONS.find((x) => x.value === state.jurisdiction);
     const defaultCur = j?.defaultCurrency ?? 'USD';
@@ -115,30 +139,36 @@ const SCRIPT: Record<StepId, (state: OnboardingState) => ChatMessage[]> = {
       },
     ];
   },
-  currency: () => [
+  currency: (state) => [
     {
       role: 'agent',
       text:
-        "Great. I'll seed your chart of accounts now — that's the underlying structure that lets you run a P&L, balance sheet, and tax reports. Takes one second.",
-      suggestions: [{ label: "Set up accounts", value: 'seed' }],
+        state.businessType === 'student'
+          ? "Great. I'll set up a few categories for you — things like tuition, textbooks, part-time job income, and scholarships. Takes one second, and there's nothing to fill in yourself."
+          : "Great. I'll seed your chart of accounts now — that's the underlying structure that lets you run a P&L, balance sheet, and tax reports. Takes one second.",
+      suggestions: [{ label: state.businessType === 'student' ? 'Set up my categories' : 'Set up accounts', value: 'seed' }],
     },
   ],
-  accounts: () => [
+  accounts: (state) => [
     {
       role: 'agent',
       text:
-        "Accounts ready. Last thing — want to log your first expense to try it out? It's how you'll typically interact with me.",
+        state.businessType === 'student'
+          ? "Done. Last thing — want to log something to try it out? A campus job paycheck, a tutoring payment, or a textbook you bought all work."
+          : "Accounts ready. Last thing — want to log your first expense to try it out? It's how you'll typically interact with me.",
       suggestions: [
         { label: 'Yes, log one now', value: 'try' },
         { label: 'Skip — go to chat', value: '__skip__' },
       ],
     },
   ],
-  first_expense: () => [
+  first_expense: (state) => [
     {
       role: 'agent',
       text:
-        "Perfect — go to the chat (top of the page) and type something like 'log $5 coffee' or drop a receipt photo. I'll handle the rest.",
+        state.businessType === 'student'
+          ? "Perfect — go to the chat (top of the page) and type something like 'log $40 textbooks' or drop a receipt photo. Come tax season, I'll also help you figure out things like whether a scholarship is taxable — no guessing required."
+          : "Perfect — go to the chat (top of the page) and type something like 'log $5 coffee' or drop a receipt photo. I'll handle the rest.",
     },
     { role: 'agent', text: "Setup complete. Welcome to AgentBook!", highlight: true },
   ],
@@ -226,6 +256,28 @@ export const OnboardingChatPage: React.FC = () => {
           if (value !== '__skip__') {
             nextState = { ...state, region: value.toUpperCase() };
             await persistConfig({ region: value.toUpperCase() });
+          }
+          // Only students get asked about visa/international status — every
+          // other persona goes straight to currency, unchanged from before.
+          nextStep = state.businessType === 'student' ? 'visa_status' : 'region';
+          break;
+        }
+        case 'visa_status': {
+          if (value === 'international') {
+            nextState = { ...state, visaStatus: 'international' };
+            await persistConfig({ visaStatus: 'international' });
+            nextStep = 'visa_country';
+          } else {
+            nextState = { ...state, visaStatus: 'domestic' };
+            await persistConfig({ visaStatus: 'domestic' });
+            nextStep = 'region';
+          }
+          break;
+        }
+        case 'visa_country': {
+          if (value !== '__skip__') {
+            nextState = { ...state, homeCountry: value.toLowerCase() };
+            await persistConfig({ homeCountry: value.toLowerCase() });
           }
           nextStep = 'region';
           break;

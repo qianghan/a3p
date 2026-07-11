@@ -1,0 +1,25 @@
+<svg viewBox="0 0 640 260" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="WhatsApp card after connecting, showing the linked phone number and a disconnect option">
+  <rect width="640" height="260" fill="#f4ecd9"/>
+
+  <!-- card -->
+  <rect x="24" y="20" width="592" height="220" rx="16" fill="#ffffff" stroke="#d6cdb6" stroke-width="1.5"/>
+
+  <!-- header -->
+  <line x1="24" y1="84" x2="616" y2="84" stroke="#ece2c8" stroke-width="1.5"/>
+  <rect x="44" y="40" width="36" height="36" rx="10" fill="#25a35a" opacity="0.12"/>
+  <text x="62" y="64" text-anchor="middle" font-size="18">💬</text>
+  <text x="94" y="56" font-family="-apple-system,Helvetica Neue,Arial,sans-serif" font-size="15" font-weight="600" fill="#3d3627">WhatsApp</text>
+  <text x="94" y="74" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="12" fill="#7a7163">+1 (555) 234-5678</text>
+  <rect x="510" y="44" width="106" height="24" rx="12" fill="#149578" opacity="0.14"/>
+  <text x="563" y="60" text-anchor="middle" font-family="-apple-system,Helvetica Neue,Arial,sans-serif" font-size="11" font-weight="600" fill="#0c6e57">● Connected</text>
+
+  <!-- linked number -->
+  <rect x="44" y="102" width="552" height="52" rx="10" fill="#f4ecd9"/>
+  <text x="60" y="120" font-family="-apple-system,Helvetica Neue,Arial,sans-serif" font-size="11" fill="#7a7163">Linked number</text>
+  <text x="60" y="142" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="13" font-weight="600" fill="#3d3627">+1 (555) 234-5678</text>
+
+  <!-- footer -->
+  <path d="M60 190a8 8 0 1 1 0-1" fill="none" stroke="#7a7163" stroke-width="1.6"/>
+  <path d="M560 185l4 6h-8z" fill="#c0454a"/>
+  <text x="524" y="196" font-family="-apple-system,Helvetica Neue,Arial,sans-serif" font-size="12" font-weight="600" fill="#c0454a">Disconnect</text>
+</svg>

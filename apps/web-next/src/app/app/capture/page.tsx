@@ -17,6 +17,33 @@ function isOfflineFailure(e: unknown, response?: Response): boolean {
   return response?.headers.get('X-Agentbook-Offline') === '1';
 }
 
+/** Full-resolution phone camera photos (commonly 3-12MB) exceed the
+ * platform's request body limit for this route, which rejects them outright
+ * before our code ever runs — so every mobile capture failed silently.
+ * Downscale to a size that's still easily OCR-readable but comfortably
+ * under that limit before uploading. Falls back to the original file if the
+ * browser can't decode it (e.g. an unsupported format). */
+async function compressImage(file: File, maxDim = 1800, quality = 0.85): Promise<File> {
+  try {
+    if (typeof createImageBitmap !== 'function') return file;
+    const bitmap = await createImageBitmap(file);
+    const scale = Math.min(1, maxDim / Math.max(bitmap.width, bitmap.height));
+    const width = Math.round(bitmap.width * scale);
+    const height = Math.round(bitmap.height * scale);
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return file;
+    ctx.drawImage(bitmap, 0, 0, width, height);
+    const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/jpeg', quality));
+    if (!blob) return file;
+    return new File([blob], file.name.replace(/\.\w+$/, '.jpg'), { type: 'image/jpeg' });
+  } catch {
+    return file;
+  }
+}
+
 export default function MobileCapture() {
   const fileRef = useRef<HTMLInputElement>(null);
   const [photoName, setPhotoName] = useState<string | null>(null);
@@ -35,23 +62,37 @@ export default function MobileCapture() {
     setError(null);
     let response: Response | undefined;
     try {
+      const upload = await compressImage(file);
       const form = new FormData();
-      form.append('file', file);
+      form.append('file', upload);
       // Store + OCR the receipt; prefill the fields for the user to confirm.
       response = await fetch('/api/v1/agentbook-expense/receipts/scan', { method: 'POST', body: form });
-      const j = await response.json();
-      if (response.ok && j.success) {
+      if (isOfflineFailure(undefined, response)) {
+        await queueReceipt(upload).catch(() => {});
+        return;
+      }
+      let j: { success?: boolean; data?: { receiptUrl?: string; amountCents?: number; vendor?: string }; error?: string };
+      try {
+        j = await response.json();
+      } catch {
+        throw new Error(`Server error (${response.status})`);
+      }
+      if (response.ok && j.success && j.data) {
         if (j.data.receiptUrl) setReceiptUrl(j.data.receiptUrl);
         if (j.data.amountCents != null) setAmount(String(j.data.amountCents / 100));
         if (j.data.vendor) setVendor(j.data.vendor);
-      } else if (isOfflineFailure(undefined, response)) {
-        await queueReceipt(file).catch(() => {});
+      } else {
+        throw new Error(j.error || `Server error (${response.status})`);
       }
     } catch (e) {
       // No signal to OCR the receipt right now — queue the photo itself so
       // it still gets uploaded once back online, and let the user carry on
       // typing the amount/vendor by hand instead of blocking on it.
-      if (isOfflineFailure(e, response)) await queueReceipt(file).catch(() => {});
+      if (isOfflineFailure(e, response)) {
+        await queueReceipt(file).catch(() => {});
+      } else {
+        setError("Couldn't auto-read the receipt — enter the amount and vendor manually below.");
+      }
     } finally {
       setUploading(false);
     }

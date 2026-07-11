@@ -10,6 +10,11 @@ const billSubscriptionUpsert = vi.fn();
 const billSubscriptionUpdate = vi.fn();
 const billPlanFindFirst = vi.fn();
 const planCacheInvalidate = vi.fn();
+const salesRepProfileFindFirst = vi.fn();
+const billAddOnPriceFindUnique = vi.fn();
+const billAddOnFindUnique = vi.fn();
+const billAddOnSubUpsert = vi.fn();
+const billAddOnSubUpdate = vi.fn();
 
 vi.mock('@/lib/billing/stripe', () => ({
   getStripe: () => ({
@@ -28,6 +33,13 @@ vi.mock('@naap/database', () => ({
       update: (...a: unknown[]) => billSubscriptionUpdate(...a),
     },
     billPlan: { findFirst: (...a: unknown[]) => billPlanFindFirst(...a) },
+    salesRepProfile: { findFirst: (...a: unknown[]) => salesRepProfileFindFirst(...a) },
+    billAddOnPrice: { findUnique: (...a: unknown[]) => billAddOnPriceFindUnique(...a) },
+    billAddOn: { findUnique: (...a: unknown[]) => billAddOnFindUnique(...a) },
+    billAddOnSubscription: {
+      upsert: (...a: unknown[]) => billAddOnSubUpsert(...a),
+      update: (...a: unknown[]) => billAddOnSubUpdate(...a),
+    },
   },
 }));
 
@@ -45,13 +57,20 @@ beforeEach(() => {
   billSubscriptionUpdate.mockReset();
   billPlanFindFirst.mockReset();
   planCacheInvalidate.mockReset();
+  salesRepProfileFindFirst.mockReset();
+  billAddOnPriceFindUnique.mockReset();
+  billAddOnFindUnique.mockReset();
+  billAddOnSubUpsert.mockReset();
+  billAddOnSubUpdate.mockReset();
   process.env.STRIPE_WEBHOOK_SECRET = 'whsec_test';
   process.env.STRIPE_SECRET_KEY = 'sk_test_dummy';
+  delete process.env.STRIPE_CONNECT_WEBHOOK_SECRET;
 });
 
 afterEach(() => {
   delete process.env.STRIPE_WEBHOOK_SECRET;
   delete process.env.STRIPE_SECRET_KEY;
+  delete process.env.STRIPE_CONNECT_WEBHOOK_SECRET;
 });
 
 function req(body: string, sig: string | null): NextRequest {
@@ -134,5 +153,72 @@ describe('Stripe webhook', () => {
     const r = await POST(req('{}', 'sig'));
     expect(r.status).toBe(200);
     expect(billSubscriptionUpsert).not.toHaveBeenCalled();
+  });
+
+  it('falls back to STRIPE_CONNECT_WEBHOOK_SECRET when the platform secret fails to verify', async () => {
+    process.env.STRIPE_CONNECT_WEBHOOK_SECRET = 'whsec_connect_test';
+    constructEvent
+      .mockImplementationOnce(() => { throw new Error('bad sig for platform secret'); })
+      .mockReturnValueOnce({ id: 'evt_5', type: 'account.updated', account: 'acct_123', data: { object: {} } });
+    billEventCreate.mockResolvedValue({});
+    billEventUpdate.mockResolvedValue({});
+    salesRepProfileFindFirst.mockResolvedValue(null);
+    const r = await POST(req('{}', 'sig'));
+    expect(r.status).toBe(200);
+    expect(constructEvent).toHaveBeenCalledTimes(2);
+  });
+
+  it('returns 400 when neither configured secret verifies', async () => {
+    process.env.STRIPE_CONNECT_WEBHOOK_SECRET = 'whsec_connect_test';
+    constructEvent.mockImplementation(() => { throw new Error('bad sig'); });
+    const r = await POST(req('{}', 'sig'));
+    expect(r.status).toBe(400);
+    expect(billEventCreate).not.toHaveBeenCalled();
+  });
+
+  it('syncs a BillAddOnSubscription when the event has addOnCode metadata, without touching BillPlan', async () => {
+    constructEvent.mockReturnValue({
+      id: 'evt_addon_1',
+      type: 'customer.subscription.updated',
+      data: { object: {
+        id: 'sub_addon_1', status: 'active', customer: 'cus_1',
+        metadata: { tenantId: 'tenant-1', addOnCode: 'startup_tax_benefits', priceId: 'price-1' },
+        items: { data: [{ price: { id: 'price_addon_std' } }] },
+        current_period_start: 1700000000, current_period_end: 1702592000,
+        cancel_at_period_end: false,
+      } },
+    });
+    billEventCreate.mockResolvedValue({});
+    billEventUpdate.mockResolvedValue({});
+    billAddOnPriceFindUnique.mockResolvedValue({ id: 'price-1', addOnId: 'addon-1' });
+    billAddOnSubUpsert.mockResolvedValue({});
+    const r = await POST(req('{}', 'sig'));
+    expect(r.status).toBe(200);
+    expect(billAddOnSubUpsert).toHaveBeenCalledWith(expect.objectContaining({
+      where: { accountId_addOnId: { accountId: 'tenant-1', addOnId: 'addon-1' } },
+    }));
+    expect(billPlanFindFirst).not.toHaveBeenCalled();
+    expect(billSubscriptionUpsert).not.toHaveBeenCalled();
+  });
+
+  it('marks a BillAddOnSubscription canceled on subscription.deleted with addOnCode metadata', async () => {
+    constructEvent.mockReturnValue({
+      id: 'evt_addon_2',
+      type: 'customer.subscription.deleted',
+      data: { object: {
+        id: 'sub_addon_1', customer: 'cus_1',
+        metadata: { tenantId: 'tenant-1', addOnCode: 'startup_tax_benefits' },
+      } },
+    });
+    billEventCreate.mockResolvedValue({});
+    billEventUpdate.mockResolvedValue({});
+    billAddOnFindUnique.mockResolvedValue({ id: 'addon-1' });
+    billAddOnSubUpdate.mockResolvedValue({});
+    const r = await POST(req('{}', 'sig'));
+    expect(r.status).toBe(200);
+    expect(billAddOnSubUpdate).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ status: 'canceled' }),
+    }));
+    expect(billSubscriptionUpdate).not.toHaveBeenCalled();
   });
 });

@@ -43,6 +43,20 @@ describe('payroll engine', () => {
     expect(r.federalTaxCents).toBeGreaterThan(0);
   });
 
+  it('Australia superannuation guarantee is 12% of gross, additive on top (not subtracted from net)', () => {
+    const gross = periodGross(80_000_00, 'monthly');
+    const r = calcPay({ jurisdiction: 'au', grossCents: gross, payPeriodsPerYear: 12 });
+    expect(r.sgCents).toBe(Math.round(gross * 0.12));
+    // net = gross - federalTax only; sg never reduces net pay.
+    expect(r.netCents).toBe(r.grossCents - r.federalTaxCents);
+  });
+
+  it('sgCents is 0 for every non-AU jurisdiction', () => {
+    expect(calcPay({ jurisdiction: 'us', grossCents: 3_000_00, payPeriodsPerYear: 26 }).sgCents).toBe(0);
+    expect(calcPay({ jurisdiction: 'ca', grossCents: 3_000_00, payPeriodsPerYear: 26 }).sgCents).toBe(0);
+    expect(calcPay({ jurisdiction: 'uk', grossCents: 3_000_00, payPeriodsPerYear: 26 }).sgCents).toBe(0);
+  });
+
   it('all frequencies are defined', () => {
     expect(Object.keys(PERIODS_PER_YEAR)).toEqual(['weekly', 'biweekly', 'semimonthly', 'monthly']);
   });

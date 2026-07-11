@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Receipt, Plus, X } from 'lucide-react';
+import { ExpenseTabs } from '../components/ExpenseTabs';
 
 const API = '/api/v1/agentbook-expense';
 
@@ -113,6 +114,8 @@ export const BillsPage: React.FC = () => {
           {showForm ? 'Cancel' : 'Add bill'}
         </button>
       </div>
+
+      <ExpenseTabs active="bills" />
 
       {/* Summary cards */}
       <div className="grid grid-cols-2 gap-3 mb-5">

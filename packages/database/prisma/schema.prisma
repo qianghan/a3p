@@ -24,7 +24,7 @@ datasource db {
   provider  = "postgresql"
   url       = env("DATABASE_URL")
   directUrl = env("DATABASE_URL_UNPOOLED")
-  schemas   = ["public", "plugin_community", "plugin_service_gateway", "plugin_agentbook_core", "plugin_agentbook_expense", "plugin_agentbook_invoice", "plugin_agentbook_tax", "plugin_agentbook_billing", "plugin_agentbook_personal", "plugin_agentbook_cpa", "plugin_agentbook_payroll"]
+  schemas   = ["public", "plugin_community", "plugin_service_gateway", "plugin_agentbook_core", "plugin_agentbook_expense", "plugin_agentbook_invoice", "plugin_agentbook_tax", "plugin_agentbook_billing", "plugin_agentbook_personal", "plugin_agentbook_cpa", "plugin_agentbook_payroll", "plugin_content_library", "plugin_agentbook_startup", "plugin_agentbook_student"]
 }
 
 // ============================================
@@ -1447,8 +1447,17 @@ model AbTenantConfig {
   id                    String   @id @default(uuid())
   userId                String   @unique
   businessType          String   @default("freelancer")
+  taxEntityType         String?  // sole_proprietor | llc_single | llc_multi | scorp | corporation | sole_trader | pty_ltd | partnership | trust — tax filing entity type, deliberately separate from businessType (persona/plugin-classification) so Tax Dashboard's entity-type picker can never overwrite it
   jurisdiction          String   @default("us") // us | ca | ...
   region                String   @default("") // state/province code
+  visaStatus            String?  // f1 | j1 | other-nonresident | null (domestic) — student-persona international track
+  homeCountry           String?  // ISO 3166-1 alpha-2, e.g. "cn" | "in" — drives treaty-lookup skill
+  university            String?  // student businessType only
+  major                 String?  // student businessType only
+  degree                String?  // student businessType only — e.g. "Bachelor's", "Master's"
+  graduationYear         Int?     // student businessType only
+  businessDescription   String?  // non-student businessType only — free text, what the business does
+  businessTags          String[] @default([]) // non-student businessType only — classification tags, also drives plugin-visibility gating
   currency              String   @default("USD")
   locale                String   @default("en-US")
   timezone              String   @default("America/New_York")
@@ -1488,6 +1497,37 @@ model AbTenantConfig {
   @@schema("plugin_agentbook_core")
 }
 
+// One-per-user personal context (distinct from AbTenantConfig, which is the
+// business profile) so the agent brain can give richer, contextual answers —
+// especially for tax and personal-finance questions — instead of answering
+// generically. Deliberately excludes government tax ID (SSN/SIN): everything
+// else an accountant would want to know, but not the highest-sensitivity PII
+// tier. See plugins/agentbook-core/backend/src/personal-profile-context.ts
+// for how this gets summarized into the LLM system prompt.
+model AbPersonalProfile {
+  id                         String    @id @default(uuid())
+  userId                     String    @unique
+  firstName                  String?
+  lastName                   String?
+  dateOfBirth                DateTime?
+  addressLine1               String?
+  addressLine2               String?
+  city                       String?
+  state                      String?
+  postalCode                 String?
+  country                    String?
+  maritalStatus              String? // single | married_joint | married_separate | head_of_household | widowed
+  dependentsCount            Int?
+  employmentType             String? // w2 | self_employed | mixed | unemployed | retired
+  occupation                 String?
+  estimatedAnnualIncomeCents Int? // self-reported, broad — distinct from AbTaxConfig.w2IncomeAnnual which is precise/tax-specific
+  completedAt                DateTime? // set once the user saves a profile meeting the completeness bar
+  createdAt                  DateTime  @default(now())
+  updatedAt                  DateTime  @updatedAt
+
+  @@schema("plugin_agentbook_core")
+}
+
 /// PR 24 — Daily backup notification.
 ///
 /// Each successful daily-backup cron run writes one row per tenant
@@ -1518,6 +1558,24 @@ model AbTelegramBot {
 
   @@unique([tenantId])
   @@index([botToken])
+  @@schema("plugin_agentbook_core")
+}
+
+// Unlike AbTelegramBot (each tenant brings their own bot), WhatsApp Business
+// Cloud API is one centrally-owned AgentBook number shared by every tenant —
+// there's no way for a tenant to self-provision their own number. A tenant
+// links by messaging the shared number with their own `linkCode`; the
+// webhook adds the sending phone number to `phoneNumbers` on a match. See
+// apps/web-next/src/app/api/v1/agentbook/whatsapp/webhook/route.ts.
+model AbWhatsAppLink {
+  id           String    @id @default(uuid())
+  tenantId     String    @unique
+  phoneNumbers Json      @default("[]") // E.164 numbers linked to this tenant
+  linkCode     String    @unique // shown in Settings, e.g. "LINK-A1B2C3"
+  linkedAt     DateTime? // set once the first phone number links
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
   @@schema("plugin_agentbook_core")
 }
 
@@ -3000,6 +3058,12 @@ model BillSubscription {
   currentPeriodEnd     DateTime?
   cancelAtPeriodEnd    Boolean   @default(false)
   canceledAt           DateTime?
+  // Display-only marker for admin UI ("comped" vs "paying"). Sales rep
+  // promotion sets this to 'manual' on a subscription with no Stripe IDs.
+  // Never read by the entitlement logic in packages/billing/src/plans.ts,
+  // which only looks at status + planId — a manual row grants full plan
+  // access with zero changes to that engine.
+  billingSource        String    @default("stripe")
   createdAt            DateTime  @default(now())
   updatedAt            DateTime  @updatedAt
 
@@ -3042,10 +3106,17 @@ model BillEvent {
 // Referral program. One code per tenant (referrer); an invitee who signs up
 // via that code and later pays earns the referrer 1 free month (cap 12).
 model BillReferralCode {
-  id        String   @id @default(uuid())
-  tenantId  String   @unique
-  code      String   @unique
-  createdAt DateTime @default(now())
+  id         String   @id @default(uuid())
+  tenantId   String   @unique
+  code       String   @unique
+  // Set when this code belongs to a promoted sales rep (SalesRepProfile.tenantId)
+  // instead of an ordinary peer referrer. Mutually exclusive switch: when set,
+  // signups through this code accrue commission (accrueSalesRepCommission)
+  // instead of the peer reward-months flow (processInviteePaid still runs for
+  // status tracking, but rewardMonths has no effect for a sales-rep code since
+  // rep tenants are excluded from the reward-months UI/summary).
+  salesRepId String?
+  createdAt  DateTime @default(now())
 
   @@schema("plugin_agentbook_billing")
 }
@@ -3065,6 +3136,291 @@ model BillReferral {
   creditedAt       DateTime?
 
   @@index([referrerTenantId])
+  @@schema("plugin_agentbook_billing")
+}
+
+// First add-on-style purchase primitive (independent of BillPlan tiers).
+// See startup.html §8.7 and docs/superpowers/plans/2026-07-03-startup-billing-addon-pr7.2.md.
+// One row per add-on product — v1 has exactly one: "startup_tax_benefits".
+model BillAddOn {
+  id        String   @id @default(uuid())
+  code      String   @unique
+  name      String
+  interval  String   @default("year")
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  prices        BillAddOnPrice[]
+  subscriptions BillAddOnSubscription[]
+
+  @@schema("plugin_agentbook_billing")
+}
+
+// Configurable pricing — one row per (addOn, region, tier). Nothing about
+// price points, the founding-member slot cap, or its cutoff date is
+// hardcoded in application code; all of it is admin-editable data.
+model BillAddOnPrice {
+  id             String    @id @default(uuid())
+  addOnId        String
+  region         String    // "us" | "ca" | "uk" | "au"
+  currency       String    // "usd" | "cad" | "gbp" | "aud"
+  tier           String    // "founding_member" | "standard" | "scaled"
+  priceCents     Int
+  stripePriceId  String?
+  maxSlots       Int?      // null = unlimited
+  availableUntil DateTime? // null = no time limit
+  isActive       Boolean   @default(true)
+  createdAt      DateTime  @default(now())
+
+  addOn         BillAddOn                @relation(fields: [addOnId], references: [id])
+  subscriptions BillAddOnSubscription[]
+
+  @@unique([addOnId, region, tier])
+  @@schema("plugin_agentbook_billing")
+}
+
+// One active row per (account, add-on). priceId records which tier the
+// account locked in — a founding-member subscriber keeps that Stripe
+// Price (and its $99 renewal amount) even after the 250-slot cap fills.
+model BillAddOnSubscription {
+  id                   String    @id @default(uuid())
+  accountId            String
+  addOnId              String
+  priceId              String
+  status               String    // active | canceled
+  stripeCustomerId     String?
+  stripeSubscriptionId String?
+  startedAt            DateTime  @default(now())
+  canceledAt           DateTime?
+
+  addOn BillAddOn      @relation(fields: [addOnId], references: [id])
+  price BillAddOnPrice @relation(fields: [priceId], references: [id])
+
+  @@unique([accountId, addOnId])
+  @@schema("plugin_agentbook_billing")
+}
+
+// ============================================================================
+// Sales Rep commission program — admin promotes a user to sales rep: comped
+// subscription, own referral code, % commission on referred revenue instead
+// of peer reward-months. See docs/plans (jolly-wondering-engelbart) for design.
+// ============================================================================
+
+// One row per promoted rep. tenantId doubles as the rep's own AgentBook
+// tenant id (a rep is a normal comped tenant, not a separate entity).
+model SalesRepProfile {
+  tenantId                       String    @id
+  status                         String    @default("active") // active | suspended | removed
+  commissionBps                  Int // basis points, e.g. 2000 = 20%
+  payoutFrequency                String    @default("quarterly") // monthly | quarterly | annual
+  billingSource                  String    @default("manual") // marker only, mirrors BillSubscription.billingSource
+  stripeConnectAccountId         String? // acct_xxx — Stripe Connect Express account for real payouts
+  stripeConnectChargesEnabled    Boolean   @default(false)
+  stripeConnectPayoutsEnabled    Boolean   @default(false)
+  stripeConnectDetailsSubmitted  Boolean   @default(false)
+  stripeConnectUpdatedAt         DateTime?
+  promotedBy                     String
+  promotedAt                     DateTime  @default(now())
+  removedAt                      DateTime?
+  removedBy                      String?
+  referralLinkActive             Boolean   @default(true) // self-serve pause/resume — does not touch the contract or role
+
+  @@schema("plugin_agentbook_billing")
+}
+
+// One row per self-serve application to become a sales rep (the Partner
+// Program). Not unique-per-tenant — a rejected applicant can reapply after
+// the cooldown, so history is kept the same way SalesRepPayout keeps a full
+// history rather than a single mutable row. "Latest for tenant" queries
+// order by createdAt desc.
+model SalesRepApplication {
+  id                   String    @id @default(uuid())
+  tenantId             String
+  status               String    @default("draft") // draft|submitted|under_review|more_info_requested|approved|rejected
+  jurisdiction         String
+  answers              Json      // step 1 (fit/motivation) + step 4 (taxpayer-info ack) responses
+  eligibilityPlanCode  String    // snapshot: plan they qualified with at submission time
+  eligibilityInterval  String    // snapshot: must be "year" — enforced at submit time, not just apply time
+  annualFeeCentsPaid   Int       // snapshot of what they actually paid for the term this application covers
+  aiRiskLevel          String?   // low | medium | high
+  aiRecommendation     String?   // approve | reject | more_info
+  aiConcerns           Json?
+  aiReasoning          String?
+  reviewedBy           String?
+  reviewedAt           DateTime?
+  reviewDecision       String?   // approve | reject | more_info
+  reviewNotes          String?
+  moreInfoRequestedAt  DateTime?
+  moreInfoMessage      String?
+  submittedAt          DateTime?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+
+  @@index([tenantId, status])
+  @@index([tenantId, createdAt])
+  @@schema("plugin_agentbook_billing")
+}
+
+// Admin-managed catalog, one row per jurisdiction. Versioned so a signed
+// SalesRepContract snapshot never silently changes meaning after the fact —
+// only the template gets edited; past signatures reference the version they
+// actually saw via SalesRepContract.templateVersion.
+model SalesRepContractTemplate {
+  id               String   @id @default(uuid())
+  jurisdiction     String   @unique
+  version          Int      @default(1)
+  bodyTemplate     String   // placeholders: {{commissionBps}}, {{annualFeeCents}}, {{rebateThresholdCents}}
+  liabilityClauses Json     // structured per-section clauses shown at application step 3
+  taxFormType      String   // "1099-NEC" | "T4A" | "self_assessment_notice" | "abn_notice"
+  legallyReviewed  Boolean  @default(false)
+  effectiveFrom    DateTime @default(now())
+
+  @@schema("plugin_agentbook_billing")
+}
+
+// Immutable signed snapshot — the actual bonded contract. Frozen at signing
+// time; later edits to SalesRepContractTemplate never alter a signature
+// that already exists, by design.
+model SalesRepContract {
+  id                     String   @id @default(uuid())
+  applicationId          String   @unique
+  templateVersion        Int
+  renderedHtml           String   // frozen copy of the agreement exactly as presented at signing
+  signedByName           String
+  signedAt               DateTime @default(now())
+  signerIp               String
+  signerUserAgent        String
+  commissionBpsAtSigning Int
+
+  @@schema("plugin_agentbook_billing")
+}
+
+// Tracks the one-time, first-90-days annual-fee rebate — deliberately its
+// own model rather than a field on SalesRepPayout, since money flows the
+// opposite direction (a refund of what the rep paid, not a payout of
+// commission owed) and the eligibility window is time-boxed and one-shot.
+model SalesRepFeeRebate {
+  id                        String    @id @default(uuid())
+  tenantId                  String    @unique // one-time-per-tenure — see sales-rep.html §3
+  applicationId             String
+  annualFeeCentsPaid        Int
+  multipleApplied           Float     // snapshot of PartnerProgramSettings.rebateCommissionMultiple at window-open
+  thresholdCents            Int       // annualFeeCentsPaid * multipleApplied, computed once and frozen
+  windowStart               DateTime  // rep activation date
+  windowEnd                 DateTime  // windowStart + rebateWindowDays
+  cumulativeCommissionCents Int       @default(0) // updated as SalesRepCommissionAccrual rows land
+  status                    String    @default("pending") // pending|earned|expired|paid
+  earnedAt                  DateTime?
+  paidAt                    DateTime?
+  stripeRefundId            String?
+
+  @@index([status, windowEnd])
+  @@schema("plugin_agentbook_billing")
+}
+
+// Singleton (one row, id "singleton") admin-managed settings for the whole
+// program. Frozen per-rebate via SalesRepFeeRebate.multipleApplied so
+// changing this later never retroactively alters a window someone is
+// already inside — see sales-rep.html §3 for the researched default.
+model PartnerProgramSettings {
+  id                       String   @id @default("singleton")
+  rebateCommissionMultiple Float    @default(1.0)
+  rebateWindowDays         Int      @default(90)
+  updatedBy                String?
+  updatedAt                DateTime @updatedAt
+
+  @@schema("plugin_agentbook_billing")
+}
+
+// ============================================================================
+// Content Library plugin (packages/content-library) — a generic, gated
+// content catalog with NO knowledge of tenants, sales reps, or any other
+// feature. `category` and `entitlementKey` are opaque strings the calling
+// feature defines; access control happens entirely in the caller, before
+// this module is ever touched. Deliberately its own schema namespace so it
+// can be promoted to a standalone plugin later (own backend, own frontend
+// bundle) with zero data migration if it grows beyond a shared library.
+//
+// Today's only consumer: the Partner Marketing Kit (sales-rep.html §15)
+// uses category="partner_marketing_kit", entitlementKey="sales_rep_active"
+// — see apps/web-next/src/lib/billing/partner-marketing-kit.ts for the
+// thin adapter that wires the actual sales-rep entitlement check.
+// ============================================================================
+
+model ContentAsset {
+  id             String    @id @default(uuid())
+  category       String    // caller-defined grouping, e.g. "partner_marketing_kit"
+  entitlementKey String    // caller-defined and caller-checked; opaque to this module
+  assetType      String    @default("youtube_video")
+  title          String
+  description    String?
+  youtubeVideoId String?   // populated when assetType = "youtube_video"
+  sortOrder      Int       @default(0)
+  isActive       Boolean   @default(true)
+  createdBy      String
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@index([category, entitlementKey, isActive, sortOrder])
+  @@schema("plugin_content_library")
+}
+
+// One row per revenue event attributed to a rep's referral. Created from the
+// Stripe webhook's invoice.paid handler — fires on every recurring payment,
+// not just the invitee's first (unlike BillReferral/processInviteePaid).
+model SalesRepCommissionAccrual {
+  id                String    @id @default(uuid())
+  salesRepId        String
+  inviteeTenantId   String
+  billReferralId    String
+  stripeEventId     String // idempotency key — the invoice.paid event.id
+  revenueCents      Int
+  // Locked in at accrual time from SalesRepProfile.commissionBps — a later
+  // rate change never retroactively recalculates historical accruals.
+  commissionBpsUsed Int
+  commissionCents   Int
+  periodStart       DateTime
+  periodEnd         DateTime
+  payoutId          String? // null until bundled into a SalesRepPayout
+  reversedAt        DateTime? // manual clawback marker (e.g. refund/chargeback)
+  createdAt         DateTime  @default(now())
+
+  @@unique([salesRepId, stripeEventId])
+  @@index([salesRepId, payoutId])
+  @@schema("plugin_agentbook_billing")
+}
+
+// One row per commission invoice cycle. Deliberately separate from AbInvoice
+// (the rep's own client-invoicing books) — this is the platform's payable to
+// the rep, not the rep's own revenue, and must stay immutable once submitted
+// for audit purposes (no endpoint ever edits totalCents/invoiceNumber/period
+// after creation).
+model SalesRepPayout {
+  id               String    @id @default(uuid())
+  salesRepId       String
+  invoiceNumber    String    @unique // COMM-2026-0007, own sequence
+  periodLabel      String
+  periodStart      DateTime
+  periodEnd        DateTime
+  totalCents       Int // snapshotted at submission
+  status           String    @default("submitted") // submitted | approved | paid | rejected
+  invoicePdfHtml   String?
+  submittedAt      DateTime  @default(now())
+  reviewedAt       DateTime?
+  reviewedBy       String?
+  paidAt           DateTime?
+  paidBy           String?
+  paymentReference String?
+  rejectionReason  String?
+  payoutMethod     String    @default("stripe") // stripe | manual — manual is an admin-only fallback
+  stripeTransferId String? // tr_xxx — set once actually paid via a real Stripe transfer
+
+  // Guards against a race between the app-level "already submitted this
+  // period" check and the actual insert — two concurrent submit calls (e.g.
+  // two tabs) would otherwise both pass the check and create duplicate
+  // invoices for the same period.
+  @@unique([salesRepId, periodStart, periodEnd])
+  @@index([salesRepId, status])
   @@schema("plugin_agentbook_billing")
 }
 
@@ -3263,9 +3619,10 @@ model AbPayStub {
   grossCents       Int
   federalTaxCents  Int
   stateTaxCents    Int
-  ficaCents        Int // SS+Medicare (US) / CPP+EI (CA) / NI (UK) / super note (AU)
+  ficaCents        Int // SS+Medicare (US) / CPP+EI (CA) / NI (UK) / 0 (AU — see sgCents)
   otherDeductCents Int      @default(0)
   netCents         Int
+  sgCents          Int      @default(0) // Superannuation Guarantee (AU) — employer-side, additive on top of gross, never subtracted from netCents
   createdAt        DateTime @default(now())
 
   @@index([tenantId])
@@ -3276,7 +3633,7 @@ model AbPayStub {
 model AbPayrollTaxDeposit {
   id          String    @id @default(uuid())
   tenantId    String
-  form        String // 941 | 940 | t4 | paye | bas
+  form        String // 941 | 940 | t4 | paye | bas | sg
   periodLabel String // "2026-Q2"
   amountCents Int
   dueDate     DateTime
@@ -3302,4 +3659,192 @@ model AbPayrollProviderConfig {
   updatedAt    DateTime @updatedAt
 
   @@schema("plugin_agentbook_payroll")
+}
+
+// ============================================
+// AGENTBOOK STARTUP TAX BENEFITS PLUGIN
+// Discover/draft/audit/track government tax-benefit programs for startups.
+// See startup.html §8.3 for the full design.
+// ============================================
+
+model StartupBenefitProfile {
+  tenantId           String    @id
+  addOnStatus        String    @default("trial_discovery") // trial_discovery | active | canceled
+  companyType        String?   // c_corp | ccpc | ltd | llc ...
+  incorporatedAt     DateTime?
+  headcount          Int?
+  annualRdSpendCents Int?
+  equityRaisedCents  Int?
+  lastAssessedAt     DateTime?
+
+  @@schema("plugin_agentbook_startup")
+}
+
+model StartupBenefitProgram {
+  id                    String   @id @default(uuid())
+  jurisdiction          String   // "us" | "ca" | "uk"
+  programCode           String   // "us_rd_credit_41" | "ca_sred" | "uk_seis" ...
+  name                  String
+  authority             String   // "IRS" | "CRA" | "HMRC"
+  typicalValueLowCents  Int?
+  typicalValueHighCents Int?
+  eligibilityCriteria   Json
+  requiredDocuments     Json
+  sourceUrl             String
+  lastVerifiedAt        DateTime
+  enabled               Boolean  @default(true)
+
+  @@unique([jurisdiction, programCode])
+  @@schema("plugin_agentbook_startup")
+}
+
+model StartupBenefitEligibilityAssessment {
+  id                String   @id @default(uuid())
+  tenantId          String
+  programId         String
+  status            String   // not_qualified | possibly_qualified | qualified
+  confidence        Float
+  reasoning         String
+  estValueLowCents  Int?
+  estValueHighCents Int?
+  assessedAt        DateTime @default(now())
+
+  @@index([tenantId, programId])
+  @@schema("plugin_agentbook_startup")
+}
+
+model StartupBenefitApplication {
+  id              String    @id @default(uuid())
+  tenantId        String
+  programId       String
+  status          String    // recommended|docs_pending|drafting|decision_pending|
+                             // ready_for_review|audit_reviewed|submitted|monitoring|closed
+  draft           Json      // structured, provenance-tagged draft content
+  auditRiskLevel  String?   // low | medium | high
+  submittedAt     DateTime?
+  confirmationRef String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([tenantId, status])
+  @@schema("plugin_agentbook_startup")
+}
+
+model StartupBenefitDocument {
+  id            String   @id @default(uuid())
+  applicationId String
+  docType       String
+  blobUrl       String
+  extractedData Json?
+  status        String   @default("uploaded") // requested|uploaded|verified|rejected
+  uploadedAt    DateTime @default(now())
+
+  @@index([applicationId])
+  @@schema("plugin_agentbook_startup")
+}
+
+model StartupBenefitDecisionPoint {
+  id             String    @id @default(uuid())
+  applicationId  String
+  sequenceOrder  Int
+  kind           String    // approval | key_input
+  prompt         String
+  options        Json?
+  response       Json?
+  respondedAt    DateTime?
+  blocksProgress Boolean   @default(true)
+
+  @@unique([applicationId, sequenceOrder])
+  @@schema("plugin_agentbook_startup")
+}
+
+model StartupBenefitAuditReview {
+  id            String   @id @default(uuid())
+  applicationId String   @unique
+  riskLevel     String   // low | medium | high
+  findings      Json     // [{severity, issue, recommendation, ruleRef}]
+  overrides     Json     @default("[]") // [{findingIndex, reason, overriddenAt}]
+  reviewedAt    DateTime @default(now())
+  modelVersion  String
+
+  @@schema("plugin_agentbook_startup")
+}
+
+// ============================================
+// STUDENT SUCCESS ADD-ON — shared consulting spine
+// ============================================
+// One tracked "opportunity" model shared by all three student plugins
+// (Scholarship, Career/Co-op, Housing), discriminated by `kind`, mirroring
+// the startup plugin's application + decision-point shape. Gated behind the
+// `student_success` add-on. The consulting contract: the agent discovers,
+// drafts, and tracks; wherever a judgment call arises it creates a
+// DecisionPoint that blocks progress until the student answers. The agent
+// never submits anything to an external party.
+
+model AbStudentOpportunity {
+  id           String    @id @default(uuid())
+  tenantId     String
+  kind         String    // scholarship | job | housing
+  title        String
+  status       String    @default("discovered") // discovered|shortlisted|preparing|ready|submitted|closed
+  sourceUrl    String?   // the grounded-search source or user-pasted link (always cite-able)
+  sourceLabel  String?   // human label for the source
+  deadline     DateTime?
+  amountCents  Int?      // award amount / rent / salary — kind-specific
+  currency     String?   // ISO 4217, for amountCents
+  payload      Json      @default("{}") // kind-specific structured fields (eligibility, requirements, drafts)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  decisionPoints AbStudentDecisionPoint[]
+
+  @@index([tenantId, kind, status])
+  @@schema("plugin_agentbook_student")
+}
+
+model AbStudentDecisionPoint {
+  id             String    @id @default(uuid())
+  opportunityId  String
+  opportunity    AbStudentOpportunity @relation(fields: [opportunityId], references: [id], onDelete: Cascade)
+  sequenceOrder  Int
+  kind           String    // approval | key_input
+  prompt         String
+  options        Json?
+  response       Json?
+  respondedAt    DateTime?
+  blocksProgress Boolean   @default(true)
+
+  @@unique([opportunityId, sequenceOrder])
+  @@index([opportunityId])
+  @@schema("plugin_agentbook_student")
+}
+
+// Opt-in roommate-matching profile. PRIVACY BY DESIGN:
+//  - One per tenant; does NOT exist until the student explicitly opts in.
+//  - `active` gates discoverability: a profile is only visible to other
+//    students' match queries while active=true. Deactivating (or deleting)
+//    removes it from every pool immediately.
+//  - Deliberately stores NO contact information and NO precise address — only
+//    a self-chosen display handle, a coarse area, a budget range, a move-in
+//    month, and lifestyle tags. AgentBook shows compatibility only; it never
+//    messages anyone or exchanges contact details on the student's behalf.
+//  - `consentAt` records the explicit consent timestamp captured at opt-in.
+model AbRoommateProfile {
+  id             String    @id @default(uuid())
+  tenantId       String    @unique
+  active         Boolean   @default(false)
+  displayHandle  String    // self-chosen, not a legal name
+  jurisdiction   String    // us | ca — coarse match scope
+  area           String    // city / neighbourhood / campus, free text
+  budgetMinCents Int?
+  budgetMaxCents Int?
+  moveInMonth    String?   // e.g. "2026-09"
+  lifestyle      Json      @default("[]") // string tags: ["non-smoker","quiet",...]
+  bio            String?   // short free-text intro (no contact info)
+  consentAt      DateTime? // explicit opt-in consent timestamp
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@index([active, jurisdiction])
+  @@schema("plugin_agentbook_student")
 }

@@ -1,0 +1,18 @@
+{
+  "name": "agentbook-startup",
+  "displayName": "Startup Tax Benefits",
+  "version": "1.0.0",
+  "bundleFile": "agentbook-startup.js",
+  "stylesFile": "plugin-agentbook-startup-frontend.css",
+  "globalName": "NaapPluginAgentbookStartup",
+  "bundleHash": "72b351ee",
+  "bundleSize": 64846,
+  "routes": [
+    "/plugins/agentbook-startup",
+    "/plugins/agentbook-startup/*"
+  ],
+  "category": "finance",
+  "description": "Discovers government tax-benefit programs a startup qualifies for (R&D tax credit, QSBS tracking, Delaware franchise tax optimization, and more), drafts the application with human decision points, runs an audit-risk review, and tracks it through to a decision.",
+  "buildTime": "2026-07-04T05:36:52.300Z",
+  "nodeEnv": "production"
+}

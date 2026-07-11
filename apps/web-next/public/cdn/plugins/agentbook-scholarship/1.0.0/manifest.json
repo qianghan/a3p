@@ -1,0 +1,18 @@
+{
+  "name": "agentbook-scholarship",
+  "displayName": "Scholarship Copilot",
+  "version": "1.0.0",
+  "bundleFile": "agentbook-scholarship.js",
+  "stylesFile": "plugin-agentbook-scholarship-frontend.css",
+  "globalName": "NaapPluginAgentbookScholarship",
+  "bundleHash": "8f6e2d9e",
+  "bundleSize": 50781,
+  "routes": [
+    "/plugins/agentbook-scholarship",
+    "/plugins/agentbook-scholarship/*"
+  ],
+  "category": "finance",
+  "description": "Finds scholarships you're actually eligible for with grounded, source-cited search, then helps you manage each application — deadlines, requirements, and essay critique. It consults; you decide and submit.",
+  "buildTime": "2026-07-05T02:57:14.290Z",
+  "nodeEnv": "production"
+}

@@ -19,14 +19,14 @@ import { useState } from 'react';
 // Types
 // ---------------------------------------------------------------------------
 
-interface NavItem {
+export interface NavItem {
   title: string;
   href: string;
   order: number;
   icon?: string;
 }
 
-interface NavSection {
+export interface NavSection {
   title: string;
   order: number;
   icon?: string;
@@ -59,15 +59,17 @@ function SectionIcon({ name, className }: { name?: string; className?: string })
 interface DocsSidebarProps {
   navigation: NavSection[];
   className?: string;
+  onNavigate?: () => void;
 }
 
-export function DocsSidebar({ navigation, className = '' }: DocsSidebarProps) {
+export function DocsSidebar({ navigation, className = '', onNavigate }: DocsSidebarProps) {
   const pathname = usePathname();
 
   return (
     <nav className={`space-y-1 ${className}`}>
       <Link
         href="/agentbook"
+        onClick={onNavigate}
         className="flex items-center gap-2 px-3 py-2 mb-3 rounded-lg text-sm font-medium text-primary hover:bg-primary/10 transition-colors"
       >
         <ArrowLeft size={16} />
@@ -78,13 +80,14 @@ export function DocsSidebar({ navigation, className = '' }: DocsSidebarProps) {
           key={section.title}
           section={section}
           pathname={pathname}
+          onNavigate={onNavigate}
         />
       ))}
     </nav>
   );
 }
 
-function SidebarSection({ section, pathname }: { section: NavSection; pathname: string }) {
+function SidebarSection({ section, pathname, onNavigate }: { section: NavSection; pathname: string; onNavigate?: () => void }) {
   const [expanded, setExpanded] = useState(true);
 
   return (
@@ -111,6 +114,7 @@ function SidebarSection({ section, pathname }: { section: NavSection; pathname: 
               <Link
                 key={item.href}
                 href={item.href}
+                onClick={onNavigate}
                 className={`block px-3 py-1.5 rounded-lg text-sm transition-colors ${
                   isActive
                     ? 'text-primary font-medium bg-primary/5 border-l-2 border-primary -ml-[13px] pl-[23px]'

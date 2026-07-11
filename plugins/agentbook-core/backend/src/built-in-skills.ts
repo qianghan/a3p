@@ -10,7 +10,7 @@ export const BUILT_IN_SKILLS = [
     // near "invoice", or "to invoice") anywhere in the message, without
     // excluding invoice-*paying* phrasing ("paid an invoice from the
     // plumber for $200"), which should still record as an expense.
-    excludePatterns: ['\\bto\\s+invoice\\b|\\binvoice\\s+to\\b|\\b(?:send|create|issue|write|prepare|make|draft)\\s+(?:an?\\s+)?invoice\\b', 'what\\s*if\\b', 'got.*\\$.*from', 'alert.*when|notify.*when|automat', 'received.*payment', '^(?:estimate|quote|proposal)\\s'],
+    excludePatterns: ['\\bto\\s+invoice\\b|\\binvoice\\s+to\\b|\\b(?:send|create|issue|write|prepare|make|draft)\\s+(?:an?\\s+)?invoice\\b', 'what\\s*if\\b', 'got.*\\$.*from', 'alert.*when|notify.*when|automat', 'received.*payment', '^(?:estimate|quote|proposal)\\s', 'is.*taxable|scholarship|fellowship|grant.*taxable|t2202|1098-?t|aotc|american opportunity|lifetime learning|tuition.*credit|education.*credit|\\bresp\\b|\\b529\\b', 'nonresident alien|non-resident alien|1040-?nr|sprintax|glacier tax|1042-?s|fica exempt|international student.*tax|tax treaty'],
     parameters: { amountCents: { type: 'number', required: true, extractHint: 'dollar amount times 100' }, vendor: { type: 'string', required: false, extractHint: 'business name' }, description: { type: 'string', required: false }, date: { type: 'date', required: false, default: 'today' } },
     endpoint: { method: 'POST', url: '/api/v1/agentbook-expense/expenses' },
     responseTemplate: 'Recorded: {{amountFormatted}} — {{description}} [{{categoryName}}]',
@@ -41,7 +41,7 @@ export const BUILT_IN_SKILLS = [
     triggerPatterns: ['balance', 'revenue', 'profit', 'loss', 'tax', 'client.*owe', 'outstanding', 'income', 'net '],
     // Tax / report / cash-flow / reconciliation / tax-filing utterances have
     // dedicated skills — exclude them here so query-finance doesn't shadow.
-    excludePatterns: ['tax.*estimate|how much.*tax|tax.*owe|tax.*situation|tax.*liability|quarterly.*tax|quarterly.*payment|estimated.*payment|deduction|write.*off|tax.*saving|tax.*break|p.?&?.?l|profit.*loss|income.*statement|net.*income|how.*much.*profit|balance.*sheet|net.*worth|equity|cash.*flow|cash.*projection|runway|burn.*rate|how long.*cash.*last|financial.*summary|financial.*snapshot|how.*doing.*financially|financial.*health|money.*move|action.*item|what.*should.*do|advice.*money|reconcil|unmatched.*transaction|bank.*match|bank.*status|tax.*fil|start.*fil|file.*tax|review.*t[12]|t2125|schedule.*1|gst.*return|tax.*slip|validate.*tax|check.*tax.*error|verify.*return|tax.*ready|export.*tax|generate.*tax.*form|download.*return|create.*tax.*file|print.*tax|pdf.*tax|submit.*cra|efile|netfile|filing.*status.*cra'],
+    excludePatterns: ['tax.*estimate|how much.*tax|tax.*owe|tax.*situation|tax.*liability|quarterly.*tax|quarterly.*payment|estimated.*payment|deduction|write.*off|tax.*saving|tax.*break|p.?&?.?l|profit.*loss|income.*statement|net.*income|how.*much.*profit|balance.*sheet|net.*worth|equity|cash.*flow|cash.*projection|runway|burn.*rate|how long.*cash.*last|financial.*summary|financial.*snapshot|how.*doing.*financially|financial.*health|money.*move|action.*item|what.*should.*do|advice.*money|reconcil|unmatched.*transaction|bank.*match|bank.*status|tax.*fil|start.*fil|file.*tax|review.*t[12]|t2125|schedule.*1|gst.*return|tax.*slip|validate.*tax|check.*tax.*error|verify.*return|tax.*ready|export.*tax|generate.*tax.*form|download.*return|create.*tax.*file|print.*tax|pdf.*tax|submit.*cra|efile|netfile|filing.*status.*cra|scholarship|fellowship|grant.*taxable|is.*grant.*tax|t2202|1098-?t|aotc|american opportunity|lifetime learning|tuition.*credit|education.*credit|\\bresp\\b|\\b529\\b|nonresident alien|non-resident alien|1040-?nr|sprintax|glacier tax|1042-?s|fica exempt|international student.*tax|tax treaty'],
     parameters: { question: { type: 'string', required: true, extractHint: 'the full user message' } },
     endpoint: { method: 'POST', url: '/api/v1/agentbook-core/ask' },
   },
@@ -339,6 +339,19 @@ export const BUILT_IN_SKILLS = [
     endpoint: { method: 'GET', url: '/api/v1/agentbook-tax/tax-filing/2025' },
   },
   {
+    name: 'scholarship-taxability', description: 'Explain whether a scholarship, grant, RESP/529 withdrawal, or stipend is taxable, and whether AOTC/Lifetime Learning Credit or the Canadian tuition transfer applies', category: 'tax',
+    triggerPatterns: ['scholarship', 'is.*grant.*taxable', 'fellowship', 'financial aid.*tax', 'tuition.*credit', 'education.*credit', 'AOTC', 'american opportunity', 'lifetime learning', '\\bresp\\b', '\\b529\\b', 't2202', '1098-?t', 'is.*taxable'],
+    excludePatterns: ['\\b(find|search|look for)\\b.*\\bscholarships?\\b|\\bapply\\s+(to|for)\\b.*\\bscholarships?\\b'],
+    parameters: { question: { type: 'string', required: true, extractHint: 'the full user question about the scholarship/grant/stipend/withdrawal' } },
+    endpoint: { method: 'INTERNAL', url: '' },
+  },
+  {
+    name: 'international-student-tax-help', description: 'Explain nonresident-alien tax status, tax treaty benefits, FICA exemption, and 1042-S for international students on a visa — hands off to Sprintax/GLACIER for actual 1040NR filing', category: 'tax',
+    triggerPatterns: ['nonresident alien', 'non-resident alien', '\\bf-?1\\b.*visa|visa.*\\bf-?1\\b', '\\bj-?1\\b.*visa|visa.*\\bj-?1\\b', '1040-?nr', 'tax treaty', 'sprintax', 'glacier tax', '1042-?s', 'fica exempt', 'am i a resident for tax', 'international student.*tax', 'opt.*tax|cpt.*tax', 'form 8843'],
+    parameters: { question: { type: 'string', required: true, extractHint: 'the full user question about nonresident/international-student tax status' } },
+    endpoint: { method: 'INTERNAL', url: '' },
+  },
+  {
     name: 'tax-filing-field', description: 'Provide a value for a missing tax filing field', category: 'tax',
     triggerPatterns: [],
     parameters: { formCode: { type: 'string', required: true }, fieldId: { type: 'string', required: true }, value: { type: 'string', required: true } },
@@ -550,6 +563,58 @@ export const BUILT_IN_SKILLS = [
     triggerPatterns: ['review my books', 'cpa review', 'check my books', 'are my books', 'accountant review', 'books health', 'review the books'],
     parameters: {},
     endpoint: { method: 'INTERNAL', url: '' },
+  },
+  {
+    name: 'us-rd-credit-finder',
+    description: 'Check whether the business likely qualifies for the US federal R&D tax credit, QSBS eligibility tracking, or Delaware franchise tax optimization, with an estimated dollar range',
+    category: 'tax_benefits',
+    triggerPatterns: ['r&d credit', 'r and d credit', 'research credit', 'research and development credit', 'startup tax benefit', 'qsbs', 'franchise tax'],
+    parameters: {},
+    endpoint: { method: 'GET', url: '/api/v1/agentbook-startup/recommendations' },
+    responseTemplate: 'Based on your company profile, here is what you may qualify for: {{programs}}',
+  },
+  {
+    name: 'find-scholarships', description: 'Search for scholarships, grants, or financial aid matching the student\'s program, school, and eligibility — a live grounded search, not tax advice on an existing award', category: 'student',
+    triggerPatterns: ['find.*scholarship', 'scholarship.*for', 'search.*scholarship', 'look for.*scholarship', 'scholarship.*(my|as a).*(major|program)', 'apply.*for.*scholarship'],
+    parameters: { query: { type: 'string', required: false, extractHint: 'optional free-text focus, e.g. "for computer science" or "need-based" — omit if the user gave no specifics' } },
+    endpoint: { method: 'POST', url: '/api/v1/agentbook-scholarship/discover' },
+  },
+  {
+    name: 'save-scholarship', description: 'Save/shortlist a scholarship the student just found (or one they describe directly) to their tracked opportunities list', category: 'student',
+    triggerPatterns: ['save.*(scholarship|that|it|the .* one)', 'track.*scholarship', 'shortlist.*scholarship'],
+    excludePatterns: ['co-?op|internship|job', '\\b(invoice|receipt|expense)\\b'],
+    parameters: {
+      title: { type: 'string', required: false, extractHint: 'scholarship name, only if the user is describing one directly rather than referring back to a search result' },
+      amountText: { type: 'string', required: false, extractHint: 'the award amount as free text, e.g. "$2,000", only for a direct description' },
+      deadlineText: { type: 'string', required: false, extractHint: 'the deadline as free text or ISO date, only for a direct description' },
+      sourceUrl: { type: 'string', required: false, extractHint: 'a URL for the scholarship, only for a direct description' },
+    },
+    endpoint: { method: 'INTERNAL', url: '' },
+  },
+  {
+    name: 'find-coop-opportunities', description: 'Search for co-op placements, internships, or student jobs matching the student\'s program, school, and work-authorization status', category: 'student',
+    triggerPatterns: ['find.*(co-?op|internship)', 'find.*job.*(opportunit|posting|listing|search)', '(co-?op|internship).*for', 'search.*(co-?op|internship)', 'look for.*(co-?op|internship|job)'],
+    parameters: { query: { type: 'string', required: false, extractHint: 'optional free-text focus, e.g. "remote" or "summer 2027" — omit if the user gave no specifics' } },
+    endpoint: { method: 'POST', url: '/api/v1/agentbook-career/discover' },
+  },
+  {
+    name: 'save-coop-opportunity', description: 'Save/shortlist a co-op or job opportunity the student just found (or one they describe directly) to their tracked opportunities list', category: 'student',
+    triggerPatterns: ['save.*(co-?op|internship|job)', 'track.*(co-?op|internship|job)', 'shortlist.*(co-?op|internship|job)'],
+    parameters: {
+      title: { type: 'string', required: false, extractHint: 'job/co-op title, only if the user is describing one directly rather than referring back to a search result' },
+      employer: { type: 'string', required: false },
+      location: { type: 'string', required: false },
+      compText: { type: 'string', required: false, extractHint: 'the pay as free text, only for a direct description' },
+      deadlineText: { type: 'string', required: false },
+      sourceUrl: { type: 'string', required: false },
+    },
+    endpoint: { method: 'INTERNAL', url: '' },
+  },
+  {
+    name: 'find-roommate-matches', description: 'Find compatible roommate matches based on the student\'s roommate profile (budget, area, move-in date, lifestyle)', category: 'student',
+    triggerPatterns: ['roommate', 'find.*roommate', 'compatible.*(student|roommate)', 'match.*roommate'],
+    parameters: {},
+    endpoint: { method: 'GET', url: '/api/v1/agentbook-housing/roommate/matches' },
   },
   {
     name: 'general-question', description: 'Answer any general financial or accounting question', category: 'finance',

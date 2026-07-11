@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { formatCurrency, formatDate, formatNumber, formatPercent } from '../formatters.js';
+import { formatCurrency, formatMoney, formatDate, formatNumber, formatPercent } from '../formatters.js';
 
 describe('formatCurrency', () => {
   it('formats USD cents to en-US dollar string', () => {
@@ -31,6 +31,42 @@ describe('formatCurrency', () => {
   it('handles large amounts', () => {
     const result = formatCurrency(100000000, 'en-US', 'USD');
     expect(result).toContain('1,000,000.00');
+  });
+});
+
+describe('formatMoney', () => {
+  it('formats USD without a locale param, inferring en-US', () => {
+    const result = formatMoney(4500, 'USD');
+    expect(result).toContain('$');
+    expect(result).toContain('45.00');
+  });
+
+  it('formats AUD, inferring en-AU locale', () => {
+    const result = formatMoney(4500, 'AUD');
+    expect(result).toContain('45.00');
+    expect(result).toContain('$');
+  });
+
+  it('formats CAD, inferring en-CA locale', () => {
+    const result = formatMoney(4500, 'CAD');
+    expect(result).toContain('45.00');
+  });
+
+  it('formats GBP, inferring en-GB locale', () => {
+    const result = formatMoney(4500, 'GBP');
+    expect(result).toContain('£');
+    expect(result).toContain('45.00');
+  });
+
+  it('defaults to USD/en-US when no currency is given', () => {
+    const result = formatMoney(4500);
+    expect(result).toContain('$');
+    expect(result).toContain('45.00');
+  });
+
+  it('falls back to a generic "en-US"-formatted string for an unmapped currency code', () => {
+    const result = formatMoney(4500, 'NZD');
+    expect(result).toContain('45.00');
   });
 });
 

@@ -38,7 +38,7 @@ const TERMS_OPTIONS = [
 
 // Currencies the invoice form lets the user pick. Tenant booking currency
 // is the default; non-tenant choices trigger an FX preview.
-const CURRENCY_OPTIONS = ['USD', 'EUR', 'GBP', 'CAD', 'JPY'] as const;
+const CURRENCY_OPTIONS = ['USD', 'EUR', 'GBP', 'CAD', 'AUD', 'JPY'] as const;
 
 const API = '/api/v1/agentbook-invoice';
 const CORE_API = '/api/v1/agentbook-core';

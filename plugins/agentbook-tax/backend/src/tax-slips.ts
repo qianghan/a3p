@@ -1,10 +1,19 @@
 /**
- * Tax Slips — OCR extraction for T4, T5, T3, T4A, RRSP, TFSA, bank statements.
+ * Tax Slips — OCR extraction for Canadian slips (T4, T5, T3, T4A, RRSP, TFSA,
+ * bank statements) and US slips (W-2, 1099-NEC, 1098-T, 1098-E, 1042-S).
+ *
+ * 1042-S is the form a nonresident-alien student (F-1/J-1) gets instead of
+ * (or alongside) a W-2 for treaty-exempt scholarship/wage income — see the
+ * international-student-tax-help skill in built-in-skills.ts for the
+ * explainer that goes with it. Extraction here is intentionally shallow
+ * (box amounts only) — nonresident withholding is treaty- and
+ * income-code-specific, which is exactly the part that skill defers to
+ * Sprintax/GLACIER rather than trying to resolve itself.
  */
 import { db } from './db/client.js';
 
-const OCR_SYSTEM_PROMPT = `You are a Canadian tax document scanner. Analyze this image and:
-1. Identify the slip type: T4, T5, T3, T4A, RRSP receipt, TFSA receipt, T5007, or bank statement
+const OCR_SYSTEM_PROMPT = `You are a tax document scanner covering both Canadian and US slips. Analyze this image and:
+1. Identify the slip type: T4, T5, T3, T4A, RRSP receipt, TFSA receipt, T5007, bank statement, W-2, 1099-NEC, 1098-T, 1098-E, or 1042-S
 2. Extract all relevant fields as JSON
 
 For T4: { employment_income, tax_deducted, cpp_contributions, ei_premiums, employer_name }
@@ -14,6 +23,11 @@ For RRSP: { contribution_amount, receipt_number, issuer }
 For TFSA: { contribution_amount, issuer }
 For T4A: { pension_income, other_income, payer_name }
 For bank statement: { interest_earned, fees_paid, institution_name }
+For W-2: { wages, federal_tax_withheld, employer_name }
+For 1099-NEC: { nonemployee_compensation, payer_name }
+For 1098-T: { payments_received_box1, scholarships_box5, institution_name }
+For 1098-E: { student_loan_interest, lender_name }
+For 1042-S: { income_code, gross_income, federal_tax_withheld, exemption_code, withholding_agent_name }
 
 Respond as JSON only: { "slipType": "T4", "fields": { ... }, "confidence": 0.95 }
 All monetary values in CENTS (multiply dollars by 100).`;

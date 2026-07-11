@@ -6,11 +6,13 @@ vi.mock('server-only', () => ({}));
 // AbEvent insert is a spy rather than a live DB write.
 const mockAbEventCreate = vi.fn();
 const mockTelegramBotFindFirst = vi.fn();
+const mockWhatsAppLinkFindUnique = vi.fn();
 const mockUserFindUnique = vi.fn();
 vi.mock('@naap/database', () => ({
   prisma: {
     abEvent: { create: (...args: unknown[]) => mockAbEventCreate(...args) },
     abTelegramBot: { findFirst: (...args: unknown[]) => mockTelegramBotFindFirst(...args) },
+    abWhatsAppLink: { findUnique: (...args: unknown[]) => mockWhatsAppLinkFindUnique(...args) },
     user: { findUnique: (...args: unknown[]) => mockUserFindUnique(...args) },
   },
 }));
@@ -25,6 +27,7 @@ import {
   TelegramAdapter,
   WebAdapter,
   EmailAdapter,
+  WhatsAppAdapter,
   resolveAdaptersForTenant,
   sendToAllChannels,
 } from '../agentbook-chat-adapter';
@@ -35,10 +38,13 @@ describe('ChatAdapter — Tier 5 #17 abstraction', () => {
   beforeEach(() => {
     mockAbEventCreate.mockReset();
     mockTelegramBotFindFirst.mockReset();
+    mockWhatsAppLinkFindUnique.mockReset();
     mockUserFindUnique.mockReset();
     mockSendAgentMessageEmail.mockReset();
     delete (process.env as Record<string, string | undefined>).TELEGRAM_BOT_TOKEN;
     delete (process.env as Record<string, string | undefined>).RESEND_API_KEY;
+    delete (process.env as Record<string, string | undefined>).WHATSAPP_ACCESS_TOKEN;
+    delete (process.env as Record<string, string | undefined>).WHATSAPP_PHONE_NUMBER_ID;
   });
   afterEach(() => {
     globalThis.fetch = realFetch;
@@ -114,6 +120,52 @@ describe('ChatAdapter — Tier 5 #17 abstraction', () => {
       expect(body.reply_markup.inline_keyboard).toEqual([
         [{ text: 'Yes', callback_data: 'y' }, { text: 'No', callback_data: 'n' }],
       ]);
+    });
+  });
+
+  describe('WhatsAppAdapter', () => {
+    it('sends a text message via the Cloud API', async () => {
+      const fetchSpy = vi.fn(async () =>
+        new Response(JSON.stringify({ messages: [{ id: 'wamid.abc' }] }), { status: 200 }),
+      );
+      globalThis.fetch = fetchSpy as typeof fetch;
+
+      const adapter = new WhatsAppAdapter('test-token', 'phone-id-123');
+      const result = await adapter.sendMessage('+15551234567', 'hello');
+
+      expect(result.delivered).toBe(true);
+      expect(result.channel).toBe('whatsapp');
+      expect(result.messageId).toBe('wamid.abc');
+      expect(fetchSpy).toHaveBeenCalledOnce();
+      const call = (fetchSpy as unknown as AnyMock).mock.calls[0];
+      const url = call[0] as string;
+      const init = call[1] as { body: string; headers: Record<string, string> };
+      expect(url).toBe('https://graph.facebook.com/v21.0/phone-id-123/messages');
+      expect(init.headers.Authorization).toBe('Bearer test-token');
+      const body = JSON.parse(init.body);
+      expect(body).toEqual({
+        messaging_product: 'whatsapp',
+        to: '+15551234567',
+        type: 'text',
+        text: { body: 'hello' },
+      });
+    });
+
+    it('returns delivered:false on HTTP error, including the response body', async () => {
+      globalThis.fetch = vi.fn(async () => new Response('{"error":"bad number"}', { status: 400 })) as typeof fetch;
+      const r = await new WhatsAppAdapter('t', 'p').sendMessage('c', 'x');
+      expect(r.delivered).toBe(false);
+      expect(r.error).toContain('HTTP 400');
+      expect(r.error).toContain('bad number');
+    });
+
+    it('returns delivered:false on network throw', async () => {
+      globalThis.fetch = vi.fn(async () => {
+        throw new Error('econnreset');
+      }) as typeof fetch;
+      const r = await new WhatsAppAdapter('t', 'p').sendMessage('c', 'x');
+      expect(r.delivered).toBe(false);
+      expect(r.error).toBe('econnreset');
     });
   });
 
@@ -199,6 +251,58 @@ describe('ChatAdapter — Tier 5 #17 abstraction', () => {
       expect(adapters[0].adapter.channel).toBe('web');
     });
 
+    it('includes whatsapp adapter when a link with phone numbers + both env vars are present', async () => {
+      process.env.WHATSAPP_ACCESS_TOKEN = 'wa-token';
+      process.env.WHATSAPP_PHONE_NUMBER_ID = 'phone-id-123';
+      mockTelegramBotFindFirst.mockResolvedValueOnce(null);
+      mockWhatsAppLinkFindUnique.mockResolvedValueOnce({ phoneNumbers: ['+15551234567', '+15559876543'] });
+      const adapters = await resolveAdaptersForTenant('tenant-x');
+      // 1 web + 2 whatsapp (one per phone number)
+      expect(adapters).toHaveLength(3);
+      expect(adapters[0].adapter.channel).toBe('web');
+      expect(adapters[1].adapter.channel).toBe('whatsapp');
+      expect(adapters[1].chatId).toBe('+15551234567');
+      expect(adapters[2].chatId).toBe('+15559876543');
+    });
+
+    it('skips whatsapp when the link has an empty phoneNumbers list', async () => {
+      process.env.WHATSAPP_ACCESS_TOKEN = 'wa-token';
+      process.env.WHATSAPP_PHONE_NUMBER_ID = 'phone-id-123';
+      mockTelegramBotFindFirst.mockResolvedValueOnce(null);
+      mockWhatsAppLinkFindUnique.mockResolvedValueOnce({ phoneNumbers: [] });
+      const adapters = await resolveAdaptersForTenant('tenant-x');
+      expect(adapters).toHaveLength(1);
+      expect(adapters[0].adapter.channel).toBe('web');
+    });
+
+    it('skips whatsapp when no link row exists yet', async () => {
+      process.env.WHATSAPP_ACCESS_TOKEN = 'wa-token';
+      process.env.WHATSAPP_PHONE_NUMBER_ID = 'phone-id-123';
+      mockTelegramBotFindFirst.mockResolvedValueOnce(null);
+      mockWhatsAppLinkFindUnique.mockResolvedValueOnce(null);
+      const adapters = await resolveAdaptersForTenant('tenant-x');
+      expect(adapters).toHaveLength(1);
+      expect(adapters[0].adapter.channel).toBe('web');
+    });
+
+    it('skips whatsapp when only WHATSAPP_ACCESS_TOKEN is set', async () => {
+      process.env.WHATSAPP_ACCESS_TOKEN = 'wa-token';
+      mockTelegramBotFindFirst.mockResolvedValueOnce(null);
+      const adapters = await resolveAdaptersForTenant('tenant-x');
+      expect(adapters).toHaveLength(1);
+      expect(adapters[0].adapter.channel).toBe('web');
+      expect(mockWhatsAppLinkFindUnique).not.toHaveBeenCalled();
+    });
+
+    it('skips whatsapp when only WHATSAPP_PHONE_NUMBER_ID is set', async () => {
+      process.env.WHATSAPP_PHONE_NUMBER_ID = 'phone-id-123';
+      mockTelegramBotFindFirst.mockResolvedValueOnce(null);
+      const adapters = await resolveAdaptersForTenant('tenant-x');
+      expect(adapters).toHaveLength(1);
+      expect(adapters[0].adapter.channel).toBe('web');
+      expect(mockWhatsAppLinkFindUnique).not.toHaveBeenCalled();
+    });
+
     it('includes email adapter when RESEND_API_KEY + verified email are present', async () => {
       process.env.RESEND_API_KEY = 'resend-key';
       mockTelegramBotFindFirst.mockResolvedValueOnce(null);
@@ -218,13 +322,16 @@ describe('ChatAdapter — Tier 5 #17 abstraction', () => {
       expect(adapters[0].adapter.channel).toBe('web');
     });
 
-    it('all three channels can coexist', async () => {
+    it('all four channels can coexist', async () => {
       process.env.TELEGRAM_BOT_TOKEN = 'env-token';
+      process.env.WHATSAPP_ACCESS_TOKEN = 'wa-token';
+      process.env.WHATSAPP_PHONE_NUMBER_ID = 'phone-id-123';
       process.env.RESEND_API_KEY = 'resend-key';
       mockTelegramBotFindFirst.mockResolvedValueOnce({ chatIds: ['111'] });
+      mockWhatsAppLinkFindUnique.mockResolvedValueOnce({ phoneNumbers: ['+15551234567'] });
       mockUserFindUnique.mockResolvedValueOnce({ email: 'a@b.c', emailVerified: new Date() });
       const adapters = await resolveAdaptersForTenant('tenant-x');
-      expect(adapters.map((a) => a.adapter.channel)).toEqual(['web', 'telegram', 'email']);
+      expect(adapters.map((a) => a.adapter.channel)).toEqual(['web', 'telegram', 'whatsapp', 'email']);
     });
   });
 

@@ -11,10 +11,12 @@ import { db } from './db/client.js';
 import { handleAgentMessage } from './agent-brain.js';
 import { BUILT_IN_SKILLS } from './built-in-skills.js';
 import { selectSkillByPatterns } from './skill-routing.js';
+import { hasAddOn } from '@naap/billing';
 import { handleDashboardOverview } from './dashboard/overview.js';
 import { handleDashboardActivity } from './dashboard/activity.js';
 import { handleDashboardAgentSummary } from './dashboard/agent-summary.js';
 import { listPastFilingsForTenant, buildPastFilingContext } from './past-filing-context.js';
+import { resolveOrdinalOrFuzzyCandidate } from './candidate-resolution.js';
 
 // Read plugin.json for dev-only fields. When bundled by webpack (Next.js
 // on Vercel), `new URL(..., import.meta.url)` is incompatible with fs —
@@ -1902,7 +1904,25 @@ app.post('/api/v1/agentbook-core/accounts/seed-jurisdiction', async (req, res) =
       { code: '6700', name: 'Bank Fees', accountType: 'expense', taxCategory: 'Line 27a' },
     ];
 
-    const accounts = US_ACCOUNTS; // TODO: Select based on jurisdiction
+    const STUDENT_ACCOUNTS = [
+      { code: '1000', name: 'Cash', accountType: 'asset' },
+      { code: '1200', name: 'Checking / Debit Account', accountType: 'asset' },
+      { code: '3000', name: "Owner's Equity", accountType: 'equity' },
+      { code: '4000', name: 'Part-Time Job Income', accountType: 'revenue' },
+      { code: '4100', name: 'Tutoring / Gig Income', accountType: 'revenue', taxCategory: 'Schedule C' },
+      { code: '4200', name: 'Scholarship / Grant Income', accountType: 'revenue' },
+      { code: '4300', name: 'Family Support / Allowance', accountType: 'revenue' },
+      { code: '5000', name: 'Tuition & Fees', accountType: 'expense', taxCategory: '1098-T / T2202' },
+      { code: '5100', name: 'Textbooks & Course Materials', accountType: 'expense' },
+      { code: '5200', name: 'Rent / Housing', accountType: 'expense' },
+      { code: '5300', name: 'Meal Plan / Groceries', accountType: 'expense' },
+      { code: '5400', name: 'Transportation', accountType: 'expense' },
+      { code: '5500', name: 'Phone & Software Subscriptions', accountType: 'expense' },
+      { code: '5600', name: 'Student Loan Interest', accountType: 'expense', taxCategory: '1098-E' },
+    ];
+
+    // TODO: also select US_ACCOUNTS variants by jurisdiction when a CA chart lands.
+    const accounts = config?.businessType === 'student' ? STUDENT_ACCOUNTS : US_ACCOUNTS;
 
     const created = await db.$transaction(
       accounts.map(a => db.abAccount.upsert({
@@ -3182,6 +3202,33 @@ async function _executeClassificationCore(
   const startTime = Date.now();
   let { selectedSkill, extractedParams, confidence } = classification;
 
+  // Eligibility gate: scholarship/co-op/roommate search + save are part of
+  // the Student Success add-on. Checked here (execution time), not at
+  // classification time — see docs/superpowers/specs/2026-07-10-student-chat-skills-design.md.
+  const STUDENT_CHAT_SKILLS = ['find-scholarships', 'save-scholarship', 'find-coop-opportunities', 'save-coop-opportunity', 'find-roommate-matches'];
+  if (STUDENT_CHAT_SKILLS.includes(selectedSkill.name)) {
+    const cfg = await db.abTenantConfig.findUnique({ where: { userId: tenantId } });
+    const eligible = cfg?.businessType === 'student' && (await hasAddOn(tenantId, 'student_success'));
+    if (!eligible) {
+      // confidence must stay >= 0.6 here — agent-brain.ts's assessComplexity()
+      // treats confidence < 0.6 as 'complex' and re-routes through the
+      // planner (agent-planner.ts::executeStep), a separate execution path
+      // that does NOT run this gate and lacks this file's baseUrls
+      // resolution, producing a raw "Failed to parse URL" step failure
+      // instead of this message. Confirmed live in production: dropping
+      // this to 0 (an earlier, seemingly-cosmetic alignment with other
+      // blocked-path responses in this file) broke the nudge entirely for
+      // ineligible tenants.
+      return {
+        selectedSkill, extractedParams, confidence: 1, skillUsed: selectedSkill.name, skillResponse: null,
+        responseData: {
+          message: 'Scholarship, co-op, and roommate search are part of Student Success — enable it in your Business Profile settings to use them.',
+          skillUsed: selectedSkill.name, confidence: 1, latencyMs: Date.now() - startTime,
+        },
+      };
+    }
+  }
+
   // === 3. SKILL EXECUTION ===
   let endpoint = selectedSkill.endpoint as any;
   // In production (Vercel) all plugins live on the same host — VERCEL_URL or NEXTAUTH_URL.
@@ -3196,6 +3243,9 @@ async function _executeClassificationCore(
     '/api/v1/agentbook-core': process.env.AGENTBOOK_CORE_URL || _appBase || 'http://localhost:4050',
     '/api/v1/agentbook-invoice': process.env.AGENTBOOK_INVOICE_URL || _appBase || 'http://localhost:4052',
     '/api/v1/agentbook-tax': process.env.AGENTBOOK_TAX_URL || _appBase || 'http://localhost:4053',
+    '/api/v1/agentbook-scholarship': _appBase || 'http://localhost:3000',
+    '/api/v1/agentbook-career': _appBase || 'http://localhost:3000',
+    '/api/v1/agentbook-housing': _appBase || 'http://localhost:3000',
   };
 
   // Resolve base URL
@@ -3668,7 +3718,7 @@ async function _executeClassificationCore(
           message += '\n\n\u2705 Auto-confirmed (high confidence). Re-populate your filing to update fields.';
         }
       } else {
-        message = "I couldn't read that tax slip. Please try a clearer photo, or make sure it's a Canadian tax document (T4, T5, RRSP receipt, etc.).";
+        message = "I couldn't read that tax slip. Please try a clearer photo — I can read T4/T5/RRSP receipts, W-2, 1099-NEC, 1098-T, 1098-E, and 1042-S.";
       }
 
       await db.abConversation.create({ data: { tenantId, question: text || '[tax slip]', answer: message, queryType: 'agent', channel, skillUsed: 'tax-slip-scan' } });
@@ -3716,6 +3766,126 @@ async function _executeClassificationCore(
       console.error('[query-past-filings] error:', err);
       return { selectedSkill, extractedParams, confidence: 0, skillUsed: 'query-past-filings', skillResponse: null,
         responseData: { message: "I couldn't retrieve your past filings. Please try again.", actions: [], chartData: null, skillUsed: 'query-past-filings', confidence: 0, latencyMs: Date.now() - startTime } };
+    }
+  }
+
+  // INTERNAL handler: scholarship-taxability — guided decision-tree answer via Gemini,
+  // grounded in a fixed rule set (not the model's general knowledge) to reduce
+  // hallucination risk on tax content. See docs/superpowers/specs/2026-07-03-
+  // scholarship-taxability-skill-content.md for the source rules and review notes.
+  if (selectedSkill.name === 'scholarship-taxability') {
+    try {
+      const jurisdiction = (classification.tenantConfig?.jurisdiction || 'us').toLowerCase();
+      const rules = [
+        'US rules (IRS Pub 970):',
+        '- A scholarship/fellowship is tax-free only if the student is a degree candidate AND the money is spent on tuition, required fees, or required course materials.',
+        '- Money spent on room/board, travel, or optional equipment is taxable — report it on Form 1040 line 1 with an "SCH" notation.',
+        '- A stipend tied to teaching/research duties (e.g. a TA/RA position) is taxable as payment for services regardless of the label "fellowship" — this is the most common thing people get wrong.',
+        '- Advanced note (mention only if relevant): some students deliberately report a bit of otherwise-tax-free scholarship as taxable to free up more tuition expense for the AOTC, since the credit can be worth more than the tax owed — flag this as something to calculate carefully, not a default recommendation.',
+        '- US 529 withdrawals: qualified (tuition/fees/books/room-board up to cost of attendance) are tax-free. Non-qualified withdrawals — only the earnings portion, not original contributions — are taxable to the recipient plus typically a 10% penalty.',
+        '- Education credits: if the student is claimed as someone else\'s dependent, the student CANNOT claim AOTC/LLC themselves regardless of who paid — only the person claiming the dependency can. AOTC is up to $2,500/student/year (100% of first $2,000 + 25% of next $2,000), first 4 years of a degree, at least half-time, 40% refundable. LLC is up to $2,000 per return (not per student), 20% of up to $10,000 of expenses, no degree/year-limit requirement — better fit for grad students or part-time enrollment. Expenses paid with tax-free scholarship or a tax-free 529 withdrawal cannot also be counted toward either credit.',
+        '- Income phase-out thresholds change yearly — do not state a specific dollar figure as current; tell the user to verify this year\'s IRS figures.',
+        '',
+        'Canada rules (CRA):',
+        '- A full-time student\'s scholarship/bursary/fellowship is fully tax-exempt if the program qualifies for the education amount (reported on T4A box 105, excluded via line 13010). Part-time students only get the exemption up to tuition plus program-material costs.',
+        '- The T2202 tuition credit is non-refundable (15% federal) and most students with low income can\'t use it all right away — but it carries forward indefinitely, or up to $5,000 (minus any amount the student already used) can be transferred to a spouse, parent, or grandparent. Mention this proactively — it is genuinely useful and under-known.',
+        '- RESP: the EAP portion (accumulated growth + government grants) is taxable to the STUDENT (reported on T4A) but usually results in little or no tax owed because of the student\'s low income plus the basic personal amount and tuition credit. The original contribution (PSE) portion is never taxable to anyone.',
+      ].join('\n');
+
+      const system = [
+        'You are AgentBook, explaining a student\'s tax question about a scholarship, grant, stipend, or RESP/529 withdrawal.',
+        `The user's tax jurisdiction is ${jurisdiction === 'ca' ? 'Canada' : 'the United States'} — answer using only that jurisdiction\'s rules below unless the user explicitly asks about the other one.`,
+        'Use ONLY the rules given below — do not invent dollar thresholds or rules not listed here.',
+        'Lead with the plain-English answer (tax-free vs taxable, and which part) before explaining the mechanism.',
+        'End with one sentence noting AgentBook is not a CPA or e-file agent and to verify current-year dollar figures.',
+        'Plain text, 3-6 sentences, no markdown headers.',
+        '',
+        rules,
+      ].join('\n');
+
+      const question = String(extractedParams.question || text || 'Is my scholarship taxable?');
+      const reply = await callGemini(system, question, 400)
+        ?? "I couldn't work through that just now — try asking again in a moment, or check the IRS Pub 970 (US) / CRA line 13010 (Canada) guidance directly.";
+
+      await db.abConversation.create({
+        data: { tenantId, question: text || question, answer: reply, queryType: 'agent', channel, skillUsed: 'scholarship-taxability' },
+      }).catch(() => {});
+
+      return {
+        selectedSkill, extractedParams, confidence, skillUsed: 'scholarship-taxability', skillResponse: null,
+        responseData: { message: reply, skillUsed: 'scholarship-taxability', confidence, latencyMs: Date.now() - startTime },
+      };
+    } catch (err) {
+      console.error('[scholarship-taxability] error:', err);
+      return {
+        selectedSkill, extractedParams, confidence: 0, skillUsed: 'scholarship-taxability', skillResponse: null,
+        responseData: { message: "I couldn't work through that just now. Please try again in a moment.", skillUsed: 'scholarship-taxability', confidence: 0, latencyMs: Date.now() - startTime },
+      };
+    }
+  }
+
+  // INTERNAL handler: international-student-tax-help — nonresident-alien
+  // status, treaty, FICA, 1042-S explainer. Deliberately does NOT attempt to
+  // be a 1040NR filing engine — the discovery research behind this feature
+  // (student.html §6) found that's Sprintax/GLACIER's job, already paid for
+  // by most universities; this skill's honest lane is the everyday
+  // "what does this even mean for me" explanation plus a hand-off link.
+  // Treaty specifics are given ONLY for the two treaties actually verified
+  // in that research (China/India) — every other country gets an honest
+  // "check the treaty table yourself" pointer rather than a fabricated rule,
+  // since wrong treaty guidance is exactly the kind of thing that could get
+  // someone's nonresident return wrong.
+  if (selectedSkill.name === 'international-student-tax-help') {
+    try {
+      const homeCountry = (classification.tenantConfig?.homeCountry || '').toLowerCase();
+      const jurisdiction = (classification.tenantConfig?.jurisdiction || 'us').toLowerCase();
+
+      const treatyNote = homeCountry === 'cn'
+        ? "Since you're from China: the US-China tax treaty (Article 20) can exempt scholarship income and a limited amount of wages from US tax — worth specifically asking Sprintax/GLACIER to check this for you."
+        : homeCountry === 'in'
+          ? "Since you're from India: the US-India tax treaty (Article 21) is unusual in letting Indian nonresident students claim the US standard deduction, which almost no other treaty nationality can do — make sure whichever tool you file with applies this."
+          : "I don't have verified treaty specifics for your country memorized — treaty terms vary a lot and I'd rather send you to the real table than guess. Check IRS Publication 901 (tax treaty tables) or ask Sprintax/GLACIER directly; they apply this automatically when you file.";
+
+      const rules = [
+        `The user is on an international student visa (F-1/J-1 or similar), tax jurisdiction ${jurisdiction === 'ca' ? 'Canada' : 'the United States'}.`,
+        'US nonresident-alien basics: F-1/J-1 students are "exempt individuals" under the Substantial Presence Test for their first 5 calendar years in the US, which means they file Form 1040-NR, not the regular 1040 that domestic students use, and generally CANNOT claim the standard deduction (an unusual exception exists for India, per treaty — see below).',
+        'FICA exemption: on-campus employment, and work authorized under CPT/OPT, is exempt from FICA (Social Security + Medicare) tax withholding during nonresident status. If an employer withheld it anyway, that\'s refundable via Form 843 + Form 8316.',
+        'Form 8843 is required for every F-1/J-1 visa holder every year, even with zero US income — it\'s the form that establishes exempt-individual status, not an income tax return by itself.',
+        'Form 1042-S is issued instead of (or alongside) a W-2 when income is treaty-exempt or otherwise subject to nonresident withholding — if the user mentions getting one, it means some or all of that income has already had treaty rules applied by the payer.',
+        `Treaty specifics: ${treatyNote}`,
+        'AgentBook is not a 1040-NR filing engine — that\'s a different form with different rules than domestic tools (TurboTax/H&R Block/FreeTaxUSA) even support, and most universities already provide a licensed Sprintax or GLACIER Tax Prep seat through the international student office. Point the user there for the actual filing; AgentBook\'s job is explaining what these terms mean and tracking everyday spending in the meantime.',
+        'Visa-work-authorization caveat: unlike a domestic side-hustle, F-1/J-1 students generally cannot take on arbitrary gig-platform or freelance income — only specific authorized categories (on-campus, CPT, OPT). Do not encourage untracked "side income" the way you might for a domestic student.',
+      ].join('\n');
+
+      const system = [
+        'You are AgentBook, explaining nonresident-alien tax status to an international student on a visa.',
+        'Use ONLY the facts given below — do not invent treaty terms, dollar thresholds, or filing mechanics not listed here.',
+        'Lead with the plain-English answer to what they actually asked, then the relevant background.',
+        'If the question is really "how do I file my 1040-NR," say plainly that AgentBook doesn\'t do that and point to Sprintax/GLACIER (usually free through their university).',
+        'End with one sentence noting AgentBook is not a CPA, immigration advisor, or e-file agent.',
+        'Plain text, 3-6 sentences, no markdown headers.',
+        '',
+        rules,
+      ].join('\n');
+
+      const question = String(extractedParams.question || text || 'What does nonresident alien status mean for my taxes?');
+      const reply = await callGemini(system, question, 400)
+        ?? "I couldn't work through that just now — Sprintax (sprintax.com) and GLACIER Tax Prep are the two main tools for nonresident student tax filing, often free through your university's international student office.";
+
+      await db.abConversation.create({
+        data: { tenantId, question: text || question, answer: reply, queryType: 'agent', channel, skillUsed: 'international-student-tax-help' },
+      }).catch(() => {});
+
+      return {
+        selectedSkill, extractedParams, confidence, skillUsed: 'international-student-tax-help', skillResponse: null,
+        responseData: { message: reply, skillUsed: 'international-student-tax-help', confidence, latencyMs: Date.now() - startTime },
+      };
+    } catch (err) {
+      console.error('[international-student-tax-help] error:', err);
+      return {
+        selectedSkill, extractedParams, confidence: 0, skillUsed: 'international-student-tax-help', skillResponse: null,
+        responseData: { message: "I couldn't work through that just now. Please try again in a moment.", skillUsed: 'international-student-tax-help', confidence: 0, latencyMs: Date.now() - startTime },
+      };
     }
   }
 
@@ -4243,6 +4413,179 @@ async function _executeClassificationCore(
       return {
         selectedSkill, extractedParams, confidence: 0, skillUsed: 'record-invoice-payment', skillResponse: null,
         responseData: { message: "I couldn't record the payment. Please try again.", skillUsed: 'record-invoice-payment', confidence: 0, latencyMs: Date.now() - startTime },
+      };
+    }
+  }
+
+  // save-scholarship's broad triggers ('save that', 'save the X one') win
+  // any ambiguous phrase over save-coop-opportunity's narrower ones (which
+  // require an explicit co-op/internship/job keyword) purely by BUILT_IN_SKILLS
+  // array order — so "save the first one" always classifies as
+  // save-scholarship even right after a co-op search, since that's exactly
+  // the phrase the find-coop-opportunities response template tells users to
+  // say. When there's no direct free-text description (extractedParams.title
+  // unset — i.e. this is a referential "save the one I just found", not an
+  // explicit new description), check which find-* skill actually ran most
+  // recently and re-dispatch to the correct save handler if it disagrees
+  // with the classifier's guess.
+  if (selectedSkill.name === 'save-scholarship' && !extractedParams.title) {
+    const recentFind = await db.abConversation.findFirst({
+      where: { tenantId, skillUsed: { in: ['find-scholarships', 'find-coop-opportunities'] } },
+      orderBy: { createdAt: 'desc' },
+    });
+    if (recentFind?.skillUsed === 'find-coop-opportunities') {
+      selectedSkill = { ...selectedSkill, name: 'save-coop-opportunity' };
+    }
+  }
+
+  // INTERNAL handler: save-scholarship — resolve a candidate from the prior
+  // find-scholarships turn (ordinal or fuzzy title match), or fall back to
+  // a direct free-text description, then save it via the scholarship
+  // opportunities endpoint.
+  if (selectedSkill.name === 'save-scholarship') {
+    try {
+      const recentRows = await db.abConversation.findMany({
+        where: { tenantId, skillUsed: 'find-scholarships' },
+        orderBy: { createdAt: 'desc' },
+        take: 5,
+      });
+      const lastConvo = recentRows.find((r: any) => Array.isArray((r.data as any)?.data?.candidates) && (r.data as any).data.candidates.length > 0) ?? recentRows[0];
+      const candidates: any[] = (lastConvo?.data as any)?.data?.candidates ?? [];
+      let chosen: any = resolveOrdinalOrFuzzyCandidate(candidates, text || '');
+
+      if (!chosen && extractedParams.title) {
+        chosen = {
+          title: String(extractedParams.title),
+          amountText: extractedParams.amountText ? String(extractedParams.amountText) : null,
+          deadlineText: extractedParams.deadlineText ? String(extractedParams.deadlineText) : null,
+          sourceUrl: extractedParams.sourceUrl ? String(extractedParams.sourceUrl) : null,
+        };
+      }
+
+      if (!chosen) {
+        return {
+          selectedSkill, extractedParams, confidence, skillUsed: 'save-scholarship', skillResponse: null,
+          responseData: {
+            message: "I'm not sure which scholarship you mean — try \"find scholarships\" first, then \"save the first one\", or tell me the name directly.",
+            skillUsed: 'save-scholarship', confidence, latencyMs: Date.now() - startTime,
+          },
+        };
+      }
+
+      const scholarshipBase = baseUrls['/api/v1/agentbook-scholarship'] || 'http://localhost:3000';
+      const saveRes = await fetch(`${scholarshipBase}/api/v1/agentbook-scholarship/opportunities`, {
+        method: 'POST',
+        headers: brainHeaders(tenantId),
+        body: JSON.stringify({
+          title: chosen.title,
+          sourceUrl: chosen.sourceUrl || null,
+          sourceLabel: chosen.sourceLabel || null,
+          deadline: chosen.deadlineText || null,
+          amountText: chosen.amountText || null,
+          eligibilitySummary: chosen.eligibilitySummary || null,
+        }),
+      });
+      const saveData = await saveRes.json() as any;
+      if (!saveRes.ok || !saveData.success) {
+        return {
+          selectedSkill, extractedParams, confidence, skillUsed: 'save-scholarship', skillResponse: saveData,
+          responseData: {
+            message: `Couldn't save that scholarship. ${saveData.error || 'Please try again.'}`,
+            skillUsed: 'save-scholarship', confidence, latencyMs: Date.now() - startTime,
+          },
+        };
+      }
+      const detailParts = [chosen.amountText, chosen.deadlineText ? `due ${chosen.deadlineText}` : null].filter(Boolean);
+      const detail = detailParts.length ? ` (${detailParts.join(', ')})` : '';
+      return {
+        selectedSkill, extractedParams, confidence, skillUsed: 'save-scholarship', skillResponse: saveData,
+        responseData: {
+          message: `Saved "${chosen.title}"${detail} to your shortlist — view it anytime in Scholarships.`,
+          skillUsed: 'save-scholarship', confidence, latencyMs: Date.now() - startTime,
+        },
+      };
+    } catch (err) {
+      console.error('[save-scholarship] error:', err);
+      return {
+        selectedSkill, extractedParams, confidence: 0, skillUsed: 'save-scholarship', skillResponse: null,
+        responseData: { message: "I couldn't save that scholarship. Please try again.", skillUsed: 'save-scholarship', confidence: 0, latencyMs: Date.now() - startTime },
+      };
+    }
+  }
+
+  // INTERNAL handler: save-coop-opportunity — same resolution pattern as
+  // save-scholarship, for career/job candidates.
+  if (selectedSkill.name === 'save-coop-opportunity') {
+    try {
+      const recentRows = await db.abConversation.findMany({
+        where: { tenantId, skillUsed: 'find-coop-opportunities' },
+        orderBy: { createdAt: 'desc' },
+        take: 5,
+      });
+      const lastConvo = recentRows.find((r: any) => Array.isArray((r.data as any)?.data?.candidates) && (r.data as any).data.candidates.length > 0) ?? recentRows[0];
+      const candidates: any[] = (lastConvo?.data as any)?.data?.candidates ?? [];
+      let chosen: any = resolveOrdinalOrFuzzyCandidate(candidates, text || '', ['employer']);
+
+      if (!chosen && extractedParams.title) {
+        chosen = {
+          title: String(extractedParams.title),
+          employer: extractedParams.employer ? String(extractedParams.employer) : null,
+          location: extractedParams.location ? String(extractedParams.location) : null,
+          compText: extractedParams.compText ? String(extractedParams.compText) : null,
+          deadlineText: extractedParams.deadlineText ? String(extractedParams.deadlineText) : null,
+          sourceUrl: extractedParams.sourceUrl ? String(extractedParams.sourceUrl) : null,
+        };
+      }
+
+      if (!chosen) {
+        return {
+          selectedSkill, extractedParams, confidence, skillUsed: 'save-coop-opportunity', skillResponse: null,
+          responseData: {
+            message: "I'm not sure which opportunity you mean — try \"find co-ops\" first, then \"save the first one\", or tell me the role directly.",
+            skillUsed: 'save-coop-opportunity', confidence, latencyMs: Date.now() - startTime,
+          },
+        };
+      }
+
+      const careerBase = baseUrls['/api/v1/agentbook-career'] || 'http://localhost:3000';
+      const saveRes = await fetch(`${careerBase}/api/v1/agentbook-career/opportunities`, {
+        method: 'POST',
+        headers: brainHeaders(tenantId),
+        body: JSON.stringify({
+          title: chosen.title,
+          sourceUrl: chosen.sourceUrl || null,
+          sourceLabel: chosen.sourceLabel || null,
+          deadline: chosen.deadlineText || null,
+          employer: chosen.employer || null,
+          location: chosen.location || null,
+          compText: chosen.compText || null,
+          summary: chosen.summary || null,
+        }),
+      });
+      const saveData = await saveRes.json() as any;
+      if (!saveRes.ok || !saveData.success) {
+        return {
+          selectedSkill, extractedParams, confidence, skillUsed: 'save-coop-opportunity', skillResponse: saveData,
+          responseData: {
+            message: `Couldn't save that opportunity. ${saveData.error || 'Please try again.'}`,
+            skillUsed: 'save-coop-opportunity', confidence, latencyMs: Date.now() - startTime,
+          },
+        };
+      }
+      const detailParts = [chosen.employer, chosen.compText, chosen.deadlineText ? `due ${chosen.deadlineText}` : null].filter(Boolean);
+      const detail = detailParts.length ? ` (${detailParts.join(', ')})` : '';
+      return {
+        selectedSkill, extractedParams, confidence, skillUsed: 'save-coop-opportunity', skillResponse: saveData,
+        responseData: {
+          message: `Saved "${chosen.title}"${detail} to your shortlist — view it anytime in Co-ops & Jobs.`,
+          skillUsed: 'save-coop-opportunity', confidence, latencyMs: Date.now() - startTime,
+        },
+      };
+    } catch (err) {
+      console.error('[save-coop-opportunity] error:', err);
+      return {
+        selectedSkill, extractedParams, confidence: 0, skillUsed: 'save-coop-opportunity', skillResponse: null,
+        responseData: { message: "I couldn't save that opportunity. Please try again.", skillUsed: 'save-coop-opportunity', confidence: 0, latencyMs: Date.now() - startTime },
       };
     }
   }
@@ -5021,6 +5364,46 @@ Only include chartData if visualization adds value. Keep the answer under 200 wo
           message += `\n• ${l.description}: ${fmtCurrency(l.amountCents, data.currency)}`;
         });
       }
+    // Scholarship search results
+    } else if (selectedSkill.name === 'find-scholarships' && Array.isArray(data?.candidates)) {
+      if (data.candidates.length === 0) {
+        message = data.note || "I couldn't find any groundable scholarship matches right now — try broadening your search or checking back later.";
+      } else {
+        message = `**${data.candidates.length} scholarship${data.candidates.length === 1 ? '' : 's'} found**\n`;
+        data.candidates.slice(0, 5).forEach((c: any, i: number) => {
+          message += `\n${i + 1}. **${c.title}**${c.amountText ? ` — ${c.amountText}` : ''}${c.deadlineText ? ` (due ${c.deadlineText})` : ''}\n   ${c.sourceLabel || c.sourceUrl}`;
+        });
+        if (data.note) message += `\n\n_${data.note}_`;
+        message += '\n\nSay "save the first one" (or name one) to add it to your shortlist.';
+      }
+
+    // Co-op / job search results
+    } else if (selectedSkill.name === 'find-coop-opportunities' && Array.isArray(data?.candidates)) {
+      if (data.candidates.length === 0) {
+        message = data.note || "I couldn't find any groundable co-op/job matches right now — try broadening your search or checking back later.";
+      } else {
+        message = `**${data.candidates.length} opportunit${data.candidates.length === 1 ? 'y' : 'ies'} found**\n`;
+        data.candidates.slice(0, 5).forEach((c: any, i: number) => {
+          message += `\n${i + 1}. **${c.title}**${c.employer ? ` at ${c.employer}` : ''}${c.location ? ` (${c.location})` : ''}${c.compText ? ` — ${c.compText}` : ''}${c.deadlineText ? ` (due ${c.deadlineText})` : ''}\n   ${c.sourceLabel || c.sourceUrl}`;
+        });
+        if (data.note) message += `\n\n_${data.note}_`;
+        message += '\n\nSay "save the first one" (or name one) to add it to your shortlist.';
+      }
+
+    // Roommate matches
+    } else if (selectedSkill.name === 'find-roommate-matches' && Array.isArray(data?.matches)) {
+      if (data.matches.length === 0) {
+        message = data.note || 'No compatible students found yet.';
+      } else {
+        message = `**${data.matches.length} compatible student${data.matches.length === 1 ? '' : 's'}**\n`;
+        data.matches.slice(0, 5).forEach((m: any) => {
+          const min = m.budgetMinCents != null ? `$${(m.budgetMinCents / 100).toFixed(0)}` : '?';
+          const max = m.budgetMaxCents != null ? `$${(m.budgetMaxCents / 100).toFixed(0)}` : '?';
+          message += `\n• **${m.displayHandle}** — ${m.area}, budget ${min}-${max} (${Math.round((m.score || 0) * 100)}% match)\n   ${m.reasons?.[0] || ''}`;
+        });
+        if (data.note) message += `\n\n_${data.note}_`;
+      }
+
     } else {
       message = JSON.stringify(data).slice(0, 300);
     }

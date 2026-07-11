@@ -14,6 +14,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { randomBytes } from 'node:crypto';
 import { Bot, type Context as GrammyContext } from 'grammy';
 import { prisma as db } from '@naap/database';
+import { formatMoney } from '@agentbook/i18n';
 import { handleAgentMessage } from '@agentbook-core/agent-brain';
 import { callGemini, classifyAndExecuteV1, classifyOnly, executeClassification } from '@agentbook-core/server';
 import { runAgentLoop, type BotContext, type ActiveExpense as BotActive } from '@/lib/agentbook-bot-agent';
@@ -1794,7 +1795,7 @@ interface MileageRecordedData {
 }
 
 async function renderMileageStepResult(
-  _tenantId: string,
+  tenantId: string,
   ctx: InvoiceReplyCtx,
   result: { success: boolean; data?: unknown; error?: string } | undefined,
 ): Promise<void> {
@@ -1808,10 +1809,12 @@ async function renderMileageStepResult(
     : data.clientNameHint
       ? escHtml(data.clientNameHint)
       : escHtml(data.purpose || 'this trip');
-  const dollars = (data.deductibleAmountCents / 100).toLocaleString(
-    data.jurisdiction === 'ca' ? 'en-CA' : 'en-US',
-    { style: 'currency', currency: data.jurisdiction === 'ca' ? 'CAD' : 'USD' },
-  );
+  // The deductible amount is computed from the tenant's own bookkeeping, so
+  // it must follow the tenant's configured currency — not a guess derived
+  // from which jurisdiction's mileage rate was applied (a US-jurisdiction
+  // tenant can still have a non-USD currency configured).
+  const tenantConfig = await db.abTenantConfig.findUnique({ where: { userId: tenantId }, select: { currency: true } });
+  const dollars = formatMoney(data.deductibleAmountCents, tenantConfig?.currency || 'USD');
   const rateLabel = data.jurisdiction === 'ca' ? 'CRA rate' : 'IRS std rate';
   const lines: string[] = [
     `📒 ${data.miles} ${data.unit} to ${target} = <b>${dollars}</b> deductible (${rateLabel}). On the books.`,
@@ -4491,12 +4494,26 @@ function getBot(): Bot {
         });
         await ctx.answerCallbackQuery({ text: '🏠 Marked as personal' });
         const updated = await getActiveExpense(tenantId);
-        if (updated) {
-          try {
-            await ctx.editMessageText(formatExpenseSummary(updated, '🏠 Marked as personal — excluded from business books.'), { parse_mode: 'HTML' });
-          } catch {
-            await ctx.reply(formatExpenseSummary(updated, '🏠 Marked as personal — excluded from business books.'), { parse_mode: 'HTML' });
-          }
+        // Keep the draft actionable (same reasoning as the cat: handler —
+        // editing without a keyboard stranded the draft with no way to book
+        // it). A personal expense passes the confirm gate without a category.
+        const lead = '🏠 Marked as personal — excluded from business books. Tap ✅ to put it on the books.';
+        const personalReplyMarkup = {
+          inline_keyboard: [
+            [
+              { text: '✅ Confirm — book it', callback_data: `confirm:${expenseId}` },
+              { text: '📁 Change category', callback_data: `change_cat:${expenseId}` },
+            ],
+            [
+              { text: '💼 Make business', callback_data: `business:${expenseId}` },
+              { text: '❌ Reject', callback_data: `reject:${expenseId}` },
+            ],
+          ],
+        };
+        try {
+          await ctx.editMessageText(updated ? formatExpenseSummary(updated, lead) : lead, { parse_mode: 'HTML', reply_markup: personalReplyMarkup });
+        } catch {
+          await ctx.reply(updated ? formatExpenseSummary(updated, lead) : lead, { parse_mode: 'HTML', reply_markup: personalReplyMarkup });
         }
         return;
       }
@@ -4513,12 +4530,26 @@ function getBot(): Bot {
         });
         await ctx.answerCallbackQuery({ text: '💼 Marked as business' });
         const updated = await getActiveExpense(tenantId);
-        if (updated) {
-          try {
-            await ctx.editMessageText(formatExpenseSummary(updated, '💼 Marked as a business expense.'), { parse_mode: 'HTML' });
-          } catch {
-            await ctx.reply(formatExpenseSummary(updated, '💼 Marked as a business expense.'), { parse_mode: 'HTML' });
-          }
+        // Keep the draft actionable. A business expense still needs a category
+        // to pass the confirm gate, so Change category sits right next to
+        // Confirm — no dead-end.
+        const lead = '💼 Marked as a business expense. Tap ✅ to book it (add a category first if it doesn\'t have one).';
+        const businessReplyMarkup = {
+          inline_keyboard: [
+            [
+              { text: '✅ Confirm — book it', callback_data: `confirm:${expenseId}` },
+              { text: '📁 Change category', callback_data: `change_cat:${expenseId}` },
+            ],
+            [
+              { text: '🏠 Make personal', callback_data: `personal:${expenseId}` },
+              { text: '❌ Reject', callback_data: `reject:${expenseId}` },
+            ],
+          ],
+        };
+        try {
+          await ctx.editMessageText(updated ? formatExpenseSummary(updated, lead) : lead, { parse_mode: 'HTML', reply_markup: businessReplyMarkup });
+        } catch {
+          await ctx.reply(updated ? formatExpenseSummary(updated, lead) : lead, { parse_mode: 'HTML', reply_markup: businessReplyMarkup });
         }
         return;
       }
@@ -4628,15 +4659,33 @@ function getBot(): Bot {
         if (ctx.chat?.id) await focusThreadExpense(tenantId, ctx.chat.id, expenseId);
         await ctx.answerCallbackQuery({ text: `✅ Categorized as ${account.name}` });
         const updated = await getActiveExpense(tenantId);
-        const lead = `✅ Categorized as <b>${escHtml(account.name)}</b>. I'll remember this for future ${expense.vendorId ? 'expenses from this vendor' : 'similar expenses'}.`;
+        // The draft is now categorized but still pending_review — the
+        // confirmation gate (confirm handler) refuses to book without a
+        // category, and until now this edit stripped the keyboard, leaving
+        // the user categorized with no way to book it (they'd get re-prompted
+        // to categorize on the next review pass — the reported loop). Re-attach
+        // a Confirm button so a category pick flows straight into booking.
+        const lead = `✅ Categorized as <b>${escHtml(account.name)}</b>. I'll remember this for future ${expense.vendorId ? 'expenses from this vendor' : 'similar expenses'}. Tap ✅ to put it on the books.`;
+        const catReplyMarkup = {
+          inline_keyboard: [
+            [
+              { text: '✅ Confirm — book it', callback_data: `confirm:${expenseId}` },
+              { text: '📁 Change category', callback_data: `change_cat:${expenseId}` },
+            ],
+            [
+              { text: expense.isPersonal ? '💼 Make business' : '🏠 Make personal', callback_data: `${expense.isPersonal ? 'business' : 'personal'}:${expenseId}` },
+              { text: '❌ Reject', callback_data: `reject:${expenseId}` },
+            ],
+          ],
+        };
         try {
           if (updated) {
-            await ctx.editMessageText(formatExpenseSummary(updated, lead), { parse_mode: 'HTML' });
+            await ctx.editMessageText(formatExpenseSummary(updated, lead), { parse_mode: 'HTML', reply_markup: catReplyMarkup });
           } else {
-            await ctx.editMessageText(lead, { parse_mode: 'HTML' });
+            await ctx.editMessageText(lead, { parse_mode: 'HTML', reply_markup: catReplyMarkup });
           }
         } catch {
-          await ctx.reply(updated ? formatExpenseSummary(updated, lead) : lead, { parse_mode: 'HTML' });
+          await ctx.reply(updated ? formatExpenseSummary(updated, lead) : lead, { parse_mode: 'HTML', reply_markup: catReplyMarkup });
         }
         return;
       }
