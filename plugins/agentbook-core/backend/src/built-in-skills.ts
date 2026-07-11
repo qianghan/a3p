@@ -341,7 +341,7 @@ export const BUILT_IN_SKILLS = [
   {
     name: 'scholarship-taxability', description: 'Explain whether a scholarship, grant, RESP/529 withdrawal, or stipend is taxable, and whether AOTC/Lifetime Learning Credit or the Canadian tuition transfer applies', category: 'tax',
     triggerPatterns: ['scholarship', 'is.*grant.*taxable', 'fellowship', 'financial aid.*tax', 'tuition.*credit', 'education.*credit', 'AOTC', 'american opportunity', 'lifetime learning', '\\bresp\\b', '\\b529\\b', 't2202', '1098-?t', 'is.*taxable'],
-    excludePatterns: ['find|search|look for|apply (to|for)'],
+    excludePatterns: ['\\b(find|search|look for)\\b.*\\bscholarships?\\b|\\bapply\\s+(to|for)\\b.*\\bscholarships?\\b'],
     parameters: { question: { type: 'string', required: true, extractHint: 'the full user question about the scholarship/grant/stipend/withdrawal' } },
     endpoint: { method: 'INTERNAL', url: '' },
   },
@@ -574,19 +574,15 @@ export const BUILT_IN_SKILLS = [
     responseTemplate: 'Based on your company profile, here is what you may qualify for: {{programs}}',
   },
   {
-    name: 'find-scholarships',
-    description: 'Search for scholarships, grants, or financial aid matching the student\'s program, school, and eligibility — a live grounded search, not tax advice on an existing award',
-    category: 'student',
+    name: 'find-scholarships', description: 'Search for scholarships, grants, or financial aid matching the student\'s program, school, and eligibility — a live grounded search, not tax advice on an existing award', category: 'student',
     triggerPatterns: ['find.*scholarship', 'scholarship.*for', 'search.*scholarship', 'look for.*scholarship', 'scholarship.*(my|as a).*(major|program)', 'apply.*for.*scholarship'],
     parameters: { query: { type: 'string', required: false, extractHint: 'optional free-text focus, e.g. "for computer science" or "need-based" — omit if the user gave no specifics' } },
     endpoint: { method: 'POST', url: '/api/v1/agentbook-scholarship/discover' },
   },
   {
-    name: 'save-scholarship',
-    description: 'Save/shortlist a scholarship the student just found (or one they describe directly) to their tracked opportunities list',
-    category: 'student',
+    name: 'save-scholarship', description: 'Save/shortlist a scholarship the student just found (or one they describe directly) to their tracked opportunities list', category: 'student',
     triggerPatterns: ['save.*(scholarship|that|it|the .* one)', 'track.*scholarship', 'shortlist.*scholarship'],
-    excludePatterns: ['co-?op|internship|job'],
+    excludePatterns: ['co-?op|internship|job', '\\b(invoice|receipt|expense)\\b'],
     parameters: {
       title: { type: 'string', required: false, extractHint: 'scholarship name, only if the user is describing one directly rather than referring back to a search result' },
       amountText: { type: 'string', required: false, extractHint: 'the award amount as free text, e.g. "$2,000", only for a direct description' },
@@ -596,17 +592,13 @@ export const BUILT_IN_SKILLS = [
     endpoint: { method: 'INTERNAL', url: '' },
   },
   {
-    name: 'find-coop-opportunities',
-    description: 'Search for co-op placements, internships, or student jobs matching the student\'s program, school, and work-authorization status',
-    category: 'student',
-    triggerPatterns: ['find.*(co-?op|internship|job)', '(co-?op|internship).*for', 'search.*(co-?op|internship)', 'look for.*(co-?op|internship|job)'],
+    name: 'find-coop-opportunities', description: 'Search for co-op placements, internships, or student jobs matching the student\'s program, school, and work-authorization status', category: 'student',
+    triggerPatterns: ['find.*(co-?op|internship)', 'find.*job.*(opportunit|posting|listing|search)', '(co-?op|internship).*for', 'search.*(co-?op|internship)', 'look for.*(co-?op|internship|job)'],
     parameters: { query: { type: 'string', required: false, extractHint: 'optional free-text focus, e.g. "remote" or "summer 2027" — omit if the user gave no specifics' } },
     endpoint: { method: 'POST', url: '/api/v1/agentbook-career/discover' },
   },
   {
-    name: 'save-coop-opportunity',
-    description: 'Save/shortlist a co-op or job opportunity the student just found (or one they describe directly) to their tracked opportunities list',
-    category: 'student',
+    name: 'save-coop-opportunity', description: 'Save/shortlist a co-op or job opportunity the student just found (or one they describe directly) to their tracked opportunities list', category: 'student',
     triggerPatterns: ['save.*(co-?op|internship|job)', 'track.*(co-?op|internship|job)', 'shortlist.*(co-?op|internship|job)'],
     parameters: {
       title: { type: 'string', required: false, extractHint: 'job/co-op title, only if the user is describing one directly rather than referring back to a search result' },
@@ -619,9 +611,7 @@ export const BUILT_IN_SKILLS = [
     endpoint: { method: 'INTERNAL', url: '' },
   },
   {
-    name: 'find-roommate-matches',
-    description: 'Find compatible roommate matches based on the student\'s roommate profile (budget, area, move-in date, lifestyle)',
-    category: 'student',
+    name: 'find-roommate-matches', description: 'Find compatible roommate matches based on the student\'s roommate profile (budget, area, move-in date, lifestyle)', category: 'student',
     triggerPatterns: ['roommate', 'find.*roommate', 'compatible.*(student|roommate)', 'match.*roommate'],
     parameters: {},
     endpoint: { method: 'GET', url: '/api/v1/agentbook-housing/roommate/matches' },
