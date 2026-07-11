@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { NextRequest, NextResponse } from 'next/server';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
@@ -7,16 +8,27 @@ import { isMcpEnabled } from '@/lib/mcp/mcp-flag';
 import { callAgentBrain } from '@/lib/mcp/ask-agentbook-tool';
 import { nodeRequestResponseFromWeb } from '@/lib/mcp/node-web-adapter';
 
-async function handle(request: NextRequest): Promise<Response> {
-  if (!(await isMcpEnabled())) {
-    return NextResponse.json({ error: 'MCP is not enabled for this deployment' }, { status: 503 });
-  }
+interface McpSession {
+  server: McpServer;
+  transport: StreamableHTTPServerTransport;
+}
 
-  const auth = await authenticateMcpRequest(request);
-  if ('error' in auth) return auth.error;
+/**
+ * Module-level session store, keyed by the MCP `Mcp-Session-Id` header value.
+ *
+ * This is deliberately in-memory and per-instance. It survives across HTTP
+ * requests only as long as Vercel/Fluid Compute happens to route a session's
+ * follow-up requests to the same warm function instance — there is no
+ * cross-instance replication. That is an accepted, fail-safe trade-off (see
+ * docs/superpowers/plans/2026-07-10-agentbook-mcp-server.md Task 8/8-fix
+ * notes): if the instance holding a session recycles mid-elicitation, the
+ * pending `elicitation/create` request simply times out (safe) rather than
+ * silently producing a wrong answer. It is not correctness-critical data —
+ * losing it just means the client has to re-`initialize`.
+ */
+const sessions = new Map<string, McpSession>();
 
-  const server = new McpServer({ name: 'agentbook', version: '1.0.0' });
-
+function registerAskAgentbookTool(server: McpServer, tenantId: string): void {
   server.registerTool(
     'ask_agentbook',
     {
@@ -29,22 +41,16 @@ async function handle(request: NextRequest): Promise<Response> {
     },
     async ({ message, conversationId }, extra) => {
       try {
-        const result = await callAgentBrain({ text: message, tenantId: auth.tenantId, conversationId });
+        const result = await callAgentBrain({ text: message, tenantId, conversationId });
 
         if (result.data.plan?.requiresConfirmation) {
           // Real capability check: whether *this* server instance recorded an
           // `elicitation` capability from the client's `initialize` handshake.
-          // NOTE — see Task 8 report: under this route's current stateless
-          // transport (`sessionIdGenerator: undefined`, a fresh McpServer per
-          // HTTP request), `getClientCapabilities()` is verified to always
-          // return undefined here, because the `initialize` request is
-          // handled by a *different*, already-discarded server instance. This
-          // check is still the objectively correct one (`extra.sendRequest`
-          // is a non-optional field, always present regardless of client
-          // capability, so `Boolean(extra.sendRequest)` can never be false
-          // and would be dead code) — it just can't succeed until the
-          // transport is made session-aware. Once that lands, this check
-          // starts working correctly with no further change needed here.
+          // Now that the transport is session-aware (this `McpServer` instance
+          // is kept alive across requests for the lifetime of the session, see
+          // the module-level `sessions` map above), the `initialize` request
+          // and this tool call are handled by the *same* server instance, so
+          // this correctly reflects the negotiated capability.
           const supportsElicitation = Boolean(server.server.getClientCapabilities()?.elicitation);
           if (!supportsElicitation) {
             return {
@@ -79,7 +85,7 @@ async function handle(request: NextRequest): Promise<Response> {
 
           const confirmed = await callAgentBrain({
             text: message,
-            tenantId: auth.tenantId,
+            tenantId,
             conversationId,
             sessionAction: 'confirm',
           });
@@ -96,13 +102,110 @@ async function handle(request: NextRequest): Promise<Response> {
       }
     },
   );
+}
+
+/**
+ * Builds a brand-new `McpServer` + stateful `StreamableHTTPServerTransport`
+ * pair for a fresh session (i.e. this request is the MCP `initialize` call).
+ *
+ * The transport assigns its own session ID once it processes the
+ * `initialize` message (via `sessionIdGenerator`) and reports it back through
+ * `onsessioninitialized` — that's the SDK's own hook for "a new session now
+ * exists, go track it" (see
+ * node_modules/@modelcontextprotocol/sdk/dist/esm/server/webStandardStreamableHttp.js,
+ * `WebStandardStreamableHTTPServerTransportOptions.onsessioninitialized`).
+ * We register the session in the shared map from inside that callback so the
+ * key is always exactly the ID the transport itself assigned — never
+ * guessed or pre-generated by this route.
+ */
+async function createSession(tenantId: string): Promise<McpSession> {
+  const server = new McpServer({ name: 'agentbook', version: '1.0.0' });
+  registerAskAgentbookTool(server, tenantId);
+
+  // `session` is captured by the callbacks below and filled in synchronously
+  // right after construction, before `server.connect(transport)` (and
+  // therefore before any request is actually handled) — so by the time
+  // `onsessioninitialized`/`onsessionclosed` can fire, `session.server` and
+  // `session.transport` are always populated.
+  const session = {} as McpSession;
+
+  const transport = new StreamableHTTPServerTransport({
+    sessionIdGenerator: () => randomUUID(),
+    onsessioninitialized: (sessionId) => {
+      sessions.set(sessionId, session);
+    },
+    onsessionclosed: (sessionId) => {
+      sessions.delete(sessionId);
+    },
+  });
+
+  session.server = server;
+  session.transport = transport;
+
+  await server.connect(transport);
+  return session;
+}
+
+async function handle(request: NextRequest): Promise<Response> {
+  if (!(await isMcpEnabled())) {
+    return NextResponse.json({ error: 'MCP is not enabled for this deployment' }, { status: 503 });
+  }
+
+  const auth = await authenticateMcpRequest(request);
+  if ('error' in auth) return auth.error;
+
+  // Per the MCP Streamable HTTP spec, once a session is established the
+  // client must echo it back on every subsequent request in the
+  // `Mcp-Session-Id` header (confirmed against the SDK's own source: it
+  // reads `req.headers.get('mcp-session-id')` in
+  // `WebStandardStreamableHTTPServerTransport.validateSession`/
+  // `handlePostRequest`/`handleGetRequest`/`handleDeleteRequest`, all in
+  // webStandardStreamableHttp.js). `Headers` lookups are case-insensitive,
+  // so this also matches clients that send `mcp-session-id` in any casing.
+  const sessionId = request.headers.get('mcp-session-id');
+
+  let session = sessionId ? sessions.get(sessionId) : undefined;
+
+  if (sessionId && !session) {
+    // The client believes it has a live session (it's sending an ID) but
+    // this instance has no record of it — most likely a warm instance that
+    // recycled between requests. Per the spec ("Requests with invalid
+    // session IDs are rejected with 404 Not Found"), tell the client the
+    // session is gone so it re-`initialize`s, rather than silently minting a
+    // brand-new session under the ID it already has cached (which would
+    // desync the transport's internal `this.sessionId` from what the client
+    // thinks it is).
+    return NextResponse.json({ error: 'Unknown or expired MCP session' }, { status: 404 });
+  }
+
+  if (!session) {
+    // No session ID at all: this must be a fresh `initialize` request (any
+    // other request type without a session ID is rejected by the new
+    // transport's own `validateSession` with 400, which is the correct
+    // spec-mandated behavior).
+    session = await createSession(auth.tenantId);
+  }
 
   const { nodeReq, nodeRes, responsePromise } = await nodeRequestResponseFromWeb(request);
-  const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
-  await server.connect(transport);
-  await transport.handleRequest(nodeReq, nodeRes);
+  // Deliberately NOT awaited before returning: `nodeRequestResponseFromWeb`'s
+  // `responsePromise` resolves as soon as headers are written (see that
+  // file's doc comment), which for an SSE/streaming reply happens well
+  // before the underlying MCP exchange finishes. Awaiting
+  // `handleRequest()` here first — as a stateless one-shot handler safely
+  // could — would block this whole function from ever returning a `Response`
+  // while a pending `elicitation/create` round-trip is in flight, which is
+  // exactly the deadlock this rework needs to avoid: the client can't send
+  // its elicitation reply (a separate request) without first *receiving*
+  // this response's `elicitation/create` event. `handleRequest()` keeps
+  // driving the transport (and eventually closes the stream) in the
+  // background; errors are logged rather than thrown since headers/status
+  // are usually already sent by the time anything here could fail.
+  session.transport.handleRequest(nodeReq, nodeRes).catch((err) => {
+    console.error('MCP transport.handleRequest failed', err);
+  });
   return responsePromise;
 }
 
 export const GET = handle;
 export const POST = handle;
+export const DELETE = handle;
