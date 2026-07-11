@@ -59,6 +59,26 @@ describe('skill routing — canonical utterances', () => {
     // review-queue — excludes tax-form review utterances
     { text: 'review t2125', expected: 'ca-t2125-review' },
     { text: 'review gst return', expected: 'ca-gst-hst-review' },
+
+    // find-scholarships — search intent, not tax intent
+    { text: 'find scholarships for a chemistry major in Ontario', expected: 'find-scholarships' },
+    { text: 'search for need-based scholarships', expected: 'find-scholarships' },
+
+    // scholarship-taxability — still wins on pure tax questions
+    { text: 'is my scholarship taxable', expected: 'scholarship-taxability' },
+    { text: 'is this grant taxable', expected: 'scholarship-taxability' },
+
+    // find-coop-opportunities
+    { text: 'find a co-op for summer 2027', expected: 'find-coop-opportunities' },
+    { text: 'search for internships near campus', expected: 'find-coop-opportunities' },
+
+    // find-roommate-matches
+    { text: 'find me a roommate', expected: 'find-roommate-matches' },
+    { text: 'show me compatible roommates', expected: 'find-roommate-matches' },
+
+    // save-scholarship / save-coop-opportunity
+    { text: 'save the first one', expected: 'save-scholarship' },
+    { text: 'save that co-op opportunity', expected: 'save-coop-opportunity' },
   ];
 
   for (const c of cases) {
