@@ -20,7 +20,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   // consent grants — with the flag off there should be no way to complete a
   // new connection, even if a stale consent page somehow got rendered.
   if (!(await isMcpEnabled())) {
-    return NextResponse.json({ error: 'MCP is not enabled for this deployment' }, { status: 503 });
+    return NextResponse.json({ error: "AgentBook's Claude/MCP connector isn't turned on for this account yet" }, { status: 503 });
   }
 
   const { uid, allow } = await request.clone().json();

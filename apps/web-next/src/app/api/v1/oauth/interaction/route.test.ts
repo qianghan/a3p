@@ -21,8 +21,12 @@ vi.mock('@/lib/mcp/node-web-adapter', () => ({
 }));
 
 const mockFindUnique = vi.fn();
+const mockOidcModelFindFirst = vi.fn();
 vi.mock('@naap/database', () => ({
-  prisma: { mcpConsentGrant: { findUnique: (...args: unknown[]) => mockFindUnique(...args) } },
+  prisma: {
+    mcpConsentGrant: { findUnique: (...args: unknown[]) => mockFindUnique(...args) },
+    oidcModel: { findFirst: (...args: unknown[]) => mockOidcModelFindFirst(...args) },
+  },
 }));
 
 const { GET } = await import('./route');
@@ -49,15 +53,29 @@ describe('GET /api/v1/oauth/interaction (Finding 1: flag must gate the consent f
     expect(res.status).toBe(401);
   });
 
-  it('returns interaction details for an authenticated user when MCP is enabled', async () => {
+  it('returns interaction details for an authenticated user when MCP is enabled, falling back to the raw client id if no friendly name is registered', async () => {
     mockValidateSession.mockResolvedValue({ id: 'user-1' });
     mockInteractionDetails.mockResolvedValue({ params: { client_id: 'client-a' } });
     mockFindUnique.mockResolvedValue(null);
+    mockOidcModelFindFirst.mockResolvedValue(null);
 
     const res = await GET(makeRequest('tok'));
     const body = await res.json();
 
     expect(res.status).toBe(200);
-    expect(body).toEqual({ clientId: 'client-a', alreadyGranted: false });
+    expect(body).toEqual({ clientId: 'client-a', clientName: 'client-a', alreadyGranted: false });
+  });
+
+  it('surfaces the DCR-registered client_name so the consent screen shows a real app name, not the opaque client id', async () => {
+    mockValidateSession.mockResolvedValue({ id: 'user-1' });
+    mockInteractionDetails.mockResolvedValue({ params: { client_id: 'client-a' } });
+    mockFindUnique.mockResolvedValue(null);
+    mockOidcModelFindFirst.mockResolvedValue({ payload: { client_name: 'Claude Desktop' } });
+
+    const res = await GET(makeRequest('tok'));
+    const body = await res.json();
+
+    expect(mockOidcModelFindFirst).toHaveBeenCalledWith({ where: { type: 'Client', id: 'client-a' } });
+    expect(body).toEqual({ clientId: 'client-a', clientName: 'Claude Desktop', alreadyGranted: false });
   });
 });

@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react';
 import { getCsrfToken } from '@/lib/api/csrf';
 
 export function ConsentForm({ uid }: { uid: string }) {
-  const [details, setDetails] = useState<{ clientId: string; alreadyGranted: boolean } | null>(null);
+  const [details, setDetails] = useState<{ clientId: string; clientName: string; alreadyGranted: boolean } | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
@@ -32,7 +32,7 @@ export function ConsentForm({ uid }: { uid: string }) {
     <div className="max-w-md mx-auto mt-24 p-6 rounded-xl border border-border bg-card">
       <h1 className="text-lg font-semibold mb-2">Connect to AgentBook</h1>
       <p className="text-sm text-muted-foreground mb-6">
-        <strong>{details.clientId}</strong> wants to access your AgentBook data —
+        <strong>{details.clientName}</strong> wants to access your AgentBook data —
         expenses, invoices, tax info — and take actions on your behalf
         (you&apos;ll always be asked to confirm before anything is recorded or sent).
         {details.alreadyGranted && ' You previously approved this app.'}

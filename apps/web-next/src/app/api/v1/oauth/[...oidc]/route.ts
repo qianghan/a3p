@@ -36,7 +36,7 @@ async function handle(request: NextRequest): Promise<Response> {
   // disabled deployment shouldn't still let a client register and mint
   // tokens against an agent surface that's supposed to be off.
   if (!(await isMcpEnabled())) {
-    return NextResponse.json({ error: 'MCP is not enabled for this deployment' }, { status: 503 });
+    return NextResponse.json({ error: "AgentBook's Claude/MCP connector isn't turned on for this account yet" }, { status: 503 });
   }
 
   const pathname = request.nextUrl.pathname;

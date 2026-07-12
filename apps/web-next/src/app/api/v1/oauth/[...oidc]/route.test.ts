@@ -134,7 +134,7 @@ describe('POST /api/v1/oauth/[...oidc] — MCP feature flag kill switch (Finding
     const res = await POST(makeTokenRequest({ 'x-forwarded-for': '203.0.113.200' }));
     expect(res.status).toBe(503);
     const body = await res.json();
-    expect(body.error).toMatch(/not enabled/i);
+    expect(body.error).toMatch(/isn't turned on/i);
     // The provider callback (and therefore oidc-provider's own routing) must
     // never be invoked when the flag is off.
     expect(mockCallback).not.toHaveBeenCalled();
