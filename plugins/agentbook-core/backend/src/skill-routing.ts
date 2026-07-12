@@ -52,6 +52,36 @@ export function isBusinessFlaggedPhrase(text: string): boolean {
   }
 }
 
+/**
+ * Shared "personal account / paycheck" cue fragment, used to defer several
+ * business/invoicing-flavoured skills to record-personal-transaction:
+ *   - record-expense's excludePatterns (original, in built-in-skills.ts)
+ *   - record-payment's and record-invoice-payment's excludePatterns (added
+ *     alongside the record-expense/record-personal-transaction fix, closing
+ *     the "I got paid $5,000 salary" / "...put it in my checking account"
+ *     collision those two invoicing skills also had with
+ *     record-personal-transaction — no DB `orderBy` means array position
+ *     can't be relied on to pick the right one).
+ *
+ * Kept as a single source of truth so the cue list can't drift between the
+ * three call sites.
+ */
+export const PERSONAL_ACCOUNT_CUE_PATTERN =
+  'from (?:my )?checking|from (?:my )?savings|\\bmy checking\\b|\\bmy savings\\b|' +
+  'into (?:my )?savings|to (?:my )?savings|personal account|\\bpaycheck\\b|' +
+  '\\bsalary\\b|\\bwithdrew\\b|\\bwithdrawal\\b|\\bdeposited\\b';
+
+/**
+ * "Statement" shape used to keep personal-snapshot's bare `'my personal'`
+ * trigger from firing on a transaction-recording statement like "spent $50 on
+ * my personal account" (which should hit record-personal-transaction, not
+ * the read-only net-worth/savings-rate query skill). Matches a dollar amount
+ * plus a record-verb in either order.
+ */
+export const PERSONAL_STATEMENT_PATTERN =
+  '\\$\\s*[\\d,]+\\.?\\d{0,2}.*\\b(?:spent|paid|put|deposited|withdrew|got)\\b|' +
+  '\\b(?:spent|paid|put|deposited|withdrew|got)\\b.*\\$\\s*[\\d,]+\\.?\\d{0,2}';
+
 function toStringArray(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
   return value.filter((v): v is string => typeof v === 'string');

@@ -144,6 +144,19 @@ export default function PersonalFinancePage() {
 
   const fmt$ = useCallback((cents: number) => formatCurrencyCents(cents, currency, locale), [currency, locale]);
 
+  // Transactions are stored as a UTC-midnight timestamp (see the
+  // transactions route's `date: body.date ? new Date(body.date) : new
+  // Date()`). `new Date(iso).toLocaleDateString()` lets the browser
+  // reinterpret that UTC midnight in the local timezone, which reads as
+  // "yesterday" west of UTC (e.g. US Pacific) for a transaction recorded
+  // "today". Build the display date from the UTC Y/M/D components instead,
+  // so the shown date matches what was actually recorded — same fix
+  // `todayStr()` above already applies to the date *input*'s default.
+  const fmtTxnDate = useCallback((iso: string) => {
+    const d = new Date(iso);
+    return new Date(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()).toLocaleDateString(locale);
+  }, [locale]);
+
   const addAccount = async () => {
     setSaving(true);
     try {
@@ -373,7 +386,7 @@ export default function PersonalFinancePage() {
               <div className="min-w-0">
                 <p className="text-sm font-medium text-foreground truncate">{t.description}</p>
                 <p className="text-xs text-muted-foreground">
-                  {new Date(t.date).toLocaleDateString()} &middot; <span className="capitalize">{t.category}</span>
+                  {fmtTxnDate(t.date)} &middot; <span className="capitalize">{t.category}</span>
                 </p>
               </div>
               <div className="flex items-center gap-2 shrink-0">

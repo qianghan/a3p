@@ -9,10 +9,12 @@ import { selectSkillByPatterns } from '../skill-routing.js';
 // plain untyped `vi.fn()` and set the default via `mockImplementation` in
 // `beforeEach` instead.
 const mockAbPersonalAccountFindMany = vi.fn();
+const mockAbTenantConfigFindUnique = vi.fn();
 
 vi.mock('../db/client.js', () => ({
   db: {
     abPersonalAccount: { findMany: (...args: any[]) => mockAbPersonalAccountFindMany(...args) },
+    abTenantConfig: { findUnique: (...args: any[]) => mockAbTenantConfigFindUnique(...args) },
     abConversation: { create: vi.fn(async () => ({})) },
     abEvent: { create: vi.fn(async () => ({})) },
   },
@@ -41,16 +43,56 @@ beforeEach(() => {
   // later, unrelated test — same discipline as student-chat-skills.test.ts.
   vi.resetAllMocks();
   mockAbPersonalAccountFindMany.mockImplementation(async () => []);
+  mockAbTenantConfigFindUnique.mockImplementation(async () => null);
 });
 
 // --- Routing -----------------------------------------------------------
 
-function pickSkill(text: string): string | null {
-  const lower = text.toLowerCase();
-  for (const skill of BUILT_IN_SKILLS) {
+// `db.abSkillManifest.findMany(...)` (server.ts, agent-brain.ts) has no
+// `orderBy`, so BUILT_IN_SKILLS's declaration order can't be trusted to
+// match production row order. A `pickSkill` that just walks this array and
+// returns the first match hides real collisions (two skills both match; the
+// test always sees the same array-order winner, but prod's DB order might
+// return the other one first). Cross-check the declaration-order winner
+// against a few shuffled evaluation orders and throw if they disagree, so
+// an order-dependent collision fails loudly instead of passing by luck of
+// array position — mirrors the fix applied to skill-routing-canonical.test.ts.
+function shuffle<T>(arr: readonly T[], seed: number): T[] {
+  const a = [...arr];
+  let s = seed;
+  for (let i = a.length - 1; i > 0; i--) {
+    s = (s * 9301 + 49297) % 233280;
+    const j = Math.floor((s / 233280) * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
+const SHUFFLE_SEEDS = [7, 42, 1337];
+
+function firstMatchIn(order: readonly (typeof BUILT_IN_SKILLS)[number][], text: string, lower: string): string | null {
+  for (const skill of order) {
     if (selectSkillByPatterns(skill, text, lower)) return skill.name;
   }
   return null;
+}
+
+function pickSkill(text: string): string | null {
+  const lower = text.toLowerCase();
+  const declared = firstMatchIn(BUILT_IN_SKILLS, text, lower);
+
+  for (const seed of SHUFFLE_SEEDS) {
+    const shuffled = firstMatchIn(shuffle(BUILT_IN_SKILLS, seed), text, lower);
+    if (shuffled !== declared) {
+      throw new Error(
+        `Order-dependent routing for "${text}": BUILT_IN_SKILLS declaration order picks "${declared}", ` +
+        `but a shuffled evaluation order picks "${shuffled}" — this collision isn't resolved by ` +
+        `excludePatterns and depends on array order, which production's DB query doesn't guarantee.`,
+      );
+    }
+  }
+
+  return declared;
 }
 
 describe('record-personal-transaction — routing', () => {
@@ -94,6 +136,50 @@ describe('record-personal-transaction — routing', () => {
     // and defer to record-expense. The negation-aware check must catch this.
     expect(pickSkill('I withdrew $80 from my checking, not a business expense')).toBe('record-personal-transaction');
   });
+});
+
+/**
+ * Final whole-branch review, round 2: record-payment and
+ * record-invoice-payment (both "record an invoice payment" skills) had no
+ * excludePatterns at all, so their bare "got paid"/"received payment"
+ * triggers also fired on personal-income phrasing like "I got paid $5,000
+ * salary" — and personal-snapshot's bare 'my personal' trigger fired on a
+ * spend *statement* like "spent $50 on my personal account", not just a
+ * query. Verify all five candidate skills directly (bypassing pickSkill's
+ * array-order loop) so the fix holds regardless of DB row order, exactly
+ * like the record-expense/record-personal-transaction pair above.
+ */
+describe('record-payment / record-invoice-payment / personal-snapshot — defer to record-personal-transaction', () => {
+  const CANDIDATE_NAMES = ['record-personal-transaction', 'record-expense', 'record-payment', 'record-invoice-payment', 'personal-snapshot'] as const;
+  const candidates = CANDIDATE_NAMES.map((name) => BUILT_IN_SKILLS.find((s) => s.name === name)!);
+
+  const cases: Array<{ text: string; expected: (typeof CANDIDATE_NAMES)[number] }> = [
+    { text: 'I got paid $5,000 salary', expected: 'record-personal-transaction' },
+    { text: 'I got paid $250 salary, put it in my checking account', expected: 'record-personal-transaction' },
+    { text: 'spent $50 on my personal account', expected: 'record-personal-transaction' },
+    { text: 'I got paid for invoice INV-2026-0004', expected: 'record-invoice-payment' },
+    { text: 'Acme paid the invoice', expected: 'record-invoice-payment' },
+    { text: 'Client Beta LLC paid me', expected: 'record-invoice-payment' },
+    { text: "how's my personal finance looking", expected: 'personal-snapshot' },
+    { text: "what's my net worth", expected: 'personal-snapshot' },
+    { text: 'I spent $80 on lunch', expected: 'record-expense' },
+  ];
+
+  for (const c of cases) {
+    it(`"${c.text}" -> exactly ${c.expected} claims it among the 5 candidates, independent of evaluation order`, () => {
+      const lower = c.text.toLowerCase();
+      const matched = candidates.filter((s) => selectSkillByPatterns(s, c.text, lower)).map((s) => s.name);
+      expect(matched).toEqual([c.expected]);
+
+      for (const seed of SHUFFLE_SEEDS) {
+        const shuffledMatched = shuffle(candidates, seed)
+          .filter((s) => selectSkillByPatterns(s, c.text, lower))
+          .map((s) => s.name)
+          .sort();
+        expect(shuffledMatched).toEqual([...matched].sort());
+      }
+    });
+  }
 });
 
 // --- Handler: account resolution ----------------------------------------
@@ -260,5 +346,36 @@ describe('record-personal-transaction — response formatting', () => {
     expect(result.responseData.message).toMatch(/Recorded spending/);
     expect(result.responseData.message).toMatch(/\$80\.00/);
     expect(result.responseData.message).not.toMatch(/^\{/);
+  });
+
+  // Regression (final review of personal-finance-parity branch): the reply
+  // used to call fmtCurrency(amountCents, data.currency) — but
+  // AbPersonalTransaction has no `currency` column, so data.currency was
+  // always undefined and every tenant saw a hardcoded USD `$`, even a CAD
+  // tenant. The fix fetches the tenant's configured currency directly
+  // instead of reading it off the created row.
+  it('formats the reply using the tenant\'s configured currency, not a hardcoded USD', async () => {
+    mockAbTenantConfigFindUnique.mockResolvedValueOnce({ currency: 'CAD' });
+    mockAbPersonalAccountFindMany.mockResolvedValueOnce([{ id: 'acc-checking', name: 'Checking', type: 'checking' }]);
+    mockFetch.mockResolvedValueOnce({ ok: true, json: async () => ({ success: true, data: { id: 'txn-8', amountCents: -8000, description: 'Groceries', businessFlag: false } }) });
+    const result = await executeClassification(
+      classification({ description: 'Groceries', amountCents: 8000 }),
+      'I spent $80 on groceries from checking',
+      'tenant-1', 'api',
+    );
+    expect(result.responseData.message).toMatch(/CA\$80\.00/);
+    expect(result.responseData.message).not.toMatch(/^\$80\.00/);
+  });
+
+  it('falls back to USD when the tenant has no configured currency', async () => {
+    mockAbTenantConfigFindUnique.mockResolvedValueOnce(null);
+    mockAbPersonalAccountFindMany.mockResolvedValueOnce([{ id: 'acc-checking', name: 'Checking', type: 'checking' }]);
+    mockFetch.mockResolvedValueOnce({ ok: true, json: async () => ({ success: true, data: { id: 'txn-9', amountCents: 500000, description: 'Paycheck', businessFlag: false } }) });
+    const result = await executeClassification(
+      classification({ description: 'Paycheck', amountCents: 500000 }),
+      'I got paid $5,000 salary',
+      'tenant-1', 'api',
+    );
+    expect(result.responseData.message).toMatch(/\$5000\.00/);
   });
 });

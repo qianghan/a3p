@@ -3201,6 +3201,15 @@ async function _executeClassificationCore(
 ): Promise<any> {
   const startTime = Date.now();
   let { selectedSkill, extractedParams, confidence } = classification;
+  // Set by the record-personal-transaction pre-processing block below —
+  // AbPersonalTransaction has no `currency` column (it's a personal account,
+  // not tied to an invoice), so the response-formatting step can't read
+  // `data.currency` off the created row (that was always undefined, silently
+  // defaulting every reply to USD regardless of the tenant's configured
+  // jurisdiction). Fetched fresh here rather than trusting
+  // `classification.tenantConfig`, matching the account-resolution lookup's
+  // own defensive style.
+  let personalTxnCurrency: string | undefined;
 
   // Eligibility gate: scholarship/co-op/roommate search + save are part of
   // the Student Success add-on. Checked here (execution time), not at
@@ -3308,6 +3317,20 @@ async function _executeClassificationCore(
   // as-is (see design doc's "conservative" businessFlag rule and "compute
   // the sign yourself" note).
   if (selectedSkill.name === 'record-personal-transaction') {
+    // Separate try/catch (not the account-resolution one below) — a failure
+    // here must never abort sign-inference/businessFlag extraction further
+    // down; it only affects which currency symbol the reply uses, so fall
+    // back to the tenant-config schema's own default ('USD') on any error,
+    // matching jurisdiction-currency.ts's `formatCurrencyCents` fallback
+    // convention used by the Personal page's UI.
+    try {
+      const cfg = await db.abTenantConfig.findUnique({ where: { userId: tenantId } });
+      personalTxnCurrency = cfg?.currency || 'USD';
+    } catch (err) {
+      console.warn('[record-personal-transaction] tenant currency lookup error:', err);
+      personalTxnCurrency = 'USD';
+    }
+
     try {
       const accounts = await db.abPersonalAccount.findMany({ where: { tenantId, archived: false } });
       if (accounts.length === 0) {
@@ -5193,7 +5216,11 @@ Only include chartData if visualization adds value. Keep the answer under 200 wo
     // Record personal transaction response
     } else if (selectedSkill.name === 'record-personal-transaction' && data) {
       const isIncome = typeof data.amountCents === 'number' && data.amountCents >= 0;
-      const amt = typeof data.amountCents === 'number' ? fmtCurrency(Math.abs(data.amountCents), data.currency) : '';
+      // AbPersonalTransaction has no `currency` column, so `data.currency`
+      // is always undefined here — use the tenant's configured currency
+      // (fetched in the pre-processing block above), falling back to USD
+      // only if that lookup genuinely found nothing.
+      const amt = typeof data.amountCents === 'number' ? fmtCurrency(Math.abs(data.amountCents), personalTxnCurrency || 'USD') : '';
       message = `${isIncome ? 'Recorded income' : 'Recorded spending'}${amt ? ': ' + amt : ''}${data.description ? ' — ' + data.description : ''}${data.businessFlag ? ' (flagged as business)' : ''}.`;
 
     // Create estimate response
