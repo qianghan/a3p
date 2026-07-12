@@ -6,7 +6,7 @@ export async function GET() {
   // Kill switch: don't advertise a live OAuth issuer for a deployment where
   // the whole MCP/OAuth surface is supposed to be off.
   if (!(await isMcpEnabled())) {
-    return NextResponse.json({ error: 'MCP is not enabled for this deployment' }, { status: 503 });
+    return NextResponse.json({ error: "AgentBook's Claude/MCP connector isn't turned on for this account yet" }, { status: 503 });
   }
 
   const provider = getOAuthProvider();

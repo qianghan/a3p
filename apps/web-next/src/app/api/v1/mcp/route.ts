@@ -16,8 +16,9 @@ function registerAskAgentbookTool(server: McpServer, tenantId: string): void {
     {
       description:
         'Ask AgentBook anything about your finances, or ask it to record an expense, ' +
-        'create an invoice, or take another action. Destructive actions require ' +
-        'explicit human confirmation before anything is written.',
+        'create an invoice, or take another action. Anything that would change the ' +
+        "user's books always asks them to confirm first — nothing is saved without " +
+        'their OK.',
       inputSchema: { message: z.string(), conversationId: z.string().optional() },
       annotations: { readOnlyHint: false, destructiveHint: true },
     },
@@ -38,9 +39,10 @@ function registerAskAgentbookTool(server: McpServer, tenantId: string): void {
             return {
               content: [{
                 type: 'text',
-                text: 'This connection doesn\'t support secure confirmation for actions that write ' +
-                  'data, so I can\'t proceed with that. Read-only questions still work — or reconnect ' +
-                  'using a client with elicitation support (e.g. Claude Desktop/Code).',
+                text: "I can't safely make that change from here — this app can't show you a " +
+                  "confirmation step before something gets saved to your books. I can still " +
+                  "answer questions; for changes, try connecting with Claude Desktop or Claude " +
+                  "Code instead.",
               }],
               isError: true,
             };
@@ -132,7 +134,7 @@ async function createSession(tenantId: string): Promise<McpSession> {
 
 async function handle(request: NextRequest): Promise<Response> {
   if (!(await isMcpEnabled())) {
-    return NextResponse.json({ error: 'MCP is not enabled for this deployment' }, { status: 503 });
+    return NextResponse.json({ error: "AgentBook's Claude/MCP connector isn't turned on for this account yet" }, { status: 503 });
   }
 
   const auth = await authenticateMcpRequest(request);

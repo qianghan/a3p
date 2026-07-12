@@ -1,0 +1,43 @@
+---
+title: "Connect Claude to your books"
+description: "Chat with AgentBook directly from Claude Desktop or Claude Code — no copy-pasting, no separate login each time."
+order: 6
+---
+
+## Connect Claude to your books
+
+If you already use Claude, you can talk to your AgentBook data right inside it — ask questions, log expenses, create invoices — the same way you'd chat with the agent on the AgentBook website.
+
+### Set it up (takes about a minute)
+
+1. In Claude, open **Settings → Connectors**.
+2. Click **+ Add custom connector**.
+3. Paste this address: `https://agentbook.brainliber.com/api/v1/mcp`
+4. Click **Add**. Claude will open a browser tab and ask you to log in with your AgentBook account.
+5. You'll see a screen asking **"Claude wants to access your AgentBook data — Allow?"** Click **Allow**.
+6. That's it — go back to Claude and start chatting.
+
+You only need to do this once. Claude remembers the connection until you disconnect it.
+
+### Try it
+
+Once connected, just ask Claude things like:
+
+- *"What's my expense summary this month?"*
+- *"Log $50 for coffee with a client"*
+- *"Create an invoice for $2,000 to Acme Inc"*
+- *"How much should I set aside for tax this quarter?"*
+
+Claude figures out which AgentBook action you mean and handles the rest.
+
+### You're always in control
+
+**Before anything gets saved, Claude will stop and ask you to confirm.** If you ask it to log an expense or send an invoice, it shows you exactly what it's about to do and waits for your yes. Nothing is written to your books without that explicit approval — you can always say no.
+
+Simple questions ("what did I spend last week?") don't need confirmation — only things that would change your books do.
+
+### Disconnect any time
+
+Go to **Settings → Connected Apps** in AgentBook and click **Revoke** next to Claude. Access is cut off immediately.
+
+Next: [Ask the agent](/docs/working/ask-the-agent) · Full reference and troubleshooting: [Connect Claude via MCP](/docs/configure/connect-claude)

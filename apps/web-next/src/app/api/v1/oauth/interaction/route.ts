@@ -16,7 +16,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   // brand-new connection (rendering the consent form) — with the flag off
   // there's no working consent flow to feed.
   if (!(await isMcpEnabled())) {
-    return NextResponse.json({ error: 'MCP is not enabled for this deployment' }, { status: 503 });
+    return NextResponse.json({ error: "AgentBook's Claude/MCP connector isn't turned on for this account yet" }, { status: 503 });
   }
 
   const token = request.cookies.get('naap_auth_token')?.value;
@@ -32,8 +32,18 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     where: { userId_clientId: { userId: user.id, clientId } },
   });
 
+  // The consent screen is the single moment a person decides whether to
+  // trust a new connection — showing them a raw DCR client_id here (e.g.
+  // "yFjtmfwchm3UpDgsLFE7iI8uUIy6-_T7LxDAWIPI3Ej wants access") looks like a
+  // phishing prompt, not an approval screen. Resolve the same client_name
+  // connected-apps/route.ts already surfaces post-connection, so the name
+  // shown here and in Settings -> Connected Apps is consistent.
+  const clientRow = await prisma.oidcModel.findFirst({ where: { type: 'Client', id: clientId } });
+  const clientName = (clientRow?.payload as { client_name?: string } | undefined)?.client_name || clientId;
+
   return NextResponse.json({
     clientId,
+    clientName,
     alreadyGranted: Boolean(existingGrant && !existingGrant.revokedAt),
   });
 }
