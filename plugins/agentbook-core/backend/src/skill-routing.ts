@@ -25,6 +25,33 @@ export interface SkillLike {
   excludePatterns?: unknown;
 }
 
+/**
+ * Negation-aware "business expense" phrase detector, shared by:
+ *   - record-personal-transaction's excludePatterns (defers to record-expense
+ *     when the message is business-flagged) in built-in-skills.ts
+ *   - record-expense's excludePatterns (defers back to record-personal-
+ *     transaction for personal-account cues, *unless* business-flagged)
+ *   - server.ts's businessFlag extraction for record-personal-transaction
+ *
+ * A naive substring match on "business expense" also fires on "not a
+ * business expense" or "isn't a business expense", flipping the meaning of
+ * what the user actually said. Guard with a negative lookbehind that treats
+ * the phrase as flagged only when no negation word ("not", "isn't",
+ * "wasn't", "no", "never", "don't", "doesn't", "didn't") appears within
+ * ~25 characters before it.
+ */
+export const BUSINESS_PHRASE_PATTERN =
+  "(?<!\\b(?:not|isn'?t|wasn'?t|no|never|don'?t|doesn'?t|didn'?t)\\b[\\s\\S]{0,25})" +
+  "(?:for the business|business expense|that'?s a business|it'?s a business|business purchase)";
+
+export function isBusinessFlaggedPhrase(text: string): boolean {
+  try {
+    return new RegExp(BUSINESS_PHRASE_PATTERN, 'i').test(text || '');
+  } catch {
+    return false;
+  }
+}
+
 function toStringArray(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
   return value.filter((v): v is string => typeof v === 'string');

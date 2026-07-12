@@ -68,3 +68,81 @@ test('personal finance: accounts, transactions, snapshot', async ({ page }) => {
   // net worth moved by +5000 −200 = +4800 vs before
   expect(snap2.data.data.netWorthCents).toBe(netBefore + 5_000_00 - 200_00);
 });
+
+test('personal finance: transactions UI records income via the form', async ({ page }) => {
+  await page.goto('/login');
+  await page.fill('input[type="email"]', EMAIL);
+  await page.fill('input[type="password"]', PASSWORD);
+  await page.click('button[type="submit"]');
+  await page.waitForURL(/\/dashboard|\/agentbook|\/$/, { timeout: 20_000 });
+  await page.waitForTimeout(2_000);
+
+  // Dedicated account so the form's account picker has a known option.
+  const acctName = `E2E UI Checking ${Date.now()}`;
+  const acct = await apiPost(page, `${P}/accounts`, { name: acctName, type: 'checking', balanceCents: 1_000_00 });
+  expect(acct.status, JSON.stringify(acct.data)).toBe(201);
+
+  const snapBefore = await apiGet(page, `${P}/snapshot`);
+  const incomeBefore = snapBefore.data.data.month.incomeCents;
+  const spendingBefore = snapBefore.data.data.month.spendingCents;
+
+  await page.goto('/personal');
+  await page.waitForSelector('text=Personal finance');
+
+  // Open the "Record transaction" form and submit an income entry via the UI.
+  await page.click('button:has-text("Record transaction")');
+  await page.selectOption('select[name="accountId"]', { label: acctName });
+  const description = `E2E UI Income ${Date.now()}`;
+  await page.fill('input[name="description"]', description);
+  await page.click('button:has-text("Income")');
+  await page.fill('input[name="amount"]', '250');
+  await page.fill('input[name="category"]', 'freelance');
+  await page.click('button:has-text("Save transaction")');
+
+  // The new row appears in the transaction list.
+  await expect(page.locator(`text=${description}`)).toBeVisible({ timeout: 10_000 });
+
+  // The snapshot's month.incomeCents reflects the new income; spending is unchanged.
+  const snapAfter = await apiGet(page, `${P}/snapshot`);
+  expect(snapAfter.data.data.month.incomeCents).toBeGreaterThanOrEqual(incomeBefore + 250_00);
+  expect(snapAfter.data.data.month.spendingCents).toBe(spendingBefore);
+});
+
+test('personal finance: budgets UI sets a budget and shows spent/remaining', async ({ page }) => {
+  await page.goto('/login');
+  await page.fill('input[type="email"]', EMAIL);
+  await page.fill('input[type="password"]', PASSWORD);
+  await page.click('button[type="submit"]');
+  await page.waitForURL(/\/dashboard|\/agentbook|\/$/, { timeout: 20_000 });
+  await page.waitForTimeout(2_000);
+
+  // Dedicated account + a category-tagged spend to budget against.
+  const acctName = `E2E Budget Checking ${Date.now()}`;
+  const acct = await apiPost(page, `${P}/accounts`, { name: acctName, type: 'checking', balanceCents: 500_00 });
+  expect(acct.status, JSON.stringify(acct.data)).toBe(201);
+  const category = `e2e-budget-${Date.now()}`;
+  const spend = await apiPost(page, `${P}/transactions`, {
+    accountId: acct.data.data.id, description: 'Budget test spend', amountCents: -75_00, category,
+  });
+  expect(spend.status).toBe(201);
+
+  await page.goto('/personal');
+  await page.waitForSelector('text=Personal finance');
+
+  // Set a monthly budget for that category via the UI form.
+  await page.click('button:has-text("Set budget")');
+  await page.fill('input[name="budgetCategory"]', category);
+  await page.fill('input[name="monthlyLimit"]', '200');
+  await page.click('button:has-text("Save")');
+
+  // The budget appears in the list.
+  await expect(page.locator('p.capitalize', { hasText: category })).toBeVisible({ timeout: 10_000 });
+
+  // Spent/remaining reflect the earlier transaction: $75 spent of a $200 limit, $125 left.
+  const budgetsRes = await apiGet(page, `${P}/budget`);
+  const created = budgetsRes.data.data.find((b) => b.category === category);
+  expect(created).toBeTruthy();
+  expect(created.monthlyLimitCents).toBe(200_00);
+  expect(created.spentCents).toBe(75_00);
+  expect(created.remainingCents).toBe(125_00);
+});

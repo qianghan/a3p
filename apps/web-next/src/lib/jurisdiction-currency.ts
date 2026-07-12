@@ -27,3 +27,35 @@ export function defaultCurrencyFor(jurisdiction: string | null | undefined): str
 export function jurisdictionLabelFor(jurisdiction: string | null | undefined): string {
   return JURISDICTION_OPTIONS.find((j) => j.value === jurisdiction)?.label ?? jurisdiction ?? 'Unknown';
 }
+
+/**
+ * Format a signed cents amount as a locale-aware currency string, e.g.
+ * `formatCurrencyCents(-20000, 'CAD', 'en-CA')` -> "-CA$200". Falls back to
+ * USD/en-US when the tenant hasn't configured a currency/locale yet (matches
+ * the `AbTenantConfig` schema defaults). Centralizing this here — rather than
+ * each page hardcoding a `$` prefix — is what keeps new UI jurisdiction/
+ * currency-aware instead of USD-only.
+ */
+export function formatCurrencyCents(
+  cents: number,
+  currency?: string | null,
+  locale?: string | null,
+): string {
+  const ccy = currency || 'USD';
+  const loc = locale || 'en-US';
+  try {
+    return (cents / 100).toLocaleString(loc, {
+      style: 'currency',
+      currency: ccy,
+      maximumFractionDigits: 0,
+    });
+  } catch {
+    // Unknown/invalid locale or currency code — fall back to a safe default
+    // rather than throwing and blanking the page.
+    return (cents / 100).toLocaleString('en-US', {
+      style: 'currency',
+      currency: 'USD',
+      maximumFractionDigits: 0,
+    });
+  }
+}

@@ -1,4 +1,52 @@
+import { BUSINESS_PHRASE_PATTERN } from './skill-routing.js';
+
 export const BUILT_IN_SKILLS = [
+  {
+    // PR-1 (personal-finance parity), tightened post-review: array position
+    // is NOT a reliable priority signal — `db.abSkillManifest.findMany(...)`
+    // at every call site has no `orderBy`, so once skills are seeded into
+    // the DB, row order (not this array's order) decides which skill a
+    // first-match-wins loop sees first. Rather than depend on ordering, this
+    // skill and record-expense are made mutually exclusive via patterns:
+    // triggerPatterns here are narrow (checking/savings/paycheck/salary/
+    // personal-account/deposited/withdrew signals only, never a bare spend/
+    // pay verb), and record-expense's excludePatterns below mirror the same
+    // cues (guarded so business-flagged language always wins record-expense
+    // regardless of an incidental account mention). That way "I got paid
+    // $5,000 salary" / "I spent $80 on groceries from checking" resolve to
+    // this skill, and "I spent $80 on lunch" resolves to record-expense, no
+    // matter which skill the DB happens to evaluate first. Also excludes
+    // personal-snapshot's net-worth/savings-rate *query* phrasing (a
+    // question, not a statement) so those keep routing correctly.
+    name: 'record-personal-transaction',
+    description: 'Record a personal (non-business) income or spending transaction against a personal account — a paycheck, a personal purchase, or a transfer into savings. Kept separate from the business books.',
+    category: 'personal-finance',
+    triggerPatterns: [
+      '\\bi got paid\\b', 'got my paycheck', '\\bpaycheck\\b', '\\bsalary\\b',
+      'personal account',
+      'from (?:my )?checking', 'from (?:my )?savings',
+      '\\bmy checking\\b', '\\bmy savings\\b',
+      'into (?:my )?savings', 'to (?:my )?savings',
+      '\\bdeposited\\b', '\\bwithdrew\\b', '\\bwithdrawal\\b',
+    ],
+    // Business-flagged language defers to record-expense (negation-aware —
+    // "not a business expense" must NOT defer, see BUSINESS_PHRASE_PATTERN);
+    // net-worth/savings-rate/spend-query phrasing defers to personal-snapshot
+    // (it's a question about the data, not a statement recording a new
+    // transaction).
+    excludePatterns: [
+      '\\bclient\\b', '\\binvoice\\b', BUSINESS_PHRASE_PATTERN, 'write.?off', 'deductible',
+      'net worth', 'savings rate', 'how much.*(?:did|have) i.*spen', "what'?s my", 'household', 'family budget',
+    ],
+    parameters: {
+      description: { type: 'string', required: true, extractHint: 'short description of the transaction' },
+      amountCents: { type: 'number', required: true, extractHint: 'dollar amount times 100, signed: positive for income (paycheck/deposit), negative for spending — infer the sign from phrasing, never send an unsigned value' },
+      category: { type: 'string', required: false, default: 'uncategorized', extractHint: 'best-effort spending/income category from context' },
+      accountRef: { type: 'string', required: false, extractHint: 'raw text naming which personal account this is for, e.g. "checking" or "savings" — omit if not mentioned' },
+      businessFlag: { type: 'boolean', required: false, default: false, extractHint: 'true only if the message explicitly says this personal-account charge is actually a business expense' },
+    },
+    endpoint: { method: 'POST', url: '/api/v1/agentbook-personal/transactions' },
+  },
   {
     name: 'record-expense', description: 'Record a business or personal expense', category: 'bookkeeping',
     triggerPatterns: ['\\$\\d', 'spent ', 'paid ', 'bought ', 'purchased '],
@@ -10,7 +58,17 @@ export const BUILT_IN_SKILLS = [
     // near "invoice", or "to invoice") anywhere in the message, without
     // excluding invoice-*paying* phrasing ("paid an invoice from the
     // plumber for $200"), which should still record as an expense.
-    excludePatterns: ['\\bto\\s+invoice\\b|\\binvoice\\s+to\\b|\\b(?:send|create|issue|write|prepare|make|draft)\\s+(?:an?\\s+)?invoice\\b', 'what\\s*if\\b', 'got.*\\$.*from', 'alert.*when|notify.*when|automat', 'received.*payment', '^(?:estimate|quote|proposal)\\s', 'is.*taxable|scholarship|fellowship|grant.*taxable|t2202|1098-?t|aotc|american opportunity|lifetime learning|tuition.*credit|education.*credit|\\bresp\\b|\\b529\\b', 'nonresident alien|non-resident alien|1040-?nr|sprintax|glacier tax|1042-?s|fica exempt|international student.*tax|tax treaty'],
+    // Personal-account cues ("from checking", "salary", "paycheck", etc.)
+    // defer to record-personal-transaction — mirrors that skill's own
+    // triggerPatterns so the two are mutually exclusive regardless of which
+    // one a DB-order-agnostic first-match-wins loop happens to see first
+    // (see record-personal-transaction's comment above). Guarded with a
+    // negative lookahead for BUSINESS_PHRASE_PATTERN so business-flagged
+    // language ("...for the business from my checking account") still wins
+    // record-expense even though it mentions a personal account.
+    excludePatterns: ['\\bto\\s+invoice\\b|\\binvoice\\s+to\\b|\\b(?:send|create|issue|write|prepare|make|draft)\\s+(?:an?\\s+)?invoice\\b', 'what\\s*if\\b', 'got.*\\$.*from', 'alert.*when|notify.*when|automat', 'received.*payment', '^(?:estimate|quote|proposal)\\s', 'is.*taxable|scholarship|fellowship|grant.*taxable|t2202|1098-?t|aotc|american opportunity|lifetime learning|tuition.*credit|education.*credit|\\bresp\\b|\\b529\\b', 'nonresident alien|non-resident alien|1040-?nr|sprintax|glacier tax|1042-?s|fica exempt|international student.*tax|tax treaty',
+      `^(?!.*(?:${BUSINESS_PHRASE_PATTERN})).*(?:from (?:my )?checking|from (?:my )?savings|\\bmy checking\\b|\\bmy savings\\b|into (?:my )?savings|to (?:my )?savings|personal account|\\bpaycheck\\b|\\bsalary\\b|\\bwithdrew\\b|\\bwithdrawal\\b|\\bdeposited\\b)`,
+    ],
     parameters: { amountCents: { type: 'number', required: true, extractHint: 'dollar amount times 100' }, vendor: { type: 'string', required: false, extractHint: 'business name' }, description: { type: 'string', required: false }, date: { type: 'date', required: false, default: 'today' } },
     endpoint: { method: 'POST', url: '/api/v1/agentbook-expense/expenses' },
     responseTemplate: 'Recorded: {{amountFormatted}} — {{description}} [{{categoryName}}]',

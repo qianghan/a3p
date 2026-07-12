@@ -79,11 +79,79 @@ describe('skill routing — canonical utterances', () => {
     // save-scholarship / save-coop-opportunity
     { text: 'save the first one', expected: 'save-scholarship' },
     { text: 'save that co-op opportunity', expected: 'save-coop-opportunity' },
+
+    // record-personal-transaction (PR-1 personal-finance parity) — personal
+    // income/spend phrasing, checked before record-expense in BUILT_IN_SKILLS.
+    { text: 'I got paid $5,000 salary', expected: 'record-personal-transaction' },
+    { text: 'I spent $80 on groceries from checking', expected: 'record-personal-transaction' },
+    { text: 'put $50 into savings', expected: 'record-personal-transaction' },
+
+    // record-personal-transaction — exclusion: plain business-style spend
+    // phrasing (no personal-account signal) still defers to record-expense.
+    { text: 'spent $45 on lunch', expected: 'record-expense' },
+
+    // record-personal-transaction — exclusion: business-flagged language
+    // defers to record-expense even when a personal account is mentioned.
+    { text: 'I spent $50 on software for the business from my checking account', expected: 'record-expense' },
+
+    // record-personal-transaction — exclusion: personal-snapshot's query
+    // phrasing ("my savings rate" contains "my savings", a trigger for
+    // record-personal-transaction, but it's a question, not a statement).
+    { text: "what's my savings rate", expected: 'personal-snapshot' },
+
+    // record-personal-transaction — negation-aware business-phrase check:
+    // "not a business expense" contains the substring "business expense",
+    // but the negation means this is NOT business-flagged language, so it
+    // must NOT defer to record-expense.
+    { text: 'I withdrew $80 from my checking, not a business expense', expected: 'record-personal-transaction' },
   ];
 
   for (const c of cases) {
     it(`"${c.text}" -> ${c.expected}`, () => {
       expect(pickSkill(c.text)).toBe(c.expected);
+    });
+  }
+});
+
+/**
+ * `db.abSkillManifest.findMany(...)` (server.ts, agent-brain.ts) has no
+ * `orderBy`, so once skills are seeded into the DB, row order — not this
+ * array's order — decides which skill a first-match-wins loop sees first.
+ * The record-expense / record-personal-transaction collision must therefore
+ * resolve correctly regardless of which of the two is checked first: call
+ * selectSkillByPatterns directly on each skill (bypassing array order
+ * entirely) and assert exactly one of them claims each utterance.
+ */
+describe('record-expense / record-personal-transaction — mutually exclusive regardless of order', () => {
+  const recordExpense = BUILT_IN_SKILLS.find((s) => s.name === 'record-expense')!;
+  const recordPersonalTransaction = BUILT_IN_SKILLS.find((s) => s.name === 'record-personal-transaction')!;
+
+  const cases: Array<{ text: string; expected: 'record-expense' | 'record-personal-transaction' | 'neither' }> = [
+    { text: 'I got paid $5,000 salary', expected: 'record-personal-transaction' },
+    { text: 'I spent $80 on groceries from checking', expected: 'record-personal-transaction' },
+    { text: 'put $50 into savings', expected: 'record-personal-transaction' },
+    { text: 'I withdrew $80 from my checking, not a business expense', expected: 'record-personal-transaction' },
+    { text: 'spent $45 on lunch', expected: 'record-expense' },
+    { text: 'spent $5 on coffee', expected: 'record-expense' },
+    { text: 'I spent $50 on software for the business from my checking account', expected: 'record-expense' },
+  ];
+
+  for (const c of cases) {
+    it(`"${c.text}" -> exactly ${c.expected} claims it, independent of evaluation order`, () => {
+      const lower = c.text.toLowerCase();
+      const expenseMatches = selectSkillByPatterns(recordExpense, c.text, lower);
+      const personalMatches = selectSkillByPatterns(recordPersonalTransaction, c.text, lower);
+
+      if (c.expected === 'record-expense') {
+        expect(expenseMatches).toBe(true);
+        expect(personalMatches).toBe(false);
+      } else if (c.expected === 'record-personal-transaction') {
+        expect(personalMatches).toBe(true);
+        expect(expenseMatches).toBe(false);
+      } else {
+        expect(expenseMatches).toBe(false);
+        expect(personalMatches).toBe(false);
+      }
     });
   }
 });

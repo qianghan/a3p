@@ -10,7 +10,7 @@ import { createPluginServer } from '@naap/plugin-server-sdk';
 import { db } from './db/client.js';
 import { handleAgentMessage } from './agent-brain.js';
 import { BUILT_IN_SKILLS } from './built-in-skills.js';
-import { selectSkillByPatterns } from './skill-routing.js';
+import { selectSkillByPatterns, isBusinessFlaggedPhrase } from './skill-routing.js';
 import { hasAddOn } from '@naap/billing';
 import { handleDashboardOverview } from './dashboard/overview.js';
 import { handleDashboardActivity } from './dashboard/activity.js';
@@ -3246,6 +3246,7 @@ async function _executeClassificationCore(
     '/api/v1/agentbook-scholarship': _appBase || 'http://localhost:3000',
     '/api/v1/agentbook-career': _appBase || 'http://localhost:3000',
     '/api/v1/agentbook-housing': _appBase || 'http://localhost:3000',
+    '/api/v1/agentbook-personal': _appBase || 'http://localhost:3000',
   };
 
   // Resolve base URL
@@ -3295,6 +3296,81 @@ async function _executeClassificationCore(
         }
       }
     } catch (err) { console.warn('Auto-categorize error:', err); }
+  }
+
+  // Pre-processing for record-personal-transaction: resolve which personal
+  // account this transaction is against (same "save-scholarship"-style
+  // candidate-resolution pattern: 0 accounts blocks with a pointer to the
+  // Personal page, 1 account auto-resolves, 2+ resolves via
+  // resolveOrdinalOrFuzzyCandidate or asks a clarifying question), and
+  // normalize amountCents' sign + businessFlag from the message text — the
+  // classifier's raw extraction for both isn't reliable enough to trust
+  // as-is (see design doc's "conservative" businessFlag rule and "compute
+  // the sign yourself" note).
+  if (selectedSkill.name === 'record-personal-transaction') {
+    try {
+      const accounts = await db.abPersonalAccount.findMany({ where: { tenantId, archived: false } });
+      if (accounts.length === 0) {
+        // Blocked-path early return — confidence must stay at 1, per this
+        // file's established rule (see the STUDENT_CHAT_SKILLS eligibility
+        // gate comment above): a lower confidence here gets the response
+        // re-routed through agent-planner.ts's executeStep instead of
+        // returned directly, which doesn't know about this message at all.
+        return {
+          selectedSkill, extractedParams, confidence: 1, skillUsed: 'record-personal-transaction', skillResponse: null,
+          responseData: {
+            message: "You haven't set up any personal accounts yet. Add one on the Personal page first, then I can record this for you.",
+            skillUsed: 'record-personal-transaction', confidence: 1, latencyMs: Date.now() - startTime,
+          },
+        };
+      }
+
+      if (accounts.length === 1) {
+        extractedParams.accountId = accounts[0].id;
+      } else {
+        const candidates = accounts.map((a: any) => ({ ...a, title: a.name }));
+        const chosen = resolveOrdinalOrFuzzyCandidate(candidates, extractedParams.accountRef || text || '', ['type']);
+        if (!chosen) {
+          const names = accounts.map((a: any) => a.name).join(', ');
+          return {
+            selectedSkill, extractedParams, confidence: 1, skillUsed: 'record-personal-transaction', skillResponse: null,
+            responseData: {
+              message: `Which account is this for — ${names}?`,
+              skillUsed: 'record-personal-transaction', confidence: 1, latencyMs: Date.now() - startTime,
+            },
+          };
+        }
+        extractedParams.accountId = chosen.id;
+      }
+      delete extractedParams.accountRef;
+
+      // Sign inference: recompute from phrasing rather than trusting
+      // whatever (if anything) the classifier extracted — income phrasing
+      // wins positive, everything else defaults to spend (negative), which
+      // is the more common personal-transaction shape.
+      // Known limitation (not fixed here): this regex scans the *whole*
+      // message, so a compound utterance like "I got my paycheck today,
+      // then spent $200 on rent" can pick up the income phrasing and
+      // mis-sign an amount that actually belongs to a later, unrelated
+      // clause — fixing this needs clause-level parsing, not a regex tweak.
+      if (typeof extractedParams.amountCents === 'number') {
+        const abs = Math.abs(extractedParams.amountCents);
+        const lower = (text || '').toLowerCase();
+        const INCOME_RE = /\bgot paid\b|\bpaycheck\b|\bsalary\b|\bpayroll\b|\bdeposited\b|\bdeposit\b|\bincome\b|put.*(?:in|into).*savings|to (?:my )?savings/;
+        extractedParams.amountCents = INCOME_RE.test(lower) ? abs : -abs;
+      }
+
+      // businessFlag: conservative — only true on an explicit, non-negated
+      // statement that this personal-account charge is actually a business
+      // expense. isBusinessFlaggedPhrase is negation-aware (shared with the
+      // routing excludePatterns in built-in-skills.ts) so "not a business
+      // expense" doesn't flip businessFlag to true on a substring match.
+      extractedParams.businessFlag = isBusinessFlaggedPhrase(text || '');
+
+      if (!extractedParams.category) extractedParams.category = 'uncategorized';
+    } catch (err) {
+      console.error('[record-personal-transaction] pre-processing error:', err);
+    }
   }
 
   // Pre-processing: query-invoices — resolve clientName to clientId
@@ -4984,6 +5060,12 @@ Only include chartData if visualization adds value. Keep the answer under 200 wo
       }
     } else if (selectedSkill.name === 'record-payment') {
       message = "I couldn't record the payment. I need a client or invoice reference:\n• \"Got $5000 from Acme\"\n• \"Record payment for INV-2026-0001\"";
+    } else if (selectedSkill.name === 'record-personal-transaction') {
+      if (!extractedParams.amountCents) {
+        message = "I couldn't find the amount. Try including a number, e.g.:\n• \"I got paid $5,000 salary\"\n• \"Spent $80 on groceries from checking\"";
+      } else {
+        message = `I couldn't record that transaction. ${errorDetail ? 'Error: ' + errorDetail : 'Please try again.'}`;
+      }
     } else if (selectedSkill.name === 'send-invoice') {
       message = "I couldn't find an invoice to send. Try:\n• \"Send invoice INV-2026-0001\"\n• Create one first: \"Invoice Acme $5000\"";
     } else {
@@ -5107,6 +5189,12 @@ Only include chartData if visualization adds value. Keep the answer under 200 wo
     } else if (selectedSkill.name === 'record-payment' && data) {
       const amt = data.amountCents ? `$${(data.amountCents / 100).toFixed(2)}` : '';
       message = `Payment recorded${amt ? ': ' + amt : ''}. Invoice updated.`;
+
+    // Record personal transaction response
+    } else if (selectedSkill.name === 'record-personal-transaction' && data) {
+      const isIncome = typeof data.amountCents === 'number' && data.amountCents >= 0;
+      const amt = typeof data.amountCents === 'number' ? fmtCurrency(Math.abs(data.amountCents), data.currency) : '';
+      message = `${isIncome ? 'Recorded income' : 'Recorded spending'}${amt ? ': ' + amt : ''}${data.description ? ' — ' + data.description : ''}${data.businessFlag ? ' (flagged as business)' : ''}.`;
 
     // Create estimate response
     } else if (selectedSkill.name === 'create-estimate' && data) {
