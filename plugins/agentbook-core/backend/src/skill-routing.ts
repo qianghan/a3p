@@ -25,6 +25,63 @@ export interface SkillLike {
   excludePatterns?: unknown;
 }
 
+/**
+ * Negation-aware "business expense" phrase detector, shared by:
+ *   - record-personal-transaction's excludePatterns (defers to record-expense
+ *     when the message is business-flagged) in built-in-skills.ts
+ *   - record-expense's excludePatterns (defers back to record-personal-
+ *     transaction for personal-account cues, *unless* business-flagged)
+ *   - server.ts's businessFlag extraction for record-personal-transaction
+ *
+ * A naive substring match on "business expense" also fires on "not a
+ * business expense" or "isn't a business expense", flipping the meaning of
+ * what the user actually said. Guard with a negative lookbehind that treats
+ * the phrase as flagged only when no negation word ("not", "isn't",
+ * "wasn't", "no", "never", "don't", "doesn't", "didn't") appears within
+ * ~25 characters before it.
+ */
+export const BUSINESS_PHRASE_PATTERN =
+  "(?<!\\b(?:not|isn'?t|wasn'?t|no|never|don'?t|doesn'?t|didn'?t)\\b[\\s\\S]{0,25})" +
+  "(?:for the business|business expense|that'?s a business|it'?s a business|business purchase)";
+
+export function isBusinessFlaggedPhrase(text: string): boolean {
+  try {
+    return new RegExp(BUSINESS_PHRASE_PATTERN, 'i').test(text || '');
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Shared "personal account / paycheck" cue fragment, used to defer several
+ * business/invoicing-flavoured skills to record-personal-transaction:
+ *   - record-expense's excludePatterns (original, in built-in-skills.ts)
+ *   - record-payment's and record-invoice-payment's excludePatterns (added
+ *     alongside the record-expense/record-personal-transaction fix, closing
+ *     the "I got paid $5,000 salary" / "...put it in my checking account"
+ *     collision those two invoicing skills also had with
+ *     record-personal-transaction — no DB `orderBy` means array position
+ *     can't be relied on to pick the right one).
+ *
+ * Kept as a single source of truth so the cue list can't drift between the
+ * three call sites.
+ */
+export const PERSONAL_ACCOUNT_CUE_PATTERN =
+  'from (?:my )?checking|from (?:my )?savings|\\bmy checking\\b|\\bmy savings\\b|' +
+  'into (?:my )?savings|to (?:my )?savings|personal account|\\bpaycheck\\b|' +
+  '\\bsalary\\b|\\bwithdrew\\b|\\bwithdrawal\\b|\\bdeposited\\b';
+
+/**
+ * "Statement" shape used to keep personal-snapshot's bare `'my personal'`
+ * trigger from firing on a transaction-recording statement like "spent $50 on
+ * my personal account" (which should hit record-personal-transaction, not
+ * the read-only net-worth/savings-rate query skill). Matches a dollar amount
+ * plus a record-verb in either order.
+ */
+export const PERSONAL_STATEMENT_PATTERN =
+  '\\$\\s*[\\d,]+\\.?\\d{0,2}.*\\b(?:spent|paid|put|deposited|withdrew|got)\\b|' +
+  '\\b(?:spent|paid|put|deposited|withdrew|got)\\b.*\\$\\s*[\\d,]+\\.?\\d{0,2}';
+
 function toStringArray(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
   return value.filter((v): v is string => typeof v === 'string');

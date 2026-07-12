@@ -1,4 +1,52 @@
+import { BUSINESS_PHRASE_PATTERN, PERSONAL_ACCOUNT_CUE_PATTERN, PERSONAL_STATEMENT_PATTERN } from './skill-routing.js';
+
 export const BUILT_IN_SKILLS = [
+  {
+    // PR-1 (personal-finance parity), tightened post-review: array position
+    // is NOT a reliable priority signal — `db.abSkillManifest.findMany(...)`
+    // at every call site has no `orderBy`, so once skills are seeded into
+    // the DB, row order (not this array's order) decides which skill a
+    // first-match-wins loop sees first. Rather than depend on ordering, this
+    // skill and record-expense are made mutually exclusive via patterns:
+    // triggerPatterns here are narrow (checking/savings/paycheck/salary/
+    // personal-account/deposited/withdrew signals only, never a bare spend/
+    // pay verb), and record-expense's excludePatterns below mirror the same
+    // cues (guarded so business-flagged language always wins record-expense
+    // regardless of an incidental account mention). That way "I got paid
+    // $5,000 salary" / "I spent $80 on groceries from checking" resolve to
+    // this skill, and "I spent $80 on lunch" resolves to record-expense, no
+    // matter which skill the DB happens to evaluate first. Also excludes
+    // personal-snapshot's net-worth/savings-rate *query* phrasing (a
+    // question, not a statement) so those keep routing correctly.
+    name: 'record-personal-transaction',
+    description: 'Record a personal (non-business) income or spending transaction against a personal account — a paycheck, a personal purchase, or a transfer into savings. Kept separate from the business books.',
+    category: 'personal-finance',
+    triggerPatterns: [
+      '\\bi got paid\\b', 'got my paycheck', '\\bpaycheck\\b', '\\bsalary\\b',
+      'personal account',
+      'from (?:my )?checking', 'from (?:my )?savings',
+      '\\bmy checking\\b', '\\bmy savings\\b',
+      'into (?:my )?savings', 'to (?:my )?savings',
+      '\\bdeposited\\b', '\\bwithdrew\\b', '\\bwithdrawal\\b',
+    ],
+    // Business-flagged language defers to record-expense (negation-aware —
+    // "not a business expense" must NOT defer, see BUSINESS_PHRASE_PATTERN);
+    // net-worth/savings-rate/spend-query phrasing defers to personal-snapshot
+    // (it's a question about the data, not a statement recording a new
+    // transaction).
+    excludePatterns: [
+      '\\bclient\\b', '\\binvoice\\b', BUSINESS_PHRASE_PATTERN, 'write.?off', 'deductible',
+      'net worth', 'savings rate', 'how much.*(?:did|have) i.*spen', "what'?s my", 'household', 'family budget',
+    ],
+    parameters: {
+      description: { type: 'string', required: true, extractHint: 'short description of the transaction' },
+      amountCents: { type: 'number', required: true, extractHint: 'dollar amount times 100, signed: positive for income (paycheck/deposit), negative for spending — infer the sign from phrasing, never send an unsigned value' },
+      category: { type: 'string', required: false, default: 'uncategorized', extractHint: 'best-effort spending/income category from context' },
+      accountRef: { type: 'string', required: false, extractHint: 'raw text naming which personal account this is for, e.g. "checking" or "savings" — omit if not mentioned' },
+      businessFlag: { type: 'boolean', required: false, default: false, extractHint: 'true only if the message explicitly says this personal-account charge is actually a business expense' },
+    },
+    endpoint: { method: 'POST', url: '/api/v1/agentbook-personal/transactions' },
+  },
   {
     name: 'record-expense', description: 'Record a business or personal expense', category: 'bookkeeping',
     triggerPatterns: ['\\$\\d', 'spent ', 'paid ', 'bought ', 'purchased '],
@@ -10,7 +58,17 @@ export const BUILT_IN_SKILLS = [
     // near "invoice", or "to invoice") anywhere in the message, without
     // excluding invoice-*paying* phrasing ("paid an invoice from the
     // plumber for $200"), which should still record as an expense.
-    excludePatterns: ['\\bto\\s+invoice\\b|\\binvoice\\s+to\\b|\\b(?:send|create|issue|write|prepare|make|draft)\\s+(?:an?\\s+)?invoice\\b', 'what\\s*if\\b', 'got.*\\$.*from', 'alert.*when|notify.*when|automat', 'received.*payment', '^(?:estimate|quote|proposal)\\s', 'is.*taxable|scholarship|fellowship|grant.*taxable|t2202|1098-?t|aotc|american opportunity|lifetime learning|tuition.*credit|education.*credit|\\bresp\\b|\\b529\\b', 'nonresident alien|non-resident alien|1040-?nr|sprintax|glacier tax|1042-?s|fica exempt|international student.*tax|tax treaty'],
+    // Personal-account cues ("from checking", "salary", "paycheck", etc.)
+    // defer to record-personal-transaction — mirrors that skill's own
+    // triggerPatterns so the two are mutually exclusive regardless of which
+    // one a DB-order-agnostic first-match-wins loop happens to see first
+    // (see record-personal-transaction's comment above). Guarded with a
+    // negative lookahead for BUSINESS_PHRASE_PATTERN so business-flagged
+    // language ("...for the business from my checking account") still wins
+    // record-expense even though it mentions a personal account.
+    excludePatterns: ['\\bto\\s+invoice\\b|\\binvoice\\s+to\\b|\\b(?:send|create|issue|write|prepare|make|draft)\\s+(?:an?\\s+)?invoice\\b', 'what\\s*if\\b', 'got.*\\$.*from', 'alert.*when|notify.*when|automat', 'received.*payment', '^(?:estimate|quote|proposal)\\s', 'is.*taxable|scholarship|fellowship|grant.*taxable|t2202|1098-?t|aotc|american opportunity|lifetime learning|tuition.*credit|education.*credit|\\bresp\\b|\\b529\\b', 'nonresident alien|non-resident alien|1040-?nr|sprintax|glacier tax|1042-?s|fica exempt|international student.*tax|tax treaty',
+      `^(?!.*(?:${BUSINESS_PHRASE_PATTERN})).*(?:${PERSONAL_ACCOUNT_CUE_PATTERN})`,
+    ],
     parameters: { amountCents: { type: 'number', required: true, extractHint: 'dollar amount times 100' }, vendor: { type: 'string', required: false, extractHint: 'business name' }, description: { type: 'string', required: false }, date: { type: 'date', required: false, default: 'today' } },
     endpoint: { method: 'POST', url: '/api/v1/agentbook-expense/expenses' },
     responseTemplate: 'Recorded: {{amountFormatted}} — {{description}} [{{categoryName}}]',
@@ -180,6 +238,27 @@ export const BUILT_IN_SKILLS = [
   {
     name: 'record-payment', description: 'Record a payment received for an invoice', category: 'invoicing',
     triggerPatterns: ['got.*paid', 'received.*payment', 'record.*payment', 'got.*\\$.*from', 'payment.*received'],
+    // Two deferrals, found by final review of the personal-finance-parity
+    // branch: this skill's bare "got paid"/"received payment" triggers also
+    // fire on personal-income phrasing ("I got paid $5,000 salary"), and
+    // overlap with record-invoice-payment (the dedicated, more fully-wired
+    // invoice-payment handler) whenever the message explicitly names an
+    // invoice. Neither the DB row order nor array order can be trusted to
+    // pick the right skill (see record-expense's comment above), so both
+    // cases are resolved via excludePatterns instead:
+    //   1. An explicit invoice mention defers entirely to
+    //      record-invoice-payment, which owns invoiceRef/clientName
+    //      resolution end to end.
+    //   2. Personal-account/salary/paycheck cues (checking, savings,
+    //      salary, withdrew, deposited, ...) defer to
+    //      record-personal-transaction — but only when there's no
+    //      invoice/client context, so this skill's real job (an invoice
+    //      payment that happens to mention "paid from my checking") still
+    //      works.
+    excludePatterns: [
+      '\\binvoice\\b',
+      `^(?!.*(?:\\binvoice\\b|\\bclient\\b)).*(?:${PERSONAL_ACCOUNT_CUE_PATTERN})`,
+    ],
     parameters: { invoiceId: { type: 'string', required: false }, amountCents: { type: 'number', required: false }, clientName: { type: 'string', required: false }, method: { type: 'string', required: false, default: 'manual' } },
     endpoint: { method: 'POST', url: '/api/v1/agentbook-invoice/payments' },
     confirmBefore: true,
@@ -470,7 +549,12 @@ export const BUILT_IN_SKILLS = [
     name: 'record-invoice-payment',
     description: 'Record a payment received for an invoice. Use when user says they received payment for an invoice, a client paid them, or they want to mark an invoice as paid.',
     category: 'invoicing',
-    triggerPatterns: ['paid.*invoice', 'invoice.*paid', 'got paid', 'received.*payment', 'mark.*paid'],
+    // '\\bpaid me\\b' added (final review of personal-finance-parity branch):
+    // "Client Beta LLC paid me" is this skill's own declared example above,
+    // but none of the original triggerPatterns actually matched it (no
+    // "invoice", no "got paid", no "mark"/"received payment") — a genuine
+    // gap between the manifest's examples and its regex fast path.
+    triggerPatterns: ['paid.*invoice', 'invoice.*paid', 'got paid', 'received.*payment', 'mark.*paid', '\\bpaid me\\b'],
     examples: [
       'I got paid for invoice INV-2026-0004',
       'Acme paid the invoice',
@@ -478,6 +562,23 @@ export const BUILT_IN_SKILLS = [
       'Received $1200 from client',
       'Client Beta LLC paid me',
       'invoice was paid',
+    ],
+    excludePatterns: [
+      // Personal-account/salary/paycheck cues without invoice/client context
+      // defer to record-personal-transaction — see record-payment's comment
+      // above for the full rationale (same collision, same fix, mirrored
+      // here since this skill shares the ambiguous "got paid"/"received
+      // payment" triggers).
+      `^(?!.*(?:\\binvoice\\b|\\bclient\\b)).*(?:${PERSONAL_ACCOUNT_CUE_PATTERN})`,
+      // record-payment and this skill both had the bare "got paid"/
+      // "received payment" triggers with no disambiguation between them
+      // (pre-existing, surfaced by the same review pass's order-independent
+      // test rewrite — see skill-routing-canonical.test.ts's "received
+      // payment of $1000 from Acme" case). Without an explicit invoice
+      // reference or a "mark ... paid" phrasing, defer to record-payment,
+      // which is the generic "someone paid me an amount" handler; keep this
+      // skill authoritative once an invoice/mark-paid signal is present.
+      '^(?!.*(?:\\binvoice\\b|\\bmark\\b)).*(?:\\bgot paid\\b|received.*payment)',
     ],
     parameters: {
       invoiceRef: { type: 'string', description: 'Invoice number like INV-2026-0004, or partial like "0004"', required: false },
@@ -535,7 +636,15 @@ export const BUILT_IN_SKILLS = [
     description: 'Answer personal/household finance questions — net worth, monthly spending, income, savings rate (kept separate from the business books).',
     category: 'finance',
     triggerPatterns: ['net worth', 'personal finance', 'household', 'family budget', 'savings rate', 'how much.*saved', 'my personal'],
-    excludePatterns: ['business'],
+    // The bare 'my personal' trigger above also fires on a transaction
+    // *statement* like "spent $50 on my personal account" (found in final
+    // review of the personal-finance-parity branch) — that should record a
+    // transaction via record-personal-transaction, not answer a net-worth
+    // query. PERSONAL_STATEMENT_PATTERN excludes a dollar amount paired with
+    // a record-verb (spent/paid/put/deposited/withdrew/got) in either order;
+    // a genuine query like "how's my personal finance looking" has no such
+    // pairing and still routes here.
+    excludePatterns: ['business', PERSONAL_STATEMENT_PATTERN],
     parameters: {},
     endpoint: { method: 'INTERNAL', url: '' },
   },
