@@ -83,7 +83,9 @@
     },
     "@typescript-eslint/typescript-estree": {
       "minimatch": "10.2.2"
-    }
+    },
+    "protobufjs": "7.6.3",
+    "happy-dom": "20.10.6"
   },
   "packageManager": "npm@10.9.4",
   "workspaces": [

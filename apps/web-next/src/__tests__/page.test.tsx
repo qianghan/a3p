@@ -7,29 +7,31 @@ describe('HomePage', () => {
   it('renders the main heading', () => {
     render(<HomePage />);
 
-    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('NaaP Platform');
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Bookkeeping');
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('that listens.');
   });
 
   it('renders the description', () => {
     render(<HomePage />);
 
-    expect(
-      screen.getByText(/Network as a Platform.*Decentralized Infrastructure/i)
-    ).toBeInTheDocument();
+    expect(screen.getByText(/AgentBook is an AI accountant/i)).toBeInTheDocument();
   });
 
   it('renders navigation links', () => {
     render(<HomePage />);
 
-    expect(screen.getByRole('link', { name: /Get Started/i })).toHaveAttribute('href', '/login');
-    expect(screen.getByRole('link', { name: /Documentation/i })).toHaveAttribute('href', '/docs');
+    expect(screen.getByRole('link', { name: /Start free, no card/i })).toHaveAttribute(
+      'href',
+      '/register'
+    );
+    expect(screen.getByRole('link', { name: /See plans/i })).toHaveAttribute('href', '#pricing');
   });
 
-  it('renders feature cards', () => {
+  it('renders the editorial section markers', () => {
     render(<HomePage />);
 
-    expect(screen.getByText('Gateway Management')).toBeInTheDocument();
-    expect(screen.getByText('Plugin Ecosystem')).toBeInTheDocument();
-    expect(screen.getByText('Vercel-Ready')).toBeInTheDocument();
+    expect(screen.getByText("Who it's for")).toBeInTheDocument();
+    expect(screen.getAllByText('How it works').length).toBeGreaterThan(0);
+    expect(screen.getByText("What's inside")).toBeInTheDocument();
   });
 });
