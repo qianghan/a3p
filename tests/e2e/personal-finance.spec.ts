@@ -146,3 +146,59 @@ test('personal finance: budgets UI sets a budget and shows spent/remaining', asy
   expect(created.spentCents).toBe(75_00);
   expect(created.remainingCents).toBe(125_00);
 });
+
+test('personal finance: chat records a transaction via record-personal-transaction, personal-snapshot query unaffected', async ({ page }) => {
+  await page.goto('/login');
+  await page.fill('input[type="email"]', EMAIL);
+  await page.fill('input[type="password"]', PASSWORD);
+  await page.click('button[type="submit"]');
+  await page.waitForURL(/\/dashboard|\/agentbook|\/$/, { timeout: 20_000 });
+  await page.waitForTimeout(2_000);
+
+  // Dedicated account so the skill's account-resolution pre-processing (see
+  // server.ts's `if (selectedSkill.name === 'record-personal-transaction')`
+  // block) auto-resolves without a disambiguation question. The name is
+  // also woven into the chat phrase below (fuzzy-match fodder for
+  // resolveOrdinalOrFuzzyCandidate) so the write still lands on *this*
+  // account even if Maya's tenant has accumulated other personal accounts
+  // from earlier runs of this same e2e suite against the live deployment.
+  const acctSuffix = Date.now().toString(36);
+  const acctName = `E2E ChatSkill ${acctSuffix}`;
+  const acct = await apiPost(page, `${P}/accounts`, { name: acctName, type: 'checking', balanceCents: 0 });
+  expect(acct.status, JSON.stringify(acct.data)).toBe(201);
+  const acctId = acct.data.data.id;
+
+  // Verified against built-in-skills.ts's actual triggerPatterns/
+  // excludePatterns by tracing selectSkillByPatterns (skill-routing.ts) by
+  // hand: "i got paid" + "salary" trigger record-personal-transaction and
+  // hit none of its excludePatterns (no business phrase, no "net worth" /
+  // "what's my" / etc.); the same "salary" cue trips record-expense's own
+  // personal-account-cue exclude clause, so record-expense is rejected too
+  // — the two skills stay mutually exclusive regardless of DB row order.
+  // server.ts's INCOME_RE ('got paid'|'salary'|...) then infers a positive
+  // sign for the amount.
+  const phrase = `I got paid $250 salary, put it in my ${acctName} account`;
+  const chat = await apiPost(page, '/api/v1/agentbook-core/agent/message', { text: phrase });
+  expect(chat.status, JSON.stringify(chat.data)).toBe(200);
+  expect(chat.data?.data?.skillUsed).toBe('record-personal-transaction');
+
+  // Don't trust the chat reply — re-fetch the authoritative transactions
+  // endpoint (scoped to the dedicated account) and confirm the write
+  // actually persisted, with the correct (positive/income) sign and roughly
+  // the right amount.
+  const txns = await apiGet(page, `${P}/transactions?accountId=${acctId}`);
+  expect(txns.status).toBe(200);
+  expect(txns.data.data.length).toBeGreaterThanOrEqual(1);
+  const createdTxn = txns.data.data[0];
+  expect(createdTxn.amountCents).toBeGreaterThan(0);
+  expect(createdTxn.amountCents).toBeGreaterThanOrEqual(200_00);
+  expect(createdTxn.amountCents).toBeLessThanOrEqual(300_00);
+
+  // Regression: the pre-existing personal-snapshot skill (a read-only query)
+  // still routes correctly and isn't shadowed by record-personal-
+  // transaction's new triggerPatterns — the main routing-collision risk this
+  // skill introduced per the design doc.
+  const snapshotChat = await apiPost(page, '/api/v1/agentbook-core/agent/message', { text: "what's my net worth?" });
+  expect(snapshotChat.status, JSON.stringify(snapshotChat.data)).toBe(200);
+  expect(snapshotChat.data?.data?.skillUsed).toBe('personal-snapshot');
+});
