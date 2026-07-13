@@ -1,11 +1,15 @@
 /**
  * Task 3b — nudge delivery cron route.
  *
- * Mocks: @naap/database (billAddOnSubscription + abTenantConfig lookups),
- * checkPersonalFinanceNudges() (Task 3a — its own dedup logic is tested in
- * agentbook-personal-nudges.test.ts, not re-tested here), sendToAllChannels
- * and createNotification (delivery — this test only asserts BOTH were
- * called with the right shape, not their internals).
+ * Mocks: @naap/database (billAddOnSubscription + abTenantConfig lookups,
+ * plus abPersonalNudgeLog.deleteMany for the both-channels-failed rollback
+ * path), checkPersonalFinanceNudges() (Task 3a — its own dedup logic is
+ * tested in agentbook-personal-nudges.test.ts, not re-tested here),
+ * sendToAllChannels and createNotification (delivery — this test only
+ * asserts BOTH were called with the right shape, not their internals), and
+ * resolvePreference() (the tenant-preference gate that decides whether
+ * sendToAllChannels is even attempted for a nudge's category — see review
+ * Finding 2).
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -15,15 +19,18 @@ vi.mock('server-only', () => ({}));
 
 const billAddOnSubscriptionFindMany = vi.fn();
 const abTenantConfigFindUnique = vi.fn();
+const abPersonalNudgeLogDeleteMany = vi.fn();
 const checkPersonalFinanceNudges = vi.fn();
 const sendToAllChannels = vi.fn();
 const createNotification = vi.fn();
+const resolvePreference = vi.fn();
 const reportError = vi.fn();
 
 vi.mock('@naap/database', () => ({
   prisma: {
     billAddOnSubscription: { findMany: (...a: unknown[]) => billAddOnSubscriptionFindMany(...a) },
     abTenantConfig: { findUnique: (...a: unknown[]) => abTenantConfigFindUnique(...a) },
+    abPersonalNudgeLog: { deleteMany: (...a: unknown[]) => abPersonalNudgeLogDeleteMany(...a) },
   },
 }));
 vi.mock('@/lib/agentbook-personal-nudges', () => ({
@@ -34,6 +41,7 @@ vi.mock('@/lib/agentbook-chat-adapter', () => ({
 }));
 vi.mock('@/lib/notifications', () => ({
   createNotification: (...a: unknown[]) => createNotification(...a),
+  resolvePreference: (...a: unknown[]) => resolvePreference(...a),
 }));
 vi.mock('@/lib/logger', () => ({
   reportError: (...a: unknown[]) => reportError(...a),
@@ -77,16 +85,20 @@ describe('GET /api/v1/agentbook/cron/personal-finance-nudge-check', () => {
   beforeEach(() => {
     billAddOnSubscriptionFindMany.mockReset();
     abTenantConfigFindUnique.mockReset();
+    abPersonalNudgeLogDeleteMany.mockReset();
     checkPersonalFinanceNudges.mockReset();
     sendToAllChannels.mockReset();
     createNotification.mockReset();
+    resolvePreference.mockReset();
     reportError.mockReset();
 
     billAddOnSubscriptionFindMany.mockResolvedValue([{ accountId: TENANT }]);
     abTenantConfigFindUnique.mockResolvedValue({ timezone: 'America/New_York' });
+    abPersonalNudgeLogDeleteMany.mockResolvedValue({ count: 1 });
     checkPersonalFinanceNudges.mockResolvedValue([]);
     sendToAllChannels.mockResolvedValue([{ delivered: true }]);
     createNotification.mockResolvedValue({});
+    resolvePreference.mockResolvedValue({ inApp: true, email: true });
 
     delete process.env.CRON_SECRET;
     vi.useRealTimers();
@@ -211,7 +223,7 @@ describe('GET /api/v1/agentbook/cron/personal-finance-nudge-check', () => {
     vi.useRealTimers();
   });
 
-  it('does not write to AbPersonalNudgeLog itself — dedup is entirely checkPersonalFinanceNudges()\'s responsibility', async () => {
+  it('does not write to AbPersonalNudgeLog on the happy path — dedup-writing is entirely checkPersonalFinanceNudges()\'s responsibility', async () => {
     const now = utcDateForLocalHour('America/New_York', 9);
     vi.useFakeTimers();
     vi.setSystemTime(now);
@@ -226,14 +238,128 @@ describe('GET /api/v1/agentbook/cron/personal-finance-nudge-check', () => {
       },
     ]);
 
-    await GET(req());
-    // The route's only @naap/database calls are the ones mocked above
-    // (billAddOnSubscription, abTenantConfig) — no abPersonalNudgeLog mock
-    // exists in this test file's prisma mock at all, so if the route tried
-    // to touch it, this would throw a "not a function" error rather than
-    // silently pass.
+    const r = await GET(req());
+    const j = await r.json();
+    // Both channels succeed (default mocks), so the route should never touch
+    // AbPersonalNudgeLog — the compensating delete only fires when delivery
+    // fails on both channels (see the "both channels fail" test below).
     expect(sendToAllChannels).toHaveBeenCalled();
     expect(createNotification).toHaveBeenCalled();
+    expect(abPersonalNudgeLogDeleteMany).not.toHaveBeenCalled();
+    expect(j.nudgesFired).toBe(1);
+    expect(j.deliveryFailed).toBe(0);
+
+    vi.useRealTimers();
+  });
+
+  it('deletes the AbPersonalNudgeLog row and counts deliveryFailed (not nudgesFired) when BOTH channels fail', async () => {
+    const now = utcDateForLocalHour('America/New_York', 9);
+    vi.useFakeTimers();
+    vi.setSystemTime(now);
+
+    checkPersonalFinanceNudges.mockResolvedValue([
+      {
+        nudgeType: 'budget_alert_100',
+        category: 'Dining',
+        periodKey: '2026-07',
+        message: "You've gone over your Dining budget this month.",
+        alreadyFired: false,
+      },
+    ]);
+    sendToAllChannels.mockRejectedValue(new Error('telegram down'));
+    createNotification.mockRejectedValue(new Error('db write failed'));
+
+    const r = await GET(req());
+    expect(r.status).toBe(200);
+    const j = await r.json();
+    expect(j.nudgesFired).toBe(0);
+    expect(j.deliveryFailed).toBe(1);
+
+    expect(abPersonalNudgeLogDeleteMany).toHaveBeenCalledTimes(1);
+    expect(abPersonalNudgeLogDeleteMany).toHaveBeenCalledWith({
+      where: { tenantId: TENANT, nudgeType: 'budget_alert_100', periodKey: '2026-07', category: 'Dining' },
+    });
+    expect(reportError).toHaveBeenCalledTimes(2); // one per failed channel
+
+    vi.useRealTimers();
+  });
+
+  it('does NOT delete the log row and DOES count nudgesFired when only ONE channel fails', async () => {
+    const now = utcDateForLocalHour('America/New_York', 9);
+    vi.useFakeTimers();
+    vi.setSystemTime(now);
+
+    checkPersonalFinanceNudges.mockResolvedValue([
+      {
+        nudgeType: 'savings_warning',
+        category: null,
+        periodKey: '2026-07',
+        message: 'You spent more than you earned this month.',
+        alreadyFired: false,
+      },
+    ]);
+    sendToAllChannels.mockRejectedValue(new Error('telegram down'));
+    // createNotification still succeeds (default mock).
+
+    const r = await GET(req());
+    expect(r.status).toBe(200);
+    const j = await r.json();
+    expect(j.nudgesFired).toBe(1);
+    expect(j.deliveryFailed).toBe(0);
+    expect(abPersonalNudgeLogDeleteMany).not.toHaveBeenCalled();
+    expect(createNotification).toHaveBeenCalledTimes(1);
+
+    vi.useRealTimers();
+  });
+
+  it('skips sendToAllChannels but still calls createNotification when the tenant has opted out of the nudge\'s category', async () => {
+    const now = utcDateForLocalHour('America/New_York', 9);
+    vi.useFakeTimers();
+    vi.setSystemTime(now);
+
+    checkPersonalFinanceNudges.mockResolvedValue([
+      {
+        nudgeType: 'budget_alert_80',
+        category: 'Dining',
+        periodKey: '2026-07',
+        message: "You've spent 80% of your Dining budget this month.",
+        alreadyFired: false,
+      },
+    ]);
+    resolvePreference.mockResolvedValue({ inApp: false, email: false }); // fully opted out
+
+    const r = await GET(req());
+    expect(r.status).toBe(200);
+    const j = await r.json();
+
+    expect(resolvePreference).toHaveBeenCalledWith(TENANT, 'budget_alert');
+    expect(sendToAllChannels).not.toHaveBeenCalled();
+    expect(createNotification).toHaveBeenCalledTimes(1);
+    expect(j.nudgesFired).toBe(1);
+    expect(j.deliveryFailed).toBe(0);
+
+    vi.useRealTimers();
+  });
+
+  it('still calls sendToAllChannels for a tenant with no opt-out', async () => {
+    const now = utcDateForLocalHour('America/New_York', 9);
+    vi.useFakeTimers();
+    vi.setSystemTime(now);
+
+    checkPersonalFinanceNudges.mockResolvedValue([
+      {
+        nudgeType: 'budget_alert_80',
+        category: 'Dining',
+        periodKey: '2026-07',
+        message: "You've spent 80% of your Dining budget this month.",
+        alreadyFired: false,
+      },
+    ]);
+    resolvePreference.mockResolvedValue({ inApp: true, email: true });
+
+    const r = await GET(req());
+    expect(r.status).toBe(200);
+    expect(sendToAllChannels).toHaveBeenCalledWith(TENANT, "You've spent 80% of your Dining budget this month.");
 
     vi.useRealTimers();
   });

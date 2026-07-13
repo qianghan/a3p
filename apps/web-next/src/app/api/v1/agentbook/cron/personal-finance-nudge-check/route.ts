@@ -20,10 +20,16 @@
  * Delivery mirrors `auto-categorize-watchdog`'s pattern (NOT
  * `proactive-alerts`, which only calls `sendToAllChannels`): every fired
  * nudge gets both a `createNotification()` (dashboard bell/inbox) and a
- * `sendToAllChannels()` call (Telegram/email/web). Dedup itself (has this
- * nudge already fired for this tenant/type/period/category?) lives entirely
- * in `checkPersonalFinanceNudges()` (Task 3a) via `AbPersonalNudgeLog` —
- * this route never writes to that table.
+ * `sendToAllChannels()` call (Telegram/WhatsApp/web/email), gated by the
+ * tenant's notification preference for the nudge's category (see
+ * `deliverNudge()`). Dedup itself (has this nudge already fired for this
+ * tenant/type/period/category?) lives entirely in
+ * `checkPersonalFinanceNudges()` (Task 3a) via `AbPersonalNudgeLog`, which
+ * writes the dedup row *before* this route attempts delivery. This route
+ * does not write that table on the happy path — the one exception is
+ * `deliverNudge()` returning `false` (both channels failed), in which case
+ * this route deletes the row it didn't write, so the next cron pass retries
+ * the nudge instead of it being silently and permanently suppressed.
  */
 
 import 'server-only';
@@ -31,7 +37,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma as db } from '@naap/database';
 import { checkPersonalFinanceNudges, type NudgeResult, type NudgeType } from '@/lib/agentbook-personal-nudges';
 import { sendToAllChannels } from '@/lib/agentbook-chat-adapter';
-import { createNotification, type NotificationCategory } from '@/lib/notifications';
+import { createNotification, resolvePreference, type NotificationCategory } from '@/lib/notifications';
 import { reportError } from '@/lib/logger';
 
 export const runtime = 'nodejs';
@@ -80,23 +86,52 @@ function titleForNudge(result: NudgeResult): string {
   }
 }
 
-async function deliverNudge(tenantId: string, result: NudgeResult): Promise<void> {
+/**
+ * Delivers one fired nudge. Returns `true` if at least one channel actually
+ * reached the tenant (or the only channel that could have failed was
+ * intentionally skipped for an opt-out — see below), `false` if BOTH the
+ * chat fan-out and the dashboard notification failed. The caller uses that
+ * to decide whether the AbPersonalNudgeLog dedup row (already written by
+ * checkPersonalFinanceNudges()) should be rolled back so the next cron pass
+ * retries instead of the nudge being silently lost forever.
+ */
+async function deliverNudge(tenantId: string, result: NudgeResult): Promise<boolean> {
+  const category = categoryForNudgeType(result.nudgeType);
+
+  // sendToAllChannels() (Telegram/WhatsApp/web push) has no preference gate
+  // of its own — unlike createNotification() below, which goes through
+  // dispatchNotification()'s per-channel resolvePreference() check. Without
+  // this, a tenant who opts out of e.g. budget_alert in Settings >
+  // Notifications would still get pinged on Telegram. AbNotificationPreference
+  // only tracks an inApp/email split (no separate Telegram toggle), so a
+  // category only counts as opted out of chat delivery when BOTH are off —
+  // a partial opt-out (say, email off but in-app on) still signals the
+  // tenant wants to hear about it somewhere. createNotification() re-resolves
+  // the same preference independently per channel regardless of this check.
+  const pref = await resolvePreference(tenantId, category);
+  const optedOutOfChat = !pref.inApp && !pref.email;
+
   // Telegram/email/web — best-effort, doesn't block the dashboard notification.
-  try {
-    await sendToAllChannels(tenantId, result.message);
-  } catch (err) {
-    void reportError(`[personal-finance-nudge-check] sendToAllChannels failed for tenant ${tenantId}`, err, {
-      tenantId,
-      source: 'cron/personal-finance-nudge-check',
-    });
+  let chatFailed = false;
+  if (!optedOutOfChat) {
+    try {
+      await sendToAllChannels(tenantId, result.message);
+    } catch (err) {
+      chatFailed = true;
+      void reportError(`[personal-finance-nudge-check] sendToAllChannels failed for tenant ${tenantId}`, err, {
+        tenantId,
+        source: 'cron/personal-finance-nudge-check',
+      });
+    }
   }
 
   // Dashboard bell/inbox — same tolerance as auto-categorize-watchdog's
   // notification call, so a notification-write failure never re-fires the
   // Telegram send or crashes the tenant's whole loop iteration.
+  let notificationFailed = false;
   try {
     await createNotification({
-      category: categoryForNudgeType(result.nudgeType),
+      category,
       severity: severityForNudgeType(result.nudgeType),
       title: titleForNudge(result),
       body: result.message,
@@ -106,11 +141,14 @@ async function deliverNudge(tenantId: string, result: NudgeResult): Promise<void
       audienceFilter: { tenantId },
     });
   } catch (err) {
+    notificationFailed = true;
     void reportError(`[personal-finance-nudge-check] createNotification failed for tenant ${tenantId}`, err, {
       tenantId,
       source: 'cron/personal-finance-nudge-check',
     });
   }
+
+  return !(chatFailed && notificationFailed);
 }
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
@@ -132,6 +170,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   let checked = 0;
   let skipped = 0;
   let nudgesFired = 0;
+  let deliveryFailed = 0;
   let errors = 0;
 
   for (const { accountId } of subscriptions) {
@@ -154,8 +193,30 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       checked++;
       const results = await checkPersonalFinanceNudges(tenantId);
       for (const result of results) {
-        await deliverNudge(tenantId, result);
-        nudgesFired++;
+        const delivered = await deliverNudge(tenantId, result);
+        if (delivered) {
+          nudgesFired++;
+        } else {
+          // Both channels failed — the nudge reached nobody, but
+          // checkPersonalFinanceNudges() already wrote the AbPersonalNudgeLog
+          // dedup row for this (tenantId, nudgeType, periodKey, category)
+          // before we ever attempted delivery. Left in place, that row would
+          // silently suppress this nudge on every future cron pass even
+          // though it was never actually delivered. Roll it back so the next
+          // pass re-checks and retries. deleteMany (not delete) because the
+          // compound-unique index's generated lookup type can't express a
+          // nullable `category` member — same constraint documented on
+          // maybeFire()'s use of findFirst in agentbook-personal-nudges.ts.
+          await db.abPersonalNudgeLog.deleteMany({
+            where: {
+              tenantId,
+              nudgeType: result.nudgeType,
+              periodKey: result.periodKey,
+              category: result.category,
+            },
+          });
+          deliveryFailed++;
+        }
       }
     } catch (err) {
       void reportError('[personal-finance-nudge-check] tenant error', err, {
@@ -171,6 +232,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     checked,
     skipped,
     nudgesFired,
+    deliveryFailed,
     errors,
     timestamp: new Date().toISOString(),
   });
