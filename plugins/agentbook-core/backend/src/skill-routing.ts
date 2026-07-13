@@ -82,6 +82,56 @@ export const PERSONAL_STATEMENT_PATTERN =
   '\\$\\s*[\\d,]+\\.?\\d{0,2}.*\\b(?:spent|paid|put|deposited|withdrew|got)\\b|' +
   '\\b(?:spent|paid|put|deposited|withdrew|got)\\b.*\\$\\s*[\\d,]+\\.?\\d{0,2}';
 
+/**
+ * Personal-finance net-worth *trend* phrasing (PR-2, personal-finance-
+ * trends-nudges). Used by personal-snapshot's triggerPatterns
+ * (built-in-skills.ts) to add trend-shaped triggers on top of the existing
+ * free current-state ones, and by server.ts's INTERNAL handler to run the
+ * exact same cue check at execution time to decide free current-state vs.
+ * gated trend sub-classification — single source of truth so the two
+ * layers can't drift.
+ *
+ * Design constraint (see docs/superpowers/specs/2026-07-12-personal-
+ * finance-trends-nudges-design.md): a bare temporal phrase like "over the
+ * last year" must never be a trigger by itself — it must always be paired
+ * with a personal/net-worth anchor, or it risks colliding with
+ * query-finance's business-revenue-trend phrasing or query-past-filings'
+ * year-anchored tax phrasing (first-match-wins, no `orderBy` on
+ * `AbSkillManifest.findMany`, same hazard class as record-personal-
+ * transaction's routing fixes). Anchors are intentionally the narrow set
+ * personal-snapshot already triggers on (`net worth`, `household`,
+ * `savings rate`, `personal finance`/`my personal`) — NOT `family budget`,
+ * which would collide with query-budget's broad `how.*budget` trigger.
+ */
+export const PERSONAL_TREND_ANCHOR_PATTERN =
+  'net worth|household|savings rate|personal finance|my personal';
+
+export const PERSONAL_TREND_CUE_PATTERN =
+  'trended|over time|compared to|vs\\.? last month|versus last month|\\bchange(?:d)?\\b';
+
+/** Anchor-then-cue or cue-then-anchor, either order, within a short span. */
+export const PERSONAL_TREND_TRIGGER_PATTERNS = [
+  `(?:${PERSONAL_TREND_ANCHOR_PATTERN}).{0,40}(?:${PERSONAL_TREND_CUE_PATTERN})`,
+  `(?:${PERSONAL_TREND_CUE_PATTERN}).{0,40}(?:${PERSONAL_TREND_ANCHOR_PATTERN})`,
+];
+
+/**
+ * True iff `text` contains one of the comparison/temporal cues above.
+ * Deliberately checks the cue alone (not anchor+cue) — by the time
+ * server.ts's personal-snapshot handler runs, routing has already
+ * guaranteed *some* personal/net-worth anchor matched (that's the only way
+ * personal-snapshot gets selected at all); this just distinguishes which of
+ * the two personal-snapshot triggers fired: a plain anchor (current-state,
+ * free) or an anchor+cue combination (trend, gated).
+ */
+export function isPersonalTrendQuery(text: string): boolean {
+  try {
+    return new RegExp(PERSONAL_TREND_CUE_PATTERN, 'i').test(text || '');
+  } catch {
+    return false;
+  }
+}
+
 function toStringArray(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
   return value.filter((v): v is string => typeof v === 'string');

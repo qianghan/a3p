@@ -10,7 +10,7 @@ import { createPluginServer } from '@naap/plugin-server-sdk';
 import { db } from './db/client.js';
 import { handleAgentMessage } from './agent-brain.js';
 import { BUILT_IN_SKILLS } from './built-in-skills.js';
-import { selectSkillByPatterns, isBusinessFlaggedPhrase } from './skill-routing.js';
+import { selectSkillByPatterns, isBusinessFlaggedPhrase, isPersonalTrendQuery } from './skill-routing.js';
 import { hasAddOn } from '@naap/billing';
 import { handleDashboardOverview } from './dashboard/overview.js';
 import { handleDashboardActivity } from './dashboard/activity.js';
@@ -4021,6 +4021,121 @@ async function _executeClassificationCore(
 
   // INTERNAL handler: personal-snapshot — household finance via direct DB
   if (selectedSkill.name === 'personal-snapshot') {
+    // PR-2 (personal-finance-trends-nudges): sub-classifier. Default is the
+    // existing free current-state path below, completely unchanged from
+    // PR-1. Only when the incoming text also contains one of
+    // isPersonalTrendQuery's comparison/temporal cues do we treat this as a
+    // gated trend query (see skill-routing.ts's PERSONAL_TREND_CUE_PATTERN
+    // doc comment and the design spec's "default to free path" decision).
+    // This is the safe failure direction: a misfire here means a
+    // subscriber has to rephrase (a UX papercut), never a non-subscriber
+    // silently getting paid data, and never an accidental gate on an
+    // ordinary free query — a real regression of PR-1's shipped behavior.
+    if (isPersonalTrendQuery(text)) {
+      try {
+        // hasAddOn checked inline, mirroring the STUDENT_CHAT_SKILLS gate
+        // above (~line 3220) — server.ts's own established convention for
+        // this kind of eligibility check.
+        const eligible = await hasAddOn(tenantId, 'personal_insights');
+        if (!eligible) {
+          // confidence must stay at 1 here — see the STUDENT_CHAT_SKILLS
+          // gate above for the documented production incident where
+          // dropping a blocked-path return's confidence to 0, as a
+          // seemingly-cosmetic alignment with other responses in this
+          // file, broke the feature entirely: agent-brain.ts's
+          // assessComplexity() treats confidence < 0.6 as 'complex' and
+          // re-routes through the planner, a separate execution path that
+          // does NOT run this gate. Do not repeat that mistake.
+          const message = "Net-worth trends are part of Personal Insights — enable it in your Personal Finance settings to see how it's changed over time.";
+          await db.abConversation.create({ data: { tenantId, question: text, answer: message, queryType: 'agent', channel, skillUsed: 'personal-snapshot' } });
+          return {
+            selectedSkill, extractedParams, confidence: 1, skillUsed: 'personal-snapshot', skillResponse: null,
+            responseData: { message, actions: [], chartData: null, skillUsed: 'personal-snapshot', confidence: 1, latencyMs: Date.now() - startTime },
+          };
+        }
+
+        // Cross-package blocker (see Task 4's plan note): server.ts cannot
+        // import apps/web-next/src/lib/personal-trend.ts — different
+        // package/runtime boundary. Re-implement the same two-step
+        // month-over-month reconstruction inline here, applied to just the
+        // current and prior month (a chat answer only ever needs the
+        // month-over-month comparison, not the full 12-point series) —
+        // mirroring the existing precedent immediately below, which
+        // already re-implements lib/personal-snapshot.ts's asset/liability
+        // math inline instead of importing it, for the same reason.
+        const fmt = (c: number) => (c < 0 ? '-$' : '$') + Math.round(Math.abs(c) / 100).toLocaleString();
+        const accounts = await db.abPersonalAccount.findMany({ where: { tenantId, archived: false } });
+        if (accounts.length === 0) {
+          const message = "You haven't set up any personal accounts yet. Add your checking, savings, or credit cards on the Personal page to see your net-worth trend.";
+          await db.abConversation.create({ data: { tenantId, question: text, answer: message, queryType: 'agent', channel, skillUsed: 'personal-snapshot' } });
+          return {
+            selectedSkill, extractedParams, confidence, skillUsed: 'personal-snapshot', skillResponse: { data: null },
+            responseData: { message, actions: [], chartData: null, skillUsed: 'personal-snapshot', confidence, latencyMs: Date.now() - startTime },
+          };
+        }
+        const accountIds = accounts.map((a) => a.id);
+        const txns = await db.abPersonalTransaction.findMany({
+          where: { tenantId, accountId: { in: accountIds } },
+          select: { accountId: true, amountCents: true, date: true },
+        });
+
+        // Last instant (23:59:59.999) of the month `monthsAgo` months
+        // before now — mirrors
+        // apps/web-next/src/lib/personal-trend.ts's monthEnd() exactly.
+        const now = new Date();
+        const monthEndFor = (monthsAgo: number) => {
+          const end = new Date(now.getFullYear(), now.getMonth() - monthsAgo + 1, 1);
+          end.setMilliseconds(-1);
+          return end;
+        };
+
+        // Order of operations is load-bearing (see Task 2's design note):
+        // step 1 reconstructs each account's RAW signed balance at
+        // month-end `end` — clamped to 0 before the account existed,
+        // archived accounts already excluded by the query above — and only
+        // step 2, after every account's raw balance is known, applies the
+        // asset/liability aggregation (assets summed directly, liabilities
+        // by Math.abs) to that reconstructed set. Reversing this order
+        // gets liability history wrong for any liability account with
+        // transactions crossing the month-end boundary.
+        const netWorthAt = (end: Date): number => {
+          let assetsCents = 0;
+          let liabilitiesCents = 0;
+          for (const account of accounts) {
+            let rawBalanceCents: number;
+            if (end < account.createdAt) {
+              rawBalanceCents = 0;
+            } else {
+              const txnSumAfter = txns
+                .filter((t) => t.accountId === account.id && t.date > end)
+                .reduce((sum, t) => sum + t.amountCents, 0);
+              rawBalanceCents = account.balanceCents - txnSumAfter;
+            }
+            if (account.isAsset) assetsCents += rawBalanceCents;
+            else liabilitiesCents += Math.abs(rawBalanceCents);
+          }
+          return assetsCents - liabilitiesCents;
+        };
+
+        const currentNet = netWorthAt(monthEndFor(0));
+        const priorNet = netWorthAt(monthEndFor(1));
+        const deltaCents = currentNet - priorNet;
+        const deltaText = deltaCents === 0 ? 'unchanged' : `${deltaCents > 0 ? 'up' : 'down'} ${fmt(Math.abs(deltaCents))}`;
+        const message = `**Net worth trend:** ${fmt(priorNet)} last month → ${fmt(currentNet)} this month (${deltaText}).`;
+        await db.abConversation.create({ data: { tenantId, question: text, answer: message, queryType: 'agent', channel, skillUsed: 'personal-snapshot' } });
+        return {
+          selectedSkill, extractedParams, confidence, skillUsed: 'personal-snapshot', skillResponse: { data: { currentNet, priorNet, deltaCents } },
+          responseData: { message, actions: [], chartData: null, skillUsed: 'personal-snapshot', confidence, latencyMs: Date.now() - startTime },
+        };
+      } catch (err) {
+        console.error('[personal-snapshot:trend] error:', err);
+        return {
+          selectedSkill, extractedParams, confidence: 0, skillUsed: 'personal-snapshot', skillResponse: null,
+          responseData: { message: "I couldn't load your net-worth trend. Please try again.", actions: [], chartData: null, skillUsed: 'personal-snapshot', confidence: 0, latencyMs: Date.now() - startTime },
+        };
+      }
+    }
+
     try {
       const fmt = (c: number) => '$' + Math.round(c / 100).toLocaleString();
       const monthStart = new Date(new Date().getFullYear(), new Date().getMonth(), 1);

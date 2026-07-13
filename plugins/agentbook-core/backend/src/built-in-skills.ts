@@ -1,4 +1,4 @@
-import { BUSINESS_PHRASE_PATTERN, PERSONAL_ACCOUNT_CUE_PATTERN, PERSONAL_STATEMENT_PATTERN } from './skill-routing.js';
+import { BUSINESS_PHRASE_PATTERN, PERSONAL_ACCOUNT_CUE_PATTERN, PERSONAL_STATEMENT_PATTERN, PERSONAL_TREND_TRIGGER_PATTERNS } from './skill-routing.js';
 
 export const BUILT_IN_SKILLS = [
   {
@@ -633,9 +633,16 @@ export const BUILT_IN_SKILLS = [
   },
   {
     name: 'personal-snapshot',
-    description: 'Answer personal/household finance questions — net worth, monthly spending, income, savings rate (kept separate from the business books).',
+    description: 'Answer personal/household finance questions — net worth, monthly spending, income, savings rate (kept separate from the business books), including net-worth trend questions (gated behind the personal_insights add-on).',
     category: 'finance',
-    triggerPatterns: ['net worth', 'personal finance', 'household', 'family budget', 'savings rate', 'how much.*saved', 'my personal'],
+    // PR-2 (personal-finance-trends-nudges): PERSONAL_TREND_TRIGGER_PATTERNS
+    // adds trend-shaped triggers (an anchor + a comparison/temporal cue,
+    // e.g. "how has my net worth trended over time") on top of the existing
+    // free current-state triggers below. Never a bare temporal phrase alone
+    // — see skill-routing.ts's doc comment for why. server.ts's handler
+    // re-checks isPersonalTrendQuery(text) at execution time to decide
+    // free current-state (default) vs. gated trend sub-classification.
+    triggerPatterns: ['net worth', 'personal finance', 'household', 'family budget', 'savings rate', 'how much.*saved', 'my personal', ...PERSONAL_TREND_TRIGGER_PATTERNS],
     // The bare 'my personal' trigger above also fires on a transaction
     // *statement* like "spent $50 on my personal account" (found in final
     // review of the personal-finance-parity branch) — that should record a

@@ -3,7 +3,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import {
   Wallet, Plus, TrendingUp, TrendingDown, PiggyBank, Briefcase, Loader2,
-  Receipt, Target, ArrowUpCircle, ArrowDownCircle,
+  Receipt, Target, ArrowUpCircle, ArrowDownCircle, LineChart, Lock, Sparkles,
 } from 'lucide-react';
 import { formatCurrencyCents } from '@/lib/jurisdiction-currency';
 
@@ -46,6 +46,10 @@ interface Budget {
   remainingCents: number;
   percent: number;
 }
+interface TrendPoint {
+  month: string; // "YYYY-MM"
+  netWorthCents: number;
+}
 
 const ACCOUNT_TYPES = [
   { value: 'checking', label: 'Checking' },
@@ -79,7 +83,14 @@ export default function PersonalFinancePage() {
   const [budgets, setBudgets] = useState<Budget[]>([]);
   const [currency, setCurrency] = useState('USD');
   const [locale, setLocale] = useState('en-US');
+  const [jurisdiction, setJurisdiction] = useState('us');
   const [loading, setLoading] = useState(true);
+
+  // Net worth trend (Personal Insights add-on)
+  const [trend, setTrend] = useState<TrendPoint[] | null>(null);
+  const [trendGated, setTrendGated] = useState(false);
+  const [upgrading, setUpgrading] = useState(false);
+  const [upgradeError, setUpgradeError] = useState<string | null>(null);
 
   // Add account
   const [showForm, setShowForm] = useState(false);
@@ -115,11 +126,12 @@ export default function PersonalFinancePage() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [snapRes, acctRes, budgetRes, cfgRes] = await Promise.all([
+      const [snapRes, acctRes, budgetRes, cfgRes, trendRes] = await Promise.all([
         fetch(`${API}/snapshot`).then((r) => r.json()),
         fetch(`${API}/accounts`).then((r) => r.json()),
         fetch(`${API}/budget`).then((r) => r.json()),
         fetch('/api/v1/agentbook-core/tenant-config').then((r) => r.json()),
+        fetch(`${API}/trend`).then(async (r) => ({ status: r.status, json: await r.json().catch(() => null) })),
       ]);
       if (snapRes?.success) setSnapshot(snapRes.data);
       if (acctRes?.success) setAccounts(acctRes.data);
@@ -127,6 +139,20 @@ export default function PersonalFinancePage() {
       if (cfgRes?.success) {
         setCurrency(cfgRes.data?.currency || 'USD');
         setLocale(cfgRes.data?.locale || 'en-US');
+        setJurisdiction(cfgRes.data?.jurisdiction || 'us');
+      }
+      // 200 -> unlocked chart; 402 -> gated teaser; anything else (e.g. a
+      // transient 500) -> show neither rather than a broken chart or a
+      // false "upgrade" prompt.
+      if (trendRes.status === 200 && trendRes.json?.success) {
+        setTrend(trendRes.json.data);
+        setTrendGated(false);
+      } else if (trendRes.status === 402) {
+        setTrend(null);
+        setTrendGated(true);
+      } else {
+        setTrend(null);
+        setTrendGated(false);
       }
     } finally {
       setLoading(false);
@@ -218,6 +244,37 @@ export default function PersonalFinancePage() {
     }
   };
 
+  // Enable Personal Insights from the teaser card. Note: this repo has no
+  // payment-method-collection UI anywhere yet (no Stripe Elements card form
+  // exists on any page) — the subscribe route itself requires a
+  // `paymentMethodId` for a real charge, which we can't collect from this
+  // teaser card alone. We still call the route as the spec directs (region
+  // inferred from the tenant's configured jurisdiction) and flip to the
+  // unlocked chart on success; if billing isn't wired up for this workspace
+  // yet, show a friendly inline message rather than a raw API error. Wiring
+  // a full checkout/payment-method flow is a separate, larger scope than
+  // this page.
+  const upgradeToPersonalInsights = async () => {
+    setUpgrading(true);
+    setUpgradeError(null);
+    try {
+      const res = await fetch('/api/v1/agentbook-billing/me/addons/personal_insights/subscribe', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ region: jurisdiction }),
+      });
+      if (res.ok) {
+        await load();
+      } else {
+        setUpgradeError("Upgrade isn't available for this workspace yet — please check back soon.");
+      }
+    } catch {
+      setUpgradeError("Upgrade isn't available for this workspace yet — please check back soon.");
+    } finally {
+      setUpgrading(false);
+    }
+  };
+
   if (loading && !snapshot) {
     return <div className="flex items-center justify-center py-24"><Loader2 className="w-6 h-6 animate-spin text-primary" /></div>;
   }
@@ -266,6 +323,30 @@ export default function PersonalFinancePage() {
         <Stat icon={<PiggyBank className="w-4 h-4 text-primary" />} label="Savings rate" value={`${m?.savingsRate ?? 0}%`} />
         <Stat icon={<Briefcase className="w-4 h-4 text-violet-400" />} label="Business-flagged" value={fmt$(m?.businessFlaggedCents ?? 0)} />
       </div>
+
+      {/* Net worth trend (Personal Insights add-on) */}
+      <h2 className="text-sm font-semibold text-foreground mb-2 flex items-center gap-1.5">
+        <LineChart className="w-4 h-4" /> Net worth trend
+      </h2>
+      {trend && trend.length > 0 ? (
+        <div className="rounded-xl border border-border bg-card p-4 mb-6">
+          <NetWorthTrendChart points={trend} fmt$={fmt$} />
+        </div>
+      ) : trendGated ? (
+        <div className="rounded-xl border border-border bg-card p-6 mb-6 text-center">
+          <Lock className="w-5 h-5 text-muted-foreground mx-auto mb-2" />
+          <p className="text-sm font-medium text-foreground mb-1">Personal Insights</p>
+          <p className="text-sm text-muted-foreground max-w-md mx-auto mb-4">
+            Net-worth trends and proactive nudges — budget alerts, monthly net-worth changes, and
+            savings-rate warnings — are part of Personal Insights.
+          </p>
+          {upgradeError && <p className="text-xs text-destructive mb-3">{upgradeError}</p>}
+          <button onClick={() => void upgradeToPersonalInsights()} disabled={upgrading}
+            className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-50">
+            <Sparkles className="w-4 h-4" /> {upgrading ? 'Enabling…' : 'Enable Personal Insights'}
+          </button>
+        </div>
+      ) : null}
 
       {showForm && (
         <div className="rounded-xl border border-border bg-card p-4 mb-5 grid grid-cols-1 sm:grid-cols-4 gap-3 items-end">
@@ -477,6 +558,74 @@ function Stat({ icon, label, value }: { icon: React.ReactNode; label: string; va
     <div className="rounded-xl border border-border bg-card p-3">
       <div className="flex items-center gap-1.5 mb-1">{icon}<span className="text-xs text-muted-foreground">{label}</span></div>
       <p className="text-lg font-bold text-foreground">{value}</p>
+    </div>
+  );
+}
+
+// Minimal hand-rolled SVG line/area chart for the 12-point net-worth trend.
+// No new charting dependency: `recharts` is listed in package.json but isn't
+// actually installed (no node_modules/recharts) or used anywhere else in
+// this app, and this is a single simple 12-point line — a small inline SVG
+// is a better fit than pulling in and wiring up an unused library.
+function NetWorthTrendChart({ points, fmt$ }: { points: TrendPoint[]; fmt$: (cents: number) => string }) {
+  const width = 640;
+  const height = 160;
+  const padX = 8;
+  const padTop = 12;
+  const padBottom = 22;
+  const plotHeight = height - padTop - padBottom;
+
+  const values = points.map((p) => p.netWorthCents);
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  const range = max - min || 1;
+  const stepX = points.length > 1 ? (width - padX * 2) / (points.length - 1) : 0;
+
+  const coords = points.map((p, i) => ({
+    x: padX + i * stepX,
+    y: padTop + (1 - (p.netWorthCents - min) / range) * plotHeight,
+    ...p,
+  }));
+
+  const linePath = coords.map((c, i) => `${i === 0 ? 'M' : 'L'}${c.x.toFixed(1)},${c.y.toFixed(1)}`).join(' ');
+  const areaPath = `${linePath} L${coords[coords.length - 1].x.toFixed(1)},${height - padBottom} `
+    + `L${coords[0].x.toFixed(1)},${height - padBottom} Z`;
+
+  const monthShort = (month: string) => {
+    const [y, mo] = month.split('-').map(Number);
+    return new Date(y, mo - 1, 1).toLocaleDateString(undefined, { month: 'short' });
+  };
+
+  const first = points[0];
+  const last = points[points.length - 1];
+
+  return (
+    <div>
+      <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-auto text-primary" role="img"
+        aria-label="Net worth trend, last 12 months">
+        <path d={areaPath} fill="currentColor" fillOpacity={0.12} stroke="none" />
+        <path d={linePath} fill="none" stroke="currentColor" strokeWidth={2} strokeLinejoin="round" strokeLinecap="round" />
+        {coords.map((c) => (
+          <circle key={c.month} cx={c.x} cy={c.y} r={3} fill="currentColor" data-month={c.month}
+            data-net-worth-cents={c.netWorthCents}>
+            <title>{`${monthShort(c.month)} ${c.month.slice(0, 4)}: ${fmt$(c.netWorthCents)}`}</title>
+          </circle>
+        ))}
+        {coords.map((c, i) => (
+          (i === 0 || i === coords.length - 1 || i % 3 === 0) && (
+            <text key={`label-${c.month}`} x={c.x} y={height - 6} fontSize={10} fill="currentColor"
+              className="text-muted-foreground"
+              textAnchor={i === 0 ? 'start' : i === coords.length - 1 ? 'end' : 'middle'}>
+              {monthShort(c.month)}
+            </text>
+          )
+        ))}
+      </svg>
+      <div className="flex items-center justify-between mt-1 text-xs text-muted-foreground">
+        <span>{monthShort(first.month)} {first.month.slice(0, 4)}</span>
+        <span className="text-sm font-bold text-foreground">{fmt$(last.netWorthCents)}</span>
+        <span>{monthShort(last.month)} {last.month.slice(0, 4)}</span>
+      </div>
     </div>
   );
 }

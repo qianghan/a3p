@@ -202,3 +202,109 @@ test('personal finance: chat records a transaction via record-personal-transacti
   expect(snapshotChat.status, JSON.stringify(snapshotChat.data)).toBe(200);
   expect(snapshotChat.data?.data?.skillUsed).toBe('personal-snapshot');
 });
+
+// ─── PR-2 — Net worth trend chart, gated behind the Personal Insights add-on ───
+
+test.describe('personal finance: net worth trend UI (Personal Insights add-on)', () => {
+  const MAYA_TENANT = 'maya-consultant';
+  let prisma: typeof import('@naap/database').prisma;
+
+  test.beforeAll(async () => {
+    const dbMod = await import('@naap/database');
+    prisma = dbMod.prisma;
+
+    // Grant Maya's tenant the `personal_insights` add-on directly via the DB
+    // — there is no payment-collection UI anywhere in this app yet (the
+    // subscribe route requires a real Stripe paymentMethodId), so this
+    // mirrors the established test-only grant pattern in
+    // bin/seed-student-chat-test-account.ts (findOrCreate the BillAddOn +
+    // BillAddOnPrice, then upsert an 'active' BillAddOnSubscription).
+    // hasAddOn() also requires the add-on itself to be isActive (separate
+    // from the subscription's own status), which bin/seed-personal-insights-
+    // addon.ts seeds as isActive:false by default — flip it here too.
+    const addOn = await prisma.billAddOn.upsert({
+      where: { code: 'personal_insights' },
+      update: { isActive: true },
+      create: { code: 'personal_insights', name: 'Personal Insights', interval: 'year', isActive: true },
+    });
+    const price = await prisma.billAddOnPrice.upsert({
+      where: { addOnId_region_tier: { addOnId: addOn.id, region: 'us', tier: 'standard' } },
+      update: { isActive: true },
+      create: {
+        addOnId: addOn.id, region: 'us', currency: 'usd', tier: 'standard', priceCents: 4900, isActive: true,
+      },
+    });
+    await prisma.billAddOnSubscription.upsert({
+      where: { accountId_addOnId: { accountId: MAYA_TENANT, addOnId: addOn.id } },
+      create: { accountId: MAYA_TENANT, addOnId: addOn.id, priceId: price.id, status: 'active' },
+      update: { status: 'active', priceId: price.id, canceledAt: null },
+    });
+  });
+
+  test.afterAll(async () => {
+    if (prisma) await prisma.$disconnect();
+  });
+
+  test('subscribed tenant (Maya) sees the real 12-point chart with actual data', async ({ page }) => {
+    await page.goto('/login');
+    await page.fill('input[type="email"]', EMAIL);
+    await page.fill('input[type="password"]', PASSWORD);
+    await page.click('button[type="submit"]');
+    await page.waitForURL(/\/dashboard|\/agentbook|\/$/, { timeout: 20_000 });
+    await page.waitForTimeout(2_000);
+
+    const trendApi = await apiGet(page, `${P}/trend`);
+    expect(trendApi.status, JSON.stringify(trendApi.data)).toBe(200);
+    expect(trendApi.data.data.length).toBe(12);
+
+    // The trend's most recent point ("this month") reconstructs to each
+    // account's live balance with zero future-dated transactions to
+    // subtract (see lib/personal-trend.ts) — it should equal the current
+    // snapshot's net worth exactly, giving us a concrete value to assert
+    // rather than just "a chart element exists".
+    const snap = await apiGet(page, `${P}/snapshot`);
+    expect(snap.status).toBe(200);
+    const lastPoint = trendApi.data.data[11];
+    expect(lastPoint.netWorthCents).toBe(snap.data.data.netWorthCents);
+
+    await page.goto('/personal');
+    await page.waitForSelector('text=Personal finance');
+
+    const chart = page.locator('svg[aria-label="Net worth trend, last 12 months"]');
+    await expect(chart).toBeVisible({ timeout: 10_000 });
+
+    // 12 real data points rendered — not a placeholder or partial series.
+    expect(await chart.locator('circle').count()).toBe(12);
+
+    // The current month's exact net-worth value (from the API contract
+    // above) is actually rendered as this specific data point in the DOM,
+    // not just "some chart".
+    const lastCircle = chart.locator(`circle[data-month="${lastPoint.month}"]`);
+    await expect(lastCircle).toHaveAttribute('data-net-worth-cents', String(lastPoint.netWorthCents));
+
+    // No teaser/upsell copy for a subscribed tenant.
+    await expect(page.locator('text=Enable Personal Insights')).toHaveCount(0);
+  });
+});
+
+test('personal finance: non-subscribed tenant sees the Personal Insights teaser, not the chart', async ({ page }) => {
+  await page.goto('/login');
+  await page.fill('input[type="email"]', 'jordan@agentbook.test');
+  await page.fill('input[type="password"]', 'agentbook123');
+  await page.click('button[type="submit"]');
+  await page.waitForURL(/\/dashboard|\/agentbook|\/$/, { timeout: 20_000 });
+  await page.waitForTimeout(2_000);
+
+  const trendApi = await apiGet(page, `${P}/trend`);
+  expect(trendApi.status, JSON.stringify(trendApi.data)).toBe(402);
+
+  await page.goto('/personal');
+  await page.waitForSelector('text=Personal finance');
+
+  // Visible-but-locked teaser card, not simply hidden.
+  await expect(page.locator('text=Personal Insights')).toBeVisible({ timeout: 10_000 });
+  await expect(page.locator('button:has-text("Enable Personal Insights")')).toBeVisible();
+
+  // No real trend chart/data anywhere in the DOM for a non-subscriber.
+  await expect(page.locator('svg[aria-label="Net worth trend, last 12 months"]')).toHaveCount(0);
+});
