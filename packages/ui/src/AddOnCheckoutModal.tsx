@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { loadStripe, type Stripe } from '@stripe/stripe-js';
 import { Elements, PaymentElement, useStripe, useElements } from '@stripe/react-stripe-js';
 import { Modal } from './Modal';
@@ -34,7 +34,7 @@ export interface AddOnCheckoutModalProps {
 
 function PayForm({
   onConfirmed, onDone,
-}: Pick<AddOnCheckoutModalProps, 'onConfirmed' | 'onDone'>): JSX.Element {
+}: Pick<AddOnCheckoutModalProps, 'onConfirmed' | 'onDone'>): React.JSX.Element {
   const stripe = useStripe();
   const elements = useElements();
   const [busy, setBusy] = useState(false);
@@ -87,7 +87,7 @@ function PayForm({
 
 export function AddOnCheckoutModal({
   title, priceLabel, onClose, fetchClientSecret, onConfirmed, onDone,
-}: AddOnCheckoutModalProps): JSX.Element {
+}: AddOnCheckoutModalProps): React.JSX.Element {
   const [clientSecret, setClientSecret] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
 
