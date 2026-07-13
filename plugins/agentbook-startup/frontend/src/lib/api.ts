@@ -145,6 +145,17 @@ export const startupApi = {
       return 'us';
     }
   },
+  getAddOnIntent: async (): Promise<{ clientSecret: string; customerId: string }> =>
+    json(await fetch('/api/v1/agentbook-billing/me/subscription/intent', { method: 'POST' })),
+  // region must match whatever getAddOnTeaser was called with, so the price
+  // the tenant saw is the price they're actually charged.
+  subscribeAddOn: async (paymentMethodId: string, region: string = 'us'): Promise<void> => {
+    await json(await fetch('/api/v1/agentbook-billing/me/addons/startup_tax_benefits/subscribe', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ region, paymentMethodId }),
+    }));
+  },
   createApplication: async (programCode: string): Promise<{ application: StartupBenefitApplication; documentChecklist: DocumentRequirement[] }> =>
     json(await fetch('/api/v1/agentbook-startup/applications', {
       method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ programCode }),
