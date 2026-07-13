@@ -151,6 +151,34 @@ describe('GET /tax-fast-track/status', () => {
     const json = await res.json();
     expect(json.data.draft.stale).toBe(true);
   });
+
+  it('synthesizes a stale-pending draft when the draft row was never created (after() killed before its first write) and the completed session has sat idle past the timeout', async () => {
+    dbMock.abTaxQuestionnaireSession.findFirst.mockResolvedValue({
+      id: 'tqs-12', status: 'completed', qaHistory: [], askedCount: 3,
+      updatedAt: new Date(Date.now() - 3 * 60 * 1000),
+    });
+    dbMock.abTaxFastTrackDraft.findUnique.mockResolvedValue(null);
+    const { GET } = await import('../../../../../app/api/v1/agentbook-core/tax-fast-track/status/route');
+
+    const res = await GET(makeRequest({}));
+    const json = await res.json();
+    expect(json.data.draft).toEqual({
+      status: 'pending', draftPdfUrl: null, letterPdfUrl: null, draftSummary: null, errorMsg: null, stale: true,
+    });
+  });
+
+  it('keeps draft null when the draft row is missing but the completed session is still within the stale timeout', async () => {
+    dbMock.abTaxQuestionnaireSession.findFirst.mockResolvedValue({
+      id: 'tqs-13', status: 'completed', qaHistory: [], askedCount: 3,
+      updatedAt: new Date(),
+    });
+    dbMock.abTaxFastTrackDraft.findUnique.mockResolvedValue(null);
+    const { GET } = await import('../../../../../app/api/v1/agentbook-core/tax-fast-track/status/route');
+
+    const res = await GET(makeRequest({}));
+    const json = await res.json();
+    expect(json.data.draft).toBeNull();
+  });
 });
 
 describe('POST /tax-fast-track/regenerate', () => {
