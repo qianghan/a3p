@@ -4261,12 +4261,14 @@ async function _executeClassificationCore(
 
       let message: string;
       let sessionId: string | undefined;
+      let taxDraftReady = false;
       if (result.status === 'blocked' || result.status === 'failed') {
         message = result.message;
         sessionId = result.status === 'failed' ? result.sessionId : undefined;
       } else if (result.status === 'done') {
         message = "Got everything I need from your last return — I'll have your filing draft ready shortly.";
         sessionId = result.sessionId;
+        taxDraftReady = true;
       } else if (result.status === 'question') {
         message = result.question;
         sessionId = result.sessionId;
@@ -4282,7 +4284,7 @@ async function _executeClassificationCore(
       return {
         selectedSkill, extractedParams, confidence: 1, skillUsed: 'start-tax-fast-track',
         skillResponse: sessionId ? { data: { sessionId } } : null,
-        responseData: { message, actions: [], chartData: null, skillUsed: 'start-tax-fast-track', confidence: 1, ...(sessionId ? { sessionId } : {}), latencyMs: Date.now() - startTime },
+        responseData: { message, actions: [], chartData: null, skillUsed: 'start-tax-fast-track', confidence: 1, ...(sessionId ? { sessionId } : {}), ...(taxDraftReady ? { taxDraftReady: true } : {}), latencyMs: Date.now() - startTime },
       };
     } catch (err) {
       console.error('[start-tax-fast-track] error:', err);

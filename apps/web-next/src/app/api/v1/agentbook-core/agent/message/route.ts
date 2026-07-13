@@ -15,7 +15,7 @@
  */
 
 import 'server-only';
-import { NextRequest, NextResponse } from 'next/server';
+import { after, NextRequest, NextResponse } from 'next/server';
 import { handleAgentMessage } from '@agentbook-core/agent-brain';
 import {
   callGemini,
@@ -29,10 +29,11 @@ import { safeResolveAgentbookTenant } from '@/lib/agentbook-tenant';
 import { checkAndIncrement } from '@/lib/agentbook-rate-limit';
 import { t, parseLocaleHeader } from '@/lib/agentbook-i18n';
 import { getAppBaseUrl, getPluginBaseUrls } from '@/lib/agentbook-config';
+import { generateFilingDraft } from '@/lib/tax-fast-track-draft';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
-export const maxDuration = 30;
+export const maxDuration = 90; // was 30 — after() work (tax fast-track draft generation) needs headroom past the response
 
 interface AgentMessageBody {
   text?: string;
@@ -152,6 +153,13 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         executeClassification,
       },
     );
+
+    if (brainResult?.data?.taxDraftReady && brainResult.data?.sessionId) {
+      const completedSessionId = brainResult.data.sessionId;
+      after(() => generateFilingDraft(completedSessionId, callGemini).catch((err) => {
+        console.error('[agent/message] generateFilingDraft failed:', err);
+      }));
+    }
 
     return NextResponse.json(brainResult, { status: 200 });
   } catch (err) {

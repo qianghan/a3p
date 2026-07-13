@@ -172,6 +172,8 @@ interface AgentResponse {
     plan?: { steps: PlanStep[]; requiresConfirmation: boolean };
     evaluation?: Evaluation;
     sessionId?: string;
+    /** True only on the exact turn a fast-track questionnaire session transitions to 'completed' — the signal for the caller to trigger generateFilingDraft(sessionId) via after(). */
+    taxDraftReady?: boolean;
     suggestions?: string[];
     undoAvailable?: boolean;
     /**
@@ -467,7 +469,7 @@ function translateTaxCoreResult(result: CoreResult, startTime: number): AgentRes
   if (result.status === 'done') {
     return buildResponse({
       message: "Got everything I need — I'll have your filing draft ready shortly.",
-      skillUsed: 'tax-questionnaire', confidence: 1, sessionId: result.sessionId, latencyMs: Date.now() - startTime,
+      skillUsed: 'tax-questionnaire', confidence: 1, sessionId: result.sessionId, taxDraftReady: true, latencyMs: Date.now() - startTime,
     });
   }
   // 'failed' and 'blocked' both just carry a message; 'blocked' never
@@ -1144,6 +1146,8 @@ export async function handleAgentMessage(
     chartData: responseData.chartData,
     skillUsed: responseData.skillUsed || v1Result.skillUsed,
     confidence: responseData.confidence ?? v1Result.confidence,
+    sessionId: responseData.sessionId,
+    taxDraftReady: responseData.taxDraftReady,
     latencyMs: Date.now() - startTime,
     // PR 43: forward citations from the skill response to the chat UI.
     citations: responseData.citations,

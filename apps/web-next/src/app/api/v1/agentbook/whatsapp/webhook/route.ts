@@ -17,17 +17,18 @@
  */
 
 import 'server-only';
-import { NextRequest, NextResponse } from 'next/server';
+import { after, NextRequest, NextResponse } from 'next/server';
 import crypto from 'node:crypto';
 import { prisma as db } from '@naap/database';
 import { handleAgentMessage } from '@agentbook-core/agent-brain';
 import { callGemini, classifyAndExecuteV1, classifyOnly, executeClassification } from '@agentbook-core/server';
 import { WhatsAppAdapter } from '@/lib/agentbook-chat-adapter';
 import { getAppBaseUrl, getPluginBaseUrls } from '@/lib/agentbook-config';
+import { generateFilingDraft } from '@/lib/tax-fast-track-draft';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
-export const maxDuration = 30;
+export const maxDuration = 90;
 
 /** Meta's one-time webhook verification handshake (Meta App Dashboard → Webhooks → Verify and save). */
 export async function GET(request: NextRequest): Promise<NextResponse> {
@@ -94,6 +95,13 @@ async function callAgentBrain(tenantId: string, phoneNumber: string, text: strin
       { text, tenantId, channel: 'whatsapp', chatId: phoneNumber },
       { skills, callGemini, baseUrls, classifyAndExecuteV1, classifyOnly, executeClassification },
     );
+    if (result?.data?.taxDraftReady && result.data?.sessionId) {
+      const completedSessionId = result.data.sessionId;
+      after(() => generateFilingDraft(completedSessionId, callGemini).catch((err) => {
+        console.error('[whatsapp/agent-brain] generateFilingDraft failed:', err);
+      }));
+    }
+
     if (result?.success && result.data?.message) {
       return result.data.message;
     }
