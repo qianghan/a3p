@@ -132,6 +132,7 @@
     { "path": "/api/v1/agentbook-billing/cron/cleanup-events", "schedule": "0 3 * * 0" },
     { "path": "/api/v1/agentbook/cron/recognize-revenue", "schedule": "0 2 1 * *" },
     { "path": "/api/v1/agentbook/cron/cpa-review", "schedule": "0 3 1 * *" },
-    { "path": "/api/v1/agentbook/cron/notifications-dispatch", "schedule": "*/10 * * * *" }
+    { "path": "/api/v1/agentbook/cron/notifications-dispatch", "schedule": "*/10 * * * *" },
+    { "path": "/api/v1/agentbook/cron/personal-finance-nudge-check", "schedule": "0 * * * *" }
   ]
 }
