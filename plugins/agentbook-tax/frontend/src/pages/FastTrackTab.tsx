@@ -60,7 +60,7 @@ export const FastTrackTab: React.FC = () => {
     load();
     pollRef.current = setInterval(() => {
       setData((prev) => {
-        const shouldPoll = prev?.session?.status === 'in_progress' || prev?.draft?.status === 'pending';
+        const shouldPoll = prev?.session?.status === 'in_progress' || prev?.draft?.status === 'pending' || (prev?.session?.status === 'completed' && !prev?.draft);
         if (shouldPoll) load();
         return prev;
       });
@@ -180,8 +180,10 @@ export const FastTrackTab: React.FC = () => {
         </div>
       )}
 
-      {/* Screen 3: completed, draft pending */}
-      {session && session.status === 'completed' && draft && draft.status === 'pending' && !draft.stale && (
+      {/* Screen 3: completed, draft pending (or not yet created — the backend creates the
+          AbTaxFastTrackDraft row asynchronously via after(), which can easily lose the race
+          with the client's immediate post-answer load()) */}
+      {session && session.status === 'completed' && (!draft || (draft.status === 'pending' && !draft.stale)) && (
         <div className="bg-card border border-border rounded-xl p-6 text-center">
           <Loader2 className="w-5 h-5 animate-spin mx-auto mb-2 text-primary" />
           <p className="text-sm text-muted-foreground">Generating your draft…</p>
