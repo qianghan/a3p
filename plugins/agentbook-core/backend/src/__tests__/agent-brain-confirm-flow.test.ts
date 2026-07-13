@@ -44,6 +44,10 @@ vi.mock('../db/client.js', () => {
         }),
         updateMany: vi.fn(async () => ({ count: 0 })),
       },
+      abTaxQuestionnaireSession: {
+        findFirst: vi.fn(async () => null), // no active tax-questionnaire session
+        updateMany: vi.fn(async () => ({ count: 0 })),
+      },
       abTenantConfig: { findFirst: vi.fn(async () => null) },
       abUserMemory: { findMany: vi.fn(async () => []) },
       abSkillManifest: { findMany: vi.fn(async () => []) },

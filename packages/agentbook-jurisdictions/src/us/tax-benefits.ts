@@ -8,6 +8,7 @@ import type {
   DraftField,
   DraftResult,
   DecisionPoint,
+  AuditFinding,
   AuditRiskAssessment,
   SubmissionInstructions,
   Deadline,
@@ -20,6 +21,7 @@ interface USProgramDef {
   documents: DocumentRequirement[];
   decisionPoints(draft: DraftResult): DecisionPoint[];
   draftSections(inputs: ApplicationInputs): Record<string, DraftField[]>;
+  auditChecks(draft: DraftResult): AuditFinding[];
   submissionInstructions: SubmissionInstructions;
   filingDeadlines(fiscalYearEnd: Date): Deadline[];
 }
@@ -105,6 +107,28 @@ const rdTaxCredit41: USProgramDef = {
       'Four-Part Test Confirmation': confirmation,
     };
   },
+  auditChecks: (draft) => {
+    const findings: AuditFinding[] = [];
+    const qre = draft.sections['Qualified Research Expenses'] ?? [];
+    const hasPayroll = qre.some((f) => f.label === 'Payroll register total wages');
+    const hasTimeAlloc = qre.some((f) => f.label === 'Qualified research time allocation');
+    if (!hasPayroll && !hasTimeAlloc) {
+      findings.push({
+        severity: 'high',
+        issue: 'The four-part test was confirmed but no supporting documentation (payroll register or project time allocation) has been uploaded.',
+        recommendation: 'Upload a payroll register and/or project time allocation record before filing — an unsubstantiated claim is the most common reason R&D credit claims are challenged on audit.',
+        ruleRef: 'irs:form-6765-substantiation',
+      });
+    } else if (!hasPayroll || !hasTimeAlloc) {
+      findings.push({
+        severity: 'medium',
+        issue: `Only ${hasPayroll ? 'a payroll register' : 'a project time allocation record'} has been uploaded — the other evidentiary document type is still missing.`,
+        recommendation: 'Upload the remaining document type so the qualified research expense amount is supported from two independent sources.',
+        ruleRef: 'irs:form-6765-substantiation',
+      });
+    }
+    return findings;
+  },
   submissionInstructions: {
     channel: 'cpa_handoff',
     summary: 'File Form 6765 attached to your federal income tax return. If pre-revenue with under $5M gross receipts, elect the payroll tax offset via Form 8974 instead.',
@@ -175,10 +199,38 @@ const qsbsTracking: USProgramDef = {
     if (typeof answer === 'string') {
       shareIssuance.push({ label: 'Share issuance date', value: answer, sourceType: 'user_input', sourceRef: '1' });
     }
-    // Kept as two sections (not one) so completeness can't reach 1.0 from
-    // companyType alone — the decision point must be answered too. Mirrors
-    // the R&D credit program's existing two-section pattern above.
-    return { 'Company Details': companyDetails, 'Share Issuance': shareIssuance };
+    const supportingDocuments = documentPresenceFields(inputs, [
+      { docType: 'stock_issuance_record', label: 'Stock issuance record' },
+      { docType: 'cap_table', label: 'Capitalization table' },
+    ]);
+    // Three sections (not one) so completeness can't reach 1.0 from
+    // companyType alone — the decision point must be answered AND at least
+    // one supporting document uploaded. Mirrors the R&D credit program's
+    // existing multi-section pattern above.
+    return { 'Company Details': companyDetails, 'Share Issuance': shareIssuance, 'Supporting Documents': supportingDocuments };
+  },
+  auditChecks: (draft) => {
+    const findings: AuditFinding[] = [];
+    const docs = draft.sections['Supporting Documents'] ?? [];
+    const hasCapTable = docs.some((f) => f.label === 'Capitalization table');
+    const hasIssuanceRecord = docs.some((f) => f.label === 'Stock issuance record');
+    if (!hasCapTable) {
+      findings.push({
+        severity: 'high',
+        issue: 'No capitalization table has been uploaded — the $50M gross-assets-at-issuance cap under IRC §1202 cannot be verified.',
+        recommendation: 'Upload the cap table from immediately after the share issuance date before relying on QSBS status.',
+        ruleRef: 'irs:irc-1202-gross-assets-cap',
+      });
+    }
+    if (!hasIssuanceRecord) {
+      findings.push({
+        severity: 'medium',
+        issue: 'No stock issuance record has been uploaded — the issuance date and price are not independently verifiable.',
+        recommendation: 'Upload the board consent and stock purchase agreement documenting the issuance.',
+        ruleRef: 'irs:irc-1202-holding-period',
+      });
+    }
+    return findings;
   },
   submissionInstructions: {
     channel: 'cpa_handoff',
@@ -248,8 +300,35 @@ const deFranchiseOptimization: USProgramDef = {
     if (typeof answer === 'string') {
       methodSelection.push({ label: 'Authorized shares & gross assets', value: answer, sourceType: 'user_input', sourceRef: '1' });
     }
-    // Two sections (not one) — see the identical note on QSBS above.
-    return { 'Company Details': companyDetails, 'Franchise Tax Method Selection': methodSelection };
+    const supportingDocuments = documentPresenceFields(inputs, [
+      { docType: 'annual_report_draft', label: 'Delaware annual report draft' },
+      { docType: 'authorized_shares_certificate', label: 'Authorized shares certificate' },
+    ]);
+    // Three sections (not one) — see the identical note on QSBS above.
+    return { 'Company Details': companyDetails, 'Franchise Tax Method Selection': methodSelection, 'Supporting Documents': supportingDocuments };
+  },
+  auditChecks: (draft) => {
+    const findings: AuditFinding[] = [];
+    const docs = draft.sections['Supporting Documents'] ?? [];
+    const hasCertificate = docs.some((f) => f.label === 'Authorized shares certificate');
+    const hasAnnualReport = docs.some((f) => f.label === 'Delaware annual report draft');
+    if (!hasCertificate) {
+      findings.push({
+        severity: 'medium',
+        issue: 'No authorized shares certificate has been uploaded — the recommended tax-method switch may be based on an unverified share count.',
+        recommendation: 'Upload the certificate of incorporation or the amendment showing total authorized shares.',
+        ruleRef: 'de-corp:franchise-tax-method',
+      });
+    }
+    if (!hasAnnualReport) {
+      findings.push({
+        severity: 'low',
+        issue: 'No draft annual report is on file yet.',
+        recommendation: 'Upload the state-prefilled draft annual report once available to confirm final figures before filing.',
+        ruleRef: 'de-corp:annual-report',
+      });
+    }
+    return findings;
   },
   submissionInstructions: {
     channel: 'portal',
@@ -290,6 +369,27 @@ function requireProgram(programCode: string): USProgramDef {
 }
 
 /**
+ * Surfaces uploaded evidentiary documents as document-sourced DraftFields
+ * for programs (QSBS, DE franchise) that don't extract a specific computed
+ * value out of the document — the document's mere presence is the evidence.
+ * Without this, uploading a program's required documents had no visible
+ * effect on the draft at all.
+ */
+function documentPresenceFields(
+  inputs: ApplicationInputs,
+  requirements: { docType: string; label: string }[],
+): DraftField[] {
+  const fields: DraftField[] = [];
+  for (const req of requirements) {
+    const doc = inputs.documents?.[req.docType] as { _id?: string } | undefined;
+    if (doc?._id) {
+      fields.push({ label: req.label, value: 'Uploaded', sourceType: 'document', sourceRef: doc._id });
+    }
+  }
+  return fields;
+}
+
+/**
  * Populates every section computable from books/documents/decision-point
  * answers, tagging each field with where it came from (story C4). Each
  * program's sections map 1:1 either to book/document-derived data or a
@@ -306,24 +406,32 @@ function draftApplication(programCode: string, inputs: ApplicationInputs): Draft
   return { programCode: program.summary.programCode, sections, completeness };
 }
 
+export const AUDIT_REVIEW_MODEL_VERSION = 'us-audit-v1';
+
 /** Conservative by design (bias toward flagging, per startup.html §11) — a low-completeness draft is never called low risk. */
 function assessAuditRisk(programCode: string, draft: DraftResult): AuditRiskAssessment {
-  requireProgram(programCode);
-  if (draft.completeness >= 1) {
-    return { riskLevel: 'low', findings: [] };
+  const program = requireProgram(programCode);
+  if (draft.completeness < 1) {
+    const severity: 'medium' | 'high' = draft.completeness > 0 ? 'medium' : 'high';
+    return {
+      riskLevel: severity,
+      findings: [
+        {
+          severity,
+          issue: 'Draft is incomplete — one or more decision points have not been resolved.',
+          recommendation: 'Resolve all outstanding decision points before marking this application ready for review.',
+          ruleRef: 'internal:completeness-gate',
+        },
+      ],
+    };
   }
-  const severity: 'medium' | 'high' = draft.completeness > 0 ? 'medium' : 'high';
-  return {
-    riskLevel: severity,
-    findings: [
-      {
-        severity,
-        issue: 'Draft is incomplete — one or more decision points have not been resolved.',
-        recommendation: 'Resolve all outstanding decision points before marking this application ready for review.',
-        ruleRef: 'internal:completeness-gate',
-      },
-    ],
-  };
+  const findings = program.auditChecks(draft);
+  const riskLevel: 'low' | 'medium' | 'high' = findings.some((f) => f.severity === 'high')
+    ? 'high'
+    : findings.some((f) => f.severity === 'medium')
+      ? 'medium'
+      : 'low';
+  return { riskLevel, findings };
 }
 
 export const usTaxBenefits: TaxBenefitProvider = {

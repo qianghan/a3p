@@ -7,13 +7,22 @@
  * - Background sync: queued operations (receipt upload, expense recording)
  */
 
-const CACHE_NAME = 'agentbook-v1';
-const STATIC_CACHE = 'agentbook-static-v1';
-const API_CACHE = 'agentbook-api-v1';
+// Bump these on every change that affects caching behavior. Next.js's HTML
+// shell references content-hashed JS chunk filenames that change on every
+// deploy — a service worker that never busts its own cache names will
+// eventually serve a shell whose chunk references no longer exist after a
+// new deploy, which is what causes an infinite loading loop (the client
+// keeps trying to fetch/hydrate against chunks that 404). Bumping the
+// version here forces `activate` to purge every old cache below.
+const CACHE_NAME = 'agentbook-v3';
+const STATIC_CACHE = 'agentbook-static-v3';
+const API_CACHE = 'agentbook-api-v3';
 
-// Static assets to pre-cache
+// Static assets to pre-cache. Deliberately does NOT include '/agentbook' —
+// precaching a navigable HTML document is exactly the risky part, since its
+// chunk references go stale on every deploy. '/manifest.json' is static
+// metadata, safe to precache.
 const PRECACHE_URLS = [
-  '/agentbook',
   '/manifest.json',
 ];
 
@@ -57,9 +66,23 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Navigation: network-first
+  // Navigation (the HTML shell itself): network-only, no caching. This is
+  // the request whose response references content-hashed JS chunk
+  // filenames that change on every deploy — caching it (even as a "fallback
+  // only" via networkFirstWithCache) risks later serving a shell that
+  // points at chunks which no longer exist post-deploy, which is what
+  // caused the infinite loading loop. If the network genuinely fails,
+  // degrade to a minimal offline page rather than a possibly-stale shell.
   if (event.request.mode === 'navigate') {
-    event.respondWith(networkFirstWithCache(event.request));
+    event.respondWith(
+      fetch(event.request).catch(
+        () =>
+          new Response(
+            '<!doctype html><meta charset="utf-8"><title>Offline</title><body style="font-family:sans-serif;padding:2rem;text-align:center">You\'re offline. Reconnect and reload to continue.</body>',
+            { status: 503, headers: { 'Content-Type': 'text/html' } }
+          )
+      )
+    );
     return;
   }
 
@@ -86,14 +109,24 @@ async function cacheFirst(request) {
 async function networkFirstWithCache(request) {
   try {
     const response = await fetch(request);
-    if (response.ok) {
-      const cache = await caches.open(API_CACHE);
-      cache.put(request, response.clone());
+    // Only GET responses are cacheable. Cache.put() THROWS on a POST/PUT/etc.
+    // request ("Request method 'POST' is unsupported"); if that throw escapes
+    // it lands in the catch below and we'd return the synthetic offline
+    // response — telling the client a mutation failed when the server in fact
+    // succeeded. That both hid the result (receipt scan never prefilled) and
+    // caused duplicate writes (the "offline" expense got queued and later
+    // replayed). So: never cache non-GET, and swallow any cache error so it
+    // can never be mistaken for a network failure.
+    if (response.ok && request.method === 'GET') {
+      caches.open(API_CACHE).then((cache) => cache.put(request, response.clone())).catch(() => {});
     }
     return response;
   } catch {
-    const cached = await caches.match(request);
-    if (cached) return cached;
+    // Genuine network failure. Only GETs have a meaningful cached fallback.
+    if (request.method === 'GET') {
+      const cached = await caches.match(request);
+      if (cached) return cached;
+    }
     // X-Agentbook-Offline lets callers (e.g. the capture page) tell "the
     // device has no connection" apart from a real 503 the server sent on
     // purpose — `fetch()` never throws for this response since the SW

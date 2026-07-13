@@ -14,19 +14,39 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@naap/database';
 import { requireAdmin, type HttpError } from '@/lib/billing/admin-auth';
 import { US_STARTUP_BENEFIT_PROGRAMS } from '@/lib/agentbook-startup/us-programs';
+import { AU_STARTUP_BENEFIT_PROGRAMS } from '@/lib/agentbook-startup/au-programs';
 
 export const runtime = 'nodejs';
 
+const ALL_STARTUP_BENEFIT_PROGRAMS = [...US_STARTUP_BENEFIT_PROGRAMS, ...AU_STARTUP_BENEFIT_PROGRAMS];
+
 const ADDON_CODE = 'startup_tax_benefits';
-const REGIONS: { region: string; currency: string }[] = [
-  { region: 'us', currency: 'usd' },
-  { region: 'ca', currency: 'cad' },
-  { region: 'uk', currency: 'gbp' },
-];
-const TIERS: { tier: string; priceCents: number; maxSlots: number | null }[] = [
+
+interface Tier { tier: string; priceCents: number; maxSlots: number | null }
+
+// Same nominal number across currencies — see bin/seed-startup-benefit-addon.ts
+// for the pricing rationale (this route must stay in sync with that script).
+const DEFAULT_TIERS: Tier[] = [
   { tier: 'founding_member', priceCents: 9900, maxSlots: 250 },
   { tier: 'standard', priceCents: 24900, maxSlots: null },
   { tier: 'scaled', priceCents: 49900, maxSlots: null },
+];
+
+const REGIONS: { region: string; currency: string; tiers: Tier[] }[] = [
+  { region: 'us', currency: 'usd', tiers: DEFAULT_TIERS },
+  { region: 'ca', currency: 'cad', tiers: DEFAULT_TIERS },
+  { region: 'uk', currency: 'gbp', tiers: DEFAULT_TIERS },
+  {
+    region: 'au',
+    currency: 'aud',
+    // Independently researched AUD pricing, not flat parity — see
+    // bin/seed-startup-benefit-addon.ts for the full rationale.
+    tiers: [
+      { tier: 'founding_member', priceCents: 12900, maxSlots: 250 },
+      { tier: 'standard', priceCents: 29900, maxSlots: null },
+      { tier: 'scaled', priceCents: 59900, maxSlots: null },
+    ],
+  },
 ];
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
@@ -41,7 +61,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   let programsUpdated = 0;
   const now = new Date();
 
-  for (const program of US_STARTUP_BENEFIT_PROGRAMS) {
+  for (const program of ALL_STARTUP_BENEFIT_PROGRAMS) {
     const existing = await prisma.startupBenefitProgram.findUnique({
       where: { jurisdiction_programCode: { jurisdiction: program.jurisdiction, programCode: program.programCode } },
     });
@@ -76,8 +96,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   let pricesCreated = 0;
   let pricesUpdated = 0;
 
-  for (const { region, currency } of REGIONS) {
-    for (const { tier, priceCents, maxSlots } of TIERS) {
+  for (const { region, currency, tiers } of REGIONS) {
+    for (const { tier, priceCents, maxSlots } of tiers) {
       const existing = await prisma.billAddOnPrice.findUnique({
         where: { addOnId_region_tier: { addOnId: addOn.id, region, tier } },
       });

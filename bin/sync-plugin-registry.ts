@@ -396,7 +396,7 @@ async function main(): Promise<void> {
     // ------------------------------------------------------------------
     // Generate plugin-routes.json for middleware consumption
     // ------------------------------------------------------------------
-    const routesWithOwnPage = new Set(['/marketplace', '/dashboard', '/plugins/my-dashboard']);
+    const routesWithOwnPage = new Set(['/marketplace', '/dashboard']);
     const routeMap: Record<string, string> = {};
 
     for (const p of discovered) {

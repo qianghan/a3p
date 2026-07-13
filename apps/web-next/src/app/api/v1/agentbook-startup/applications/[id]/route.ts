@@ -20,15 +20,23 @@ export async function GET(
     return NextResponse.json({ error: 'not found' }, { status: 404 });
   }
 
-  const [documents, decisionPoints, program] = await Promise.all([
+  const [documents, decisionPoints, program, auditReview] = await Promise.all([
     prisma.startupBenefitDocument.findMany({ where: { applicationId: id }, orderBy: { uploadedAt: 'asc' } }),
     prisma.startupBenefitDecisionPoint.findMany({ where: { applicationId: id }, orderBy: { sequenceOrder: 'asc' } }),
     prisma.startupBenefitProgram.findUnique({ where: { id: application.programId } }),
+    prisma.startupBenefitAuditReview.findUnique({ where: { applicationId: id } }),
   ]);
 
   const documentChecklist = program
     ? getJurisdictionPack(program.jurisdiction)?.taxBenefits?.getRequiredDocuments(program.programCode) ?? []
     : [];
 
-  return NextResponse.json({ application, documents, decisionPoints, documentChecklist });
+  return NextResponse.json({
+    application,
+    documents,
+    decisionPoints,
+    documentChecklist,
+    auditReview,
+    program: program ? { name: program.name, authority: program.authority, sourceUrl: program.sourceUrl } : null,
+  });
 }

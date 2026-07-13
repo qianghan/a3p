@@ -24,7 +24,7 @@ datasource db {
   provider  = "postgresql"
   url       = env("DATABASE_URL")
   directUrl = env("DATABASE_URL_UNPOOLED")
-  schemas   = ["public", "plugin_community", "plugin_service_gateway", "plugin_agentbook_core", "plugin_agentbook_expense", "plugin_agentbook_invoice", "plugin_agentbook_tax", "plugin_agentbook_billing", "plugin_agentbook_personal", "plugin_agentbook_cpa", "plugin_agentbook_payroll", "plugin_content_library", "plugin_agentbook_startup"]
+  schemas   = ["public", "plugin_community", "plugin_service_gateway", "plugin_agentbook_core", "plugin_agentbook_expense", "plugin_agentbook_invoice", "plugin_agentbook_tax", "plugin_agentbook_billing", "plugin_agentbook_personal", "plugin_agentbook_cpa", "plugin_agentbook_payroll", "plugin_content_library", "plugin_agentbook_startup", "plugin_agentbook_student"]
 }
 
 // ============================================
@@ -324,6 +324,39 @@ model FeatureFlag {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
+  @@schema("public")
+}
+
+// One generic table serves every oidc-provider model kind (AccessToken,
+// AuthorizationCode, RefreshToken, Client, Grant, Interaction, Session, ...)
+// — this mirrors oidc-provider's own adapter contract, which is type+id keyed.
+model OidcModel {
+  id        String    @id
+  type      String
+  payload   Json
+  grantId   String?
+  userCode  String?
+  uid       String?
+  expiresAt DateTime?
+
+  @@unique([type, id])
+  @@index([type, uid])
+  @@index([type, grantId])
+  @@index([type, userCode])
+  @@schema("public")
+}
+
+// Persisted user consent, separate from oidc-provider's own ephemeral Grant
+// model, so a returning user skips the consent screen on reconnect.
+model McpConsentGrant {
+  id        String    @id @default(uuid())
+  userId    String
+  clientId  String
+  scope     String
+  grantedAt DateTime  @default(now())
+  revokedAt DateTime?
+
+  @@unique([userId, clientId])
   @@schema("public")
 }
 
@@ -1414,10 +1447,17 @@ model AbTenantConfig {
   id                    String   @id @default(uuid())
   userId                String   @unique
   businessType          String   @default("freelancer")
+  taxEntityType         String?  // sole_proprietor | llc_single | llc_multi | scorp | corporation | sole_trader | pty_ltd | partnership | trust — tax filing entity type, deliberately separate from businessType (persona/plugin-classification) so Tax Dashboard's entity-type picker can never overwrite it
   jurisdiction          String   @default("us") // us | ca | ...
   region                String   @default("") // state/province code
   visaStatus            String?  // f1 | j1 | other-nonresident | null (domestic) — student-persona international track
   homeCountry           String?  // ISO 3166-1 alpha-2, e.g. "cn" | "in" — drives treaty-lookup skill
+  university            String?  // student businessType only
+  major                 String?  // student businessType only
+  degree                String?  // student businessType only — e.g. "Bachelor's", "Master's"
+  graduationYear         Int?     // student businessType only
+  businessDescription   String?  // non-student businessType only — free text, what the business does
+  businessTags          String[] @default([]) // non-student businessType only — classification tags, also drives plugin-visibility gating
   currency              String   @default("USD")
   locale                String   @default("en-US")
   timezone              String   @default("America/New_York")
@@ -1454,6 +1494,37 @@ model AbTenantConfig {
   taxReserveFixedCents     Int?
 
   @@index([userId])
+  @@schema("plugin_agentbook_core")
+}
+
+// One-per-user personal context (distinct from AbTenantConfig, which is the
+// business profile) so the agent brain can give richer, contextual answers —
+// especially for tax and personal-finance questions — instead of answering
+// generically. Deliberately excludes government tax ID (SSN/SIN): everything
+// else an accountant would want to know, but not the highest-sensitivity PII
+// tier. See plugins/agentbook-core/backend/src/personal-profile-context.ts
+// for how this gets summarized into the LLM system prompt.
+model AbPersonalProfile {
+  id                         String    @id @default(uuid())
+  userId                     String    @unique
+  firstName                  String?
+  lastName                   String?
+  dateOfBirth                DateTime?
+  addressLine1               String?
+  addressLine2               String?
+  city                       String?
+  state                      String?
+  postalCode                 String?
+  country                    String?
+  maritalStatus              String? // single | married_joint | married_separate | head_of_household | widowed
+  dependentsCount            Int?
+  employmentType             String? // w2 | self_employed | mixed | unemployed | retired
+  occupation                 String?
+  estimatedAnnualIncomeCents Int? // self-reported, broad — distinct from AbTaxConfig.w2IncomeAnnual which is precise/tax-specific
+  completedAt                DateTime? // set once the user saves a profile meeting the completeness bar
+  createdAt                  DateTime  @default(now())
+  updatedAt                  DateTime  @updatedAt
+
   @@schema("plugin_agentbook_core")
 }
 
@@ -2770,6 +2841,27 @@ model AbAgentSession {
   @@schema("plugin_agentbook_core")
 }
 
+model AbTaxQuestionnaireSession {
+  id                  String   @id @default(uuid())
+  tenantId            String
+  taxYear             Int
+  jurisdiction        String
+  region              String?
+  trigger             String
+  sourceFilingId      String?
+  status              String   @default("in_progress")
+  qaHistory           Json     @default("[]")
+  askedCount          Int      @default(0)
+  consecutiveFailures Int      @default(0)
+  version             Int      @default(0)
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+  expiresAt           DateTime
+
+  @@index([tenantId, status])
+  @@schema("plugin_agentbook_core")
+}
+
 model AbLearningEvent {
   id         String   @id @default(uuid())
   tenantId   String
@@ -3091,8 +3183,8 @@ model BillAddOn {
 model BillAddOnPrice {
   id             String    @id @default(uuid())
   addOnId        String
-  region         String    // "us" | "ca" | "uk"
-  currency       String    // "usd" | "cad" | "gbp"
+  region         String    // "us" | "ca" | "uk" | "au"
+  currency       String    // "usd" | "cad" | "gbp" | "aud"
   tier           String    // "founding_member" | "standard" | "scaled"
   priceCents     Int
   stripePriceId  String?
@@ -3405,6 +3497,25 @@ model AbPersonalBudget {
   @@schema("plugin_agentbook_personal")
 }
 
+// Insert-only dedup log for the personal-finance proactive nudges (PR-2):
+// budget-threshold, net-worth month-over-month, and negative-savings-rate
+// checks each write one row here before firing, so a nudge that already
+// fired for a given tenant/type/period/category doesn't re-fire on the next
+// cron pass within the same period. No soft-delete, no update path — a
+// nudge either fired or it didn't.
+model AbPersonalNudgeLog {
+  id        String   @id @default(uuid())
+  tenantId  String
+  nudgeType String
+  periodKey String // e.g. "2026-07"
+  category  String? // budget nudges only; null for net-worth/savings-rate nudges
+  createdAt DateTime @default(now())
+
+  @@unique([tenantId, nudgeType, periodKey, category])
+  @@index([tenantId, nudgeType, periodKey])
+  @@schema("plugin_agentbook_personal")
+}
+
 // ============================================================================
 // CPA Handoff plugin (Phase 4) — share read-only books with an accountant,
 // collect their sign-off, and run an AI-CPA review that flags actionable
@@ -3548,9 +3659,10 @@ model AbPayStub {
   grossCents       Int
   federalTaxCents  Int
   stateTaxCents    Int
-  ficaCents        Int // SS+Medicare (US) / CPP+EI (CA) / NI (UK) / super note (AU)
+  ficaCents        Int // SS+Medicare (US) / CPP+EI (CA) / NI (UK) / 0 (AU — see sgCents)
   otherDeductCents Int      @default(0)
   netCents         Int
+  sgCents          Int      @default(0) // Superannuation Guarantee (AU) — employer-side, additive on top of gross, never subtracted from netCents
   createdAt        DateTime @default(now())
 
   @@index([tenantId])
@@ -3561,7 +3673,7 @@ model AbPayStub {
 model AbPayrollTaxDeposit {
   id          String    @id @default(uuid())
   tenantId    String
-  form        String // 941 | 940 | t4 | paye | bas
+  form        String // 941 | 940 | t4 | paye | bas | sg
   periodLabel String // "2026-Q2"
   amountCents Int
   dueDate     DateTime
@@ -3682,7 +3794,7 @@ model StartupBenefitDecisionPoint {
   respondedAt    DateTime?
   blocksProgress Boolean   @default(true)
 
-  @@index([applicationId, sequenceOrder])
+  @@unique([applicationId, sequenceOrder])
   @@schema("plugin_agentbook_startup")
 }
 
@@ -3691,8 +3803,88 @@ model StartupBenefitAuditReview {
   applicationId String   @unique
   riskLevel     String   // low | medium | high
   findings      Json     // [{severity, issue, recommendation, ruleRef}]
+  overrides     Json     @default("[]") // [{findingIndex, reason, overriddenAt}]
   reviewedAt    DateTime @default(now())
   modelVersion  String
 
   @@schema("plugin_agentbook_startup")
+}
+
+// ============================================
+// STUDENT SUCCESS ADD-ON — shared consulting spine
+// ============================================
+// One tracked "opportunity" model shared by all three student plugins
+// (Scholarship, Career/Co-op, Housing), discriminated by `kind`, mirroring
+// the startup plugin's application + decision-point shape. Gated behind the
+// `student_success` add-on. The consulting contract: the agent discovers,
+// drafts, and tracks; wherever a judgment call arises it creates a
+// DecisionPoint that blocks progress until the student answers. The agent
+// never submits anything to an external party.
+
+model AbStudentOpportunity {
+  id           String    @id @default(uuid())
+  tenantId     String
+  kind         String    // scholarship | job | housing
+  title        String
+  status       String    @default("discovered") // discovered|shortlisted|preparing|ready|submitted|closed
+  sourceUrl    String?   // the grounded-search source or user-pasted link (always cite-able)
+  sourceLabel  String?   // human label for the source
+  deadline     DateTime?
+  amountCents  Int?      // award amount / rent / salary — kind-specific
+  currency     String?   // ISO 4217, for amountCents
+  payload      Json      @default("{}") // kind-specific structured fields (eligibility, requirements, drafts)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  decisionPoints AbStudentDecisionPoint[]
+
+  @@index([tenantId, kind, status])
+  @@schema("plugin_agentbook_student")
+}
+
+model AbStudentDecisionPoint {
+  id             String    @id @default(uuid())
+  opportunityId  String
+  opportunity    AbStudentOpportunity @relation(fields: [opportunityId], references: [id], onDelete: Cascade)
+  sequenceOrder  Int
+  kind           String    // approval | key_input
+  prompt         String
+  options        Json?
+  response       Json?
+  respondedAt    DateTime?
+  blocksProgress Boolean   @default(true)
+
+  @@unique([opportunityId, sequenceOrder])
+  @@index([opportunityId])
+  @@schema("plugin_agentbook_student")
+}
+
+// Opt-in roommate-matching profile. PRIVACY BY DESIGN:
+//  - One per tenant; does NOT exist until the student explicitly opts in.
+//  - `active` gates discoverability: a profile is only visible to other
+//    students' match queries while active=true. Deactivating (or deleting)
+//    removes it from every pool immediately.
+//  - Deliberately stores NO contact information and NO precise address — only
+//    a self-chosen display handle, a coarse area, a budget range, a move-in
+//    month, and lifestyle tags. AgentBook shows compatibility only; it never
+//    messages anyone or exchanges contact details on the student's behalf.
+//  - `consentAt` records the explicit consent timestamp captured at opt-in.
+model AbRoommateProfile {
+  id             String    @id @default(uuid())
+  tenantId       String    @unique
+  active         Boolean   @default(false)
+  displayHandle  String    // self-chosen, not a legal name
+  jurisdiction   String    // us | ca — coarse match scope
+  area           String    // city / neighbourhood / campus, free text
+  budgetMinCents Int?
+  budgetMaxCents Int?
+  moveInMonth    String?   // e.g. "2026-09"
+  lifestyle      Json      @default("[]") // string tags: ["non-smoker","quiet",...]
+  bio            String?   // short free-text intro (no contact info)
+  consentAt      DateTime? // explicit opt-in consent timestamp
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@index([active, jurisdiction])
+  @@schema("plugin_agentbook_student")
 }

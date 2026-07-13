@@ -1,0 +1,52 @@
+{
+  "$schema": "https://plugins.naap.io/schema/plugin.json",
+  "name": "agentbook-career",
+  "displayName": "Career & Co-op Copilot",
+  "version": "1.0.0",
+  "description": "Finds student jobs and co-op placements you're eligible for with grounded, source-cited search, then helps you track and prepare each application. Work-authorization aware for international students. It consults; you decide and apply.",
+  "isCore": false,
+  "author": {
+    "name": "A3P Team",
+    "email": "team@a3p.io",
+    "url": "https://a3p.io"
+  },
+  "repository": "https://github.com/a3p/plugins/tree/main/agentbook-career",
+  "license": "MIT",
+  "keywords": ["student", "jobs", "co-op", "internship", "career"],
+  "category": "finance",
+
+  "shell": {
+    "minVersion": "0.1.0",
+    "maxVersion": "2.x"
+  },
+
+  "frontend": {
+    "entry": "./frontend/dist/production/agentbook-career.js",
+    "devPort": 3057,
+    "routes": [
+      "/plugins/agentbook-career",
+      "/plugins/agentbook-career/*"
+    ],
+    "navigation": {
+      "label": "Jobs & Co-op",
+      "icon": "Briefcase",
+      "order": 31,
+      "group": "finance"
+    }
+  },
+
+  "integrations": {
+    "required": [],
+    "optional": []
+  },
+
+  "permissions": {
+    "shell": ["navigation", "notifications", "theme"],
+    "apis": [],
+    "external": []
+  },
+
+  "config": {
+    "schema": {}
+  }
+}

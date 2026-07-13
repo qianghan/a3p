@@ -1,0 +1,62 @@
+<svg viewBox="0 0 640 460" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Settings, Personal Profile tab, showing fields for name, date of birth, address, marital status, dependents, employment, and estimated income, plus a save button">
+  <rect width="640" height="460" fill="#f4ecd9"/>
+
+  <!-- tab strip -->
+  <rect x="24" y="20" width="592" height="40" rx="10" fill="#efe4cb"/>
+  <text x="44" y="45" font-family="-apple-system,Helvetica Neue,Arial,sans-serif" font-size="13" fill="#7a7163">Business Profile</text>
+  <rect x="176" y="24" width="118" height="32" rx="8" fill="#149578"/>
+  <text x="235" y="45" text-anchor="middle" font-family="-apple-system,Helvetica Neue,Arial,sans-serif" font-size="13" font-weight="600" fill="#ffffff">Personal Profile</text>
+  <text x="330" y="45" font-family="-apple-system,Helvetica Neue,Arial,sans-serif" font-size="13" fill="#7a7163">Billing</text>
+
+  <!-- heading -->
+  <text x="24" y="92" font-family="-apple-system,Helvetica Neue,Arial,sans-serif" font-size="14" font-weight="600" fill="#3d3627">Your personal profile</text>
+  <text x="24" y="110" font-family="-apple-system,Helvetica Neue,Arial,sans-serif" font-size="12" fill="#7a7163">The more your agent knows about you, the more useful its advice can be.</text>
+
+  <!-- name row -->
+  <g font-family="-apple-system,Helvetica Neue,Arial,sans-serif">
+    <text x="24" y="136" font-size="11" fill="#7a7163">First name</text>
+    <rect x="24" y="142" width="278" height="30" rx="7" fill="#ffffff" stroke="#d6cdb6"/>
+    <text x="36" y="161" font-size="13" fill="#3d3627">Maya</text>
+
+    <text x="322" y="136" font-size="11" fill="#7a7163">Last name</text>
+    <rect x="322" y="142" width="294" height="30" rx="7" fill="#ffffff" stroke="#d6cdb6"/>
+    <text x="334" y="161" font-size="13" fill="#3d3627">Chen</text>
+
+    <!-- DOB / occupation -->
+    <text x="24" y="192" font-size="11" fill="#7a7163">Date of birth</text>
+    <rect x="24" y="198" width="278" height="30" rx="7" fill="#ffffff" stroke="#d6cdb6"/>
+    <text x="36" y="217" font-size="13" fill="#3d3627">1990-06-15</text>
+
+    <text x="322" y="192" font-size="11" fill="#7a7163">Occupation</text>
+    <rect x="322" y="198" width="294" height="30" rx="7" fill="#ffffff" stroke="#d6cdb6"/>
+    <text x="334" y="217" font-size="13" fill="#3d3627">Consultant</text>
+
+    <!-- address -->
+    <text x="24" y="248" font-size="11" fill="#7a7163">Address</text>
+    <rect x="24" y="254" width="592" height="30" rx="7" fill="#ffffff" stroke="#d6cdb6"/>
+    <text x="36" y="273" font-size="13" fill="#a99f8c">Street address</text>
+    <rect x="24" y="292" width="188" height="26" rx="6" fill="#ffffff" stroke="#d6cdb6"/>
+    <text x="34" y="309" font-size="12" fill="#3d3627">Toronto</text>
+    <rect x="226" y="292" width="188" height="26" rx="6" fill="#ffffff" stroke="#d6cdb6"/>
+    <text x="236" y="309" font-size="12" fill="#3d3627">ON</text>
+    <rect x="428" y="292" width="188" height="26" rx="6" fill="#ffffff" stroke="#d6cdb6"/>
+    <text x="438" y="309" font-size="12" fill="#a99f8c">Postal code</text>
+
+    <!-- marital / dependents / employment / income -->
+    <text x="24" y="346" font-size="11" fill="#7a7163">Marital status</text>
+    <rect x="24" y="352" width="278" height="30" rx="7" fill="#ffffff" stroke="#d6cdb6"/>
+    <text x="36" y="371" font-size="13" fill="#3d3627">Married, filing jointly ▾</text>
+
+    <text x="322" y="346" font-size="11" fill="#7a7163">Dependents</text>
+    <rect x="322" y="352" width="130" height="30" rx="7" fill="#ffffff" stroke="#d6cdb6"/>
+    <text x="334" y="371" font-size="13" fill="#3d3627">2</text>
+
+    <text x="470" y="346" font-size="11" fill="#7a7163">Employment</text>
+    <rect x="470" y="352" width="146" height="30" rx="7" fill="#ffffff" stroke="#d6cdb6"/>
+    <text x="480" y="371" font-size="12" fill="#3d3627">Self-employed ▾</text>
+  </g>
+
+  <!-- save button -->
+  <rect x="24" y="404" width="140" height="34" rx="8" fill="#149578"/>
+  <text x="94" y="425" text-anchor="middle" font-family="-apple-system,Helvetica Neue,Arial,sans-serif" font-size="13" font-weight="600" fill="#ffffff">Save profile</text>
+</svg>

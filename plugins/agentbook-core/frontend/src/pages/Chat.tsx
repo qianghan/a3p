@@ -183,6 +183,12 @@ export const ChatPage: React.FC = () => {
   const [activeThreadId, setActiveThreadId] = useState<string | null>(null);
   const [viewingChannel, setViewingChannel] = useState<string | null>(null);
   const [panelOpen, setPanelOpen] = useState(true);
+  // Persona-aware empty-state prompts: students otherwise have no visible
+  // entry point to the scholarship-taxability / international-student skills,
+  // which only fire on chat triggers. Fetched best-effort; falls back to the
+  // generic prompts if unavailable.
+  const [businessType, setBusinessType] = useState<string | null>(null);
+  const [visaStatus, setVisaStatus] = useState<string | null>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -197,6 +203,20 @@ export const ChatPage: React.FC = () => {
   const planInProgress = Boolean(
     agentEventKinds['agent.step_started'] && !agentEventKinds['agent.plan_completed'],
   );
+
+  // Load persona (best-effort) so the empty state can surface student prompts.
+  useEffect(() => {
+    let cancelled = false;
+    fetch(`${API}/tenant-config`, { credentials: 'include' })
+      .then((r) => r.json())
+      .then((j) => {
+        if (cancelled) return;
+        setBusinessType(j?.data?.businessType ?? null);
+        setVisaStatus(j?.data?.visaStatus ?? null);
+      })
+      .catch(() => { /* fall back to generic prompts */ });
+    return () => { cancelled = true; };
+  }, []);
 
   // Load threads + web history on mount.
   useEffect(() => {
@@ -419,10 +439,30 @@ export const ChatPage: React.FC = () => {
           {!historyLoading && messages.length === 0 && !loading && (
             <div className="text-center text-muted-foreground text-sm py-12 max-w-md mx-auto">
               <MessageSquare className="w-8 h-8 mx-auto mb-3 text-muted-foreground/50" />
-              <p className="font-medium mb-1">Hi! Try:</p>
-              <p className="text-xs">&ldquo;give me a daily briefing&rdquo;</p>
-              <p className="text-xs">&ldquo;expense summary&rdquo;</p>
-              <p className="text-xs">&ldquo;log $5 coffee&rdquo;</p>
+              <p className="font-medium mb-3">
+                {businessType === 'student' ? 'Hi! As a student, try:' : 'Hi! Try:'}
+              </p>
+              <div className="flex flex-col items-center gap-2">
+                {(businessType === 'student'
+                  ? [
+                      'Is my scholarship taxable?',
+                      'Which education credits can I claim?',
+                      ...(visaStatus === 'international'
+                        ? ['Am I a nonresident alien for taxes?']
+                        : ['log $40 textbooks']),
+                    ]
+                  : ['give me a daily briefing', 'expense summary', 'log $5 coffee']
+                ).map((prompt) => (
+                  <button
+                    key={prompt}
+                    type="button"
+                    onClick={() => void submit(prompt)}
+                    className="text-xs px-3 py-1.5 rounded-full border border-border bg-muted hover:bg-muted/70 hover:text-foreground transition-colors"
+                  >
+                    &ldquo;{prompt}&rdquo;
+                  </button>
+                ))}
+              </div>
             </div>
           )}
 

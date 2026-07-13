@@ -6,6 +6,9 @@ import {
   AlertCircle, ExternalLink, Search, ChevronDown, ChevronUp,
   Copy, Check, Gift, Users,
 } from 'lucide-react';
+import { JURISDICTION_OPTIONS, defaultCurrencyFor } from '@/lib/jurisdiction-currency';
+
+const CURRENCY_OPTIONS = ['USD', 'CAD', 'GBP', 'AUD', 'EUR', 'JPY', 'CHF', 'MXN', 'BRL', 'INR'];
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -17,11 +20,62 @@ interface TenantConfig {
   logoUrl: string | null;
   brandColor: string;
   defaultPaymentTerms: string | null;
-  defaultCurrency: string | null;
   invoiceFooterNote: string | null;
   invoiceThankYouMessage: string | null;
   accountingBasis?: string;
+  businessType?: string;
+  taxEntityType?: string | null;
+  jurisdiction?: string;
+  region?: string;
+  currency?: string;
+  visaStatus?: string | null;
+  homeCountry?: string | null;
+  university?: string | null;
+  major?: string | null;
+  degree?: string | null;
+  graduationYear?: number | null;
+  businessDescription?: string | null;
+  businessTags?: string[];
 }
+
+// Matches the onboarding chat's BUSINESS_TYPES so a user can declare (or
+// switch to) any persona after signup — previously businessType was only
+// settable during onboarding, leaving students with no way to self-identify.
+const BUSINESS_TYPE_OPTIONS = [
+  { value: 'freelancer', label: 'Freelancer' },
+  { value: 'sole_proprietor', label: 'Sole proprietor' },
+  { value: 'consultant', label: 'Consultant' },
+  { value: 'contractor', label: 'Contractor' },
+  { value: 'agency', label: 'Agency' },
+  { value: 'startup', label: 'Startup' },
+  { value: 'student', label: 'Student' },
+];
+
+const DEGREE_OPTIONS = [
+  { value: '', label: 'Select…' },
+  { value: "Associate's", label: "Associate's" },
+  { value: "Bachelor's", label: "Bachelor's" },
+  { value: "Master's", label: "Master's" },
+  { value: 'PhD', label: 'PhD' },
+  { value: 'Other', label: 'Other' },
+];
+
+// ISO alpha-2 values so they match the treaty lookup in the
+// international-student-tax-help skill (which recognises cn/in specifically);
+// everything else still gets the skill's generic "check the treaty table"
+// guidance. A select (vs a free-text field) keeps the data clean.
+const HOME_COUNTRY_OPTIONS = [
+  { value: '', label: 'Select…' },
+  { value: 'cn', label: 'China' },
+  { value: 'in', label: 'India' },
+  { value: 'kr', label: 'South Korea' },
+  { value: 'ca', label: 'Canada' },
+  { value: 'ng', label: 'Nigeria' },
+  { value: 'vn', label: 'Vietnam' },
+  { value: 'mx', label: 'Mexico' },
+  { value: 'br', label: 'Brazil' },
+  { value: 'other', label: 'Other' },
+];
 
 interface BotStatus {
   configured: boolean;
@@ -65,8 +119,6 @@ const PAYMENT_TERMS = [
   { value: 'net-60', label: 'Net 60' },
   { value: 'due-on-receipt', label: 'Due on receipt' },
 ];
-
-const CURRENCIES = ['USD', 'EUR', 'GBP', 'CAD', 'AUD', 'JPY', 'CHF', 'MXN', 'BRL', 'INR'];
 
 const CHANNELS = ['all', 'web', 'telegram', 'api'] as const;
 type Channel = typeof CHANNELS[number];
@@ -119,7 +171,10 @@ async function saveConfig(patch: Partial<TenantConfig>): Promise<void> {
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify(patch),
   });
-  if (!r.ok) throw new Error(`Save failed: ${r.status}`);
+  if (!r.ok) {
+    const d = await r.json().catch(() => null) as { error?: string } | null;
+    throw new Error(d?.error || `Save failed: ${r.status}`);
+  }
 }
 
 async function uploadLogo(file: File): Promise<string> {
@@ -661,10 +716,11 @@ function ChatHistoryTab(): React.ReactElement {
 
 // ── Main panel ────────────────────────────────────────────────────────────────
 
-type SettingsTab = 'profile' | 'invoice' | 'chatbots' | 'history' | 'billing' | 'referrals' | 'sharing' | 'notifications';
+type SettingsTab = 'profile' | 'personal' | 'invoice' | 'chatbots' | 'history' | 'billing' | 'referrals' | 'sharing' | 'notifications';
 
 const TABS: { key: SettingsTab; label: string }[] = [
   { key: 'profile',   label: 'Business Profile' },
+  { key: 'personal',  label: 'Personal Profile' },
   { key: 'invoice',   label: 'Invoice Defaults' },
   { key: 'billing',   label: 'Billing' },
   { key: 'referrals', label: 'Referrals' },
@@ -1056,6 +1112,279 @@ function ParentShareTab(): React.ReactElement {
   );
 }
 
+// ── Personal Profile ─────────────────────────────────────────────────────────
+//
+// Distinct from the Business Profile tab (TenantConfig): this is per-user
+// personal context — name, DOB, address, marital status, dependents,
+// employment, self-reported income — that the agent brain reads to give
+// richer, contextual answers instead of answering generically (see
+// personal-profile-context.ts in the agentbook-core backend). Deliberately
+// excludes government tax ID (SSN/SIN).
+
+interface PersonalProfile {
+  firstName: string | null;
+  lastName: string | null;
+  dateOfBirth: string | null;
+  addressLine1: string | null;
+  addressLine2: string | null;
+  city: string | null;
+  state: string | null;
+  postalCode: string | null;
+  country: string | null;
+  maritalStatus: string | null;
+  dependentsCount: number | null;
+  employmentType: string | null;
+  occupation: string | null;
+  estimatedAnnualIncomeCents: number | null;
+  isComplete: boolean;
+}
+
+const MARITAL_STATUS_OPTIONS = [
+  { value: '', label: 'Prefer not to say' },
+  { value: 'single', label: 'Single' },
+  { value: 'married_joint', label: 'Married, filing jointly' },
+  { value: 'married_separate', label: 'Married, filing separately' },
+  { value: 'head_of_household', label: 'Head of household' },
+  { value: 'widowed', label: 'Widowed' },
+];
+
+const EMPLOYMENT_TYPE_OPTIONS = [
+  { value: '', label: 'Prefer not to say' },
+  { value: 'w2', label: 'Employed (W-2)' },
+  { value: 'self_employed', label: 'Self-employed' },
+  { value: 'mixed', label: 'Both employed & self-employed' },
+  { value: 'unemployed', label: 'Not currently working' },
+  { value: 'retired', label: 'Retired' },
+];
+
+function PersonalProfileTab(): React.ReactElement {
+  const [profile, setProfile] = useState<PersonalProfile | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
+  const [uploadYear, setUploadYear] = useState(String(new Date().getFullYear() - 1));
+  const [uploadJurisdiction, setUploadJurisdiction] = useState('us');
+  const [uploading, setUploading] = useState(false);
+  const uploadFileRef = useRef<HTMLInputElement>(null);
+
+  const fetchProfile = useCallback(async () => {
+    try {
+      const res = await fetch(`${API}/personal-profile`);
+      const d = await res.json();
+      if (d.success) setProfile(d.data);
+      else setError(d.error || 'Could not load your profile');
+    } catch {
+      setError('Could not load your profile');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { void fetchProfile(); }, [fetchProfile]);
+
+  const set = (patch: Partial<PersonalProfile>) => setProfile((p) => (p ? { ...p, ...patch } : p));
+
+  const handleSave = async (): Promise<void> => {
+    if (!profile) return;
+    setSaving(true); setError(null); setSuccess(null);
+    try {
+      const res = await fetch(`${API}/personal-profile`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          firstName: profile.firstName,
+          lastName: profile.lastName,
+          dateOfBirth: profile.dateOfBirth,
+          addressLine1: profile.addressLine1,
+          addressLine2: profile.addressLine2,
+          city: profile.city,
+          state: profile.state,
+          postalCode: profile.postalCode,
+          country: profile.country,
+          maritalStatus: profile.maritalStatus || null,
+          dependentsCount: profile.dependentsCount,
+          employmentType: profile.employmentType || null,
+          occupation: profile.occupation,
+          estimatedAnnualIncomeCents: profile.estimatedAnnualIncomeCents,
+        }),
+      });
+      const d = await res.json();
+      if (d.success) {
+        setProfile(d.data);
+        setSuccess('Profile saved.');
+      } else {
+        setError(d.error || 'Save failed');
+      }
+    } catch {
+      setError('Save failed. Please try again.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>): Promise<void> => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploading(true); setError(null); setSuccess(null);
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      fd.append('taxYear', uploadYear);
+      fd.append('jurisdiction', uploadJurisdiction);
+      const res = await fetch('/api/v1/agentbook-tax/past-filings', { method: 'POST', body: fd });
+      const d = await res.json();
+      if (d.success) {
+        setSuccess(`${uploadYear} return uploaded — we'll extract the details in the background.`);
+      } else {
+        setError(d.error || 'Upload failed');
+      }
+    } catch {
+      setError('Upload failed. Please try again.');
+    } finally {
+      setUploading(false);
+      if (uploadFileRef.current) uploadFileRef.current.value = '';
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center gap-2 py-6 text-muted-foreground">
+        <Loader2 className="h-4 w-4 animate-spin" /><span className="text-sm">Loading…</span>
+      </div>
+    );
+  }
+  if (!profile) {
+    return <div className="py-8 text-center text-sm text-destructive">{error || 'Could not load your profile'}</div>;
+  }
+
+  const inputCls = 'mt-1 w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-primary/30';
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <h3 className="text-sm font-semibold text-foreground mb-1">Your personal profile</h3>
+        <p className="text-sm text-muted-foreground">
+          The more your agent knows about you, the more useful its tax and financial advice can be.
+          This stays private to your account.
+        </p>
+      </div>
+
+      {error && (
+        <div className="flex items-start gap-2 rounded-lg border border-destructive/20 bg-destructive/10 p-3 text-sm text-destructive">
+          <XCircle className="mt-0.5 h-4 w-4 shrink-0" />{error}
+        </div>
+      )}
+      {success && (
+        <div className="flex items-start gap-2 rounded-lg border border-primary/20 bg-primary/10 p-3 text-sm text-foreground">
+          <CheckCircle className="mt-0.5 h-4 w-4 shrink-0 text-primary" />{success}
+        </div>
+      )}
+
+      <div className="grid gap-4 sm:grid-cols-2">
+        <div>
+          <label className="block text-sm font-medium text-foreground">First name</label>
+          <input type="text" value={profile.firstName ?? ''} onChange={(e) => set({ firstName: e.target.value || null })} className={inputCls} />
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-foreground">Last name</label>
+          <input type="text" value={profile.lastName ?? ''} onChange={(e) => set({ lastName: e.target.value || null })} className={inputCls} />
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-foreground">Date of birth</label>
+          <input type="date" value={profile.dateOfBirth ? profile.dateOfBirth.slice(0, 10) : ''}
+            onChange={(e) => set({ dateOfBirth: e.target.value || null })} className={inputCls} />
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-foreground">Occupation</label>
+          <input type="text" value={profile.occupation ?? ''} onChange={(e) => set({ occupation: e.target.value || null })} className={inputCls} placeholder="Graphic designer" />
+        </div>
+      </div>
+
+      <div>
+        <label className="block text-sm font-medium text-foreground">Address</label>
+        <input type="text" value={profile.addressLine1 ?? ''} onChange={(e) => set({ addressLine1: e.target.value || null })}
+          className={inputCls} placeholder="Street address" />
+        <div className="mt-2 grid gap-2 sm:grid-cols-3">
+          <input type="text" value={profile.city ?? ''} onChange={(e) => set({ city: e.target.value || null })}
+            className={inputCls.replace('mt-1 ', '')} placeholder="City" />
+          <input type="text" value={profile.state ?? ''} onChange={(e) => set({ state: e.target.value || null })}
+            className={inputCls.replace('mt-1 ', '')} placeholder="State / Province" />
+          <input type="text" value={profile.postalCode ?? ''} onChange={(e) => set({ postalCode: e.target.value || null })}
+            className={inputCls.replace('mt-1 ', '')} placeholder="Postal code" />
+        </div>
+        <input type="text" value={profile.country ?? ''} onChange={(e) => set({ country: e.target.value || null })}
+          className={`${inputCls} mt-2`} placeholder="Country" />
+      </div>
+
+      <div className="grid gap-4 sm:grid-cols-2">
+        <div>
+          <label className="block text-sm font-medium text-foreground">Marital status</label>
+          <select value={profile.maritalStatus ?? ''} onChange={(e) => set({ maritalStatus: e.target.value || null })} className={inputCls}>
+            {MARITAL_STATUS_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+          </select>
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-foreground">Dependents</label>
+          <input type="number" min={0} value={profile.dependentsCount ?? ''}
+            onChange={(e) => set({ dependentsCount: e.target.value === '' ? null : Math.max(0, parseInt(e.target.value, 10) || 0) })}
+            className={inputCls} placeholder="0" />
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-foreground">Employment</label>
+          <select value={profile.employmentType ?? ''} onChange={(e) => set({ employmentType: e.target.value || null })} className={inputCls}>
+            {EMPLOYMENT_TYPE_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+          </select>
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-foreground">Estimated annual income</label>
+          <div className="relative mt-1">
+            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">$</span>
+            <input type="number" min={0} step={1000}
+              value={profile.estimatedAnnualIncomeCents != null ? Math.round(profile.estimatedAnnualIncomeCents / 100) : ''}
+              onChange={(e) => set({ estimatedAnnualIncomeCents: e.target.value === '' ? null : Math.max(0, parseInt(e.target.value, 10) || 0) * 100 })}
+              className="w-full rounded-lg border border-border bg-background py-2 pl-7 pr-3 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-primary/30"
+              placeholder="75,000" />
+          </div>
+        </div>
+      </div>
+
+      <button type="button" onClick={() => void handleSave()} disabled={saving}
+        className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-50">
+        {saving ? 'Saving…' : 'Save profile'}
+      </button>
+
+      <div className="rounded-xl border border-border bg-card p-4">
+        <h4 className="text-sm font-semibold text-foreground mb-1">Upload past tax returns</h4>
+        <p className="text-xs text-muted-foreground mb-3">
+          Add your last 1-2 years of returns (PDF) so your agent has real history to work from —
+          the same context it already uses to answer tax questions in chat.
+        </p>
+        <div className="flex flex-wrap items-center gap-2">
+          <select value={uploadYear} onChange={(e) => setUploadYear(e.target.value)}
+            className="rounded-lg border border-border bg-background px-2 py-1.5 text-sm text-foreground">
+            {[0, 1, 2].map((back) => {
+              const year = String(new Date().getFullYear() - 1 - back);
+              return <option key={year} value={year}>{year}</option>;
+            })}
+          </select>
+          <select value={uploadJurisdiction} onChange={(e) => setUploadJurisdiction(e.target.value)}
+            className="rounded-lg border border-border bg-background px-2 py-1.5 text-sm text-foreground">
+            <option value="us">United States</option>
+            <option value="ca">Canada</option>
+          </select>
+          <input ref={uploadFileRef} type="file" accept="application/pdf" className="hidden" onChange={(e) => void handleUpload(e)} />
+          <button type="button" onClick={() => uploadFileRef.current?.click()} disabled={uploading}
+            className="flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-sm text-muted-foreground hover:bg-muted disabled:opacity-50">
+            {uploading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
+            {uploading ? 'Uploading…' : 'Choose PDF'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 interface NotificationPreference {
   category: string;
   locked: boolean;
@@ -1071,6 +1400,9 @@ const NOTIFICATION_CATEGORY_LABELS: Record<string, { label: string; description:
   tax_deadline: { label: 'Tax deadlines', description: 'Upcoming filing dates — always on' },
   invoice_due: { label: 'Invoice reminders', description: 'Your own invoices approaching their due date — always on' },
   expense_review: { label: 'Expense review', description: "Expenses that need your attention — always on" },
+  budget_alert: { label: 'Budget alerts', description: "When you cross a budget threshold you've set" },
+  net_worth_update: { label: 'Net worth updates', description: 'When your net worth changes notably month over month' },
+  savings_warning: { label: 'Savings warnings', description: "When you've spent more than you earned this month" },
 };
 
 function NotificationsPreferencesTab(): React.ReactElement {
@@ -1209,13 +1541,25 @@ export function AgentBookSettingsPanel({ initialTab }: { initialTab?: string }):
 
   const handleSave = async (): Promise<void> => {
     if (!form) return;
+    if (form.businessType === 'student') {
+      const missing = [
+        !form.university && 'university',
+        !form.major && 'major',
+        !form.degree && 'degree',
+        !form.graduationYear && 'graduationYear',
+      ].filter((f): f is string => !!f);
+      if (missing.length > 0) {
+        setErr(`Student business type requires: ${missing.join(', ')}`);
+        return;
+      }
+    }
     setSaving(true);
     setErr(null);
     try {
       await saveConfig(form);
       showToast('Settings saved');
     } catch (e2: unknown) {
-      setErr(String(e2));
+      setErr(e2 instanceof Error ? e2.message : String(e2));
     } finally {
       setSaving(false);
     }
@@ -1260,65 +1604,242 @@ export function AgentBookSettingsPanel({ initialTab }: { initialTab?: string }):
 
       {tab === 'profile' && (
         <div className="space-y-5">
-          <ProfilePreview
-            companyName={form.companyName ?? ''}
-            logoUrl={form.logoUrl}
-            brandColor={form.brandColor}
-            pendingLogoUrl={pendingLogoUrl}
-          />
+          {form.businessType !== 'student' && (
+            <ProfilePreview
+              companyName={form.companyName ?? ''}
+              logoUrl={form.logoUrl}
+              brandColor={form.brandColor}
+              pendingLogoUrl={pendingLogoUrl}
+            />
+          )}
           <div>
-            <label className="block text-sm font-medium text-foreground">Company name</label>
-            <input type="text" value={form.companyName ?? ''} onChange={(e) => set({ companyName: e.target.value || null })}
-              className={inputCls} placeholder="Acme Corp" />
+            <label className="block text-sm font-medium text-foreground">Business type</label>
+            <select
+              value={form.businessType ?? 'freelancer'}
+              onChange={(e) => {
+                const bt = e.target.value;
+                // Clear student-only fields when switching away, so a former
+                // student isn't left flagged as an international student (the
+                // tax skill reads visaStatus/homeCountry regardless of type).
+                set(bt === 'student' ? { businessType: bt } : { businessType: bt, visaStatus: null, homeCountry: null });
+              }}
+              className={inputCls}
+            >
+              {BUSINESS_TYPE_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+            </select>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Tailors your categories, tax guidance, and the agent&apos;s tone, and which plugins you see.
+              Pick <strong>Student</strong> to unlock scholarship, career &amp; housing help, or{' '}
+              <strong>Startup</strong> for startup tax benefits.
+            </p>
           </div>
-          <div>
-            <label className="block text-sm font-medium text-foreground">Email</label>
-            <input type="email" value={form.companyEmail ?? ''} onChange={(e) => set({ companyEmail: e.target.value || null })}
-              className={inputCls} placeholder="billing@acme.com" />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-foreground">Phone</label>
-            <input type="tel" value={form.companyPhone ?? ''} onChange={(e) => set({ companyPhone: e.target.value || null })}
-              className={inputCls} placeholder="+1 555 000 0000" />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-foreground">Address</label>
-            <textarea value={form.companyAddress ?? ''} onChange={(e) => set({ companyAddress: e.target.value || null })}
-              rows={3} className={inputCls} placeholder="123 Main St, Suite 100" />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-foreground">Logo</label>
-            <div className="mt-1 flex items-center gap-3">
-              {(pendingLogoUrl ?? form.logoUrl) ? (
-                <img src={pendingLogoUrl ?? form.logoUrl ?? ''} alt="logo" className="h-12 w-12 rounded border object-contain" />
-              ) : (
-                <div className="flex h-12 w-12 items-center justify-center rounded border border-border bg-muted text-xs text-muted-foreground">No logo</div>
-              )}
-              <input ref={fileRef} type="file" accept="image/png,image/jpeg,image/svg+xml,image/webp" className="hidden" onChange={handleLogoChange} />
-              <button type="button" onClick={() => fileRef.current?.click()} disabled={uploading}
-                className="rounded-lg border border-border px-3 py-1.5 text-sm text-muted-foreground hover:bg-muted disabled:opacity-50">
-                {uploading ? 'Uploading…' : 'Choose file'}
-              </button>
-              <span className="text-xs text-muted-foreground">PNG, JPEG, SVG, WebP · max 2MB</span>
-            </div>
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-foreground">Accent colour</label>
-            <div className="mt-1 flex items-center gap-3">
-              <input type="color" value={form.brandColor} onChange={(e) => set({ brandColor: e.target.value })}
-                className="h-9 w-12 cursor-pointer rounded border border-border" />
-              <input
-                type="text"
-                value={form.brandColor}
+          <div className="rounded-lg border border-border bg-muted/30 p-4 space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-foreground">Country</label>
+              <select
+                value={form.jurisdiction ?? 'us'}
                 onChange={(e) => {
-                  if (/^#[0-9a-fA-F]{0,6}$/.test(e.target.value)) set({ brandColor: e.target.value });
+                  const jurisdiction = e.target.value;
+                  set({ jurisdiction, currency: defaultCurrencyFor(jurisdiction) });
                 }}
-                className="w-28 rounded-lg border border-border px-3 py-1.5 font-mono text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-primary/30"
-              />
+                className={inputCls}
+              >
+                {JURISDICTION_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+              </select>
+              <p className="mt-1 text-xs text-muted-foreground">
+                {form.businessType === 'student'
+                  ? "Where you study — scholarship and co-op/internship search is localized to this country, so an incorrect setting here is the most common reason results look off."
+                  : 'Drives tax guidance, jurisdiction-specific documents, and your default currency. Configured here only — Tax Dashboard reflects this setting.'}
+              </p>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-foreground">
+                {form.businessType === 'student' ? 'State / Province' : 'State / Province / Territory'}{' '}
+                <span className="font-normal text-muted-foreground">(optional)</span>
+              </label>
+              <input type="text" value={form.region ?? ''} onChange={(e) => set({ region: e.target.value || undefined })}
+                className={inputCls} placeholder="ON" />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-foreground">Currency</label>
+              <select
+                value={form.currency ?? defaultCurrencyFor(form.jurisdiction)}
+                onChange={(e) => set({ currency: e.target.value })}
+                className={inputCls}
+              >
+                {CURRENCY_OPTIONS.map((c) => <option key={c} value={c}>{c}</option>)}
+              </select>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Defaults from your country, but you can override it (e.g. invoicing overseas clients).
+              </p>
             </div>
           </div>
+          {form.businessType === 'student' ? (
+            <div className="rounded-lg border border-border bg-muted/30 p-4 space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-foreground">Are you an international student?</label>
+                <select
+                  value={form.visaStatus ?? 'domestic'}
+                  onChange={(e) => set({ visaStatus: e.target.value })}
+                  className={inputCls}
+                >
+                  <option value="domestic">No — domestic student</option>
+                  <option value="international">Yes — studying on a visa (F-1/J-1 or study permit)</option>
+                </select>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Lets the agent explain nonresident-alien status, tax treaties, and 1042-S for you.
+                </p>
+              </div>
+              {form.visaStatus === 'international' && (
+                <div>
+                  <label className="block text-sm font-medium text-foreground">Home country</label>
+                  <select
+                    value={form.homeCountry ?? ''}
+                    onChange={(e) => set({ homeCountry: e.target.value || null })}
+                    className={inputCls}
+                  >
+                    {HOME_COUNTRY_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                  </select>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Helps flag tax-treaty benefits that may apply to you.
+                  </p>
+                </div>
+              )}
+              <div>
+                <label className="block text-sm font-medium text-foreground">
+                  University <span className="text-destructive">*</span>
+                </label>
+                <input type="text" required value={form.university ?? ''} onChange={(e) => set({ university: e.target.value || null })}
+                  className={inputCls} placeholder="University of Toronto" />
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Required — used to match scholarship and co-op/internship opportunities to you.
+                </p>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-foreground">
+                  Major <span className="text-destructive">*</span>
+                </label>
+                <input type="text" required value={form.major ?? ''} onChange={(e) => set({ major: e.target.value || null })}
+                  className={inputCls} placeholder="Computer Science" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-foreground">
+                  Degree <span className="text-destructive">*</span>
+                </label>
+                <select required value={form.degree ?? ''} onChange={(e) => set({ degree: e.target.value || null })} className={inputCls}>
+                  {DEGREE_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-foreground">
+                  Graduation year <span className="text-destructive">*</span>
+                </label>
+                <input
+                  type="number"
+                  required
+                  value={form.graduationYear ?? ''}
+                  onChange={(e) => set({ graduationYear: e.target.value ? parseInt(e.target.value, 10) : null })}
+                  className={inputCls}
+                  placeholder="2027"
+                  min={1950}
+                  max={2100}
+                />
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Required — co-op/internship timing depends on when you graduate.
+                </p>
+              </div>
+            </div>
+          ) : (
+            <>
+              <div>
+                <label className="block text-sm font-medium text-foreground">Company name</label>
+                <input type="text" value={form.companyName ?? ''} onChange={(e) => set({ companyName: e.target.value || null })}
+                  className={inputCls} placeholder="Acme Corp" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-foreground">Email</label>
+                <input type="email" value={form.companyEmail ?? ''} onChange={(e) => set({ companyEmail: e.target.value || null })}
+                  className={inputCls} placeholder="billing@acme.com" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-foreground">Phone</label>
+                <input type="tel" value={form.companyPhone ?? ''} onChange={(e) => set({ companyPhone: e.target.value || null })}
+                  className={inputCls} placeholder="+1 555 000 0000" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-foreground">Address</label>
+                <textarea value={form.companyAddress ?? ''} onChange={(e) => set({ companyAddress: e.target.value || null })}
+                  rows={3} className={inputCls} placeholder="123 Main St, Suite 100" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-foreground">
+                  Description <span className="font-normal text-muted-foreground">(what does your business do?)</span>
+                </label>
+                <textarea
+                  value={form.businessDescription ?? ''}
+                  onChange={(e) => set({ businessDescription: e.target.value || null })}
+                  rows={3}
+                  maxLength={500}
+                  className={inputCls}
+                  placeholder="e.g. We build and sell a SaaS analytics dashboard for e-commerce merchants."
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-foreground">
+                  Tags <span className="font-normal text-muted-foreground">(comma-separated, helps classify your business)</span>
+                </label>
+                <input
+                  type="text"
+                  value={(form.businessTags ?? []).join(', ')}
+                  onChange={(e) =>
+                    set({
+                      businessTags: e.target.value
+                        .split(',')
+                        .map((t) => t.trim())
+                        .filter(Boolean),
+                    })
+                  }
+                  className={inputCls}
+                  placeholder="saas, e-commerce, b2b"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-foreground">Logo</label>
+                <div className="mt-1 flex items-center gap-3">
+                  {(pendingLogoUrl ?? form.logoUrl) ? (
+                    <img src={pendingLogoUrl ?? form.logoUrl ?? ''} alt="logo" className="h-12 w-12 rounded border object-contain" />
+                  ) : (
+                    <div className="flex h-12 w-12 items-center justify-center rounded border border-border bg-muted text-xs text-muted-foreground">No logo</div>
+                  )}
+                  <input ref={fileRef} type="file" accept="image/png,image/jpeg,image/svg+xml,image/webp" className="hidden" onChange={handleLogoChange} />
+                  <button type="button" onClick={() => fileRef.current?.click()} disabled={uploading}
+                    className="rounded-lg border border-border px-3 py-1.5 text-sm text-muted-foreground hover:bg-muted disabled:opacity-50">
+                    {uploading ? 'Uploading…' : 'Choose file'}
+                  </button>
+                  <span className="text-xs text-muted-foreground">PNG, JPEG, SVG, WebP · max 2MB</span>
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-foreground">Accent colour</label>
+                <div className="mt-1 flex items-center gap-3">
+                  <input type="color" value={form.brandColor} onChange={(e) => set({ brandColor: e.target.value })}
+                    className="h-9 w-12 cursor-pointer rounded border border-border" />
+                  <input
+                    type="text"
+                    value={form.brandColor}
+                    onChange={(e) => {
+                      if (/^#[0-9a-fA-F]{0,6}$/.test(e.target.value)) set({ brandColor: e.target.value });
+                    }}
+                    className="w-28 rounded-lg border border-border px-3 py-1.5 font-mono text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-primary/30"
+                  />
+                </div>
+              </div>
+            </>
+          )}
         </div>
       )}
+
+      {tab === 'personal' && <PersonalProfileTab />}
 
       {tab === 'invoice' && (
         <div className="space-y-5">
@@ -1339,13 +1860,6 @@ export function AgentBookSettingsPanel({ initialTab }: { initialTab?: string }):
             <select value={form.defaultPaymentTerms ?? 'net-30'} onChange={(e) => set({ defaultPaymentTerms: e.target.value })}
               className={inputCls}>
               {PAYMENT_TERMS.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
-            </select>
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-foreground">Default currency</label>
-            <select value={form.defaultCurrency ?? 'USD'} onChange={(e) => set({ defaultCurrency: e.target.value })}
-              className={inputCls}>
-              {CURRENCIES.map((c) => <option key={c} value={c}>{c}</option>)}
             </select>
           </div>
           <div>

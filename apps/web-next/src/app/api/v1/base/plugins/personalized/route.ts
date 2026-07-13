@@ -18,9 +18,19 @@ import {NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { validateSession } from '@/lib/api/auth';
 import { success, errors, getAuthToken } from '@/lib/api/response';
+import { normalizePluginName } from '@/lib/plugins/normalize';
+import { makeAddOnGate, type GateablePlugin } from '@/lib/plugins/addon-gate';
+import { makeBusinessTypeGate } from '@/lib/plugins/business-type-gate';
 
-const normalizePluginName = (name: string) =>
-  name.toLowerCase().replace(/[-_]/g, '');
+async function makeCombinedGate(
+  tenantId: string | null,
+): Promise<<T extends GateablePlugin>(plugins: T[]) => T[]> {
+  const [addOnGate, businessGate] = await Promise.all([
+    makeAddOnGate(tenantId),
+    makeBusinessTypeGate(tenantId),
+  ]);
+  return <T extends GateablePlugin>(plugins: T[]) => addOnGate(businessGate(plugins));
+}
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
   try {
@@ -66,8 +76,9 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     );
 
     if (!userIdOrAddress) {
-      // No user context, return global plugins
-      return success({ plugins: globalPlugins });
+      // No user context → owns no add-ons and no business type; hide gated plugins.
+      const gateAnon = await makeCombinedGate(null);
+      return success({ plugins: gateAnon(globalPlugins) });
     }
 
     // Look up user by ID first (for email auth), then by address (wallet auth)
@@ -77,9 +88,15 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     }
 
     if (!user) {
-      // User doesn't exist yet, return global plugins
-      return success({ plugins: globalPlugins });
+      // User doesn't exist yet → owns no add-ons and no business type; hide gated plugins.
+      const gateAnon = await makeCombinedGate(null);
+      return success({ plugins: gateAnon(globalPlugins) });
     }
+
+    // Combined add-on + business-type visibility gate for this user (identity
+    // no-op until a gated plugin exists — see makeAddOnGate/makeBusinessTypeGate).
+    // Applied to every user-facing plugin list below.
+    const gate = await makeCombinedGate(user.id);
 
     // If team context, get team-specific plugin preferences
     if (teamId) {
@@ -174,21 +191,21 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
             })
             .sort((a, b) => a.order - b.order);
 
-          return success({ plugins: personalizedPlugins, context: 'team', teamId });
+          return success({ plugins: gate(personalizedPlugins), context: "team", teamId });
         }
       } catch (teamErr) {
         console.warn('Error fetching team plugins:', teamErr);
         const coreGlobalPlugins = globalPlugins
           .filter(p => isCorePlugin(p.name))
           .map(plugin => ({ ...plugin, enabled: true, isCore: true }));
-        return success({ plugins: [...coreGlobalPlugins, ...headlessPlugins], context: 'team', teamId, error: 'Failed to load team plugins' });
+        return success({ plugins: gate([...coreGlobalPlugins, ...headlessPlugins]), context: "team", teamId, error: "Failed to load team plugins" });
       }
 
       // User is not a team member - return core plugins + headless providers
       const coreGlobalPlugins = globalPlugins
         .filter(p => isCorePlugin(p.name))
         .map(plugin => ({ ...plugin, enabled: true, isCore: true }));
-      return success({ plugins: [...coreGlobalPlugins, ...headlessPlugins], context: 'team', teamId });
+      return success({ plugins: gate([...coreGlobalPlugins, ...headlessPlugins]), context: "team", teamId });
     }
 
     // =========================================================================
@@ -270,7 +287,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       return true;
     });
 
-    const response = success({ plugins: personalizedPlugins, context: 'personal' });
+    const response = success({ plugins: gate(personalizedPlugins), context: 'personal' });
     // Prevent HTTP caching since this endpoint may perform a lazy write (core plugin auto-install)
     response.headers.set('Cache-Control', 'no-store');
     return response;

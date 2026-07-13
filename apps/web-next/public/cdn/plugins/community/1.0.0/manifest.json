@@ -1,0 +1,18 @@
+{
+  "name": "community",
+  "displayName": "Community Hub",
+  "version": "1.2.0",
+  "bundleFile": "community.js",
+  "stylesFile": "plugin-community-frontend.css",
+  "globalName": "NaapPluginCommunity",
+  "bundleHash": "03304b0e",
+  "bundleSize": 112474,
+  "routes": [
+    "/forum",
+    "/forum/*"
+  ],
+  "category": "social",
+  "description": "Builder community hub with Q&A, discussions, voting, reputation system, and knowledge sharing.",
+  "buildTime": "2026-07-04T20:47:36.528Z",
+  "nodeEnv": "production"
+}

@@ -1,4 +1,52 @@
+import { BUSINESS_PHRASE_PATTERN, PERSONAL_ACCOUNT_CUE_PATTERN, PERSONAL_STATEMENT_PATTERN, PERSONAL_TREND_TRIGGER_PATTERNS, TAX_FAST_TRACK_ANCHOR_PATTERN, TAX_FAST_TRACK_TRIGGER_PATTERNS } from './skill-routing.js';
+
 export const BUILT_IN_SKILLS = [
+  {
+    // PR-1 (personal-finance parity), tightened post-review: array position
+    // is NOT a reliable priority signal — `db.abSkillManifest.findMany(...)`
+    // at every call site has no `orderBy`, so once skills are seeded into
+    // the DB, row order (not this array's order) decides which skill a
+    // first-match-wins loop sees first. Rather than depend on ordering, this
+    // skill and record-expense are made mutually exclusive via patterns:
+    // triggerPatterns here are narrow (checking/savings/paycheck/salary/
+    // personal-account/deposited/withdrew signals only, never a bare spend/
+    // pay verb), and record-expense's excludePatterns below mirror the same
+    // cues (guarded so business-flagged language always wins record-expense
+    // regardless of an incidental account mention). That way "I got paid
+    // $5,000 salary" / "I spent $80 on groceries from checking" resolve to
+    // this skill, and "I spent $80 on lunch" resolves to record-expense, no
+    // matter which skill the DB happens to evaluate first. Also excludes
+    // personal-snapshot's net-worth/savings-rate *query* phrasing (a
+    // question, not a statement) so those keep routing correctly.
+    name: 'record-personal-transaction',
+    description: 'Record a personal (non-business) income or spending transaction against a personal account — a paycheck, a personal purchase, or a transfer into savings. Kept separate from the business books.',
+    category: 'personal-finance',
+    triggerPatterns: [
+      '\\bi got paid\\b', 'got my paycheck', '\\bpaycheck\\b', '\\bsalary\\b',
+      'personal account',
+      'from (?:my )?checking', 'from (?:my )?savings',
+      '\\bmy checking\\b', '\\bmy savings\\b',
+      'into (?:my )?savings', 'to (?:my )?savings',
+      '\\bdeposited\\b', '\\bwithdrew\\b', '\\bwithdrawal\\b',
+    ],
+    // Business-flagged language defers to record-expense (negation-aware —
+    // "not a business expense" must NOT defer, see BUSINESS_PHRASE_PATTERN);
+    // net-worth/savings-rate/spend-query phrasing defers to personal-snapshot
+    // (it's a question about the data, not a statement recording a new
+    // transaction).
+    excludePatterns: [
+      '\\bclient\\b', '\\binvoice\\b', BUSINESS_PHRASE_PATTERN, 'write.?off', 'deductible',
+      'net worth', 'savings rate', 'how much.*(?:did|have) i.*spen', "what'?s my", 'household', 'family budget',
+    ],
+    parameters: {
+      description: { type: 'string', required: true, extractHint: 'short description of the transaction' },
+      amountCents: { type: 'number', required: true, extractHint: 'dollar amount times 100, signed: positive for income (paycheck/deposit), negative for spending — infer the sign from phrasing, never send an unsigned value' },
+      category: { type: 'string', required: false, default: 'uncategorized', extractHint: 'best-effort spending/income category from context' },
+      accountRef: { type: 'string', required: false, extractHint: 'raw text naming which personal account this is for, e.g. "checking" or "savings" — omit if not mentioned' },
+      businessFlag: { type: 'boolean', required: false, default: false, extractHint: 'true only if the message explicitly says this personal-account charge is actually a business expense' },
+    },
+    endpoint: { method: 'POST', url: '/api/v1/agentbook-personal/transactions' },
+  },
   {
     name: 'record-expense', description: 'Record a business or personal expense', category: 'bookkeeping',
     triggerPatterns: ['\\$\\d', 'spent ', 'paid ', 'bought ', 'purchased '],
@@ -10,7 +58,17 @@ export const BUILT_IN_SKILLS = [
     // near "invoice", or "to invoice") anywhere in the message, without
     // excluding invoice-*paying* phrasing ("paid an invoice from the
     // plumber for $200"), which should still record as an expense.
-    excludePatterns: ['\\bto\\s+invoice\\b|\\binvoice\\s+to\\b|\\b(?:send|create|issue|write|prepare|make|draft)\\s+(?:an?\\s+)?invoice\\b', 'what\\s*if\\b', 'got.*\\$.*from', 'alert.*when|notify.*when|automat', 'received.*payment', '^(?:estimate|quote|proposal)\\s', 'is.*taxable|scholarship|fellowship|grant.*taxable|t2202|1098-?t|aotc|american opportunity|lifetime learning|tuition.*credit|education.*credit|\\bresp\\b|\\b529\\b', 'nonresident alien|non-resident alien|1040-?nr|sprintax|glacier tax|1042-?s|fica exempt|international student.*tax|tax treaty'],
+    // Personal-account cues ("from checking", "salary", "paycheck", etc.)
+    // defer to record-personal-transaction — mirrors that skill's own
+    // triggerPatterns so the two are mutually exclusive regardless of which
+    // one a DB-order-agnostic first-match-wins loop happens to see first
+    // (see record-personal-transaction's comment above). Guarded with a
+    // negative lookahead for BUSINESS_PHRASE_PATTERN so business-flagged
+    // language ("...for the business from my checking account") still wins
+    // record-expense even though it mentions a personal account.
+    excludePatterns: ['\\bto\\s+invoice\\b|\\binvoice\\s+to\\b|\\b(?:send|create|issue|write|prepare|make|draft)\\s+(?:an?\\s+)?invoice\\b', 'what\\s*if\\b', 'got.*\\$.*from', 'alert.*when|notify.*when|automat', 'received.*payment', '^(?:estimate|quote|proposal)\\s', 'is.*taxable|scholarship|fellowship|grant.*taxable|t2202|1098-?t|aotc|american opportunity|lifetime learning|tuition.*credit|education.*credit|\\bresp\\b|\\b529\\b', 'nonresident alien|non-resident alien|1040-?nr|sprintax|glacier tax|1042-?s|fica exempt|international student.*tax|tax treaty',
+      `^(?!.*(?:${BUSINESS_PHRASE_PATTERN})).*(?:${PERSONAL_ACCOUNT_CUE_PATTERN})`,
+    ],
     parameters: { amountCents: { type: 'number', required: true, extractHint: 'dollar amount times 100' }, vendor: { type: 'string', required: false, extractHint: 'business name' }, description: { type: 'string', required: false }, date: { type: 'date', required: false, default: 'today' } },
     endpoint: { method: 'POST', url: '/api/v1/agentbook-expense/expenses' },
     responseTemplate: 'Recorded: {{amountFormatted}} — {{description}} [{{categoryName}}]',
@@ -41,7 +99,16 @@ export const BUILT_IN_SKILLS = [
     triggerPatterns: ['balance', 'revenue', 'profit', 'loss', 'tax', 'client.*owe', 'outstanding', 'income', 'net '],
     // Tax / report / cash-flow / reconciliation / tax-filing utterances have
     // dedicated skills — exclude them here so query-finance doesn't shadow.
-    excludePatterns: ['tax.*estimate|how much.*tax|tax.*owe|tax.*situation|tax.*liability|quarterly.*tax|quarterly.*payment|estimated.*payment|deduction|write.*off|tax.*saving|tax.*break|p.?&?.?l|profit.*loss|income.*statement|net.*income|how.*much.*profit|balance.*sheet|net.*worth|equity|cash.*flow|cash.*projection|runway|burn.*rate|how long.*cash.*last|financial.*summary|financial.*snapshot|how.*doing.*financially|financial.*health|money.*move|action.*item|what.*should.*do|advice.*money|reconcil|unmatched.*transaction|bank.*match|bank.*status|tax.*fil|start.*fil|file.*tax|review.*t[12]|t2125|schedule.*1|gst.*return|tax.*slip|validate.*tax|check.*tax.*error|verify.*return|tax.*ready|export.*tax|generate.*tax.*form|download.*return|create.*tax.*file|print.*tax|pdf.*tax|submit.*cra|efile|netfile|filing.*status.*cra|scholarship|fellowship|grant.*taxable|is.*grant.*tax|t2202|1098-?t|aotc|american opportunity|lifetime learning|tuition.*credit|education.*credit|\\bresp\\b|\\b529\\b|nonresident alien|non-resident alien|1040-?nr|sprintax|glacier tax|1042-?s|fica exempt|international student.*tax|tax treaty'],
+    // The TAX_FAST_TRACK_TRIGGER_PATTERNS spread (PR-3 hotfix) reuses
+    // start-tax-fast-track's own triggerPatterns verbatim, rather than a
+    // hand-written approximation — the existing hand-written entries below
+    // (tax.*fil, file.*tax) only cover "tax" appearing BEFORE "fil" in the
+    // sentence, so a phrase like "help me do this year's filing based on
+    // last year's tax return" (filing precedes tax) matched none of them,
+    // and query-finance's bare 'tax' trigger won the race against the
+    // then-newer start-tax-fast-track row (no orderBy — first match in
+    // array order wins). Verified live in production after PR-3's deploy.
+    excludePatterns: [...TAX_FAST_TRACK_TRIGGER_PATTERNS, 'tax.*estimate|how much.*tax|tax.*owe|tax.*situation|tax.*liability|quarterly.*tax|quarterly.*payment|estimated.*payment|deduction|write.*off|tax.*saving|tax.*break|p.?&?.?l|profit.*loss|income.*statement|net.*income|how.*much.*profit|balance.*sheet|net.*worth|equity|cash.*flow|cash.*projection|runway|burn.*rate|how long.*cash.*last|financial.*summary|financial.*snapshot|how.*doing.*financially|financial.*health|money.*move|action.*item|what.*should.*do|advice.*money|reconcil|unmatched.*transaction|bank.*match|bank.*status|tax.*fil|start.*fil|file.*tax|review.*t[12]|t2125|schedule.*1|gst.*return|tax.*slip|validate.*tax|check.*tax.*error|verify.*return|tax.*ready|export.*tax|generate.*tax.*form|download.*return|create.*tax.*file|print.*tax|pdf.*tax|submit.*cra|efile|netfile|filing.*status.*cra|scholarship|fellowship|grant.*taxable|is.*grant.*tax|t2202|1098-?t|aotc|american opportunity|lifetime learning|tuition.*credit|education.*credit|\\bresp\\b|\\b529\\b|nonresident alien|non-resident alien|1040-?nr|sprintax|glacier tax|1042-?s|fica exempt|international student.*tax|tax treaty'],
     parameters: { question: { type: 'string', required: true, extractHint: 'the full user message' } },
     endpoint: { method: 'POST', url: '/api/v1/agentbook-core/ask' },
   },
@@ -180,6 +247,27 @@ export const BUILT_IN_SKILLS = [
   {
     name: 'record-payment', description: 'Record a payment received for an invoice', category: 'invoicing',
     triggerPatterns: ['got.*paid', 'received.*payment', 'record.*payment', 'got.*\\$.*from', 'payment.*received'],
+    // Two deferrals, found by final review of the personal-finance-parity
+    // branch: this skill's bare "got paid"/"received payment" triggers also
+    // fire on personal-income phrasing ("I got paid $5,000 salary"), and
+    // overlap with record-invoice-payment (the dedicated, more fully-wired
+    // invoice-payment handler) whenever the message explicitly names an
+    // invoice. Neither the DB row order nor array order can be trusted to
+    // pick the right skill (see record-expense's comment above), so both
+    // cases are resolved via excludePatterns instead:
+    //   1. An explicit invoice mention defers entirely to
+    //      record-invoice-payment, which owns invoiceRef/clientName
+    //      resolution end to end.
+    //   2. Personal-account/salary/paycheck cues (checking, savings,
+    //      salary, withdrew, deposited, ...) defer to
+    //      record-personal-transaction — but only when there's no
+    //      invoice/client context, so this skill's real job (an invoice
+    //      payment that happens to mention "paid from my checking") still
+    //      works.
+    excludePatterns: [
+      '\\binvoice\\b',
+      `^(?!.*(?:\\binvoice\\b|\\bclient\\b)).*(?:${PERSONAL_ACCOUNT_CUE_PATTERN})`,
+    ],
     parameters: { invoiceId: { type: 'string', required: false }, amountCents: { type: 'number', required: false }, clientName: { type: 'string', required: false }, method: { type: 'string', required: false, default: 'manual' } },
     endpoint: { method: 'POST', url: '/api/v1/agentbook-invoice/payments' },
     confirmBefore: true,
@@ -293,6 +381,37 @@ export const BUILT_IN_SKILLS = [
   {
     name: 'tax-filing-start', description: 'Start tax filing — create filing session, auto-populate from books, identify missing fields', category: 'tax',
     triggerPatterns: ['start.*tax.*fil', 'file.*my.*tax', 'begin.*return', 'prepare.*tax.*return', 'tax.*return'],
+    // PR-3 (tax-fast-track-foundation) Task 4: defer to start-tax-fast-track
+    // when the message carries a prior-year anchor cue (last year/past
+    // filing/past return/previous filing/previous return) — that's the new
+    // skill's territory ("use what I told you last year"), not this one's
+    // ("fill this year's forms from the books"). Without this, an anchored
+    // phrase like "help me do this year's filing based on last year's tax
+    // return" would match both skills simultaneously (no `orderBy` on the
+    // routing query, so which one "wins" would be undefined).
+    excludePatterns: [TAX_FAST_TRACK_ANCHOR_PATTERN],
+    parameters: { taxYear: { type: 'number', required: false, default: 2025 } },
+    endpoint: { method: 'INTERNAL', url: '' },
+  },
+  {
+    // PR-3 (tax-fast-track-foundation) Task 4. Distinct from tax-filing-start
+    // above (which fills out this year's forms from the tenant's own books,
+    // accumulated income/expenses already in the system) — this skill is
+    // specifically "use what I told you last year as a starting point": it
+    // requires a confirmed prior-year AbPastTaxFiling and kicks off the
+    // adaptive fast-track questionnaire (AbTaxQuestionnaireSession) seeded
+    // from that filing. See docs/superpowers/specs/2026-07-13-tax-fast-
+    // track-foundation-design.md ("Revised: trigger design") — every
+    // trigger below pairs filing-intent language with the shared prior-year
+    // anchor cue (TAX_FAST_TRACK_ANCHOR_PATTERN), in either order, never a
+    // bare "do/file my taxes" phrase alone (that stays tax-filing-start's
+    // territory). requirePatterns hard-requires the anchor cue outright —
+    // a cleaner guarantee than relying on trigger-phrase construction alone.
+    name: 'start-tax-fast-track',
+    description: "Start this year's tax filing fast-tracked from a confirmed prior-year return — asks a short, adaptive, jurisdiction-aware questionnaire seeded from what was already reported last year, instead of starting from a blank slate.",
+    category: 'tax',
+    triggerPatterns: TAX_FAST_TRACK_TRIGGER_PATTERNS,
+    requirePatterns: [TAX_FAST_TRACK_ANCHOR_PATTERN],
     parameters: { taxYear: { type: 'number', required: false, default: 2025 } },
     endpoint: { method: 'INTERNAL', url: '' },
   },
@@ -341,6 +460,7 @@ export const BUILT_IN_SKILLS = [
   {
     name: 'scholarship-taxability', description: 'Explain whether a scholarship, grant, RESP/529 withdrawal, or stipend is taxable, and whether AOTC/Lifetime Learning Credit or the Canadian tuition transfer applies', category: 'tax',
     triggerPatterns: ['scholarship', 'is.*grant.*taxable', 'fellowship', 'financial aid.*tax', 'tuition.*credit', 'education.*credit', 'AOTC', 'american opportunity', 'lifetime learning', '\\bresp\\b', '\\b529\\b', 't2202', '1098-?t', 'is.*taxable'],
+    excludePatterns: ['\\b(find|search|look for)\\b.*\\bscholarships?\\b|\\bapply\\s+(to|for)\\b.*\\bscholarships?\\b'],
     parameters: { question: { type: 'string', required: true, extractHint: 'the full user question about the scholarship/grant/stipend/withdrawal' } },
     endpoint: { method: 'INTERNAL', url: '' },
   },
@@ -469,7 +589,12 @@ export const BUILT_IN_SKILLS = [
     name: 'record-invoice-payment',
     description: 'Record a payment received for an invoice. Use when user says they received payment for an invoice, a client paid them, or they want to mark an invoice as paid.',
     category: 'invoicing',
-    triggerPatterns: ['paid.*invoice', 'invoice.*paid', 'got paid', 'received.*payment', 'mark.*paid'],
+    // '\\bpaid me\\b' added (final review of personal-finance-parity branch):
+    // "Client Beta LLC paid me" is this skill's own declared example above,
+    // but none of the original triggerPatterns actually matched it (no
+    // "invoice", no "got paid", no "mark"/"received payment") — a genuine
+    // gap between the manifest's examples and its regex fast path.
+    triggerPatterns: ['paid.*invoice', 'invoice.*paid', 'got paid', 'received.*payment', 'mark.*paid', '\\bpaid me\\b'],
     examples: [
       'I got paid for invoice INV-2026-0004',
       'Acme paid the invoice',
@@ -477,6 +602,23 @@ export const BUILT_IN_SKILLS = [
       'Received $1200 from client',
       'Client Beta LLC paid me',
       'invoice was paid',
+    ],
+    excludePatterns: [
+      // Personal-account/salary/paycheck cues without invoice/client context
+      // defer to record-personal-transaction — see record-payment's comment
+      // above for the full rationale (same collision, same fix, mirrored
+      // here since this skill shares the ambiguous "got paid"/"received
+      // payment" triggers).
+      `^(?!.*(?:\\binvoice\\b|\\bclient\\b)).*(?:${PERSONAL_ACCOUNT_CUE_PATTERN})`,
+      // record-payment and this skill both had the bare "got paid"/
+      // "received payment" triggers with no disambiguation between them
+      // (pre-existing, surfaced by the same review pass's order-independent
+      // test rewrite — see skill-routing-canonical.test.ts's "received
+      // payment of $1000 from Acme" case). Without an explicit invoice
+      // reference or a "mark ... paid" phrasing, defer to record-payment,
+      // which is the generic "someone paid me an amount" handler; keep this
+      // skill authoritative once an invoice/mark-paid signal is present.
+      '^(?!.*(?:\\binvoice\\b|\\bmark\\b)).*(?:\\bgot paid\\b|received.*payment)',
     ],
     parameters: {
       invoiceRef: { type: 'string', description: 'Invoice number like INV-2026-0004, or partial like "0004"', required: false },
@@ -531,10 +673,25 @@ export const BUILT_IN_SKILLS = [
   },
   {
     name: 'personal-snapshot',
-    description: 'Answer personal/household finance questions — net worth, monthly spending, income, savings rate (kept separate from the business books).',
+    description: 'Answer personal/household finance questions — net worth, monthly spending, income, savings rate (kept separate from the business books), including net-worth trend questions (gated behind the personal_insights add-on).',
     category: 'finance',
-    triggerPatterns: ['net worth', 'personal finance', 'household', 'family budget', 'savings rate', 'how much.*saved', 'my personal'],
-    excludePatterns: ['business'],
+    // PR-2 (personal-finance-trends-nudges): PERSONAL_TREND_TRIGGER_PATTERNS
+    // adds trend-shaped triggers (an anchor + a comparison/temporal cue,
+    // e.g. "how has my net worth trended over time") on top of the existing
+    // free current-state triggers below. Never a bare temporal phrase alone
+    // — see skill-routing.ts's doc comment for why. server.ts's handler
+    // re-checks isPersonalTrendQuery(text) at execution time to decide
+    // free current-state (default) vs. gated trend sub-classification.
+    triggerPatterns: ['net worth', 'personal finance', 'household', 'family budget', 'savings rate', 'how much.*saved', 'my personal', ...PERSONAL_TREND_TRIGGER_PATTERNS],
+    // The bare 'my personal' trigger above also fires on a transaction
+    // *statement* like "spent $50 on my personal account" (found in final
+    // review of the personal-finance-parity branch) — that should record a
+    // transaction via record-personal-transaction, not answer a net-worth
+    // query. PERSONAL_STATEMENT_PATTERN excludes a dollar amount paired with
+    // a record-verb (spent/paid/put/deposited/withdrew/got) in either order;
+    // a genuine query like "how's my personal finance looking" has no such
+    // pairing and still routes here.
+    excludePatterns: ['business', PERSONAL_STATEMENT_PATTERN],
     parameters: {},
     endpoint: { method: 'INTERNAL', url: '' },
   },
@@ -571,6 +728,49 @@ export const BUILT_IN_SKILLS = [
     parameters: {},
     endpoint: { method: 'GET', url: '/api/v1/agentbook-startup/recommendations' },
     responseTemplate: 'Based on your company profile, here is what you may qualify for: {{programs}}',
+  },
+  {
+    name: 'find-scholarships', description: 'Search for scholarships, grants, or financial aid matching the student\'s program, school, and eligibility — a live grounded search, not tax advice on an existing award', category: 'student',
+    triggerPatterns: ['find.*scholarship', 'scholarship.*for', 'search.*scholarship', 'look for.*scholarship', 'scholarship.*(my|as a).*(major|program)', 'apply.*for.*scholarship'],
+    parameters: { query: { type: 'string', required: false, extractHint: 'optional free-text focus, e.g. "for computer science" or "need-based" — omit if the user gave no specifics' } },
+    endpoint: { method: 'POST', url: '/api/v1/agentbook-scholarship/discover' },
+  },
+  {
+    name: 'save-scholarship', description: 'Save/shortlist a scholarship the student just found (or one they describe directly) to their tracked opportunities list', category: 'student',
+    triggerPatterns: ['save.*(scholarship|that|it|the .* one)', 'track.*scholarship', 'shortlist.*scholarship'],
+    excludePatterns: ['co-?op|internship|job', '\\b(invoice|receipt|expense)\\b'],
+    parameters: {
+      title: { type: 'string', required: false, extractHint: 'scholarship name, only if the user is describing one directly rather than referring back to a search result' },
+      amountText: { type: 'string', required: false, extractHint: 'the award amount as free text, e.g. "$2,000", only for a direct description' },
+      deadlineText: { type: 'string', required: false, extractHint: 'the deadline as free text or ISO date, only for a direct description' },
+      sourceUrl: { type: 'string', required: false, extractHint: 'a URL for the scholarship, only for a direct description' },
+    },
+    endpoint: { method: 'INTERNAL', url: '' },
+  },
+  {
+    name: 'find-coop-opportunities', description: 'Search for co-op placements, internships, or student jobs matching the student\'s program, school, and work-authorization status', category: 'student',
+    triggerPatterns: ['find.*(co-?op|internship)', 'find.*job.*(opportunit|posting|listing|search)', '(co-?op|internship).*for', 'search.*(co-?op|internship)', 'look for.*(co-?op|internship|job)'],
+    parameters: { query: { type: 'string', required: false, extractHint: 'optional free-text focus, e.g. "remote" or "summer 2027" — omit if the user gave no specifics' } },
+    endpoint: { method: 'POST', url: '/api/v1/agentbook-career/discover' },
+  },
+  {
+    name: 'save-coop-opportunity', description: 'Save/shortlist a co-op or job opportunity the student just found (or one they describe directly) to their tracked opportunities list', category: 'student',
+    triggerPatterns: ['save.*(co-?op|internship|job)', 'track.*(co-?op|internship|job)', 'shortlist.*(co-?op|internship|job)'],
+    parameters: {
+      title: { type: 'string', required: false, extractHint: 'job/co-op title, only if the user is describing one directly rather than referring back to a search result' },
+      employer: { type: 'string', required: false },
+      location: { type: 'string', required: false },
+      compText: { type: 'string', required: false, extractHint: 'the pay as free text, only for a direct description' },
+      deadlineText: { type: 'string', required: false },
+      sourceUrl: { type: 'string', required: false },
+    },
+    endpoint: { method: 'INTERNAL', url: '' },
+  },
+  {
+    name: 'find-roommate-matches', description: 'Find compatible roommate matches based on the student\'s roommate profile (budget, area, move-in date, lifestyle)', category: 'student',
+    triggerPatterns: ['roommate', 'find.*roommate', 'compatible.*(student|roommate)', 'match.*roommate'],
+    parameters: {},
+    endpoint: { method: 'GET', url: '/api/v1/agentbook-housing/roommate/matches' },
   },
   {
     name: 'general-question', description: 'Answer any general financial or accounting question', category: 'finance',

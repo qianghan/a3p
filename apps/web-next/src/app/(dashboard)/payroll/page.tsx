@@ -6,7 +6,7 @@ import { Users, Plus, Play, Loader2, Check, Landmark, FileText, CalendarClock, D
 const API = '/api/v1/agentbook-payroll';
 
 interface Employee { id: string; name: string; payType: string; payRateCents: number; payFrequency: string; jurisdiction: string }
-interface Stub { id: string; employeeName: string; grossCents: number; federalTaxCents: number; stateTaxCents: number; ficaCents: number; netCents: number }
+interface Stub { id: string; employeeName: string; grossCents: number; federalTaxCents: number; stateTaxCents: number; ficaCents: number; netCents: number; sgCents: number }
 interface PayRun { id: string; periodStart: string; periodEnd: string; status: string; stubs: Stub[] }
 interface Deposit { id: string; form: string; periodLabel: string; amountCents: number; dueDate: string; status: string }
 interface YearEndForm { formType: string; employeeName: string; year: number; boxes: Record<string, number> }
@@ -14,7 +14,7 @@ interface YearEndForm { formType: string; employeeName: string; year: number; bo
 const fmt$ = (c: number) => '$' + (c / 100).toLocaleString('en-US', { maximumFractionDigits: 0 });
 const JURIS = [{ v: 'us', l: '🇺🇸 US' }, { v: 'ca', l: '🇨🇦 CA' }, { v: 'uk', l: '🇬🇧 UK' }, { v: 'au', l: '🇦🇺 AU' }];
 const FREQ = ['weekly', 'biweekly', 'semimonthly', 'monthly'];
-const FORM_LABEL: Record<string, string> = { '941': 'Form 941', '940': 'Form 940', t4: 'T4 remittance', paye: 'PAYE/NI', bas: 'BAS (PAYG)' };
+const FORM_LABEL: Record<string, string> = { '941': 'Form 941', '940': 'Form 940', t4: 'T4 remittance', paye: 'PAYE/NI', bas: 'BAS (PAYG)', sg: 'Superannuation Guarantee' };
 
 type Tab = 'employees' | 'runs' | 'deposits' | 'yearend';
 
@@ -163,6 +163,7 @@ export default function PayrollPage() {
               const gross = r.stubs.reduce((s, st) => s + st.grossCents, 0);
               const net = r.stubs.reduce((s, st) => s + st.netCents, 0);
               const tax = gross - net;
+              const sg = r.stubs.reduce((s, st) => s + (st.sgCents || 0), 0);
               return (
                 <div key={r.id} className="rounded-xl border border-border bg-card p-4">
                   <div className="flex items-center justify-between mb-3">
@@ -170,16 +171,20 @@ export default function PayrollPage() {
                     <span className="inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full bg-primary/10 text-primary capitalize">
                       {r.status === 'paid' && <Check className="w-3.5 h-3.5" />}{r.status}</span>
                   </div>
-                  <div className="grid grid-cols-3 gap-3 mb-3">
+                  <div className={`grid gap-3 mb-3 ${sg > 0 ? 'grid-cols-4' : 'grid-cols-3'}`}>
                     <Mini label="Gross" value={fmt$(gross)} />
                     <Mini label="Withheld" value={fmt$(tax)} />
                     <Mini label="Net pay" value={fmt$(net)} accent />
+                    {sg > 0 && <Mini label="Super (employer)" value={fmt$(sg)} />}
                   </div>
                   <div className="divide-y divide-border border-t border-border">
                     {r.stubs.map((st) => (
                       <div key={st.id} className="flex items-center justify-between py-1.5 text-xs">
                         <span className="text-foreground">{st.employeeName}</span>
-                        <span className="text-muted-foreground">gross {fmt$(st.grossCents)} · tax {fmt$(st.federalTaxCents + st.stateTaxCents + st.ficaCents)} · net <span className="text-foreground font-medium">{fmt$(st.netCents)}</span></span>
+                        <span className="text-muted-foreground">
+                          gross {fmt$(st.grossCents)} · tax {fmt$(st.federalTaxCents + st.stateTaxCents + st.ficaCents)}
+                          {st.sgCents > 0 && <> · super {fmt$(st.sgCents)}</>} · net <span className="text-foreground font-medium">{fmt$(st.netCents)}</span>
+                        </span>
                       </div>
                     ))}
                   </div>
@@ -228,7 +233,10 @@ export default function PayrollPage() {
                 <div key={i} className="flex items-center justify-between px-4 py-3">
                   <div>
                     <p className="text-sm font-medium text-foreground">{f.employeeName}</p>
-                    <p className="text-xs text-muted-foreground">{f.formType} · gross {fmt$(f.boxes.grossWagesCents || 0)} · tax {fmt$((f.boxes.incomeTaxWithheldCents || 0) + (f.boxes.ficaWithheldCents || 0))}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {f.formType} · gross {fmt$(f.boxes.grossWagesCents || 0)} · tax {fmt$((f.boxes.incomeTaxWithheldCents || 0) + (f.boxes.ficaWithheldCents || 0))}
+                      {!!f.boxes.superannuationPaidCents && <> · super {fmt$(f.boxes.superannuationPaidCents)}</>}
+                    </p>
                   </div>
                   <a href={`${API}/year-end?year=${year}`} target="_blank" rel="noreferrer" className="text-xs px-2.5 py-1 rounded-md border border-border hover:bg-muted inline-flex items-center gap-1">
                     <Download className="w-3.5 h-3.5" />{f.formType}

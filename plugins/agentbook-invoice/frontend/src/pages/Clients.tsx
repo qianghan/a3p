@@ -9,6 +9,8 @@ import {
   UserPlus,
 } from 'lucide-react';
 import { ChatCTA } from '@naap/plugin-sdk';
+import { formatMoney } from '@agentbook/i18n';
+import { useTenantCurrency } from '../hooks/useTenantCurrency';
 
 interface Client {
   id: string;
@@ -22,8 +24,8 @@ interface Client {
   deletedAt?: string | null;
 }
 
-function formatCurrency(n: number) {
-  return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(n);
+function formatCurrency(n: number, currency: string = 'USD') {
+  return formatMoney(Math.round(n * 100), currency);
 }
 
 export const ClientsPage: React.FC = () => {
@@ -32,6 +34,7 @@ export const ClientsPage: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   // PR 26: opt-in toggle to include soft-deleted clients in the list.
   const [showDeleted, setShowDeleted] = useState(false);
+  const currency = useTenantCurrency();
 
   const fetchClients = useCallback(async () => {
     setLoading(true);
@@ -161,14 +164,14 @@ export const ClientsPage: React.FC = () => {
                     <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>Total Billed</p>
                     <p className="text-sm font-semibold flex items-center gap-1" style={{ color: 'var(--text-primary)' }}>
                       <DollarSign className="w-3 h-3" />
-                      {formatCurrency(client.total_billed)}
+                      {formatCurrency(client.total_billed, currency)}
                     </p>
                   </div>
                   <div>
                     <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>Total Paid</p>
                     <p className="text-sm font-semibold text-green-600 flex items-center gap-1">
                       <DollarSign className="w-3 h-3" />
-                      {formatCurrency(client.total_paid)}
+                      {formatCurrency(client.total_paid, currency)}
                     </p>
                   </div>
                   <div>
@@ -177,7 +180,7 @@ export const ClientsPage: React.FC = () => {
                       client.outstanding_balance > 0 ? 'text-amber-600' : 'text-green-600'
                     }`}>
                       <DollarSign className="w-3 h-3" />
-                      {formatCurrency(client.outstanding_balance)}
+                      {formatCurrency(client.outstanding_balance, currency)}
                     </p>
                   </div>
                   <div>

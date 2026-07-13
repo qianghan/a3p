@@ -87,6 +87,35 @@ export interface StartupBenefitDecisionPoint {
   blocksProgress: boolean;
 }
 
+export interface AuditFinding {
+  severity: 'low' | 'medium' | 'high';
+  issue: string;
+  recommendation: string;
+  ruleRef: string;
+}
+
+export interface AuditOverride {
+  findingIndex: number;
+  reason: string | null;
+  overriddenAt: string;
+}
+
+export interface StartupBenefitAuditReview {
+  id: string;
+  applicationId: string;
+  riskLevel: 'low' | 'medium' | 'high';
+  findings: AuditFinding[];
+  overrides: AuditOverride[];
+  reviewedAt: string;
+  modelVersion: string;
+}
+
+export interface ProgramInfo {
+  name: string;
+  authority: string;
+  sourceUrl: string;
+}
+
 async function json<T>(r: Response): Promise<T> {
   if (!r.ok) throw new Error(`${r.status} ${await r.text()}`);
   return (await r.json()) as T;
@@ -101,15 +130,30 @@ export const startupApi = {
     }))).profile,
   getRecommendations: async (): Promise<RecommendationsResponse> =>
     json<RecommendationsResponse>(await fetch('/api/v1/agentbook-startup/recommendations')),
-  getAddOnTeaser: async (): Promise<AddOnPriceTeaser> =>
-    json<AddOnPriceTeaser>(await fetch('/api/v1/agentbook-billing/me/addons?code=startup_tax_benefits&region=us')),
+  getAddOnTeaser: async (region: string = 'us'): Promise<AddOnPriceTeaser> =>
+    json<AddOnPriceTeaser>(await fetch(`/api/v1/agentbook-billing/me/addons?code=startup_tax_benefits&region=${region}`)),
+  // The addon pricing catalog is keyed by region (us/ca/uk/au), not currency,
+  // so an AU tenant must pass 'au' here to see AUD pricing rather than the
+  // US teaser. Falls back to 'us' on any failure — the teaser is cosmetic,
+  // not worth failing the page over.
+  getTenantJurisdiction: async (): Promise<string> => {
+    try {
+      const r = await fetch('/api/v1/agentbook-core/tenant-config');
+      const j = await r.json();
+      return j?.data?.jurisdiction || 'us';
+    } catch {
+      return 'us';
+    }
+  },
   getAddOnIntent: async (): Promise<{ clientSecret: string; customerId: string }> =>
     json(await fetch('/api/v1/agentbook-billing/me/subscription/intent', { method: 'POST' })),
-  subscribeAddOn: async (paymentMethodId: string): Promise<void> => {
+  // region must match whatever getAddOnTeaser was called with, so the price
+  // the tenant saw is the price they're actually charged.
+  subscribeAddOn: async (paymentMethodId: string, region: string = 'us'): Promise<void> => {
     await json(await fetch('/api/v1/agentbook-billing/me/addons/startup_tax_benefits/subscribe', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ region: 'us', paymentMethodId }),
+      body: JSON.stringify({ region, paymentMethodId }),
     }));
   },
   createApplication: async (programCode: string): Promise<{ application: StartupBenefitApplication; documentChecklist: DocumentRequirement[] }> =>
@@ -123,6 +167,8 @@ export const startupApi = {
     documents: StartupBenefitDocument[];
     decisionPoints: StartupBenefitDecisionPoint[];
     documentChecklist: DocumentRequirement[];
+    auditReview: StartupBenefitAuditReview | null;
+    program: ProgramInfo | null;
   }> =>
     json(await fetch(`/api/v1/agentbook-startup/applications/${id}`)),
   uploadDocument: async (applicationId: string, docType: string, file: File): Promise<{ document: StartupBenefitDocument }> => {
@@ -136,6 +182,12 @@ export const startupApi = {
   respondToDecisionPoint: async (decisionPointId: string, response: string): Promise<{ application: StartupBenefitApplication; decisionPoints: StartupBenefitDecisionPoint[] }> =>
     json(await fetch(`/api/v1/agentbook-startup/decision-points/${decisionPointId}/respond`, {
       method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ response }),
+    })),
+  runAuditReview: async (applicationId: string): Promise<{ application: StartupBenefitApplication; auditReview: StartupBenefitAuditReview }> =>
+    json(await fetch(`/api/v1/agentbook-startup/applications/${applicationId}/audit-review`, { method: 'POST' })),
+  overrideAuditFinding: async (applicationId: string, findingIndex: number, reason?: string): Promise<{ application: StartupBenefitApplication; auditReview: StartupBenefitAuditReview }> =>
+    json(await fetch(`/api/v1/agentbook-startup/applications/${applicationId}/audit-review/override`, {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ findingIndex, reason }),
     })),
 };
 

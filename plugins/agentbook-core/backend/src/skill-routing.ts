@@ -25,6 +25,155 @@ export interface SkillLike {
   excludePatterns?: unknown;
 }
 
+/**
+ * Negation-aware "business expense" phrase detector, shared by:
+ *   - record-personal-transaction's excludePatterns (defers to record-expense
+ *     when the message is business-flagged) in built-in-skills.ts
+ *   - record-expense's excludePatterns (defers back to record-personal-
+ *     transaction for personal-account cues, *unless* business-flagged)
+ *   - server.ts's businessFlag extraction for record-personal-transaction
+ *
+ * A naive substring match on "business expense" also fires on "not a
+ * business expense" or "isn't a business expense", flipping the meaning of
+ * what the user actually said. Guard with a negative lookbehind that treats
+ * the phrase as flagged only when no negation word ("not", "isn't",
+ * "wasn't", "no", "never", "don't", "doesn't", "didn't") appears within
+ * ~25 characters before it.
+ */
+export const BUSINESS_PHRASE_PATTERN =
+  "(?<!\\b(?:not|isn'?t|wasn'?t|no|never|don'?t|doesn'?t|didn'?t)\\b[\\s\\S]{0,25})" +
+  "(?:for the business|business expense|that'?s a business|it'?s a business|business purchase)";
+
+export function isBusinessFlaggedPhrase(text: string): boolean {
+  try {
+    return new RegExp(BUSINESS_PHRASE_PATTERN, 'i').test(text || '');
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Shared "personal account / paycheck" cue fragment, used to defer several
+ * business/invoicing-flavoured skills to record-personal-transaction:
+ *   - record-expense's excludePatterns (original, in built-in-skills.ts)
+ *   - record-payment's and record-invoice-payment's excludePatterns (added
+ *     alongside the record-expense/record-personal-transaction fix, closing
+ *     the "I got paid $5,000 salary" / "...put it in my checking account"
+ *     collision those two invoicing skills also had with
+ *     record-personal-transaction — no DB `orderBy` means array position
+ *     can't be relied on to pick the right one).
+ *
+ * Kept as a single source of truth so the cue list can't drift between the
+ * three call sites.
+ */
+export const PERSONAL_ACCOUNT_CUE_PATTERN =
+  'from (?:my )?checking|from (?:my )?savings|\\bmy checking\\b|\\bmy savings\\b|' +
+  'into (?:my )?savings|to (?:my )?savings|personal account|\\bpaycheck\\b|' +
+  '\\bsalary\\b|\\bwithdrew\\b|\\bwithdrawal\\b|\\bdeposited\\b';
+
+/**
+ * "Statement" shape used to keep personal-snapshot's bare `'my personal'`
+ * trigger from firing on a transaction-recording statement like "spent $50 on
+ * my personal account" (which should hit record-personal-transaction, not
+ * the read-only net-worth/savings-rate query skill). Matches a dollar amount
+ * plus a record-verb in either order.
+ */
+export const PERSONAL_STATEMENT_PATTERN =
+  '\\$\\s*[\\d,]+\\.?\\d{0,2}.*\\b(?:spent|paid|put|deposited|withdrew|got)\\b|' +
+  '\\b(?:spent|paid|put|deposited|withdrew|got)\\b.*\\$\\s*[\\d,]+\\.?\\d{0,2}';
+
+/**
+ * Personal-finance net-worth *trend* phrasing (PR-2, personal-finance-
+ * trends-nudges). Used by personal-snapshot's triggerPatterns
+ * (built-in-skills.ts) to add trend-shaped triggers on top of the existing
+ * free current-state ones, and by server.ts's INTERNAL handler to run the
+ * exact same cue check at execution time to decide free current-state vs.
+ * gated trend sub-classification — single source of truth so the two
+ * layers can't drift.
+ *
+ * Design constraint (see docs/superpowers/specs/2026-07-12-personal-
+ * finance-trends-nudges-design.md): a bare temporal phrase like "over the
+ * last year" must never be a trigger by itself — it must always be paired
+ * with a personal/net-worth anchor, or it risks colliding with
+ * query-finance's business-revenue-trend phrasing or query-past-filings'
+ * year-anchored tax phrasing (first-match-wins, no `orderBy` on
+ * `AbSkillManifest.findMany`, same hazard class as record-personal-
+ * transaction's routing fixes). Anchors are intentionally the narrow set
+ * personal-snapshot already triggers on (`net worth`, `household`,
+ * `savings rate`, `personal finance`/`my personal`) — NOT `family budget`,
+ * which would collide with query-budget's broad `how.*budget` trigger.
+ */
+export const PERSONAL_TREND_ANCHOR_PATTERN =
+  'net worth|household|savings rate|personal finance|my personal';
+
+export const PERSONAL_TREND_CUE_PATTERN =
+  'trended|over time|compared to|vs\\.? last month|versus last month|\\bchange(?:d)?\\b';
+
+/** Anchor-then-cue or cue-then-anchor, either order, within a short span. */
+export const PERSONAL_TREND_TRIGGER_PATTERNS = [
+  `(?:${PERSONAL_TREND_ANCHOR_PATTERN}).{0,40}(?:${PERSONAL_TREND_CUE_PATTERN})`,
+  `(?:${PERSONAL_TREND_CUE_PATTERN}).{0,40}(?:${PERSONAL_TREND_ANCHOR_PATTERN})`,
+];
+
+/**
+ * True iff `text` contains one of the comparison/temporal cues above.
+ * Deliberately checks the cue alone (not anchor+cue) — by the time
+ * server.ts's personal-snapshot handler runs, routing has already
+ * guaranteed *some* personal/net-worth anchor matched (that's the only way
+ * personal-snapshot gets selected at all); this just distinguishes which of
+ * the two personal-snapshot triggers fired: a plain anchor (current-state,
+ * free) or an anchor+cue combination (trend, gated).
+ */
+export function isPersonalTrendQuery(text: string): boolean {
+  try {
+    return new RegExp(PERSONAL_TREND_CUE_PATTERN, 'i').test(text || '');
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Prior-year/past-filing "anchor cue" shared by:
+ *   - start-tax-fast-track's triggerPatterns/requirePatterns (built-in-skills.ts,
+ *     PR-3 Task 4) — every fast-track trigger must pair filing-intent
+ *     language with one of these, never a bare "do/file my taxes" phrase
+ *     alone (that stays tax-filing-start's territory).
+ *   - tax-filing-start's excludePatterns (built-in-skills.ts) — an anchored
+ *     phrase like "help me do this year's filing based on last year's tax
+ *     return" would otherwise match both skills simultaneously (routing has
+ *     no `orderBy`, so which one "wins" would be undefined).
+ *
+ * See docs/superpowers/specs/2026-07-13-tax-fast-track-foundation-design.md
+ * ("Revised: trigger design") for the full rationale.
+ */
+export const TAX_FAST_TRACK_ANCHOR_PATTERN =
+  'last year|past filing|past return|previous filing|previous return';
+
+/**
+ * start-tax-fast-track's full triggerPatterns (built-in-skills.ts, PR-3 Task
+ * 4), re-exported so query-finance's excludePatterns can reuse the exact
+ * same regexes rather than approximating them. query-finance's bare 'tax'
+ * triggerPattern matches almost anything containing the word "tax" — its
+ * excludePatterns list already carves out tax-filing-start's phrasing
+ * ("tax.*fil", "file.*tax", etc.), but those assume "tax" appears before
+ * "fil" in the sentence. A fast-track phrase like "help me do this year's
+ * filing based on last year's tax return" has "filing" BEFORE "tax", so none
+ * of query-finance's existing excludePatterns matched it, and — since skill
+ * routing has no `orderBy` and tries skills in array order (see server.ts's
+ * "Skills are tried in array order — first match wins") — the older,
+ * already-seeded query-finance row won the race against the newly-added
+ * start-tax-fast-track row every time. Found live in production after PR-3's
+ * deploy: the exact canonical trigger phrase routed to query-finance instead
+ * of start-tax-fast-track. Reusing the same patterns as an exclude guarantees
+ * the two skills can never both match, regardless of array order.
+ */
+export const TAX_FAST_TRACK_TRIGGER_PATTERNS = [
+  'fast.?track.*tax',
+  'tax.*fast.?track',
+  `(?:this year.?s?\\s*(?:tax\\s*)?(?:filing|return|taxes)|help me do (?:this year.?s? )?(?:tax|filing|return)|do (?:this year.?s? )?tax).{0,60}(?:${TAX_FAST_TRACK_ANCHOR_PATTERN})`,
+  `(?:${TAX_FAST_TRACK_ANCHOR_PATTERN}).{0,60}(?:this year.?s?\\s*(?:tax\\s*)?(?:filing|return|taxes)|help me do|do (?:this year.?s? )?tax)`,
+];
+
 function toStringArray(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
   return value.filter((v): v is string => typeof v === 'string');

@@ -1,6 +1,9 @@
 /**
- * Process a pay run — mark it paid and post a balanced 3-line journal entry:
- *   Dr Salary Expense (gross) / Cr Cash (net) / Cr Payroll Liabilities (withheld).
+ * Process a pay run — mark it paid and post a balanced journal entry:
+ *   Dr Salary Expense (gross) / Cr Cash (net) / Cr Payroll Liabilities (withheld),
+ *   plus (AU only, when sgCents > 0) Dr Superannuation Expense / Cr
+ *   Superannuation Payable — additive on top of gross, not part of the
+ *   withheld/net split above.
  * Falls back to crediting cash for the full gross if no liability account is
  * available. Idempotent: a run already processed returns 409.
  */
@@ -10,7 +13,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma as db } from '@naap/database';
 import { safeResolveAgentbookTenant } from '@/lib/agentbook-tenant';
 import { splitPayrollEntry } from '@/lib/payroll-ledger';
-import { computeDeposit } from '@/lib/payroll-deposits';
+import { computeDeposit, computeSgDeposit } from '@/lib/payroll-deposits';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -62,6 +65,21 @@ export async function POST(request: NextRequest, ctx: RouteCtx): Promise<NextRes
         if (liabAccount && split.withheldCents > 0) {
           lines.push({ tenantId, accountId: liabAccount.id, debitCents: 0, creditCents: split.withheldCents, description: 'Payroll — taxes withheld' });
         }
+        if (split.sgCents > 0) {
+          const [superExpenseAccount, superPayableAccount] = await Promise.all([
+            tx.abAccount.findFirst({ where: { tenantId, accountType: 'expense', isActive: true, code: '6200' } })
+              .then((a) => a || tx.abAccount.create({ data: { tenantId, code: '6200', name: 'Superannuation', accountType: 'expense', isActive: true } })),
+            tx.abAccount.findFirst({ where: { tenantId, accountType: 'liability', isActive: true, code: '2300' } })
+              .then((a) => a || tx.abAccount.create({ data: { tenantId, code: '2300', name: 'Superannuation Payable', accountType: 'liability', isActive: true } })),
+          ]);
+          // Additional debit + credit pair on top of the split above — sg is
+          // never subtracted from net or included in withheldCents, so this
+          // doesn't disturb the net + withheld === gross invariant.
+          lines.push(
+            { tenantId, accountId: superExpenseAccount.id, debitCents: split.sgCents, creditCents: 0, description: 'Payroll — superannuation guarantee (expense)' },
+            { tenantId, accountId: superPayableAccount.id, debitCents: 0, creditCents: split.sgCents, description: 'Payroll — superannuation guarantee (payable)' },
+          );
+        }
         const je = await tx.abJournalEntry.create({
           data: {
             tenantId,
@@ -86,6 +104,23 @@ export async function POST(request: NextRequest, ctx: RouteCtx): Promise<NextRes
         } else {
           await tx.abPayrollTaxDeposit.create({
             data: { tenantId, form: dep.form, periodLabel: dep.periodLabel, amountCents: dep.amountCents, dueDate: new Date(dep.dueDate), status: 'pending' },
+          });
+        }
+      }
+
+      // Superannuation Guarantee is a separate remittance obligation (to super
+      // funds, not the ATO) with its own due-date rule — accrued independently
+      // of the BAS/PAYG deposit above, never folded into it.
+      if (split.sgCents > 0) {
+        const sgDep = computeSgDeposit(run.stubs, run.periodEnd);
+        const existingSg = await tx.abPayrollTaxDeposit.findUnique({
+          where: { tenantId_form_periodLabel: { tenantId, form: sgDep.form, periodLabel: sgDep.periodLabel } },
+        });
+        if (existingSg) {
+          await tx.abPayrollTaxDeposit.update({ where: { id: existingSg.id }, data: { amountCents: existingSg.amountCents + sgDep.amountCents } });
+        } else {
+          await tx.abPayrollTaxDeposit.create({
+            data: { tenantId, form: sgDep.form, periodLabel: sgDep.periodLabel, amountCents: sgDep.amountCents, dueDate: new Date(sgDep.dueDate), status: 'pending' },
           });
         }
       }

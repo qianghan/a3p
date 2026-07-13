@@ -427,22 +427,26 @@
       </div>
 
       <div class="card">
-        <div class="card-head"><span class="card-id">PHASE D</span><h5>International / visa track</h5> <span class="pill pill-info">Scoped, needs a schema decision</span></div>
+        <div class="card-head"><span class="card-id">PHASE D</span><h5>International / visa track</h5> <span class="pill pill-high">Shipped &amp; validated in prod</span></div>
         <ul>
-          <li>Unlike Phase A, this genuinely needs a small schema addition — nothing in <code>AbTenantConfig</code> today captures visa status or home country. A migration (e.g. <code>visaStatus</code>, <code>homeCountry</code> fields) is a real, reviewable change, not a config value.</li>
-          <li>Treaty-lookup skill needs a country &rarr; treaty-terms data table. I have verified data for a couple of major sending countries (China Art. 20, India Art. 21) from &sect;2's research; a table covering the top ~10 F-1/J-1 source countries is a research task I can do, but again — see the sign-off question.</li>
-          <li>Sprintax/GLACIER hand-off: a static informational link costs nothing and can ship immediately. An actual referral/affiliate partnership is a business-development conversation only you can start.</li>
-          <li>1042-S-aware document scanning extends the existing Gemini OCR skill — feasible, needs a few sample 1042-S images to tune the extraction prompt against.</li>
+          <li><code>AbTenantConfig.visaStatus</code> / <code>.homeCountry</code> — additive migration (two nullable text columns), applied directly to production and verified via direct connection.</li>
+          <li>Onboarding: students get an extra visa/international-status step (invisible to every other persona) that routes into a home-country follow-up when applicable.</li>
+          <li>New <code>international-student-tax-help</code> skill: nonresident-alien status, FICA exemption, Form 8843/1042-S explainer, hands off to Sprintax/GLACIER for actual 1040-NR filing rather than attempting it. Treaty specifics given ONLY for the two treaties verified in &sect;2's research (China Art. 20, India Art. 21) — every other country gets an honest "check the real table" pointer instead of a fabricated rule.</li>
+          <li>Tax-slip OCR extended from Canada-only (T4/T5/T3/T4A/RRSP/TFSA) to also recognize W-2, 1099-NEC, 1098-T, 1098-E, and 1042-S — the OCR pipeline had no US form support at all before this, a bigger gap than originally scoped.</li>
         </ul>
       </div>
 
       <div class="card">
-        <div class="card-head"><span class="card-id">PHASE E</span><h5>Campus distribution</h5> <span class="pill pill-high">Cheaper than scoped — reuses shipped infra</span></div>
+        <div class="card-head"><span class="card-id">PHASE E</span><h5>Campus distribution</h5> <span class="pill pill-high">Shipped &amp; validated in prod</span></div>
         <ul>
-          <li><strong>Student-ambassador referral codes need zero new schema.</strong> <code>BillReferralCode</code>/<code>BillReferral</code> (shipped in <a href="https://github.com/qianghan/a3p/pull/169">PR #169-171/#180</a>) already give every tenant a unique code, invite tracking, and a reward-months mechanism via <code>GET /api/v1/agentbook-billing/referrals/me</code>. A "student ambassador" is just this same code, distributed through a campus channel instead of word of mouth — no new engineering, a copy/positioning exercise at most.</li>
-          <li><strong>The parent read-only share link needs zero new schema too.</strong> <code>AbCpaReviewLink</code> + the <code>/review/[token]</code> route (shipped) already expose a scoped, revocable, expirable read-only P&amp;L/summary link with no CPA-specific coupling in the data it returns. Reusing it for "share a summary with a parent" is a UI entry point + copy change, not a new access-control model.</li>
-          <li>International-student-office / financial-aid-office / peer-coaching-center partnerships are pure business development — outreach, a pitch, a relationship. That part is entirely yours; I can draft outreach copy or a one-pager if useful, but I can't make the calls.</li>
+          <li><strong>Student-ambassador referral codes needed zero changes.</strong> <code>BillReferralCode</code>/<code>BillReferral</code> (shipped in <a href="https://github.com/qianghan/a3p/pull/169">PR #169-171/#180</a>) is already tenant-generic — confirmed before building anything.</li>
+          <li><strong>Parent read-only share link</strong> — new "Sharing" settings tab reusing <code>AbCpaReviewLink</code> + <code>/review/[token]</code> as-is (label="Parent summary", 365-day validity); the mechanism has no CPA-specific coupling in creation.</li>
+          <li>International-student-office / financial-aid-office / peer-coaching-center partnerships remain pure business development — outreach, a pitch, a relationship, entirely yours to drive. I can draft outreach copy or a one-pager if useful.</li>
         </ul>
+      </div>
+      <div class="callout note">
+        <h5>What shipping D/E surfaced</h5>
+        <p><code>tests/e2e/student-persona.spec.ts</code> now covers all five capabilities end-to-end against <code>agentbook.brainliber.com</code>: student chart of accounts, scholarship-taxability, visa/home-country persistence, international-student-tax-help routing, and the parent share link. Along the way this caught a real bug (tenant-config's upsert <code>create</code> branch silently dropped the two new fields for a brand-new tenant) and a real infrastructure quirk (Supabase's connection pooler served a stale view of the schema for a few minutes after the migration — resolved on its own, no dashboard action needed).</p>
       </div>
     </section>
 

@@ -11,6 +11,8 @@ import {
   Trash2,
 } from 'lucide-react';
 import { ChatCTA } from '@naap/plugin-sdk';
+import { formatMoney } from '@agentbook/i18n';
+import { useTenantCurrency } from '../hooks/useTenantCurrency';
 
 interface ClientLite {
   id: string;
@@ -44,8 +46,8 @@ const STATUS_CONFIG: Record<Estimate['status'], { label: string; bg: string; tex
   converted: { label: 'Converted', bg: 'bg-blue-100', text: 'text-blue-700', icon: <ArrowRightCircle className="w-3 h-3" /> },
 };
 
-function formatCurrency(cents: number) {
-  return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(cents / 100);
+function formatCurrency(cents: number, currency: string = 'USD') {
+  return formatMoney(cents, currency);
 }
 
 function formatDate(d: string) {
@@ -66,6 +68,7 @@ export const EstimatesPage: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [filter, setFilter] = useState<Estimate['status'] | 'all'>('all');
+  const currency = useTenantCurrency();
 
   const fetchEstimates = useCallback(async () => {
     setLoading(true);
@@ -211,7 +214,7 @@ export const EstimatesPage: React.FC = () => {
                   {/* Amount + actions */}
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="font-bold text-base mr-1" style={{ color: 'var(--text-primary)' }}>
-                      {formatCurrency(est.amountCents)}
+                      {formatCurrency(est.amountCents, currency)}
                     </span>
 
                     {est.status === 'pending' && (

@@ -9,6 +9,8 @@ import {
   Tag,
 } from 'lucide-react';
 import { ChatCTA } from '@naap/plugin-sdk';
+import { formatMoney } from '@agentbook/i18n';
+import { useTenantCurrency } from '../hooks/useTenantCurrency';
 
 interface Deduction {
   id: string;
@@ -18,8 +20,8 @@ interface Deduction {
   status: 'suggested' | 'applied' | 'dismissed';
 }
 
-function formatCurrency(n: number) {
-  return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(n);
+function formatCurrency(n: number, currency: string = 'USD') {
+  return formatMoney(Math.round(n * 100), currency);
 }
 
 const STATUS_CONFIG: Record<string, { label: string; bg: string; text: string; icon: React.ReactNode }> = {
@@ -33,6 +35,7 @@ export const DeductionsPage: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [updating, setUpdating] = useState<string | null>(null);
+  const currency = useTenantCurrency();
 
   const fetchDeductions = useCallback(async () => {
     setLoading(true);
@@ -122,7 +125,7 @@ export const DeductionsPage: React.FC = () => {
             Total Potential Savings
           </p>
           <p className="text-xl font-bold text-emerald-600">
-            {formatCurrency(totalPotentialSavings)}
+            {formatCurrency(totalPotentialSavings, currency)}
           </p>
         </div>
       </div>
@@ -166,7 +169,7 @@ export const DeductionsPage: React.FC = () => {
                     <div className="text-right">
                       <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>Est. Savings</p>
                       <p className="text-lg font-bold text-emerald-600">
-                        {formatCurrency(d.estimated_savings)}
+                        {formatCurrency(d.estimated_savings, currency)}
                       </p>
                     </div>
                     {d.status === 'suggested' && (

@@ -10,11 +10,16 @@ import { createPluginServer } from '@naap/plugin-server-sdk';
 import { db } from './db/client.js';
 import { handleAgentMessage } from './agent-brain.js';
 import { BUILT_IN_SKILLS } from './built-in-skills.js';
-import { selectSkillByPatterns } from './skill-routing.js';
+import { selectSkillByPatterns, isBusinessFlaggedPhrase, isPersonalTrendQuery } from './skill-routing.js';
+import { hasAddOn } from '@naap/billing';
 import { handleDashboardOverview } from './dashboard/overview.js';
 import { handleDashboardActivity } from './dashboard/activity.js';
 import { handleDashboardAgentSummary } from './dashboard/agent-summary.js';
 import { listPastFilingsForTenant, buildPastFilingContext } from './past-filing-context.js';
+import { resolveOrdinalOrFuzzyCandidate } from './candidate-resolution.js';
+import { createTaxQuestionnaireSession, updateTaxQuestionnaireSession } from './tax-questionnaire-session.js';
+import { getTaxQuestionnairePack, listSupportedJurisdictions } from '@agentbook/jurisdictions/tax-questionnaire-loader';
+import { buildPersonalProfileContext } from './personal-profile-context.js';
 
 // Read plugin.json for dev-only fields. When bundled by webpack (Next.js
 // on Vercel), `new URL(..., import.meta.url)` is incompatible with fs —
@@ -1139,6 +1144,26 @@ function deriveEffectiveRate(estimate: {
     return estimate.totalTaxCents / net;
   }
   return 0;
+}
+
+/**
+ * Strip markdown code-fence wrapping from an LLM's raw JSON string before
+ * JSON.parse'ing it. Duplicated (not imported) from tax-past-filings.ts's
+ * private cleanJson() helper (plugins/agentbook-tax/backend/src/
+ * tax-past-filings.ts) — that function is private/un-exported and lives
+ * across a plugin boundary (agentbook-tax vs agentbook-core). agent-brain.ts
+ * has its own local, non-exported copy of this exact same logic for the same
+ * reason (Task 3's Step 1b branch); this is a third copy for the same reason
+ * again — a few lines, not worth a shared-package extraction for this PR.
+ */
+function cleanJsonForTaxFastTrack(raw: string): string {
+  let s = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
+  const first = s.indexOf('{');
+  const last = s.lastIndexOf('}');
+  if (first > 0 || (last >= 0 && last < s.length - 1)) {
+    if (first >= 0 && last > first) s = s.slice(first, last + 1);
+  }
+  return s;
 }
 
 // Default Gemini call timeout — overridable via GEMINI_TIMEOUT_MS env var.
@@ -3199,6 +3224,42 @@ async function _executeClassificationCore(
 ): Promise<any> {
   const startTime = Date.now();
   let { selectedSkill, extractedParams, confidence } = classification;
+  // Set by the record-personal-transaction pre-processing block below —
+  // AbPersonalTransaction has no `currency` column (it's a personal account,
+  // not tied to an invoice), so the response-formatting step can't read
+  // `data.currency` off the created row (that was always undefined, silently
+  // defaulting every reply to USD regardless of the tenant's configured
+  // jurisdiction). Fetched fresh here rather than trusting
+  // `classification.tenantConfig`, matching the account-resolution lookup's
+  // own defensive style.
+  let personalTxnCurrency: string | undefined;
+
+  // Eligibility gate: scholarship/co-op/roommate search + save are part of
+  // the Student Success add-on. Checked here (execution time), not at
+  // classification time — see docs/superpowers/specs/2026-07-10-student-chat-skills-design.md.
+  const STUDENT_CHAT_SKILLS = ['find-scholarships', 'save-scholarship', 'find-coop-opportunities', 'save-coop-opportunity', 'find-roommate-matches'];
+  if (STUDENT_CHAT_SKILLS.includes(selectedSkill.name)) {
+    const cfg = await db.abTenantConfig.findUnique({ where: { userId: tenantId } });
+    const eligible = cfg?.businessType === 'student' && (await hasAddOn(tenantId, 'student_success'));
+    if (!eligible) {
+      // confidence must stay >= 0.6 here — agent-brain.ts's assessComplexity()
+      // treats confidence < 0.6 as 'complex' and re-routes through the
+      // planner (agent-planner.ts::executeStep), a separate execution path
+      // that does NOT run this gate and lacks this file's baseUrls
+      // resolution, producing a raw "Failed to parse URL" step failure
+      // instead of this message. Confirmed live in production: dropping
+      // this to 0 (an earlier, seemingly-cosmetic alignment with other
+      // blocked-path responses in this file) broke the nudge entirely for
+      // ineligible tenants.
+      return {
+        selectedSkill, extractedParams, confidence: 1, skillUsed: selectedSkill.name, skillResponse: null,
+        responseData: {
+          message: 'Scholarship, co-op, and roommate search are part of Student Success — enable it in your Business Profile settings to use them.',
+          skillUsed: selectedSkill.name, confidence: 1, latencyMs: Date.now() - startTime,
+        },
+      };
+    }
+  }
 
   // === 3. SKILL EXECUTION ===
   let endpoint = selectedSkill.endpoint as any;
@@ -3214,6 +3275,10 @@ async function _executeClassificationCore(
     '/api/v1/agentbook-core': process.env.AGENTBOOK_CORE_URL || _appBase || 'http://localhost:4050',
     '/api/v1/agentbook-invoice': process.env.AGENTBOOK_INVOICE_URL || _appBase || 'http://localhost:4052',
     '/api/v1/agentbook-tax': process.env.AGENTBOOK_TAX_URL || _appBase || 'http://localhost:4053',
+    '/api/v1/agentbook-scholarship': _appBase || 'http://localhost:3000',
+    '/api/v1/agentbook-career': _appBase || 'http://localhost:3000',
+    '/api/v1/agentbook-housing': _appBase || 'http://localhost:3000',
+    '/api/v1/agentbook-personal': _appBase || 'http://localhost:3000',
   };
 
   // Resolve base URL
@@ -3263,6 +3328,95 @@ async function _executeClassificationCore(
         }
       }
     } catch (err) { console.warn('Auto-categorize error:', err); }
+  }
+
+  // Pre-processing for record-personal-transaction: resolve which personal
+  // account this transaction is against (same "save-scholarship"-style
+  // candidate-resolution pattern: 0 accounts blocks with a pointer to the
+  // Personal page, 1 account auto-resolves, 2+ resolves via
+  // resolveOrdinalOrFuzzyCandidate or asks a clarifying question), and
+  // normalize amountCents' sign + businessFlag from the message text — the
+  // classifier's raw extraction for both isn't reliable enough to trust
+  // as-is (see design doc's "conservative" businessFlag rule and "compute
+  // the sign yourself" note).
+  if (selectedSkill.name === 'record-personal-transaction') {
+    // Separate try/catch (not the account-resolution one below) — a failure
+    // here must never abort sign-inference/businessFlag extraction further
+    // down; it only affects which currency symbol the reply uses, so fall
+    // back to the tenant-config schema's own default ('USD') on any error,
+    // matching jurisdiction-currency.ts's `formatCurrencyCents` fallback
+    // convention used by the Personal page's UI.
+    try {
+      const cfg = await db.abTenantConfig.findUnique({ where: { userId: tenantId } });
+      personalTxnCurrency = cfg?.currency || 'USD';
+    } catch (err) {
+      console.warn('[record-personal-transaction] tenant currency lookup error:', err);
+      personalTxnCurrency = 'USD';
+    }
+
+    try {
+      const accounts = await db.abPersonalAccount.findMany({ where: { tenantId, archived: false } });
+      if (accounts.length === 0) {
+        // Blocked-path early return — confidence must stay at 1, per this
+        // file's established rule (see the STUDENT_CHAT_SKILLS eligibility
+        // gate comment above): a lower confidence here gets the response
+        // re-routed through agent-planner.ts's executeStep instead of
+        // returned directly, which doesn't know about this message at all.
+        return {
+          selectedSkill, extractedParams, confidence: 1, skillUsed: 'record-personal-transaction', skillResponse: null,
+          responseData: {
+            message: "You haven't set up any personal accounts yet. Add one on the Personal page first, then I can record this for you.",
+            skillUsed: 'record-personal-transaction', confidence: 1, latencyMs: Date.now() - startTime,
+          },
+        };
+      }
+
+      if (accounts.length === 1) {
+        extractedParams.accountId = accounts[0].id;
+      } else {
+        const candidates = accounts.map((a: any) => ({ ...a, title: a.name }));
+        const chosen = resolveOrdinalOrFuzzyCandidate(candidates, extractedParams.accountRef || text || '', ['type']);
+        if (!chosen) {
+          const names = accounts.map((a: any) => a.name).join(', ');
+          return {
+            selectedSkill, extractedParams, confidence: 1, skillUsed: 'record-personal-transaction', skillResponse: null,
+            responseData: {
+              message: `Which account is this for — ${names}?`,
+              skillUsed: 'record-personal-transaction', confidence: 1, latencyMs: Date.now() - startTime,
+            },
+          };
+        }
+        extractedParams.accountId = chosen.id;
+      }
+      delete extractedParams.accountRef;
+
+      // Sign inference: recompute from phrasing rather than trusting
+      // whatever (if anything) the classifier extracted — income phrasing
+      // wins positive, everything else defaults to spend (negative), which
+      // is the more common personal-transaction shape.
+      // Known limitation (not fixed here): this regex scans the *whole*
+      // message, so a compound utterance like "I got my paycheck today,
+      // then spent $200 on rent" can pick up the income phrasing and
+      // mis-sign an amount that actually belongs to a later, unrelated
+      // clause — fixing this needs clause-level parsing, not a regex tweak.
+      if (typeof extractedParams.amountCents === 'number') {
+        const abs = Math.abs(extractedParams.amountCents);
+        const lower = (text || '').toLowerCase();
+        const INCOME_RE = /\bgot paid\b|\bpaycheck\b|\bsalary\b|\bpayroll\b|\bdeposited\b|\bdeposit\b|\bincome\b|put.*(?:in|into).*savings|to (?:my )?savings/;
+        extractedParams.amountCents = INCOME_RE.test(lower) ? abs : -abs;
+      }
+
+      // businessFlag: conservative — only true on an explicit, non-negated
+      // statement that this personal-account charge is actually a business
+      // expense. isBusinessFlaggedPhrase is negation-aware (shared with the
+      // routing excludePatterns in built-in-skills.ts) so "not a business
+      // expense" doesn't flip businessFlag to true on a substring match.
+      extractedParams.businessFlag = isBusinessFlaggedPhrase(text || '');
+
+      if (!extractedParams.category) extractedParams.category = 'uncategorized';
+    } catch (err) {
+      console.error('[record-personal-transaction] pre-processing error:', err);
+    }
   }
 
   // Pre-processing: query-invoices — resolve clientName to clientId
@@ -3890,6 +4044,121 @@ async function _executeClassificationCore(
 
   // INTERNAL handler: personal-snapshot — household finance via direct DB
   if (selectedSkill.name === 'personal-snapshot') {
+    // PR-2 (personal-finance-trends-nudges): sub-classifier. Default is the
+    // existing free current-state path below, completely unchanged from
+    // PR-1. Only when the incoming text also contains one of
+    // isPersonalTrendQuery's comparison/temporal cues do we treat this as a
+    // gated trend query (see skill-routing.ts's PERSONAL_TREND_CUE_PATTERN
+    // doc comment and the design spec's "default to free path" decision).
+    // This is the safe failure direction: a misfire here means a
+    // subscriber has to rephrase (a UX papercut), never a non-subscriber
+    // silently getting paid data, and never an accidental gate on an
+    // ordinary free query — a real regression of PR-1's shipped behavior.
+    if (isPersonalTrendQuery(text)) {
+      try {
+        // hasAddOn checked inline, mirroring the STUDENT_CHAT_SKILLS gate
+        // above (~line 3220) — server.ts's own established convention for
+        // this kind of eligibility check.
+        const eligible = await hasAddOn(tenantId, 'personal_insights');
+        if (!eligible) {
+          // confidence must stay at 1 here — see the STUDENT_CHAT_SKILLS
+          // gate above for the documented production incident where
+          // dropping a blocked-path return's confidence to 0, as a
+          // seemingly-cosmetic alignment with other responses in this
+          // file, broke the feature entirely: agent-brain.ts's
+          // assessComplexity() treats confidence < 0.6 as 'complex' and
+          // re-routes through the planner, a separate execution path that
+          // does NOT run this gate. Do not repeat that mistake.
+          const message = "Net-worth trends are part of Personal Insights — enable it in your Personal Finance settings to see how it's changed over time.";
+          await db.abConversation.create({ data: { tenantId, question: text, answer: message, queryType: 'agent', channel, skillUsed: 'personal-snapshot' } });
+          return {
+            selectedSkill, extractedParams, confidence: 1, skillUsed: 'personal-snapshot', skillResponse: null,
+            responseData: { message, actions: [], chartData: null, skillUsed: 'personal-snapshot', confidence: 1, latencyMs: Date.now() - startTime },
+          };
+        }
+
+        // Cross-package blocker (see Task 4's plan note): server.ts cannot
+        // import apps/web-next/src/lib/personal-trend.ts — different
+        // package/runtime boundary. Re-implement the same two-step
+        // month-over-month reconstruction inline here, applied to just the
+        // current and prior month (a chat answer only ever needs the
+        // month-over-month comparison, not the full 12-point series) —
+        // mirroring the existing precedent immediately below, which
+        // already re-implements lib/personal-snapshot.ts's asset/liability
+        // math inline instead of importing it, for the same reason.
+        const fmt = (c: number) => (c < 0 ? '-$' : '$') + Math.round(Math.abs(c) / 100).toLocaleString();
+        const accounts = await db.abPersonalAccount.findMany({ where: { tenantId, archived: false } });
+        if (accounts.length === 0) {
+          const message = "You haven't set up any personal accounts yet. Add your checking, savings, or credit cards on the Personal page to see your net-worth trend.";
+          await db.abConversation.create({ data: { tenantId, question: text, answer: message, queryType: 'agent', channel, skillUsed: 'personal-snapshot' } });
+          return {
+            selectedSkill, extractedParams, confidence, skillUsed: 'personal-snapshot', skillResponse: { data: null },
+            responseData: { message, actions: [], chartData: null, skillUsed: 'personal-snapshot', confidence, latencyMs: Date.now() - startTime },
+          };
+        }
+        const accountIds = accounts.map((a) => a.id);
+        const txns = await db.abPersonalTransaction.findMany({
+          where: { tenantId, accountId: { in: accountIds } },
+          select: { accountId: true, amountCents: true, date: true },
+        });
+
+        // Last instant (23:59:59.999) of the month `monthsAgo` months
+        // before now — mirrors
+        // apps/web-next/src/lib/personal-trend.ts's monthEnd() exactly.
+        const now = new Date();
+        const monthEndFor = (monthsAgo: number) => {
+          const end = new Date(now.getFullYear(), now.getMonth() - monthsAgo + 1, 1);
+          end.setMilliseconds(-1);
+          return end;
+        };
+
+        // Order of operations is load-bearing (see Task 2's design note):
+        // step 1 reconstructs each account's RAW signed balance at
+        // month-end `end` — clamped to 0 before the account existed,
+        // archived accounts already excluded by the query above — and only
+        // step 2, after every account's raw balance is known, applies the
+        // asset/liability aggregation (assets summed directly, liabilities
+        // by Math.abs) to that reconstructed set. Reversing this order
+        // gets liability history wrong for any liability account with
+        // transactions crossing the month-end boundary.
+        const netWorthAt = (end: Date): number => {
+          let assetsCents = 0;
+          let liabilitiesCents = 0;
+          for (const account of accounts) {
+            let rawBalanceCents: number;
+            if (end < account.createdAt) {
+              rawBalanceCents = 0;
+            } else {
+              const txnSumAfter = txns
+                .filter((t) => t.accountId === account.id && t.date > end)
+                .reduce((sum, t) => sum + t.amountCents, 0);
+              rawBalanceCents = account.balanceCents - txnSumAfter;
+            }
+            if (account.isAsset) assetsCents += rawBalanceCents;
+            else liabilitiesCents += Math.abs(rawBalanceCents);
+          }
+          return assetsCents - liabilitiesCents;
+        };
+
+        const currentNet = netWorthAt(monthEndFor(0));
+        const priorNet = netWorthAt(monthEndFor(1));
+        const deltaCents = currentNet - priorNet;
+        const deltaText = deltaCents === 0 ? 'unchanged' : `${deltaCents > 0 ? 'up' : 'down'} ${fmt(Math.abs(deltaCents))}`;
+        const message = `**Net worth trend:** ${fmt(priorNet)} last month → ${fmt(currentNet)} this month (${deltaText}).`;
+        await db.abConversation.create({ data: { tenantId, question: text, answer: message, queryType: 'agent', channel, skillUsed: 'personal-snapshot' } });
+        return {
+          selectedSkill, extractedParams, confidence, skillUsed: 'personal-snapshot', skillResponse: { data: { currentNet, priorNet, deltaCents } },
+          responseData: { message, actions: [], chartData: null, skillUsed: 'personal-snapshot', confidence, latencyMs: Date.now() - startTime },
+        };
+      } catch (err) {
+        console.error('[personal-snapshot:trend] error:', err);
+        return {
+          selectedSkill, extractedParams, confidence: 0, skillUsed: 'personal-snapshot', skillResponse: null,
+          responseData: { message: "I couldn't load your net-worth trend. Please try again.", actions: [], chartData: null, skillUsed: 'personal-snapshot', confidence: 0, latencyMs: Date.now() - startTime },
+        };
+      }
+    }
+
     try {
       const fmt = (c: number) => '$' + Math.round(c / 100).toLocaleString();
       const monthStart = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
@@ -3992,6 +4261,165 @@ async function _executeClassificationCore(
     } catch (err) {
       console.error('[cpa-review] error:', err);
       return { selectedSkill, extractedParams, confidence: 0, skillUsed: 'cpa-review', skillResponse: null, responseData: { message: "I couldn't review the books. Please try again.", actions: [], chartData: null, skillUsed: 'cpa-review', confidence: 0, latencyMs: Date.now() - startTime } };
+    }
+  }
+
+  // INTERNAL handler: start-tax-fast-track (PR-3 tax-fast-track-foundation,
+  // Task 4). Only ever runs on the FIRST message for a tenant — before any
+  // AbTaxQuestionnaireSession exists. Once one does, agent-brain.ts's "Step
+  // 1b" session-recovery branch takes over on every subsequent turn (see
+  // that file for the full multi-turn contract); the two run on mutually
+  // exclusive message paths (Step 1b runs earlier in the pipeline and would
+  // have already claimed the reply if a session were active).
+  if (selectedSkill.name === 'start-tax-fast-track') {
+    try {
+      // listPastFilings() (plugins/agentbook-tax/backend/src/tax-past-filings.ts)
+      // returns filings in every status (uploaded/parsing/confirmed/error) —
+      // it does NOT pre-filter. This plugin already has its own equivalent,
+      // unfiltered read of the same AbPastTaxFiling model (listPastFilingsForTenant,
+      // used just above by query-past-filings) rather than importing across
+      // the agentbook-tax plugin boundary, so reuse that here too and filter
+      // to 'confirmed' ourselves.
+      const allFilings: any[] = await listPastFilingsForTenant(tenantId);
+      const confirmedFilings = allFilings.filter((f: any) => f.status === 'confirmed');
+
+      if (confirmedFilings.length === 0) {
+        // Blocked path: no seed data to fast-track from. confidence MUST
+        // stay 1 here — this codebase has a documented production incident
+        // (see the STUDENT_CHAT_SKILLS eligibility gate above) from a
+        // "cosmetic" confidence value being dropped to 0 on a similar
+        // blocked-path early return, which broke re-routing through the
+        // planner. Do not repeat that mistake.
+        const message = "I don't have a confirmed prior-year return to fast-track from yet. Upload last year's return on the **Tax Package** page → Past Filings tab, confirm it, and then just ask me again.";
+        await db.abConversation.create({ data: { tenantId, question: text || '[tax fast track]', answer: message, queryType: 'agent', channel, skillUsed: 'start-tax-fast-track' } }).catch(() => {});
+        return {
+          selectedSkill, extractedParams, confidence: 1, skillUsed: 'start-tax-fast-track', skillResponse: null,
+          responseData: { message, actions: [], chartData: null, skillUsed: 'start-tax-fast-track', confidence: 1, latencyMs: Date.now() - startTime },
+        };
+      }
+
+      // The most recent confirmed filing by taxYear — there is no requirement
+      // that it be exactly currentYear - 1, and there may be more than one
+      // confirmed filing on file, so reduce to the max taxYear rather than
+      // assuming listPastFilingsForTenant's ordering (desc by taxYear then
+      // createdAt) already puts the right one first for every caller.
+      const filing = confirmedFilings.reduce((latest: any, f: any) => (f.taxYear > latest.taxYear ? f : latest));
+
+      const taxYear = extractedParams.taxYear || 2025;
+      const jurisdiction = (classification.tenantConfig?.jurisdiction || 'us').toLowerCase();
+      const region = classification.tenantConfig?.region || null;
+
+      // Only us/ca have a TaxQuestionnairePack registered (au/uk deliberately
+      // not yet — see tax-questionnaire-loader.ts). Check BEFORE creating a
+      // session: creating one first and only discovering no pack exists after
+      // the fact would leave an in_progress session with no pending question,
+      // which Step 1b (agent-brain.ts) would then have no way to recover from.
+      if (!listSupportedJurisdictions().includes(jurisdiction)) {
+        const message = "Tax fast-track isn't available for your jurisdiction yet — I can still help with the regular tax filing flow, just ask.";
+        await db.abConversation.create({ data: { tenantId, question: text || '[tax fast track]', answer: message, queryType: 'agent', channel, skillUsed: 'start-tax-fast-track' } }).catch(() => {});
+        return {
+          selectedSkill, extractedParams, confidence: 1, skillUsed: 'start-tax-fast-track', skillResponse: null,
+          responseData: { message, actions: [], chartData: null, skillUsed: 'start-tax-fast-track', confidence: 1, latencyMs: Date.now() - startTime },
+        };
+      }
+
+      const session = await createTaxQuestionnaireSession(tenantId, taxYear, jurisdiction, region, 'fast_track', filing.id);
+
+      const pack = getTaxQuestionnairePack(jurisdiction);
+      const profile = await buildPersonalProfileContext(tenantId).catch(() => '');
+      const prompt = pack.nextQuestionPrompt({ qaHistory: [], priorFiling: filing.extractedData, profile });
+
+      // callGemini() has the real signature (systemPrompt, userMessage, maxTokens?)
+      // => Promise<string | null> and NEVER throws — a missing key, HTTP
+      // error, or empty response are all a `null` return, not an exception
+      // (see the design spec's "falsy return, not a thrown exception"
+      // paragraph, and agent-brain.ts's Step 1b branch for the same check).
+      // Checked explicitly below, separate from the JSON.parse/pack try/catch.
+      const raw = await callGemini(prompt, text || 'Start the tax fast-track questionnaire.', 300);
+
+      let outcome: { question: string } | { done: true } | null = null;
+      if (raw) {
+        try {
+          outcome = pack.parseNextQuestionResponse(JSON.parse(cleanJsonForTaxFastTrack(raw)));
+        } catch {
+          outcome = null; // malformed content — treated as a failure below, same as a falsy raw
+        }
+      }
+
+      if (!outcome) {
+        // First-question failure. The plan leaves this edge case for the
+        // implementer's judgment (it isn't in Task 3's exit-path matrix,
+        // which only covers turns AFTER a session already exists). Decision:
+        // mark the just-created session 'abandoned' immediately rather than
+        // leaving it 'in_progress' with an empty qaHistory. Reasoning: if
+        // left in_progress, the NEXT message the user sends (which, per our
+        // own reply below, is likely them just re-typing something, not
+        // necessarily the exact fast-track trigger phrase) would be picked
+        // up by agent-brain.ts's Step 1b branch, which finds qaHistory has
+        // no pending entry (empty array) and treats that as the SAME
+        // "data-invariant violation" failure path — silently burning through
+        // consecutiveFailures on a session the user doesn't know exists yet,
+        // instead of cleanly re-running this skill from scratch. Abandoning
+        // it now (version is fresh off create — no conflict possible yet)
+        // means the user's next message, whatever it is, falls straight
+        // through Step 1b (only 'in_progress' sessions are picked up) to
+        // normal classification, so "try asking again" in the message below
+        // is literally true.
+        await updateTaxQuestionnaireSession(session.id, session.version, { status: 'abandoned' }).catch(() => {});
+        const message = "Something went wrong setting up your tax questionnaire — could you try asking again?";
+        await db.abConversation.create({ data: { tenantId, question: text || '[tax fast track]', answer: message, queryType: 'agent', channel, skillUsed: 'start-tax-fast-track' } }).catch(() => {});
+        return {
+          selectedSkill, extractedParams, confidence: 1, skillUsed: 'start-tax-fast-track', skillResponse: null,
+          responseData: { message, actions: [], chartData: null, skillUsed: 'start-tax-fast-track', confidence: 1, latencyMs: Date.now() - startTime },
+        };
+      }
+
+      if ('done' in outcome) {
+        // Legitimate (if unlikely) turn-1 outcome: the pack judged the prior
+        // filing + profile already cover everything, so zero questions are
+        // needed. Mirrors agent-brain.ts's Step 1b "isDone" handling —
+        // completed, empty qaHistory (there was never a pending question to
+        // finalize).
+        await updateTaxQuestionnaireSession(session.id, session.version, { status: 'completed' });
+        const message = "Got everything I need from your last return — I'll have your filing draft ready shortly.";
+        await db.abConversation.create({ data: { tenantId, question: text || '[tax fast track]', answer: message, queryType: 'agent', channel, skillUsed: 'start-tax-fast-track' } }).catch(() => {});
+        return {
+          selectedSkill, extractedParams, confidence: 1, skillUsed: 'start-tax-fast-track', skillResponse: { data: { sessionId: session.id } },
+          responseData: { message, actions: [], chartData: null, skillUsed: 'start-tax-fast-track', confidence: 1, sessionId: session.id, latencyMs: Date.now() - startTime },
+        };
+      }
+
+      // Success: seed qaHistory/askedCount to the EXACT shape Task 3's
+      // session-recovery branch depends on (see agent-brain.ts's "Step 1b" —
+      // it recovers "which question is being answered" by treating
+      // qaHistory's last entry as a "pending" placeholder the instant a
+      // question is asked, since the schema has no separate column for it).
+      const ok = await updateTaxQuestionnaireSession(session.id, session.version, {
+        qaHistory: [{ question: outcome.question, answer: '' }],
+        askedCount: 1,
+      });
+      if (!ok) {
+        // Version conflict on a session microseconds old and known to no one
+        // else yet — vanishingly unlikely, but fail safe rather than serve a
+        // question the persisted qaHistory doesn't actually reflect.
+        const message = "Something went wrong setting up your tax questionnaire — could you try asking again?";
+        return {
+          selectedSkill, extractedParams, confidence: 1, skillUsed: 'start-tax-fast-track', skillResponse: null,
+          responseData: { message, actions: [], chartData: null, skillUsed: 'start-tax-fast-track', confidence: 1, latencyMs: Date.now() - startTime },
+        };
+      }
+
+      await db.abConversation.create({ data: { tenantId, question: text || '[tax fast track]', answer: outcome.question, queryType: 'agent', channel, skillUsed: 'start-tax-fast-track' } }).catch(() => {});
+      return {
+        selectedSkill, extractedParams, confidence: 1, skillUsed: 'start-tax-fast-track', skillResponse: { data: { sessionId: session.id } },
+        responseData: { message: outcome.question, actions: [], chartData: null, skillUsed: 'start-tax-fast-track', confidence: 1, sessionId: session.id, latencyMs: Date.now() - startTime },
+      };
+    } catch (err) {
+      console.error('[start-tax-fast-track] error:', err);
+      return {
+        selectedSkill, extractedParams, confidence: 0, skillUsed: 'start-tax-fast-track', skillResponse: null,
+        responseData: { message: "I couldn't start the fast-track questionnaire. Please try again.", actions: [], chartData: null, skillUsed: 'start-tax-fast-track', confidence: 0, latencyMs: Date.now() - startTime },
+      };
     }
   }
 
@@ -4381,6 +4809,179 @@ async function _executeClassificationCore(
       return {
         selectedSkill, extractedParams, confidence: 0, skillUsed: 'record-invoice-payment', skillResponse: null,
         responseData: { message: "I couldn't record the payment. Please try again.", skillUsed: 'record-invoice-payment', confidence: 0, latencyMs: Date.now() - startTime },
+      };
+    }
+  }
+
+  // save-scholarship's broad triggers ('save that', 'save the X one') win
+  // any ambiguous phrase over save-coop-opportunity's narrower ones (which
+  // require an explicit co-op/internship/job keyword) purely by BUILT_IN_SKILLS
+  // array order — so "save the first one" always classifies as
+  // save-scholarship even right after a co-op search, since that's exactly
+  // the phrase the find-coop-opportunities response template tells users to
+  // say. When there's no direct free-text description (extractedParams.title
+  // unset — i.e. this is a referential "save the one I just found", not an
+  // explicit new description), check which find-* skill actually ran most
+  // recently and re-dispatch to the correct save handler if it disagrees
+  // with the classifier's guess.
+  if (selectedSkill.name === 'save-scholarship' && !extractedParams.title) {
+    const recentFind = await db.abConversation.findFirst({
+      where: { tenantId, skillUsed: { in: ['find-scholarships', 'find-coop-opportunities'] } },
+      orderBy: { createdAt: 'desc' },
+    });
+    if (recentFind?.skillUsed === 'find-coop-opportunities') {
+      selectedSkill = { ...selectedSkill, name: 'save-coop-opportunity' };
+    }
+  }
+
+  // INTERNAL handler: save-scholarship — resolve a candidate from the prior
+  // find-scholarships turn (ordinal or fuzzy title match), or fall back to
+  // a direct free-text description, then save it via the scholarship
+  // opportunities endpoint.
+  if (selectedSkill.name === 'save-scholarship') {
+    try {
+      const recentRows = await db.abConversation.findMany({
+        where: { tenantId, skillUsed: 'find-scholarships' },
+        orderBy: { createdAt: 'desc' },
+        take: 5,
+      });
+      const lastConvo = recentRows.find((r: any) => Array.isArray((r.data as any)?.data?.candidates) && (r.data as any).data.candidates.length > 0) ?? recentRows[0];
+      const candidates: any[] = (lastConvo?.data as any)?.data?.candidates ?? [];
+      let chosen: any = resolveOrdinalOrFuzzyCandidate(candidates, text || '');
+
+      if (!chosen && extractedParams.title) {
+        chosen = {
+          title: String(extractedParams.title),
+          amountText: extractedParams.amountText ? String(extractedParams.amountText) : null,
+          deadlineText: extractedParams.deadlineText ? String(extractedParams.deadlineText) : null,
+          sourceUrl: extractedParams.sourceUrl ? String(extractedParams.sourceUrl) : null,
+        };
+      }
+
+      if (!chosen) {
+        return {
+          selectedSkill, extractedParams, confidence, skillUsed: 'save-scholarship', skillResponse: null,
+          responseData: {
+            message: "I'm not sure which scholarship you mean — try \"find scholarships\" first, then \"save the first one\", or tell me the name directly.",
+            skillUsed: 'save-scholarship', confidence, latencyMs: Date.now() - startTime,
+          },
+        };
+      }
+
+      const scholarshipBase = baseUrls['/api/v1/agentbook-scholarship'] || 'http://localhost:3000';
+      const saveRes = await fetch(`${scholarshipBase}/api/v1/agentbook-scholarship/opportunities`, {
+        method: 'POST',
+        headers: brainHeaders(tenantId),
+        body: JSON.stringify({
+          title: chosen.title,
+          sourceUrl: chosen.sourceUrl || null,
+          sourceLabel: chosen.sourceLabel || null,
+          deadline: chosen.deadlineText || null,
+          amountText: chosen.amountText || null,
+          eligibilitySummary: chosen.eligibilitySummary || null,
+        }),
+      });
+      const saveData = await saveRes.json() as any;
+      if (!saveRes.ok || !saveData.success) {
+        return {
+          selectedSkill, extractedParams, confidence, skillUsed: 'save-scholarship', skillResponse: saveData,
+          responseData: {
+            message: `Couldn't save that scholarship. ${saveData.error || 'Please try again.'}`,
+            skillUsed: 'save-scholarship', confidence, latencyMs: Date.now() - startTime,
+          },
+        };
+      }
+      const detailParts = [chosen.amountText, chosen.deadlineText ? `due ${chosen.deadlineText}` : null].filter(Boolean);
+      const detail = detailParts.length ? ` (${detailParts.join(', ')})` : '';
+      return {
+        selectedSkill, extractedParams, confidence, skillUsed: 'save-scholarship', skillResponse: saveData,
+        responseData: {
+          message: `Saved "${chosen.title}"${detail} to your shortlist — view it anytime in Scholarships.`,
+          skillUsed: 'save-scholarship', confidence, latencyMs: Date.now() - startTime,
+        },
+      };
+    } catch (err) {
+      console.error('[save-scholarship] error:', err);
+      return {
+        selectedSkill, extractedParams, confidence: 0, skillUsed: 'save-scholarship', skillResponse: null,
+        responseData: { message: "I couldn't save that scholarship. Please try again.", skillUsed: 'save-scholarship', confidence: 0, latencyMs: Date.now() - startTime },
+      };
+    }
+  }
+
+  // INTERNAL handler: save-coop-opportunity — same resolution pattern as
+  // save-scholarship, for career/job candidates.
+  if (selectedSkill.name === 'save-coop-opportunity') {
+    try {
+      const recentRows = await db.abConversation.findMany({
+        where: { tenantId, skillUsed: 'find-coop-opportunities' },
+        orderBy: { createdAt: 'desc' },
+        take: 5,
+      });
+      const lastConvo = recentRows.find((r: any) => Array.isArray((r.data as any)?.data?.candidates) && (r.data as any).data.candidates.length > 0) ?? recentRows[0];
+      const candidates: any[] = (lastConvo?.data as any)?.data?.candidates ?? [];
+      let chosen: any = resolveOrdinalOrFuzzyCandidate(candidates, text || '', ['employer']);
+
+      if (!chosen && extractedParams.title) {
+        chosen = {
+          title: String(extractedParams.title),
+          employer: extractedParams.employer ? String(extractedParams.employer) : null,
+          location: extractedParams.location ? String(extractedParams.location) : null,
+          compText: extractedParams.compText ? String(extractedParams.compText) : null,
+          deadlineText: extractedParams.deadlineText ? String(extractedParams.deadlineText) : null,
+          sourceUrl: extractedParams.sourceUrl ? String(extractedParams.sourceUrl) : null,
+        };
+      }
+
+      if (!chosen) {
+        return {
+          selectedSkill, extractedParams, confidence, skillUsed: 'save-coop-opportunity', skillResponse: null,
+          responseData: {
+            message: "I'm not sure which opportunity you mean — try \"find co-ops\" first, then \"save the first one\", or tell me the role directly.",
+            skillUsed: 'save-coop-opportunity', confidence, latencyMs: Date.now() - startTime,
+          },
+        };
+      }
+
+      const careerBase = baseUrls['/api/v1/agentbook-career'] || 'http://localhost:3000';
+      const saveRes = await fetch(`${careerBase}/api/v1/agentbook-career/opportunities`, {
+        method: 'POST',
+        headers: brainHeaders(tenantId),
+        body: JSON.stringify({
+          title: chosen.title,
+          sourceUrl: chosen.sourceUrl || null,
+          sourceLabel: chosen.sourceLabel || null,
+          deadline: chosen.deadlineText || null,
+          employer: chosen.employer || null,
+          location: chosen.location || null,
+          compText: chosen.compText || null,
+          summary: chosen.summary || null,
+        }),
+      });
+      const saveData = await saveRes.json() as any;
+      if (!saveRes.ok || !saveData.success) {
+        return {
+          selectedSkill, extractedParams, confidence, skillUsed: 'save-coop-opportunity', skillResponse: saveData,
+          responseData: {
+            message: `Couldn't save that opportunity. ${saveData.error || 'Please try again.'}`,
+            skillUsed: 'save-coop-opportunity', confidence, latencyMs: Date.now() - startTime,
+          },
+        };
+      }
+      const detailParts = [chosen.employer, chosen.compText, chosen.deadlineText ? `due ${chosen.deadlineText}` : null].filter(Boolean);
+      const detail = detailParts.length ? ` (${detailParts.join(', ')})` : '';
+      return {
+        selectedSkill, extractedParams, confidence, skillUsed: 'save-coop-opportunity', skillResponse: saveData,
+        responseData: {
+          message: `Saved "${chosen.title}"${detail} to your shortlist — view it anytime in Co-ops & Jobs.`,
+          skillUsed: 'save-coop-opportunity', confidence, latencyMs: Date.now() - startTime,
+        },
+      };
+    } catch (err) {
+      console.error('[save-coop-opportunity] error:', err);
+      return {
+        selectedSkill, extractedParams, confidence: 0, skillUsed: 'save-coop-opportunity', skillResponse: null,
+        responseData: { message: "I couldn't save that opportunity. Please try again.", skillUsed: 'save-coop-opportunity', confidence: 0, latencyMs: Date.now() - startTime },
       };
     }
   }
@@ -4779,6 +5380,12 @@ Only include chartData if visualization adds value. Keep the answer under 200 wo
       }
     } else if (selectedSkill.name === 'record-payment') {
       message = "I couldn't record the payment. I need a client or invoice reference:\n• \"Got $5000 from Acme\"\n• \"Record payment for INV-2026-0001\"";
+    } else if (selectedSkill.name === 'record-personal-transaction') {
+      if (!extractedParams.amountCents) {
+        message = "I couldn't find the amount. Try including a number, e.g.:\n• \"I got paid $5,000 salary\"\n• \"Spent $80 on groceries from checking\"";
+      } else {
+        message = `I couldn't record that transaction. ${errorDetail ? 'Error: ' + errorDetail : 'Please try again.'}`;
+      }
     } else if (selectedSkill.name === 'send-invoice') {
       message = "I couldn't find an invoice to send. Try:\n• \"Send invoice INV-2026-0001\"\n• Create one first: \"Invoice Acme $5000\"";
     } else {
@@ -4902,6 +5509,16 @@ Only include chartData if visualization adds value. Keep the answer under 200 wo
     } else if (selectedSkill.name === 'record-payment' && data) {
       const amt = data.amountCents ? `$${(data.amountCents / 100).toFixed(2)}` : '';
       message = `Payment recorded${amt ? ': ' + amt : ''}. Invoice updated.`;
+
+    // Record personal transaction response
+    } else if (selectedSkill.name === 'record-personal-transaction' && data) {
+      const isIncome = typeof data.amountCents === 'number' && data.amountCents >= 0;
+      // AbPersonalTransaction has no `currency` column, so `data.currency`
+      // is always undefined here — use the tenant's configured currency
+      // (fetched in the pre-processing block above), falling back to USD
+      // only if that lookup genuinely found nothing.
+      const amt = typeof data.amountCents === 'number' ? fmtCurrency(Math.abs(data.amountCents), personalTxnCurrency || 'USD') : '';
+      message = `${isIncome ? 'Recorded income' : 'Recorded spending'}${amt ? ': ' + amt : ''}${data.description ? ' — ' + data.description : ''}${data.businessFlag ? ' (flagged as business)' : ''}.`;
 
     // Create estimate response
     } else if (selectedSkill.name === 'create-estimate' && data) {
@@ -5159,6 +5776,46 @@ Only include chartData if visualization adds value. Keep the answer under 200 wo
           message += `\n• ${l.description}: ${fmtCurrency(l.amountCents, data.currency)}`;
         });
       }
+    // Scholarship search results
+    } else if (selectedSkill.name === 'find-scholarships' && Array.isArray(data?.candidates)) {
+      if (data.candidates.length === 0) {
+        message = data.note || "I couldn't find any groundable scholarship matches right now — try broadening your search or checking back later.";
+      } else {
+        message = `**${data.candidates.length} scholarship${data.candidates.length === 1 ? '' : 's'} found**\n`;
+        data.candidates.slice(0, 5).forEach((c: any, i: number) => {
+          message += `\n${i + 1}. **${c.title}**${c.amountText ? ` — ${c.amountText}` : ''}${c.deadlineText ? ` (due ${c.deadlineText})` : ''}\n   ${c.sourceLabel || c.sourceUrl}`;
+        });
+        if (data.note) message += `\n\n_${data.note}_`;
+        message += '\n\nSay "save the first one" (or name one) to add it to your shortlist.';
+      }
+
+    // Co-op / job search results
+    } else if (selectedSkill.name === 'find-coop-opportunities' && Array.isArray(data?.candidates)) {
+      if (data.candidates.length === 0) {
+        message = data.note || "I couldn't find any groundable co-op/job matches right now — try broadening your search or checking back later.";
+      } else {
+        message = `**${data.candidates.length} opportunit${data.candidates.length === 1 ? 'y' : 'ies'} found**\n`;
+        data.candidates.slice(0, 5).forEach((c: any, i: number) => {
+          message += `\n${i + 1}. **${c.title}**${c.employer ? ` at ${c.employer}` : ''}${c.location ? ` (${c.location})` : ''}${c.compText ? ` — ${c.compText}` : ''}${c.deadlineText ? ` (due ${c.deadlineText})` : ''}\n   ${c.sourceLabel || c.sourceUrl}`;
+        });
+        if (data.note) message += `\n\n_${data.note}_`;
+        message += '\n\nSay "save the first one" (or name one) to add it to your shortlist.';
+      }
+
+    // Roommate matches
+    } else if (selectedSkill.name === 'find-roommate-matches' && Array.isArray(data?.matches)) {
+      if (data.matches.length === 0) {
+        message = data.note || 'No compatible students found yet.';
+      } else {
+        message = `**${data.matches.length} compatible student${data.matches.length === 1 ? '' : 's'}**\n`;
+        data.matches.slice(0, 5).forEach((m: any) => {
+          const min = m.budgetMinCents != null ? `$${(m.budgetMinCents / 100).toFixed(0)}` : '?';
+          const max = m.budgetMaxCents != null ? `$${(m.budgetMaxCents / 100).toFixed(0)}` : '?';
+          message += `\n• **${m.displayHandle}** — ${m.area}, budget ${min}-${max} (${Math.round((m.score || 0) * 100)}% match)\n   ${m.reasons?.[0] || ''}`;
+        });
+        if (data.note) message += `\n\n_${data.note}_`;
+      }
+
     } else {
       message = JSON.stringify(data).slice(0, 300);
     }

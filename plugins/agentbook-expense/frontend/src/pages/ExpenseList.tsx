@@ -9,6 +9,7 @@ import { AdvisorInsights } from '../components/AdvisorInsights';
 import { AdvisorChart } from '../components/AdvisorChart';
 import { AskBar } from '../components/AskBar';
 import { AdvisorResponse } from '../components/AdvisorResponse';
+import { ExpenseTabs } from '../components/ExpenseTabs';
 
 interface Expense {
   id: string;
@@ -557,6 +558,8 @@ export const ExpenseListPage: React.FC = () => {
           </button>
         </div>
       </div>
+
+      <ExpenseTabs active="expenses" />
 
       {/* Bank Connection Prompt */}
       {bankConnected === false && (

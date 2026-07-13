@@ -132,6 +132,7 @@ export function StartupDiscoveryPage() {
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<{ programs: ProgramRecommendation[]; message?: string } | null>(null);
   const [teaser, setTeaser] = useState<AddOnPriceTeaser | null>(null);
+  const [jurisdiction, setJurisdiction] = useState('us');
   const [showCheckout, setShowCheckout] = useState(false);
   const [startingProgramCode, setStartingProgramCode] = useState<string | null>(null);
   const [startError, setStartError] = useState<string | null>(null);
@@ -149,7 +150,13 @@ export function StartupDiscoveryPage() {
       setAnnualRdSpend(profile.annualRdSpendCents != null ? String(profile.annualRdSpendCents / 100) : '');
       setEquityRaised(profile.equityRaisedCents != null ? String(profile.equityRaisedCents / 100) : '');
     });
-    startupApi.getAddOnTeaser().then(setTeaser).catch(() => setTeaser(null));
+    startupApi.getTenantJurisdiction()
+      .then((j) => {
+        setJurisdiction(j);
+        return startupApi.getAddOnTeaser(j);
+      })
+      .then(setTeaser)
+      .catch(() => setTeaser(null));
   }, []);
 
   async function handleSubmit(e: React.FormEvent) {
@@ -327,10 +334,10 @@ export function StartupDiscoveryPage() {
           priceLabel={teaser?.price ? `${formatCents(teaser.price.priceCents)}/year` : undefined}
           onClose={() => setShowCheckout(false)}
           fetchClientSecret={startupApi.getAddOnIntent}
-          onConfirmed={startupApi.subscribeAddOn}
+          onConfirmed={(paymentMethodId) => startupApi.subscribeAddOn(paymentMethodId, jurisdiction)}
           onDone={() => {
             setShowCheckout(false);
-            startupApi.getAddOnTeaser().then(setTeaser).catch(() => setTeaser(null));
+            startupApi.getAddOnTeaser(jurisdiction).then(setTeaser).catch(() => setTeaser(null));
           }}
         />
       )}

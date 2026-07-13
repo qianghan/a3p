@@ -1,0 +1,223 @@
+import { randomUUID } from 'node:crypto';
+import { NextRequest, NextResponse } from 'next/server';
+import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
+import { z } from 'zod';
+import { authenticateMcpRequest } from '@/lib/mcp/authenticate-mcp-request';
+import { isMcpEnabled } from '@/lib/mcp/mcp-flag';
+import { callAgentBrain } from '@/lib/mcp/ask-agentbook-tool';
+import { nodeRequestResponseFromWeb } from '@/lib/mcp/node-web-adapter';
+import { checkRateLimit } from '@/lib/mcp/rate-limit';
+import { type McpSession, resolveSessionForRequest, sessions } from './session-store';
+
+function registerAskAgentbookTool(server: McpServer, tenantId: string): void {
+  server.registerTool(
+    'ask_agentbook',
+    {
+      description:
+        'Ask AgentBook anything about your finances, or ask it to record an expense, ' +
+        'create an invoice, or take another action. Anything that would change the ' +
+        "user's books always asks them to confirm first — nothing is saved without " +
+        'their OK.',
+      inputSchema: { message: z.string(), conversationId: z.string().optional() },
+      annotations: { readOnlyHint: false, destructiveHint: true },
+    },
+    async ({ message, conversationId }, extra) => {
+      try {
+        const result = await callAgentBrain({ text: message, tenantId, conversationId });
+
+        if (result.data.plan?.requiresConfirmation) {
+          // Real capability check: whether *this* server instance recorded an
+          // `elicitation` capability from the client's `initialize` handshake.
+          // Now that the transport is session-aware (this `McpServer` instance
+          // is kept alive across requests for the lifetime of the session, see
+          // the module-level `sessions` map above), the `initialize` request
+          // and this tool call are handled by the *same* server instance, so
+          // this correctly reflects the negotiated capability.
+          const supportsElicitation = Boolean(server.server.getClientCapabilities()?.elicitation);
+          if (!supportsElicitation) {
+            return {
+              content: [{
+                type: 'text',
+                text: "I can't safely make that change from here — this app can't show you a " +
+                  "confirmation step before something gets saved to your books. I can still " +
+                  "answer questions; for changes, try connecting with Claude Desktop or Claude " +
+                  "Code instead.",
+              }],
+              isError: true,
+            };
+          }
+
+          const elicited = await extra.sendRequest(
+            {
+              method: 'elicitation/create',
+              params: {
+                message: result.data.message,
+                requestedSchema: {
+                  type: 'object',
+                  properties: { confirm: { type: 'boolean', title: 'Proceed with this action?' } },
+                  required: ['confirm'],
+                },
+              },
+            },
+            z.object({ action: z.enum(['accept', 'decline', 'cancel']), content: z.object({ confirm: z.boolean() }).optional() }),
+          );
+
+          if (elicited.action !== 'accept' || !elicited.content?.confirm) {
+            return { content: [{ type: 'text', text: 'Action cancelled — nothing was recorded.' }] };
+          }
+
+          const confirmed = await callAgentBrain({
+            text: message,
+            tenantId,
+            conversationId,
+            sessionAction: 'confirm',
+          });
+          return { content: [{ type: 'text', text: confirmed.data.message }] };
+        }
+
+        return { content: [{ type: 'text', text: result.data.message }] };
+      } catch (err) {
+        // AgentBrainError's message is already safe to surface (no stack
+        // traces/internal URLs); the correlationId is logged server-side
+        // (Task 7's callAgentBrain), not sent to the client.
+        const errMessage = err instanceof Error ? err.message : 'AgentBook is temporarily unavailable.';
+        return { content: [{ type: 'text', text: errMessage }], isError: true };
+      }
+    },
+  );
+}
+
+/**
+ * Builds a brand-new `McpServer` + stateful `StreamableHTTPServerTransport`
+ * pair for a fresh session (i.e. this request is the MCP `initialize` call).
+ *
+ * The transport assigns its own session ID once it processes the
+ * `initialize` message (via `sessionIdGenerator`) and reports it back through
+ * `onsessioninitialized` — that's the SDK's own hook for "a new session now
+ * exists, go track it" (see
+ * node_modules/@modelcontextprotocol/sdk/dist/esm/server/webStandardStreamableHttp.js,
+ * `WebStandardStreamableHTTPServerTransportOptions.onsessioninitialized`).
+ * We register the session in the shared map from inside that callback so the
+ * key is always exactly the ID the transport itself assigned — never
+ * guessed or pre-generated by this route.
+ */
+async function createSession(tenantId: string): Promise<McpSession> {
+  const server = new McpServer({ name: 'agentbook', version: '1.0.0' });
+  registerAskAgentbookTool(server, tenantId);
+
+  // `session` is captured by the callbacks below and filled in synchronously
+  // right after construction, before `server.connect(transport)` (and
+  // therefore before any request is actually handled) — so by the time
+  // `onsessioninitialized`/`onsessionclosed` can fire, `session.server` and
+  // `session.transport` are always populated.
+  const session = {} as McpSession;
+
+  const transport = new StreamableHTTPServerTransport({
+    sessionIdGenerator: () => randomUUID(),
+    onsessioninitialized: (sessionId) => {
+      sessions.set(sessionId, session);
+    },
+    onsessionclosed: (sessionId) => {
+      sessions.delete(sessionId);
+    },
+  });
+
+  session.server = server;
+  session.transport = transport;
+  session.tenantId = tenantId;
+  session.lastUsedAt = Date.now();
+
+  await server.connect(transport);
+  return session;
+}
+
+async function handle(request: NextRequest): Promise<Response> {
+  if (!(await isMcpEnabled())) {
+    return NextResponse.json({ error: "AgentBook's Claude/MCP connector isn't turned on for this account yet" }, { status: 503 });
+  }
+
+  const auth = await authenticateMcpRequest(request);
+  if ('error' in auth) return auth.error;
+
+  // Applied once per incoming request, right after auth succeeds and before
+  // any session lookup/creation — so it covers `initialize` (session
+  // creation) and every subsequent call on a reused session identically,
+  // regardless of which branch below actually handles the request.
+  const rateLimitAllowed = await checkRateLimit(`mcp:${auth.userId}`, 60, 60_000); // 60 calls/min/user
+  if (!rateLimitAllowed) {
+    return NextResponse.json({ error: { code: 'rate_limited', message: 'Too many requests' } }, { status: 429 });
+  }
+
+  // Per the MCP Streamable HTTP spec, once a session is established the
+  // client must echo it back on every subsequent request in the
+  // `Mcp-Session-Id` header (confirmed against the SDK's own source: it
+  // reads `req.headers.get('mcp-session-id')` in
+  // `WebStandardStreamableHTTPServerTransport.validateSession`/
+  // `handlePostRequest`/`handleGetRequest`/`handleDeleteRequest`, all in
+  // webStandardStreamableHttp.js). `Headers` lookups are case-insensitive,
+  // so this also matches clients that send `mcp-session-id` in any casing.
+  const sessionId = request.headers.get('mcp-session-id');
+
+  // `resolveSessionForRequest` also re-validates that a *reused* session
+  // still belongs to the tenant that's authenticated on *this* request — a
+  // session is created once for the tenant resolved at `initialize` time,
+  // and without this check a still-live session for tenant A could be
+  // ridden by a later request that happens to authenticate as tenant B
+  // (e.g. a stale/leaked `Mcp-Session-Id` presented alongside a different
+  // bearer token), reading/writing tenant A's financial data under tenant
+  // B's request. On mismatch the session is destroyed outright rather than
+  // just rejecting this one request — see session-store.ts. It also
+  // opportunistically evicts idle sessions past `SESSION_IDLE_TTL_MS` on
+  // every call, bounding memory growth from clients that never send
+  // `DELETE` (crash, force-quit, network drop).
+  const lookup = resolveSessionForRequest(sessionId, auth.tenantId, Date.now());
+
+  if (lookup.kind === 'tenant-mismatch') {
+    return NextResponse.json(
+      { error: 'Session does not belong to the authenticated tenant' },
+      { status: 403 },
+    );
+  }
+
+  if (lookup.kind === 'unknown') {
+    // The client believes it has a live session (it's sending an ID) but
+    // this instance has no record of it — most likely a warm instance that
+    // recycled between requests, or the session idled out. Per the spec
+    // ("Requests with invalid session IDs are rejected with 404 Not Found"),
+    // tell the client the session is gone so it re-`initialize`s, rather
+    // than silently minting a brand-new session under the ID it already has
+    // cached (which would desync the transport's internal `this.sessionId`
+    // from what the client thinks it is).
+    return NextResponse.json({ error: 'Unknown or expired MCP session' }, { status: 404 });
+  }
+
+  // No session ID at all: this must be a fresh `initialize` request (any
+  // other request type without a session ID is rejected by the new
+  // transport's own `validateSession` with 400, which is the correct
+  // spec-mandated behavior).
+  const session = lookup.kind === 'reuse' ? lookup.session : await createSession(auth.tenantId);
+
+  const { nodeReq, nodeRes, responsePromise } = await nodeRequestResponseFromWeb(request);
+  // Deliberately NOT awaited before returning: `nodeRequestResponseFromWeb`'s
+  // `responsePromise` resolves as soon as headers are written (see that
+  // file's doc comment), which for an SSE/streaming reply happens well
+  // before the underlying MCP exchange finishes. Awaiting
+  // `handleRequest()` here first — as a stateless one-shot handler safely
+  // could — would block this whole function from ever returning a `Response`
+  // while a pending `elicitation/create` round-trip is in flight, which is
+  // exactly the deadlock this rework needs to avoid: the client can't send
+  // its elicitation reply (a separate request) without first *receiving*
+  // this response's `elicitation/create` event. `handleRequest()` keeps
+  // driving the transport (and eventually closes the stream) in the
+  // background; errors are logged rather than thrown since headers/status
+  // are usually already sent by the time anything here could fail.
+  session.transport.handleRequest(nodeReq, nodeRes).catch((err) => {
+    console.error('MCP transport.handleRequest failed', err);
+  });
+  return responsePromise;
+}
+
+export const GET = handle;
+export const POST = handle;
+export const DELETE = handle;

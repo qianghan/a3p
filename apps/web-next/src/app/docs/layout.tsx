@@ -1,23 +1,23 @@
 'use client';
 
-import { useState } from 'react';
 import { DocsHeader } from '@/components/docs/docs-header';
+import { DocsSidebarProvider, useDocsSidebar } from '@/components/docs/docs-sidebar-context';
 
-export default function DocsLayout({ children }: { children: React.ReactNode }) {
-  const [sidebarOpen, setSidebarOpen] = useState(false);
+function DocsChrome({ children }: { children: React.ReactNode }) {
+  const { isOpen, toggle, close } = useDocsSidebar();
 
   return (
     <div className="min-h-screen bg-background text-foreground">
-      <DocsHeader
-        onToggleSidebar={() => setSidebarOpen(!sidebarOpen)}
-        isSidebarOpen={sidebarOpen}
-      />
+      <DocsHeader onToggleSidebar={toggle} isSidebarOpen={isOpen} />
 
-      {/* Mobile sidebar overlay */}
-      {sidebarOpen && (
+      {/* Mobile sidebar backdrop — the actual drawer content (MobileDocsSidebar)
+          is rendered by each page (it needs the server-computed `navigation`
+          prop), both consuming the same context so tapping here or a nav
+          link inside the drawer close it. */}
+      {isOpen && (
         <div
           className="fixed inset-0 z-30 bg-black/50 lg:hidden"
-          onClick={() => setSidebarOpen(false)}
+          onClick={close}
         />
       )}
 
@@ -25,5 +25,13 @@ export default function DocsLayout({ children }: { children: React.ReactNode }) 
         {children}
       </div>
     </div>
+  );
+}
+
+export default function DocsLayout({ children }: { children: React.ReactNode }) {
+  return (
+    <DocsSidebarProvider>
+      <DocsChrome>{children}</DocsChrome>
+    </DocsSidebarProvider>
   );
 }
