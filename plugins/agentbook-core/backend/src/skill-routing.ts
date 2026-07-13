@@ -149,6 +149,31 @@ export function isPersonalTrendQuery(text: string): boolean {
 export const TAX_FAST_TRACK_ANCHOR_PATTERN =
   'last year|past filing|past return|previous filing|previous return';
 
+/**
+ * start-tax-fast-track's full triggerPatterns (built-in-skills.ts, PR-3 Task
+ * 4), re-exported so query-finance's excludePatterns can reuse the exact
+ * same regexes rather than approximating them. query-finance's bare 'tax'
+ * triggerPattern matches almost anything containing the word "tax" — its
+ * excludePatterns list already carves out tax-filing-start's phrasing
+ * ("tax.*fil", "file.*tax", etc.), but those assume "tax" appears before
+ * "fil" in the sentence. A fast-track phrase like "help me do this year's
+ * filing based on last year's tax return" has "filing" BEFORE "tax", so none
+ * of query-finance's existing excludePatterns matched it, and — since skill
+ * routing has no `orderBy` and tries skills in array order (see server.ts's
+ * "Skills are tried in array order — first match wins") — the older,
+ * already-seeded query-finance row won the race against the newly-added
+ * start-tax-fast-track row every time. Found live in production after PR-3's
+ * deploy: the exact canonical trigger phrase routed to query-finance instead
+ * of start-tax-fast-track. Reusing the same patterns as an exclude guarantees
+ * the two skills can never both match, regardless of array order.
+ */
+export const TAX_FAST_TRACK_TRIGGER_PATTERNS = [
+  'fast.?track.*tax',
+  'tax.*fast.?track',
+  `(?:this year.?s?\\s*(?:tax\\s*)?(?:filing|return|taxes)|help me do (?:this year.?s? )?(?:tax|filing|return)|do (?:this year.?s? )?tax).{0,60}(?:${TAX_FAST_TRACK_ANCHOR_PATTERN})`,
+  `(?:${TAX_FAST_TRACK_ANCHOR_PATTERN}).{0,60}(?:this year.?s?\\s*(?:tax\\s*)?(?:filing|return|taxes)|help me do|do (?:this year.?s? )?tax)`,
+];
+
 function toStringArray(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
   return value.filter((v): v is string => typeof v === 'string');

@@ -1,4 +1,4 @@
-import { BUSINESS_PHRASE_PATTERN, PERSONAL_ACCOUNT_CUE_PATTERN, PERSONAL_STATEMENT_PATTERN, PERSONAL_TREND_TRIGGER_PATTERNS, TAX_FAST_TRACK_ANCHOR_PATTERN } from './skill-routing.js';
+import { BUSINESS_PHRASE_PATTERN, PERSONAL_ACCOUNT_CUE_PATTERN, PERSONAL_STATEMENT_PATTERN, PERSONAL_TREND_TRIGGER_PATTERNS, TAX_FAST_TRACK_ANCHOR_PATTERN, TAX_FAST_TRACK_TRIGGER_PATTERNS } from './skill-routing.js';
 
 export const BUILT_IN_SKILLS = [
   {
@@ -99,7 +99,16 @@ export const BUILT_IN_SKILLS = [
     triggerPatterns: ['balance', 'revenue', 'profit', 'loss', 'tax', 'client.*owe', 'outstanding', 'income', 'net '],
     // Tax / report / cash-flow / reconciliation / tax-filing utterances have
     // dedicated skills — exclude them here so query-finance doesn't shadow.
-    excludePatterns: ['tax.*estimate|how much.*tax|tax.*owe|tax.*situation|tax.*liability|quarterly.*tax|quarterly.*payment|estimated.*payment|deduction|write.*off|tax.*saving|tax.*break|p.?&?.?l|profit.*loss|income.*statement|net.*income|how.*much.*profit|balance.*sheet|net.*worth|equity|cash.*flow|cash.*projection|runway|burn.*rate|how long.*cash.*last|financial.*summary|financial.*snapshot|how.*doing.*financially|financial.*health|money.*move|action.*item|what.*should.*do|advice.*money|reconcil|unmatched.*transaction|bank.*match|bank.*status|tax.*fil|start.*fil|file.*tax|review.*t[12]|t2125|schedule.*1|gst.*return|tax.*slip|validate.*tax|check.*tax.*error|verify.*return|tax.*ready|export.*tax|generate.*tax.*form|download.*return|create.*tax.*file|print.*tax|pdf.*tax|submit.*cra|efile|netfile|filing.*status.*cra|scholarship|fellowship|grant.*taxable|is.*grant.*tax|t2202|1098-?t|aotc|american opportunity|lifetime learning|tuition.*credit|education.*credit|\\bresp\\b|\\b529\\b|nonresident alien|non-resident alien|1040-?nr|sprintax|glacier tax|1042-?s|fica exempt|international student.*tax|tax treaty'],
+    // The TAX_FAST_TRACK_TRIGGER_PATTERNS spread (PR-3 hotfix) reuses
+    // start-tax-fast-track's own triggerPatterns verbatim, rather than a
+    // hand-written approximation — the existing hand-written entries below
+    // (tax.*fil, file.*tax) only cover "tax" appearing BEFORE "fil" in the
+    // sentence, so a phrase like "help me do this year's filing based on
+    // last year's tax return" (filing precedes tax) matched none of them,
+    // and query-finance's bare 'tax' trigger won the race against the
+    // then-newer start-tax-fast-track row (no orderBy — first match in
+    // array order wins). Verified live in production after PR-3's deploy.
+    excludePatterns: [...TAX_FAST_TRACK_TRIGGER_PATTERNS, 'tax.*estimate|how much.*tax|tax.*owe|tax.*situation|tax.*liability|quarterly.*tax|quarterly.*payment|estimated.*payment|deduction|write.*off|tax.*saving|tax.*break|p.?&?.?l|profit.*loss|income.*statement|net.*income|how.*much.*profit|balance.*sheet|net.*worth|equity|cash.*flow|cash.*projection|runway|burn.*rate|how long.*cash.*last|financial.*summary|financial.*snapshot|how.*doing.*financially|financial.*health|money.*move|action.*item|what.*should.*do|advice.*money|reconcil|unmatched.*transaction|bank.*match|bank.*status|tax.*fil|start.*fil|file.*tax|review.*t[12]|t2125|schedule.*1|gst.*return|tax.*slip|validate.*tax|check.*tax.*error|verify.*return|tax.*ready|export.*tax|generate.*tax.*form|download.*return|create.*tax.*file|print.*tax|pdf.*tax|submit.*cra|efile|netfile|filing.*status.*cra|scholarship|fellowship|grant.*taxable|is.*grant.*tax|t2202|1098-?t|aotc|american opportunity|lifetime learning|tuition.*credit|education.*credit|\\bresp\\b|\\b529\\b|nonresident alien|non-resident alien|1040-?nr|sprintax|glacier tax|1042-?s|fica exempt|international student.*tax|tax treaty'],
     parameters: { question: { type: 'string', required: true, extractHint: 'the full user message' } },
     endpoint: { method: 'POST', url: '/api/v1/agentbook-core/ask' },
   },
@@ -401,11 +410,7 @@ export const BUILT_IN_SKILLS = [
     name: 'start-tax-fast-track',
     description: "Start this year's tax filing fast-tracked from a confirmed prior-year return — asks a short, adaptive, jurisdiction-aware questionnaire seeded from what was already reported last year, instead of starting from a blank slate.",
     category: 'tax',
-    triggerPatterns: [
-      'fast.?track.*tax', 'tax.*fast.?track',
-      `(?:this year.?s?\\s*(?:tax\\s*)?(?:filing|return|taxes)|help me do (?:this year.?s? )?(?:tax|filing|return)|do (?:this year.?s? )?tax).{0,60}(?:${TAX_FAST_TRACK_ANCHOR_PATTERN})`,
-      `(?:${TAX_FAST_TRACK_ANCHOR_PATTERN}).{0,60}(?:this year.?s?\\s*(?:tax\\s*)?(?:filing|return|taxes)|help me do|do (?:this year.?s? )?tax)`,
-    ],
+    triggerPatterns: TAX_FAST_TRACK_TRIGGER_PATTERNS,
     requirePatterns: [TAX_FAST_TRACK_ANCHOR_PATTERN],
     parameters: { taxYear: { type: 'number', required: false, default: 2025 } },
     endpoint: { method: 'INTERNAL', url: '' },
