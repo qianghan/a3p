@@ -262,3 +262,108 @@ describe('record-payment / record-invoice-payment / personal-snapshot — defer 
     });
   }
 });
+
+/**
+ * PR-3 (tax-fast-track-foundation), Task 4: start-tax-fast-track's triggers
+ * pair filing-intent language with a prior-year anchor cue (last year/past
+ * filing/past return/previous filing/previous return — see
+ * TAX_FAST_TRACK_ANCHOR_PATTERN in skill-routing.ts), and tax-filing-start
+ * gets a matching excludePatterns entry so an anchored phrase never matches
+ * both simultaneously.
+ *
+ * Verified against the FULL tax-skill family named in the design spec's
+ * "Revised: trigger design" section, not just tax-filing-start/
+ * query-past-filings — using the same order-independent pickSkill()
+ * (declaration order + 3 shuffled orders must agree) already established
+ * above in this file.
+ *
+ * Note on the two illustrative phrasings below that use "previous filing"/
+ * "last year's tax return" rather than the design doc's own literal examples
+ * ("use my past filing to do this year's taxes" / "...based on last year's
+ * return"): a bare "past filing" substring (no other qualifier) already
+ * matches query-past-filings' own broad 'past.*filing' trigger regardless of
+ * anything else in the message, and "last year's return" (without "tax"
+ * between "year's" and "return") matches its "last year.?s return" trigger
+ * too — both genuine, pre-existing collisions with query-past-filings that
+ * are out of scope for this task (only tax-filing-start's manifest is edited
+ * here, per the plan's Task 4 file list). Rephrasing with "previous filing"
+ * (query-past-filings only fires on "previous tax filing", not bare
+ * "previous filing") and inserting "tax" into "last year's tax return"
+ * (matching the plan's own Task 4 collision example verbatim) sidesteps
+ * both without weakening the anchor-cue requirement itself, which still
+ * includes "past filing"/"past return" as valid alternatives in the actual
+ * routing regex.
+ */
+describe('start-tax-fast-track vs. the full tax-skill family — no undefined double-match', () => {
+  const TAX_FAMILY_NAMES = [
+    'start-tax-fast-track', 'tax-filing-start', 'query-past-filings',
+    'tax-filing-status', 'tax-filing-field', 'tax-filing-validate', 'tax-filing-export',
+    'tax-filing-submit', 'tax-filing-check', 'tax-estimate', 'tax-deductions',
+    'quarterly-payments', 'ca-t1-review', 'ca-t2125-review', 'ca-gst-hst-review', 'ca-schedule-1-review',
+  ] as const;
+  const family = TAX_FAMILY_NAMES.map((name) => BUILT_IN_SKILLS.find((s) => s.name === name)!);
+  family.forEach((s, i) => {
+    if (!s) throw new Error(`Fixture setup error: skill "${TAX_FAMILY_NAMES[i]}" not found in BUILT_IN_SKILLS`);
+  });
+
+  const cases: Array<{ text: string; expected: (typeof TAX_FAMILY_NAMES)[number] }> = [
+    // start-tax-fast-track — filing-intent + anchor, various phrasings/orders.
+    { text: "help me do this year's filing based on last year's tax return", expected: 'start-tax-fast-track' },
+    { text: 'fast track my taxes from last year', expected: 'start-tax-fast-track' },
+    { text: "use my previous filing to do this year's taxes", expected: 'start-tax-fast-track' },
+    { text: "based on last year, help me prepare this year's tax filing", expected: 'start-tax-fast-track' },
+
+    // tax-filing-start — no anchor cue present, still its own territory.
+    { text: 'start my tax filing', expected: 'tax-filing-start' },
+    { text: 'prepare my tax return', expected: 'tax-filing-start' },
+
+    // query-past-filings — retrieving an old filing, no current-year intent.
+    { text: 'show me my past filings', expected: 'query-past-filings' },
+    { text: 'what was my NOA last year', expected: 'query-past-filings' },
+
+    // Rest of the tax family — unrelated phrasing must not collide with the
+    // new skill's broad-ish "this year...tax...last year" style triggers.
+    { text: 'how much tax do I owe', expected: 'tax-estimate' },
+    { text: 'what deductions can I claim', expected: 'tax-deductions' },
+    { text: 'when is my quarterly tax payment due', expected: 'quarterly-payments' },
+    { text: 'review my t1 general', expected: 'ca-t1-review' },
+    { text: 'review t2125', expected: 'ca-t2125-review' },
+    { text: 'review my gst return', expected: 'ca-gst-hst-review' },
+    { text: 'review schedule 1', expected: 'ca-schedule-1-review' },
+    { text: 'validate my tax filing before I submit', expected: 'tax-filing-validate' },
+    { text: 'export my tax forms as a pdf', expected: 'tax-filing-export' },
+    { text: 'submit my return to cra', expected: 'tax-filing-submit' },
+    { text: 'did cra accept my filing', expected: 'tax-filing-check' },
+    { text: "what's my tax filing status", expected: 'tax-filing-status' },
+  ];
+
+  // Scoped to the named tax-skill family (per the plan's Task 4 test
+  // section), not the whole BUILT_IN_SKILLS array: query-finance's own bare
+  // 'tax' triggerPattern has a pre-existing excludePatterns gap (it excludes
+  // e.g. 'tax.*fil' and 'file.*tax' but not the reverse word order, "filing
+  // ... tax" / "prepare my tax return" with no other tax-specific cue) that
+  // already collides with tax-filing-start's own canonical phrase "prepare
+  // my tax return" today, independent of anything in this task. That's a
+  // real, pre-existing gap — but it's query-finance's excludePatterns list
+  // that would need the fix, a skill outside this task's scope (built-in-
+  // skills.ts's Task 4 edits are limited to start-tax-fast-track's new
+  // manifest and tax-filing-start's excludePatterns) and outside the family
+  // list the design/plan named for this verification. Flagged, not fixed,
+  // here.
+  for (const c of cases) {
+    it(`"${c.text}" -> exactly ${c.expected} claims it among the tax-skill family, independent of evaluation order`, () => {
+      const lower = c.text.toLowerCase();
+
+      const matched = family.filter((s) => selectSkillByPatterns(s, c.text, lower)).map((s) => s.name);
+      expect(matched).toEqual([c.expected]);
+
+      for (const seed of SHUFFLE_SEEDS) {
+        const shuffledMatched = shuffle(family, seed)
+          .filter((s) => selectSkillByPatterns(s, c.text, lower))
+          .map((s) => s.name)
+          .sort();
+        expect(shuffledMatched).toEqual([...matched].sort());
+      }
+    });
+  }
+});
