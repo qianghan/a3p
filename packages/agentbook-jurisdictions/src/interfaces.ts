@@ -186,6 +186,26 @@ export interface PastFilingPack {
   generateEFileExport?(forms: Record<string, any>, taxYear: number, region?: string): EFileExport
 }
 
+// ─── Tax Fast-Track Questionnaire ────────────────────────────────────────────
+// Adaptive, one-question-per-turn questionnaire pack used by the fast-track
+// filing flow (a tenant with a confirmed prior-year filing asks "help me do
+// this year's filing"). Both methods are pure and synchronous — the pack
+// never calls an LLM itself and never sees a raw string; the caller is
+// responsible for the callGemini() call and for markdown-fence-stripping +
+// JSON.parse'ing the LLM's raw response before handing the parsed value to
+// parseNextQuestionResponse(). See docs/superpowers/specs/2026-07-13-tax-fast-track-foundation-design.md
+// ("Revised: pack interface") for why this shape, not an LLM-calling one.
+
+export interface TaxQuestionnairePack {
+  jurisdiction: string
+  nextQuestionPrompt(input: {
+    qaHistory: { question: string; answer: string }[]
+    priorFiling?: StandardTaxExtract
+    profile?: string
+  }): string
+  parseNextQuestionResponse(parsed: unknown): { question: string } | { done: true }
+}
+
 // ─── Startup Tax Benefits ────────────────────────────────────────────────────
 // Jurisdiction-agnostic contract for the agentbook-startup plugin's 5-phase
 // workflow (recommend → collect → draft → review → submit). One implementation

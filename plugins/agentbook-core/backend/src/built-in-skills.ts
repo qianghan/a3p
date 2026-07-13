@@ -1,4 +1,4 @@
-import { BUSINESS_PHRASE_PATTERN, PERSONAL_ACCOUNT_CUE_PATTERN, PERSONAL_STATEMENT_PATTERN, PERSONAL_TREND_TRIGGER_PATTERNS } from './skill-routing.js';
+import { BUSINESS_PHRASE_PATTERN, PERSONAL_ACCOUNT_CUE_PATTERN, PERSONAL_STATEMENT_PATTERN, PERSONAL_TREND_TRIGGER_PATTERNS, TAX_FAST_TRACK_ANCHOR_PATTERN } from './skill-routing.js';
 
 export const BUILT_IN_SKILLS = [
   {
@@ -372,6 +372,41 @@ export const BUILT_IN_SKILLS = [
   {
     name: 'tax-filing-start', description: 'Start tax filing — create filing session, auto-populate from books, identify missing fields', category: 'tax',
     triggerPatterns: ['start.*tax.*fil', 'file.*my.*tax', 'begin.*return', 'prepare.*tax.*return', 'tax.*return'],
+    // PR-3 (tax-fast-track-foundation) Task 4: defer to start-tax-fast-track
+    // when the message carries a prior-year anchor cue (last year/past
+    // filing/past return/previous filing/previous return) — that's the new
+    // skill's territory ("use what I told you last year"), not this one's
+    // ("fill this year's forms from the books"). Without this, an anchored
+    // phrase like "help me do this year's filing based on last year's tax
+    // return" would match both skills simultaneously (no `orderBy` on the
+    // routing query, so which one "wins" would be undefined).
+    excludePatterns: [TAX_FAST_TRACK_ANCHOR_PATTERN],
+    parameters: { taxYear: { type: 'number', required: false, default: 2025 } },
+    endpoint: { method: 'INTERNAL', url: '' },
+  },
+  {
+    // PR-3 (tax-fast-track-foundation) Task 4. Distinct from tax-filing-start
+    // above (which fills out this year's forms from the tenant's own books,
+    // accumulated income/expenses already in the system) — this skill is
+    // specifically "use what I told you last year as a starting point": it
+    // requires a confirmed prior-year AbPastTaxFiling and kicks off the
+    // adaptive fast-track questionnaire (AbTaxQuestionnaireSession) seeded
+    // from that filing. See docs/superpowers/specs/2026-07-13-tax-fast-
+    // track-foundation-design.md ("Revised: trigger design") — every
+    // trigger below pairs filing-intent language with the shared prior-year
+    // anchor cue (TAX_FAST_TRACK_ANCHOR_PATTERN), in either order, never a
+    // bare "do/file my taxes" phrase alone (that stays tax-filing-start's
+    // territory). requirePatterns hard-requires the anchor cue outright —
+    // a cleaner guarantee than relying on trigger-phrase construction alone.
+    name: 'start-tax-fast-track',
+    description: "Start this year's tax filing fast-tracked from a confirmed prior-year return — asks a short, adaptive, jurisdiction-aware questionnaire seeded from what was already reported last year, instead of starting from a blank slate.",
+    category: 'tax',
+    triggerPatterns: [
+      'fast.?track.*tax', 'tax.*fast.?track',
+      `(?:this year.?s?\\s*(?:tax\\s*)?(?:filing|return|taxes)|help me do (?:this year.?s? )?(?:tax|filing|return)|do (?:this year.?s? )?tax).{0,60}(?:${TAX_FAST_TRACK_ANCHOR_PATTERN})`,
+      `(?:${TAX_FAST_TRACK_ANCHOR_PATTERN}).{0,60}(?:this year.?s?\\s*(?:tax\\s*)?(?:filing|return|taxes)|help me do|do (?:this year.?s? )?tax)`,
+    ],
+    requirePatterns: [TAX_FAST_TRACK_ANCHOR_PATTERN],
     parameters: { taxYear: { type: 'number', required: false, default: 2025 } },
     endpoint: { method: 'INTERNAL', url: '' },
   },

@@ -132,6 +132,23 @@ export function isPersonalTrendQuery(text: string): boolean {
   }
 }
 
+/**
+ * Prior-year/past-filing "anchor cue" shared by:
+ *   - start-tax-fast-track's triggerPatterns/requirePatterns (built-in-skills.ts,
+ *     PR-3 Task 4) — every fast-track trigger must pair filing-intent
+ *     language with one of these, never a bare "do/file my taxes" phrase
+ *     alone (that stays tax-filing-start's territory).
+ *   - tax-filing-start's excludePatterns (built-in-skills.ts) — an anchored
+ *     phrase like "help me do this year's filing based on last year's tax
+ *     return" would otherwise match both skills simultaneously (routing has
+ *     no `orderBy`, so which one "wins" would be undefined).
+ *
+ * See docs/superpowers/specs/2026-07-13-tax-fast-track-foundation-design.md
+ * ("Revised: trigger design") for the full rationale.
+ */
+export const TAX_FAST_TRACK_ANCHOR_PATTERN =
+  'last year|past filing|past return|previous filing|previous return';
+
 function toStringArray(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
   return value.filter((v): v is string => typeof v === 'string');

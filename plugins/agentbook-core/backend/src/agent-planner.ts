@@ -221,6 +221,14 @@ export async function createSession(
     data: { status: 'expired' },
   });
 
+  // Mutual exclusion with AbTaxQuestionnaireSession: starting a new plan-confirmation
+  // session must expire any in-progress tax questionnaire for the same tenant, so
+  // only one stateful session type is ever active per tenant at a time.
+  await db.abTaxQuestionnaireSession.updateMany({
+    where: { tenantId, status: 'in_progress' },
+    data: { status: 'abandoned' },
+  });
+
   const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
 
   return db.abAgentSession.create({

@@ -17,6 +17,9 @@ import { handleDashboardActivity } from './dashboard/activity.js';
 import { handleDashboardAgentSummary } from './dashboard/agent-summary.js';
 import { listPastFilingsForTenant, buildPastFilingContext } from './past-filing-context.js';
 import { resolveOrdinalOrFuzzyCandidate } from './candidate-resolution.js';
+import { createTaxQuestionnaireSession, updateTaxQuestionnaireSession } from './tax-questionnaire-session.js';
+import { getTaxQuestionnairePack, listSupportedJurisdictions } from '@agentbook/jurisdictions/tax-questionnaire-loader';
+import { buildPersonalProfileContext } from './personal-profile-context.js';
 
 // Read plugin.json for dev-only fields. When bundled by webpack (Next.js
 // on Vercel), `new URL(..., import.meta.url)` is incompatible with fs —
@@ -1141,6 +1144,26 @@ function deriveEffectiveRate(estimate: {
     return estimate.totalTaxCents / net;
   }
   return 0;
+}
+
+/**
+ * Strip markdown code-fence wrapping from an LLM's raw JSON string before
+ * JSON.parse'ing it. Duplicated (not imported) from tax-past-filings.ts's
+ * private cleanJson() helper (plugins/agentbook-tax/backend/src/
+ * tax-past-filings.ts) — that function is private/un-exported and lives
+ * across a plugin boundary (agentbook-tax vs agentbook-core). agent-brain.ts
+ * has its own local, non-exported copy of this exact same logic for the same
+ * reason (Task 3's Step 1b branch); this is a third copy for the same reason
+ * again — a few lines, not worth a shared-package extraction for this PR.
+ */
+function cleanJsonForTaxFastTrack(raw: string): string {
+  let s = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
+  const first = s.indexOf('{');
+  const last = s.lastIndexOf('}');
+  if (first > 0 || (last >= 0 && last < s.length - 1)) {
+    if (first >= 0 && last > first) s = s.slice(first, last + 1);
+  }
+  return s;
 }
 
 // Default Gemini call timeout — overridable via GEMINI_TIMEOUT_MS env var.
@@ -4238,6 +4261,165 @@ async function _executeClassificationCore(
     } catch (err) {
       console.error('[cpa-review] error:', err);
       return { selectedSkill, extractedParams, confidence: 0, skillUsed: 'cpa-review', skillResponse: null, responseData: { message: "I couldn't review the books. Please try again.", actions: [], chartData: null, skillUsed: 'cpa-review', confidence: 0, latencyMs: Date.now() - startTime } };
+    }
+  }
+
+  // INTERNAL handler: start-tax-fast-track (PR-3 tax-fast-track-foundation,
+  // Task 4). Only ever runs on the FIRST message for a tenant — before any
+  // AbTaxQuestionnaireSession exists. Once one does, agent-brain.ts's "Step
+  // 1b" session-recovery branch takes over on every subsequent turn (see
+  // that file for the full multi-turn contract); the two run on mutually
+  // exclusive message paths (Step 1b runs earlier in the pipeline and would
+  // have already claimed the reply if a session were active).
+  if (selectedSkill.name === 'start-tax-fast-track') {
+    try {
+      // listPastFilings() (plugins/agentbook-tax/backend/src/tax-past-filings.ts)
+      // returns filings in every status (uploaded/parsing/confirmed/error) —
+      // it does NOT pre-filter. This plugin already has its own equivalent,
+      // unfiltered read of the same AbPastTaxFiling model (listPastFilingsForTenant,
+      // used just above by query-past-filings) rather than importing across
+      // the agentbook-tax plugin boundary, so reuse that here too and filter
+      // to 'confirmed' ourselves.
+      const allFilings: any[] = await listPastFilingsForTenant(tenantId);
+      const confirmedFilings = allFilings.filter((f: any) => f.status === 'confirmed');
+
+      if (confirmedFilings.length === 0) {
+        // Blocked path: no seed data to fast-track from. confidence MUST
+        // stay 1 here — this codebase has a documented production incident
+        // (see the STUDENT_CHAT_SKILLS eligibility gate above) from a
+        // "cosmetic" confidence value being dropped to 0 on a similar
+        // blocked-path early return, which broke re-routing through the
+        // planner. Do not repeat that mistake.
+        const message = "I don't have a confirmed prior-year return to fast-track from yet. Upload last year's return on the **Tax Package** page → Past Filings tab, confirm it, and then just ask me again.";
+        await db.abConversation.create({ data: { tenantId, question: text || '[tax fast track]', answer: message, queryType: 'agent', channel, skillUsed: 'start-tax-fast-track' } }).catch(() => {});
+        return {
+          selectedSkill, extractedParams, confidence: 1, skillUsed: 'start-tax-fast-track', skillResponse: null,
+          responseData: { message, actions: [], chartData: null, skillUsed: 'start-tax-fast-track', confidence: 1, latencyMs: Date.now() - startTime },
+        };
+      }
+
+      // The most recent confirmed filing by taxYear — there is no requirement
+      // that it be exactly currentYear - 1, and there may be more than one
+      // confirmed filing on file, so reduce to the max taxYear rather than
+      // assuming listPastFilingsForTenant's ordering (desc by taxYear then
+      // createdAt) already puts the right one first for every caller.
+      const filing = confirmedFilings.reduce((latest: any, f: any) => (f.taxYear > latest.taxYear ? f : latest));
+
+      const taxYear = extractedParams.taxYear || 2025;
+      const jurisdiction = (classification.tenantConfig?.jurisdiction || 'us').toLowerCase();
+      const region = classification.tenantConfig?.region || null;
+
+      // Only us/ca have a TaxQuestionnairePack registered (au/uk deliberately
+      // not yet — see tax-questionnaire-loader.ts). Check BEFORE creating a
+      // session: creating one first and only discovering no pack exists after
+      // the fact would leave an in_progress session with no pending question,
+      // which Step 1b (agent-brain.ts) would then have no way to recover from.
+      if (!listSupportedJurisdictions().includes(jurisdiction)) {
+        const message = "Tax fast-track isn't available for your jurisdiction yet — I can still help with the regular tax filing flow, just ask.";
+        await db.abConversation.create({ data: { tenantId, question: text || '[tax fast track]', answer: message, queryType: 'agent', channel, skillUsed: 'start-tax-fast-track' } }).catch(() => {});
+        return {
+          selectedSkill, extractedParams, confidence: 1, skillUsed: 'start-tax-fast-track', skillResponse: null,
+          responseData: { message, actions: [], chartData: null, skillUsed: 'start-tax-fast-track', confidence: 1, latencyMs: Date.now() - startTime },
+        };
+      }
+
+      const session = await createTaxQuestionnaireSession(tenantId, taxYear, jurisdiction, region, 'fast_track', filing.id);
+
+      const pack = getTaxQuestionnairePack(jurisdiction);
+      const profile = await buildPersonalProfileContext(tenantId).catch(() => '');
+      const prompt = pack.nextQuestionPrompt({ qaHistory: [], priorFiling: filing.extractedData, profile });
+
+      // callGemini() has the real signature (systemPrompt, userMessage, maxTokens?)
+      // => Promise<string | null> and NEVER throws — a missing key, HTTP
+      // error, or empty response are all a `null` return, not an exception
+      // (see the design spec's "falsy return, not a thrown exception"
+      // paragraph, and agent-brain.ts's Step 1b branch for the same check).
+      // Checked explicitly below, separate from the JSON.parse/pack try/catch.
+      const raw = await callGemini(prompt, text || 'Start the tax fast-track questionnaire.', 300);
+
+      let outcome: { question: string } | { done: true } | null = null;
+      if (raw) {
+        try {
+          outcome = pack.parseNextQuestionResponse(JSON.parse(cleanJsonForTaxFastTrack(raw)));
+        } catch {
+          outcome = null; // malformed content — treated as a failure below, same as a falsy raw
+        }
+      }
+
+      if (!outcome) {
+        // First-question failure. The plan leaves this edge case for the
+        // implementer's judgment (it isn't in Task 3's exit-path matrix,
+        // which only covers turns AFTER a session already exists). Decision:
+        // mark the just-created session 'abandoned' immediately rather than
+        // leaving it 'in_progress' with an empty qaHistory. Reasoning: if
+        // left in_progress, the NEXT message the user sends (which, per our
+        // own reply below, is likely them just re-typing something, not
+        // necessarily the exact fast-track trigger phrase) would be picked
+        // up by agent-brain.ts's Step 1b branch, which finds qaHistory has
+        // no pending entry (empty array) and treats that as the SAME
+        // "data-invariant violation" failure path — silently burning through
+        // consecutiveFailures on a session the user doesn't know exists yet,
+        // instead of cleanly re-running this skill from scratch. Abandoning
+        // it now (version is fresh off create — no conflict possible yet)
+        // means the user's next message, whatever it is, falls straight
+        // through Step 1b (only 'in_progress' sessions are picked up) to
+        // normal classification, so "try asking again" in the message below
+        // is literally true.
+        await updateTaxQuestionnaireSession(session.id, session.version, { status: 'abandoned' }).catch(() => {});
+        const message = "Something went wrong setting up your tax questionnaire — could you try asking again?";
+        await db.abConversation.create({ data: { tenantId, question: text || '[tax fast track]', answer: message, queryType: 'agent', channel, skillUsed: 'start-tax-fast-track' } }).catch(() => {});
+        return {
+          selectedSkill, extractedParams, confidence: 1, skillUsed: 'start-tax-fast-track', skillResponse: null,
+          responseData: { message, actions: [], chartData: null, skillUsed: 'start-tax-fast-track', confidence: 1, latencyMs: Date.now() - startTime },
+        };
+      }
+
+      if ('done' in outcome) {
+        // Legitimate (if unlikely) turn-1 outcome: the pack judged the prior
+        // filing + profile already cover everything, so zero questions are
+        // needed. Mirrors agent-brain.ts's Step 1b "isDone" handling —
+        // completed, empty qaHistory (there was never a pending question to
+        // finalize).
+        await updateTaxQuestionnaireSession(session.id, session.version, { status: 'completed' });
+        const message = "Got everything I need from your last return — I'll have your filing draft ready shortly.";
+        await db.abConversation.create({ data: { tenantId, question: text || '[tax fast track]', answer: message, queryType: 'agent', channel, skillUsed: 'start-tax-fast-track' } }).catch(() => {});
+        return {
+          selectedSkill, extractedParams, confidence: 1, skillUsed: 'start-tax-fast-track', skillResponse: { data: { sessionId: session.id } },
+          responseData: { message, actions: [], chartData: null, skillUsed: 'start-tax-fast-track', confidence: 1, sessionId: session.id, latencyMs: Date.now() - startTime },
+        };
+      }
+
+      // Success: seed qaHistory/askedCount to the EXACT shape Task 3's
+      // session-recovery branch depends on (see agent-brain.ts's "Step 1b" —
+      // it recovers "which question is being answered" by treating
+      // qaHistory's last entry as a "pending" placeholder the instant a
+      // question is asked, since the schema has no separate column for it).
+      const ok = await updateTaxQuestionnaireSession(session.id, session.version, {
+        qaHistory: [{ question: outcome.question, answer: '' }],
+        askedCount: 1,
+      });
+      if (!ok) {
+        // Version conflict on a session microseconds old and known to no one
+        // else yet — vanishingly unlikely, but fail safe rather than serve a
+        // question the persisted qaHistory doesn't actually reflect.
+        const message = "Something went wrong setting up your tax questionnaire — could you try asking again?";
+        return {
+          selectedSkill, extractedParams, confidence: 1, skillUsed: 'start-tax-fast-track', skillResponse: null,
+          responseData: { message, actions: [], chartData: null, skillUsed: 'start-tax-fast-track', confidence: 1, latencyMs: Date.now() - startTime },
+        };
+      }
+
+      await db.abConversation.create({ data: { tenantId, question: text || '[tax fast track]', answer: outcome.question, queryType: 'agent', channel, skillUsed: 'start-tax-fast-track' } }).catch(() => {});
+      return {
+        selectedSkill, extractedParams, confidence: 1, skillUsed: 'start-tax-fast-track', skillResponse: { data: { sessionId: session.id } },
+        responseData: { message: outcome.question, actions: [], chartData: null, skillUsed: 'start-tax-fast-track', confidence: 1, sessionId: session.id, latencyMs: Date.now() - startTime },
+      };
+    } catch (err) {
+      console.error('[start-tax-fast-track] error:', err);
+      return {
+        selectedSkill, extractedParams, confidence: 0, skillUsed: 'start-tax-fast-track', skillResponse: null,
+        responseData: { message: "I couldn't start the fast-track questionnaire. Please try again.", actions: [], chartData: null, skillUsed: 'start-tax-fast-track', confidence: 0, latencyMs: Date.now() - startTime },
+      };
     }
   }
 
