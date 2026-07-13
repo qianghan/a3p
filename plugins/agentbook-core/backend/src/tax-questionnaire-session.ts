@@ -17,10 +17,16 @@ export async function createTaxQuestionnaireSession(
   trigger: string,
   sourceFilingId: string | null,
 ): Promise<any> {
-  // Expire any existing in-progress questionnaire sessions for this tenant
+  // Expire any existing in-progress questionnaire sessions for this tenant,
+  // AND any active AbAgentSession — mutual exclusion must hold in both
+  // directions (agent-planner.ts's createSession() does the reverse).
   await db.abTaxQuestionnaireSession.updateMany({
     where: { tenantId, status: 'in_progress' },
     data: { status: 'abandoned' },
+  });
+  await db.abAgentSession.updateMany({
+    where: { tenantId, status: 'active' },
+    data: { status: 'expired' },
   });
 
   const expiresAt = new Date(Date.now() + 72 * 60 * 60 * 1000);

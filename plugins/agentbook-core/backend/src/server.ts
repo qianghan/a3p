@@ -18,7 +18,7 @@ import { handleDashboardAgentSummary } from './dashboard/agent-summary.js';
 import { listPastFilingsForTenant, buildPastFilingContext } from './past-filing-context.js';
 import { resolveOrdinalOrFuzzyCandidate } from './candidate-resolution.js';
 import { createTaxQuestionnaireSession, updateTaxQuestionnaireSession } from './tax-questionnaire-session.js';
-import { getTaxQuestionnairePack } from '@agentbook/jurisdictions/tax-questionnaire-loader';
+import { getTaxQuestionnairePack, listSupportedJurisdictions } from '@agentbook/jurisdictions/tax-questionnaire-loader';
 import { buildPersonalProfileContext } from './personal-profile-context.js';
 
 // Read plugin.json for dev-only fields. When bundled by webpack (Next.js
@@ -4308,6 +4308,20 @@ async function _executeClassificationCore(
       const taxYear = extractedParams.taxYear || 2025;
       const jurisdiction = (classification.tenantConfig?.jurisdiction || 'us').toLowerCase();
       const region = classification.tenantConfig?.region || null;
+
+      // Only us/ca have a TaxQuestionnairePack registered (au/uk deliberately
+      // not yet — see tax-questionnaire-loader.ts). Check BEFORE creating a
+      // session: creating one first and only discovering no pack exists after
+      // the fact would leave an in_progress session with no pending question,
+      // which Step 1b (agent-brain.ts) would then have no way to recover from.
+      if (!listSupportedJurisdictions().includes(jurisdiction)) {
+        const message = "Tax fast-track isn't available for your jurisdiction yet — I can still help with the regular tax filing flow, just ask.";
+        await db.abConversation.create({ data: { tenantId, question: text || '[tax fast track]', answer: message, queryType: 'agent', channel, skillUsed: 'start-tax-fast-track' } }).catch(() => {});
+        return {
+          selectedSkill, extractedParams, confidence: 1, skillUsed: 'start-tax-fast-track', skillResponse: null,
+          responseData: { message, actions: [], chartData: null, skillUsed: 'start-tax-fast-track', confidence: 1, latencyMs: Date.now() - startTime },
+        };
+      }
 
       const session = await createTaxQuestionnaireSession(tenantId, taxYear, jurisdiction, region, 'fast_track', filing.id);
 

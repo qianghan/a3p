@@ -15,7 +15,7 @@ import { assessComplexity, generatePlan, formatPlan, createSession, getActiveSes
 import { PlanStep, Evaluation, assessStepQuality, buildFinalEvaluation, formatEvaluation } from './agent-evaluator.js';
 import { getActiveTaxQuestionnaireSession, updateTaxQuestionnaireSession, type QaPair } from './tax-questionnaire-session.js';
 import { getTaxQuestionnairePack } from '@agentbook/jurisdictions/tax-questionnaire-loader';
-import type { StandardTaxExtract } from '@agentbook/jurisdictions/interfaces';
+import type { StandardTaxExtract, TaxQuestionnairePack } from '@agentbook/jurisdictions/interfaces';
 
 // Deterministic local engagement fallback when LLM is unreachable.
 // Keeps the user moving forward with a clarifying question or hint
@@ -950,7 +950,20 @@ export async function handleAgentMessage(
     }
     const profile = await buildPersonalProfileContext(tenantId).catch(() => '');
 
-    const pack = getTaxQuestionnairePack(tqSession.jurisdiction);
+    // getTaxQuestionnairePack() throws for an unsupported jurisdiction (only
+    // us/ca are registered). This should be unreachable in practice (the
+    // start-tax-fast-track skill checks support before ever creating a
+    // session), but a session could in principle already exist for a
+    // jurisdiction that's since been unregistered — fail safe via the same
+    // consecutive-failure path rather than letting the whole request throw
+    // and leaving the session stuck in_progress for the rest of its 72h
+    // window with every future turn 500ing the same way.
+    let pack: TaxQuestionnairePack;
+    try {
+      pack = getTaxQuestionnairePack(tqSession.jurisdiction);
+    } catch {
+      return handleTaxQuestionnaireFailure(tqSession, startTime);
+    }
     const prompt = pack.nextQuestionPrompt({ qaHistory: answeredHistory, priorFiling, profile });
 
     // callGemini() has the real signature (systemPrompt, userMessage, maxTokens?)

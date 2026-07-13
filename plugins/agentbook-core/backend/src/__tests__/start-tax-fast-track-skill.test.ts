@@ -49,6 +49,7 @@ const packMock = {
 };
 const jurisdictionsLoader = {
   getTaxQuestionnairePack: vi.fn(() => packMock),
+  listSupportedJurisdictions: vi.fn(() => ['us', 'ca']),
 };
 vi.mock('@agentbook/jurisdictions/tax-questionnaire-loader', () => jurisdictionsLoader);
 
