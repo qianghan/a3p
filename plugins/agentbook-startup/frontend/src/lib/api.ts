@@ -103,6 +103,15 @@ export const startupApi = {
     json<RecommendationsResponse>(await fetch('/api/v1/agentbook-startup/recommendations')),
   getAddOnTeaser: async (): Promise<AddOnPriceTeaser> =>
     json<AddOnPriceTeaser>(await fetch('/api/v1/agentbook-billing/me/addons?code=startup_tax_benefits&region=us')),
+  getAddOnIntent: async (): Promise<{ clientSecret: string; customerId: string }> =>
+    json(await fetch('/api/v1/agentbook-billing/me/subscription/intent', { method: 'POST' })),
+  subscribeAddOn: async (paymentMethodId: string): Promise<void> => {
+    await json(await fetch('/api/v1/agentbook-billing/me/addons/startup_tax_benefits/subscribe', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ region: 'us', paymentMethodId }),
+    }));
+  },
   createApplication: async (programCode: string): Promise<{ application: StartupBenefitApplication; documentChecklist: DocumentRequirement[] }> =>
     json(await fetch('/api/v1/agentbook-startup/applications', {
       method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ programCode }),
