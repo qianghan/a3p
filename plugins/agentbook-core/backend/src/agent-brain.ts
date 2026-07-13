@@ -13,6 +13,9 @@ import { buildPersonalProfileContext } from './personal-profile-context.js';
 import { retrieveRelevantMemories, learnFromInteraction, handleCorrection } from './agent-memory.js';
 import { assessComplexity, generatePlan, formatPlan, createSession, getActiveSession, updateSession, executeStep, buildUndoAction, resolveStepParams } from './agent-planner.js';
 import { PlanStep, Evaluation, assessStepQuality, buildFinalEvaluation, formatEvaluation } from './agent-evaluator.js';
+import { getActiveTaxQuestionnaireSession, updateTaxQuestionnaireSession, type QaPair } from './tax-questionnaire-session.js';
+import { getTaxQuestionnairePack } from '@agentbook/jurisdictions/tax-questionnaire-loader';
+import type { StandardTaxExtract } from '@agentbook/jurisdictions/interfaces';
 
 // Deterministic local engagement fallback when LLM is unreachable.
 // Keeps the user moving forward with a clarifying question or hint
@@ -192,6 +195,12 @@ const STATUS_RE = /^(status|where was i)$/i;
 const SKIP_RE = /^(skip|next)$/i;
 const UNDO_RE = /^(undo|revert)$/i;
 const CONFIRM_RE = /^(yes|confirm|go|ok|proceed|do it|y)$/i;
+
+// Tax-questionnaire cancel keywords — the real CANCEL_RE above, extended with
+// one alternation so the two-word phrase "never mind" also matches, not just
+// the one-word "nevermind" the original pattern covers (design spec's
+// "Revised: exit paths" section + plan Task 3's corrected instruction).
+const TAX_QUESTIONNAIRE_CANCEL_RE = /^(cancel|stop|abort|never\s?mind|n)$/i;
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -441,6 +450,75 @@ function describeDestructiveAction(classification: any, fallbackText: string): s
     default:
       return `Run ${name}: ${fallbackText.slice(0, 100)}`;
   }
+}
+
+/**
+ * Strip markdown code-fence wrapping from an LLM's raw JSON string before
+ * JSON.parse'ing it. Duplicated (not imported) from tax-past-filings.ts's
+ * private `cleanJson()` helper (`plugins/agentbook-tax/backend/src/
+ * tax-past-filings.ts:45`) — that function is private/un-exported and lives
+ * across a plugin boundary (agentbook-tax vs agentbook-core), so per the
+ * plan (Task 2/3), this small bit of orchestration logic is duplicated here
+ * rather than extracted into a shared package for a few lines of code.
+ */
+function cleanJson(raw: string): string {
+  let s = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
+  const first = s.indexOf('{');
+  const last = s.lastIndexOf('}');
+  if (first > 0 || (last >= 0 && last < s.length - 1)) {
+    if (first >= 0 && last > first) s = s.slice(first, last + 1);
+  }
+  return s;
+}
+
+/**
+ * Shared failure-turn handling for the tax-questionnaire session-recovery
+ * branch (see handleAgentMessage's "Step 1b" below). Used both when
+ * callGemini() returns falsy (its real, non-throwing failure mode — see the
+ * design spec's "falsy return, not a thrown exception" paragraph) and when
+ * the fence-strip/JSON.parse/parseNextQuestionResponse() step throws on
+ * malformed content.
+ *
+ * Deliberately does NOT touch qaHistory/askedCount/expiresAt — only
+ * consecutiveFailures advances, so the user's next message re-attempts the
+ * SAME pending question. At consecutiveFailures >= 3 the session is marked
+ * 'abandoned' instead (its own small safety cap, distinct from the
+ * 8-question content cap), rather than leaving a permanently-broken session
+ * sitting in 'in_progress' for the rest of its 72h window.
+ */
+async function handleTaxQuestionnaireFailure(
+  tqSession: any,
+  startTime: number,
+): Promise<AgentResponse> {
+  const nextFailures = (tqSession.consecutiveFailures || 0) + 1;
+  const abandon = nextFailures >= 3;
+
+  const ok = await updateTaxQuestionnaireSession(tqSession.id, tqSession.version, {
+    consecutiveFailures: nextFailures,
+    ...(abandon ? { status: 'abandoned' } : {}),
+  });
+
+  if (!ok) {
+    // Version conflict — no retry, mirroring the real AbAgentSession branch's
+    // own version-conflict handling exactly (agent-brain.ts's pendingConfirmation
+    // clear above): surface the conflict message and stop.
+    return buildResponse({
+      message: 'Session was modified by another process. Please try again.',
+      skillUsed: 'tax-questionnaire',
+      confidence: 1,
+      latencyMs: Date.now() - startTime,
+    });
+  }
+
+  return buildResponse({
+    message: abandon
+      ? "I'm having trouble processing your answers right now, so I've paused the tax questionnaire. Feel free to start it again in a bit."
+      : "Sorry, something went wrong on my end — could you try answering that again?",
+    skillUsed: 'tax-questionnaire',
+    confidence: 1,
+    sessionId: tqSession.id,
+    latencyMs: Date.now() - startTime,
+  });
 }
 
 // ─── Main ───────────────────────────────────────────────────────────────────
@@ -791,6 +869,150 @@ export async function handleAgentMessage(
     }
 
     // No session action matched — fall through to normal processing
+  }
+
+  // ── Step 1b: Tax-questionnaire session recovery ───────────────────────
+  // Parallel to (not inside) the AbAgentSession branch above. Mutual
+  // exclusion (createSession() in agent-planner.ts and
+  // createTaxQuestionnaireSession() in tax-questionnaire-session.ts each
+  // expire the OTHER session type for the tenant on creation) guarantees at
+  // most one of the two session types is ever active for a given tenant, so
+  // this check and the one above never both need to claim the same reply.
+  //
+  // Expiry note: getActiveTaxQuestionnaireSession() already filters
+  // `expiresAt: { gt: now }` in its own query (tax-questionnaire-session.ts),
+  // so an expired session simply isn't returned here — there is no separate
+  // expiry check needed in this branch. A lapsed session falls through to
+  // normal message classification below with zero extra code, exactly like
+  // it never existed.
+  const tqSession = await getActiveTaxQuestionnaireSession(tenantId);
+
+  if (tqSession) {
+    const trimmedText = text.trim();
+
+    // Cancel keyword, checked FIRST — before treating the message as an
+    // answer. Do not append to qaHistory, do not refresh expiresAt.
+    if (TAX_QUESTIONNAIRE_CANCEL_RE.test(trimmedText)) {
+      const ok = await updateTaxQuestionnaireSession(tqSession.id, tqSession.version, {
+        status: 'abandoned',
+      });
+      if (!ok) {
+        return buildResponse({
+          message: 'Session was modified by another process. Please try again.',
+          skillUsed: 'tax-questionnaire',
+          confidence: 1,
+          latencyMs: Date.now() - startTime,
+        });
+      }
+      return buildResponse({
+        message: "No problem — I've cancelled the tax questionnaire. Just say the word if you want to start it again later.",
+        skillUsed: 'tax-questionnaire',
+        confidence: 1,
+        sessionId: tqSession.id,
+        latencyMs: Date.now() - startTime,
+      });
+    }
+
+    // Otherwise, treat the message as an answer to the pending question.
+    //
+    // Recovering "the last question asked": qaHistory only ever stores fully
+    // answered {question, answer} pairs EXCEPT for its very last entry, which
+    // is written as a "pending" placeholder — {question, answer: ''} — the
+    // instant a question is asked (by start-tax-fast-track on turn 1, or by
+    // this same branch below on every later turn). That pending entry's
+    // `question` field IS "the last question asked". This session model has
+    // no separate column for it; qaHistory's own last-entry-may-be-pending
+    // shape is the only persisted place it can live without a schema change,
+    // and it survives failure turns below untouched (failure turns never
+    // touch qaHistory), so retries always resolve against the same pending
+    // question.
+    const qaHistory = ((tqSession.qaHistory as QaPair[]) || []).slice();
+    const lastEntry = qaHistory.length > 0 ? qaHistory[qaHistory.length - 1] : null;
+    const pending = lastEntry && lastEntry.answer === '' ? lastEntry : null;
+
+    if (!pending) {
+      // Data-invariant violation (qaHistory has no pending entry — should
+      // never happen once start-tax-fast-track always seeds one at session
+      // creation). Fail safe the same way a callGemini/parse failure would
+      // rather than guessing which question the user is answering.
+      return handleTaxQuestionnaireFailure(tqSession, startTime);
+    }
+
+    const answeredHistory: QaPair[] = [
+      ...qaHistory.slice(0, -1),
+      { question: pending.question, answer: trimmedText || text },
+    ];
+
+    let priorFiling: StandardTaxExtract | undefined;
+    if (tqSession.sourceFilingId) {
+      const filing = await db.abPastTaxFiling.findUnique({ where: { id: tqSession.sourceFilingId } }).catch(() => null);
+      priorFiling = (filing?.extractedData as StandardTaxExtract | undefined) || undefined;
+    }
+    const profile = await buildPersonalProfileContext(tenantId).catch(() => '');
+
+    const pack = getTaxQuestionnairePack(tqSession.jurisdiction);
+    const prompt = pack.nextQuestionPrompt({ qaHistory: answeredHistory, priorFiling, profile });
+
+    // callGemini() has the real signature (systemPrompt, userMessage, maxTokens?)
+    // => Promise<string | null> and NEVER throws (missing key, HTTP error, and
+    // empty response are all a `null` return, not an exception) — see the
+    // design spec's "falsy return, not a thrown exception" paragraph. Checked
+    // explicitly below, separate from the JSON.parse/pack try/catch.
+    const raw = await ctx.callGemini(prompt, text, 300);
+
+    let outcome: { question: string } | { done: true } | null = null;
+    if (raw) {
+      try {
+        const parsed = JSON.parse(cleanJson(raw));
+        outcome = pack.parseNextQuestionResponse(parsed);
+      } catch {
+        outcome = null; // malformed content — treated as a failure below, same as a falsy raw
+      }
+    }
+
+    if (!outcome) {
+      return handleTaxQuestionnaireFailure(tqSession, startTime);
+    }
+
+    // Success path: finalize the answered pair. askedCount already counted
+    // the just-answered pending question when IT was asked (either by
+    // start-tax-fast-track for question 1, or by this branch's own success
+    // path on a prior turn for every question after) — so the 8-question cap
+    // check compares against the CURRENT askedCount, not an incremented one.
+    const isDone = 'done' in outcome || tqSession.askedCount >= 8;
+
+    const finalQaHistory: QaPair[] = isDone
+      ? answeredHistory
+      : [...answeredHistory, { question: (outcome as { question: string }).question, answer: '' }];
+
+    const ok = await updateTaxQuestionnaireSession(tqSession.id, tqSession.version, {
+      qaHistory: finalQaHistory,
+      consecutiveFailures: 0,
+      expiresAt: new Date(Date.now() + 72 * 60 * 60 * 1000),
+      status: isDone ? 'completed' : 'in_progress',
+      ...(isDone ? {} : { askedCount: tqSession.askedCount + 1 }),
+    });
+
+    if (!ok) {
+      // No retry — mirrors the real AbAgentSession branch's own
+      // version-conflict handling exactly.
+      return buildResponse({
+        message: 'Session was modified by another process. Please try again.',
+        skillUsed: 'tax-questionnaire',
+        confidence: 1,
+        latencyMs: Date.now() - startTime,
+      });
+    }
+
+    return buildResponse({
+      message: isDone
+        ? "Got everything I need — I'll have your filing draft ready shortly."
+        : (outcome as { question: string }).question,
+      skillUsed: 'tax-questionnaire',
+      confidence: 1,
+      sessionId: tqSession.id,
+      latencyMs: Date.now() - startTime,
+    });
   }
 
   // ── Step 2: Context assembly ───────────────────────────────────────────
