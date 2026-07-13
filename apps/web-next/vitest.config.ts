@@ -36,20 +36,14 @@ export default defineConfig({
     },
   },
   resolve: {
-    alias: [
-      { find: '@', replacement: path.resolve(__dirname, './src') },
-      { find: '@naap/ui', replacement: path.resolve(__dirname, '../../packages/ui/src') },
-      { find: '@naap/types', replacement: path.resolve(__dirname, '../../packages/types/src') },
-      { find: '@naap/utils', replacement: path.resolve(__dirname, '../../packages/utils/src') },
-      { find: '@naap/plugin-sdk', replacement: path.resolve(__dirname, '../../packages/plugin-sdk/src') },
-      { find: '@agentbook-core', replacement: path.resolve(__dirname, '../../plugins/agentbook-core/backend/src') },
-      // Scoped-package alias ('@agentbook/jurisdictions') needs an explicit
-      // wildcard regex — unlike the bare '@agentbook-core' key above, Vite's
-      // plain-object alias form does NOT prefix-match keys that contain a
-      // slash, so 'src/interfaces' subpaths from
-      // '@agentbook/jurisdictions/interfaces' etc. were silently unresolved.
-      { find: /^@agentbook\/jurisdictions$/, replacement: path.resolve(__dirname, '../../packages/agentbook-jurisdictions/src/index.ts') },
-      { find: /^@agentbook\/jurisdictions\/(.*)$/, replacement: path.resolve(__dirname, '../../packages/agentbook-jurisdictions/src/$1') },
-    ],
+    alias: {
+      '@': path.resolve(__dirname, './src'),
+      '@naap/ui': path.resolve(__dirname, '../../packages/ui/src'),
+      '@naap/types': path.resolve(__dirname, '../../packages/types/src'),
+      '@naap/utils': path.resolve(__dirname, '../../packages/utils/src'),
+      '@naap/plugin-sdk': path.resolve(__dirname, '../../packages/plugin-sdk/src'),
+      '@agentbook-core': path.resolve(__dirname, '../../plugins/agentbook-core/backend/src'),
+      '@agentbook/jurisdictions': path.resolve(__dirname, '../../packages/agentbook-jurisdictions/src'),
+    },
   },
 });
