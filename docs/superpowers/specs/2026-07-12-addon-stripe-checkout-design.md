@@ -32,9 +32,14 @@ with no backend changes.
   they'll wire into the new shared component once they land.
 - Jurisdiction-aware region selection for add-on pricing — the existing teaser fetch
   hardcodes `region=us`; the checkout flow keeps that precedent as-is.
-- Real Stripe test-mode API verification — no test-mode Stripe keys exist in this
-  Vercel project (Development/Preview have none; Production only has live keys).
-  Verification uses a mocked `stripe.confirmSetup` response instead (see Testing).
+- Adding Stripe test-mode keys to Vercel's Development/Preview environment — a
+  sandbox key pair was provided for this change and is used locally only (see
+  Testing / Local setup). Wiring them into Vercel so future sessions/CI have them
+  is a separate decision, not done as part of this change.
+- Flipping the add-on subscribe flow to live mode — Production already has live
+  Stripe keys configured (`STRIPE_SECRET_KEY`/`NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY`),
+  so once this change is deployed, add-on purchases in production use them
+  automatically. No separate "go live" step is needed in this change.
 
 ## Architecture
 
@@ -122,23 +127,43 @@ the button disappears once `active` flips to `true`).
 
 ## Testing
 
-Given no test-mode Stripe keys exist in this project (see Non-goals), verification
-is a Playwright test against the local dev server:
+A Stripe test-mode (sandbox) key pair is now available and is used for a real
+end-to-end verification against Stripe's actual test-mode API — not a mock.
+
+### Local setup
+
+- `STRIPE_SECRET_KEY` / `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY` (both `_test_`) go in
+  `apps/web-next/.env.local` (git-ignored, not committed).
+- **Gap found during design:** `bin/seed-startup-benefit-addon.ts` seeds
+  `BillAddOnPrice` rows with `stripePriceId: null` — it never provisions the Stripe
+  side. `resolveAddOnPrice` returning a row with no `stripePriceId` makes
+  `/me/addons/[code]/subscribe` 400 with "add-on has no Stripe price configured for
+  this region yet." Before the e2e flow can succeed locally, the `us` /
+  `founding_member` row for `startup_tax_benefits` needs a real test-mode Stripe
+  Price. The existing admin route
+  `POST /api/v1/agentbook-billing/addons/[code]/prices/[priceId]/route.ts` already
+  does exactly this (creates a Stripe Product + Price with the configured secret
+  key, stores `stripePriceId` on the row) — call it once locally (as an admin
+  session) against the seeded row's id before testing.
+
+### End-to-end flow (Playwright, against local dev server)
 
 1. Log in as a startup-persona test account, navigate to the Startup Tax Benefits
    discovery page.
 2. Confirm the teaser renders an "Upgrade" button (add-on not active).
 3. Click it; confirm the modal opens and `PaymentElement` mounts.
-4. Stub `window.Stripe`'s `confirmSetup` (via `page.addInitScript` /
-   `page.route`) to resolve a fake `setupIntent.payment_method` id, avoiding a real
-   Stripe network call.
-5. Submit; assert the `subscribe` request fires with a `paymentMethodId` in the
-   body, and the UI transitions to the active state (button disappears / success
-   state shown).
+4. Fill the Stripe test card (`4242 4242 4242 4242`, any future expiry, any CVC/ZIP)
+   into the real `PaymentElement` iframe and submit.
+5. Confirm `stripe.confirmSetup` succeeds against Stripe's real test-mode API,
+   `subscribe` fires with the resulting `paymentMethodId`, and the UI transitions to
+   the active state (button disappears / success state shown).
+6. Confirm in Stripe's test-mode dashboard (or via the Stripe API with the sandbox
+   key) that a subscription was created against the sandbox customer — this
+   verifies the full round trip, not just the UI.
 
 This proves the component wiring (intent → Elements → confirmSetup →
-paymentMethodId → subscribe → UI update) end-to-end without exercising Stripe's real
-API, since no test-mode credentials are available.
+paymentMethodId → subscribe → UI update) end-to-end through Stripe's real
+sandbox, since test-mode credentials are now available.
 
 Existing unit test coverage
 (`apps/web-next/src/__tests__/api/v1/agentbook-billing/addon-user-routes.test.ts`)
