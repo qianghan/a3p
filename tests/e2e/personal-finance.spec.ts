@@ -285,6 +285,149 @@ test.describe('personal finance: net worth trend UI (Personal Insights add-on)',
     // No teaser/upsell copy for a subscribed tenant.
     await expect(page.locator('text=Enable Personal Insights')).toHaveCount(0);
   });
+
+  // ─── Task 6 — budget-threshold nudge round-trip through the real cron ───
+
+  test('budget-threshold nudge fires via the nudge-check cron (?hour=now) and does not duplicate on immediate re-check', async ({ page }) => {
+    await page.goto('/login');
+    await page.fill('input[type="email"]', EMAIL);
+    await page.fill('input[type="password"]', PASSWORD);
+    await page.click('button[type="submit"]');
+    await page.waitForURL(/\/dashboard|\/agentbook|\/$/, { timeout: 20_000 });
+    await page.waitForTimeout(2_000);
+
+    // Dedicated account + a fresh, unique budget category so this test's
+    // dedup assertions can't collide with budgets/transactions left behind
+    // by other e2e runs against this same shared Maya tenant.
+    const acctName = `E2E Nudge Checking ${Date.now()}`;
+    const acct = await apiPost(page, `${P}/accounts`, { name: acctName, type: 'checking', balanceCents: 1_000_00 });
+    expect(acct.status, JSON.stringify(acct.data)).toBe(201);
+    const acctId = acct.data.data.id;
+
+    const category = `e2e-nudge-${Date.now()}`;
+    const budgetRes = await apiPost(page, `${P}/budget`, { category, monthlyLimitCents: 200_00 });
+    expect(budgetRes.status, JSON.stringify(budgetRes.data)).toBe(201);
+
+    // $200 monthly limit; a $160 spend is exactly 80%
+    // (lib/agentbook-personal-nudges.ts's checkBudgetThresholds: percent =
+    // round(spent/limit*100); fires budget_alert_80 at >= 80,
+    // budget_alert_100 at >= 100). 160/200 crosses only the 80% threshold,
+    // not 100%, isolating a single nudge type for this test.
+    const spend = await apiPost(page, `${P}/transactions`, {
+      accountId: acctId, description: 'E2E nudge trigger spend', amountCents: -160_00, category,
+    });
+    expect(spend.status, JSON.stringify(spend.data)).toBe(201);
+
+    // periodKey matches agentbook-personal-nudges.ts's periodKeyFor(now): "YYYY-MM".
+    const now = new Date();
+    const periodKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+
+    // Invoke the nudge-check cron directly with ?hour=now — bypasses the
+    // local-hour gate (Task 3b's route) so this test doesn't depend on what
+    // hour it happens to run. No Authorization/CRON_SECRET header: this
+    // deployed environment's cron routes are callable unauthenticated in
+    // e2e today (same pattern as tests/e2e/daily-backup.spec.ts's direct,
+    // header-less cron GETs).
+    const cronPath = '/api/v1/agentbook/cron/personal-finance-nudge-check?hour=now';
+    const firstRun = await apiGet(page, cronPath);
+    expect(firstRun.status, JSON.stringify(firstRun.data)).toBe(200);
+    // Route's response shape (Task 3b): { ok, checked, skipped, nudgesFired, errors, timestamp }.
+    expect(typeof firstRun.data.nudgesFired).toBe('number');
+    expect(firstRun.data.nudgesFired).toBeGreaterThanOrEqual(1);
+
+    // nudgesFired is a global count across every personal_insights
+    // subscriber (Task 3b's route doesn't break it out per-tenant), so on a
+    // shared live environment it isn't a safe oracle for THIS tenant's
+    // specific dedup — go straight to the authoritative source: the
+    // AbPersonalNudgeLog row Task 3a's checkPersonalFinanceNudges() writes
+    // on fire, scoped to our own tenant/category/period.
+    const budgetAlert80Rows = await prisma.abPersonalNudgeLog.findMany({
+      where: { tenantId: MAYA_TENANT, nudgeType: 'budget_alert_80', periodKey, category },
+    });
+    expect(budgetAlert80Rows.length).toBe(1);
+
+    // Only crossed 80%, never 100% — the 100% nudge must not have fired.
+    const budgetAlert100Rows = await prisma.abPersonalNudgeLog.findMany({
+      where: { tenantId: MAYA_TENANT, nudgeType: 'budget_alert_100', periodKey, category },
+    });
+    expect(budgetAlert100Rows.length).toBe(0);
+
+    // Re-invoke immediately — the same nudge must not fire (and log) again.
+    const secondRun = await apiGet(page, cronPath);
+    expect(secondRun.status, JSON.stringify(secondRun.data)).toBe(200);
+    expect(typeof secondRun.data.nudgesFired).toBe('number');
+
+    const budgetAlert80RowsAfterSecondRun = await prisma.abPersonalNudgeLog.findMany({
+      where: { tenantId: MAYA_TENANT, nudgeType: 'budget_alert_80', periodKey, category },
+    });
+    // Still exactly one row — the second call did not duplicate the nudge.
+    expect(budgetAlert80RowsAfterSecondRun.length).toBe(1);
+  });
+
+  // ─── Task 6 — personal-snapshot trend-query + current-state regression ───
+  //
+  // MCP-channel note (per the plan's Task 6 instructions): the `channel`
+  // parameter that distinguishes 'mcp' from 'api'/'web' only exists as the
+  // 4th argument to `executeClassification()` inside
+  // plugins/agentbook-core/backend/src/server.ts — it is never read from an
+  // HTTP request body. Confirmed by reading both real HTTP entry points:
+  //   - apps/web-next/src/app/api/v1/agentbook-core/agent/message/route.ts's
+  //     `AgentMessageBody` interface has no `channel` field, and the route
+  //     hardcodes `channel: 'web'` when calling `handleAgentMessage()`
+  //     regardless of what's in the posted JSON body.
+  //   - apps/web-next/src/lib/mcp/ask-agentbook-tool.ts's `callAgentBrain()`
+  //     does POST `channel: 'mcp'` in its body, but its target
+  //     (`AGENTBOOK_CORE_URL`, falling back to the plugin backend) resolves
+  //     in this deployed environment to that same Next.js route, which
+  //     drops the field the same way.
+  // So there is no real HTTP call this e2e suite can make where `channel:
+  // 'mcp'` vs any other value produces an observably different response —
+  // the distinction is only exercised at the unit level, which
+  // plugins/agentbook-core/backend/src/__tests__/personal-snapshot-trend-
+  // skill.test.ts already covers directly (calling `executeClassification`
+  // with `'mcp'` as the 4th argument). Not forcing an e2e-level MCP test
+  // here since the field genuinely isn't wired through this app's real
+  // endpoints.
+  test('personal finance: chat trend query routes to personal-snapshot with real data (subscribed), current-state query still works (regression)', async ({ page }) => {
+    await page.goto('/login');
+    await page.fill('input[type="email"]', EMAIL);
+    await page.fill('input[type="password"]', PASSWORD);
+    await page.click('button[type="submit"]');
+    await page.waitForURL(/\/dashboard|\/agentbook|\/$/, { timeout: 20_000 });
+    await page.waitForTimeout(2_000);
+
+    // Trend-shaped phrase: anchor "net worth" + comparison cue "changed" /
+    // "over time", matching skill-routing.ts's PERSONAL_TREND_TRIGGER_PATTERNS
+    // (anchor "net worth", cue "\bchange(?:d)?\b" and "over time" both
+    // present) — verified directly against the actual
+    // personal-snapshot-trend-skill.test.ts unit test, which asserts this
+    // exact class of phrase ("how has my net worth trended over time")
+    // routes to personal-snapshot and is NOT shadowed by query-finance
+    // (business revenue trends) or query-past-filings (year-anchored tax
+    // phrasing).
+    const trendChat = await apiPost(page, '/api/v1/agentbook-core/agent/message', {
+      text: 'how has my net worth changed over time',
+    });
+    expect(trendChat.status, JSON.stringify(trendChat.data)).toBe(200);
+    expect(trendChat.data?.data?.skillUsed).toBe('personal-snapshot');
+    // Maya is subscribed (this describe's beforeAll) — a real trend answer,
+    // never the upsell copy server.ts returns for non-subscribers.
+    expect(trendChat.data?.data?.message).not.toMatch(/Personal Insights/);
+    expect(trendChat.data?.data?.message).toMatch(/last month/i);
+    expect(trendChat.data?.data?.message).toMatch(/this month/i);
+
+    // Regression (Task 4's main routing-collision risk): a bare
+    // current-state question — no temporal/comparison cue — must still
+    // route to personal-snapshot and answer for free, exactly as it did
+    // before this PR, regardless of the tenant's subscription status.
+    const snapshotChat = await apiPost(page, '/api/v1/agentbook-core/agent/message', {
+      text: "what's my net worth?",
+    });
+    expect(snapshotChat.status, JSON.stringify(snapshotChat.data)).toBe(200);
+    expect(snapshotChat.data?.data?.skillUsed).toBe('personal-snapshot');
+    expect(snapshotChat.data?.data?.message).toMatch(/Net worth/i);
+    expect(snapshotChat.data?.data?.message).not.toMatch(/Personal Insights/);
+  });
 });
 
 test('personal finance: non-subscribed tenant sees the Personal Insights teaser, not the chart', async ({ page }) => {
