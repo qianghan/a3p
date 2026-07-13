@@ -6,7 +6,7 @@
 
 **Architecture:** A new `AddOnCheckoutModal` component in `packages/ui` (built on the existing `Modal` shell, modeled on the working plan-subscribe `SubscribeModal.tsx` pattern: `loadStripe` + `Elements` + `PaymentElement` + `stripe.confirmSetup`). It's decoupled from any specific route via `fetchClientSecret`/`onConfirmed` props. `StartupDiscoveryPage.tsx` wires it up using the existing (unmodified) `/me/subscription/intent` and `/me/addons/[code]/subscribe` routes.
 
-**Tech Stack:** React 19, Vite, Vitest + Testing Library + happy-dom, `@stripe/stripe-js` / `@stripe/react-stripe-js`, Prisma, Next.js API routes, Playwright.
+**Tech Stack:** React 19, Vite, Vitest + Testing Library + happy-dom, `@stripe/stripe-js` / `@stripe/react-stripe-js`, Prisma, Next.js API routes.
 
 ## Global Constraints
 
@@ -34,7 +34,8 @@
 | `plugins/agentbook-startup/frontend/src/__tests__/StartupDiscoveryPage.test.tsx` | Modify — cover the new button/modal flow |
 | `apps/web-next/.env.local` | Local-only — Stripe sandbox keys + `ADMIN_EMAILS` (not committed) |
 | `apps/web-next/public/cdn/plugins/agentbook-startup/**` | Rebuilt UMD bundle |
-| `tests/e2e/startup-addon-checkout.spec.ts` | Create — Playwright regression test against local dev + Stripe sandbox |
+
+**Cut from an earlier draft of this plan:** a Playwright e2e spec driving the real Stripe `PaymentElement` iframe. Rejected because no test-mode Stripe keys exist in any Vercel environment (Development/Preview have none, Production is live-only — confirmed via `vercel env ls`), so it could only ever run manually on a machine with a hand-provisioned sandbox `.env.local`. That means it would never run in CI, and its iframe selector would need to be guessed and hand-corrected against a specific Stripe.js version. That combination — can't run automatically, breaks silently on the next Stripe.js update — makes it a maintenance liability rather than a safety net. Task 6's manual browser pass with a real Stripe test card already delivers the actual proof this project needs; the unit/component suite (Tasks 2–4) is what actually runs in CI going forward.
 
 ---
 
@@ -739,7 +740,7 @@ Expected: `200` with `{"price": {..., "stripePriceId": "price_..."}}`. Re-run th
 
 ### Task 6: Manual end-to-end verification in a real browser against Stripe sandbox
 
-**Files:** none changed — this is a verification task. Use the Browser tool (not Playwright yet — that's Task 7, once the real DOM structure is confirmed here).
+**Files:** none changed — this is a verification task, driven with the Browser tool.
 
 - [ ] **Step 1: Build and deploy the plugin bundle locally**
 
@@ -787,88 +788,60 @@ curl -s https://api.stripe.com/v1/subscriptions/SUB_ID -u "$STRIPE_SECRET_KEY:"
 
 Expected: `200`, `"status": "active"`.
 
-- [ ] **Step 4: Record the real DOM structure for Task 7**
+- [ ] **Step 4: Note anything that didn't match expectations**
 
-While in the browser, run `read_page` scoped to the modal and note the actual iframe `title`/`name` attributes Stripe rendered, and the accessible field labels/placeholders. Task 7's Playwright selectors must match what was actually observed here — not guessed.
+If the modal, teaser wiring, or error states behaved differently than Tasks 2–4 assumed, note it here for a follow-up fix — don't silently accept a mismatch between what was built and what was actually observed working.
 
 ---
 
-### Task 7: Playwright regression test against local dev + Stripe sandbox
+### Task 7: Final verification
 
-**Files:**
-- Create: `tests/e2e/startup-addon-checkout.spec.ts`
+**Files:** none changed — this task only runs checks.
 
-**Interfaces:**
-- Consumes: local dev server at `http://localhost:3000` (NOT the deployed prod app other e2e specs target — this spec needs the sandbox Stripe keys, which only exist locally), the `startup_tax_benefits` add-on with a provisioned Stripe test Price (Task 5), and the real Stripe `PaymentElement` iframe fields whose selectors were confirmed in Task 6, Step 4.
-
-- [ ] **Step 1: Write the test**
-
-Create `tests/e2e/startup-addon-checkout.spec.ts`:
-
-```ts
-/**
- * Add-on Stripe checkout e2e — runs against the LOCAL dev server, not the
- * deployed prod app (unlike other specs in this directory), because it needs
- * the Stripe sandbox test-mode keys that only exist in local .env.local.
- */
-import { test, expect } from '@playwright/test';
-
-const BASE = process.env.E2E_BASE_URL || 'http://localhost:3000';
-const EMAIL = process.env.E2E_ADMIN_EMAIL || 'admin@a3p.io';
-const PASSWORD = process.env.E2E_ADMIN_PASSWORD || 'a3p-dev';
-
-test.use({ baseURL: BASE });
-
-test('startup_tax_benefits add-on checkout with a real Stripe test-mode card', async ({ page }) => {
-  await page.goto('/login');
-  await page.fill('input[type="email"]', EMAIL);
-  await page.fill('input[type="password"]', PASSWORD);
-  await page.click('button[type="submit"]');
-  await page.waitForURL(/\/dashboard|\/agentbook|\/$/, { timeout: 20_000 });
-
-  await page.goto('/agentbook/startup');
-  await page.waitForTimeout(2_000);
-
-  const upgradeButton = page.getByRole('button', { name: /upgrade/i });
-  await expect(upgradeButton).toBeVisible({ timeout: 10_000 });
-  await upgradeButton.click();
-
-  // NOTE: selector confirmed against the real rendered DOM in Task 6, Step 4 — update
-  // here if it doesn't match (Stripe.js version differences change iframe titles/names).
-  const stripeFrame = page.frameLocator('iframe[title="Secure payment input frame"]');
-  await stripeFrame.getByPlaceholder('Card number').fill('4242424242424242');
-  await stripeFrame.getByPlaceholder('MM / YY').fill('12/34');
-  await stripeFrame.getByPlaceholder('CVC').fill('123');
-
-  await page.getByRole('button', { name: /subscribe/i }).click();
-
-  await expect(page.getByRole('button', { name: /upgrade/i })).toHaveCount(0, { timeout: 15_000 });
-});
-```
-
-- [ ] **Step 2: Run it and adjust the Stripe frame selector if needed**
-
-Run: `cd tests/e2e && npx playwright test --config=playwright.config.ts startup-addon-checkout.spec.ts`
-
-If the `stripeFrame` locator times out, inspect the actual frames:
-
-```ts
-// temporary debug snippet, remove before committing
-for (const f of page.frames()) console.log(f.name(), f.title ? await f.title() : '');
-```
-
-Update `stripeFrame`'s selector to match what's actually rendered, then re-run.
-
-Expected once fixed: PASS — the Upgrade button disappears after checkout.
-
-- [ ] **Step 3: Commit**
+- [ ] **Step 1: Typecheck the changed packages**
 
 ```bash
-git add tests/e2e/startup-addon-checkout.spec.ts
-git commit -m "test(e2e): add Stripe sandbox checkout regression test for startup_tax_benefits"
+cd packages/ui && npx tsc --noEmit
+cd ../../plugins/agentbook-startup/frontend && npx tsc --noEmit
+```
+
+Expected: both exit 0, no type errors. (If either package has no standalone `tsconfig` entry point for `--noEmit`, use its existing `tsconfig.json` via `npx tsc --noEmit -p tsconfig.json` instead.)
+
+- [ ] **Step 2: Run the full test suite for the changed plugin**
+
+```bash
+cd plugins/agentbook-startup/frontend && npm run test
+```
+
+Expected: PASS — all tests, including the 3 new files/additions from Tasks 2–4, with no regressions in the pre-existing suite.
+
+- [ ] **Step 3: Confirm the production build is clean**
+
+```bash
+cd plugins/agentbook-startup/frontend && npm run build
+```
+
+Expected: succeeds, "✅ Validated: no bundled React internals" printed (already done once in Task 6, Step 1 — re-run here to confirm it's still clean after any fixes from Task 6, Step 4).
+
+- [ ] **Step 4: Commit the rebuilt UMD bundle if anything changed since Task 6**
+
+```bash
+git status apps/web-next/public/cdn/plugins/agentbook-startup
+# if changed:
+git add apps/web-next/public/cdn/plugins/agentbook-startup
+git commit -m "build(startup): rebuild UMD bundle with add-on checkout flow"
 ```
 
 ---
+
+## Definition of Done
+
+- [ ] `cd plugins/agentbook-startup/frontend && npm run test` passes, including the new `AddOnCheckoutModal.test.tsx`, `api.test.ts`, and the 3 added `StartupDiscoveryPage.test.tsx` cases.
+- [ ] `npx tsc --noEmit` is clean for `packages/ui` and `plugins/agentbook-startup/frontend`.
+- [ ] A real browser session (Task 6) completed checkout with the Stripe test card `4242 4242 4242 4242` end-to-end: no inline errors, the Upgrade button disappears, and the `BillAddOnSubscription` row shows `status: 'active'` with a real `stripeSubscriptionId`.
+- [ ] The UMD bundle at `apps/web-next/public/cdn/plugins/agentbook-startup/` reflects the final code and is committed.
+- [ ] `SubscribeModal.tsx` is untouched; no new backend route was added; region stayed hardcoded to `'us'`.
+- [ ] No Stripe secret ever appears in a committed file (`apps/web-next/.env.local` stays git-ignored and local-only).
 
 ## Spec Coverage Check
 
@@ -879,5 +852,5 @@ git commit -m "test(e2e): add Stripe sandbox checkout regression test for startu
 - Region hardcoded to `'us'` → Task 3, `subscribeAddOn`.
 - Fetch-mocking test per new API client method → Task 3.
 - Local Stripe sandbox setup + the `stripePriceId` provisioning gap found during design → Task 5.
-- Real Stripe test-mode verification (not mocked) → Task 6 (manual/browser) and Task 7 (automated regression).
+- Real Stripe test-mode verification (not mocked) → Task 6, manual browser pass against the actual Stripe sandbox API (a Playwright automation of this was considered and cut — see File Structure note — since it can't run in CI and would rot unmaintained).
 - Production needs no code change (Vercel already injects live keys) → nothing to build; already true today, confirmed with the user.
