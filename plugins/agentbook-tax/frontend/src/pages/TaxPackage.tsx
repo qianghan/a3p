@@ -12,6 +12,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Download, FileText, Loader2, RefreshCw } from 'lucide-react';
 import { PastFilingsPage } from './PastFilings';
+import { FastTrackTab } from './FastTrackTab';
 
 const API = '/api/v1/agentbook-tax';
 
@@ -42,7 +43,7 @@ const fmtMoney = (cents: number, ccy = 'USD') =>
 export const TaxPackagePage: React.FC = () => {
   // Open the Prior-year returns tab directly when linked with ?tab=past
   // (e.g. the "Upload prior-year returns" CTA on the Tax dashboard).
-  const [tab, setTab] = useState<'package' | 'past'>(
+  const [tab, setTab] = useState<'package' | 'past' | 'fast-track'>(
     typeof window !== 'undefined' &&
       new URLSearchParams(window.location.search).get('tab') === 'past'
       ? 'past'
@@ -53,7 +54,7 @@ export const TaxPackagePage: React.FC = () => {
     <div>
       {/* Tab bar */}
       <div className="border-b border-border px-4 sm:px-6 flex gap-0">
-        {(['package', 'past'] as const).map((t) => (
+        {(['package', 'past', 'fast-track'] as const).map((t) => (
           <button
             key={t}
             onClick={() => setTab(t)}
@@ -64,12 +65,12 @@ export const TaxPackagePage: React.FC = () => {
                 : 'border-transparent text-muted-foreground hover:text-foreground',
             ].join(' ')}
           >
-            {t === 'package' ? 'Year-end Package' : 'Prior-year returns'}
+            {t === 'package' ? 'Year-end Package' : t === 'past' ? 'Prior-year returns' : 'Tax Fast-Track'}
           </button>
         ))}
       </div>
 
-      {tab === 'package' ? <TaxPackageContent /> : <PastFilingsPage />}
+      {tab === 'package' ? <TaxPackageContent /> : tab === 'past' ? <PastFilingsPage /> : <FastTrackTab />}
     </div>
   );
 };
