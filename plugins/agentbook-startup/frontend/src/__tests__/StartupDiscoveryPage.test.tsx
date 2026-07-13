@@ -22,6 +22,18 @@ vi.mock('../lib/api', () => ({
   formatCents: (cents: number) => `$${(cents / 100).toLocaleString()}`,
 }));
 
+vi.mock('@naap/ui', () => ({
+  AddOnCheckoutModal: ({
+    onDone, onClose, title,
+  }: { onDone: () => void; onClose: () => void; title: string }) => (
+    <div data-testid="addon-checkout-modal">
+      <span>{title}</span>
+      <button onClick={onDone}>mock-confirm</button>
+      <button onClick={onClose}>mock-close</button>
+    </div>
+  ),
+}));
+
 function renderPage() {
   return render(
     <MemoryRouter>
@@ -94,5 +106,31 @@ describe('StartupDiscoveryPage', () => {
     await waitFor(() => expect(listApplications).toHaveBeenCalled());
     expect(await screen.findByText(/your applications/i)).toBeTruthy();
     expect(screen.getByText(/your input needed/i)).toBeTruthy();
+  });
+
+  it('shows an Upgrade button when the add-on is not active, and opens the checkout modal', async () => {
+    renderPage();
+    await waitFor(() => expect(getAddOnTeaser).toHaveBeenCalled());
+    const upgradeButton = await screen.findByRole('button', { name: /upgrade/i });
+    fireEvent.click(upgradeButton);
+    expect(screen.getByTestId('addon-checkout-modal')).toBeTruthy();
+  });
+
+  it('re-fetches the teaser and closes the modal once checkout completes', async () => {
+    renderPage();
+    await waitFor(() => expect(getAddOnTeaser).toHaveBeenCalledTimes(1));
+    fireEvent.click(await screen.findByRole('button', { name: /upgrade/i }));
+    getAddOnTeaser.mockResolvedValue({ active: true, price: { tier: 'founding_member', priceCents: 9900, currency: 'usd' } });
+    fireEvent.click(screen.getByText('mock-confirm'));
+    await waitFor(() => expect(getAddOnTeaser).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(screen.queryByTestId('addon-checkout-modal')).toBeNull());
+    await waitFor(() => expect(screen.queryByRole('button', { name: /upgrade/i })).toBeNull());
+  });
+
+  it('does not show the Upgrade button once the add-on is already active', async () => {
+    getAddOnTeaser.mockResolvedValue({ active: true, price: { tier: 'founding_member', priceCents: 9900, currency: 'usd' } });
+    renderPage();
+    await waitFor(() => expect(getAddOnTeaser).toHaveBeenCalled());
+    expect(screen.queryByRole('button', { name: /upgrade/i })).toBeNull();
   });
 });

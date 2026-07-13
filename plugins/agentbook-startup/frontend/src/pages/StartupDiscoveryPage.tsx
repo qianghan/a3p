@@ -5,6 +5,7 @@ import {
   Info, ExternalLink, Landmark, Sparkles, CheckCircle2, HelpCircle, XCircle, FileText, ArrowRight, AlertCircle,
 } from 'lucide-react';
 import { ChatCTA } from '@naap/plugin-sdk';
+import { AddOnCheckoutModal } from '@naap/ui';
 import { startupApi, formatCents, type ProgramRecommendation, type AddOnPriceTeaser, type StartupBenefitApplication } from '../lib/api';
 
 const APPLICATION_STATUS_LABEL: Record<string, string> = {
@@ -131,6 +132,7 @@ export function StartupDiscoveryPage() {
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<{ programs: ProgramRecommendation[]; message?: string } | null>(null);
   const [teaser, setTeaser] = useState<AddOnPriceTeaser | null>(null);
+  const [showCheckout, setShowCheckout] = useState(false);
   const [startingProgramCode, setStartingProgramCode] = useState<string | null>(null);
   const [startError, setStartError] = useState<string | null>(null);
   const [applications, setApplications] = useState<StartupBenefitApplication[]>([]);
@@ -303,11 +305,34 @@ export function StartupDiscoveryPage() {
       {teaser?.price && !teaser.active && (
         <div className="bg-primary/5 border border-primary/20 rounded-lg p-4 mt-6 flex items-start gap-2">
           <Sparkles className="w-4 h-4 shrink-0 mt-0.5 text-primary" />
-          <p className="text-sm text-muted-foreground">
-            Ready to draft an application? Startup Tax Benefits starts at{' '}
-            <span className="font-medium text-foreground">{formatCents(teaser.price.priceCents)}/year</span>.
-          </p>
+          <div className="flex-1">
+            <p className="text-sm text-muted-foreground">
+              Ready to draft an application? Startup Tax Benefits starts at{' '}
+              <span className="font-medium text-foreground">{formatCents(teaser.price.priceCents)}/year</span>.
+            </p>
+            <button
+              type="button"
+              onClick={() => setShowCheckout(true)}
+              className="mt-2 text-sm font-medium text-primary hover:underline"
+            >
+              Upgrade
+            </button>
+          </div>
         </div>
+      )}
+
+      {showCheckout && (
+        <AddOnCheckoutModal
+          title="Startup Tax Benefits"
+          priceLabel={teaser?.price ? `${formatCents(teaser.price.priceCents)}/year` : undefined}
+          onClose={() => setShowCheckout(false)}
+          fetchClientSecret={startupApi.getAddOnIntent}
+          onConfirmed={startupApi.subscribeAddOn}
+          onDone={() => {
+            setShowCheckout(false);
+            startupApi.getAddOnTeaser().then(setTeaser).catch(() => setTeaser(null));
+          }}
+        />
       )}
     </div>
   );
