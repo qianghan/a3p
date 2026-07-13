@@ -99,18 +99,29 @@ test.describe('Tax fast-track — UI-native path', () => {
     expect(sessionId).toBeTruthy();
 
     let done = start.data.data.status === 'done';
+    // The LLM decides dynamically how many clarifying questions it needs —
+    // it doesn't reliably converge after exactly 3 turns in production, so
+    // this answers plausibly for a bounded number of turns rather than a
+    // fixed-length script (unlike the mocked-callGemini unit tests, which
+    // can assert an exact turn count).
     const plausibleAnswers = [
       "Still self-employed, same consulting work as last year.",
       'No new dependents this year.',
       'Income was roughly the same, maybe a little higher.',
+      'No, nothing else changed from last year.',
+      'No new significant events.',
+      'That covers everything for this year.',
     ];
-    for (const answer of plausibleAnswers) {
-      if (done) break;
+    let turnIndex = 0;
+    while (!done && turnIndex < plausibleAnswers.length) {
+      const answer = plausibleAnswers[turnIndex];
+      turnIndex += 1;
       const turn = await apiPost(page, `${CORE}/answer`, { text: answer });
       expect(turn.status, JSON.stringify(turn.data)).toBe(200);
       expect(['question', 'done']).toContain(turn.data.data.status);
       if (turn.data.data.status === 'done') done = true;
     }
+    expect(done, 'questionnaire should reach status=done within the scripted turns').toBe(true);
 
     // Poll /status until the draft is ready (background after() work needs
     // a few seconds — two LLM calls + two PDF renders + two blob uploads).
