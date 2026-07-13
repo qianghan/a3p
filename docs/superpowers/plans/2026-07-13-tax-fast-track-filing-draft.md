@@ -1600,7 +1600,6 @@ becomes (adding the flag to the final `responseData` object built a few lines be
 ```
 
 **Accepted, deliberate delta** (not a bug to fix): the original `server.ts:4401-4409` — the qaHistory-seed version-conflict, one of two distinct code paths that both produce the identical message `"Something went wrong setting up your tax questionnaire — could you try asking again?"` — returns WITHOUT calling `db.abConversation.create`, while the other (the turn-1 outcome-null failure, `server.ts:4368-4374`) DOES call it. Because both paths now collapse into the same `{status:'failed', message: 'Something went wrong...'}` `CoreResult` shape, this wrapper cannot distinguish them and always logs. Precisely preserving this would require adding a field to `CoreResult` solely to disambiguate two code paths that already produce byte-identical output, for a version conflict on a session that is microseconds old and not yet known to any other caller — not worth the complexity for a race condition inside a race condition. The only observable effect is one extra best-effort (`.catch()`-guarded) conversation-log row on an already-near-unreachable path.
-```
 
 - [ ] **Step 4: Wire the trigger into `/agent/message/route.ts`**
 
