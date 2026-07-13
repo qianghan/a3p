@@ -3,6 +3,7 @@
 // Layout & Containers
 export { Card } from './Card';
 export { Modal, type ModalProps } from './Modal';
+export { AddOnCheckoutModal, type AddOnCheckoutModalProps } from './AddOnCheckoutModal';
 
 // Data Display
 export { Badge, type BadgeVariant } from './Badge';
