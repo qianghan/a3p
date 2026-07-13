@@ -2841,6 +2841,27 @@ model AbAgentSession {
   @@schema("plugin_agentbook_core")
 }
 
+model AbTaxQuestionnaireSession {
+  id                  String   @id @default(uuid())
+  tenantId            String
+  taxYear             Int
+  jurisdiction        String
+  region              String?
+  trigger             String
+  sourceFilingId      String?
+  status              String   @default("in_progress")
+  qaHistory           Json     @default("[]")
+  askedCount          Int      @default(0)
+  consecutiveFailures Int      @default(0)
+  version             Int      @default(0)
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+  expiresAt           DateTime
+
+  @@index([tenantId, status])
+  @@schema("plugin_agentbook_core")
+}
+
 model AbLearningEvent {
   id         String   @id @default(uuid())
   tenantId   String
