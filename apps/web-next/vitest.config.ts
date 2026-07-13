@@ -43,6 +43,7 @@ export default defineConfig({
       '@naap/utils': path.resolve(__dirname, '../../packages/utils/src'),
       '@naap/plugin-sdk': path.resolve(__dirname, '../../packages/plugin-sdk/src'),
       '@agentbook-core': path.resolve(__dirname, '../../plugins/agentbook-core/backend/src'),
+      '@agentbook/jurisdictions': path.resolve(__dirname, '../../packages/agentbook-jurisdictions/src'),
     },
   },
 });

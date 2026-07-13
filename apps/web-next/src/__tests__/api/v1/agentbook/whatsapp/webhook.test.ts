@@ -34,6 +34,11 @@ vi.mock('@agentbook-core/server', () => ({
   executeClassification: vi.fn(),
 }));
 
+const generateFilingDraftMock = vi.fn();
+vi.mock('@/lib/tax-fast-track-draft', () => ({
+  generateFilingDraft: (...a: unknown[]) => generateFilingDraftMock(...a),
+}));
+
 const sendMessage = vi.fn();
 vi.mock('@/lib/agentbook-chat-adapter', () => ({
   WhatsAppAdapter: vi.fn().mockImplementation(function WhatsAppAdapter() {

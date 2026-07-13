@@ -1444,54 +1444,54 @@ model GatewayHealthCheck {
 // Double-entry ledger, chart of accounts, journal entries, tenant config
 
 model AbTenantConfig {
-  id                    String   @id @default(uuid())
-  userId                String   @unique
-  businessType          String   @default("freelancer")
-  taxEntityType         String?  // sole_proprietor | llc_single | llc_multi | scorp | corporation | sole_trader | pty_ltd | partnership | trust — tax filing entity type, deliberately separate from businessType (persona/plugin-classification) so Tax Dashboard's entity-type picker can never overwrite it
-  jurisdiction          String   @default("us") // us | ca | ...
-  region                String   @default("") // state/province code
-  visaStatus            String?  // f1 | j1 | other-nonresident | null (domestic) — student-persona international track
-  homeCountry           String?  // ISO 3166-1 alpha-2, e.g. "cn" | "in" — drives treaty-lookup skill
-  university            String?  // student businessType only
-  major                 String?  // student businessType only
-  degree                String?  // student businessType only — e.g. "Bachelor's", "Master's"
-  graduationYear         Int?     // student businessType only
-  businessDescription   String?  // non-student businessType only — free text, what the business does
-  businessTags          String[] @default([]) // non-student businessType only — classification tags, also drives plugin-visibility gating
-  currency              String   @default("USD")
-  locale                String   @default("en-US")
-  timezone              String   @default("America/New_York")
-  fiscalYearStart       Int      @default(1) // month 1-12
-  accountingBasis       String   @default("accrual") // accrual | cash — drives P&L recognition
-  aiCpaAutoFix          Boolean  @default(true) // allow the AI CPA to auto-correct bookkeeping (user can disable)
-  cpaReviewFrequency    String   @default("monthly") // monthly | off — AI CPA review cadence
-  pushSubscription      Json? // Web Push PushSubscription for the mobile PWA
-  autoApproveLimitCents Int      @default(50000) // $500 default
-  autoRemindEnabled     Boolean  @default(false)
-  autoRemindDays        Int      @default(3) // min days between reminders
-  dailyDigestEnabled    Boolean  @default(true) // morning digest opt-out
-  dailyBackupEnabled    Boolean  @default(true) // PR 24 daily backup opt-out
-  botRateLimitPerMin    Int?     @default(60) // PR 25 per-tenant override; null falls back to default
-  botRateLimitPerDay    Int?     @default(1000) // PR 25 per-tenant override; null falls back to default
-  companyName           String?
-  companyAddress        String?
-  companyEmail          String?
-  companyPhone          String?
-  logoUrl               String?
-  brandColor            String   @default("#1a1a2e")
-  defaultPaymentTerms   String?
-  defaultCurrency       String?
-  invoiceFooterNote     String?
-  invoiceThankYouMessage String?
-  createdAt             DateTime @default(now())
-  updatedAt             DateTime @updatedAt
-  cashflowLowBalanceCents  Int?
-  cashflowMinRunwayMonths  Float?
-  cashflowAlertChannel     String  @default("telegram")
-  taxReserveAccountId      String?
-  taxReserveMode           String  @default("quarterly_estimate")
-  taxReservePercent        Float?
-  taxReserveFixedCents     Int?
+  id                      String   @id @default(uuid())
+  userId                  String   @unique
+  businessType            String   @default("freelancer")
+  taxEntityType           String? // sole_proprietor | llc_single | llc_multi | scorp | corporation | sole_trader | pty_ltd | partnership | trust — tax filing entity type, deliberately separate from businessType (persona/plugin-classification) so Tax Dashboard's entity-type picker can never overwrite it
+  jurisdiction            String   @default("us") // us | ca | ...
+  region                  String   @default("") // state/province code
+  visaStatus              String? // f1 | j1 | other-nonresident | null (domestic) — student-persona international track
+  homeCountry             String? // ISO 3166-1 alpha-2, e.g. "cn" | "in" — drives treaty-lookup skill
+  university              String? // student businessType only
+  major                   String? // student businessType only
+  degree                  String? // student businessType only — e.g. "Bachelor's", "Master's"
+  graduationYear          Int? // student businessType only
+  businessDescription     String? // non-student businessType only — free text, what the business does
+  businessTags            String[] @default([]) // non-student businessType only — classification tags, also drives plugin-visibility gating
+  currency                String   @default("USD")
+  locale                  String   @default("en-US")
+  timezone                String   @default("America/New_York")
+  fiscalYearStart         Int      @default(1) // month 1-12
+  accountingBasis         String   @default("accrual") // accrual | cash — drives P&L recognition
+  aiCpaAutoFix            Boolean  @default(true) // allow the AI CPA to auto-correct bookkeeping (user can disable)
+  cpaReviewFrequency      String   @default("monthly") // monthly | off — AI CPA review cadence
+  pushSubscription        Json? // Web Push PushSubscription for the mobile PWA
+  autoApproveLimitCents   Int      @default(50000) // $500 default
+  autoRemindEnabled       Boolean  @default(false)
+  autoRemindDays          Int      @default(3) // min days between reminders
+  dailyDigestEnabled      Boolean  @default(true) // morning digest opt-out
+  dailyBackupEnabled      Boolean  @default(true) // PR 24 daily backup opt-out
+  botRateLimitPerMin      Int?     @default(60) // PR 25 per-tenant override; null falls back to default
+  botRateLimitPerDay      Int?     @default(1000) // PR 25 per-tenant override; null falls back to default
+  companyName             String?
+  companyAddress          String?
+  companyEmail            String?
+  companyPhone            String?
+  logoUrl                 String?
+  brandColor              String   @default("#1a1a2e")
+  defaultPaymentTerms     String?
+  defaultCurrency         String?
+  invoiceFooterNote       String?
+  invoiceThankYouMessage  String?
+  createdAt               DateTime @default(now())
+  updatedAt               DateTime @updatedAt
+  cashflowLowBalanceCents Int?
+  cashflowMinRunwayMonths Float?
+  cashflowAlertChannel    String   @default("telegram")
+  taxReserveAccountId     String?
+  taxReserveMode          String   @default("quarterly_estimate")
+  taxReservePercent       Float?
+  taxReserveFixedCents    Int?
 
   @@index([userId])
   @@schema("plugin_agentbook_core")
@@ -1711,26 +1711,26 @@ model AbAutomation {
 
 // Phase 12: Financial Digital Twin — periodic snapshots for simulation
 model AbFinancialSnapshot {
-  id                 String   @id @default(uuid())
-  tenantId           String
-  snapshotDate       DateTime
-  cashBalanceCents   Int
-  totalRevenueCents  Int
-  totalExpenseCents  Int
-  netIncomeCents     Int
-  arOutstandingCents Int
-  monthlyBurnCents   Int // avg monthly expenses
-  runwayMonths       Float // cash / monthly burn
-  clientCount        Int
-  topClients         Json // [{name, revenueCents, percentage}]
-  categoryBreakdown  Json // [{category, amountCents}]
-  createdAt          DateTime @default(now())
-  inflow30dCents         Int     @default(0)
-  outflow30dCents        Int     @default(0)
-  projectedCash30Cents   Int     @default(0)
-  projectedCash60Cents   Int     @default(0)
-  projectedCash90Cents   Int     @default(0)
-  taxReserveBalanceCents Int     @default(0)
+  id                     String   @id @default(uuid())
+  tenantId               String
+  snapshotDate           DateTime
+  cashBalanceCents       Int
+  totalRevenueCents      Int
+  totalExpenseCents      Int
+  netIncomeCents         Int
+  arOutstandingCents     Int
+  monthlyBurnCents       Int // avg monthly expenses
+  runwayMonths           Float // cash / monthly burn
+  clientCount            Int
+  topClients             Json // [{name, revenueCents, percentage}]
+  categoryBreakdown      Json // [{category, amountCents}]
+  createdAt              DateTime @default(now())
+  inflow30dCents         Int      @default(0)
+  outflow30dCents        Int      @default(0)
+  projectedCash30Cents   Int      @default(0)
+  projectedCash60Cents   Int      @default(0)
+  projectedCash90Cents   Int      @default(0)
+  taxReserveBalanceCents Int      @default(0)
 
   @@index([tenantId, snapshotDate])
   @@schema("plugin_agentbook_core")
@@ -2355,24 +2355,24 @@ model AbTaxFormTemplate {
 }
 
 model AbTaxFiling {
-  id            String    @id @default(uuid())
-  tenantId      String
-  taxYear       Int
-  jurisdiction  String
-  region        String    @default("")
-  filingType    String    @default("personal_return")
-  status        String    @default("draft")
-  forms         Json      @default("{}")
-  missingFields Json      @default("[]")
-  slips         Json      @default("[]")
-  exportData    Json?
-  exportUrl     String?
-  filedAt       DateTime?
-  filedRef      String?
-  filedStatus   String?
-  notes         Json      @default("[]")
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  id                String    @id @default(uuid())
+  tenantId          String
+  taxYear           Int
+  jurisdiction      String
+  region            String    @default("")
+  filingType        String    @default("personal_return")
+  status            String    @default("draft")
+  forms             Json      @default("{}")
+  missingFields     Json      @default("[]")
+  slips             Json      @default("[]")
+  exportData        Json?
+  exportUrl         String?
+  filedAt           DateTime?
+  filedRef          String?
+  filedStatus       String?
+  notes             Json      @default("[]")
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
   prefillSourceYear Int?
 
   @@unique([tenantId, taxYear, filingType])
@@ -2862,6 +2862,24 @@ model AbTaxQuestionnaireSession {
   @@schema("plugin_agentbook_core")
 }
 
+model AbTaxFastTrackDraft {
+  id           String   @id @default(uuid())
+  tenantId     String
+  sessionId    String   @unique
+  taxYear      Int
+  jurisdiction String
+  status       String   @default("pending") // pending | ready | failed
+  draftPdfUrl  String?
+  letterPdfUrl String?
+  draftSummary Json?
+  errorMsg     String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([tenantId])
+  @@schema("plugin_agentbook_core")
+}
+
 model AbLearningEvent {
   id         String   @id @default(uuid())
   tenantId   String
@@ -3183,17 +3201,17 @@ model BillAddOn {
 model BillAddOnPrice {
   id             String    @id @default(uuid())
   addOnId        String
-  region         String    // "us" | "ca" | "uk" | "au"
-  currency       String    // "usd" | "cad" | "gbp" | "aud"
-  tier           String    // "founding_member" | "standard" | "scaled"
+  region         String // "us" | "ca" | "uk" | "au"
+  currency       String // "usd" | "cad" | "gbp" | "aud"
+  tier           String // "founding_member" | "standard" | "scaled"
   priceCents     Int
   stripePriceId  String?
-  maxSlots       Int?      // null = unlimited
+  maxSlots       Int? // null = unlimited
   availableUntil DateTime? // null = no time limit
   isActive       Boolean   @default(true)
   createdAt      DateTime  @default(now())
 
-  addOn         BillAddOn                @relation(fields: [addOnId], references: [id])
+  addOn         BillAddOn               @relation(fields: [addOnId], references: [id])
   subscriptions BillAddOnSubscription[]
 
   @@unique([addOnId, region, tier])
@@ -3208,7 +3226,7 @@ model BillAddOnSubscription {
   accountId            String
   addOnId              String
   priceId              String
-  status               String    // active | canceled
+  status               String // active | canceled
   stripeCustomerId     String?
   stripeSubscriptionId String?
   startedAt            DateTime  @default(now())
@@ -3230,21 +3248,21 @@ model BillAddOnSubscription {
 // One row per promoted rep. tenantId doubles as the rep's own AgentBook
 // tenant id (a rep is a normal comped tenant, not a separate entity).
 model SalesRepProfile {
-  tenantId                       String    @id
-  status                         String    @default("active") // active | suspended | removed
-  commissionBps                  Int // basis points, e.g. 2000 = 20%
-  payoutFrequency                String    @default("quarterly") // monthly | quarterly | annual
-  billingSource                  String    @default("manual") // marker only, mirrors BillSubscription.billingSource
-  stripeConnectAccountId         String? // acct_xxx — Stripe Connect Express account for real payouts
-  stripeConnectChargesEnabled    Boolean   @default(false)
-  stripeConnectPayoutsEnabled    Boolean   @default(false)
-  stripeConnectDetailsSubmitted  Boolean   @default(false)
-  stripeConnectUpdatedAt         DateTime?
-  promotedBy                     String
-  promotedAt                     DateTime  @default(now())
-  removedAt                      DateTime?
-  removedBy                      String?
-  referralLinkActive             Boolean   @default(true) // self-serve pause/resume — does not touch the contract or role
+  tenantId                      String    @id
+  status                        String    @default("active") // active | suspended | removed
+  commissionBps                 Int // basis points, e.g. 2000 = 20%
+  payoutFrequency               String    @default("quarterly") // monthly | quarterly | annual
+  billingSource                 String    @default("manual") // marker only, mirrors BillSubscription.billingSource
+  stripeConnectAccountId        String? // acct_xxx — Stripe Connect Express account for real payouts
+  stripeConnectChargesEnabled   Boolean   @default(false)
+  stripeConnectPayoutsEnabled   Boolean   @default(false)
+  stripeConnectDetailsSubmitted Boolean   @default(false)
+  stripeConnectUpdatedAt        DateTime?
+  promotedBy                    String
+  promotedAt                    DateTime  @default(now())
+  removedAt                     DateTime?
+  removedBy                     String?
+  referralLinkActive            Boolean   @default(true) // self-serve pause/resume — does not touch the contract or role
 
   @@schema("plugin_agentbook_billing")
 }
@@ -3255,27 +3273,27 @@ model SalesRepProfile {
 // history rather than a single mutable row. "Latest for tenant" queries
 // order by createdAt desc.
 model SalesRepApplication {
-  id                   String    @id @default(uuid())
-  tenantId             String
-  status               String    @default("draft") // draft|submitted|under_review|more_info_requested|approved|rejected
-  jurisdiction         String
-  answers              Json      // step 1 (fit/motivation) + step 4 (taxpayer-info ack) responses
-  eligibilityPlanCode  String    // snapshot: plan they qualified with at submission time
-  eligibilityInterval  String    // snapshot: must be "year" — enforced at submit time, not just apply time
-  annualFeeCentsPaid   Int       // snapshot of what they actually paid for the term this application covers
-  aiRiskLevel          String?   // low | medium | high
-  aiRecommendation     String?   // approve | reject | more_info
-  aiConcerns           Json?
-  aiReasoning          String?
-  reviewedBy           String?
-  reviewedAt           DateTime?
-  reviewDecision       String?   // approve | reject | more_info
-  reviewNotes          String?
-  moreInfoRequestedAt  DateTime?
-  moreInfoMessage      String?
-  submittedAt          DateTime?
-  createdAt            DateTime  @default(now())
-  updatedAt            DateTime  @updatedAt
+  id                  String    @id @default(uuid())
+  tenantId            String
+  status              String    @default("draft") // draft|submitted|under_review|more_info_requested|approved|rejected
+  jurisdiction        String
+  answers             Json // step 1 (fit/motivation) + step 4 (taxpayer-info ack) responses
+  eligibilityPlanCode String // snapshot: plan they qualified with at submission time
+  eligibilityInterval String // snapshot: must be "year" — enforced at submit time, not just apply time
+  annualFeeCentsPaid  Int // snapshot of what they actually paid for the term this application covers
+  aiRiskLevel         String? // low | medium | high
+  aiRecommendation    String? // approve | reject | more_info
+  aiConcerns          Json?
+  aiReasoning         String?
+  reviewedBy          String?
+  reviewedAt          DateTime?
+  reviewDecision      String? // approve | reject | more_info
+  reviewNotes         String?
+  moreInfoRequestedAt DateTime?
+  moreInfoMessage     String?
+  submittedAt         DateTime?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
 
   @@index([tenantId, status])
   @@index([tenantId, createdAt])
@@ -3290,9 +3308,9 @@ model SalesRepContractTemplate {
   id               String   @id @default(uuid())
   jurisdiction     String   @unique
   version          Int      @default(1)
-  bodyTemplate     String   // placeholders: {{commissionBps}}, {{annualFeeCents}}, {{rebateThresholdCents}}
-  liabilityClauses Json     // structured per-section clauses shown at application step 3
-  taxFormType      String   // "1099-NEC" | "T4A" | "self_assessment_notice" | "abn_notice"
+  bodyTemplate     String // placeholders: {{commissionBps}}, {{annualFeeCents}}, {{rebateThresholdCents}}
+  liabilityClauses Json // structured per-section clauses shown at application step 3
+  taxFormType      String // "1099-NEC" | "T4A" | "self_assessment_notice" | "abn_notice"
   legallyReviewed  Boolean  @default(false)
   effectiveFrom    DateTime @default(now())
 
@@ -3306,7 +3324,7 @@ model SalesRepContract {
   id                     String   @id @default(uuid())
   applicationId          String   @unique
   templateVersion        Int
-  renderedHtml           String   // frozen copy of the agreement exactly as presented at signing
+  renderedHtml           String // frozen copy of the agreement exactly as presented at signing
   signedByName           String
   signedAt               DateTime @default(now())
   signerIp               String
@@ -3325,10 +3343,10 @@ model SalesRepFeeRebate {
   tenantId                  String    @unique // one-time-per-tenure — see sales-rep.html §3
   applicationId             String
   annualFeeCentsPaid        Int
-  multipleApplied           Float     // snapshot of PartnerProgramSettings.rebateCommissionMultiple at window-open
-  thresholdCents            Int       // annualFeeCentsPaid * multipleApplied, computed once and frozen
-  windowStart               DateTime  // rep activation date
-  windowEnd                 DateTime  // windowStart + rebateWindowDays
+  multipleApplied           Float // snapshot of PartnerProgramSettings.rebateCommissionMultiple at window-open
+  thresholdCents            Int // annualFeeCentsPaid * multipleApplied, computed once and frozen
+  windowStart               DateTime // rep activation date
+  windowEnd                 DateTime // windowStart + rebateWindowDays
   cumulativeCommissionCents Int       @default(0) // updated as SalesRepCommissionAccrual rows land
   status                    String    @default("pending") // pending|earned|expired|paid
   earnedAt                  DateTime?
@@ -3369,18 +3387,18 @@ model PartnerProgramSettings {
 // ============================================================================
 
 model ContentAsset {
-  id             String    @id @default(uuid())
-  category       String    // caller-defined grouping, e.g. "partner_marketing_kit"
-  entitlementKey String    // caller-defined and caller-checked; opaque to this module
-  assetType      String    @default("youtube_video")
+  id             String   @id @default(uuid())
+  category       String // caller-defined grouping, e.g. "partner_marketing_kit"
+  entitlementKey String // caller-defined and caller-checked; opaque to this module
+  assetType      String   @default("youtube_video")
   title          String
   description    String?
-  youtubeVideoId String?   // populated when assetType = "youtube_video"
-  sortOrder      Int       @default(0)
-  isActive       Boolean   @default(true)
+  youtubeVideoId String? // populated when assetType = "youtube_video"
+  sortOrder      Int      @default(0)
+  isActive       Boolean  @default(true)
   createdBy      String
-  createdAt      DateTime  @default(now())
-  updatedAt      DateTime  @updatedAt
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
 
   @@index([category, entitlementKey, isActive, sortOrder])
   @@schema("plugin_content_library")
@@ -3452,17 +3470,17 @@ model SalesRepPayout {
 // ============================================================================
 
 model AbPersonalAccount {
-  id           String   @id @default(uuid())
-  tenantId     String
-  name         String
-  type         String // checking | savings | investment | credit | mortgage | cash
-  balanceCents Int      @default(0)
-  currency     String   @default("USD")
-  isAsset      Boolean  @default(true) // true = asset, false = liability (credit/mortgage)
+  id             String   @id @default(uuid())
+  tenantId       String
+  name           String
+  type           String // checking | savings | investment | credit | mortgage | cash
+  balanceCents   Int      @default(0)
+  currency       String   @default("USD")
+  isAsset        Boolean  @default(true) // true = asset, false = liability (credit/mortgage)
   plaidAccountId String?
-  archived     Boolean  @default(false)
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  archived       Boolean  @default(false)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
 
   @@index([tenantId, archived])
   @@schema("plugin_agentbook_personal")
@@ -3565,13 +3583,13 @@ model AbCpaReviewReport {
 }
 
 model AbBookSignoff {
-  id        String   @id @default(uuid())
-  tenantId  String
-  period    String // "2026-06"
-  cpaName   String?
-  cpaEmail  String?
-  viaToken  String? // the review-link token used to sign off
-  signedAt  DateTime @default(now())
+  id       String   @id @default(uuid())
+  tenantId String
+  period   String // "2026-06"
+  cpaName  String?
+  cpaEmail String?
+  viaToken String? // the review-link token used to sign off
+  signedAt DateTime @default(now())
 
   @@unique([tenantId, period])
   @@schema("plugin_agentbook_cpa")
@@ -3592,15 +3610,15 @@ model AbCpaInvite {
 }
 
 model AbDocumentRequest {
-  id              String    @id @default(uuid())
-  tenantId        String
+  id               String    @id @default(uuid())
+  tenantId         String
   requestedByEmail String?
-  expenseId       String?
-  description     String
-  status          String    @default("open") // open | fulfilled
-  fulfilledUrl    String?
-  createdAt       DateTime  @default(now())
-  fulfilledAt     DateTime?
+  expenseId        String?
+  description      String
+  status           String    @default("open") // open | fulfilled
+  fulfilledUrl     String?
+  createdAt        DateTime  @default(now())
+  fulfilledAt      DateTime?
 
   @@index([tenantId, status])
   @@schema("plugin_agentbook_cpa")
@@ -3613,35 +3631,35 @@ model AbDocumentRequest {
 // ============================================================================
 
 model AbEmployee {
-  id            String   @id @default(uuid())
-  tenantId      String
-  name          String
-  email         String?
-  type          String   @default("w2") // w2 | contractor_1099
-  payType       String   @default("salary") // salary | hourly
-  payRateCents  Int // annual salary cents (salary) or hourly rate cents (hourly)
-  payFrequency  String   @default("biweekly") // weekly | biweekly | semimonthly | monthly
-  jurisdiction  String   @default("us") // us | ca | uk | au
-  filingStatus  String   @default("single")
-  allowances    Int      @default(0)
-  startDate     DateTime @default(now())
-  isActive      Boolean  @default(true)
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  id           String   @id @default(uuid())
+  tenantId     String
+  name         String
+  email        String?
+  type         String   @default("w2") // w2 | contractor_1099
+  payType      String   @default("salary") // salary | hourly
+  payRateCents Int // annual salary cents (salary) or hourly rate cents (hourly)
+  payFrequency String   @default("biweekly") // weekly | biweekly | semimonthly | monthly
+  jurisdiction String   @default("us") // us | ca | uk | au
+  filingStatus String   @default("single")
+  allowances   Int      @default(0)
+  startDate    DateTime @default(now())
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 
   @@index([tenantId, isActive])
   @@schema("plugin_agentbook_payroll")
 }
 
 model AbPayRun {
-  id          String      @id @default(uuid())
-  tenantId    String
-  periodStart DateTime
-  periodEnd   DateTime
-  status      String      @default("draft") // draft | processed | paid
+  id             String    @id @default(uuid())
+  tenantId       String
+  periodStart    DateTime
+  periodEnd      DateTime
+  status         String    @default("draft") // draft | processed | paid
   journalEntryId String?
-  processedAt DateTime?
-  createdAt   DateTime    @default(now())
+  processedAt    DateTime?
+  createdAt      DateTime  @default(now())
 
   stubs AbPayStub[]
 
@@ -3710,7 +3728,7 @@ model AbPayrollProviderConfig {
 model StartupBenefitProfile {
   tenantId           String    @id
   addOnStatus        String    @default("trial_discovery") // trial_discovery | active | canceled
-  companyType        String?   // c_corp | ccpc | ltd | llc ...
+  companyType        String? // c_corp | ccpc | ltd | llc ...
   incorporatedAt     DateTime?
   headcount          Int?
   annualRdSpendCents Int?
@@ -3722,10 +3740,10 @@ model StartupBenefitProfile {
 
 model StartupBenefitProgram {
   id                    String   @id @default(uuid())
-  jurisdiction          String   // "us" | "ca" | "uk"
-  programCode           String   // "us_rd_credit_41" | "ca_sred" | "uk_seis" ...
+  jurisdiction          String // "us" | "ca" | "uk"
+  programCode           String // "us_rd_credit_41" | "ca_sred" | "uk_seis" ...
   name                  String
-  authority             String   // "IRS" | "CRA" | "HMRC"
+  authority             String // "IRS" | "CRA" | "HMRC"
   typicalValueLowCents  Int?
   typicalValueHighCents Int?
   eligibilityCriteria   Json
@@ -3742,7 +3760,7 @@ model StartupBenefitEligibilityAssessment {
   id                String   @id @default(uuid())
   tenantId          String
   programId         String
-  status            String   // not_qualified | possibly_qualified | qualified
+  status            String // not_qualified | possibly_qualified | qualified
   confidence        Float
   reasoning         String
   estValueLowCents  Int?
@@ -3757,10 +3775,10 @@ model StartupBenefitApplication {
   id              String    @id @default(uuid())
   tenantId        String
   programId       String
-  status          String    // recommended|docs_pending|drafting|decision_pending|
-                             // ready_for_review|audit_reviewed|submitted|monitoring|closed
-  draft           Json      // structured, provenance-tagged draft content
-  auditRiskLevel  String?   // low | medium | high
+  status          String // recommended|docs_pending|drafting|decision_pending|
+  // ready_for_review|audit_reviewed|submitted|monitoring|closed
+  draft           Json // structured, provenance-tagged draft content
+  auditRiskLevel  String? // low | medium | high
   submittedAt     DateTime?
   confirmationRef String?
   createdAt       DateTime  @default(now())
@@ -3787,7 +3805,7 @@ model StartupBenefitDecisionPoint {
   id             String    @id @default(uuid())
   applicationId  String
   sequenceOrder  Int
-  kind           String    // approval | key_input
+  kind           String // approval | key_input
   prompt         String
   options        Json?
   response       Json?
@@ -3801,8 +3819,8 @@ model StartupBenefitDecisionPoint {
 model StartupBenefitAuditReview {
   id            String   @id @default(uuid())
   applicationId String   @unique
-  riskLevel     String   // low | medium | high
-  findings      Json     // [{severity, issue, recommendation, ruleRef}]
+  riskLevel     String // low | medium | high
+  findings      Json // [{severity, issue, recommendation, ruleRef}]
   overrides     Json     @default("[]") // [{findingIndex, reason, overriddenAt}]
   reviewedAt    DateTime @default(now())
   modelVersion  String
@@ -3822,19 +3840,19 @@ model StartupBenefitAuditReview {
 // never submits anything to an external party.
 
 model AbStudentOpportunity {
-  id           String    @id @default(uuid())
-  tenantId     String
-  kind         String    // scholarship | job | housing
-  title        String
-  status       String    @default("discovered") // discovered|shortlisted|preparing|ready|submitted|closed
-  sourceUrl    String?   // the grounded-search source or user-pasted link (always cite-able)
-  sourceLabel  String?   // human label for the source
-  deadline     DateTime?
-  amountCents  Int?      // award amount / rent / salary — kind-specific
-  currency     String?   // ISO 4217, for amountCents
-  payload      Json      @default("{}") // kind-specific structured fields (eligibility, requirements, drafts)
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
+  id          String    @id @default(uuid())
+  tenantId    String
+  kind        String // scholarship | job | housing
+  title       String
+  status      String    @default("discovered") // discovered|shortlisted|preparing|ready|submitted|closed
+  sourceUrl   String? // the grounded-search source or user-pasted link (always cite-able)
+  sourceLabel String? // human label for the source
+  deadline    DateTime?
+  amountCents Int? // award amount / rent / salary — kind-specific
+  currency    String? // ISO 4217, for amountCents
+  payload     Json      @default("{}") // kind-specific structured fields (eligibility, requirements, drafts)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
 
   decisionPoints AbStudentDecisionPoint[]
 
@@ -3843,16 +3861,16 @@ model AbStudentOpportunity {
 }
 
 model AbStudentDecisionPoint {
-  id             String    @id @default(uuid())
+  id             String               @id @default(uuid())
   opportunityId  String
   opportunity    AbStudentOpportunity @relation(fields: [opportunityId], references: [id], onDelete: Cascade)
   sequenceOrder  Int
-  kind           String    // approval | key_input
+  kind           String // approval | key_input
   prompt         String
   options        Json?
   response       Json?
   respondedAt    DateTime?
-  blocksProgress Boolean   @default(true)
+  blocksProgress Boolean              @default(true)
 
   @@unique([opportunityId, sequenceOrder])
   @@index([opportunityId])
@@ -3873,14 +3891,14 @@ model AbRoommateProfile {
   id             String    @id @default(uuid())
   tenantId       String    @unique
   active         Boolean   @default(false)
-  displayHandle  String    // self-chosen, not a legal name
-  jurisdiction   String    // us | ca — coarse match scope
-  area           String    // city / neighbourhood / campus, free text
+  displayHandle  String // self-chosen, not a legal name
+  jurisdiction   String // us | ca — coarse match scope
+  area           String // city / neighbourhood / campus, free text
   budgetMinCents Int?
   budgetMaxCents Int?
-  moveInMonth    String?   // e.g. "2026-09"
+  moveInMonth    String? // e.g. "2026-09"
   lifestyle      Json      @default("[]") // string tags: ["non-smoker","quiet",...]
-  bio            String?   // short free-text intro (no contact info)
+  bio            String? // short free-text intro (no contact info)
   consentAt      DateTime? // explicit opt-in consent timestamp
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt

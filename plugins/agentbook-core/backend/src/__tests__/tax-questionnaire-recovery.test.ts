@@ -137,6 +137,7 @@ describe('tax-questionnaire session recovery (agent-brain.ts)', () => {
     expect(resp.success).toBe(true);
     expect(resp.data.message).toBe('Do you have any new dependents this year?');
     expect(resp.data.skillUsed).toBe('tax-questionnaire');
+    expect(resp.data.taxDraftReady).toBeUndefined();
 
     expect(sessionHelpers.updateTaxQuestionnaireSession).toHaveBeenCalledTimes(1);
     const [id, version, data] = sessionHelpers.updateTaxQuestionnaireSession.mock.calls[0];
@@ -165,6 +166,7 @@ describe('tax-questionnaire session recovery (agent-brain.ts)', () => {
 
     expect(resp.success).toBe(true);
     expect(resp.data.message.toLowerCase()).toContain('ready');
+    expect(resp.data.taxDraftReady).toBe(true);
 
     const [, , data] = sessionHelpers.updateTaxQuestionnaireSession.mock.calls[0];
     expect(data.status).toBe('completed');

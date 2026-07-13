@@ -227,6 +227,7 @@ describe('start-tax-fast-track — happy path', () => {
     expect(sessionHelpers.updateTaxQuestionnaireSession).toHaveBeenCalledWith('tqs-new', 0, { status: 'completed' });
     expect(result.responseData.confidence).toBe(1);
     expect(result.responseData.message.toLowerCase()).toContain('ready');
+    expect(result.responseData.taxDraftReady).toBe(true);
   });
 });
 

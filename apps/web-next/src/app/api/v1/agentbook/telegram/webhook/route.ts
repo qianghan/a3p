@@ -10,13 +10,14 @@
  * The minimal pattern-matched agent below remains as an offline
  * fallback so the bot still responds when Gemini is unavailable.
  */
-import { NextRequest, NextResponse } from 'next/server';
+import { after, NextRequest, NextResponse } from 'next/server';
 import { randomBytes } from 'node:crypto';
 import { Bot, type Context as GrammyContext } from 'grammy';
 import { prisma as db } from '@naap/database';
 import { formatMoney } from '@agentbook/i18n';
 import { handleAgentMessage } from '@agentbook-core/agent-brain';
 import { callGemini, classifyAndExecuteV1, classifyOnly, executeClassification } from '@agentbook-core/server';
+import { generateFilingDraft } from '@/lib/tax-fast-track-draft';
 import { runAgentLoop, type BotContext, type ActiveExpense as BotActive } from '@/lib/agentbook-bot-agent';
 import { parseDateHint } from '@/lib/agentbook-time-aggregator';
 import { autoCategorizeForTenant, getPendingSuggestions, dropPendingSuggestion } from '@/lib/agentbook-auto-categorize';
@@ -71,7 +72,7 @@ import { checkAndIncrement } from '@/lib/agentbook-rate-limit';
 // group multi-photo forwards. Plus OCR + blob persistence for ~8 images
 // can take 10-20s in parallel. Bump the route's max duration so Vercel
 // doesn't kill the function mid-batch.
-export const maxDuration = 60;
+export const maxDuration = 90;
 
 // Dev fallback: hardcoded chat ID → tenant mapping. The tenantId here MUST
 // match the tenant the user logs into the web UI as (the AgentBook tenant
@@ -1185,6 +1186,13 @@ async function callAgentBrain(
       { text: text || '', tenantId, channel: 'telegram', chatId, attachments, sessionAction, feedback },
       { skills, callGemini, baseUrls, classifyAndExecuteV1, classifyOnly, executeClassification },
     );
+    if (brainResult?.data?.taxDraftReady && brainResult.data?.sessionId) {
+      const completedSessionId = brainResult.data.sessionId;
+      after(() => generateFilingDraft(completedSessionId, callGemini).catch((err) => {
+        console.error('[telegram/agent-brain] generateFilingDraft failed:', err);
+      }));
+    }
+
     if (brainResult?.success && brainResult.data?.message) {
       return brainResult as { success: true; data: { message: string; skillUsed?: string } };
     }
