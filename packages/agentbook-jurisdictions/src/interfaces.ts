@@ -206,6 +206,67 @@ export interface TaxQuestionnairePack {
   parseNextQuestionResponse(parsed: unknown): { question: string } | { done: true }
 }
 
+// ─── Tax Fast-Track Filing Draft + Client Letter ─────────────────────────────
+// Generates the two artifacts a completed TaxQuestionnairePack session
+// produces (PR-4). Two pure/synchronous prompt-builder+parser pairs, same
+// convention as TaxQuestionnairePack — the pack never calls an LLM and never
+// sees a raw string. The numeric estimate does NOT come from the LLM: the
+// caller (generateFilingDraft) feeds extractDeltasPrompt's STRUCTURED delta
+// output into the existing, tested {us,ca}TaxBrackets.calculateTax() for the
+// real number, then clientLetterPrompt narrates using that real number. See
+// docs/superpowers/specs/2026-07-13-tax-fast-track-filing-draft-design.md
+// ("Numbers come from the real bracket calculator, not the LLM's
+// imagination.").
+
+export interface FilingDraftDeltas {
+  /** This year vs. last year, signed (e.g. +5 for "roughly the same, maybe a little higher"); omitted if qaHistory gave no usable signal. */
+  incomeDeltaPercent?: number
+  filingStatusChanged?: boolean
+  newFilingStatus?: string
+  /** Net change in dependent count. */
+  dependentsDelta?: number
+  /** Plain-language bullets, for direct display on the review screen and in the PDF. */
+  changesFromLastYear: string[]
+  /** Things the accountant should double check. */
+  openQuestions: string[]
+}
+
+export interface FilingDraftSummary {
+  /** Omitted (never guessed) if priorFiling lacked a usable baseline number. */
+  estimatedTotalIncomeCents?: number
+  estimatedTaxableIncomeCents?: number
+  /** From calculateTax(), never LLM-invented. */
+  estimatedTaxPayableCents?: number
+  /**
+   * estimatedTaxPayableCents minus priorFiling.taxPayableCents — how this
+   * year's estimated liability compares to what was actually owed last
+   * year. Deliberately NOT a "refund or balance owing" figure: that would
+   * require this year's withholding/estimated-payments data, which this
+   * fast-track flow never collects. A liability comparison is the most
+   * honest number computable from what's actually on hand.
+   */
+  taxPayableDeltaVsLastYearCents?: number
+  changesFromLastYear: string[]
+  openQuestions: string[]
+  /** Always present: "this is an estimate, not a filed return." */
+  caveat: string
+}
+
+export interface FilingDraftPack {
+  jurisdiction: string
+  extractDeltasPrompt(input: {
+    qaHistory: { question: string; answer: string }[]
+    priorFiling: StandardTaxExtract
+  }): string
+  parseDeltas(parsed: unknown): FilingDraftDeltas
+  clientLetterPrompt(input: {
+    qaHistory: { question: string; answer: string }[]
+    priorFiling: StandardTaxExtract
+    summary: FilingDraftSummary
+  }): string
+  parseClientLetter(parsed: unknown): { letterBody: string }
+}
+
 // ─── Startup Tax Benefits ────────────────────────────────────────────────────
 // Jurisdiction-agnostic contract for the agentbook-startup plugin's 5-phase
 // workflow (recommend → collect → draft → review → submit). One implementation
