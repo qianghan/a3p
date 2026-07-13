@@ -1400,6 +1400,9 @@ const NOTIFICATION_CATEGORY_LABELS: Record<string, { label: string; description:
   tax_deadline: { label: 'Tax deadlines', description: 'Upcoming filing dates — always on' },
   invoice_due: { label: 'Invoice reminders', description: 'Your own invoices approaching their due date — always on' },
   expense_review: { label: 'Expense review', description: "Expenses that need your attention — always on" },
+  budget_alert: { label: 'Budget alerts', description: "When you cross a budget threshold you've set" },
+  net_worth_update: { label: 'Net worth updates', description: 'When your net worth changes notably month over month' },
+  savings_warning: { label: 'Savings warnings', description: "When you've spent more than you earned this month" },
 };
 
 function NotificationsPreferencesTab(): React.ReactElement {

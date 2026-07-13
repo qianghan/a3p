@@ -31,6 +31,9 @@ const CATEGORY_LABEL: Record<string, string> = {
   invoice_due: 'Invoice due',
   expense_review: 'Expense review',
   admin_broadcast: 'Announcement',
+  budget_alert: 'Budget alert',
+  net_worth_update: 'Net worth update',
+  savings_warning: 'Savings warning',
 };
 
 function formatDate(iso: string | null): string {

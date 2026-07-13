@@ -23,6 +23,9 @@ export const NOTIFICATION_CATEGORIES = [
   'invoice_due',
   'expense_review',
   'admin_broadcast',
+  'budget_alert',
+  'net_worth_update',
+  'savings_warning',
 ] as const;
 export type NotificationCategory = (typeof NOTIFICATION_CATEGORIES)[number];
 
