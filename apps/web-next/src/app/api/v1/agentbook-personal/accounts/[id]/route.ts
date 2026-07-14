@@ -27,7 +27,17 @@ export async function PUT(request: NextRequest, ctx: RouteCtx): Promise<NextResp
     if (body.balanceCents !== undefined) update.balanceCents = body.balanceCents;
 
     const account = await db.abPersonalAccount.update({ where: { id }, data: update });
-    return NextResponse.json({ success: true, data: account });
+    return NextResponse.json({
+      success: true,
+      data: {
+        id: account.id, tenantId: account.tenantId, name: account.name, type: account.type,
+        balanceCents: account.balanceCents, currency: account.currency, isAsset: account.isAsset,
+        archived: account.archived, plaidAccountId: account.plaidAccountId, institution: account.institution,
+        officialName: account.officialName, subtype: account.subtype, mask: account.mask,
+        connected: account.connected, lastSynced: account.lastSynced,
+        createdAt: account.createdAt, updatedAt: account.updatedAt,
+      },
+    });
   } catch (err) {
     console.error('[agentbook-personal/accounts PUT] failed:', err);
     return NextResponse.json({ success: false, error: err instanceof Error ? err.message : String(err) }, { status: 500 });
@@ -43,7 +53,17 @@ export async function DELETE(request: NextRequest, ctx: RouteCtx): Promise<NextR
     const existing = await db.abPersonalAccount.findFirst({ where: { id, tenantId } });
     if (!existing) return NextResponse.json({ success: false, error: 'account not found' }, { status: 404 });
     const account = await db.abPersonalAccount.update({ where: { id }, data: { archived: true } });
-    return NextResponse.json({ success: true, data: account });
+    return NextResponse.json({
+      success: true,
+      data: {
+        id: account.id, tenantId: account.tenantId, name: account.name, type: account.type,
+        balanceCents: account.balanceCents, currency: account.currency, isAsset: account.isAsset,
+        archived: account.archived, plaidAccountId: account.plaidAccountId, institution: account.institution,
+        officialName: account.officialName, subtype: account.subtype, mask: account.mask,
+        connected: account.connected, lastSynced: account.lastSynced,
+        createdAt: account.createdAt, updatedAt: account.updatedAt,
+      },
+    });
   } catch (err) {
     console.error('[agentbook-personal/accounts DELETE] failed:', err);
     return NextResponse.json({ success: false, error: err instanceof Error ? err.message : String(err) }, { status: 500 });
