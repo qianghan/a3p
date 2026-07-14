@@ -13,6 +13,7 @@ import { prisma as db, Prisma } from '@naap/database';
 import { reportError } from '@/lib/logger';
 import { createNotification } from '@/lib/notifications';
 import { usPack, caPack, ukPack, auPack, type JurisdictionPack } from '@agentbook/jurisdictions';
+import { ANNUAL_FILING_DEADLINE_KEYS } from '@/app/api/v1/agentbook-core/tax-fast-track/status/route';
 
 const PACKS: Record<string, JurisdictionPack> = { us: usPack, ca: caPack, uk: ukPack, au: auPack };
 const SEED_SOURCE = 'calendar-deadlines-seed';
@@ -142,7 +143,37 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         },
       });
 
-      if (event.eventType === 'tax_deadline') {
+      let fastTrackNudgeSent = false;
+      if (event.eventType === 'tax_deadline' && ANNUAL_FILING_DEADLINE_KEYS.includes(event.titleKey)) {
+        // Wrapped the same way the generic notification below is — an
+        // exception here must not abort the rest of upcomingEvents
+        // (unrelated tenants' quarterly/other events still need to
+        // process in this batch).
+        try {
+          const [priorFiling, existingSession] = await Promise.all([
+            db.abPastTaxFiling.findFirst({ where: { tenantId: event.tenantId, status: 'confirmed' } }),
+            db.abTaxQuestionnaireSession.findFirst({ where: { tenantId: event.tenantId, taxYear: event.date.getUTCFullYear() - 1 } }),
+          ]);
+          if (priorFiling && !existingSession) {
+            await createNotification({
+              category: 'tax_deadline',
+              severity: 'warning',
+              title: 'Get a head start on your filing',
+              body: `Your filing deadline is ${event.date.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric', timeZone: 'UTC' })}. Start the fast-track review now — it only takes a few minutes.`,
+              ctaLabel: 'Start now',
+              ctaUrl: '/agentbook/tax-package?tab=fast-track',
+              createdByType: 'system',
+              createdBy: 'calendar-check-cron',
+              audienceType: 'single',
+              audienceFilter: { tenantId: event.tenantId },
+            });
+            fastTrackNudgeSent = true;
+          }
+        } catch (err) {
+          reportError(`cron/calendar-check fast-track nudge failed for event ${event.id}`, err, { source: 'cron/calendar-check' });
+        }
+      }
+      if (event.eventType === 'tax_deadline' && !fastTrackNudgeSent) {
         try {
           await createNotification({
             category: 'tax_deadline',
