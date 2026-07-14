@@ -77,7 +77,13 @@ export async function getLatestTaxQuestionnaireSession(tenantId: string): Promis
 **New intent in `agent-brain.ts`**, placed immediately after Step 1b's existing `if (tqSession)` block (so it only evaluates when there's no *active* session — an active session's plain-text messages are still always treated as answers, matching PR-3's existing contract):
 
 ```ts
-const TAX_DRAFT_STATUS_RE = /\b(is my|where('?s| is) my|check my|download my)\b.*\b(tax )?(draft|filing draft|client letter)\b/i;
+// Deliberately narrow — must name the feature specifically ("filing draft",
+// "client letter", or "tax draft"/"tax fast-track draft"), not just "draft"
+// or "letter" alone. AgentBook invoices have their own real 'draft' status
+// ("check my invoice draft", "is my draft ready to send") — a bare \bdraft\b
+// match would hijack those messages for any tenant who's ever completed a
+// tax questionnaire. The narrower phrasing has no known collision.
+const TAX_DRAFT_STATUS_RE = /\b(filing draft|client letter|tax (fast.?track )?draft)\b/i;
 
 if (!tqSession && TAX_DRAFT_STATUS_RE.test(text.trim())) {
   const latest = await getLatestTaxQuestionnaireSession(tenantId);
@@ -88,58 +94,80 @@ if (!tqSession && TAX_DRAFT_STATUS_RE.test(text.trim())) {
 }
 ```
 
-`buildTaxDraftStatusResponse` returns one of: "still generating, check back in a few minutes" (no row or `status: 'pending'`), the two PDF links + summary caveat (`status: 'ready'`), or the categorized failure message with a note that they can ask to retry (`status: 'failed'`) — same three states the UI's `FastTrackTab.tsx` already renders, just as chat text instead of UI cards. If no completed session exists at all, fall through to normal classification (so "where's my draft" with nothing to find behaves like any other unrecognized message, not a hard error).
+`buildTaxDraftStatusResponse` returns one of four states — reusing the exact same staleness computation the `/status` route already does (extracted into a small shared helper, `isDraftStale(draftRow)`, in `tax-questionnaire-session.ts`, so the constant and the comparison live in one place instead of two copies):
+1. No row, or `status: 'pending'` and not stale — "still generating, check back in a few minutes."
+2. `status: 'pending'` and stale (past the same timeout the `/status` route uses) — "generation seems stuck — ask me to retry and I'll regenerate it."
+3. `status: 'ready'` — both PDF links + the summary caveat.
+4. `status: 'failed'` — the categorized failure message with a note that they can ask to retry.
+
+This is the same four states `FastTrackTab.tsx` already renders (ready / pending-not-stale / pending-stale+retry / failed) — chat text instead of UI cards, not a new state model. If no completed session exists at all, fall through to normal classification (so "where's my filing draft" with nothing to find behaves like any other unrecognized message, not a hard error).
 
 ### Testing
 
-- Unit tests for `getLatestTaxQuestionnaireSession` (new session, no completed session, expired old one).
-- Unit tests for `TAX_DRAFT_STATUS_RE` matching/non-matching phrasings, and `buildTaxDraftStatusResponse`'s three branches.
-- Extend `tests/e2e/tax-fast-track.spec.ts` (the chat spec) with a turn after the happy path asking "is my draft ready" and asserting the response contains both PDF URLs once the background generation completes.
+- Unit tests for `getLatestTaxQuestionnaireSession` and `isDraftStale` (new session, no completed session, expired old one, pending-but-stale, pending-not-stale).
+- Unit tests for `TAX_DRAFT_STATUS_RE` matching the three intended phrasings and NOT matching "check my invoice draft" / "is my draft invoice ready" / other non-tax "draft" mentions, plus `buildTaxDraftStatusResponse`'s four branches.
+- Extend `tests/e2e/tax-fast-track.spec.ts` (the chat spec) with a turn after the happy path asking "is my filing draft ready" and asserting the response contains both PDF URLs once the background generation completes.
 
 ## Workstream 2 — Deadline reuse
 
 ### Display: countdown in `FastTrackTab.tsx`
 
-On the intro/no-session screen, fetch the tenant's next `calendar.annual_tax_filing_due` event:
+**No new route.** `FastTrackTab.tsx` already fetches `GET /tax-fast-track/status` unconditionally on mount (`load()`, called from a `useEffect` regardless of whether a session exists yet) — the deadline data rides along as one extra field on that existing response instead of a second round-trip:
 
 ```ts
-// new route: GET /api/v1/agentbook-core/tax-fast-track/next-deadline
-// (thin read, no new gate — same tenant resolution as the other 5 routes)
-const event = await db.abCalendarEvent.findFirst({
-  where: { tenantId, titleKey: 'calendar.annual_tax_filing_due', date: { gte: new Date() } },
+// in the /status route handler, alongside the existing session/draft lookups
+const nextDeadline = await db.abCalendarEvent.findFirst({
+  where: { tenantId, titleKey: { in: ANNUAL_FILING_DEADLINE_KEYS }, date: { gte: new Date() } },
   orderBy: { date: 'asc' },
 });
+// ...
+data: { session, draft, nextDeadline: nextDeadline ? { date: nextDeadline.date, titleKey: nextDeadline.titleKey } : null }
 ```
 
-`FastTrackTab.tsx` renders "Filing deadline: April 15, 2027 — 62 days away" above the "Start review" button when this resolves; renders nothing if there's no upcoming event (e.g. tenant config has no jurisdiction set yet, or the cron hasn't seeded this tenant yet).
+`ANNUAL_FILING_DEADLINE_KEYS` — see the jurisdiction-key note in the next section; the same constant is shared between this read and the cron's proactive branch.
+
+`FastTrackTab.tsx` renders "Filing deadline: April 15, 2027 — 62 days away" above the "Start review" button when `nextDeadline` is present; renders nothing otherwise (e.g. tenant config has no jurisdiction set yet, or the cron hasn't seeded this tenant yet).
 
 ### Proactive: suggest fast-track before the deadline
 
-`cron/calendar-check/route.ts` already has a single branch, `if (event.eventType === 'tax_deadline') { createNotification(...) }`, that fires a generic "Due April 15" notification for every tax-deadline event type (quarterly and annual alike) once it enters the lead-time window. Add a more specific branch ahead of it:
+`cron/calendar-check/route.ts` already has a single branch, `if (event.eventType === 'tax_deadline') { createNotification(...) }`, that fires a generic "Due April 15" notification for every tax-deadline event type (quarterly and annual alike) once it enters the lead-time window. Add a more specific branch ahead of it.
+
+**Jurisdiction key note (corrects an earlier draft of this spec):** the "annual filing due" event is titled differently per jurisdiction pack — `us/calendar-deadlines.ts` uses `calendar.annual_tax_filing_due`, but `ca/calendar-deadlines.ts` uses `calendar.t1_filing_due` (there is no `annual_tax_filing_due` key for CA at all). A single hardcoded key would silently never fire for any CA tenant, including the CA persona used in this app's own test fixtures. Fast-track only supports `us`/`ca` (`uk`/`au` are out of scope per Non-goals, so their keys aren't needed here), so a two-entry constant covers it without a jurisdiction lookup — each key is already unambiguous to its own jurisdiction, no tenant will ever have both:
+
+```ts
+const ANNUAL_FILING_DEADLINE_KEYS = ['calendar.annual_tax_filing_due', 'calendar.t1_filing_due'];
+```
 
 ```ts
 let fastTrackNudgeSent = false;
-if (event.eventType === 'tax_deadline' && event.titleKey === 'calendar.annual_tax_filing_due') {
-  const [priorFiling, existingSession] = await Promise.all([
-    db.abPastTaxFiling.findFirst({ where: { tenantId: event.tenantId, status: 'confirmed' } }),
-    db.abTaxQuestionnaireSession.findFirst({ where: { tenantId: event.tenantId, taxYear: event.date.getUTCFullYear() - 1 } }),
-  ]);
-  if (priorFiling && !existingSession) {
-    await createNotification({
-      category: 'tax_deadline',
-      severity: 'warning',
-      title: 'Get a head start on your filing',
-      body: `Your filing deadline is ${event.date.toLocaleDateString(...)}. Start the fast-track review now — it only takes a few minutes.`,
-      ctaLabel: 'Start now',
-      ctaUrl: '/agentbook/tax-package?tab=fast-track',
-      createdByType: 'system', createdBy: 'calendar-check-cron',
-      audienceType: 'single', audienceFilter: { tenantId: event.tenantId },
-    });
-    fastTrackNudgeSent = true; // suppress the generic notification below for this event, but still count toward alertsFired same as it does today
+if (event.eventType === 'tax_deadline' && ANNUAL_FILING_DEADLINE_KEYS.includes(event.titleKey)) {
+  // Wrapped the same way the existing generic-notification call below is —
+  // an exception here must not abort the rest of upcomingEvents (unrelated
+  // tenants' quarterly/other events still need to process in this batch).
+  try {
+    const [priorFiling, existingSession] = await Promise.all([
+      db.abPastTaxFiling.findFirst({ where: { tenantId: event.tenantId, status: 'confirmed' } }),
+      db.abTaxQuestionnaireSession.findFirst({ where: { tenantId: event.tenantId, taxYear: event.date.getUTCFullYear() - 1 } }),
+    ]);
+    if (priorFiling && !existingSession) {
+      await createNotification({
+        category: 'tax_deadline',
+        severity: 'warning',
+        title: 'Get a head start on your filing',
+        body: `Your filing deadline is ${event.date.toLocaleDateString(...)}. Start the fast-track review now — it only takes a few minutes.`,
+        ctaLabel: 'Start now',
+        ctaUrl: '/agentbook/tax-package?tab=fast-track',
+        createdByType: 'system', createdBy: 'calendar-check-cron',
+        audienceType: 'single', audienceFilter: { tenantId: event.tenantId },
+      });
+      fastTrackNudgeSent = true; // suppress the generic notification below for this event, but still count toward alertsFired same as it does today
+    }
+  } catch (err) {
+    reportError(`cron/calendar-check fast-track nudge failed for event ${event.id}`, err, { source: 'cron/calendar-check' });
   }
 }
 if (event.eventType === 'tax_deadline' && !fastTrackNudgeSent) {
-  // existing generic notification, unchanged
+  // existing generic notification, unchanged (already has its own try/catch)
 }
 ```
 
@@ -151,8 +179,8 @@ Prerequisites for the fast-track-specific message: a confirmed prior-year filing
 
 ### Testing
 
-- Extend `tests/e2e/notification-triggers.spec.ts`'s conventions (or a new spec) with: a tenant with a confirmed prior filing and an upcoming `annual_tax_filing_due` event gets the fast-track-specific notification, not the generic one; a tenant with no prior filing gets the generic one; a tenant with an existing session for that year gets neither the fast-track nudge nor a duplicate.
-- Unit test for the new `next-deadline` route (event found / not found / date in the past excluded).
+- Extend `tests/e2e/notification-triggers.spec.ts`'s conventions (or a new spec) with: a US tenant with a confirmed prior filing and an upcoming `annual_tax_filing_due` event gets the fast-track-specific notification, not the generic one; a CA tenant with the same setup and an upcoming `t1_filing_due` event gets it too (regression coverage for the jurisdiction-key fix above); a tenant with no prior filing gets the generic one; a tenant with an existing session for that year gets neither the fast-track nudge nor a duplicate.
+- Unit test for `/tax-fast-track/status`'s new `nextDeadline` field (event found for us/ca / not found / date in the past excluded).
 
 ## Workstream 3 — Billing gate
 
@@ -194,7 +222,7 @@ export async function requireTaxFastTrackAddon(request: NextRequest): Promise<Ta
 
 ### Seeding
 
-New `bin/seed-tax-fast-track-addon.ts`, mirroring `bin/seed-personal-insights-addon.ts` exactly (single `standard` tier, no slots): `$49 USD` / `$65 CAD` — the same anchor price as `personal_insights` and `student_success`. Run once against prod as part of this PR's deploy, same as those add-ons were seeded.
+New `bin/seed-tax-fast-track-addon.ts`, mirroring `bin/seed-personal-insights-addon.ts`'s structure (single `standard` tier, no slots, `$49 USD` / `$65 CAD` — the same anchor price as `personal_insights` and `student_success`) **with one deliberate difference, not a mirror**: `seed-personal-insights-addon.ts` seeds `isActive: false` on purpose (its own comment: registered but not yet purchasable — a soft-launch pattern controlled by a separate `ACTIVATE` toggle flipped later). `hasAddOn()` checks `addOn.isActive` before subscription status (`packages/billing/src/addons.ts:21`) — if this PR's gate goes live while the row is seeded inactive, `/start` and `/regenerate` 402 **every** tenant permanently, with no purchase path to escape it (an inactive add-on isn't offered for purchase either). This PR's seed script sets `isActive: true` directly — there is no soft-launch/staging need here the way there was for personal-insights (a brand-new UI feature being trialed), since fast-track has already been live and free for two PRs; going straight to "purchasable" is the correct behavior, not an oversight to fix later.
 
 ### Testing
 
@@ -205,5 +233,5 @@ New `bin/seed-tax-fast-track-addon.ts`, mirroring `bin/seed-personal-insights-ad
 ## Deployment notes
 
 - Workstream 0's fix is a pure bug fix with no schema/data dependency — safe to ship first and independently verify (a live MCP call reaching a real response) before the rest lands.
-- Workstream 3's `BillAddOn` seed must run before (or in the same deploy step as) the code that starts checking `hasAddOn` — otherwise every tenant gets denied by a nonexistent add-on code until the seed runs. Sequence: deploy code + immediately run the seed script, same order as prior add-on rollouts.
+- Workstream 3's `BillAddOn` seed must run before (or in the same deploy step as) the code that starts checking `hasAddOn` — otherwise every tenant gets denied by a nonexistent add-on code until the seed runs. Sequence: deploy code + immediately run the seed script, same order as prior add-on rollouts. Because the seed sets `isActive: true` (see Seeding above), running it is the moment tax fast-track stops being free for every existing user — this is a real, user-facing monetization change, not a routine data seed, and gets the same explicit stop-and-confirm treatment as any other production billing change before it runs (not bundled silently into "deploy code").
 - No new Prisma models — `BillAddOn`/`BillAddOnSubscription` already exist; `AbCalendarEvent` already exists and is already seeded by the existing cron. No schema migration in this PR at all.
