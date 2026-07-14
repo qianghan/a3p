@@ -1,10 +1,12 @@
 'use client';
 
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Wallet, Plus, TrendingUp, TrendingDown, PiggyBank, Briefcase, Loader2,
   Receipt, Target, ArrowUpCircle, ArrowDownCircle, LineChart, Lock, Sparkles,
+  Building2, Link2, RefreshCw, CheckCircle, AlertCircle,
 } from 'lucide-react';
+import { usePlaidLink } from 'react-plaid-link';
 import { formatCurrencyCents } from '@/lib/jurisdiction-currency';
 
 const API = '/api/v1/agentbook-personal';
@@ -15,6 +17,10 @@ interface Account {
   type: string;
   balanceCents: number;
   isAsset: boolean;
+  plaidAccountId: string | null;
+  institution: string | null;
+  connected: boolean;
+  lastSynced: string | null;
 }
 interface Snapshot {
   netWorthCents: number;
@@ -91,6 +97,13 @@ export default function PersonalFinancePage() {
   const [trendGated, setTrendGated] = useState(false);
   const [upgrading, setUpgrading] = useState(false);
   const [upgradeError, setUpgradeError] = useState<string | null>(null);
+
+  // Bank sync (Plaid)
+  const [linkToken, setLinkToken] = useState<string | null>(null);
+  const [connectingBank, setConnectingBank] = useState(false);
+  const [syncingBank, setSyncingBank] = useState(false);
+  const [bankResult, setBankResult] = useState<string | null>(null);
+  const watchdogRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Add account
   const [showForm, setShowForm] = useState(false);
@@ -196,6 +209,110 @@ export default function PersonalFinancePage() {
     } finally {
       setSaving(false);
     }
+  };
+
+  const clearBankWatchdog = useCallback(() => {
+    if (watchdogRef.current) {
+      clearTimeout(watchdogRef.current);
+      watchdogRef.current = null;
+    }
+  }, []);
+
+  const handleStartBankConnect = async () => {
+    setConnectingBank(true);
+    try {
+      const res = await fetch(`${API}/plaid/link-token`, { method: 'POST' });
+      const data = await res.json();
+      if (data.success) {
+        setLinkToken(data.data.linkToken);
+      } else {
+        setBankResult('Failed to start bank connection: ' + (data.error || 'Unknown error'));
+        setConnectingBank(false);
+      }
+    } catch (err) {
+      setBankResult('Connection error: ' + String(err));
+      setConnectingBank(false);
+    }
+  };
+
+  const onPlaidSuccess = useCallback(async (publicToken: string, metadata: any) => {
+    clearBankWatchdog();
+    setConnectingBank(true);
+    try {
+      const res = await fetch(`${API}/plaid/exchange`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ publicToken, institutionName: metadata.institution?.name }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setBankResult(`Connected ${data.data.accounts?.length || 0} account(s) from ${metadata.institution?.name || 'bank'}`);
+        await load();
+      }
+    } catch (err) {
+      setBankResult('Failed to connect: ' + String(err));
+    }
+    setConnectingBank(false);
+    setLinkToken(null);
+  }, [load, clearBankWatchdog]);
+
+  const { open: openPlaidLink, ready: plaidReady, exit: exitPlaidLink } = usePlaidLink({
+    token: linkToken,
+    onSuccess: onPlaidSuccess,
+    onExit: () => { clearBankWatchdog(); setLinkToken(null); setConnectingBank(false); },
+  });
+
+  // Same 45s stuck-Link watchdog as BankConnection.tsx (the expense-side
+  // equivalent) — Plaid's hosted Link UI can occasionally freeze mid-flow.
+  const armBankWatchdog = useCallback(() => {
+    clearBankWatchdog();
+    watchdogRef.current = setTimeout(() => {
+      const keepWaiting = !window.confirm(
+        'Bank connection is taking longer than expected.\n\nClick OK to cancel and try again, or Cancel to keep waiting a bit longer.'
+      );
+      if (keepWaiting) {
+        armBankWatchdog();
+      } else {
+        exitPlaidLink({ force: true });
+        setLinkToken(null);
+        setConnectingBank(false);
+      }
+    }, 45000);
+  }, [clearBankWatchdog, exitPlaidLink]);
+
+  useEffect(() => {
+    if (linkToken && plaidReady) {
+      openPlaidLink();
+      armBankWatchdog();
+    }
+    return clearBankWatchdog;
+  }, [linkToken, plaidReady, openPlaidLink, armBankWatchdog, clearBankWatchdog]);
+
+  const handleBankSync = async () => {
+    setSyncingBank(true);
+    setBankResult(null);
+    try {
+      const res = await fetch(`${API}/plaid/sync`, { method: 'POST' });
+      const data = await res.json();
+      if (data.success) {
+        setBankResult(`Synced ${data.data.accountsSynced} account(s). Imported ${data.data.transactionsImported} transactions.`);
+      } else if (res.status === 402) {
+        setBankResult('Bank sync is part of Personal Insights — enable it above to sync.');
+      }
+      await load();
+    } finally {
+      setSyncingBank(false);
+    }
+  };
+
+  const handleBankDisconnect = async (accountId: string) => {
+    if (!confirm('Disconnect this bank account? Historical transactions are kept.')) return;
+    await fetch(`${API}/plaid/disconnect`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ accountId }),
+    });
+    await load();
   };
 
   const addTransaction = async () => {
@@ -366,10 +483,33 @@ export default function PersonalFinancePage() {
       )}
 
       {/* Accounts */}
-      <h2 className="text-sm font-semibold text-foreground mb-2">Accounts</h2>
+      <div className="flex items-center justify-between mb-2">
+        <h2 className="text-sm font-semibold text-foreground">Accounts</h2>
+        <div className="flex gap-2">
+          {accounts.some((a) => a.plaidAccountId) && (
+            <button onClick={handleBankSync} disabled={syncingBank}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-muted text-foreground rounded-lg text-xs hover:bg-muted/80 transition-colors disabled:opacity-50">
+              <RefreshCw className={`w-3.5 h-3.5 ${syncingBank ? 'animate-spin' : ''}`} />
+              {syncingBank ? 'Syncing…' : 'Sync bank'}
+            </button>
+          )}
+          <button onClick={handleStartBankConnect} disabled={connectingBank}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-primary text-primary-foreground rounded-lg text-xs hover:bg-primary/90 transition-colors disabled:opacity-50">
+            {connectingBank ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Link2 className="w-3.5 h-3.5" />}
+            Connect bank
+          </button>
+        </div>
+      </div>
+      {bankResult && (
+        <div className="mb-4 p-3 rounded-xl text-sm bg-blue-500/10 text-blue-600 border border-blue-500/20 flex items-center gap-2">
+          <Building2 className="w-4 h-4 shrink-0" />
+          {bankResult}
+          <button onClick={() => setBankResult(null)} className="ml-auto text-xs opacity-60 hover:opacity-100">Dismiss</button>
+        </div>
+      )}
       {accounts.length === 0 ? (
         <p className="text-sm text-muted-foreground py-6 text-center rounded-xl border border-border bg-card mb-6">
-          No accounts yet. Add your checking, savings, or credit card to see your net worth.
+          No accounts yet. Add your checking, savings, or credit card to see your net worth, or connect a bank above.
         </p>
       ) : (
         <div className="rounded-xl border border-border bg-card divide-y divide-border mb-6">
@@ -378,6 +518,13 @@ export default function PersonalFinancePage() {
               <div>
                 <p className="text-sm font-medium text-foreground">{a.name}</p>
                 <p className="text-xs text-muted-foreground capitalize">{a.type}</p>
+                {a.plaidAccountId && (
+                  <p className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5">
+                    {a.connected ? <CheckCircle className="w-3 h-3 text-green-500" /> : <AlertCircle className="w-3 h-3 text-red-500" />}
+                    {a.institution || 'Bank'} · {a.lastSynced ? `Synced ${new Date(a.lastSynced).toLocaleDateString()}` : 'Not synced'}
+                    <button onClick={() => handleBankDisconnect(a.id)} className="ml-2 underline hover:no-underline">Disconnect</button>
+                  </p>
+                )}
               </div>
               <p className={`text-sm font-bold ${a.isAsset ? 'text-foreground' : 'text-destructive'}`}>
                 {fmt$(a.balanceCents)}

@@ -47,6 +47,7 @@
     "oidc-provider": "^9.9.1",
     "plaid": "^26.0.0",
     "qrcode": "^1.5.4",
+    "react-plaid-link": "^3.6.1",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "recharts": "^2.15.0",

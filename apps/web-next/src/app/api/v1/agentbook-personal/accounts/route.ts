@@ -25,7 +25,18 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       where: { tenantId, archived: false },
       orderBy: { createdAt: 'asc' },
     });
-    return NextResponse.json({ success: true, data: accounts });
+    // Never return accessTokenEnc/cursorToken to the client — same
+    // discipline as agentbook-expense/plaid/exchange/route.ts's `safe`
+    // mapping for the equivalent expense-side field.
+    const safe = accounts.map((a) => ({
+      id: a.id, tenantId: a.tenantId, name: a.name, type: a.type,
+      balanceCents: a.balanceCents, currency: a.currency, isAsset: a.isAsset,
+      archived: a.archived, plaidAccountId: a.plaidAccountId, institution: a.institution,
+      officialName: a.officialName, subtype: a.subtype, mask: a.mask,
+      connected: a.connected, lastSynced: a.lastSynced,
+      createdAt: a.createdAt, updatedAt: a.updatedAt,
+    }));
+    return NextResponse.json({ success: true, data: safe });
   } catch (err) {
     console.error('[agentbook-personal/accounts GET] failed:', err);
     return NextResponse.json({ success: false, error: err instanceof Error ? err.message : String(err) }, { status: 500 });
