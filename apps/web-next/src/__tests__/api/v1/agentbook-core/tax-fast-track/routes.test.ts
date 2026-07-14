@@ -7,6 +7,11 @@ vi.mock('@/lib/agentbook-tenant', () => ({
   safeResolveAgentbookTenant: vi.fn(async () => ({ tenantId: 'tenant-A' })),
 }));
 
+vi.mock('@/lib/agentbook-tax-fast-track/guard', () => ({
+  requireTaxFastTrackAddon: vi.fn(async () => ({ tenantId: 'tenant-A' })),
+  TAX_FAST_TRACK_ADDON_CODE: 'tax_fast_track',
+}));
+
 const coreMock = {
   startTaxQuestionnaire: vi.fn(),
   answerTaxQuestionnaire: vi.fn(),
@@ -74,6 +79,17 @@ describe('POST /tax-fast-track/start', () => {
     await POST(makeRequest({}));
 
     expect(generateFilingDraftMock).not.toHaveBeenCalled();
+  });
+
+  it('returns 402 when the tenant lacks the tax_fast_track add-on', async () => {
+    const guardMod = await import('@/lib/agentbook-tax-fast-track/guard');
+    (guardMod.requireTaxFastTrackAddon as any).mockResolvedValueOnce({
+      response: new Response(JSON.stringify({ error: 'no addon' }), { status: 402 }),
+    });
+    const { POST } = await import('../../../../../app/api/v1/agentbook-core/tax-fast-track/start/route');
+
+    const res = await POST(makeRequest({}));
+    expect(res.status).toBe(402);
   });
 });
 
@@ -278,5 +294,16 @@ describe('POST /tax-fast-track/regenerate', () => {
     const res = await POST(makeRequest({ sessionId: 'tqs-11' }));
     expect(res.status).toBe(400);
     expect(generateFilingDraftMock).not.toHaveBeenCalled();
+  });
+
+  it('returns 402 when the tenant lacks the tax_fast_track add-on', async () => {
+    const guardMod = await import('@/lib/agentbook-tax-fast-track/guard');
+    (guardMod.requireTaxFastTrackAddon as any).mockResolvedValueOnce({
+      response: new Response(JSON.stringify({ error: 'no addon' }), { status: 402 }),
+    });
+    const { POST } = await import('../../../../../app/api/v1/agentbook-core/tax-fast-track/regenerate/route');
+
+    const res = await POST(makeRequest({ sessionId: 'tqs-1' }));
+    expect(res.status).toBe(402);
   });
 });

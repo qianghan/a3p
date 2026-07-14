@@ -3,7 +3,7 @@ import { after, NextRequest, NextResponse } from 'next/server';
 import { prisma as db } from '@naap/database';
 import { isDraftStale } from '@agentbook-core/tax-questionnaire-session';
 import { callGemini } from '@agentbook-core/server';
-import { safeResolveAgentbookTenant } from '@/lib/agentbook-tenant';
+import { requireTaxFastTrackAddon } from '@/lib/agentbook-tax-fast-track/guard';
 import { generateFilingDraft } from '@/lib/tax-fast-track-draft';
 
 export const runtime = 'nodejs';
@@ -11,7 +11,7 @@ export const dynamic = 'force-dynamic';
 export const maxDuration = 90;
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
-  const __resolved = await safeResolveAgentbookTenant(request);
+  const __resolved = await requireTaxFastTrackAddon(request);
   if ('response' in __resolved) return __resolved.response;
   const { tenantId } = __resolved;
 

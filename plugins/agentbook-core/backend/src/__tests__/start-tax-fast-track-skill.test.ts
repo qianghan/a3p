@@ -22,6 +22,9 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 const mockAbPastTaxFilingFindMany = vi.fn();
 const mockAbConversationCreate = vi.fn(async (..._args: any[]) => ({}));
 
+const hasAddOnMock = vi.fn(async () => true); // entitled by default — every existing test in this file exercises the happy/blocked paths assuming access is already granted
+vi.mock('@naap/billing', () => ({ hasAddOn: (...args: unknown[]) => hasAddOnMock(...args) }));
+
 vi.mock('../db/client.js', () => ({
   db: {
     abPastTaxFiling: { findMany: (...args: any[]) => mockAbPastTaxFilingFindMany(...args) },
@@ -112,6 +115,7 @@ function mockGeminiResponse(text: string | null) {
 beforeEach(() => {
   vi.clearAllMocks();
   process.env.GEMINI_API_KEY = 'test-key';
+  hasAddOnMock.mockResolvedValue(true);
   sessionHelpers.createTaxQuestionnaireSession.mockResolvedValue({ id: 'tqs-new', version: 0 });
   sessionHelpers.updateTaxQuestionnaireSession.mockResolvedValue(true);
   packMock.nextQuestionPrompt.mockReturnValue('SYSTEM PROMPT');
@@ -257,5 +261,32 @@ describe('start-tax-fast-track — first-question callGemini() failure', () => {
 
     expect(sessionHelpers.updateTaxQuestionnaireSession).toHaveBeenCalledWith('tqs-new', 0, { status: 'abandoned' });
     expect(result.responseData.confidence).toBe(1);
+  });
+});
+
+describe('start-tax-fast-track — billing gate (PR-5)', () => {
+  it('returns a paid-add-on message and does not start a session when the tenant lacks tax_fast_track', async () => {
+    hasAddOnMock.mockResolvedValue(false);
+    const { executeClassification } = await loadServer();
+    mockAbPastTaxFilingFindMany.mockResolvedValueOnce([filing()]);
+
+    const result = await executeClassification(classification(), 'fast track my taxes from last year', 'tenant-1', 'api');
+
+    expect(hasAddOnMock).toHaveBeenCalledWith('tenant-1', 'tax_fast_track');
+    expect(result.responseData.message).toContain('paid add-on');
+    expect(sessionHelpers.createTaxQuestionnaireSession).not.toHaveBeenCalled();
+    expect(mockFetch).not.toHaveBeenCalled(); // no callGemini call — the gate short-circuits before any LLM work
+  });
+
+  it('proceeds normally when the tenant has the add-on (existing happy-path behavior, gate is a no-op)', async () => {
+    hasAddOnMock.mockResolvedValue(true);
+    const { executeClassification } = await loadServer();
+    mockAbPastTaxFilingFindMany.mockResolvedValueOnce([filing()]);
+    mockGeminiResponse('{"question": "What is your filing status this year?"}');
+
+    const result = await executeClassification(classification(), 'fast track my taxes from last year', 'tenant-1', 'api');
+
+    expect(sessionHelpers.createTaxQuestionnaireSession).toHaveBeenCalled();
+    expect(result.responseData.message).toBe('What is your filing status this year?');
   });
 });
