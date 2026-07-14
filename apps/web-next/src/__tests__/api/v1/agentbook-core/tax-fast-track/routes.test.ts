@@ -35,6 +35,7 @@ const dbMock = {
   abTenantConfig: { findFirst: vi.fn(async () => null as any) },
   abTaxQuestionnaireSession: { findFirst: vi.fn(async () => null as any), findUnique: vi.fn(async () => null as any) },
   abTaxFastTrackDraft: { findUnique: vi.fn(async () => null as any) },
+  abCalendarEvent: { findFirst: vi.fn(async () => null as any) },
 };
 vi.mock('@naap/database', () => ({
   prisma: dbMock,
@@ -127,7 +128,7 @@ describe('GET /tax-fast-track/status', () => {
 
     const res = await GET(makeRequest({}));
     const json = await res.json();
-    expect(json.data).toEqual({ session: null, draft: null });
+    expect(json.data).toEqual({ session: null, draft: null, nextDeadline: null });
   });
 
   it('finds a COMPLETED session (not just in_progress) and its linked draft', async () => {
@@ -186,6 +187,47 @@ describe('GET /tax-fast-track/status', () => {
     const res = await GET(makeRequest({}));
     const json = await res.json();
     expect(json.data.draft).toBeNull();
+  });
+
+  it('includes nextDeadline when an upcoming annual_tax_filing_due event exists (US)', async () => {
+    dbMock.abTaxQuestionnaireSession.findFirst.mockResolvedValue(null);
+    dbMock.abCalendarEvent.findFirst.mockResolvedValue({
+      titleKey: 'calendar.annual_tax_filing_due', date: new Date('2027-04-15T00:00:00.000Z'),
+    });
+    const { GET } = await import('../../../../../app/api/v1/agentbook-core/tax-fast-track/status/route');
+
+    const res = await GET(makeRequest({}));
+    const json = await res.json();
+
+    expect(json.data.nextDeadline).toEqual({ date: '2027-04-15T00:00:00.000Z', titleKey: 'calendar.annual_tax_filing_due' });
+    expect(dbMock.abCalendarEvent.findFirst).toHaveBeenCalledWith({
+      where: { tenantId: 'tenant-A', titleKey: { in: ['calendar.annual_tax_filing_due', 'calendar.t1_filing_due'] }, date: { gte: expect.any(Date) } },
+      orderBy: { date: 'asc' },
+    });
+  });
+
+  it('includes nextDeadline for a CA tenant\'s t1_filing_due event too', async () => {
+    dbMock.abTaxQuestionnaireSession.findFirst.mockResolvedValue(null);
+    dbMock.abCalendarEvent.findFirst.mockResolvedValue({
+      titleKey: 'calendar.t1_filing_due', date: new Date('2027-04-30T00:00:00.000Z'),
+    });
+    const { GET } = await import('../../../../../app/api/v1/agentbook-core/tax-fast-track/status/route');
+
+    const res = await GET(makeRequest({}));
+    const json = await res.json();
+
+    expect(json.data.nextDeadline).toEqual({ date: '2027-04-30T00:00:00.000Z', titleKey: 'calendar.t1_filing_due' });
+  });
+
+  it('sets nextDeadline to null when no upcoming deadline event exists', async () => {
+    dbMock.abTaxQuestionnaireSession.findFirst.mockResolvedValue(null);
+    dbMock.abCalendarEvent.findFirst.mockResolvedValue(null);
+    const { GET } = await import('../../../../../app/api/v1/agentbook-core/tax-fast-track/status/route');
+
+    const res = await GET(makeRequest({}));
+    const json = await res.json();
+
+    expect(json.data.nextDeadline).toBeNull();
   });
 });
 

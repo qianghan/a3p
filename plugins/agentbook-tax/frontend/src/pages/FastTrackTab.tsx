@@ -34,9 +34,16 @@ interface StatusResponse {
     errorMsg: string | null;
     stale: boolean;
   } | null;
+  nextDeadline: { date: string; titleKey: string } | null;
 }
 
 const fmtMoney = (cents: number) => `$${(cents / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+const fmtDeadline = (iso: string): string => {
+  const d = new Date(iso);
+  const daysAway = Math.round((d.getTime() - Date.now()) / (1000 * 60 * 60 * 24));
+  return `${d.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric', timeZone: 'UTC' })} — ${daysAway} day${daysAway === 1 ? '' : 's'} away`;
+};
 
 export const FastTrackTab: React.FC = () => {
   const [data, setData] = useState<StatusResponse | null>(null);
@@ -137,6 +144,9 @@ export const FastTrackTab: React.FC = () => {
       {/* Screen 1: no active session, no draft */}
       {!session && (
         <div className="bg-card border border-border rounded-xl p-6 text-center">
+          {data?.nextDeadline && (
+            <p className="text-xs text-muted-foreground mb-3">Filing deadline: {fmtDeadline(data.nextDeadline.date)}</p>
+          )}
           <p className="text-sm text-muted-foreground mb-4">
             Answer a short, adaptive set of questions based on your confirmed prior-year return, and get an estimated filing draft plus a cover letter for your accountant.
           </p>

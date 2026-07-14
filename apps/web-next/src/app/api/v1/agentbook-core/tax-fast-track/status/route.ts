@@ -7,7 +7,25 @@ import { safeResolveAgentbookTenant } from '@/lib/agentbook-tenant';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-const STALE_PENDING_MS = 2 * 60 * 1000; // kept here too — used below for the session-level (no-draft-row) synthesis, which isDraftStale doesn't cover
+const STALE_PENDING_MS = 2 * 60 * 1000;
+
+// The "annual filing due" event is titled differently per jurisdiction
+// pack — us/calendar-deadlines.ts uses calendar.annual_tax_filing_due,
+// ca/calendar-deadlines.ts uses calendar.t1_filing_due (no
+// annual_tax_filing_due key exists for CA at all). Fast-track only
+// supports us/ca, so this two-entry list covers it — each key is already
+// unambiguous to its own jurisdiction, no tenant ever has both. Shared
+// with cron/calendar-check/route.ts (Task 5) so both call sites recognize
+// the identical set.
+export const ANNUAL_FILING_DEADLINE_KEYS = ['calendar.annual_tax_filing_due', 'calendar.t1_filing_due'];
+
+async function findNextDeadline(tenantId: string) {
+  const event = await db.abCalendarEvent.findFirst({
+    where: { tenantId, titleKey: { in: ANNUAL_FILING_DEADLINE_KEYS }, date: { gte: new Date() } },
+    orderBy: { date: 'asc' },
+  });
+  return event ? { date: event.date.toISOString(), titleKey: event.titleKey } : null;
+}
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
   const __resolved = await safeResolveAgentbookTenant(request);
@@ -19,8 +37,10 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     orderBy: { createdAt: 'desc' },
   });
 
+  const nextDeadline = await findNextDeadline(tenantId);
+
   if (!session) {
-    return NextResponse.json({ success: true, data: { session: null, draft: null } });
+    return NextResponse.json({ success: true, data: { session: null, draft: null, nextDeadline } });
   }
 
   const draftRow = await db.abTaxFastTrackDraft.findUnique({ where: { sessionId: session.id } });
@@ -35,13 +55,6 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     }
     : null;
 
-  // A killed after() invocation can also die BEFORE its first DB write —
-  // i.e. before the row-creating upsert ever runs — leaving no
-  // AbTaxFastTrackDraft row at all. In that case `draft` above is null and
-  // there is no staleness signal, so the UI polls "Generating..." forever
-  // with no retry option. Synthesize a stale-pending draft once the session
-  // itself has sat 'completed' (which is when generation should have
-  // started) for longer than the same timeout used for stale draft rows.
   if (!draft && session.status === 'completed' && Date.now() - session.updatedAt.getTime() > STALE_PENDING_MS) {
     draft = {
       status: 'pending',
@@ -60,6 +73,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         id: session.id, status: session.status, qaHistory: session.qaHistory, askedCount: session.askedCount,
       },
       draft,
+      nextDeadline,
     },
   });
 }
