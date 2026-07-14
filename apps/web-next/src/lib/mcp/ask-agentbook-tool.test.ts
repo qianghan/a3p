@@ -1,6 +1,9 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 
 vi.mock('server-only', () => ({}));
+vi.mock('@/lib/agentbook-config', () => ({
+  getAppBaseUrl: vi.fn(() => 'https://agentbook.brainliber.com'),
+}));
 
 import { callAgentBrain, AgentBrainError } from './ask-agentbook-tool';
 
@@ -51,5 +54,17 @@ describe('callAgentBrain', () => {
       message: expect.not.stringContaining('10.0.0.5'),
       correlationId: expect.any(String),
     });
+  });
+
+  it('resolves its target host via getAppBaseUrl(), not a raw localhost fallback', async () => {
+    (global.fetch as any).mockResolvedValue({
+      ok: true,
+      text: async () => JSON.stringify({ success: true, data: { message: 'ok' } }),
+    });
+
+    await callAgentBrain({ text: 'hi', tenantId: 'user-1' });
+
+    const [url] = (global.fetch as any).mock.calls[0];
+    expect(url).toBe('https://agentbook.brainliber.com/api/v1/agentbook-core/agent/message');
   });
 });
