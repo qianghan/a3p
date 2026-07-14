@@ -1,12 +1,13 @@
 import 'server-only';
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma as db } from '@naap/database';
+import { isDraftStale } from '@agentbook-core/tax-questionnaire-session';
 import { safeResolveAgentbookTenant } from '@/lib/agentbook-tenant';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-const STALE_PENDING_MS = 2 * 60 * 1000;
+const STALE_PENDING_MS = 2 * 60 * 1000; // kept here too — used below for the session-level (no-draft-row) synthesis, which isDraftStale doesn't cover
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
   const __resolved = await safeResolveAgentbookTenant(request);
@@ -30,11 +31,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       letterPdfUrl: draftRow.letterPdfUrl,
       draftSummary: draftRow.draftSummary,
       errorMsg: draftRow.errorMsg,
-      // A killed after() invocation (e.g. the function was frozen before
-      // generateFilingDraft finished) leaves the row 'pending' forever with
-      // nothing to flip it to 'failed' — flag it as stale past a fixed
-      // timeout so the UI can offer a retry rather than polling forever.
-      stale: draftRow.status === 'pending' && Date.now() - draftRow.updatedAt.getTime() > STALE_PENDING_MS,
+      stale: isDraftStale(draftRow),
     }
     : null;
 

@@ -1,6 +1,7 @@
 import 'server-only';
 import { after, NextRequest, NextResponse } from 'next/server';
 import { prisma as db } from '@naap/database';
+import { isDraftStale } from '@agentbook-core/tax-questionnaire-session';
 import { callGemini } from '@agentbook-core/server';
 import { safeResolveAgentbookTenant } from '@/lib/agentbook-tenant';
 import { generateFilingDraft } from '@/lib/tax-fast-track-draft';
@@ -8,8 +9,6 @@ import { generateFilingDraft } from '@/lib/tax-fast-track-draft';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 export const maxDuration = 90;
-
-const STALE_PENDING_MS = 2 * 60 * 1000;
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
   const __resolved = await safeResolveAgentbookTenant(request);
@@ -28,7 +27,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   }
 
   const draft = await db.abTaxFastTrackDraft.findUnique({ where: { sessionId } });
-  const isStale = !!draft && draft.status === 'pending' && Date.now() - draft.updatedAt.getTime() > STALE_PENDING_MS;
+  const isStale = isDraftStale(draft);
   if (draft && draft.status !== 'failed' && !isStale) {
     return NextResponse.json({ success: false, error: `draft is '${draft.status}', not eligible for regeneration` }, { status: 400 });
   }

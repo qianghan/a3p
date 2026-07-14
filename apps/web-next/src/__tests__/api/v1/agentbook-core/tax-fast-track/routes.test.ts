@@ -15,7 +15,10 @@ const coreMock = {
 vi.mock('@agentbook-core/tax-questionnaire-core', () => coreMock);
 
 const sessionHelpersMock = { getActiveTaxQuestionnaireSession: vi.fn() };
-vi.mock('@agentbook-core/tax-questionnaire-session', () => sessionHelpersMock);
+vi.mock('@agentbook-core/tax-questionnaire-session', async () => {
+  const actual = await vi.importActual<typeof import('@agentbook-core/tax-questionnaire-session')>('@agentbook-core/tax-questionnaire-session');
+  return { ...actual, getActiveTaxQuestionnaireSession: sessionHelpersMock.getActiveTaxQuestionnaireSession };
+});
 
 vi.mock('@agentbook-core/server', () => ({ callGemini: vi.fn() }));
 
@@ -33,7 +36,12 @@ const dbMock = {
   abTaxQuestionnaireSession: { findFirst: vi.fn(async () => null as any), findUnique: vi.fn(async () => null as any) },
   abTaxFastTrackDraft: { findUnique: vi.fn(async () => null as any) },
 };
-vi.mock('@naap/database', () => ({ prisma: dbMock }));
+vi.mock('@naap/database', () => ({
+  prisma: dbMock,
+  // Needed because vi.importActual('@agentbook-core/tax-questionnaire-session')
+  // below pulls in the real ./db/client.js, which does `new PrismaClient()`.
+  PrismaClient: function PrismaClient() { return dbMock; },
+}));
 
 function makeRequest(body: unknown) {
   return new NextRequest('http://localhost/api/v1/agentbook-core/tax-fast-track/start', {

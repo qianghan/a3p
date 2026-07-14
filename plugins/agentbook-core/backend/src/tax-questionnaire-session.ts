@@ -87,3 +87,36 @@ export async function updateTaxQuestionnaireSession(
 
   return result > 0;
 }
+
+// ─── getLatestTaxQuestionnaireSession ───────────────────────────────────────
+
+/**
+ * The tenant's most recent session regardless of status — unlike
+ * getActiveTaxQuestionnaireSession, which only ever returns an in-progress,
+ * non-expired one. Used to check whether a *completed* session's draft is
+ * ready (PR-5's chat/MCP draft-status intent, and the dedicated /status
+ * route both need this same read).
+ */
+export async function getLatestTaxQuestionnaireSession(tenantId: string): Promise<any | null> {
+  return db.abTaxQuestionnaireSession.findFirst({
+    where: { tenantId },
+    orderBy: { createdAt: 'desc' },
+  });
+}
+
+// ─── isDraftStale ────────────────────────────────────────────────────────────
+
+const STALE_PENDING_MS = 2 * 60 * 1000;
+
+/**
+ * A killed after() invocation (the function was frozen mid-generation)
+ * leaves an AbTaxFastTrackDraft row 'pending' forever with nothing to flip
+ * it to 'failed'. Flag it as stale past a fixed timeout so callers (the
+ * /status route, the /regenerate route, and PR-5's chat/MCP status intent)
+ * can all offer a retry instead of waiting forever — one shared
+ * computation instead of three copies of the same constant + comparison.
+ */
+export function isDraftStale(draftRow: { status: string; updatedAt: Date } | null): boolean {
+  if (!draftRow) return false;
+  return draftRow.status === 'pending' && Date.now() - draftRow.updatedAt.getTime() > STALE_PENDING_MS;
+}
