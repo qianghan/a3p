@@ -50,8 +50,9 @@ vi.mock('../db/client.js', () => ({ db: dbMock }));
 // The tax-questionnaire session data-layer helpers (Task 1) get their own
 // dedicated unit tests in tax-questionnaire-session.test.ts — here we mock
 // them directly so this file tests ONLY agent-brain.ts's branch logic (what
-// it decides to call and with what arguments), not the raw-SQL/version-guard
-// mechanics underneath.
+// it decides to call and with what arguments), not getActiveTaxQuestionnaireSession's
+// plain read or updateTaxQuestionnaireSession's raw-SQL version-guard mechanics
+// underneath.
 //
 // Task 3 (PR-5) adds a second consumer of this module: Step 1c calls the
 // real (unmocked) getLatestTaxQuestionnaireSession/isDraftStale directly —

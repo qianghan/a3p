@@ -13,7 +13,7 @@ import { prisma as db, Prisma } from '@naap/database';
 import { reportError } from '@/lib/logger';
 import { createNotification } from '@/lib/notifications';
 import { usPack, caPack, ukPack, auPack, type JurisdictionPack } from '@agentbook/jurisdictions';
-import { ANNUAL_FILING_DEADLINE_KEYS } from '@/app/api/v1/agentbook-core/tax-fast-track/status/route';
+import { ANNUAL_FILING_DEADLINE_KEYS } from '@/lib/tax-fast-track/deadline-keys';
 
 const PACKS: Record<string, JurisdictionPack> = { us: usPack, ca: caPack, uk: ukPack, au: auPack };
 const SEED_SOURCE = 'calendar-deadlines-seed';

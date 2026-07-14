@@ -106,7 +106,7 @@ export async function getLatestTaxQuestionnaireSession(tenantId: string): Promis
 
 // ─── isDraftStale ────────────────────────────────────────────────────────────
 
-const STALE_PENDING_MS = 2 * 60 * 1000;
+export const STALE_PENDING_MS = 2 * 60 * 1000;
 
 /**
  * A killed after() invocation (the function was frozen mid-generation)

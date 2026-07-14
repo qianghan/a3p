@@ -1,23 +1,12 @@
 import 'server-only';
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma as db } from '@naap/database';
-import { isDraftStale } from '@agentbook-core/tax-questionnaire-session';
+import { isDraftStale, STALE_PENDING_MS } from '@agentbook-core/tax-questionnaire-session';
 import { safeResolveAgentbookTenant } from '@/lib/agentbook-tenant';
+import { ANNUAL_FILING_DEADLINE_KEYS } from '@/lib/tax-fast-track/deadline-keys';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
-
-const STALE_PENDING_MS = 2 * 60 * 1000;
-
-// The "annual filing due" event is titled differently per jurisdiction
-// pack — us/calendar-deadlines.ts uses calendar.annual_tax_filing_due,
-// ca/calendar-deadlines.ts uses calendar.t1_filing_due (no
-// annual_tax_filing_due key exists for CA at all). Fast-track only
-// supports us/ca, so this two-entry list covers it — each key is already
-// unambiguous to its own jurisdiction, no tenant ever has both. Shared
-// with cron/calendar-check/route.ts (Task 5) so both call sites recognize
-// the identical set.
-export const ANNUAL_FILING_DEADLINE_KEYS = ['calendar.annual_tax_filing_due', 'calendar.t1_filing_due'];
 
 async function findNextDeadline(tenantId: string) {
   const event = await db.abCalendarEvent.findFirst({
@@ -55,6 +44,19 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     }
     : null;
 
+  // STALE_PENDING_MS is imported from the session module (single-sourced
+  // with isDraftStale's own use of it) and drives the SESSION-level
+  // synthesis path below — the case where there's no draft row at all
+  // yet — which isDraftStale itself doesn't cover, since isDraftStale only
+  // takes a draft row.
+  //
+  // A killed after() invocation can also die BEFORE its first DB write —
+  // i.e. before the row-creating upsert ever runs — leaving no
+  // AbTaxFastTrackDraft row at all. In that case `draft` above is null and
+  // there is no staleness signal, so the UI polls "Generating..." forever
+  // with no retry option. Synthesize a stale-pending draft once the session
+  // itself has sat 'completed' (which is when generation should have
+  // started) for longer than the same timeout used for stale draft rows.
   if (!draft && session.status === 'completed' && Date.now() - session.updatedAt.getTime() > STALE_PENDING_MS) {
     draft = {
       status: 'pending',

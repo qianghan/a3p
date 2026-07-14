@@ -26,13 +26,6 @@ vi.mock('@naap/database', () => ({
     abTaxQuestionnaireSession: { findFirst: (...a: unknown[]) => abTaxQuestionnaireSessionFindFirst(...a) },
   },
   Prisma: {},
-  // The cron route now imports ANNUAL_FILING_DEADLINE_KEYS from
-  // tax-fast-track/status/route.ts, which transitively imports
-  // tax-questionnaire-session.ts -> db/client.ts, which does
-  // `new PrismaClient()` at module scope. That import chain never runs
-  // any of these methods here, but it needs the class to exist so the
-  // module can load.
-  PrismaClient: class {},
 }));
 vi.mock('@/lib/logger', () => ({ reportError: (...a: unknown[]) => reportError(...a) }));
 vi.mock('@/lib/notifications', () => ({ createNotification: (...a: unknown[]) => createNotification(...a) }));
