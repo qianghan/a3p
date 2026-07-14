@@ -7,6 +7,11 @@ vi.mock('@/lib/agentbook-tenant', () => ({
   safeResolveAgentbookTenant: vi.fn(async () => ({ tenantId: 'tenant-A' })),
 }));
 
+vi.mock('@/lib/agentbook-tax-fast-track/guard', () => ({
+  requireTaxFastTrackAddon: vi.fn(async () => ({ tenantId: 'tenant-A' })),
+  TAX_FAST_TRACK_ADDON_CODE: 'tax_fast_track',
+}));
+
 const coreMock = {
   startTaxQuestionnaire: vi.fn(),
   answerTaxQuestionnaire: vi.fn(),
@@ -15,7 +20,10 @@ const coreMock = {
 vi.mock('@agentbook-core/tax-questionnaire-core', () => coreMock);
 
 const sessionHelpersMock = { getActiveTaxQuestionnaireSession: vi.fn() };
-vi.mock('@agentbook-core/tax-questionnaire-session', () => sessionHelpersMock);
+vi.mock('@agentbook-core/tax-questionnaire-session', async () => {
+  const actual = await vi.importActual<typeof import('@agentbook-core/tax-questionnaire-session')>('@agentbook-core/tax-questionnaire-session');
+  return { ...actual, getActiveTaxQuestionnaireSession: sessionHelpersMock.getActiveTaxQuestionnaireSession };
+});
 
 vi.mock('@agentbook-core/server', () => ({ callGemini: vi.fn() }));
 
@@ -32,8 +40,14 @@ const dbMock = {
   abTenantConfig: { findFirst: vi.fn(async () => null as any) },
   abTaxQuestionnaireSession: { findFirst: vi.fn(async () => null as any), findUnique: vi.fn(async () => null as any) },
   abTaxFastTrackDraft: { findUnique: vi.fn(async () => null as any) },
+  abCalendarEvent: { findFirst: vi.fn(async () => null as any) },
 };
-vi.mock('@naap/database', () => ({ prisma: dbMock }));
+vi.mock('@naap/database', () => ({
+  prisma: dbMock,
+  // Needed because vi.importActual('@agentbook-core/tax-questionnaire-session')
+  // below pulls in the real ./db/client.js, which does `new PrismaClient()`.
+  PrismaClient: function PrismaClient() { return dbMock; },
+}));
 
 function makeRequest(body: unknown) {
   return new NextRequest('http://localhost/api/v1/agentbook-core/tax-fast-track/start', {
@@ -65,6 +79,17 @@ describe('POST /tax-fast-track/start', () => {
     await POST(makeRequest({}));
 
     expect(generateFilingDraftMock).not.toHaveBeenCalled();
+  });
+
+  it('returns 402 when the tenant lacks the tax_fast_track add-on', async () => {
+    const guardMod = await import('@/lib/agentbook-tax-fast-track/guard');
+    (guardMod.requireTaxFastTrackAddon as any).mockResolvedValueOnce({
+      response: new Response(JSON.stringify({ error: 'no addon' }), { status: 402 }),
+    });
+    const { POST } = await import('../../../../../app/api/v1/agentbook-core/tax-fast-track/start/route');
+
+    const res = await POST(makeRequest({}));
+    expect(res.status).toBe(402);
   });
 });
 
@@ -119,7 +144,7 @@ describe('GET /tax-fast-track/status', () => {
 
     const res = await GET(makeRequest({}));
     const json = await res.json();
-    expect(json.data).toEqual({ session: null, draft: null });
+    expect(json.data).toEqual({ session: null, draft: null, nextDeadline: null });
   });
 
   it('finds a COMPLETED session (not just in_progress) and its linked draft', async () => {
@@ -179,6 +204,47 @@ describe('GET /tax-fast-track/status', () => {
     const json = await res.json();
     expect(json.data.draft).toBeNull();
   });
+
+  it('includes nextDeadline when an upcoming annual_tax_filing_due event exists (US)', async () => {
+    dbMock.abTaxQuestionnaireSession.findFirst.mockResolvedValue(null);
+    dbMock.abCalendarEvent.findFirst.mockResolvedValue({
+      titleKey: 'calendar.annual_tax_filing_due', date: new Date('2027-04-15T00:00:00.000Z'),
+    });
+    const { GET } = await import('../../../../../app/api/v1/agentbook-core/tax-fast-track/status/route');
+
+    const res = await GET(makeRequest({}));
+    const json = await res.json();
+
+    expect(json.data.nextDeadline).toEqual({ date: '2027-04-15T00:00:00.000Z', titleKey: 'calendar.annual_tax_filing_due' });
+    expect(dbMock.abCalendarEvent.findFirst).toHaveBeenCalledWith({
+      where: { tenantId: 'tenant-A', titleKey: { in: ['calendar.annual_tax_filing_due', 'calendar.t1_filing_due'] }, date: { gte: expect.any(Date) } },
+      orderBy: { date: 'asc' },
+    });
+  });
+
+  it('includes nextDeadline for a CA tenant\'s t1_filing_due event too', async () => {
+    dbMock.abTaxQuestionnaireSession.findFirst.mockResolvedValue(null);
+    dbMock.abCalendarEvent.findFirst.mockResolvedValue({
+      titleKey: 'calendar.t1_filing_due', date: new Date('2027-04-30T00:00:00.000Z'),
+    });
+    const { GET } = await import('../../../../../app/api/v1/agentbook-core/tax-fast-track/status/route');
+
+    const res = await GET(makeRequest({}));
+    const json = await res.json();
+
+    expect(json.data.nextDeadline).toEqual({ date: '2027-04-30T00:00:00.000Z', titleKey: 'calendar.t1_filing_due' });
+  });
+
+  it('sets nextDeadline to null when no upcoming deadline event exists', async () => {
+    dbMock.abTaxQuestionnaireSession.findFirst.mockResolvedValue(null);
+    dbMock.abCalendarEvent.findFirst.mockResolvedValue(null);
+    const { GET } = await import('../../../../../app/api/v1/agentbook-core/tax-fast-track/status/route');
+
+    const res = await GET(makeRequest({}));
+    const json = await res.json();
+
+    expect(json.data.nextDeadline).toBeNull();
+  });
 });
 
 describe('POST /tax-fast-track/regenerate', () => {
@@ -228,5 +294,16 @@ describe('POST /tax-fast-track/regenerate', () => {
     const res = await POST(makeRequest({ sessionId: 'tqs-11' }));
     expect(res.status).toBe(400);
     expect(generateFilingDraftMock).not.toHaveBeenCalled();
+  });
+
+  it('returns 402 when the tenant lacks the tax_fast_track add-on', async () => {
+    const guardMod = await import('@/lib/agentbook-tax-fast-track/guard');
+    (guardMod.requireTaxFastTrackAddon as any).mockResolvedValueOnce({
+      response: new Response(JSON.stringify({ error: 'no addon' }), { status: 402 }),
+    });
+    const { POST } = await import('../../../../../app/api/v1/agentbook-core/tax-fast-track/regenerate/route');
+
+    const res = await POST(makeRequest({ sessionId: 'tqs-1' }));
+    expect(res.status).toBe(402);
   });
 });

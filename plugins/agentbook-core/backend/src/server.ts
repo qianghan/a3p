@@ -4251,6 +4251,14 @@ async function _executeClassificationCore(
   // have already claimed the reply if a session were active).
   if (selectedSkill.name === 'start-tax-fast-track') {
     try {
+      if (!(await hasAddOn(tenantId, 'tax_fast_track'))) {
+        const message = 'Tax Fast-Track is a paid add-on — enable it in Settings to start a filing draft review.';
+        await db.abConversation.create({ data: { tenantId, question: text || '[tax fast track]', answer: message, queryType: 'agent', channel, skillUsed: 'start-tax-fast-track' } }).catch(() => {});
+        return {
+          selectedSkill, extractedParams, confidence: 1, skillUsed: 'start-tax-fast-track', skillResponse: null,
+          responseData: { message, actions: [], chartData: null, skillUsed: 'start-tax-fast-track', confidence: 1, latencyMs: Date.now() - startTime },
+        };
+      }
       const jurisdiction = (classification.tenantConfig?.jurisdiction || 'us').toLowerCase();
       const region = classification.tenantConfig?.region || null;
       const result = await startTaxQuestionnaire(

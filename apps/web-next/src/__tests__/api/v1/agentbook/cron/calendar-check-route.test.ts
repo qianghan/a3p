@@ -10,6 +10,8 @@ const abCalendarEventUpdate = vi.fn();
 const abEventCreate = vi.fn();
 const reportError = vi.fn();
 const createNotification = vi.fn();
+const abPastTaxFilingFindFirst = vi.fn();
+const abTaxQuestionnaireSessionFindFirst = vi.fn();
 
 vi.mock('@naap/database', () => ({
   prisma: {
@@ -20,6 +22,8 @@ vi.mock('@naap/database', () => ({
       update: (...a: unknown[]) => abCalendarEventUpdate(...a),
     },
     abEvent: { create: (...a: unknown[]) => abEventCreate(...a) },
+    abPastTaxFiling: { findFirst: (...a: unknown[]) => abPastTaxFilingFindFirst(...a) },
+    abTaxQuestionnaireSession: { findFirst: (...a: unknown[]) => abTaxQuestionnaireSessionFindFirst(...a) },
   },
   Prisma: {},
 }));
@@ -32,12 +36,16 @@ beforeEach(() => {
   abTenantConfigFindMany.mockReset(); abCalendarEventFindMany.mockReset();
   abCalendarEventCreateMany.mockReset(); abCalendarEventUpdate.mockReset();
   abEventCreate.mockReset(); reportError.mockReset(); createNotification.mockReset();
+  abPastTaxFilingFindFirst.mockReset();
+  abTaxQuestionnaireSessionFindFirst.mockReset();
   abTenantConfigFindMany.mockResolvedValue([]);
   abCalendarEventFindMany.mockResolvedValue([]);
   abCalendarEventCreateMany.mockResolvedValue({ count: 0 });
   abCalendarEventUpdate.mockResolvedValue({});
   abEventCreate.mockResolvedValue({});
   createNotification.mockResolvedValue({});
+  abPastTaxFilingFindFirst.mockResolvedValue(null);
+  abTaxQuestionnaireSessionFindFirst.mockResolvedValue(null);
 });
 
 function req() {
@@ -119,7 +127,74 @@ describe('GET /api/v1/agentbook/cron/calendar-check', () => {
       const r = await GET(req());
       expect(r.status).toBe(401);
     } finally {
-      process.env.CRON_SECRET = prevSecret;
+      if (prevSecret === undefined) delete process.env.CRON_SECRET;
+      else process.env.CRON_SECRET = prevSecret;
     }
+  });
+});
+
+describe('fast-track proactive nudge (PR-5)', () => {
+  function deadlineEvent(overrides: Partial<Record<string, any>> = {}) {
+    return {
+      id: 'evt-1', tenantId: 'tenant-A', eventType: 'tax_deadline', titleKey: 'calendar.annual_tax_filing_due',
+      date: new Date(Date.now() + 2 * 24 * 60 * 60 * 1000), leadTimeDays: [7, 3, 1, 0], urgency: 'critical',
+      actionUrl: null, actionLabelKey: null, status: 'upcoming',
+      ...overrides,
+    };
+  }
+
+  it('fires the fast-track-specific notification (not the generic one) for a US tenant with a confirmed prior filing and no existing session', async () => {
+    abCalendarEventFindMany.mockResolvedValue([deadlineEvent()]);
+    abPastTaxFilingFindFirst.mockResolvedValue({ id: 'filing-1', status: 'confirmed' });
+    abTaxQuestionnaireSessionFindFirst.mockResolvedValue(null);
+
+    await GET(req());
+
+    expect(createNotification).toHaveBeenCalledTimes(1);
+    const call = createNotification.mock.calls[0][0];
+    expect(call.ctaUrl).toBe('/agentbook/tax-package?tab=fast-track');
+    expect(call.title).toBe('Get a head start on your filing');
+  });
+
+  it('fires for a CA tenant\'s t1_filing_due event too (regression coverage for the jurisdiction-key fix)', async () => {
+    abCalendarEventFindMany.mockResolvedValue([deadlineEvent({ id: 'evt-2', tenantId: 'tenant-B', titleKey: 'calendar.t1_filing_due' })]);
+    abPastTaxFilingFindFirst.mockResolvedValue({ id: 'filing-2', status: 'confirmed' });
+    abTaxQuestionnaireSessionFindFirst.mockResolvedValue(null);
+
+    await GET(req());
+
+    expect(createNotification).toHaveBeenCalledTimes(1);
+    expect(createNotification.mock.calls[0][0].ctaUrl).toBe('/agentbook/tax-package?tab=fast-track');
+  });
+
+  it('falls back to the generic notification when there is no confirmed prior filing', async () => {
+    abCalendarEventFindMany.mockResolvedValue([deadlineEvent({ id: 'evt-3', tenantId: 'tenant-C' })]);
+    abPastTaxFilingFindFirst.mockResolvedValue(null);
+
+    await GET(req());
+
+    expect(createNotification).toHaveBeenCalledTimes(1);
+    expect(createNotification.mock.calls[0][0].title).not.toBe('Get a head start on your filing');
+  });
+
+  it('sends neither notification when a session already exists for that tax year', async () => {
+    abCalendarEventFindMany.mockResolvedValue([deadlineEvent({ id: 'evt-4', tenantId: 'tenant-D' })]);
+    abPastTaxFilingFindFirst.mockResolvedValue({ id: 'filing-4', status: 'confirmed' });
+    abTaxQuestionnaireSessionFindFirst.mockResolvedValue({ id: 'existing-session' });
+
+    await GET(req());
+
+    expect(createNotification).toHaveBeenCalledTimes(1);
+    expect(createNotification.mock.calls[0][0].title).not.toBe('Get a head start on your filing');
+  });
+
+  it('does not fire the fast-track nudge for a quarterly deadline event', async () => {
+    abCalendarEventFindMany.mockResolvedValue([deadlineEvent({ id: 'evt-5', tenantId: 'tenant-E', titleKey: 'calendar.q1_estimated_tax_due' })]);
+
+    await GET(req());
+
+    expect(abPastTaxFilingFindFirst).not.toHaveBeenCalled();
+    expect(createNotification).toHaveBeenCalledTimes(1);
+    expect(createNotification.mock.calls[0][0].title).not.toBe('Get a head start on your filing');
   });
 });

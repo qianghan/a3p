@@ -144,6 +144,53 @@ describe('getActiveTaxQuestionnaireSession', () => {
   });
 });
 
+describe('getLatestTaxQuestionnaireSession', () => {
+  it('queries by tenantId only (no status/expiry filter) ordered by createdAt desc', async () => {
+    const fakeSession = { id: 'tqs-latest', tenantId: 'tenant-A', status: 'completed' };
+    dbMock.abTaxQuestionnaireSession.findFirst.mockResolvedValue(fakeSession);
+    const { getLatestTaxQuestionnaireSession } = await import('../tax-questionnaire-session.js');
+
+    const result = await getLatestTaxQuestionnaireSession('tenant-A');
+
+    expect(result).toEqual(fakeSession);
+    expect(dbMock.abTaxQuestionnaireSession.findFirst).toHaveBeenCalledWith({
+      where: { tenantId: 'tenant-A' },
+      orderBy: { createdAt: 'desc' },
+    });
+  });
+
+  it('returns null when the tenant has never started a session', async () => {
+    dbMock.abTaxQuestionnaireSession.findFirst.mockResolvedValue(null);
+    const { getLatestTaxQuestionnaireSession } = await import('../tax-questionnaire-session.js');
+
+    const result = await getLatestTaxQuestionnaireSession('tenant-B');
+
+    expect(result).toBeNull();
+  });
+});
+
+describe('isDraftStale', () => {
+  it('returns false for a null draft row', async () => {
+    const { isDraftStale } = await import('../tax-questionnaire-session.js');
+    expect(isDraftStale(null)).toBe(false);
+  });
+
+  it('returns false for a ready draft, regardless of age', async () => {
+    const { isDraftStale } = await import('../tax-questionnaire-session.js');
+    expect(isDraftStale({ status: 'ready', updatedAt: new Date(Date.now() - 10 * 60 * 1000) })).toBe(false);
+  });
+
+  it('returns false for a pending draft within the 2-minute window', async () => {
+    const { isDraftStale } = await import('../tax-questionnaire-session.js');
+    expect(isDraftStale({ status: 'pending', updatedAt: new Date() })).toBe(false);
+  });
+
+  it('returns true for a pending draft past the 2-minute window', async () => {
+    const { isDraftStale } = await import('../tax-questionnaire-session.js');
+    expect(isDraftStale({ status: 'pending', updatedAt: new Date(Date.now() - 3 * 60 * 1000) })).toBe(true);
+  });
+});
+
 describe('createSession() reverse mutual exclusion (agent-planner.ts)', () => {
   it('expires an active AbTaxQuestionnaireSession for the tenant when starting a new plan-confirmation session', async () => {
     const { createSession } = await import('../agent-planner.js');

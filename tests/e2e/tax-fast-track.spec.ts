@@ -143,6 +143,24 @@ function fakeExtractedData(taxYear: number) {
   };
 }
 
+async function grantTaxFastTrackAddon(prisma: typeof import('@naap/database').prisma, tenantId: string) {
+  const addOn = await prisma.billAddOn.upsert({
+    where: { code: 'tax_fast_track' },
+    update: { isActive: true },
+    create: { code: 'tax_fast_track', name: 'Tax Fast-Track', interval: 'year', isActive: true },
+  });
+  const price = await prisma.billAddOnPrice.upsert({
+    where: { addOnId_region_tier: { addOnId: addOn.id, region: 'us', tier: 'standard' } },
+    update: { isActive: true },
+    create: { addOnId: addOn.id, region: 'us', currency: 'usd', tier: 'standard', priceCents: 4900, isActive: true },
+  });
+  await prisma.billAddOnSubscription.upsert({
+    where: { accountId_addOnId: { accountId: tenantId, addOnId: addOn.id } },
+    create: { accountId: tenantId, addOnId: addOn.id, priceId: price.id, status: 'active' },
+    update: { status: 'active', priceId: price.id, canceledAt: null },
+  });
+}
+
 test.describe('Tax fast-track questionnaire', () => {
   let prisma: typeof import('@naap/database').prisma;
 
@@ -162,6 +180,7 @@ test.describe('Tax fast-track questionnaire', () => {
     const user = await prisma.user.findUnique({ where: { email } });
     expect(user, 'registered user should exist').toBeTruthy();
     const tenantId = user!.id;
+    await grantTaxFastTrackAddon(prisma, tenantId);
 
     // Seed a *confirmed* AbPastTaxFiling directly — bypassing the upload/OCR
     // pipeline, which is a different feature not under test here.
@@ -242,6 +261,7 @@ test.describe('Tax fast-track questionnaire', () => {
     const user = await prisma.user.findUnique({ where: { email } });
     expect(user).toBeTruthy();
     const tenantId = user!.id;
+    await grantTaxFastTrackAddon(prisma, tenantId);
 
     // Confirm there really is no confirmed filing for this fresh tenant
     // before asserting on the blocked path.
@@ -271,6 +291,7 @@ test.describe('Tax fast-track questionnaire', () => {
     const user = await prisma.user.findUnique({ where: { email } });
     expect(user).toBeTruthy();
     const tenantId = user!.id;
+    await grantTaxFastTrackAddon(prisma, tenantId);
 
     await prisma.abPastTaxFiling.create({
       data: {

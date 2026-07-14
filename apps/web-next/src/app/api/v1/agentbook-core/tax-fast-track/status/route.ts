@@ -1,12 +1,20 @@
 import 'server-only';
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma as db } from '@naap/database';
+import { isDraftStale, STALE_PENDING_MS } from '@agentbook-core/tax-questionnaire-session';
 import { safeResolveAgentbookTenant } from '@/lib/agentbook-tenant';
+import { ANNUAL_FILING_DEADLINE_KEYS } from '@/lib/tax-fast-track/deadline-keys';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-const STALE_PENDING_MS = 2 * 60 * 1000;
+async function findNextDeadline(tenantId: string) {
+  const event = await db.abCalendarEvent.findFirst({
+    where: { tenantId, titleKey: { in: ANNUAL_FILING_DEADLINE_KEYS }, date: { gte: new Date() } },
+    orderBy: { date: 'asc' },
+  });
+  return event ? { date: event.date.toISOString(), titleKey: event.titleKey } : null;
+}
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
   const __resolved = await safeResolveAgentbookTenant(request);
@@ -18,8 +26,10 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     orderBy: { createdAt: 'desc' },
   });
 
+  const nextDeadline = await findNextDeadline(tenantId);
+
   if (!session) {
-    return NextResponse.json({ success: true, data: { session: null, draft: null } });
+    return NextResponse.json({ success: true, data: { session: null, draft: null, nextDeadline } });
   }
 
   const draftRow = await db.abTaxFastTrackDraft.findUnique({ where: { sessionId: session.id } });
@@ -30,14 +40,16 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       letterPdfUrl: draftRow.letterPdfUrl,
       draftSummary: draftRow.draftSummary,
       errorMsg: draftRow.errorMsg,
-      // A killed after() invocation (e.g. the function was frozen before
-      // generateFilingDraft finished) leaves the row 'pending' forever with
-      // nothing to flip it to 'failed' — flag it as stale past a fixed
-      // timeout so the UI can offer a retry rather than polling forever.
-      stale: draftRow.status === 'pending' && Date.now() - draftRow.updatedAt.getTime() > STALE_PENDING_MS,
+      stale: isDraftStale(draftRow),
     }
     : null;
 
+  // STALE_PENDING_MS is imported from the session module (single-sourced
+  // with isDraftStale's own use of it) and drives the SESSION-level
+  // synthesis path below — the case where there's no draft row at all
+  // yet — which isDraftStale itself doesn't cover, since isDraftStale only
+  // takes a draft row.
+  //
   // A killed after() invocation can also die BEFORE its first DB write —
   // i.e. before the row-creating upsert ever runs — leaving no
   // AbTaxFastTrackDraft row at all. In that case `draft` above is null and
@@ -63,6 +75,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         id: session.id, status: session.status, qaHistory: session.qaHistory, askedCount: session.askedCount,
       },
       draft,
+      nextDeadline,
     },
   });
 }

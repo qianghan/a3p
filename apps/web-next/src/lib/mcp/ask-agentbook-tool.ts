@@ -1,8 +1,15 @@
 import 'server-only';
 import crypto from 'crypto';
-import { PLUGIN_PORTS, DEFAULT_PORT } from '@/lib/plugin-ports';
+import { getAppBaseUrl } from '@/lib/agentbook-config';
 
-const CORE_URL = process.env.AGENTBOOK_CORE_URL || `http://localhost:${PLUGIN_PORTS['agentbook-core'] || DEFAULT_PORT}`;
+// No NextRequest available in this background/tool-call context —
+// getAppBaseUrl() falls through to AGENTBOOK_HOST (set in prod), then
+// VERCEL_URL, then the canonical production domain. Previously this file
+// built its own CORE_URL from AGENTBOOK_CORE_URL/PLUGIN_PORTS, which falls
+// back to an unreachable http://localhost:4050 in a serverless function —
+// the same class of bug already fixed everywhere else via getAppBaseUrl()
+// in the F4-01/F4-02 "chat self-call" incident, just never applied here.
+const CORE_URL = getAppBaseUrl();
 
 export interface AgentResponse {
   success: boolean;
