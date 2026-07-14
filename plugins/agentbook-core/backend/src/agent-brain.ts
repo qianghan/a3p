@@ -13,7 +13,7 @@ import { buildPersonalProfileContext } from './personal-profile-context.js';
 import { retrieveRelevantMemories, learnFromInteraction, handleCorrection } from './agent-memory.js';
 import { assessComplexity, generatePlan, formatPlan, createSession, getActiveSession, updateSession, executeStep, buildUndoAction, resolveStepParams } from './agent-planner.js';
 import { PlanStep, Evaluation, assessStepQuality, buildFinalEvaluation, formatEvaluation } from './agent-evaluator.js';
-import { getActiveTaxQuestionnaireSession } from './tax-questionnaire-session.js';
+import { getActiveTaxQuestionnaireSession, getLatestTaxQuestionnaireSession, isDraftStale } from './tax-questionnaire-session.js';
 import { answerTaxQuestionnaire, cancelTaxQuestionnaire, type CoreResult } from './tax-questionnaire-core.js';
 
 // Deterministic local engagement fallback when LLM is unreachable.
@@ -202,6 +202,13 @@ const CONFIRM_RE = /^(yes|confirm|go|ok|proceed|do it|y)$/i;
 // the one-word "nevermind" the original pattern covers (design spec's
 // "Revised: exit paths" section + plan Task 3's corrected instruction).
 const TAX_QUESTIONNAIRE_CANCEL_RE = /^(cancel|stop|abort|never\s?mind|n)$/i;
+
+// Deliberately narrow — must name the feature specifically ("filing draft",
+// "client letter", or "tax draft"/"tax fast-track draft"), not just "draft"
+// or "letter" alone. AgentBook invoices have their own real 'draft' status
+// ("check my invoice draft") — a bare \bdraft\b match would hijack those
+// messages for any tenant who's ever completed a tax questionnaire.
+const TAX_DRAFT_STATUS_RE = /\b(filing draft|client letter|tax (fast.?track )?draft)\b/i;
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -477,6 +484,37 @@ function translateTaxCoreResult(result: CoreResult, startTime: number): AgentRes
   // it), included for type exhaustiveness.
   return buildResponse({
     message: result.message, skillUsed: 'tax-questionnaire', confidence: 1, sessionId: (result as { sessionId?: string }).sessionId, latencyMs: Date.now() - startTime,
+  });
+}
+
+/** Chat/MCP equivalent of GET /tax-fast-track/status's draft-shape translation — same four states the UI's FastTrackTab.tsx already renders, as chat text instead of UI cards. */
+function buildTaxDraftStatusResponse(
+  draftRow: { status: string; draftPdfUrl: string | null; letterPdfUrl: string | null; draftSummary: unknown; errorMsg: string | null; updatedAt: Date } | null,
+  startTime: number,
+): AgentResponse {
+  if (!draftRow || (draftRow.status === 'pending' && !isDraftStale(draftRow))) {
+    return buildResponse({
+      message: "Your filing draft is still generating — check back in a few minutes.",
+      skillUsed: 'tax-draft-status', confidence: 1, latencyMs: Date.now() - startTime,
+    });
+  }
+  if (draftRow.status === 'pending' && isDraftStale(draftRow)) {
+    return buildResponse({
+      message: "Generation seems stuck. Open the Tax Fast-Track tab in the app and tap \"Try again\" to regenerate it.",
+      skillUsed: 'tax-draft-status', confidence: 1, latencyMs: Date.now() - startTime,
+    });
+  }
+  if (draftRow.status === 'ready') {
+    const caveat = (draftRow.draftSummary as { caveat?: string } | null)?.caveat ?? '';
+    return buildResponse({
+      message: `Your filing draft is ready!\n\nFiling draft: ${draftRow.draftPdfUrl}\nClient letter: ${draftRow.letterPdfUrl}\n\n${caveat}`,
+      skillUsed: 'tax-draft-status', confidence: 1, latencyMs: Date.now() - startTime,
+    });
+  }
+  // 'failed'
+  return buildResponse({
+    message: `Something went wrong generating your draft (${draftRow.errorMsg}). Open the Tax Fast-Track tab in the app and tap "Try again" to regenerate it.`,
+    skillUsed: 'tax-draft-status', confidence: 1, latencyMs: Date.now() - startTime,
   });
 }
 
@@ -863,6 +901,23 @@ export async function handleAgentMessage(
 
     const result = await answerTaxQuestionnaire(tqSession, text, ctx.callGemini);
     return translateTaxCoreResult(result, startTime);
+  }
+
+  // ── Step 1c: Tax draft/letter status (chat + MCP parity, PR-5) ────────
+  // Only reachable once Step 1b above did NOT already claim the reply —
+  // i.e. there is no *active* (in-progress) session. A tenant mid-
+  // questionnaire always has their plain text treated as an answer,
+  // matching PR-3's existing contract; this intent only fires once a
+  // session has already reached 'completed' and the questionnaire itself
+  // is done.
+  if (TAX_DRAFT_STATUS_RE.test(text.trim())) {
+    const latest = await getLatestTaxQuestionnaireSession(tenantId);
+    if (latest?.status === 'completed') {
+      const draftRow = await db.abTaxFastTrackDraft.findUnique({ where: { sessionId: latest.id } });
+      return buildTaxDraftStatusResponse(draftRow, startTime);
+    }
+    // No completed session at all — fall through to normal classification,
+    // same as any other unrecognized message.
   }
 
   // ── Step 2: Context assembly ───────────────────────────────────────────

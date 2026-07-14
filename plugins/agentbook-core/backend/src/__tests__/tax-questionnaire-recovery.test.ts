@@ -37,6 +37,11 @@ const dbMock = {
   abSkillManifest: { findMany: vi.fn(async () => [] as any[]) },
   abEvent: { create: vi.fn(async () => ({})) },
   abPastTaxFiling: { findUnique: vi.fn(async () => null as any) },
+  // Task 3 (PR-5): backs the real (unmocked) getLatestTaxQuestionnaireSession
+  // used by the new Step 1c branch, plus its own draft-row read, exercised by
+  // the 'tax draft status intent (Step 1c)' describe block below.
+  abTaxQuestionnaireSession: { findFirst: vi.fn(async (_args?: any) => null as any) },
+  abTaxFastTrackDraft: { findUnique: vi.fn(async () => null as any) },
   $executeRaw: vi.fn(async () => 1),
 };
 
@@ -47,11 +52,25 @@ vi.mock('../db/client.js', () => ({ db: dbMock }));
 // them directly so this file tests ONLY agent-brain.ts's branch logic (what
 // it decides to call and with what arguments), not the raw-SQL/version-guard
 // mechanics underneath.
+//
+// Task 3 (PR-5) adds a second consumer of this module: Step 1c calls the
+// real (unmocked) getLatestTaxQuestionnaireSession/isDraftStale directly —
+// they're plain reads against the already-mocked db/client.js above, so
+// there's no need for a third layer of manual mocking on top.
 const sessionHelpers = {
   getActiveTaxQuestionnaireSession: vi.fn(async (_tenantId: string) => null as any),
   updateTaxQuestionnaireSession: vi.fn(async (_id: string, _version: number, _data: any) => true),
 };
-vi.mock('../tax-questionnaire-session.js', () => sessionHelpers);
+vi.mock('../tax-questionnaire-session.js', async () => {
+  const actual = await vi.importActual<typeof import('../tax-questionnaire-session.js')>(
+    '../tax-questionnaire-session.js',
+  );
+  return {
+    ...sessionHelpers,
+    getLatestTaxQuestionnaireSession: actual.getLatestTaxQuestionnaireSession,
+    isDraftStale: actual.isDraftStale,
+  };
+});
 
 // The jurisdiction pack (Task 2) also gets its own dedicated unit tests —
 // mock the loader so this file controls exactly what nextQuestionPrompt()/
@@ -120,6 +139,8 @@ beforeEach(() => {
   dbMock.abAgentSession.findFirst.mockResolvedValue(null);
   dbMock.abConvThread.findFirst.mockResolvedValue(null);
   dbMock.abPastTaxFiling.findUnique.mockResolvedValue(null);
+  dbMock.abTaxQuestionnaireSession.findFirst.mockResolvedValue(null);
+  dbMock.abTaxFastTrackDraft.findUnique.mockResolvedValue(null);
 });
 
 describe('tax-questionnaire session recovery (agent-brain.ts)', () => {
@@ -331,5 +352,120 @@ describe('tax-questionnaire session recovery (agent-brain.ts)', () => {
     expect(resp.data.message).toBe('Session was modified by another process. Please try again.');
     expect(sessionHelpers.updateTaxQuestionnaireSession).toHaveBeenCalledTimes(1);
     expect(callGemini).not.toHaveBeenCalled();
+  });
+});
+
+describe('tax draft status intent (Step 1c)', () => {
+  beforeEach(() => {
+    // No active in-progress session for any of these tests — that's Step
+    // 1b's branch (already tested above); this intent only evaluates once
+    // Step 1b has NOT already claimed the reply.
+    dbMock.abTaxQuestionnaireSession.findFirst
+      .mockImplementation(async (args: any) => (args?.where?.status === 'in_progress' ? null : null));
+  });
+
+  it('matches "is my filing draft ready" and returns both PDF links when the draft is ready', async () => {
+    dbMock.abTaxQuestionnaireSession.findFirst.mockResolvedValue({ id: 'tqs-1', status: 'completed' });
+    dbMock.abTaxFastTrackDraft.findUnique.mockResolvedValue({
+      status: 'ready', draftPdfUrl: 'https://x/draft.pdf', letterPdfUrl: 'https://x/letter.pdf',
+      draftSummary: { caveat: 'Estimate only.' }, errorMsg: null, updatedAt: new Date(),
+    });
+    const { handleAgentMessage } = await import('../agent-brain');
+
+    const result = await handleAgentMessage(
+      { text: 'is my filing draft ready?', tenantId: 'tenant-A', channel: 'mcp' } as any,
+      { callGemini: vi.fn(), baseUrls: {} } as any,
+    );
+
+    expect(result.data.message).toContain('https://x/draft.pdf');
+    expect(result.data.message).toContain('https://x/letter.pdf');
+  });
+
+  it('matches "check my client letter" (a different one of the three intended phrasings)', async () => {
+    dbMock.abTaxQuestionnaireSession.findFirst.mockResolvedValue({ id: 'tqs-2', status: 'completed' });
+    dbMock.abTaxFastTrackDraft.findUnique.mockResolvedValue({
+      status: 'ready', draftPdfUrl: 'https://x/draft.pdf', letterPdfUrl: 'https://x/letter.pdf',
+      draftSummary: { caveat: 'Estimate only.' }, errorMsg: null, updatedAt: new Date(),
+    });
+    const { handleAgentMessage } = await import('../agent-brain');
+
+    const result = await handleAgentMessage(
+      { text: 'check my client letter', tenantId: 'tenant-A', channel: 'web' } as any,
+      { callGemini: vi.fn(), baseUrls: {} } as any,
+    );
+
+    expect(result.data.message).toContain('https://x/letter.pdf');
+  });
+
+  it('does NOT match "check my invoice draft" — must not hijack invoice messages', async () => {
+    dbMock.abTaxQuestionnaireSession.findFirst.mockResolvedValue({ id: 'tqs-3', status: 'completed' });
+    const { handleAgentMessage } = await import('../agent-brain');
+
+    await handleAgentMessage(
+      { text: 'check my invoice draft', tenantId: 'tenant-A', channel: 'web' } as any,
+      // classifyAndExecuteV1 required so the fallthrough to normal
+      // classification (Step 3a's legacy path) doesn't itself throw — the
+      // assertion under test is that Step 1c never claims the reply, not
+      // what normal classification then does with it.
+      { callGemini: vi.fn(), baseUrls: {}, classifyAndExecuteV1: vi.fn(async () => null) } as any,
+    );
+
+    // Falls through to normal classification instead — draft row is never queried.
+    expect(dbMock.abTaxFastTrackDraft.findUnique).not.toHaveBeenCalled();
+  });
+
+  it('returns a still-generating message when the draft row is pending and not stale', async () => {
+    dbMock.abTaxQuestionnaireSession.findFirst.mockResolvedValue({ id: 'tqs-4', status: 'completed' });
+    dbMock.abTaxFastTrackDraft.findUnique.mockResolvedValue({ status: 'pending', updatedAt: new Date(), errorMsg: null });
+    const { handleAgentMessage } = await import('../agent-brain');
+
+    const result = await handleAgentMessage(
+      { text: 'is my tax draft ready', tenantId: 'tenant-A', channel: 'web' } as any,
+      { callGemini: vi.fn(), baseUrls: {} } as any,
+    );
+
+    expect(result.data.message.toLowerCase()).toContain('still generating');
+  });
+
+  it('returns a stuck/retry message when the draft row is pending and past the staleness timeout', async () => {
+    dbMock.abTaxQuestionnaireSession.findFirst.mockResolvedValue({ id: 'tqs-5', status: 'completed' });
+    dbMock.abTaxFastTrackDraft.findUnique.mockResolvedValue({
+      status: 'pending', updatedAt: new Date(Date.now() - 3 * 60 * 1000), errorMsg: null,
+    });
+    const { handleAgentMessage } = await import('../agent-brain');
+
+    const result = await handleAgentMessage(
+      { text: 'is my tax draft ready', tenantId: 'tenant-A', channel: 'web' } as any,
+      { callGemini: vi.fn(), baseUrls: {} } as any,
+    );
+
+    expect(result.data.message.toLowerCase()).toContain('stuck');
+  });
+
+  it('returns the categorized failure message when the draft failed', async () => {
+    dbMock.abTaxQuestionnaireSession.findFirst.mockResolvedValue({ id: 'tqs-6', status: 'completed' });
+    dbMock.abTaxFastTrackDraft.findUnique.mockResolvedValue({
+      status: 'failed', errorMsg: 'pdf_render_failed', updatedAt: new Date(),
+    });
+    const { handleAgentMessage } = await import('../agent-brain');
+
+    const result = await handleAgentMessage(
+      { text: 'is my tax draft ready', tenantId: 'tenant-A', channel: 'web' } as any,
+      { callGemini: vi.fn(), baseUrls: {} } as any,
+    );
+
+    expect(result.data.message).toContain('pdf_render_failed');
+  });
+
+  it('falls through to normal classification when no completed session exists at all', async () => {
+    dbMock.abTaxQuestionnaireSession.findFirst.mockResolvedValue(null);
+    const { handleAgentMessage } = await import('../agent-brain');
+
+    await handleAgentMessage(
+      { text: 'is my tax draft ready', tenantId: 'tenant-A', channel: 'web' } as any,
+      { callGemini: vi.fn(), baseUrls: {}, classifyAndExecuteV1: vi.fn(async () => null) } as any,
+    );
+
+    expect(dbMock.abTaxFastTrackDraft.findUnique).not.toHaveBeenCalled();
   });
 });
