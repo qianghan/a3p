@@ -64,6 +64,24 @@ async function registerAndLogin(page: import('@playwright/test').Page, prefix: s
   return email;
 }
 
+async function grantTaxFastTrackAddon(prisma: typeof import('@naap/database').prisma, tenantId: string) {
+  const addOn = await prisma.billAddOn.upsert({
+    where: { code: 'tax_fast_track' },
+    update: { isActive: true },
+    create: { code: 'tax_fast_track', name: 'Tax Fast-Track', interval: 'year', isActive: true },
+  });
+  const price = await prisma.billAddOnPrice.upsert({
+    where: { addOnId_region_tier: { addOnId: addOn.id, region: 'us', tier: 'standard' } },
+    update: { isActive: true },
+    create: { addOnId: addOn.id, region: 'us', currency: 'usd', tier: 'standard', priceCents: 4900, isActive: true },
+  });
+  await prisma.billAddOnSubscription.upsert({
+    where: { accountId_addOnId: { accountId: tenantId, addOnId: addOn.id } },
+    create: { accountId: tenantId, addOnId: addOn.id, priceId: price.id, status: 'active' },
+    update: { status: 'active', priceId: price.id, canceledAt: null },
+  });
+}
+
 test.describe('Tax fast-track — UI-native path', () => {
   let prisma: typeof import('@naap/database').prisma;
 
@@ -82,6 +100,7 @@ test.describe('Tax fast-track — UI-native path', () => {
     const user = await prisma.user.findUnique({ where: { email } });
     expect(user).toBeTruthy();
     const tenantId = user!.id;
+    await grantTaxFastTrackAddon(prisma, tenantId);
 
     await prisma.abPastTaxFiling.create({
       data: {
@@ -156,6 +175,7 @@ test.describe('Tax fast-track — UI-native path', () => {
     const email = await registerAndLogin(page, 'e2e-taxft-ui-cancel');
     const user = await prisma.user.findUnique({ where: { email } });
     const tenantId = user!.id;
+    await grantTaxFastTrackAddon(prisma, tenantId);
 
     await prisma.abPastTaxFiling.create({
       data: {
@@ -176,5 +196,12 @@ test.describe('Tax fast-track — UI-native path', () => {
     const status = await apiGet(page, `${CORE}/status`);
     expect(status.data.data.session.status).toBe('abandoned');
     expect(status.data.data.draft).toBeNull();
+  });
+
+  test('POST /start returns 402 for a tenant without the tax_fast_track add-on', async ({ page }) => {
+    const email = await registerAndLogin(page, 'e2e-taxft-no-addon');
+    // Deliberately skip grantTaxFastTrackAddon for this one test/tenant.
+    const result = await apiPost(page, `${CORE}/start`, {});
+    expect(result.status).toBe(402);
   });
 });
