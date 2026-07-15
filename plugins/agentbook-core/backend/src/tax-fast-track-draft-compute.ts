@@ -30,7 +30,7 @@ export class TaxFastTrackComputeError extends Error {
  * generateFilingDraft in apps/web-next/src/lib/tax-fast-track-draft.ts).
  *
  * The numeric estimate comes from the existing, unmodified
- * {us,ca}TaxBrackets.calculateTax() — the LLM's job is turning this year's
+ * {us,ca,au}TaxBrackets.calculateTax() — the LLM's job is turning this year's
  * prose Q&A into structured deltas, never inventing a tax figure directly.
  */
 export async function computeFilingDraftSummaryAndLetter(
