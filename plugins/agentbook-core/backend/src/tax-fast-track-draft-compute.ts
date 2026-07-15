@@ -3,6 +3,7 @@ import { getFilingDraftPack } from '@agentbook/jurisdictions/filing-draft-loader
 import type { StandardTaxExtract, FilingDraftSummary } from '@agentbook/jurisdictions/interfaces';
 import { usTaxBrackets } from '@agentbook/jurisdictions/us/tax-brackets';
 import { caTaxBrackets } from '@agentbook/jurisdictions/ca/tax-brackets';
+import { auTaxBrackets } from '@agentbook/jurisdictions/au/tax-brackets';
 import type { TaxBracketProvider } from '@agentbook/jurisdictions/interfaces';
 import { cleanJson, type CallGeminiFn } from './tax-questionnaire-core.js';
 
@@ -11,6 +12,7 @@ import { cleanJson, type CallGeminiFn } from './tax-questionnaire-core.js';
 const TAX_BRACKET_PROVIDERS: Record<string, TaxBracketProvider> = {
   us: usTaxBrackets,
   ca: caTaxBrackets,
+  au: auTaxBrackets,
 };
 
 export type TaxFastTrackComputeErrorCode = 'delta_extraction_failed' | 'letter_generation_failed';
