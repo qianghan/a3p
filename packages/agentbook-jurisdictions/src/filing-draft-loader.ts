@@ -1,13 +1,14 @@
 import type { FilingDraftPack } from './interfaces.js';
 import { CaFilingDraftPack } from './ca/filing-draft-pack.js';
 import { UsFilingDraftPack } from './us/filing-draft-pack.js';
-// au/uk deliberately NOT registered — matching tax-questionnaire-loader.ts's
-// scope (the questionnaire itself only supports us/ca, so a filing draft
-// can never be generated for any other jurisdiction).
+import { AuFilingDraftPack } from './au/filing-draft-pack.js';
+// uk deliberately NOT registered — no UK FilingDraftPack exists yet (out of
+// scope for PR-7; see docs/superpowers/specs/2026-07-14-tax-fast-track-au-design.md).
 
 const PACKS: Record<string, FilingDraftPack> = {
   ca: new CaFilingDraftPack(),
   us: new UsFilingDraftPack(),
+  au: new AuFilingDraftPack(),
 };
 
 export function registerFilingDraftPack(pack: FilingDraftPack): void {

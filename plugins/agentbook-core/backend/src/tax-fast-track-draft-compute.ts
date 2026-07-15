@@ -3,6 +3,7 @@ import { getFilingDraftPack } from '@agentbook/jurisdictions/filing-draft-loader
 import type { StandardTaxExtract, FilingDraftSummary } from '@agentbook/jurisdictions/interfaces';
 import { usTaxBrackets } from '@agentbook/jurisdictions/us/tax-brackets';
 import { caTaxBrackets } from '@agentbook/jurisdictions/ca/tax-brackets';
+import { auTaxBrackets } from '@agentbook/jurisdictions/au/tax-brackets';
 import type { TaxBracketProvider } from '@agentbook/jurisdictions/interfaces';
 import { cleanJson, type CallGeminiFn } from './tax-questionnaire-core.js';
 
@@ -11,6 +12,7 @@ import { cleanJson, type CallGeminiFn } from './tax-questionnaire-core.js';
 const TAX_BRACKET_PROVIDERS: Record<string, TaxBracketProvider> = {
   us: usTaxBrackets,
   ca: caTaxBrackets,
+  au: auTaxBrackets,
 };
 
 export type TaxFastTrackComputeErrorCode = 'delta_extraction_failed' | 'letter_generation_failed';
@@ -28,7 +30,7 @@ export class TaxFastTrackComputeError extends Error {
  * generateFilingDraft in apps/web-next/src/lib/tax-fast-track-draft.ts).
  *
  * The numeric estimate comes from the existing, unmodified
- * {us,ca}TaxBrackets.calculateTax() — the LLM's job is turning this year's
+ * {us,ca,au}TaxBrackets.calculateTax() — the LLM's job is turning this year's
  * prose Q&A into structured deltas, never inventing a tax figure directly.
  */
 export async function computeFilingDraftSummaryAndLetter(
