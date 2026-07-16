@@ -1,6 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { Target, Plus, X, Trash2, Pencil } from 'lucide-react';
 import { ChatCTA } from '@naap/plugin-sdk';
+import { formatMoney } from '@agentbook/i18n';
+import { useTenantCurrency } from '../hooks/useTenantCurrency';
 
 const API = '/api/v1/agentbook-expense';
 
@@ -21,11 +23,7 @@ interface Category {
   code: string;
 }
 
-const fmt$ = (cents: number) =>
-  '$' + (cents / 100).toLocaleString('en-US', {
-    maximumFractionDigits: 2,
-    minimumFractionDigits: cents % 100 === 0 ? 0 : 2,
-  });
+const fmt$ = (cents: number, currency: string) => formatMoney(cents, currency);
 
 function barColor(percent: number): string {
   if (percent >= 100) return 'bg-red-500';
@@ -40,6 +38,7 @@ function periodLabel(period: string): string {
 }
 
 export const BudgetsPage: React.FC = () => {
+  const currency = useTenantCurrency();
   const [budgets, setBudgets] = useState<BudgetRow[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [showForm, setShowForm] = useState(false);
@@ -296,7 +295,7 @@ export const BudgetsPage: React.FC = () => {
                 <div>
                   <p className="font-medium">{b.categoryName || 'Total'}</p>
                   <p className="text-xs text-muted-foreground">
-                    {fmt$(b.spentCents)} / {fmt$(b.amountCents)} {periodLabel(b.period)}
+                    {fmt$(b.spentCents, currency)} / {fmt$(b.amountCents, currency)} {periodLabel(b.period)}
                   </p>
                 </div>
                 <div className="flex items-center gap-2">

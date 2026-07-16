@@ -2,6 +2,8 @@ import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { usePlaidLink } from 'react-plaid-link';
 import { Building2, Link2, RefreshCw, CheckCircle, AlertCircle, Plus, Clock, Loader2 } from 'lucide-react';
 import { ChatCTA } from '@naap/plugin-sdk';
+import { formatMoney } from '@agentbook/i18n';
+import { useTenantCurrency } from '../hooks/useTenantCurrency';
 
 interface BankAccount {
   id: string;
@@ -48,11 +50,12 @@ const API = '/api/v1/agentbook-expense';
 // which is the only thing guaranteed to sit above Plaid's overlay.
 const PLAID_STUCK_TIMEOUT_MS = 45000;
 
-function fmt(cents: number) {
-  return '$' + (Math.abs(cents) / 100).toLocaleString('en-US', { minimumFractionDigits: 2 });
+function fmt(cents: number, currency: string) {
+  return formatMoney(Math.abs(cents), currency);
 }
 
 export const BankConnectionPage: React.FC = () => {
+  const currency = useTenantCurrency();
   const [accounts, setAccounts] = useState<BankAccount[]>([]);
   const [transactions, setTransactions] = useState<BankTransaction[]>([]);
   const [reconciliation, setReconciliation] = useState<ReconciliationSummary | null>(null);
@@ -282,7 +285,7 @@ export const BankConnectionPage: React.FC = () => {
                   </div>
                 </div>
                 <div className="text-right">
-                  <p className="font-bold font-mono">{fmt(account.balanceCents)}</p>
+                  <p className="font-bold font-mono">{fmt(account.balanceCents, currency)}</p>
                   <p className="text-xs text-muted-foreground">
                     {account.transactionCount ? `${account.transactionCount} txns · ` : ''}
                     {account.lastSynced ? `Synced ${new Date(account.lastSynced).toLocaleDateString()}` : 'Not synced'}
@@ -323,7 +326,7 @@ export const BankConnectionPage: React.FC = () => {
                     <td className="px-4 py-3 text-xs text-muted-foreground">{txn.category || '—'}</td>
                     <td className="px-4 py-3 text-right font-bold font-mono">
                       <span className={txn.amount > 0 ? 'text-red-500' : 'text-green-500'}>
-                        {txn.amount > 0 ? '-' : '+'}{fmt(Math.abs(txn.amount))}
+                        {txn.amount > 0 ? '-' : '+'}{fmt(Math.abs(txn.amount), currency)}
                       </span>
                     </td>
                     <td className="px-4 py-3">

@@ -1,6 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { Receipt, Plus, X } from 'lucide-react';
 import { ExpenseTabs } from '../components/ExpenseTabs';
+import { formatMoney } from '@agentbook/i18n';
+import { useTenantCurrency } from '../hooks/useTenantCurrency';
 
 const API = '/api/v1/agentbook-expense';
 
@@ -17,11 +19,7 @@ interface Bill {
 
 interface Summary { openCents: number; overdueCents: number; count: number }
 
-const fmt$ = (cents: number) =>
-  '$' + (cents / 100).toLocaleString('en-US', {
-    maximumFractionDigits: 2,
-    minimumFractionDigits: cents % 100 === 0 ? 0 : 2,
-  });
+const fmt$ = (cents: number, currency: string) => formatMoney(cents, currency);
 
 const TABS = ['all', 'open', 'overdue', 'paid'] as const;
 type Tab = typeof TABS[number];
@@ -36,6 +34,7 @@ const STATUS_STYLE: Record<string, string> = {
 export const BillsPage: React.FC = () => {
   const [bills, setBills] = useState<Bill[]>([]);
   const [summary, setSummary] = useState<Summary>({ openCents: 0, overdueCents: 0, count: 0 });
+  const currency = useTenantCurrency();
   const [tab, setTab] = useState<Tab>('all');
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
@@ -121,11 +120,11 @@ export const BillsPage: React.FC = () => {
       <div className="grid grid-cols-2 gap-3 mb-5">
         <div className="rounded-xl border border-border bg-card p-4">
           <p className="text-xs text-muted-foreground">Open (owed)</p>
-          <p className="text-2xl font-bold text-foreground">{fmt$(summary.openCents)}</p>
+          <p className="text-2xl font-bold text-foreground">{fmt$(summary.openCents, currency)}</p>
         </div>
         <div className="rounded-xl border border-border bg-card p-4">
           <p className="text-xs text-muted-foreground">Overdue</p>
-          <p className="text-2xl font-bold text-destructive">{fmt$(summary.overdueCents)}</p>
+          <p className="text-2xl font-bold text-destructive">{fmt$(summary.overdueCents, currency)}</p>
         </div>
       </div>
 
@@ -188,7 +187,7 @@ export const BillsPage: React.FC = () => {
                   <td className="px-4 py-2.5 text-muted-foreground">
                     {new Date(b.dueDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
                   </td>
-                  <td className="px-4 py-2.5 text-right text-foreground">{fmt$(b.amountCents)}</td>
+                  <td className="px-4 py-2.5 text-right text-foreground">{fmt$(b.amountCents, currency)}</td>
                   <td className="px-4 py-2.5">
                     <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-medium capitalize ${STATUS_STYLE[b.effectiveStatus] ?? ''}`}>
                       {b.effectiveStatus}
