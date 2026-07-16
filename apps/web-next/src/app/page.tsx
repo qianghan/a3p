@@ -318,7 +318,7 @@ export default function LandingPage() {
               {
                 tag: 'Student',
                 copy:
-                  "Your first paycheck, a scholarship that might not all be tax-free, a tutoring gig on the side. We translate the parts nobody teaches you, in plain English — US or Canada. Add Student Success to hunt scholarships, jobs, and housing with cited, real searches.",
+                  "Your first paycheck, a scholarship that might not all be tax-free, a tutoring gig on the side. We translate the parts nobody teaches you, in plain English — US, Canada, or Australia. Just ask, in chat: Student Success finds scholarships, co-ops, and a roommate for you — cited, real searches, nothing to browse.",
               },
             ].map((p) => (
               <div key={p.tag} className="border-l-2 border-[var(--rule)] pl-5">
@@ -434,6 +434,16 @@ export default function LandingPage() {
               n: '4·6',
               h: 'A second brain for money.',
               p: 'The agent remembers your vendors, your categorization quirks, your client preferences. It gets better the longer you use it.',
+            },
+            {
+              n: '4·7',
+              h: 'Tax fast-track filing.',
+              p: "A few quick questions — in chat or on the tab — about what changed since last year, and the agent drafts a full estimate plus an accountant-ready cover letter, anchored to your actual prior return. Deadline nudges land before you have to remember. US, Canada, and Australia.",
+            },
+            {
+              n: '4·8',
+              h: 'Student Success, built in.',
+              p: '"Find me scholarships." "Find a co-op." "Find a roommate." Just ask — the agent searches, cites its sources, and saves what it finds. Scholarship, Career & Co-op, and Housing copilots, US, Canada, and Australia.',
             },
           ].map((f) => (
             <article
