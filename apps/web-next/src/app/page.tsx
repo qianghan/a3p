@@ -3,6 +3,7 @@ import Link from 'next/link';
 import { Fraunces, Newsreader, JetBrains_Mono } from 'next/font/google';
 import { Wordmark } from '@/components/brand/Wordmark';
 import { InstallAppButton } from '@/components/pwa/InstallAppButton';
+import { CORE_PLANS, formatWholeDollars, formatDollarsAndCents } from '@agentbook/pricing';
 
 // ─── Type-as-design ─────────────────────────────────────────────────────────
 // Fraunces: a variable serif with optical sizing — characterful at display
@@ -58,6 +59,13 @@ function Marker({ n, label }: { n: string; label: string }) {
 // ─── Page ───────────────────────────────────────────────────────────────────
 
 export default function LandingPage() {
+  const proMonthly = CORE_PLANS.find((p) => p.code === 'pro')!;
+  const proYearly = CORE_PLANS.find((p) => p.code === 'pro_yearly')!;
+  const business = CORE_PLANS.find((p) => p.code === 'business')!;
+  const proMonthlyPrice = formatWholeDollars(proMonthly.priceCents);
+  const proYearlyPrice = formatWholeDollars(proYearly.priceCents);
+  const proYearlyMonthlyEquivalent = formatDollarsAndCents(Math.round(proYearly.priceCents / 12));
+  const businessPrice = formatWholeDollars(business.priceCents);
   return (
     <div
       className={`${display.variable} ${body.variable} ${mono.variable} ab-landing min-h-screen w-full overflow-x-clip`}
@@ -475,13 +483,13 @@ export default function LandingPage() {
           </div>
           <div className="col-span-12 md:col-span-5 md:pt-12 md:pl-8">
             <p className="text-[16.5px] leading-[1.6] text-[var(--ink-soft)] max-w-[44ch]">
-              No card to start. After the trial, $20 a month or $190 a year — whichever you
+              No card to start. After the trial, {proMonthlyPrice} a month or {proYearlyPrice} a year — whichever you
               like. Cancel any time, in plain English. We won't make it hard.
             </p>
           </div>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5">
           {/* Free */}
           <div className="ab-card p-8" style={{ borderRadius: '2px' }}>
             <div className="flex items-center justify-between">
@@ -530,12 +538,12 @@ export default function LandingPage() {
             </div>
             <div className="mt-5 flex items-baseline gap-2">
               <span className="display num text-[64px] leading-none" style={{ fontWeight: 500 }}>
-                $190
+                {proYearlyPrice}
               </span>
               <span className="num text-[12px] text-[var(--paper)] opacity-70 tracking-[0.14em] uppercase">/yr</span>
             </div>
             <p className="mt-3 text-[14px] opacity-80">
-              $15.83/mo, paid up front. Same as Monthly otherwise.
+              {proYearlyMonthlyEquivalent}/mo, paid up front. Same as Monthly otherwise.
             </p>
             <Hairline className="my-6" />
             <ul className="space-y-2.5 text-[14px] opacity-90">
@@ -566,7 +574,7 @@ export default function LandingPage() {
             </div>
             <div className="mt-5 flex items-baseline gap-2">
               <span className="display num text-[64px] leading-none" style={{ fontWeight: 500 }}>
-                $20
+                {proMonthlyPrice}
               </span>
               <span className="num text-[12px] text-[var(--muted)] tracking-[0.14em] uppercase">/mo</span>
             </div>
@@ -581,6 +589,35 @@ export default function LandingPage() {
               <li>· 90-day free trial</li>
             </ul>
             <Link href="/register?plan=pro" className="btn btn-ghost mt-8 w-full justify-center">
+              Start 90-day trial
+            </Link>
+          </div>
+
+          {/* Business */}
+          <div className="ab-card p-8" style={{ borderRadius: '2px' }}>
+            <div className="flex items-center justify-between">
+              <h3 className="text-[28px]" style={{ fontWeight: 500 }}>
+                Business
+              </h3>
+              <span className="pill pill-paper">teams</span>
+            </div>
+            <div className="mt-5 flex items-baseline gap-2">
+              <span className="display num text-[64px] leading-none" style={{ fontWeight: 500 }}>
+                {businessPrice}
+              </span>
+              <span className="num text-[12px] text-[var(--muted)] tracking-[0.14em] uppercase">/mo</span>
+            </div>
+            <p className="mt-3 text-[14px] text-[var(--ink-soft)]">
+              Unlimited everything. Team seats included.
+            </p>
+            <Hairline className="my-6" />
+            <ul className="space-y-2.5 text-[14px] text-[var(--ink-soft)]">
+              <li>· Everything in Pro</li>
+              <li>· Multi-user teams</li>
+              <li>· No usage caps</li>
+              <li>· 90-day free trial</li>
+            </ul>
+            <Link href="/register?plan=business" className="btn btn-ghost mt-8 w-full justify-center">
               Start 90-day trial
             </Link>
           </div>
@@ -706,7 +743,7 @@ export default function LandingPage() {
           <span className="ital text-[var(--accent)]">a co-worker.</span>
         </h2>
         <p className="mt-8 max-w-[44ch] mx-auto text-[17.5px] leading-[1.6] text-[var(--ink-soft)]">
-          Ninety days of Pro, no card, no hooks. After that, $20 a month or $190 a year. Or
+          Ninety days of Pro, no card, no hooks. After that, {proMonthlyPrice} a month or {proYearlyPrice} a year. Or
           stay on Free. You decide — every time.
         </p>
         <div className="mt-12 flex flex-wrap justify-center gap-3">
