@@ -11,50 +11,40 @@ import 'server-only';
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma as db } from '@naap/database';
 import { safeResolveAgentbookTenant } from '@/lib/agentbook-tenant';
+import { usTaxBrackets } from '@agentbook/jurisdictions/us/tax-brackets';
+import { caTaxBrackets } from '@agentbook/jurisdictions/ca/tax-brackets';
+import { auTaxBrackets } from '@agentbook/jurisdictions/au/tax-brackets';
+import { usSelfEmploymentTax } from '@agentbook/jurisdictions/us/self-employment-tax';
+import { caSelfEmploymentTax } from '@agentbook/jurisdictions/ca/self-employment-tax';
+import { auSelfEmploymentTax } from '@agentbook/jurisdictions/au/self-employment-tax';
+import type { TaxBracketProvider, SelfEmploymentTaxCalculator } from '@agentbook/jurisdictions/interfaces';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 export const maxDuration = 30;
 
-const US_FEDERAL_BRACKETS = [
-  { upTo: 11_600_00, rate: 0.10 },
-  { upTo: 47_150_00, rate: 0.12 },
-  { upTo: 100_525_00, rate: 0.22 },
-  { upTo: 191_950_00, rate: 0.24 },
-  { upTo: 243_725_00, rate: 0.32 },
-  { upTo: 609_350_00, rate: 0.35 },
-  { upTo: Infinity, rate: 0.37 },
-];
+// Real, tested jurisdiction-pack logic — replaces the previously duplicated,
+// less-accurate inline US/CA-only calculations (no SS wage cap, no
+// Additional Medicare Tax, no CPP basic exemption/CPP2 ceiling) and the
+// silent "$0 self-employment tax, US brackets" fallback for every other
+// jurisdiction, including au.
+const BRACKET_PROVIDERS: Record<string, TaxBracketProvider> = {
+  us: usTaxBrackets,
+  ca: caTaxBrackets,
+  au: auTaxBrackets,
+};
+const SE_TAX_CALCULATORS: Record<string, SelfEmploymentTaxCalculator> = {
+  us: usSelfEmploymentTax,
+  ca: caSelfEmploymentTax,
+  au: auSelfEmploymentTax,
+};
 
-const CA_FEDERAL_BRACKETS = [
-  { upTo: 57_375_00, rate: 0.15 },
-  { upTo: 114_750_00, rate: 0.205 },
-  { upTo: 158_468_00, rate: 0.26 },
-  { upTo: 221_708_00, rate: 0.29 },
-  { upTo: Infinity, rate: 0.33 },
-];
-
-function calcProgressiveTax(incomeCents: number, brackets: { upTo: number; rate: number }[]): number {
-  if (incomeCents <= 0) return 0;
-  let remaining = incomeCents;
-  let tax = 0;
-  let prev = 0;
-  for (const bracket of brackets) {
-    const width = bracket.upTo === Infinity ? remaining : bracket.upTo - prev;
-    const taxable = Math.min(remaining, width);
-    tax += Math.round(taxable * bracket.rate);
-    remaining -= taxable;
-    prev = bracket.upTo;
-    if (remaining <= 0) break;
-  }
-  return tax;
-}
-
-function calcSelfEmploymentTax(netIncomeCents: number, jurisdiction: string): number {
-  if (netIncomeCents <= 0) return 0;
-  if (jurisdiction === 'us') return Math.round(netIncomeCents * 0.9235 * 0.153);
-  if (jurisdiction === 'ca') return Math.round(netIncomeCents * 0.119);
-  return 0;
+function calcSelfEmploymentTax(netIncomeCents: number, jurisdiction: string, taxYear: number): { amountCents: number; deductiblePortionCents: number } {
+  if (netIncomeCents <= 0) return { amountCents: 0, deductiblePortionCents: 0 };
+  const calculator = SE_TAX_CALCULATORS[jurisdiction];
+  if (!calculator) return { amountCents: 0, deductiblePortionCents: 0 };
+  const result = calculator.calculate(netIncomeCents, taxYear);
+  return { amountCents: result.amountCents, deductiblePortionCents: result.deductiblePortionCents };
 }
 
 function parseDate(val: string | null, fallback: Date): Date {
@@ -177,12 +167,17 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
     const netIncomeCents = grossRevenueCents - expensesCents;
 
-    const seTaxCents = calcSelfEmploymentTax(netIncomeCents, jurisdiction);
-    const seDeduction = jurisdiction === 'us' ? Math.round(seTaxCents / 2) : 0;
+    const taxYear = startDate.getFullYear();
+    const seTax = calcSelfEmploymentTax(netIncomeCents, jurisdiction, taxYear);
+    const seTaxCents = seTax.amountCents;
+    // Each jurisdiction's calculator already knows its own deductible
+    // portion (half of US SE tax, the employer-equivalent CPP portion,
+    // none for AU's non-deductible Medicare Levy) — no more us-only ternary.
+    const seDeduction = seTax.deductiblePortionCents;
     const taxableIncomeCents = Math.max(0, netIncomeCents - seDeduction);
-    const brackets = jurisdiction === 'ca' ? CA_FEDERAL_BRACKETS : US_FEDERAL_BRACKETS;
+    const bracketProvider = BRACKET_PROVIDERS[jurisdiction] ?? usTaxBrackets;
     // W-2 wages stack on top of self-employment income for bracket placement.
-    const incomeTaxCents = calcProgressiveTax(taxableIncomeCents + w2IncomeCents, brackets);
+    const incomeTaxCents = bracketProvider.calculateTax(taxableIncomeCents + w2IncomeCents, taxYear).taxCents;
     const totalTaxCents = seTaxCents + incomeTaxCents;
     // What is still owed after crediting W-2 tax already withheld this year.
     const amountOwedCents = Math.max(0, totalTaxCents - w2WithheldCents);

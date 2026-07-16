@@ -1,5 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { BookOpen, ChevronDown, ChevronRight } from 'lucide-react';
+import { formatMoney } from '@agentbook/i18n';
+import { useTenantCurrency } from '../hooks/useTenantCurrency';
 
 interface JournalLine {
   id: string;
@@ -26,6 +28,7 @@ export const LedgerPage: React.FC = () => {
   const [entries, setEntries] = useState<JournalEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const currency = useTenantCurrency();
 
   useEffect(() => {
     fetch(`${API_BASE}/journal-entries?limit=50`)
@@ -35,7 +38,7 @@ export const LedgerPage: React.FC = () => {
       .finally(() => setLoading(false));
   }, []);
 
-  const fmt = (cents: number) => cents > 0 ? `$${(cents / 100).toFixed(2)}` : '';
+  const fmt = (cents: number) => cents > 0 ? formatMoney(cents, currency) : '';
   const fmtDate = (d: string) => new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 
   return (

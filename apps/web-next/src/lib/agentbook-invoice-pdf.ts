@@ -155,7 +155,7 @@ export interface InvoicePdfData {
 }
 
 function fmtMoney(cents: number, currency: string): string {
-  const sym = currency === 'USD' ? '$' : currency === 'CAD' ? 'CA$' : currency === 'GBP' ? '£' : currency === 'EUR' ? '€' : `${currency} `;
+  const sym = currency === 'USD' ? '$' : currency === 'CAD' ? 'CA$' : currency === 'AUD' ? 'A$' : currency === 'GBP' ? '£' : currency === 'EUR' ? '€' : `${currency} `;
   return `${sym}${(cents / 100).toFixed(2)}`;
 }
 

@@ -1,6 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { Image, Upload } from 'lucide-react';
 import { ChatCTA } from '@naap/plugin-sdk';
+import { formatMoney } from '@agentbook/i18n';
+import { useTenantCurrency } from '../hooks/useTenantCurrency';
 
 interface Expense {
   id: string;
@@ -28,7 +30,8 @@ export const ReceiptsPage: React.FC = () => {
       .finally(() => setLoading(false));
   }, []);
 
-  const fmt = (cents: number) => `$${(cents / 100).toFixed(2)}`;
+  const currency = useTenantCurrency();
+  const fmt = (cents: number) => formatMoney(cents, currency);
 
   return (
     <div className="p-6 max-w-7xl mx-auto">

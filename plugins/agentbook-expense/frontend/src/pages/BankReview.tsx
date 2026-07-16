@@ -9,6 +9,8 @@ import {
   AlertCircle,
 } from 'lucide-react';
 import { ChatCTA } from '@naap/plugin-sdk';
+import { formatMoney } from '@agentbook/i18n';
+import { useTenantCurrency } from '../hooks/useTenantCurrency';
 
 /**
  * Bank-review picker (PR 51 / Tier 2 #5).
@@ -53,8 +55,8 @@ interface CandidatesResponse {
   };
 }
 
-function fmtCents(cents: number): string {
-  return `$${(cents / 100).toFixed(2)}`;
+function fmtCents(cents: number, currency: string): string {
+  return formatMoney(cents, currency);
 }
 function fmtDate(iso: string): string {
   const d = new Date(iso);
@@ -63,6 +65,7 @@ function fmtDate(iso: string): string {
 }
 
 export const BankReviewPage: React.FC = () => {
+  const currency = useTenantCurrency();
   const [txns, setTxns] = useState<BankTxn[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -206,7 +209,7 @@ export const BankReviewPage: React.FC = () => {
                       <span
                         className={direction === 'inflow' ? 'text-emerald-600' : 'text-foreground'}
                       >
-                        {direction === 'inflow' ? '+' : '-'}{fmtCents(Math.abs(t.amount))}
+                        {direction === 'inflow' ? '+' : '-'}{fmtCents(Math.abs(t.amount), currency)}
                       </span>
                       <span className="text-xs text-muted-foreground">
                         {direction === 'inflow' ? 'from' : 'to'} {merchant} on {dateLabel}
@@ -260,7 +263,7 @@ export const BankReviewPage: React.FC = () => {
                             {c.kind} · {c.label}
                           </div>
                           <div className="text-xs text-muted-foreground mt-0.5">
-                            {fmtCents(c.amountCents)} · {fmtDate(c.date)} · confidence {(c.score * 100).toFixed(0)}%
+                            {fmtCents(c.amountCents, currency)} · {fmtDate(c.date)} · confidence {(c.score * 100).toFixed(0)}%
                           </div>
                         </div>
                         <CheckCircle className={`w-4 h-4 flex-shrink-0 ${ci === 0 ? 'text-emerald-600' : 'text-muted-foreground'}`} />
