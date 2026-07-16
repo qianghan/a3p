@@ -144,6 +144,20 @@
 
 ---
 
+## PR-11: Web / MCP / Chatbot surface parity — Medium
+
+**Why:** A dedicated audit of all three surfaces found the architecture already delivers parity "for free" in almost every case that matters — MCP is a single passthrough tool (`ask_agentbook`) into the exact same skill router Telegram and web chat use (`agent-brain.ts`'s `handleAgentMessage`), so any skill added to `BUILT_IN_SKILLS` is automatically available over all three transports with no extra MCP-side code, and no divergent/duplicated business logic was found anywhere. Expenses, invoices, tax reports, tax fast-track (start/answer/cancel/status), personal-finance transactions/snapshot, all three Student Success copilots, CPA handoff, and payroll all have genuine, verified parity across web, MCP, and chatbot today. Two real, narrow gaps remain, plus one stale piece of documentation:
+
+1. **Tax fast-track "regenerate a stuck draft" is web-only.** The web UI's "Try again" button calls `POST /regenerate`; there's no equivalent skill, so chat/MCP users hit a dead end and are told in the response text to go use the web app instead.
+2. **Personal-finance bank sync (Plaid connect/sync/disconnect) has no chat/MCP skill at all** — reasonable, since Plaid Link is an interactive browser widget that can't run inside a chat transport, but there's currently no explicit, friendly redirect message the way tax fast-track's regenerate already has one; a user asking to "connect my bank" via chat/MCP likely falls through to a generic, unhelpful response instead of being told where to go.
+3. **CLAUDE.md documents "16 built-in skills."** The real count is 84, spanning bookkeeping, invoicing, tax (US/CA/AU), payroll, personal finance, and student success. Cheap to fix, and worth fixing so this doesn't mislead the next person (or agent) reasoning about what the chatbot/MCP surface can actually do.
+
+**Files:** `plugins/agentbook-core/backend/src/built-in-skills.ts` (new `regenerate-tax-fast-track-draft` skill, following the exact pattern of the existing start/answer/cancel/status skills), `plugins/agentbook-core/backend/src/agent-brain.ts` (the regenerate skill's handler, and a friendly redirect response for Plaid-connect asks — mirroring the existing regenerate-redirect message's tone), `CLAUDE.md` (skill count + category summary).
+
+**Scope boundary:** add the one missing skill using the established "Adding a new skill" pattern already documented in CLAUDE.md — no new MCP-side code is needed (MCP gets this automatically once the skill exists). For Plaid, this PR adds a graceful, explicit redirect message only — it does not attempt to build any interactive bank-connect flow into chat/MCP, since that's a genuine, accepted architectural constraint, not a bug.
+
+---
+
 ## Explicitly out of scope for this roadmap
 
 - The Plaid business-expense "connect-and-persist" open item (task #32) — already assessed as a verification/automation-speed gap, not a broken feature (5/5 recovery confirmed); tracked separately.
@@ -151,12 +165,14 @@
 - Cookie-consent infrastructure — nothing to consent to today (no analytics/tracking installed); revisit only if analytics is added.
 - Full BAS/GST return filing and reporting (as opposed to correct invoice-level GST math, which is PR-6's scope).
 - Year-versioned tax brackets (currently hardcoded to 2025) — fine until the next tax year; not a launch blocker.
+- Building an interactive bank-connect flow inside chat/MCP (Plaid Link requires a browser widget) — accepted architectural constraint, not a gap; PR-11 only adds a graceful redirect message for it.
 
 ## Global Constraints (apply to every PR above)
 
 - Every fix reuses an existing, already-built pattern in this codebase (a jurisdiction pack, `useTenantCurrency()`, `AddOnCheckoutModal`, the existing add-on cancel route, the tax-disclaimer component, `safeResolveAgentbookTenant`'s verification discipline) rather than introducing a new one — this roadmap is about closing wiring gaps, not redesigning subsystems.
 - **Pricing has exactly one source of truth from PR-4a onward.** Once the shared pricing-constants module exists, every future add-on, tier, or region gets its price added there first — marketing copy, docs, and seed scripts all read from it. No PR after PR-4a introduces a new hardcoded price literal anywhere.
 - **Every add-on's region coverage is symmetric by construction.** us/ca/au get a price for every add-on this launch depends on (already true as of the earlier billing fix); the shared constants module (PR-4a) makes it structurally awkward to add a region to one add-on without adding it to the others, rather than relying on someone remembering to.
+- **Any new user-facing capability ships as a `BUILT_IN_SKILLS` entry, not a web-only route, unless it genuinely requires an interactive widget the chat/MCP transport can't render** (payment collection, Plaid Link). Because MCP is a passthrough into the same skill router chat uses, this one habit is what keeps web/MCP/chatbot parity "free" going forward instead of needing another audit like PR-11 next time a feature ships.
 - Legal-copy changes (PR-7) are drafted as a diff and explicitly called out for the user's own review before merging — this agent should not unilaterally finalize legal-document language beyond fixing structural gaps (broken links, missing disclaimer component instances) without a review checkpoint, since legal copy carries obligations beyond code correctness.
 - Any step that touches production billing, production data migrations, or sends real user-facing communications still requires the same explicit stop-and-confirm this session has applied throughout — this roadmap does not pre-authorize those steps. Correcting a marketing-copy price to match what's actually charged is a copy fix, not a repricing, and does not require the same confirmation as changing what a real subscriber pays.
 - Each PR gets the same treatment every prior PR this session received: design/plan self-review → subagent-driven-development execution → per-task review → final whole-branch review → CI → merge (never `--admin`) → build + deploy → verify.
@@ -174,5 +190,6 @@ Most PRs are file-disjoint and could run in parallel across separate worktrees i
 7. PR-4b (add-on management UI) — largest lift, revenue-critical.
 8. PR-7 (legal & trust) — no code dependencies on the above, can run in parallel any time.
 9. PR-8 (international-student guidance) — small, independent.
-10. PR-9 (deletion job + monitoring) — operational, independent.
-11. PR-10 (security hardening) — independent.
+10. PR-11 (surface parity — regenerate skill + Plaid redirect + doc fix) — small, independent, quick win.
+11. PR-9 (deletion job + monitoring) — operational, independent.
+12. PR-10 (security hardening) — independent.
