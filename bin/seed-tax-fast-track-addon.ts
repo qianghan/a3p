@@ -3,7 +3,13 @@ import { prisma as db } from '@naap/database';
 /**
  * Seeds the "Tax Fast-Track" add-on ($49/yr) that gates /start and
  * /regenerate on the tax fast-track questionnaire (PR-5). Same $49 USD /
- * $65 CAD precedent as personal_insights and student_success.
+ * $65 CAD / $59 AUD precedent as personal_insights and student_success.
+ *
+ * AU price follows seed-startup-benefit-addon.ts's established convention:
+ * a ~1.2x uplift over the USD figure rather than a full ~1.5x FX
+ * conversion, rounded to a clean nominal price point. Closes the gap
+ * where PR-7 shipped a fully working AuTaxQuestionnairePack/
+ * AuFilingDraftPack with no AU price to actually gate behind.
  *
  * Unlike bin/seed-personal-insights-addon.ts, this seeds isActive:true
  * directly rather than defaulting to false with a separate ACTIVATE
@@ -24,6 +30,7 @@ const ADDON_CODE = 'tax_fast_track';
 const PRICES: { region: string; currency: string; priceCents: number }[] = [
   { region: 'us', currency: 'usd', priceCents: 4900 },
   { region: 'ca', currency: 'cad', priceCents: 6500 },
+  { region: 'au', currency: 'aud', priceCents: 5900 },
 ];
 
 async function main() {
