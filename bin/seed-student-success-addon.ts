@@ -4,8 +4,12 @@ import { prisma as db } from '@naap/database';
  * Seeds the "Student Success" add-on ($49/yr) that gates the three student
  * plugins (Scholarship, Career/Co-op, Housing). Mirrors
  * seed-startup-benefit-addon.ts but deliberately simpler: ONE tier
- * ('standard') and only US + CA, per the confirmed product decision — a
+ * ('standard'), now US + CA + AU, per the confirmed product decision — a
  * student add-on wants one obvious price, not a founding/scaled ladder.
+ *
+ * AU price follows seed-startup-benefit-addon.ts's established convention:
+ * a ~1.2x uplift over the USD figure rather than a full ~1.5x FX
+ * conversion, rounded to a clean nominal price point.
  *
  * Seeded isActive:false on purpose — the add-on is registered but NOT
  * purchasable until the first gated plugin (Scholarship) ships and is added
@@ -20,11 +24,12 @@ import { prisma as db } from '@naap/database';
 const ADDON_CODE = 'student_success';
 const ACTIVATE = process.env.ACTIVATE === '1';
 
-// $49 USD / $65 CAD, single tier. Nominal-parity elsewhere can be added as
-// more BillAddOnPrice rows later with zero code changes.
+// $49 USD / $65 CAD / $59 AUD, single tier. Nominal-parity elsewhere can be
+// added as more BillAddOnPrice rows later with zero code changes.
 const PRICES: { region: string; currency: string; priceCents: number }[] = [
   { region: 'us', currency: 'usd', priceCents: 4900 },
   { region: 'ca', currency: 'cad', priceCents: 6500 },
+  { region: 'au', currency: 'aud', priceCents: 5900 },
 ];
 
 async function main() {

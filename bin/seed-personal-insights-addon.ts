@@ -4,8 +4,12 @@ import { prisma as db } from '@naap/database';
  * Seeds the "Personal Insights" add-on ($49/yr) that gates the personal-
  * finance net-worth trend chart and proactive nudges (budget-threshold,
  * net-worth month-over-month, negative savings rate). Mirrors
- * seed-student-success-addon.ts deliberately: ONE tier ('standard') and only
- * US + CA, same $49 USD / $65 CAD precedent — no new pricing decision here.
+ * seed-student-success-addon.ts deliberately: ONE tier ('standard'), now
+ * US + CA + AU, same $49 USD / $65 CAD / $59 AUD precedent.
+ *
+ * AU price follows seed-startup-benefit-addon.ts's established convention:
+ * a ~1.2x uplift over the USD figure rather than a full ~1.5x FX
+ * conversion, rounded to a clean nominal price point.
  *
  * Seeded isActive:false on purpose — the add-on is registered but NOT
  * purchasable until the gated trend route/UI ship. Re-run with ACTIVATE=1
@@ -19,10 +23,11 @@ import { prisma as db } from '@naap/database';
 const ADDON_CODE = 'personal_insights';
 const ACTIVATE = process.env.ACTIVATE === '1';
 
-// $49 USD / $65 CAD, single tier — matches the student_success precedent.
+// $49 USD / $65 CAD / $59 AUD, single tier — matches the student_success precedent.
 const PRICES: { region: string; currency: string; priceCents: number }[] = [
   { region: 'us', currency: 'usd', priceCents: 4900 },
   { region: 'ca', currency: 'cad', priceCents: 6500 },
+  { region: 'au', currency: 'aud', priceCents: 5900 },
 ];
 
 async function main() {
