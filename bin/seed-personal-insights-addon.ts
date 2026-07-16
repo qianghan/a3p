@@ -1,4 +1,5 @@
 import { prisma as db } from '@naap/database';
+import { ADDON_PRICES } from '@agentbook/pricing';
 
 /**
  * Seeds the "Personal Insights" add-on ($49/yr) that gates the personal-
@@ -23,12 +24,7 @@ import { prisma as db } from '@naap/database';
 const ADDON_CODE = 'personal_insights';
 const ACTIVATE = process.env.ACTIVATE === '1';
 
-// $49 USD / $65 CAD / $59 AUD, single tier — matches the student_success precedent.
-const PRICES: { region: string; currency: string; priceCents: number }[] = [
-  { region: 'us', currency: 'usd', priceCents: 4900 },
-  { region: 'ca', currency: 'cad', priceCents: 6500 },
-  { region: 'au', currency: 'aud', priceCents: 5900 },
-];
+const PRICES = ADDON_PRICES[ADDON_CODE].map(({ region, currency, priceCents }) => ({ region, currency, priceCents }));
 
 async function main() {
   const addOn = await db.billAddOn.upsert({

@@ -1,4 +1,5 @@
 import { prisma as db } from '@naap/database';
+import { ADDON_PRICES } from '@agentbook/pricing';
 
 /**
  * Seeds the "Student Success" add-on ($49/yr) that gates the three student
@@ -24,13 +25,7 @@ import { prisma as db } from '@naap/database';
 const ADDON_CODE = 'student_success';
 const ACTIVATE = process.env.ACTIVATE === '1';
 
-// $49 USD / $65 CAD / $59 AUD, single tier. Nominal-parity elsewhere can be
-// added as more BillAddOnPrice rows later with zero code changes.
-const PRICES: { region: string; currency: string; priceCents: number }[] = [
-  { region: 'us', currency: 'usd', priceCents: 4900 },
-  { region: 'ca', currency: 'cad', priceCents: 6500 },
-  { region: 'au', currency: 'aud', priceCents: 5900 },
-];
+const PRICES = ADDON_PRICES[ADDON_CODE].map(({ region, currency, priceCents }) => ({ region, currency, priceCents }));
 
 async function main() {
   const addOn = await db.billAddOn.upsert({
