@@ -51,20 +51,36 @@
 
 ---
 
-## PR-4: Add-on checkout UI — Critical (largest PR)
+## PR-4a: Business model consistency — one source of truth for pricing — Critical
 
-**Why:** `tax_fast_track`, `student_success`, and `personal_insights` all have live Stripe prices in every region now, but there is no frontend flow anywhere that lets a user complete a purchase. Only `startup_tax_benefits` (a different persona) has a working checkout, via `packages/ui/src/AddOnCheckoutModal.tsx`. This is the single biggest revenue-blocking gap in the assessment.
+**Why:** Every price in this product is a separately hardcoded literal — marketing page strings, MDX doc strings, seed-script constants — with no shared source of truth anywhere. That's the root cause of a real, confirmed mismatch: the Pro plan is `priceCents: 1900` ($19.00/mo) in `agentbook/seed-billing-plans.ts`, but the marketing page says **"$20 a month"** in three separate places. It's also why nothing catches this kind of drift automatically. Beyond that one bug, this PR establishes the actual policy so it doesn't recur: every add-on gets a price in every target region (us/ca/au), using one documented derivation rule, not an ad-hoc one-off each time a region is added.
 
-**Files:** `packages/ui/src/AddOnCheckoutModal.tsx` (reuse, generalize if needed), a real "enable this add-on" entry point under Settings → Billing (new small component, following the existing Settings tab patterns), `apps/web-next/src/app/(dashboard)/personal/page.tsx` (fix the teaser button), the three add-ons' chat-gate messages in `plugins/agentbook-core/backend/src/server.ts` (update "enable it in Settings" copy to be accurate/actionable), and (small, folded in here rather than its own PR) the Pro-plan price display mismatch — `agentbook/seed-billing-plans.ts` says $19.00/mo, the marketing page says "$20 a month"; reconcile to one correct figure.
+**Files:** new `apps/web-next/src/lib/pricing-copy.ts` (or equivalent shared constants module), `apps/web-next/src/app/page.tsx` (marketing prices — currently 3 separate hardcoded `$20` strings), `agentbook/seed-billing-plans.ts`, `bin/seed-{tax-fast-track,student-success,personal-insights,startup-benefit}-addon.ts`, a new consistency test.
 
-**Scope boundary:** reuse `AddOnCheckoutModal` as-is wherever its API allows; don't design a new payment UI. No new pricing tiers, no new add-ons — just make the three that already have live prices actually purchasable.
+**Scope boundary:** extract prices into one shared module that both the seed scripts and the marketing/docs copy import from — this is a refactor of *where prices live*, not a repricing. Where marketing copy and the actual charged Stripe price disagree (the $19/$20 case), the marketing copy is corrected to match what's actually charged, never the other way around — never silently reprice something a real subscriber is already paying.
 
 **Tasks (indicative):**
-1. Confirm `AddOnCheckoutModal`'s props/API generalize cleanly to these three add-ons (it was built for one — check for any `startup`-specific assumptions).
-2. Add an "Add-ons" section to Settings → Billing listing all four add-ons with subscribe buttons wired to the modal.
-3. Fix `personal/page.tsx`'s broken teaser to open the modal instead of calling `/subscribe` directly.
-4. Update the three chat-gate 402 messages to match the real entry point.
-5. Reconcile the $19/$20 Pro price display mismatch.
+1. Confirm which figure is correct for Pro ($19 is what `BillPlan`/Stripe actually charges — treat as authoritative unless told otherwise) and fix the 3 hardcoded "$20" instances in `page.tsx` to match.
+2. Extract a single shared pricing-constants module covering the core plans (Free/Pro/Business) and all four add-ons' per-region prices; have the seed scripts and marketing/docs pull from it instead of duplicating the numbers.
+3. Document the actual AU/CA pricing-derivation convention already in use (nominal round-number uplift, not strict FX conversion) as a comment in that module, so the next new region or add-on follows one rule instead of reinventing it.
+4. Add a small test that reads live `BillPlan`/`BillAddOnPrice` rows and asserts they match the shared constants module — turns "someone notices a mismatch by reading the site" into an automated, CI-visible check.
+5. Note (product decision, not a code fix): the Business plan ($49/mo) isn't shown on the marketing page at all today — flag for a decision on whether that's intentional (invite-only?) rather than assuming it should be added.
+
+---
+
+## PR-4b: Complete add-on management UI (subscribe, view, cancel) — Critical (largest PR)
+
+**Why:** `tax_fast_track`, `student_success`, and `personal_insights` all have live Stripe prices in every region now (via PR #252), but there is no frontend flow anywhere that lets a user complete a purchase, see what they're subscribed to, or cancel it. Checking turned up more of this gap than the original assessment surfaced: a cancel API route (`POST /me/addons/[code]/cancel`) already exists and works, but nothing in the UI calls it; the list endpoint (`GET /me/addons`) only checks one add-on via a `?code=` query param, so there's no "show me all my active add-ons" capability at the API layer either; and the existing Settings → Billing tab shows the core plan only — no add-ons, no payment method, no invoice history, not even a cancel button for the core plan. Only `startup_tax_benefits` (a different persona — startups, not this launch's target users) has a working *subscribe* flow, and even that has no corresponding *view/cancel* screen.
+
+**Files:** `packages/ui/src/AddOnCheckoutModal.tsx` (reuse), a new `GET /api/v1/agentbook-billing/me/addons` list variant (the existing single-code route stays for its current callers), `apps/web-next/src/components/settings/AgentBookSettingsPanel.tsx`'s `BillingTab()` (add an "Add-ons" section — subscribe via the modal, view active subscriptions, cancel via the existing route), `apps/web-next/src/app/(dashboard)/personal/page.tsx` (fix the broken teaser to use this same pattern instead of its own broken direct-`/subscribe` call), the three add-ons' chat-gate messages in `plugins/agentbook-core/backend/src/server.ts` (point "enable it in Settings" at the real new location).
+
+**Scope boundary:** reuse `AddOnCheckoutModal` and the already-existing cancel route as-is; the only new backend surface is the "list all my active add-ons" query (the cancel logic itself doesn't need to be built, just wired up). No new pricing tiers, no new add-ons, no invoice-history/payment-method UI beyond what's needed to show and manage add-on subscriptions — that's a separate, larger billing-UI project if wanted later. Prices shown in this UI must come from the live `BillAddOnPrice` rows (already true via existing resolve logic), never a hardcoded string — this is where PR-4a's source-of-truth work and this PR's UI meet.
+
+**Tasks (indicative):**
+1. Add a "list my active add-ons" capability (new query variant or a small new route) returning every `BillAddOnSubscription` for the tenant with add-on name/price/region/status.
+2. Add an "Add-ons" section to `BillingTab()`: an "Available" list (subscribe via `AddOnCheckoutModal`, for all four add-ons) and an "Active" list (name, price actually being paid, a Cancel button wired to the existing `/me/addons/[code]/cancel` route).
+3. Fix `personal/page.tsx`'s broken teaser to open the same modal instead of its own non-functional direct `/subscribe` call.
+4. Update the three chat-gate 402 messages to point at this real Settings location.
 
 ---
 
@@ -138,9 +154,11 @@
 
 ## Global Constraints (apply to every PR above)
 
-- Every fix reuses an existing, already-built pattern in this codebase (a jurisdiction pack, `useTenantCurrency()`, `AddOnCheckoutModal`, the tax-disclaimer component, `safeResolveAgentbookTenant`'s verification discipline) rather than introducing a new one — this roadmap is about closing wiring gaps, not redesigning subsystems.
+- Every fix reuses an existing, already-built pattern in this codebase (a jurisdiction pack, `useTenantCurrency()`, `AddOnCheckoutModal`, the existing add-on cancel route, the tax-disclaimer component, `safeResolveAgentbookTenant`'s verification discipline) rather than introducing a new one — this roadmap is about closing wiring gaps, not redesigning subsystems.
+- **Pricing has exactly one source of truth from PR-4a onward.** Once the shared pricing-constants module exists, every future add-on, tier, or region gets its price added there first — marketing copy, docs, and seed scripts all read from it. No PR after PR-4a introduces a new hardcoded price literal anywhere.
+- **Every add-on's region coverage is symmetric by construction.** us/ca/au get a price for every add-on this launch depends on (already true as of the earlier billing fix); the shared constants module (PR-4a) makes it structurally awkward to add a region to one add-on without adding it to the others, rather than relying on someone remembering to.
 - Legal-copy changes (PR-7) are drafted as a diff and explicitly called out for the user's own review before merging — this agent should not unilaterally finalize legal-document language beyond fixing structural gaps (broken links, missing disclaimer component instances) without a review checkpoint, since legal copy carries obligations beyond code correctness.
-- Any step that touches production billing, production data migrations, or sends real user-facing communications still requires the same explicit stop-and-confirm this session has applied throughout — this roadmap does not pre-authorize those steps.
+- Any step that touches production billing, production data migrations, or sends real user-facing communications still requires the same explicit stop-and-confirm this session has applied throughout — this roadmap does not pre-authorize those steps. Correcting a marketing-copy price to match what's actually charged is a copy fix, not a repricing, and does not require the same confirmation as changing what a real subscriber pays.
 - Each PR gets the same treatment every prior PR this session received: design/plan self-review → subagent-driven-development execution → per-task review → final whole-branch review → CI → merge (never `--admin`) → build + deploy → verify.
 
 ## Suggested execution order
@@ -152,8 +170,9 @@ Most PRs are file-disjoint and could run in parallel across separate worktrees i
 3. PR-3 (Plaid AU) — quick, high-impact.
 4. PR-5 (invoice/ledger integrity) — money correctness, all regions.
 5. PR-6 (GST on invoices) — builds on PR-5's invoice-creation context.
-6. PR-4 (checkout UI) — largest lift, revenue-critical.
-7. PR-7 (legal & trust) — no code dependencies on the above, can run in parallel any time.
-8. PR-8 (international-student guidance) — small, independent.
-9. PR-9 (deletion job + monitoring) — operational, independent.
-10. PR-10 (security hardening) — independent.
+6. PR-4a (pricing source of truth) — do before 4b, since 4b's new UI should read prices from the module 4a creates, not duplicate them again.
+7. PR-4b (add-on management UI) — largest lift, revenue-critical.
+8. PR-7 (legal & trust) — no code dependencies on the above, can run in parallel any time.
+9. PR-8 (international-student guidance) — small, independent.
+10. PR-9 (deletion job + monitoring) — operational, independent.
+11. PR-10 (security hardening) — independent.
