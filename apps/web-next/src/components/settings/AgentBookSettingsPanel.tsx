@@ -7,6 +7,7 @@ import {
   Copy, Check, Gift, Users,
 } from 'lucide-react';
 import { JURISDICTION_OPTIONS, defaultCurrencyFor } from '@/lib/jurisdiction-currency';
+import { SubscribeModal } from './SubscribeModal';
 
 const CURRENCY_OPTIONS = ['USD', 'CAD', 'GBP', 'AUD', 'EUR', 'JPY', 'CHF', 'MXN', 'BRL', 'INR'];
 
@@ -740,8 +741,10 @@ function BillingTab(): React.ReactElement {
   const [plans, setPlans] = useState<BillingPlan[]>([]);
   const [current, setCurrent] = useState<{ code?: string; name?: string; status?: string } | null>(null);
   const [loading, setLoading] = useState(true);
+  const [subscribeTarget, setSubscribeTarget] = useState<BillingPlan | null>(null);
 
-  useEffect(() => {
+  const load = useCallback(() => {
+    setLoading(true);
     Promise.all([
       fetch('/api/v1/agentbook-billing/plans').then((r) => r.json()).catch(() => null),
       fetch('/api/v1/agentbook-billing/me/subscription').then((r) => r.json()).catch(() => null),
@@ -750,6 +753,8 @@ function BillingTab(): React.ReactElement {
       if (c) setCurrent({ code: c.code ?? c.planCode ?? c.plan?.code, name: c.name ?? c.plan?.name, status: c.status });
     }).finally(() => setLoading(false));
   }, []);
+
+  useEffect(() => { load(); }, [load]);
 
   const fmt = (cents: number) => cents === 0 ? 'Free' : `$${(cents / 100).toFixed(0)}`;
 
@@ -765,7 +770,7 @@ function BillingTab(): React.ReactElement {
             : 'You are on the Free plan.'}
         </p>
       </div>
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
         {plans.map((p) => {
           const isCurrent = current?.code === p.code;
           return (
@@ -776,11 +781,26 @@ function BillingTab(): React.ReactElement {
               </div>
               <p className="text-2xl font-bold text-foreground">{fmt(p.priceCents)}<span className="text-xs font-normal text-muted-foreground">{p.priceCents > 0 ? `/${p.interval}` : ''}</span></p>
               {p.description && <p className="text-xs text-muted-foreground mt-1.5">{p.description}</p>}
+              {!isCurrent && p.priceCents > 0 && (
+                <button
+                  onClick={() => setSubscribeTarget(p)}
+                  className="mt-3 w-full rounded-lg bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90 transition-colors"
+                >
+                  Subscribe
+                </button>
+              )}
             </div>
           );
         })}
       </div>
-      <p className="text-xs text-muted-foreground">To change or cancel your plan, contact support or use the upgrade prompt in the app. Managed securely via Stripe.</p>
+      <p className="text-xs text-muted-foreground">To cancel your plan, contact support. Managed securely via Stripe.</p>
+      {subscribeTarget && (
+        <SubscribeModal
+          plan={subscribeTarget}
+          onClose={() => setSubscribeTarget(null)}
+          onSubscribed={() => { setSubscribeTarget(null); load(); }}
+        />
+      )}
     </div>
   );
 }
