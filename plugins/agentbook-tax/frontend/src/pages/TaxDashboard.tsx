@@ -16,6 +16,8 @@ import {
   FileUp,
   ArrowRight,
 } from 'lucide-react';
+import { formatMoney } from '@agentbook/i18n';
+import { useTenantCurrency } from '../hooks/useTenantCurrency';
 
 interface TaxEstimate {
   total_estimated_tax: number;
@@ -45,8 +47,8 @@ interface TaxSettings {
   w2WithheldYtd: number | null;
 }
 
-function formatCurrency(n: number) {
-  return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(n);
+function formatCurrency(n: number, currency: string = 'USD') {
+  return formatMoney(Math.round(n * 100), currency);
 }
 
 // effective_rate comes from the API already as a % (e.g. 27.3), not a decimal
@@ -71,6 +73,7 @@ const QUARTER_CARD_BORDER: Record<string, string> = {
 };
 
 function DashboardTab({ data, onRefresh }: { data: TaxEstimate; onRefresh: () => void }) {
+  const currency = useTenantCurrency();
   return (
     <div className="space-y-4">
       {/* Refresh */}
@@ -89,12 +92,12 @@ function DashboardTab({ data, onRefresh }: { data: TaxEstimate; onRefresh: () =>
           Total Estimated Tax
         </p>
         <p className="text-4xl sm:text-5xl font-bold text-foreground">
-          {formatCurrency(data.total_estimated_tax)}
+          {formatCurrency(data.total_estimated_tax, currency)}
         </p>
         {data.net_income > 0 && (
           <p className="mt-2 text-sm text-muted-foreground">
-            on {formatCurrency(data.net_income)} net income
-            {data.combined_mode && data.w2_income ? ` + ${formatCurrency(data.w2_income)} W-2` : ''}
+            on {formatCurrency(data.net_income, currency)} net income
+            {data.combined_mode && data.w2_income ? ` + ${formatCurrency(data.w2_income, currency)} W-2` : ''}
           </p>
         )}
         {data.combined_mode && (
@@ -104,7 +107,7 @@ function DashboardTab({ data, onRefresh }: { data: TaxEstimate; onRefresh: () =>
             </span>
             {data.amount_owed != null && (
               <span className="text-xs text-muted-foreground">
-                {formatCurrency(data.amount_owed)} still owed after W-2 withholding
+                {formatCurrency(data.amount_owed, currency)} still owed after W-2 withholding
               </span>
             )}
           </div>
@@ -138,7 +141,7 @@ function DashboardTab({ data, onRefresh }: { data: TaxEstimate; onRefresh: () =>
             </div>
             <span className="text-xs font-medium text-muted-foreground">Income Tax</span>
           </div>
-          <p className="text-xl font-bold text-foreground">{formatCurrency(data.income_tax)}</p>
+          <p className="text-xl font-bold text-foreground">{formatCurrency(data.income_tax, currency)}</p>
         </div>
 
         <div className="rounded-xl border border-border bg-card p-4">
@@ -148,7 +151,7 @@ function DashboardTab({ data, onRefresh }: { data: TaxEstimate; onRefresh: () =>
             </div>
             <span className="text-xs font-medium text-muted-foreground">SE Tax / CPP</span>
           </div>
-          <p className="text-xl font-bold text-foreground">{formatCurrency(data.self_employment_tax)}</p>
+          <p className="text-xl font-bold text-foreground">{formatCurrency(data.self_employment_tax, currency)}</p>
         </div>
 
         <div className="rounded-xl border border-border bg-card p-4">
@@ -174,7 +177,7 @@ function DashboardTab({ data, onRefresh }: { data: TaxEstimate; onRefresh: () =>
             </div>
             <div>
               <p className="text-xs text-muted-foreground">Revenue</p>
-              <p className="text-lg font-bold text-primary">{formatCurrency(data.total_revenue)}</p>
+              <p className="text-lg font-bold text-primary">{formatCurrency(data.total_revenue, currency)}</p>
             </div>
           </div>
           <div className="flex items-center gap-3">
@@ -183,7 +186,7 @@ function DashboardTab({ data, onRefresh }: { data: TaxEstimate; onRefresh: () =>
             </div>
             <div>
               <p className="text-xs text-muted-foreground">Expenses</p>
-              <p className="text-lg font-bold text-destructive">{formatCurrency(data.total_expenses)}</p>
+              <p className="text-lg font-bold text-destructive">{formatCurrency(data.total_expenses, currency)}</p>
             </div>
           </div>
           <div className="flex items-center gap-3">
@@ -193,7 +196,7 @@ function DashboardTab({ data, onRefresh }: { data: TaxEstimate; onRefresh: () =>
             <div>
               <p className="text-xs text-muted-foreground">Net Income</p>
               <p className={`text-lg font-bold ${data.net_income >= 0 ? 'text-primary' : 'text-destructive'}`}>
-                {formatCurrency(data.net_income)}
+                {formatCurrency(data.net_income, currency)}
               </p>
             </div>
           </div>
@@ -224,9 +227,9 @@ function DashboardTab({ data, onRefresh }: { data: TaxEstimate; onRefresh: () =>
                   <p className="text-xs text-muted-foreground mb-1">
                     Due: {new Date(q.deadline).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
                   </p>
-                  <p className="text-lg font-bold text-foreground">{formatCurrency(q.amount_due)}</p>
+                  <p className="text-lg font-bold text-foreground">{formatCurrency(q.amount_due, currency)}</p>
                   {q.amount_paid > 0 && (
-                    <p className="text-xs text-primary mt-1">Paid: {formatCurrency(q.amount_paid)}</p>
+                    <p className="text-xs text-primary mt-1">Paid: {formatCurrency(q.amount_paid, currency)}</p>
                   )}
                 </div>
               );
