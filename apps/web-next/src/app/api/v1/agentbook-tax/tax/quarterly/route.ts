@@ -22,6 +22,18 @@ function getQuarterlyDeadlines(year: number, jurisdiction: string): { quarter: n
       { quarter: 4, deadline: new Date(`${year}-12-15`) },
     ];
   }
+  if (jurisdiction === 'au') {
+    // Australian financial year runs July-June; these are the ATO PAYG
+    // instalment dates (same dates as packages/agentbook-jurisdictions's
+    // au/calendar-deadlines.ts's payg_qN_instalment entries, reused here
+    // as literals matching this file's existing us/ca convention).
+    return [
+      { quarter: 1, deadline: new Date(`${year}-10-28`) },
+      { quarter: 2, deadline: new Date(`${year + 1}-02-28`) },
+      { quarter: 3, deadline: new Date(`${year + 1}-04-28`) },
+      { quarter: 4, deadline: new Date(`${year + 1}-07-28`) },
+    ];
+  }
   return [
     { quarter: 1, deadline: new Date(`${year}-04-15`) },
     { quarter: 2, deadline: new Date(`${year}-06-15`) },
