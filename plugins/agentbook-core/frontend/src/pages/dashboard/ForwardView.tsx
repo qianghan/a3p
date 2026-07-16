@@ -2,6 +2,8 @@ import React from 'react';
 import { CashflowTimeline } from './CashflowTimeline';
 import { NextMomentsList } from './NextMomentsList';
 import type { NextMoment } from './types';
+import { formatMoney } from '@agentbook/i18n';
+import { useTenantCurrency } from '../../hooks/useTenantCurrency';
 
 interface Props {
   cashTodayCents: number;
@@ -15,10 +17,9 @@ const moodIcon = (label: 'healthy' | 'tight' | 'critical') =>
 const moodText = (label: 'healthy' | 'tight' | 'critical') =>
   label === 'healthy' ? 'Healthy' : label === 'tight' ? 'Tight' : 'Critical';
 
-const fmt = (cents: number) =>
-  '$' + Math.round(cents / 100).toLocaleString('en-US');
-
 export const ForwardView: React.FC<Props> = ({ cashTodayCents, projection, moments }) => {
+  const currency = useTenantCurrency();
+  const fmt = (cents: number) => formatMoney(cents, currency);
   const projectedEnd = projection?.days[projection.days.length - 1]?.cents ?? cashTodayCents;
   const endDate = projection?.days[projection.days.length - 1]?.date;
 

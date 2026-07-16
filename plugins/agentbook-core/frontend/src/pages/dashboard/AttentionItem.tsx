@@ -1,10 +1,9 @@
 import React, { useState } from 'react';
 import type { AttentionItem as Item } from './types';
+import { formatMoney } from '@agentbook/i18n';
+import { useTenantCurrency } from '../../hooks/useTenantCurrency';
 
 interface Props { item: Item; }
-
-const fmt = (cents?: number) =>
-  cents == null ? '' : '$' + Math.abs(Math.round(cents / 100)).toLocaleString('en-US');
 
 const severityClass = (s: Item['severity']) =>
   s === 'critical' ? 'border-red-500/30 bg-red-500/5' :
@@ -14,6 +13,8 @@ const severityClass = (s: Item['severity']) =>
 export const AttentionItem: React.FC<Props> = ({ item }) => {
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState(false);
+  const currency = useTenantCurrency();
+  const fmt = (cents?: number) => (cents == null ? '' : formatMoney(Math.abs(cents), currency));
 
   const onClick = async () => {
     if (!item.action) return;

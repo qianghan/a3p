@@ -1,4 +1,6 @@
 import React, { useEffect, useState } from 'react';
+import { formatMoney } from '@agentbook/i18n';
+import { useTenantCurrency } from '../../hooks/useTenantCurrency';
 
 /**
  * Inline banner shown at the top of the dashboard when the URL carries
@@ -25,19 +27,19 @@ interface CatchUpSummary {
   cpaRequestsOpen: number;
 }
 
-function fmtUsd(cents: number): string {
+function fmtSigned(cents: number, currency: string): string {
   const sign = cents < 0 ? '−' : '+';
-  return `${sign}$${(Math.abs(cents) / 100).toFixed(2)}`;
+  return `${sign}${formatMoney(Math.abs(cents), currency)}`;
 }
 
-function lines(s: CatchUpSummary): string[] {
+function lines(s: CatchUpSummary, currency: string): string[] {
   const out: string[] = [];
-  if (s.cashChangeCents !== 0) out.push(`Cash ${fmtUsd(s.cashChangeCents)}`);
+  if (s.cashChangeCents !== 0) out.push(`Cash ${fmtSigned(s.cashChangeCents, currency)}`);
   if (s.invoicesPaid.count > 0) {
-    out.push(`${s.invoicesPaid.count} invoice${s.invoicesPaid.count === 1 ? '' : 's'} paid ($${(s.invoicesPaid.totalCents / 100).toFixed(2)})`);
+    out.push(`${s.invoicesPaid.count} invoice${s.invoicesPaid.count === 1 ? '' : 's'} paid (${formatMoney(s.invoicesPaid.totalCents, currency)})`);
   }
   if (s.invoicesSent.count > 0) {
-    out.push(`${s.invoicesSent.count} invoice${s.invoicesSent.count === 1 ? '' : 's'} sent ($${(s.invoicesSent.totalCents / 100).toFixed(2)})`);
+    out.push(`${s.invoicesSent.count} invoice${s.invoicesSent.count === 1 ? '' : 's'} sent (${formatMoney(s.invoicesSent.totalCents, currency)})`);
   }
   if (s.expensesAutoCategorized > 0) {
     out.push(`${s.expensesAutoCategorized} expense${s.expensesAutoCategorized === 1 ? '' : 's'} auto-categorised`);
@@ -63,6 +65,7 @@ export const CatchUpBanner: React.FC = () => {
   const [data, setData] = useState<CatchUpSummary | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [dismissed, setDismissed] = useState(false);
+  const currency = useTenantCurrency();
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -107,7 +110,7 @@ export const CatchUpBanner: React.FC = () => {
         <p className="text-xs text-muted-foreground">Loading…</p>
       ) : (
         <ul className="space-y-1 text-sm text-foreground">
-          {lines(data).map((line, idx) => (
+          {lines(data, currency).map((line, idx) => (
             <li key={idx} className="flex gap-2">
               <span className="text-muted-foreground">•</span>
               <span>{line}</span>
