@@ -73,4 +73,27 @@ describe('computeInvoiceTax', () => {
     expect(result.taxCents).toBe(0);
     expect(result.components).toEqual([]);
   });
+
+  it('scales a QC tenant\'s GST/QST split proportionally under an overrideRate, instead of collapsing it into one component', async () => {
+    tenantConfigFindUnique.mockResolvedValue({ jurisdiction: 'ca', region: 'QC' });
+    // QC's default combined rate is 0.14975 (0.05 GST + 0.09975 QST). Override
+    // to exactly half that (0.074875) and confirm both components scale by
+    // the same 0.5 factor, preserving the split rather than dumping the
+    // whole override into a single GST/HST (2100) line.
+    const result = await computeInvoiceTax('t1', 10000, 0.074875);
+    expect(result.taxRate).toBe(0.074875);
+    expect(result.components).toEqual([
+      { type: 'GST', rate: 0.025, amountCents: 250, accountCode: '2100' },
+      { type: 'PST', rate: 0.049875, amountCents: 499, accountCode: '2200' },
+    ]);
+    expect(result.taxCents).toBe(749); // 250 + 499
+  });
+
+  it('falls back to a single GST/HST (2100) component for an override on a CA tenant with no recognized province, rather than silently dropping the tax', async () => {
+    tenantConfigFindUnique.mockResolvedValue({ jurisdiction: 'ca', region: 'ZZ' });
+    const result = await computeInvoiceTax('t1', 10000, 0.05);
+    expect(result.taxRate).toBe(0.05);
+    expect(result.taxCents).toBe(500);
+    expect(result.components).toEqual([{ type: 'GST', rate: 0.05, amountCents: 500, accountCode: '2100' }]);
+  });
 });

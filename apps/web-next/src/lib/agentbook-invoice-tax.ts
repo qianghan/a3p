@@ -37,14 +37,71 @@ function caAccountCodeFor(componentType: string): string {
 }
 
 /**
+ * Turn a jurisdiction pack's raw component list into this module's
+ * `InvoiceTaxComponent[]` shape, assigning each component's liability
+ * account code and dropping any zero-amount component.
+ */
+function toInvoiceComponents(
+  components: { type: string; rate: number; amountCents: number }[],
+  accountCodeFor: (type: string) => string,
+): InvoiceTaxComponent[] {
+  return components
+    .filter((c) => c.amountCents > 0)
+    .map((c) => ({ type: c.type, rate: c.rate, amountCents: c.amountCents, accountCode: accountCodeFor(c.type) }));
+}
+
+/**
+ * Scale a jurisdiction's default multi-component breakdown to a caller-
+ * supplied override rate, preserving each component's proportional share
+ * (e.g. Quebec's GST:PST split of 5:9.975) instead of collapsing the whole
+ * override into a single component.
+ *
+ * Two degenerate cases:
+ *   - `overrideRate === 0`: the caller explicitly asked for no tax — always
+ *     an empty `components` array, regardless of the jurisdiction's default.
+ *   - `defaultTotalRate === 0` with a non-zero `overrideRate`: the tenant's
+ *     jurisdiction is AU/CA but has no recognized default breakdown to
+ *     scale against (e.g. a CA tenant with an unset/unrecognized province).
+ *     There's no proportional split to preserve here, but the override
+ *     itself is real money the caller intends to collect — falling back to
+ *     zero would silently drop it from the ledger. Attribute the whole
+ *     amount to the jurisdiction's primary liability account (GST/HST,
+ *     '2100') instead: a coarser attribution than a real per-component
+ *     split, but not a money-losing one.
+ */
+function scaleComponentsToOverride(
+  defaultComponents: { type: string; rate: number; amountCents: number }[],
+  defaultTotalRate: number,
+  overrideRate: number,
+  subtotalCents: number,
+  accountCodeFor: (type: string) => string,
+): InvoiceTaxComponent[] {
+  if (overrideRate === 0) return [];
+  if (defaultTotalRate === 0) {
+    const amountCents = Math.round(subtotalCents * overrideRate);
+    return amountCents > 0 ? [{ type: 'GST', rate: overrideRate, amountCents, accountCode: '2100' }] : [];
+  }
+  const scale = overrideRate / defaultTotalRate;
+  const scaled = defaultComponents.map((c) => ({
+    type: c.type,
+    rate: c.rate * scale,
+    amountCents: Math.round(subtotalCents * c.rate * scale),
+  }));
+  return toInvoiceComponents(scaled, accountCodeFor);
+}
+
+/**
  * Compute the tax to apply to a new invoice's subtotal.
  *
  * @param overrideRate - When provided (a fraction, e.g. 0.10), the caller
  *   (a user editing the tax-rate field before submitting) has explicitly
- *   chosen a rate — apply it verbatim instead of looking up the
- *   jurisdiction's default. Still requires an AU/CA jurisdiction so the
- *   correct liability account code is known (an override without a
- *   determinable liability account throws — see below).
+ *   chosen a rate. It's applied by proportionally scaling the tenant's
+ *   jurisdiction default component breakdown to the new rate — this
+ *   preserves multi-component splits (e.g. Quebec's GST/QST) instead of
+ *   collapsing the whole override into a single account. Still requires
+ *   an AU/CA jurisdiction; other jurisdictions have no default breakdown
+ *   to scale, so an override there degrades to the same zero-tax result
+ *   as omitting it (no throw — this function never throws).
  */
 export async function computeInvoiceTax(
   tenantId: string,
@@ -60,41 +117,29 @@ export async function computeInvoiceTax(
   const jurisdiction = tenantConfig?.jurisdiction || 'us';
 
   if (jurisdiction === 'au') {
-    if (overrideRate != null) {
-      const amountCents = Math.round(subtotalCents * overrideRate);
-      return {
-        taxRate: overrideRate,
-        taxCents: amountCents,
-        components: amountCents > 0 ? [{ type: 'GST', rate: overrideRate, amountCents, accountCode: '2100' }] : [],
-      };
-    }
     const result = auSalesTax.calculateTax(subtotalCents, 'standard');
+    if (overrideRate != null) {
+      const components = scaleComponentsToOverride(result.components, result.totalRate, overrideRate, subtotalCents, () => '2100');
+      return { taxRate: overrideRate, taxCents: components.reduce((s, c) => s + c.amountCents, 0), components };
+    }
     return {
       taxRate: result.totalRate,
       taxCents: result.totalCents,
-      components: result.components
-        .filter((c) => c.amountCents > 0)
-        .map((c) => ({ type: c.type, rate: c.rate, amountCents: c.amountCents, accountCode: '2100' })),
+      components: toInvoiceComponents(result.components, () => '2100'),
     };
   }
 
   if (jurisdiction === 'ca') {
     const region = tenantConfig?.region || '';
-    if (overrideRate != null) {
-      const amountCents = Math.round(subtotalCents * overrideRate);
-      return {
-        taxRate: overrideRate,
-        taxCents: amountCents,
-        components: amountCents > 0 ? [{ type: 'GST', rate: overrideRate, amountCents, accountCode: '2100' }] : [],
-      };
-    }
     const result = caSalesTax.calculateTax(subtotalCents, region);
+    if (overrideRate != null) {
+      const components = scaleComponentsToOverride(result.components, result.totalRate, overrideRate, subtotalCents, caAccountCodeFor);
+      return { taxRate: overrideRate, taxCents: components.reduce((s, c) => s + c.amountCents, 0), components };
+    }
     return {
       taxRate: result.totalRate,
       taxCents: result.totalCents,
-      components: result.components
-        .filter((c) => c.amountCents > 0)
-        .map((c) => ({ type: c.type, rate: c.rate, amountCents: c.amountCents, accountCode: caAccountCodeFor(c.type) })),
+      components: toInvoiceComponents(result.components, caAccountCodeFor),
     };
   }
 
