@@ -70,6 +70,16 @@ export const TaxPackagePage: React.FC = () => {
         ))}
       </div>
 
+      {/* Fast-Track's own component has no disclaimer of its own (unlike
+          TaxPackageContent and PastFilingsPage, which each already render
+          one) — add it here rather than duplicating a second copy on the
+          other two tabs. */}
+      {tab === 'fast-track' && (
+        <div className="px-4 pt-4 sm:px-6">
+          <TaxDisclaimer />
+        </div>
+      )}
+
       {tab === 'package' ? <TaxPackageContent /> : tab === 'past' ? <PastFilingsPage /> : <FastTrackTab />}
     </div>
   );
