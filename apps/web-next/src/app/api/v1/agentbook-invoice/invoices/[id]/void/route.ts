@@ -44,34 +44,52 @@ export async function POST(
       );
     }
 
-    const [arAccount, revenueAccount] = await Promise.all([
-      db.abAccount.findUnique({ where: { tenantId_code: { tenantId, code: '1100' } } }),
-      db.abAccount.findUnique({ where: { tenantId_code: { tenantId, code: '4000' } } }),
-    ]);
-    if (!arAccount || !revenueAccount) {
+    // Mirror-reverse the ORIGINAL journal entry's own lines (swap debit/credit
+    // per line, same accounts) rather than reconstructing an AR/Revenue-only
+    // reversal from amountCents. Since Launch-gap PR-6, amountCents is the
+    // tax-inclusive grand total while the original entry only ever credited
+    // Revenue the subtotal (tax went to a 2100/2200 liability account) — a
+    // flat "debit Revenue / credit AR by amountCents" reversal would leave
+    // Revenue over-reversed and the tax-liability account never cleared for
+    // any AU/CA invoice. Mirroring the real lines is correct for every case
+    // (untaxed 2-line entries included) and needs no jurisdiction knowledge.
+    const originalLines = invoice.journalEntryId
+      ? await db.abJournalLine.findMany({ where: { entryId: invoice.journalEntryId } })
+      : [];
+    if (invoice.journalEntryId && originalLines.length === 0) {
       return NextResponse.json(
-        { success: false, error: 'AR/Revenue accounts not found' },
+        { success: false, error: 'Original journal entry not found' },
         { status: 422 },
       );
     }
 
     const updated = await db.$transaction(async (tx) => {
-      await tx.abJournalEntry.create({
-        data: {
-          tenantId,
-          date: new Date(),
-          memo: `VOID - Reverse Invoice ${invoice.number}`,
-          sourceType: 'invoice',
-          sourceId: invoice.id,
-          verified: true,
-          lines: {
-            create: [
-              { tenantId, accountId: arAccount.id, debitCents: 0, creditCents: invoice.amountCents, description: `Reverse AR - Invoice ${invoice.number}` }, // G-009
-              { tenantId, accountId: revenueAccount.id, debitCents: invoice.amountCents, creditCents: 0, description: `Reverse Revenue - Invoice ${invoice.number}` }, // G-009
-            ],
+      if (originalLines.length > 0) {
+        await tx.abJournalEntry.create({
+          data: {
+            tenantId,
+            date: new Date(),
+            memo: `VOID - Reverse Invoice ${invoice.number}`,
+            // 'invoice_void', not 'invoice' — the original creation entry
+            // already holds (tenantId, 'invoice', invoice.id), and G-021's
+            // @@unique([tenantId, sourceType, sourceId]) would reject a
+            // second row under that same tuple (confirmed: this reversal
+            // insert throws P2002 under the old sourceType before this fix).
+            sourceType: 'invoice_void',
+            sourceId: invoice.id,
+            verified: true,
+            lines: {
+              create: originalLines.map((l) => ({
+                tenantId, // G-009
+                accountId: l.accountId,
+                debitCents: l.creditCents,
+                creditCents: l.debitCents,
+                description: `Reverse: ${l.description || `Invoice ${invoice.number}`}`,
+              })),
+            },
           },
-        },
-      });
+        });
+      }
 
       const inv = await tx.abInvoice.update({
         where: { id: invoice.id },
