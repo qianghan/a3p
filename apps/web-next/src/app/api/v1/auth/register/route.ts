@@ -16,13 +16,16 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     }
 
     const body = await request.json();
-    const { email, password, displayName } = body;
+    const { email, password, displayName, ageConfirmed } = body;
     // Referral attribution: prefer an explicit body value, else the ab_ref cookie.
     const ref =
       (typeof body.ref === 'string' && body.ref) || request.cookies.get('ab_ref')?.value || undefined;
 
     if (!email || !password) {
       return errors.badRequest('Email and password are required');
+    }
+    if (ageConfirmed !== true) {
+      return errors.badRequest('You must confirm you are at least 18 years old to register');
     }
 
     await register(email, password, displayName, ref);
