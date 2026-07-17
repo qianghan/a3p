@@ -11,6 +11,7 @@ import {
 import { ChatCTA } from '@naap/plugin-sdk';
 import { formatMoney } from '@agentbook/i18n';
 import { useTenantCurrency } from '../hooks/useTenantCurrency';
+import { TaxDisclaimer } from '../components/TaxDisclaimer';
 
 interface Deduction {
   id: string;
@@ -111,6 +112,10 @@ export const DeductionsPage: React.FC = () => {
 
       {/* PR 44 / Tier 1 #1: chat-first escape hatch */}
       <ChatCTA example="what deductions can I still claim for last year?" />
+
+      <div className="mb-6">
+        <TaxDisclaimer />
+      </div>
 
       {/* Total savings banner */}
       <div

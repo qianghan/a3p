@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { PieChart, BarChart3, TrendingUp, TrendingDown, Zap } from 'lucide-react';
+import { TaxDisclaimer } from '../components/TaxDisclaimer';
 
 interface CategoryBreakdown {
   categoryName: string;
@@ -55,6 +56,10 @@ export const AnalyticsPage: React.FC = () => {
       <div className="flex items-center gap-3 mb-6">
         <BarChart3 className="w-6 h-6 text-primary" />
         <h1 className="text-2xl font-bold">Expense Analytics</h1>
+      </div>
+
+      <div className="mb-6">
+        <TaxDisclaimer />
       </div>
 
       {loading && <p className="text-muted-foreground">Loading analytics...</p>}

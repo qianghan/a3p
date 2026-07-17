@@ -11,6 +11,7 @@ import {
 import { ChatCTA } from '@naap/plugin-sdk';
 import { formatMoney } from '@agentbook/i18n';
 import { useTenantCurrency } from '../hooks/useTenantCurrency';
+import { TaxDisclaimer } from '../components/TaxDisclaimer';
 
 interface ReportRow {
   label: string;
@@ -216,6 +217,10 @@ export const ReportsPage: React.FC = () => {
         <p className="text-sm mt-1" style={{ color: 'var(--text-secondary)' }}>
           Generate and view financial reports for your business
         </p>
+      </div>
+
+      <div className="mb-6">
+        <TaxDisclaimer />
       </div>
 
       {/* PR 45 / Tier 1 #1: chat-first escape hatch */}

@@ -19,6 +19,7 @@ export default function RegisterForm() {
     password: '',
     confirmPassword: '',
     displayName: '',
+    ageConfirmed: false,
   });
   const [ref, setRef] = useState<string | null>(null);
 
@@ -50,6 +51,10 @@ export default function RegisterForm() {
       setError('Password must be at least 8 characters');
       return;
     }
+    if (!formData.ageConfirmed) {
+      setError('Please confirm you are at least 18 and agree to the Terms and Privacy Policy');
+      return;
+    }
 
     setIsLoading(true);
     try {
@@ -60,6 +65,7 @@ export default function RegisterForm() {
           email: formData.email,
           password: formData.password,
           displayName: formData.displayName,
+          ageConfirmed: formData.ageConfirmed,
           ...(ref ? { ref } : {}),
         }),
       });
@@ -166,6 +172,28 @@ export default function RegisterForm() {
           />
         </div>
 
+        <label className="flex items-start gap-2 text-[11px] text-muted-foreground/60 cursor-pointer">
+          <input
+            type="checkbox"
+            name="ageConfirmed"
+            checked={formData.ageConfirmed}
+            onChange={(e) => setFormData(prev => ({ ...prev, ageConfirmed: e.target.checked }))}
+            className="mt-0.5 h-3.5 w-3.5 shrink-0 rounded border-muted-foreground/40 accent-brand-primary"
+            required
+          />
+          <span>
+            I confirm I am at least 18 years old and agree to the{' '}
+            <Link href="/legal/terms" className="hover:text-muted-foreground transition-colors">
+              Terms
+            </Link>{' '}
+            and{' '}
+            <Link href="/legal/privacy" className="hover:text-muted-foreground transition-colors">
+              Privacy Policy
+            </Link>
+            .
+          </span>
+        </label>
+
         <button
           type="submit"
           disabled={isLoading}
@@ -199,17 +227,6 @@ export default function RegisterForm() {
         Already have an account?{' '}
         <Link href="/login" className="text-foreground hover:underline">
           Sign in
-        </Link>
-      </p>
-
-      <p className="mt-3 text-center text-[11px] text-muted-foreground/60">
-        By creating an account, you agree to our{' '}
-        <Link href="/terms" className="hover:text-muted-foreground transition-colors">
-          Terms
-        </Link>{' '}
-        and{' '}
-        <Link href="/privacy" className="hover:text-muted-foreground transition-colors">
-          Privacy Policy
         </Link>
       </p>
     </div>
