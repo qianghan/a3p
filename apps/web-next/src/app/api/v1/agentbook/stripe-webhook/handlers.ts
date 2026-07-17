@@ -203,9 +203,13 @@ export async function applyEvent(event: Stripe.Event): Promise<void> {
       });
 
       // Best-effort journal entry — won't block payment recording if accounts missing.
+      // Account codes: 1000 = Cash, 1100 = Accounts Receivable. Uniform across
+      // every jurisdiction pack (us/ca/au/uk chart-of-accounts) — see
+      // plugins/agentbook-invoice/backend/src/server.ts's getAccountByCode
+      // calls in the manual-payment route, which use the same two codes.
       try {
-        const cashAccount = await prisma.abAccount.findFirst({ where: { tenantId, code: '1010' } });
-        const arAccount = await prisma.abAccount.findFirst({ where: { tenantId, code: '1200' } });
+        const cashAccount = await prisma.abAccount.findFirst({ where: { tenantId, code: '1000' } });
+        const arAccount = await prisma.abAccount.findFirst({ where: { tenantId, code: '1100' } });
         if (cashAccount && arAccount) {
           await prisma.abJournalEntry.create({
             data: {
@@ -222,6 +226,12 @@ export async function applyEvent(event: Stripe.Event): Promise<void> {
               },
             },
           });
+        } else {
+          console.warn(
+            `[stripe-webhook] journal entry skipped for invoice ${invoice.number}: ` +
+            `Cash (1000) or AR (1100) account not found for tenant ${tenantId}. ` +
+            `Payment was still recorded; ensure chart of accounts is seeded.`,
+          );
         }
       } catch (err) {
         console.warn('[stripe-webhook] journal entry creation failed (non-fatal):', err);
