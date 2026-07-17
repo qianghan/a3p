@@ -3949,37 +3949,73 @@ async function _executeClassificationCore(
       const homeCountry = (classification.tenantConfig?.homeCountry || '').toLowerCase();
       const jurisdiction = (classification.tenantConfig?.jurisdiction || 'us').toLowerCase();
 
-      const treatyNote = homeCountry === 'cn'
-        ? "Since you're from China: the US-China tax treaty (Article 20) can exempt scholarship income and a limited amount of wages from US tax — worth specifically asking Sprintax/GLACIER to check this for you."
-        : homeCountry === 'in'
-          ? "Since you're from India: the US-India tax treaty (Article 21) is unusual in letting Indian nonresident students claim the US standard deduction, which almost no other treaty nationality can do — make sure whichever tool you file with applies this."
-          : "I don't have verified treaty specifics for your country memorized — treaty terms vary a lot and I'd rather send you to the real table than guess. Check IRS Publication 901 (tax treaty tables) or ask Sprintax/GLACIER directly; they apply this automatically when you file.";
+      // Treaty specifics are US-specific facts (Article numbers, IRS treaty
+      // tables) — they must never be shown to a Canada- or Australia-
+      // jurisdiction student, which was a real, pre-existing bug: this used
+      // to key off homeCountry alone, so a Canada-jurisdiction student from
+      // China was already being told about "the US-China tax treaty."
+      // Gated on the same condition as the `rules` branch below (au/ca get
+      // their own dedicated content that never references treatyNote) rather
+      // than on `jurisdiction === 'us'` directly — jurisdiction also has a
+      // real 'uk' value elsewhere in this codebase (see jurisdiction-
+      // currency.ts) which currently falls through to this same US-labeled
+      // rules branch below, and that branch always interpolates treatyNote;
+      // gating on `!== 'us'` would render "Treaty specifics: null" for it.
+      const treatyNote = (jurisdiction === 'au' || jurisdiction === 'ca')
+        ? null
+        : homeCountry === 'cn'
+          ? "Since you're from China: the US-China tax treaty (Article 20) can exempt scholarship income and a limited amount of wages from US tax — worth specifically asking Sprintax/GLACIER to check this for you."
+          : homeCountry === 'in'
+            ? "Since you're from India: the US-India tax treaty (Article 21) is unusual in letting Indian nonresident students claim the US standard deduction, which almost no other treaty nationality can do — make sure whichever tool you file with applies this."
+            : "I don't have verified treaty specifics for your country memorized — treaty terms vary a lot and I'd rather send you to the real table than guess. Check IRS Publication 901 (tax treaty tables) or ask Sprintax/GLACIER directly; they apply this automatically when you file.";
 
-      const rules = [
-        `The user is on an international student visa (F-1/J-1 or similar), tax jurisdiction ${jurisdiction === 'ca' ? 'Canada' : 'the United States'}.`,
-        'US nonresident-alien basics: F-1/J-1 students are "exempt individuals" under the Substantial Presence Test for their first 5 calendar years in the US, which means they file Form 1040-NR, not the regular 1040 that domestic students use, and generally CANNOT claim the standard deduction (an unusual exception exists for India, per treaty — see below).',
-        'FICA exemption: on-campus employment, and work authorized under CPT/OPT, is exempt from FICA (Social Security + Medicare) tax withholding during nonresident status. If an employer withheld it anyway, that\'s refundable via Form 843 + Form 8316.',
-        'Form 8843 is required for every F-1/J-1 visa holder every year, even with zero US income — it\'s the form that establishes exempt-individual status, not an income tax return by itself.',
-        'Form 1042-S is issued instead of (or alongside) a W-2 when income is treaty-exempt or otherwise subject to nonresident withholding — if the user mentions getting one, it means some or all of that income has already had treaty rules applied by the payer.',
-        `Treaty specifics: ${treatyNote}`,
-        'AgentBook is not a 1040-NR filing engine — that\'s a different form with different rules than domestic tools (TurboTax/H&R Block/FreeTaxUSA) even support, and most universities already provide a licensed Sprintax or GLACIER Tax Prep seat through the international student office. Point the user there for the actual filing; AgentBook\'s job is explaining what these terms mean and tracking everyday spending in the meantime.',
-        'Visa-work-authorization caveat: unlike a domestic side-hustle, F-1/J-1 students generally cannot take on arbitrary gig-platform or freelance income — only specific authorized categories (on-campus, CPT, OPT). Do not encourage untracked "side income" the way you might for a domestic student.',
-      ].join('\n');
+      const jurisdictionLabel = jurisdiction === 'ca' ? 'Canada' : jurisdiction === 'au' ? 'Australia' : 'the United States';
+
+      const rules = jurisdiction === 'au'
+        ? [
+            `The user is an international student on an Australian student visa (subclass 500 or similar), tax jurisdiction Australia.`,
+            'Australian tax residency for international students is NOT determined by visa category the way the US treats F-1/J-1 status — the ATO applies the same residency tests to everyone, visa holders included (the "resides" test, the domicile test, the 183-day test). A student physically living in Australia for the duration of their course very often DOES meet the resides test and IS an Australian tax resident for tax purposes — a real structural difference from the US, where F-1/J-1 holders are automatically treated as nonresident "exempt individuals" for their first 5 calendar years regardless of how settled they are.',
+            'If the student IS an Australian tax resident: they get the same tax-free threshold and file the same individual tax return via myTax as any other resident — there is no special nonresident form. If they are instead a foreign resident for tax purposes (uncommon for a full degree-length stay, but possible for a short exchange program), foreign residents are taxed from the first dollar with no tax-free threshold, at different rates on the same income — this residency-status question is the single biggest practical thing to get right, and it should be checked (via the ATO\'s own residency tests or a registered tax agent) rather than assumed from visa type alone.',
+            'There is no Australian equivalent of FICA, Form 8843, or Form 1042-S — Australian tax residency isn\'t established by a standalone form the way the US uses Form 8843. Superannuation guarantee (compulsory employer retirement contributions) generally still applies to eligible student employees regardless of visa status; some temporary visa holders can claim a refund of their accumulated super — a Departing Australia Superannuation Payment (DASP) — but only after they permanently leave Australia, i.e. it\'s money returned on departure, not an upfront exemption the way the FICA carve-out is.',
+            'Filing is generally simpler than the US nonresident system: myTax (via myGov) is a free ATO e-lodgment portal most students can use to self-file directly, without needing a paid specialist tool the way F-1/J-1 students effectively need Sprintax/GLACIER for Form 1040-NR. A registered tax agent is worth using if the situation is genuinely complex (multiple income sources, ambiguous residency status), not as a default requirement.',
+            'Work rights: student visa holders have a capped number of work hours per fortnight during term time, but the exact cap is set by government policy and changes — don\'t state a specific number as current; tell the user to check their visa grant notice or the Department of Home Affairs website. Once working within their visa conditions, income is taxed under normal Australian rules — there is no special visa-based tax exemption for the work itself the way the US FICA exemption works.',
+            `Treaty specifics: I don't have verified Australian tax-treaty specifics memorized for any home country — Australia's treaty network is entirely separate from the US's (different articles, different terms). Check the ATO's own tax treaty guidance (ato.gov.au) or ask a registered tax agent rather than trust a guess here.`,
+            'AgentBook is not a myTax filing engine and is not an immigration advisor — its job here is explaining what these residency/visa/superannuation terms mean and tracking everyday spending; point the user to myTax directly, or a registered tax agent for anything genuinely complex.',
+          ].join('\n')
+        : jurisdiction === 'ca'
+          ? [
+              `The user is an international student on a Canadian study permit, tax jurisdiction Canada.`,
+              "AgentBook does not yet have verified, Canada-specific international-student tax content (study-permit tax-residency rules, CRA's equivalent of the US Substantial Presence Test, or a CPP/EI exemption analog) — rather than guess or reuse US rules that do not apply in Canada, say plainly that this guidance isn't available for Canada yet and point the user to the CRA's own newcomer/international-student resources (canada.ca, search \"international students and income tax\") or a Canadian tax preparer familiar with study permits.",
+            ].join('\n')
+          : [
+              `The user is on an international student visa (F-1/J-1 or similar), tax jurisdiction ${jurisdictionLabel}.`,
+              'US nonresident-alien basics: F-1/J-1 students are "exempt individuals" under the Substantial Presence Test for their first 5 calendar years in the US, which means they file Form 1040-NR, not the regular 1040 that domestic students use, and generally CANNOT claim the standard deduction (an unusual exception exists for India, per treaty — see below).',
+              'FICA exemption: on-campus employment, and work authorized under CPT/OPT, is exempt from FICA (Social Security + Medicare) tax withholding during nonresident status. If an employer withheld it anyway, that\'s refundable via Form 843 + Form 8316.',
+              'Form 8843 is required for every F-1/J-1 visa holder every year, even with zero US income — it\'s the form that establishes exempt-individual status, not an income tax return by itself.',
+              'Form 1042-S is issued instead of (or alongside) a W-2 when income is treaty-exempt or otherwise subject to nonresident withholding — if the user mentions getting one, it means some or all of that income has already had treaty rules applied by the payer.',
+              `Treaty specifics: ${treatyNote}`,
+              'AgentBook is not a 1040-NR filing engine — that\'s a different form with different rules than domestic tools (TurboTax/H&R Block/FreeTaxUSA) even support, and most universities already provide a licensed Sprintax or GLACIER Tax Prep seat through the international student office. Point the user there for the actual filing; AgentBook\'s job is explaining what these terms mean and tracking everyday spending in the meantime.',
+              'Visa-work-authorization caveat: unlike a domestic side-hustle, F-1/J-1 students generally cannot take on arbitrary gig-platform or freelance income — only specific authorized categories (on-campus, CPT, OPT). Do not encourage untracked "side income" the way you might for a domestic student.',
+            ].join('\n');
 
       const system = [
-        'You are AgentBook, explaining nonresident-alien tax status to an international student on a visa.',
+        'You are AgentBook, explaining nonresident/international-student tax status to a student on a visa.',
         'Use ONLY the facts given below — do not invent treaty terms, dollar thresholds, or filing mechanics not listed here.',
         'Lead with the plain-English answer to what they actually asked, then the relevant background.',
-        'If the question is really "how do I file my 1040-NR," say plainly that AgentBook doesn\'t do that and point to Sprintax/GLACIER (usually free through their university).',
+        'If the rules below say this jurisdiction\'s guidance isn\'t available yet, say that plainly and give the pointer provided — do not fall back to US rules.',
         'End with one sentence noting AgentBook is not a CPA, immigration advisor, or e-file agent.',
         'Plain text, 3-6 sentences, no markdown headers.',
         '',
         rules,
       ].join('\n');
 
-      const question = String(extractedParams.question || text || 'What does nonresident alien status mean for my taxes?');
+      const question = String(extractedParams.question || text || 'What does my visa/residency status mean for my taxes?');
       const reply = await callGemini(system, question, 400)
-        ?? "I couldn't work through that just now — Sprintax (sprintax.com) and GLACIER Tax Prep are the two main tools for nonresident student tax filing, often free through your university's international student office.";
+        ?? (jurisdiction === 'au'
+          ? "I couldn't work through that just now — myTax (via myGov) is the ATO's free e-lodgment portal most students can use directly; a registered tax agent can help with anything complex."
+          : jurisdiction === 'ca'
+            ? "I couldn't work through that just now — check the CRA's international-student tax resources at canada.ca, or ask a Canadian tax preparer familiar with study permits."
+            : "I couldn't work through that just now — Sprintax (sprintax.com) and GLACIER Tax Prep are the two main tools for nonresident student tax filing, often free through your university's international student office.");
 
       await db.abConversation.create({
         data: { tenantId, question: text || question, answer: reply, queryType: 'agent', channel, skillUsed: 'international-student-tax-help' },
