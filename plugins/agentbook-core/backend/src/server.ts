@@ -91,7 +91,7 @@ function localEngagementFallback(opts: {
     return "Tax deadlines depend on your jurisdiction and entity type. What country/state are you in, and are you filing as sole prop, LLC, or corp?";
   }
   if (/(how.*file.*tax|how.*do.*tax|file my tax|do my tax)/.test(t)) {
-    return "I can prep your books for filing — P&L, tax summary, and a CPA-ready export. If you want self-serve filing, AgentBook supports US/Canada forms (T1, T2125, GST/HST). Which jurisdiction are you in?";
+    return "I can prep your books for filing — P&L, tax summary, and a CPA-ready export. If you want self-serve filing, AgentBook supports US, Canada, and Australia (1040, T2125, myTax/BAS). Which jurisdiction are you in?";
   }
   if (/(can.*deduct|write[- ]off|is.*deductible)/.test(t)) {
     return "Most legitimate business expenses are deductible — what's the expense, and was it for business or personal use?";

@@ -30,7 +30,7 @@ function localBrainFallback(userText: string): string {
   if (/(deadline|file by|when .* (tax|file|due)|tax due|due date)/.test(t))
     return 'Tax deadlines depend on jurisdiction and entity. What country/state are you in, and are you a sole prop, LLC, or corp?';
   if (/(how.*file.*tax|how.*do.*tax|file my tax|do my tax)/.test(t))
-    return 'I can prep your books for filing — P&L, tax summary, and a CPA-ready export. AgentBook also supports US/Canada self-serve forms (T1, T2125, GST/HST). Which jurisdiction?';
+    return 'I can prep your books for filing — P&L, tax summary, and a CPA-ready export. AgentBook also supports US, Canada, and Australia self-serve forms (1040, T2125, myTax/BAS). Which jurisdiction?';
   if (/(travel|trip|mileage|drove|flew|hotel|airbnb|uber|lyft|taxi)/.test(t))
     return 'To log travel, tell me the amount + what it was for — e.g. "spent $145 on a hotel for the Acme meeting" or "drove 45 miles to the client site". Or do you want a travel-spend summary?';
   if (/(invoice|estimate|quote)/.test(t))
