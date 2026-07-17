@@ -122,13 +122,17 @@ git commit -m "schema: add AbInvoice.taxRate/taxCents (Launch-gap PR-6)"
 - Create: `apps/web-next/src/__tests__/lib/agentbook-invoice-tax.test.ts`
 
 **Interfaces:**
-- Consumes: `AbTenantConfig.jurisdiction`/`region` (existing fields); `auSalesTax`/`caSalesTax` from `@agentbook/jurisdictions` (confirm the exact package import specifier used elsewhere in `apps/web-next` for this package — search for an existing import of `packages/agentbook-jurisdictions` in `apps/web-next/src` to match the convention, e.g. `import { auSalesTax } from '@agentbook/jurisdictions/au/sales-tax'` or similar; if no prior import exists, use the same relative/workspace alias pattern this repo's `tsconfig.base.json` already defines for `@agentbook/jurisdictions`).
+- Consumes: `AbTenantConfig.jurisdiction`/`region` (existing fields); `auSalesTax`/`caSalesTax` from `@agentbook/jurisdictions/{au,ca}/sales-tax` (path mapping already exists in `tsconfig.base.json` — see Step 1).
 - Produces: `computeInvoiceTax(tenantId: string, subtotalCents: number, overrideRate?: number | null): Promise<InvoiceTaxResult>`, `InvoiceTaxResult`, `InvoiceTaxComponent` — consumed by Tasks 3, 4, 5.
 
-- [ ] **Step 1: Confirm the exact import path for the jurisdiction packages**
+- [ ] **Step 1: Import path is already confirmed — no tsconfig changes needed**
 
-Run: `grep -rn "agentbook-jurisdictions\|@agentbook/jurisdictions" apps/web-next/src/lib/*.ts apps/web-next/tsconfig.json tsconfig.base.json | head -20`
-Use whatever import specifier this turns up (it should resolve via a `tsconfig.base.json` path mapping, matching the `@agentbook/pricing` and `@agentbook/i18n` precedent from earlier PRs this session). If no `apps/web-next` file imports this package yet, add the two functions directly: `import { auSalesTax } from 'packages/agentbook-jurisdictions/src/au/sales-tax'` is NOT valid — confirm the real workspace package name from `packages/agentbook-jurisdictions/package.json`'s `"name"` field and add a `@agentbook/jurisdictions` (or whatever that field says) path mapping to `tsconfig.base.json` if one doesn't already exist, mirroring the exact block already used for `@agentbook/pricing`.
+`tsconfig.base.json` already has the path mapping (confirmed by direct inspection, lines 58-59):
+```
+"@agentbook/jurisdictions": ["packages/agentbook-jurisdictions/src/index.ts"],
+"@agentbook/jurisdictions/*": ["packages/agentbook-jurisdictions/src/*"]
+```
+So `import { auSalesTax } from '@agentbook/jurisdictions/au/sales-tax'` and `import { caSalesTax } from '@agentbook/jurisdictions/ca/sales-tax'` (exactly as written in Step 2 below) resolve correctly with zero tsconfig edits. Do not touch `tsconfig.base.json` for this task.
 
 - [ ] **Step 2: Write the helper**
 
@@ -331,7 +335,7 @@ Expected: all 8 tests pass.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add apps/web-next/src/lib/agentbook-invoice-tax.ts apps/web-next/src/__tests__/lib/agentbook-invoice-tax.test.ts tsconfig.base.json
+git add apps/web-next/src/lib/agentbook-invoice-tax.ts apps/web-next/src/__tests__/lib/agentbook-invoice-tax.test.ts
 git commit -m "feat(invoice): shared computeInvoiceTax helper for AU/CA sales tax"
 ```
 
