@@ -3891,11 +3891,19 @@ async function _executeClassificationCore(
         '- A full-time student\'s scholarship/bursary/fellowship is fully tax-exempt if the program qualifies for the education amount (reported on T4A box 105, excluded via line 13010). Part-time students only get the exemption up to tuition plus program-material costs.',
         '- The T2202 tuition credit is non-refundable (15% federal) and most students with low income can\'t use it all right away — but it carries forward indefinitely, or up to $5,000 (minus any amount the student already used) can be transferred to a spouse, parent, or grandparent. Mention this proactively — it is genuinely useful and under-known.',
         '- RESP: the EAP portion (accumulated growth + government grants) is taxable to the STUDENT (reported on T4A) but usually results in little or no tax owed because of the student\'s low income plus the basic personal amount and tuition credit. The original contribution (PSE) portion is never taxable to anyone.',
+        '',
+        'Australia rules (ATO, Income Tax Assessment Act 1997 Division 51-10):',
+        '- A scholarship, bursary, or educational allowance paid to a full-time student is exempt from income tax under Division 51-10 — there is no spending category to track (unlike the US rules above), the exemption is on the payment itself.',
+        '- The exemption does NOT apply if the scholarship is conditional on the recipient providing services to the payer — a "bonded" scholarship or industry cadetship with a return-of-service requirement (e.g. must work for the sponsor after graduating) is taxable. This is the single most common thing people get wrong here, the same shape of trap as the US TA/RA stipend confusion above.',
+        '- Government income-support payments such as Youth Allowance, Austudy, or ABSTUDY are a DIFFERENT thing from a scholarship even though students often mention them in the same breath — these are taxable income, reported on the recipient\'s own tax return.',
+        '- HECS-HELP / HELP loans are not a scholarship-taxability question at all — they are a government loan for tuition, repaid later through the tax system once income passes a threshold. If the user mentions a HECS-HELP debt alongside a scholarship, treat them as two separate topics, not one.',
+        '- Australia has no direct equivalent of the US AOTC/LLC education tax credits, and no RESP/529-style dedicated education savings account — if asked about either, say plainly that Australia\'s system does not have that mechanism rather than inventing an analog.',
+        '- If a scholarship\'s terms are genuinely ambiguous (mixed scholarship + some service expectation), say what\'s clear and suggest the student check the scholarship\'s actual terms or ask a registered tax agent, rather than guessing which side of the Division 51-10 line it falls on.',
       ].join('\n');
 
       const system = [
         'You are AgentBook, explaining a student\'s tax question about a scholarship, grant, stipend, or RESP/529 withdrawal.',
-        `The user's tax jurisdiction is ${jurisdiction === 'ca' ? 'Canada' : 'the United States'} — answer using only that jurisdiction\'s rules below unless the user explicitly asks about the other one.`,
+        `The user's tax jurisdiction is ${jurisdiction === 'ca' ? 'Canada' : jurisdiction === 'au' ? 'Australia' : 'the United States'} — answer using only that jurisdiction\'s rules below unless the user explicitly asks about a different one.`,
         'Use ONLY the rules given below — do not invent dollar thresholds or rules not listed here.',
         'Lead with the plain-English answer (tax-free vs taxable, and which part) before explaining the mechanism.',
         'End with one sentence noting AgentBook is not a CPA or e-file agent and to verify current-year dollar figures.',
@@ -3906,7 +3914,7 @@ async function _executeClassificationCore(
 
       const question = String(extractedParams.question || text || 'Is my scholarship taxable?');
       const reply = await callGemini(system, question, 400)
-        ?? "I couldn't work through that just now — try asking again in a moment, or check the IRS Pub 970 (US) / CRA line 13010 (Canada) guidance directly.";
+        ?? "I couldn't work through that just now — try asking again in a moment, or check the IRS Pub 970 (US), CRA line 13010 (Canada), or ATO Division 51-10 (Australia) guidance directly.";
 
       await db.abConversation.create({
         data: { tenantId, question: text || question, answer: reply, queryType: 'agent', channel, skillUsed: 'scholarship-taxability' },
