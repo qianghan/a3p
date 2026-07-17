@@ -63,7 +63,9 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     const jurisdiction = config?.jurisdiction || 'us';
     const formName = jurisdiction === 'ca'
       ? 'T2125 — Statement of Business Activities'
-      : 'Schedule C — Profit or Loss from Business';
+      : jurisdiction === 'au'
+        ? 'Business and Professional Items Schedule (myTax individual tax return)'
+        : 'Schedule C — Profit or Loss from Business';
     const currency = config?.currency || 'USD';
     const fmt = (cents: number) =>
       `${currency === 'CAD' ? 'C' : ''}$${(cents / 100).toLocaleString('en-US', { minimumFractionDigits: 2 })}`;
@@ -127,14 +129,14 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   ${estimate ? `
   <h2>Tax Estimate</h2>
   <table>
-    <tr><td>${jurisdiction === 'ca' ? 'CPP Self-Employed' : 'Self-Employment Tax'}</td><td class="amount">${fmt(estimate.seTaxCents)}</td></tr>
+    <tr><td>${jurisdiction === 'ca' ? 'CPP Self-Employed' : jurisdiction === 'au' ? 'Medicare Levy' : 'Self-Employment Tax'}</td><td class="amount">${fmt(estimate.seTaxCents)}</td></tr>
     <tr><td>Income Tax</td><td class="amount">${fmt(estimate.incomeTaxCents)}</td></tr>
     <tr class="total-row"><td>Total Estimated Tax</td><td class="amount">${fmt(estimate.totalTaxCents)}</td></tr>
     <tr><td>Effective Tax Rate</td><td class="amount">${effectiveRate}%</td></tr>
   </table>
   ` : ''}
 
-  <h2>Expense Detail by ${jurisdiction === 'ca' ? 'T2125' : 'Schedule C'} Category</h2>
+  <h2>Expense Detail by ${jurisdiction === 'ca' ? 'T2125' : jurisdiction === 'au' ? 'ITR Business' : 'Schedule C'} Category</h2>
   <table>
     <thead><tr><th>Category</th><th style="text-align:right">Amount</th></tr></thead>
     <tbody>

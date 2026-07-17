@@ -30,7 +30,7 @@ function localBrainFallback(userText: string): string {
   if (/(deadline|file by|when .* (tax|file|due)|tax due|due date)/.test(t))
     return 'Tax deadlines depend on jurisdiction and entity. What country/state are you in, and are you a sole prop, LLC, or corp?';
   if (/(how.*file.*tax|how.*do.*tax|file my tax|do my tax)/.test(t))
-    return 'I can prep your books for filing — P&L, tax summary, and a CPA-ready export. AgentBook also supports US/Canada self-serve forms (T1, T2125, GST/HST). Which jurisdiction?';
+    return 'I can prep your books for filing — P&L, tax summary, and a CPA-ready export. AgentBook also supports US, Canada, and Australia self-serve forms (1040, T2125, myTax/BAS). Which jurisdiction?';
   if (/(travel|trip|mileage|drove|flew|hotel|airbnb|uber|lyft|taxi)/.test(t))
     return 'To log travel, tell me the amount + what it was for — e.g. "spent $145 on a hotel for the Acme meeting" or "drove 45 miles to the client site". Or do you want a travel-spend summary?';
   if (/(invoice|estimate|quote)/.test(t))
@@ -72,7 +72,7 @@ async function brainAccountantFallback(
     '  2) Suggest a concrete next step — either rephrase for AgentBook, or do the task manually outside if it\'s out of scope.',
     '  3) If they\'re asking a generic finance question, give a brief accountant-style tip in plain English and propose an in-app follow-up.',
     '',
-    'AgentBook can: record/edit/split/categorize expenses, scan receipts, create invoices/estimates/credit notes, record payments, track time, run reports (P&L, balance sheet, cashflow, tax-summary, expense-by-vendor, aging), estimate taxes, prep US/Canada tax forms, sync banks via Plaid, manage recurring rules and budgets.',
+    'AgentBook can: record/edit/split/categorize expenses, scan receipts, create invoices/estimates/credit notes, record payments, track time, run reports (P&L, balance sheet, cashflow, tax-summary, expense-by-vendor, aging), estimate taxes, prep US/Canada/Australia tax forms, sync banks via Plaid, manage recurring rules and budgets.',
     '',
     'IMPORTANT: For any summary or report request (expense summary, monthly report, financial overview, daily briefing, spending summary, how am I doing), NEVER ask for clarification — run the report for the current month by default and present results immediately.',
     '',
