@@ -67,7 +67,16 @@ export const BUILT_IN_SKILLS = [
     // language ("...for the business from my checking account") still wins
     // record-expense even though it mentions a personal account.
     excludePatterns: ['\\bto\\s+invoice\\b|\\binvoice\\s+to\\b|\\b(?:send|create|issue|write|prepare|make|draft)\\s+(?:an?\\s+)?invoice\\b',
-      `(?=.*(?:${CREATE_INVOICE_TRIGGER_PATTERN}))(?!.*(?:${INVOICE_PAID_TRIGGER_PATTERNS.join('|')}))`,
+      // Anchored at ^: anyMatch()'s test() retries the pattern at every
+      // start offset in the string, so an unanchored pair of lookaheads
+      // (?=.*X)(?!.*Y) can pass by evaluating "the rest of the string from
+      // some later offset" rather than the whole message — e.g. starting
+      // just past "paid" in "paid an invoice from the plumber for $200"
+      // satisfies (?!.*paid.*invoice) trivially while (?=.*invoice .+ \$)
+      // still matches downstream, wrongly excluding record-expense for a
+      // phrase this skill should still win. Anchoring to position 0 forces
+      // both lookaheads to evaluate the whole message.
+      `^(?=.*(?:${CREATE_INVOICE_TRIGGER_PATTERN}))(?!.*(?:${INVOICE_PAID_TRIGGER_PATTERNS.join('|')}))`,
       'what\\s*if\\b', 'got.*\\$.*from', 'alert.*when|notify.*when|automat', 'received.*payment', '^(?:estimate|quote|proposal)\\s', 'is.*taxable|scholarship|fellowship|grant.*taxable|t2202|1098-?t|aotc|american opportunity|lifetime learning|tuition.*credit|education.*credit|\\bresp\\b|\\b529\\b', 'nonresident alien|non-resident alien|1040-?nr|sprintax|glacier tax|1042-?s|fica exempt|international student.*tax|tax treaty',
       `^(?!.*(?:${BUSINESS_PHRASE_PATTERN})).*(?:${PERSONAL_ACCOUNT_CUE_PATTERN})`,
     ],
