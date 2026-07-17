@@ -40,6 +40,22 @@ const TERMS_OPTIONS = [
 // is the default; non-tenant choices trigger an FX preview.
 const CURRENCY_OPTIONS = ['USD', 'EUR', 'GBP', 'CAD', 'AUD', 'JPY'] as const;
 
+// Client-side PREVIEW ONLY, mirroring packages/agentbook-jurisdictions/src/{au,ca}/sales-tax.ts —
+// the backend (computeInvoiceTax) is the authoritative computation and is
+// what actually gets persisted; this just pre-fills an editable field so
+// the user isn't staring at "0%" for AU/CA tenants. Keep in sync with
+// those two files if their rates ever change.
+const CA_PROVINCE_RATES: Record<string, number> = {
+  AB: 5, BC: 12, SK: 11, MB: 12, ON: 13, QC: 14.975,
+  NB: 15, NS: 15, NL: 15, PE: 15, NT: 5, NU: 5, YT: 5,
+};
+
+function defaultTaxRatePercent(jurisdiction: string, region: string): number {
+  if (jurisdiction === 'au') return 10;
+  if (jurisdiction === 'ca') return CA_PROVINCE_RATES[region.toUpperCase()] ?? 0;
+  return 0;
+}
+
 const API = '/api/v1/agentbook-invoice';
 const CORE_API = '/api/v1/agentbook-core';
 
@@ -67,6 +83,11 @@ export const NewInvoicePage: React.FC = () => {
   const [fxRate, setFxRate] = useState<number | null>(null);
   const [fxLoading, setFxLoading] = useState(false);
 
+  // Sales tax (Launch-gap PR-6) — AU/CA only, per computeInvoiceTax's scope.
+  const [jurisdiction, setJurisdiction] = useState<string>('us');
+  const [region, setRegion] = useState<string>('');
+  const [taxRatePercent, setTaxRatePercent] = useState<number>(0);
+
   // Load existing clients
   useEffect(() => {
     fetch(`${API}/clients`).then(r => r.json()).then(d => {
@@ -74,7 +95,8 @@ export const NewInvoicePage: React.FC = () => {
     }).catch(() => {});
   }, []);
 
-  // Load tenant booking currency (defaults the selector).
+  // Load tenant booking currency + jurisdiction (defaults the currency
+  // selector and the tax-rate field below).
   useEffect(() => {
     fetch(`${CORE_API}/tenant-config`)
       .then(r => r.json())
@@ -82,6 +104,11 @@ export const NewInvoicePage: React.FC = () => {
         if (d.success && d.data?.currency) {
           setTenantCurrency(d.data.currency);
           setCurrency(d.data.currency);
+        }
+        if (d.success && d.data?.jurisdiction) {
+          setJurisdiction(d.data.jurisdiction);
+          setRegion(d.data.region || '');
+          setTaxRatePercent(defaultTaxRatePercent(d.data.jurisdiction, d.data.region || ''));
         }
       })
       .catch(() => {});
@@ -126,7 +153,10 @@ export const NewInvoicePage: React.FC = () => {
     );
   };
 
-  const total = lineItems.reduce((sum, li) => sum + li.quantity * li.rate, 0);
+  const subtotal = lineItems.reduce((sum, li) => sum + li.quantity * li.rate, 0);
+  const showTaxField = jurisdiction === 'au' || jurisdiction === 'ca';
+  const taxAmount = showTaxField ? subtotal * (taxRatePercent / 100) : 0;
+  const total = subtotal + taxAmount;
 
   const handleSubmit = async (status: 'draft' | 'sent') => {
     setSubmitting(true);
@@ -192,6 +222,7 @@ export const NewInvoicePage: React.FC = () => {
           status,
           currency: tenantCurrency,
           lines: bookedLines,
+          ...(showTaxField ? { taxRate: taxRatePercent / 100 } : {}),
           ...(deferEnabled && deferMonths >= 2 ? { deferOverMonths: deferMonths } : {}),
           ...(isForeign && fxRate && originalTotalCents != null
             ? {
@@ -482,16 +513,48 @@ export const NewInvoicePage: React.FC = () => {
           </button>
         </div>
 
-        {/* Total + actions */}
+        {/* Subtotal / tax / total + actions */}
         <div className="rounded-xl p-4 sm:p-6 border border-border bg-card">
-          <div className="flex items-center justify-between mb-6">
-            <span className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-              Total
-            </span>
-            <span className="text-2xl font-bold text-foreground">
-              {formatCurrency(total, currency)}
-            </span>
-          </div>
+          {showTaxField ? (
+            <div className="mb-6 space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-sm text-muted-foreground">Subtotal</span>
+                <span className="text-sm font-medium text-foreground">{formatCurrency(subtotal, currency)}</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <label htmlFor="tax-rate" className="text-sm text-muted-foreground">
+                  Tax rate (%)
+                </label>
+                <input
+                  id="tax-rate"
+                  type="number"
+                  min={0}
+                  max={100}
+                  step={0.001}
+                  value={taxRatePercent}
+                  onChange={(e) => setTaxRatePercent(parseFloat(e.target.value) || 0)}
+                  className="w-24 px-2 py-1 text-sm text-right rounded-lg border border-border bg-background text-foreground"
+                />
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-sm text-muted-foreground">Tax</span>
+                <span className="text-sm font-medium text-foreground">{formatCurrency(taxAmount, currency)}</span>
+              </div>
+              <div className="flex items-center justify-between pt-2 border-t border-border">
+                <span className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Total</span>
+                <span className="text-2xl font-bold text-foreground">{formatCurrency(total, currency)}</span>
+              </div>
+            </div>
+          ) : (
+            <div className="flex items-center justify-between mb-6">
+              <span className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+                Total
+              </span>
+              <span className="text-2xl font-bold text-foreground">
+                {formatCurrency(total, currency)}
+              </span>
+            </div>
+          )}
 
           {error && (
             <div className="mb-4 p-3 rounded-lg text-sm text-destructive bg-destructive/10 border border-destructive/20">

@@ -82,12 +82,57 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     if (lastCN) cnSeq = parseInt(lastCN.number.split('-')[2], 10) + 1;
     const cnNumber = `CN-${year}-${String(cnSeq).padStart(4, '0')}`;
 
-    const [arAccount, revenueAccount] = await Promise.all([
+    // Prorate the credited amount between Revenue and each tax-liability
+    // account, in the same proportion as the original invoice's subtotal
+    // vs. tax split — a full credit against a taxed invoice must clear the
+    // tax liability too, not book the whole amount as a Revenue reversal
+    // (which would over-reverse Revenue and leave 2100/2200 stuck non-zero).
+    // Invoices with no tax (taxCents === 0, including every pre-PR-6 row)
+    // fall through to the original 2-line Revenue/AR behavior unchanged.
+    const taxComponents = invoice.taxCents > 0
+      ? await db.abSalesTaxCollected.findMany({ where: { invoiceId: invoice.id } })
+      : [];
+
+    const [arAccount, revenueAccount, liabilityAccounts] = await Promise.all([
       db.abAccount.findUnique({ where: { tenantId_code: { tenantId, code: '1100' } } }),
       db.abAccount.findUnique({ where: { tenantId_code: { tenantId, code: '4000' } } }),
+      taxComponents.length > 0
+        ? db.abAccount.findMany({ where: { tenantId, code: { in: [...new Set(taxComponents.map((c) => (c.taxType === 'PST' ? '2200' : '2100')))] } } })
+        : Promise.resolve([]),
     ]);
     if (!arAccount || !revenueAccount) {
       return NextResponse.json({ success: false, error: 'AR/Revenue accounts not found' }, { status: 422 });
+    }
+    const liabilityByCode = new Map(liabilityAccounts.map((a) => [a.code, a]));
+    for (const c of taxComponents) {
+      const code = c.taxType === 'PST' ? '2200' : '2100';
+      if (!liabilityByCode.has(code)) {
+        return NextResponse.json({ success: false, error: `Tax liability account ${code} not found` }, { status: 422 });
+      }
+    }
+
+    let creditLines: { tenantId: string; accountId: string; debitCents: number; creditCents: number; description: string }[];
+    if (taxComponents.length === 0) {
+      creditLines = [
+        { tenantId, accountId: revenueAccount.id, debitCents: amountCents, creditCents: 0, description: `Revenue reversal - ${cnNumber}` },
+      ];
+    } else {
+      const subtotalCents = invoice.amountCents - invoice.taxCents;
+      const revenuePortion = Math.round((amountCents * subtotalCents) / invoice.amountCents);
+      const taxPortion = amountCents - revenuePortion;
+      let allocatedTax = 0;
+      const componentLines = taxComponents.map((c, i) => {
+        const code = c.taxType === 'PST' ? '2200' : '2100';
+        const share = i === taxComponents.length - 1
+          ? taxPortion - allocatedTax // last component absorbs the rounding remainder
+          : Math.round((taxPortion * c.amountCents) / invoice.taxCents);
+        allocatedTax += share;
+        return { tenantId, accountId: liabilityByCode.get(code)!.id, debitCents: share, creditCents: 0, description: `${c.taxType} reversal - ${cnNumber}` };
+      }).filter((l) => l.debitCents > 0);
+      creditLines = [
+        ...(revenuePortion > 0 ? [{ tenantId, accountId: revenueAccount.id, debitCents: revenuePortion, creditCents: 0, description: `Revenue reversal - ${cnNumber}` }] : []),
+        ...componentLines,
+      ];
     }
 
     const creditNote = await db.$transaction(async (tx) => {
@@ -100,7 +145,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
           verified: true,
           lines: {
             create: [
-              { tenantId, accountId: revenueAccount.id, debitCents: amountCents, creditCents: 0, description: `Revenue reversal - ${cnNumber}` }, // G-009
+              ...creditLines,
               { tenantId, accountId: arAccount.id, debitCents: 0, creditCents: amountCents, description: `AR reduction - ${cnNumber}` }, // G-009
             ],
           },

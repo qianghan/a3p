@@ -14,6 +14,7 @@
 import 'server-only';
 import { prisma as db } from '@naap/database';
 import { convertCents } from './agentbook-fx';
+import { computeInvoiceTax } from './agentbook-invoice-tax';
 
 export interface CreateDraftInput {
   tenantId: string;
@@ -34,6 +35,8 @@ export interface CreateDraftResult {
   clientName: string;
   clientEmail: string | null;
   totalCents: number;
+  taxCents: number;
+  taxRate: number | null;
   lines: Array<{ description: string; rateCents: number; quantity: number; amountCents: number }>;
   dueDate: string;
   issuedDate: string;
@@ -119,6 +122,9 @@ export async function createInvoiceDraft(input: CreateDraftInput): Promise<Creat
   }
   const lineItems = fx ? fx.bookedLineItems : quotedLineItems;
   const totalAmountCents = fx ? fx.bookedTotalCents : quotedTotalCents;
+  const subtotalCents = totalAmountCents;
+  const taxResult = await computeInvoiceTax(input.tenantId, subtotalCents);
+  const grandTotalCents = subtotalCents + taxResult.taxCents;
   // The fields we actually persist for the originalCurrency block.
   const originalCurrency = fx ? quotedCurrency : null;
   const originalAmountCents = fx ? fx.originalAmountCents : null;
@@ -147,7 +153,9 @@ export async function createInvoiceDraft(input: CreateDraftInput): Promise<Creat
             tenantId: input.tenantId,
             clientId: input.client.id,
             number: invoiceNumber,
-            amountCents: totalAmountCents,
+            amountCents: grandTotalCents,
+            taxRate: taxResult.taxRate || null,
+            taxCents: taxResult.taxCents,
             currency,
             originalCurrency,
             originalAmountCents,
@@ -164,6 +172,24 @@ export async function createInvoiceDraft(input: CreateDraftInput): Promise<Creat
         });
       });
 
+      if (taxResult.components.length > 0) {
+        const taxTenantConfig = await db.abTenantConfig.findUnique({
+          where: { userId: input.tenantId },
+          select: { jurisdiction: true, region: true },
+        });
+        await db.abSalesTaxCollected.createMany({
+          data: taxResult.components.map((c) => ({
+            tenantId: input.tenantId,
+            invoiceId: inv.id,
+            jurisdiction: taxTenantConfig?.jurisdiction || 'us',
+            region: taxTenantConfig?.region || '',
+            taxType: c.type,
+            rate: c.rate,
+            amountCents: c.amountCents,
+          })),
+        });
+      }
+
       // Outside the txn so a slow event write can't hold the row locks.
       await db.abEvent.create({
         data: {
@@ -174,7 +200,9 @@ export async function createInvoiceDraft(input: CreateDraftInput): Promise<Creat
             invoiceId: inv.id,
             number: inv.number,
             clientId: input.client.id,
-            amountCents: totalAmountCents,
+            amountCents: grandTotalCents,
+            subtotalCents,
+            taxCents: taxResult.taxCents,
             lineCount: lineItems.length,
             source,
             ...(fx
@@ -194,7 +222,9 @@ export async function createInvoiceDraft(input: CreateDraftInput): Promise<Creat
         invoiceNumber: inv.number,
         clientName: input.client.name,
         clientEmail: input.client.email,
-        totalCents: totalAmountCents,
+        totalCents: grandTotalCents,
+        taxCents: taxResult.taxCents,
+        taxRate: taxResult.taxRate || null,
         lines: inv.lines.map((l) => ({
           description: l.description,
           rateCents: l.rateCents,

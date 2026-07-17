@@ -17,6 +17,7 @@ import { audit } from '@/lib/agentbook-audit';
 import { inferSource, inferActor } from '@/lib/agentbook-audit-context';
 import { withSoftDelete, parseIncludeDeleted } from '@/lib/agentbook-soft-delete';
 import { withHttpIdempotency } from '@/lib/agentbook-idempotency';
+import { computeInvoiceTax } from '@/lib/agentbook-invoice-tax';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -87,6 +88,12 @@ interface CreateInvoiceBody {
   currency?: string;
   /** When set (2-60), recognize this invoice's revenue evenly over N months. */
   deferOverMonths?: number;
+  /**
+   * Explicit tax rate override (a fraction, e.g. 0.10), from an editable
+   * frontend field. When omitted, the tenant's jurisdiction default
+   * applies (AU flat GST, CA province GST/HST/PST) — see computeInvoiceTax.
+   */
+  taxRate?: number;
 }
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
@@ -107,7 +114,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         } catch {
           body = {};
         }
-        const { clientId, issuedDate, dueDate, lines, status, currency, deferOverMonths } = body;
+        const { clientId, issuedDate, dueDate, lines, status, currency, deferOverMonths, taxRate: taxRateOverride } = body;
         // Clamp deferral months to a sane range; ignore anything outside it.
         const deferMonths =
           typeof deferOverMonths === 'number' && deferOverMonths >= 2 && deferOverMonths <= 60
@@ -134,6 +141,9 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
           amountCents: Math.round((l.quantity || 1) * l.rateCents),
         }));
         const totalAmountCents = lineItems.reduce((sum, l) => sum + l.amountCents, 0);
+        const subtotalCents = totalAmountCents;
+        const taxResult = await computeInvoiceTax(tenantId, subtotalCents, taxRateOverride ?? null);
+        const grandTotalCents = subtotalCents + taxResult.taxCents;
 
         const year = new Date(issuedDate || Date.now()).getFullYear();
         const lastInvoice = await db.abInvoice.findFirst({
@@ -148,9 +158,13 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         }
         const invoiceNumber = `INV-${year}-${String(nextSeq).padStart(4, '0')}`;
 
-        const [arAccount, revenueAccount] = await Promise.all([
+        const requiredLiabilityCodes = [...new Set(taxResult.components.map((c) => c.accountCode))];
+        const [arAccount, revenueAccount, liabilityAccounts] = await Promise.all([
           db.abAccount.findUnique({ where: { tenantId_code: { tenantId, code: '1100' } } }),
           db.abAccount.findUnique({ where: { tenantId_code: { tenantId, code: '4000' } } }),
+          requiredLiabilityCodes.length > 0
+            ? db.abAccount.findMany({ where: { tenantId, code: { in: requiredLiabilityCodes } } })
+            : Promise.resolve([]),
         ]);
 
         if (!arAccount || !revenueAccount) {
@@ -162,9 +176,32 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
             },
           };
         }
+        const liabilityAccountsByCode = new Map(liabilityAccounts.map((a) => [a.code, a]));
+        const missingLiabilityCode = requiredLiabilityCodes.find((code) => !liabilityAccountsByCode.has(code));
+        if (missingLiabilityCode) {
+          return {
+            status: 422,
+            body: {
+              success: false,
+              error: `Tax liability account (${missingLiabilityCode}) not found. Ensure chart of accounts is seeded.`,
+            },
+          };
+        }
 
         try {
           const invoice = await db.$transaction(async (tx) => {
+            const journalLines = [
+              { tenantId, accountId: arAccount.id, debitCents: grandTotalCents, creditCents: 0, description: `AR - Invoice ${invoiceNumber}` }, // G-009
+              { tenantId, accountId: revenueAccount.id, debitCents: 0, creditCents: subtotalCents, description: `Revenue - Invoice ${invoiceNumber}` }, // G-009
+              ...taxResult.components.map((c) => ({
+                tenantId, // G-009
+                accountId: liabilityAccountsByCode.get(c.accountCode)!.id,
+                debitCents: 0,
+                creditCents: c.amountCents,
+                description: `${c.type} Payable - Invoice ${invoiceNumber}`,
+              })),
+            ];
+
             const journalEntry = await tx.abJournalEntry.create({
               data: {
                 tenantId,
@@ -172,12 +209,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
                 memo: `Invoice ${invoiceNumber} to ${client.name}`,
                 sourceType: 'invoice',
                 verified: true,
-                lines: {
-                  create: [
-                    { tenantId, accountId: arAccount.id, debitCents: totalAmountCents, creditCents: 0, description: `AR - Invoice ${invoiceNumber}` }, // G-009
-                    { tenantId, accountId: revenueAccount.id, debitCents: 0, creditCents: totalAmountCents, description: `Revenue - Invoice ${invoiceNumber}` }, // G-009
-                  ],
-                },
+                lines: { create: journalLines },
               },
             });
 
@@ -186,7 +218,9 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
                 tenantId,
                 clientId,
                 number: invoiceNumber,
-                amountCents: totalAmountCents,
+                amountCents: grandTotalCents,
+                taxRate: taxResult.taxRate || null,
+                taxCents: taxResult.taxCents,
                 currency: currency || 'USD',
                 issuedDate: new Date(issuedDate || Date.now()),
                 dueDate: new Date(dueDate || Date.now()),
@@ -197,10 +231,28 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
               include: { lines: true },
             });
 
+            if (taxResult.components.length > 0) {
+              const taxTenantConfig = await tx.abTenantConfig.findUnique({
+                where: { userId: tenantId },
+                select: { jurisdiction: true, region: true },
+              });
+              await tx.abSalesTaxCollected.createMany({
+                data: taxResult.components.map((c) => ({
+                  tenantId,
+                  invoiceId: inv.id,
+                  jurisdiction: taxTenantConfig?.jurisdiction || 'us',
+                  region: taxTenantConfig?.region || '',
+                  taxType: c.type,
+                  rate: c.rate,
+                  amountCents: c.amountCents,
+                })),
+              });
+            }
+
             await tx.abJournalEntry.update({ where: { id: journalEntry.id }, data: { sourceId: inv.id } });
             await tx.abClient.update({
               where: { id: clientId },
-              data: { totalBilledCents: { increment: totalAmountCents } },
+              data: { totalBilledCents: { increment: grandTotalCents } },
             });
 
             // Optional deferred-revenue schedule (retainers/subscriptions).
@@ -212,7 +264,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
                 data: {
                   tenantId,
                   invoiceId: inv.id,
-                  totalAmountCents,
+                  totalAmountCents: subtotalCents,
                   recognizedAmountCents: 0,
                   startDate: start,
                   endDate: end,
@@ -230,7 +282,9 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
                   invoiceId: inv.id,
                   number: invoiceNumber,
                   clientId,
-                  amountCents: totalAmountCents,
+                  amountCents: grandTotalCents,
+                  subtotalCents,
+                  taxCents: taxResult.taxCents,
                   lineCount: lineItems.length,
                 },
                 constraintsPassed: ['balance_invariant'],
@@ -251,7 +305,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
             after: {
               number: invoice.number,
               clientId,
-              amountCents: totalAmountCents,
+              amountCents: grandTotalCents,
               currency: invoice.currency,
               status: invoice.status,
               issuedDate: invoice.issuedDate,

@@ -5,6 +5,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma as db } from '@naap/database';
 import { reportError } from '@/lib/logger';
+import { computeInvoiceTax } from '@/lib/agentbook-invoice-tax';
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
   const authHeader = request.headers.get('authorization');
@@ -61,33 +62,60 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         amountCents: Math.round((l.quantity || 1) * l.rateCents),
       }));
 
+      const subtotalCents = item.totalCents;
+      const taxResult = await computeInvoiceTax(item.tenantId, subtotalCents);
+      const grandTotalCents = subtotalCents + taxResult.taxCents;
+
       // Look up accounts
-      const arAccount = await db.abAccount.findFirst({ where: { tenantId: item.tenantId, code: '1100' } });
-      const revenueAccount = await db.abAccount.findFirst({ where: { tenantId: item.tenantId, code: '4000' } });
+      const requiredLiabilityCodes = [...new Set(taxResult.components.map((c) => c.accountCode))];
+      const [arAccount, revenueAccount, liabilityAccounts] = await Promise.all([
+        db.abAccount.findFirst({ where: { tenantId: item.tenantId, code: '1100' } }),
+        db.abAccount.findFirst({ where: { tenantId: item.tenantId, code: '4000' } }),
+        requiredLiabilityCodes.length > 0
+          ? db.abAccount.findMany({ where: { tenantId: item.tenantId, code: { in: requiredLiabilityCodes } } })
+          : Promise.resolve([]),
+      ]);
       if (!arAccount || !revenueAccount) continue;
+      const liabilityAccountsByCode = new Map(liabilityAccounts.map((a) => [a.code, a]));
+      if (requiredLiabilityCodes.some((code) => !liabilityAccountsByCode.has(code))) {
+        // Best-effort cron: skip this item rather than crash the whole
+        // batch. Logged so a missing chart-of-accounts seed is visible.
+        console.warn(`[cron/recurring-invoices] skipping ${item.id}: missing tax liability account`);
+        continue;
+      }
 
       const dueDate = new Date(now);
       dueDate.setDate(dueDate.getDate() + item.daysToPay);
 
       await db.$transaction(async (tx) => {
+        const journalLines = [
+          { tenantId: item.tenantId, accountId: arAccount.id, debitCents: grandTotalCents, creditCents: 0, description: `AR - ${invoiceNumber}` }, // G-009
+          { tenantId: item.tenantId, accountId: revenueAccount.id, debitCents: 0, creditCents: subtotalCents, description: `Revenue - ${invoiceNumber}` }, // G-009
+          ...taxResult.components.map((c) => ({
+            tenantId: item.tenantId, // G-009
+            accountId: liabilityAccountsByCode.get(c.accountCode)!.id,
+            debitCents: 0,
+            creditCents: c.amountCents,
+            description: `${c.type} Payable - ${invoiceNumber}`,
+          })),
+        ];
+
         const je = await tx.abJournalEntry.create({
           data: {
             tenantId: item.tenantId, date: now,
             memo: `Recurring Invoice ${invoiceNumber} to ${client.name}`,
             sourceType: 'invoice', verified: true,
-            lines: {
-              create: [
-                { tenantId: item.tenantId, accountId: arAccount.id, debitCents: item.totalCents, creditCents: 0, description: `AR - ${invoiceNumber}` }, // G-009
-                { tenantId: item.tenantId, accountId: revenueAccount.id, debitCents: 0, creditCents: item.totalCents, description: `Revenue - ${invoiceNumber}` }, // G-009
-              ],
-            },
+            lines: { create: journalLines },
           },
         });
 
         const inv = await tx.abInvoice.create({
           data: {
             tenantId: item.tenantId, clientId: item.clientId, number: invoiceNumber,
-            amountCents: item.totalCents, currency: item.currency,
+            amountCents: grandTotalCents,
+            taxRate: taxResult.taxRate || null,
+            taxCents: taxResult.taxCents,
+            currency: item.currency,
             issuedDate: now, dueDate,
             status: item.autoSend ? 'sent' : 'draft',
             source: 'recurring',
@@ -97,12 +125,30 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         });
 
         await tx.abJournalEntry.update({ where: { id: je.id }, data: { sourceId: inv.id } });
-        await tx.abClient.update({ where: { id: item.clientId }, data: { totalBilledCents: { increment: item.totalCents } } });
+        await tx.abClient.update({ where: { id: item.clientId }, data: { totalBilledCents: { increment: grandTotalCents } } });
+
+        if (taxResult.components.length > 0) {
+          const taxTenantConfig = await tx.abTenantConfig.findUnique({
+            where: { userId: item.tenantId },
+            select: { jurisdiction: true, region: true },
+          });
+          await tx.abSalesTaxCollected.createMany({
+            data: taxResult.components.map((c) => ({
+              tenantId: item.tenantId,
+              invoiceId: inv.id,
+              jurisdiction: taxTenantConfig?.jurisdiction || 'us',
+              region: taxTenantConfig?.region || '',
+              taxType: c.type,
+              rate: c.rate,
+              amountCents: c.amountCents,
+            })),
+          });
+        }
 
         await tx.abEvent.create({
           data: {
             tenantId: item.tenantId, eventType: 'invoice.auto_generated', actor: 'system',
-            action: { invoiceId: inv.id, number: invoiceNumber, recurringId: item.id },
+            action: { invoiceId: inv.id, number: invoiceNumber, recurringId: item.id, amountCents: grandTotalCents, taxCents: taxResult.taxCents },
           },
         });
       });
