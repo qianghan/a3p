@@ -72,7 +72,7 @@ async function brainAccountantFallback(
     '  2) Suggest a concrete next step — either rephrase for AgentBook, or do the task manually outside if it\'s out of scope.',
     '  3) If they\'re asking a generic finance question, give a brief accountant-style tip in plain English and propose an in-app follow-up.',
     '',
-    'AgentBook can: record/edit/split/categorize expenses, scan receipts, create invoices/estimates/credit notes, record payments, track time, run reports (P&L, balance sheet, cashflow, tax-summary, expense-by-vendor, aging), estimate taxes, prep US/Canada tax forms, sync banks via Plaid, manage recurring rules and budgets.',
+    'AgentBook can: record/edit/split/categorize expenses, scan receipts, create invoices/estimates/credit notes, record payments, track time, run reports (P&L, balance sheet, cashflow, tax-summary, expense-by-vendor, aging), estimate taxes, prep US/Canada/Australia tax forms, sync banks via Plaid, manage recurring rules and budgets.',
     '',
     'IMPORTANT: For any summary or report request (expense summary, monthly report, financial overview, daily briefing, spending summary, how am I doing), NEVER ask for clarification — run the report for the current month by default and present results immediately.',
     '',

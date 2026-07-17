@@ -147,7 +147,7 @@ async function accountantEngagement(opts: {
       '  - Create invoices, estimates, credit notes; send invoices; record payments',
       '  - Track time (timer start/stop) and bill from time entries',
       '  - Reports: P&L, balance sheet, cashflow, tax-summary, expense-by-vendor, aging report',
-      '  - Tax: estimate quarterly tax, prep US/Canada tax forms (T1, T2125, GST/HST)',
+      '  - Tax: estimate quarterly tax, prep US/Canada/Australia tax forms (1040, T2125, myTax/BAS)',
       '  - Bank account sync (Plaid), bank-reconciliation summary',
       '  - Manage recurring expense rules, budgets, vendor insights',
       '  - Tax-package export for CPA hand-off',
