@@ -2921,6 +2921,7 @@ export async function classifyOnly(
       }),
       skills || db.abSkillManifest.findMany({
         where: { enabled: true, OR: [{ tenantId: null }, { tenantId }] },
+        orderBy: { name: 'asc' },
       }),
     ]);
     tenantConfig = tc;
@@ -5814,6 +5815,7 @@ app.post('/api/v1/agentbook-core/agent/message', async (req, res) => {
       {
         skills: await db.abSkillManifest.findMany({
           where: { enabled: true, OR: [{ tenantId: null }, { tenantId }] },
+          orderBy: { name: 'asc' },
         }),
         callGemini,
         baseUrls,

@@ -956,6 +956,7 @@ export async function handleAgentMessage(
     retrieveRelevantMemories(tenantId, text),
     db.abSkillManifest.findMany({
       where: { enabled: true, OR: [{ tenantId: null }, { tenantId }] },
+      orderBy: { name: 'asc' }, // deterministic array order — see CREATE_INVOICE_TRIGGER_PATTERN's comment in skill-routing.ts for why correctness never depends on this (Launch-gap PR-5)
     }),
     // Unconditional (not keyword-gated like pastFilingContext below): a single
     // indexed read by userId, and personal context makes every answer richer,
