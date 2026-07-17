@@ -781,6 +781,10 @@ export default function LandingPage() {
         <Hairline className="my-7" />
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 text-[11.5px] num uppercase tracking-[0.16em] text-[var(--muted)]">
           <span>© {new Date().getFullYear()} AgentBook · A folio of one ledger</span>
+          <div className="flex items-center gap-4 normal-case tracking-normal">
+            <Link href="/legal/terms" className="ab-link">Terms</Link>
+            <Link href="/legal/privacy" className="ab-link">Privacy</Link>
+          </div>
           <span>Built quietly. Yours plainly.</span>
         </div>
       </footer>
