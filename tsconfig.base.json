@@ -53,6 +53,8 @@
       "@agentbook/framework/*": ["packages/agentbook-framework/src/*"],
       "@agentbook/i18n": ["packages/agentbook-i18n/src/index.ts"],
       "@agentbook/i18n/*": ["packages/agentbook-i18n/src/*"],
+      "@agentbook/pricing": ["packages/agentbook-pricing/src/index.ts"],
+      "@agentbook/pricing/*": ["packages/agentbook-pricing/src/*"],
       "@agentbook/jurisdictions": ["packages/agentbook-jurisdictions/src/index.ts"],
       "@agentbook/jurisdictions/*": ["packages/agentbook-jurisdictions/src/*"]
     }

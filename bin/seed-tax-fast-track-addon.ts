@@ -1,4 +1,5 @@
 import { prisma as db } from '@naap/database';
+import { ADDON_PRICES } from '@agentbook/pricing';
 
 /**
  * Seeds the "Tax Fast-Track" add-on ($49/yr) that gates /start and
@@ -27,11 +28,7 @@ import { prisma as db } from '@naap/database';
 
 const ADDON_CODE = 'tax_fast_track';
 
-const PRICES: { region: string; currency: string; priceCents: number }[] = [
-  { region: 'us', currency: 'usd', priceCents: 4900 },
-  { region: 'ca', currency: 'cad', priceCents: 6500 },
-  { region: 'au', currency: 'aud', priceCents: 5900 },
-];
+const PRICES = ADDON_PRICES[ADDON_CODE].map(({ region, currency, priceCents }) => ({ region, currency, priceCents }));
 
 async function main() {
   const addOn = await db.billAddOn.upsert({

@@ -33,6 +33,8 @@
     "@naap/ui": "*",
     "@naap/utils": "*",
     "@react-pdf/renderer": "^4.1.6",
+    "@stripe/react-stripe-js": "^6.8.0",
+    "@stripe/stripe-js": "^9.10.0",
     "@vercel/blob": "^2.2.0",
     "ably": "^2.18.0",
     "ai": "^7.0.15",
