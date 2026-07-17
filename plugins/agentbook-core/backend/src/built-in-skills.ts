@@ -66,7 +66,9 @@ export const BUILT_IN_SKILLS = [
     // negative lookahead for BUSINESS_PHRASE_PATTERN so business-flagged
     // language ("...for the business from my checking account") still wins
     // record-expense even though it mentions a personal account.
-    excludePatterns: ['\\bto\\s+invoice\\b|\\binvoice\\s+to\\b|\\b(?:send|create|issue|write|prepare|make|draft)\\s+(?:an?\\s+)?invoice\\b', CREATE_INVOICE_TRIGGER_PATTERN, 'what\\s*if\\b', 'got.*\\$.*from', 'alert.*when|notify.*when|automat', 'received.*payment', '^(?:estimate|quote|proposal)\\s', 'is.*taxable|scholarship|fellowship|grant.*taxable|t2202|1098-?t|aotc|american opportunity|lifetime learning|tuition.*credit|education.*credit|\\bresp\\b|\\b529\\b', 'nonresident alien|non-resident alien|1040-?nr|sprintax|glacier tax|1042-?s|fica exempt|international student.*tax|tax treaty',
+    excludePatterns: ['\\bto\\s+invoice\\b|\\binvoice\\s+to\\b|\\b(?:send|create|issue|write|prepare|make|draft)\\s+(?:an?\\s+)?invoice\\b',
+      `(?=.*(?:${CREATE_INVOICE_TRIGGER_PATTERN}))(?!.*(?:${INVOICE_PAID_TRIGGER_PATTERNS.join('|')}))`,
+      'what\\s*if\\b', 'got.*\\$.*from', 'alert.*when|notify.*when|automat', 'received.*payment', '^(?:estimate|quote|proposal)\\s', 'is.*taxable|scholarship|fellowship|grant.*taxable|t2202|1098-?t|aotc|american opportunity|lifetime learning|tuition.*credit|education.*credit|\\bresp\\b|\\b529\\b', 'nonresident alien|non-resident alien|1040-?nr|sprintax|glacier tax|1042-?s|fica exempt|international student.*tax|tax treaty',
       `^(?!.*(?:${BUSINESS_PHRASE_PATTERN})).*(?:${PERSONAL_ACCOUNT_CUE_PATTERN})`,
     ],
     parameters: { amountCents: { type: 'number', required: true, extractHint: 'dollar amount times 100' }, vendor: { type: 'string', required: false, extractHint: 'business name' }, description: { type: 'string', required: false }, date: { type: 'date', required: false, default: 'today' } },
