@@ -174,6 +174,34 @@ export const TAX_FAST_TRACK_TRIGGER_PATTERNS = [
   `(?:${TAX_FAST_TRACK_ANCHOR_PATTERN}).{0,60}(?:this year.?s?\\s*(?:tax\\s*)?(?:filing|return|taxes)|help me do|do (?:this year.?s? )?tax)`,
 ];
 
+/**
+ * create-invoice's triggerPatterns (built-in-skills.ts), re-exported so
+ * record-expense's excludePatterns can reuse the exact same regex rather
+ * than approximating it. Both '\\$\\d' (record-expense's own trigger) and
+ * 'invoice .+ \\$' (create-invoice's trigger) match a bare imperative like
+ * "invoice Acme $5000 for consulting" — record-expense's excludePatterns
+ * already defer to create-invoice for "to invoice"/"invoice to" and
+ * explicit creation verbs (F4-03), but not for this bare
+ * "invoice <name> $<amount>" shape, which is create-invoice's own trigger
+ * shape. Reusing the same pattern as an exclude guarantees the two skills
+ * can never both match, regardless of array order (see the `orderBy`
+ * additions in agent-brain.ts/server.ts for why array order can't be
+ * trusted in the first place — Launch-gap PR-5).
+ */
+export const CREATE_INVOICE_TRIGGER_PATTERN = 'invoice .+ \\$';
+
+/**
+ * record-invoice-payment's "an invoice was paid" trigger shapes, re-exported
+ * so create-invoice's excludePatterns can defer to it. Both
+ * CREATE_INVOICE_TRIGGER_PATTERN ('invoice .+ \\$') and record-invoice-
+ * payment's own triggers match phrases like "paid the client invoice for
+ * $500" — that phrase describes paying an EXISTING invoice, not creating a
+ * new one, so create-invoice must defer. Reusing the same two patterns
+ * (rather than approximating them) guarantees the two skills stay mutually
+ * exclusive on this phrasing regardless of array order (Launch-gap PR-5).
+ */
+export const INVOICE_PAID_TRIGGER_PATTERNS = ['paid.*invoice', 'invoice.*paid'];
+
 function toStringArray(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
   return value.filter((v): v is string => typeof v === 'string');

@@ -271,6 +271,94 @@ describe('Payment Overpayment Prevention', () => {
   });
 });
 
+// ---------------------------------------------------------------------------
+// Extracted: idempotent-replay decision for a Stripe-sourced payment
+// (server.ts's POST /payments — Launch-gap PR-5, G-5A). Given a payment
+// already recorded for this (invoiceId, stripePaymentId) pair, the handler
+// must return that existing row (200, alreadyRecorded: true) instead of
+// attempting to create a duplicate.
+// ---------------------------------------------------------------------------
+
+interface ExistingPaymentLookup {
+  stripePaymentId: string | null | undefined;
+  existingPayment: { id: string } | null;
+}
+
+function decideReplay(input: ExistingPaymentLookup): { isReplay: boolean; paymentId?: string } {
+  if (!input.stripePaymentId) return { isReplay: false };
+  if (!input.existingPayment) return { isReplay: false };
+  return { isReplay: true, paymentId: input.existingPayment.id };
+}
+
+describe('Payment Idempotent Replay (Stripe-sourced)', () => {
+  it('is not a replay when no stripePaymentId is supplied (manual/cash payment)', () => {
+    const result = decideReplay({ stripePaymentId: null, existingPayment: null });
+    expect(result.isReplay).toBe(false);
+  });
+
+  it('is not a replay when a stripePaymentId is supplied but no existing payment matches it', () => {
+    const result = decideReplay({ stripePaymentId: 'pi_123', existingPayment: null });
+    expect(result.isReplay).toBe(false);
+  });
+
+  it('is a replay when a stripePaymentId is supplied and a payment already exists for it', () => {
+    const result = decideReplay({ stripePaymentId: 'pi_123', existingPayment: { id: 'pay_1' } });
+    expect(result.isReplay).toBe(true);
+    expect(result.paymentId).toBe('pay_1');
+  });
+
+  it('a second check after the lock catches a payment that committed between the pre-lock check and the lock being acquired', () => {
+    // Pre-lock check (cheap fast-path, runs before the row lock is
+    // acquired): the concurrent request hasn't committed yet, so nothing
+    // matches and this request proceeds toward acquiring the lock.
+    const preLockCheck = decideReplay({ stripePaymentId: 'pi_concurrent', existingPayment: null });
+    expect(preLockCheck.isReplay).toBe(false);
+
+    // Post-lock check (runs immediately after the row lock is acquired):
+    // by now the concurrent request's transaction has committed a payment
+    // for the same stripePaymentId, so the identical decision function,
+    // called again with the fresher read, correctly flags this as a
+    // replay instead of proceeding to create a duplicate payment.
+    const postLockCheck = decideReplay({ stripePaymentId: 'pi_concurrent', existingPayment: { id: 'pay_1' } });
+    expect(postLockCheck.isReplay).toBe(true);
+    expect(postLockCheck.paymentId).toBe('pay_1');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Extracted: balance re-check must use payments read AFTER the row lock is
+// acquired, not the pre-transaction read. Confirms the fix's core invariant:
+// a second submission that only sees payments committed before it acquired
+// the lock is correctly rejected once the first payment is included.
+// ---------------------------------------------------------------------------
+
+describe('Payment Balance Re-check Reflects Post-Lock State', () => {
+  it('rejects a second concurrent submission once the first payment is visible', () => {
+    const invoiceAmountCents = 10000;
+
+    // First submission's pre-transaction read: no payments yet.
+    const firstCheck = validatePaymentAmount({
+      amountCents: 6000,
+      existingPaidCents: 0,
+      invoiceAmountCents,
+    });
+    expect(firstCheck.valid).toBe(true);
+
+    // Second submission's re-check, executed only after acquiring the row
+    // lock — by then the first payment has committed, so existingPaidCents
+    // reflects it. Without the fix, a second submission's balance check ran
+    // against the SAME stale pre-transaction read as the first (both saw
+    // existingPaidCents: 0) and could also pass, double-booking cash.
+    const secondCheckAfterLock = validatePaymentAmount({
+      amountCents: 6000,
+      existingPaidCents: 6000, // first payment now committed and visible
+      invoiceAmountCents,
+    });
+    expect(secondCheckAfterLock.valid).toBe(false);
+    expect(secondCheckAfterLock.remainingBalance).toBe(4000);
+  });
+});
+
 describe('Void Invoice - Reversing Journal Entry', () => {
   it('should create a reversing entry that credits AR and debits Revenue', () => {
     const entry = buildReversingJournalEntry(

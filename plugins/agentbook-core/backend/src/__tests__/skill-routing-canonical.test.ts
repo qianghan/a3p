@@ -78,6 +78,14 @@ describe('skill routing — canonical utterances', () => {
     // record-expense — exclusion: leading "invoice " defers to create-invoice
     { text: 'invoice Acme $5000 for consulting', expected: 'create-invoice' },
 
+    // record-expense — the create-invoice exclusion above must NOT fire for
+    // invoice-*paying* phrasing (F4-03's own stated intent): this still
+    // records as an expense, not a payment-received or invoice-creation
+    // event. Regression case for Launch-gap PR-5's final-review fix — an
+    // earlier, unanchored version of the exclude pattern matched this
+    // phrase too because anyMatch()'s test() retries at every start offset.
+    { text: 'paid an invoice from the plumber for $200', expected: 'record-expense' },
+
     // record-expense — exclusion: "received payment" defers to record-payment
     { text: 'received payment of $1000 from Acme', expected: 'record-payment' },
 

@@ -1,4 +1,4 @@
-import { BUSINESS_PHRASE_PATTERN, PERSONAL_ACCOUNT_CUE_PATTERN, PERSONAL_STATEMENT_PATTERN, PERSONAL_TREND_TRIGGER_PATTERNS, TAX_FAST_TRACK_ANCHOR_PATTERN, TAX_FAST_TRACK_TRIGGER_PATTERNS } from './skill-routing.js';
+import { BUSINESS_PHRASE_PATTERN, CREATE_INVOICE_TRIGGER_PATTERN, INVOICE_PAID_TRIGGER_PATTERNS, PERSONAL_ACCOUNT_CUE_PATTERN, PERSONAL_STATEMENT_PATTERN, PERSONAL_TREND_TRIGGER_PATTERNS, TAX_FAST_TRACK_ANCHOR_PATTERN, TAX_FAST_TRACK_TRIGGER_PATTERNS } from './skill-routing.js';
 
 export const BUILT_IN_SKILLS = [
   {
@@ -66,7 +66,18 @@ export const BUILT_IN_SKILLS = [
     // negative lookahead for BUSINESS_PHRASE_PATTERN so business-flagged
     // language ("...for the business from my checking account") still wins
     // record-expense even though it mentions a personal account.
-    excludePatterns: ['\\bto\\s+invoice\\b|\\binvoice\\s+to\\b|\\b(?:send|create|issue|write|prepare|make|draft)\\s+(?:an?\\s+)?invoice\\b', 'what\\s*if\\b', 'got.*\\$.*from', 'alert.*when|notify.*when|automat', 'received.*payment', '^(?:estimate|quote|proposal)\\s', 'is.*taxable|scholarship|fellowship|grant.*taxable|t2202|1098-?t|aotc|american opportunity|lifetime learning|tuition.*credit|education.*credit|\\bresp\\b|\\b529\\b', 'nonresident alien|non-resident alien|1040-?nr|sprintax|glacier tax|1042-?s|fica exempt|international student.*tax|tax treaty',
+    excludePatterns: ['\\bto\\s+invoice\\b|\\binvoice\\s+to\\b|\\b(?:send|create|issue|write|prepare|make|draft)\\s+(?:an?\\s+)?invoice\\b',
+      // Anchored at ^: anyMatch()'s test() retries the pattern at every
+      // start offset in the string, so an unanchored pair of lookaheads
+      // (?=.*X)(?!.*Y) can pass by evaluating "the rest of the string from
+      // some later offset" rather than the whole message — e.g. starting
+      // just past "paid" in "paid an invoice from the plumber for $200"
+      // satisfies (?!.*paid.*invoice) trivially while (?=.*invoice .+ \$)
+      // still matches downstream, wrongly excluding record-expense for a
+      // phrase this skill should still win. Anchoring to position 0 forces
+      // both lookaheads to evaluate the whole message.
+      `^(?=.*(?:${CREATE_INVOICE_TRIGGER_PATTERN}))(?!.*(?:${INVOICE_PAID_TRIGGER_PATTERNS.join('|')}))`,
+      'what\\s*if\\b', 'got.*\\$.*from', 'alert.*when|notify.*when|automat', 'received.*payment', '^(?:estimate|quote|proposal)\\s', 'is.*taxable|scholarship|fellowship|grant.*taxable|t2202|1098-?t|aotc|american opportunity|lifetime learning|tuition.*credit|education.*credit|\\bresp\\b|\\b529\\b', 'nonresident alien|non-resident alien|1040-?nr|sprintax|glacier tax|1042-?s|fica exempt|international student.*tax|tax treaty',
       `^(?!.*(?:${BUSINESS_PHRASE_PATTERN})).*(?:${PERSONAL_ACCOUNT_CUE_PATTERN})`,
     ],
     parameters: { amountCents: { type: 'number', required: true, extractHint: 'dollar amount times 100' }, vendor: { type: 'string', required: false, extractHint: 'business name' }, description: { type: 'string', required: false }, date: { type: 'date', required: false, default: 'today' } },
@@ -126,7 +137,8 @@ export const BUILT_IN_SKILLS = [
   },
   {
     name: 'create-invoice', description: 'Create an invoice for a client', category: 'invoicing',
-    triggerPatterns: ['invoice .+ \\$'],
+    triggerPatterns: [CREATE_INVOICE_TRIGGER_PATTERN],
+    excludePatterns: INVOICE_PAID_TRIGGER_PATTERNS,
     parameters: { clientName: { type: 'string', required: true }, amountCents: { type: 'number', required: true }, description: { type: 'string', required: false, default: 'Services' } },
     endpoint: { method: 'POST', url: '/api/v1/agentbook-invoice/invoices' },
   },
@@ -594,7 +606,7 @@ export const BUILT_IN_SKILLS = [
     // but none of the original triggerPatterns actually matched it (no
     // "invoice", no "got paid", no "mark"/"received payment") — a genuine
     // gap between the manifest's examples and its regex fast path.
-    triggerPatterns: ['paid.*invoice', 'invoice.*paid', 'got paid', 'received.*payment', 'mark.*paid', '\\bpaid me\\b'],
+    triggerPatterns: [...INVOICE_PAID_TRIGGER_PATTERNS, 'got paid', 'received.*payment', 'mark.*paid', '\\bpaid me\\b'],
     examples: [
       'I got paid for invoice INV-2026-0004',
       'Acme paid the invoice',

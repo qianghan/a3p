@@ -2134,6 +2134,12 @@ model AbPayment {
 
   @@index([tenantId, date])
   @@index([invoiceId])
+  // G-5A: dedupes a Stripe-sourced payment applied twice to the same
+  // invoice (retried webhook, retried client submit). Postgres treats
+  // NULL as distinct, so manual/cash payments (stripePaymentId IS NULL)
+  // are never constrained by this index — only real Stripe payment IDs
+  // dedupe.
+  @@unique([invoiceId, stripePaymentId])
   @@schema("plugin_agentbook_invoice")
 }
 

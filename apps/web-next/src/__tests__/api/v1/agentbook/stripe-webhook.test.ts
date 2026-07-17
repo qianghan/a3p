@@ -15,6 +15,13 @@ const billAddOnPriceFindUnique = vi.fn();
 const billAddOnFindUnique = vi.fn();
 const billAddOnSubUpsert = vi.fn();
 const billAddOnSubUpdate = vi.fn();
+const abPaymentFindFirst = vi.fn();
+const abPaymentCreate = vi.fn();
+const abInvoiceFindFirst = vi.fn();
+const abInvoiceUpdate = vi.fn();
+const abAccountFindFirst = vi.fn();
+const abJournalEntryCreate = vi.fn();
+const abEventCreate = vi.fn();
 
 vi.mock('@/lib/billing/stripe', () => ({
   getStripe: () => ({
@@ -40,6 +47,17 @@ vi.mock('@naap/database', () => ({
       upsert: (...a: unknown[]) => billAddOnSubUpsert(...a),
       update: (...a: unknown[]) => billAddOnSubUpdate(...a),
     },
+    abPayment: {
+      findFirst: (...a: unknown[]) => abPaymentFindFirst(...a),
+      create: (...a: unknown[]) => abPaymentCreate(...a),
+    },
+    abInvoice: {
+      findFirst: (...a: unknown[]) => abInvoiceFindFirst(...a),
+      update: (...a: unknown[]) => abInvoiceUpdate(...a),
+    },
+    abAccount: { findFirst: (...a: unknown[]) => abAccountFindFirst(...a) },
+    abJournalEntry: { create: (...a: unknown[]) => abJournalEntryCreate(...a) },
+    abEvent: { create: (...a: unknown[]) => abEventCreate(...a) },
   },
 }));
 
@@ -62,6 +80,13 @@ beforeEach(() => {
   billAddOnFindUnique.mockReset();
   billAddOnSubUpsert.mockReset();
   billAddOnSubUpdate.mockReset();
+  abPaymentFindFirst.mockReset();
+  abPaymentCreate.mockReset();
+  abInvoiceFindFirst.mockReset();
+  abInvoiceUpdate.mockReset();
+  abAccountFindFirst.mockReset();
+  abJournalEntryCreate.mockReset();
+  abEventCreate.mockReset();
   process.env.STRIPE_WEBHOOK_SECRET = 'whsec_test';
   process.env.STRIPE_SECRET_KEY = 'sk_test_dummy';
   delete process.env.STRIPE_CONNECT_WEBHOOK_SECRET;
@@ -220,5 +245,96 @@ describe('Stripe webhook', () => {
       data: expect.objectContaining({ status: 'canceled' }),
     }));
     expect(billSubscriptionUpdate).not.toHaveBeenCalled();
+  });
+
+  it('checkout.session.completed creates a balanced journal entry using account codes 1000/1100', async () => {
+    constructEvent.mockReturnValue({
+      id: 'evt_checkout_1',
+      type: 'checkout.session.completed',
+      data: { object: {
+        metadata: { invoiceId: 'inv_1', tenantId: 'tenant-1' },
+        payment_intent: 'pi_123',
+        amount_total: 50000,
+      } },
+    });
+    billEventCreate.mockResolvedValue({});
+    billEventUpdate.mockResolvedValue({});
+    abPaymentFindFirst.mockResolvedValue(null); // no existing payment for this PaymentIntent
+    abInvoiceFindFirst.mockResolvedValue({ id: 'inv_1', number: 'INV-2026-0001', amountCents: 50000, status: 'sent' });
+    abPaymentCreate.mockResolvedValue({});
+    abInvoiceUpdate.mockResolvedValue({});
+    abAccountFindFirst.mockImplementation(async ({ where }: { where: { code: string } }) => {
+      if (where.code === '1000') return { id: 'acct-cash' };
+      if (where.code === '1100') return { id: 'acct-ar' };
+      return null;
+    });
+    abJournalEntryCreate.mockResolvedValue({});
+    abEventCreate.mockResolvedValue({});
+
+    const r = await POST(req('{}', 'sig'));
+
+    expect(r.status).toBe(200);
+    expect(abAccountFindFirst).toHaveBeenCalledWith({ where: { tenantId: 'tenant-1', code: '1000' } });
+    expect(abAccountFindFirst).toHaveBeenCalledWith({ where: { tenantId: 'tenant-1', code: '1100' } });
+    expect(abJournalEntryCreate).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        lines: {
+          create: [
+            { tenantId: 'tenant-1', accountId: 'acct-cash', debitCents: 50000, creditCents: 0 },
+            { tenantId: 'tenant-1', accountId: 'acct-ar', debitCents: 0, creditCents: 50000 },
+          ],
+        },
+      }),
+    }));
+  });
+
+  it('checkout.session.completed records the payment even when accounts 1000/1100 are missing (best-effort, non-fatal)', async () => {
+    constructEvent.mockReturnValue({
+      id: 'evt_checkout_2',
+      type: 'checkout.session.completed',
+      data: { object: {
+        metadata: { invoiceId: 'inv_2', tenantId: 'tenant-2' },
+        payment_intent: 'pi_456',
+        amount_total: 25000,
+      } },
+    });
+    billEventCreate.mockResolvedValue({});
+    billEventUpdate.mockResolvedValue({});
+    abPaymentFindFirst.mockResolvedValue(null);
+    abInvoiceFindFirst.mockResolvedValue({ id: 'inv_2', number: 'INV-2026-0002', amountCents: 25000, status: 'sent' });
+    abPaymentCreate.mockResolvedValue({});
+    abInvoiceUpdate.mockResolvedValue({});
+    abAccountFindFirst.mockResolvedValue(null); // chart of accounts not seeded for this tenant
+    abEventCreate.mockResolvedValue({});
+
+    const r = await POST(req('{}', 'sig'));
+
+    expect(r.status).toBe(200);
+    expect(abJournalEntryCreate).not.toHaveBeenCalled();
+    expect(abPaymentCreate).toHaveBeenCalledTimes(1);
+    expect(abInvoiceUpdate).toHaveBeenCalledWith(expect.objectContaining({
+      data: { status: 'paid' },
+    }));
+  });
+
+  it('checkout.session.completed is idempotent on a retried PaymentIntent', async () => {
+    constructEvent.mockReturnValue({
+      id: 'evt_checkout_3',
+      type: 'checkout.session.completed',
+      data: { object: {
+        metadata: { invoiceId: 'inv_3', tenantId: 'tenant-3' },
+        payment_intent: 'pi_789',
+        amount_total: 10000,
+      } },
+    });
+    billEventCreate.mockResolvedValue({});
+    billEventUpdate.mockResolvedValue({});
+    abPaymentFindFirst.mockResolvedValue({ id: 'existing-payment' }); // already recorded
+
+    const r = await POST(req('{}', 'sig'));
+
+    expect(r.status).toBe(200);
+    expect(abPaymentCreate).not.toHaveBeenCalled();
+    expect(abInvoiceFindFirst).not.toHaveBeenCalled();
   });
 });

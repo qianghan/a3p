@@ -24,6 +24,15 @@ interface CreatePaymentBody {
   feesCents?: number;
 }
 
+// Typed error for the payment-transaction balance re-check (mirrors the
+// legacy plugin handler in plugins/agentbook-invoice/backend/src/server.ts).
+class PaymentExceedsBalanceError extends Error {
+  constructor(public readonly amountCents: number, public readonly remainingBalance: number) {
+    super(`Payment amount (${amountCents}) exceeds remaining balance (${remainingBalance})`);
+    this.name = 'PaymentExceedsBalanceError';
+  }
+}
+
 export async function POST(request: NextRequest): Promise<NextResponse> {
   const __resolved = await safeResolveAgentbookTenant(request);
   if ('response' in __resolved) return __resolved.response;
@@ -51,31 +60,19 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
           };
         }
 
-        const invoice = await db.abInvoice.findFirst({
-          where: { id: invoiceId, tenantId },
-          include: { payments: true, client: true },
-        });
-        if (!invoice) {
+        // Fast-path existence/void check (cheap, outside the transaction —
+        // the authoritative balance check happens inside the locked
+        // transaction below, so a stale read here can't cause an incorrect
+        // write).
+        const invoicePrecheck = await db.abInvoice.findFirst({ where: { id: invoiceId, tenantId } });
+        if (!invoicePrecheck) {
           return { status: 404, body: { success: false, error: 'Invoice not found' } };
         }
-        if (invoice.status === 'void') {
+        if (invoicePrecheck.status === 'void') {
           return { status: 422, body: { success: false, error: 'Cannot pay a voided invoice' } };
         }
 
-        const existingPaid = invoice.payments.reduce((sum, p) => sum + p.amountCents, 0);
-        const remainingBalance = invoice.amountCents - existingPaid;
-        if (amountCents > remainingBalance) {
-          return {
-            status: 422,
-            body: {
-              success: false,
-              error: `Payment amount (${amountCents}) exceeds remaining balance (${remainingBalance})`,
-            },
-          };
-        }
-
         const fees = feesCents || 0;
-        const fullyPaid = existingPaid + amountCents >= invoice.amountCents;
 
         const [arAccount, cashAccount, feesAccount] = await Promise.all([
           db.abAccount.findUnique({ where: { tenantId_code: { tenantId, code: '1100' } } }),
@@ -95,115 +92,203 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
           };
         }
 
-        const payment = await db.$transaction(async (tx) => {
-          const journalLines: Array<{
-            tenantId: string;
-            accountId: string;
-            debitCents: number;
-            creditCents: number;
-            description: string;
-          }> = [
-            { tenantId, accountId: cashAccount.id, debitCents: amountCents, creditCents: 0, description: `Cash received - Invoice ${invoice.number}` }, // G-009
-            { tenantId, accountId: arAccount.id, debitCents: 0, creditCents: amountCents, description: `AR payment - Invoice ${invoice.number}` }, // G-009
-          ];
-          if (fees > 0 && feesAccount) {
-            journalLines.push(
-              { tenantId, accountId: feesAccount.id, debitCents: fees, creditCents: 0, description: `Payment processing fees - Invoice ${invoice.number}` }, // G-009
-              { tenantId, accountId: cashAccount.id, debitCents: 0, creditCents: fees, description: `Fees deducted from cash - Invoice ${invoice.number}` }, // G-009
-            );
-          }
+        const { payment, alreadyRecorded, fullyPaid, invoiceNumber, previousStatus } = await db.$transaction(
+          async (tx) => {
+            // Idempotent replay: a Stripe-sourced payment retried with the
+            // same stripePaymentId returns the payment already recorded for
+            // it, instead of creating a duplicate (the unique index on
+            // (invoiceId, stripePaymentId) would reject the insert anyway —
+            // this check makes the replay path return 200 with the existing
+            // row rather than a raw constraint-violation error).
+            if (stripePaymentId) {
+              const existingForStripeId = await tx.abPayment.findFirst({
+                where: { invoiceId, stripePaymentId },
+              });
+              if (existingForStripeId) {
+                return {
+                  payment: existingForStripeId,
+                  alreadyRecorded: true,
+                  fullyPaid: false,
+                  invoiceNumber: invoicePrecheck.number,
+                  previousStatus: invoicePrecheck.status,
+                };
+              }
+            }
 
-          const journalEntry = await tx.abJournalEntry.create({
-            data: {
-              tenantId,
-              date: new Date(date || Date.now()),
-              memo: `Payment for Invoice ${invoice.number}`,
-              sourceType: 'payment',
-              verified: true,
-              lines: { create: journalLines },
-            },
-          });
+            // Row-lock the invoice for the remainder of this transaction. Any
+            // concurrent submission against the SAME invoice (manual double-
+            // submit, or two Stripe retries with different payment ids)
+            // blocks here until this transaction commits or rolls back — so
+            // the re-read below is always up to date with any payment that
+            // already committed, closing the check-then-act race the
+            // pre-transaction balance check had.
+            await tx.$queryRaw`SELECT id FROM "plugin_agentbook_invoice"."AbInvoice" WHERE id = ${invoiceId} FOR UPDATE`;
 
-          const pmt = await tx.abPayment.create({
-            data: {
-              tenantId,
-              invoiceId,
-              amountCents,
-              method: method || 'manual',
-              date: new Date(date || Date.now()),
-              stripePaymentId: stripePaymentId || null,
-              feesCents: fees,
-              journalEntryId: journalEntry.id,
-            },
-          });
+            // Second stripePaymentId check, now that we hold the invoice's
+            // row lock: closes the race where two requests carrying the SAME
+            // stripePaymentId arrive concurrently and both pass the pre-lock
+            // check above (neither has committed yet). By the time the lock
+            // is acquired, any concurrent transaction that already committed
+            // a matching payment is guaranteed visible here — catching it
+            // now avoids hitting the AbPayment unique-constraint violation
+            // later and returns the intended graceful replay instead of a
+            // raw 500.
+            if (stripePaymentId) {
+              const existingForStripeIdAfterLock = await tx.abPayment.findFirst({
+                where: { invoiceId, stripePaymentId },
+              });
+              if (existingForStripeIdAfterLock) {
+                return {
+                  payment: existingForStripeIdAfterLock,
+                  alreadyRecorded: true,
+                  fullyPaid: false,
+                  invoiceNumber: invoicePrecheck.number,
+                  previousStatus: invoicePrecheck.status,
+                };
+              }
+            }
 
-          await tx.abJournalEntry.update({ where: { id: journalEntry.id }, data: { sourceId: pmt.id } });
+            const invoice = await tx.abInvoice.findFirst({
+              where: { id: invoiceId, tenantId },
+              include: { payments: true, client: true },
+            });
+            if (!invoice) {
+              throw new Error('Invoice not found'); // extremely unlikely: deleted between precheck and lock
+            }
 
-          if (fullyPaid) {
-            await tx.abInvoice.update({ where: { id: invoiceId }, data: { status: 'paid' } });
-          }
+            const existingPaid = invoice.payments.reduce((sum, p) => sum + p.amountCents, 0);
+            const remainingBalance = invoice.amountCents - existingPaid;
+            if (amountCents > remainingBalance) {
+              throw new PaymentExceedsBalanceError(amountCents, remainingBalance);
+            }
 
-          await tx.abClient.update({
-            where: { id: invoice.clientId },
-            data: { totalPaidCents: { increment: amountCents } },
-          });
+            const fullyPaidNow = existingPaid + amountCents >= invoice.amountCents;
 
-          await tx.abEvent.create({
-            data: {
-              tenantId,
-              eventType: 'payment.received',
-              actor: 'agent',
-              action: {
-                paymentId: pmt.id,
+            const journalLines: Array<{
+              tenantId: string;
+              accountId: string;
+              debitCents: number;
+              creditCents: number;
+              description: string;
+            }> = [
+              { tenantId, accountId: cashAccount.id, debitCents: amountCents, creditCents: 0, description: `Cash received - Invoice ${invoice.number}` }, // G-009
+              { tenantId, accountId: arAccount.id, debitCents: 0, creditCents: amountCents, description: `AR payment - Invoice ${invoice.number}` }, // G-009
+            ];
+            if (fees > 0 && feesAccount) {
+              journalLines.push(
+                { tenantId, accountId: feesAccount.id, debitCents: fees, creditCents: 0, description: `Payment processing fees - Invoice ${invoice.number}` }, // G-009
+                { tenantId, accountId: cashAccount.id, debitCents: 0, creditCents: fees, description: `Fees deducted from cash - Invoice ${invoice.number}` }, // G-009
+              );
+            }
+
+            const journalEntry = await tx.abJournalEntry.create({
+              data: {
+                tenantId,
+                date: new Date(date || Date.now()),
+                memo: `Payment for Invoice ${invoice.number}`,
+                sourceType: 'payment',
+                verified: true,
+                lines: { create: journalLines },
+              },
+            });
+
+            const pmt = await tx.abPayment.create({
+              data: {
+                tenantId,
                 invoiceId,
-                invoiceNumber: invoice.number,
                 amountCents,
                 method: method || 'manual',
+                date: new Date(date || Date.now()),
+                stripePaymentId: stripePaymentId || null,
                 feesCents: fees,
-                fullyPaid,
-                clientId: invoice.clientId,
-                clientName: invoice.client.name,
+                journalEntryId: journalEntry.id,
               },
-              constraintsPassed: ['balance_invariant'],
-              verificationResult: 'passed',
-            },
-          });
+            });
 
-          return pmt;
-        });
+            await tx.abJournalEntry.update({ where: { id: journalEntry.id }, data: { sourceId: pmt.id } });
 
-        // PR 10 — audit the payment + the invoice status flip if it became paid.
-        await audit({
-          tenantId,
-          source: auditSource,
-          actor: auditActor,
-          action: 'payment.create',
-          entityType: 'AbPayment',
-          entityId: payment.id,
-          after: {
-            invoiceId,
-            invoiceNumber: invoice.number,
-            amountCents,
-            method: payment.method,
-            feesCents: fees,
-            fullyPaid,
+            if (fullyPaidNow) {
+              await tx.abInvoice.update({ where: { id: invoiceId }, data: { status: 'paid' } });
+            }
+
+            await tx.abClient.update({
+              where: { id: invoice.clientId },
+              data: { totalPaidCents: { increment: amountCents } },
+            });
+
+            await tx.abEvent.create({
+              data: {
+                tenantId,
+                eventType: 'payment.received',
+                actor: 'agent',
+                action: {
+                  paymentId: pmt.id,
+                  invoiceId,
+                  invoiceNumber: invoice.number,
+                  amountCents,
+                  method: method || 'manual',
+                  feesCents: fees,
+                  fullyPaid: fullyPaidNow,
+                  clientId: invoice.clientId,
+                  clientName: invoice.client.name,
+                },
+                constraintsPassed: ['balance_invariant'],
+                verificationResult: 'passed',
+              },
+            });
+
+            return {
+              payment: pmt,
+              alreadyRecorded: false,
+              fullyPaid: fullyPaidNow,
+              invoiceNumber: invoice.number,
+              previousStatus: invoice.status,
+            };
           },
-        });
-        if (fullyPaid) {
+        );
+
+        // PR 10 — audit the payment + the invoice status flip if it became
+        // paid. Skipped on a replay (alreadyRecorded): no new payment was
+        // actually created, so there's nothing new to audit.
+        if (!alreadyRecorded) {
           await audit({
             tenantId,
             source: auditSource,
             actor: auditActor,
-            action: 'invoice.mark_paid',
-            entityType: 'AbInvoice',
-            entityId: invoiceId,
-            before: { status: invoice.status },
-            after: { status: 'paid', number: invoice.number, paymentId: payment.id },
+            action: 'payment.create',
+            entityType: 'AbPayment',
+            entityId: payment.id,
+            after: {
+              invoiceId,
+              invoiceNumber,
+              amountCents,
+              method: payment.method,
+              feesCents: fees,
+              fullyPaid,
+            },
           });
+          if (fullyPaid) {
+            await audit({
+              tenantId,
+              source: auditSource,
+              actor: auditActor,
+              action: 'invoice.mark_paid',
+              entityType: 'AbInvoice',
+              entityId: invoiceId,
+              before: { status: previousStatus },
+              after: { status: 'paid', number: invoiceNumber, paymentId: payment.id },
+            });
+          }
         }
 
-        return { status: 201, body: { success: true, data: payment } };
+        return {
+          status: alreadyRecorded ? 200 : 201,
+          body: { success: true, data: payment, alreadyRecorded },
+        };
       } catch (err) {
+        if (err instanceof PaymentExceedsBalanceError) {
+          return { status: 422, body: { success: false, error: err.message } };
+        }
         console.error('[agentbook-invoice/payments POST] failed:', err);
         return {
           status: 500,

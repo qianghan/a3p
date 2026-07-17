@@ -98,6 +98,17 @@ async function getAccountByCode(tenantId: string, code: string) {
 }
 
 // ============================================
+// HELPER: Typed error for the payment-transaction balance re-check
+// ============================================
+
+class PaymentExceedsBalanceError extends Error {
+  constructor(public readonly amountCents: number, public readonly remainingBalance: number) {
+    super(`Payment amount (${amountCents}) exceeds remaining balance (${remainingBalance})`);
+    this.name = 'PaymentExceedsBalanceError';
+  }
+}
+
+// ============================================
 // CLIENT ROUTES
 // ============================================
 
@@ -681,28 +692,15 @@ app.post('/api/v1/agentbook-invoice/payments', async (req: Request, res: Respons
       return res.status(400).json({ success: false, error: 'invoiceId and positive amountCents are required' });
     }
 
-    // Verify invoice
-    const invoice = await db.abInvoice.findFirst({
-      where: { id: invoiceId, tenantId },
-      include: { payments: true, client: true },
-    });
-
-    if (!invoice) {
+    // Fast-path existence/void check (cheap, outside the transaction — the
+    // authoritative balance check happens inside the locked transaction
+    // below, so a stale read here can't cause an incorrect write).
+    const invoicePrecheck = await db.abInvoice.findFirst({ where: { id: invoiceId, tenantId } });
+    if (!invoicePrecheck) {
       return res.status(404).json({ success: false, error: 'Invoice not found' });
     }
-
-    if (invoice.status === 'void') {
+    if (invoicePrecheck.status === 'void') {
       return res.status(422).json({ success: false, error: 'Cannot pay a voided invoice' });
-    }
-
-    const existingPaid = invoice.payments.reduce((sum, p) => sum + p.amountCents, 0);
-    const remainingBalance = invoice.amountCents - existingPaid;
-
-    if (amountCents > remainingBalance) {
-      return res.status(422).json({
-        success: false,
-        error: `Payment amount (${amountCents}) exceeds remaining balance (${remainingBalance})`,
-      });
     }
 
     // Look up accounts for journal entry
@@ -722,9 +720,66 @@ app.post('/api/v1/agentbook-invoice/payments', async (req: Request, res: Respons
     }
 
     const fees = feesCents || 0;
-    const fullyPaid = (existingPaid + amountCents) >= invoice.amountCents;
 
-    const payment = await db.$transaction(async (tx) => {
+    const { payment, alreadyRecorded } = await db.$transaction(async (tx) => {
+      // Idempotent replay: a Stripe-sourced payment retried with the same
+      // stripePaymentId returns the payment already recorded for it,
+      // instead of creating a duplicate (the unique index on
+      // (invoiceId, stripePaymentId) would reject the insert anyway — this
+      // check makes the replay path return 200 with the existing row
+      // rather than a raw constraint-violation error).
+      if (stripePaymentId) {
+        const existingForStripeId = await tx.abPayment.findFirst({
+          where: { invoiceId, stripePaymentId },
+        });
+        if (existingForStripeId) {
+          return { payment: existingForStripeId, alreadyRecorded: true };
+        }
+      }
+
+      // Row-lock the invoice for the remainder of this transaction. Any
+      // concurrent submission against the SAME invoice (manual double-
+      // submit, or two Stripe retries with different payment ids) blocks
+      // here until this transaction commits or rolls back — so the
+      // re-read below is always up to date with any payment that already
+      // committed, closing the check-then-act race the pre-transaction
+      // balance check had.
+      await tx.$queryRaw`SELECT id FROM "plugin_agentbook_invoice"."AbInvoice" WHERE id = ${invoiceId} FOR UPDATE`;
+
+      // Second stripePaymentId check, now that we hold the invoice's row
+      // lock: closes the race where two requests carrying the SAME
+      // stripePaymentId arrive concurrently and both pass the pre-lock
+      // check above (neither has committed yet). By the time the lock is
+      // acquired, any concurrent transaction that already committed a
+      // matching payment is guaranteed visible here — catching it now
+      // avoids hitting the AbPayment unique-constraint violation later
+      // and returns the intended graceful replay instead of a raw 500.
+      if (stripePaymentId) {
+        const existingForStripeIdAfterLock = await tx.abPayment.findFirst({
+          where: { invoiceId, stripePaymentId },
+        });
+        if (existingForStripeIdAfterLock) {
+          return { payment: existingForStripeIdAfterLock, alreadyRecorded: true };
+        }
+      }
+
+      const invoice = await tx.abInvoice.findFirst({
+        where: { id: invoiceId, tenantId },
+        include: { payments: true, client: true },
+      });
+      if (!invoice) {
+        throw new Error('Invoice not found'); // extremely unlikely: deleted between precheck and lock
+      }
+
+      const existingPaid = invoice.payments.reduce((sum, p) => sum + p.amountCents, 0);
+      const remainingBalance = invoice.amountCents - existingPaid;
+
+      if (amountCents > remainingBalance) {
+        throw new PaymentExceedsBalanceError(amountCents, remainingBalance);
+      }
+
+      const fullyPaid = (existingPaid + amountCents) >= invoice.amountCents;
+
       // Create journal entry: debit Cash (net of fees), credit AR
       // If fees: debit Fees Expense, credit Cash (for the fee portion)
       const journalLines: Array<{
@@ -841,11 +896,14 @@ app.post('/api/v1/agentbook-invoice/payments', async (req: Request, res: Respons
         },
       });
 
-      return pmt;
+      return { payment: pmt, alreadyRecorded: false };
     });
 
-    res.status(201).json({ success: true, data: payment });
+    res.status(alreadyRecorded ? 200 : 201).json({ success: true, data: payment, alreadyRecorded });
   } catch (err) {
+    if (err instanceof PaymentExceedsBalanceError) {
+      return res.status(422).json({ success: false, error: err.message });
+    }
     res.status(500).json({ success: false, error: String(err) });
   }
 });
