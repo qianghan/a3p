@@ -9,6 +9,10 @@ import 'server-only';
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma as db } from '@naap/database';
 import { safeResolveAgentbookTenant } from '@/lib/agentbook-tenant';
+import { usTaxBrackets } from '@agentbook/jurisdictions/us/tax-brackets';
+import { caTaxBrackets } from '@agentbook/jurisdictions/ca/tax-brackets';
+import { auTaxBrackets } from '@agentbook/jurisdictions/au/tax-brackets';
+import type { TaxBracketProvider } from '@agentbook/jurisdictions/interfaces';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -22,21 +26,16 @@ interface Move {
   impactCents: number;
 }
 
-const US_BRACKETS = [
-  { min: 0, max: 1_160_000, rate: 0.10 },
-  { min: 1_160_000, max: 4_712_500, rate: 0.12 },
-  { min: 4_712_500, max: 10_052_500, rate: 0.22 },
-  { min: 10_052_500, max: 19_190_000, rate: 0.24 },
-  { min: 19_190_000, max: null as number | null, rate: 0.32 },
-];
-
-const CA_BRACKETS = [
-  { min: 0, max: 5_737_500, rate: 0.15 },
-  { min: 5_737_500, max: 11_475_000, rate: 0.205 },
-  { min: 11_475_000, max: 15_846_800, rate: 0.26 },
-  { min: 15_846_800, max: 22_170_800, rate: 0.29 },
-  { min: 22_170_800, max: null as number | null, rate: 0.33 },
-];
+// Real, tested jurisdiction-pack bracket data — replaces two previously
+// hand-duplicated, drifted local arrays (the old inline US_BRACKETS was
+// missing the top two real federal brackets, 32%/35%/37%, compared to the
+// actual usTaxBrackets provider) and adds Australia, which this route never
+// supported at all.
+const BRACKET_PROVIDERS: Record<string, TaxBracketProvider> = {
+  us: usTaxBrackets,
+  ca: caTaxBrackets,
+  au: auTaxBrackets,
+};
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
   try {
@@ -89,7 +88,9 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       orderBy: { calculatedAt: 'desc' },
     });
     if (estimate && estimate.netIncomeCents > 0) {
-      const brackets = (config?.jurisdiction || 'us') === 'ca' ? CA_BRACKETS : US_BRACKETS;
+      const jurisdiction = config?.jurisdiction || 'us';
+      const provider = BRACKET_PROVIDERS[jurisdiction] ?? usTaxBrackets;
+      const brackets = provider.getTaxBrackets(new Date().getFullYear());
       for (let i = 0; i < brackets.length - 1; i++) {
         const b = brackets[i];
         if (b.max && estimate.netIncomeCents > b.min && estimate.netIncomeCents < b.max) {
