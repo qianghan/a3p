@@ -746,6 +746,23 @@ app.post('/api/v1/agentbook-invoice/payments', async (req: Request, res: Respons
       // balance check had.
       await tx.$queryRaw`SELECT id FROM "plugin_agentbook_invoice"."AbInvoice" WHERE id = ${invoiceId} FOR UPDATE`;
 
+      // Second stripePaymentId check, now that we hold the invoice's row
+      // lock: closes the race where two requests carrying the SAME
+      // stripePaymentId arrive concurrently and both pass the pre-lock
+      // check above (neither has committed yet). By the time the lock is
+      // acquired, any concurrent transaction that already committed a
+      // matching payment is guaranteed visible here — catching it now
+      // avoids hitting the AbPayment unique-constraint violation later
+      // and returns the intended graceful replay instead of a raw 500.
+      if (stripePaymentId) {
+        const existingForStripeIdAfterLock = await tx.abPayment.findFirst({
+          where: { invoiceId, stripePaymentId },
+        });
+        if (existingForStripeIdAfterLock) {
+          return { payment: existingForStripeIdAfterLock, alreadyRecorded: true };
+        }
+      }
+
       const invoice = await tx.abInvoice.findFirst({
         where: { id: invoiceId, tenantId },
         include: { payments: true, client: true },

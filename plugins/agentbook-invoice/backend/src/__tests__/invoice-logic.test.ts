@@ -306,6 +306,23 @@ describe('Payment Idempotent Replay (Stripe-sourced)', () => {
     expect(result.isReplay).toBe(true);
     expect(result.paymentId).toBe('pay_1');
   });
+
+  it('a second check after the lock catches a payment that committed between the pre-lock check and the lock being acquired', () => {
+    // Pre-lock check (cheap fast-path, runs before the row lock is
+    // acquired): the concurrent request hasn't committed yet, so nothing
+    // matches and this request proceeds toward acquiring the lock.
+    const preLockCheck = decideReplay({ stripePaymentId: 'pi_concurrent', existingPayment: null });
+    expect(preLockCheck.isReplay).toBe(false);
+
+    // Post-lock check (runs immediately after the row lock is acquired):
+    // by now the concurrent request's transaction has committed a payment
+    // for the same stripePaymentId, so the identical decision function,
+    // called again with the fresher read, correctly flags this as a
+    // replay instead of proceeding to create a duplicate payment.
+    const postLockCheck = decideReplay({ stripePaymentId: 'pi_concurrent', existingPayment: { id: 'pay_1' } });
+    expect(postLockCheck.isReplay).toBe(true);
+    expect(postLockCheck.paymentId).toBe('pay_1');
+  });
 });
 
 // ---------------------------------------------------------------------------
