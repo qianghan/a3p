@@ -9,7 +9,7 @@ export default function TermsPage() {
   return (
     <main className="max-w-3xl mx-auto px-6 py-12 prose prose-sm prose-zinc dark:prose-invert">
       <h1>Terms of Service</h1>
-      <p className="text-sm text-muted-foreground">Last updated: 2026-05-24</p>
+      <p className="text-sm text-muted-foreground">Last updated: 2026-07-17</p>
 
       <h2>1. The service</h2>
       <p>
@@ -25,7 +25,10 @@ export default function TermsPage() {
       <p>
         You are responsible for keeping your login credentials secure. You may
         not use the service in violation of any applicable law, or to process
-        data on behalf of third parties without their consent.
+        data on behalf of third parties without their consent. You must be at
+        least 18 years old, or the age of majority in your jurisdiction if
+        that is older than 18, to create an account or use AgentBook. By
+        registering, you represent that you meet this requirement.
       </p>
 
       <h2>3. Subscriptions and billing</h2>
@@ -35,6 +38,14 @@ export default function TermsPage() {
         from Settings; access continues until the end of the paid period and
         no refund is issued for the remainder. Past-due accounts may be
         suspended after a 7-day grace window.
+      </p>
+      <p>
+        Add-on subscriptions (for example, Student Success, Tax Fast-Track,
+        Startup Tax Benefits, and Personal Insights) are billed annually in
+        advance, with no monthly option. The same no-refund policy applies:
+        canceling an add-on stops the next year's renewal, but access
+        continues for the remainder of the year you already paid for, and no
+        partial-year refund is issued.
       </p>
 
       <h2>4. Acceptable use</h2>
