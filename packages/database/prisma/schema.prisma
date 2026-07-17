@@ -2032,6 +2032,14 @@ model AbInvoice {
   fxRate              Float? // rate used to convert original→booking at draft time
   fxRateSource        String? // 'ecb' | 'cached' | 'manual'
   fxRateDate          DateTime? // calendar date the rate is for
+  // Sales tax (Launch-gap PR-6). taxRate is the combined rate applied at
+  // creation time (e.g. 0.10 for AU GST, or a CA province's GST+PST/HST
+  // sum) — null when no tax jurisdiction applies. taxCents is always the
+  // tax portion of amountCents (0 when taxRate is null). subtotalCents is
+  // intentionally not persisted — derive it as amountCents - taxCents;
+  // agentbook-invoice-pdf.ts already expects exactly this fallback.
+  taxRate             Float?
+  taxCents            Int       @default(0)
   issuedDate          DateTime
   dueDate             DateTime
   status              String    @default("draft") // draft | sent | viewed | paid | overdue | void
