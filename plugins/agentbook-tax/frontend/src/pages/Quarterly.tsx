@@ -11,6 +11,7 @@ import {
 import { ChatCTA } from '@naap/plugin-sdk';
 import { formatMoney } from '@agentbook/i18n';
 import { useTenantCurrency } from '../hooks/useTenantCurrency';
+import { TaxDisclaimer } from '../components/TaxDisclaimer';
 
 interface Quarter {
   id: string;
@@ -133,6 +134,10 @@ export const QuarterlyPage: React.FC = () => {
         <p className="text-sm mt-1" style={{ color: 'var(--text-secondary)' }}>
           Track and manage quarterly tax installment payments
         </p>
+      </div>
+
+      <div className="mb-6">
+        <TaxDisclaimer />
       </div>
 
       {/* PR 44 / Tier 1 #1: chat-first escape hatch */}

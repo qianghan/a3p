@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 import { formatMoney } from '@agentbook/i18n';
 import { useTenantCurrency } from '../hooks/useTenantCurrency';
+import { TaxDisclaimer } from '../components/TaxDisclaimer';
 
 interface Projection {
   period: string;
@@ -106,6 +107,10 @@ export const CashFlowPage: React.FC = () => {
         <p className="text-sm mt-1" style={{ color: 'var(--text-secondary)' }}>
           Forecast and analyze cash flow with scenario modeling
         </p>
+      </div>
+
+      <div className="mb-6">
+        <TaxDisclaimer />
       </div>
 
       {/* Current balance */}

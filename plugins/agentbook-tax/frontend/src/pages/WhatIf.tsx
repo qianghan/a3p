@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Calculator, ArrowRight, DollarSign } from 'lucide-react';
 import { ChatCTA } from '@naap/plugin-sdk';
+import { TaxDisclaimer } from '../components/TaxDisclaimer';
 
 const TAX_API = '/api/v1/agentbook-tax';
 
@@ -113,6 +114,10 @@ export const WhatIfPage: React.FC = () => {
           </div>
         </div>
       )}
+
+      <div className="mt-6">
+        <TaxDisclaimer />
+      </div>
     </div>
   );
 };

@@ -10,7 +10,6 @@ import {
   Loader2,
   RefreshCw,
   Settings,
-  AlertCircle,
   Globe,
   Building2,
   FileUp,
@@ -18,6 +17,7 @@ import {
 } from 'lucide-react';
 import { formatMoney } from '@agentbook/i18n';
 import { useTenantCurrency } from '../hooks/useTenantCurrency';
+import { TaxDisclaimer } from '../components/TaxDisclaimer';
 
 interface TaxEstimate {
   total_estimated_tax: number;
@@ -430,10 +430,7 @@ function SettingsTab({ onSaved }: { onSaved?: () => void }) {
         </div>
       </div>
 
-      <div className="rounded-xl border border-border bg-muted/30 p-4 text-xs text-muted-foreground">
-        <AlertCircle className="inline w-3.5 h-3.5 mr-1 text-yellow-400" />
-        Tax calculations are estimates for planning purposes only. Consult a licensed tax professional for filing advice.
-      </div>
+      <TaxDisclaimer />
 
       {saveError && (
         <p className="text-sm text-destructive">{saveError}</p>

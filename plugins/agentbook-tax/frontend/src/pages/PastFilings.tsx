@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { FileUp, Loader2, CheckCircle2, AlertCircle, RefreshCw, Download } from 'lucide-react';
 import { useTenantCurrency } from '../hooks/useTenantCurrency';
+import { TaxDisclaimer } from '../components/TaxDisclaimer';
 
 const API = '/api/v1/agentbook-tax';
 const YEAR_OPTIONS = Array.from({ length: 6 }, (_, i) => new Date().getFullYear() - 1 - i);
@@ -166,6 +167,10 @@ export const PastFilingsPage: React.FC = () => {
   return (
     <div className="px-4 py-5 sm:p-6 max-w-4xl mx-auto">
       <h1 className="text-2xl font-bold mb-6">Past Tax Filings</h1>
+
+      <div className="mb-6">
+        <TaxDisclaimer />
+      </div>
 
       {/* Upload card */}
       <div className="bg-card border border-border rounded-xl p-4 mb-6">

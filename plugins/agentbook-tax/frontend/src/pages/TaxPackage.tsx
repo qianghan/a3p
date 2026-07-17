@@ -13,6 +13,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Download, FileText, Loader2, RefreshCw } from 'lucide-react';
 import { PastFilingsPage } from './PastFilings';
 import { FastTrackTab } from './FastTrackTab';
+import { TaxDisclaimer } from '../components/TaxDisclaimer';
 
 const API = '/api/v1/agentbook-tax';
 
@@ -131,6 +132,10 @@ const TaxPackageContent: React.FC = () => {
           <FileText className="w-6 h-6 text-primary" />
           <h1 className="text-2xl font-bold">Year-end Tax Package</h1>
         </div>
+      </div>
+
+      <div className="mb-6">
+        <TaxDisclaimer />
       </div>
 
       {/* Generate panel */}
