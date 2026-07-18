@@ -7,7 +7,9 @@
   "types": "src/index.ts",
   "scripts": {
     "build": "tsc",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "vitest",
+    "test:run": "vitest run"
   },
   "dependencies": {
     "@naap/types": "*",
@@ -20,7 +22,9 @@
     "@types/cors": "^2.8.17",
     "@types/express": "^4.17.21",
     "@types/compression": "^1.7.5",
-    "typescript": "~5.9.3"
+    "@vitest/coverage-v8": "^4.0.18",
+    "typescript": "~5.9.3",
+    "vitest": "^4.0.18"
   },
   "peerDependencies": {
     "@naap/database": "*",
