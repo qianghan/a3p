@@ -32,6 +32,47 @@ describe('payroll engine', () => {
     expect(r.federalTaxCents + r.ficaCents + r.netCents).toBe(r.grossCents);
   });
 
+  it('Quebec employees pay QPP+QC-EI+QPIP instead of CPP+rest-of-Canada-EI, and stay balanced', () => {
+    const nonQc = calcPay({ jurisdiction: 'ca', grossCents: periodGross(90_000_00, 'biweekly'), payPeriodsPerYear: 26, region: 'ON' });
+    const qc = calcPay({ jurisdiction: 'ca', grossCents: periodGross(90_000_00, 'biweekly'), payPeriodsPerYear: 26, region: 'QC' });
+
+    // QPP's higher rate (6.40% vs CPP's 5.95%) plus the added QPIP premium
+    // should make Quebec's total fica deduction higher than the rest of
+    // Canada's, even though Quebec's own EI portion is lower.
+    expect(qc.ficaCents).toBeGreaterThan(nonQc.ficaCents);
+    expect(qc.federalTaxCents + qc.ficaCents + qc.netCents).toBe(qc.grossCents);
+  });
+
+  it('Quebec fica caps at the real 2025 QPP+QC-EI+QPIP maximums for a high earner', () => {
+    // At $200,000/year (well above all three deductions' maximum insurable/
+    // pensionable earnings), Quebec's fica should hit the sum of all three
+    // real 2025 annual maximums: QPP $4,339.20 + QC-EI $860.67 + QPIP
+    // $484.12 = $5,683.99 = 568399 cents (rounding each cap independently,
+    // per-paycheck, then summing — see Step 4 for the exact per-period math).
+    const r = calcPay({ jurisdiction: 'ca', grossCents: periodGross(200_000_00, 'biweekly'), payPeriodsPerYear: 26, region: 'QC' });
+    // Hand-verified: 568399 / 26 = 21861.5 exactly (21861 * 26 = 568386,
+    // remainder 13, 13/26 = 0.5) -> Math.round rounds half up -> 21862.
+    // periodGross(200_000_00, 'biweekly') = round(20_000_000 / 26) = 769231
+    // cents/period, so calcCA's internal annual = 769231 * 26 = 20_000_006
+    // cents (off from $200,000 by 6 cents due to the per-period rounding
+    // baked into periodGross) — this tiny difference doesn't change which
+    // of the three deductions are capped, since all three are capped at far
+    // lower earnings thresholds than $200k regardless (QPP caps at $71,300,
+    // EI at $65,700, QPIP at $98,000 of pensionable/insurable earnings).
+    expect(r.ficaCents).toBe(21862);
+  });
+
+  it('a non-QC Canadian province is unaffected by this change (existing CPP+EI behavior)', () => {
+    const before = calcPay({ jurisdiction: 'ca', grossCents: periodGross(90_000_00, 'biweekly'), payPeriodsPerYear: 26, region: 'BC' });
+    // Pinned against the current (unchanged) CPP+EI computation: annual =
+    // round(9_000_000/26)*26 = 346154*26 = 9_000_004 cents. CPP = min(round
+    // (9_000_004*0.0595), 386750) = min(535500, 386750) = 386750 (capped).
+    // EI = min(round(9_000_004*0.0166), 104912) = min(149400, 104912) =
+    // 104912 (capped). fica = round((386750+104912)/26) = round(18910.08)
+    // = 18910.
+    expect(before.ficaCents).toBe(18910);
+  });
+
   it('UK gives a tax-free personal allowance (low earner pays no PAYE)', () => {
     const r = calcPay({ jurisdiction: 'uk', grossCents: periodGross(10_000_00, 'monthly'), payPeriodsPerYear: 12 });
     expect(r.federalTaxCents).toBe(0);
