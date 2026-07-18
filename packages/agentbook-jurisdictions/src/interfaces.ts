@@ -20,7 +20,7 @@ export interface TaxBracketProvider {
   jurisdiction: string;
   region?: string;
   getTaxBrackets(taxYear: number): TaxBracket[];
-  calculateTax(taxableIncomeCents: number, taxYear: number): TaxCalculation;
+  calculateTax(taxableIncomeCents: number, taxYear: number, filingStatus?: string): TaxCalculation;
 }
 
 export interface SelfEmploymentTaxResult {
