@@ -38,7 +38,7 @@
     "mitt": "^3.0.1",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
-    "react-router-dom": "^7.0.0",
+    "react-router-dom": "^7.18.1",
     "recharts": "^2.15.0",
     "@tailwindcss/typography": "^0.5.19",
     "@tailwindcss/forms": "^0.5.11"
@@ -61,31 +61,91 @@
     "@vitejs/plugin-react": "^4.3.0",
     "autoprefixer": "^10.4.27",
     "nx": "22.5.3",
-    "postcss": "^8.4.49",
+    "postcss": "^8.5.19",
     "prettier": "~3.8.1",
     "puppeteer": "^24.37.2",
     "tailwindcss": "^3.4.15",
     "tslib": "^2.3.0",
     "tsx": "^4.21.0",
     "typescript": "~5.9.3",
-    "vite": "^6.0.0"
+    "vite": "^6.4.3"
   },
   "overrides": {
-    "minimatch": "10.2.2",
+    "minimatch": "10.2.5",
     "eslint-plugin-import": {
-      "minimatch": "10.2.2"
+      "minimatch": "10.2.5"
     },
     "eslint-plugin-jsx-a11y": {
-      "minimatch": "10.2.2"
+      "minimatch": "10.2.5"
     },
     "eslint-plugin-react": {
-      "minimatch": "10.2.2"
+      "minimatch": "10.2.5"
     },
     "@typescript-eslint/typescript-estree": {
-      "minimatch": "10.2.2"
+      "minimatch": "10.2.5"
     },
     "protobufjs": "7.6.3",
-    "happy-dom": "20.10.6"
+    "happy-dom": "20.10.6",
+    "@grpc/grpc-js": "1.14.4",
+    "axios": "1.18.1",
+    "fast-uri": "3.1.3",
+    "fast-xml-builder": "1.3.0",
+    "fast-xml-parser": "5.10.1",
+    "form-data": "4.0.6",
+    "koa": "3.2.1",
+    "lodash": "4.18.1",
+    "react-router": "7.18.1",
+    "serialize-javascript": "7.0.7",
+    "tar": "7.5.20",
+    "ws": "8.21.1",
+    "body-parser": "1.20.6",
+    "brace-expansion": "5.0.7",
+    "dompurify": "3.4.12",
+    "follow-redirects": "1.16.0",
+    "qs": "6.15.3",
+    "uuid": "11.1.1",
+    "yaml": "2.8.3",
+    "@babel/core": "7.29.7",
+    "express": {
+      "path-to-regexp": "0.1.13"
+    },
+    "vite": {
+      "picomatch": "4.0.5",
+      "esbuild": "0.28.1"
+    },
+    "@rollup/plugin-commonjs": {
+      "picomatch": "4.0.5"
+    },
+    "@nx/js": {
+      "picomatch": "4.0.5"
+    },
+    "@nx/rollup": {
+      "picomatch": "4.0.5"
+    },
+    "@nx/workspace": {
+      "picomatch": "4.0.5"
+    },
+    "jest-util": {
+      "picomatch": "4.0.5"
+    },
+    "@nx/vite": {
+      "picomatch": "4.0.5"
+    },
+    "tinyglobby": {
+      "picomatch": "4.0.5"
+    },
+    "fdir": {
+      "picomatch": "4.0.5"
+    },
+    "@vercel/blob": {
+      "undici": "6.27.0"
+    },
+    "jsdom": {
+      "undici": "7.28.0"
+    },
+    "next": {
+      "postcss": "8.5.19"
+    }
   },
   "packageManager": "npm@10.9.4",
   "workspaces": [

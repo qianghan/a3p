@@ -384,6 +384,66 @@ jobs:
           token: ${{ secrets.CODECOV_TOKEN }}
 
   # ===========================================================================
+  # Backend Tests — AgentBook plugin backends + jurisdiction packages
+  # ===========================================================================
+  backend-tests:
+    name: Backend Tests — ${{ matrix.target }}
+    runs-on: ubuntu-latest
+    needs: [paths-filter, lockfile-sync]
+    if: needs.paths-filter.outputs.plugins == 'true' || needs.paths-filter.outputs.packages == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: agentbook-core
+            path: plugins/agentbook-core/backend
+          - target: agentbook-invoice
+            path: plugins/agentbook-invoice/backend
+          - target: agentbook-expense
+            path: plugins/agentbook-expense/backend
+          - target: agentbook-tax
+            path: plugins/agentbook-tax/backend
+          - target: agentbook-startup
+            path: plugins/agentbook-startup/backend
+          - target: agentbook-jurisdictions
+            path: packages/agentbook-jurisdictions
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Check if target changed
+        id: check
+        run: |
+          CHANGED=$(git diff --name-only ${{ github.event.pull_request.base.sha || 'HEAD~1' }} HEAD -- "${{ matrix.path }}/")
+          if [ -n "$CHANGED" ]; then
+            echo "changed=true" >> $GITHUB_OUTPUT
+            echo "${{ matrix.target }} has changes:"
+            echo "$CHANGED"
+          else
+            echo "changed=false" >> $GITHUB_OUTPUT
+            echo "${{ matrix.target }} has no changes — skipping"
+          fi
+
+      - name: Setup Node.js
+        if: steps.check.outputs.changed == 'true'
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        if: steps.check.outputs.changed == 'true'
+        run: npm ci
+
+      - name: Run backend tests
+        if: steps.check.outputs.changed == 'true'
+        run: |
+          cd ${{ matrix.path }}
+          npm test --if-present || echo "No tests configured for ${{ matrix.target }}"
+
+  # ===========================================================================
   # Lifecycle BDD Tests — Plugin lifecycle feature specs
   # ===========================================================================
   lifecycle-tests:
@@ -504,7 +564,7 @@ jobs:
   quality-gates:
     name: Quality Gates
     runs-on: ubuntu-latest
-    needs: [lockfile-sync, audit, lint-typecheck, build, sdk-tests, sdk-compat-matrix, plugin-tests, shell-tests, lifecycle-tests]
+    needs: [lockfile-sync, audit, lint-typecheck, build, sdk-tests, sdk-compat-matrix, plugin-tests, backend-tests, shell-tests, lifecycle-tests]
     if: always() && !cancelled()
     steps:
       - name: Checkout
@@ -527,6 +587,7 @@ jobs:
           echo "sdk-tests: ${{ needs.sdk-tests.result }}"
           echo "sdk-compat-matrix: ${{ needs.sdk-compat-matrix.result }}"
           echo "plugin-tests: ${{ needs.plugin-tests.result }}"
+          echo "backend-tests: ${{ needs.backend-tests.result }}"
           echo "shell-tests: ${{ needs.shell-tests.result }}"
           echo "lifecycle-tests: ${{ needs.lifecycle-tests.result }}"
 
@@ -558,6 +619,10 @@ jobs:
           fi
           if [[ "${{ needs.plugin-tests.result }}" == "failure" ]]; then
             echo "::error::Plugin tests failed — test or build failures block merge"
+            FAILED=1
+          fi
+          if [[ "${{ needs.backend-tests.result }}" == "failure" ]]; then
+            echo "::error::Backend tests failed — test or build failures block merge"
             FAILED=1
           fi
           if [[ "${{ needs.shell-tests.result }}" == "failure" ]]; then

@@ -221,20 +221,26 @@ describe('US Federal Income Tax (Progressive Brackets)', () => {
     expect(tax).toBe(605_300); // $6,053.00
   });
 
-  it('should calculate tax on $200,000 income (crosses 4 brackets)', () => {
-    // $200,000 = 20,000,000 cents
+  it('should calculate tax on $200,000 income (crosses 5 brackets)', () => {
+    // $200,000 = 20,000,000 cents. $200,000 exceeds the 24% bracket's own
+    // ceiling ($191,950), so it spills $8,050 into the 32% bracket too —
+    // this test previously stopped at 4 brackets and undercounted that
+    // $8,050-at-32% slice (a test-authoring bug, not a calculation bug —
+    // calcProgressiveTax itself was already correct).
     // Bracket 1: $11,600 at 10% = $1,160
     // Bracket 2: $35,550 at 12% = $4,266
     // Bracket 3: $53,375 ($100,525 - $47,150) at 22% = $11,742.50 -> round
-    // Bracket 4: $99,475 ($200,000 - $100,525) at 24% = $23,874 -> round
+    // Bracket 4: $91,425 ($191,950 - $100,525) at 24% = $21,942 -> round
+    // Bracket 5: $8,050 ($200,000 - $191,950) at 32% = $2,576
     const incomeCents = 200_000_00;
     const tax = calcProgressiveTax(incomeCents, US_FEDERAL_BRACKETS);
 
     const bracket1 = Math.round(11_600_00 * 0.10);
     const bracket2 = Math.round(35_550_00 * 0.12);
     const bracket3 = Math.round(53_375_00 * 0.22);
-    const bracket4 = Math.round(99_475_00 * 0.24);
-    const expected = bracket1 + bracket2 + bracket3 + bracket4;
+    const bracket4 = Math.round(91_425_00 * 0.24);
+    const bracket5 = Math.round(8_050_00 * 0.32);
+    const expected = bracket1 + bracket2 + bracket3 + bracket4 + bracket5;
 
     expect(tax).toBe(expected);
     // Sanity check: should be roughly $40k-$42k
