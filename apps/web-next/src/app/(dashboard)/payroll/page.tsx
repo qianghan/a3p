@@ -9,7 +9,7 @@ interface Employee { id: string; name: string; payType: string; payRateCents: nu
 interface Stub { id: string; employeeName: string; grossCents: number; federalTaxCents: number; stateTaxCents: number; ficaCents: number; netCents: number; sgCents: number }
 interface PayRun { id: string; periodStart: string; periodEnd: string; status: string; stubs: Stub[] }
 interface Deposit { id: string; form: string; periodLabel: string; amountCents: number; dueDate: string; status: string }
-interface YearEndForm { formType: string; employeeName: string; year: number; boxes: Record<string, number> }
+interface YearEndForm { formType: string; employeeName: string; year: number; boxes: Record<string, number>; employeeId?: string }
 
 const fmt$ = (c: number) => '$' + (c / 100).toLocaleString('en-US', { maximumFractionDigits: 0 });
 const JURIS = [{ v: 'us', l: '🇺🇸 US' }, { v: 'ca', l: '🇨🇦 CA' }, { v: 'uk', l: '🇬🇧 UK' }, { v: 'au', l: '🇦🇺 AU' }];
@@ -212,6 +212,9 @@ export default function PayrollPage() {
                   </div>
                   <div className="flex items-center gap-3">
                     <span className="text-sm font-medium text-foreground">{fmt$(d.amountCents)}</span>
+                    <a href={`${API}/tax-deposits/${d.id}/pdf`} target="_blank" rel="noreferrer" className="text-xs px-2.5 py-1 rounded-md border border-border hover:bg-muted inline-flex items-center gap-1">
+                      <Download className="w-3.5 h-3.5" />PDF
+                    </a>
                     {d.status === 'paid'
                       ? <span className="text-xs text-primary inline-flex items-center gap-1"><Check className="w-3.5 h-3.5" />paid</span>
                       : <button onClick={() => void markDepositPaid(d.id)} className="text-xs px-2.5 py-1 rounded-md border border-border hover:bg-muted">Mark paid</button>}
@@ -238,9 +241,18 @@ export default function PayrollPage() {
                       {!!f.boxes.superannuationPaidCents && <> · super {fmt$(f.boxes.superannuationPaidCents)}</>}
                     </p>
                   </div>
-                  <a href={`${API}/year-end?year=${year}`} target="_blank" rel="noreferrer" className="text-xs px-2.5 py-1 rounded-md border border-border hover:bg-muted inline-flex items-center gap-1">
-                    <Download className="w-3.5 h-3.5" />{f.formType}
-                  </a>
+                  {f.employeeId ? (
+                    <a href={`${API}/year-end/pdf?year=${year}&employeeId=${f.employeeId}`} target="_blank" rel="noreferrer" className="text-xs px-2.5 py-1 rounded-md border border-border hover:bg-muted inline-flex items-center gap-1">
+                      <Download className="w-3.5 h-3.5" />{f.formType}
+                    </a>
+                  ) : (
+                    // Defensive fallback — the year-end API always includes employeeId today,
+                    // but if an older cached response lacks it, degrade to the JSON list
+                    // rather than link to a PDF route that would 400.
+                    <a href={`${API}/year-end?year=${year}`} target="_blank" rel="noreferrer" className="text-xs px-2.5 py-1 rounded-md border border-border hover:bg-muted inline-flex items-center gap-1">
+                      <Download className="w-3.5 h-3.5" />{f.formType}
+                    </a>
+                  )}
                 </div>
               ))}
             </div>
