@@ -5,14 +5,14 @@
   "bundleFile": "agentbook-career.js",
   "stylesFile": "plugin-agentbook-career-frontend.css",
   "globalName": "NaapPluginAgentbookCareer",
-  "bundleHash": "dcacaeb5",
-  "bundleSize": 50972,
+  "bundleHash": "2cc9a0f5",
+  "bundleSize": 52769,
   "routes": [
     "/plugins/agentbook-career",
     "/plugins/agentbook-career/*"
   ],
   "category": "finance",
   "description": "Finds student jobs and co-op placements you're eligible for with grounded, source-cited search, then helps you track and prepare each application. Work-authorization aware for international students. It consults; you decide and apply.",
-  "buildTime": "2026-07-05T03:15:08.287Z",
+  "buildTime": "2026-07-18T19:41:49.316Z",
   "nodeEnv": "production"
 }
