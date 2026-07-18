@@ -8,6 +8,7 @@ import {
 } from 'lucide-react';
 import { usePlaidLink } from 'react-plaid-link';
 import { formatCurrencyCents } from '@/lib/jurisdiction-currency';
+import { SubscribeModal } from '@/components/settings/SubscribeModal';
 
 const API = '/api/v1/agentbook-personal';
 
@@ -95,8 +96,8 @@ export default function PersonalFinancePage() {
   // Net worth trend (Personal Insights add-on)
   const [trend, setTrend] = useState<TrendPoint[] | null>(null);
   const [trendGated, setTrendGated] = useState(false);
-  const [upgrading, setUpgrading] = useState(false);
-  const [upgradeError, setUpgradeError] = useState<string | null>(null);
+  const [showAddonSubscribe, setShowAddonSubscribe] = useState(false);
+  const [addonPrice, setAddonPrice] = useState<{ priceCents: number } | null>(null);
 
   // Bank sync (Plaid)
   const [linkToken, setLinkToken] = useState<string | null>(null);
@@ -174,6 +175,16 @@ export default function PersonalFinancePage() {
 
   useEffect(() => { void load(); }, [load]);
   useEffect(() => { void fetchTransactions(txnFilter); }, [fetchTransactions, txnFilter]);
+
+  useEffect(() => {
+    fetch('/api/v1/agentbook-billing/me/addons')
+      .then((r) => r.json())
+      .then((j) => {
+        const pi = (j.addons ?? []).find((a: { code: string }) => a.code === 'personal_insights');
+        if (pi?.price) setAddonPrice(pi.price);
+      })
+      .catch(() => {});
+  }, []);
 
   // Default the transaction form's account picker to the first account once
   // accounts load, so the form is usable without an extra click.
@@ -361,37 +372,6 @@ export default function PersonalFinancePage() {
     }
   };
 
-  // Enable Personal Insights from the teaser card. Note: this repo has no
-  // payment-method-collection UI anywhere yet (no Stripe Elements card form
-  // exists on any page) — the subscribe route itself requires a
-  // `paymentMethodId` for a real charge, which we can't collect from this
-  // teaser card alone. We still call the route as the spec directs (region
-  // inferred from the tenant's configured jurisdiction) and flip to the
-  // unlocked chart on success; if billing isn't wired up for this workspace
-  // yet, show a friendly inline message rather than a raw API error. Wiring
-  // a full checkout/payment-method flow is a separate, larger scope than
-  // this page.
-  const upgradeToPersonalInsights = async () => {
-    setUpgrading(true);
-    setUpgradeError(null);
-    try {
-      const res = await fetch('/api/v1/agentbook-billing/me/addons/personal_insights/subscribe', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ region: jurisdiction }),
-      });
-      if (res.ok) {
-        await load();
-      } else {
-        setUpgradeError("Upgrade isn't available for this workspace yet — please check back soon.");
-      }
-    } catch {
-      setUpgradeError("Upgrade isn't available for this workspace yet — please check back soon.");
-    } finally {
-      setUpgrading(false);
-    }
-  };
-
   if (loading && !snapshot) {
     return <div className="flex items-center justify-center py-24"><Loader2 className="w-6 h-6 animate-spin text-primary" /></div>;
   }
@@ -457,13 +437,21 @@ export default function PersonalFinancePage() {
             Net-worth trends and proactive nudges — budget alerts, monthly net-worth changes, and
             savings-rate warnings — are part of Personal Insights.
           </p>
-          {upgradeError && <p className="text-xs text-destructive mb-3">{upgradeError}</p>}
-          <button onClick={() => void upgradeToPersonalInsights()} disabled={upgrading}
-            className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-50">
-            <Sparkles className="w-4 h-4" /> {upgrading ? 'Enabling…' : 'Enable Personal Insights'}
-          </button>
+          {addonPrice && (
+            <button onClick={() => setShowAddonSubscribe(true)}
+              className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-50">
+              <Sparkles className="w-4 h-4" /> Enable Personal Insights
+            </button>
+          )}
         </div>
       ) : null}
+      {showAddonSubscribe && addonPrice && (
+        <SubscribeModal
+          target={{ kind: 'addon', code: 'personal_insights', name: 'Personal Insights', priceCents: addonPrice.priceCents, interval: 'month', region: jurisdiction }}
+          onClose={() => setShowAddonSubscribe(false)}
+          onSubscribed={() => { setShowAddonSubscribe(false); load(); }}
+        />
+      )}
 
       {showForm && (
         <div className="rounded-xl border border-border bg-card p-4 mb-5 grid grid-cols-1 sm:grid-cols-4 gap-3 items-end">
