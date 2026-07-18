@@ -151,11 +151,6 @@ function getQuarterlyDeadlines(year: number, jurisdiction: string) {
 
 type TenantRequest = { tenantId: string };
 
-function getTenantId(req: any): string {
-  // From auth middleware x-tenant-id header, or user id as tenant
-  return req.headers['x-tenant-id'] as string || req.user?.id || 'default';
-}
-
 function currentPeriod(): string {
   const now = new Date();
   const q = Math.ceil((now.getMonth() + 1) / 3);
@@ -180,17 +175,63 @@ const server = createPluginServer({
   name: 'agentbook-tax',
   port: parseInt(process.env.PORT || String(pluginConfig.backend?.devPort || 4053), 10),
   prisma: db,
+  // In development, make API routes publicly accessible for testing.
+  // In production, auth is enforced (this plugin's own middleware below)
+  // — no longer relying on the Next.js proxy layer alone (Launch-gap
+  // PR-10): the whole API prefix used to be listed here as public
+  // regardless of requireAuth, so production was never actually
+  // enforcing auth despite requireAuth already being true.
   requireAuth: process.env.NODE_ENV === 'production',
-  publicRoutes: ['/healthz', '/api/v1/agentbook-tax'],
+  publicRoutes:
+    process.env.NODE_ENV === 'production' ? ['/healthz'] : ['/healthz', '/api/v1/agentbook-tax'],
 });
 
 const { router } = server;
 
-// Tenant isolation middleware for all plugin routes
-router.use((req: any, _res, next) => {
-  req.tenantId = getTenantId(req);
+// === Middleware ===
+// req.user is set by the SDK's createAuthMiddleware — but that middleware
+// is only ever REGISTERED when requireAuth is true (see
+// packages/plugin-server-sdk/src/server.ts), i.e. only in production. In
+// development requireAuth is false above, so the SDK's auth middleware
+// never runs and req.user is NEVER set on any request — asserting
+// req.user unconditionally here would 401 every route in local dev,
+// breaking the documented Quick Start workflow (CLAUDE.md).
+//
+// So the strictness has to mirror the requireAuth/publicRoutes split
+// above exactly:
+//   - Production: require req.user.id (set by the SDK's auth
+//     middleware, from a real session or the CRON_SECRET
+//     service-to-service path). 401 if missing — fail closed.
+//   - Development: intentionally permissive for local testing — trust
+//     the x-tenant-id header if present, default to 'default'
+//     otherwise. This restores the pre-existing dev behavior.
+//
+// NODE_ENV is read fresh on every call (not captured once at module
+// load) so this stays in sync with the server config above and so tests
+// can toggle it per-case via process.env.NODE_ENV.
+//
+// Note: this also fixes a priority-ordering bug in the previous
+// getTenantId() helper (removed), which checked the client-supplied
+// x-tenant-id header BEFORE req.user?.id — letting an authenticated
+// attacker spoof the header to impersonate a tenant they don't own.
+export function tenantMiddleware(req: any, res: any, next: any) {
+  if (process.env.NODE_ENV === 'production') {
+    const tenantId = req.user?.id;
+    if (!tenantId) {
+      return res.status(401).json({
+        success: false,
+        error: { code: 'UNAUTHORIZED', message: 'No authenticated tenant for this request' },
+      });
+    }
+    req.tenantId = tenantId;
+    return next();
+  }
+
+  req.tenantId = (req.headers?.['x-tenant-id'] as string) || 'default';
   next();
-});
+}
+
+router.use(tenantMiddleware);
 
 // === Billing quota helper ===
 // Returns true if the request may proceed; if false, the helper has
