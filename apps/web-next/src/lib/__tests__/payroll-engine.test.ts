@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { calcPay, periodGross, PERIODS_PER_YEAR } from '../payroll-engine';
+import { calcPay, periodGross, PERIODS_PER_YEAR, US_STATE_INCOME_TAX_RATES } from '../payroll-engine';
 
 describe('payroll engine', () => {
   it('periodGross splits annual salary by frequency', () => {
@@ -59,5 +59,55 @@ describe('payroll engine', () => {
 
   it('all frequencies are defined', () => {
     expect(Object.keys(PERIODS_PER_YEAR)).toEqual(['weekly', 'biweekly', 'semimonthly', 'monthly']);
+  });
+});
+
+describe('US_STATE_INCOME_TAX_RATES completeness (US-GATE remediation)', () => {
+  const ALL_US_STATES_AND_DC = [
+    'AL','AK','AZ','AR','CA','CO','CT','DE','FL','GA','HI','ID','IL','IN','IA','KS',
+    'KY','LA','ME','MD','MA','MI','MN','MS','MO','MT','NE','NV','NH','NJ','NM','NY',
+    'NC','ND','OH','OK','OR','PA','RI','SC','SD','TN','TX','UT','VT','VA','WA','WV',
+    'WI','WY','DC',
+  ];
+
+  it('US_STATE_INCOME_TAX_RATES has an own, explicit entry for every US state + DC — exactly 51, none more or fewer', () => {
+    // A real membership check against the exported table itself — not just
+    // calcPay's `?? 0` output, which can't tell "genuinely zero" apart from
+    // "entry deleted". This is the test that actually fails if a future
+    // edit removes a state: Object.keys would simply be shorter.
+    const tableKeys = Object.keys(US_STATE_INCOME_TAX_RATES).sort();
+    expect(tableKeys).toEqual([...ALL_US_STATES_AND_DC].sort());
+    expect(tableKeys.length).toBe(51);
+    for (const state of ALL_US_STATES_AND_DC) {
+      expect(Object.prototype.hasOwnProperty.call(US_STATE_INCOME_TAX_RATES, state)).toBe(true);
+      expect(typeof US_STATE_INCOME_TAX_RATES[state]).toBe('number');
+    }
+  });
+
+  it('the 9 no-income-tax states still withhold an explicit real $0', () => {
+    for (const state of ['AK', 'FL', 'NV', 'NH', 'SD', 'TN', 'TX', 'WA', 'WY']) {
+      const result = calcPay({
+        jurisdiction: 'us', grossCents: 500000, payPeriodsPerYear: 26,
+        filingStatus: 'single', region: state,
+      });
+      expect(result.stateTaxCents).toBe(0);
+    }
+  });
+
+  it('previously-uncovered states (e.g. VA, MA, WI) now withhold real non-zero state tax, not the old silent $0', () => {
+    // Before this fix, any state outside the original 15-state table fell
+    // through `?? 0`, withholding $0 indistinguishable from a genuine
+    // no-income-tax state. $5,000.00 gross at VA's 5.75% flat approximation
+    // = $287.50 = 28750 cents.
+    const va = calcPay({ jurisdiction: 'us', grossCents: 500000, payPeriodsPerYear: 26, filingStatus: 'single', region: 'VA' });
+    expect(va.stateTaxCents).toBe(28750);
+
+    // MA at 9.00% top-marginal approximation = $450.00 = 45000 cents.
+    const ma = calcPay({ jurisdiction: 'us', grossCents: 500000, payPeriodsPerYear: 26, filingStatus: 'single', region: 'MA' });
+    expect(ma.stateTaxCents).toBe(45000);
+
+    // WI at 7.65% top-marginal approximation = $382.50 = 38250 cents.
+    const wi = calcPay({ jurisdiction: 'us', grossCents: 500000, payPeriodsPerYear: 26, filingStatus: 'single', region: 'WI' });
+    expect(wi.stateTaxCents).toBe(38250);
   });
 });

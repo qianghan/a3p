@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { usTaxBrackets } from '../us/tax-brackets.js';
 import { usSelfEmploymentTax } from '../us/self-employment-tax.js';
-import { usSalesTax } from '../us/sales-tax.js';
+import { usSalesTax, STATE_RATES } from '../us/sales-tax.js';
 import { usChartOfAccounts } from '../us/chart-of-accounts.js';
 import { usInstallmentSchedule } from '../us/installment-schedule.js';
 import { usContractorReport } from '../us/contractor-report.js';
@@ -111,6 +111,54 @@ describe('US Sales Tax', () => {
   it('handles case-insensitive region codes', () => {
     const rates = usSalesTax.getRates('ca');
     expect(rates[0].rate).toBe(0.0725);
+  });
+});
+
+describe('usSalesTax STATE_RATES completeness (US-GATE remediation)', () => {
+  const ALL_US_STATES_AND_DC = [
+    'AL','AK','AZ','AR','CA','CO','CT','DE','FL','GA','HI','ID','IL','IN','IA','KS',
+    'KY','LA','ME','MD','MA','MI','MN','MS','MO','MT','NE','NV','NH','NJ','NM','NY',
+    'NC','ND','OH','OK','OR','PA','RI','SC','SD','TN','TX','UT','VT','VA','WA','WV',
+    'WI','WY','DC',
+  ];
+
+  it('STATE_RATES has an own, explicit entry for every US state + DC — exactly 51, none more or fewer', () => {
+    // A real membership check against the exported table itself — not just
+    // calculateTax's `?? 0` output, which can't tell "genuinely zero" apart
+    // from "entry deleted". This is the test that actually fails if a
+    // future edit removes a state: Object.keys would simply be shorter.
+    const tableKeys = Object.keys(STATE_RATES).sort();
+    expect(tableKeys).toEqual([...ALL_US_STATES_AND_DC].sort());
+    expect(tableKeys.length).toBe(51);
+    for (const state of ALL_US_STATES_AND_DC) {
+      expect(Object.prototype.hasOwnProperty.call(STATE_RATES, state)).toBe(true);
+      expect(typeof STATE_RATES[state]).toBe('number');
+    }
+  });
+
+  it('the 5 genuinely no-sales-tax states still compute to an explicit real $0, not a fallback $0', () => {
+    for (const state of ['OR', 'NH', 'MT', 'DE', 'AK']) {
+      const result = usSalesTax.calculateTax(10000, state);
+      expect(result.totalRate).toBe(0);
+      expect(result.totalCents).toBe(0);
+      expect(result.components).toEqual([]);
+    }
+  });
+
+  it('previously-uncovered states (e.g. VA, MA, WI) now compute real non-zero tax, not the old silent $0', () => {
+    // Before this fix, VA/MA/WI fell through STATE_RATES's `?? 0` fallback,
+    // producing $0 indistinguishable from an intentional no-tax state.
+    const va = usSalesTax.calculateTax(10000, 'VA'); // $100.00 at 5.30%
+    expect(va.totalRate).toBe(0.053);
+    expect(va.totalCents).toBe(530);
+
+    const ma = usSalesTax.calculateTax(10000, 'MA'); // $100.00 at 6.25%
+    expect(ma.totalRate).toBe(0.0625);
+    expect(ma.totalCents).toBe(625);
+
+    const wi = usSalesTax.calculateTax(10000, 'WI'); // $100.00 at 5.00%
+    expect(wi.totalRate).toBe(0.05);
+    expect(wi.totalCents).toBe(500);
   });
 });
 

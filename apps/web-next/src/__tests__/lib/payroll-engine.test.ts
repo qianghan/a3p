@@ -10,7 +10,7 @@ describe('calcPay — US state income tax withholding', () => {
       filingStatus: 'single',
       region: 'CA',
     });
-    expect(result.stateTaxCents).toBe(Math.round(400000 * 0.093));
+    expect(result.stateTaxCents).toBe(Math.round(400000 * 0.1330));
     expect(result.stateTaxCents).toBeGreaterThan(0);
   });
 
