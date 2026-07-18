@@ -8,6 +8,7 @@ import {
   ChevronUp,
   Loader2,
   Users,
+  Download,
 } from 'lucide-react';
 import { ChatCTA } from '@naap/plugin-sdk';
 import { formatMoney } from '@agentbook/i18n';
@@ -17,6 +18,8 @@ import { TaxDisclaimer } from '../components/TaxDisclaimer';
 interface ReportRow {
   label: string;
   amount: number;
+  /** CA-3: set only for a CA contractor who has crossed the T4A reporting threshold — renders a "Download T4A" link next to the row. */
+  downloadUrl?: string;
 }
 
 interface ReportData {
@@ -135,6 +138,13 @@ function transformReport(key: string, json: { success: boolean; data?: any; erro
           (c: { contractorName: string; totalPaidCents: number; requiresReporting: boolean; nearThreshold: boolean; formId: string }) => ({
             label: `${c.contractorName}${c.requiresReporting ? ` — ${c.formId} required` : c.nearThreshold ? ' — approaching threshold' : ''}`,
             amount: c.totalPaidCents / 100,
+            // CA-3: a real, downloadable T4A only exists for CA tenants whose
+            // contractor has actually crossed the $500 reporting threshold —
+            // US 1099-NEC generation is a separate, not-yet-built capability.
+            downloadUrl:
+              d.jurisdiction === 'ca' && c.requiresReporting
+                ? `/api/v1/agentbook-tax/reports/contractor-1099/pdf?year=${d.year}&contractorName=${encodeURIComponent(c.contractorName)}`
+                : undefined,
           }),
         ),
       };
@@ -187,11 +197,23 @@ export const ReportsPage: React.FC = () => {
           <span className="text-sm" style={{ color: 'var(--text-primary)' }}>
             {row.label}
           </span>
-          <span
-            className={`text-sm font-medium ${row.amount < 0 ? 'text-red-600' : ''}`}
-            style={row.amount >= 0 ? { color: 'var(--text-primary)' } : undefined}
-          >
-            {formatCurrency(row.amount, currency)}
+          <span className="flex items-center gap-2">
+            {row.downloadUrl && (
+              <a
+                href={row.downloadUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="px-3 py-1.5 text-xs rounded-lg border border-border hover:bg-muted/50 inline-flex items-center gap-1"
+              >
+                <Download className="w-3.5 h-3.5" /> Download T4A
+              </a>
+            )}
+            <span
+              className={`text-sm font-medium ${row.amount < 0 ? 'text-red-600' : ''}`}
+              style={row.amount >= 0 ? { color: 'var(--text-primary)' } : undefined}
+            >
+              {formatCurrency(row.amount, currency)}
+            </span>
           </span>
         </div>
       ))}
