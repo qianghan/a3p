@@ -34,29 +34,51 @@ try {
 const { app, start } = createPluginServer({
   ...pluginConfig,
   // In development, make API routes publicly accessible for testing.
-  // In production, auth is enforced by the Next.js proxy layer.
+  // In production, auth is enforced (this plugin's own middleware below)
+  // — no longer relying on the Next.js proxy layer alone (Launch-gap
+  // PR-10): the whole API prefix used to be listed here as public
+  // regardless of requireAuth, so production was never actually
+  // enforcing auth despite requireAuth already being true.
   requireAuth: process.env.NODE_ENV === 'production',
-  publicRoutes: ['/healthz'],
+  publicRoutes:
+    process.env.NODE_ENV === 'production' ? ['/healthz'] : ['/healthz', '/api/v1/agentbook-core'],
 });
 
 // === Middleware ===
-// req.user is set by the SDK's createAuthMiddleware — either from a real
-// validated session, or from the CRON_SECRET + x-tenant-id
-// service-to-service path (see packages/plugin-server-sdk's
-// middleware/auth.ts). Never trust a raw header directly, and never
-// fall back to a fixed 'default' tenant — an unauthenticated request
-// should already have been rejected by the auth middleware before this
-// ever runs, so req.user being unset here means requireAuth is off
-// (local dev) or something is misconfigured; fail closed either way.
+// req.user is set by the SDK's createAuthMiddleware — but that middleware
+// is only ever REGISTERED when requireAuth is true (see
+// packages/plugin-server-sdk/src/server.ts), i.e. only in production. In
+// development requireAuth is false above, so the SDK's auth middleware
+// never runs and req.user is NEVER set on any request — asserting
+// req.user unconditionally here would 401 every route in local dev,
+// breaking the documented Quick Start workflow (CLAUDE.md).
+//
+// So the strictness has to mirror the requireAuth/publicRoutes split
+// above exactly:
+//   - Production: require req.user.id (set by the SDK's auth
+//     middleware, from a real session or the CRON_SECRET
+//     service-to-service path). 401 if missing — fail closed.
+//   - Development: intentionally permissive for local testing — trust
+//     the x-tenant-id header if present, default to 'default'
+//     otherwise. This restores the pre-existing dev behavior.
+//
+// NODE_ENV is read fresh on every call (not captured once at module
+// load) so this stays in sync with the server config above and so tests
+// can toggle it per-case via process.env.NODE_ENV.
 export function tenantMiddleware(req: any, res: any, next: any) {
-  const tenantId = req.user?.id;
-  if (!tenantId) {
-    return res.status(401).json({
-      success: false,
-      error: { code: 'UNAUTHORIZED', message: 'No authenticated tenant for this request' },
-    });
+  if (process.env.NODE_ENV === 'production') {
+    const tenantId = req.user?.id;
+    if (!tenantId) {
+      return res.status(401).json({
+        success: false,
+        error: { code: 'UNAUTHORIZED', message: 'No authenticated tenant for this request' },
+      });
+    }
+    req.tenantId = tenantId;
+    return next();
   }
-  req.tenantId = tenantId;
+
+  req.tenantId = (req.headers?.['x-tenant-id'] as string) || 'default';
   next();
 }
 
