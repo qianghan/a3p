@@ -3,14 +3,15 @@
  *
  * Single source of truth: every invoice-creation write path (the plain
  * create route, the chat/NL draft helper, the recurring-invoice cron)
- * calls this once and applies the result identically. Scope is AU and CA
- * only, per the roadmap — every other jurisdiction returns a zero-tax
+ * calls this once and applies the result identically. Scope is AU, CA,
+ * and US, per the roadmap — every other jurisdiction returns a zero-tax
  * result (today's behavior, unchanged).
  */
 import 'server-only';
 import { prisma as db } from '@naap/database';
 import { auSalesTax } from '@agentbook/jurisdictions/au/sales-tax';
 import { caSalesTax } from '@agentbook/jurisdictions/ca/sales-tax';
+import { usSalesTax } from '@agentbook/jurisdictions/us/sales-tax';
 
 export interface InvoiceTaxComponent {
   /** e.g. 'GST', 'HST', 'PST' — matches SalesTaxResult.components[].type. */
@@ -143,6 +144,20 @@ export async function computeInvoiceTax(
     };
   }
 
-  // US/UK/other — out of scope for this plan; unchanged zero-tax behavior.
+  if (jurisdiction === 'us') {
+    const region = tenantConfig?.region || '';
+    const result = usSalesTax.calculateTax(subtotalCents, region);
+    if (overrideRate != null) {
+      const components = scaleComponentsToOverride(result.components, result.totalRate, overrideRate, subtotalCents, () => '2100');
+      return { taxRate: overrideRate, taxCents: components.reduce((s, c) => s + c.amountCents, 0), components };
+    }
+    return {
+      taxRate: result.totalRate,
+      taxCents: result.totalCents,
+      components: toInvoiceComponents(result.components, () => '2100'),
+    };
+  }
+
+  // UK/other — out of scope for this plan; unchanged zero-tax behavior.
   return ZERO_TAX;
 }

@@ -47,10 +47,32 @@ describe('computeInvoiceTax', () => {
     ]);
   });
 
-  it('returns zero tax for a jurisdiction outside AU/CA scope (e.g. US)', async () => {
+  it('applies a single state-tax component for a US tenant in California (7.25%), crediting account 2100', async () => {
     tenantConfigFindUnique.mockResolvedValue({ jurisdiction: 'us', region: 'CA' });
     const result = await computeInvoiceTax('t1', 10000);
+    expect(result.taxRate).toBe(0.0725);
+    expect(result.taxCents).toBe(725);
+    expect(result.components).toEqual([{ type: 'state', rate: 0.0725, amountCents: 725, accountCode: '2100' }]);
+  });
+
+  it('returns zero tax for a US tenant in a no-sales-tax state (Oregon)', async () => {
+    tenantConfigFindUnique.mockResolvedValue({ jurisdiction: 'us', region: 'OR' });
+    const result = await computeInvoiceTax('t1', 10000);
     expect(result).toEqual({ taxRate: 0, taxCents: 0, components: [] });
+  });
+
+  it('returns zero tax for a US tenant with no region set', async () => {
+    tenantConfigFindUnique.mockResolvedValue({ jurisdiction: 'us', region: '' });
+    const result = await computeInvoiceTax('t1', 10000);
+    expect(result).toEqual({ taxRate: 0, taxCents: 0, components: [] });
+  });
+
+  it('respects an explicit overrideRate for a US tenant with a recognized state instead of the jurisdiction default', async () => {
+    tenantConfigFindUnique.mockResolvedValue({ jurisdiction: 'us', region: 'CA' });
+    const result = await computeInvoiceTax('t1', 10000, 0.05);
+    expect(result.taxRate).toBe(0.05);
+    expect(result.taxCents).toBe(500);
+    expect(result.components).toEqual([{ type: 'state', rate: 0.05, amountCents: 500, accountCode: '2100' }]);
   });
 
   it('defaults to us (zero tax) when the tenant has no config row at all', async () => {
