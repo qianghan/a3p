@@ -2,12 +2,18 @@
  * 1099-NEC (US) / T4A (CA) contractor-payment threshold report — reconnects
  * packages/agentbook-framework's getContractorSummaries, which had zero
  * callers anywhere in the live app until this route.
+ *
+ * Imported via a direct subpath (not the package's index.ts barrel, which
+ * re-exports a large, unrelated, unused orchestration-engine — Orchestrator,
+ * LLMGateway, multi-agent system, etc.). Importing through the barrel pulls
+ * all of that into this file's type-check graph for no reason; this subpath
+ * import keeps the coupling to exactly the one function this route uses.
  */
 import 'server-only';
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma as db } from '@naap/database';
 import { safeResolveAgentbookTenant } from '@/lib/agentbook-tenant';
-import { getContractorSummaries } from '@agentbook/framework';
+import { getContractorSummaries } from '@agentbook/framework/src/skills/contractor-reporting/handler.js';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';

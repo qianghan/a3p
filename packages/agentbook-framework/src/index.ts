@@ -23,4 +23,3 @@ export { LLMGateway, getLLMGateway, initLLMGateway, GeminiProvider } from './llm
 export type { LLMProvider, LLMProviderConfig, LLMRequest, LLMResponse, LLMMessage } from './llm/types.js';
 export { AgentCoordinator, initMultiAgentSystem, bookkeeperProfile, taxStrategistProfile, collectionsProfile, insightsProfile } from './multi-agent/index.js';
 export type { AgentId, AgentProfile, AgentMetrics, AgentConfig, AgentMessage } from './multi-agent/types.js';
-export { getContractorSummaries, type ContractorPaymentSummary } from './skills/contractor-reporting/handler.js';
