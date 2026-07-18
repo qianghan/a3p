@@ -20,6 +20,14 @@ vi.mock('../db/client.js', () => {
         findMany: vi.fn(async () => []),
         create: vi.fn(async () => ({})),
       },
+      abConvThread: {
+        findFirst: vi.fn(async () => null), // no existing thread — brain creates one
+        create: vi.fn(async (args: any) => ({
+          id: 'thread-1', lastActiveAt: new Date(), turns: [], activeEntities: [], parkedFills: [],
+          ...args.data,
+        })),
+        update: vi.fn(async () => ({})),
+      },
       abAgentSession: {
         findFirst: vi.fn(async () => null), // no active session
         create: vi.fn(async (args: any) => ({ ...session, ...args.data, id: 'sess-new', version: 1 })),
