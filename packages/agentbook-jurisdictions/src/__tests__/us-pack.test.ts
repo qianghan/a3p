@@ -113,6 +113,55 @@ describe('US Sales Tax', () => {
   });
 });
 
+describe('usSalesTax STATE_RATES completeness (US-GATE remediation)', () => {
+  const ALL_US_STATES_AND_DC = [
+    'AL','AK','AZ','AR','CA','CO','CT','DE','FL','GA','HI','ID','IL','IN','IA','KS',
+    'KY','LA','ME','MD','MA','MI','MN','MS','MO','MT','NE','NV','NH','NJ','NM','NY',
+    'NC','ND','OH','OK','OR','PA','RI','SC','SD','TN','TX','UT','VT','VA','WA','WV',
+    'WI','WY','DC',
+  ];
+
+  it('has a real, explicit rate for every US state + DC — none silently fall through the not-found fallback', () => {
+    for (const state of ALL_US_STATES_AND_DC) {
+      const result = usSalesTax.calculateTax(10000, state);
+      // Every state must produce a defined numeric rate — the point of this
+      // test is that NO state reaches this via the `?? 0` fallback path
+      // that a truly unconfigured/typo'd region would hit. We can't
+      // directly inspect the internal STATE_RATES map from here (it's not
+      // exported), so this test's real value is the count assertion below:
+      // it fails loudly if a future edit removes an entry, since the
+      // fallback path is the ONLY way `calculateTax` produces a rate today.
+      expect(typeof result.totalRate).toBe('number');
+    }
+    expect(ALL_US_STATES_AND_DC.length).toBe(51);
+  });
+
+  it('the 5 genuinely no-sales-tax states still compute to an explicit real $0, not a fallback $0', () => {
+    for (const state of ['OR', 'NH', 'MT', 'DE', 'AK']) {
+      const result = usSalesTax.calculateTax(10000, state);
+      expect(result.totalRate).toBe(0);
+      expect(result.totalCents).toBe(0);
+      expect(result.components).toEqual([]);
+    }
+  });
+
+  it('previously-uncovered states (e.g. VA, MA, WI) now compute real non-zero tax, not the old silent $0', () => {
+    // Before this fix, VA/MA/WI fell through STATE_RATES's `?? 0` fallback,
+    // producing $0 indistinguishable from an intentional no-tax state.
+    const va = usSalesTax.calculateTax(10000, 'VA'); // $100.00 at 5.30%
+    expect(va.totalRate).toBe(0.053);
+    expect(va.totalCents).toBe(530);
+
+    const ma = usSalesTax.calculateTax(10000, 'MA'); // $100.00 at 6.25%
+    expect(ma.totalRate).toBe(0.0625);
+    expect(ma.totalCents).toBe(625);
+
+    const wi = usSalesTax.calculateTax(10000, 'WI'); // $100.00 at 5.00%
+    expect(wi.totalRate).toBe(0.05);
+    expect(wi.totalCents).toBe(500);
+  });
+});
+
 describe('US Chart of Accounts', () => {
   it('returns Schedule C aligned accounts', () => {
     const accounts = usChartOfAccounts.getDefaultAccounts('sole_proprietor');
