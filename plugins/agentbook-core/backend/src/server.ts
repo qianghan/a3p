@@ -18,6 +18,10 @@ import { handleDashboardAgentSummary } from './dashboard/agent-summary.js';
 import { listPastFilingsForTenant, buildPastFilingContext } from './past-filing-context.js';
 import { resolveOrdinalOrFuzzyCandidate } from './candidate-resolution.js';
 import { startTaxQuestionnaire } from './tax-questionnaire-core.js';
+import { usChartOfAccounts } from '@agentbook/jurisdictions/us/chart-of-accounts';
+import { caChartOfAccounts } from '@agentbook/jurisdictions/ca/chart-of-accounts';
+import { auChartOfAccounts } from '@agentbook/jurisdictions/au/chart-of-accounts';
+import type { ChartOfAccountsTemplate } from '@agentbook/jurisdictions/interfaces';
 
 // Read plugin.json for dev-only fields. When bundled by webpack (Next.js
 // on Vercel), `new URL(..., import.meta.url)` is incompatible with fs —
@@ -1912,56 +1916,56 @@ app.post('/api/v1/agentbook-core/onboarding/complete-step', async (req, res) => 
   } catch (err) { res.status(500).json({ success: false, error: String(err) }); }
 });
 
-app.post('/api/v1/agentbook-core/accounts/seed-jurisdiction', async (req, res) => {
+// CA-5 remediation: this route previously hardcoded a US-only Schedule-C
+// chart of accounts for every jurisdiction (see git blame for the old
+// US_ACCOUNTS array and its own "TODO: also select US_ACCOUNTS variants
+// by jurisdiction when a CA chart lands" comment — a CA (and AU) chart
+// landed a while ago; this route just never picked it up). Now uses the
+// same real, tested jurisdiction-pack charts the Next.js equivalent route
+// (apps/web-next/.../accounts/seed-jurisdiction/route.ts) already
+// correctly uses. Exported (mirroring tenantMiddleware's precedent below)
+// so it's unit-testable without booting the whole Express app.
+const CHART_PROVIDERS: Record<string, ChartOfAccountsTemplate> = {
+  us: usChartOfAccounts,
+  ca: caChartOfAccounts,
+  au: auChartOfAccounts,
+};
+
+const STUDENT_ACCOUNTS: { code: string; name: string; accountType: string; taxCategory?: string }[] = [
+  { code: '1000', name: 'Cash', accountType: 'asset' },
+  { code: '1200', name: 'Checking / Debit Account', accountType: 'asset' },
+  { code: '3000', name: "Owner's Equity", accountType: 'equity' },
+  { code: '4000', name: 'Part-Time Job Income', accountType: 'revenue' },
+  { code: '4100', name: 'Tutoring / Gig Income', accountType: 'revenue', taxCategory: 'Schedule C' },
+  { code: '4200', name: 'Scholarship / Grant Income', accountType: 'revenue' },
+  { code: '4300', name: 'Family Support / Allowance', accountType: 'revenue' },
+  { code: '5000', name: 'Tuition & Fees', accountType: 'expense', taxCategory: '1098-T / T2202' },
+  { code: '5100', name: 'Textbooks & Course Materials', accountType: 'expense' },
+  { code: '5200', name: 'Rent / Housing', accountType: 'expense' },
+  { code: '5300', name: 'Meal Plan / Groceries', accountType: 'expense' },
+  { code: '5400', name: 'Transportation', accountType: 'expense' },
+  { code: '5500', name: 'Phone & Software Subscriptions', accountType: 'expense' },
+  { code: '5600', name: 'Student Loan Interest', accountType: 'expense', taxCategory: '1098-E' },
+];
+
+export async function seedJurisdictionHandler(req: any, res: any) {
   try {
     const tenantId = (req as any).tenantId;
     const config = await db.abTenantConfig.findUnique({ where: { userId: tenantId } });
     const jurisdiction = config?.jurisdiction || 'us';
 
-    // Default chart of accounts based on jurisdiction
-    const US_ACCOUNTS = [
-      { code: '1000', name: 'Cash', accountType: 'asset' },
-      { code: '1100', name: 'Accounts Receivable', accountType: 'asset' },
-      { code: '1200', name: 'Business Checking', accountType: 'asset' },
-      { code: '2000', name: 'Accounts Payable', accountType: 'liability' },
-      { code: '2100', name: 'Sales Tax Payable', accountType: 'liability' },
-      { code: '3000', name: "Owner's Equity", accountType: 'equity' },
-      { code: '4000', name: 'Service Revenue', accountType: 'revenue', taxCategory: 'Line 1' },
-      { code: '5000', name: 'Advertising', accountType: 'expense', taxCategory: 'Line 8' },
-      { code: '5100', name: 'Car & Truck', accountType: 'expense', taxCategory: 'Line 9' },
-      { code: '5200', name: 'Commissions & Fees', accountType: 'expense', taxCategory: 'Line 10' },
-      { code: '5300', name: 'Contract Labor', accountType: 'expense', taxCategory: 'Line 11' },
-      { code: '5400', name: 'Insurance', accountType: 'expense', taxCategory: 'Line 15' },
-      { code: '5700', name: 'Legal & Professional', accountType: 'expense', taxCategory: 'Line 17' },
-      { code: '5800', name: 'Office Expenses', accountType: 'expense', taxCategory: 'Line 18' },
-      { code: '5900', name: 'Rent', accountType: 'expense', taxCategory: 'Line 20b' },
-      { code: '6100', name: 'Supplies', accountType: 'expense', taxCategory: 'Line 22' },
-      { code: '6300', name: 'Travel', accountType: 'expense', taxCategory: 'Line 24a' },
-      { code: '6400', name: 'Meals', accountType: 'expense', taxCategory: 'Line 24b' },
-      { code: '6500', name: 'Utilities', accountType: 'expense', taxCategory: 'Line 25' },
-      { code: '6600', name: 'Software & Subscriptions', accountType: 'expense', taxCategory: 'Line 27a' },
-      { code: '6700', name: 'Bank Fees', accountType: 'expense', taxCategory: 'Line 27a' },
-    ];
-
-    const STUDENT_ACCOUNTS = [
-      { code: '1000', name: 'Cash', accountType: 'asset' },
-      { code: '1200', name: 'Checking / Debit Account', accountType: 'asset' },
-      { code: '3000', name: "Owner's Equity", accountType: 'equity' },
-      { code: '4000', name: 'Part-Time Job Income', accountType: 'revenue' },
-      { code: '4100', name: 'Tutoring / Gig Income', accountType: 'revenue', taxCategory: 'Schedule C' },
-      { code: '4200', name: 'Scholarship / Grant Income', accountType: 'revenue' },
-      { code: '4300', name: 'Family Support / Allowance', accountType: 'revenue' },
-      { code: '5000', name: 'Tuition & Fees', accountType: 'expense', taxCategory: '1098-T / T2202' },
-      { code: '5100', name: 'Textbooks & Course Materials', accountType: 'expense' },
-      { code: '5200', name: 'Rent / Housing', accountType: 'expense' },
-      { code: '5300', name: 'Meal Plan / Groceries', accountType: 'expense' },
-      { code: '5400', name: 'Transportation', accountType: 'expense' },
-      { code: '5500', name: 'Phone & Software Subscriptions', accountType: 'expense' },
-      { code: '5600', name: 'Student Loan Interest', accountType: 'expense', taxCategory: '1098-E' },
-    ];
-
-    // TODO: also select US_ACCOUNTS variants by jurisdiction when a CA chart lands.
-    const accounts = config?.businessType === 'student' ? STUDENT_ACCOUNTS : US_ACCOUNTS;
+    let accounts: { code: string; name: string; accountType: string; taxCategory?: string }[];
+    if (config?.businessType === 'student') {
+      accounts = STUDENT_ACCOUNTS;
+    } else {
+      const provider = CHART_PROVIDERS[jurisdiction] ?? usChartOfAccounts;
+      accounts = provider.getDefaultAccounts(config?.businessType ?? 'freelancer').map((a) => ({
+        code: a.code,
+        name: a.name,
+        accountType: a.type,
+        taxCategory: a.taxCategory,
+      }));
+    }
 
     const created = await db.$transaction(
       accounts.map(a => db.abAccount.upsert({
@@ -1973,7 +1977,9 @@ app.post('/api/v1/agentbook-core/accounts/seed-jurisdiction', async (req, res) =
 
     res.json({ success: true, data: { count: created.length } });
   } catch (err) { res.status(500).json({ success: false, error: String(err) }); }
-});
+}
+
+app.post('/api/v1/agentbook-core/accounts/seed-jurisdiction', seedJurisdictionHandler);
 
 // === CPA COLLABORATION (Phase 6) ===
 
