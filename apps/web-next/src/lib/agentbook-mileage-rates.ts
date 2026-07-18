@@ -28,6 +28,7 @@
  */
 
 import 'server-only';
+import { auMileageRate } from '@agentbook/jurisdictions';
 
 export const US_RATE_2025_CENTS_PER_MI = 67;
 export const US_RATE_2024_CENTS_PER_MI = 67;
@@ -45,7 +46,8 @@ export interface RateLookup {
 /**
  * Resolve the per-unit deductible mileage rate for a given trip.
  *
- * @param jurisdiction `'us'` (mile-based, flat) or `'ca'` (km-based, tiered).
+ * @param jurisdiction `'us'` (mile-based, flat), `'ca'` (km-based, tiered),
+ *                      or `'au'` (km-based, flat ATO cents-per-km method).
  * @param year         calendar year of the trip (used for US rate lookup).
  * @param milesOrKmThisYear
  *   total miles (US) or km (CA) the user has already accumulated **this
@@ -58,7 +60,7 @@ export interface RateLookup {
  * Throws if `jurisdiction` is anything other than `'us'` / `'ca'`.
  */
 export function getMileageRate(
-  jurisdiction: 'us' | 'ca',
+  jurisdiction: 'us' | 'ca' | 'au',
   year: number,
   milesOrKmThisYear: number,
 ): RateLookup {
@@ -105,7 +107,20 @@ export function getMileageRate(
     };
   }
 
+  if (jurisdiction === 'au') {
+    // ATO cents-per-km method — flat rate, no tiering (the jurisdictions
+    // package's `tierDescription` carries an advisory note past 5,000 km
+    // suggesting the logbook method instead; the rate itself doesn't
+    // change, so we don't surface that distinction here).
+    const ato = auMileageRate.getRate(year, milesOrKmThisYear);
+    return {
+      ratePerUnitCents: Math.round(ato.rate * 100),
+      unit: 'km',
+      reason: `ATO cents-per-km rate, ${year} (${Math.round(ato.rate * 100)}¢/km)`,
+    };
+  }
+
   throw new Error(
-    `Unknown jurisdiction "${jurisdiction}" — supported: 'us' | 'ca'`,
+    `Unknown jurisdiction "${jurisdiction}" — supported: 'us' | 'ca' | 'au'`,
   );
 }
