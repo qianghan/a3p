@@ -49,6 +49,35 @@ describe('usTaxBrackets.calculateTax filingStatus', () => {
   });
 });
 
+describe('usTaxBrackets single-filer table uses real 2025 IRS thresholds (not stale 2024 figures)', () => {
+  it('matches the real 2025 IRS single-filer bracket calculation at $150,000', () => {
+    // Real IRS 2025 single-filer thresholds (Rev. Proc. 2024-40): $11,925 /
+    // $48,475 / $103,350 / $197,300 / ... Computed by hand against those
+    // brackets:
+    // 10%: 1,192,500 * 0.10 = 119,250
+    // 12%: (4,847,500 - 1,192,500) * 0.12 = 438,600
+    // 22%: (10,335,000 - 4,847,500) * 0.22 = 1,207,250
+    // 24%: (15,000,000 - 10,335,000) * 0.24 = 1,119,600
+    // total = 2,884,700 cents
+    const result = usTaxBrackets.calculateTax(INCOME_150K_CENTS, 2025, 'single');
+    expect(result.taxCents).toBe(2_884_700);
+    expect(result.marginalRate).toBe(0.24);
+  });
+
+  it('pins every 2025 single-filer bracket threshold exactly, so this cannot silently drift stale again', () => {
+    const brackets = usTaxBrackets.getTaxBrackets(2025);
+    expect(brackets).toEqual([
+      { min: 0, max: 1_192_500, rate: 0.10 },
+      { min: 1_192_500, max: 4_847_500, rate: 0.12 },
+      { min: 4_847_500, max: 10_335_000, rate: 0.22 },
+      { min: 10_335_000, max: 19_730_000, rate: 0.24 },
+      { min: 19_730_000, max: 25_052_500, rate: 0.32 },
+      { min: 25_052_500, max: 62_635_000, rate: 0.35 },
+      { min: 62_635_000, max: null, rate: 0.37 },
+    ]);
+  });
+});
+
 describe('caTaxBrackets.calculateTax is unaffected by the new optional parameter', () => {
   it('produces the same result called with or without the extra arg, and matches the known baseline', () => {
     // CA has no married/single federal bracket split, so calculateTax must
