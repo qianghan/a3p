@@ -53,6 +53,19 @@ export async function GET(request: NextRequest, { params }: RouteParams): Promis
         maxAge: 60 * 10,
         path: '/',
       });
+    } else {
+      // Explicitly clear any leftover cookie from an abandoned standalone
+      // attempt — on cookie-jar-sharing platforms (Android/desktop), a
+      // stale '1' here would otherwise misroute this unrelated, ordinary
+      // sign-in to the /signed-in interstitial instead of straight to
+      // /agentbook.
+      response.cookies.set('oauth_standalone', '', {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: 'lax',
+        maxAge: 0,
+        path: '/',
+      });
     }
 
     return response;
