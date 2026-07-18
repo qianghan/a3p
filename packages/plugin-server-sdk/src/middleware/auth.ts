@@ -20,7 +20,24 @@ function sanitizeForLog(value: unknown): string {
   return String(value).replace(/[\n\r\t\x00-\x1f\x7f-\x9f]/g, '');
 }
 
+import { timingSafeEqual } from 'node:crypto';
 import type { Request, Response, NextFunction } from 'express';
+
+/**
+ * Timing-safe bearer compare against CRON_SECRET — mirrors
+ * apps/web-next/src/lib/agentbook-tenant.ts's isCronAuthenticated/
+ * safeBearerCompare exactly. This is the same two-path model (real
+ * session OR CRON_SECRET + x-tenant-id for service-to-service calls)
+ * already hardened there; this just applies it to the shared Express
+ * auth middleware every plugin backend uses.
+ */
+function isCronAuthenticated(authHeader: string | undefined): boolean {
+  const cronSecret = process.env.CRON_SECRET;
+  if (!cronSecret || !authHeader) return false;
+  const want = `Bearer ${cronSecret}`;
+  if (authHeader.length !== want.length) return false;
+  return timingSafeEqual(Buffer.from(authHeader), Buffer.from(want));
+}
 
 export interface AuthenticatedRequest extends Request {
   user?: {
@@ -133,6 +150,23 @@ export function createAuthMiddleware(config: AuthMiddlewareConfig) {
       req.path === path || req.path.startsWith(path + '/')
     );
     if (isPublic) {
+      return next();
+    }
+
+    // CRON_SECRET + x-tenant-id: legitimate service-to-service calls
+    // (e.g. the agent brain calling its own plugin's HTTP API). Trust
+    // the header ONLY when the bearer matches CRON_SECRET — never
+    // otherwise. See isCronAuthenticated above.
+    const authHeaderRaw = req.headers.authorization;
+    if (isCronAuthenticated(authHeaderRaw)) {
+      const tenantId = req.headers['x-tenant-id'] as string | undefined;
+      if (!tenantId) {
+        return res.status(401).json({
+          success: false,
+          error: { code: 'UNAUTHORIZED', message: 'x-tenant-id header required for service-to-service auth' },
+        });
+      }
+      req.user = { id: tenantId };
       return next();
     }
 

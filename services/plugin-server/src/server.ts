@@ -208,9 +208,15 @@ const PORT = process.env.PLUGIN_SERVER_PORT || 3100;
 const ROOT_DIR = path.resolve(__dirname, '../../..');
 const PLUGINS_DIR = path.join(ROOT_DIR, 'plugins');
 
-// CORS - allowlist when set; empty = allow-all (relaxed for now)
-// TODO(#92): Fail closed when empty; set CORS_ALLOWED_ORIGINS for production
-const CORS_ALLOWED_ORIGINS = (process.env.CORS_ALLOWED_ORIGINS || '')
+// CORS - fail closed: an unset/empty allowlist rejects every
+// cross-origin request. Explicitly set CORS_ALLOWED_ORIGINS=* to opt
+// in to allow-all, or a comma-separated list for a real allowlist.
+// Closes #92 (this file was not in the original citation for #92 but
+// has the identical bug and, unlike the SDK-based plugin backends, is
+// actually started in docker-compose.production.yml).
+const corsOriginsRaw = process.env.CORS_ALLOWED_ORIGINS || '';
+const CORS_ALLOW_ALL = corsOriginsRaw.trim() === '*';
+const CORS_ALLOWED_ORIGINS = corsOriginsRaw
   .split(',')
   .map((o) => o.trim())
   .filter(Boolean);
@@ -218,7 +224,7 @@ const CORS_ALLOWED_ORIGINS = (process.env.CORS_ALLOWED_ORIGINS || '')
 app.use(cors({
   origin: (origin, callback) => {
     if (!origin) return callback(null, true);
-    if (CORS_ALLOWED_ORIGINS.length === 0 || CORS_ALLOWED_ORIGINS.includes(origin)) {
+    if (CORS_ALLOW_ALL || CORS_ALLOWED_ORIGINS.includes(origin)) {
       return callback(null, true);
     }
     callback(new Error('Not allowed by CORS'));
