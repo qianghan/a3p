@@ -45,6 +45,7 @@ async function main() {
     const details = PLAN_DETAILS[plan.code];
     const data = {
       code: plan.code,
+      region: plan.region,
       name: plan.name,
       description: details.description,
       priceCents: plan.priceCents,
@@ -54,13 +55,15 @@ async function main() {
       quotas: details.quotas,
       sortOrder: plan.sortOrder,
     };
+    // code is no longer globally unique (see @@unique([code, region])) — the
+    // upsert must key on the compound unique index Prisma generates for it.
     await prisma.billPlan.upsert({
-      where: { code: plan.code },
+      where: { code_region: { code: plan.code, region: plan.region } },
       create: { ...data, isActive: true },
       update: { ...data, isActive: true },
     });
     const price = plan.priceCents === 0 ? 'Free' : `$${(plan.priceCents / 100).toFixed(2)}/${plan.interval === 'year' ? 'yr' : 'mo'}`;
-    console.log(`  ✓ ${plan.name} (${price})`);
+    console.log(`  ✓ ${plan.name} [${plan.region}] (${price})`);
   }
   console.log('\nDone.');
 }

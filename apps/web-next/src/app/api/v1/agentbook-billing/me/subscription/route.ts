@@ -11,7 +11,8 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   const __resolved = await safeResolveAgentbookTenant(request);
   if ('response' in __resolved) return __resolved.response;
   const { tenantId } = __resolved;
-  const cur = await getCurrentPlan(tenantId);
+  const cfg = await prisma.abTenantConfig.findUnique({ where: { userId: tenantId } });
+  const cur = await getCurrentPlan(tenantId, cfg?.jurisdiction || 'us');
   return NextResponse.json(cur);
 }
 

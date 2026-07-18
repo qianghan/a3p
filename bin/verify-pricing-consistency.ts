@@ -16,19 +16,19 @@ async function main() {
   const mismatches: string[] = [];
 
   for (const plan of CORE_PLANS) {
-    const row = await prisma.billPlan.findUnique({ where: { code: plan.code } });
+    const row = await prisma.billPlan.findUnique({ where: { code_region: { code: plan.code, region: plan.region } } });
     if (!row) {
-      mismatches.push(`BillPlan '${plan.code}': no row found in the database`);
+      mismatches.push(`BillPlan '${plan.code}'/${plan.region}: no row found in the database`);
       continue;
     }
     if (row.priceCents !== plan.priceCents) {
-      mismatches.push(`BillPlan '${plan.code}': DB priceCents=${row.priceCents}, expected ${plan.priceCents}`);
+      mismatches.push(`BillPlan '${plan.code}'/${plan.region}: DB priceCents=${row.priceCents}, expected ${plan.priceCents}`);
     }
     if (row.currency !== plan.currency) {
-      mismatches.push(`BillPlan '${plan.code}': DB currency=${row.currency}, expected ${plan.currency}`);
+      mismatches.push(`BillPlan '${plan.code}'/${plan.region}: DB currency=${row.currency}, expected ${plan.currency}`);
     }
     if (row.interval !== plan.interval) {
-      mismatches.push(`BillPlan '${plan.code}': DB interval=${row.interval}, expected ${plan.interval}`);
+      mismatches.push(`BillPlan '${plan.code}'/${plan.region}: DB interval=${row.interval}, expected ${plan.interval}`);
     }
   }
 

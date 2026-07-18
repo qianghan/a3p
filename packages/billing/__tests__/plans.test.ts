@@ -106,3 +106,34 @@ describe('getCurrentPlan', () => {
     warn.mockRestore();
   });
 });
+
+describe('getCurrentPlan region-aware Free fallback (CA-4)', () => {
+  const caFree = { ...freePlan, id: 'plan-free-ca' };
+  const usFree = { ...freePlan, id: 'plan-free-us' };
+
+  it('a CA account with no subscription falls back to the CA-region Free plan, not the US one', async () => {
+    findUnique.mockResolvedValue(null);
+    findFirst.mockImplementation(({ where }: { where: { region: string } }) =>
+      Promise.resolve(where.region === 'ca' ? caFree : usFree),
+    );
+    findMany.mockResolvedValue([]);
+
+    const r = await getCurrentPlan('account-1', 'ca');
+
+    expect(r.plan.id).toBe('plan-free-ca');
+    expect(findFirst).toHaveBeenCalledWith({ where: { code: 'free', region: 'ca', isActive: true } });
+  });
+
+  it('omitting the region argument entirely still defaults to us (backward compatibility)', async () => {
+    findUnique.mockResolvedValue(null);
+    findFirst.mockImplementation(({ where }: { where: { region: string } }) =>
+      Promise.resolve(where.region === 'ca' ? caFree : usFree),
+    );
+    findMany.mockResolvedValue([]);
+
+    const r = await getCurrentPlan('account-1');
+
+    expect(r.plan.id).toBe('plan-free-us');
+    expect(findFirst).toHaveBeenCalledWith({ where: { code: 'free', region: 'us', isActive: true } });
+  });
+});

@@ -4,11 +4,13 @@ import { prisma } from '@naap/database';
 import { invalidateAll } from '@naap/billing';
 import { getStripe } from '@/lib/billing/stripe';
 import { requireAdmin, HttpError } from '@/lib/billing/admin-auth';
+import { safeResolveAgentbookTenant } from '@/lib/agentbook-tenant';
 
 export const runtime = 'nodejs';
 
 const PlanBody = z.object({
   code: z.string().regex(/^[a-z0-9_-]+$/),
+  region: z.string().length(2),
   name: z.string().min(1).max(80),
   description: z.string().max(500).optional(),
   priceCents: z.number().int().min(0),
@@ -29,9 +31,14 @@ const PlanBody = z.object({
   sortOrder: z.number().int().optional(),
 });
 
-export async function GET(_request: NextRequest): Promise<NextResponse> {
+export async function GET(request: NextRequest): Promise<NextResponse> {
+  const __resolved = await safeResolveAgentbookTenant(request);
+  if ('response' in __resolved) return __resolved.response;
+  const { tenantId } = __resolved;
+  const cfg = await prisma.abTenantConfig.findUnique({ where: { userId: tenantId } });
+  const region = cfg?.jurisdiction || 'us';
   const plans = await prisma.billPlan.findMany({
-    where: { isActive: true },
+    where: { isActive: true, region },
     orderBy: [{ sortOrder: 'asc' }, { priceCents: 'asc' }],
   });
   return NextResponse.json({ plans });
@@ -62,9 +69,16 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       currency: body.currency,
       recurring: { interval: body.interval },
     });
+    // `code` is no longer globally unique (see @@unique([code, region])) — a
+    // plain `create` is sufficient here since this route always creates a
+    // brand-new row. Any FUTURE upsert-style admin action against this table
+    // must use the compound key `where: { code_region: { code, region } }`,
+    // not `where: { code } }` (see agentbook/seed-billing-plans.ts for the
+    // pattern this route's own future upsert variant should follow).
     const plan = await prisma.billPlan.create({
       data: {
         code: body.code,
+        region: body.region,
         name: body.name,
         description: body.description,
         priceCents: body.priceCents,
