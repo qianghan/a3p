@@ -9,12 +9,14 @@ import {
   useElements,
 } from '@stripe/react-stripe-js';
 import { Loader2, X } from 'lucide-react';
+import { formatCurrencyCents } from '@/lib/jurisdiction-currency';
 
 interface PlanTarget {
   kind: 'plan';
   id: string;
   name: string;
   priceCents: number;
+  currency: string;
   interval: string;
 }
 
@@ -47,6 +49,17 @@ function getStripePromise(): Promise<Stripe | null> {
 function fmtPrice(cents: number, interval: string): string {
   const dollars = (cents / 100).toFixed(cents % 100 === 0 ? 0 : 2);
   return `$${dollars}/${interval === 'year' ? 'yr' : 'mo'}`;
+}
+
+// Core plans carry their own `currency` (region-aware, CA-4); add-ons don't
+// have a currency field on AddonTarget yet, so that branch keeps the
+// pre-existing hardcoded-'$' fmtPrice behavior unchanged (out of scope here).
+function fmtTargetPrice(target: SubscribeTarget): string {
+  if (target.kind === 'plan') {
+    const suffix = target.interval === 'year' ? '/yr' : '/mo';
+    return `${formatCurrencyCents(target.priceCents, target.currency)}${suffix}`;
+  }
+  return fmtPrice(target.priceCents, target.interval);
 }
 
 function SubscribeForm({ target, onClose, onSubscribed }: Props): React.ReactElement {
@@ -120,7 +133,7 @@ function SubscribeForm({ target, onClose, onSubscribed }: Props): React.ReactEle
           className="flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-60"
         >
           {submitting && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
-          Subscribe to {target.name} — {fmtPrice(target.priceCents, target.interval)}
+          Subscribe to {target.name} — {fmtTargetPrice(target)}
         </button>
       </div>
     </form>

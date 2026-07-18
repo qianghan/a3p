@@ -6,7 +6,7 @@ import {
   AlertCircle, ExternalLink, Search, ChevronDown, ChevronUp,
   Copy, Check, Gift, Users,
 } from 'lucide-react';
-import { JURISDICTION_OPTIONS, defaultCurrencyFor } from '@/lib/jurisdiction-currency';
+import { JURISDICTION_OPTIONS, defaultCurrencyFor, formatCurrencyCents } from '@/lib/jurisdiction-currency';
 import { SubscribeModal } from './SubscribeModal';
 
 const CURRENCY_OPTIONS = ['USD', 'CAD', 'GBP', 'AUD', 'EUR', 'JPY', 'CHF', 'MXN', 'BRL', 'INR'];
@@ -735,7 +735,7 @@ function isSettingsTab(v: string | undefined | null): v is SettingsTab {
   return !!v && TABS.some((t) => t.key === v);
 }
 
-interface BillingPlan { id: string; code: string; name: string; description?: string | null; priceCents: number; interval: string }
+interface BillingPlan { id: string; code: string; name: string; description?: string | null; priceCents: number; currency: string; interval: string }
 
 function BillingTab(): React.ReactElement {
   const [plans, setPlans] = useState<BillingPlan[]>([]);
@@ -769,7 +769,11 @@ function BillingTab(): React.ReactElement {
 
   useEffect(() => { load(); }, [load]);
 
-  const fmt = (cents: number) => cents === 0 ? 'Free' : `$${(cents / 100).toFixed(0)}`;
+  // 0 stays "Free" (matches this product's pre-existing convention); any
+  // other amount goes through formatCurrencyCents using the plan row's own
+  // currency field, instead of a hardcoded '$' prefix — a CA tenant's
+  // region-filtered plans now display CAD, not mislabeled USD.
+  const fmt = (cents: number, currency: string) => cents === 0 ? 'Free' : formatCurrencyCents(cents, currency);
 
   if (loading) return <div className="py-8 text-center text-sm text-muted-foreground">Loading billing…</div>;
 
@@ -792,7 +796,7 @@ function BillingTab(): React.ReactElement {
                 <p className="text-sm font-semibold text-foreground">{p.name}</p>
                 {isCurrent && <span className="text-xs px-2 py-0.5 rounded-full bg-primary/10 text-primary">Current</span>}
               </div>
-              <p className="text-2xl font-bold text-foreground">{fmt(p.priceCents)}<span className="text-xs font-normal text-muted-foreground">{p.priceCents > 0 ? `/${p.interval}` : ''}</span></p>
+              <p className="text-2xl font-bold text-foreground">{fmt(p.priceCents, p.currency)}<span className="text-xs font-normal text-muted-foreground">{p.priceCents > 0 ? `/${p.interval}` : ''}</span></p>
               {p.description && <p className="text-xs text-muted-foreground mt-1.5">{p.description}</p>}
               {!isCurrent && p.priceCents > 0 && (
                 <button
@@ -849,7 +853,7 @@ function BillingTab(): React.ReactElement {
                   {a.active && <span className="text-xs px-2 py-0.5 rounded-full bg-primary/10 text-primary">Active</span>}
                 </div>
                 {a.description && <p className="text-xs text-muted-foreground mt-1">{a.description}</p>}
-                {a.price && <p className="text-lg font-bold text-foreground mt-1.5">{fmt(a.price.priceCents)}<span className="text-xs font-normal text-muted-foreground">/mo</span></p>}
+                {a.price && <p className="text-lg font-bold text-foreground mt-1.5">{fmt(a.price.priceCents, a.price.currency)}<span className="text-xs font-normal text-muted-foreground">/mo</span></p>}
                 {a.active ? (
                   <button
                     onClick={async () => {
@@ -878,7 +882,7 @@ function BillingTab(): React.ReactElement {
       )}
       {subscribeTarget && (
         <SubscribeModal
-          target={{ kind: 'plan', id: subscribeTarget.id, name: subscribeTarget.name, priceCents: subscribeTarget.priceCents, interval: subscribeTarget.interval }}
+          target={{ kind: 'plan', id: subscribeTarget.id, name: subscribeTarget.name, priceCents: subscribeTarget.priceCents, currency: subscribeTarget.currency, interval: subscribeTarget.interval }}
           onClose={() => setSubscribeTarget(null)}
           onSubscribed={() => { setSubscribeTarget(null); load(); }}
         />
