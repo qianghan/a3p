@@ -739,18 +739,30 @@ interface BillingPlan { id: string; code: string; name: string; description?: st
 
 function BillingTab(): React.ReactElement {
   const [plans, setPlans] = useState<BillingPlan[]>([]);
-  const [current, setCurrent] = useState<{ code?: string; name?: string; status?: string } | null>(null);
+  const [current, setCurrent] = useState<{ code?: string; name?: string; status?: string; cancelAtPeriodEnd?: boolean } | null>(null);
   const [loading, setLoading] = useState(true);
   const [subscribeTarget, setSubscribeTarget] = useState<BillingPlan | null>(null);
+  const [addons, setAddons] = useState<Array<{ code: string; name: string; description: string | null; active: boolean; price: { priceCents: number; currency: string; tier: string } | null }>>([]);
+  const [subscribeAddonTarget, setSubscribeAddonTarget] = useState<typeof addons[number] | null>(null);
+  const [cancelingAddon, setCancelingAddon] = useState<string | null>(null);
+  // Tenant's own jurisdiction, used as the add-on subscribe modal's region —
+  // reuses the same fetchConfig() helper the Business Profile tab already
+  // uses for this exact field, rather than adding a second tenant-config
+  // fetch pattern in this file.
+  const [region, setRegion] = useState('us');
 
   const load = useCallback(() => {
     setLoading(true);
     Promise.all([
       fetch('/api/v1/agentbook-billing/plans').then((r) => r.json()).catch(() => null),
       fetch('/api/v1/agentbook-billing/me/subscription').then((r) => r.json()).catch(() => null),
-    ]).then(([p, c]) => {
+      fetch('/api/v1/agentbook-billing/me/addons').then((r) => r.json()).catch(() => null),
+      fetchConfig().catch(() => null),
+    ]).then(([p, c, a, cfg]) => {
       if (p?.plans) setPlans(p.plans);
-      if (c) setCurrent({ code: c.code ?? c.planCode ?? c.plan?.code, name: c.name ?? c.plan?.name, status: c.status });
+      if (c) setCurrent({ code: c.code ?? c.planCode ?? c.plan?.code, name: c.name ?? c.plan?.name, status: c.status, cancelAtPeriodEnd: c.cancelAtPeriodEnd });
+      setAddons(a?.addons ?? []);
+      if (cfg?.jurisdiction) setRegion(cfg.jurisdiction);
     }).finally(() => setLoading(false));
   }, []);
 
@@ -793,12 +805,79 @@ function BillingTab(): React.ReactElement {
           );
         })}
       </div>
-      <p className="text-xs text-muted-foreground">To cancel your plan, contact support. Managed securely via Stripe.</p>
+      {current?.code && current.code !== 'free' && (
+        current.cancelAtPeriodEnd ? (
+          <div className="flex items-center gap-2">
+            <p className="text-xs text-muted-foreground">Your plan cancels at the end of the current period.</p>
+            <button onClick={async () => { await fetch('/api/v1/agentbook-billing/me/subscription/reactivate', { method: 'POST' }); load(); }}
+              className="text-xs font-medium text-primary hover:underline">
+              Reactivate
+            </button>
+          </div>
+        ) : (
+          <button onClick={async () => { await fetch('/api/v1/agentbook-billing/me/subscription/cancel', { method: 'POST' }); load(); }}
+            className="text-xs font-medium text-destructive hover:underline">
+            Cancel plan
+          </button>
+        )
+      )}
+      {addons.length > 0 && (
+        <div>
+          <h3 className="text-sm font-semibold text-foreground mb-1 mt-2">Add-ons</h3>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            {addons.map((a) => (
+              <div key={a.code} className={`rounded-xl border p-4 ${a.active ? 'border-primary' : 'border-border'} bg-card`}>
+                <div className="flex items-center justify-between mb-1">
+                  <p className="text-sm font-semibold text-foreground">{a.name}</p>
+                  {a.active && <span className="text-xs px-2 py-0.5 rounded-full bg-primary/10 text-primary">Active</span>}
+                </div>
+                {a.description && <p className="text-xs text-muted-foreground mt-1">{a.description}</p>}
+                {a.price && <p className="text-lg font-bold text-foreground mt-1.5">{fmt(a.price.priceCents)}<span className="text-xs font-normal text-muted-foreground">/mo</span></p>}
+                {a.active ? (
+                  <button
+                    onClick={async () => {
+                      setCancelingAddon(a.code);
+                      await fetch(`/api/v1/agentbook-billing/me/addons/${a.code}/cancel`, { method: 'POST' });
+                      setCancelingAddon(null);
+                      load();
+                    }}
+                    disabled={cancelingAddon === a.code}
+                    className="mt-3 w-full rounded-lg border border-destructive/30 px-3 py-1.5 text-xs font-medium text-destructive hover:bg-destructive/10 transition-colors disabled:opacity-60"
+                  >
+                    {cancelingAddon === a.code ? 'Canceling…' : 'Cancel'}
+                  </button>
+                ) : a.price ? (
+                  <button
+                    onClick={() => setSubscribeAddonTarget(a)}
+                    className="mt-3 w-full rounded-lg bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90 transition-colors"
+                  >
+                    Subscribe
+                  </button>
+                ) : null}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
       {subscribeTarget && (
         <SubscribeModal
           target={{ kind: 'plan', id: subscribeTarget.id, name: subscribeTarget.name, priceCents: subscribeTarget.priceCents, interval: subscribeTarget.interval }}
           onClose={() => setSubscribeTarget(null)}
           onSubscribed={() => { setSubscribeTarget(null); load(); }}
+        />
+      )}
+      {subscribeAddonTarget?.price && (
+        <SubscribeModal
+          target={{
+            kind: 'addon',
+            code: subscribeAddonTarget.code,
+            name: subscribeAddonTarget.name,
+            priceCents: subscribeAddonTarget.price.priceCents,
+            interval: 'month',
+            region,
+          }}
+          onClose={() => setSubscribeAddonTarget(null)}
+          onSubscribed={() => { setSubscribeAddonTarget(null); load(); }}
         />
       )}
     </div>
