@@ -3077,7 +3077,8 @@ model AbWebhookDeadLetter {
 // cannot be subscribed to anew; existing subscriptions keep working.
 model BillPlan {
   id              String   @id @default(uuid())
-  code            String   @unique
+  code            String
+  region          String   @default("us")
   name            String
   description     String?
   priceCents      Int
@@ -3094,6 +3095,7 @@ model BillPlan {
 
   subscriptions BillSubscription[]
 
+  @@unique([code, region])
   @@schema("plugin_agentbook_billing")
 }
 

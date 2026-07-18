@@ -55,7 +55,7 @@ export function _resetCacheForTests(): void {
   planCache.clear();
 }
 
-async function loadCachedPlan(accountId: string): Promise<CachedPlan> {
+async function loadCachedPlan(accountId: string, region: string = 'us'): Promise<CachedPlan> {
   const hit = planCache.get(accountId);
   if (hit) return hit;
   const sub = await prisma.billSubscription.findUnique({
@@ -63,7 +63,7 @@ async function loadCachedPlan(accountId: string): Promise<CachedPlan> {
     include: { plan: true },
   });
   if (!sub) {
-    const free = await prisma.billPlan.findFirst({ where: { code: 'free', isActive: true } });
+    const free = await prisma.billPlan.findFirst({ where: { code: 'free', region, isActive: true } });
     if (free) {
       const entry: CachedPlan = {
         planId: free.id,
@@ -130,9 +130,9 @@ async function loadUsage(accountId: string, periodStart: Date | null): Promise<R
  * Internal — throws on DB errors. Used by canUseFeature/checkQuota so
  * they can fail open with intent-specific logic (return true).
  */
-export async function getCurrentPlanStrict(tenantId: string): Promise<CurrentPlan> {
+export async function getCurrentPlanStrict(tenantId: string, region: string = 'us'): Promise<CurrentPlan> {
   const accountId = await resolveAccountId(tenantId);
-  const cached = await loadCachedPlan(accountId);
+  const cached = await loadCachedPlan(accountId, region);
   const counts = await loadUsage(accountId, cached.currentPeriodStart);
 
   const usage: CurrentPlan['usage'] = {
@@ -157,9 +157,9 @@ export async function getCurrentPlanStrict(tenantId: string): Promise<CurrentPla
  * fallback rather than breaking. Use getCurrentPlanStrict in
  * contexts that want to surface errors (e.g., admin ops view).
  */
-export async function getCurrentPlan(tenantId: string): Promise<CurrentPlan> {
+export async function getCurrentPlan(tenantId: string, region: string = 'us'): Promise<CurrentPlan> {
   try {
-    return await getCurrentPlanStrict(tenantId);
+    return await getCurrentPlanStrict(tenantId, region);
   } catch (err) {
     console.warn('[billing] getCurrentPlan failed, returning Free fallback:', err);
     return {

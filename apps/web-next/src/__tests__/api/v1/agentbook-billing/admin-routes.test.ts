@@ -11,8 +11,13 @@ const planCreate = vi.fn();
 const planUpdate = vi.fn();
 const planFindMany = vi.fn();
 const planFindUnique = vi.fn();
+const resolveTenant = vi.fn();
+const tenantConfigFindUnique = vi.fn();
 
 vi.mock('@/lib/api/auth', () => ({ validateSession: (...a: unknown[]) => validateSession(...a) }));
+vi.mock('@/lib/agentbook-tenant', () => ({
+  safeResolveAgentbookTenant: (...a: unknown[]) => resolveTenant(...a),
+}));
 vi.mock('@/lib/billing/stripe', () => ({
   getStripe: () => ({
     products: { create: (...a: unknown[]) => productsCreate(...a), update: (...a: unknown[]) => productsUpdate(...a) },
@@ -27,6 +32,7 @@ vi.mock('@naap/database', () => ({
       findMany: (...a: unknown[]) => planFindMany(...a),
       findUnique: (...a: unknown[]) => planFindUnique(...a),
     },
+    abTenantConfig: { findUnique: (...a: unknown[]) => tenantConfigFindUnique(...a) },
   },
 }));
 
@@ -40,6 +46,9 @@ beforeEach(() => {
   validateSession.mockReset(); productsCreate.mockReset(); productsUpdate.mockReset();
   pricesCreate.mockReset(); planCreate.mockReset(); planUpdate.mockReset();
   planFindMany.mockReset(); planFindUnique.mockReset();
+  resolveTenant.mockReset(); tenantConfigFindUnique.mockReset();
+  resolveTenant.mockResolvedValue({ tenantId: 'tenant-1' });
+  tenantConfigFindUnique.mockResolvedValue({ jurisdiction: 'us' });
   process.env.ADMIN_EMAILS = 'admin@a3p.io';
 });
 
@@ -79,7 +88,7 @@ describe('POST /plans', () => {
     planCreate.mockResolvedValue({ id: 'plan-1', code: 'pro', stripeProductId: 'prod_x', stripePriceId: 'price_y' });
 
     const body = {
-      code: 'pro', name: 'Pro', priceCents: 1900, currency: 'usd', interval: 'month',
+      code: 'pro', region: 'us', name: 'Pro', priceCents: 1900, currency: 'usd', interval: 'month',
       features: { telegram_bot: true, tax_package_generation: true, multi_user_teams: false },
       quotas: { expenses_created: 1000, ocr_scans: 200, ai_messages: 5000, invoices_sent: 200, bank_connections: 3 },
     };
@@ -98,7 +107,7 @@ describe('POST /plans', () => {
     productsUpdate.mockResolvedValue({});
 
     const r = await createPlan(adminReq({
-      code: 'pro', name: 'Pro', priceCents: 1900, currency: 'usd', interval: 'month',
+      code: 'pro', region: 'us', name: 'Pro', priceCents: 1900, currency: 'usd', interval: 'month',
       features: { telegram_bot: true, tax_package_generation: false, multi_user_teams: false },
       quotas: { expenses_created: 0, ocr_scans: 0, ai_messages: 0, invoices_sent: 0, bank_connections: 0 },
     }));
@@ -120,11 +129,37 @@ describe('POST /plans', () => {
 });
 
 describe('GET /plans', () => {
-  it('returns active plans only', async () => {
+  it('returns active plans only, scoped to the caller tenant\'s region', async () => {
     planFindMany.mockResolvedValue([{ id: 'p1', code: 'free', isActive: true }]);
     const r = await listPlans(new NextRequest('http://x/p'));
     expect(r.status).toBe(200);
     expect(planFindMany.mock.calls[0][0].where.isActive).toBe(true);
+    expect(planFindMany.mock.calls[0][0].where.region).toBe('us');
+  });
+
+  it('?all=true bypasses the region filter for admin plan management, gated behind requireAdmin', async () => {
+    validateSession.mockResolvedValue(adminUser);
+    planFindMany.mockResolvedValue([
+      { id: 'p1', code: 'free', region: 'us', isActive: true },
+      { id: 'p2', code: 'free', region: 'ca', isActive: true },
+    ]);
+    const r = new NextRequest('http://x/p?all=true');
+    r.cookies.set('naap_auth_token', 'tok');
+    const res = await listPlans(r);
+    expect(res.status).toBe(200);
+    const where = planFindMany.mock.calls[0][0].where;
+    expect(where.isActive).toBe(true);
+    expect(where.region).toBeUndefined();
+    const body = await res.json();
+    expect(body.plans).toHaveLength(2);
+  });
+
+  it('?all=true rejects a non-admin caller (401/403), never falling back to region-scoped results', async () => {
+    validateSession.mockResolvedValue(null);
+    const r = new NextRequest('http://x/p?all=true');
+    const res = await listPlans(r);
+    expect(res.status).toBeGreaterThanOrEqual(401);
+    expect(planFindMany).not.toHaveBeenCalled();
   });
 });
 

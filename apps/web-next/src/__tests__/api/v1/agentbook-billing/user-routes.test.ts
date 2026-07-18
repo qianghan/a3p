@@ -13,6 +13,7 @@ const billSubUpsert = vi.fn();
 const billSubUpdate = vi.fn();
 const billPlanFindUnique = vi.fn();
 const billPlanFindFirst = vi.fn();
+const tenantConfigFindUnique = vi.fn();
 const resolveTenant = vi.fn().mockResolvedValue('t1');
 
 vi.mock('@/lib/agentbook-tenant', () => ({
@@ -44,6 +45,9 @@ vi.mock('@naap/database', () => ({
       findUnique: (...a: unknown[]) => billPlanFindUnique(...a),
       findFirst: (...a: unknown[]) => billPlanFindFirst(...a),
     },
+    abTenantConfig: {
+      findUnique: (...a: unknown[]) => tenantConfigFindUnique(...a),
+    },
   },
 }));
 
@@ -57,6 +61,8 @@ beforeEach(() => {
   subscriptionsCreate.mockReset(); subscriptionsUpdate.mockReset();
   billSubFindUnique.mockReset(); billSubUpsert.mockReset(); billSubUpdate.mockReset();
   billPlanFindUnique.mockReset(); billPlanFindFirst.mockReset();
+  tenantConfigFindUnique.mockReset();
+  tenantConfigFindUnique.mockResolvedValue({ jurisdiction: 'us' });
 });
 
 function req(body?: unknown): NextRequest {

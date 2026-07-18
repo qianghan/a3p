@@ -15,7 +15,9 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   if (!customerId) {
     const cust = await stripe.customers.create({ metadata: { tenantId } });
     customerId = cust.id;
-    const freePlanId = (await prisma.billPlan.findFirst({ where: { code: 'free' } }))?.id;
+    const cfg = await prisma.abTenantConfig.findUnique({ where: { userId: tenantId } });
+    const region = cfg?.jurisdiction || 'us';
+    const freePlanId = (await prisma.billPlan.findFirst({ where: { code: 'free', region } }))?.id;
     await prisma.billSubscription.upsert({
       where: { accountId: tenantId },
       create: {

@@ -12,18 +12,27 @@ export interface CorePlanPrice {
   name: string;
   priceCents: number;
   currency: string;
+  region: string;
   interval: 'month' | 'year';
   sortOrder: number;
 }
 
+// CA-4: CAD rows at nominal price parity with USD (same rationale already
+// documented below for ADDON_PRICES — no reliable evidence of a specific
+// regional discount, so CAD launches at the same nominal cents figure as
+// USD, correctable later from real data with zero code changes).
 export const CORE_PLANS: CorePlanPrice[] = [
-  { code: 'free', name: 'Free', priceCents: 0, currency: 'usd', interval: 'month', sortOrder: 0 },
-  { code: 'pro', name: 'Pro', priceCents: 1900, currency: 'usd', interval: 'month', sortOrder: 1 },
+  { code: 'free', name: 'Free', priceCents: 0, currency: 'usd', region: 'us', interval: 'month', sortOrder: 0 },
+  { code: 'free', name: 'Free', priceCents: 0, currency: 'cad', region: 'ca', interval: 'month', sortOrder: 0 },
+  { code: 'pro', name: 'Pro', priceCents: 1900, currency: 'usd', region: 'us', interval: 'month', sortOrder: 1 },
+  { code: 'pro', name: 'Pro', priceCents: 1900, currency: 'cad', region: 'ca', interval: 'month', sortOrder: 1 },
   // 20% off 12x the monthly price ($228), rounded to a whole dollar —
   // $190/12 would have implied a different (wrong) monthly price; this is
   // the actual math behind the "save 20%" marketing claim.
-  { code: 'pro_yearly', name: 'Pro Annual', priceCents: 18200, currency: 'usd', interval: 'year', sortOrder: 2 },
-  { code: 'business', name: 'Business', priceCents: 4900, currency: 'usd', interval: 'month', sortOrder: 3 },
+  { code: 'pro_yearly', name: 'Pro Annual', priceCents: 18200, currency: 'usd', region: 'us', interval: 'year', sortOrder: 2 },
+  { code: 'pro_yearly', name: 'Pro Annual', priceCents: 18200, currency: 'cad', region: 'ca', interval: 'year', sortOrder: 2 },
+  { code: 'business', name: 'Business', priceCents: 4900, currency: 'usd', region: 'us', interval: 'month', sortOrder: 3 },
+  { code: 'business', name: 'Business', priceCents: 4900, currency: 'cad', region: 'ca', interval: 'month', sortOrder: 3 },
 ];
 
 export interface AddOnTierPrice {
