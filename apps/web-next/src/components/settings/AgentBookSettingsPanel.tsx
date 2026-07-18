@@ -745,6 +745,7 @@ function BillingTab(): React.ReactElement {
   const [addons, setAddons] = useState<Array<{ code: string; name: string; description: string | null; active: boolean; price: { priceCents: number; currency: string; tier: string } | null }>>([]);
   const [subscribeAddonTarget, setSubscribeAddonTarget] = useState<typeof addons[number] | null>(null);
   const [cancelingAddon, setCancelingAddon] = useState<string | null>(null);
+  const [planActionPending, setPlanActionPending] = useState(false);
   // Tenant's own jurisdiction, used as the add-on subscribe modal's region —
   // reuses the same fetchConfig() helper the Business Profile tab already
   // uses for this exact field, rather than adding a second tenant-config
@@ -809,15 +810,31 @@ function BillingTab(): React.ReactElement {
         current.cancelAtPeriodEnd ? (
           <div className="flex items-center gap-2">
             <p className="text-xs text-muted-foreground">Your plan cancels at the end of the current period.</p>
-            <button onClick={async () => { await fetch('/api/v1/agentbook-billing/me/subscription/reactivate', { method: 'POST' }); load(); }}
-              className="text-xs font-medium text-primary hover:underline">
-              Reactivate
+            <button
+              onClick={async () => {
+                setPlanActionPending(true);
+                await fetch('/api/v1/agentbook-billing/me/subscription/reactivate', { method: 'POST' });
+                setPlanActionPending(false);
+                load();
+              }}
+              disabled={planActionPending}
+              className="text-xs font-medium text-primary hover:underline disabled:opacity-60"
+            >
+              {planActionPending ? 'Reactivating…' : 'Reactivate'}
             </button>
           </div>
         ) : (
-          <button onClick={async () => { await fetch('/api/v1/agentbook-billing/me/subscription/cancel', { method: 'POST' }); load(); }}
-            className="text-xs font-medium text-destructive hover:underline">
-            Cancel plan
+          <button
+            onClick={async () => {
+              setPlanActionPending(true);
+              await fetch('/api/v1/agentbook-billing/me/subscription/cancel', { method: 'POST' });
+              setPlanActionPending(false);
+              load();
+            }}
+            disabled={planActionPending}
+            className="text-xs font-medium text-destructive hover:underline disabled:opacity-60"
+          >
+            {planActionPending ? 'Canceling…' : 'Cancel plan'}
           </button>
         )
       )}
