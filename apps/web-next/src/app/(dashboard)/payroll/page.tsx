@@ -134,8 +134,8 @@ export default function PayrollPage() {
               <select value={juris} onChange={(e) => setJuris(e.target.value)} className="rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground">
                 {JURIS.map((j) => <option key={j.v} value={j.v}>{j.l}</option>)}
               </select>
-              {juris === 'us' && (
-                <input value={region} onChange={(e) => setRegion(e.target.value.toUpperCase())} placeholder="State (e.g. CA)"
+              {(juris === 'us' || juris === 'ca') && (
+                <input value={region} onChange={(e) => setRegion(e.target.value.toUpperCase())} placeholder={juris === 'ca' ? 'Province (e.g. QC)' : 'State (e.g. CA)'}
                   maxLength={2} className="rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground" />
               )}
               <button onClick={() => void addEmployee()} disabled={busy || !name || !salary} className="px-4 py-2 rounded-lg text-sm font-medium bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-50">Save</button>
@@ -150,7 +150,7 @@ export default function PayrollPage() {
                   <div className="flex items-center gap-3">
                     <div className="w-9 h-9 rounded-full bg-primary/10 text-primary flex items-center justify-center text-sm font-medium">{e.name.slice(0, 2).toUpperCase()}</div>
                     <div><p className="text-sm font-medium text-foreground">{e.name}</p>
-                      <p className="text-xs text-muted-foreground capitalize">{e.payFrequency} · {e.jurisdiction.toUpperCase()}{e.jurisdiction === 'us' && e.region ? ` · ${e.region}` : ''}</p></div>
+                      <p className="text-xs text-muted-foreground capitalize">{e.payFrequency} · {e.jurisdiction.toUpperCase()}{(e.jurisdiction === 'us' || e.jurisdiction === 'ca') && e.region ? ` · ${e.region}` : ''}</p></div>
                   </div>
                   <p className="text-sm font-medium text-foreground">{fmt$(e.payRateCents)}<span className="text-muted-foreground font-normal">/yr</span></p>
                 </div>
