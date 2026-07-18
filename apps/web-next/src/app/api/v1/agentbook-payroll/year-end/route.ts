@@ -44,7 +44,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       .map((e) => {
         const empStubs = byEmployee.get(e.id) ?? [];
         if (empStubs.length === 0) return null;
-        return buildYearEndForm(e.name, e.jurisdiction || jurisdiction, year, empStubs, e.id);
+        return buildYearEndForm(e.name, e.jurisdiction || jurisdiction, year, empStubs, e.id, e.region || undefined);
       })
       .filter((f): f is NonNullable<typeof f> => f !== null);
 

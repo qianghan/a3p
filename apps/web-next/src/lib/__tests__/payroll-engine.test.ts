@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { calcPay, periodGross, PERIODS_PER_YEAR, US_STATE_INCOME_TAX_RATES } from '../payroll-engine';
+import { calcPay, periodGross, PERIODS_PER_YEAR, US_STATE_INCOME_TAX_RATES, splitCaDeductions } from '../payroll-engine';
 
 describe('payroll engine', () => {
   it('periodGross splits annual salary by frequency', () => {
@@ -150,5 +150,39 @@ describe('US_STATE_INCOME_TAX_RATES completeness (US-GATE remediation)', () => {
     // WI at 7.65% top-marginal approximation = $382.50 = 38250 cents.
     const wi = calcPay({ jurisdiction: 'us', grossCents: 500000, payPeriodsPerYear: 26, filingStatus: 'single', region: 'WI' });
     expect(wi.stateTaxCents).toBe(38250);
+  });
+});
+
+describe('splitCaDeductions (CA-3: real CRA box numbers)', () => {
+  it('non-Quebec: returns CPP + EI split, capped at the real annual maximums, no QPIP', () => {
+    // $90,000 annual gross, non-Quebec: CPP capped at 386750 (90000_00*0.0595=535500 > cap),
+    // EI capped at 104912 (90000_00*0.0166=149400 > cap).
+    const r = splitCaDeductions(90_000_00, 'ON');
+    expect(r.pensionBoxLabel).toBe('CPP');
+    expect(r.pensionCents).toBe(386_750);
+    expect(r.eiCents).toBe(104_912);
+    expect(r.qpipCents).toBe(0);
+  });
+
+  it('Quebec: returns QPP + QC-EI + QPIP, capped at the real annual maximums', () => {
+    // $90,000 annual gross, Quebec: QPP capped at 433920 (90000_00*0.064=576000 > cap),
+    // QC-EI capped at 86067 (90000_00*0.0131=117900 > cap),
+    // QPIP NOT capped (90000_00*0.00494=44460, under the 48412 cap).
+    const r = splitCaDeductions(90_000_00, 'QC');
+    expect(r.pensionBoxLabel).toBe('QPP');
+    expect(r.pensionCents).toBe(433_920);
+    expect(r.eiCents).toBe(86_067);
+    expect(r.qpipCents).toBe(44_460);
+  });
+
+  it('the sum of the split matches calcCA-derived fica for the same inputs (no double-counting or drift)', () => {
+    const annualGross = 90_000_00;
+    const nonQc = splitCaDeductions(annualGross, 'BC');
+    const periodResult = calcPay({ jurisdiction: 'ca', grossCents: periodGross(annualGross, 'biweekly'), payPeriodsPerYear: 26, region: 'BC' });
+    // periodResult.ficaCents * 26 should be within a few cents of the split
+    // sum (small drift is expected/acceptable from per-period rounding — see
+    // calcCA's own round(annual-component/periods) — assert closeness, not exact equality).
+    const splitSum = nonQc.pensionCents + nonQc.eiCents;
+    expect(Math.abs(periodResult.ficaCents * 26 - splitSum)).toBeLessThanOrEqual(26); // at most ~$0.01/period rounding drift
   });
 });
