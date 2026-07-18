@@ -53,7 +53,7 @@ export async function GET(request: NextRequest): Promise<Response> {
       return NextResponse.json({ success: false, error: `no processed pay stubs for ${employee.name} in ${year}` }, { status: 404 });
     }
 
-    const form = buildYearEndForm(employee.name, employee.jurisdiction || jurisdiction, year, stubs, employee.id);
+    const form = buildYearEndForm(employee.name, employee.jurisdiction || jurisdiction, year, stubs, employee.id, employee.region || undefined);
 
     const pdf = await renderW2Pdf({
       employeeName: form.employeeName,

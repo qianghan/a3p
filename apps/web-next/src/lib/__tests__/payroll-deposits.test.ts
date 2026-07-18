@@ -120,10 +120,13 @@ describe('year-end forms', () => {
     expect(f.boxes.ficaWithheldCents).toBe(459_00);
   });
 
-  it('CA produces a T4', () => {
+  it('CA produces a T4 with real CRA box numbers (CA-3: box14, not generic grossWagesCents)', () => {
     const f = buildYearEndForm('Maya', 'ca', 2026, [{ grossCents: 5000_00, federalTaxCents: 600_00, stateTaxCents: 0, ficaCents: 300_00 }]);
     expect(f.formType).toBe('T4');
-    expect(f.boxes.grossWagesCents).toBe(5000_00);
+    expect(f.boxes.box14EmploymentIncomeCents).toBe(5000_00);
+    expect(f.boxes.box22IncomeTaxDeductedCents).toBe(600_00);
+    // Old generic keys are gone entirely for CA — see year-end-forms.test.ts.
+    expect(f.boxes.grossWagesCents).toBeUndefined();
   });
 
   it('AU Payment Summary reports total superannuation paid separately from withheld tax', () => {
