@@ -107,3 +107,48 @@ describe('GET /agentbook-tax/tax/estimate — jurisdiction correctness', () => {
     expect(res.status).toBe(200); // never throws on an unknown jurisdiction
   });
 });
+
+describe('GET /agentbook-tax/tax/estimate — filingStatus wiring', () => {
+  // $150,000 net income lands in the single-filer 24% bracket but the
+  // married-filing-jointly 22% bracket (same income level used by the
+  // packages/agentbook-jurisdictions unit tests), so it reliably
+  // distinguishes the two filing statuses through the whole route.
+  function mockNetIncome150k() {
+    journalLineAggregate.mockImplementation(({ where }: { where: { accountId: { in: string[] } } }) =>
+      Promise.resolve(
+        where.accountId.in.includes('rev-1')
+          ? { _sum: { creditCents: 155_000_00, debitCents: 0 } }
+          : { _sum: { creditCents: 0, debitCents: 5_000_00 } },
+      ),
+    );
+  }
+
+  it("uses the tenant's stored married filingStatus, producing a lower income tax than single filing on the same income", async () => {
+    tenantConfigFindUnique.mockResolvedValue({ jurisdiction: 'us', region: 'CA', accountingBasis: 'accrual' });
+    mockNetIncome150k();
+
+    const { GET } = await import('../route');
+
+    taxConfigFindUnique.mockResolvedValue({ filingStatus: 'married', w2IncomeAnnual: null, w2WithheldYtd: null });
+    const marriedJson = await (await GET(req())).json();
+
+    taxConfigFindUnique.mockResolvedValue({ filingStatus: 'single', w2IncomeAnnual: null, w2WithheldYtd: null });
+    const singleJson = await (await GET(req())).json();
+
+    expect(marriedJson.data.incomeTaxCents).toBeLessThan(singleJson.data.incomeTaxCents);
+  });
+
+  it('falls back to single-filer brackets when the tenant has no AbTaxConfig row yet (backward compatibility)', async () => {
+    tenantConfigFindUnique.mockResolvedValue({ jurisdiction: 'us', region: 'CA', accountingBasis: 'accrual' });
+    mockNetIncome150k();
+    const { GET } = await import('../route');
+
+    taxConfigFindUnique.mockResolvedValue(null);
+    const noConfigJson = await (await GET(req())).json();
+
+    taxConfigFindUnique.mockResolvedValue({ filingStatus: 'single', w2IncomeAnnual: null, w2WithheldYtd: null });
+    const singleJson = await (await GET(req())).json();
+
+    expect(noConfigJson.data.incomeTaxCents).toBe(singleJson.data.incomeTaxCents);
+  });
+});
