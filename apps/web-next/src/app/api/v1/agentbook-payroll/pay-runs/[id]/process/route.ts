@@ -13,7 +13,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma as db } from '@naap/database';
 import { safeResolveAgentbookTenant } from '@/lib/agentbook-tenant';
 import { splitPayrollEntry } from '@/lib/payroll-ledger';
-import { computeDeposit, computeSgDeposit } from '@/lib/payroll-deposits';
+import { computeDeposit, computeSgDeposit, computeFutaDeposit } from '@/lib/payroll-deposits';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -121,6 +121,22 @@ export async function POST(request: NextRequest, ctx: RouteCtx): Promise<NextRes
         } else {
           await tx.abPayrollTaxDeposit.create({
             data: { tenantId, form: sgDep.form, periodLabel: sgDep.periodLabel, amountCents: sgDep.amountCents, dueDate: new Date(sgDep.dueDate), status: 'pending' },
+          });
+        }
+      }
+
+      // Form 940 (FUTA) — US only, accrued annually (see computeFutaDeposit
+      // for the wage-base simplification this uses).
+      if (jurisdiction === 'us' && split.grossCents > 0) {
+        const futaDep = computeFutaDeposit(run.stubs, run.periodEnd);
+        const existingFuta = await tx.abPayrollTaxDeposit.findUnique({
+          where: { tenantId_form_periodLabel: { tenantId, form: futaDep.form, periodLabel: futaDep.periodLabel } },
+        });
+        if (existingFuta) {
+          await tx.abPayrollTaxDeposit.update({ where: { id: existingFuta.id }, data: { amountCents: existingFuta.amountCents + futaDep.amountCents } });
+        } else {
+          await tx.abPayrollTaxDeposit.create({
+            data: { tenantId, form: futaDep.form, periodLabel: futaDep.periodLabel, amountCents: futaDep.amountCents, dueDate: new Date(futaDep.dueDate), status: 'pending' },
           });
         }
       }

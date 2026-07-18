@@ -92,3 +92,37 @@ export function computeSgDeposit(stubs: { sgCents?: number }[], date: Date): Dep
     dueDate: sgDepositDueDate(year, q),
   };
 }
+
+/**
+ * Form 940 (FUTA) — US only. Standard federal rate is 6.0% on the first
+ * $7,000 of each employee's ANNUAL wages, reduced to a net 0.6% for
+ * employers who pay state unemployment tax in full and on time (the normal
+ * case for a compliant small employer, and the standard simplification used
+ * by most payroll-planning tools). This computes 0.6% of THIS RUN's gross
+ * wages, not a true per-employee $7,000 annual-wage-base cap tracked across
+ * pay runs — that would need YTD-wage tracking this codebase doesn't have
+ * yet. A planning approximation, consistent with this file's existing scope
+ * (see e.g. the AU engine's own OTE-proxy comment) — not a certified
+ * calculation for actual 940 filing.
+ *
+ * Unlike computeDeposit/computeSgDeposit above, 940 is filed annually (not
+ * quarterly), so periodLabel is just the year and the due date is always
+ * January 31 of the following year regardless of which quarter the pay run
+ * falls in. This function is jurisdiction-agnostic by design — mirroring
+ * computeSgDeposit, which is also only ever invoked for its own jurisdiction
+ * (AU) by the caller's own gating (see the process route's `if (jurisdiction
+ * === 'us' && ...)` check) rather than checking jurisdiction itself.
+ */
+const FUTA_NET_RATE = 0.006;
+
+export function computeFutaDeposit(stubs: { grossCents: number }[], date: Date): Deposit {
+  const year = date.getFullYear();
+  const grossCents = stubs.reduce((sum, s) => sum + s.grossCents, 0);
+  const amountCents = Math.round(grossCents * FUTA_NET_RATE);
+  return {
+    form: '940',
+    periodLabel: String(year),
+    amountCents,
+    dueDate: new Date(year + 1, 0, 31).toISOString().slice(0, 10),
+  };
+}

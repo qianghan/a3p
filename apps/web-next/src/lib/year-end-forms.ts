@@ -16,6 +16,8 @@ export interface YearEndForm {
   employeeName: string;
   year: number;
   boxes: Record<string, number>;
+  /** AbEmployee.id, when the caller has one — lets the frontend target one specific employee's PDF (e.g. two employees named "Jane Smith") instead of matching by name. Optional to keep this a backward-compatible addition for existing callers. */
+  employeeId?: string;
 }
 
 const FORM_TYPE: Record<string, YearEndForm['formType']> = {
@@ -27,6 +29,7 @@ export function buildYearEndForm(
   jurisdiction: string,
   year: number,
   stubs: YearEndStub[],
+  employeeId?: string,
 ): YearEndForm {
   let gross = 0, fed = 0, state = 0, fica = 0, sg = 0;
   for (const s of stubs) {
@@ -47,5 +50,5 @@ export function buildYearEndForm(
   // Superannuation contributions are reported separately on an AU Payment
   // Summary (they're not withheld from the employee's pay, unlike FICA/CPP/NI).
   if (sg > 0) boxes.superannuationPaidCents = sg;
-  return { formType, employeeName, year, boxes };
+  return { formType, employeeName, year, boxes, ...(employeeId ? { employeeId } : {}) };
 }
