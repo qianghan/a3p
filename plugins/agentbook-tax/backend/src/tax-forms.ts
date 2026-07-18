@@ -253,7 +253,21 @@ const CA_FEDERAL_BRACKETS = [
   { limit: Infinity, rate: 0.33 },
 ];
 
-// Ontario provincial brackets 2025 (example — extend for other provinces)
+// Provincial/territorial tax brackets, 2025 tax year, in cents. All 13
+// Canadian provinces/territories — CA-GATE remediation: this table
+// previously only had ON/BC/AB, with every other province/territory
+// silently computing Ontario's rate via the `|| PROVINCIAL_BRACKETS['ON']`
+// fallback below. Sources: each jurisdiction's own department of
+// finance/revenue page (Revenu Québec for QC, Government of Manitoba,
+// Saskatchewan's official 2025 Personal Income Tax Structure page, New
+// Brunswick Finance, Nova Scotia's "Personal income tax rates and
+// indexation" page, Newfoundland and Labrador Finance, Nunavut's official
+// September 2025 Tax Rate Sheet), cross-checked against TaxTips.ca and EY's
+// 2025 combined federal/provincial rate tables for PE/YT/NT. Quebec's
+// separate ~16.5% federal-abatement mechanic is NOT modeled here — this is
+// Quebec's own provincial bracket schedule only, matching every other
+// province's "one flat additive provincial-bracket table" treatment in
+// this simplified engine.
 const PROVINCIAL_BRACKETS: Record<string, { limit: number; rate: number }[]> = {
   ON: [
     { limit: 5114200, rate: 0.0505 },
@@ -277,7 +291,71 @@ const PROVINCIAL_BRACKETS: Record<string, { limit: number; rate: number }[]> = {
     { limit: 34153800, rate: 0.14 },
     { limit: Infinity, rate: 0.15 },
   ],
-  // Add more provinces as needed
+  QC: [
+    { limit: 5325500, rate: 0.14 },
+    { limit: 10649500, rate: 0.19 },
+    { limit: 12959000, rate: 0.24 },
+    { limit: Infinity, rate: 0.2575 },
+  ],
+  MB: [
+    { limit: 4700000, rate: 0.108 },
+    { limit: 10000000, rate: 0.1275 },
+    { limit: Infinity, rate: 0.174 },
+  ],
+  SK: [
+    { limit: 5346300, rate: 0.105 },
+    { limit: 15275000, rate: 0.125 },
+    { limit: Infinity, rate: 0.145 },
+  ],
+  NB: [
+    { limit: 5130600, rate: 0.094 },
+    { limit: 10261400, rate: 0.14 },
+    { limit: 19006000, rate: 0.16 },
+    { limit: Infinity, rate: 0.195 },
+  ],
+  NS: [
+    { limit: 3099500, rate: 0.0879 },
+    { limit: 6199100, rate: 0.1495 },
+    { limit: 9741700, rate: 0.1667 },
+    { limit: 15712400, rate: 0.175 },
+    { limit: Infinity, rate: 0.21 },
+  ],
+  PE: [
+    { limit: 3332800, rate: 0.095 },
+    { limit: 6465600, rate: 0.1347 },
+    { limit: 10500000, rate: 0.166 },
+    { limit: 14000000, rate: 0.1762 },
+    { limit: Infinity, rate: 0.19 },
+  ],
+  NL: [
+    { limit: 4419200, rate: 0.087 },
+    { limit: 8838200, rate: 0.145 },
+    { limit: 15779200, rate: 0.158 },
+    { limit: 22091000, rate: 0.178 },
+    { limit: 28221400, rate: 0.198 },
+    { limit: 56442900, rate: 0.208 },
+    { limit: 112885800, rate: 0.213 },
+    { limit: Infinity, rate: 0.218 },
+  ],
+  YT: [
+    { limit: 5737500, rate: 0.064 },
+    { limit: 11475000, rate: 0.09 },
+    { limit: 17788200, rate: 0.109 },
+    { limit: 50000000, rate: 0.128 },
+    { limit: Infinity, rate: 0.15 },
+  ],
+  NT: [
+    { limit: 5196400, rate: 0.059 },
+    { limit: 10393000, rate: 0.086 },
+    { limit: 16896700, rate: 0.122 },
+    { limit: Infinity, rate: 0.1405 },
+  ],
+  NU: [
+    { limit: 5470700, rate: 0.04 },
+    { limit: 10941300, rate: 0.07 },
+    { limit: 17788100, rate: 0.09 },
+    { limit: Infinity, rate: 0.115 },
+  ],
 };
 
 function calcProgressiveTax(incomeCents: number, brackets: { limit: number; rate: number }[]): number {
