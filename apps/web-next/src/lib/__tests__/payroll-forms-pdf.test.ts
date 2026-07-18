@@ -1,13 +1,4 @@
 // @vitest-environment node
-//
-// @react-pdf/renderer's yoga-wasm layout engine fails to load under this
-// repo's Vitest setup — the same pre-existing gap that already affects
-// agentbook-invoice-pdf.test.ts. Forcing the node environment here isn't
-// sufficient on its own (confirmed — yoga-wasm's loader still throws); a
-// real fix needs a deeper look at the wasm-loading path and is tracked as
-// its own background task rather than blocking this PR. Actual PDF
-// rendering was verified correct via a standalone Node script producing
-// valid %PDF- buffers for every case below (see this branch's SDD report).
 import { describe, it, expect, vi } from 'vitest';
 
 vi.mock('server-only', () => ({}));
