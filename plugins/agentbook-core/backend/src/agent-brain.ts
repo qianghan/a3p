@@ -7,6 +7,7 @@
  * Exports a single function: handleAgentMessage(req, ctx)
  */
 
+import { hasAddOn } from '@naap/billing';
 import { db } from './db/client.js';
 import { buildPastFilingContext } from './past-filing-context.js';
 import { buildPersonalProfileContext } from './personal-profile-context.js';
@@ -209,6 +210,18 @@ const TAX_QUESTIONNAIRE_CANCEL_RE = /^(cancel|stop|abort|never\s?mind|n)$/i;
 // ("check my invoice draft") — a bare \bdraft\b match would hijack those
 // messages for any tenant who's ever completed a tax questionnaire.
 const TAX_DRAFT_STATUS_RE = /\b(filing draft|client letter|tax (fast.?track )?draft)\b/i;
+
+// Layered on top of TAX_DRAFT_STATUS_RE (Launch-gap PR-11, Task 1): a message
+// must ALSO express regenerate intent to be routed to handleTaxDraftRegenerate
+// below, otherwise it stays a plain status question (buildTaxDraftStatusResponse).
+const TAX_DRAFT_REGENERATE_INTENT_RE = /\b(re-?generate|redo|retry|try\s+again|generate.*again)\b/i;
+
+// Launch-gap PR-11, Task 2: matches "connect/link/set up/sync ... bank" (the
+// verb must land within 20 chars of "bank" so it doesn't swallow unrelated
+// "bank"-mentioning questions like bank-reconciliation's own trigger
+// patterns — "bank.*status", "bank.*match" — which never pair "bank" with
+// one of these connection verbs) or a bare mention of "Plaid" by name.
+const PLAID_CONNECT_BANK_RE = /\b(connect|link|set\s?up|sync)\b.{0,20}\bbank\b|\bplaid\b/i;
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -515,6 +528,40 @@ function buildTaxDraftStatusResponse(
   return buildResponse({
     message: `Something went wrong generating your draft (${draftRow.errorMsg}). Open the Tax Fast-Track tab in the app and tap "Try again" to regenerate it.`,
     skillUsed: 'tax-draft-status', confidence: 1, latencyMs: Date.now() - startTime,
+  });
+}
+
+/**
+ * Chat/MCP equivalent of POST /tax-fast-track/regenerate — same eligibility
+ * checks as that route (paid add-on, session completed, draft null/failed/
+ * stale), but instead of firing generateFilingDraft() itself (unreachable
+ * from this backend package — see that route's own doc comment), returns
+ * taxDraftReady + sessionId the same way start-tax-fast-track's handler
+ * does; the existing apps/web-next agent/message route wrapper already
+ * fires generateFilingDraft() whenever it sees that flag, so no change is
+ * needed there.
+ */
+async function handleTaxDraftRegenerate(
+  tenantId: string,
+  sessionId: string,
+  draftRow: { status: string; updatedAt: Date } | null,
+  startTime: number,
+): Promise<AgentResponse> {
+  if (!(await hasAddOn(tenantId, 'tax_fast_track'))) {
+    return buildResponse({
+      message: 'Tax Fast-Track is a paid add-on — enable it in Settings to regenerate a filing draft.',
+      skillUsed: 'tax-draft-regenerate', confidence: 1, latencyMs: Date.now() - startTime,
+    });
+  }
+  if (draftRow && draftRow.status !== 'failed' && !isDraftStale(draftRow)) {
+    const message = draftRow.status === 'ready'
+      ? "Your filing draft is already ready — no need to regenerate it. Ask me for its status if you want the links again."
+      : "Your filing draft is still generating — check back in a few minutes before regenerating.";
+    return buildResponse({ message, skillUsed: 'tax-draft-regenerate', confidence: 1, latencyMs: Date.now() - startTime });
+  }
+  return buildResponse({
+    message: "Regenerating your filing draft now — I'll let you know once it's ready.",
+    skillUsed: 'tax-draft-regenerate', confidence: 1, sessionId, taxDraftReady: true, latencyMs: Date.now() - startTime,
   });
 }
 
@@ -903,7 +950,8 @@ export async function handleAgentMessage(
     return translateTaxCoreResult(result, startTime);
   }
 
-  // ── Step 1c: Tax draft/letter status (chat + MCP parity, PR-5) ────────
+  // ── Step 1c: Tax draft/letter status + regenerate (chat + MCP parity,
+  // PR-5 / Launch-gap PR-11) ──────────────────────────────────────────
   // Only reachable once Step 1b above did NOT already claim the reply —
   // i.e. there is no *active* (in-progress) session. A tenant mid-
   // questionnaire always has their plain text treated as an answer,
@@ -914,10 +962,31 @@ export async function handleAgentMessage(
     const latest = await getLatestTaxQuestionnaireSession(tenantId);
     if (latest?.status === 'completed') {
       const draftRow = await db.abTaxFastTrackDraft.findUnique({ where: { sessionId: latest.id } });
+      if (TAX_DRAFT_REGENERATE_INTENT_RE.test(text.trim())) {
+        return handleTaxDraftRegenerate(tenantId, latest.id, draftRow, startTime);
+      }
       return buildTaxDraftStatusResponse(draftRow, startTime);
     }
     // No completed session at all — fall through to normal classification,
     // same as any other unrecognized message.
+  }
+
+  // ── Step 1d: Plaid connect-bank redirect (chat + MCP parity,
+  // Launch-gap PR-11) ─────────────────────────────────────────────────
+  // Plaid Link is an interactive browser widget — it cannot run inside a
+  // chat transport, and this PR deliberately does not attempt to build
+  // one. This is a friendly, explicit pointer to the real page instead of
+  // the generic LLM fallback (or worse, an unrelated financial summary)
+  // a "connect my bank" message would otherwise fall through to. Placed
+  // AFTER Step 1c's block closes so a genuine tax-draft-related message is
+  // never accidentally caught by this broader check first.
+  if (PLAID_CONNECT_BANK_RE.test(text.trim())) {
+    return buildResponse({
+      message: "I can't connect a bank account directly in chat — that needs the interactive Plaid widget. Open Personal Finance (/personal) in the app and tap \"Connect bank\".",
+      skillUsed: 'plaid-connect-redirect',
+      confidence: 1,
+      latencyMs: Date.now() - startTime,
+    });
   }
 
   // ── Step 2: Context assembly ───────────────────────────────────────────
