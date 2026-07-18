@@ -177,7 +177,10 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     const taxableIncomeCents = Math.max(0, netIncomeCents - seDeduction);
     const bracketProvider = BRACKET_PROVIDERS[jurisdiction] ?? usTaxBrackets;
     // W-2 wages stack on top of self-employment income for bracket placement.
-    const incomeTaxCents = bracketProvider.calculateTax(taxableIncomeCents + w2IncomeCents, taxYear).taxCents;
+    // filingStatus (already stored per-tenant, default 'single') selects the
+    // married-filing-jointly bracket table for US tenants; other jurisdiction
+    // packs ignore the extra argument.
+    const incomeTaxCents = bracketProvider.calculateTax(taxableIncomeCents + w2IncomeCents, taxYear, taxConfig?.filingStatus).taxCents;
     const totalTaxCents = seTaxCents + incomeTaxCents;
     // What is still owed after crediting W-2 tax already withheld this year.
     const amountOwedCents = Math.max(0, totalTaxCents - w2WithheldCents);
