@@ -40,19 +40,30 @@ const TERMS_OPTIONS = [
 // is the default; non-tenant choices trigger an FX preview.
 const CURRENCY_OPTIONS = ['USD', 'EUR', 'GBP', 'CAD', 'AUD', 'JPY'] as const;
 
-// Client-side PREVIEW ONLY, mirroring packages/agentbook-jurisdictions/src/{au,ca}/sales-tax.ts —
+// Client-side PREVIEW ONLY, mirroring packages/agentbook-jurisdictions/src/{au,ca,us}/sales-tax.ts —
 // the backend (computeInvoiceTax) is the authoritative computation and is
 // what actually gets persisted; this just pre-fills an editable field so
-// the user isn't staring at "0%" for AU/CA tenants. Keep in sync with
-// those two files if their rates ever change.
+// the user isn't staring at "0%" for AU/CA/US tenants. Keep in sync with
+// those files if their rates ever change.
 const CA_PROVINCE_RATES: Record<string, number> = {
   AB: 5, BC: 12, SK: 11, MB: 12, ON: 13, QC: 14.975,
   NB: 15, NS: 15, NL: 15, PE: 15, NT: 5, NU: 5, YT: 5,
 };
 
+// Mirrors packages/agentbook-jurisdictions/src/us/sales-tax.ts's STATE_RATES —
+// see that file's authoritative table if these ever need updating. That
+// file's values are fractions (e.g. 0.0725); this file's convention
+// (matching CA_PROVINCE_RATES above) is percentages (e.g. 7.25).
+const US_STATE_RATES: Record<string, number> = {
+  CA: 7.25, NY: 4, TX: 6.25, FL: 6, WA: 6.5,
+  IL: 6.25, PA: 6, OH: 5.75, GA: 4, NC: 4.75,
+  OR: 0, NH: 0, MT: 0, DE: 0, AK: 0,
+};
+
 function defaultTaxRatePercent(jurisdiction: string, region: string): number {
   if (jurisdiction === 'au') return 10;
   if (jurisdiction === 'ca') return CA_PROVINCE_RATES[region.toUpperCase()] ?? 0;
+  if (jurisdiction === 'us') return US_STATE_RATES[region.toUpperCase()] ?? 0;
   return 0;
 }
 
@@ -83,7 +94,7 @@ export const NewInvoicePage: React.FC = () => {
   const [fxRate, setFxRate] = useState<number | null>(null);
   const [fxLoading, setFxLoading] = useState(false);
 
-  // Sales tax (Launch-gap PR-6) — AU/CA only, per computeInvoiceTax's scope.
+  // Sales tax (Launch-gap PR-6) — AU/CA/US, per computeInvoiceTax's scope.
   const [jurisdiction, setJurisdiction] = useState<string>('us');
   const [region, setRegion] = useState<string>('');
   const [taxRatePercent, setTaxRatePercent] = useState<number>(0);
@@ -154,7 +165,7 @@ export const NewInvoicePage: React.FC = () => {
   };
 
   const subtotal = lineItems.reduce((sum, li) => sum + li.quantity * li.rate, 0);
-  const showTaxField = jurisdiction === 'au' || jurisdiction === 'ca';
+  const showTaxField = jurisdiction === 'au' || jurisdiction === 'ca' || jurisdiction === 'us';
   const taxAmount = showTaxField ? subtotal * (taxRatePercent / 100) : 0;
   const total = subtotal + taxAmount;
 
