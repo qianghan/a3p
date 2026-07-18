@@ -21,7 +21,7 @@ export async function PUT(request: NextRequest, ctx: RouteCtx): Promise<NextResp
     if (!existing) return NextResponse.json({ success: false, error: 'employee not found' }, { status: 404 });
 
     const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
-    const allowed = ['name', 'email', 'type', 'payType', 'payRateCents', 'payFrequency', 'jurisdiction', 'filingStatus'];
+    const allowed = ['name', 'email', 'type', 'payType', 'payRateCents', 'payFrequency', 'jurisdiction', 'region', 'filingStatus'];
     const update: Record<string, unknown> = {};
     for (const k of allowed) if (body[k] !== undefined) update[k] = body[k];
 

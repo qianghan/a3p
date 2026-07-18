@@ -33,6 +33,7 @@ interface CreateEmployeeBody {
   payRateCents?: number;
   payFrequency?: string;
   jurisdiction?: string;
+  region?: string;
   filingStatus?: string;
 }
 
@@ -56,6 +57,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         payRateCents: body.payRateCents,
         payFrequency: body.payFrequency || 'biweekly',
         jurisdiction: body.jurisdiction || 'us',
+        region: body.region || '',
         filingStatus: body.filingStatus || 'single',
       },
     });
