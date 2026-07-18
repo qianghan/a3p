@@ -5,7 +5,7 @@ import { Users, Plus, Play, Loader2, Check, Landmark, FileText, CalendarClock, D
 
 const API = '/api/v1/agentbook-payroll';
 
-interface Employee { id: string; name: string; payType: string; payRateCents: number; payFrequency: string; jurisdiction: string }
+interface Employee { id: string; name: string; payType: string; payRateCents: number; payFrequency: string; jurisdiction: string; region: string }
 interface Stub { id: string; employeeName: string; grossCents: number; federalTaxCents: number; stateTaxCents: number; ficaCents: number; netCents: number; sgCents: number }
 interface PayRun { id: string; periodStart: string; periodEnd: string; status: string; stubs: Stub[] }
 interface Deposit { id: string; form: string; periodLabel: string; amountCents: number; dueDate: string; status: string }
@@ -31,6 +31,7 @@ export default function PayrollPage() {
   const [salary, setSalary] = useState('');
   const [freq, setFreq] = useState('biweekly');
   const [juris, setJuris] = useState('us');
+  const [region, setRegion] = useState('');
   const year = new Date().getFullYear();
 
   const load = useCallback(async () => {
@@ -55,9 +56,9 @@ export default function PayrollPage() {
     try {
       await fetch(`${API}/employees`, {
         method: 'POST', headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ name: name.trim(), payRateCents: Math.round(Number(salary) * 100), payFrequency: freq, jurisdiction: juris }),
+        body: JSON.stringify({ name: name.trim(), payRateCents: Math.round(Number(salary) * 100), payFrequency: freq, jurisdiction: juris, region: region.trim() }),
       });
-      setName(''); setSalary(''); setShowForm(false);
+      setName(''); setSalary(''); setRegion(''); setShowForm(false);
       await load();
     } finally { setBusy(false); }
   };
@@ -124,7 +125,7 @@ export default function PayrollPage() {
       {tab === 'employees' && (
         <>
           {showForm && (
-            <div className="rounded-xl border border-border bg-card p-4 mb-4 grid grid-cols-1 sm:grid-cols-5 gap-3 items-end">
+            <div className="rounded-xl border border-border bg-card p-4 mb-4 grid grid-cols-1 sm:grid-cols-6 gap-3 items-end">
               <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Name" className="rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground" />
               <input type="number" value={salary} onChange={(e) => setSalary(e.target.value)} placeholder="Annual salary" className="rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground" />
               <select value={freq} onChange={(e) => setFreq(e.target.value)} className="rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground capitalize">
@@ -133,6 +134,10 @@ export default function PayrollPage() {
               <select value={juris} onChange={(e) => setJuris(e.target.value)} className="rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground">
                 {JURIS.map((j) => <option key={j.v} value={j.v}>{j.l}</option>)}
               </select>
+              {juris === 'us' && (
+                <input value={region} onChange={(e) => setRegion(e.target.value.toUpperCase())} placeholder="State (e.g. CA)"
+                  maxLength={2} className="rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground" />
+              )}
               <button onClick={() => void addEmployee()} disabled={busy || !name || !salary} className="px-4 py-2 rounded-lg text-sm font-medium bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-50">Save</button>
             </div>
           )}
@@ -145,7 +150,7 @@ export default function PayrollPage() {
                   <div className="flex items-center gap-3">
                     <div className="w-9 h-9 rounded-full bg-primary/10 text-primary flex items-center justify-center text-sm font-medium">{e.name.slice(0, 2).toUpperCase()}</div>
                     <div><p className="text-sm font-medium text-foreground">{e.name}</p>
-                      <p className="text-xs text-muted-foreground capitalize">{e.payFrequency} · {e.jurisdiction.toUpperCase()}</p></div>
+                      <p className="text-xs text-muted-foreground capitalize">{e.payFrequency} · {e.jurisdiction.toUpperCase()}{e.jurisdiction === 'us' && e.region ? ` · ${e.region}` : ''}</p></div>
                   </div>
                   <p className="text-sm font-medium text-foreground">{fmt$(e.payRateCents)}<span className="text-muted-foreground font-normal">/yr</span></p>
                 </div>

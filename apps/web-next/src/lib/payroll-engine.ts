@@ -10,6 +10,7 @@ export interface PayInput {
   grossCents: number; // gross for THIS pay period
   payPeriodsPerYear: number; // 52 | 26 | 24 | 12
   filingStatus?: string; // single | married (US)
+  region?: string; // US work state (e.g. "CA") — drives state income tax withholding
 }
 
 export interface PayResult {
@@ -55,6 +56,17 @@ const US_MARRIED: Bracket[] = [
 ];
 const US_SS_WAGE_BASE = 168_600_00;
 
+// Flat per-state income-tax approximation, matching this file's documented
+// precision level ("reasonable 2024-ish approximations for planning") — not
+// progressive brackets. No-income-tax states are explicit 0s, not omissions.
+// Mirrors the shape of packages/agentbook-jurisdictions/src/us/sales-tax.ts's
+// STATE_RATES table (a different tax, same per-state lookup convention).
+const US_STATE_INCOME_TAX_RATES: Record<string, number> = {
+  CA: 0.093, NY: 0.0685, TX: 0, FL: 0, WA: 0,
+  IL: 0.0495, PA: 0.0307, OH: 0.0399, GA: 0.0549, NC: 0.0475,
+  OR: 0.099, NH: 0, MT: 0.0675, DE: 0.066, AK: 0,
+};
+
 function calcUS(input: PayInput): PayResult {
   const annual = input.grossCents * input.payPeriodsPerYear;
   const brackets = input.filingStatus === 'married' ? US_MARRIED : US_SINGLE;
@@ -64,7 +76,8 @@ function calcUS(input: PayInput): PayResult {
   const ssCents = Math.round((ssAnnual * 0.062) / input.payPeriodsPerYear);
   const medicareCents = Math.round((input.grossCents) * 0.0145);
   const ficaCents = ssCents + medicareCents;
-  const stateTaxCents = 0; // state withholding configured per-state later
+  const stateRate = US_STATE_INCOME_TAX_RATES[(input.region || '').toUpperCase()] ?? 0;
+  const stateTaxCents = Math.round(input.grossCents * stateRate);
   const netCents = input.grossCents - federalTaxCents - ficaCents - stateTaxCents;
   return { grossCents: input.grossCents, federalTaxCents, stateTaxCents, ficaCents, otherDeductCents: 0, netCents, sgCents: 0 };
 }

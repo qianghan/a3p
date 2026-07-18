@@ -68,6 +68,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
           grossCents,
           payPeriodsPerYear: periodsPerYear,
           filingStatus: emp.filingStatus,
+          region: emp.region,
         });
         await tx.abPayStub.create({
           data: {
