@@ -15,8 +15,8 @@
 // keeps trying to fetch/hydrate against chunks that 404). Bumping the
 // version here forces `activate` to purge every old cache below.
 const CACHE_NAME = 'agentbook-v3';
-const STATIC_CACHE = 'agentbook-static-v3';
-const API_CACHE = 'agentbook-api-v3';
+const STATIC_CACHE = 'agentbook-static-v4';
+const API_CACHE = 'agentbook-api-v4';
 
 // Static assets to pre-cache. Deliberately does NOT include '/agentbook' —
 // precaching a navigable HTML document is exactly the risky part, since its
@@ -66,23 +66,13 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Navigation (the HTML shell itself): network-only, no caching. This is
-  // the request whose response references content-hashed JS chunk
-  // filenames that change on every deploy — caching it (even as a "fallback
-  // only" via networkFirstWithCache) risks later serving a shell that
-  // points at chunks which no longer exist post-deploy, which is what
-  // caused the infinite loading loop. If the network genuinely fails,
-  // degrade to a minimal offline page rather than a possibly-stale shell.
+  // Navigation: network-only. Auth state (via the naap_auth_token cookie)
+  // can flip between visits to the same URL — serving a stale cached
+  // response here (e.g. an old pre-auth redirect to /login) is exactly the
+  // failure mode that caused the PWA Google-sign-in loop. Navigations get
+  // no offline fallback; everything else below still does.
   if (event.request.mode === 'navigate') {
-    event.respondWith(
-      fetch(event.request).catch(
-        () =>
-          new Response(
-            '<!doctype html><meta charset="utf-8"><title>Offline</title><body style="font-family:sans-serif;padding:2rem;text-align:center">You\'re offline. Reconnect and reload to continue.</body>',
-            { status: 503, headers: { 'Content-Type': 'text/html' } }
-          )
-      )
-    );
+    event.respondWith(fetch(event.request));
     return;
   }
 
