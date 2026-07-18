@@ -20,6 +20,19 @@ import { createAuthMiddleware, type AuthenticatedRequest } from './middleware/au
 import { createRequestLogger } from './middleware/logging';
 import { createErrorHandler } from './middleware/errorHandler';
 
+/**
+ * Whether the CORS origin allowlist should permit every origin.
+ * Exported for direct unit testing — see src/__tests__/cors.test.ts.
+ * Fail-closed: empty/unset means false (reject cross-origin requests),
+ * NOT true. Only an explicit '*' opts in to allow-all. Closes #92.
+ */
+export function resolveAllowAllOrigins(configuredOrigins: string | string[] | undefined): boolean {
+  if (typeof configuredOrigins === 'string') {
+    return configuredOrigins.trim() === '*';
+  }
+  return false;
+}
+
 export interface RateLimitConfig {
   /** Time window in milliseconds (default: 15 minutes) */
   windowMs?: number;
@@ -129,8 +142,11 @@ export function createPluginServer(config: PluginServerConfig): PluginServer {
 
   // ─── Base Middleware ────────────────────────────────────────────────
 
-  // CORS - validate origins when allowlist set; empty = allow-all (relaxed for now)
-  // TODO(#92): Fail closed when empty; set CORS_ALLOWED_ORIGINS for production
+  // CORS - fail closed: an unset/empty allowlist means reject every
+  // cross-origin request (same-origin and no-Origin requests, e.g.
+  // server-to-server or curl, are unaffected — see the origin callback
+  // below). Explicitly set CORS_ALLOWED_ORIGINS=* to opt in to allow-all.
+  // Closes #92.
   const configuredOrigins =
     corsOrigins || (process.env.CORS_ALLOWED_ORIGINS || '');
   const originsArray: string[] = (
@@ -142,9 +158,7 @@ export function createPluginServer(config: PluginServerConfig): PluginServer {
   )
     .map((o) => String(o).trim())
     .filter(Boolean);
-  const allowAllOrigins =
-    originsArray.length === 0 ||
-    (typeof configuredOrigins === 'string' && configuredOrigins.trim() === '*');
+  const allowAllOrigins = resolveAllowAllOrigins(configuredOrigins);
   app.use(cors({
     origin: (origin, callback) => {
       // Allow requests with no origin (server-to-server, curl, etc.)
