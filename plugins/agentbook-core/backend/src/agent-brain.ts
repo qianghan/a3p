@@ -216,6 +216,13 @@ const TAX_DRAFT_STATUS_RE = /\b(filing draft|client letter|tax (fast.?track )?dr
 // below, otherwise it stays a plain status question (buildTaxDraftStatusResponse).
 const TAX_DRAFT_REGENERATE_INTENT_RE = /\b(re-?generate|redo|retry|try\s+again|generate.*again)\b/i;
 
+// Launch-gap PR-11, Task 2: matches "connect/link/set up/sync ... bank" (the
+// verb must land within 20 chars of "bank" so it doesn't swallow unrelated
+// "bank"-mentioning questions like bank-reconciliation's own trigger
+// patterns — "bank.*status", "bank.*match" — which never pair "bank" with
+// one of these connection verbs) or a bare mention of "Plaid" by name.
+const PLAID_CONNECT_BANK_RE = /\b(connect|link|set\s?up|sync)\b.{0,20}\bbank\b|\bplaid\b/i;
+
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
 function resolveSessionAction(
@@ -962,6 +969,24 @@ export async function handleAgentMessage(
     }
     // No completed session at all — fall through to normal classification,
     // same as any other unrecognized message.
+  }
+
+  // ── Step 1d: Plaid connect-bank redirect (chat + MCP parity,
+  // Launch-gap PR-11) ─────────────────────────────────────────────────
+  // Plaid Link is an interactive browser widget — it cannot run inside a
+  // chat transport, and this PR deliberately does not attempt to build
+  // one. This is a friendly, explicit pointer to the real page instead of
+  // the generic LLM fallback (or worse, an unrelated financial summary)
+  // a "connect my bank" message would otherwise fall through to. Placed
+  // AFTER Step 1c's block closes so a genuine tax-draft-related message is
+  // never accidentally caught by this broader check first.
+  if (PLAID_CONNECT_BANK_RE.test(text.trim())) {
+    return buildResponse({
+      message: "I can't connect a bank account directly in chat — that needs the interactive Plaid widget. Open Personal Finance (/personal) in the app and tap \"Connect bank\".",
+      skillUsed: 'plaid-connect-redirect',
+      confidence: 1,
+      latencyMs: Date.now() - startTime,
+    });
   }
 
   // ── Step 2: Context assembly ───────────────────────────────────────────
