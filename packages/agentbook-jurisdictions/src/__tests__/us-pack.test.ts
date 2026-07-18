@@ -13,20 +13,21 @@ describe('US Tax Brackets', () => {
   });
 
   it('calculates correct federal tax on $50,000 income', () => {
-    // $50,000 = 5,000,000 cents
-    // 10% on first $11,600 (1,160,000 cents) = $1,160
-    // 12% on $11,600-$47,125 ($35,525 = 3,552,500 cents) = $4,263
-    // 22% on $47,125-$50,000 ($2,875 = 287,500 cents) = $632.50 -> rounds to $633
+    // $50,000 = 5,000,000 cents. Real IRS 2025 single-filer thresholds
+    // (Rev. Proc. 2024-40): $11,925 / $48,475 / $103,350 / ...
+    // 10% on first $11,925 (1,192,500 cents) = $1,192.50 -> 119,250
+    // 12% on $11,925-$48,475 ($36,550 = 3,655,000 cents) = $4,386 -> 438,600
+    // 22% on $48,475-$50,000 ($1,525 = 152,500 cents) = $335.50 -> 33,550
     const result = usTaxBrackets.calculateTax(5000000, 2025);
 
-    // Bracket 1: 10% on 1,160,000 = 116,000
-    expect(result.bracketBreakdown[0].taxCents).toBe(116000);
-    // Bracket 2: 12% on (4,712,500 - 1,160,000) = 3,552,500 * 0.12 = 426,300
-    expect(result.bracketBreakdown[1].taxCents).toBe(426300);
-    // Bracket 3: 22% on (5,000,000 - 4,712,500) = 287,500 * 0.22 = 63,250
-    expect(result.bracketBreakdown[2].taxCents).toBe(63250);
+    // Bracket 1: 10% on 1,192,500 = 119,250
+    expect(result.bracketBreakdown[0].taxCents).toBe(119250);
+    // Bracket 2: 12% on (4,847,500 - 1,192,500) = 3,655,000 * 0.12 = 438,600
+    expect(result.bracketBreakdown[1].taxCents).toBe(438600);
+    // Bracket 3: 22% on (5,000,000 - 4,847,500) = 152,500 * 0.22 = 33,550
+    expect(result.bracketBreakdown[2].taxCents).toBe(33550);
 
-    const expectedTotalCents = 116000 + 426300 + 63250; // 605,550 cents = $6,055.50
+    const expectedTotalCents = 119250 + 438600 + 33550; // 591,400 cents = $5,914.00
     expect(result.taxCents).toBe(expectedTotalCents);
   });
 

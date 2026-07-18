@@ -70,8 +70,12 @@ describe('GET /api/v1/agentbook-core/money-moves — AU bracket wiring', () => {
 
   it('still produces a correct US move using the real (now-complete) 7-bracket US table', async () => {
     tenantConfigFindUnique.mockResolvedValue({ jurisdiction: 'us' });
-    // Real usTaxBrackets bracket 4 is $100,525–$191,900 @ 24% (10_052_500–19_190_000 cents).
-    taxEstimateFindFirst.mockResolvedValue({ netIncomeCents: 19_000_000 });
+    // Real usTaxBrackets bracket 4 is $103,350–$197,300 @ 24% (10_335_000–19_730_000
+    // cents; corrected 2025 IRS single-filer thresholds, Rev. Proc. 2024-40 —
+    // see docs/superpowers/plans/2026-07-18-us-single-bracket-2025-fix.md).
+    // Net income $1,900 below the top of that bracket to stay within the
+    // route's $5,000 proximity trigger.
+    taxEstimateFindFirst.mockResolvedValue({ netIncomeCents: 19_540_000 });
 
     const res = await GET(req());
     const body = await res.json();
@@ -79,7 +83,7 @@ describe('GET /api/v1/agentbook-core/money-moves — AU bracket wiring', () => {
 
     expect(move).toBeTruthy();
     expect(move.description).toMatch(/24%/);
-    const gap = 19_190_000 - 19_000_000;
+    const gap = 19_730_000 - 19_540_000; // 190_000 cents = $1,900
     const savings = Math.round(gap * (0.32 - 0.24)); // next real US bracket is 32%, not the old hardcoded table's missing top brackets
     expect(move.impactCents).toBe(savings);
   });
