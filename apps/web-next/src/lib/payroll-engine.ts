@@ -56,15 +56,27 @@ const US_MARRIED: Bracket[] = [
 ];
 const US_SS_WAGE_BASE = 168_600_00;
 
-// Flat per-state income-tax approximation, matching this file's documented
-// precision level ("reasonable 2024-ish approximations for planning") — not
-// progressive brackets. No-income-tax states are explicit 0s, not omissions.
-// Mirrors the shape of packages/agentbook-jurisdictions/src/us/sales-tax.ts's
-// STATE_RATES table (a different tax, same per-state lookup convention).
+// Flat per-state income-tax approximation for all 50 states + DC, matching
+// this file's documented precision level ("reasonable approximations for
+// planning") — not progressive brackets. No-income-tax states are explicit
+// 0s. For the 26 states with progressive brackets, the top marginal
+// statutory rate is used as a documented over-withholding-safe
+// approximation (a full per-bracket engine for every state is out of scope
+// for this fix). Sourced from the Tax Foundation's 2026 state income tax
+// data (https://taxfoundation.org/data/all/state/state-income-tax-rates-2026/).
+// Mirrors packages/agentbook-jurisdictions/src/us/sales-tax.ts's STATE_RATES
+// table (a different tax, same per-state lookup convention).
 const US_STATE_INCOME_TAX_RATES: Record<string, number> = {
-  CA: 0.093, NY: 0.0685, TX: 0, FL: 0, WA: 0,
-  IL: 0.0495, PA: 0.0307, OH: 0.0399, GA: 0.0549, NC: 0.0475,
-  OR: 0.099, NH: 0, MT: 0.0675, DE: 0.066, AK: 0,
+  // No income tax (9)
+  AK: 0, FL: 0, NV: 0, NH: 0, SD: 0, TN: 0, TX: 0, WA: 0, WY: 0,
+  // Flat-rate states (16)
+  AZ: 0.0250, CO: 0.0440, GA: 0.0499, ID: 0.0530, IL: 0.0495, IN: 0.0295, IA: 0.0380, KY: 0.0350,
+  LA: 0.0300, MI: 0.0425, MS: 0.0400, MO: 0.0470, NC: 0.0399, OH: 0.0275, PA: 0.0307, UT: 0.0445,
+  // Progressive-bracket states — top marginal rate used as approximation (26)
+  AL: 0.0500, AR: 0.0390, CA: 0.1330, CT: 0.0699, DE: 0.0660, HI: 0.1100, KS: 0.0558, ME: 0.0715,
+  MD: 0.0650, MA: 0.0900, MN: 0.0985, MT: 0.0565, NE: 0.0455, NJ: 0.1075, NM: 0.0590, NY: 0.1090,
+  ND: 0.0250, OK: 0.0450, OR: 0.0990, RI: 0.0599, SC: 0.0600, VT: 0.0875, VA: 0.0575, WV: 0.0482,
+  WI: 0.0765, DC: 0.1075,
 };
 
 function calcUS(input: PayInput): PayResult {
