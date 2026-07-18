@@ -1,8 +1,24 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeAll, afterAll } from 'vitest';
 
 vi.mock('server-only', () => ({}));
 
 import { renderInvoicePdf, type InvoicePdfData } from '../agentbook-invoice-pdf';
+
+// The global test setup replaces `fetch` with a bare vi.fn() (see
+// src/__tests__/setup.ts). yoga-layout's wasm loader (pulled in via
+// @react-pdf/renderer) checks `typeof fetch === 'function'` to decide whether
+// to fetch its wasm binary over the network instead of decoding the
+// pre-embedded base64 copy — the mocked fetch resolves to undefined, so its
+// `.then()` chain throws. Nothing in this file needs fetch, so drop it for
+// the duration of this suite to force the safe, no-network base64 path.
+const originalFetch = global.fetch;
+beforeAll(() => {
+  // @ts-expect-error - intentionally removing the mocked global for this suite
+  delete global.fetch;
+});
+afterAll(() => {
+  global.fetch = originalFetch;
+});
 
 const sampleInvoice: InvoicePdfData = {
   number: 'INV-2026-0042',

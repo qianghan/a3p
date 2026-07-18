@@ -19,7 +19,7 @@
     "@naap/database": "*"
   },
   "devDependencies": {
-    "vitest": "^4.0.0",
+    "vitest": "^4.1.10",
     "typescript": "^5.5.0"
   }
 }

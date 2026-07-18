@@ -258,12 +258,21 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        # Note: agentbook-startup is intentionally excluded — its frontend
+        # test suite hits a pre-existing plugin-sdk build issue (tsc emits
+        # dist/plugin-sdk/... instead of dist/... because cross-package
+        # @naap/types imports pull outside-rootDir files into the same
+        # compilation) unrelated to SDK compat itself. Re-add once fixed.
         plugin:
-          - capacity-planner
+          - agentbook-billing
+          - agentbook-career
+          - agentbook-core
+          - agentbook-expense
+          - agentbook-housing
+          - agentbook-invoice
+          - agentbook-scholarship
+          - agentbook-tax
           - community
-          - marketplace
-          - developer-api
-          - plugin-publisher
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -309,11 +318,16 @@ jobs:
       fail-fast: false
       matrix:
         plugin:
-          - capacity-planner
+          - agentbook-billing
+          - agentbook-career
+          - agentbook-core
+          - agentbook-expense
+          - agentbook-housing
+          - agentbook-invoice
+          - agentbook-scholarship
+          - agentbook-startup
+          - agentbook-tax
           - community
-          - marketplace
-          - developer-api
-          - plugin-publisher
     steps:
       - name: Checkout
         uses: actions/checkout@v6

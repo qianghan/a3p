@@ -25,6 +25,25 @@ vi.mock('next/image', () => ({
   },
 }));
 
+// Mock next/font/google — the real loader needs network access + a webpack
+// font-loader transform that doesn't exist under vitest. Vitest validates
+// mock factories against their real named exports, so a catch-all Proxy
+// doesn't satisfy it — every font actually imported somewhere needs its own
+// named export here.
+vi.mock('next/font/google', () => {
+  const fontLoader = () => ({
+    className: 'mock-font-class',
+    style: { fontFamily: 'mock' },
+    variable: '--font-mock',
+  });
+  return {
+    Fraunces: fontLoader,
+    Newsreader: fontLoader,
+    Inter: fontLoader,
+    JetBrains_Mono: fontLoader,
+  };
+});
+
 // Mock fetch for API tests
 global.fetch = vi.fn();
 

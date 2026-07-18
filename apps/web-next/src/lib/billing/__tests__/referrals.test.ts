@@ -1,4 +1,7 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
+
+vi.mock('server-only', () => ({}));
+
 import { generateCode, computeReward, maskEmail, MONTHS_CAP } from '../referrals';
 
 describe('referral code generation', () => {

@@ -25,6 +25,6 @@ describe('GET /.well-known/oauth-protected-resource (Finding 1: flag must gate d
     const res = await GET();
     expect(res.status).toBe(503);
     const body = await res.json();
-    expect(body.error).toMatch(/not enabled/i);
+    expect(body.error).toMatch(/isn't turned on/i);
   });
 });
