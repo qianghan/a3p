@@ -38,6 +38,19 @@ interface DeletionRequestAction {
  * Completion is logged via the structured logger only — NOT a new
  * AbEvent row, since re-creating a tenant-scoped record for someone who
  * was just fully deleted would defeat the point of "hard delete."
+ *
+ * The `User` row is deleted FIRST, before iterating TENANT_DELETE_ORDER
+ * (whose last step deletes the tenant's AbEvent rows, including the very
+ * `account.deletion_requested` event that makes the tenant eligible). This
+ * ordering makes the whole job crash-safe and idempotent: every step here
+ * is safely re-runnable (a `deleteMany` on already-deleted rows is a no-op
+ * `count: 0`, and `db.user.delete(...).catch(() => {})` already tolerates a
+ * missing row), so if the process dies mid-loop the eligibility-marking
+ * AbEvent still exists and the next run simply finds this tenant again and
+ * resumes cleanup — instead of the reverse ordering's failure mode, where a
+ * crash after the AbEvent is gone but before `user.delete()` runs leaves a
+ * permanently orphaned, login-capable `User` row that no future run can
+ * ever find again.
  */
 export async function hardDeleteScheduledAccounts(
   now: Date = new Date(),
@@ -79,15 +92,20 @@ export async function hardDeleteScheduledAccounts(
       continue;
     }
 
+    // Deleted first (before TENANT_DELETE_ORDER, whose last step deletes
+    // this tenant's AbEvent rows) so a crash mid-run can never leave a
+    // login-capable User row with no eligibility marker left to find it on
+    // the next pass — see the function doc comment above.
+    await db.user.delete({ where: { id: tenantId } }).catch(() => {
+      // User row may already be gone (e.g. a retried run); the tenant's
+      // data is deleted either way, which is the part that matters.
+    });
+
     let rowsDeleted = 0;
     for (const step of TENANT_DELETE_ORDER) {
       const { count } = await step.deleteMany(tenantId);
       rowsDeleted += count;
     }
-    await db.user.delete({ where: { id: tenantId } }).catch(() => {
-      // User row may already be gone (e.g. a retried run); the tenant's
-      // data is deleted either way, which is the part that matters.
-    });
 
     info('account hard-delete completed', {
       source: 'agentbook-account-hard-delete',

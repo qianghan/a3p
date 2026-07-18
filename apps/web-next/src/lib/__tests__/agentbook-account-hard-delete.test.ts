@@ -112,6 +112,39 @@ describe('hardDeleteScheduledAccounts', () => {
     expect(await db.team.findUnique({ where: { id: team.id } })).toBeNull();
   });
 
+  it('resumes cleanly on a second run when a prior run crashed after deleting the User row but before finishing TENANT_DELETE_ORDER', async () => {
+    const userId = randomUUID();
+    await db.user.create({ data: { id: userId, email: `${userId}@test.local` } });
+    await db.abEvent.create({
+      data: {
+        tenantId: userId,
+        eventType: 'account.deletion_requested',
+        actor: 'user',
+        action: { scheduledHardDeleteAt: new Date('2026-01-31T00:00:00Z').toISOString() },
+      },
+    });
+    await db.abExpense.create({
+      data: { tenantId: userId, amountCents: 100, categoryId: 'test-category', date: new Date(), description: 'x' },
+    });
+
+    // Simulate a crash after a prior run's user.delete() succeeded but
+    // before it finished walking TENANT_DELETE_ORDER: the User row is gone,
+    // but the tenant's AbEvent (the eligibility marker) and other
+    // tenant-scoped data are still present.
+    await db.user.delete({ where: { id: userId } });
+    expect(await db.user.findUnique({ where: { id: userId } })).toBeNull();
+    expect(await db.abEvent.count({ where: { tenantId: userId } })).toBe(1);
+    expect(await db.abExpense.count({ where: { tenantId: userId } })).toBe(1);
+
+    const now = new Date('2026-02-01T00:00:00Z'); // past scheduledHardDeleteAt
+    const result = await hardDeleteScheduledAccounts(now);
+
+    expect(result.deleted.some((d) => d.tenantId === userId)).toBe(true);
+    expect(await db.user.findUnique({ where: { id: userId } })).toBeNull();
+    expect(await db.abExpense.count({ where: { tenantId: userId } })).toBe(0);
+    expect(await db.abEvent.count({ where: { tenantId: userId } })).toBe(0);
+  });
+
   it('respects maxTenantsPerRun and only processes that many eligible tenants', async () => {
     const ids = [randomUUID(), randomUUID(), randomUUID()];
     for (const id of ids) {
