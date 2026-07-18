@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { computeDeposit, computeSgDeposit, depositDueDate, sgDepositDueDate, quarterOf } from '../payroll-deposits';
+import { computeDeposit, computeSgDeposit, computeFutaDeposit, depositDueDate, sgDepositDueDate, quarterOf } from '../payroll-deposits';
 import { buildYearEndForm } from '../year-end-forms';
 
 describe('payroll tax deposits', () => {
@@ -28,6 +28,51 @@ describe('payroll tax deposits', () => {
     const d = computeDeposit([{ federalTaxCents: 300_00, stateTaxCents: 0, ficaCents: 150_00 }], 'ca', new Date('2026-02-10'));
     expect(d.form).toBe('t4');
     expect(d.amountCents).toBe(300_00 + 150_00);
+  });
+});
+
+describe('Form 940 (FUTA) deposits (US)', () => {
+  it('computes 0.6% of this run\'s gross wages', () => {
+    // $10,000 total gross wages this run -> 1,000,000 cents.
+    const d = computeFutaDeposit(
+      [{ grossCents: 500_000 }, { grossCents: 500_000 }],
+      new Date('2026-05-15'),
+    );
+    expect(d.form).toBe('940');
+    // 1,000,000 * 0.006 = 6,000 cents ($60.00)
+    expect(d.amountCents).toBe(6_000);
+  });
+
+  it('periodLabel is just the year, not a quarter (annual form, unlike 941)', () => {
+    const d = computeFutaDeposit([{ grossCents: 100_000 }], new Date('2026-05-15'));
+    expect(d.periodLabel).toBe('2026');
+  });
+
+  it('dueDate is January 31 of the year after the run\'s period-end year', () => {
+    const d = computeFutaDeposit([{ grossCents: 100_000 }], new Date('2026-05-15'));
+    expect(d.dueDate).toBe('2027-01-31');
+  });
+
+  it('a Q4 run still rolls the due date into the following year', () => {
+    const d = computeFutaDeposit([{ grossCents: 100_000 }], new Date('2026-11-30'));
+    expect(d.periodLabel).toBe('2026');
+    expect(d.dueDate).toBe('2027-01-31');
+  });
+
+  it('returns a well-formed Deposit even when called for a non-US context (caller is responsible for gating on jurisdiction)', () => {
+    const d = computeFutaDeposit([{ grossCents: 0 }], new Date('2026-05-15'));
+    expect(d.form).toBe('940');
+    expect(d.amountCents).toBe(0);
+    expect(typeof d.dueDate).toBe('string');
+  });
+
+  it('sums gross wages across all stubs in the run', () => {
+    const d = computeFutaDeposit(
+      [{ grossCents: 200_000 }, { grossCents: 300_000 }, { grossCents: 100_000 }],
+      new Date('2026-01-15'),
+    );
+    // (200000 + 300000 + 100000) * 0.006 = 3,600 cents
+    expect(d.amountCents).toBe(3_600);
   });
 });
 
