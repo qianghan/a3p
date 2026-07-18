@@ -32,6 +32,25 @@ const PlanBody = z.object({
 });
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
+  // Admin plan management (plugins/agentbook-billing/frontend/src/admin/PlanList.tsx)
+  // needs to see and manage every region's plans, not just the admin's own
+  // tenant jurisdiction — `?all=true` bypasses the region filter, gated
+  // behind the same requireAdmin check the POST/PATCH admin actions on this
+  // resource already use.
+  if (request.nextUrl.searchParams.get('all') === 'true') {
+    try {
+      await requireAdmin(request);
+    } catch (err) {
+      const e = err as HttpError;
+      return NextResponse.json({ error: e.message }, { status: e.status });
+    }
+    const plans = await prisma.billPlan.findMany({
+      where: { isActive: true },
+      orderBy: [{ code: 'asc' }, { region: 'asc' }, { sortOrder: 'asc' }],
+    });
+    return NextResponse.json({ plans });
+  }
+
   const __resolved = await safeResolveAgentbookTenant(request);
   if ('response' in __resolved) return __resolved.response;
   const { tenantId } = __resolved;

@@ -129,11 +129,37 @@ describe('POST /plans', () => {
 });
 
 describe('GET /plans', () => {
-  it('returns active plans only', async () => {
+  it('returns active plans only, scoped to the caller tenant\'s region', async () => {
     planFindMany.mockResolvedValue([{ id: 'p1', code: 'free', isActive: true }]);
     const r = await listPlans(new NextRequest('http://x/p'));
     expect(r.status).toBe(200);
     expect(planFindMany.mock.calls[0][0].where.isActive).toBe(true);
+    expect(planFindMany.mock.calls[0][0].where.region).toBe('us');
+  });
+
+  it('?all=true bypasses the region filter for admin plan management, gated behind requireAdmin', async () => {
+    validateSession.mockResolvedValue(adminUser);
+    planFindMany.mockResolvedValue([
+      { id: 'p1', code: 'free', region: 'us', isActive: true },
+      { id: 'p2', code: 'free', region: 'ca', isActive: true },
+    ]);
+    const r = new NextRequest('http://x/p?all=true');
+    r.cookies.set('naap_auth_token', 'tok');
+    const res = await listPlans(r);
+    expect(res.status).toBe(200);
+    const where = planFindMany.mock.calls[0][0].where;
+    expect(where.isActive).toBe(true);
+    expect(where.region).toBeUndefined();
+    const body = await res.json();
+    expect(body.plans).toHaveLength(2);
+  });
+
+  it('?all=true rejects a non-admin caller (401/403), never falling back to region-scoped results', async () => {
+    validateSession.mockResolvedValue(null);
+    const r = new NextRequest('http://x/p?all=true');
+    const res = await listPlans(r);
+    expect(res.status).toBeGreaterThanOrEqual(401);
+    expect(planFindMany).not.toHaveBeenCalled();
   });
 });
 

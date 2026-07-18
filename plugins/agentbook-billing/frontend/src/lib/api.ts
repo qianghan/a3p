@@ -26,8 +26,11 @@ async function json<T>(r: Response): Promise<T> {
 }
 
 export const billingApi = {
+  // Admin plan management needs every region's plans, not just the
+  // caller's own tenant jurisdiction — see plans/route.ts's `?all=true`
+  // admin-gated bypass.
   listPlans: async (): Promise<Plan[]> =>
-    (await json<{ plans: Plan[] }>(await fetch('/api/v1/agentbook-billing/plans'))).plans,
+    (await json<{ plans: Plan[] }>(await fetch('/api/v1/agentbook-billing/plans?all=true'))).plans,
   listTemplates: async (): Promise<PlanTemplate[]> =>
     (await json<{ templates: PlanTemplate[] }>(await fetch('/api/v1/agentbook-billing/templates'))).templates,
   createPlan: async (body: PlanTemplate & { code: string }): Promise<Plan> =>
