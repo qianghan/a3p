@@ -121,24 +121,42 @@ const QC_EI_MAX = 860_67;
 const QC_QPIP_RATE = 0.00494;
 const QC_QPIP_MAX = 484_12;
 
+/**
+ * Splits the combined CPP/QPP+EI(+QPIP) deduction back into its real,
+ * separately-reportable components, given an EMPLOYEE'S AGGREGATED ANNUAL
+ * gross for the year (not a single pay period). Used both by calcCA (which
+ * needs the per-period combined total) and by year-end-forms.ts (which
+ * needs the real CRA box-numbered annual totals — CA-3 remediation: T4
+ * slips previously only had one combined, non-CRA "ficaWithheldCents" key).
+ */
+export function splitCaDeductions(annualGrossCents: number, region?: string): {
+  pensionCents: number;
+  pensionBoxLabel: 'CPP' | 'QPP';
+  eiCents: number;
+  qpipCents: number;
+} {
+  const isQuebec = (region || '').toUpperCase() === 'QC';
+  if (isQuebec) {
+    return {
+      pensionCents: Math.min(Math.round(annualGrossCents * QC_QPP_RATE), QC_QPP_MAX),
+      pensionBoxLabel: 'QPP',
+      eiCents: Math.min(Math.round(annualGrossCents * QC_EI_RATE), QC_EI_MAX),
+      qpipCents: Math.min(Math.round(annualGrossCents * QC_QPIP_RATE), QC_QPIP_MAX),
+    };
+  }
+  return {
+    pensionCents: Math.min(Math.round(annualGrossCents * 0.0595), CA_CPP_MAX),
+    pensionBoxLabel: 'CPP',
+    eiCents: Math.min(Math.round(annualGrossCents * 0.0166), CA_EI_MAX),
+    qpipCents: 0,
+  };
+}
+
 function calcCA(input: PayInput): PayResult {
   const annual = input.grossCents * input.payPeriodsPerYear;
   const federalTaxCents = Math.round(progressive(annual, CA_FED) / input.payPeriodsPerYear);
-  const isQuebec = (input.region || '').toUpperCase() === 'QC';
-
-  let ficaCents: number;
-  if (isQuebec) {
-    const qppAnnual = Math.min(Math.round(annual * QC_QPP_RATE), QC_QPP_MAX);
-    const eiAnnual = Math.min(Math.round(annual * QC_EI_RATE), QC_EI_MAX);
-    const qpipAnnual = Math.min(Math.round(annual * QC_QPIP_RATE), QC_QPIP_MAX);
-    ficaCents = Math.round((qppAnnual + eiAnnual + qpipAnnual) / input.payPeriodsPerYear);
-  } else {
-    // CPP 5.95% and EI 1.66%, each capped annually.
-    const cppAnnual = Math.min(Math.round(annual * 0.0595), CA_CPP_MAX);
-    const eiAnnual = Math.min(Math.round(annual * 0.0166), CA_EI_MAX);
-    ficaCents = Math.round((cppAnnual + eiAnnual) / input.payPeriodsPerYear);
-  }
-
+  const split = splitCaDeductions(annual, input.region);
+  const ficaCents = Math.round((split.pensionCents + split.eiCents + split.qpipCents) / input.payPeriodsPerYear);
   const netCents = input.grossCents - federalTaxCents - ficaCents;
   return { grossCents: input.grossCents, federalTaxCents, stateTaxCents: 0, ficaCents, otherDeductCents: 0, netCents, sgCents: 0 };
 }
