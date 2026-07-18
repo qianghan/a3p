@@ -28,6 +28,12 @@ export async function GET(request: NextRequest, { params }: RouteParams): Promis
       return errors.badRequest(`OAuth provider ${provider} is not configured`);
     }
 
+    // Whether the ORIGINAL authorization request came from an installed/
+    // standalone PWA (see auth-context.tsx loginWithOAuth). Recorded in a
+    // cookie so the callback route (Task 3) can tell how to complete the
+    // redirect without the round-trip losing that context.
+    const standalone = request.nextUrl.searchParams.get('standalone') === '1';
+
     // Store state in cookie for verification on callback
     const response = success({ url });
 
@@ -38,6 +44,16 @@ export async function GET(request: NextRequest, { params }: RouteParams): Promis
       maxAge: 60 * 10, // 10 minutes
       path: '/',
     });
+
+    if (standalone) {
+      response.cookies.set('oauth_standalone', '1', {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: 'lax',
+        maxAge: 60 * 10,
+        path: '/',
+      });
+    }
 
     return response;
   } catch (err) {

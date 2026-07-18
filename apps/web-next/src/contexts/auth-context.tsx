@@ -243,7 +243,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const loginWithOAuth = useCallback(async (provider: 'google' | 'github' | 'microsoft') => {
     try {
-      const response = await fetch(`${API_BASE}/v1/auth/oauth/${provider}`, {
+      const isStandalone =
+        typeof window !== 'undefined' &&
+        (window.matchMedia?.('(display-mode: standalone)').matches ||
+          (window.navigator as unknown as { standalone?: boolean }).standalone === true);
+      const query = isStandalone ? '?standalone=1' : '';
+      const response = await fetch(`${API_BASE}/v1/auth/oauth/${provider}${query}`, {
         credentials: 'include',
       });
       if (!response.ok) {
