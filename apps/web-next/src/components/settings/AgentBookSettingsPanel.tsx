@@ -796,7 +796,7 @@ function BillingTab(): React.ReactElement {
       <p className="text-xs text-muted-foreground">To cancel your plan, contact support. Managed securely via Stripe.</p>
       {subscribeTarget && (
         <SubscribeModal
-          plan={subscribeTarget}
+          target={{ kind: 'plan', id: subscribeTarget.id, name: subscribeTarget.name, priceCents: subscribeTarget.priceCents, interval: subscribeTarget.interval }}
           onClose={() => setSubscribeTarget(null)}
           onSubscribed={() => { setSubscribeTarget(null); load(); }}
         />
