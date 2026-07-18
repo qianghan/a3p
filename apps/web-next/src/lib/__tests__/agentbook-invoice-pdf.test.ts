@@ -3,12 +3,6 @@ import { describe, it, expect, vi } from 'vitest';
 
 vi.mock('server-only', () => ({}));
 
-// yoga-wasm (a @react-pdf/renderer dependency) falls back to a synchronous base64 decode
-// of its embedded wasm when `fetch` isn't a function; the global fetch mock from
-// src/__tests__/setup.ts returns `undefined` instead of a promise, which crashes the
-// async loading path it otherwise takes. Removing it here restores the sync fallback.
-delete (global as { fetch?: typeof fetch }).fetch;
-
 import { renderInvoicePdf, type InvoicePdfData } from '../agentbook-invoice-pdf';
 
 const sampleInvoice: InvoicePdfData = {

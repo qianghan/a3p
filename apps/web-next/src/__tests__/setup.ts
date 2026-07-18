@@ -25,8 +25,11 @@ vi.mock('next/image', () => ({
   },
 }));
 
-// Mock fetch for API tests
-global.fetch = vi.fn();
+// Mock fetch for API tests. Default to a rejected promise (not a bare vi.fn(), which
+// returns undefined) so any unmocked call still gets promise-like behavior — this is what
+// lets @react-pdf/renderer's yoga-wasm dependency fall back to its synchronous wasm decode
+// instead of crashing on `fetch(...).then` where `.then` is read off `undefined`.
+global.fetch = vi.fn().mockRejectedValue(new Error('fetch is not mocked in this test'));
 
 // Reset mocks before each test
 beforeEach(() => {
