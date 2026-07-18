@@ -178,6 +178,22 @@ Both findings are **High** severity → per the protocol, **Phase 1 is NOT COMPL
 
 **Acceptance criteria:** single-filer tax estimates use genuine 2025 IRS thresholds; MFJ behavior is unchanged; a regression test pins both tables' exact threshold values so this can't silently drift stale again.
 
+#### US-GATE Report — Attempt 2 (2026-07-18)
+
+**Step 1 — Fidelity re-audit** (against `origin/main` at `7a85b5e4`, both remediation PRs merged): both Attempt-1 findings independently re-verified via a fresh subagent reading real `git show origin/main:<path>` content (not a local worktree):
+- **Finding 1 (sales-tax + payroll state coverage): CONFIRMED CLOSED.** `STATE_RATES` (`sales-tax.ts`) and `US_STATE_INCOME_TAX_RATES` (`payroll-engine.ts`) both now `export const` with exactly 51 entries each (verified programmatically); the frontend preview table matches value-for-value across all 51 codes with zero mismatches. The completeness tests were independently confirmed to now do a genuine `Object.keys()` membership check (not just "output is a number") per the whole-branch review's fix.
+- **Finding 2 (stale single-filer bracket table): CONFIRMED CLOSED.** `FEDERAL_BRACKETS_2025_SINGLE` holds the exact required 2025 IRS cents thresholds; `FEDERAL_BRACKETS_2025_MARRIED` unchanged and still exactly 2x single for every bracket except the correctly-undoubled top bracket.
+- **Regression check**: fresh detached worktree off `origin/main` (outside any pre-existing `.worktrees/`), full `packages/agentbook-jurisdictions` suite (254/254 pass) and the 3 directly-affected `apps/web-next` test files (34/34 pass). No regressions.
+- **One new Low-severity item logged, not blocking**: `usTaxBrackets.getTaxBrackets(taxYear)` ignores its `taxYear` argument (pre-existing `// TODO: year-versioned lookup`, predates both remediation PRs) and doesn't branch on filing status the way `calculateTax` correctly does via `bracketsFor`. Not reachable from any production path today (the app calls `calculateTax`, not `getTaxBrackets`, for real tax estimates) — logged as a documented, accepted scope boundary per the severity taxonomy (Low: doesn't block advancement), worth a follow-up ticket if `getTaxBrackets` ever gains a real caller.
+
+**Step 2 — Competitive refresh**: not re-run for Attempt 2 — the competitive landscape doesn't change day-to-day and Attempt 1's research (same day) already established the current top-10 US set's positioning; no new competitor move surfaced between Attempt 1 and Attempt 2 that would change the SWOT below.
+
+**Step 3 — SWOT**: unchanged from Attempt 1's synthesis (see above), with the two Weaknesses items ("15/50-state tax coverage" and "stale single-filer bracket table") now resolved and removed from the active gap list.
+
+**Step 4 — Gap list and verdict**: zero Critical/High/Medium findings remain open. **Phase 1 (United States) is COMPLETE.**
+
+One Low-severity item is logged for optional future follow-up (see above) but does not block advancement per the severity taxonomy. Proceeding to Phase 2 (Canada).
+
 ---
 
 # Phase 2 — Canada Launch Ready
