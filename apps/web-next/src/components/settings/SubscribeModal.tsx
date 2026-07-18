@@ -10,16 +10,27 @@ import {
 } from '@stripe/react-stripe-js';
 import { Loader2, X } from 'lucide-react';
 
-interface Plan {
+interface PlanTarget {
+  kind: 'plan';
   id: string;
-  code: string;
   name: string;
   priceCents: number;
   interval: string;
 }
 
+interface AddonTarget {
+  kind: 'addon';
+  code: string;
+  name: string;
+  priceCents: number;
+  interval: string;
+  region: string;
+}
+
+type SubscribeTarget = PlanTarget | AddonTarget;
+
 interface Props {
-  plan: Plan;
+  target: SubscribeTarget;
   onClose: () => void;
   onSubscribed: () => void;
 }
@@ -38,7 +49,7 @@ function fmtPrice(cents: number, interval: string): string {
   return `$${dollars}/${interval === 'year' ? 'yr' : 'mo'}`;
 }
 
-function SubscribeForm({ plan, onClose, onSubscribed }: Props): React.ReactElement {
+function SubscribeForm({ target, onClose, onSubscribed }: Props): React.ReactElement {
   const stripe = useStripe();
   const elements = useElements();
   const [submitting, setSubmitting] = useState(false);
@@ -66,10 +77,16 @@ function SubscribeForm({ plan, onClose, onSubscribed }: Props): React.ReactEleme
         typeof setupIntent.payment_method === 'string'
           ? setupIntent.payment_method
           : setupIntent.payment_method.id;
-      const res = await fetch('/api/v1/agentbook-billing/me/subscription', {
+      const endpoint = target.kind === 'plan'
+        ? '/api/v1/agentbook-billing/me/subscription'
+        : `/api/v1/agentbook-billing/me/addons/${target.code}/subscribe`;
+      const body = target.kind === 'plan'
+        ? { planId: target.id, paymentMethodId }
+        : { region: target.region, paymentMethodId };
+      const res = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ planId: plan.id, paymentMethodId }),
+        body: JSON.stringify(body),
       });
       const json = await res.json();
       if (!res.ok || json.error) {
@@ -103,14 +120,14 @@ function SubscribeForm({ plan, onClose, onSubscribed }: Props): React.ReactEleme
           className="flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-60"
         >
           {submitting && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
-          Subscribe to {plan.name} — {fmtPrice(plan.priceCents, plan.interval)}
+          Subscribe to {target.name} — {fmtPrice(target.priceCents, target.interval)}
         </button>
       </div>
     </form>
   );
 }
 
-export function SubscribeModal({ plan, onClose, onSubscribed }: Props): React.ReactElement {
+export function SubscribeModal({ target, onClose, onSubscribed }: Props): React.ReactElement {
   const [clientSecret, setClientSecret] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -131,7 +148,7 @@ export function SubscribeModal({ plan, onClose, onSubscribed }: Props): React.Re
       <div className="w-full max-w-md rounded-2xl border border-border bg-card p-6 shadow-xl">
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-base font-semibold text-foreground">
-            Subscribe to {plan.name}
+            Subscribe to {target.name}
           </h3>
           <button onClick={onClose} className="text-muted-foreground hover:text-foreground">
             <X className="h-4 w-4" />
@@ -144,7 +161,7 @@ export function SubscribeModal({ plan, onClose, onSubscribed }: Props): React.Re
           </div>
         ) : clientSecret ? (
           <Elements stripe={getStripePromise()} options={options}>
-            <SubscribeForm plan={plan} onClose={onClose} onSubscribed={onSubscribed} />
+            <SubscribeForm target={target} onClose={onClose} onSubscribed={onSubscribed} />
           </Elements>
         ) : null}
       </div>
