@@ -180,6 +180,17 @@ export function createPluginConfig(options: PluginBuildOptions) {
     };
 
     const config: UserConfig = {
+      // Explicit modern target for Vite's own esbuild-transpile step (runs
+      // per-module, ahead of the final rollup bundle — separate from
+      // build.target below, which only controls the bundling/minify step).
+      // Without this, Vite falls back to its default baseline target
+      // (chrome87/safari14/etc.), and that baseline's destructuring-downlevel
+      // transform broke in the esbuild version pulled in by a dependency
+      // bump. Nothing in this product's supported-browser matrix needs
+      // anything older than es2020.
+      esbuild: {
+        target: 'es2020',
+      },
       plugins: [
         react(),
         createManifestPlugin(options),
@@ -206,6 +217,14 @@ export function createPluginConfig(options: PluginBuildOptions) {
       build: {
         outDir,
         emptyOutDir: true,
+        // Explicit modern target — without this, Vite falls back to its
+        // default baseline (chrome87/safari14/etc.), and esbuild's
+        // destructuring-downlevel transform for that baseline broke after
+        // a dependency bump (see the regression this fixed). Nothing in
+        // this product's supported-browser matrix needs anything older
+        // than es2020, and pinning it here sidesteps whichever exact
+        // esbuild version has the bug rather than chasing a version pin.
+        target: 'es2020',
         lib: {
           entry,
           name: globalName,

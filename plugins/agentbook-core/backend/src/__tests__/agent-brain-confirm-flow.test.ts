@@ -17,7 +17,8 @@ import { buildTestContext } from './helpers/test-context';
 // handleAgentMessage calls so step 4 can read what step 2 wrote.
 const mockState: {
   activeSession: any | null;
-} = { activeSession: null };
+  activeThread: any | null;
+} = { activeSession: null, activeThread: null };
 
 vi.mock('../db/client.js', () => {
   return {
@@ -26,6 +27,18 @@ vi.mock('../db/client.js', () => {
         findFirst: vi.fn(async () => null),
         findMany: vi.fn(async () => []),
         create: vi.fn(async () => ({})),
+      },
+      abConvThread: {
+        findFirst: vi.fn(async () => mockState.activeThread ?? null),
+        create: vi.fn(async (args: any) => {
+          const thread = {
+            id: 'thread-1', lastActiveAt: new Date(), turns: [], activeEntities: [], parkedFills: [],
+            ...args.data,
+          };
+          mockState.activeThread = thread;
+          return thread;
+        }),
+        update: vi.fn(async () => ({})),
       },
       abAgentSession: {
         findFirst: vi.fn(async () => mockState.activeSession),
@@ -69,6 +82,7 @@ vi.mock('../db/client.js', () => {
 
 beforeEach(() => {
   mockState.activeSession = null;
+  mockState.activeThread = null;
   vi.clearAllMocks();
 });
 

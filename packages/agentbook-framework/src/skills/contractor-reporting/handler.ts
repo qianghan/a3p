@@ -59,7 +59,7 @@ export async function getContractorSummaries(
   const vendors = await db.abVendor.findMany({
     where: { id: { in: vendorIds } },
   });
-  const nameMap = new Map(vendors.map((v: any) => [v.id, v.name]));
+  const nameMap = new Map<string, string>(vendors.map((v: any) => [v.id, v.name]));
 
   return Array.from(vendorTotals.entries()).map(([vendorId, totalPaid]) => ({
     contractorName: nameMap.get(vendorId) || 'Unknown',

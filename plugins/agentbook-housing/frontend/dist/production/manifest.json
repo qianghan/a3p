@@ -5,14 +5,14 @@
   "bundleFile": "agentbook-housing.js",
   "stylesFile": "plugin-agentbook-housing-frontend.css",
   "globalName": "NaapPluginAgentbookHousing",
-  "bundleHash": "fb533e96",
-  "bundleSize": 60902,
+  "bundleHash": "849a678d",
+  "bundleSize": 62620,
   "routes": [
     "/plugins/agentbook-housing",
     "/plugins/agentbook-housing/*"
   ],
   "category": "finance",
   "description": "Save the rentals you're considering and compare them side by side, with an affordability check against your real budget from AgentBook's personal finances. You decide; it does the math.",
-  "buildTime": "2026-07-09T04:48:59.813Z",
+  "buildTime": "2026-07-18T19:41:51.098Z",
   "nodeEnv": "production"
 }
