@@ -7,6 +7,7 @@ import {
   ChevronDown,
   ChevronUp,
   Loader2,
+  Users,
 } from 'lucide-react';
 import { ChatCTA } from '@naap/plugin-sdk';
 import { formatMoney } from '@agentbook/i18n';
@@ -57,6 +58,14 @@ const REPORTS = [
     icon: <BookOpen className="w-6 h-6" />,
     color: 'bg-amber-100 text-amber-600',
     endpoint: '/api/v1/agentbook-tax/reports/trial-balance',
+  },
+  {
+    key: 'contractor-1099',
+    title: '1099-NEC / T4A Contractors',
+    description: 'Contractors paid over the reporting threshold this year',
+    icon: <Users className="w-6 h-6" />,
+    color: 'bg-rose-100 text-rose-600',
+    endpoint: '/api/v1/agentbook-tax/reports/contractor-1099',
   },
 ];
 
@@ -118,6 +127,16 @@ function transformReport(key: string, json: { success: boolean; data?: any; erro
           })),
           { label: 'Difference (should be $0)', amount: ((d.totalDebitCents ?? 0) - (d.totalCreditCents ?? 0)) / 100 },
         ],
+      };
+    case 'contractor-1099':
+      return {
+        title: '1099-NEC / T4A Contractors',
+        rows: (d.contractors ?? []).map(
+          (c: { contractorName: string; totalPaidCents: number; requiresReporting: boolean; nearThreshold: boolean; formId: string }) => ({
+            label: `${c.contractorName}${c.requiresReporting ? ` — ${c.formId} required` : c.nearThreshold ? ' — approaching threshold' : ''}`,
+            amount: c.totalPaidCents / 100,
+          }),
+        ),
       };
     default:
       return { title: 'Report', rows: [] };
