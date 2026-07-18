@@ -2,8 +2,8 @@ import { describe, it, expect } from 'vitest';
 import { CORE_PLANS, ADDON_PRICES } from '../index.js';
 
 describe('CORE_PLANS', () => {
-  it('has exactly 4 plans: free, pro, pro_yearly, business', () => {
-    expect(CORE_PLANS.map((p) => p.code)).toEqual(['free', 'pro', 'pro_yearly', 'business']);
+  it('has exactly 4 unique plan codes: free, pro, pro_yearly, business', () => {
+    expect([...new Set(CORE_PLANS.map((p) => p.code))]).toEqual(['free', 'pro', 'pro_yearly', 'business']);
   });
 
   it('free is $0, pro is $19/mo, pro_yearly is $182/yr, business is $49/mo', () => {
@@ -24,6 +24,33 @@ describe('CORE_PLANS', () => {
   it('pro and pro_yearly both use interval-appropriate values', () => {
     expect(CORE_PLANS.find((p) => p.code === 'pro')!.interval).toBe('month');
     expect(CORE_PLANS.find((p) => p.code === 'pro_yearly')!.interval).toBe('year');
+  });
+});
+
+describe('CORE_PLANS region coverage (CA-4)', () => {
+  const CODES = ['free', 'pro', 'pro_yearly', 'business'] as const;
+
+  it('every core plan code has both a us and a ca row, at nominal price parity', () => {
+    for (const code of CODES) {
+      const rows = CORE_PLANS.filter((p) => p.code === code);
+      expect(rows).toHaveLength(2);
+      const us = rows.find((r) => r.region === 'us');
+      const ca = rows.find((r) => r.region === 'ca');
+      expect(us).toBeDefined();
+      expect(ca).toBeDefined();
+      expect(us!.currency).toBe('usd');
+      expect(ca!.currency).toBe('cad');
+      // Nominal parity: same cents figure, matching the established
+      // add-on convention (see this file's ADDON_PRICES doc comment).
+      expect(ca!.priceCents).toBe(us!.priceCents);
+      expect(ca!.name).toBe(us!.name);
+      expect(ca!.interval).toBe(us!.interval);
+      expect(ca!.sortOrder).toBe(us!.sortOrder);
+    }
+  });
+
+  it('total CORE_PLANS length is exactly 8 (4 codes x 2 regions)', () => {
+    expect(CORE_PLANS).toHaveLength(8);
   });
 });
 
