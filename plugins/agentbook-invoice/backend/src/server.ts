@@ -39,18 +39,63 @@ try {
 
 const { app, start } = createPluginServer({
   ...pluginConfig,
+  // In development, make API routes publicly accessible for testing.
+  // In production, auth is enforced (this plugin's own middleware below)
+  // — no longer relying on the Next.js proxy layer alone (Launch-gap
+  // PR-10): the whole API prefix used to be listed here as public
+  // regardless of requireAuth, so production was never actually
+  // enforcing auth despite requireAuth already being true.
   requireAuth: process.env.NODE_ENV === 'production',
-  publicRoutes: ['/healthz', '/api/v1/agentbook-invoice'],
+  publicRoutes:
+    process.env.NODE_ENV === 'production' ? ['/healthz'] : ['/healthz', '/api/v1/agentbook-invoice'],
 });
 
 // ============================================
 // TENANT MIDDLEWARE
 // ============================================
+// req.user is set by the SDK's createAuthMiddleware — but that middleware
+// is only ever REGISTERED when requireAuth is true (see
+// packages/plugin-server-sdk/src/server.ts), i.e. only in production. In
+// development requireAuth is false above, so the SDK's auth middleware
+// never runs and req.user is NEVER set on any request — asserting
+// req.user unconditionally here would 401 every route in local dev,
+// breaking the documented Quick Start workflow (CLAUDE.md).
+//
+// So the strictness has to mirror the requireAuth/publicRoutes split
+// above exactly:
+//   - Production: require req.user.id (set by the SDK's auth
+//     middleware, from a real session or the CRON_SECRET
+//     service-to-service path). 401 if missing — fail closed.
+//   - Development: intentionally permissive for local testing — trust
+//     the x-tenant-id header if present, default to 'default'
+//     otherwise. This restores the pre-existing dev behavior.
+//
+// NODE_ENV is read fresh on every call (not captured once at module
+// load) so this stays in sync with the server config above and so tests
+// can toggle it per-case via process.env.NODE_ENV.
+//
+// Note: this replaces the previous inline middleware, which trusted the
+// client-supplied x-tenant-id header UNCONDITIONALLY in every
+// environment including production — the most severe of the sibling
+// tenant-ID-trust gaps (it had no req.user check at all).
+export function tenantMiddleware(req: any, res: any, next: any) {
+  if (process.env.NODE_ENV === 'production') {
+    const tenantId = req.user?.id;
+    if (!tenantId) {
+      return res.status(401).json({
+        success: false,
+        error: { code: 'UNAUTHORIZED', message: 'No authenticated tenant for this request' },
+      });
+    }
+    req.tenantId = tenantId;
+    return next();
+  }
 
-app.use((req: Request, _res: Response, next) => {
-  (req as any).tenantId = req.headers['x-tenant-id'] as string || 'default';
+  req.tenantId = (req.headers?.['x-tenant-id'] as string) || 'default';
   next();
-});
+}
+
+app.use(tenantMiddleware);
 
 // === Billing quota helper ===
 // Returns true if the request may proceed; if false, the helper has
