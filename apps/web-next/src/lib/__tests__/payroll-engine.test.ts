@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { calcPay, periodGross, PERIODS_PER_YEAR } from '../payroll-engine';
+import { calcPay, periodGross, PERIODS_PER_YEAR, US_STATE_INCOME_TAX_RATES } from '../payroll-engine';
 
 describe('payroll engine', () => {
   it('periodGross splits annual salary by frequency', () => {
@@ -70,16 +70,18 @@ describe('US_STATE_INCOME_TAX_RATES completeness (US-GATE remediation)', () => {
     'WI','WY','DC',
   ];
 
-  it('produces a state-tax figure for every US state + DC (none silently default via the fallback)', () => {
+  it('US_STATE_INCOME_TAX_RATES has an own, explicit entry for every US state + DC — exactly 51, none more or fewer', () => {
+    // A real membership check against the exported table itself — not just
+    // calcPay's `?? 0` output, which can't tell "genuinely zero" apart from
+    // "entry deleted". This is the test that actually fails if a future
+    // edit removes a state: Object.keys would simply be shorter.
+    const tableKeys = Object.keys(US_STATE_INCOME_TAX_RATES).sort();
+    expect(tableKeys).toEqual([...ALL_US_STATES_AND_DC].sort());
+    expect(tableKeys.length).toBe(51);
     for (const state of ALL_US_STATES_AND_DC) {
-      const result = calcPay({
-        jurisdiction: 'us', grossCents: 500000, payPeriodsPerYear: 26,
-        filingStatus: 'single', region: state,
-      });
-      expect(typeof result.stateTaxCents).toBe('number');
-      expect(result.stateTaxCents).toBeGreaterThanOrEqual(0);
+      expect(Object.prototype.hasOwnProperty.call(US_STATE_INCOME_TAX_RATES, state)).toBe(true);
+      expect(typeof US_STATE_INCOME_TAX_RATES[state]).toBe('number');
     }
-    expect(ALL_US_STATES_AND_DC.length).toBe(51);
   });
 
   it('the 9 no-income-tax states still withhold an explicit real $0', () => {

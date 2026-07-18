@@ -120,7 +120,10 @@ describe('computeInvoiceTax', () => {
   });
 
   it('falls back to a "state" (not "GST") component for an override on a US tenant with an unlisted/unrecognized state, since GST is a CA/AU-specific label', async () => {
-    tenantConfigFindUnique.mockResolvedValue({ jurisdiction: 'us', region: 'NJ' });
+    // 'ZZ' is not a real US state code — every real state now has an
+    // explicit STATE_RATES entry (US-GATE remediation), so a genuinely
+    // unrecognized code is needed here to still exercise the fallback path.
+    tenantConfigFindUnique.mockResolvedValue({ jurisdiction: 'us', region: 'ZZ' });
     const result = await computeInvoiceTax('t1', 10000, 0.06625);
     expect(result.taxRate).toBe(0.06625);
     expect(result.taxCents).toBe(663);

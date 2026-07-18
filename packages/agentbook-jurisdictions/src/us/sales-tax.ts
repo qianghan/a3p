@@ -7,7 +7,11 @@ import type { SalesTaxEngine, SalesTaxRate, SalesTaxResult } from '../interfaces
 // Hampshire, Montana, Delaware, Alaska (Alaska has no state rate, though
 // many of its localities levy their own — out of scope for this
 // state-level-only engine, same as before this table was completed).
-const STATE_RATES: Record<string, number> = {
+// Exported (not just used internally) so tests can enumerate real table
+// membership directly, rather than only observing calculateTax's `?? 0`
+// fallback output — which can't distinguish "genuinely zero" from "entry
+// missing" from the outside.
+export const STATE_RATES: Record<string, number> = {
   AL: 0.0400, AK: 0.0000, AZ: 0.0560, AR: 0.0650, CA: 0.0725, CO: 0.0290, CT: 0.0635, DE: 0.0000,
   FL: 0.0600, GA: 0.0400, HI: 0.0400, ID: 0.0600, IL: 0.0625, IN: 0.0700, IA: 0.0600, KS: 0.0650,
   KY: 0.0600, LA: 0.0500, ME: 0.0550, MD: 0.0600, MA: 0.0625, MI: 0.0600, MN: 0.0688, MS: 0.0700,

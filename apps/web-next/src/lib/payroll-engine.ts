@@ -66,7 +66,11 @@ const US_SS_WAGE_BASE = 168_600_00;
 // data (https://taxfoundation.org/data/all/state/state-income-tax-rates-2026/).
 // Mirrors packages/agentbook-jurisdictions/src/us/sales-tax.ts's STATE_RATES
 // table (a different tax, same per-state lookup convention).
-const US_STATE_INCOME_TAX_RATES: Record<string, number> = {
+// Exported (not just used internally) so tests can enumerate real table
+// membership directly, rather than only observing calcUS's `?? 0` fallback
+// output — which can't distinguish "genuinely zero" from "entry missing"
+// from the outside.
+export const US_STATE_INCOME_TAX_RATES: Record<string, number> = {
   // No income tax (9)
   AK: 0, FL: 0, NV: 0, NH: 0, SD: 0, TN: 0, TX: 0, WA: 0, WY: 0,
   // Flat-rate states (16)

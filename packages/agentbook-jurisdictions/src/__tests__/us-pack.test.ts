@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { usTaxBrackets } from '../us/tax-brackets.js';
 import { usSelfEmploymentTax } from '../us/self-employment-tax.js';
-import { usSalesTax } from '../us/sales-tax.js';
+import { usSalesTax, STATE_RATES } from '../us/sales-tax.js';
 import { usChartOfAccounts } from '../us/chart-of-accounts.js';
 import { usInstallmentSchedule } from '../us/installment-schedule.js';
 import { usContractorReport } from '../us/contractor-report.js';
@@ -121,19 +121,18 @@ describe('usSalesTax STATE_RATES completeness (US-GATE remediation)', () => {
     'WI','WY','DC',
   ];
 
-  it('has a real, explicit rate for every US state + DC — none silently fall through the not-found fallback', () => {
+  it('STATE_RATES has an own, explicit entry for every US state + DC — exactly 51, none more or fewer', () => {
+    // A real membership check against the exported table itself — not just
+    // calculateTax's `?? 0` output, which can't tell "genuinely zero" apart
+    // from "entry deleted". This is the test that actually fails if a
+    // future edit removes a state: Object.keys would simply be shorter.
+    const tableKeys = Object.keys(STATE_RATES).sort();
+    expect(tableKeys).toEqual([...ALL_US_STATES_AND_DC].sort());
+    expect(tableKeys.length).toBe(51);
     for (const state of ALL_US_STATES_AND_DC) {
-      const result = usSalesTax.calculateTax(10000, state);
-      // Every state must produce a defined numeric rate — the point of this
-      // test is that NO state reaches this via the `?? 0` fallback path
-      // that a truly unconfigured/typo'd region would hit. We can't
-      // directly inspect the internal STATE_RATES map from here (it's not
-      // exported), so this test's real value is the count assertion below:
-      // it fails loudly if a future edit removes an entry, since the
-      // fallback path is the ONLY way `calculateTax` produces a rate today.
-      expect(typeof result.totalRate).toBe('number');
+      expect(Object.prototype.hasOwnProperty.call(STATE_RATES, state)).toBe(true);
+      expect(typeof STATE_RATES[state]).toBe('number');
     }
-    expect(ALL_US_STATES_AND_DC.length).toBe(51);
   });
 
   it('the 5 genuinely no-sales-tax states still compute to an explicit real $0, not a fallback $0', () => {
