@@ -76,11 +76,12 @@ function scaleComponentsToOverride(
   overrideRate: number,
   subtotalCents: number,
   accountCodeFor: (type: string) => string,
+  fallbackType: string = 'GST',
 ): InvoiceTaxComponent[] {
   if (overrideRate === 0) return [];
   if (defaultTotalRate === 0) {
     const amountCents = Math.round(subtotalCents * overrideRate);
-    return amountCents > 0 ? [{ type: 'GST', rate: overrideRate, amountCents, accountCode: '2100' }] : [];
+    return amountCents > 0 ? [{ type: fallbackType, rate: overrideRate, amountCents, accountCode: '2100' }] : [];
   }
   const scale = overrideRate / defaultTotalRate;
   const scaled = defaultComponents.map((c) => ({
@@ -148,7 +149,7 @@ export async function computeInvoiceTax(
     const region = tenantConfig?.region || '';
     const result = usSalesTax.calculateTax(subtotalCents, region);
     if (overrideRate != null) {
-      const components = scaleComponentsToOverride(result.components, result.totalRate, overrideRate, subtotalCents, () => '2100');
+      const components = scaleComponentsToOverride(result.components, result.totalRate, overrideRate, subtotalCents, () => '2100', 'state');
       return { taxRate: overrideRate, taxCents: components.reduce((s, c) => s + c.amountCents, 0), components };
     }
     return {

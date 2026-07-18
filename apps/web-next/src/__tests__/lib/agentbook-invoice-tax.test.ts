@@ -118,4 +118,12 @@ describe('computeInvoiceTax', () => {
     expect(result.taxCents).toBe(500);
     expect(result.components).toEqual([{ type: 'GST', rate: 0.05, amountCents: 500, accountCode: '2100' }]);
   });
+
+  it('falls back to a "state" (not "GST") component for an override on a US tenant with an unlisted/unrecognized state, since GST is a CA/AU-specific label', async () => {
+    tenantConfigFindUnique.mockResolvedValue({ jurisdiction: 'us', region: 'NJ' });
+    const result = await computeInvoiceTax('t1', 10000, 0.06625);
+    expect(result.taxRate).toBe(0.06625);
+    expect(result.taxCents).toBe(663);
+    expect(result.components).toEqual([{ type: 'state', rate: 0.06625, amountCents: 663, accountCode: '2100' }]);
+  });
 });
