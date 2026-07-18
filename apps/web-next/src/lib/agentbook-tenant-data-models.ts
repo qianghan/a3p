@@ -230,6 +230,16 @@ export const TENANT_DELETE_ORDER: TenantDeleteStep[] = [
   { name: 'SalesRepApplication', deleteMany: (tenantId) => db.salesRepApplication.deleteMany({ where: { tenantId } }) },
   { name: 'SalesRepProfile', deleteMany: (tenantId) => db.salesRepProfile.deleteMany({ where: { tenantId } }) },
   { name: 'BillReferralCode', deleteMany: (tenantId) => db.billReferralCode.deleteMany({ where: { tenantId } }) },
+  //
+  // DELIBERATELY EXCLUDED from hard-delete (retained for record-keeping):
+  // BillSubscription, BillUsageCounter, BillEvent, BillAddOnSubscription,
+  // BillReferral, SalesRepContract, SalesRepCommissionAccrual, SalesRepPayout.
+  // These models hold financial/tax/chargeback-dispute records that must be
+  // retained even after account deletion (standard legal/tax/payment-processor
+  // requirements for record retention). They partition on accountId/salesRepId/
+  // referrerTenantId instead of tenantId, making them logically associated with
+  // the account but not functionally scoped by it. This exclusion is an explicit,
+  // confirmed product policy decision (not an oversight) — see PR #9, Task 1.
 
   // Tenant config (keyed by userId, functionally == tenantId here — see
   // header comment)
