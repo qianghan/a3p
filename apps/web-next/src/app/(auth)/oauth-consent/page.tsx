@@ -4,6 +4,13 @@ import { validateSession } from '@/lib/api/auth';
 import { isMcpEnabled } from '@/lib/mcp/mcp-flag';
 import { ConsentForm } from './consent-form';
 
+// isMcpEnabled() hits the DB before any dynamic API (cookies/searchParams) is
+// read, so Next's build-time static/dynamic probe can't fall back on the
+// usual DynamicServerError signal — it just crashes if no DB is reachable at
+// build time. Force dynamic rendering so the probe never runs (same pattern
+// as src/app/cpa/[token]/page.tsx).
+export const dynamic = 'force-dynamic';
+
 // Server-side login gate only — the interaction details themselves (client
 // id, whether consent was already granted) are fetched client-side by
 // `ConsentForm` via the `/api/v1/oauth/interaction` route handler, which is

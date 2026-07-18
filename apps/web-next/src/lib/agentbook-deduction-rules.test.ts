@@ -233,7 +233,12 @@ describe('deduction rules — home_wifi_business_share', () => {
 });
 
 describe('deduction rules — mileage_near_client_invoice', () => {
-  it('fires when mileage was logged on the same day as a client invoice', async () => {
+  // Skipped: mileage_near_client_invoice is implemented but deliberately left
+  // out of the exported RULES map (see the comment above RULES in
+  // agentbook-deduction-rules.ts) — the apply path needs a per-mileage-entry
+  // hook and the dedupe key collapses to one row per run. Re-enable this test
+  // in the same follow-up PR that wires the rule back into RULES.
+  it.skip('fires when mileage was logged on the same day as a client invoice', async () => {
     const day = new Date('2026-04-15T15:00:00Z');
     mockedDb.abMileageEntry.findMany.mockResolvedValue([
       {
