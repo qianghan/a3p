@@ -36,15 +36,31 @@ const { app, start } = createPluginServer({
   // In development, make API routes publicly accessible for testing.
   // In production, auth is enforced by the Next.js proxy layer.
   requireAuth: process.env.NODE_ENV === 'production',
-  publicRoutes: ['/healthz', '/api/v1/agentbook-core'],
+  publicRoutes: ['/healthz'],
 });
 
 // === Middleware ===
-app.use((req, res, next) => {
-  // TODO: Extract tenant_id from auth token. For now use header.
-  (req as any).tenantId = req.headers['x-tenant-id'] as string || 'default';
+// req.user is set by the SDK's createAuthMiddleware — either from a real
+// validated session, or from the CRON_SECRET + x-tenant-id
+// service-to-service path (see packages/plugin-server-sdk's
+// middleware/auth.ts). Never trust a raw header directly, and never
+// fall back to a fixed 'default' tenant — an unauthenticated request
+// should already have been rejected by the auth middleware before this
+// ever runs, so req.user being unset here means requireAuth is off
+// (local dev) or something is misconfigured; fail closed either way.
+export function tenantMiddleware(req: any, res: any, next: any) {
+  const tenantId = req.user?.id;
+  if (!tenantId) {
+    return res.status(401).json({
+      success: false,
+      error: { code: 'UNAUTHORIZED', message: 'No authenticated tenant for this request' },
+    });
+  }
+  req.tenantId = tenantId;
   next();
-});
+}
+
+app.use(tenantMiddleware);
 
 // === Agent-brain outbound auth ===
 // Plugin endpoints in apps/web-next moved to safeResolveAgentbookTenant
