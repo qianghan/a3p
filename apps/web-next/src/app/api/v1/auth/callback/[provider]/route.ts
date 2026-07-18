@@ -43,8 +43,16 @@ export async function GET(request: NextRequest, { params }: RouteParams): Promis
     // Handle the callback
     const result = await handleOAuthCallback(provider, code, request.cookies.get('ab_ref')?.value);
 
-    // Redirect to agentbook home with auth cookie
-    const response = NextResponse.redirect(new URL('/agentbook', request.url));
+    // If this OAuth round-trip started inside the installed PWA, the
+    // redirect may land in a separate browser context (e.g. iOS's system
+    // browser) whose storage the standalone app can't read. Route those
+    // cases to a recoverable interstitial instead of bouncing invisibly
+    // into a session the user can't see from the home-screen app icon.
+    const isStandalone = request.cookies.get('oauth_standalone')?.value === '1';
+    const destination = isStandalone ? '/signed-in' : '/agentbook';
+
+    // Redirect to agentbook home (or the recoverable interstitial) with auth cookie
+    const response = NextResponse.redirect(new URL(destination, request.url));
 
     // Set auth cookie
     response.cookies.set('naap_auth_token', result.token, {
@@ -55,7 +63,7 @@ export async function GET(request: NextRequest, { params }: RouteParams): Promis
       path: '/',
     });
 
-    // Clear OAuth state cookie (must match sameSite used when setting it)
+    // Clear OAuth state cookies (must match sameSite used when setting them)
     response.cookies.set('oauth_state', '', {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
@@ -63,6 +71,15 @@ export async function GET(request: NextRequest, { params }: RouteParams): Promis
       maxAge: 0,
       path: '/',
     });
+    if (isStandalone) {
+      response.cookies.set('oauth_standalone', '', {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: 'lax',
+        maxAge: 0,
+        path: '/',
+      });
+    }
 
     return response;
   } catch (err) {
