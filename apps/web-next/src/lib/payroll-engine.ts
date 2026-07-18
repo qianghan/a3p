@@ -17,7 +17,7 @@ export interface PayResult {
   grossCents: number;
   federalTaxCents: number;
   stateTaxCents: number;
-  ficaCents: number; // SS+Medicare (US) / CPP+EI (CA) / NI (UK) / 0 (AU, super is employer-side)
+  ficaCents: number; // SS+Medicare (US) / CPP+EI (CA, or QPP+QC-EI+QPIP for Quebec) / NI (UK) / 0 (AU, super is employer-side)
   otherDeductCents: number;
   netCents: number;
   sgCents: number; // Superannuation Guarantee (AU only) — additive on top of gross, never subtracted from netCents; 0 elsewhere
@@ -104,16 +104,41 @@ const CA_FED: Bracket[] = [
   { upTo: 158_468_00, rate: 0.26 }, { upTo: 221_708_00, rate: 0.29 },
   { upTo: Infinity, rate: 0.33 },
 ];
-const CA_CPP_MAX = 3_867_50; // annual employee max
-const CA_EI_MAX = 1_049_12;
+const CA_CPP_MAX = 3_867_50; // annual employee max (rest-of-Canada CPP)
+const CA_EI_MAX = 1_049_12; // annual employee max (rest-of-Canada EI, 1.66%)
+// Quebec-specific 2025 rates, real figures sourced from Revenu Québec /
+// Canada.ca (see this PR's plan doc for citations): QPP's employee rate is
+// higher than CPP's (6.40% vs 5.95%); Quebec's EI rate is LOWER than the
+// rest of Canada's (1.31% vs 1.66%) because Quebec's own QPIP program
+// covers parental/maternity benefits that EI covers everywhere else; QPIP
+// itself (0.494%) doesn't exist outside Quebec. All three are flat-rate +
+// annual-cap approximations, matching this file's existing CPP/EI/FICA/NI
+// precision level.
+const QC_QPP_RATE = 0.0640;
+const QC_QPP_MAX = 4_339_20;
+const QC_EI_RATE = 0.0131;
+const QC_EI_MAX = 860_67;
+const QC_QPIP_RATE = 0.00494;
+const QC_QPIP_MAX = 484_12;
 
 function calcCA(input: PayInput): PayResult {
   const annual = input.grossCents * input.payPeriodsPerYear;
   const federalTaxCents = Math.round(progressive(annual, CA_FED) / input.payPeriodsPerYear);
-  // CPP 5.95% and EI 1.66%, each capped annually.
-  const cppAnnual = Math.min(Math.round(annual * 0.0595), CA_CPP_MAX);
-  const eiAnnual = Math.min(Math.round(annual * 0.0166), CA_EI_MAX);
-  const ficaCents = Math.round((cppAnnual + eiAnnual) / input.payPeriodsPerYear);
+  const isQuebec = (input.region || '').toUpperCase() === 'QC';
+
+  let ficaCents: number;
+  if (isQuebec) {
+    const qppAnnual = Math.min(Math.round(annual * QC_QPP_RATE), QC_QPP_MAX);
+    const eiAnnual = Math.min(Math.round(annual * QC_EI_RATE), QC_EI_MAX);
+    const qpipAnnual = Math.min(Math.round(annual * QC_QPIP_RATE), QC_QPIP_MAX);
+    ficaCents = Math.round((qppAnnual + eiAnnual + qpipAnnual) / input.payPeriodsPerYear);
+  } else {
+    // CPP 5.95% and EI 1.66%, each capped annually.
+    const cppAnnual = Math.min(Math.round(annual * 0.0595), CA_CPP_MAX);
+    const eiAnnual = Math.min(Math.round(annual * 0.0166), CA_EI_MAX);
+    ficaCents = Math.round((cppAnnual + eiAnnual) / input.payPeriodsPerYear);
+  }
+
   const netCents = input.grossCents - federalTaxCents - ficaCents;
   return { grossCents: input.grossCents, federalTaxCents, stateTaxCents: 0, ficaCents, otherDeductCents: 0, netCents, sgCents: 0 };
 }
