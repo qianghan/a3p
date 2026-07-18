@@ -135,6 +135,14 @@ describe('logger', () => {
   });
 
   describe('reportError', () => {
+    afterEach(() => {
+      // Undo any per-test @sentry/nextjs mock so later tests see the real
+      // (or genuinely absent) module resolution, regardless of declaration
+      // order. Safe to call even when no mock was registered.
+      vi.doUnmock('@sentry/nextjs');
+      __resetSentryForTests();
+    });
+
     it('always emits a structured log', async () => {
       await reportError('something broke', new Error('boom'), { tenantId: 't1' });
       expect(errorSpy).toHaveBeenCalledOnce();
@@ -147,8 +155,33 @@ describe('logger', () => {
 
     it('does not throw when @sentry/nextjs is missing', async () => {
       process.env.SENTRY_DSN = 'https://fake@sentry.io/1';
-      // The import will throw (no package), which the helper catches.
+      // Force the dynamic import in getSentry() to throw, simulating the
+      // package being unavailable, regardless of whether @sentry/nextjs is
+      // actually installed in node_modules (it now is, for real Sentry
+      // reporting — see logger.ts). Without this mock the import succeeds
+      // and this test would only pass because Sentry's SDK no-ops when
+      // uninitialized, which is not the code path this test claims to cover.
+      vi.doMock('@sentry/nextjs', () => {
+        throw new Error('not installed');
+      });
+
       await expect(reportError('x', new Error('y'), { tenantId: 't1' })).resolves.not.toThrow();
+    });
+
+    it('calls Sentry captureException when @sentry/nextjs is installed and SENTRY_DSN is set', async () => {
+      process.env.SENTRY_DSN = 'https://fake@sentry.io/1';
+      __resetSentryForTests();
+
+      const captureException = vi.fn();
+      const withScope = vi.fn((cb: (scope: { setTag: (k: string, v: string) => void }) => void) =>
+        cb({ setTag: vi.fn() }),
+      );
+      vi.doMock('@sentry/nextjs', () => ({ captureException, withScope }));
+
+      const err = new Error('boom');
+      await reportError('something broke', err, { tenantId: 't1' });
+
+      expect(captureException).toHaveBeenCalledWith(err);
     });
   });
 });
