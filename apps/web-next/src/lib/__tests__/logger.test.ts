@@ -150,5 +150,24 @@ describe('logger', () => {
       // The import will throw (no package), which the helper catches.
       await expect(reportError('x', new Error('y'), { tenantId: 't1' })).resolves.not.toThrow();
     });
+
+    it('calls Sentry captureException when @sentry/nextjs is installed and SENTRY_DSN is set', async () => {
+      process.env.SENTRY_DSN = 'https://fake@sentry.io/1';
+      __resetSentryForTests();
+
+      const captureException = vi.fn();
+      const withScope = vi.fn((cb: (scope: { setTag: (k: string, v: string) => void }) => void) =>
+        cb({ setTag: vi.fn() }),
+      );
+      vi.doMock('@sentry/nextjs', () => ({ captureException, withScope }));
+
+      const err = new Error('boom');
+      await reportError('something broke', err, { tenantId: 't1' });
+
+      expect(captureException).toHaveBeenCalledWith(err);
+
+      vi.doUnmock('@sentry/nextjs');
+      __resetSentryForTests();
+    });
   });
 });
