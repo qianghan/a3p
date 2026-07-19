@@ -21,18 +21,38 @@ export interface CorePlanPrice {
 // documented below for ADDON_PRICES — no reliable evidence of a specific
 // regional discount, so CAD launches at the same nominal cents figure as
 // USD, correctable later from real data with zero code changes).
+//
+// AU-5: AUD rows use the SAME ~1.2x uplift already researched and shipped
+// for the AU add-ons below (not nominal parity like CAD) — this file
+// already established that AU buyers benchmark against round nominal
+// ladder points rather than FX precision, and that a modest uplift over
+// the USD figure (not a full ~1.5x spot-rate conversion) is the right
+// call. Business's $49 USD -> $59 AUD is the exact same price point
+// already shipped for tax_fast_track/student_success/personal_insights,
+// reused directly rather than re-derived. Pro ($19 -> $23) is the same
+// ~1.2x uplift rounded to the nearest whole dollar (19 * 1.2 = 22.8 -> 23).
+// Pro Annual ($221) is derived the same way every region's annual price
+// is derived — 20% off 12x the AUD monthly price, not a re-scaling of the
+// USD annual figure — so the "save 20%" relationship holds in every
+// currency, not just USD/CAD.
 export const CORE_PLANS: CorePlanPrice[] = [
   { code: 'free', name: 'Free', priceCents: 0, currency: 'usd', region: 'us', interval: 'month', sortOrder: 0 },
   { code: 'free', name: 'Free', priceCents: 0, currency: 'cad', region: 'ca', interval: 'month', sortOrder: 0 },
+  { code: 'free', name: 'Free', priceCents: 0, currency: 'aud', region: 'au', interval: 'month', sortOrder: 0 },
   { code: 'pro', name: 'Pro', priceCents: 1900, currency: 'usd', region: 'us', interval: 'month', sortOrder: 1 },
   { code: 'pro', name: 'Pro', priceCents: 1900, currency: 'cad', region: 'ca', interval: 'month', sortOrder: 1 },
+  { code: 'pro', name: 'Pro', priceCents: 2300, currency: 'aud', region: 'au', interval: 'month', sortOrder: 1 },
   // 20% off 12x the monthly price ($228), rounded to a whole dollar —
   // $190/12 would have implied a different (wrong) monthly price; this is
   // the actual math behind the "save 20%" marketing claim.
   { code: 'pro_yearly', name: 'Pro Annual', priceCents: 18200, currency: 'usd', region: 'us', interval: 'year', sortOrder: 2 },
   { code: 'pro_yearly', name: 'Pro Annual', priceCents: 18200, currency: 'cad', region: 'ca', interval: 'year', sortOrder: 2 },
+  // 20% off 12x the AUD monthly price ($276), rounded to a whole dollar:
+  // 2300 * 12 = 27600; 27600 * 0.8 = 22080 -> rounds to 22100 (221.00).
+  { code: 'pro_yearly', name: 'Pro Annual', priceCents: 22100, currency: 'aud', region: 'au', interval: 'year', sortOrder: 2 },
   { code: 'business', name: 'Business', priceCents: 4900, currency: 'usd', region: 'us', interval: 'month', sortOrder: 3 },
   { code: 'business', name: 'Business', priceCents: 4900, currency: 'cad', region: 'ca', interval: 'month', sortOrder: 3 },
+  { code: 'business', name: 'Business', priceCents: 5900, currency: 'aud', region: 'au', interval: 'month', sortOrder: 3 },
 ];
 
 export interface AddOnTierPrice {
