@@ -2,6 +2,7 @@
 
 import React, { useCallback, useEffect, useState } from 'react';
 import { Users, Plus, Play, Loader2, Check, Landmark, FileText, CalendarClock, Download, AlertTriangle } from 'lucide-react';
+import { formatCurrencyCents } from '@/lib/jurisdiction-currency';
 
 const API = '/api/v1/agentbook-payroll';
 
@@ -11,7 +12,6 @@ interface PayRun { id: string; periodStart: string; periodEnd: string; status: s
 interface Deposit { id: string; form: string; periodLabel: string; amountCents: number; dueDate: string; status: string }
 interface YearEndForm { formType: string; employeeName: string; year: number; boxes: Record<string, number>; employeeId?: string }
 
-const fmt$ = (c: number) => '$' + (c / 100).toLocaleString('en-US', { maximumFractionDigits: 0 });
 const JURIS = [{ v: 'us', l: '🇺🇸 US' }, { v: 'ca', l: '🇨🇦 CA' }, { v: 'uk', l: '🇬🇧 UK' }, { v: 'au', l: '🇦🇺 AU' }];
 const FREQ = ['weekly', 'biweekly', 'semimonthly', 'monthly'];
 const FORM_LABEL: Record<string, string> = { '941': 'Form 941', '940': 'Form 940', t4: 'T4 remittance', paye: 'PAYE/NI', bas: 'BAS (PAYG)', sg: 'Superannuation Guarantee' };
@@ -32,21 +32,30 @@ export default function PayrollPage() {
   const [freq, setFreq] = useState('biweekly');
   const [juris, setJuris] = useState('us');
   const [region, setRegion] = useState('');
+  const [currency, setCurrency] = useState('USD');
+  const [locale, setLocale] = useState('en-US');
   const year = new Date().getFullYear();
+
+  const fmt$ = useCallback((c: number) => formatCurrencyCents(c, currency, locale), [currency, locale]);
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [e, r, d, y] = await Promise.all([
+      const [e, r, d, y, cfg] = await Promise.all([
         fetch(`${API}/employees`).then((x) => x.json()),
         fetch(`${API}/pay-runs`).then((x) => x.json()),
         fetch(`${API}/tax-deposits`).then((x) => x.json()),
         fetch(`${API}/year-end?year=${year}`).then((x) => x.json()),
+        fetch('/api/v1/agentbook-core/tenant-config').then((x) => x.json()),
       ]);
       if (e?.success) setEmployees(e.data);
       if (r?.success) setRuns(r.data);
       if (d?.success) setDeposits(d.data);
       if (y?.success) setForms(y.data.forms);
+      if (cfg?.success) {
+        setCurrency(cfg.data?.currency || 'USD');
+        setLocale(cfg.data?.locale || 'en-US');
+      }
     } finally { setLoading(false); }
   }, [year]);
   useEffect(() => { void load(); }, [load]);

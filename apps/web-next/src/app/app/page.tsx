@@ -1,14 +1,14 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
+import { formatCurrencyCents, defaultCurrencyFor } from '@/lib/jurisdiction-currency';
 
 interface Estimate {
   total_revenue: number;
   total_expenses: number;
   total_estimated_tax: number;
+  jurisdiction?: string;
 }
-
-const fmt$ = (n: number) => '$' + Math.round(n).toLocaleString('en-US');
 
 export default function MobileHome() {
   const [est, setEst] = useState<Estimate | null>(null);
@@ -17,9 +17,12 @@ export default function MobileHome() {
   useEffect(() => {
     fetch('/api/v1/agentbook-tax/tax/estimate')
       .then((r) => r.json())
-      .then((j) => { if (j?.success) setEst(j); })
+      .then((j) => { if (j?.success) setEst({ ...j, jurisdiction: j?.data?.jurisdiction }); })
       .finally(() => setLoading(false));
   }, []);
+
+  const currency = defaultCurrencyFor(est?.jurisdiction);
+  const fmt$ = (n: number) => formatCurrencyCents(Math.round(n * 100), currency);
 
   return (
     <div style={{ padding: '20px 16px', color: 'var(--foreground, #fff)' }}>

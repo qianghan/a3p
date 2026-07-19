@@ -2,8 +2,10 @@ import React, { useState } from 'react';
 import { Calculator, ArrowRight, DollarSign } from 'lucide-react';
 import { ChatCTA } from '@naap/plugin-sdk';
 import { TaxDisclaimer } from '../components/TaxDisclaimer';
+import { useTenantCurrency } from '../hooks/useTenantCurrency';
 
 const TAX_API = '/api/v1/agentbook-tax';
+const CURRENCY_LOCALE: Record<string, string> = { USD: 'en-US', CAD: 'en-CA', GBP: 'en-GB', AUD: 'en-AU' };
 
 interface WhatIfResult {
   scenario: string;
@@ -18,8 +20,14 @@ export const WhatIfPage: React.FC = () => {
   const [type, setType] = useState<'expense' | 'income'>('expense');
   const [result, setResult] = useState<WhatIfResult | null>(null);
   const [loading, setLoading] = useState(false);
+  const currency = useTenantCurrency();
 
-  const fmt = (cents: number) => `$${(Math.abs(cents) / 100).toLocaleString('en-US', { minimumFractionDigits: 2 })}`;
+  const fmt = (cents: number) =>
+    (Math.abs(cents) / 100).toLocaleString(CURRENCY_LOCALE[currency] ?? 'en-US', {
+      style: 'currency',
+      currency,
+      minimumFractionDigits: 2,
+    });
 
   const handleCalculate = async () => {
     if (!amount) return;
