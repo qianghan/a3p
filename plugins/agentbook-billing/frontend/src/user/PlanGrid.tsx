@@ -19,6 +19,16 @@ function formatQuota(v: number): string {
   return v === -1 ? 'Unlimited' : String(v);
 }
 
+const CURRENCY_LOCALE: Record<string, string> = { usd: 'en-US', cad: 'en-CA', aud: 'en-AU' };
+
+function fmtPrice(cents: number, currency: string): string {
+  return (cents / 100).toLocaleString(CURRENCY_LOCALE[currency] ?? 'en-US', {
+    style: 'currency',
+    currency: currency.toUpperCase(),
+    maximumFractionDigits: 0,
+  });
+}
+
 function savingsPct(monthlyPlan: Plan, annualPlan: Plan): number {
   if (monthlyPlan.priceCents === 0) return 0;
   const monthlyYearly = monthlyPlan.priceCents * 12;
@@ -114,7 +124,7 @@ export function PlanGrid({
                   'Free'
                 ) : (
                   <>
-                    ${(p.priceCents / 100).toFixed(0)}
+                    {fmtPrice(p.priceCents, p.currency)}
                     <span className="text-sm font-normal text-muted-foreground">
                       /{p.interval === 'year' ? 'yr' : 'mo'}
                     </span>
