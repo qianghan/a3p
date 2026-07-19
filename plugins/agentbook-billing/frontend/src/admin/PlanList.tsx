@@ -12,7 +12,7 @@ export function PlanList({ onEdit, onAdd }: Props): JSX.Element {
   const [err, setErr] = useState<string | null>(null);
 
   const load = (): void => {
-    billingApi.listPlans().then(setPlans).catch(e => setErr(String(e)));
+    billingApi.listAllPlans().then(setPlans).catch(e => setErr(String(e)));
   };
   useEffect(load, []);
 
