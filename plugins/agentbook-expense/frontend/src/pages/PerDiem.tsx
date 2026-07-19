@@ -171,7 +171,7 @@ export const PerDiemPage: React.FC = () => {
         </p>
       )}
 
-      {showForm && (
+      {showForm && jurisdiction !== 'ca' && jurisdiction !== 'au' && (
         <div className="bg-card border border-border rounded-xl p-4 mb-6 space-y-3">
           <div>
             <label className="text-xs text-muted-foreground">City</label>
