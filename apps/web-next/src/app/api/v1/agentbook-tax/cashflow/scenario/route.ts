@@ -12,6 +12,7 @@ import 'server-only';
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma as db } from '@naap/database';
 import { safeResolveAgentbookTenant } from '@/lib/agentbook-tenant';
+import { formatCurrencyCents } from '@/lib/jurisdiction-currency';
 import { usTaxBrackets } from '@agentbook/jurisdictions/us/tax-brackets';
 import { caTaxBrackets } from '@agentbook/jurisdictions/ca/tax-brackets';
 import { auTaxBrackets } from '@agentbook/jurisdictions/au/tax-brackets';
@@ -49,10 +50,6 @@ function calcTotalTax(netIncomeCents: number, jurisdiction: string, taxYear: num
   return se.amountCents + incomeTaxCents;
 }
 
-function fmt(cents: number): string {
-  return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(Math.abs(cents) / 100);
-}
-
 export async function POST(request: NextRequest): Promise<NextResponse> {
   try {
     const __resolved = await safeResolveAgentbookTenant(request);
@@ -72,6 +69,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     const yearStart = new Date(new Date().getFullYear(), 0, 1);
     const now = new Date();
     const taxYear = now.getFullYear();
+    const fmt = (cents: number): string => formatCurrencyCents(cents, currency, locale);
 
     const [revenueAccounts, expenseAccounts] = await Promise.all([
       db.abAccount.findMany({ where: { tenantId, accountType: 'revenue', isActive: true }, select: { id: true } }),
