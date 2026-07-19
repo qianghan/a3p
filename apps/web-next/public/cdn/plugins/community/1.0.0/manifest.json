@@ -5,14 +5,14 @@
   "bundleFile": "community.js",
   "stylesFile": "plugin-community-frontend.css",
   "globalName": "NaapPluginCommunity",
-  "bundleHash": "03304b0e",
-  "bundleSize": 112474,
+  "bundleHash": "02789bef",
+  "bundleSize": 130048,
   "routes": [
     "/forum",
     "/forum/*"
   ],
   "category": "social",
   "description": "Builder community hub with Q&A, discussions, voting, reputation system, and knowledge sharing.",
-  "buildTime": "2026-07-04T20:47:36.528Z",
+  "buildTime": "2026-07-19T22:02:11.032Z",
   "nodeEnv": "production"
 }
