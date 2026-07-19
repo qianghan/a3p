@@ -130,6 +130,28 @@ describe('Plaid connect-bank chat/MCP redirect (Step 1d)', () => {
     expect(result.data.message).toMatch(/connect bank/i);
   });
 
+  it('an AU tenant gets an honest "not yet available" message instead of the Plaid/personal-page redirect', async () => {
+    dbMock.abTenantConfig.findFirst.mockResolvedValue({ jurisdiction: 'au' } as any);
+    const { handleAgentMessage } = await import('../agent-brain');
+
+    const result = await handleAgentMessage(makeReq('can you connect my bank account'), makeCtx());
+
+    expect(result.data.skillUsed).toBe('plaid-connect-redirect');
+    expect(result.data.message).toMatch(/isn't available for australian/i);
+    expect(result.data.message).not.toMatch(/personal/i);
+    expect(result.data.message).not.toMatch(/plaid widget/i);
+  });
+
+  it('a US tenant (explicit jurisdiction) still gets the normal Plaid/personal-page redirect', async () => {
+    dbMock.abTenantConfig.findFirst.mockResolvedValue({ jurisdiction: 'us' } as any);
+    const { handleAgentMessage } = await import('../agent-brain');
+
+    const result = await handleAgentMessage(makeReq('can you connect my bank account'), makeCtx());
+
+    expect(result.data.message).toMatch(/personal/i);
+    expect(result.data.message).toMatch(/connect bank/i);
+  });
+
   it('does NOT intercept bank-reconciliation questions (existing skill, unrelated)', async () => {
     const ctx = makeCtx({
       classifyAndExecuteV1: vi.fn(async () => ({
