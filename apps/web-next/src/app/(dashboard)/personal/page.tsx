@@ -230,6 +230,18 @@ export default function PersonalFinancePage() {
   }, []);
 
   const handleStartBankConnect = async () => {
+    // Plaid (our bank-connection provider) has no country code for Australia
+    // at all — createLinkToken() only ever requests US/CA institutions.
+    // Attempting the flow for an AU tenant silently shows a Plaid Link UI
+    // that can't find their bank, instead of a clean failure. Mirrors the
+    // identical honest-decline message already shipped for chat/MCP in
+    // AU-7 (plugins/agentbook-core/backend/src/agent-brain.ts).
+    if (jurisdiction === 'au') {
+      setBankResult(
+        "Bank sync isn't available for Australian accounts yet — Plaid (our bank-connection provider) doesn't support AU banks. We're working on a local alternative; for now, log expenses manually or via receipt photos.",
+      );
+      return;
+    }
     setConnectingBank(true);
     try {
       const res = await fetch(`${API}/plaid/link-token`, { method: 'POST' });
