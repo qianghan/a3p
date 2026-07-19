@@ -193,7 +193,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     // the way they stack onto an individual's bracket placement.
     const incomeTaxCents = isAuCompany
       ? auCompanyTaxBrackets.calculateTax(taxableIncomeCents, taxYear).taxCents
-      : (BRACKET_PROVIDERS[jurisdiction] ?? usTaxBrackets).calculateTax(taxableIncomeCents + w2IncomeCents, taxYear, taxConfig?.filingStatus).taxCents;
+      : (BRACKET_PROVIDERS[jurisdiction] ?? usTaxBrackets).calculateTax(taxableIncomeCents + w2IncomeCents, taxYear, taxConfig?.filingStatus, region).taxCents;
     const totalTaxCents = seTaxCents + incomeTaxCents;
     // What is still owed after crediting W-2 tax already withheld this year.
     const amountOwedCents = Math.max(0, totalTaxCents - w2WithheldCents);
