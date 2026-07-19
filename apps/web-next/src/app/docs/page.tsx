@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { Rocket, Settings, Sparkles, LifeBuoy, ArrowRight } from 'lucide-react';
+import { Rocket, Settings, Sparkles, LifeBuoy, Map, ArrowRight } from 'lucide-react';
 import { Wordmark } from '@/components/brand/Wordmark';
 import { DocsSidebar } from '@/components/docs/docs-sidebar';
 import { MobileDocsSidebar } from '@/components/docs/mobile-docs-sidebar';
@@ -30,6 +30,12 @@ const sections = [
     icon: Sparkles,
   },
   {
+    title: 'Regions & taxes',
+    description: "What's supported in the US, Canada, and Australia — and what's different per country.",
+    href: '/docs/regions/overview',
+    icon: Map,
+  },
+  {
     title: 'Troubleshooting',
     description: 'Bank sync, fixing a category, and sign-in — quick fixes for common snags.',
     href: '/docs/troubleshooting/bank-not-syncing',
@@ -39,6 +45,7 @@ const sections = [
 
 const popular = [
   { label: 'Get started in five minutes', href: '/docs/setup/quickstart' },
+  { label: 'Which countries does AgentBook support?', href: '/docs/regions/overview' },
   { label: 'AgentBook for students', href: '/docs/setup/for-students' },
   { label: 'Connect your bank', href: '/docs/setup/connect-bank' },
   { label: 'Tax fast-track filing', href: '/docs/working/tax-fast-track' },
