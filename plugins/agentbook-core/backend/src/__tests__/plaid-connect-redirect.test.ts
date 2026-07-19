@@ -99,6 +99,7 @@ beforeEach(() => {
   dbMock.abPastTaxFiling.findUnique.mockResolvedValue(null);
   dbMock.abTaxQuestionnaireSession.findFirst.mockResolvedValue(null);
   dbMock.abTaxFastTrackDraft.findUnique.mockResolvedValue(null);
+  dbMock.abTenantConfig.findFirst.mockResolvedValue(null);
 });
 
 describe('Plaid connect-bank chat/MCP redirect (Step 1d)', () => {

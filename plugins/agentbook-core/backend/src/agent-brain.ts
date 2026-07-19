@@ -991,7 +991,7 @@ export async function handleAgentMessage(
   // available" message instead of a redirect to a broken flow.
   if (PLAID_CONNECT_BANK_RE.test(text.trim())) {
     const tenantConfig = await db.abTenantConfig.findFirst({ where: { userId: tenantId } });
-    if (tenantConfig?.jurisdiction === 'au') {
+    if (tenantConfig?.jurisdiction?.toLowerCase() === 'au') {
       return buildResponse({
         message: "Bank sync isn't available for Australian accounts yet — Plaid (our bank-connection provider) doesn't support AU banks. We're working on a local alternative; for now, log expenses manually or via receipt photos.",
         skillUsed: 'plaid-connect-redirect',
