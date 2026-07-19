@@ -44,12 +44,52 @@ self.addEventListener('activate', (event) => {
   self.clients.claim();
 });
 
+// Routes that must never be served from (or written into) API_CACHE,
+// even though they match the /api/v1/agentbook prefix below:
+//
+//  - Compute-on-read GETs recompute live from the ledger on every call —
+//    a cached/stale fallback could show numbers that no longer match
+//    reality after new expenses/invoices land, which is actively
+//    misleading, not harmlessly stale.
+//  - Binary file downloads (PDF/CSV) don't belong in a cache meant for
+//    small JSON offline-fallback bodies — caching them bloats API_CACHE
+//    with large blobs, and the same URL can later be regenerated from
+//    different underlying data (e.g. a corrected pay run), so a cached
+//    copy risks serving stale bytes under a URL that looks unchanged.
+//
+// (The tax-package feature's PDF/CSV links point directly at Vercel Blob
+// storage — a different origin — so they're never intercepted by the
+// same-origin prefix match below and don't need listing here.)
+const NEVER_CACHE_PATHS = [
+  '/api/v1/agentbook-tax/tax/estimate', // live tax estimate, recomputed every call
+];
+
+const BINARY_DOWNLOAD_PATTERNS = [
+  /^\/api\/v1\/agentbook-expense\/mileage\/export/, // mileage CSV export
+  /^\/api\/v1\/agentbook-invoice\/invoices\/[^/]+\/pdf/, // invoice PDF
+  /^\/api\/v1\/agentbook-payroll\/tax-deposits\/[^/]+\/pdf/, // payroll tax-deposit PDF
+  /^\/api\/v1\/agentbook-payroll\/year-end\/pdf/, // W-2/T4/P60/Payment Summary PDF
+  /^\/api\/v1\/agentbook-tax\/past-filings\/[^/]+\/download/, // uploaded prior-year filing PDF
+  /^\/api\/v1\/agentbook-tax\/reports\/contractor-1099\/pdf/, // 1099-NEC PDF
+];
+
+function isExcludedFromApiCache(pathname) {
+  if (NEVER_CACHE_PATHS.includes(pathname)) return true;
+  return BINARY_DOWNLOAD_PATTERNS.some((re) => re.test(pathname));
+}
+
 // Fetch: strategy based on request type
 self.addEventListener('fetch', (event) => {
   const url = new URL(event.request.url);
 
-  // API requests: network-first with cache fallback
+  // API requests: network-first with cache fallback — except the
+  // excluded compute-on-read/binary-download routes above, which always
+  // go straight to the network with no caching at all.
   if (url.pathname.startsWith('/api/v1/agentbook')) {
+    if (isExcludedFromApiCache(url.pathname)) {
+      event.respondWith(fetch(event.request));
+      return;
+    }
     event.respondWith(networkFirstWithCache(event.request));
     return;
   }
