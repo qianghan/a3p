@@ -68,13 +68,13 @@ export async function updateMileageEntry(
   const newClientId =
     patch.clientId === undefined ? existing.clientId : patch.clientId;
 
-  // CRA tier selection: YTD-before-the-trip-date, NOT YTD-end-of-year, so
-  // backdating a trip to (say) Jan 15 doesn't accidentally count December
-  // km in this trip's tier calc. Also excludes the entry itself so the
-  // edit is idempotent.
+  // CRA/HMRC tier selection: YTD-before-the-trip-date, NOT YTD-end-of-year,
+  // so backdating a trip to (say) Jan 15 doesn't accidentally count
+  // December km/miles in this trip's tier calc. Also excludes the entry
+  // itself so the edit is idempotent.
   const tripYear = existing.date.getUTCFullYear();
   let ratePerUnitCents = existing.ratePerUnitCents;
-  if (existing.jurisdiction === 'ca' || existing.jurisdiction === 'au') {
+  if (existing.jurisdiction === 'ca' || existing.jurisdiction === 'au' || existing.jurisdiction === 'uk') {
     const start = new Date(Date.UTC(tripYear, 0, 1));
     const others = await db.abMileageEntry.findMany({
       where: {
@@ -87,7 +87,7 @@ export async function updateMileageEntry(
       select: { miles: true },
     });
     const ytd = others.reduce((s, r) => s + r.miles, 0);
-    ratePerUnitCents = getMileageRate(existing.jurisdiction as 'ca' | 'au', tripYear, ytd).ratePerUnitCents;
+    ratePerUnitCents = getMileageRate(existing.jurisdiction as 'ca' | 'au' | 'uk', tripYear, ytd).ratePerUnitCents;
   } else {
     ratePerUnitCents = getMileageRate('us', tripYear, 0).ratePerUnitCents;
   }

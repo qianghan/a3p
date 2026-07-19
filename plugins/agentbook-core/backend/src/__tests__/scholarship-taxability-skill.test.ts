@@ -103,4 +103,18 @@ describe('scholarship-taxability — jurisdiction-specific system prompt', () =>
     const system = capturedSystemPrompt();
     expect(system).toContain("The user's tax jurisdiction is the United States");
   });
+
+  it('UK jurisdiction: gives an honest decline instead of silently answering with US IRS Pub 970 rules', async () => {
+    // 'uk' is a real value elsewhere in this codebase (see
+    // jurisdiction-currency.ts). Before the fix it fell through to the
+    // ternary's default branch — labelled "the United States" and answered
+    // with IRS content — since this skill's `rules` text only ever covered
+    // US/CA/AU. This skill short-circuits before calling Gemini at all, so
+    // no system prompt is captured; assert on the returned message instead.
+    const result = await executeClassification(classification({ jurisdiction: 'uk' }), 'is my scholarship taxable?', 'tenant-1', 'api');
+    expect(mockFetch).not.toHaveBeenCalled();
+    expect((result as any).responseData.message).toContain("doesn't have verified UK scholarship");
+    expect((result as any).responseData.message).not.toContain('IRS');
+    expect((result as any).responseData.message).not.toContain('AOTC');
+  });
 });

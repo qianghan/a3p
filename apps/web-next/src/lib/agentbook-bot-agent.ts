@@ -2179,20 +2179,20 @@ export async function executeStep(step: PlanStep, ctx: BotContext): Promise<Exec
           return { stepId: step.id, success: false, error: 'miles must be positive' };
         }
 
-        // Snapshot the tenant's jurisdiction at booking time. CRA tier
+        // Snapshot the tenant's jurisdiction at booking time. CRA/HMRC tier
         // selection rolls forward from the YTD-before-this-trip total.
         const cfg = await db.abTenantConfig.findUnique({
           where: { userId: ctx.tenantId },
           select: { jurisdiction: true },
         });
-        const jurisdiction: 'us' | 'ca' | 'au' =
-          cfg?.jurisdiction === 'ca' || cfg?.jurisdiction === 'au' ? cfg.jurisdiction : 'us';
+        const jurisdiction: 'us' | 'ca' | 'au' | 'uk' =
+          cfg?.jurisdiction === 'ca' || cfg?.jurisdiction === 'au' || cfg?.jurisdiction === 'uk' ? cfg.jurisdiction : 'us';
         const date = new Date();
         const year = date.getUTCFullYear();
         const unit: 'mi' | 'km' = unitArg || (jurisdiction === 'ca' || jurisdiction === 'au' ? 'km' : 'mi');
 
         let ytd = 0;
-        if (jurisdiction === 'ca' || jurisdiction === 'au') {
+        if (jurisdiction === 'ca' || jurisdiction === 'au' || jurisdiction === 'uk') {
           // YTD-before-this-trip: filter on `date < trip-date` (not the
           // year-end boundary) so a backdated trip doesn't accidentally
           // see future km in its tier picker.
@@ -3047,9 +3047,9 @@ export async function executeStep(step: PlanStep, ctx: BotContext): Promise<Exec
       // ─── Per-diem (PR 14) ────────────────────────────────────────
       // Records N daily AbExpense rows at the GSA M&IE rate (or
       // M&IE + lodging when the option is `lodging_and_mie`). For
-      // CA tenants we short-circuit with a "not supported" message —
-      // CRA doesn't recognise GSA per-diems for non-incorporated
-      // freelancers, so we keep Maya safe.
+      // CA/AU/UK tenants we short-circuit with a "not supported"
+      // message — GSA per-diems are a US-only construct, so we keep
+      // non-US tenants from getting silently-wrong US-shaped output.
       case 'per_diem.record': {
         const cityHint = (step.args.cityHint as string | undefined) || '';
         const days = step.args.days as number | undefined;
@@ -3057,14 +3057,14 @@ export async function executeStep(step: PlanStep, ctx: BotContext): Promise<Exec
         const endDate = step.args.endDate as string | undefined;
         const option = (step.args.option as 'mie_only' | 'lodging_and_mie' | undefined) || 'mie_only';
 
-        // CA/AU short-circuit: per-diem is a US-IRS construct.
+        // CA/AU/UK short-circuit: per-diem is a US-IRS (GSA) construct.
         const cfg = await db.abTenantConfig.findUnique({
           where: { userId: ctx.tenantId },
           select: { jurisdiction: true },
         });
         const jurisdiction = cfg?.jurisdiction || 'us';
-        if (jurisdiction === 'ca' || jurisdiction === 'au') {
-          const label = jurisdiction === 'ca' ? 'CA' : 'AU';
+        if (jurisdiction === 'ca' || jurisdiction === 'au' || jurisdiction === 'uk') {
+          const label = jurisdiction.toUpperCase();
           return {
             stepId: step.id,
             success: true,
