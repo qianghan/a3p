@@ -26,10 +26,16 @@ async function json<T>(r: Response): Promise<T> {
 }
 
 export const billingApi = {
-  // Admin plan management needs every region's plans, not just the
-  // caller's own tenant jurisdiction — see plans/route.ts's `?all=true`
-  // admin-gated bypass.
+  // Tenant-facing plan list (PlanGrid) — scoped server-side to the caller's
+  // own jurisdiction. Do NOT add `?all=true` here: that's the admin-gated
+  // bypass used by listAllPlans() below, and requireAdmin() 403s for
+  // ordinary tenants.
   listPlans: async (): Promise<Plan[]> =>
+    (await json<{ plans: Plan[] }>(await fetch('/api/v1/agentbook-billing/plans'))).plans,
+  // Admin plan management (PlanList) needs every region's plans, not just
+  // the caller's own tenant jurisdiction — see plans/route.ts's `?all=true`
+  // admin-gated bypass.
+  listAllPlans: async (): Promise<Plan[]> =>
     (await json<{ plans: Plan[] }>(await fetch('/api/v1/agentbook-billing/plans?all=true'))).plans,
   listTemplates: async (): Promise<PlanTemplate[]> =>
     (await json<{ templates: PlanTemplate[] }>(await fetch('/api/v1/agentbook-billing/templates'))).templates,

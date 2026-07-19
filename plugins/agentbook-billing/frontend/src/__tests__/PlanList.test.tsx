@@ -6,7 +6,7 @@ const mockListPlans = vi.fn();
 const mockArchivePlan = vi.fn();
 vi.mock('../lib/api', () => ({
   billingApi: {
-    listPlans: () => mockListPlans(),
+    listAllPlans: () => mockListPlans(),
     archivePlan: (id: string) => mockArchivePlan(id),
   },
 }));
