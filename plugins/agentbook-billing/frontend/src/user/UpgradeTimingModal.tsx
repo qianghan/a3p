@@ -4,10 +4,14 @@ import { meApi, type Plan, type ProratePreview } from '../lib/api';
 const CURRENCY_LOCALE: Record<string, string> = { usd: 'en-US', cad: 'en-CA', aud: 'en-AU' };
 
 function fmtCents(cents: number, currency: string): string {
+  // Unlike catalog plan prices (always whole dollars), preview.proratedAmountCents
+  // comes straight from Stripe's upcoming-invoice proration and is rarely a round
+  // number — keep both decimal places so the charge shown matches what Stripe bills.
   return (cents / 100).toLocaleString(CURRENCY_LOCALE[currency] ?? 'en-US', {
     style: 'currency',
     currency: currency.toUpperCase(),
-    maximumFractionDigits: 0,
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
   });
 }
 
