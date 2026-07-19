@@ -335,6 +335,73 @@ Run the Phase Gate Protocol against the top AU players already researched (Xero,
 
 ---
 
+# Phase 4 — Cross-Surface Parity Remediation
+
+**Why this phase exists:** after AU-2 through AU-8 shipped, a three-agent audit (web dashboard UI, Telegram/MCP chat, PWA path) was run against every CA/AU capability this roadmap and its predecessor ("Launch-gap") shipped, checking whether each is actually reachable and correct from all three surfaces — not just "the API route works." The audit found real gaps, including one that predates this whole roadmap and isn't CA/AU-specific in cause: **`tax/estimate/route.ts` (the shared route behind both the web Tax Dashboard's headline number and the chat "estimate my taxes" skill) computes CA tax as federal-bracket-only — `caTaxBrackets.calculateTax()` never accepts or applies a province argument at all, despite the route already fetching `tenantConfig.region`.** Every Canadian tenant, on every surface, has been seeing an estimate that omits their entire provincial tax component. This was not caught by CA-1 (which fixed the separate T1-form auto-populate route's provincial fallback) or by CA-GATE (which audited CA-1 through CA-5's own claimed scope, not this adjacent shared route) — it surfaces only from this cross-surface check.
+
+**Architecture:** Same PR-cycle discipline as Phases 1-3 — worktree → per-PR plan (writing-plans) → SDD execution (implementer + reviewer) → whole-branch review → CI → merge. PRs are grouped by root cause (one fix, many call sites) rather than by market, since several findings are the same bug class recurring across CA and AU.
+
+## Severity-tagged findings
+
+| # | Finding | Surface(s) | Severity |
+|---|---|---|---|
+| 1 | `tax/estimate/route.ts`'s CA path computes federal tax only — `caTaxBrackets` never takes a province argument, so every CA tenant's "estimated tax" (web Tax Dashboard headline number + chat `tax-estimate` skill) omits provincial tax entirely. | Web + Chat | **High** |
+| 2 | Chat's `simulate-scenario` skill ("what if I earn/spend X more") computes tax impact via `deriveEffectiveRate(taxEstimate) \|\| 0.25` — a flat average-rate approximation — instead of calling the real bracket engine the way the already-fixed web `cashflow/scenario` route does. Imprecise for any progressive-bracket jurisdiction, most visibly wrong for AU where marginal rates swing from 0% to 45%. | Chat | **High** |
+| 3 | `WhatIf.tsx` (the web cashflow-scenario UI) hardcodes `$` + `en-US` formatting — an AU tenant's real, AU-correct tax figures (after AU-3's backend fix) are displayed with a bare `$` and USD grouping, not AUD. | Web UI | **Medium** |
+| 4 | `TaxPackage.tsx`'s `jurisdiction` type is `'us' \| 'ca'` only; an AU tax-package's totals fall back to USD formatting, and no AU form-name label is shown anywhere on the page (the correct "ATO Individual Tax Return" label only exists inside the generated PDF, per AU-6). | Web UI | **Medium** |
+| 5 | `plugins/agentbook-billing/frontend/src/user/PlanGrid.tsx` hardcodes `${'$'}${price.toFixed(0)}` — CAD/AUD core-plan prices (CA-4/AU-5) render with a USD-looking `$` in the plan-picker UI that actually gates checkout, unlike the currency-correct `BillingTab`/`SubscribeModal`. | Web UI | **Medium** |
+| 6 | The web "Connect bank" button (`personal/page.tsx`) has zero AU-awareness — it unconditionally calls Plaid and surfaces a generic opaque failure for AU tenants, even though the chat path (AU-7) already gives an honest, specific decline message. | Web UI | **Medium** |
+| 7 | Chat has no Single Touch Payroll disclosure — `run-payroll`/`payroll-status` skills never read jurisdiction or mention STP, even though the web Payroll page (AU-8) now does. An AU employer running payroll via Telegram gets no disclosure at all. | Chat | **Medium** |
+| 8 | Chat has no tax-deadline countdown for any jurisdiction — "when is my tax due" returns a static generic reply; `au/calendar-deadlines.ts` (already wired into the web digest via AU-6) is never imported by any chat/bot surface. | Chat | **Medium** |
+| 9 | Quebec's QPP/QPIP/QC-EI (CA-2) are computed correctly but collapsed into one generic `ficaCents` figure everywhere they're displayed — web pay stubs, year-end tab, and the chat `run-payroll` skill (which is itself only a gross-pay preview stub with no withholding math or jurisdiction awareness at all). | Web + Chat | **Medium** |
+| 10 | Service worker's `/api/v1/agentbook` cache rule matches by prefix, not exact namespace — it now silently sweeps in compute-on-read GETs (`tax/estimate`) and binary PDF/CSV downloads (T4/T4A/tax-package/mileage-export) added since the rule was written for the original expense/invoice namespace. No TTL exists, so an offline/flaky-network session can serve a stale tax estimate or an outdated regenerated document until the cache version is next bumped. | PWA | **Medium** |
+| 11 | `Mileage.tsx`'s rate is only shown per-row after saving (no upfront preview like `PerDiem.tsx` has); its `jurisdiction` type omits `'au'`; its CSV export button is labeled "Schedule C / T2125 format" regardless of tenant jurisdiction. `PerDiem.tsx` shows a hardcoded US-city preview table and only declines for AU/CA reactively, after a failed submit. `Tax Dashboard`'s Pty Ltd (AU-4) tax figure has no entity-type explanation shown — the number changes but nothing tells the user why, and the breakdown labels ("SE Tax / CPP") are US/CA-centric even for an AU tenant. | Web UI | **Low** |
+| 12 | Mileage has no offline-queue entry (`replayExpenseQueue`/`replayReceiptQueue`'s sibling would be a `replayMileageQueue` that doesn't exist) — currently unreachable in practice since no PWA-installed page writes mileage directly, but latent for whenever one does. `/app/page.tsx` (the PWA install shortcut's home) hardcodes `en-US` currency grouping. | PWA | **Low** |
+
+**Not planned as remediation (explicitly out of scope, noted for completeness):** no chat skill exists at all for T4/T4A slip generation, core-plan pricing/upgrade, or chart-of-accounts read-back, for any jurisdiction — these are missing capabilities, not jurisdiction-specific regressions, and adding net-new chat skills is a larger product decision than a parity fix. Logged here so "missing" isn't confused with "silently broken."
+
+## Remediation PRs
+
+### PR PARITY-1 (High): Fix the shared tax-estimate route's CA federal-only bug
+**Files:** `packages/agentbook-jurisdictions/src/ca/tax-brackets.ts` (`caTaxBrackets.calculateTax` — widen to accept and apply a province argument, reusing the real `PROVINCIAL_BRACKETS`/`PROVINCIAL_TAX` data already correct in `plugins/agentbook-tax/backend/src/tax-forms.ts` rather than re-deriving it); `apps/web-next/src/app/api/v1/agentbook-tax/tax/estimate/route.ts` (thread the already-fetched `region` into the CA bracket call it currently discards).
+**Acceptance criteria:** a CA tenant's `tax/estimate` response includes their real province's provincial tax in `totalTaxCents`, on both the web Tax Dashboard and the chat `tax-estimate` skill (same route, so one fix closes both). US/AU/UK behavior unchanged. A regression test pins at least 3 provinces' combined federal+provincial figures against hand-computed values.
+
+### PR PARITY-2 (High): Fix the chat scenario-simulator's tax-impact approximation
+**Files:** `plugins/agentbook-core/backend/src/server.ts` (`simulate-scenario` handler, ~line 2462) — replace the flat `deriveEffectiveRate(...) || 0.25` approximation with a call into the same jurisdiction-aware bracket/SE-tax engine `cashflow/scenario/route.ts` already uses (via an HTTP call to that route, or a shared extracted helper — whichever avoids duplicating the engine a third time).
+**Acceptance criteria:** the "what if" chat skill's tax-impact number matches the already-fixed `cashflow/scenario` web route's figure for the same inputs, across US/CA/AU. No fallback to a flat rate for any jurisdiction with a real bracket provider.
+
+### PR PARITY-3 (Medium): Currency-display sweep — thread real tenant currency into every hardcoded-USD UI surface
+**Files:** `plugins/agentbook-tax/frontend/src/pages/WhatIf.tsx`, `plugins/agentbook-tax/frontend/src/pages/TaxPackage.tsx` (also widen its `jurisdiction` type to include `'au'`/`'uk'` and add the missing AU/CA/US form-name label), `plugins/agentbook-billing/frontend/src/user/PlanGrid.tsx`, `apps/web-next/src/app/(dashboard)/payroll/page.tsx` (`fmt$`), `apps/web-next/src/app/app/page.tsx` — all reuse the already-established `useTenantCurrency()`/`formatCurrencyCents` pattern already correctly used by `CashFlow.tsx` and `BillingTab`/`SubscribeModal`, not a new formatter.
+**Acceptance criteria:** every listed surface displays AUD/CAD (not a bare `$`/en-US) for a tenant configured in that currency; a visual/snapshot check confirms the plan-picker (`PlanGrid.tsx`) specifically, since it's the one that gates a real checkout action.
+
+### PR PARITY-4 (Medium): AU-aware web bank-connect button
+**Files:** `apps/web-next/src/app/(dashboard)/personal/page.tsx` — read the already-fetched `jurisdiction` state before calling `handleStartBankConnect`; for AU, show the same honest message already shipped for chat (AU-7) instead of attempting the Plaid call and surfacing an opaque failure.
+**Acceptance criteria:** an AU tenant sees the message before attempting to connect, not after a failed API call; US/CA behavior unchanged.
+
+### PR PARITY-5 (Medium): Chat parity sweep — STP disclosure + tax-deadline countdown
+**Files:** `plugins/agentbook-core/backend/src/server.ts` (`run-payroll`/`payroll-status` handlers — add the same AU STP disclosure text already shipped on the web Payroll page, gated the same way); the "when is my tax due"/daily-briefing handlers (`agent-brain.ts`, `server.ts`) — wire in `PACKS[jurisdiction].calendarDeadlines.getDeadlines(...)` (the same mechanism `agentbook-digest-tips.ts` already uses post-AU-6) instead of the static generic reply.
+**Acceptance criteria:** an AU tenant asking the bot to run payroll sees the STP disclosure; asking "when is my tax due" gets a real, jurisdiction-correct next-deadline answer instead of "what country/state are you in."
+
+### PR PARITY-6 (Medium): Itemize Quebec QPP/QPIP + give chat payroll real withholding math
+**Files:** `apps/web-next/src/app/(dashboard)/payroll/page.tsx` (pay-stub and year-end rows — break out the pension/EI/QPIP components `splitCaDeductions` already computes, instead of one combined figure); `plugins/agentbook-core/backend/src/server.ts` (`run-payroll` chat handler — call the real `payroll-engine.ts` withholding calculation instead of a gross-only stub, for every jurisdiction, not just CA).
+**Acceptance criteria:** a Quebec employee's pay stub (web) shows QPP/QPIP/QC-EI as distinct lines; the chat `run-payroll` reply shows real net pay after real withholding, matching what the web Payroll page would compute for the same run.
+
+### PR PARITY-7 (Medium): Scope the service-worker cache rule
+**Files:** `apps/web-next/public/sw.js` — narrow the `/api/v1/agentbook` prefix match to an explicit allowlist (or add an explicit exclusion for compute-on-read GETs like `tax/estimate` and binary-download routes like the T4/T4A/tax-package/mileage-export endpoints), so these routes are always network-only, never served stale.
+**Acceptance criteria:** `tax/estimate` and every binary-download route always hit the network when online; offline behavior for the routes this rule was actually written for (expenses/invoices/trial balance) is unchanged.
+
+### PR PARITY-8 (Low): Type completeness + minor UX polish
+**Files:** `plugins/agentbook-expense/frontend/src/pages/Mileage.tsx` (widen `jurisdiction` type to include `'au'`; add a rate preview before submission; make the CSV export label jurisdiction-aware instead of always "Schedule C / T2125"); `plugins/agentbook-expense/frontend/src/pages/PerDiem.tsx` (show the AU/CA decline message upfront based on tenant jurisdiction, not only after a failed submit; drop the hardcoded-US-city preview's implicit "this works for you" framing for non-US tenants); `plugins/agentbook-tax/frontend/src/pages/TaxDashboard.tsx` (add a one-line entity-type explanation string next to the AU Pty Ltd tax figure).
+**Acceptance criteria:** each item above individually verified; no acceptance criteria spans jurisdictions this roadmap doesn't already support.
+
+**Explicitly deferred, not a PR here:** mileage offline-queue coverage (Finding #12) — logged as a known gap, revisit only if/when a PWA-writable mileage-capture UI actually ships, since no current code path can reach it.
+
+## Execution note
+
+PARITY-1 and PARITY-2 are the highest-value fixes — they're real money-estimate correctness bugs affecting every CA tenant (PARITY-1) and every AU/CA "what-if" chat query (PARITY-2), not cosmetic gaps. Recommend executing in the order listed (1 → 8), since PARITY-3 depends on nothing from 1/2 but shares no blocking dependency either — the ordering is by severity, not by technical prerequisite. Each PR follows the same worktree → plan → SDD → review → CI → merge cycle used throughout Phases 1-3.
+
+---
+
 ## Final Sign-off
 
 Once all three Gate tasks report a clean (zero Critical/High/Medium) result in sequence, AgentBook is launch-ready for US, CA, and AU per this roadmap's definition. Produce a final one-page summary (reusing the existing HTML-artifact reporting pattern) stating, per market: the SWOT, the verdict, and any Low-severity items intentionally deferred — so "launch ready" is a documented conclusion, not an assumption.
