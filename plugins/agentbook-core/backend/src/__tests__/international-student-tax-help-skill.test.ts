@@ -118,15 +118,18 @@ describe('international-student-tax-help — jurisdiction-specific system prompt
     expect(system).not.toContain('US-China tax treaty');
   });
 
-  it('UK jurisdiction (a real value elsewhere in this codebase, e.g. jurisdiction-currency.ts): does not render a literal "Treaty specifics: null" — falls through to the US-labeled branch with the honest generic fallback', async () => {
-    // 'uk' isn't 'au' or 'ca', so it falls through to the same rules branch
-    // as 'us'. Before the self-review fix, treatyNote was null'd for any
-    // jurisdiction !== 'us', which — since this branch always interpolates
-    // treatyNote — would have rendered the literal string "Treaty specifics:
-    // null" for this jurisdiction.
+  it('UK jurisdiction: gives the honest "not yet available" fallback, no US-specific content (regression guard for the UK silent-wrong-US-output bug)', async () => {
+    // 'uk' is a real value elsewhere in this codebase (see
+    // jurisdiction-currency.ts). It used to fall through to the same
+    // US-labeled rules branch as 'us', silently answering UK students with
+    // US Form 1040-NR / FICA / treaty content. It now gets its own honest
+    // decline, mirroring the CA branch.
     await executeClassification(classification({ jurisdiction: 'uk', homeCountry: 'fr' }), 'what does my visa status mean for my taxes?', 'tenant-1', 'api');
     const system = capturedSystemPrompt();
+    expect(system).toContain("AgentBook does not yet have verified, UK-specific international-student tax content");
     expect(system).not.toContain('Treaty specifics: null');
-    expect(system).toContain("I don't have verified treaty specifics for your country memorized");
+    expect(system).not.toContain('FICA');
+    expect(system).not.toContain('1040-NR');
+    expect(system).not.toContain('Form 8843');
   });
 });

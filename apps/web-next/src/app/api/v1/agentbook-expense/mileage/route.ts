@@ -29,7 +29,7 @@ interface CreateMileageBody {
   unit?: 'mi' | 'km';
   purpose?: string;
   clientId?: string;
-  jurisdictionOverride?: 'us' | 'ca' | 'au';
+  jurisdictionOverride?: 'us' | 'ca' | 'au' | 'uk';
 }
 
 const PURPOSE_MAX = 500;
@@ -86,8 +86,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
     // Jurisdiction snapshot: prefer override (the bot passes it after
     // looking it up), else read from tenant config, else default 'us'.
-    let jurisdiction: 'us' | 'ca' | 'au' =
-      body.jurisdictionOverride === 'ca' || body.jurisdictionOverride === 'au'
+    let jurisdiction: 'us' | 'ca' | 'au' | 'uk' =
+      body.jurisdictionOverride === 'ca' || body.jurisdictionOverride === 'au' || body.jurisdictionOverride === 'uk'
         ? body.jurisdictionOverride
         : 'us';
     if (!body.jurisdictionOverride) {
@@ -95,7 +95,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         where: { userId: tenantId },
         select: { jurisdiction: true },
       });
-      jurisdiction = cfg?.jurisdiction === 'ca' || cfg?.jurisdiction === 'au' ? cfg.jurisdiction : 'us';
+      jurisdiction = cfg?.jurisdiction === 'ca' || cfg?.jurisdiction === 'au' || cfg?.jurisdiction === 'uk' ? cfg.jurisdiction : 'us';
     }
 
     const date = body.date ? new Date(body.date) : new Date();
@@ -110,8 +110,10 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
     // AU's ATO rate doesn't tier on YTD km (see Task 1), but we still
     // compute it for AU so the rate lookup's `reason`/tierDescription
-    // stays accurate if a future rate table adds tiering.
-    const ytd = jurisdiction === 'ca' || jurisdiction === 'au'
+    // stays accurate if a future rate table adds tiering. UK genuinely
+    // tiers on YTD miles (HMRC AMAP: 45p/mi for the first 10,000 miles,
+    // 25p/mi after), so this is load-bearing there, not just cosmetic.
+    const ytd = jurisdiction === 'ca' || jurisdiction === 'au' || jurisdiction === 'uk'
       ? await ytdMilesOrKm(tenantId, date, unit)
       : 0;
     const rate = getMileageRate(jurisdiction, year, ytd);

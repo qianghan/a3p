@@ -4,9 +4,9 @@
  *   POST creates N daily AbExpense rows at the GSA M&IE rate (or
  *        M&IE + lodging when `includeLodging=true`) for the given city.
  *        All rows are tagged `taxCategory='per_diem'` so the year-end
- *        aggregator can distinguish them from itemised meals. CA tenants
- *        get a 422 with a "not supported yet" message — per-diem is an
- *        IRS-only construct in this MVP.
+ *        aggregator can distinguish them from itemised meals. CA/AU/UK
+ *        tenants get a 422 with a "not supported yet" message — per-diem
+ *        is a GSA (US-only) construct in this MVP.
  *
  *   GET  lists per-diem entries (rows where `taxCategory='per_diem'`)
  *        for the dashboard preview.
@@ -55,15 +55,15 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       );
     }
 
-    // CA tenants — short-circuit with a friendly message (matches the
-    // bot copy). 422 keeps it distinct from validation errors.
+    // CA/AU/UK tenants — short-circuit with a friendly message (matches
+    // the bot copy). 422 keeps it distinct from validation errors.
     const cfg = await db.abTenantConfig.findUnique({
       where: { userId: tenantId },
       select: { jurisdiction: true },
     });
     const jurisdiction = cfg?.jurisdiction || 'us';
-    if (jurisdiction === 'ca' || jurisdiction === 'au') {
-      const label = jurisdiction === 'ca' ? 'CA' : 'AU';
+    if (jurisdiction === 'ca' || jurisdiction === 'au' || jurisdiction === 'uk') {
+      const label = jurisdiction.toUpperCase();
       return NextResponse.json(
         {
           success: false,

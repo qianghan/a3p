@@ -12,7 +12,7 @@ interface MileageEntry {
   unit: 'mi' | 'km';
   purpose: string;
   clientId: string | null;
-  jurisdiction: 'us' | 'ca' | 'au';
+  jurisdiction: 'us' | 'ca' | 'au' | 'uk';
   ratePerUnitCents: number;
   deductibleAmountCents: number;
   journalEntryId: string | null;
@@ -56,12 +56,16 @@ interface Client {
 const fmtMoney = (cents: number, ccy = 'USD') => formatMoney(cents, ccy);
 
 // Display-only rate preview, mirroring the real backend rates (see
-// packages/agentbook-jurisdictions/src/{us,ca,au}/mileage-rate.ts) so the
-// user sees roughly what they're about to commit to before saving — the
-// backend's own calculation at POST time remains the source of truth.
-function ratePreview(jurisdiction: 'us' | 'ca' | 'au', ytdMiles: number): string {
+// apps/web-next/src/lib/agentbook-mileage-rates.ts) so the user sees
+// roughly what they're about to commit to before saving — the backend's
+// own calculation at POST time remains the source of truth.
+function ratePreview(jurisdiction: 'us' | 'ca' | 'au' | 'uk', ytdMiles: number): string {
   if (jurisdiction === 'us') return '67¢/mi (IRS standard rate)';
   if (jurisdiction === 'au') return '88¢/km (ATO cents-per-km method)';
+  if (jurisdiction === 'uk') {
+    // HMRC AMAP tiered rate — 45p/mile for the first 10,000 miles/year, 25p/mile after.
+    return ytdMiles >= 10000 ? '25p/mi (HMRC AMAP, over 10,000 mi YTD)' : '45p/mi (HMRC AMAP, first 10,000 mi YTD)';
+  }
   // CA: CRA tiered rate — 72¢/km for the first 5,000 km/year, 66¢/km after.
   return ytdMiles >= 5000 ? '66¢/km (CRA, over 5,000 km YTD)' : '72¢/km (CRA, first 5,000 km YTD)';
 }
@@ -81,7 +85,7 @@ export const MileagePage: React.FC = () => {
   const [clientId, setClientId] = useState('');
   const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [tenantCurrency, setTenantCurrency] = useState('USD');
-  const [tenantJurisdiction, setTenantJurisdiction] = useState<'us' | 'ca' | 'au'>('us');
+  const [tenantJurisdiction, setTenantJurisdiction] = useState<'us' | 'ca' | 'au' | 'uk'>('us');
 
   const load = async () => {
     try {
@@ -156,10 +160,11 @@ export const MileagePage: React.FC = () => {
     window.open(`${API}/mileage/export?year=${year}&format=csv`, '_blank');
   };
 
-  const EXPORT_LABEL: Record<'us' | 'ca' | 'au', string> = {
+  const EXPORT_LABEL: Record<'us' | 'ca' | 'au' | 'uk', string> = {
     us: 'Export YTD as CSV (Schedule C format)',
     ca: 'Export YTD as CSV (T2125 format)',
     au: 'Export YTD as CSV (myTax logbook format)',
+    uk: 'Export YTD as CSV (Self Assessment format)',
   };
 
   const ytd = summary?.ytd;

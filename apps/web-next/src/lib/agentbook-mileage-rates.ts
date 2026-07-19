@@ -11,12 +11,22 @@
  *     rate is 72¢/km for the first 5,000 km driven for business in the
  *     calendar year, and 66¢/km thereafter (extra 4¢/km in NT, NU, YT,
  *     not modelled — that's PR 5+ scope).
+ *   • UK (HMRC) — Approved Mileage Allowance Payments (AMAP): 45p/mile for
+ *     the first 10,000 business miles in the tax year, 25p/mile thereafter.
+ *     Tiered here directly (like CA below) rather than delegated to the
+ *     jurisdictions package's `ukMileageRate` — that helper computes a
+ *     blended average rate over the *entire* cumulative total, which
+ *     answers a different question ("what's my average rate for the
+ *     year") than the one this file needs ("what flat rate applies to
+ *     THIS new trip"); delegating to it here would overcharge tenants who
+ *     are well past the 10,000-mile threshold instead of correctly
+ *     applying the flat 25p/mile marginal rate.
  *
  * Boundary policy (MVP):
- *   We do NOT split a single trip across the 5,000 km boundary; whichever
- *   tier the cumulative-YTD-before-this-trip lands in is what the entire
- *   trip uses. The simpler rule keeps the journal entry single-line and
- *   reversible. Mid-trip splits land in a follow-up.
+ *   We do NOT split a single trip across the 5,000 km / 10,000 mi boundary;
+ *   whichever tier the cumulative-YTD-before-this-trip lands in is what the
+ *   entire trip uses. The simpler rule keeps the journal entry single-line
+ *   and reversible. Mid-trip splits land in a follow-up.
  *
  *   Worked example:
  *     Maya is at 4,990 km YTD (Canada tenant) and logs a 50 km trip.
@@ -37,6 +47,10 @@ export const CRA_TIER_BREAK_KM = 5_000;
 export const CRA_LOW_TIER_CENTS_PER_KM = 72;
 export const CRA_HIGH_TIER_CENTS_PER_KM = 66;
 
+export const HMRC_TIER_BREAK_MILES = 10_000;
+export const HMRC_LOW_TIER_PENCE_PER_MI = 45;
+export const HMRC_HIGH_TIER_PENCE_PER_MI = 25;
+
 export interface RateLookup {
   ratePerUnitCents: number;
   unit: 'mi' | 'km';
@@ -47,20 +61,21 @@ export interface RateLookup {
  * Resolve the per-unit deductible mileage rate for a given trip.
  *
  * @param jurisdiction `'us'` (mile-based, flat), `'ca'` (km-based, tiered),
- *                      or `'au'` (km-based, flat ATO cents-per-km method).
+ *                      `'au'` (km-based, flat ATO cents-per-km method), or
+ *                      `'uk'` (mile-based, HMRC AMAP tiered).
  * @param year         calendar year of the trip (used for US rate lookup).
  * @param milesOrKmThisYear
- *   total miles (US) or km (CA) the user has already accumulated **this
- *   calendar year** before this trip. Drives CRA tier selection; ignored
- *   for US. Pass `0` if this is the first trip of the year.
+ *   total miles (US/UK) or km (CA) the user has already accumulated **this
+ *   calendar year** before this trip. Drives CRA/HMRC tier selection;
+ *   ignored for US/AU. Pass `0` if this is the first trip of the year.
  *
  * @returns rate in cents per unit, the unit (`mi` or `km`), and a short
  *   `reason` string suitable for memo lines / audit logs.
  *
- * Throws if `jurisdiction` is anything other than `'us'` / `'ca'`.
+ * Throws if `jurisdiction` is anything other than `'us'` / `'ca'` / `'au'` / `'uk'`.
  */
 export function getMileageRate(
-  jurisdiction: 'us' | 'ca' | 'au',
+  jurisdiction: 'us' | 'ca' | 'au' | 'uk',
   year: number,
   milesOrKmThisYear: number,
 ): RateLookup {
@@ -120,7 +135,24 @@ export function getMileageRate(
     };
   }
 
+  if (jurisdiction === 'uk') {
+    // HMRC AMAP method — tiered like CA (flat rate per whichever bucket
+    // YTD-before-this-trip lands in), but on a mileage (not km) basis.
+    if (milesOrKmThisYear < HMRC_TIER_BREAK_MILES) {
+      return {
+        ratePerUnitCents: HMRC_LOW_TIER_PENCE_PER_MI,
+        unit: 'mi',
+        reason: `HMRC AMAP rate, first ${HMRC_TIER_BREAK_MILES.toLocaleString('en-GB')} miles tier (45p/mi)`,
+      };
+    }
+    return {
+      ratePerUnitCents: HMRC_HIGH_TIER_PENCE_PER_MI,
+      unit: 'mi',
+      reason: `HMRC AMAP rate, after ${HMRC_TIER_BREAK_MILES.toLocaleString('en-GB')} miles (25p/mi)`,
+    };
+  }
+
   throw new Error(
-    `Unknown jurisdiction "${jurisdiction}" — supported: 'us' | 'ca' | 'au'`,
+    `Unknown jurisdiction "${jurisdiction}" — supported: 'us' | 'ca' | 'au' | 'uk'`,
   );
 }

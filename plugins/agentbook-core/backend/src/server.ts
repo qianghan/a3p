@@ -3960,6 +3960,25 @@ async function _executeClassificationCore(
   if (selectedSkill.name === 'scholarship-taxability') {
     try {
       const jurisdiction = (classification.tenantConfig?.jurisdiction || 'us').toLowerCase();
+
+      // UK — this skill's rules text only covers US/CA/AU (see the joined
+      // `rules` string below, always fed to the LLM in full). Without this
+      // guard, a UK tenant silently got labelled "the United States" (the
+      // ternary's default branch) and was answered with IRS Pub 970 rules,
+      // which don't apply in the UK. Short-circuit with an honest decline
+      // instead of guessing at HMRC scholarship-taxability rules — same
+      // pattern as the CA branch in international-student-tax-help below.
+      if (jurisdiction === 'uk') {
+        const reply = "AgentBook doesn't have verified UK scholarship/bursary tax rules yet — HMRC's treatment differs from the US/CA/AU rules covered here, so I'd rather send you to the real source than guess. Check gov.uk's guidance on tax-free scholarships and student income, or ask an accountant familiar with UK student finance.";
+        await db.abConversation.create({
+          data: { tenantId, question: text || 'Is my scholarship taxable?', answer: reply, queryType: 'agent', channel, skillUsed: 'scholarship-taxability' },
+        }).catch(() => {});
+        return {
+          selectedSkill, extractedParams, confidence, skillUsed: 'scholarship-taxability', skillResponse: null,
+          responseData: { message: reply, skillUsed: 'scholarship-taxability', confidence, latencyMs: Date.now() - startTime },
+        };
+      }
+
       const rules = [
         'US rules (IRS Pub 970):',
         '- A scholarship/fellowship is tax-free only if the student is a degree candidate AND the money is spent on tuition, required fees, or required course materials.',
@@ -4033,18 +4052,14 @@ async function _executeClassificationCore(
       const jurisdiction = (classification.tenantConfig?.jurisdiction || 'us').toLowerCase();
 
       // Treaty specifics are US-specific facts (Article numbers, IRS treaty
-      // tables) — they must never be shown to a Canada- or Australia-
-      // jurisdiction student, which was a real, pre-existing bug: this used
-      // to key off homeCountry alone, so a Canada-jurisdiction student from
-      // China was already being told about "the US-China tax treaty."
-      // Gated on the same condition as the `rules` branch below (au/ca get
-      // their own dedicated content that never references treatyNote) rather
-      // than on `jurisdiction === 'us'` directly — jurisdiction also has a
-      // real 'uk' value elsewhere in this codebase (see jurisdiction-
-      // currency.ts) which currently falls through to this same US-labeled
-      // rules branch below, and that branch always interpolates treatyNote;
-      // gating on `!== 'us'` would render "Treaty specifics: null" for it.
-      const treatyNote = (jurisdiction === 'au' || jurisdiction === 'ca')
+      // tables) — they must never be shown to a Canada-, Australia-, or
+      // UK-jurisdiction student, which was a real, pre-existing bug: this
+      // used to key off homeCountry alone, so a Canada-jurisdiction student
+      // from China was already being told about "the US-China tax treaty."
+      // Gated on the same condition as the `rules` branch below (au/ca/uk
+      // each get their own dedicated content that never references
+      // treatyNote) rather than on `jurisdiction === 'us'` directly.
+      const treatyNote = (jurisdiction === 'au' || jurisdiction === 'ca' || jurisdiction === 'uk')
         ? null
         : homeCountry === 'cn'
           ? "Since you're from China: the US-China tax treaty (Article 20) can exempt scholarship income and a limited amount of wages from US tax — worth specifically asking Sprintax/GLACIER to check this for you."
@@ -4052,7 +4067,7 @@ async function _executeClassificationCore(
             ? "Since you're from India: the US-India tax treaty (Article 21) is unusual in letting Indian nonresident students claim the US standard deduction, which almost no other treaty nationality can do — make sure whichever tool you file with applies this."
             : "I don't have verified treaty specifics for your country memorized — treaty terms vary a lot and I'd rather send you to the real table than guess. Check IRS Publication 901 (tax treaty tables) or ask Sprintax/GLACIER directly; they apply this automatically when you file.";
 
-      const jurisdictionLabel = jurisdiction === 'ca' ? 'Canada' : jurisdiction === 'au' ? 'Australia' : 'the United States';
+      const jurisdictionLabel = jurisdiction === 'ca' ? 'Canada' : jurisdiction === 'au' ? 'Australia' : jurisdiction === 'uk' ? 'the United Kingdom' : 'the United States';
 
       const rules = jurisdiction === 'au'
         ? [
@@ -4070,7 +4085,12 @@ async function _executeClassificationCore(
               `The user is an international student on a Canadian study permit, tax jurisdiction Canada.`,
               "AgentBook does not yet have verified, Canada-specific international-student tax content (study-permit tax-residency rules, CRA's equivalent of the US Substantial Presence Test, or a CPP/EI exemption analog) — rather than guess or reuse US rules that do not apply in Canada, say plainly that this guidance isn't available for Canada yet and point the user to the CRA's own newcomer/international-student resources (canada.ca, search \"international students and income tax\") or a Canadian tax preparer familiar with study permits.",
             ].join('\n')
-          : [
+          : jurisdiction === 'uk'
+            ? [
+                `The user is an international student on a UK student visa (Student route/Tier 4), tax jurisdiction the United Kingdom.`,
+                "AgentBook does not yet have verified, UK-specific international-student tax content (Student route visa tax-residency rules, HMRC's Statutory Residence Test, or National Insurance exemption analogs) — rather than guess or reuse US rules that do not apply in the UK, say plainly that this guidance isn't available for the UK yet and point the user to HMRC's own guidance for students (gov.uk, search \"tax for international students\") or a UK accountant familiar with student visas.",
+              ].join('\n')
+            : [
               `The user is on an international student visa (F-1/J-1 or similar), tax jurisdiction ${jurisdictionLabel}.`,
               'US nonresident-alien basics: F-1/J-1 students are "exempt individuals" under the Substantial Presence Test for their first 5 calendar years in the US, which means they file Form 1040-NR, not the regular 1040 that domestic students use, and generally CANNOT claim the standard deduction (an unusual exception exists for India, per treaty — see below).',
               'FICA exemption: on-campus employment, and work authorized under CPT/OPT, is exempt from FICA (Social Security + Medicare) tax withholding during nonresident status. If an employer withheld it anyway, that\'s refundable via Form 843 + Form 8316.',
@@ -4098,7 +4118,9 @@ async function _executeClassificationCore(
           ? "I couldn't work through that just now — myTax (via myGov) is the ATO's free e-lodgment portal most students can use directly; a registered tax agent can help with anything complex."
           : jurisdiction === 'ca'
             ? "I couldn't work through that just now — check the CRA's international-student tax resources at canada.ca, or ask a Canadian tax preparer familiar with study permits."
-            : "I couldn't work through that just now — Sprintax (sprintax.com) and GLACIER Tax Prep are the two main tools for nonresident student tax filing, often free through your university's international student office.");
+            : jurisdiction === 'uk'
+              ? "I couldn't work through that just now — check HMRC's guidance for international students at gov.uk, or ask a UK accountant familiar with student visas."
+              : "I couldn't work through that just now — Sprintax (sprintax.com) and GLACIER Tax Prep are the two main tools for nonresident student tax filing, often free through your university's international student office.");
 
       await db.abConversation.create({
         data: { tenantId, question: text || question, answer: reply, queryType: 'agent', channel, skillUsed: 'international-student-tax-help' },

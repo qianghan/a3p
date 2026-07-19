@@ -18,6 +18,9 @@ import {
   US_RATE_2025_CENTS_PER_MI,
   CRA_LOW_TIER_CENTS_PER_KM,
   CRA_HIGH_TIER_CENTS_PER_KM,
+  HMRC_TIER_BREAK_MILES,
+  HMRC_LOW_TIER_PENCE_PER_MI,
+  HMRC_HIGH_TIER_PENCE_PER_MI,
 } from './agentbook-mileage-rates';
 import { auMileageRate } from '@agentbook/jurisdictions';
 
@@ -64,7 +67,7 @@ describe('getMileageRate', () => {
 
   it('unknown jurisdiction throws (fail-loud, not silent fallback)', () => {
     // @ts-expect-error — testing the runtime guard for malformed input.
-    expect(() => getMileageRate('uk', 2025, 0)).toThrow(/jurisdiction/i);
+    expect(() => getMileageRate('xx', 2025, 0)).toThrow(/jurisdiction/i);
   });
 
   it('unknown US year falls back to the latest published US rate', () => {
@@ -111,6 +114,33 @@ describe('AU (ATO cents-per-km method)', () => {
     const source = auMileageRate.getRate(2026, 0);
     const wrapped = getMileageRate('au', 2026, 0);
     expect(wrapped.ratePerUnitCents).toBe(Math.round(source.rate * 100));
+  });
+});
+
+describe('UK (HMRC Approved Mileage Allowance Payments)', () => {
+  it('under the 10,000-mile threshold → flat 45p/mile', () => {
+    const r = getMileageRate('uk', 2026, 0);
+    expect(r.unit).toBe('mi');
+    expect(r.ratePerUnitCents).toBe(HMRC_LOW_TIER_PENCE_PER_MI);
+    expect(r.ratePerUnitCents).toBe(45);
+    expect(r.reason).toMatch(/HMRC/i);
+  });
+
+  it('just below the 10,000-mile threshold → still low tier (45p/mi)', () => {
+    const r = getMileageRate('uk', 2026, HMRC_TIER_BREAK_MILES - 1);
+    expect(r.ratePerUnitCents).toBe(HMRC_LOW_TIER_PENCE_PER_MI);
+  });
+
+  it('at exactly the 10,000-mile threshold → high tier applies (same boundary convention as CA — ≥ break is high tier)', () => {
+    const r = getMileageRate('uk', 2026, HMRC_TIER_BREAK_MILES);
+    expect(r.ratePerUnitCents).toBe(HMRC_HIGH_TIER_PENCE_PER_MI);
+    expect(r.ratePerUnitCents).toBe(25);
+  });
+
+  it('past the 10,000-mile threshold → flat 25p/mile (whole trip uses the tier YTD-before-trip lands in, not a blended average)', () => {
+    const r = getMileageRate('uk', 2026, 10_500);
+    expect(r.unit).toBe('mi');
+    expect(r.ratePerUnitCents).toBe(HMRC_HIGH_TIER_PENCE_PER_MI);
   });
 });
 

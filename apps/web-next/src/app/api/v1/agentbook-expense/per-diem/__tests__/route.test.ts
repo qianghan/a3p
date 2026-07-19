@@ -60,6 +60,22 @@ describe('POST /agentbook-expense/per-diem — jurisdiction handling', () => {
     expect(body.error).toMatch(/AU/i);
   });
 
+  it('a UK tenant gets an honest 422 "not supported" response, not silent US per-diem rates', async () => {
+    tenantConfigFindUnique.mockResolvedValue({ jurisdiction: 'uk' });
+    const { POST } = await import('../route');
+    const req = new NextRequest('http://x/per-diem', {
+      method: 'POST',
+      body: JSON.stringify({ city: 'London', startDate: '2026-01-01', days: 2 }),
+    });
+    const res = await POST(req);
+    const body = await res.json();
+
+    expect(res.status).toBe(422);
+    expect(body.success).toBe(false);
+    expect(body.code).toBe('unsupported_jurisdiction');
+    expect(body.error).toMatch(/UK/i);
+  });
+
   it('a CA tenant still gets the pre-existing honest 422 "not supported" response', async () => {
     tenantConfigFindUnique.mockResolvedValue({ jurisdiction: 'ca' });
     const { POST } = await import('../route');
