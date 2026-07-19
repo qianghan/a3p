@@ -3,6 +3,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { Users, Plus, Play, Loader2, Check, Landmark, FileText, CalendarClock, Download, AlertTriangle } from 'lucide-react';
 import { formatCurrencyCents } from '@/lib/jurisdiction-currency';
+import { splitCaDeductions, PERIODS_PER_YEAR } from '@/lib/payroll-engine';
 
 const API = '/api/v1/agentbook-payroll';
 
@@ -17,6 +18,57 @@ const FREQ = ['weekly', 'biweekly', 'semimonthly', 'monthly'];
 const FORM_LABEL: Record<string, string> = { '941': 'Form 941', '940': 'Form 940', t4: 'T4 remittance', paye: 'PAYE/NI', bas: 'BAS (PAYG)', sg: 'Superannuation Guarantee' };
 
 type Tab = 'employees' | 'runs' | 'deposits' | 'yearend';
+
+// T4 (CA) boxes use CRA box-numbered keys (box14EmploymentIncomeCents,
+// box22IncomeTaxDeductedCents, box16CppContributionsCents OR
+// box17QppContributionsCents for Quebec, box18EiPremiumsCents,
+// box55PpipPremiumsCents for Quebec) — completely different key names
+// than the US/UK/AU-generic boxes (grossWagesCents/incomeTaxWithheldCents/
+// ficaWithheldCents). Reading the generic keys for a T4 form silently
+// produces $0/$0 since those keys don't exist on that object at all.
+function yearEndSummaryLine(f: YearEndForm, fmt$: (c: number) => string): React.ReactNode {
+  if (f.formType === 'T4') {
+    const b = f.boxes;
+    const isQuebec = typeof b.box17QppContributionsCents === 'number';
+    const pensionLabel = isQuebec ? 'QPP' : 'CPP';
+    const pensionCents = isQuebec ? (b.box17QppContributionsCents || 0) : (b.box16CppContributionsCents || 0);
+    return (
+      <>
+        {f.formType} · gross {fmt$(b.box14EmploymentIncomeCents || 0)} · tax {fmt$(b.box22IncomeTaxDeductedCents || 0)}
+        {' '}· {pensionLabel} {fmt$(pensionCents)} · EI {fmt$(b.box18EiPremiumsCents || 0)}
+        {isQuebec && <> · QPIP {fmt$(b.box55PpipPremiumsCents || 0)}</>}
+      </>
+    );
+  }
+  return (
+    <>
+      {f.formType} · gross {fmt$(f.boxes.grossWagesCents || 0)} · tax {fmt$((f.boxes.incomeTaxWithheldCents || 0) + (f.boxes.ficaWithheldCents || 0))}
+      {!!f.boxes.superannuationPaidCents && <> · super {fmt$(f.boxes.superannuationPaidCents)}</>}
+    </>
+  );
+}
+
+// A CA stub's ficaCents is CPP/QPP+EI(+QPIP) combined (per calcCA in
+// payroll-engine.ts) — itemize it back out for display using the same
+// splitCaDeductions the engine itself used, annualizing via the
+// employee's own pay frequency (mirrors calcCA's own
+// annual = grossCents * payPeriodsPerYear convention) and dividing back
+// down to a per-period figure.
+function itemizeCaStub(
+  stub: Stub,
+  employee: Employee | undefined,
+): { pensionLabel: 'CPP' | 'QPP'; pensionCents: number; eiCents: number; qpipCents: number } | null {
+  if (!employee || employee.jurisdiction !== 'ca') return null;
+  const periodsPerYear = PERIODS_PER_YEAR[employee.payFrequency] ?? 26;
+  const annualGrossCents = stub.grossCents * periodsPerYear;
+  const split = splitCaDeductions(annualGrossCents, employee.region);
+  return {
+    pensionLabel: split.pensionBoxLabel,
+    pensionCents: Math.round(split.pensionCents / periodsPerYear),
+    eiCents: Math.round(split.eiCents / periodsPerYear),
+    qpipCents: Math.round(split.qpipCents / periodsPerYear),
+  };
+}
 
 export default function PayrollPage() {
   const [tab, setTab] = useState<Tab>('employees');
@@ -207,7 +259,19 @@ export default function PayrollPage() {
                       <div key={st.id} className="flex items-center justify-between py-1.5 text-xs">
                         <span className="text-foreground">{st.employeeName}</span>
                         <span className="text-muted-foreground">
-                          gross {fmt$(st.grossCents)} · tax {fmt$(st.federalTaxCents + st.stateTaxCents + st.ficaCents)}
+                          gross {fmt$(st.grossCents)} · tax {fmt$(st.federalTaxCents + st.stateTaxCents)}
+                          {(() => {
+                            const ca = itemizeCaStub(st, employees.find((e) => e.name === st.employeeName));
+                            if (ca) {
+                              return (
+                                <>
+                                  {' '}· {ca.pensionLabel} {fmt$(ca.pensionCents)} · EI {fmt$(ca.eiCents)}
+                                  {ca.qpipCents > 0 && <> · QPIP {fmt$(ca.qpipCents)}</>}
+                                </>
+                              );
+                            }
+                            return st.ficaCents > 0 ? <> · FICA/NI {fmt$(st.ficaCents)}</> : null;
+                          })()}
                           {st.sgCents > 0 && <> · super {fmt$(st.sgCents)}</>} · net <span className="text-foreground font-medium">{fmt$(st.netCents)}</span>
                         </span>
                       </div>
@@ -262,8 +326,7 @@ export default function PayrollPage() {
                   <div>
                     <p className="text-sm font-medium text-foreground">{f.employeeName}</p>
                     <p className="text-xs text-muted-foreground">
-                      {f.formType} · gross {fmt$(f.boxes.grossWagesCents || 0)} · tax {fmt$((f.boxes.incomeTaxWithheldCents || 0) + (f.boxes.ficaWithheldCents || 0))}
-                      {!!f.boxes.superannuationPaidCents && <> · super {fmt$(f.boxes.superannuationPaidCents)}</>}
+                      {yearEndSummaryLine(f, fmt$)}
                     </p>
                   </div>
                   {f.employeeId ? (
