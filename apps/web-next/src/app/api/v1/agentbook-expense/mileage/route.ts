@@ -29,7 +29,7 @@ interface CreateMileageBody {
   unit?: 'mi' | 'km';
   purpose?: string;
   clientId?: string;
-  jurisdictionOverride?: 'us' | 'ca';
+  jurisdictionOverride?: 'us' | 'ca' | 'au';
 }
 
 const PURPOSE_MAX = 500;
@@ -86,13 +86,16 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
     // Jurisdiction snapshot: prefer override (the bot passes it after
     // looking it up), else read from tenant config, else default 'us'.
-    let jurisdiction: 'us' | 'ca' = body.jurisdictionOverride === 'ca' ? 'ca' : 'us';
+    let jurisdiction: 'us' | 'ca' | 'au' =
+      body.jurisdictionOverride === 'ca' || body.jurisdictionOverride === 'au'
+        ? body.jurisdictionOverride
+        : 'us';
     if (!body.jurisdictionOverride) {
       const cfg = await db.abTenantConfig.findUnique({
         where: { userId: tenantId },
         select: { jurisdiction: true },
       });
-      jurisdiction = cfg?.jurisdiction === 'ca' ? 'ca' : 'us';
+      jurisdiction = cfg?.jurisdiction === 'ca' || cfg?.jurisdiction === 'au' ? cfg.jurisdiction : 'us';
     }
 
     const date = body.date ? new Date(body.date) : new Date();
@@ -103,9 +106,14 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     // we honour that but stamp the rate accordingly.
     const unit: 'mi' | 'km' = body.unit === 'km' || body.unit === 'mi'
       ? body.unit
-      : (jurisdiction === 'ca' ? 'km' : 'mi');
+      : (jurisdiction === 'ca' || jurisdiction === 'au' ? 'km' : 'mi');
 
-    const ytd = jurisdiction === 'ca' ? await ytdMilesOrKm(tenantId, date, unit) : 0;
+    // AU's ATO rate doesn't tier on YTD km (see Task 1), but we still
+    // compute it for AU so the rate lookup's `reason`/tierDescription
+    // stays accurate if a future rate table adds tiering.
+    const ytd = jurisdiction === 'ca' || jurisdiction === 'au'
+      ? await ytdMilesOrKm(tenantId, date, unit)
+      : 0;
     const rate = getMileageRate(jurisdiction, year, ytd);
     // If the user gave us miles in a CA tenant (or vice-versa), the rate
     // table picked a per-km rate — we still trust the user's recorded
