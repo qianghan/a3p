@@ -33,7 +33,7 @@ describe('CORE_PLANS region coverage (CA-4)', () => {
   it('every core plan code has both a us and a ca row, at nominal price parity', () => {
     for (const code of CODES) {
       const rows = CORE_PLANS.filter((p) => p.code === code);
-      expect(rows).toHaveLength(2);
+      expect(rows).toHaveLength(3); // us, ca, au — see AU-5 below for au
       const us = rows.find((r) => r.region === 'us');
       const ca = rows.find((r) => r.region === 'ca');
       expect(us).toBeDefined();
@@ -49,8 +49,49 @@ describe('CORE_PLANS region coverage (CA-4)', () => {
     }
   });
 
-  it('total CORE_PLANS length is exactly 8 (4 codes x 2 regions)', () => {
-    expect(CORE_PLANS).toHaveLength(8);
+  it('total CORE_PLANS length is exactly 12 (4 codes x 3 regions)', () => {
+    expect(CORE_PLANS).toHaveLength(12);
+  });
+});
+
+describe('CORE_PLANS region coverage (AU-5)', () => {
+  const CODES = ['free', 'pro', 'pro_yearly', 'business'] as const;
+
+  it('every core plan code has an au row in aud, independently uplifted (not nominal parity)', () => {
+    for (const code of CODES) {
+      const rows = CORE_PLANS.filter((p) => p.code === code);
+      const us = rows.find((r) => r.region === 'us')!;
+      const au = rows.find((r) => r.region === 'au');
+      expect(au).toBeDefined();
+      expect(au!.currency).toBe('aud');
+      expect(au!.name).toBe(us.name);
+      expect(au!.interval).toBe(us.interval);
+      expect(au!.sortOrder).toBe(us.sortOrder);
+    }
+  });
+
+  it('free is $0 AUD (uplift is meaningless at zero)', () => {
+    expect(CORE_PLANS.find((p) => p.code === 'free' && p.region === 'au')!.priceCents).toBe(0);
+  });
+
+  it('pro is $23 AUD — the same ~1.2x uplift already used for AU add-ons, rounded to the nearest whole dollar (19 * 1.2 = 22.8 -> 23)', () => {
+    expect(CORE_PLANS.find((p) => p.code === 'pro' && p.region === 'au')!.priceCents).toBe(2300);
+  });
+
+  it('business is $59 AUD — reuses the exact price point already shipped for the $49-USD add-ons (tax_fast_track/student_success/personal_insights), not re-derived', () => {
+    const businessAu = CORE_PLANS.find((p) => p.code === 'business' && p.region === 'au')!.priceCents;
+    const addonAu = ADDON_PRICES.tax_fast_track.find((r) => r.region === 'au')!.priceCents;
+    expect(businessAu).toBe(5900);
+    expect(businessAu).toBe(addonAu); // same $49-USD price point, same AU-uplifted result
+  });
+
+  it('pro_yearly AUD is 20% off 12x the AUD monthly price, rounded to a whole dollar — the same relationship every other region\'s annual price satisfies, not a re-scaled USD figure', () => {
+    const proAu = CORE_PLANS.find((p) => p.code === 'pro' && p.region === 'au')!;
+    const proYearlyAu = CORE_PLANS.find((p) => p.code === 'pro_yearly' && p.region === 'au')!;
+    const fullYearNoDiscount = proAu.priceCents * 12;
+    const expected = Math.round(fullYearNoDiscount * 0.8 / 100) * 100;
+    expect(proYearlyAu.priceCents).toBe(expected);
+    expect(proYearlyAu.priceCents).toBe(22100);
   });
 });
 
