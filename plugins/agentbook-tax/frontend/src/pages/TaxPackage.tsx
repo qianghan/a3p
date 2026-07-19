@@ -20,7 +20,7 @@ const API = '/api/v1/agentbook-tax';
 interface TaxPackage {
   id: string;
   year: number;
-  jurisdiction: 'us' | 'ca';
+  jurisdiction: 'us' | 'ca' | 'au';
   pdfUrl: string | null;
   receiptsZipUrl: string | null;
   csvUrls: { pnl?: string; mileage?: string; deductions?: string } | null;
@@ -36,10 +36,18 @@ interface TaxPackage {
 }
 
 const fmtMoney = (cents: number, ccy = 'USD') =>
-  (cents / 100).toLocaleString(ccy === 'CAD' ? 'en-CA' : 'en-US', {
+  (cents / 100).toLocaleString(ccy === 'CAD' ? 'en-CA' : ccy === 'AUD' ? 'en-AU' : 'en-US', {
     style: 'currency',
     currency: ccy,
   });
+
+// Mirrors the exact formName strings in apps/web-next/src/lib/agentbook-tax-pdf.ts's
+// PackageDoc component, so the on-screen label matches what the generated PDF says.
+const FORM_NAME: Record<string, string> = {
+  us: 'IRS Schedule C',
+  ca: 'CRA T2125',
+  au: 'ATO Individual Tax Return (Business Schedule)',
+};
 
 export const TaxPackagePage: React.FC = () => {
   // Open the Prior-year returns tab directly when linked with ?tab=past
@@ -195,14 +203,14 @@ const TaxPackageContent: React.FC = () => {
       )}
       <div className="space-y-2">
         {packages.map((p) => {
-          const ccy = p.jurisdiction === 'ca' ? 'CAD' : 'USD';
+          const ccy = p.jurisdiction === 'ca' ? 'CAD' : p.jurisdiction === 'au' ? 'AUD' : 'USD';
           const ready = p.status === 'ready';
           return (
             <div key={p.id} className="bg-card border border-border rounded-lg p-3">
               <div className="flex items-center justify-between gap-3">
                 <div className="min-w-0">
                   <p className="text-sm font-medium">
-                    {p.year} · {p.jurisdiction.toUpperCase()} ·{' '}
+                    {p.year} · {p.jurisdiction.toUpperCase()} · {FORM_NAME[p.jurisdiction] ?? ''} ·{' '}
                     <span className={ready ? 'text-emerald-600' : p.status === 'failed' ? 'text-red-500' : 'text-muted-foreground'}>
                       {p.status}
                     </span>
