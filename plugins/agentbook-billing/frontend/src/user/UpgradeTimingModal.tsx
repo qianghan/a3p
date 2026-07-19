@@ -1,8 +1,14 @@
 import { useEffect, useState } from 'react';
 import { meApi, type Plan, type ProratePreview } from '../lib/api';
 
-function fmtCents(cents: number): string {
-  return `$${(cents / 100).toFixed(2)}`;
+const CURRENCY_LOCALE: Record<string, string> = { usd: 'en-US', cad: 'en-CA', aud: 'en-AU' };
+
+function fmtCents(cents: number, currency: string): string {
+  return (cents / 100).toLocaleString(CURRENCY_LOCALE[currency] ?? 'en-US', {
+    style: 'currency',
+    currency: currency.toUpperCase(),
+    maximumFractionDigits: 0,
+  });
 }
 
 function fmtDate(iso: string | null): string {
@@ -66,7 +72,7 @@ export function UpgradeTimingModal({
                   No charge today. Your trial ends on{' '}
                   <strong className="text-foreground">{fmtDate(preview.trialEndDate)}</strong>, then{' '}
                   <strong className="text-foreground">
-                    ${(plan.priceCents / 100).toFixed(2)}/{plan.interval === 'year' ? 'yr' : 'mo'}
+                    {fmtCents(plan.priceCents, plan.currency)}/{plan.interval === 'year' ? 'yr' : 'mo'}
                   </strong>{' '}
                   automatically.
                 </p>
@@ -76,13 +82,13 @@ export function UpgradeTimingModal({
                 <div className="flex justify-between text-sm">
                   <span className="text-muted-foreground">Prorated charge today</span>
                   <span className="font-semibold text-foreground">
-                    {fmtCents(preview.proratedAmountCents)}
+                    {fmtCents(preview.proratedAmountCents, plan.currency)}
                   </span>
                 </div>
                 <div className="flex justify-between text-sm">
                   <span className="text-muted-foreground">Next full charge</span>
                   <span className="text-foreground">
-                    {fmtCents(plan.priceCents)}/{plan.interval === 'year' ? 'yr' : 'mo'}{' '}
+                    {fmtCents(plan.priceCents, plan.currency)}/{plan.interval === 'year' ? 'yr' : 'mo'}{' '}
                     on {fmtDate(preview.renewalDate)}
                   </span>
                 </div>
