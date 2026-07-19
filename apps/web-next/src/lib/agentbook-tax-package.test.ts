@@ -106,6 +106,24 @@ describe('taxLineFor (jurisdiction-aware mapper)', () => {
     const us = taxLineFor('us', 'expense', '__unknown__', null);
     expect(us).toMatch(/Other/i);
   });
+
+  it('AU: an explicit taxCategory always wins, regardless of jurisdiction branch (unchanged behavior, sanity check)', () => {
+    const line = taxLineFor('au', 'expense', 'Anything', 'ITR - Motor vehicle expenses');
+    expect(line).toBe('ITR - Motor vehicle expenses');
+  });
+
+  it('AU: falls back to real ATO ITR category labels (not Schedule C) when no explicit taxCategory is set', () => {
+    expect(taxLineFor('au', 'expense', 'Motor Vehicle Expenses', null)).toBe('ITR - Motor vehicle expenses');
+    expect(taxLineFor('au', 'expense', 'Rent', null)).toBe('ITR - Rent expenses');
+    expect(taxLineFor('au', 'expense', 'Wages & Salaries', null)).toBe('ITR - Salary and wage expenses');
+    expect(taxLineFor('au', 'expense', '__totally_unknown__', null)).toBe('ITR - All other expenses');
+  });
+
+  it('AU: non-expense account types get an ITR-labeled catch-all, not a Schedule-C or T2125 label', () => {
+    const line = taxLineFor('au', 'revenue', 'Sales Revenue', null);
+    expect(line).toMatch(/ITR/);
+    expect(line).not.toMatch(/Schedule C|T2125/);
+  });
 });
 
 describe('gatherPackageData — US tenant', () => {
@@ -176,6 +194,32 @@ describe('gatherPackageData — CA tenant', () => {
     const keys = Object.keys(data.pnlByLine);
     expect(keys.length).toBeGreaterThan(0);
     expect(keys.every((k) => /T2125/i.test(k))).toBe(true);
+  });
+});
+
+describe('gatherPackageData — AU tenant', () => {
+  it('emits real ATO ITR-style category keys when jurisdiction = au (not Schedule C)', async () => {
+    mockedDb.abTenantConfig.findUnique.mockResolvedValue({ jurisdiction: 'au', currency: 'AUD' });
+    mockedDb.abAccount.findMany.mockResolvedValue([
+      { id: 'a-vehicle', code: '5200', name: 'Motor Vehicle Expenses', accountType: 'expense', taxCategory: 'ITR - Motor vehicle expenses' },
+    ]);
+    mockedDb.abExpense.findMany.mockResolvedValue([
+      {
+        id: 'e1',
+        amountCents: 8800,
+        date: new Date('2025-04-10'),
+        categoryId: 'a-vehicle',
+        receiptUrl: null,
+        description: 'Fuel',
+        vendor: { name: 'Shell' },
+      },
+    ]);
+    mockedDb.abExpense.count.mockResolvedValue(1);
+
+    const data = await gatherPackageData({ tenantId: TENANT, year: 2025, jurisdiction: 'au' });
+    const keys = Object.keys(data.pnlByLine);
+    expect(keys.some((k) => k.includes('ITR'))).toBe(true);
+    expect(keys.some((k) => k.includes('Schedule C') || k.includes('T2125'))).toBe(false);
   });
 });
 

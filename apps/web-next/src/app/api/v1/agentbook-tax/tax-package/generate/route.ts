@@ -27,7 +27,7 @@ export const maxDuration = 60;
 
 interface GenerateBody {
   year?: number | string;
-  jurisdiction?: 'us' | 'ca';
+  jurisdiction?: 'us' | 'ca' | 'au';
 }
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
@@ -51,13 +51,14 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
     // Resolve jurisdiction: explicit body wins, else read tenant config,
     // else default 'us'. This mirrors the mileage POST behaviour.
-    let jurisdiction: 'us' | 'ca' = body.jurisdiction === 'ca' ? 'ca' : 'us';
+    let jurisdiction: 'us' | 'ca' | 'au' =
+      body.jurisdiction === 'ca' || body.jurisdiction === 'au' ? body.jurisdiction : 'us';
     if (!body.jurisdiction) {
       const cfg = await db.abTenantConfig.findUnique({
         where: { userId: tenantId },
         select: { jurisdiction: true },
       });
-      jurisdiction = cfg?.jurisdiction === 'ca' ? 'ca' : 'us';
+      jurisdiction = cfg?.jurisdiction === 'ca' || cfg?.jurisdiction === 'au' ? cfg.jurisdiction : 'us';
     }
 
     const result = await generatePackage({ tenantId, year, jurisdiction });

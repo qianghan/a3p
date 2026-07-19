@@ -61,12 +61,13 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       where: { userId: tenantId },
       select: { jurisdiction: true },
     });
-    const jurisdiction: 'us' | 'ca' = cfg?.jurisdiction === 'ca' ? 'ca' : 'us';
-    if (jurisdiction === 'ca') {
+    const jurisdiction = cfg?.jurisdiction || 'us';
+    if (jurisdiction === 'ca' || jurisdiction === 'au') {
+      const label = jurisdiction === 'ca' ? 'CA' : 'AU';
       return NextResponse.json(
         {
           success: false,
-          error: "Per-diem isn't a CA-supported method yet — use mileage + meals expenses instead. (Coming in a future release.)",
+          error: `Per-diem isn't a ${label}-supported method yet — use mileage + meals expenses instead. (Coming in a future release.)`,
           code: 'unsupported_jurisdiction',
         },
         { status: 422 },

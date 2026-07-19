@@ -14,7 +14,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma as db } from '@naap/database';
 import { autoCategorizeForTenant, type AutoCategoryResult } from '@/lib/agentbook-auto-categorize';
 import { getDigestPrefs, type DigestPrefs } from '@/lib/agentbook-digest-prefs';
-import { buildTipContext, generateTaxTip, generateCashFlowTip } from '@/lib/agentbook-digest-tips';
+import { buildTipContext, generateTaxTip, generateCashFlowTip, nextQuarterlyTaxDeadline } from '@/lib/agentbook-digest-tips';
 import { getBudgetProgress, type BudgetProgress } from '@/lib/agentbook-budget-monitor';
 import {
   buildHeader,
@@ -247,22 +247,11 @@ export async function buildDigest(tenantId: string): Promise<DigestData> {
     }
   }
 
-  // Tax-deadline countdown (US: Apr 15 / Jun 15 / Sep 15 / Jan 15; CA: 15th of Mar/Jun/Sep/Dec)
+  // Tax-deadline countdown — reads real per-jurisdiction quarterly
+  // deadline data instead of a hardcoded US/CA-only date array.
   const tenantConfig = await db.abTenantConfig.findUnique({ where: { userId: tenantId } });
   const jurisdiction = tenantConfig?.jurisdiction || 'us';
-  const usDeadlines = [
-    new Date(now.getFullYear(), 3, 15), new Date(now.getFullYear(), 5, 15),
-    new Date(now.getFullYear(), 8, 15), new Date(now.getFullYear() + 1, 0, 15),
-  ];
-  const caDeadlines = [
-    new Date(now.getFullYear(), 2, 15), new Date(now.getFullYear(), 5, 15),
-    new Date(now.getFullYear(), 8, 15), new Date(now.getFullYear(), 11, 15),
-  ];
-  const deadlines = jurisdiction === 'ca' ? caDeadlines : usDeadlines;
-  const nextDeadline = deadlines.find((d) => d > now);
-  const taxDaysUntilQ = nextDeadline
-    ? Math.round((nextDeadline.getTime() - now.getTime()) / 86_400_000)
-    : null;
+  const taxDaysUntilQ = nextQuarterlyTaxDeadline(jurisdiction, tenantConfig?.region || '', now);
 
   // Most-recent quarterly tax estimate, if the tax plugin has cached one
   // (best-effort: the table may not exist in older schemas, which is fine).

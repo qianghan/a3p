@@ -119,7 +119,10 @@ function fmtDate(d: Date): string {
 interface PdfDocProps { data: PackageData; }
 
 const PackageDoc: React.FC<PdfDocProps> = ({ data }) => {
-  const formName = data.jurisdiction === 'ca' ? 'CRA T2125' : 'IRS Schedule C';
+  const formName =
+    data.jurisdiction === 'au' ? 'ATO Individual Tax Return (Business Schedule)'
+    : data.jurisdiction === 'ca' ? 'CRA T2125'
+    : 'IRS Schedule C';
   const year = data.period.start.getUTCFullYear();
   const totalPnl = Object.values(data.pnlByLine).reduce((s, v) => s + v, 0);
   const sortedPnl = Object.entries(data.pnlByLine).sort(([a], [b]) => a.localeCompare(b));
@@ -167,7 +170,7 @@ const PackageDoc: React.FC<PdfDocProps> = ({ data }) => {
         React.createElement(
           Text,
           { style: styles.cellAmount },
-          `${data.mileage.totalUnit.toFixed(2)} ${data.mileage.entries[0]?.unit ?? (data.jurisdiction === 'ca' ? 'km' : 'mi')}`,
+          `${data.mileage.totalUnit.toFixed(2)} ${data.mileage.entries[0]?.unit ?? (data.jurisdiction === 'ca' || data.jurisdiction === 'au' ? 'km' : 'mi')}`,
         ),
       ),
       React.createElement(

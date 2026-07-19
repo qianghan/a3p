@@ -35,7 +35,7 @@ import { prisma as db } from '@naap/database';
 export interface PackageInput {
   tenantId: string;
   year: number;
-  jurisdiction: 'us' | 'ca';
+  jurisdiction: 'us' | 'ca' | 'au';
 }
 
 export interface MileageRow {
@@ -71,7 +71,7 @@ export interface PackageData {
    * this as exclusive on the right and never decrement by 1ms.
    */
   period: { start: Date; end: Date };
-  jurisdiction: 'us' | 'ca';
+  jurisdiction: 'us' | 'ca' | 'au';
 }
 
 /**
@@ -121,21 +121,41 @@ export interface GenerateResult {
  * CSV — no further translation needed downstream.
  */
 export function taxLineFor(
-  jurisdiction: 'us' | 'ca',
+  jurisdiction: 'us' | 'ca' | 'au',
   accountType: string | null,
   name: string,
   taxCategory: string | null,
 ): string {
   if (taxCategory && taxCategory.trim()) return taxCategory.trim();
 
-  // Only expense accounts roll up to Schedule C / T2125 expense lines.
-  // Revenue lines are handled separately (gross receipts), and other
-  // account types shouldn't appear in the package.
+  // Only expense accounts roll up to Schedule C / T2125 / ITR expense
+  // lines. Revenue lines are handled separately (gross receipts), and
+  // other account types shouldn't appear in the package.
   if (accountType && accountType !== 'expense') {
+    if (jurisdiction === 'au') return 'ITR — Other (non-expense)';
     return jurisdiction === 'ca' ? 'T2125 — Other (non-expense)' : 'Schedule C — Other (non-expense)';
   }
 
   const n = (name || '').toLowerCase();
+
+  if (jurisdiction === 'au') {
+    // Real ATO ITR business-schedule category labels, matching the exact
+    // vocabulary already seeded by packages/agentbook-jurisdictions/src/au/chart-of-accounts.ts —
+    // not new terminology. Accounts seeded from that chart already carry an
+    // explicit taxCategory (handled by the short-circuit above); this
+    // name-based fallback only matters for custom/manually-created accounts.
+    if (/fuel|car|truck|vehicle|mileage|auto/.test(n)) return 'ITR - Motor vehicle expenses';
+    if (/travel/.test(n)) return 'ITR - Travel expenses';
+    if (/rent/.test(n)) return 'ITR - Rent expenses';
+    if (/repair|maintenance/.test(n)) return 'ITR - Repairs and maintenance';
+    if (/interest/.test(n)) return 'ITR - Interest expenses';
+    if (/depreciation/.test(n)) return 'ITR - Depreciation expenses';
+    if (/salary|wage|payroll/.test(n)) return 'ITR - Salary and wage expenses';
+    if (/superannuation|super\b/.test(n)) return 'ITR - Superannuation expenses';
+    if (/contractor/.test(n)) return 'ITR - Contractor expenses';
+    if (/home.?office/.test(n)) return 'ITR - Home office expenses';
+    return 'ITR - All other expenses';
+  }
 
   if (jurisdiction === 'ca') {
     // CRA T2125 part 5 expense boxes (line numbers, not box codes — Maya

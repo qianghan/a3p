@@ -2831,7 +2831,8 @@ export async function executeStep(step: PlanStep, ctx: BotContext): Promise<Exec
           where: { userId: ctx.tenantId },
           select: { jurisdiction: true },
         });
-        const jurisdiction: 'us' | 'ca' = cfg?.jurisdiction === 'ca' ? 'ca' : 'us';
+        const jurisdiction: 'us' | 'ca' | 'au' =
+          cfg?.jurisdiction === 'ca' || cfg?.jurisdiction === 'au' ? cfg.jurisdiction : 'us';
 
         // Lazy-load to avoid pulling @react-pdf into tests / hot paths
         // that don't need it. The tax-package module itself further
@@ -3056,20 +3057,21 @@ export async function executeStep(step: PlanStep, ctx: BotContext): Promise<Exec
         const endDate = step.args.endDate as string | undefined;
         const option = (step.args.option as 'mie_only' | 'lodging_and_mie' | undefined) || 'mie_only';
 
-        // CA short-circuit: per-diem is a US-IRS construct.
+        // CA/AU short-circuit: per-diem is a US-IRS construct.
         const cfg = await db.abTenantConfig.findUnique({
           where: { userId: ctx.tenantId },
           select: { jurisdiction: true },
         });
-        const jurisdiction: 'us' | 'ca' = cfg?.jurisdiction === 'ca' ? 'ca' : 'us';
-        if (jurisdiction === 'ca') {
+        const jurisdiction = cfg?.jurisdiction || 'us';
+        if (jurisdiction === 'ca' || jurisdiction === 'au') {
+          const label = jurisdiction === 'ca' ? 'CA' : 'AU';
           return {
             stepId: step.id,
             success: true,
             data: {
               kind: 'unsupported_jurisdiction',
               message:
-                "Per-diem isn't a CA-supported method yet — use mileage + meals expenses instead. (Coming in a future release.)",
+                `Per-diem isn't a ${label}-supported method yet — use mileage + meals expenses instead. (Coming in a future release.)`,
             },
           };
         }
