@@ -152,3 +152,88 @@ describe('GET /agentbook-tax/tax/estimate — filingStatus wiring', () => {
     expect(noConfigJson.data.incomeTaxCents).toBe(singleJson.data.incomeTaxCents);
   });
 });
+
+describe('GET /agentbook-tax/tax/estimate — AU taxEntityType', () => {
+  it('an AU Pty Ltd company gets the flat 25% company rate, not individual brackets + Medicare Levy', async () => {
+    tenantConfigFindUnique.mockResolvedValue({
+      jurisdiction: 'au', region: 'NSW', accountingBasis: 'accrual', taxEntityType: 'pty_ltd',
+    });
+    journalLineAggregate.mockImplementation(({ where }: { where: { accountId: { in: string[] } } }) =>
+      Promise.resolve(
+        where.accountId.in.includes('rev-1')
+          ? { _sum: { creditCents: 100_000_00, debitCents: 0 } }
+          : { _sum: { creditCents: 0, debitCents: 20_000_00 } },
+      ),
+    );
+    const { GET } = await import('../route');
+    const res = await GET(req());
+    const json = await res.json();
+
+    // Net income = $100,000 - $20,000 = $80,000 (8,000,000 cents).
+    // Flat 25% company tax = 2,000,000 cents. No Medicare Levy (companies
+    // don't pay individual Medicare Levy on retained business profit).
+    expect(json.data.jurisdiction).toBe('au');
+    expect(json.data.seTaxCents).toBe(0);
+    expect(json.data.incomeTaxCents).toBe(2_000_000);
+    expect(json.data.totalTaxCents).toBe(2_000_000);
+  });
+
+  it('an AU sole trader with the same income keeps the existing individual-bracket + Medicare Levy path unchanged', async () => {
+    tenantConfigFindUnique.mockResolvedValue({
+      jurisdiction: 'au', region: 'NSW', accountingBasis: 'accrual', taxEntityType: 'sole_trader',
+    });
+    journalLineAggregate.mockImplementation(({ where }: { where: { accountId: { in: string[] } } }) =>
+      Promise.resolve(
+        where.accountId.in.includes('rev-1')
+          ? { _sum: { creditCents: 100_000_00, debitCents: 0 } }
+          : { _sum: { creditCents: 0, debitCents: 20_000_00 } },
+      ),
+    );
+    const { GET } = await import('../route');
+    const res = await GET(req());
+    const json = await res.json();
+
+    // Same $80,000 net income via the unchanged individual path:
+    // Medicare Levy = round(8,000,000 × 0.02) = 160,000 cents.
+    // Income tax = 428,800 (16% bracket) + 1,050,000 (30% bracket) = 1,478,800 cents.
+    expect(json.data.seTaxCents).toBe(160_000);
+    expect(json.data.incomeTaxCents).toBe(1_478_800);
+    expect(json.data.totalTaxCents).toBe(1_638_800);
+  });
+
+  it('an AU tenant with no taxEntityType set (null) also keeps the individual path — pty_ltd is opt-in, not a silent default', async () => {
+    tenantConfigFindUnique.mockResolvedValue({
+      jurisdiction: 'au', region: 'NSW', accountingBasis: 'accrual', taxEntityType: null,
+    });
+    journalLineAggregate.mockImplementation(({ where }: { where: { accountId: { in: string[] } } }) =>
+      Promise.resolve(
+        where.accountId.in.includes('rev-1')
+          ? { _sum: { creditCents: 100_000_00, debitCents: 0 } }
+          : { _sum: { creditCents: 0, debitCents: 20_000_00 } },
+      ),
+    );
+    const { GET } = await import('../route');
+    const res = await GET(req());
+    const json = await res.json();
+    expect(json.data.totalTaxCents).toBe(1_638_800); // same as sole_trader
+  });
+
+  it('a US tenant with taxEntityType coincidentally set to "pty_ltd" (bad data / cross-jurisdiction leftover) is NOT given AU company treatment', async () => {
+    tenantConfigFindUnique.mockResolvedValue({
+      jurisdiction: 'us', region: 'CA', accountingBasis: 'accrual', taxEntityType: 'pty_ltd',
+    });
+    journalLineAggregate.mockImplementation(({ where }: { where: { accountId: { in: string[] } } }) =>
+      Promise.resolve(
+        where.accountId.in.includes('rev-1')
+          ? { _sum: { creditCents: 100_000_00, debitCents: 0 } }
+          : { _sum: { creditCents: 0, debitCents: 20_000_00 } },
+      ),
+    );
+    const { GET } = await import('../route');
+    const res = await GET(req());
+    const json = await res.json();
+    // Must still resolve via the US bracket/SE-tax providers, not AU company tax.
+    expect(json.data.jurisdiction).toBe('us');
+    expect(json.data.seTaxCents).toBeGreaterThan(0); // US SE tax applies, unlike the AU-company $0 case
+  });
+});
