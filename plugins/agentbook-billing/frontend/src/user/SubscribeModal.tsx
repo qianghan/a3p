@@ -7,6 +7,16 @@ declare global {
   interface Window { STRIPE_PUBLISHABLE_KEY?: string; }
 }
 
+const CURRENCY_LOCALE: Record<string, string> = { usd: 'en-US', cad: 'en-CA', aud: 'en-AU' };
+
+function fmtPrice(cents: number, currency: string): string {
+  return (cents / 100).toLocaleString(CURRENCY_LOCALE[currency] ?? 'en-US', {
+    style: 'currency',
+    currency: currency.toUpperCase(),
+    maximumFractionDigits: 0,
+  });
+}
+
 let _stripePromise: Promise<Stripe | null> | null = null;
 let _cachedKey: string | undefined;
 function getStripePromise(): Promise<Stripe | null> {
@@ -61,8 +71,8 @@ function PayForm({ plan, onDone }: { plan: Plan; onDone: () => void }): JSX.Elem
       {plan.priceCents > 0 && (
         <div className="rounded-lg border border-primary/20 bg-primary/10 px-4 py-3 text-sm text-foreground">
           <span className="font-semibold">90-day free trial</span> — no charge until{' '}
-          <strong>{trialEndLabel()}</strong>, then $
-          {(plan.priceCents / 100).toFixed(2)}/
+          <strong>{trialEndLabel()}</strong>, then{' '}
+          {fmtPrice(plan.priceCents, plan.currency)}/
           {plan.interval === 'year' ? 'yr' : 'mo'}.
         </div>
       )}

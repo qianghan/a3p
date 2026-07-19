@@ -3340,6 +3340,7 @@ async function _executeClassificationCore(
     '/api/v1/agentbook-career': _appBase || 'http://localhost:3000',
     '/api/v1/agentbook-housing': _appBase || 'http://localhost:3000',
     '/api/v1/agentbook-personal': _appBase || 'http://localhost:3000',
+    '/api/v1/agentbook-payroll': _appBase || 'http://localhost:3000',
   };
 
   // Resolve base URL
@@ -4329,7 +4330,9 @@ async function _executeClassificationCore(
     }
   }
 
-  // INTERNAL handler: run-payroll — preview only (tells user to process on Payroll page)
+  // INTERNAL handler: run-payroll — real withholding preview (via the same
+  // engine the real pay-run POST uses), still requires the user to process
+  // it on the Payroll page — this skill never persists a pay run itself.
   if (selectedSkill.name === 'run-payroll') {
     try {
       const fmt = (c: number) => '$' + Math.round(c / 100).toLocaleString();
@@ -4339,14 +4342,37 @@ async function _executeClassificationCore(
         await db.abConversation.create({ data: { tenantId, question: text, answer: message, queryType: 'agent', channel, skillUsed: 'run-payroll' } });
         return { selectedSkill, extractedParams, confidence, skillUsed: 'run-payroll', skillResponse: { data: null }, responseData: { message, actions: [], chartData: null, skillUsed: 'run-payroll', confidence, latencyMs: Date.now() - startTime } };
       }
-      const PERIODS: Record<string, number> = { weekly: 52, biweekly: 26, semimonthly: 24, monthly: 12 };
-      const totalGross = employees.reduce((s, e) => s + (e.payType === 'salary' ? Math.round(e.payRateCents / (PERIODS[e.payFrequency] ?? 26)) : e.payRateCents), 0);
-      let message = `Ready to run payroll for **${employees.length} employee${employees.length === 1 ? '' : 's'}** — about **${fmt(totalGross)}** gross this period. Open the **Payroll** page and click "Run payroll" to compute exact withholding and process it.`;
+
+      const payrollBase = baseUrls['/api/v1/agentbook-payroll'] || 'http://localhost:3000';
+      // Wrapped in its own try/catch (distinct from the outer handler catch)
+      // so a network-level failure (fetch() rejecting — the preview service
+      // being down/unreachable, not just responding with an error body)
+      // degrades to the old gross-only estimate below instead of falling
+      // through to the generic "I couldn't prepare payroll" apology.
+      let previewData: any = null;
+      try {
+        const previewRes = await fetch(`${payrollBase}/api/v1/agentbook-payroll/pay-runs/preview`, { headers: brainHeaders(tenantId) });
+        previewData = await previewRes.json().catch(() => null);
+      } catch (previewErr) {
+        console.error('[run-payroll] preview fetch failed, falling back to gross estimate:', previewErr);
+      }
+
+      let message: string;
+      if (previewData?.success) {
+        const { totalGrossCents, totalWithheldCents, totalNetCents } = previewData.data;
+        message = `Ready to run payroll for **${employees.length} employee${employees.length === 1 ? '' : 's'}** — **${fmt(totalGrossCents)}** gross, **${fmt(totalWithheldCents)}** withheld, **${fmt(totalNetCents)}** net this period. Open the **Payroll** page and click "Run payroll" to process it.`;
+      } else {
+        // Preview service unavailable — fall back to the old gross-only
+        // estimate rather than failing the whole skill.
+        const PERIODS: Record<string, number> = { weekly: 52, biweekly: 26, semimonthly: 24, monthly: 12 };
+        const totalGross = employees.reduce((s, e) => s + (e.payType === 'salary' ? Math.round(e.payRateCents / (PERIODS[e.payFrequency] ?? 26)) : e.payRateCents), 0);
+        message = `Ready to run payroll for **${employees.length} employee${employees.length === 1 ? '' : 's'}** — about **${fmt(totalGross)}** gross this period. Open the **Payroll** page and click "Run payroll" to compute exact withholding and process it.`;
+      }
       if (employees.some((e) => e.jurisdiction === 'au')) {
         message += `\n\n${AU_STP_DISCLOSURE}`;
       }
       await db.abConversation.create({ data: { tenantId, question: text, answer: message, queryType: 'agent', channel, skillUsed: 'run-payroll' } });
-      return { selectedSkill, extractedParams, confidence, skillUsed: 'run-payroll', skillResponse: { data: { totalGross } }, responseData: { message, actions: [], chartData: null, skillUsed: 'run-payroll', confidence, latencyMs: Date.now() - startTime } };
+      return { selectedSkill, extractedParams, confidence, skillUsed: 'run-payroll', skillResponse: { data: previewData?.data ?? null }, responseData: { message, actions: [], chartData: null, skillUsed: 'run-payroll', confidence, latencyMs: Date.now() - startTime } };
     } catch (err) {
       console.error('[run-payroll] error:', err);
       return { selectedSkill, extractedParams, confidence: 0, skillUsed: 'run-payroll', skillResponse: null, responseData: { message: "I couldn't prepare payroll. Please try again.", actions: [], chartData: null, skillUsed: 'run-payroll', confidence: 0, latencyMs: Date.now() - startTime } };

@@ -35,6 +35,16 @@ vi.mock('../db/client.js', () => ({
   },
 }));
 
+// PARITY-6, Task 4 — run-payroll now calls the real GET /pay-runs/preview
+// endpoint via fetch() before falling back to its old gross-only estimate.
+// Without a fetch mock here, that call would hit the network for real
+// (nothing listens on the localhost fallback in this unit-test process),
+// hanging until the test framework's timeout. A `{ success: false }`
+// response drives the handler down its pre-existing fallback path, which
+// leaves this file's disclosure-text assertions (below) unaffected.
+const mockFetch = vi.fn(async () => ({ ok: true, json: async () => ({ success: false }) }));
+global.fetch = mockFetch as any;
+
 import { executeClassification } from '../server';
 
 const AU_STP_DISCLOSURE_FRAGMENT = 'Single Touch Payroll (STP) reports to the ATO in real time';
