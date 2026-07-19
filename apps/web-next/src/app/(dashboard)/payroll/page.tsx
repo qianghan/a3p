@@ -270,7 +270,7 @@ export default function PayrollPage() {
                                 </>
                               );
                             }
-                            return <> · FICA/NI {fmt$(st.ficaCents)}</>;
+                            return st.ficaCents > 0 ? <> · FICA/NI {fmt$(st.ficaCents)}</> : null;
                           })()}
                           {st.sgCents > 0 && <> · super {fmt$(st.sgCents)}</>} · net <span className="text-foreground font-medium">{fmt$(st.netCents)}</span>
                         </span>
