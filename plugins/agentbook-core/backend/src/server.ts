@@ -4291,6 +4291,12 @@ async function _executeClassificationCore(
     }
   }
 
+  // Mirrors the exact AU disclosure banner on apps/web-next's Payroll page
+  // (AU-8) — chat/MCP payroll answers must carry the same STP-scope warning
+  // the web UI already shows, not just the web surface.
+  const AU_STP_DISCLOSURE =
+    "AU payroll here calculates PAYG withholding and Superannuation Guarantee for your own records, but does not lodge Single Touch Payroll (STP) reports to the ATO in real time. You'll still need STP-enabled software (or your BAS/tax agent) to report each pay run to the ATO as required by law.";
+
   // INTERNAL handler: payroll-status — direct DB
   if (selectedSkill.name === 'payroll-status') {
     try {
@@ -4312,6 +4318,9 @@ async function _executeClassificationCore(
         }
         message = `You have **${employees.length} employee${employees.length === 1 ? '' : 's'}** on payroll:\n${names}\n\n${runLine}`;
       }
+      if (employees.some((e) => e.jurisdiction === 'au')) {
+        message += `\n\n${AU_STP_DISCLOSURE}`;
+      }
       await db.abConversation.create({ data: { tenantId, question: text, answer: message, queryType: 'agent', channel, skillUsed: 'payroll-status' } });
       return { selectedSkill, extractedParams, confidence, skillUsed: 'payroll-status', skillResponse: { data: { count: employees.length } }, responseData: { message, actions: [], chartData: null, skillUsed: 'payroll-status', confidence, latencyMs: Date.now() - startTime } };
     } catch (err) {
@@ -4332,7 +4341,10 @@ async function _executeClassificationCore(
       }
       const PERIODS: Record<string, number> = { weekly: 52, biweekly: 26, semimonthly: 24, monthly: 12 };
       const totalGross = employees.reduce((s, e) => s + (e.payType === 'salary' ? Math.round(e.payRateCents / (PERIODS[e.payFrequency] ?? 26)) : e.payRateCents), 0);
-      const message = `Ready to run payroll for **${employees.length} employee${employees.length === 1 ? '' : 's'}** — about **${fmt(totalGross)}** gross this period. Open the **Payroll** page and click "Run payroll" to compute exact withholding and process it.`;
+      let message = `Ready to run payroll for **${employees.length} employee${employees.length === 1 ? '' : 's'}** — about **${fmt(totalGross)}** gross this period. Open the **Payroll** page and click "Run payroll" to compute exact withholding and process it.`;
+      if (employees.some((e) => e.jurisdiction === 'au')) {
+        message += `\n\n${AU_STP_DISCLOSURE}`;
+      }
       await db.abConversation.create({ data: { tenantId, question: text, answer: message, queryType: 'agent', channel, skillUsed: 'run-payroll' } });
       return { selectedSkill, extractedParams, confidence, skillUsed: 'run-payroll', skillResponse: { data: { totalGross } }, responseData: { message, actions: [], chartData: null, skillUsed: 'run-payroll', confidence, latencyMs: Date.now() - startTime } };
     } catch (err) {
