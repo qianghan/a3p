@@ -3,6 +3,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { Users, Plus, Play, Loader2, Check, Landmark, FileText, CalendarClock, Download, AlertTriangle } from 'lucide-react';
 import { formatCurrencyCents } from '@/lib/jurisdiction-currency';
+import { splitCaDeductions, PERIODS_PER_YEAR } from '@/lib/payroll-engine';
 
 const API = '/api/v1/agentbook-payroll';
 
@@ -45,6 +46,28 @@ function yearEndSummaryLine(f: YearEndForm, fmt$: (c: number) => string): React.
       {!!f.boxes.superannuationPaidCents && <> · super {fmt$(f.boxes.superannuationPaidCents)}</>}
     </>
   );
+}
+
+// A CA stub's ficaCents is CPP/QPP+EI(+QPIP) combined (per calcCA in
+// payroll-engine.ts) — itemize it back out for display using the same
+// splitCaDeductions the engine itself used, annualizing via the
+// employee's own pay frequency (mirrors calcCA's own
+// annual = grossCents * payPeriodsPerYear convention) and dividing back
+// down to a per-period figure.
+function itemizeCaStub(
+  stub: Stub,
+  employee: Employee | undefined,
+): { pensionLabel: 'CPP' | 'QPP'; pensionCents: number; eiCents: number; qpipCents: number } | null {
+  if (!employee || employee.jurisdiction !== 'ca') return null;
+  const periodsPerYear = PERIODS_PER_YEAR[employee.payFrequency] ?? 26;
+  const annualGrossCents = stub.grossCents * periodsPerYear;
+  const split = splitCaDeductions(annualGrossCents, employee.region);
+  return {
+    pensionLabel: split.pensionBoxLabel,
+    pensionCents: Math.round(split.pensionCents / periodsPerYear),
+    eiCents: Math.round(split.eiCents / periodsPerYear),
+    qpipCents: Math.round(split.qpipCents / periodsPerYear),
+  };
 }
 
 export default function PayrollPage() {
@@ -236,7 +259,19 @@ export default function PayrollPage() {
                       <div key={st.id} className="flex items-center justify-between py-1.5 text-xs">
                         <span className="text-foreground">{st.employeeName}</span>
                         <span className="text-muted-foreground">
-                          gross {fmt$(st.grossCents)} · tax {fmt$(st.federalTaxCents + st.stateTaxCents + st.ficaCents)}
+                          gross {fmt$(st.grossCents)} · tax {fmt$(st.federalTaxCents + st.stateTaxCents)}
+                          {(() => {
+                            const ca = itemizeCaStub(st, employees.find((e) => e.name === st.employeeName));
+                            if (ca) {
+                              return (
+                                <>
+                                  {' '}· {ca.pensionLabel} {fmt$(ca.pensionCents)} · EI {fmt$(ca.eiCents)}
+                                  {ca.qpipCents > 0 && <> · QPIP {fmt$(ca.qpipCents)}</>}
+                                </>
+                              );
+                            }
+                            return <> · FICA/NI {fmt$(st.ficaCents)}</>;
+                          })()}
                           {st.sgCents > 0 && <> · super {fmt$(st.sgCents)}</>} · net <span className="text-foreground font-medium">{fmt$(st.netCents)}</span>
                         </span>
                       </div>
