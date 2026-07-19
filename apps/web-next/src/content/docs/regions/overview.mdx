@@ -1,0 +1,40 @@
+---
+title: "Supported countries"
+description: "Which countries AgentBook works in today, what changes per country, and what's coming next."
+order: 1
+---
+
+## Supported countries
+
+AgentBook works fully in the **United States**, **Canada**, and **Australia** today. Your country is set once, in **Business Profile**, and it drives everything downstream — tax forms, mileage rates, payroll withholding, sales tax, and currency.
+
+More countries are on the way. If yours isn't listed yet, the books-and-invoicing side of AgentBook (recording expenses, sending invoices, reports) works the same everywhere — it's the tax-specific pieces below that are US/CA/AU-only for now.
+
+### What "supported" means
+
+| | 🇺🇸 United States | 🇨🇦 Canada | 🇦🇺 Australia |
+|---|---|---|---|
+| Income tax estimate | Federal brackets (single & married filing jointly) | Federal + all 13 provinces/territories | ATO individual brackets, or flat company rate for Pty Ltd |
+| Self-employment tax | Social Security + Medicare | CPP, nationwide (see note below on Quebec) | Medicare Levy |
+| Sales tax | Per-state rates | GST/HST/PST by province | GST |
+| Mileage | IRS standard rate (flat, per mile) | CRA two-tier rate (per km, drops after 5,000 km/year) | ATO cents-per-km method (flat, per km) |
+| Payroll | Federal + per-state withholding, Form 940/941, W-2 | Federal + provincial withholding, T4/T4A, Quebec's separate QPP/QPIP/QC-EI | PAYG withholding, Superannuation Guarantee — see the note below on Single Touch Payroll |
+| Bank sync | Yes | Yes | Not yet — see note below |
+| Tax package (year-end export) | Schedule C format | T2125 format | ITR (Individual Tax Return) format |
+| Currency | USD | CAD | AUD |
+
+A few honest caveats, so nothing here overpromises:
+
+- **AU bank sync isn't available yet.** Our bank-connection provider doesn't support Australian banks. Log expenses manually or from a receipt photo in the meantime — everything else works normally.
+- **AU payroll here doesn't lodge Single Touch Payroll (STP) reports to the ATO.** It calculates PAYG withholding and Superannuation Guarantee correctly for your own records, but you'll still need STP-enabled software (or your BAS/tax agent) to report each pay run to the ATO, as required by law.
+- **Quebec's QPP and QPIP are modeled correctly in payroll** (for employees, with the real CRA T4 box numbers) **but the self-employment tax estimate** (for the self-employed) **currently applies the same CPP-based calculation used for the rest of Canada** — it doesn't yet substitute Quebec's higher QPP rate or add QPIP for a self-employed filer's own estimate.
+- **AU GST is applied at the standard 10% rate to every invoice by default** — you can override the rate per invoice (e.g. to 0% before you're required to register). AgentBook doesn't automatically detect when your turnover crosses the ATO's $75,000 compulsory registration threshold and switch this for you; it's asked about during Tax fast-track so you know where you stand.
+- **Per-diem (flat daily meal & incidental rates) is US-only** — it's built on the US GSA rate tables, which don't have a Canadian or Australian equivalent yet. Log actual mileage and meal expenses instead.
+
+### Where this shows up
+
+- **Business Profile** (`/settings`) is the one place you set your country, region/state/province, and currency — see [Configure your business profile](/docs/configure/business-profile).
+- **Reports & tax** figures (income tax, self-employment tax, quarterly payments) automatically use your country's real rules — see [Reports & tax](/docs/working/reports-and-tax).
+- **Tax fast-track** and **Student Success** are both available in all three countries, with country-specific questions — see [Tax fast-track filing](/docs/working/tax-fast-track) and [AgentBook for students](/docs/setup/for-students).
+
+Next: [United States guide](/docs/regions/united-states) · [Canada guide](/docs/regions/canada) · [Australia guide](/docs/regions/australia)

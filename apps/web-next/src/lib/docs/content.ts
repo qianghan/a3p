@@ -57,7 +57,8 @@ const SECTION_META: Record<string, { title: string; order: number; icon: string 
   setup: { title: 'Set up', order: 1, icon: 'Rocket' },
   configure: { title: 'Configure', order: 2, icon: 'Settings' },
   working: { title: 'Working day-to-day', order: 3, icon: 'Sparkles' },
-  troubleshooting: { title: 'Troubleshooting', order: 4, icon: 'LifeBuoy' },
+  regions: { title: 'Regions & taxes', order: 4, icon: 'Map' },
+  troubleshooting: { title: 'Troubleshooting', order: 5, icon: 'LifeBuoy' },
 };
 
 // ---------------------------------------------------------------------------
