@@ -9,7 +9,7 @@
 2. **Tax-deadline countdown** (`agentbook-digest-tips.ts` + `morning-digest/route.ts`) currently hardcodes two `Date[]` arrays (`usDeadlines`/`caDeadlines`) instead of reading the real, already-published `usCalendarDeadlines`/`caCalendarDeadlines`/`auCalendarDeadlines` providers from `@agentbook/jurisdictions` (the exact mechanism already used by `apps/web-next/src/app/api/v1/agentbook/cron/calendar-check/route.ts`'s `PACKS` map). Confirmed the hardcoded US/CA dates already match what the real pack data produces — this is pure wiring, not new business logic.
 3. **Tax-package export** (`agentbook-tax-package.ts` + `agentbook-tax-pdf.ts` + the `tax-package/generate` route) hardcodes `jurisdiction: 'us' | 'ca'` throughout and defaults anything non-CA to "IRS Schedule C" — widened to `'au'`, with a real AU tax-line fallback mapping using the exact `taxCategory` label vocabulary already seeded by `packages/agentbook-jurisdictions/src/au/chart-of-accounts.ts` (e.g. `'ITR - Motor vehicle expenses'`), and a real AU form name.
 
-**Investigation already confirmed no further work is needed in** `apps/web-next/src/lib/agentbook-bot-agent.ts` (the Telegram bot) — a full-file audit found exactly 3 jurisdiction-binary blocks: `mileage.record` (already fixed by a merged PR), and `tax.generate_package`/`per_diem.record` (both call through to the exact routes/functions this plan fixes directly — fixing the underlying route/library function fixes the bot's behavior too, since the bot just forwards to `generatePackage`/calls the per-diem logic path; no bot-agent.ts edit is needed).
+**Correction (post-review):** the original investigation claimed `apps/web-next/src/lib/agentbook-bot-agent.ts`'s `tax.generate_package` and `per_diem.record` blocks needed no edit because "the bot just forwards to `generatePackage`/calls the per-diem logic path." This was independently reviewed and found to be **false** — both blocks maintain their own inline `'us' | 'ca'` jurisdiction resolution (not a passthrough), so an AU tenant using the Telegram bot would still have hit the exact bugs Tasks 1 and 3 fixed for the web routes. Since the Telegram bot is a primary interface for this product, Task 4 below fixes both blocks directly, mirroring the same widening pattern already proven for `mileage.record` in a prior merged PR.
 
 **Tech Stack:** TypeScript, Next.js API routes, Vitest.
 
@@ -550,4 +550,48 @@ git add apps/web-next/src/lib/agentbook-tax-package.ts \
         apps/web-next/src/lib/agentbook-tax-pdf.ts \
         apps/web-next/src/app/api/v1/agentbook-tax/tax-package/generate/route.ts
 git commit -m "feat(tax-package): AU tenants get real ATO ITR labels and form name, not IRS Schedule C"
+```
+
+---
+
+### Task 4 (post-review addition): Fix the Telegram bot's own independent AU-blind sites
+
+**Added after an independent code review found the original investigation's claim — that `bot-agent.ts` needed no changes because it "just forwards" to the functions fixed in Tasks 1 and 3 — was factually wrong.** Both `tax.generate_package` and `per_diem.record` in `apps/web-next/src/lib/agentbook-bot-agent.ts` maintain their own inline `'us' | 'ca'` jurisdiction resolution, independent of the web routes. An AU tenant using the Telegram bot (a primary interface for this product) would still hit both bugs after Tasks 1-3 alone.
+
+**Files:**
+- Modify: `apps/web-next/src/lib/agentbook-bot-agent.ts` (only the `tax.generate_package` block, ~line 2829-2834, and the `per_diem.record` block, ~line 3059-3075 — do not touch any other block in this 3795-line file)
+
+**Interfaces:** No exported signatures change.
+
+- [x] **`tax.generate_package`:** widened the local jurisdiction resolution from
+  ```typescript
+  const jurisdiction: 'us' | 'ca' = cfg?.jurisdiction === 'ca' ? 'ca' : 'us';
+  ```
+  to
+  ```typescript
+  const jurisdiction: 'us' | 'ca' | 'au' =
+    cfg?.jurisdiction === 'ca' || cfg?.jurisdiction === 'au' ? cfg.jurisdiction : 'us';
+  ```
+  which now compiles against `generatePackage`'s Task-3-widened `PackageInput.jurisdiction: 'us' | 'ca' | 'au'` and correctly produces AU-labeled tax packages via the bot.
+
+- [x] **`per_diem.record`:** mirrored Task 1's exact fix — widened the CA-only short-circuit to also catch AU:
+  ```typescript
+  const jurisdiction = cfg?.jurisdiction || 'us';
+  if (jurisdiction === 'ca' || jurisdiction === 'au') {
+    const label = jurisdiction === 'ca' ? 'CA' : 'AU';
+    return { stepId: step.id, success: true, data: {
+      kind: 'unsupported_jurisdiction',
+      message: `Per-diem isn't a ${label}-supported method yet — use mileage + meals expenses instead. (Coming in a future release.)`,
+    } };
+  }
+  ```
+
+- [x] Verified `jurisdiction` is not referenced anywhere else in either block beyond the guard/pass-through, so the type widening is safe.
+- [x] `npx tsc --noEmit` on `apps/web-next` shows zero errors attributable to `agentbook-bot-agent.ts`.
+- [ ] **No new test file** — `agentbook-bot-agent.ts` (3795 lines) has zero existing test coverage of any kind; building test infrastructure for the whole file is out of proportion for this fix, consistent with the same judgment call made for the sibling `agentbook-mileage-service.ts`/bot-skill gap noted (as non-blocking) in an earlier merged PR's review.
+- [ ] **Commit:**
+
+```bash
+git add apps/web-next/src/lib/agentbook-bot-agent.ts
+git commit -m "fix(bot): Telegram per-diem and tax-package skills also recognize AU tenants"
 ```
