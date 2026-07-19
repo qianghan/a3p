@@ -5271,16 +5271,37 @@ Only include chartData if visualization adds value. Keep the answer under 200 wo
     try {
       const coreBase = baseUrls['/api/v1/agentbook-core'] || 'http://localhost:4050';
       const expenseBase = baseUrls['/api/v1/agentbook-expense'] || 'http://localhost:4051';
+      const taxBase = baseUrls['/api/v1/agentbook-tax'] || 'http://localhost:4053';
       const H = brainHeaders(tenantId);
-      const [snapSettled, alertsSettled] = await Promise.allSettled([
+      const [snapSettled, alertsSettled, quarterlySettled] = await Promise.allSettled([
         fetch(`${coreBase}/api/v1/agentbook-core/financial-snapshot`, { headers: H }),
         fetch(`${expenseBase}/api/v1/agentbook-expense/advisor/proactive-alerts`, { headers: H }),
+        fetch(`${taxBase}/api/v1/agentbook-tax/tax/quarterly`, { headers: H }),
       ]);
       const snapData = snapSettled.status === 'fulfilled'
         ? await snapSettled.value.json().catch(() => null)
         : null;
       const alertData = alertsSettled.status === 'fulfilled'
         ? await alertsSettled.value.json().catch(() => null)
+        : null;
+      const quarterlyData = quarterlySettled.status === 'fulfilled'
+        ? await quarterlySettled.value.json().catch(() => null)
+        : null;
+
+      // Nearest deadline whose amountDueCents hasn't been fully paid yet,
+      // or null if all quarters are settled/data unavailable — daily-briefing
+      // only surfaces this when it's real, unpaid, real jurisdiction-aware
+      // data (from the same /tax/quarterly route the quarterly-payments
+      // chat skill already uses), never a guess.
+      const nextDeadline = quarterlyData?.success
+        ? (quarterlyData.data?.payments ?? [])
+            .filter((p: { amountDueCents: number; amountPaidCents: number; deadline: string }) => p.amountPaidCents < p.amountDueCents)
+            .map((p: { deadline: string; amountDueCents: number; amountPaidCents: number }) => ({
+              ...p,
+              deadline: new Date(p.deadline),
+            }))
+            .filter((p: { deadline: Date }) => p.deadline.getTime() > Date.now())
+            .sort((a: { deadline: Date }, b: { deadline: Date }) => a.deadline.getTime() - b.deadline.getTime())[0] ?? null
         : null;
 
       const briefingSystem = [
@@ -5298,6 +5319,9 @@ Only include chartData if visualization adds value. Keep the answer under 200 wo
         alertData?.success
           ? `Alerts: ${JSON.stringify(alertData.data)}`
           : 'Alerts: unavailable.',
+        nextDeadline
+          ? `Next quarterly tax deadline: $${(nextDeadline.amountDueCents / 100).toFixed(2)} due ${nextDeadline.deadline.toISOString().slice(0, 10)}.`
+          : 'Next quarterly tax deadline: none upcoming or unavailable.',
       ].join('\n');
 
       const reply = await callGemini(briefingSystem, briefingUser, 350)
