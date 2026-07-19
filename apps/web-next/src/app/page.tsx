@@ -257,6 +257,9 @@ export default function LandingPage() {
                 90 days of Pro · free
               </span>
             </div>
+            <p className="ab-rise d-5 mt-4 text-[13px] text-[var(--muted)] tracking-[0.02em]">
+              Built for the United States, Canada, and Australia today — more countries on the way.
+            </p>
 
             <div className="ab-rise d-5 mt-14 pt-8 border-t border-[var(--rule)] grid grid-cols-3 gap-6 text-[13px]">
               <div>
@@ -688,6 +691,10 @@ export default function LandingPage() {
           <div className="col-span-12 md:col-span-8 md:pl-8">
             <dl className="divide-y divide-[var(--rule)]">
               {[
+                {
+                  q: 'Which countries do you support?',
+                  a: 'The United States, Canada, and Australia — fully, including real tax brackets, payroll withholding, and sales tax/GST for each. More countries are on the way. See the full breakdown in the docs.',
+                },
                 {
                   q: 'Is the free plan really free?',
                   a: 'Yes — no card, no countdown. The 90-day Pro trial is separate; you pick it deliberately. The Free plan stays Free even after the trial expires.',
