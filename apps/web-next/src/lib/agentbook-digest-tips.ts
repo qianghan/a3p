@@ -10,6 +10,39 @@
 
 import 'server-only';
 import { prisma as db } from '@naap/database';
+import { usPack, caPack, auPack, ukPack, type JurisdictionPack } from '@agentbook/jurisdictions';
+
+const CALENDAR_PACKS: Record<string, JurisdictionPack> = { us: usPack, ca: caPack, au: auPack, uk: ukPack };
+
+/**
+ * Days until the next quarterly estimated-tax/instalment deadline, read
+ * from the real jurisdiction-pack calendar data (not a hardcoded date
+ * array) — each jurisdiction's own pack already contains the correct
+ * quarterly cadence (US: `..._estimated_tax_due`, CA: `..._instalment_due`,
+ * AU: `payg_..._instalment`). Filtering by titleKey substring instead of a
+ * shared `recurrence` tag, since the packs don't tag these consistently
+ * (some are 'annual', some 'quarterly') but the titleKey naming is
+ * consistent across every pack that has this concept.
+ */
+export function nextQuarterlyTaxDeadline(
+  jurisdiction: string,
+  region: string,
+  now: Date,
+): number | null {
+  const pack = CALENDAR_PACKS[jurisdiction] ?? CALENDAR_PACKS.us;
+  const year = now.getUTCFullYear();
+  const candidates = [
+    ...pack.calendarDeadlines.getDeadlines(year, region),
+    ...pack.calendarDeadlines.getDeadlines(year + 1, region),
+  ].filter((d) => /instalment|estimated_tax/i.test(d.titleKey));
+
+  let closest: Date | null = null;
+  for (const c of candidates) {
+    const d = new Date(`${c.date}T00:00:00.000Z`);
+    if (d > now && (!closest || d < closest)) closest = d;
+  }
+  return closest ? Math.round((closest.getTime() - now.getTime()) / 86_400_000) : null;
+}
 
 export interface TipContext {
   jurisdiction: string;
@@ -133,19 +166,10 @@ export async function buildTipContext(tenantId: string): Promise<TipContext> {
     return s + Math.round(r.amountCents * factor);
   }, 0);
 
-  // Tax deadline countdown
+  // Tax deadline countdown — reads real per-jurisdiction quarterly
+  // deadline data instead of a hardcoded US/CA-only date array.
   const jurisdiction = tenantConfig?.jurisdiction || 'us';
-  const usDeadlines = [
-    new Date(now.getFullYear(), 3, 15), new Date(now.getFullYear(), 5, 15),
-    new Date(now.getFullYear(), 8, 15), new Date(now.getFullYear() + 1, 0, 15),
-  ];
-  const caDeadlines = [
-    new Date(now.getFullYear(), 2, 15), new Date(now.getFullYear(), 5, 15),
-    new Date(now.getFullYear(), 8, 15), new Date(now.getFullYear(), 11, 15),
-  ];
-  const deadlines = jurisdiction === 'ca' ? caDeadlines : usDeadlines;
-  const next = deadlines.find((d) => d > now);
-  const taxDaysUntilQ = next ? Math.round((next.getTime() - now.getTime()) / 86_400_000) : null;
+  const taxDaysUntilQ = nextQuarterlyTaxDeadline(jurisdiction, tenantConfig?.region || '', now);
   const latestEstimate = await db.abTaxEstimate.findFirst({
     where: { tenantId },
     orderBy: { calculatedAt: 'desc' },
