@@ -16,8 +16,9 @@ describe('billingApi.listPlans / listAllPlans', () => {
 
     // Regression guard: this endpoint must NOT carry `?all=true` — that
     // query param is gated behind requireAdmin() and 403s for ordinary
-    // tenants, which is exactly what broke /billing for non-admin users
-    // after commit 015e6407 pointed the shared listPlans() at it.
+    // tenants. A prior fix pointed the (then-shared) listPlans() at that
+    // gated route to fix the admin screen, which broke /billing for every
+    // non-admin tenant; listAllPlans() below is the admin-only escape hatch.
     expect(global.fetch).toHaveBeenCalledWith('/api/v1/agentbook-billing/plans');
   });
 
