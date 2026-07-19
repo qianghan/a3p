@@ -12,60 +12,42 @@ import 'server-only';
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma as db } from '@naap/database';
 import { safeResolveAgentbookTenant } from '@/lib/agentbook-tenant';
+import { formatCurrencyCents } from '@/lib/jurisdiction-currency';
+import { usTaxBrackets } from '@agentbook/jurisdictions/us/tax-brackets';
+import { caTaxBrackets } from '@agentbook/jurisdictions/ca/tax-brackets';
+import { auTaxBrackets } from '@agentbook/jurisdictions/au/tax-brackets';
+import { usSelfEmploymentTax } from '@agentbook/jurisdictions/us/self-employment-tax';
+import { caSelfEmploymentTax } from '@agentbook/jurisdictions/ca/self-employment-tax';
+import { auSelfEmploymentTax } from '@agentbook/jurisdictions/au/self-employment-tax';
+import type { TaxBracketProvider, SelfEmploymentTaxCalculator } from '@agentbook/jurisdictions/interfaces';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 export const maxDuration = 30;
 
-const US_FEDERAL_BRACKETS = [
-  { upTo: 11_600_00, rate: 0.10 },
-  { upTo: 47_150_00, rate: 0.12 },
-  { upTo: 100_525_00, rate: 0.22 },
-  { upTo: 191_950_00, rate: 0.24 },
-  { upTo: 243_725_00, rate: 0.32 },
-  { upTo: 609_350_00, rate: 0.35 },
-  { upTo: Infinity, rate: 0.37 },
-];
+// Real, tested jurisdiction-pack logic — same providers `tax/estimate/route.ts`
+// uses, replacing this route's own previously-duplicated, less-accurate
+// US/CA-only inline brackets and the silent "$0 SE tax, US brackets"
+// fallback for every other jurisdiction, including au.
+const BRACKET_PROVIDERS: Record<string, TaxBracketProvider> = {
+  us: usTaxBrackets,
+  ca: caTaxBrackets,
+  au: auTaxBrackets,
+};
+const SE_TAX_CALCULATORS: Record<string, SelfEmploymentTaxCalculator> = {
+  us: usSelfEmploymentTax,
+  ca: caSelfEmploymentTax,
+  au: auSelfEmploymentTax,
+};
 
-const CA_FEDERAL_BRACKETS = [
-  { upTo: 57_375_00, rate: 0.15 },
-  { upTo: 114_750_00, rate: 0.205 },
-  { upTo: 158_468_00, rate: 0.26 },
-  { upTo: 221_708_00, rate: 0.29 },
-  { upTo: Infinity, rate: 0.33 },
-];
-
-function calcProgressiveTax(incomeCents: number, brackets: { upTo: number; rate: number }[]): number {
-  if (incomeCents <= 0) return 0;
-  let remaining = incomeCents;
-  let tax = 0;
-  let prev = 0;
-  for (const bracket of brackets) {
-    const width = bracket.upTo === Infinity ? remaining : bracket.upTo - prev;
-    const taxable = Math.min(remaining, width);
-    tax += Math.round(taxable * bracket.rate);
-    remaining -= taxable;
-    prev = bracket.upTo;
-    if (remaining <= 0) break;
-  }
-  return tax;
-}
-
-function calcTotalTax(netIncomeCents: number, jurisdiction: string): number {
+function calcTotalTax(netIncomeCents: number, jurisdiction: string, taxYear: number): number {
   if (netIncomeCents <= 0) return 0;
-  const seTax = jurisdiction === 'us'
-    ? Math.round(netIncomeCents * 0.9235 * 0.153)
-    : jurisdiction === 'ca'
-    ? Math.round(netIncomeCents * 0.119)
-    : 0;
-  const seDeduction = jurisdiction === 'us' ? Math.round(seTax / 2) : 0;
-  const taxable = Math.max(0, netIncomeCents - seDeduction);
-  const brackets = jurisdiction === 'ca' ? CA_FEDERAL_BRACKETS : US_FEDERAL_BRACKETS;
-  return seTax + calcProgressiveTax(taxable, brackets);
-}
-
-function fmt(cents: number): string {
-  return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(Math.abs(cents) / 100);
+  const seCalculator = SE_TAX_CALCULATORS[jurisdiction];
+  const se = seCalculator ? seCalculator.calculate(netIncomeCents, taxYear) : { amountCents: 0, deductiblePortionCents: 0 };
+  const taxable = Math.max(0, netIncomeCents - se.deductiblePortionCents);
+  const bracketProvider = BRACKET_PROVIDERS[jurisdiction] ?? usTaxBrackets;
+  const incomeTaxCents = bracketProvider.calculateTax(taxable, taxYear).taxCents;
+  return se.amountCents + incomeTaxCents;
 }
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
@@ -82,8 +64,12 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
     const tenantConfig = await db.abTenantConfig.findUnique({ where: { userId: tenantId } });
     const jurisdiction = tenantConfig?.jurisdiction || 'us';
+    const currency = tenantConfig?.currency || 'USD';
+    const locale = tenantConfig?.locale || 'en-US';
     const yearStart = new Date(new Date().getFullYear(), 0, 1);
     const now = new Date();
+    const taxYear = now.getFullYear();
+    const fmt = (cents: number): string => formatCurrencyCents(cents, currency, locale);
 
     const [revenueAccounts, expenseAccounts] = await Promise.all([
       db.abAccount.findMany({ where: { tenantId, accountType: 'revenue', isActive: true }, select: { id: true } }),
@@ -109,11 +95,11 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     const expensesCents = (expenseAgg._sum.debitCents || 0) - (expenseAgg._sum.creditCents || 0);
     const netIncomeCents = grossRevenueCents - expensesCents;
 
-    const currentTaxCents = calcTotalTax(netIncomeCents, jurisdiction);
+    const currentTaxCents = calcTotalTax(netIncomeCents, jurisdiction, taxYear);
 
     // Apply scenario: positive changeAmountCents = add expense (lowers net), negative = add income (raises net)
     const projectedNetIncome = netIncomeCents - changeAmountCents;
-    const projectedTaxCents = calcTotalTax(projectedNetIncome, jurisdiction);
+    const projectedTaxCents = calcTotalTax(projectedNetIncome, jurisdiction, taxYear);
 
     const savingsCents = currentTaxCents - projectedTaxCents;
     const isExpense = changeAmountCents > 0;
