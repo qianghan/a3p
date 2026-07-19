@@ -1,0 +1,39 @@
+---
+title: "Australia"
+description: "Tax forms, mileage, payroll, and GST for Australia-based AgentBook accounts."
+order: 4
+---
+
+## AgentBook in Australia
+
+### Tax estimate
+
+If you're a **sole trader**, your income tax estimate uses the real ATO individual brackets plus the Medicare Levy. If you've registered a **Pty Ltd company**, AgentBook instead applies the flat company tax rate to your net profit — a fundamentally different calculation from personal brackets, and the Tax Dashboard notes this explicitly so the figure isn't mistaken for a personal estimate. Set your entity type once in **Tax Dashboard → Settings**.
+
+### Mileage
+
+The ATO's cents-per-km method applies — a flat rate per kilometre, capped at a maximum annual distance for this method (beyond that, the ATO's logbook method applies, which isn't automated in AgentBook yet).
+
+### Payroll
+
+Employees get PAYG withholding calculated correctly, plus the Superannuation Guarantee (paid on top of gross pay, not withheld from it — Australia's equivalent of an employer retirement contribution). Year-end forms use the Payment Summary format.
+
+> **Single Touch Payroll (STP) isn't lodged automatically.** AgentBook calculates PAYG and Superannuation Guarantee correctly for your own records, but doesn't report each pay run to the ATO in real time the way STP-enabled payroll software does. You'll still need STP-enabled software (or your BAS/tax agent) to report to the ATO as required by law.
+
+### GST
+
+Invoices apply GST at the standard 10% rate by default; you can override the rate per invoice (for example, to 0% if you're not yet registered). AgentBook doesn't automatically detect when your turnover crosses the ATO's $75,000 compulsory GST-registration threshold and switch this for you — that's asked about as part of Tax fast-track so you know where you stand, but you're responsible for registering with the ATO and setting your own invoices correctly once you cross it.
+
+### Bank sync
+
+**Not available yet.** Our bank-connection provider (Plaid) doesn't support Australian banks. Log expenses manually, or from a receipt photo — everything else (invoicing, reports, tax estimate) works normally without a connected bank.
+
+### Per-diem
+
+Not available for Australia yet — it's built on US GSA rate tables with no Australian equivalent. Log actual meal and travel expenses via mileage + expenses instead.
+
+### Getting set up
+
+Set your country to **Australia**, your state, and your entity type (sole trader or Pty Ltd) in [Business Profile](/docs/configure/business-profile) and the Tax Dashboard.
+
+Next: [Reports & tax](/docs/working/reports-and-tax)
