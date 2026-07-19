@@ -88,7 +88,7 @@ describe('US Self-Employment Tax', () => {
     // apps/web-next/src/lib/payroll-engine.ts's US_SS_WAGE_BASE must agree,
     // since they compute the same real-world SS wage base for two different
     // tax calculations (SE tax estimate vs. payroll withholding).
-    const result = usSelfEmploymentTax.calculate(50000000, 2025); // $500,000 net SE income
+    const result = usSelfEmploymentTax.calculate(50000000, 2026); // $500,000 net SE income
     expect(result.breakdown.social_security).toBe(Math.round(18450000 * 0.124));
   });
 });
