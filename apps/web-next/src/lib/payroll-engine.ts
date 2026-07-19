@@ -54,7 +54,7 @@ const US_MARRIED: Bracket[] = [
   { upTo: 487_450_00, rate: 0.32 }, { upTo: 731_200_00, rate: 0.35 },
   { upTo: Infinity, rate: 0.37 },
 ];
-const US_SS_WAGE_BASE = 168_600_00;
+const US_SS_WAGE_BASE = 184_500_00; // 2026 SSA-announced wage base
 
 // Flat per-state income-tax approximation for all 50 states + DC, matching
 // this file's documented precision level ("reasonable approximations for

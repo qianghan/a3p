@@ -17,7 +17,26 @@ describe('payroll engine', () => {
   it('US FICA on a biweekly $3000 check ≈ 7.65%', () => {
     const r = calcPay({ jurisdiction: 'us', grossCents: 3_000_00, payPeriodsPerYear: 26 });
     // SS 6.2% + Medicare 1.45% = 7.65% under the wage base
-    expect(r.ficaCents).toBe(Math.round(Math.min(3_000_00 * 26, 168_600_00) * 0.062 / 26) + Math.round(3_000_00 * 0.0145));
+    expect(r.ficaCents).toBe(Math.round(Math.min(3_000_00 * 26, 184_500_00) * 0.062 / 26) + Math.round(3_000_00 * 0.0145));
+  });
+
+  it('US SS withholding caps at 6.2% of the current $184,500 (2026) wage base for a high earner, not a year-stale figure', () => {
+    // payPeriodsPerYear: 1 makes grossCents == annual, so the SS-only portion
+    // (fica minus the uncapped 1.45% Medicare piece) isolates exactly what
+    // US_SS_WAGE_BASE produces. Pins the real constant so this fails loudly
+    // if it drifts again — this file and
+    // packages/agentbook-jurisdictions/src/us/self-employment-tax.ts must
+    // agree, since they compute the same real-world SS wage base for two
+    // different tax calculations.
+    const highEarner = calcPay({ jurisdiction: 'us', grossCents: 300_000_00, payPeriodsPerYear: 1 });
+    const ssOnly = highEarner.ficaCents - Math.round(highEarner.grossCents * 0.0145);
+    expect(ssOnly).toBe(Math.round(184_500_00 * 0.062));
+  });
+
+  it('US SS withholding is uncapped (full 6.2%) for an earner below the wage base', () => {
+    const belowCap = calcPay({ jurisdiction: 'us', grossCents: 100_000_00, payPeriodsPerYear: 1 });
+    const ssOnly = belowCap.ficaCents - Math.round(belowCap.grossCents * 0.0145);
+    expect(ssOnly).toBe(Math.round(100_000_00 * 0.062));
   });
 
   it('married brackets withhold less than single at the same gross', () => {

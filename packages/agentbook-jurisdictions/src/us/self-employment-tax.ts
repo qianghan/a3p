@@ -5,8 +5,8 @@ export const usSelfEmploymentTax: SelfEmploymentTaxCalculator = {
     // 92.35% of net SE income is subject to SE tax
     const taxableBase = Math.round(netSEIncomeCents * 0.9235);
 
-    // Social Security: 12.4% on first $176,100 (2025)
-    const ssWageCap = 17610000; // cents
+    // Social Security: 12.4% on first $184,500 (2026)
+    const ssWageCap = 18450000; // cents
     const ssBase = Math.min(taxableBase, ssWageCap);
     const ssTax = Math.round(ssBase * 0.124);
 
