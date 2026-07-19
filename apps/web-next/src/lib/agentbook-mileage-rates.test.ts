@@ -19,6 +19,7 @@ import {
   CRA_LOW_TIER_CENTS_PER_KM,
   CRA_HIGH_TIER_CENTS_PER_KM,
 } from './agentbook-mileage-rates';
+import { auMileageRate } from '@agentbook/jurisdictions';
 
 describe('getMileageRate', () => {
   it('US 2025 → flat 67¢/mi (IRS standard rate)', () => {
@@ -81,6 +82,35 @@ describe('getMileageRate', () => {
     // IRS published 67¢/mi for 2024 too (December 2023 announcement).
     // Keep this in lock-step with the table inside the helper.
     expect([67, 65, 65.5]).toContain(r.ratePerUnitCents);
+  });
+});
+
+describe('AU (ATO cents-per-km method)', () => {
+  it('2025/2026 → flat 88¢/km (ATO cents-per-km rate)', () => {
+    const r = getMileageRate('au', 2026, 0);
+    expect(r.unit).toBe('km');
+    expect(r.ratePerUnitCents).toBe(88);
+    expect(r.reason).toMatch(/ATO/i);
+  });
+
+  it('2024 → flat 85¢/km (ATO cents-per-km rate for 2024-25)', () => {
+    const r = getMileageRate('au', 2024, 0);
+    expect(r.unit).toBe('km');
+    expect(r.ratePerUnitCents).toBe(85);
+  });
+
+  it('AU flat rate is invariant of accumulated km (no tiers, unlike CA)', () => {
+    const a = getMileageRate('au', 2026, 0);
+    const b = getMileageRate('au', 2026, 9_999);
+    expect(a.ratePerUnitCents).toBe(b.ratePerUnitCents);
+  });
+
+  it('matches the real ATO rate published in the jurisdictions package directly', () => {
+    // Cross-check against the source of truth this helper wraps, so the
+    // two can't silently drift apart.
+    const source = auMileageRate.getRate(2026, 0);
+    const wrapped = getMileageRate('au', 2026, 0);
+    expect(wrapped.ratePerUnitCents).toBe(Math.round(source.rate * 100));
   });
 });
 

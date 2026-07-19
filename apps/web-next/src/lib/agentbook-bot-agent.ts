@@ -2185,13 +2185,14 @@ export async function executeStep(step: PlanStep, ctx: BotContext): Promise<Exec
           where: { userId: ctx.tenantId },
           select: { jurisdiction: true },
         });
-        const jurisdiction: 'us' | 'ca' = cfg?.jurisdiction === 'ca' ? 'ca' : 'us';
+        const jurisdiction: 'us' | 'ca' | 'au' =
+          cfg?.jurisdiction === 'ca' || cfg?.jurisdiction === 'au' ? cfg.jurisdiction : 'us';
         const date = new Date();
         const year = date.getUTCFullYear();
-        const unit: 'mi' | 'km' = unitArg || (jurisdiction === 'ca' ? 'km' : 'mi');
+        const unit: 'mi' | 'km' = unitArg || (jurisdiction === 'ca' || jurisdiction === 'au' ? 'km' : 'mi');
 
         let ytd = 0;
-        if (jurisdiction === 'ca') {
+        if (jurisdiction === 'ca' || jurisdiction === 'au') {
           // YTD-before-this-trip: filter on `date < trip-date` (not the
           // year-end boundary) so a backdated trip doesn't accidentally
           // see future km in its tier picker.

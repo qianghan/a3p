@@ -22,4 +22,5 @@ export { usPack } from './us/index.js';
 export { caPack } from './ca/index.js';
 export { ukPack } from './uk/index.js';
 export { auPack } from './au/index.js';
+export { auMileageRate } from './au/mileage-rate.js';
 export { AUDIT_REVIEW_MODEL_VERSION } from './us/tax-benefits.js';

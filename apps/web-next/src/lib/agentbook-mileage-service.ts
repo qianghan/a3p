@@ -74,7 +74,7 @@ export async function updateMileageEntry(
   // edit is idempotent.
   const tripYear = existing.date.getUTCFullYear();
   let ratePerUnitCents = existing.ratePerUnitCents;
-  if (existing.jurisdiction === 'ca') {
+  if (existing.jurisdiction === 'ca' || existing.jurisdiction === 'au') {
     const start = new Date(Date.UTC(tripYear, 0, 1));
     const others = await db.abMileageEntry.findMany({
       where: {
@@ -87,7 +87,7 @@ export async function updateMileageEntry(
       select: { miles: true },
     });
     const ytd = others.reduce((s, r) => s + r.miles, 0);
-    ratePerUnitCents = getMileageRate('ca', tripYear, ytd).ratePerUnitCents;
+    ratePerUnitCents = getMileageRate(existing.jurisdiction as 'ca' | 'au', tripYear, ytd).ratePerUnitCents;
   } else {
     ratePerUnitCents = getMileageRate('us', tripYear, 0).ratePerUnitCents;
   }
