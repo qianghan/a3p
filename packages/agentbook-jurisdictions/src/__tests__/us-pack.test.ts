@@ -53,7 +53,7 @@ describe('US Self-Employment Tax', () => {
     const taxableBase = Math.round(10000000 * 0.9235); // 9,235,000
     expect(taxableBase).toBe(9235000);
 
-    // SS: 12.4% on 9,235,000 (under $176,100 cap) = 1,145,140
+    // SS: 12.4% on 9,235,000 (under $184,500 cap) = 1,145,140
     const expectedSS = Math.round(9235000 * 0.124);
     expect(result.breakdown.social_security).toBe(expectedSS);
 
@@ -79,6 +79,17 @@ describe('US Self-Employment Tax', () => {
     const additionalMedicareBase = taxableBase - 20000000; // 3,087,500
     const expectedAdditional = Math.round(additionalMedicareBase * 0.009);
     expect(result.breakdown.additional_medicare).toBe(expectedAdditional);
+  });
+
+  it('SS tax caps at 12.4% of the current $184,500 (2026) wage base for a high earner, not a year-stale figure', () => {
+    // Pins the real cap constant directly (via a taxable base well above it)
+    // rather than just re-deriving whatever the code currently does, so this
+    // fails loudly if ssWageCap drifts again — this file and
+    // apps/web-next/src/lib/payroll-engine.ts's US_SS_WAGE_BASE must agree,
+    // since they compute the same real-world SS wage base for two different
+    // tax calculations (SE tax estimate vs. payroll withholding).
+    const result = usSelfEmploymentTax.calculate(50000000, 2026); // $500,000 net SE income
+    expect(result.breakdown.social_security).toBe(Math.round(18450000 * 0.124));
   });
 });
 
