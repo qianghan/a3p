@@ -14,6 +14,7 @@ import { safeResolveAgentbookTenant } from '@/lib/agentbook-tenant';
 import { usTaxBrackets } from '@agentbook/jurisdictions/us/tax-brackets';
 import { caTaxBrackets } from '@agentbook/jurisdictions/ca/tax-brackets';
 import { auTaxBrackets } from '@agentbook/jurisdictions/au/tax-brackets';
+import { auCompanyTaxBrackets } from '@agentbook/jurisdictions/au/company-tax';
 import { usSelfEmploymentTax } from '@agentbook/jurisdictions/us/self-employment-tax';
 import { caSelfEmploymentTax } from '@agentbook/jurisdictions/ca/self-employment-tax';
 import { auSelfEmploymentTax } from '@agentbook/jurisdictions/au/self-employment-tax';
@@ -69,6 +70,12 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     const tenantConfig = await db.abTenantConfig.findUnique({ where: { userId: tenantId } });
     const jurisdiction = tenantConfig?.jurisdiction || 'us';
     const region = tenantConfig?.region || '';
+    // An AU Pty Ltd company pays flat company tax, not individual brackets +
+    // Medicare Levy — every other entity type (sole_trader, trust, unset)
+    // and every non-AU jurisdiction is unaffected. Deliberately opt-in
+    // (only 'pty_ltd' exactly) rather than "anything not sole_trader",
+    // so an unset/null taxEntityType never silently gets company treatment.
+    const isAuCompany = jurisdiction === 'au' && tenantConfig?.taxEntityType === 'pty_ltd';
 
     // Accounting basis: explicit ?basis= → tenant config → accrual (mirrors the P&L route).
     const basisParam = (params.get('basis') || '').toLowerCase();
@@ -168,19 +175,25 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     const netIncomeCents = grossRevenueCents - expensesCents;
 
     const taxYear = startDate.getFullYear();
-    const seTax = calcSelfEmploymentTax(netIncomeCents, jurisdiction, taxYear);
+    // A Pty Ltd company doesn't pay individual Medicare Levy / self-
+    // employment tax on retained business profit (that only applies to
+    // wages/dividends an individual actually draws, which isn't modeled
+    // here) — so self-employment tax is $0 for the AU-company branch.
+    const seTax = isAuCompany
+      ? { amountCents: 0, deductiblePortionCents: 0 }
+      : calcSelfEmploymentTax(netIncomeCents, jurisdiction, taxYear);
     const seTaxCents = seTax.amountCents;
     // Each jurisdiction's calculator already knows its own deductible
     // portion (half of US SE tax, the employer-equivalent CPP portion,
     // none for AU's non-deductible Medicare Levy) — no more us-only ternary.
     const seDeduction = seTax.deductiblePortionCents;
     const taxableIncomeCents = Math.max(0, netIncomeCents - seDeduction);
-    const bracketProvider = BRACKET_PROVIDERS[jurisdiction] ?? usTaxBrackets;
-    // W-2 wages stack on top of self-employment income for bracket placement.
-    // filingStatus (already stored per-tenant, default 'single') selects the
-    // married-filing-jointly bracket table for US tenants; other jurisdiction
-    // packs ignore the extra argument.
-    const incomeTaxCents = bracketProvider.calculateTax(taxableIncomeCents + w2IncomeCents, taxYear, taxConfig?.filingStatus).taxCents;
+    // A company's flat tax rate applies to its own net income only — the
+    // tenant's personal W-2 wages don't stack onto a company's tax base
+    // the way they stack onto an individual's bracket placement.
+    const incomeTaxCents = isAuCompany
+      ? auCompanyTaxBrackets.calculateTax(taxableIncomeCents, taxYear).taxCents
+      : (BRACKET_PROVIDERS[jurisdiction] ?? usTaxBrackets).calculateTax(taxableIncomeCents + w2IncomeCents, taxYear, taxConfig?.filingStatus).taxCents;
     const totalTaxCents = seTaxCents + incomeTaxCents;
     // What is still owed after crediting W-2 tax already withheld this year.
     const amountOwedCents = Math.max(0, totalTaxCents - w2WithheldCents);
