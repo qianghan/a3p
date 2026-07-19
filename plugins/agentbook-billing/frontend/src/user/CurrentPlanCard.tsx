@@ -1,5 +1,15 @@
 import { meApi, type CurrentPlanView } from '../lib/api';
 
+const CURRENCY_LOCALE: Record<string, string> = { usd: 'en-US', cad: 'en-CA', aud: 'en-AU' };
+
+function fmtPrice(cents: number, currency: string): string {
+  return (cents / 100).toLocaleString(CURRENCY_LOCALE[currency] ?? 'en-US', {
+    style: 'currency',
+    currency: currency.toUpperCase(),
+    maximumFractionDigits: 0,
+  });
+}
+
 export function CurrentPlanCard({ view, onRefresh }: { view: CurrentPlanView; onRefresh: () => void }): JSX.Element {
   const cancel = async (): Promise<void> => {
     if (!window.confirm('Cancel at the end of the current period?')) return;
@@ -20,7 +30,7 @@ export function CurrentPlanCard({ view, onRefresh }: { view: CurrentPlanView; on
         </div>
         <div className="text-right text-sm">
           <div className="font-medium text-foreground">
-            ${(view.plan.priceCents / 100).toFixed(2)} / {view.plan.interval}
+            {fmtPrice(view.plan.priceCents, view.plan.currency)} / {view.plan.interval}
           </div>
           <div className="text-muted-foreground capitalize">{view.status}</div>
           {view.periodEnd && (
