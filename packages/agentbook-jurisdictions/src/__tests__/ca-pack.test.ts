@@ -12,7 +12,7 @@ describe('CA Tax Brackets', () => {
     expect(caTaxBrackets.jurisdiction).toBe('ca');
   });
 
-  it('calculates correct federal tax on $80,000 income', () => {
+  it('calculates correct federal tax on $80,000 income (no region → federal-only)', () => {
     // $80,000 = 8,000,000 cents
     // 15% on first $57,375 (5,737,500 cents) = 860,625
     // 20.5% on $57,375-$80,000 ($22,625 = 2,262,500 cents) = 463,813 (rounded)
@@ -27,12 +27,12 @@ describe('CA Tax Brackets', () => {
     expect(result.taxCents).toBe(expectedTotal);
   });
 
-  it('returns correct marginal rate for $80,000 income', () => {
+  it('returns correct marginal rate for $80,000 income (no region)', () => {
     const result = caTaxBrackets.calculateTax(8000000, 2025);
     expect(result.marginalRate).toBe(0.205);
   });
 
-  it('returns two bracket breakdowns for $80,000 income', () => {
+  it('returns two bracket breakdowns for $80,000 income (no region)', () => {
     const result = caTaxBrackets.calculateTax(8000000, 2025);
     expect(result.bracketBreakdown).toHaveLength(2);
   });
@@ -41,6 +41,64 @@ describe('CA Tax Brackets', () => {
     const result = caTaxBrackets.calculateTax(0, 2025);
     expect(result.taxCents).toBe(0);
     expect(result.effectiveRate).toBe(0);
+  });
+
+  it('ON: $80,000 income includes provincial tax when region is passed', () => {
+    const result = caTaxBrackets.calculateTax(8000000, 2025, undefined, 'ON');
+    // Federal 1,324,438 + Ontario provincial 522,318
+    expect(result.taxCents).toBe(1324438 + 522318);
+    expect(result.taxCents).toBe(1846756);
+  });
+
+  it('QC: $80,000 income includes provincial tax when region is passed', () => {
+    const result = caTaxBrackets.calculateTax(8000000, 2025, undefined, 'QC');
+    // Federal 1,324,438 + Quebec provincial 1,253,725
+    expect(result.taxCents).toBe(1324438 + 1253725);
+    expect(result.taxCents).toBe(2578163);
+  });
+
+  it('AB: $80,000 income includes provincial tax when region is passed', () => {
+    const result = caTaxBrackets.calculateTax(8000000, 2025, undefined, 'AB');
+    // Federal 1,324,438 + Alberta provincial 800,000
+    expect(result.taxCents).toBe(1324438 + 800000);
+    expect(result.taxCents).toBe(2124438);
+  });
+
+  it('ON: $40,000 income includes provincial tax when region is passed', () => {
+    const result = caTaxBrackets.calculateTax(4000000, 2025, undefined, 'ON');
+    // Federal 600,000 + Ontario provincial 202,000
+    expect(result.taxCents).toBe(802000);
+  });
+
+  it('QC: $40,000 income includes provincial tax when region is passed', () => {
+    const result = caTaxBrackets.calculateTax(4000000, 2025, undefined, 'QC');
+    // Federal 600,000 + Quebec provincial 560,000
+    expect(result.taxCents).toBe(1160000);
+  });
+
+  it('unrecognized region falls back to ON provincial rates', () => {
+    const withUnknown = caTaxBrackets.calculateTax(8000000, 2025, undefined, 'ZZ');
+    const withOn = caTaxBrackets.calculateTax(8000000, 2025, undefined, 'ON');
+    expect(withUnknown.taxCents).toBe(withOn.taxCents);
+  });
+
+  it('empty-string region behaves as no region (federal-only)', () => {
+    const withEmpty = caTaxBrackets.calculateTax(8000000, 2025, undefined, '');
+    const withNone = caTaxBrackets.calculateTax(8000000, 2025);
+    expect(withEmpty.taxCents).toBe(withNone.taxCents);
+    expect(withEmpty.taxCents).toBe(1324438);
+  });
+
+  it('effectiveRate reflects combined federal+provincial tax when region is passed', () => {
+    const result = caTaxBrackets.calculateTax(8000000, 2025, undefined, 'ON');
+    expect(result.effectiveRate).toBeCloseTo(1846756 / 8000000, 10);
+  });
+
+  it('marginalRate is the sum of federal + provincial marginal rate when region is passed', () => {
+    const result = caTaxBrackets.calculateTax(8000000, 2025, undefined, 'ON');
+    // Federal marginal at 8,000,000 is 0.205 (bracket 2). Ontario marginal at
+    // 8,000,000 is 0.0915 (bracket 2 of ON: 5,114,200–10,228,400).
+    expect(result.marginalRate).toBeCloseTo(0.205 + 0.0915, 10);
   });
 });
 
