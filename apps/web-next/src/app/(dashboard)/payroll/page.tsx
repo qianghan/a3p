@@ -18,6 +18,35 @@ const FORM_LABEL: Record<string, string> = { '941': 'Form 941', '940': 'Form 940
 
 type Tab = 'employees' | 'runs' | 'deposits' | 'yearend';
 
+// T4 (CA) boxes use CRA box-numbered keys (box14EmploymentIncomeCents,
+// box22IncomeTaxDeductedCents, box16CppContributionsCents OR
+// box17QppContributionsCents for Quebec, box18EiPremiumsCents,
+// box55PpipPremiumsCents for Quebec) — completely different key names
+// than the US/UK/AU-generic boxes (grossWagesCents/incomeTaxWithheldCents/
+// ficaWithheldCents). Reading the generic keys for a T4 form silently
+// produces $0/$0 since those keys don't exist on that object at all.
+function yearEndSummaryLine(f: YearEndForm, fmt$: (c: number) => string): React.ReactNode {
+  if (f.formType === 'T4') {
+    const b = f.boxes;
+    const isQuebec = typeof b.box17QppContributionsCents === 'number';
+    const pensionLabel = isQuebec ? 'QPP' : 'CPP';
+    const pensionCents = isQuebec ? (b.box17QppContributionsCents || 0) : (b.box16CppContributionsCents || 0);
+    return (
+      <>
+        {f.formType} · gross {fmt$(b.box14EmploymentIncomeCents || 0)} · tax {fmt$(b.box22IncomeTaxDeductedCents || 0)}
+        {' '}· {pensionLabel} {fmt$(pensionCents)} · EI {fmt$(b.box18EiPremiumsCents || 0)}
+        {isQuebec && <> · QPIP {fmt$(b.box55PpipPremiumsCents || 0)}</>}
+      </>
+    );
+  }
+  return (
+    <>
+      {f.formType} · gross {fmt$(f.boxes.grossWagesCents || 0)} · tax {fmt$((f.boxes.incomeTaxWithheldCents || 0) + (f.boxes.ficaWithheldCents || 0))}
+      {!!f.boxes.superannuationPaidCents && <> · super {fmt$(f.boxes.superannuationPaidCents)}</>}
+    </>
+  );
+}
+
 export default function PayrollPage() {
   const [tab, setTab] = useState<Tab>('employees');
   const [employees, setEmployees] = useState<Employee[]>([]);
@@ -262,8 +291,7 @@ export default function PayrollPage() {
                   <div>
                     <p className="text-sm font-medium text-foreground">{f.employeeName}</p>
                     <p className="text-xs text-muted-foreground">
-                      {f.formType} · gross {fmt$(f.boxes.grossWagesCents || 0)} · tax {fmt$((f.boxes.incomeTaxWithheldCents || 0) + (f.boxes.ficaWithheldCents || 0))}
-                      {!!f.boxes.superannuationPaidCents && <> · super {fmt$(f.boxes.superannuationPaidCents)}</>}
+                      {yearEndSummaryLine(f, fmt$)}
                     </p>
                   </div>
                   {f.employeeId ? (
