@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useCallback, useEffect, useState } from 'react';
-import { Users, Plus, Play, Loader2, Check, Landmark, FileText, CalendarClock, Download } from 'lucide-react';
+import { Users, Plus, Play, Loader2, Check, Landmark, FileText, CalendarClock, Download, AlertTriangle } from 'lucide-react';
 
 const API = '/api/v1/agentbook-payroll';
 
@@ -106,6 +106,17 @@ export default function PayrollPage() {
         </div>
       </div>
       <p className="text-sm text-muted-foreground mb-5">Pay employees and contractors with automatic withholding, deposits, and year-end forms.</p>
+
+      {employees.some((e) => e.jurisdiction === 'au') && (
+        <div className="mb-5 flex items-start gap-2.5 rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-700 dark:text-amber-400">
+          <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
+          <p>
+            AU payroll here calculates PAYG withholding and Superannuation Guarantee for your own records, but does{' '}
+            <strong>not</strong> lodge Single Touch Payroll (STP) reports to the ATO in real time. You&apos;ll still need
+            STP-enabled software (or your BAS/tax agent) to report each pay run to the ATO as required by law.
+          </p>
+        </div>
+      )}
 
       {/* Tabs */}
       <div className="flex border-b border-border mb-5 overflow-x-auto">
