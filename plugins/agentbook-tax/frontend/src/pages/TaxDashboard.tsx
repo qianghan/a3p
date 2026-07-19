@@ -39,6 +39,11 @@ interface TaxEstimate {
     status: 'paid' | 'due' | 'upcoming' | 'overdue';
     deadline: string;
   }[];
+  // The route's response mixes a legacy top-level dollar-amount shape
+  // (everything above) with a nested `data` object carrying jurisdiction
+  // context — `jurisdiction` only exists nested, never duplicated at the
+  // top level, so it must be read as `data.data?.jurisdiction`.
+  data?: { jurisdiction?: string };
 }
 
 interface TaxSettings {
@@ -74,6 +79,22 @@ const QUARTER_CARD_BORDER: Record<string, string> = {
 
 function DashboardTab({ data, onRefresh }: { data: TaxEstimate; onRefresh: () => void }) {
   const currency = useTenantCurrency();
+  // taxEntityType isn't part of the /tax/estimate response (nested or
+  // top-level) — it lives on tenant-config, same source SettingsTab reads.
+  // Fetched locally here (rather than lifted to the page) since Dashboard/
+  // Settings tabs are mutually-exclusive mounts with no shared state today.
+  const [taxEntityType, setTaxEntityType] = useState<string | null>(null);
+  useEffect(() => {
+    let active = true;
+    fetch('/api/v1/agentbook-core/tenant-config')
+      .then(r => (r.ok ? r.json() : null))
+      .then(json => {
+        if (!active || !json?.data) return;
+        setTaxEntityType(json.data.taxEntityType ?? null);
+      })
+      .catch(() => { /* leave null — note simply won't show */ });
+    return () => { active = false; };
+  }, []);
   return (
     <div className="space-y-4">
       {/* Refresh */}
@@ -111,6 +132,12 @@ function DashboardTab({ data, onRefresh }: { data: TaxEstimate; onRefresh: () =>
               </span>
             )}
           </div>
+        )}
+        {data.data?.jurisdiction === 'au' && taxEntityType === 'pty_ltd' && (
+          <p className="mt-3 text-xs text-muted-foreground max-w-sm mx-auto">
+            Pty Ltd companies pay a flat 25% ATO company tax rate on net profit — this figure isn&apos;t
+            calculated the same way as an individual&apos;s progressive income-tax brackets.
+          </p>
         )}
       </div>
 
