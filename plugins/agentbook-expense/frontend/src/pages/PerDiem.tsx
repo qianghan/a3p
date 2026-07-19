@@ -72,11 +72,16 @@ export const PerDiemPage: React.FC = () => {
   const [startDate, setStartDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [endDate, setEndDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [includeLodging, setIncludeLodging] = useState(false);
+  const [jurisdiction, setJurisdiction] = useState<string>('us');
 
   const load = async () => {
     try {
-      const res = await fetch(`${API}/per-diem`).then((r) => r.json());
-      if (res?.success && res.data) setEntries(res.data.entries || []);
+      const [entriesRes, tenantRes] = await Promise.all([
+        fetch(`${API}/per-diem`).then((r) => r.json()),
+        fetch('/api/v1/agentbook-core/tenant-config').then((r) => r.json()).catch(() => null),
+      ]);
+      if (entriesRes?.success && entriesRes.data) setEntries(entriesRes.data.entries || []);
+      if (tenantRes?.data?.jurisdiction) setJurisdiction(tenantRes.data.jurisdiction);
     } catch (err) {
       console.warn('[per-diem] load failed:', err);
     }
@@ -142,7 +147,8 @@ export const PerDiemPage: React.FC = () => {
         </div>
         <button
           onClick={() => setShowForm((v) => !v)}
-          className="px-3 py-2 text-sm rounded-lg bg-primary text-primary-foreground inline-flex items-center gap-2"
+          disabled={jurisdiction === 'ca' || jurisdiction === 'au'}
+          className="px-3 py-2 text-sm rounded-lg bg-primary text-primary-foreground inline-flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
         >
           {showForm ? <X className="w-4 h-4" /> : <Plus className="w-4 h-4" />}
           {showForm ? 'Cancel' : 'Book per-diem'}
@@ -152,11 +158,18 @@ export const PerDiemPage: React.FC = () => {
       {/* PR 41 / Tier 1 #1: chat-first escape hatch */}
       <ChatCTA example="I was traveling in Chicago for 3 days last week" />
 
-      <p className="text-sm text-muted-foreground mb-6">
-        GSA per-diem rates for federal travel — book a flat M&amp;IE rate
-        instead of itemising every meal.{' '}
-        <span className="opacity-70">(US tenants only.)</span>
-      </p>
+      {jurisdiction === 'ca' || jurisdiction === 'au' ? (
+        <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-4 mb-6 text-sm text-amber-700 dark:text-amber-400">
+          Per-diem isn&apos;t a {jurisdiction === 'ca' ? 'CA' : 'AU'}-supported method yet — use mileage + meals
+          expenses instead. (Coming in a future release.)
+        </div>
+      ) : (
+        <p className="text-sm text-muted-foreground mb-6">
+          GSA per-diem rates for federal travel — book a flat M&amp;IE rate
+          instead of itemising every meal.{' '}
+          <span className="opacity-70">(US tenants only.)</span>
+        </p>
+      )}
 
       {showForm && (
         <div className="bg-card border border-border rounded-xl p-4 mb-6 space-y-3">
