@@ -7,6 +7,7 @@ import {
   Building2, Link2, RefreshCw, CheckCircle, AlertCircle,
 } from 'lucide-react';
 import { usePlaidLink } from 'react-plaid-link';
+import { useBasiqConnect } from '@naap/plugin-sdk';
 import { formatCurrencyCents } from '@/lib/jurisdiction-currency';
 import { SubscribeModal } from '@/components/settings/SubscribeModal';
 
@@ -22,6 +23,7 @@ interface Account {
   institution: string | null;
   connected: boolean;
   lastSynced: string | null;
+  provider?: string;
 }
 interface Snapshot {
   netWorthCents: number;
@@ -229,17 +231,45 @@ export default function PersonalFinancePage() {
     }
   }, []);
 
+  // AU tenants use Basiq instead of Plaid (Plaid has no AU country code at
+  // all — createLinkToken() only ever requests US/CA institutions). Shares
+  // the popup-open + postMessage-listener + status-poll flow with the
+  // business-side BankConnection.tsx (AU-1 Task 3) via `useBasiqConnect`.
+  const basiqConnect = useBasiqConnect({
+    apiBase: API,
+    onConnected: async (accountsLinked: number) => {
+      setBankResult(`Connected ${accountsLinked} account(s)`);
+      await load();
+    },
+  });
+
+  const handleStartBankConnectBasiq = useCallback(async () => {
+    basiqConnect.setConnecting(true);
+    basiqConnect.clearError();
+    setBankResult(null);
+    try {
+      const res = await fetch(`${API}/bank/basiq/consent-url`, { method: 'POST' });
+      const data = await res.json();
+      if (res.status === 402) {
+        setBankResult('Bank sync is part of Personal Insights — enable it above to sync.');
+        basiqConnect.setConnecting(false);
+        return;
+      }
+      if (!data.success) {
+        setBankResult('Failed to start bank connection: ' + (data.error || 'Unknown error'));
+        basiqConnect.setConnecting(false);
+        return;
+      }
+      basiqConnect.startConnect(data.data.consentUrl);
+    } catch (err) {
+      setBankResult('Connection error: ' + String(err));
+      basiqConnect.setConnecting(false);
+    }
+  }, [basiqConnect]);
+
   const handleStartBankConnect = async () => {
-    // Plaid (our bank-connection provider) has no country code for Australia
-    // at all — createLinkToken() only ever requests US/CA institutions.
-    // Attempting the flow for an AU tenant silently shows a Plaid Link UI
-    // that can't find their bank, instead of a clean failure. Mirrors the
-    // identical honest-decline message already shipped for chat/MCP in
-    // AU-7 (plugins/agentbook-core/backend/src/agent-brain.ts).
     if (jurisdiction === 'au') {
-      setBankResult(
-        "Bank sync isn't available for Australian accounts yet — Plaid (our bank-connection provider) doesn't support AU banks. We're working on a local alternative; for now, log expenses manually or via receipt photos.",
-      );
+      await handleStartBankConnectBasiq();
       return;
     }
     setConnectingBank(true);
@@ -328,9 +358,10 @@ export default function PersonalFinancePage() {
     }
   };
 
-  const handleBankDisconnect = async (accountId: string) => {
+  const handleBankDisconnect = async (accountId: string, provider?: string) => {
     if (!confirm('Disconnect this bank account? Historical transactions are kept.')) return;
-    await fetch(`${API}/plaid/disconnect`, {
+    const path = provider === 'basiq' ? `${API}/bank/basiq/disconnect` : `${API}/plaid/disconnect`;
+    await fetch(path, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ accountId }),
@@ -493,9 +524,9 @@ export default function PersonalFinancePage() {
               {syncingBank ? 'Syncing…' : 'Sync bank'}
             </button>
           )}
-          <button onClick={handleStartBankConnect} disabled={connectingBank}
+          <button onClick={handleStartBankConnect} disabled={connectingBank || basiqConnect.connecting}
             className="flex items-center gap-1.5 px-3 py-1.5 bg-primary text-primary-foreground rounded-lg text-xs hover:bg-primary/90 transition-colors disabled:opacity-50">
-            {connectingBank ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Link2 className="w-3.5 h-3.5" />}
+            {(connectingBank || basiqConnect.connecting) ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Link2 className="w-3.5 h-3.5" />}
             Connect bank
           </button>
         </div>
@@ -505,6 +536,13 @@ export default function PersonalFinancePage() {
           <Building2 className="w-4 h-4 shrink-0" />
           {bankResult}
           <button onClick={() => setBankResult(null)} className="ml-auto text-xs opacity-60 hover:opacity-100">Dismiss</button>
+        </div>
+      )}
+      {basiqConnect.error && (
+        <div className="mb-4 p-3 rounded-xl text-sm bg-red-500/10 text-red-600 border border-red-500/20 flex items-center gap-2">
+          <AlertCircle className="w-4 h-4 shrink-0" />
+          {basiqConnect.error}
+          <button onClick={basiqConnect.clearError} className="ml-auto text-xs opacity-60 hover:opacity-100">Dismiss</button>
         </div>
       )}
       {accounts.length === 0 ? (
@@ -518,11 +556,11 @@ export default function PersonalFinancePage() {
               <div>
                 <p className="text-sm font-medium text-foreground">{a.name}</p>
                 <p className="text-xs text-muted-foreground capitalize">{a.type}</p>
-                {a.plaidAccountId && (
+                {(a.plaidAccountId || a.provider === 'basiq') && (
                   <p className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5">
                     {a.connected ? <CheckCircle className="w-3 h-3 text-green-500" /> : <AlertCircle className="w-3 h-3 text-red-500" />}
                     {a.institution || 'Bank'} · {a.lastSynced ? `Synced ${new Date(a.lastSynced).toLocaleDateString()}` : 'Not synced'}
-                    <button onClick={() => handleBankDisconnect(a.id)} className="ml-2 underline hover:no-underline">Disconnect</button>
+                    <button onClick={() => handleBankDisconnect(a.id, a.provider)} className="ml-2 underline hover:no-underline">Disconnect</button>
                   </p>
                 )}
               </div>
