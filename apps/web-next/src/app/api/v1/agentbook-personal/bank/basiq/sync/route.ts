@@ -2,39 +2,13 @@ import 'server-only';
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma as db } from '@naap/database';
 import { requirePersonalInsightsAddon } from '@/lib/agentbook-personal-insights/guard';
-import { listTransactions, sanitizeBasiqError, type BasiqTransaction } from '@/lib/agentbook-basiq';
+import { sanitizeBasiqError } from '@/lib/agentbook-basiq';
+import { syncPersonalBasiqAccount } from '@/lib/agentbook-personal-basiq-sync';
 import { summarizeSyncRuns, type SyncRun } from '@/lib/plaid-sync-summary';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
-
-/**
- * amountCents sign convention for AU/Basiq personal transactions.
- *
- * Basiq's own `amount` is a negative decimal string for a debit/outflow and
- * positive for a credit/inflow (confirmed in agentbook-basiq.ts's file
- * header against Basiq's live docs/examples). That is already the SAME sign
- * convention AbPersonalTransaction.amountCents uses — positive = inflow/
- * income, negative = outflow/spend (see agentbook-personal-plaid.ts's file
- * header: "Plaid: positive = outflow ... AbPersonalTransaction: positive =
- * inflow ... Negate on write").
- *
- * So, unlike the business-side Basiq sync route (Task 2 of the AU-1 plan),
- * which negates Basiq's amount to align with AbBankTransaction's OPPOSITE
- * convention (positive = outflow/debit there), THIS route must NOT negate —
- * Basiq's amount is written through unchanged in sign. Prefer the explicit
- * `direction` field over sign-sniffing `amount` when Basiq provides it, per
- * agentbook-basiq.ts's own guidance.
- */
-function basiqAmountToPersonalCents(t: Pick<BasiqTransaction, 'amount' | 'direction'>): number {
-  const magnitudeCents = Math.round(Math.abs(parseFloat(t.amount)) * 100);
-  if (t.direction === 'debit') return -magnitudeCents;
-  if (t.direction === 'credit') return magnitudeCents;
-  // No explicit direction — fall back to Basiq's own amount sign, which is
-  // already aligned with AbPersonalTransaction's convention (no negation).
-  return Math.round(parseFloat(t.amount) * 100);
-}
 
 /**
  * Pulls new Basiq transactions for every connected AU personal account and
@@ -44,7 +18,12 @@ function basiqAmountToPersonalCents(t: Pick<BasiqTransaction, 'amount' | 'direct
  * row" rule — but writes to AbPersonalAccount/AbPersonalTransaction, has no
  * matcher step (personal transactions aren't reconciled against invoices/
  * expenses, matching agentbook-personal-plaid.ts's precedent), and uses the
- * inverted amount-sign convention described above.
+ * inverted amount-sign convention documented in `agentbook-personal-basiq-sync.ts`.
+ *
+ * The per-account sync loop itself lives in `@/lib/agentbook-personal-basiq-sync`
+ * (`syncPersonalBasiqAccount`) so this route and the daily cron
+ * (`agentbook/cron/personal-basiq-sync/route.ts`, AU-1 Task 5) share exactly
+ * one implementation.
  */
 export async function POST(request: NextRequest): Promise<NextResponse> {
   const guard = await requirePersonalInsightsAddon(request);
@@ -70,49 +49,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
     for (const account of accounts) {
       try {
-        const txns = await listTransactions(basiqUserId, {
-          since: account.lastSynced?.toISOString(),
-        });
-
-        let added = 0;
-        let modified = 0;
-        for (const t of txns) {
-          const amountCents = basiqAmountToPersonalCents(t);
-          const existing = await db.abPersonalTransaction.findUnique({
-            where: { basiqTransactionId: t.id },
-          });
-          await db.abPersonalTransaction.upsert({
-            where: { basiqTransactionId: t.id },
-            create: {
-              tenantId,
-              accountId: account.id,
-              basiqTransactionId: t.id,
-              amountCents,
-              date: new Date(t.postDate),
-              description: t.description || 'Unknown',
-              category: 'uncategorized',
-              pending: t.status === 'pending',
-              idempotencyKey: t.id,
-            },
-            // category intentionally not touched on update — same rule as
-            // the business-side Basiq sync and personal-Plaid sync: a
-            // Basiq-side modify shouldn't clobber a user's re-categorization.
-            update: {
-              amountCents,
-              date: new Date(t.postDate),
-              description: t.description || 'Unknown',
-              pending: t.status === 'pending',
-            },
-          });
-          if (existing) modified += 1;
-          else added += 1;
-        }
-
-        runs.push({ added, modified, removed: 0, hasMore: false });
-        await db.abPersonalAccount.update({
-          where: { id: account.id },
-          data: { lastSynced: new Date() },
-        });
+        const run = await syncPersonalBasiqAccount(tenantId, basiqUserId, account);
+        runs.push(run);
       } catch (err) {
         console.error(
           '[agentbook-personal/bank/basiq/sync POST] account',

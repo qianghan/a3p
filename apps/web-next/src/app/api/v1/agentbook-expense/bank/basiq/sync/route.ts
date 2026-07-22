@@ -10,37 +10,24 @@
  * Basiq has no cursor/pagination-cap concept exposed by `agentbook-basiq.ts`
  * today — each call fetches every transaction since the account's last
  * sync, so `hasMore` is always false here (nothing is ever truncated).
+ *
+ * The per-account sync loop itself lives in `@/lib/agentbook-basiq-sync`
+ * (`syncBasiqAccount`) so this route and the daily cron
+ * (`agentbook/cron/basiq-sync/route.ts`, AU-1 Task 5) share exactly one
+ * implementation.
  */
 
 import 'server-only';
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma as db } from '@naap/database';
 import { safeResolveAgentbookTenant } from '@/lib/agentbook-tenant';
-import { runMatcherOnTransaction } from '@/lib/agentbook-plaid';
-import {
-  listTransactions,
-  sanitizeBasiqError,
-  type BasiqTransaction,
-} from '@/lib/agentbook-basiq';
+import { sanitizeBasiqError } from '@/lib/agentbook-basiq';
+import { syncBasiqAccount } from '@/lib/agentbook-basiq-sync';
 import { summarizeSyncRuns, type SyncRun } from '@/lib/plaid-sync-summary';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
-
-/**
- * Basiq's `amount` is a decimal string, negative for a debit/outflow.
- * `AbBankTransaction.amount` wants the opposite sign convention (positive
- * = debit/outflow, matching Plaid's stored rows) — negate to align. Prefer
- * the explicit `direction` field over sign-sniffing where Basiq provides it,
- * since it's an unambiguous enum rather than an inferred sign.
- */
-export function basiqAmountToCents(t: Pick<BasiqTransaction, 'amount' | 'direction'>): number {
-  const abs = Math.round(Math.abs(parseFloat(t.amount)) * 100);
-  if (t.direction === 'debit') return abs;
-  if (t.direction === 'credit') return -abs;
-  return Math.round(parseFloat(t.amount) * -100);
-}
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
   try {
@@ -65,58 +52,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
     for (const account of accounts) {
       try {
-        const txns = await listTransactions(config.basiqUserId, {
-          since: account.lastSynced?.toISOString(),
-        });
-
-        let added = 0;
-        let modified = 0;
-
-        for (const t of txns) {
-          const amount = basiqAmountToCents(t);
-          const existing = await db.abBankTransaction.findUnique({
-            where: { basiqTransactionId: t.id },
-          });
-
-          if (existing) {
-            // `category` is intentionally NOT updated — once imported, the
-            // user (or the matcher) may have refined it; a Basiq-side
-            // refresh shouldn't clobber that. Amount/date/name/pending are
-            // pure facts from the bank so we refresh those.
-            await db.abBankTransaction.update({
-              where: { id: existing.id },
-              data: {
-                amount,
-                date: new Date(t.postDate),
-                name: t.description,
-                pending: t.status === 'pending',
-              },
-            });
-            modified += 1;
-          } else {
-            const created = await db.abBankTransaction.create({
-              data: {
-                tenantId,
-                bankAccountId: account.id,
-                basiqTransactionId: t.id,
-                amount,
-                date: new Date(t.postDate),
-                name: t.description,
-                pending: t.status === 'pending',
-                matchStatus: 'pending',
-              },
-            });
-            added += 1;
-            await runMatcherOnTransaction(tenantId, created);
-          }
-        }
-
-        await db.abBankAccount.update({
-          where: { id: account.id },
-          data: { lastSynced: new Date() },
-        });
-
-        runs.push({ added, modified, removed: 0, hasMore: false });
+        const run = await syncBasiqAccount(tenantId, config.basiqUserId, account);
+        runs.push(run);
       } catch (err) {
         console.error('[basiq/sync POST] account', account.id, 'error:', err);
         errors.push({ accountId: account.id, error: JSON.stringify(sanitizeBasiqError(err)) });
