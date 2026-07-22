@@ -196,7 +196,7 @@ async function accountantEngagement(opts: {
       '  - Track time (timer start/stop) and bill from time entries',
       '  - Reports: P&L, balance sheet, cashflow, tax-summary, expense-by-vendor, aging report',
       '  - Tax: estimate quarterly tax, prep US/Canada/Australia tax forms (1040, T2125, myTax/BAS)',
-      '  - Bank account sync (Plaid), bank-reconciliation summary',
+      '  - Bank account sync, bank-reconciliation summary',
       '  - Manage recurring expense rules, budgets, vendor insights',
       '  - Tax-package export for CPA hand-off',
       '',
@@ -1902,7 +1902,7 @@ app.get('/api/v1/agentbook-core/onboarding', async (req, res) => {
       { id: 'jurisdiction', title: 'Set your country & region', description: 'US, Canada, UK, or Australia?', order: 1 },
       { id: 'currency', title: 'Set your currency', description: 'USD, CAD, GBP, EUR, or AUD?', order: 2 },
       { id: 'accounts', title: 'Set up chart of accounts', description: 'Based on your tax jurisdiction', order: 3 },
-      { id: 'bank', title: 'Connect your bank', description: 'Link via Plaid for auto-import', order: 4 },
+      { id: 'bank', title: 'Connect your bank', description: 'Automatic import for supported countries', order: 4 },
       { id: 'first_expense', title: 'Record your first expense', description: 'Snap a receipt or type an expense', order: 5 },
       { id: 'telegram', title: 'Connect Telegram', description: 'Proactive notifications on the go', order: 6 },
     ];
