@@ -47,7 +47,11 @@ export interface SalesTaxResult {
 }
 
 export interface SalesTaxEngine {
-  getRates(region: string): SalesTaxRate[];
+  // `locale` is optional and additive (French UI Phase 1, CA only today):
+  // when omitted, behavior is byte-identical to before this param existed.
+  // Only affects the display `name` in SalesTaxRate — calculateTax() is
+  // display-agnostic (money math only) and intentionally untouched.
+  getRates(region: string, locale?: string): SalesTaxRate[];
   calculateTax(amountCents: number, region: string): SalesTaxResult;
   getFilingDeadlines(region: string, taxYear: number): Date[];
 }

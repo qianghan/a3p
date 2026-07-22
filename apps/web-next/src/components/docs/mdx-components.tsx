@@ -6,6 +6,7 @@ import React from 'react';
 import { CodeBlock, InlineCode } from './code-block';
 import { CalloutBlock } from './callout';
 import { HeadingWithAnchor } from './heading-anchor';
+import { DocsLanguageNote } from './docs-language-note';
 
 // ---------------------------------------------------------------------------
 // Component map for MDX
@@ -20,6 +21,7 @@ export function getMdxComponents() {
     pre: CodeBlock,
     code: InlineCode,
     Callout: CalloutBlock,
+    DocsLanguageNote,
     // Enhanced links
     a: ({ href, children, ...props }: React.AnchorHTMLAttributes<HTMLAnchorElement>) => (
       <a

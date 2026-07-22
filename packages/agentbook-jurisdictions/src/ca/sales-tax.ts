@@ -20,15 +20,35 @@ const PROVINCE_TAXES: Record<string, ProvinceTax> = {
   'YT': { components: [{ type: 'GST', rate: 0.05, name: 'GST' }] },
 };
 
+// French UI Phase 1: Quebec's federal/provincial sales taxes have official
+// French names — TPS (Taxe sur les produits et services) for GST, TVQ
+// (Taxe de vente du Québec) for QST — used in place of the English GST/QST
+// display names ONLY when locale is French AND the province is QC. This
+// swaps the *display* `name` only, never the internal `type` discriminator
+// ('GST'/'PST'), which downstream code (e.g. agentbook-invoice-tax.ts's
+// liability-account routing) depends on staying in its English/generic form.
+const QC_FRENCH_NAMES: Record<string, string> = { GST: 'TPS', PST: 'TVQ' };
+
+function isFrenchLocale(locale?: string): boolean {
+  return typeof locale === 'string' && locale.toLowerCase().startsWith('fr');
+}
+
+function localizedName(region: string, type: string, defaultName: string, locale?: string): string {
+  if (region.toUpperCase() === 'QC' && isFrenchLocale(locale) && QC_FRENCH_NAMES[type]) {
+    return QC_FRENCH_NAMES[type];
+  }
+  return defaultName;
+}
+
 export const caSalesTax: SalesTaxEngine = {
-  getRates(region: string): SalesTaxRate[] {
+  getRates(region: string, locale?: string): SalesTaxRate[] {
     const province = PROVINCE_TAXES[region.toUpperCase()];
     if (!province) return [];
     return province.components.map(c => ({
       region,
       taxType: c.type,
       rate: c.rate,
-      name: c.name,
+      name: localizedName(region, c.type, c.name, locale),
     }));
   },
 
