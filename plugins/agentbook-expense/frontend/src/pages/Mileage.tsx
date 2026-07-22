@@ -43,6 +43,10 @@ interface ByPurposeTotal {
 
 interface MileageSummary {
   ytd: { miles: number; deductibleCents: number; entryCount: number };
+  // Per-unit YTD totals — a mixed-unit tenant (some entries logged in mi,
+  // some in km, same tax year) must not have those totals combined when
+  // picking a CRA/HMRC tier; see ratePreview() below.
+  ytdByUnit?: { mi: number; km: number };
   monthly: MonthlyTotal[];
   byClient: ByClientTotal[];
   byPurpose: ByPurposeTotal[];
@@ -59,15 +63,28 @@ const fmtMoney = (cents: number, ccy = 'USD') => formatMoney(cents, ccy);
 // apps/web-next/src/lib/agentbook-mileage-rates.ts) so the user sees
 // roughly what they're about to commit to before saving — the backend's
 // own calculation at POST time remains the source of truth.
-function ratePreview(jurisdiction: 'us' | 'ca' | 'au' | 'uk', ytdMiles: number): string {
+//
+// `unit` is the unit currently selected in the form (the one this trip
+// will actually be logged in), and `ytdByUnit` gives the YTD total
+// scoped to each unit separately. We must only look at the bucket for
+// `unit` — the real POST-time calculation (see `ytdMilesOrKm()` in
+// apps/web-next/src/app/api/v1/agentbook-expense/mileage/route.ts) sums
+// strictly by unit so a tenant with entries in both mi and km doesn't
+// have its tier miscalculated by combining incompatible distances.
+function ratePreview(
+  jurisdiction: 'us' | 'ca' | 'au' | 'uk',
+  unit: 'mi' | 'km',
+  ytdByUnit?: { mi: number; km: number },
+): string {
   if (jurisdiction === 'us') return '67¢/mi (IRS standard rate)';
   if (jurisdiction === 'au') return '88¢/km (ATO cents-per-km method)';
+  const ytdForUnit = ytdByUnit ? ytdByUnit[unit] : 0;
   if (jurisdiction === 'uk') {
     // HMRC AMAP tiered rate — 45p/mile for the first 10,000 miles/year, 25p/mile after.
-    return ytdMiles >= 10000 ? '25p/mi (HMRC AMAP, over 10,000 mi YTD)' : '45p/mi (HMRC AMAP, first 10,000 mi YTD)';
+    return ytdForUnit >= 10000 ? '25p/mi (HMRC AMAP, over 10,000 mi YTD)' : '45p/mi (HMRC AMAP, first 10,000 mi YTD)';
   }
   // CA: CRA tiered rate — 72¢/km for the first 5,000 km/year, 66¢/km after.
-  return ytdMiles >= 5000 ? '66¢/km (CRA, over 5,000 km YTD)' : '72¢/km (CRA, first 5,000 km YTD)';
+  return ytdForUnit >= 5000 ? '66¢/km (CRA, over 5,000 km YTD)' : '72¢/km (CRA, first 5,000 km YTD)';
 }
 
 export const MileagePage: React.FC = () => {
@@ -252,7 +269,7 @@ export const MileagePage: React.FC = () => {
             </div>
           </div>
           <p className="text-xs text-muted-foreground -mt-1">
-            Estimated rate: {ratePreview(tenantJurisdiction, summary?.ytd.miles ?? 0)} — exact rate is applied when you save.
+            Estimated rate: {ratePreview(tenantJurisdiction, unit, summary?.ytdByUnit)} — exact rate is applied when you save.
           </p>
           <div>
             <label className="text-xs text-muted-foreground">Purpose</label>
