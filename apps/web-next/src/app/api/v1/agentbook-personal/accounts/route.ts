@@ -33,7 +33,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       balanceCents: a.balanceCents, currency: a.currency, isAsset: a.isAsset,
       archived: a.archived, plaidAccountId: a.plaidAccountId, institution: a.institution,
       officialName: a.officialName, subtype: a.subtype, mask: a.mask,
-      connected: a.connected, lastSynced: a.lastSynced,
+      connected: a.connected, lastSynced: a.lastSynced, provider: a.provider,
       createdAt: a.createdAt, updatedAt: a.updatedAt,
     }));
     return NextResponse.json({ success: true, data: safe });

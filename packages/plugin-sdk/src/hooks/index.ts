@@ -212,3 +212,15 @@ export {
   type UseAgentEventsOptions,
   type UseAgentEventsResult,
 } from './useAgentEvents.js';
+
+// AgentBook Basiq bank-connect popup/poll flow (AU-1 Task 4) — shared
+// between the business-side (agentbook-expense) and personal-finance
+// bank-connect surfaces.
+export {
+  useBasiqConnect,
+  BASIQ_TIMEOUT_MS,
+  BASIQ_POLL_MS,
+  type UseBasiqConnectOptions,
+  type UseBasiqConnectResult,
+  type BasiqStatusResponse,
+} from './useBasiqConnect.js';
