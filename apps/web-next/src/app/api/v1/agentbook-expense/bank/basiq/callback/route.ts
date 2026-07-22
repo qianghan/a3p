@@ -18,15 +18,28 @@ import { NextRequest, NextResponse } from 'next/server';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
+// Basiq job ids are opaque alphanumeric resource identifiers. Validating
+// against this allowlist before the value is ever embedded in the HTML
+// response closes a reflected-XSS path: without it, a crafted `jobId` query
+// param containing `</script>` could break out of the inline <script> block
+// this route renders (CodeQL js/reflected-xss, confirmed during review).
+const SAFE_JOB_ID = /^[A-Za-z0-9_-]{1,128}$/;
+
 export async function GET(request: NextRequest): Promise<NextResponse> {
-  const jobId = request.nextUrl.searchParams.get('jobId');
+  const rawJobId = request.nextUrl.searchParams.get('jobId');
+  const jobId = rawJobId && SAFE_JOB_ID.test(rawJobId) ? rawJobId : null;
+
+  // Defense in depth even after the allowlist check above: escape `<` so a
+  // `</script>` sequence can never terminate this tag early, matching the
+  // standard safe-JSON-in-script idiom.
+  const safeJobIdLiteral = JSON.stringify(jobId).replace(/</g, '\\u003c');
 
   const html = `<!doctype html>
 <html>
   <body>
     <script>
       if (window.opener) {
-        window.opener.postMessage({ basiqJobId: ${JSON.stringify(jobId)} }, window.location.origin);
+        window.opener.postMessage({ basiqJobId: ${safeJobIdLiteral} }, window.location.origin);
       }
       window.close();
     </script>
