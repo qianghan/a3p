@@ -39,10 +39,14 @@ const PLUGIN_ROUTE_MAP: Record<string, string> = {
 };
 
 // CSP configuration for plugin pages. Note: plugin pages embed Stripe
-// Elements (billing flow) and Plaid Link (bank-connect flow), both of
-// which load third-party JS from their respective CDNs and open iframes
-// from their own domains. Without these explicit allows, those scripts
-// 404 with a CSP block and the entire flow dies silently.
+// Elements (billing flow), Plaid Link (US/CA bank-connect flow), and
+// Basiq's hosted Consent UI (AU bank-connect flow), all of which load
+// third-party JS/iframes from their respective domains. Without these
+// explicit allows, those scripts/iframes 404 with a CSP block and the
+// entire flow dies silently. Basiq's direct REST API (au-api.basiq.io) is
+// called only server-side from Next.js route handlers, never from the
+// browser, so it deliberately has no client-side CSP entry here — only
+// the hosted consent.basiq.io domain needs frame-src/connect-src allowance.
 const PLUGIN_CSP_SOURCES = {
   scripts: [
     "'self'",
@@ -82,12 +86,14 @@ const PLUGIN_CSP_SOURCES = {
     'ws://localhost:*',
     'https://api.stripe.com',
     'https://*.plaid.com',
+    'https://consent.basiq.io',
   ],
   frame: [
     "'self'",
     'https://js.stripe.com',
     'https://hooks.stripe.com',
     'https://*.plaid.com',
+    'https://consent.basiq.io',
   ],
 };
 
