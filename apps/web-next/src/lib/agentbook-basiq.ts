@@ -43,15 +43,24 @@
  *     produces a 400).
  *   - Confirmed: `DELETE /users/{userId}/connections/{connectionId}` is the
  *     real path (not a bare `/connections/{connectionId}`).
+ *   - RESOLVED (was flagged as unverified): `POST /users/{userId}/connections`
+ *     with `loginId`/`password`/`institution` is the *alternative*
+ *     "build your own UI" flow, where the app itself collects raw bank
+ *     credentials — deliberately NOT used here. The hosted Consent UI flow
+ *     this integration uses never calls that endpoint at all: the app
+ *     redirects the browser to `https://consent.basiq.io/home?token=
+ *     <client_token>&redirectUrl=<app_callback>&state=<opaque_state>`,
+ *     Basiq's own hosted page collects the institution + credentials and
+ *     creates the connection/job internally, then redirects the browser
+ *     BACK to `redirectUrl` with the resulting `jobId` (and `state`) as
+ *     query parameters. There is no `createConnectionJob` call for this
+ *     app to make — Task 2's consent-url route only needs
+ *     `getBasiqClientToken` to build the redirect URL, and its separate
+ *     callback route reads `jobId` off the incoming redirect's query
+ *     string and passes it straight to `pollJob` below.
  *   - NOT independently re-confirmed against a live sandbox call (no Basiq
  *     API key available in this environment): the exact `filter=` query
- *     string escaping for `listTransactions`'s `since` param, and the
- *     `POST /users/{userId}/connections` request body used by Task 2/3's
- *     hosted-Consent-UI flow (Basiq's docs show this endpoint normally
- *     taking `loginId`/`password`/`institution` or a `userToken`, which is
- *     hard to reconcile with a body-less call ahead of a redirect-based
- *     consent flow — Task 2's implementer should re-verify this specific
- *     request shape against a live sandbox call before wiring the route).
+ *     string escaping for `listTransactions`'s `since` param.
  */
 
 import 'server-only';
@@ -128,24 +137,6 @@ export async function getBasiqClientToken(basiqUserId: string): Promise<string> 
   if (!res.ok) throw new Error(`[basiq] client token failed: ${res.status}`);
   const data = await res.json();
   return data.access_token;
-}
-
-/**
- * Kick off a connection job for a Basiq user. NOTE: per the file-header
- * caveat, Basiq's documented `POST /users/{userId}/connections` body
- * usually carries `loginId`/`password`/`institution` (or a `userToken`) —
- * an empty body is a defensive placeholder for this hosted-Consent-UI flow
- * and must be re-verified against a live sandbox call in Task 2, which
- * actually wires this into the connect UI.
- */
-export async function createConnectionJob(basiqUserId: string): Promise<{ jobId: string }> {
-  const res = await basiqFetch(`/users/${encodeURIComponent(basiqUserId)}/connections`, {
-    method: 'POST',
-    body: JSON.stringify({}),
-  });
-  if (!res.ok) throw new Error(`[basiq] createConnectionJob failed: ${res.status}`);
-  const data = await res.json();
-  return { jobId: data.id ?? data.jobId };
 }
 
 export interface BasiqJobStatus {
