@@ -15,10 +15,23 @@ export const runtime = 'nodejs';
  * never touches the database or calls Basiq, it only relays a query param
  * that arrived via a browser redirect.
  */
+// Basiq job ids are opaque alphanumeric resource identifiers. Validating
+// against this allowlist before the value is ever embedded in the HTML
+// response closes a reflected-XSS path: without it, a crafted `jobId` query
+// param containing `</script>` could break out of the inline <script> block
+// this route renders (CodeQL js/reflected-xss, confirmed on the mirrored
+// business-side route during review — fixed here too since this route
+// copies that exact pattern).
+const SAFE_JOB_ID = /^[A-Za-z0-9_-]{1,128}$/;
+
 export async function GET(request: NextRequest): Promise<NextResponse> {
-  const jobId = request.nextUrl.searchParams.get('jobId');
+  const rawJobId = request.nextUrl.searchParams.get('jobId');
+  const jobId = rawJobId && SAFE_JOB_ID.test(rawJobId) ? rawJobId : null;
+  // Defense in depth even after the allowlist check above: escape `<` so a
+  // `</script>` sequence can never terminate this tag early.
+  const safeJobIdLiteral = JSON.stringify(jobId).replace(/</g, '\\u003c');
   const html = `<!doctype html><script>
-      if (window.opener) { window.opener.postMessage({ basiqJobId: ${JSON.stringify(jobId)} }, window.location.origin); }
+      if (window.opener) { window.opener.postMessage({ basiqJobId: ${safeJobIdLiteral} }, window.location.origin); }
       window.close();
     </script>`;
   return new NextResponse(html, { headers: { 'Content-Type': 'text/html' } });
