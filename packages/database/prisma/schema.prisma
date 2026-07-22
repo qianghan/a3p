@@ -1492,6 +1492,7 @@ model AbTenantConfig {
   taxReserveMode          String   @default("quarterly_estimate")
   taxReservePercent       Float?
   taxReserveFixedCents    Int?
+  basiqUserId             String? // Basiq's tenant-level user resource id (AU bank-sync), created lazily on first AU bank-connect attempt
 
   @@index([userId])
   @@schema("plugin_agentbook_core")
@@ -1884,24 +1885,27 @@ model AbRecurringRule {
 }
 
 model AbBankAccount {
-  id             String    @id @default(uuid())
-  tenantId       String
-  plaidItemId    String?
-  plaidAccountId String?   @unique
-  name           String
-  officialName   String?
-  type           String // checking | savings | credit
-  subtype        String?
-  mask           String? // last 4 digits
-  balanceCents   Int       @default(0)
-  currency       String    @default("USD")
-  institution    String?
-  connected      Boolean   @default(true)
-  lastSynced     DateTime?
-  accessTokenEnc String? // AES-256-GCM-encrypted Plaid access token
-  cursorToken    String? // Plaid /transactions/sync cursor
-  createdAt      DateTime  @default(now())
-  updatedAt      DateTime  @updatedAt
+  id                String    @id @default(uuid())
+  tenantId          String
+  plaidItemId       String?
+  plaidAccountId    String?   @unique
+  name              String
+  officialName      String?
+  type              String // checking | savings | credit
+  subtype           String?
+  mask              String? // last 4 digits
+  balanceCents      Int       @default(0)
+  currency          String    @default("USD")
+  institution       String?
+  connected         Boolean   @default(true)
+  lastSynced        DateTime?
+  accessTokenEnc    String? // AES-256-GCM-encrypted Plaid access token
+  cursorToken       String? // Plaid /transactions/sync cursor
+  provider          String    @default("plaid") // "plaid" | "basiq" — AU tenants use Basiq (no Plaid AU support)
+  basiqAccountId    String?   @unique
+  basiqConnectionId String? // Basiq connection resource id (parsed from the job's verify-credentials result.url)
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
 
   transactions AbBankTransaction[]
 
@@ -1915,6 +1919,7 @@ model AbBankTransaction {
   bankAccountId      String
   bankAccount        AbBankAccount @relation(fields: [bankAccountId], references: [id], onDelete: Cascade)
   plaidTransactionId String?       @unique
+  basiqTransactionId String?       @unique
   amount             Int // cents (positive = debit/outflow, negative = credit/inflow)
   date               DateTime
   merchantName       String?
@@ -3486,26 +3491,29 @@ model SalesRepPayout {
 // ============================================================================
 
 model AbPersonalAccount {
-  id             String    @id @default(uuid())
-  tenantId       String
-  name           String
-  type           String // checking | savings | investment | credit | mortgage | cash
-  balanceCents   Int       @default(0)
-  currency       String    @default("USD")
-  isAsset        Boolean   @default(true) // true = asset, false = liability (credit/mortgage)
-  plaidAccountId String?   @unique
-  plaidItemId    String?
-  accessTokenEnc String? // AES-256-GCM-encrypted Plaid access token (agentbook-bank-token.ts)
-  cursorToken    String? // Plaid /transactions/sync cursor
-  institution    String?
-  officialName   String?
-  subtype        String?
-  mask           String? // last 4 digits
-  connected      Boolean   @default(true)
-  lastSynced     DateTime?
-  archived       Boolean   @default(false)
-  createdAt      DateTime  @default(now())
-  updatedAt      DateTime  @updatedAt
+  id                String    @id @default(uuid())
+  tenantId          String
+  name              String
+  type              String // checking | savings | investment | credit | mortgage | cash
+  balanceCents      Int       @default(0)
+  currency          String    @default("USD")
+  isAsset           Boolean   @default(true) // true = asset, false = liability (credit/mortgage)
+  plaidAccountId    String?   @unique
+  plaidItemId       String?
+  accessTokenEnc    String? // AES-256-GCM-encrypted Plaid access token (agentbook-bank-token.ts)
+  cursorToken       String? // Plaid /transactions/sync cursor
+  institution       String?
+  officialName      String?
+  subtype           String?
+  mask              String? // last 4 digits
+  connected         Boolean   @default(true)
+  lastSynced        DateTime?
+  archived          Boolean   @default(false)
+  provider          String    @default("plaid") // "plaid" | "basiq" — AU tenants use Basiq (no Plaid AU support)
+  basiqAccountId    String?   @unique
+  basiqConnectionId String? // Basiq connection resource id (parsed from the job's verify-credentials result.url)
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
 
   @@index([tenantId, archived])
   @@schema("plugin_agentbook_personal")
@@ -3522,6 +3530,7 @@ model AbPersonalTransaction {
   businessFlag       Boolean  @default(false) // marked as a business expense
   notes              String?
   plaidTransactionId String?  @unique
+  basiqTransactionId String?  @unique
   idempotencyKey     String?  @unique // prevent duplicate imports
   pending            Boolean  @default(false)
   merchantName       String?
