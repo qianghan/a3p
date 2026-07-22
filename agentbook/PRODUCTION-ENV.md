@@ -148,6 +148,33 @@ Until Plaid prod is approved, `/bank-sync` runs in sandbox mode (per CLAUDE.md c
 
 ---
 
+## Basiq env vars (for AU bank-sync) — ⚠️ USER ACTION REQUIRED
+
+The AU bank-sync code (`apps/web-next/src/lib/agentbook-basiq.ts` and the `bank/basiq/*` routes under both `agentbook-expense` and `agentbook-personal`) reads:
+- `BASIQ_API_KEY` — ⚠️ **USER ACTION REQUIRED**
+- `BASIQ_ENV` (`sandbox` / `production`, informational only — Basiq uses key-scoping rather than a separate host to distinguish sandbox vs. production, so the base URL `au-api.basiq.io` is the same either way)
+
+**Why this needs you:** Basiq is a third-party, CDR-accredited Australian data provider. Getting an API key requires signing up for a real Basiq developer/business account at their dashboard — this is an account-creation + business-verification step only the account owner can complete, not something that can be provisioned programmatically.
+
+**How to set, once you have a key:**
+
+1. Sign up at the Basiq developer dashboard and create an application to get a sandbox (and later production) API key.
+2. Set it on Vercel:
+   ```bash
+   echo -n "<basiq_api_key>" | vercel env add BASIQ_API_KEY production
+   echo -n "sandbox"         | vercel env add BASIQ_ENV production
+   # Preview, with a separate sandbox key if you want isolation:
+   vercel env add BASIQ_API_KEY preview "" --value="<basiq_api_key>" --yes
+   vercel env add BASIQ_ENV     preview "" --value="sandbox"         --yes
+   ```
+3. Redeploy so the routes pick it up: `vercel --prod`.
+
+**Until this is set:** AU tenants' Basiq routes (`bank/basiq/consent-url`, `callback`, `status`, `sync`, `disconnect`, and their `agentbook-personal` counterparts) will throw `[basiq] BASIQ_API_KEY not set` — same failure mode as a missing `PLAID_SECRET` today. This does not affect US/CA tenants (Plaid-only) or any other AU feature.
+
+Once a real key is available, the manual verification checklist in `docs/superpowers/plans/2026-07-19-au1-basiq-bank-sync.md` (Task 7, Step 5) should be run once against a real Basiq sandbox connection before considering AU-1 fully done.
+
+---
+
 ## Stripe env vars (for billing webhook + checkout)
 
 The Stripe webhook handler (`apps/web-next/src/app/api/v1/agentbook/stripe-webhook/`) reads:
@@ -242,6 +269,6 @@ curl -s "https://agentbook.brainliber.com/api/v1/agentbook-core/admin/llm-config
 ## Summary
 
 - **Done by me (10 sets):** 5 vars × 2 envs (prod + preview)
-- **Needs you:** `BLOB_READ_WRITE_TOKEN` (provision Vercel Blob store) and optionally `SENTRY_DSN`
+- **Needs you:** `BLOB_READ_WRITE_TOKEN` (provision Vercel Blob store), `BASIQ_API_KEY`/`BASIQ_ENV` (sign up with Basiq for AU bank-sync — see "Basiq env vars" above), and optionally `SENTRY_DSN`
 - **Pre-existing, don't touch:** `CRON_SECRET`, `GEMINI_API_KEY`, `TELEGRAM_BOT_TOKEN`, `DATABASE_URL*`, `AGENTBOOK_*_URL`
 - **For future launches:** Plaid prod keys (`PLAID_*`) and Stripe prod keys (`STRIPE_*`) — when you flip those products from sandbox to live
