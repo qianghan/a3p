@@ -29,6 +29,12 @@ interface TenantConfig {
   jurisdiction?: string;
   region?: string;
   currency?: string;
+  // BCP-47 tag (e.g. 'en-US', 'fr-CA') — reused as-is from the pre-existing
+  // AbTenantConfig.locale column (already wired for Intl currency/date
+  // formatting; see jurisdiction-currency.ts). The Language selector below
+  // only ever writes 'en-CA' / 'fr-CA' for CA-jurisdiction tenants — it does
+  // not introduce a second, conflicting locale concept.
+  locale?: string;
   visaStatus?: string | null;
   homeCountry?: string | null;
   university?: string | null;
@@ -1793,6 +1799,23 @@ export function AgentBookSettingsPanel({ initialTab }: { initialTab?: string }):
                 Defaults from your country, but you can override it (e.g. invoicing overseas clients).
               </p>
             </div>
+            {form.jurisdiction === 'ca' && (
+              <div>
+                <label className="block text-sm font-medium text-foreground">Language</label>
+                <select
+                  value={(form.locale ?? 'en-CA').toLowerCase().startsWith('fr') ? 'fr-CA' : 'en-CA'}
+                  onChange={(e) => set({ locale: e.target.value })}
+                  className={inputCls}
+                >
+                  <option value="en-CA">English</option>
+                  <option value="fr-CA">Français</option>
+                </select>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Switches Quebec sales-tax labels to TPS/TVQ and chat replies to French. Phase 1 — the
+                  rest of the app interface stays in English for now.
+                </p>
+              </div>
+            )}
           </div>
           {form.businessType === 'student' ? (
             <div className="rounded-lg border border-border bg-muted/30 p-4 space-y-4">

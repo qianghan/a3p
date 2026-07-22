@@ -17,6 +17,12 @@ import { PlanStep, Evaluation, assessStepQuality, buildFinalEvaluation, formatEv
 import { getActiveTaxQuestionnaireSession, getLatestTaxQuestionnaireSession, isDraftStale } from './tax-questionnaire-session.js';
 import { answerTaxQuestionnaire, cancelTaxQuestionnaire, type CoreResult } from './tax-questionnaire-core.js';
 
+// French UI Phase 1: AbTenantConfig.locale is a BCP-47 tag (e.g. 'en-US',
+// 'fr-CA') — any tag whose language subtag is 'fr' counts as French.
+function isFrenchLocale(locale: string | null | undefined): boolean {
+  return typeof locale === 'string' && locale.toLowerCase().startsWith('fr');
+}
+
 // Deterministic local engagement fallback when LLM is unreachable.
 // Keeps the user moving forward with a clarifying question or hint
 // instead of a dead-end "I don't know".
@@ -58,6 +64,7 @@ async function brainAccountantFallback(
   conversation: Array<{ question: string; answer: string }>,
   pastFilingContext?: string,
   personalProfileContext?: string,
+  tenantConfig?: { locale?: string | null } | null,
 ): Promise<string> {
   const convoSnippet = (conversation || [])
     .slice(0, 3)
@@ -78,6 +85,12 @@ async function brainAccountantFallback(
     'IMPORTANT: For any summary or report request (expense summary, monthly report, financial overview, daily briefing, spending summary, how am I doing), NEVER ask for clarification — run the report for the current month by default and present results immediately.',
     '',
     'Style: warm but brief, 1–3 short sentences, plain conversational text (no markdown bullets), never say "I am an AI", never end with a flat "I don\'t know". If asking a question, end the message with it.',
+    // French UI Phase 1: a one-line instruction is the deliberate shortcut for
+    // this phase — translating every skill's own response templates by hand
+    // is out of scope here (see AU-1 Task 12 plan). Gated on the tenant's
+    // AbTenantConfig.locale so English/other-locale tenants see byte-identical
+    // prompts to before this feature existed.
+    ...(isFrenchLocale(tenantConfig?.locale) ? ['Respond in French.'] : []),
   ].join('\n');
   const extraContext = [personalProfileContext, pastFilingContext].filter(Boolean).join('\n\n');
   const systemPrompt = extraContext ? `${baseSystemPrompt}\n\n${extraContext}` : baseSystemPrompt;
@@ -1089,7 +1102,7 @@ export async function handleAgentMessage(
       resolvedText, tenantId, channel, attachments, memory, skills, conversation, tenantConfig,
     );
     if (!v1Result) {
-      const engaged = await brainAccountantFallback(ctx.callGemini, resolvedText, conversation, pastFilingContext, personalProfileContext);
+      const engaged = await brainAccountantFallback(ctx.callGemini, resolvedText, conversation, pastFilingContext, personalProfileContext, tenantConfig);
       return buildResponse({
         message: engaged,
         skillUsed: 'none',
@@ -1186,7 +1199,7 @@ export async function handleAgentMessage(
       );
     }
     if (!v1Result) {
-      const engaged = await brainAccountantFallback(ctx.callGemini, text, conversation, pastFilingContext, personalProfileContext);
+      const engaged = await brainAccountantFallback(ctx.callGemini, text, conversation, pastFilingContext, personalProfileContext, tenantConfig);
       return buildResponse({
         message: engaged,
         skillUsed: 'none',

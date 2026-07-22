@@ -190,6 +190,63 @@ describe('CA Sales Tax', () => {
   });
 });
 
+describe('CA Sales Tax — French UI Phase 1 (TPS/TVQ labels)', () => {
+  // getRates() is the only method with a `name` (display label) field — the
+  // one existing consumers/tests actually key off (see 'CA Sales Tax' describe
+  // block above: `rates[0].name`/`rates.find(r => r.taxType === ...)`).
+  // calculateTax() is money-math only and is deliberately untouched by this
+  // feature — see interfaces.ts's SalesTaxEngine comment.
+  it('renders TPS/TVQ names for Quebec when locale is French', () => {
+    const rates = caSalesTax.getRates('QC', 'fr');
+    expect(rates).toHaveLength(2);
+    const gst = rates.find(r => r.taxType === 'GST');
+    const qst = rates.find(r => r.taxType === 'PST');
+    expect(gst!.name).toBe('TPS');
+    expect(qst!.name).toBe('TVQ');
+    // taxType (the internal discriminator downstream code routes on) is
+    // untouched — only the display `name` changes.
+    expect(gst!.taxType).toBe('GST');
+    expect(qst!.taxType).toBe('PST');
+    // Rates themselves are never affected by locale.
+    expect(gst!.rate).toBe(0.05);
+    expect(qst!.rate).toBe(0.09975);
+  });
+
+  it('renders TPS/TVQ names for Quebec for any fr-* locale tag, not just exactly "fr"', () => {
+    const rates = caSalesTax.getRates('QC', 'fr-CA');
+    expect(rates.find(r => r.taxType === 'GST')!.name).toBe('TPS');
+    expect(rates.find(r => r.taxType === 'PST')!.name).toBe('TVQ');
+  });
+
+  // The more important assertion: every OTHER locale/province combination is
+  // byte-identical to pre-Phase-1 behavior. A regression here would silently
+  // mislabel tax for every non-Quebec-French tenant.
+  const ALL_PROVINCES = ['AB', 'BC', 'SK', 'MB', 'ON', 'QC', 'NB', 'NS', 'NL', 'PE', 'NT', 'NU', 'YT'];
+  const NON_FRENCH_LOCALES: (string | undefined)[] = [undefined, 'en', 'en-US', 'en-CA', 'de', 'es-MX'];
+
+  it.each(ALL_PROVINCES)('getRates(%s) is byte-identical across all non-French locales and the no-locale default', (province) => {
+    const baseline = caSalesTax.getRates(province); // no locale arg at all (pre-existing call sites)
+    for (const locale of NON_FRENCH_LOCALES) {
+      expect(caSalesTax.getRates(province, locale)).toEqual(baseline);
+    }
+  });
+
+  it.each(ALL_PROVINCES)('calculateTax(%s) is unchanged — this method never took a locale param', (province) => {
+    const before = caSalesTax.calculateTax(123456, province);
+    const after = caSalesTax.calculateTax(123456, province);
+    expect(after).toEqual(before);
+  });
+
+  it('French locale for every NON-Quebec province is byte-identical to English (TPS/TVQ is QC-only)', () => {
+    const nonQcProvinces = ALL_PROVINCES.filter((p) => p !== 'QC');
+    for (const province of nonQcProvinces) {
+      const english = caSalesTax.getRates(province);
+      const french = caSalesTax.getRates(province, 'fr');
+      expect(french).toEqual(english);
+    }
+  });
+});
+
 describe('CA Chart of Accounts', () => {
   it('returns T2125 aligned accounts', () => {
     const accounts = caChartOfAccounts.getDefaultAccounts('sole_proprietor');
