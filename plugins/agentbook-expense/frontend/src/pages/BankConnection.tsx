@@ -18,6 +18,7 @@ interface BankAccount {
   connected: boolean;
   lastSynced: string | null;
   transactionCount?: number;
+  provider?: string;
 }
 
 interface BankTransaction {
@@ -50,6 +51,13 @@ const API = '/api/v1/agentbook-expense';
 // which is the only thing guaranteed to sit above Plaid's overlay.
 const PLAID_STUCK_TIMEOUT_MS = 45000;
 
+// Basiq's hosted Consent UI can involve multi-step bank login/MFA — this is
+// a legitimately slow (but healthy) flow, not the frozen-iframe failure mode
+// Plaid's PLAID_STUCK_TIMEOUT_MS watchdog above guards against. Give it
+// materially longer before giving up.
+const BASIQ_TIMEOUT_MS = 5 * 60 * 1000;
+const BASIQ_POLL_MS = 3000;
+
 function fmt(cents: number, currency: string) {
   return formatMoney(Math.abs(cents), currency);
 }
@@ -64,7 +72,12 @@ export const BankConnectionPage: React.FC = () => {
   const [linkToken, setLinkToken] = useState<string | null>(null);
   const [connecting, setConnecting] = useState(false);
   const [syncResult, setSyncResult] = useState<any>(null);
+  const [jurisdiction, setJurisdiction] = useState<string>('us');
+  const [basiqError, setBasiqError] = useState<string | null>(null);
   const watchdogRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const basiqPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const basiqMessageHandlerRef = useRef<((event: MessageEvent) => void) | null>(null);
+  const basiqCloseWatchRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const clearPlaidWatchdog = useCallback(() => {
     if (watchdogRef.current) {
@@ -88,7 +101,124 @@ export const BankConnectionPage: React.FC = () => {
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
+  // Tenant jurisdiction — same tenant-config fetch pattern used elsewhere in
+  // this plugin (e.g. TaxDashboard.tsx's SettingsTab) — used only to decide
+  // whether "Connect Bank" should drive the Plaid Link flow or Basiq's
+  // hosted Consent UI (AU has no Plaid support).
+  useEffect(() => {
+    let active = true;
+    fetch('/api/v1/agentbook-core/tenant-config')
+      .then(r => (r.ok ? r.json() : null))
+      .then(json => {
+        if (!active || !json?.data) return;
+        setJurisdiction(json.data.jurisdiction ?? 'us');
+      })
+      .catch(() => { /* keep default 'us' */ });
+    return () => { active = false; };
+  }, []);
+
+  const clearBasiqPolling = useCallback(() => {
+    if (basiqPollRef.current) {
+      clearInterval(basiqPollRef.current);
+      basiqPollRef.current = null;
+    }
+    if (basiqCloseWatchRef.current) {
+      clearInterval(basiqCloseWatchRef.current);
+      basiqCloseWatchRef.current = null;
+    }
+    if (basiqMessageHandlerRef.current) {
+      window.removeEventListener('message', basiqMessageHandlerRef.current);
+      basiqMessageHandlerRef.current = null;
+    }
+  }, []);
+
+  useEffect(() => clearBasiqPolling, [clearBasiqPolling]);
+
+  const handleStartConnectBasiq = useCallback(async () => {
+    setConnecting(true);
+    setBasiqError(null);
+    try {
+      const res = await fetch(`${API}/bank/basiq/consent-url`, { method: 'POST' });
+      const data = await res.json();
+      if (!data.success) {
+        setBasiqError('Failed to start bank connection: ' + (data.error || 'Unknown error'));
+        setConnecting(false);
+        return;
+      }
+      const consentUrl: string = data.data.consentUrl;
+      const popup = window.open(consentUrl, 'basiq-consent', 'width=480,height=720');
+
+      clearBasiqPolling();
+
+      const onMessage = (event: MessageEvent) => {
+        if (event.origin !== window.location.origin || !('basiqJobId' in (event.data ?? {}))) return;
+        window.removeEventListener('message', onMessage);
+        basiqMessageHandlerRef.current = null;
+        if (basiqCloseWatchRef.current) {
+          clearInterval(basiqCloseWatchRef.current);
+          basiqCloseWatchRef.current = null;
+        }
+
+        const jobId = event.data.basiqJobId as string | null;
+        if (!jobId) {
+          // User cancelled inside Basiq's hosted UI (or the redirect
+          // otherwise arrived without a valid jobId) — stop cleanly, no
+          // error, matching the Plaid onExit behavior below.
+          setConnecting(false);
+          return;
+        }
+
+        const startedAt = Date.now();
+        basiqPollRef.current = setInterval(async () => {
+          if (Date.now() - startedAt > BASIQ_TIMEOUT_MS) {
+            clearBasiqPolling();
+            setBasiqError('Bank connection timed out — please try again.');
+            setConnecting(false);
+            return;
+          }
+          try {
+            const statusRes = await fetch(`${API}/bank/basiq/status?jobId=${encodeURIComponent(jobId)}`);
+            const statusJson = await statusRes.json();
+            if (!statusJson.success) return; // transient — keep polling
+            const status = statusJson.data;
+            if (status.status === 'success') {
+              clearBasiqPolling();
+              setConnecting(false);
+              setSyncResult({ type: 'connected', message: `Connected ${status.accountsLinked ?? 0} account(s)` });
+              await fetchData();
+            } else if (status.status === 'failed') {
+              clearBasiqPolling();
+              setBasiqError(`Bank connection failed: ${status.error ?? 'unknown error'}`);
+              setConnecting(false);
+            }
+          } catch {
+            // transient network error — keep polling until timeout
+          }
+        }, BASIQ_POLL_MS);
+      };
+      basiqMessageHandlerRef.current = onMessage;
+      window.addEventListener('message', onMessage);
+
+      // Fallback: if the popup is closed without ever posting a message
+      // (user cancelled inside Basiq's UI before completing consent, or
+      // simply closed the window), stop waiting.
+      basiqCloseWatchRef.current = setInterval(() => {
+        if (popup?.closed) {
+          clearBasiqPolling();
+          setConnecting(false);
+        }
+      }, 1000);
+    } catch (err) {
+      setBasiqError('Connection error: ' + String(err));
+      setConnecting(false);
+    }
+  }, [fetchData, clearBasiqPolling]);
+
   const handleStartConnect = async () => {
+    if (jurisdiction === 'au') {
+      await handleStartConnectBasiq();
+      return;
+    }
     setConnecting(true);
     try {
       const res = await fetch(`${API}/plaid/link-token`, { method: 'POST' });
@@ -102,6 +232,21 @@ export const BankConnectionPage: React.FC = () => {
     } catch (err) {
       alert('Connection error: ' + String(err));
       setConnecting(false);
+    }
+  };
+
+  const handleDisconnect = async (accountId: string, provider?: string) => {
+    if (!window.confirm('Disconnect this bank account? Historical transactions are kept.')) return;
+    const path = provider === 'basiq' ? `${API}/bank/basiq/disconnect` : `${API}/plaid/disconnect`;
+    try {
+      await fetch(path, {
+        method: 'POST',
+        body: JSON.stringify({ accountId }),
+        headers: { 'Content-Type': 'application/json' },
+      });
+      await fetchData();
+    } catch (err) {
+      alert('Failed to disconnect: ' + String(err));
     }
   };
 
@@ -222,6 +367,14 @@ export const BankConnectionPage: React.FC = () => {
         </div>
       )}
 
+      {basiqError && (
+        <div className="mb-4 p-3 rounded-xl text-sm flex items-center gap-2 bg-red-500/10 text-red-600 border border-red-500/20">
+          <AlertCircle className="w-4 h-4 shrink-0" />
+          {basiqError}
+          <button onClick={() => setBasiqError(null)} className="ml-auto text-xs opacity-60 hover:opacity-100">Dismiss</button>
+        </div>
+      )}
+
       {reconciliation && reconciliation.totalTransactions > 0 && (
         <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 mb-6">
           <div className="bg-card border border-border rounded-xl p-4">
@@ -260,10 +413,12 @@ export const BankConnectionPage: React.FC = () => {
             className="px-6 py-3 bg-primary text-primary-foreground rounded-lg font-medium hover:bg-primary/90 transition-colors disabled:opacity-50">
             <span className="flex items-center gap-2">
               {connecting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Link2 className="w-4 h-4" />}
-              Connect with Plaid
+              {jurisdiction === 'au' ? 'Connect with Basiq' : 'Connect with Plaid'}
             </span>
           </button>
-          <p className="text-xs text-muted-foreground mt-3">Sandbox: use <strong>user_good</strong> / <strong>pass_good</strong></p>
+          {jurisdiction !== 'au' && (
+            <p className="text-xs text-muted-foreground mt-3">Sandbox: use <strong>user_good</strong> / <strong>pass_good</strong></p>
+          )}
         </div>
       )}
 
@@ -284,12 +439,18 @@ export const BankConnectionPage: React.FC = () => {
                     </p>
                   </div>
                 </div>
-                <div className="text-right">
-                  <p className="font-bold font-mono">{fmt(account.balanceCents, currency)}</p>
-                  <p className="text-xs text-muted-foreground">
-                    {account.transactionCount ? `${account.transactionCount} txns · ` : ''}
-                    {account.lastSynced ? `Synced ${new Date(account.lastSynced).toLocaleDateString()}` : 'Not synced'}
-                  </p>
+                <div className="text-right flex items-center gap-4">
+                  <div>
+                    <p className="font-bold font-mono">{fmt(account.balanceCents, currency)}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {account.transactionCount ? `${account.transactionCount} txns · ` : ''}
+                      {account.lastSynced ? `Synced ${new Date(account.lastSynced).toLocaleDateString()}` : 'Not synced'}
+                    </p>
+                  </div>
+                  <button onClick={() => handleDisconnect(account.id, account.provider)}
+                    className="px-3 py-1.5 text-xs font-medium text-red-600 border border-red-500/20 rounded-lg hover:bg-red-500/10 transition-colors">
+                    Disconnect
+                  </button>
                 </div>
               </div>
             ))}
