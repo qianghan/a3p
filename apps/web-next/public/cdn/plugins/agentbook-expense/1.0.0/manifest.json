@@ -5,8 +5,8 @@
   "bundleFile": "agentbook-expense.js",
   "stylesFile": "plugin-agentbook-expense-frontend.css",
   "globalName": "NaapPluginAgentbookExpense",
-  "bundleHash": "5fe096d4",
-  "bundleSize": 579834,
+  "bundleHash": "a43b9098",
+  "bundleSize": 580017,
   "routes": [
     "/agentbook/expenses",
     "/agentbook/expenses/*",
@@ -25,6 +25,6 @@
   ],
   "category": "finance",
   "description": "Expense tracking, receipt OCR, auto-categorization, vendor patterns, recurring expense detection, and business/personal separation.",
-  "buildTime": "2026-07-19T22:00:36.410Z",
+  "buildTime": "2026-07-22T21:15:11.297Z",
   "nodeEnv": "production"
 }

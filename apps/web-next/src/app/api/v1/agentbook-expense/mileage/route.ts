@@ -265,6 +265,11 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     const monthly = new Map<string, { miles: number; deductibleCents: number; unit: 'mi' | 'km' }>();
     let ytdMiles = 0;
     let ytdDeductibleCents = 0;
+    // Per-unit YTD totals — mirrors the unit-scoped `ytdMilesOrKm()` sum
+    // used by POST's real tier calculation, so a mixed-unit tenant (some
+    // entries in mi, some in km) exposes a preview-safe total for each
+    // unit rather than one combined (and unit-nonsensical) number.
+    const ytdByUnit: { mi: number; km: number } = { mi: 0, km: 0 };
     const byClient = new Map<string, { miles: number; deductibleCents: number; unit: 'mi' | 'km' }>();
     const byPurpose = new Map<string, { miles: number; deductibleCents: number; unit: 'mi' | 'km'; entryCount: number }>();
 
@@ -277,6 +282,11 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
       ytdMiles += e.miles;
       ytdDeductibleCents += e.deductibleAmountCents;
+      if (e.unit === 'km') {
+        ytdByUnit.km += e.miles;
+      } else {
+        ytdByUnit.mi += e.miles;
+      }
 
       if (e.clientId) {
         const cslot = byClient.get(e.clientId) || { miles: 0, deductibleCents: 0, unit: e.unit as 'mi' | 'km' };
@@ -331,6 +341,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
             deductibleCents: ytdDeductibleCents,
             entryCount: ytd.length,
           },
+          ytdByUnit,
           monthly: Array.from(monthly.entries())
             .map(([month, s]) => ({ month, ...s }))
             .sort((a, b) => a.month.localeCompare(b.month)),
