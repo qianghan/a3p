@@ -2,12 +2,18 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 /**
  * Launch-gap PR-11, Task 2 — friendly chat/MCP redirect for "connect my
- * bank" / "link my bank" / bare "Plaid" mentions. Plaid Link is an
- * interactive browser-only widget; it cannot run inside a chat transport,
- * so instead of falling through to the generic LLM path (or an unrelated
- * financial-summary fallback), agent-brain.ts's new Step 1d intercepts
- * these messages with a static pointer to the real /personal page's
- * "Connect bank" button.
+ * bank" / "link my bank" / bare "Plaid" mentions. Neither Plaid Link nor
+ * Basiq's hosted Consent UI is an interactive browser-only widget/redirect
+ * that can run inside a chat transport, so instead of falling through to
+ * the generic LLM path (or an unrelated financial-summary fallback),
+ * agent-brain.ts's Step 1d intercepts these messages with a static pointer
+ * to the real /personal page's "Connect bank" button.
+ *
+ * AU-1 shipped: AU tenants no longer get a special decline path. Basiq now
+ * gives AU tenants real bank-sync at parity with Plaid's US/CA coverage, so
+ * this redirect message is identical for every jurisdiction — chat can't
+ * drive either provider's hosted consent UI regardless of jurisdiction, so
+ * there's no functional reason to say anything different to an AU tenant.
  *
  * Scaffolding mirrors tax-draft-regenerate.test.ts's mocking conventions
  * exactly (same dbMock shape, same partial mock of
@@ -102,7 +108,7 @@ beforeEach(() => {
   dbMock.abTenantConfig.findFirst.mockResolvedValue(null);
 });
 
-describe('Plaid connect-bank chat/MCP redirect (Step 1d)', () => {
+describe('Bank-connect chat/MCP redirect (Step 1d)', () => {
   it('redirects "connect my bank" to the /personal page and Connect bank button', async () => {
     const { handleAgentMessage } = await import('../agent-brain');
 
@@ -110,7 +116,7 @@ describe('Plaid connect-bank chat/MCP redirect (Step 1d)', () => {
 
     expect(result.data.message).toMatch(/personal/i);
     expect(result.data.message).toMatch(/connect bank/i);
-    expect(result.data.skillUsed).toBe('plaid-connect-redirect');
+    expect(result.data.skillUsed).toBe('bank-connect-redirect');
   });
 
   it('redirects "link my bank" the same way', async () => {
@@ -131,26 +137,33 @@ describe('Plaid connect-bank chat/MCP redirect (Step 1d)', () => {
     expect(result.data.message).toMatch(/connect bank/i);
   });
 
-  it('an AU tenant gets an honest "not yet available" message instead of the Plaid/personal-page redirect', async () => {
+  // AU-1 shipped: AU tenants no longer get a special decline path. Basiq now
+  // gives AU tenants real bank-sync at parity with Plaid's US/CA coverage,
+  // so an AU tenant asking chat to connect a bank gets the exact same
+  // redirect message a US/CA tenant gets — no jurisdiction branching left.
+  it('an AU tenant gets the IDENTICAL redirect message as a US/CA tenant (no more AU decline)', async () => {
     dbMock.abTenantConfig.findFirst.mockResolvedValue({ jurisdiction: 'au' } as any);
     const { handleAgentMessage } = await import('../agent-brain');
 
     const result = await handleAgentMessage(makeReq('can you connect my bank account'), makeCtx());
 
-    expect(result.data.skillUsed).toBe('plaid-connect-redirect');
-    expect(result.data.message).toMatch(/isn't available for australian/i);
-    expect(result.data.message).not.toMatch(/personal/i);
-    expect(result.data.message).not.toMatch(/plaid widget/i);
+    expect(result.data.skillUsed).toBe('bank-connect-redirect');
+    expect(result.data.message).toBe(
+      "I can't connect a bank account directly in chat — that needs an interactive widget. Open Personal Finance (/personal) in the app and tap \"Connect bank\".",
+    );
+    expect(result.data.message).not.toMatch(/isn't available for australian/i);
   });
 
-  it('a US tenant (explicit jurisdiction) still gets the normal Plaid/personal-page redirect', async () => {
+  it('a US tenant (explicit jurisdiction) gets the same redirect message as the AU tenant above', async () => {
     dbMock.abTenantConfig.findFirst.mockResolvedValue({ jurisdiction: 'us' } as any);
     const { handleAgentMessage } = await import('../agent-brain');
 
     const result = await handleAgentMessage(makeReq('can you connect my bank account'), makeCtx());
 
-    expect(result.data.message).toMatch(/personal/i);
-    expect(result.data.message).toMatch(/connect bank/i);
+    expect(result.data.skillUsed).toBe('bank-connect-redirect');
+    expect(result.data.message).toBe(
+      "I can't connect a bank account directly in chat — that needs an interactive widget. Open Personal Finance (/personal) in the app and tap \"Connect bank\".",
+    );
   });
 
   it('does NOT intercept bank-reconciliation questions (existing skill, unrelated)', async () => {

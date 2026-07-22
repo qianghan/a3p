@@ -80,7 +80,7 @@ async function brainAccountantFallback(
     '  2) Suggest a concrete next step — either rephrase for AgentBook, or do the task manually outside if it\'s out of scope.',
     '  3) If they\'re asking a generic finance question, give a brief accountant-style tip in plain English and propose an in-app follow-up.',
     '',
-    'AgentBook can: record/edit/split/categorize expenses, scan receipts, create invoices/estimates/credit notes, record payments, track time, run reports (P&L, balance sheet, cashflow, tax-summary, expense-by-vendor, aging), estimate taxes, prep US/Canada/Australia tax forms, sync banks via Plaid, manage recurring rules and budgets.',
+    'AgentBook can: record/edit/split/categorize expenses, scan receipts, create invoices/estimates/credit notes, record payments, track time, run reports (P&L, balance sheet, cashflow, tax-summary, expense-by-vendor, aging), estimate taxes, prep US/Canada/Australia tax forms, sync bank accounts, manage recurring rules and budgets.',
     '',
     'IMPORTANT: For any summary or report request (expense summary, monthly report, financial overview, daily briefing, spending summary, how am I doing), NEVER ask for clarification — run the report for the current month by default and present results immediately.',
     '',
@@ -984,37 +984,26 @@ export async function handleAgentMessage(
     // same as any other unrecognized message.
   }
 
-  // ── Step 1d: Plaid connect-bank redirect (chat + MCP parity,
-  // Launch-gap PR-11; AU-aware per Roadmap v2 AU-7) ───────────────────
-  // Plaid Link is an interactive browser widget — it cannot run inside a
-  // chat transport, and this PR deliberately does not attempt to build
-  // one. This is a friendly, explicit pointer to the real page instead of
-  // the generic LLM fallback (or worse, an unrelated financial summary)
-  // a "connect my bank" message would otherwise fall through to. Placed
-  // AFTER Step 1c's block closes so a genuine tax-draft-related message is
-  // never accidentally caught by this broader check first.
+  // ── Step 1d: Bank-connect redirect (chat + MCP parity, Launch-gap
+  // PR-11) ───────────────────────────────────────────────────────────
+  // Neither Plaid Link nor Basiq's hosted Consent UI can run inside a
+  // chat transport — both are interactive, redirect/widget-based flows,
+  // and this PR deliberately does not attempt to build one. This is a
+  // friendly, explicit pointer to the real page instead of the generic
+  // LLM fallback (or worse, an unrelated financial summary) a "connect my
+  // bank" message would otherwise fall through to. Placed AFTER Step 1c's
+  // block closes so a genuine tax-draft-related message is never
+  // accidentally caught by this broader check first.
   //
-  // AU-7: Plaid's `country_codes` (agentbook-personal-plaid.ts) only
-  // covers US/CA — pointing an AU tenant at the /personal "Connect bank"
-  // button would send them to a flow that doesn't actually work. Real AU
-  // bank-sync (Roadmap AU-1, a CDR-accredited aggregator integration) is
-  // not yet built — it requires signing up for a third-party aggregator
-  // account, a step deliberately deferred pending explicit user
-  // confirmation. Until AU-1 ships, AU tenants get an honest "not yet
-  // available" message instead of a redirect to a broken flow.
+  // AU-1: Basiq now gives AU tenants real bank-sync at parity with
+  // Plaid's US/CA coverage, so this message is identical for every
+  // jurisdiction — there is no functional reason for chat to say anything
+  // different to an AU tenant vs. a US/CA tenant, since chat can't drive
+  // either provider's hosted consent UI regardless of jurisdiction.
   if (PLAID_CONNECT_BANK_RE.test(text.trim())) {
-    const tenantConfig = await db.abTenantConfig.findFirst({ where: { userId: tenantId } });
-    if (tenantConfig?.jurisdiction?.toLowerCase() === 'au') {
-      return buildResponse({
-        message: "Bank sync isn't available for Australian accounts yet — Plaid (our bank-connection provider) doesn't support AU banks. We're working on a local alternative; for now, log expenses manually or via receipt photos.",
-        skillUsed: 'plaid-connect-redirect',
-        confidence: 1,
-        latencyMs: Date.now() - startTime,
-      });
-    }
     return buildResponse({
-      message: "I can't connect a bank account directly in chat — that needs the interactive Plaid widget. Open Personal Finance (/personal) in the app and tap \"Connect bank\".",
-      skillUsed: 'plaid-connect-redirect',
+      message: "I can't connect a bank account directly in chat — that needs an interactive widget. Open Personal Finance (/personal) in the app and tap \"Connect bank\".",
+      skillUsed: 'bank-connect-redirect',
       confidence: 1,
       latencyMs: Date.now() - startTime,
     });
