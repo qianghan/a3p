@@ -27,6 +27,19 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
     const cfg = await db.abTenantConfig.findUnique({ where: { userId: tenantId } });
     const jurisdiction = cfg?.jurisdiction || 'us';
+
+    // Only US (1099-NEC) and CA (T4A) have real contractor-reporting logic in
+    // getContractorSummaries. For any other jurisdiction the handler silently
+    // fell back to the US form + US $600 threshold + US calendar year — a wrong
+    // form for an AU/UK tenant. Gate here (mirroring the CA-only PDF sibling)
+    // instead of emitting a US 1099-NEC to a non-US/CA tenant.
+    if (jurisdiction !== 'us' && jurisdiction !== 'ca') {
+      return NextResponse.json(
+        { success: false, error: { code: 'unsupported_jurisdiction', message: `Contractor-payment reporting (1099-NEC / T4A) is only available for US and CA tenants, not "${jurisdiction}".` } },
+        { status: 422 },
+      );
+    }
+
     const year = parseInt(request.nextUrl.searchParams.get('year') || String(new Date().getFullYear()), 10);
 
     const contractors = await getContractorSummaries(tenantId, jurisdiction, year, db);

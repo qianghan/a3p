@@ -149,4 +149,24 @@ describe('GET /api/v1/agentbook-tax/reports/contractor-1099', () => {
     expect(res.status).toBe(200);
     expect(body.data.jurisdiction).toBe('us');
   });
+
+  it('AU tenant: returns 422 unsupported_jurisdiction instead of a US 1099-NEC (H1)', async () => {
+    tenantConfigFindUnique.mockResolvedValue({ jurisdiction: 'au' });
+
+    const res = await GET(req('?year=2025'));
+    const body = await res.json();
+
+    expect(res.status).toBe(422);
+    expect(body.success).toBe(false);
+    expect(body.error.code).toBe('unsupported_jurisdiction');
+    // The US contractor-reporting query must never run for an AU tenant.
+    expect(expenseFindMany).not.toHaveBeenCalled();
+  });
+
+  it('UK tenant: also gated with 422 (no US form emitted)', async () => {
+    tenantConfigFindUnique.mockResolvedValue({ jurisdiction: 'uk' });
+
+    const res = await GET(req('?year=2025'));
+    expect(res.status).toBe(422);
+  });
 });
