@@ -60,6 +60,29 @@ describe('PUT /api/v1/agentbook-core/tenant-config', () => {
     expect(call.update.businessType).toBe('startup');
   });
 
+  describe('region normalization (M2)', () => {
+    it('normalizes a CA province full name to its 2-letter code', async () => {
+      const res = await PUT(putReq({ jurisdiction: 'ca', region: 'Ontario' }));
+      expect(res.status).toBe(200);
+      const call = configUpsert.mock.calls[0][0] as { update: Record<string, unknown>; create: Record<string, unknown> };
+      expect(call.update.region).toBe('ON');
+      expect(call.create.region).toBe('ON'); // create branch reuses the normalized value
+    });
+
+    it('uppercases a US 2-letter code', async () => {
+      const res = await PUT(putReq({ jurisdiction: 'us', region: 'ny' }));
+      expect(res.status).toBe(200);
+      const call = configUpsert.mock.calls[0][0] as { update: Record<string, unknown> };
+      expect(call.update.region).toBe('NY');
+    });
+
+    it('rejects an unrecognized region with 422 and does not write (the mis-tax guard)', async () => {
+      const res = await PUT(putReq({ jurisdiction: 'us', region: 'Californiaa' }));
+      expect(res.status).toBe(422);
+      expect(configUpsert).not.toHaveBeenCalled();
+    });
+  });
+
   // businessType (persona/plugin-classification) and taxEntityType (Tax
   // Dashboard's filing entity type) used to share one field, which meant
   // configuring your tax entity type could silently un-classify a student
