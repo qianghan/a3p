@@ -5121,7 +5121,10 @@ async function _executeClassificationCore(
       const catNameMap: Record<string, string> = Object.fromEntries(catAccounts.map((a) => [a.id, a.name]));
 
       const total = expenses.reduce((s, e) => s + e.amountCents, 0);
-      const fmt = (cents: number) => `$${(cents / 100).toFixed(2)}`;
+      // Format in the tenant's booking currency — not a hardcoded US $ — so
+      // CA/AU tenants see CA$/A$ in the "how much did I spend" reply (H7).
+      const expCfg = await db.abTenantConfig.findUnique({ where: { userId: tenantId }, select: { currency: true } });
+      const fmt = (cents: number) => fmtCurrency(cents, expCfg?.currency || 'USD');
 
       const byCatRaw: Record<string, number> = {};
       for (const e of expenses) {
@@ -5273,7 +5276,9 @@ Only include chartData if visualization adds value. Keep the answer under 200 wo
         }
         return { totalCents: total, count };
       };
-      const fmt = (c: number) => `$${(c / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+      // Tenant booking currency, not a hardcoded US $, across the projection (H7).
+      const cashCfg = await db.abTenantConfig.findUnique({ where: { userId: tenantId }, select: { currency: true } });
+      const fmt = (c: number) => fmtCurrency(c, cashCfg?.currency || 'USD');
       const proj30 = { income: calcIncome(30), expense: calcRecurring(30) };
       const proj60 = { income: calcIncome(60), expense: calcRecurring(60) };
       const proj90 = { income: calcIncome(90), expense: calcRecurring(90) };
