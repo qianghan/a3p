@@ -7,10 +7,16 @@ import { safeResolveAgentbookTenant } from '@/lib/agentbook-tenant';
 
 export const runtime = 'nodejs';
 
+// `region` is accepted for backward-compat but IGNORED — the billing region is
+// derived server-side from the tenant's own jurisdiction, so a client can't
+// pass a cheaper region to price-arbitrage an add-on (M1).
 const Body = z.object({
-  region: z.enum(['us', 'ca', 'uk', 'au']),
+  region: z.enum(['us', 'ca', 'uk', 'au']).optional(),
   paymentMethodId: z.string(),
 });
+
+const BILLING_REGIONS = ['us', 'ca', 'uk', 'au'] as const;
+type BillingRegion = (typeof BILLING_REGIONS)[number];
 
 export async function POST(
   request: NextRequest,
@@ -23,7 +29,13 @@ export async function POST(
 
   const parsed = Body.safeParse(await request.json().catch(() => ({})));
   if (!parsed.success) return NextResponse.json({ error: 'invalid body' }, { status: 400 });
-  const { region, paymentMethodId } = parsed.data;
+  const { paymentMethodId } = parsed.data;
+
+  // Authoritative region = the tenant's own configured jurisdiction, never the
+  // request body (M1: a client could otherwise pass a cheaper region's tier).
+  const cfg = await prisma.abTenantConfig.findUnique({ where: { userId: tenantId }, select: { jurisdiction: true } });
+  const jur = (cfg?.jurisdiction || 'us').toLowerCase();
+  const region: BillingRegion = (BILLING_REGIONS as readonly string[]).includes(jur) ? (jur as BillingRegion) : 'us';
 
   const price = await resolveAddOnPrice(code, region);
   if (!price?.stripePriceId) {

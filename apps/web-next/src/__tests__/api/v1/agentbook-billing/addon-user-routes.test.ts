@@ -14,6 +14,7 @@ const addOnFindUnique = vi.fn();
 const subCreate = vi.fn();
 const subUpdate = vi.fn();
 const invalidateAccountMock = vi.fn();
+const tenantConfigFindUnique = vi.fn();
 
 vi.mock('@/lib/agentbook-tenant', () => ({
   safeResolveAgentbookTenant: (...a: unknown[]) => resolveTenant(...a),
@@ -33,6 +34,7 @@ vi.mock('@/lib/billing/stripe', () => ({
 }));
 vi.mock('@naap/database', () => ({
   prisma: {
+    abTenantConfig: { findUnique: (...a: unknown[]) => tenantConfigFindUnique(...a) },
     billSubscription: { findUnique: (...a: unknown[]) => billSubFindUnique(...a) },
     billAddOn: { findUnique: (...a: unknown[]) => addOnFindUnique(...a) },
     billAddOnSubscription: {
@@ -53,9 +55,11 @@ beforeEach(() => {
   resolveTenant.mockReset(); hasAddOnMock.mockReset(); resolveAddOnPriceMock.mockReset();
   billSubFindUnique.mockReset(); addOnSubFindUnique.mockReset(); addOnSubUpsert.mockReset();
   addOnSubUpdate.mockReset(); addOnFindUnique.mockReset(); subCreate.mockReset(); subUpdate.mockReset();
-  invalidateAccountMock.mockReset();
+  invalidateAccountMock.mockReset(); tenantConfigFindUnique.mockReset();
   resolveTenant.mockResolvedValue(tenant);
   addOnFindUnique.mockResolvedValue({ id: 'addon-1', code: 'startup_tax_benefits' });
+  // Default: a US tenant (existing tests expect US pricing).
+  tenantConfigFindUnique.mockResolvedValue({ jurisdiction: 'us' });
 });
 
 function req(body?: unknown): NextRequest {
@@ -96,6 +100,20 @@ describe('POST /me/addons/:code/subscribe', () => {
     }));
     expect(addOnSubUpsert).toHaveBeenCalled();
     expect(invalidateAccountMock).toHaveBeenCalledWith('tenant-1');
+  });
+
+  it('prices off the tenant jurisdiction, not a client-supplied region (M1 arbitrage guard)', async () => {
+    // Tenant is AU; a crafted request tries to buy at the US region's price.
+    tenantConfigFindUnique.mockResolvedValue({ jurisdiction: 'au' });
+    resolveAddOnPriceMock.mockResolvedValue({ id: 'price-au', tier: 'standard', priceCents: 5900, currency: 'aud', stripePriceId: 'price_au' });
+    billSubFindUnique.mockResolvedValue({ stripeCustomerId: 'cus_1' });
+    subCreate.mockResolvedValue({ id: 'sub_1', status: 'active' });
+    addOnSubUpsert.mockResolvedValue({ id: 'row-1' });
+
+    await subscribe(req({ region: 'us', paymentMethodId: 'pm_1' }), params('startup_tax_benefits') as never);
+
+    // Must resolve the AU price (tenant's real region), ignoring the body's "us".
+    expect(resolveAddOnPriceMock).toHaveBeenCalledWith('startup_tax_benefits', 'au');
   });
 
   it('rejects a price with no Stripe price ID attached yet', async () => {
