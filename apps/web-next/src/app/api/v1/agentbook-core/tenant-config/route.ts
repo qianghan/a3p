@@ -6,6 +6,7 @@ import 'server-only';
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma as db } from '@naap/database';
 import { safeResolveAgentbookTenant } from '@/lib/agentbook-tenant';
+import { normalizeRegionCode } from '@/lib/region-codes';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -94,7 +95,7 @@ export async function PUT(request: NextRequest): Promise<NextResponse> {
     const body = (await request.json().catch(() => ({}))) as UpdateConfigBody;
     const existing = await db.abTenantConfig.findUnique({
       where: { userId: tenantId },
-      select: { businessType: true, university: true, major: true, degree: true, graduationYear: true },
+      select: { businessType: true, jurisdiction: true, university: true, major: true, degree: true, graduationYear: true },
     });
     const update: Record<string, unknown> = {};
     if (body.businessType) {
@@ -110,7 +111,15 @@ export async function PUT(request: NextRequest): Promise<NextResponse> {
       update.taxEntityType = body.taxEntityType;
     }
     if (body.jurisdiction) update.jurisdiction = body.jurisdiction;
-    if (body.region !== undefined) update.region = body.region;
+    if (body.region !== undefined) {
+      // Normalize to the 2-letter code the tax/sales-tax tables key on, so a
+      // full name like "Ontario"/"California" can't be stored and silently
+      // mis-tax the tenant (M2). Jurisdiction comes from this request or the
+      // existing config.
+      const norm = normalizeRegionCode(body.jurisdiction || existing?.jurisdiction, body.region);
+      if (!norm.ok) return NextResponse.json({ error: norm.error }, { status: 422 });
+      update.region = norm.value;
+    }
     if (body.visaStatus !== undefined) {
       if (body.visaStatus !== null && body.visaStatus !== 'international' && body.visaStatus !== 'domestic') {
         return NextResponse.json({ error: "visaStatus must be 'international', 'domestic', or null" }, { status: 400 });
@@ -203,7 +212,10 @@ export async function PUT(request: NextRequest): Promise<NextResponse> {
         userId: tenantId,
         businessType: body.businessType || 'freelancer',
         jurisdiction: body.jurisdiction || 'us',
-        region: body.region || '',
+        // Reuse the normalized region computed above (falls back to '' when the
+        // request didn't include one) so a new tenant is never seeded with an
+        // un-normalized full name either.
+        region: typeof update.region === 'string' ? update.region : '',
         visaStatus: body.visaStatus ?? null,
         homeCountry: body.homeCountry ?? null,
         currency: body.currency || 'USD',
