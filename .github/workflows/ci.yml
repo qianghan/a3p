@@ -325,6 +325,12 @@ jobs:
           cd ../plugin-build && npm run build --if-present
 
       - name: Test plugin against updated SDK
+        # NOTE: the `|| echo` mask is intentionally retained here (unlike the
+        # AgentBook backend-tests gate, which is now un-masked). This SDK-compat
+        # matrix covers the legacy naap-fork plugin frontends, whose suites/
+        # builds are not part of the AgentBook launch surface; un-masking them
+        # is a separate cleanup that would first need each legacy suite verified
+        # green. Tracked, not launch-blocking.
         run: |
           cd plugins/${{ matrix.plugin }}/frontend
           echo "::group::Running tests for ${{ matrix.plugin }}"
@@ -396,6 +402,10 @@ jobs:
 
       - name: Run plugin frontend tests
         if: steps.check.outputs.changed == 'true'
+        # `|| echo` mask intentionally retained: this covers the legacy naap-fork
+        # plugin frontends (not the AgentBook launch surface). The AgentBook
+        # backend gate is un-masked above; un-masking these legacy frontends is a
+        # separate, tracked cleanup pending each suite being verified green (M6).
         run: |
           cd plugins/${{ matrix.plugin }}/frontend
           npm test --if-present || echo "No tests configured for ${{ matrix.plugin }}"
@@ -471,9 +481,14 @@ jobs:
 
       - name: Run backend tests
         if: steps.check.outputs.changed == 'true'
+        # No `|| echo` mask: a failing AgentBook backend suite MUST fail CI so a
+        # money/tax regression (e.g. the CA payroll bug) can't land green (M6).
+        # `--if-present` still no-ops targets with no test script; all six
+        # matrix targets (agentbook-core/invoice/expense/tax/startup +
+        # jurisdictions) run DB-free and pass, so un-masking is safe.
         run: |
           cd ${{ matrix.path }}
-          npm test --if-present || echo "No tests configured for ${{ matrix.target }}"
+          npm test --if-present
 
   # ===========================================================================
   # Lifecycle BDD Tests — Plugin lifecycle feature specs
