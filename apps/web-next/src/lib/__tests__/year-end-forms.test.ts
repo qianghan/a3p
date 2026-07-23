@@ -39,6 +39,14 @@ describe('buildYearEndForm — CA real CRA box numbers (CA-3)', () => {
     expect(form.boxes.box26PensionableEarningsCents).toBe(67_800_00);
   });
 
+  it('Box 22 includes the provincial portion, not federal income tax only', () => {
+    // Stubs carrying a provincial portion (stateTaxCents) — as calcCA now
+    // produces. Box 22 (total income tax deducted) must be federal + provincial.
+    const withProvincial: YearEndStub = { grossCents: 90_000_00, federalTaxCents: 1_200_000, stateTaxCents: 500_000, ficaCents: 0 };
+    const form = buildYearEndForm('Jordan Nguyen', 'ca', 2026, [withProvincial], 'emp4', 'ON');
+    expect(form.boxes.box22IncomeTaxDeductedCents).toBe(1_700_000); // 1,200,000 fed + 500,000 prov
+  });
+
   it('US/UK/AU year-end forms are completely unaffected by this change', () => {
     const us = buildYearEndForm('John Smith', 'us', 2025, [stub(90_000_00, 1_200_000, 688_500)], 'emp3');
     expect(us.formType).toBe('W-2');

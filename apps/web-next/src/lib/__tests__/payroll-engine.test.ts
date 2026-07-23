@@ -45,10 +45,13 @@ describe('payroll engine', () => {
     expect(married.federalTaxCents).toBeLessThan(single.federalTaxCents);
   });
 
-  it('Canada applies CPP+EI as fica and stays balanced', () => {
-    const r = calcPay({ jurisdiction: 'ca', grossCents: periodGross(90_000_00, 'biweekly'), payPeriodsPerYear: 26 });
+  it('Canada applies CPP+EI as fica, withholds provincial income tax, and stays balanced', () => {
+    const r = calcPay({ jurisdiction: 'ca', grossCents: periodGross(90_000_00, 'biweekly'), payPeriodsPerYear: 26, region: 'ON' });
     expect(r.ficaCents).toBeGreaterThan(0);
-    expect(r.federalTaxCents + r.ficaCents + r.netCents).toBe(r.grossCents);
+    // Provincial income tax is now withheld (stateTaxCents), so the balance
+    // invariant must include it — same shape as the US assertion above.
+    expect(r.stateTaxCents).toBeGreaterThan(0);
+    expect(r.federalTaxCents + r.stateTaxCents + r.ficaCents + r.netCents).toBe(r.grossCents);
   });
 
   it('Quebec employees pay QPP+QC-EI+QPIP instead of CPP+rest-of-Canada-EI, and stay balanced', () => {
@@ -59,7 +62,9 @@ describe('payroll engine', () => {
     // should make Quebec's total fica deduction higher than the rest of
     // Canada's, even though Quebec's own EI portion is lower.
     expect(qc.ficaCents).toBeGreaterThan(nonQc.ficaCents);
-    expect(qc.federalTaxCents + qc.ficaCents + qc.netCents).toBe(qc.grossCents);
+    expect(qc.federalTaxCents + qc.stateTaxCents + qc.ficaCents + qc.netCents).toBe(qc.grossCents);
+    // Quebec's provincial income-tax rates are materially higher than Ontario's.
+    expect(qc.stateTaxCents).toBeGreaterThan(nonQc.stateTaxCents);
   });
 
   it('Quebec fica caps at the real 2025 QPP+QC-EI+QPIP maximums for a high earner', () => {
