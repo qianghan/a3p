@@ -31,7 +31,9 @@
       "/agentbook/cashflow",
       "/agentbook/cashflow/*",
       "/agentbook/tax-package",
-      "/agentbook/tax-package/*"
+      "/agentbook/tax-package/*",
+      "/agentbook/sales-tax-return",
+      "/agentbook/sales-tax-return/*"
     ],
     "navigation": {
       "label": "Tax & Reports",

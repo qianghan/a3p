@@ -11,6 +11,7 @@ import { AnalyticsPage } from './pages/Analytics';
 import { WhatIfPage } from './pages/WhatIf';
 import { TaxPackagePage } from './pages/TaxPackage';
 import { PastFilingsPage } from './pages/PastFilings';
+import { SalesTaxReturnPage } from './pages/SalesTaxReturn';
 import './globals.css';
 
 function getInitialPath(): string {
@@ -36,6 +37,7 @@ const AgentbookTaxApp: React.FC = () => (
         <Route path="/analytics" element={<AnalyticsPage />} />
         <Route path="/whatif" element={<WhatIfPage />} />
         <Route path="/tax-package" element={<TaxPackagePage />} />
+        <Route path="/sales-tax-return" element={<SalesTaxReturnPage />} />
         <Route path="/*" element={<TaxDashboardPage />} />
       </Route>
       <Route path="/past-filings" element={<PastFilingsPage />} />

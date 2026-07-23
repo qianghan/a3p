@@ -20,6 +20,7 @@ import { Outlet, useLocation } from 'react-router-dom';
 const TABS: Array<{ href: string; path: string; label: string }> = [
   { href: '/agentbook/tax', path: '/', label: 'Dashboard' },
   { href: '/agentbook/tax-package', path: '/tax-package', label: 'Tax Package' },
+  { href: '/agentbook/sales-tax-return', path: '/sales-tax-return', label: 'GST/BAS Return' },
 ];
 
 export const TaxLayout: React.FC = () => {
