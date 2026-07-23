@@ -11,6 +11,18 @@
 import 'server-only';
 import { prisma as db } from '@naap/database';
 import { usPack, caPack, auPack, ukPack, type JurisdictionPack } from '@agentbook/jurisdictions';
+import { formatCurrencyCents } from './jurisdiction-currency';
+
+// Per-jurisdiction labels so digest tax tips never show US-specific agencies,
+// forms, or tax-type names to CA/AU/UK tenants (H6). Unknown → US.
+const TAX_AGENCY: Record<string, string> = { us: 'IRS', ca: 'CRA', au: 'ATO', uk: 'HMRC' };
+const SET_ASIDE_LABEL: Record<string, string> = {
+  us: 'federal + SE tax', ca: 'income tax + CPP', au: 'income tax', uk: 'income tax + NI',
+};
+// Jurisdictions where business meals are 50% deductible (US Schedule C 24b /
+// CA T2125). AU meal entertainment is generally non-deductible, so the
+// 50%-meals tip is suppressed there rather than asserting a wrong rule.
+const MEALS_50_FORM: Record<string, string> = { us: 'Schedule C line 24b', ca: 'T2125' };
 
 const CALENDAR_PACKS: Record<string, JurisdictionPack> = { us: usPack, ca: caPack, au: auPack, uk: ukPack };
 
@@ -46,6 +58,7 @@ export function nextQuarterlyTaxDeadline(
 
 export interface TipContext {
   jurisdiction: string;
+  currency: string;
   cashTodayCents: number;
   monthlyBurnCents: number;
   monthlyRevenueCents: number;
@@ -191,6 +204,7 @@ export async function buildTipContext(tenantId: string): Promise<TipContext> {
 
   return {
     jurisdiction,
+    currency: tenantConfig?.currency || 'USD',
     cashTodayCents,
     monthlyBurnCents,
     monthlyRevenueCents,
@@ -206,10 +220,6 @@ export async function buildTipContext(tenantId: string): Promise<TipContext> {
     recurringMonthlyCents,
     receiptCoveragePct,
   };
-}
-
-function fmtUsd(cents: number): string {
-  return '$' + Math.round(cents / 100).toLocaleString('en-US');
 }
 
 /**
@@ -286,40 +296,52 @@ ${JSON.stringify(ctx, null, 2)}`;
   }
 }
 
-function generateTaxTipDeterministic(ctx: TipContext): DigestTip | null {
-  // Quarterly deadline takes priority when close.
+export function generateTaxTipDeterministic(ctx: TipContext): DigestTip | null {
+  const money = (cents: number) => formatCurrencyCents(cents, ctx.currency);
+  const agency = TAX_AGENCY[ctx.jurisdiction] ?? 'IRS';
+
+  // Quarterly/instalment deadline takes priority when close. (Amounts are
+  // jurisdiction-neutral; only the currency label changes.)
   if (ctx.taxDaysUntilQ !== null && ctx.taxDaysUntilQ <= 21 && ctx.taxQuarterlyEstimateCents) {
     const cashCovers = ctx.cashTodayCents >= ctx.taxQuarterlyEstimateCents;
     const action = cashCovers ? 'set it aside today.' : 'start moving funds now.';
     return {
-      text: `Quarterly estimated tax of ${fmtUsd(ctx.taxQuarterlyEstimateCents)} is due in ${ctx.taxDaysUntilQ} days. Cash on hand ${cashCovers ? 'covers it' : `(${fmtUsd(ctx.cashTodayCents)}) doesn't cover it yet`} — ${action}`,
+      text: `Estimated tax instalment of ${money(ctx.taxQuarterlyEstimateCents)} is due in ${ctx.taxDaysUntilQ} days. Cash on hand ${cashCovers ? 'covers it' : `(${money(ctx.cashTodayCents)}) doesn't cover it yet`} — ${action}`,
       source: 'rule',
     };
   }
 
-  // Meals deduction reminder (Schedule C line 24b — 50% deductible).
+  // Meals: 50% deductible in the US (Schedule C 24b) and CA (T2125). AU meal
+  // entertainment is generally non-deductible, so this tip is suppressed there
+  // rather than asserting a rule that doesn't apply.
+  const mealsForm = MEALS_50_FORM[ctx.jurisdiction];
   const mealsCat = ctx.topCategoriesYtd.find((c) => /meals?/i.test(c.category));
-  if (mealsCat && mealsCat.amountCents > 50_000) {
+  if (mealsForm && mealsCat && mealsCat.amountCents > 50_000) {
     const deductible = Math.round(mealsCat.amountCents * 0.5);
     return {
-      text: `Meals YTD: ${fmtUsd(mealsCat.amountCents)} → ${fmtUsd(deductible)} deductible at the 50% rule. Document the business purpose on each receipt to lock it in.`,
+      text: `Meals YTD: ${money(mealsCat.amountCents)} → ${money(deductible)} deductible at the 50% rule (${mealsForm}). Document the business purpose on each receipt to lock it in.`,
       source: 'rule',
     };
   }
 
-  // Receipt coverage gap.
+  // Receipt coverage gap. The US names a specific $75 threshold; other
+  // jurisdictions get the agency-neutral record-keeping nudge.
   if (ctx.receiptCoveragePct < 80) {
+    const backup = ctx.jurisdiction === 'us'
+      ? `The ${agency} expects backup for any expense over $75`
+      : `The ${agency} expects documentation to back your claimed expenses`;
     return {
-      text: `Receipt coverage is at ${ctx.receiptCoveragePct}%. The IRS expects backup for any expense over $75 — sweep through "missing receipts" and snap photos before audit season.`,
+      text: `Receipt coverage is at ${ctx.receiptCoveragePct}%. ${backup} — sweep through "missing receipts" and snap photos before your filing deadline.`,
       source: 'rule',
     };
   }
 
-  // Net income running high — withholding nudge.
+  // Net income running high — set-aside nudge, labeled per jurisdiction.
   if (ctx.ytdNetIncomeCents > 5_000_000) {
     const setAside = Math.round(ctx.ytdNetIncomeCents * 0.27);
+    const label = SET_ASIDE_LABEL[ctx.jurisdiction] ?? 'income tax';
     return {
-      text: `Net income YTD is ${fmtUsd(ctx.ytdNetIncomeCents)}. Plan to set aside ~27% (≈ ${fmtUsd(setAside)}) for federal + SE tax — confirm your quarterly is on track.`,
+      text: `Net income YTD is ${money(ctx.ytdNetIncomeCents)}. Plan to set aside ~27% (≈ ${money(setAside)}) for ${label} — confirm your instalments are on track.`,
       source: 'rule',
     };
   }
@@ -328,12 +350,13 @@ function generateTaxTipDeterministic(ctx: TipContext): DigestTip | null {
 }
 
 function generateCashFlowTipDeterministic(ctx: TipContext): DigestTip | null {
+  const money = (cents: number) => formatCurrencyCents(cents, ctx.currency);
   // Runway warning.
   if (ctx.monthlyBurnCents > 0) {
     const months = ctx.cashTodayCents / ctx.monthlyBurnCents;
     if (months < 2) {
       return {
-        text: `Cash on hand ${fmtUsd(ctx.cashTodayCents)} = ${months.toFixed(1)} months at current burn (${fmtUsd(ctx.monthlyBurnCents)}/mo). ${ctx.outstandingInvoiceCents > 0 ? `Chase ${fmtUsd(ctx.outstandingInvoiceCents)} in outstanding AR to extend runway.` : 'Cut a recurring or accelerate AR to extend runway.'}`,
+        text: `Cash on hand ${money(ctx.cashTodayCents)} = ${months.toFixed(1)} months at current burn (${money(ctx.monthlyBurnCents)}/mo). ${ctx.outstandingInvoiceCents > 0 ? `Chase ${money(ctx.outstandingInvoiceCents)} in outstanding AR to extend runway.` : 'Cut a recurring or accelerate AR to extend runway.'}`,
         source: 'rule',
       };
     }
@@ -342,7 +365,7 @@ function generateCashFlowTipDeterministic(ctx: TipContext): DigestTip | null {
   // Past-due invoices.
   if (ctx.pastDueInvoiceCount > 0) {
     return {
-      text: `${ctx.pastDueInvoiceCount} invoice${ctx.pastDueInvoiceCount === 1 ? '' : 's'} past due — that's ${fmtUsd(ctx.outstandingInvoiceCents - ctx.upcomingInvoiceCents)} you've already earned. Send a reminder today.`,
+      text: `${ctx.pastDueInvoiceCount} invoice${ctx.pastDueInvoiceCount === 1 ? '' : 's'} past due — that's ${money(ctx.outstandingInvoiceCents - ctx.upcomingInvoiceCents)} you've already earned. Send a reminder today.`,
       source: 'rule',
     };
   }
@@ -352,7 +375,7 @@ function generateCashFlowTipDeterministic(ctx: TipContext): DigestTip | null {
     const pct = Math.round((ctx.recurringMonthlyCents / ctx.monthlyBurnCents) * 100);
     if (pct >= 40) {
       return {
-        text: `Recurring outflows are ${fmtUsd(ctx.recurringMonthlyCents)}/mo — ${pct}% of total burn. Review for unused subscriptions you can cancel.`,
+        text: `Recurring outflows are ${money(ctx.recurringMonthlyCents)}/mo — ${pct}% of total burn. Review for unused subscriptions you can cancel.`,
         source: 'rule',
       };
     }
@@ -361,7 +384,7 @@ function generateCashFlowTipDeterministic(ctx: TipContext): DigestTip | null {
   // Healthy cash but inactive AR push.
   if (ctx.upcomingInvoiceCents > 0 && ctx.upcomingInvoiceCents > ctx.cashTodayCents) {
     return {
-      text: `${fmtUsd(ctx.upcomingInvoiceCents)} in invoices comes due over the next 30 days — confirm with the biggest clients that they're on track to pay.`,
+      text: `${money(ctx.upcomingInvoiceCents)} in invoices comes due over the next 30 days — confirm with the biggest clients that they're on track to pay.`,
       source: 'rule',
     };
   }
