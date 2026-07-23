@@ -37,10 +37,42 @@ describe('computeBasReturn (AU BAS GST, Wave 2)', () => {
     expect(multi.g1TotalSalesCents).toBe(770_000);
     expect(multi.label1AGstOnSalesCents).toBe(70_000);
     expect(multi.netGstCents).toBe(65_000);
-    expect(multi.counts).toEqual({ salesCount: 2, purchaseCount: 1 });
+    expect(multi.counts).toEqual({ salesCount: 2, purchaseCount: 1, wageCount: 0 });
 
     const nil = computeBasReturn({ ...base, sales: [], purchases: [] });
     expect(nil.netGstCents).toBe(0);
     expect(nil.outcome).toBe('nil');
+    expect(nil.w1TotalWagesCents).toBe(0);
+    expect(nil.totalPayableCents).toBe(0);
+  });
+
+  it('includes PAYG-W labels (W1/W2) and adds W2 to the total payable', () => {
+    const r = computeBasReturn({
+      ...base,
+      sales: [{ grossSalesCents: 110_000, gstCollectedCents: 10_000 }],
+      purchases: [{ gstPaidCents: 4_000 }],
+      wages: [
+        { grossCents: 500_000, paygWithheldCents: 90_000 },
+        { grossCents: 300_000, paygWithheldCents: 50_000 },
+      ],
+    });
+    expect(r.w1TotalWagesCents).toBe(800_000);
+    expect(r.w2PaygWithheldCents).toBe(140_000);
+    expect(r.netGstCents).toBe(6_000); // 10,000 − 4,000
+    expect(r.totalPayableCents).toBe(146_000); // net GST 6,000 + PAYG-W 140,000
+    expect(r.outcome).toBe('payable');
+    expect(r.counts.wageCount).toBe(2);
+  });
+
+  it('PAYG-W turns a GST refund into a net payment', () => {
+    const r = computeBasReturn({
+      ...base,
+      sales: [{ grossSalesCents: 11_000, gstCollectedCents: 1_000 }],
+      purchases: [{ gstPaidCents: 5_000 }], // GST net = −4,000 (refund)
+      wages: [{ grossCents: 200_000, paygWithheldCents: 30_000 }],
+    });
+    expect(r.netGstCents).toBe(-4_000);
+    expect(r.totalPayableCents).toBe(26_000); // −4,000 + 30,000
+    expect(r.outcome).toBe('payable');
   });
 });

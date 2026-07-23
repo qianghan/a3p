@@ -44,7 +44,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     const gte = new Date(`${periodStart}T00:00:00.000Z`);
     const lte = new Date(`${periodEnd}T23:59:59.999Z`);
 
-    const [invoices, expenses] = await Promise.all([
+    const [invoices, expenses, payRuns] = await Promise.all([
       db.abInvoice.findMany({
         where: { tenantId, issuedDate: { gte, lte }, status: { in: ['sent', 'viewed', 'overdue', 'paid'] } },
         select: { amountCents: true, taxCents: true },
@@ -53,13 +53,24 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         where: { tenantId, isPersonal: false, date: { gte, lte } },
         select: { taxAmountCents: true },
       }),
+      // PAYG-W (W1/W2): pay runs paid in the BAS period. federalTaxCents is the
+      // AU PAYG amount withheld; grossCents is the wages paid.
+      db.abPayRun.findMany({
+        where: { tenantId, periodEnd: { gte, lte } },
+        select: { stubs: { select: { grossCents: true, federalTaxCents: true } } },
+      }),
     ]);
+
+    const wages = payRuns.flatMap((run) =>
+      run.stubs.map((s) => ({ grossCents: s.grossCents, paygWithheldCents: s.federalTaxCents })),
+    );
 
     const result = computeBasReturn({
       periodStart,
       periodEnd,
       sales: invoices.map((i) => ({ grossSalesCents: i.amountCents, gstCollectedCents: i.taxCents ?? 0 })),
       purchases: expenses.map((e) => ({ gstPaidCents: e.taxAmountCents ?? 0 })),
+      wages,
     });
 
     return NextResponse.json({ success: true, data: result });
