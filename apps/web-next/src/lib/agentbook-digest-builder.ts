@@ -14,6 +14,7 @@
  */
 
 import 'server-only';
+import { formatCurrencyCents } from './jurisdiction-currency';
 
 // ─── Types (mirror the cron's DigestData / aux types) ────────────────────
 
@@ -95,6 +96,8 @@ export interface DigestSummary {
   deductions: DigestDeduction[];
   hotBudgets: DigestBudgetHot[];
   ai: DigestAutoCategorize;
+  /** Tenant booking currency (ISO 4217) — money in the digest is formatted in this, not a hardcoded US $ (M4). */
+  currency: string;
 }
 
 // ─── Header ──────────────────────────────────────────────────────────────
@@ -153,6 +156,7 @@ export function buildHeader(opts: { tenantTimezone: string; name: string; now?: 
  *   6. Hot budget about to overflow (≥ 95%)
  */
 export function buildHighlights(s: DigestSummary): string[] {
+  const fmtMoney = (cents: number) => formatCurrencyCents(cents, s.currency);
   const items: { priority: number; line: string }[] = [];
 
   // 1. Big payment in
@@ -232,6 +236,7 @@ export function buildHighlights(s: DigestSummary): string[] {
  * If no budgets are set, the third line shows MTD spend without a target.
  */
 export function buildSnapshot(s: DigestSummary, opts: { tenantTimezone: string; now?: Date }): string[] {
+  const fmtMoney = (cents: number) => formatCurrencyCents(cents, s.currency);
   const now = opts.now ?? new Date();
   const tz = opts.tenantTimezone || 'America/New_York';
   const lines: string[] = [];
@@ -286,6 +291,7 @@ export function buildSnapshot(s: DigestSummary, opts: { tenantTimezone: string; 
  *   9. Recommended bookkeeping nudges (high-budget)
  */
 export function buildTodos(s: DigestSummary): string[] {
+  const fmtMoney = (cents: number) => formatCurrencyCents(cents, s.currency);
   const items: { priority: number; line: string }[] = [];
 
   if (s.cpaRequests.length > 0) {
@@ -361,15 +367,6 @@ export function buildTodos(s: DigestSummary): string[] {
   items.sort((a, b) => a.priority - b.priority);
   // Render with numbered prefix
   return items.slice(0, 6).map((i, idx) => `${idx + 1}. ${i.line}`);
-}
-
-// ─── Helpers ─────────────────────────────────────────────────────────────
-
-function fmtMoney(cents: number): string {
-  // Cents → "$X,XXX". Round to whole dollars; the digest favors glance-ability
-  // over penny-precision (penny totals appear inside detail sections and on
-  // ledger pages, not in the morning digest).
-  return '$' + Math.round(cents / 100).toLocaleString('en-US');
 }
 
 function escapeHtml(s: string): string {

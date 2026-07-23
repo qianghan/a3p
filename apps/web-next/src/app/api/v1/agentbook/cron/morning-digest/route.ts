@@ -31,6 +31,7 @@ export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
 
 interface DigestData {
+  currency: string;                 // tenant booking currency for money formatting (M4)
   cashTodayCents: number;
   cashYesterdayCents: number;       // for the cash delta in the snapshot
   arTotalCents: number;             // outstanding AR (sent + overdue, excluding paid)
@@ -441,6 +442,7 @@ export async function buildDigest(tenantId: string): Promise<DigestData> {
       count: missingReceiptCount,
       items: missingReceiptItems,
     },
+    currency: tenantConfig?.currency || 'USD',
   };
 }
 
@@ -493,6 +495,7 @@ export function composeMessage(
     deductions: d.deductions.map((dd) => ({ id: dd.id, message: dd.message })),
     hotBudgets: hot.map((b) => ({ categoryName: b.categoryName, spentCents: b.spentCents, limitCents: b.limitCents, percent: b.percent })),
     ai: { appliedCount: ai.appliedCount, pendingCount: ai.pending.length },
+    currency: d.currency,
   };
 
   // ─── Highlights (top 3 must-knows) ────────────────────────────────
