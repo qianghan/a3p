@@ -54,7 +54,11 @@ export function buildYearEndForm(
     boxes = {
       box14EmploymentIncomeCents: gross,
       box18EiPremiumsCents: split.eiCents,
-      box22IncomeTaxDeductedCents: fed,
+      // Total income tax deducted = federal + provincial. `state` aggregates
+      // each stub's provincial withholding (stateTaxCents), which calcCA now
+      // populates; previously this was federal-only, understating box 22 by the
+      // full provincial share on every Canadian T4.
+      box22IncomeTaxDeductedCents: fed + state,
       // Insurable/pensionable-earnings boxes, back-derived from this
       // simplified engine's own contribution-cap constants (not the CRA's
       // separately-published YMPE/MIE to the exact dollar — see Global

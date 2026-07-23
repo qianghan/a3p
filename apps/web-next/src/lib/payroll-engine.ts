@@ -121,6 +121,32 @@ const QC_EI_MAX = 860_67;
 const QC_QPIP_RATE = 0.00494;
 const QC_QPIP_MAX = 484_12;
 
+// Provincial/territorial income-tax brackets, 2025 tax year, annual cents
+// thresholds in this file's { upTo, rate } shape. Ported verbatim from
+// packages/agentbook-jurisdictions/src/ca/tax-brackets.ts's PROVINCIAL_BRACKETS
+// (itself ported from the T1-form engine and verified during CA-GATE
+// remediation) — do NOT re-derive these figures; keep them in sync with that
+// canonical table. This mirrors how CA_FED / QC_* rates above are documented
+// local copies for this self-contained pure-calculator module. Provincial
+// income tax is levied in every province/territory, so — unlike US state tax,
+// which is legitimately $0 in nine states — a Canadian pay run must always
+// withhold a provincial portion (see calcCA's ON fallback).
+const CA_PROVINCIAL_BRACKETS: Record<string, Bracket[]> = {
+  ON: [{ upTo: 5114200, rate: 0.0505 }, { upTo: 10228400, rate: 0.0915 }, { upTo: 15000000, rate: 0.1116 }, { upTo: 22000000, rate: 0.1216 }, { upTo: Infinity, rate: 0.1316 }],
+  BC: [{ upTo: 4707400, rate: 0.0506 }, { upTo: 9414800, rate: 0.077 }, { upTo: 10805600, rate: 0.105 }, { upTo: 13108800, rate: 0.1229 }, { upTo: 22786800, rate: 0.147 }, { upTo: Infinity, rate: 0.168 }],
+  AB: [{ upTo: 14212200, rate: 0.10 }, { upTo: 17070600, rate: 0.12 }, { upTo: 22769200, rate: 0.13 }, { upTo: 34153800, rate: 0.14 }, { upTo: Infinity, rate: 0.15 }],
+  QC: [{ upTo: 5325500, rate: 0.14 }, { upTo: 10649500, rate: 0.19 }, { upTo: 12959000, rate: 0.24 }, { upTo: Infinity, rate: 0.2575 }],
+  MB: [{ upTo: 4700000, rate: 0.108 }, { upTo: 10000000, rate: 0.1275 }, { upTo: Infinity, rate: 0.174 }],
+  SK: [{ upTo: 5346300, rate: 0.105 }, { upTo: 15275000, rate: 0.125 }, { upTo: Infinity, rate: 0.145 }],
+  NB: [{ upTo: 5130600, rate: 0.094 }, { upTo: 10261400, rate: 0.14 }, { upTo: 19006000, rate: 0.16 }, { upTo: Infinity, rate: 0.195 }],
+  NS: [{ upTo: 3099500, rate: 0.0879 }, { upTo: 6199100, rate: 0.1495 }, { upTo: 9741700, rate: 0.1667 }, { upTo: 15712400, rate: 0.175 }, { upTo: Infinity, rate: 0.21 }],
+  PE: [{ upTo: 3332800, rate: 0.095 }, { upTo: 6465600, rate: 0.1347 }, { upTo: 10500000, rate: 0.166 }, { upTo: 14000000, rate: 0.1762 }, { upTo: Infinity, rate: 0.19 }],
+  NL: [{ upTo: 4419200, rate: 0.087 }, { upTo: 8838200, rate: 0.145 }, { upTo: 15779200, rate: 0.158 }, { upTo: 22091000, rate: 0.178 }, { upTo: 28221400, rate: 0.198 }, { upTo: 56442900, rate: 0.208 }, { upTo: 112885800, rate: 0.213 }, { upTo: Infinity, rate: 0.218 }],
+  YT: [{ upTo: 5737500, rate: 0.064 }, { upTo: 11475000, rate: 0.09 }, { upTo: 17788200, rate: 0.109 }, { upTo: 50000000, rate: 0.128 }, { upTo: Infinity, rate: 0.15 }],
+  NT: [{ upTo: 5196400, rate: 0.059 }, { upTo: 10393000, rate: 0.086 }, { upTo: 16896700, rate: 0.122 }, { upTo: Infinity, rate: 0.1405 }],
+  NU: [{ upTo: 5470700, rate: 0.04 }, { upTo: 10941300, rate: 0.07 }, { upTo: 17788100, rate: 0.09 }, { upTo: Infinity, rate: 0.115 }],
+};
+
 /**
  * Splits the combined CPP/QPP+EI(+QPIP) deduction back into its real,
  * separately-reportable components, given an EMPLOYEE'S AGGREGATED ANNUAL
@@ -155,10 +181,19 @@ export function splitCaDeductions(annualGrossCents: number, region?: string): {
 function calcCA(input: PayInput): PayResult {
   const annual = input.grossCents * input.payPeriodsPerYear;
   const federalTaxCents = Math.round(progressive(annual, CA_FED) / input.payPeriodsPerYear);
+  // Provincial income tax — carried in stateTaxCents (the engine's generic
+  // "sub-national income tax" slot, same as US state tax). Every Canadian pay
+  // run owes a provincial portion; an absent or unrecognized province falls
+  // back to Ontario (matching the ON-fallback convention in tax-forms.ts and
+  // ca/tax-brackets.ts) rather than the previous silent $0, which under-
+  // withheld every Canadian employee.
+  const province = (input.region || '').toUpperCase();
+  const provBrackets = CA_PROVINCIAL_BRACKETS[province] ?? CA_PROVINCIAL_BRACKETS['ON'];
+  const provincialTaxCents = Math.round(progressive(annual, provBrackets) / input.payPeriodsPerYear);
   const split = splitCaDeductions(annual, input.region);
   const ficaCents = Math.round((split.pensionCents + split.eiCents + split.qpipCents) / input.payPeriodsPerYear);
-  const netCents = input.grossCents - federalTaxCents - ficaCents;
-  return { grossCents: input.grossCents, federalTaxCents, stateTaxCents: 0, ficaCents, otherDeductCents: 0, netCents, sgCents: 0 };
+  const netCents = input.grossCents - federalTaxCents - provincialTaxCents - ficaCents;
+  return { grossCents: input.grossCents, federalTaxCents, stateTaxCents: provincialTaxCents, ficaCents, otherDeductCents: 0, netCents, sgCents: 0 };
 }
 
 // --- UK ---------------------------------------------------------------------
