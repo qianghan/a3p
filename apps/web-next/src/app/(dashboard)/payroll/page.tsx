@@ -17,7 +17,16 @@ const JURIS = [{ v: 'us', l: '🇺🇸 US' }, { v: 'ca', l: '🇨🇦 CA' }, { v
 const FREQ = ['weekly', 'biweekly', 'semimonthly', 'monthly'];
 const FORM_LABEL: Record<string, string> = { '941': 'Form 941', '940': 'Form 940', t4: 'T4 remittance', paye: 'PAYE/NI', bas: 'BAS (PAYG)', sg: 'Superannuation Guarantee' };
 
-type Tab = 'employees' | 'runs' | 'deposits' | 'yearend';
+type Tab = 'employees' | 'runs' | 'deposits' | 'yearend' | 'stp';
+
+interface StpPayee { employeeId: string; name: string; ytdGrossCents: number; ytdPaygWithheldCents: number; ytdSuperCents: number }
+interface StpEvent {
+  financialYear: number;
+  period: { start: string; end: string };
+  payees: StpPayee[];
+  employerTotals: { ytdGrossCents: number; ytdPaygWithheldCents: number; ytdSuperCents: number; payeeCount: number };
+  lodgment: 'prepared' | 'lodged';
+}
 
 // T4 (CA) boxes use CRA box-numbered keys (box14EmploymentIncomeCents,
 // box22IncomeTaxDeductedCents, box16CppContributionsCents OR
@@ -86,6 +95,10 @@ export default function PayrollPage() {
   const [region, setRegion] = useState('');
   const [currency, setCurrency] = useState('USD');
   const [locale, setLocale] = useState('en-US');
+  const [tenantJurisdiction, setTenantJurisdiction] = useState('us');
+  const [stp, setStp] = useState<StpEvent | null>(null);
+  const [stpLoading, setStpLoading] = useState(false);
+  const [stpError, setStpError] = useState<string | null>(null);
   const year = new Date().getFullYear();
 
   const fmt$ = useCallback((c: number) => formatCurrencyCents(c, currency, locale), [currency, locale]);
@@ -107,10 +120,25 @@ export default function PayrollPage() {
       if (cfg?.success) {
         setCurrency(cfg.data?.currency || 'USD');
         setLocale(cfg.data?.locale || 'en-US');
+        setTenantJurisdiction(cfg.data?.jurisdiction || 'us');
       }
     } finally { setLoading(false); }
   }, [year]);
   useEffect(() => { void load(); }, [load]);
+
+  // STP pay-event is AU-only and fetched lazily when the tab opens.
+  const loadStp = useCallback(async () => {
+    setStpLoading(true); setStpError(null);
+    try {
+      const res = await fetch(`${API}/au/stp`);
+      const body = await res.json();
+      if (!res.ok || !body.success) throw new Error(body?.error?.message || 'Failed to prepare the STP pay event.');
+      setStp(body.data as StpEvent);
+    } catch (e) {
+      setStpError(e instanceof Error ? e.message : String(e));
+    } finally { setStpLoading(false); }
+  }, []);
+  useEffect(() => { if (tab === 'stp' && !stp && !stpLoading) void loadStp(); }, [tab, stp, stpLoading, loadStp]);
 
   const addEmployee = async () => {
     setBusy(true);
@@ -150,6 +178,8 @@ export default function PayrollPage() {
     { id: 'runs', label: 'Pay runs', icon: <Play className="w-4 h-4" />, count: runs.length },
     { id: 'deposits', label: 'Tax deposits', icon: <Landmark className="w-4 h-4" />, count: deposits.filter((d) => d.status === 'pending').length },
     { id: 'yearend', label: 'Year-end', icon: <FileText className="w-4 h-4" /> },
+    // STP (Single Touch Payroll) is an Australia-only obligation.
+    ...(tenantJurisdiction === 'au' ? [{ id: 'stp' as Tab, label: 'STP', icon: <FileText className="w-4 h-4" /> }] : []),
   ];
 
   return (
@@ -344,6 +374,53 @@ export default function PayrollPage() {
                 </div>
               ))}
             </div>
+          )}
+        </>
+      )}
+
+      {/* STP (AU) — Single Touch Payroll pay event, prepared from pay runs */}
+      {tab === 'stp' && (
+        <>
+          <p className="text-sm text-muted-foreground mb-3">
+            Single Touch Payroll pay event for FY{stp?.financialYear ?? year} — per-employee year-to-date figures from your pay runs.
+          </p>
+          {stpLoading ? (
+            <div className="flex items-center gap-2 text-muted-foreground"><Loader2 className="w-4 h-4 animate-spin" /> Preparing pay event…</div>
+          ) : stpError ? (
+            <div className="flex items-start gap-3 rounded-lg border border-destructive/30 bg-destructive/5 p-4 text-sm">
+              <AlertTriangle className="w-5 h-5 shrink-0 text-destructive" /><div><b>Couldn't prepare the pay event.</b> {stpError}</div>
+            </div>
+          ) : !stp || stp.payees.length === 0 ? (
+            <Empty icon={<FileText className="w-6 h-6" />} title="No pay event yet" hint="Process a pay run to prepare an STP pay event." />
+          ) : (
+            <>
+              <div className="rounded-xl border border-border bg-card overflow-hidden">
+                <table className="w-full text-sm">
+                  <thead className="bg-muted/40 text-xs text-muted-foreground">
+                    <tr><th className="text-left px-4 py-2">Employee</th><th className="text-right px-4 py-2">YTD gross</th><th className="text-right px-4 py-2">PAYG withheld</th><th className="text-right px-4 py-2">Super</th></tr>
+                  </thead>
+                  <tbody className="divide-y divide-border">
+                    {stp.payees.map((p) => (
+                      <tr key={p.employeeId}>
+                        <td className="px-4 py-2.5 text-foreground">{p.name}</td>
+                        <td className="px-4 py-2.5 text-right tabular-nums">{fmt$(p.ytdGrossCents)}</td>
+                        <td className="px-4 py-2.5 text-right tabular-nums">{fmt$(p.ytdPaygWithheldCents)}</td>
+                        <td className="px-4 py-2.5 text-right tabular-nums">{fmt$(p.ytdSuperCents)}</td>
+                      </tr>
+                    ))}
+                    <tr className="font-semibold bg-muted/40">
+                      <td className="px-4 py-2.5">Employer totals ({stp.employerTotals.payeeCount})</td>
+                      <td className="px-4 py-2.5 text-right tabular-nums">{fmt$(stp.employerTotals.ytdGrossCents)}</td>
+                      <td className="px-4 py-2.5 text-right tabular-nums">{fmt$(stp.employerTotals.ytdPaygWithheldCents)}</td>
+                      <td className="px-4 py-2.5 text-right tabular-nums">{fmt$(stp.employerTotals.ytdSuperCents)}</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+              <div className="mt-3 rounded-lg border border-border bg-muted/40 p-3 text-xs text-muted-foreground">
+                Status: <b className="capitalize">{stp.lodgment}</b>. AgentBook prepares this pay event for review/export; it does <b>not</b> lodge it to the ATO — real-time lodgment needs ATO-accredited STP software.
+              </div>
+            </>
           )}
         </>
       )}
