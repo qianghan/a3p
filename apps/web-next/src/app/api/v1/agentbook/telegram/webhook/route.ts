@@ -22,6 +22,14 @@ import { runAgentLoop, type BotContext, type ActiveExpense as BotActive } from '
 import { parseDateHint } from '@/lib/agentbook-time-aggregator';
 import { autoCategorizeForTenant, getPendingSuggestions, dropPendingSuggestion } from '@/lib/agentbook-auto-categorize';
 import { updateMileageEntry } from '@/lib/agentbook-mileage-service';
+import { formatCurrencyCents } from '@/lib/jurisdiction-currency';
+import { usTaxBrackets } from '@agentbook/jurisdictions/us/tax-brackets';
+import { caTaxBrackets } from '@agentbook/jurisdictions/ca/tax-brackets';
+import { auTaxBrackets } from '@agentbook/jurisdictions/au/tax-brackets';
+import { usSelfEmploymentTax } from '@agentbook/jurisdictions/us/self-employment-tax';
+import { caSelfEmploymentTax } from '@agentbook/jurisdictions/ca/self-employment-tax';
+import { auSelfEmploymentTax } from '@agentbook/jurisdictions/au/self-employment-tax';
+import type { TaxBracketProvider, SelfEmploymentTaxCalculator } from '@agentbook/jurisdictions/interfaces';
 import {
   getDigestPrefs,
   setDigestPrefs,
@@ -127,6 +135,38 @@ async function resolveTenantId(chatId: number, botToken?: string): Promise<strin
 
 function fmtUsd(cents: number): string {
   return '$' + (Math.abs(cents) / 100).toLocaleString('en-US', { maximumFractionDigits: 2, minimumFractionDigits: 2 });
+}
+
+// Real, per-jurisdiction tax logic — the same providers the web tax-estimate
+// and cashflow-scenario routes use. Replaces the fallback agent's previous
+// hardcoded US SE/FICA math (0.9235 × 0.153) + US 22% bracket, which it
+// applied to every non-CA tenant (AU/UK included) — wrong money in chat.
+const TG_BRACKET_PROVIDERS: Record<string, TaxBracketProvider> = {
+  us: usTaxBrackets, ca: caTaxBrackets, au: auTaxBrackets,
+};
+const TG_SE_CALCULATORS: Record<string, SelfEmploymentTaxCalculator> = {
+  us: usSelfEmploymentTax, ca: caSelfEmploymentTax, au: auSelfEmploymentTax,
+};
+// The self-employment / social-contribution line label per jurisdiction.
+const SE_LINE_LABEL: Record<string, string> = {
+  us: 'SE tax', ca: 'CPP', au: 'Medicare levy', uk: 'Class 2/4 NI',
+};
+// The tax-agency label for a mileage/standard-rate deduction per jurisdiction.
+const RATE_AGENCY_LABEL: Record<string, string> = {
+  us: 'IRS std rate', ca: 'CRA rate', au: 'ATO rate', uk: 'HMRC rate',
+};
+// The primary business-income tax form per jurisdiction.
+const BUSINESS_TAX_FORM: Record<string, string> = {
+  us: 'Schedule C', ca: 'T2125', au: 'business schedule', uk: 'Self Assessment',
+};
+
+/** Split net self-employment income into SE/contribution tax + income tax for a jurisdiction. */
+export function calcJurisdictionTax(netCents: number, jurisdiction: string, taxYear: number): { seCents: number; incomeCents: number; totalCents: number } {
+  if (netCents <= 0) return { seCents: 0, incomeCents: 0, totalCents: 0 };
+  const se = TG_SE_CALCULATORS[jurisdiction]?.calculate(netCents, taxYear) ?? { amountCents: 0, deductiblePortionCents: 0 };
+  const taxable = Math.max(0, netCents - se.deductiblePortionCents);
+  const incomeCents = (TG_BRACKET_PROVIDERS[jurisdiction] ?? usTaxBrackets).calculateTax(taxable, taxYear).taxCents;
+  return { seCents: se.amountCents, incomeCents, totalCents: se.amountCents + incomeCents };
 }
 
 /**
@@ -1285,13 +1325,11 @@ async function callMinimalAgent(
       const gross = (revAgg._sum.creditCents || 0) - (revAgg._sum.debitCents || 0);
       const exp = (expAgg._sum.debitCents || 0) - (expAgg._sum.creditCents || 0);
       const net = gross - exp;
-      const seTax = net <= 0 ? 0 : jurisdiction === 'ca' ? Math.round(net * 0.119) : Math.round(net * 0.9235 * 0.153);
-      const taxableUS = Math.max(0, net - Math.round(seTax / 2));
-      const incomeTax = jurisdiction === 'ca'
-        ? Math.round(Math.max(0, net) * 0.205)
-        : Math.round(taxableUS * 0.22);
-      const total = seTax + incomeTax;
-      return { success: true, data: { message: `🧾 <b>YTD tax estimate (${jurisdiction.toUpperCase()})</b>\n\n• Revenue: ${fmtUsd(gross)}\n• Expenses: ${fmtUsd(exp)}\n• Net income: ${fmtUsd(net)}\n• ${jurisdiction === 'ca' ? 'CPP' : 'SE tax'}: ${fmtUsd(seTax)}\n• Income tax: ${fmtUsd(incomeTax)}\n• <b>Total: ${fmtUsd(total)}</b>`, skillUsed: 'query-finance' } };
+      const currency = tenantConfig?.currency || 'USD';
+      const { seCents, incomeCents, totalCents } = calcJurisdictionTax(net, jurisdiction, new Date().getFullYear());
+      const money = (c: number) => formatCurrencyCents(c, currency);
+      const seLabel = SE_LINE_LABEL[jurisdiction] ?? 'SE tax';
+      return { success: true, data: { message: `🧾 <b>YTD tax estimate (${jurisdiction.toUpperCase()})</b>\n\n• Revenue: ${money(gross)}\n• Expenses: ${money(exp)}\n• Net income: ${money(net)}\n• ${seLabel}: ${money(seCents)}\n• Income tax: ${money(incomeCents)}\n• <b>Total: ${money(totalCents)}</b>`, skillUsed: 'query-finance' } };
     }
 
     return {
@@ -1795,7 +1833,7 @@ interface MileageRecordedData {
   purpose: string;
   clientName: string | null;
   clientNameHint: string | null;
-  jurisdiction: 'us' | 'ca';
+  jurisdiction: 'us' | 'ca' | 'au' | 'uk';
   ratePerUnitCents: number;
   deductibleAmountCents: number;
   rateReason: string;
@@ -1823,7 +1861,7 @@ async function renderMileageStepResult(
   // tenant can still have a non-USD currency configured).
   const tenantConfig = await db.abTenantConfig.findUnique({ where: { userId: tenantId }, select: { currency: true } });
   const dollars = formatMoney(data.deductibleAmountCents, tenantConfig?.currency || 'USD');
-  const rateLabel = data.jurisdiction === 'ca' ? 'CRA rate' : 'IRS std rate';
+  const rateLabel = RATE_AGENCY_LABEL[data.jurisdiction] ?? 'std rate';
   const lines: string[] = [
     `📒 ${data.miles} ${data.unit} to ${target} = <b>${dollars}</b> deductible (${rateLabel}). On the books.`,
   ];
@@ -1944,7 +1982,7 @@ interface TaxPackageData {
   kind: 'tax_package';
   packageId: string;
   year: number;
-  jurisdiction: 'us' | 'ca';
+  jurisdiction: 'us' | 'ca' | 'au' | 'uk';
   pdfUrl: string;
   receiptsZipUrl: string | null;
   csvUrls: { pnl: string; mileage: string; deductions: string };
@@ -1971,7 +2009,7 @@ interface TaxPackageData {
 export function renderTaxPackageStepResult(data: TaxPackageData): { html: string; keyboard?: unknown } {
   const dollars = (cents: number): string =>
     `$${(cents / 100).toLocaleString('en-US', { maximumFractionDigits: 2, minimumFractionDigits: 2 })}`;
-  const formName = data.jurisdiction === 'ca' ? 'T2125' : 'Schedule C';
+  const formName = BUSINESS_TAX_FORM[data.jurisdiction] ?? 'Schedule C';
   const lines: string[] = [
     `✅ <b>${data.year} ${formName} package ready</b>`,
     ``,
