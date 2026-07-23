@@ -4318,7 +4318,7 @@ async function _executeClassificationCore(
   // (AU-8) — chat/MCP payroll answers must carry the same STP-scope warning
   // the web UI already shows, not just the web surface.
   const AU_STP_DISCLOSURE =
-    "AU payroll here calculates PAYG withholding and Superannuation Guarantee for your own records, but does not lodge Single Touch Payroll (STP) reports to the ATO in real time. You'll still need STP-enabled software (or your BAS/tax agent) to report each pay run to the ATO as required by law.";
+    "AU payroll here calculates PAYG withholding and Superannuation Guarantee and prepares a Single Touch Payroll (STP) pay event (per-employee year-to-date gross, PAYG withholding and super) you can review and export. It does NOT yet lodge that pay event to the ATO — real-time lodgment requires ATO-accredited transmission, so you'll still lodge each pay run through STP-enabled software or your BAS/tax agent as required by law.";
 
   // INTERNAL handler: payroll-status — direct DB
   if (selectedSkill.name === 'payroll-status') {

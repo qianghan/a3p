@@ -47,7 +47,9 @@ global.fetch = mockFetch as any;
 
 import { executeClassification } from '../server';
 
-const AU_STP_DISCLOSURE_FRAGMENT = 'Single Touch Payroll (STP) reports to the ATO in real time';
+// The disclosure now says AgentBook PREPARES an STP pay event but does not yet
+// lodge it — this fragment pins that scope warning (the honesty point of AU-8).
+const AU_STP_DISCLOSURE_FRAGMENT = 'does NOT yet lodge';
 
 function classification(skillName: 'payroll-status' | 'run-payroll') {
   return {

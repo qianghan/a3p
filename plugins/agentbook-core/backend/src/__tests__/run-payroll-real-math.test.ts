@@ -131,7 +131,7 @@ describe('run-payroll — real withholding math via preview endpoint (PARITY-6)'
 
     const result = await executeClassification(classification(), 'run payroll', 'tenant-1', 'api');
 
-    expect(result.responseData.message).toContain('Single Touch Payroll (STP) reports to the ATO in real time');
+    expect(result.responseData.message).toContain('does NOT yet lodge');
   });
 
   it('still appends the AU STP disclosure on the fallback (preview failure) path', async () => {
@@ -140,6 +140,6 @@ describe('run-payroll — real withholding math via preview endpoint (PARITY-6)'
 
     const result = await executeClassification(classification(), 'run payroll', 'tenant-1', 'api');
 
-    expect(result.responseData.message).toContain('Single Touch Payroll (STP) reports to the ATO in real time');
+    expect(result.responseData.message).toContain('does NOT yet lodge');
   });
 });
