@@ -35,9 +35,22 @@ function makeSummary(overrides: Partial<DigestSummary> = {}): DigestSummary {
     deductions: [],
     hotBudgets: [],
     ai: { appliedCount: 0, pendingCount: 0 },
+    currency: 'USD',
     ...overrides,
   };
 }
+
+describe('currency formatting (M4)', () => {
+  it('formats digest money in the tenant currency (CAD), not a hardcoded US $', () => {
+    const s = makeSummary({
+      currency: 'CAD',
+      yesterday: { paymentsInCents: 500000, expensesOutCents: 0, netCents: 500000, paymentCount: 1, expenseCount: 0 },
+      snapshot: { cashTodayCents: 500000, cashYesterdayCents: 380000, arTotalCents: 430000, arInvoiceCount: 3, mtdSpendCents: 0, mtdBudgetTotalCents: null },
+    });
+    const text = [...buildHighlights(s), ...buildSnapshot(s, { tenantTimezone: TZ })].join('\n');
+    expect(text).toMatch(/CA\$|CAD/);
+  });
+});
 
 describe('buildHeader', () => {
   it('renders date + 6:00am time + Morning salutation in TZ', () => {
