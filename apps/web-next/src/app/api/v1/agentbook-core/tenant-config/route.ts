@@ -84,6 +84,7 @@ interface UpdateConfigBody {
   companyEmail?: string | null;
   companyPhone?: string | null;
   companyAddress?: string | null;
+  abn?: string | null; // AU business number, rendered on the Tax Invoice (M5)
   brandColor?: string;
 }
 
@@ -137,6 +138,7 @@ export async function PUT(request: NextRequest): Promise<NextResponse> {
     if (body.companyEmail !== undefined) update.companyEmail = body.companyEmail;
     if (body.companyPhone !== undefined) update.companyPhone = body.companyPhone;
     if (body.companyAddress !== undefined) update.companyAddress = body.companyAddress;
+    if (body.abn !== undefined) update.abn = body.abn;
     if (body.brandColor) update.brandColor = body.brandColor;
     if (body.currency) update.currency = body.currency;
     if (body.locale) update.locale = body.locale;

@@ -135,6 +135,8 @@ export interface InvoicePdfData {
   subtotalCents?: number | null;
   currency: string;
   notes?: string | null;
+  /** Tenant jurisdiction — 'au' renders the doc as a compliant "Tax Invoice" (M5). */
+  jurisdiction?: string;
   client: {
     name: string;
     email?: string | null;
@@ -151,7 +153,16 @@ export interface InvoicePdfData {
     email?: string | null;
     address?: string | null;
     phone?: string | null;
+    abn?: string | null;
   };
+}
+
+/**
+ * Document title. Australia requires a compliant sales document to be headed
+ * "Tax Invoice" (and to show the supplier's ABN); elsewhere it's "Invoice" (M5).
+ */
+export function invoiceTitle(jurisdiction?: string): string {
+  return (jurisdiction || '').toLowerCase() === 'au' ? 'TAX INVOICE' : 'INVOICE';
 }
 
 function fmtMoney(cents: number, currency: string): string {
@@ -186,11 +197,13 @@ const InvoiceDocument: React.FC<{ inv: InvoicePdfData }> = ({ inv }) => {
             React.createElement(Text, { style: styles.companyMeta }, inv.company.email),
           inv.company.phone &&
             React.createElement(Text, { style: styles.companyMeta }, inv.company.phone),
+          inv.company.abn &&
+            React.createElement(Text, { style: styles.companyMeta }, `ABN: ${inv.company.abn}`),
         ),
         React.createElement(
           View,
           null,
-          React.createElement(Text, { style: styles.invoiceLabel }, 'INVOICE'),
+          React.createElement(Text, { style: styles.invoiceLabel }, invoiceTitle(inv.jurisdiction)),
           React.createElement(Text, { style: styles.invoiceNumber }, inv.number),
         ),
       ),

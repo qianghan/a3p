@@ -18,6 +18,7 @@ interface TenantConfig {
   companyAddress: string | null;
   companyEmail: string | null;
   companyPhone: string | null;
+  abn: string | null;
   logoUrl: string | null;
   brandColor: string;
   defaultPaymentTerms: string | null;
@@ -1908,6 +1909,13 @@ export function AgentBookSettingsPanel({ initialTab }: { initialTab?: string }):
                 <label className="block text-sm font-medium text-foreground">Phone</label>
                 <input type="tel" value={form.companyPhone ?? ''} onChange={(e) => set({ companyPhone: e.target.value || null })}
                   className={inputCls} placeholder="+1 555 000 0000" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-foreground">
+                  ABN <span className="font-normal text-muted-foreground">(Australia — shown on tax invoices)</span>
+                </label>
+                <input type="text" value={form.abn ?? ''} onChange={(e) => set({ abn: e.target.value || null })}
+                  className={inputCls} placeholder="12 345 678 901" />
               </div>
               <div>
                 <label className="block text-sm font-medium text-foreground">Address</label>
