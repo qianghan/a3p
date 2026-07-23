@@ -149,6 +149,7 @@ describe('PUT /api/v1/agentbook-core/tenant-config', () => {
         companyEmail: 'billing@acme.com',
         companyPhone: '+1 555 000 0000',
         companyAddress: '123 Main St',
+        abn: '12 345 678 901',
         brandColor: '#123456',
       }),
     );
@@ -159,6 +160,7 @@ describe('PUT /api/v1/agentbook-core/tenant-config', () => {
       companyEmail: 'billing@acme.com',
       companyPhone: '+1 555 000 0000',
       companyAddress: '123 Main St',
+      abn: '12 345 678 901',
       brandColor: '#123456',
     });
   });

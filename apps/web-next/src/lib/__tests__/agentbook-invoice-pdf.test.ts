@@ -3,7 +3,7 @@ import { describe, it, expect, vi } from 'vitest';
 
 vi.mock('server-only', () => ({}));
 
-import { renderInvoicePdf, type InvoicePdfData } from '../agentbook-invoice-pdf';
+import { renderInvoicePdf, invoiceTitle, type InvoicePdfData } from '../agentbook-invoice-pdf';
 
 const sampleInvoice: InvoicePdfData = {
   number: 'INV-2026-0042',
@@ -76,4 +76,28 @@ describe('renderInvoicePdf (G-OLD-006 / PR 29)', () => {
       expect(buf.length).toBeGreaterThan(500);
     }
   }, 30_000);
+
+  it('renders an AU tax invoice (jurisdiction=au) with an ABN without error (M5)', async () => {
+    const au: InvoicePdfData = {
+      ...sampleInvoice,
+      currency: 'AUD',
+      jurisdiction: 'au',
+      company: { ...sampleInvoice.company, abn: '12 345 678 901' },
+    };
+    const buf = await renderInvoicePdf(au);
+    expect(buf.subarray(0, 8).toString('utf8')).toMatch(/^%PDF-/);
+    expect(buf.length).toBeGreaterThan(500);
+  }, 20_000);
+});
+
+describe('invoiceTitle (M5 — AU "Tax Invoice" heading)', () => {
+  it('titles AU documents "TAX INVOICE" (case-insensitive)', () => {
+    expect(invoiceTitle('au')).toBe('TAX INVOICE');
+    expect(invoiceTitle('AU')).toBe('TAX INVOICE');
+  });
+  it('titles every other jurisdiction (and absent) plain "INVOICE"', () => {
+    expect(invoiceTitle('us')).toBe('INVOICE');
+    expect(invoiceTitle('ca')).toBe('INVOICE');
+    expect(invoiceTitle(undefined)).toBe('INVOICE');
+  });
 });

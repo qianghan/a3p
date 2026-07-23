@@ -136,6 +136,7 @@ export async function GET(
     subtotalCents: invRecord.subtotalCents,
     currency: invRecord.currency,
     notes: invRecord.notes,
+    jurisdiction: config?.jurisdiction ?? 'us',
     client: {
       name: invRecord.client?.name ?? 'Client',
       email: invRecord.client?.email,
@@ -152,6 +153,7 @@ export async function GET(
       email: config?.companyEmail ?? null,
       address: config?.companyAddress ?? null,
       phone: config?.companyPhone ?? null,
+      abn: config?.abn ?? null,
     },
   };
 

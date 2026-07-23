@@ -1477,6 +1477,7 @@ model AbTenantConfig {
   companyAddress          String?
   companyEmail            String?
   companyPhone            String?
+  abn                     String? // AU business number — rendered on the "Tax Invoice" (M5)
   logoUrl                 String?
   brandColor              String   @default("#1a1a2e")
   defaultPaymentTerms     String?
