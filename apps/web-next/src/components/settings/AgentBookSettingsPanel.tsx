@@ -749,7 +749,7 @@ function BillingTab(): React.ReactElement {
   const [current, setCurrent] = useState<{ code?: string; name?: string; status?: string; cancelAtPeriodEnd?: boolean } | null>(null);
   const [loading, setLoading] = useState(true);
   const [subscribeTarget, setSubscribeTarget] = useState<BillingPlan | null>(null);
-  const [addons, setAddons] = useState<Array<{ code: string; name: string; description: string | null; active: boolean; price: { priceCents: number; currency: string; tier: string } | null }>>([]);
+  const [addons, setAddons] = useState<Array<{ code: string; name: string; description: string | null; active: boolean; interval: string; price: { priceCents: number; currency: string; tier: string } | null }>>([]);
   const [subscribeAddonTarget, setSubscribeAddonTarget] = useState<typeof addons[number] | null>(null);
   const [cancelingAddon, setCancelingAddon] = useState<string | null>(null);
   const [planActionPending, setPlanActionPending] = useState(false);
@@ -860,7 +860,7 @@ function BillingTab(): React.ReactElement {
                   {a.active && <span className="text-xs px-2 py-0.5 rounded-full bg-primary/10 text-primary">Active</span>}
                 </div>
                 {a.description && <p className="text-xs text-muted-foreground mt-1">{a.description}</p>}
-                {a.price && <p className="text-lg font-bold text-foreground mt-1.5">{fmt(a.price.priceCents, a.price.currency)}<span className="text-xs font-normal text-muted-foreground">/mo</span></p>}
+                {a.price && <p className="text-lg font-bold text-foreground mt-1.5">{fmt(a.price.priceCents, a.price.currency)}<span className="text-xs font-normal text-muted-foreground">/{a.interval === 'year' ? 'yr' : 'mo'}</span></p>}
                 {a.active ? (
                   <button
                     onClick={async () => {
@@ -901,7 +901,7 @@ function BillingTab(): React.ReactElement {
             code: subscribeAddonTarget.code,
             name: subscribeAddonTarget.name,
             priceCents: subscribeAddonTarget.price.priceCents,
-            interval: 'month',
+            interval: subscribeAddonTarget.interval,
             region,
           }}
           onClose={() => setSubscribeAddonTarget(null)}

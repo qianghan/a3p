@@ -34,6 +34,10 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       // than fabricating text; consumers already treat this as optional.
       description: null as string | null,
       active: activeCodes.has(a.code),
+      // Surface the add-on's billing interval so the UI renders /mo vs /yr
+      // correctly instead of assuming monthly (tax_fast_track / student_success
+      // bill yearly; personal_insights bills monthly).
+      interval: a.interval,
       price: await resolveAddOnPrice(a.code, region),
     })));
     return NextResponse.json({ addons });
