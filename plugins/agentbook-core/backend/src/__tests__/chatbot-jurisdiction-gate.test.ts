@@ -87,21 +87,19 @@ beforeEach(() => {
   dbMock.abTenantConfig.findFirst.mockResolvedValue(null);
 });
 
-describe('Chatbot US/CA jurisdiction gate', () => {
-  it('gates an AU tenant with a use-the-web-app message and runs NO skill', async () => {
+describe('Chatbot US/CA/AU jurisdiction gate', () => {
+  it('does NOT gate an AU tenant — AU is supported, the skill runs', async () => {
     dbMock.abTenantConfig.findFirst.mockResolvedValue({ jurisdiction: 'au' } as any);
     const ctx = skillCtx();
     const { handleAgentMessage } = await import('../agent-brain');
 
     const result = await handleAgentMessage(makeReq("what's my tax estimate this quarter"), ctx);
 
-    expect(result.data.skillUsed).toBe('jurisdiction-gate');
-    expect(result.data.message).toMatch(/United States and Canada/i);
-    expect(result.data.message).toMatch(/\bAU\b/);
-    expect(ctx.classifyAndExecuteV1).not.toHaveBeenCalled();
+    expect(result.data.skillUsed).not.toBe('jurisdiction-gate');
+    expect(ctx.classifyAndExecuteV1).toHaveBeenCalledTimes(1);
   });
 
-  it('gates a UK tenant too', async () => {
+  it('STILL gates a UK tenant (only US/CA/AU supported)', async () => {
     dbMock.abTenantConfig.findFirst.mockResolvedValue({ jurisdiction: 'uk' } as any);
     const ctx = skillCtx();
     const { handleAgentMessage } = await import('../agent-brain');
