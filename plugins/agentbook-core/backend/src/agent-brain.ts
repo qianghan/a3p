@@ -1053,18 +1053,19 @@ export async function handleAgentMessage(
     buildPersonalProfileContext(tenantId).catch(() => ''),
   ]);
 
-  // ── Launch gate: AI chat is US/CA-only ────────────────────────────────
-  // The agent brain has no per-jurisdiction tax/currency logic for AU/UK/NZ
-  // yet, so rather than answer a non-US/CA tenant with US math we redirect
-  // them to the web app (which fully supports their region: BAS/GST,
-  // payroll & STP, tax invoice). Chat-only — the web UI is unaffected.
-  // Placed after session recovery (so an in-flight cancel/status still
-  // works) but before classification (so no skill runs). Telegram and MCP
-  // both route through handleAgentMessage, so this gates them too.
+  // ── Launch gate: AI chat supports US / CA / AU ─────────────────────────
+  // These three jurisdictions have real per-jurisdiction logic across the
+  // brain: tax brackets, self-employment/CPP/Medicare-levy, currency, form
+  // names, and the tax-plugin estimate/quarterly endpoints (all AU-aware).
+  // UK/NZ have no such logic yet, so rather than answer them with US math we
+  // redirect to the web app. Chat-only — the web UI is unaffected. Placed
+  // after session recovery (so an in-flight cancel/status still works) but
+  // before classification (so no skill runs). Telegram and MCP both route
+  // through handleAgentMessage, so this gates them too.
   const chatJuris = (tenantConfig?.jurisdiction || 'us').toString().toLowerCase();
-  if (chatJuris !== 'us' && chatJuris !== 'ca') {
+  if (chatJuris !== 'us' && chatJuris !== 'ca' && chatJuris !== 'au') {
     return buildResponse({
-      message: `AgentBook's AI chat currently supports the United States and Canada. Your account is set to ${chatJuris.toUpperCase()}, so please use the AgentBook web app — it fully supports your region (expenses, invoicing, GST/BAS, payroll & STP, and tax reports). Chat for your region is coming soon.`,
+      message: `AgentBook's AI chat currently supports the United States, Canada, and Australia. Your account is set to ${chatJuris.toUpperCase()}, so please use the AgentBook web app — it fully supports your region. Chat for your region is coming soon.`,
       skillUsed: 'jurisdiction-gate',
       confidence: 1,
       latencyMs: Date.now() - startTime,

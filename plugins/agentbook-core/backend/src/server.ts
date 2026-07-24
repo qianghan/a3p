@@ -1539,6 +1539,8 @@ app.get('/api/v1/agentbook-core/money-moves', async (req, res) => {
       // Simplified bracket check
       const brackets = jurisdiction === 'ca'
         ? [{ min: 0, max: 5737500, rate: 0.15 }, { min: 5737500, max: 11475000, rate: 0.205 }, { min: 11475000, max: 15846800, rate: 0.26 }, { min: 15846800, max: 22170800, rate: 0.29 }, { min: 22170800, max: null as number | null, rate: 0.33 }]
+        : jurisdiction === 'au'
+        ? [{ min: 0, max: 1820000, rate: 0 }, { min: 1820000, max: 4500000, rate: 0.16 }, { min: 4500000, max: 13500000, rate: 0.30 }, { min: 13500000, max: 19000000, rate: 0.37 }, { min: 19000000, max: null as number | null, rate: 0.45 }]
         : [{ min: 0, max: 1160000, rate: 0.10 }, { min: 1160000, max: 4712500, rate: 0.12 }, { min: 4712500, max: 10052500, rate: 0.22 }, { min: 10052500, max: 19190000, rate: 0.24 }, { min: 19190000, max: null as number | null, rate: 0.32 }];
 
       for (let i = 0; i < brackets.length - 1; i++) {
@@ -1634,9 +1636,14 @@ app.get('/api/v1/agentbook-core/tax-package/html', async (req, res) => {
     const net = gross - totalExp;
     const estimate = await db.abTaxEstimate.findFirst({ where: { tenantId }, orderBy: { calculatedAt: 'desc' } });
     const jurisdiction = config?.jurisdiction || 'us';
-    const formName = jurisdiction === 'ca' ? 'T2125 — Statement of Business Activities' : 'Schedule C — Profit or Loss from Business';
+    const formName = jurisdiction === 'ca'
+      ? 'T2125 — Statement of Business Activities'
+      : jurisdiction === 'au'
+      ? 'Business & professional items schedule (myTax)'
+      : 'Schedule C — Profit or Loss from Business';
     const currency = config?.currency || 'USD';
-    const fmt = (cents: number) => `${currency === 'CAD' ? 'C' : ''}$${(cents/100).toLocaleString('en-US', { minimumFractionDigits: 2 })}`;
+    const currencyPrefix = currency === 'CAD' ? 'C' : currency === 'AUD' ? 'A' : '';
+    const fmt = (cents: number) => `${currencyPrefix}$${(cents/100).toLocaleString('en-US', { minimumFractionDigits: 2 })}`;
 
     const allExp = await db.abExpense.count({ where: { tenantId, date: { gte: yearStart, lte: yearEnd }, isPersonal: false } });
     const withReceipts = await db.abExpense.count({ where: { tenantId, date: { gte: yearStart, lte: yearEnd }, isPersonal: false, receiptUrl: { not: null } } });
@@ -1682,14 +1689,14 @@ app.get('/api/v1/agentbook-core/tax-package/html', async (req, res) => {
   ${estimate ? `
   <h2>Tax Estimate</h2>
   <table>
-    <tr><td>${jurisdiction === 'ca' ? 'CPP Self-Employed' : 'Self-Employment Tax'}</td><td class="amount">${fmt(estimate.seTaxCents)}</td></tr>
+    <tr><td>${jurisdiction === 'ca' ? 'CPP Self-Employed' : jurisdiction === 'au' ? 'Medicare Levy' : 'Self-Employment Tax'}</td><td class="amount">${fmt(estimate.seTaxCents)}</td></tr>
     <tr><td>Income Tax</td><td class="amount">${fmt(estimate.incomeTaxCents)}</td></tr>
     <tr class="total-row"><td>Total Estimated Tax</td><td class="amount">${fmt(estimate.totalTaxCents)}</td></tr>
     <tr><td>Effective Tax Rate</td><td class="amount">${(deriveEffectiveRate(estimate) * 100).toFixed(1)}%</td></tr>
   </table>
   ` : ''}
 
-  <h2>Expense Detail by ${jurisdiction === 'ca' ? 'T2125' : 'Schedule C'} Category</h2>
+  <h2>Expense Detail by ${jurisdiction === 'ca' ? 'T2125' : jurisdiction === 'au' ? 'myTax business schedule' : 'Schedule C'} Category</h2>
   <table>
     <thead><tr><th>Category</th><th style="text-align:right">Amount</th></tr></thead>
     <tbody>
