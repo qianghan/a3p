@@ -6,7 +6,7 @@
   "installCommand": "export DATABASE_URL=\"${DATABASE_URL:-${POSTGRES_PRISMA_URL:-$POSTGRES_URL}}\" && export DATABASE_URL_UNPOOLED=\"${DATABASE_URL_UNPOOLED:-${POSTGRES_URL_NON_POOLING:-$DATABASE_URL}}\" && npm install --include=dev",
   "regions": ["iad1"],
   "git": {
-    "deploymentEnabled": false
+    "deploymentEnabled": true
   },
   "functions": {
     "app/api/v1/auth/**": {
