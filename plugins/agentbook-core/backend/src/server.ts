@@ -5828,7 +5828,7 @@ Only include chartData if visualization adds value. Keep the answer under 200 wo
     // Tax validation result
     } else if (data?.valid !== undefined && (data?.errors || data?.warnings)) {
       if (data.valid) {
-        message = '\u2705 **Tax Return Validated — Ready to file!**\n';
+        message = '\u2705 **Tax return validated \u2014 ready for you to file.**\nAgentBook does not lodge it with the CRA; file it yourself via NETFILE or your CRA account.\n';
       } else {
         message = '\u274C **Validation Failed**\n\n**Errors:**\n';
         for (const e of (data.errors || [])) { message += `- ${e.message} (${e.formCode})\n`; }
@@ -5859,7 +5859,7 @@ Only include chartData if visualization adds value. Keep the answer under 200 wo
       }
 
     } else if (data?.confirmationNumber && data?.filedAt) {
-      message = data.message || `Filing status: ${data.status}\nConfirmation: ${data.confirmationNumber}`;
+      message = data.message || `Filing status: ${data.status}\nReference: ${data.confirmationNumber}\nAgentBook prepares your return \u2014 you file it with the CRA.`;
 
     } else if (data?.id && data?.amountCents !== undefined) {
       const catLabel = data.categoryName ? ` [${data.categoryName}]` : '';

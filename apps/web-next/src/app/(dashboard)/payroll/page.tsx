@@ -316,7 +316,9 @@ export default function PayrollPage() {
 
       {/* Tax deposits */}
       {tab === 'deposits' && (
-        deposits.length === 0 ? <Empty icon={<Landmark className="w-6 h-6" />} title="No tax deposits yet" hint="Processed pay runs accrue payroll-tax remittance obligations here." /> : (
+        <>
+        <p className="text-sm text-muted-foreground mb-3">AgentBook tracks these remittance obligations — you pay and lodge them with the tax authority (IRS / CRA / ATO). &ldquo;Mark paid&rdquo; only records that you have remitted; it does not send anything.</p>
+        {deposits.length === 0 ? <Empty icon={<Landmark className="w-6 h-6" />} title="No tax deposits yet" hint="Processed pay runs accrue payroll-tax remittance obligations here." /> : (
           <div className="rounded-xl border border-border bg-card divide-y divide-border">
             {deposits.map((d) => {
               const overdue = d.status === 'pending' && new Date(d.dueDate) < new Date();
@@ -342,13 +344,14 @@ export default function PayrollPage() {
               );
             })}
           </div>
-        )
+        )}
+        </>
       )}
 
       {/* Year-end */}
       {tab === 'yearend' && (
         <>
-          <p className="text-sm text-muted-foreground mb-3">{year} forms, generated from processed pay runs.</p>
+          <p className="text-sm text-muted-foreground mb-3">{year} forms, generated from processed pay runs. AgentBook prepares these — you file and remit them yourself with the IRS (W-2), CRA (T4), or ATO. AgentBook does not lodge them on your behalf.</p>
           {forms.length === 0 ? <Empty icon={<FileText className="w-6 h-6" />} title="No forms yet" hint={`Process payroll in ${year} to generate W-2 / T4 forms.`} /> : (
             <div className="rounded-xl border border-border bg-card divide-y divide-border">
               {forms.map((f, i) => (

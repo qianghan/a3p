@@ -10,13 +10,15 @@ import { validateFiling } from './tax-export.js';
 async function mockSubmit(filingData: any): Promise<{ confirmationNumber: string; status: string }> {
   // Simulate API latency
   await new Promise(r => setTimeout(r, 500));
-  const confNum = `CRA-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).slice(2, 6).toUpperCase()}`;
+  // AgentBook reference for the exported package — NOT a CRA confirmation number.
+  // AgentBook does not lodge returns with the CRA; the user files it themselves.
+  const confNum = `AB-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).slice(2, 6).toUpperCase()}`;
   return { confirmationNumber: confNum, status: 'accepted' };
 }
 
 async function mockCheckStatus(confirmationNumber: string): Promise<{ status: string; details?: string }> {
   // Simulate status check
-  return { status: 'accepted', details: 'Notice of Assessment will be mailed within 2 weeks.' };
+  return { status: 'accepted', details: 'Package prepared and exported. AgentBook does not lodge with the CRA — file it yourself; the CRA issues your Notice of Assessment after you file.' };
 }
 
 // === Submit Filing ===
@@ -100,8 +102,8 @@ export async function submitFiling(
       status: result.status,
       filedAt: new Date().toISOString(),
       message: result.status === 'accepted'
-        ? `Tax return filed successfully! Confirmation: ${result.confirmationNumber}`
-        : `Tax return submitted. Status: ${result.status}. Confirmation: ${result.confirmationNumber}`,
+        ? `Your return package is finalized and exported (ref ${result.confirmationNumber}). AgentBook does not lodge with the CRA — file it yourself via NETFILE or your CRA My Business Account.`
+        : `Return package exported. Status: ${result.status}. Ref: ${result.confirmationNumber}. AgentBook does not file with the CRA — you lodge it.`,
     },
   };
 }

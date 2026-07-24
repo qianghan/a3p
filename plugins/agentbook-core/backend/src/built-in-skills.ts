@@ -501,7 +501,7 @@ export const BUILT_IN_SKILLS = [
     endpoint: { method: 'INTERNAL', url: '' },
   },
   {
-    name: 'tax-filing-submit', description: 'Submit tax return to CRA via certified partner API — e-file your return', category: 'tax',
+    name: 'tax-filing-submit', description: 'Finalize and export your tax return package — you file it with the CRA yourself (AgentBook prepares it but does not lodge on your behalf)', category: 'tax',
     triggerPatterns: ['submit.*tax', 'submit.*cra', 'efile', 'netfile', 'submit.*return', 'file.*return.*cra', 'send.*cra'],
     parameters: { taxYear: { type: 'number', required: false, default: 2025 } },
     endpoint: { method: 'INTERNAL', url: '' },
