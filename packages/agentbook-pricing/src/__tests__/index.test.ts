@@ -78,11 +78,9 @@ describe('CORE_PLANS region coverage (AU-5)', () => {
     expect(CORE_PLANS.find((p) => p.code === 'pro' && p.region === 'au')!.priceCents).toBe(2300);
   });
 
-  it('business is $59 AUD — reuses the exact price point already shipped for the $49-USD add-ons (tax_fast_track/student_success/personal_insights), not re-derived', () => {
+  it('business is $59 AUD', () => {
     const businessAu = CORE_PLANS.find((p) => p.code === 'business' && p.region === 'au')!.priceCents;
-    const addonAu = ADDON_PRICES.tax_fast_track.find((r) => r.region === 'au')!.priceCents;
     expect(businessAu).toBe(5900);
-    expect(businessAu).toBe(addonAu); // same $49-USD price point, same AU-uplifted result
   });
 
   it('pro_yearly AUD is 20% off 12x the AUD monthly price, rounded to a whole dollar — the same relationship every other region\'s annual price satisfies, not a re-scaled USD figure', () => {
@@ -102,14 +100,21 @@ describe('ADDON_PRICES', () => {
     );
   });
 
-  it('single-tier add-ons (tax_fast_track/student_success/personal_insights) each have exactly us/ca/au standard-tier rows at $49/$65/$59', () => {
-    for (const code of ['tax_fast_track', 'student_success', 'personal_insights']) {
+  it('single-tier add-ons each have exactly us/ca/au standard-tier rows at their repriced (2026-07) figures', () => {
+    // Repriced off value anchors — regionally adjusted, not nominal parity.
+    // personal_insights bills monthly; the other two bill yearly.
+    const expected: Record<string, { us: number; ca: number; au: number }> = {
+      tax_fast_track: { us: 14900, ca: 19900, au: 22900 },
+      student_success: { us: 7900, ca: 9900, au: 11900 },
+      personal_insights: { us: 900, ca: 1200, au: 1400 },
+    };
+    for (const [code, amt] of Object.entries(expected)) {
       const rows = ADDON_PRICES[code];
       expect(rows).toHaveLength(3);
       expect(rows.every((r) => r.tier === 'standard')).toBe(true);
-      expect(rows.find((r) => r.region === 'us')).toMatchObject({ currency: 'usd', priceCents: 4900 });
-      expect(rows.find((r) => r.region === 'ca')).toMatchObject({ currency: 'cad', priceCents: 6500 });
-      expect(rows.find((r) => r.region === 'au')).toMatchObject({ currency: 'aud', priceCents: 5900 });
+      expect(rows.find((r) => r.region === 'us')).toMatchObject({ currency: 'usd', priceCents: amt.us });
+      expect(rows.find((r) => r.region === 'ca')).toMatchObject({ currency: 'cad', priceCents: amt.ca });
+      expect(rows.find((r) => r.region === 'au')).toMatchObject({ currency: 'aud', priceCents: amt.au });
     }
   });
 

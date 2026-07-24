@@ -81,7 +81,7 @@ async function grantPersonalInsights(
   const addOn = await prisma.billAddOn.upsert({
     where: { code: 'personal_insights' },
     update: { isActive: true },
-    create: { code: 'personal_insights', name: 'Personal Insights', interval: 'year', isActive: true },
+    create: { code: 'personal_insights', name: 'Personal Insights', interval: 'month', isActive: true },
   });
   const price = await prisma.billAddOnPrice.upsert({
     where: { addOnId_region_tier: { addOnId: addOn.id, region: 'us', tier: 'standard' } },

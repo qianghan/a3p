@@ -40,12 +40,12 @@ export default function TermsPage() {
         suspended after a 7-day grace window.
       </p>
       <p>
-        Add-on subscriptions (for example, Student Success, Tax Fast-Track,
-        Startup Tax Benefits, and Personal Insights) are billed annually in
-        advance, with no monthly option. The same no-refund policy applies:
-        canceling an add-on stops the next year's renewal, but access
-        continues for the remainder of the year you already paid for, and no
-        partial-year refund is issued.
+        Add-on subscriptions are billed in advance. Student Success, Tax
+        Fast-Track, and Startup Tax Benefits are billed annually; Personal
+        Insights is billed monthly. The same no-refund policy applies:
+        canceling an add-on stops the next renewal, but access continues for
+        the remainder of the period you already paid for, and no partial-period
+        refund is issued.
       </p>
 
       <h2>4. Acceptable use</h2>

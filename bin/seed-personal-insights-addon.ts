@@ -2,15 +2,12 @@ import { prisma as db } from '@naap/database';
 import { ADDON_PRICES } from '@agentbook/pricing';
 
 /**
- * Seeds the "Personal Insights" add-on ($49/yr) that gates the personal-
- * finance net-worth trend chart and proactive nudges (budget-threshold,
- * net-worth month-over-month, negative savings rate). Mirrors
- * seed-student-success-addon.ts deliberately: ONE tier ('standard'), now
- * US + CA + AU, same $49 USD / $65 CAD / $59 AUD precedent.
- *
- * AU price follows seed-startup-benefit-addon.ts's established convention:
- * a ~1.2x uplift over the USD figure rather than a full ~1.5x FX
- * conversion, rounded to a clean nominal price point.
+ * Seeds the "Personal Insights" add-on that gates the personal-finance
+ * net-worth trend chart and proactive nudges (budget-threshold, net-worth
+ * month-over-month, negative savings rate). ONE tier ('standard'), US + CA
+ * + AU. Repriced 2026-07 to a MONTHLY interval at $9 USD / $12 CAD / $14
+ * AUD — recurring value (ongoing insights + nudges) suits a low-friction
+ * monthly charge rather than an annual one. Amounts live in @agentbook/pricing.
  *
  * Seeded isActive:false on purpose — the add-on is registered but NOT
  * purchasable until the gated trend route/UI ship. Re-run with ACTIVATE=1
@@ -29,8 +26,8 @@ const PRICES = ADDON_PRICES[ADDON_CODE].map(({ region, currency, priceCents }) =
 async function main() {
   const addOn = await db.billAddOn.upsert({
     where: { code: ADDON_CODE },
-    update: { name: 'Personal Insights', interval: 'year', isActive: ACTIVATE },
-    create: { code: ADDON_CODE, name: 'Personal Insights', interval: 'year', isActive: ACTIVATE },
+    update: { name: 'Personal Insights', interval: 'month', isActive: ACTIVATE },
+    create: { code: ADDON_CODE, name: 'Personal Insights', interval: 'month', isActive: ACTIVATE },
   });
 
   let created = 0;
