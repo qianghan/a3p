@@ -7,7 +7,7 @@
 
 import 'server-only';
 import { NextRequest, NextResponse } from 'next/server';
-import { safeResolveAgentbookTenant } from '@/lib/agentbook-tenant';
+import { requireBankConnectionQuota } from '@/lib/agentbook-bank/guard';
 import { createLinkToken, sanitizePlaidError } from '@/lib/agentbook-plaid';
 
 export const runtime = 'nodejs';
@@ -16,9 +16,11 @@ export const maxDuration = 30;
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
   try {
-    const __resolved = await safeResolveAgentbookTenant(request);
-    if ('response' in __resolved) return __resolved.response;
-    const { tenantId } = __resolved;
+    // Bank sync is a paid feature — block free-plan tenants before minting a
+    // Plaid link token (Free's bank_connections quota is 0).
+    const guard = await requireBankConnectionQuota(request);
+    if ('response' in guard) return guard.response;
+    const { tenantId } = guard;
     const { linkToken, expiration } = await createLinkToken(tenantId);
     // NOTE: never log the linkToken itself — it's a session-bound credential.
     return NextResponse.json({

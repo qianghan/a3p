@@ -10,7 +10,7 @@
 
 import 'server-only';
 import { NextRequest, NextResponse } from 'next/server';
-import { safeResolveAgentbookTenant } from '@/lib/agentbook-tenant';
+import { requireBankConnectionQuota } from '@/lib/agentbook-bank/guard';
 import { exchangePublicToken, sanitizePlaidError } from '@/lib/agentbook-plaid';
 
 export const runtime = 'nodejs';
@@ -25,9 +25,11 @@ interface ExchangeBody {
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
   try {
-    const __resolved = await safeResolveAgentbookTenant(request);
-    if ('response' in __resolved) return __resolved.response;
-    const { tenantId } = __resolved;
+    // Defense-in-depth: gate the persist step too, so a free-plan tenant
+    // can't complete a connection even by calling exchange directly.
+    const guard = await requireBankConnectionQuota(request);
+    if ('response' in guard) return guard.response;
+    const { tenantId } = guard;
     const body = (await request.json().catch(() => ({}))) as ExchangeBody;
     const { publicToken, institutionName } = body;
     if (!publicToken || typeof publicToken !== 'string') {
