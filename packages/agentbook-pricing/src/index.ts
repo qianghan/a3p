@@ -75,22 +75,30 @@ export interface AddOnTierPrice {
  *   fee per claim) and AU SaaS pricing norms: a modest ~1.2x uplift over
  *   the USD figure, not a full ~1.5x spot-rate conversion, since AU buyers
  *   benchmark against round nominal ladder points more than FX precision.
+ *
+ * Exception — the three single-tier add-ons (tax_fast_track, student_success,
+ * personal_insights) were repriced 2026-07 off real value anchors, so they
+ * use regionally-adjusted (not nominal-parity) figures on a round ladder:
+ * ~1.35x USD for ca, ~1.5x USD for au. tax_fast_track is anchored against
+ * accountant fees; student_success is kept student-accessible; and
+ * personal_insights moved to a monthly interval (see its seed script).
  */
 export const ADDON_PRICES: Record<string, AddOnTierPrice[]> = {
   tax_fast_track: [
-    { region: 'us', currency: 'usd', tier: 'standard', priceCents: 4900, maxSlots: null },
-    { region: 'ca', currency: 'cad', tier: 'standard', priceCents: 6500, maxSlots: null },
-    { region: 'au', currency: 'aud', tier: 'standard', priceCents: 5900, maxSlots: null },
+    { region: 'us', currency: 'usd', tier: 'standard', priceCents: 14900, maxSlots: null },
+    { region: 'ca', currency: 'cad', tier: 'standard', priceCents: 19900, maxSlots: null },
+    { region: 'au', currency: 'aud', tier: 'standard', priceCents: 22900, maxSlots: null },
   ],
   student_success: [
-    { region: 'us', currency: 'usd', tier: 'standard', priceCents: 4900, maxSlots: null },
-    { region: 'ca', currency: 'cad', tier: 'standard', priceCents: 6500, maxSlots: null },
-    { region: 'au', currency: 'aud', tier: 'standard', priceCents: 5900, maxSlots: null },
+    { region: 'us', currency: 'usd', tier: 'standard', priceCents: 7900, maxSlots: null },
+    { region: 'ca', currency: 'cad', tier: 'standard', priceCents: 9900, maxSlots: null },
+    { region: 'au', currency: 'aud', tier: 'standard', priceCents: 11900, maxSlots: null },
   ],
+  // personal_insights bills MONTHLY (interval on its BillAddOn / seed script), so these are per-month figures.
   personal_insights: [
-    { region: 'us', currency: 'usd', tier: 'standard', priceCents: 4900, maxSlots: null },
-    { region: 'ca', currency: 'cad', tier: 'standard', priceCents: 6500, maxSlots: null },
-    { region: 'au', currency: 'aud', tier: 'standard', priceCents: 5900, maxSlots: null },
+    { region: 'us', currency: 'usd', tier: 'standard', priceCents: 900, maxSlots: null },
+    { region: 'ca', currency: 'cad', tier: 'standard', priceCents: 1200, maxSlots: null },
+    { region: 'au', currency: 'aud', tier: 'standard', priceCents: 1400, maxSlots: null },
   ],
   startup_tax_benefits: [
     { region: 'us', currency: 'usd', tier: 'founding_member', priceCents: 9900, maxSlots: 250 },
