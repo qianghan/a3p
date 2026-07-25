@@ -1,0 +1,97 @@
+import Link from 'next/link';
+import type { Metadata } from 'next';
+import type { ReactNode } from 'react';
+
+export const metadata: Metadata = {
+  title: 'Guides — AgentBook',
+  description: 'Short, do-it-now guides to get the most out of AgentBook.',
+};
+
+const CSS = `
+.gd-root{
+  --gd-paper:#f7f6f3; --gd-card:#ffffff; --gd-ink:#1a1c1a; --gd-soft:#565a55;
+  --gd-faint:#8a8f88; --gd-rule:#e4e3dd; --gd-rule-soft:#eeece6;
+  --gd-accent:#127a54; --gd-accent-soft:#e7f2ec; --gd-goal:#0f5c40;
+  --gd-mono:ui-monospace,"SF Mono","JetBrains Mono",Menlo,monospace;
+  --gd-sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  --gd-serif:"Iowan Old Style","Palatino Linotype",Palatino,Georgia,serif;
+  background:var(--gd-paper); color:var(--gd-ink); min-height:100dvh;
+  font-family:var(--gd-sans); line-height:1.6;
+}
+@media (prefers-color-scheme:dark){.gd-root{
+  --gd-paper:#111311; --gd-card:#191c19; --gd-ink:#ecefe9; --gd-soft:#aab0a7;
+  --gd-faint:#767c73; --gd-rule:#282c27; --gd-rule-soft:#20241f;
+  --gd-accent:#4ec08a; --gd-accent-soft:#12251c; --gd-goal:#6fd3a2;
+}}
+:root[data-theme="dark"] .gd-root{
+  --gd-paper:#111311; --gd-card:#191c19; --gd-ink:#ecefe9; --gd-soft:#aab0a7;
+  --gd-faint:#767c73; --gd-rule:#282c27; --gd-rule-soft:#20241f;
+  --gd-accent:#4ec08a; --gd-accent-soft:#12251c; --gd-goal:#6fd3a2;
+}
+:root[data-theme="light"] .gd-root{
+  --gd-paper:#f7f6f3; --gd-card:#ffffff; --gd-ink:#1a1c1a; --gd-soft:#565a55;
+  --gd-faint:#8a8f88; --gd-rule:#e4e3dd; --gd-rule-soft:#eeece6;
+  --gd-accent:#127a54; --gd-accent-soft:#e7f2ec; --gd-goal:#0f5c40;
+}
+.gd-wrap{max-width:640px;margin:0 auto;padding:26px 22px 80px;}
+.gd-top{display:flex;align-items:center;justify-content:space-between;padding-bottom:14px;border-bottom:1px solid var(--gd-rule);}
+.gd-brand{font-weight:700;letter-spacing:-.01em;text-decoration:none;color:var(--gd-ink);font-size:15px;}
+.gd-brand span{color:var(--gd-accent);}
+.gd-topnav{display:flex;gap:16px;font-family:var(--gd-mono);font-size:11.5px;letter-spacing:.08em;text-transform:uppercase;}
+.gd-topnav a{color:var(--gd-soft);text-decoration:none;}
+.gd-topnav a:hover{color:var(--gd-accent);}
+.gd-eyebrow{font-family:var(--gd-mono);font-size:11.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--gd-accent);font-weight:600;margin-top:34px;}
+.gd-h1{font-size:29px;line-height:1.12;letter-spacing:-.02em;margin:8px 0 0;text-wrap:balance;}
+.gd-lede{color:var(--gd-soft);font-size:15px;margin:10px 0 0;}
+.gd-goal{margin:22px 0 6px;background:var(--gd-accent-soft);border:1px solid var(--gd-rule);border-left:3px solid var(--gd-accent);border-radius:8px;padding:14px 16px;}
+.gd-goal .gd-goal-k{font-family:var(--gd-mono);font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--gd-goal);font-weight:700;}
+.gd-goal p{margin:4px 0 0;font-size:15px;color:var(--gd-ink);font-family:var(--gd-serif);}
+.gd-time{font-family:var(--gd-mono);font-size:11px;color:var(--gd-faint);margin-top:8px;}
+.gd-h2{font-size:17px;letter-spacing:-.01em;margin:32px 0 4px;padding-top:18px;border-top:1px solid var(--gd-rule-soft);}
+.gd-root p{font-size:14.5px;color:var(--gd-soft);}
+.gd-root strong{color:var(--gd-ink);}
+.gd-steps{counter-reset:s;list-style:none;margin:14px 0 0;padding:0;display:flex;flex-direction:column;gap:12px;}
+.gd-steps li{counter-increment:s;position:relative;padding-left:38px;}
+.gd-steps li::before{content:counter(s);position:absolute;left:0;top:-1px;width:26px;height:26px;display:grid;place-items:center;font-family:var(--gd-mono);font-size:12px;font-weight:700;color:var(--gd-accent);background:var(--gd-accent-soft);border-radius:50%;}
+.gd-steps li b{display:block;font-size:14.5px;color:var(--gd-ink);}
+.gd-steps li span{font-size:13.5px;color:var(--gd-soft);}
+.gd-card{background:var(--gd-card);border:1px solid var(--gd-rule);border-radius:10px;padding:14px 16px;margin-top:14px;}
+.gd-card b{font-size:14px;}
+.gd-card p{margin:3px 0 0;font-size:13.5px;}
+.gd-done{margin-top:26px;display:flex;gap:10px;align-items:flex-start;background:var(--gd-accent-soft);border-radius:8px;padding:12px 14px;font-size:13.5px;color:var(--gd-ink);}
+.gd-done .gd-check{color:var(--gd-accent);font-weight:800;}
+.gd-kbd,.gd-root code{font-family:var(--gd-mono);font-size:.85em;background:var(--gd-rule-soft);color:var(--gd-ink);padding:1px 6px;border-radius:4px;word-break:break-word;}
+.gd-cards{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:22px;}
+@media (max-width:560px){.gd-cards{grid-template-columns:1fr;}}
+.gd-tile{display:block;text-decoration:none;background:var(--gd-card);border:1px solid var(--gd-rule);border-radius:12px;padding:18px;color:var(--gd-ink);transition:border-color .15s,transform .15s;}
+.gd-tile:hover{border-color:var(--gd-accent);transform:translateY(-2px);}
+.gd-tile .gd-num{font-family:var(--gd-mono);font-size:11px;color:var(--gd-faint);letter-spacing:.1em;}
+.gd-tile h3{margin:8px 0 4px;font-size:16px;letter-spacing:-.01em;}
+.gd-tile p{margin:0;font-size:13px;color:var(--gd-soft);}
+.gd-tile .gd-go{margin-top:12px;font-family:var(--gd-mono);font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--gd-accent);}
+.gd-back{display:inline-block;margin-top:36px;font-family:var(--gd-mono);font-size:11.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--gd-soft);text-decoration:none;}
+.gd-back:hover{color:var(--gd-accent);}
+.gd-foot{margin-top:40px;padding-top:16px;border-top:1px solid var(--gd-rule);font-size:12px;color:var(--gd-faint);}
+.gd-foot a{color:var(--gd-accent);text-decoration:none;}
+`;
+
+export default function GuidesLayout({ children }: { children: ReactNode }) {
+  return (
+    <div className="gd-root">
+      <style dangerouslySetInnerHTML={{ __html: CSS }} />
+      <div className="gd-wrap">
+        <header className="gd-top">
+          <Link href="/" className="gd-brand">Agent<span>Book</span></Link>
+          <nav className="gd-topnav">
+            <Link href="/guides">All guides</Link>
+            <Link href="/register">Get started</Link>
+          </nav>
+        </header>
+        {children}
+        <footer className="gd-foot">
+          Need more? Open the <a href="/login">app</a> or <a href="/register">create an account</a>. Every guide takes 2–3 minutes.
+        </footer>
+      </div>
+    </div>
+  );
+}

@@ -166,6 +166,7 @@ export default function LandingPage() {
             <a className="ab-link hidden sm:inline" href="#how">How it works</a>
             <a className="ab-link hidden sm:inline" href="#pricing">Pricing</a>
             <a className="ab-link hidden md:inline" href="#voices">Voices</a>
+            <Link className="ab-link hidden sm:inline" href="/guides">Guides</Link>
             <InstallAppButton />
             <Link
               href="/login"
