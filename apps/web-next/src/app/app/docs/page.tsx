@@ -2,21 +2,30 @@
 
 import React, { useEffect, useState } from 'react';
 import { FileText, Paperclip } from 'lucide-react';
+import { formatCurrencyCents, defaultCurrencyFor } from '@/lib/jurisdiction-currency';
 
-interface Expense { id: string; amountCents: number; vendorName?: string | null; description?: string | null; date?: string; receiptUrl?: string | null }
-
-const fmt$ = (c: number) => '$' + (c / 100).toLocaleString('en-US', { maximumFractionDigits: 0 });
+interface Expense { id: string; amountCents: number; vendorName?: string | null; description?: string | null; date?: string; receiptUrl?: string | null; currency?: string | null }
 
 export default function MobileDocs() {
   const [items, setItems] = useState<Expense[]>([]);
   const [loading, setLoading] = useState(true);
+  // Tenant currency, resolved from jurisdiction — same source the PWA home
+  // screen uses. Falls back to USD so a CA/AU user never sees a bare "$".
+  const [tenantCurrency, setTenantCurrency] = useState('USD');
 
   useEffect(() => {
     fetch('/api/v1/agentbook-expense/expenses?limit=30')
       .then((r) => r.json())
       .then((j) => { if (j?.success) setItems(j.data); })
       .finally(() => setLoading(false));
+    fetch('/api/v1/agentbook-tax/tax/estimate')
+      .then((r) => r.json())
+      .then((j) => { if (j?.success) setTenantCurrency(defaultCurrencyFor(j?.data?.jurisdiction)); })
+      .catch(() => { /* keep USD fallback */ });
   }, []);
+
+  // Prefer a per-expense currency when present, else the tenant currency.
+  const fmt$ = (c: number, cur?: string | null) => formatCurrencyCents(c, cur || tenantCurrency);
 
   return (
     <div style={{ padding: '20px 16px', color: 'var(--foreground,#fff)' }}>
@@ -41,7 +50,7 @@ export default function MobileDocs() {
                     <Paperclip style={{ width: 16, height: 16 }} />
                   </a>
                 )}
-                <span style={{ fontSize: 14, fontWeight: 600 }}>{fmt$(e.amountCents)}</span>
+                <span style={{ fontSize: 14, fontWeight: 600 }}>{fmt$(e.amountCents, e.currency)}</span>
               </div>
             </div>
           ))}
