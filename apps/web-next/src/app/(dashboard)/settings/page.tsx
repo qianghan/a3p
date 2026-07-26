@@ -68,9 +68,11 @@ export default function SettingsPage() {
   const { plugins, refreshPlugins } = usePlugins();
   const eventBus = useEvents();
 
-  // Deep-linkable via ?tab=agentbook (e.g. the "Invite a friend" banner).
+  // AgentBook is the default surface (that's what users come here for);
+  // General is still reachable via ?tab=general. Deep-links like
+  // ?tab=agentbook&subtab=payments continue to work.
   const [settingsTab, setSettingsTab] = useState<'general' | 'agentbook'>(
-    searchParams.get('tab') === 'agentbook' ? 'agentbook' : 'general',
+    searchParams.get('tab') === 'general' ? 'general' : 'agentbook',
   );
 
   const [notificationSettings, setNotificationSettings] = useState({
