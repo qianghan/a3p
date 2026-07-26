@@ -152,6 +152,7 @@ const publicRoutes = [
   '/_next',
   '/favicon.ico',
   '/docs',
+  '/guides', // public sales-rep / founder enablement pages
   '/.well-known',
 ];
 

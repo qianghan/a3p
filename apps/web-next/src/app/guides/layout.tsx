@@ -73,6 +73,51 @@ const CSS = `
 .gd-back:hover{color:var(--gd-accent);}
 .gd-foot{margin-top:40px;padding-top:16px;border-top:1px solid var(--gd-rule);font-size:12px;color:var(--gd-faint);}
 .gd-foot a{color:var(--gd-accent);text-decoration:none;}
+
+/* workflow figures + diagrams */
+.gd-fig{margin:18px 0 4px;background:var(--gd-card);border:1px solid var(--gd-rule);border-radius:12px;padding:16px;}
+.gd-fig svg{display:block;width:100%;height:auto;}
+.gd-fig figcaption{margin-top:10px;font-family:var(--gd-mono);font-size:11.5px;color:var(--gd-faint);letter-spacing:.02em;}
+.gd-diagram .node{fill:var(--gd-accent-soft);stroke:var(--gd-accent);stroke-width:1.5;}
+.gd-diagram .node-plain{fill:var(--gd-card);stroke:var(--gd-rule);stroke-width:1.5;}
+.gd-diagram .lbl{fill:var(--gd-ink);font-family:var(--gd-sans);font-size:13px;font-weight:600;}
+.gd-diagram .sub{fill:var(--gd-soft);font-family:var(--gd-sans);font-size:10.5px;}
+.gd-diagram .flow{stroke:var(--gd-accent);stroke-width:1.6;fill:none;}
+.gd-diagram .head{fill:var(--gd-accent);}
+/* rep talking point */
+.gd-say{margin-top:14px;border-left:3px solid var(--gd-accent);background:var(--gd-accent-soft);border-radius:0 8px 8px 0;padding:12px 14px;}
+.gd-say .gd-say-k{font-family:var(--gd-mono);font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--gd-goal);font-weight:700;}
+.gd-say p{margin:4px 0 0;color:var(--gd-ink);font-family:var(--gd-serif);font-size:14.5px;}
+/* marketing kit grid */
+.gd-kit{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:20px;}
+@media (max-width:560px){.gd-kit{grid-template-columns:1fr;}}
+.gd-kit-card{background:var(--gd-card);border:1px solid var(--gd-rule);border-radius:12px;overflow:hidden;display:flex;flex-direction:column;}
+.gd-kit-card img{display:block;width:100%;height:auto;border-bottom:1px solid var(--gd-rule);background:#0b1f17;}
+.gd-kit-meta{padding:12px 14px;display:flex;flex-direction:column;gap:2px;flex:1;}
+.gd-kit-meta b{font-size:13.5px;color:var(--gd-ink);}
+.gd-kit-meta p{margin:0 0 10px;font-size:12.5px;}
+.gd-dl{margin-top:auto;align-self:flex-start;display:inline-flex;gap:6px;align-items:center;font-family:var(--gd-mono);font-size:11px;letter-spacing:.05em;text-transform:uppercase;color:var(--gd-accent);text-decoration:none;border:1px solid var(--gd-rule);border-radius:7px;padding:6px 10px;}
+.gd-dl:hover{border-color:var(--gd-accent);}
+/* earnings calculator */
+.gd-calc{background:var(--gd-card);border:1px solid var(--gd-rule);border-radius:12px;padding:18px;margin-top:18px;}
+.gd-calc-row{margin-bottom:16px;}
+.gd-calc-row label{display:flex;justify-content:space-between;font-size:12.5px;color:var(--gd-soft);margin-bottom:6px;}
+.gd-calc-row input[type=range]{width:100%;accent-color:var(--gd-accent);}
+.gd-calc-val{font-family:var(--gd-mono);color:var(--gd-ink);font-weight:700;}
+.gd-calc-out{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:4px;}
+.gd-metric{background:var(--gd-accent-soft);border-radius:10px;padding:14px;}
+.gd-metric .k{font-family:var(--gd-mono);font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--gd-goal);}
+.gd-metric .v{font-size:23px;font-weight:800;letter-spacing:-.02em;color:var(--gd-ink);margin-top:4px;}
+.gd-note{font-size:12px;color:var(--gd-faint);margin-top:12px;}
+/* table */
+.gd-table{width:100%;border-collapse:collapse;margin-top:14px;font-size:13.5px;}
+.gd-table th,.gd-table td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--gd-rule);color:var(--gd-soft);}
+.gd-table th{font-family:var(--gd-mono);font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--gd-faint);font-weight:600;}
+.gd-table td strong{color:var(--gd-ink);}
+/* sub-page nav chips */
+.gd-chips{display:flex;flex-wrap:wrap;gap:8px;margin-top:18px;}
+.gd-chip{text-decoration:none;font-size:13px;color:var(--gd-ink);background:var(--gd-card);border:1px solid var(--gd-rule);border-radius:999px;padding:7px 14px;transition:border-color .15s;}
+.gd-chip:hover{border-color:var(--gd-accent);color:var(--gd-accent);}
 `;
 
 export default function GuidesLayout({ children }: { children: ReactNode }) {

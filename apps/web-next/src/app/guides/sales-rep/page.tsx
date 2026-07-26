@@ -17,6 +17,12 @@ export default function SalesRepGuide() {
       </div>
       <p className="gd-time">~3 min</p>
 
+      <div className="gd-chips">
+        <Link className="gd-chip" href="/guides/sales-rep/how-it-works">How AgentBook works →</Link>
+        <Link className="gd-chip" href="/guides/sales-rep/materials">Marketing kit →</Link>
+        <Link className="gd-chip" href="/guides/sales-rep/earnings">Earnings &amp; math →</Link>
+      </div>
+
       <h2 className="gd-h2">Who can join</h2>
       <p>Any member on an <strong>active, paid annual plan</strong> can apply. (You’re vouching for a product you actually use — so the annual plan is the ticket in.)</p>
 
