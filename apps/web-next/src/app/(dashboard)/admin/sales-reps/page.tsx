@@ -53,6 +53,20 @@ interface Payout {
   submittedAt: string;
 }
 
+interface RepApplication {
+  id: string;
+  tenantId: string;
+  status: string;
+  jurisdiction: string;
+  eligibilityPlanCode: string;
+  annualFeeCentsPaid: number;
+  submittedAt: string | null;
+  aiRiskLevel: string | null;
+  aiRecommendation: string | null;
+  user: { email: string | null; displayName: string | null };
+  signedCommissionBps: number | null;
+}
+
 const money = (cents: number) => `$${(cents / 100).toFixed(2)}`;
 
 export default function AdminSalesRepsPage() {
@@ -60,6 +74,7 @@ export default function AdminSalesRepsPage() {
   const { hasRole } = useAuth();
   const [reps, setReps] = useState<Rep[]>([]);
   const [payouts, setPayouts] = useState<Payout[]>([]);
+  const [applications, setApplications] = useState<RepApplication[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [reviewPayout, setReviewPayout] = useState<Payout | null>(null);
@@ -80,14 +95,17 @@ export default function AdminSalesRepsPage() {
     setLoading(true);
     setError(null);
     try {
-      const [repsRes, payoutsRes] = await Promise.all([
+      const [repsRes, payoutsRes, appsRes] = await Promise.all([
         fetch('/api/v1/admin/sales-reps', { credentials: 'include' }),
         fetch('/api/v1/admin/sales-reps/payouts?status=submitted', { credentials: 'include' }),
+        fetch('/api/v1/admin/sales-reps/applications', { credentials: 'include' }),
       ]);
       const repsData = await repsRes.json();
       const payoutsData = await payoutsRes.json();
+      const appsData = await appsRes.json();
       if (repsData.success) setReps(repsData.data.reps);
       if (payoutsData.success) setPayouts(payoutsData.data.payouts);
+      if (appsData.success) setApplications(appsData.data.applications);
       if (!repsData.success) setError(repsData.error?.message || repsData.error || 'Failed to load sales reps');
     } catch {
       setError('Failed to load sales reps');
@@ -100,6 +118,38 @@ export default function AdminSalesRepsPage() {
     if (!isAdmin) { router.push('/agentbook'); return; }
     load();
   }, [isAdmin, load, router]);
+
+  const decideApplication = async (app: RepApplication, action: 'approve' | 'reject' | 'request_info') => {
+    const body: Record<string, unknown> = { action };
+    if (action === 'reject') {
+      const reason = window.prompt('Reason for rejecting this application (shown to the applicant policy-wise; recorded internally):');
+      if (!reason?.trim()) return;
+      body.reason = reason.trim();
+    } else if (action === 'request_info') {
+      const message = window.prompt('What do you need from the applicant? (sent to them):');
+      if (!message?.trim()) return;
+      body.message = message.trim();
+    } else {
+      const pct = window.prompt('Commission % for this rep (blank = use the rate they signed):', String((app.signedCommissionBps ?? 2000) / 100));
+      if (pct === null) return;
+      if (pct.trim()) body.commissionBps = Math.round(Number(pct) * 100);
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/v1/admin/sales-reps/applications/${app.id}`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
+        body: JSON.stringify(body),
+      });
+      const data = await res.json();
+      if (data.success) await load();
+      else setError(data.error?.message || data.error || 'Action failed');
+    } catch {
+      setError('Action failed');
+    } finally {
+      setBusy(false);
+    }
+  };
 
   const openReview = async (payout: Payout) => {
     setReviewPayout(payout);
@@ -223,6 +273,58 @@ export default function AdminSalesRepsPage() {
       </p>
 
       {error && <div className="rounded-md bg-destructive/10 text-destructive text-sm px-3 py-2 mb-4">{error}</div>}
+
+      {/* Applications awaiting review */}
+      <div className="rounded-lg border border-border bg-card p-4 mb-6">
+        <div className="text-sm font-medium mb-3">Applications ({applications.length})</div>
+        {applications.length === 0 ? (
+          <p className="text-sm text-muted-foreground">No applications awaiting review.</p>
+        ) : (
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="text-left text-xs text-muted-foreground border-b border-border">
+                <th className="pb-2">Applicant</th>
+                <th className="pb-2">Region</th>
+                <th className="pb-2">Plan / fee</th>
+                <th className="pb-2">Signed rate</th>
+                <th className="pb-2">Status</th>
+                <th className="pb-2" />
+              </tr>
+            </thead>
+            <tbody>
+              {applications.map((a) => {
+                const decided = a.status === 'approved' || a.status === 'rejected';
+                return (
+                  <tr key={a.id} className="border-b border-border/50 last:border-0">
+                    <td className="py-2">{a.user.email || a.user.displayName || a.tenantId}</td>
+                    <td className="py-2 uppercase text-muted-foreground">{a.jurisdiction}</td>
+                    <td className="py-2 text-muted-foreground">{a.eligibilityPlanCode} · {money(a.annualFeeCentsPaid)}/yr</td>
+                    <td className="py-2">{a.signedCommissionBps != null ? `${(a.signedCommissionBps / 100).toFixed(0)}%` : '—'}</td>
+                    <td className="py-2">
+                      <Badge variant={a.status === 'approved' ? 'emerald' : a.status === 'rejected' ? 'rose' : a.status === 'more_info_requested' ? 'amber' : 'blue'}>
+                        {a.status.replace(/_/g, ' ')}
+                      </Badge>
+                    </td>
+                    <td className="py-2 text-right">
+                      {!decided && (
+                        <span className="inline-flex gap-1.5">
+                          <Button onClick={() => decideApplication(a, 'approve')} disabled={busy} variant="secondary">
+                            <CheckCircle2 className="w-3.5 h-3.5" /> Approve
+                          </Button>
+                          <Button onClick={() => decideApplication(a, 'request_info')} disabled={busy} variant="ghost">Ask</Button>
+                          <Button onClick={() => decideApplication(a, 'reject')} disabled={busy} variant="ghost">
+                            <XCircle className="w-3.5 h-3.5" /> Reject
+                          </Button>
+                        </span>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        )}
+      </div>
 
       {/* Pending invoices */}
       <div className="rounded-lg border border-border bg-card p-4 mb-6">
