@@ -48,6 +48,10 @@ export async function GET(
       issuedDate: invoice.createdAt.toISOString(),
       dueDate: invoice.dueDate.toISOString(),
       status: invoice.status === 'sent' ? 'viewed' : invoice.status,
+      // Drives the "Pay Now" button — set once the tenant connects a Stripe
+      // payout account and a pay-link is attached (on send or via the
+      // Collect-by-card action). Absent → the page renders without a button.
+      paymentUrl: invoice.paymentUrl ?? undefined,
       clientName: invoice.client?.name ?? undefined,
       lines: invoice.lines.map((l) => ({
         description: l.description,
