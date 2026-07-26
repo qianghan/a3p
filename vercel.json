@@ -128,6 +128,7 @@
     { "path": "/api/v1/agentbook/cron/account-hard-delete", "schedule": "15 5 * * *" },
     { "path": "/api/v1/agentbook/cron/proactive-alerts", "schedule": "0 14 * * *" },
     { "path": "/api/v1/agentbook/cron/onboarding-nudge", "schedule": "0 15 * * *" },
+    { "path": "/api/v1/agentbook/cron/rep-coach", "schedule": "0 15 * * 1" },
     { "path": "/api/v1/agentbook/cron/audit-retention", "schedule": "0 3 * * 0" },
     { "path": "/api/v1/agentbook/cron/skill-error-budget", "schedule": "0 */6 * * *" },
     { "path": "/api/v1/agentbook/cron/auto-categorize-watchdog", "schedule": "0 */6 * * *" },

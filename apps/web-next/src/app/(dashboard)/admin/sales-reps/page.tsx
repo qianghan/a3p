@@ -67,6 +67,16 @@ interface RepApplication {
   signedCommissionBps: number | null;
 }
 
+interface RepRecommendation {
+  id: string;
+  salesRepId: string;
+  type: string;
+  payload: { fromBps?: number; toBps?: number; description?: string } | null;
+  reason: string;
+  createdAt: string;
+  user: { email: string | null; displayName: string | null };
+}
+
 const money = (cents: number) => `$${(cents / 100).toFixed(2)}`;
 
 export default function AdminSalesRepsPage() {
@@ -75,6 +85,7 @@ export default function AdminSalesRepsPage() {
   const [reps, setReps] = useState<Rep[]>([]);
   const [payouts, setPayouts] = useState<Payout[]>([]);
   const [applications, setApplications] = useState<RepApplication[]>([]);
+  const [recommendations, setRecommendations] = useState<RepRecommendation[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [reviewPayout, setReviewPayout] = useState<Payout | null>(null);
@@ -94,17 +105,20 @@ export default function AdminSalesRepsPage() {
     setLoading(true);
     setError(null);
     try {
-      const [repsRes, payoutsRes, appsRes] = await Promise.all([
+      const [repsRes, payoutsRes, appsRes, recsRes] = await Promise.all([
         fetch('/api/v1/admin/sales-reps', { credentials: 'include' }),
         fetch('/api/v1/admin/sales-reps/payouts?status=submitted', { credentials: 'include' }),
         fetch('/api/v1/admin/sales-reps/applications', { credentials: 'include' }),
+        fetch('/api/v1/admin/sales-reps/recommendations', { credentials: 'include' }),
       ]);
       const repsData = await repsRes.json();
       const payoutsData = await payoutsRes.json();
       const appsData = await appsRes.json();
+      const recsData = await recsRes.json().catch(() => null);
       if (repsData.success) setReps(repsData.data.reps);
       if (payoutsData.success) setPayouts(payoutsData.data.payouts);
       if (appsData.success) setApplications(appsData.data.applications);
+      if (recsData?.success) setRecommendations(recsData.data.recommendations);
       if (!repsData.success) setError(repsData.error?.message || repsData.error || 'Failed to load sales reps');
     } catch {
       setError('Failed to load sales reps');
@@ -139,6 +153,24 @@ export default function AdminSalesRepsPage() {
       const res = await fetch(`/api/v1/admin/sales-reps/applications/${app.id}`, {
         method: 'PATCH', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
         body: JSON.stringify(body),
+      });
+      const data = await res.json();
+      if (data.success) await load();
+      else setError(data.error?.message || data.error || 'Action failed');
+    } catch {
+      setError('Action failed');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const decideRecommendation = async (rec: RepRecommendation, action: 'approve' | 'dismiss') => {
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/v1/admin/sales-reps/recommendations/${rec.id}`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
+        body: JSON.stringify({ action }),
       });
       const data = await res.json();
       if (data.success) await load();
@@ -271,6 +303,42 @@ export default function AdminSalesRepsPage() {
       </p>
 
       {error && <div className="rounded-md bg-destructive/10 text-destructive text-sm px-3 py-2 mb-4">{error}</div>}
+
+      {/* Coach recommendations awaiting approval */}
+      {recommendations.length > 0 && (
+        <div className="rounded-lg border border-primary/30 bg-primary/5 p-4 mb-6">
+          <div className="text-sm font-medium mb-3">Coach recommendations ({recommendations.length})</div>
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="text-left text-xs text-muted-foreground border-b border-border">
+                <th className="pb-2">Rep</th>
+                <th className="pb-2">Proposal</th>
+                <th className="pb-2">Why</th>
+                <th className="pb-2" />
+              </tr>
+            </thead>
+            <tbody>
+              {recommendations.map((r) => (
+                <tr key={r.id} className="border-b border-border/50 last:border-0 align-top">
+                  <td className="py-2">{r.user.email || r.salesRepId}</td>
+                  <td className="py-2">
+                    {r.type === 'commission_raise'
+                      ? <Badge variant="amber">Raise {r.payload?.fromBps != null ? `${(r.payload.fromBps / 100).toFixed(0)}%` : '?'} → {r.payload?.toBps != null ? `${(r.payload.toBps / 100).toFixed(0)}%` : '?'}</Badge>
+                      : <Badge variant="blue">Reward</Badge>}
+                  </td>
+                  <td className="py-2 text-muted-foreground max-w-xs">{r.reason}</td>
+                  <td className="py-2 text-right whitespace-nowrap">
+                    <span className="inline-flex gap-1.5">
+                      <Button onClick={() => decideRecommendation(r, 'approve')} disabled={busy} variant="secondary">Approve</Button>
+                      <Button onClick={() => decideRecommendation(r, 'dismiss')} disabled={busy} variant="ghost">Dismiss</Button>
+                    </span>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
 
       {/* Applications awaiting review */}
       <div className="rounded-lg border border-border bg-card p-4 mb-6">
