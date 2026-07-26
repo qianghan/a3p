@@ -5,7 +5,12 @@
  * Shows invoice details, line items, total, and a "Pay Now" button.
  */
 
-const INVOICE_API = process.env.INVOICE_API_URL || 'http://localhost:4052';
+import { getAppBaseUrl } from '@/lib/agentbook-config';
+
+// Default to this app's own public invoice route (same-origin). The legacy
+// INVOICE_API_URL override remains for anyone still fronting the Express
+// backend, but production serves the Next.js route below.
+const INVOICE_API = process.env.INVOICE_API_URL || getAppBaseUrl();
 
 interface InvoiceLine {
   description: string;
