@@ -97,6 +97,30 @@ export default function AdminUsersPage() {
     }
   }
 
+  async function doSetPlan(userId: string, plan: 'free' | 'pro' | 'business') {
+    setActionBusy(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/v1/admin/users/${userId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ action: 'setPlan', plan }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setOpenMenuId(null);
+        await loadUsers();
+      } else {
+        setError(data.error?.message || data.error || 'Failed to change plan');
+      }
+    } catch {
+      setError('Failed to change plan');
+    } finally {
+      setActionBusy(false);
+    }
+  }
+
   async function doPromoteToSalesRep() {
     if (!promoteTarget) return;
     const commissionBps = Math.round(Number(promoteCommissionPercent) * 100);
@@ -264,7 +288,7 @@ export default function AdminUsersPage() {
       </div>
 
       {/* Users Table */}
-      <div className="bg-card border border-border rounded-lg overflow-hidden">
+      <div className="bg-card border border-border rounded-lg overflow-x-auto">
         <table className="w-full">
           <thead className="bg-muted/50">
             <tr>
@@ -305,27 +329,27 @@ export default function AdminUsersPage() {
             ) : (
               filteredUsers.map(user => (
                 <tr key={user.id} className="hover:bg-muted/30">
-                  <td className="px-4 py-2.5 whitespace-nowrap">
+                  <td className="px-4 py-2.5 max-w-[260px]">
                     <div className="flex items-center gap-3">
-                      <div className="w-8 h-8 rounded-md bg-muted flex items-center justify-center">
+                      <div className="w-8 h-8 shrink-0 rounded-md bg-muted flex items-center justify-center">
                         {user.avatarUrl ? (
                           <img src={user.avatarUrl} alt="" className="w-8 h-8 rounded-md" />
                         ) : (
                           getRoleIcon(user)
                         )}
                       </div>
-                      <div>
-                        <div className="font-medium text-sm">
+                      <div className="min-w-0">
+                        <div className="font-medium text-sm truncate">
                           {user.displayName || 'No Name'}
                         </div>
-                        <div className="text-sm text-muted-foreground flex items-center gap-1">
+                        <div className="text-sm text-muted-foreground flex items-center gap-1 min-w-0" title={user.email || user.walletAddress || ''}>
                           {user.email ? (
                             <>
-                              <Mail className="w-3 h-3" />
-                              {user.email}
+                              <Mail className="w-3 h-3 shrink-0" />
+                              <span className="truncate">{user.email}</span>
                             </>
                           ) : user.walletAddress ? (
-                            <span className="font-mono text-xs">
+                            <span className="font-mono text-xs truncate">
                               {user.walletAddress.slice(0, 6)}...{user.walletAddress.slice(-4)}
                             </span>
                           ) : (
@@ -467,6 +491,24 @@ export default function AdminUsersPage() {
                               Promote to sales rep
                             </button>
                           )}
+                          <div className="border-t border-border mt-1 pt-1">
+                            <div className="px-3 py-1 text-[11px] uppercase tracking-wider text-muted-foreground">Comp plan</div>
+                            {(['free', 'pro', 'business'] as const).map((p) => {
+                              const current = (user.planCode ?? 'free') === p;
+                              return (
+                                <button
+                                  key={p}
+                                  type="button"
+                                  disabled={actionBusy || current}
+                                  onClick={() => doSetPlan(user.id, p)}
+                                  className="w-full text-left px-3 py-2 text-sm hover:bg-muted disabled:opacity-40 flex items-center justify-between"
+                                >
+                                  <span className="capitalize">{p}</span>
+                                  {current && <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />}
+                                </button>
+                              );
+                            })}
+                          </div>
                         </div>
                       </>
                     )}
