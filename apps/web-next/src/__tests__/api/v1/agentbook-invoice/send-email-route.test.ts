@@ -9,11 +9,18 @@ const invoiceFindFirst = vi.fn();
 const invoiceUpdate = vi.fn();
 const eventCreate = vi.fn();
 
+// Real InvoicePayLinkError class so the route's `instanceof` check works.
+const { InvoicePayLinkError, createInvoicePayLink } = vi.hoisted(() => {
+  class InvoicePayLinkError extends Error {}
+  return { InvoicePayLinkError, createInvoicePayLink: vi.fn() };
+});
+
 vi.mock('@/lib/agentbook-tenant', () => ({ safeResolveAgentbookTenant: (...a: unknown[]) => safeResolve(...a) }));
 vi.mock('@/lib/email', () => ({ sendNotificationEmail: (...a: unknown[]) => sendNotificationEmail(...a) }));
 vi.mock('@/lib/agentbook-config', () => ({ getAppBaseUrl: () => 'https://agentbook.brainliber.com' }));
 vi.mock('@/lib/agentbook-audit', () => ({ audit: vi.fn(async () => {}) }));
 vi.mock('@/lib/agentbook-audit-context', () => ({ inferSource: () => 'web', inferActor: async () => 'user' }));
+vi.mock('@/lib/invoice-connect', () => ({ createInvoicePayLink, InvoicePayLinkError }));
 vi.mock('@naap/database', () => ({
   prisma: {
     abInvoice: { findFirst: (...a: unknown[]) => invoiceFindFirst(...a) },
@@ -33,6 +40,7 @@ beforeEach(() => {
   invoiceUpdate.mockResolvedValue({ id: 'inv1', status: 'sent', number: 'INV-1' });
   eventCreate.mockResolvedValue({});
   sendNotificationEmail.mockResolvedValue({ success: true });
+  createInvoicePayLink.mockResolvedValue('https://checkout.stripe.com/x');
 });
 
 describe('POST /invoices/:id/send — client email', () => {
@@ -68,5 +76,25 @@ describe('POST /invoices/:id/send — client email', () => {
     invoiceFindFirst.mockResolvedValue({ id: 'inv1', tenantId: 't1', status: 'void', client: {} });
     const res = await POST(req(), ctx());
     expect(res.status).toBe(422);
+  });
+
+  it('attaches a card pay-link and reports payLinkAttached=true when Connect is ready', async () => {
+    invoiceFindFirst.mockResolvedValue({ id: 'inv1', tenantId: 't1', status: 'draft', number: 'INV-1', amountCents: 1000, currency: 'USD', dueDate: new Date('2026-08-01'), client: { email: 'c@x.com' } });
+    const res = await POST(req(), ctx());
+    const body = await res.json();
+    expect(body.success).toBe(true);
+    expect(body.payLinkAttached).toBe(true);
+    expect(createInvoicePayLink).toHaveBeenCalledWith('inv1', 't1', 'https://agentbook.brainliber.com');
+  });
+
+  it('still sends (payLinkAttached=false) when the tenant has no Connect account', async () => {
+    invoiceFindFirst.mockResolvedValue({ id: 'inv1', tenantId: 't1', status: 'draft', number: 'INV-1', amountCents: 1000, currency: 'USD', dueDate: new Date('2026-08-01'), client: { email: 'c@x.com' } });
+    createInvoicePayLink.mockRejectedValue(new InvoicePayLinkError('Connect a payout account first.'));
+    const res = await POST(req(), ctx());
+    const body = await res.json();
+    expect(res.status).toBe(200);
+    expect(body.success).toBe(true);
+    expect(body.payLinkAttached).toBe(false);
+    expect(body.emailSent).toBe(true); // email still goes out
   });
 });

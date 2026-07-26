@@ -21,6 +21,7 @@ describe('GET /invoices/:id/public', () => {
     findUnique.mockResolvedValue({
       id: 'inv1', number: 'INV-1', amountCents: 1000, currency: 'CAD',
       createdAt: new Date('2026-07-01'), dueDate: new Date('2026-08-01'), status: 'sent',
+      paymentUrl: 'https://checkout.stripe.com/x',
       client: { name: 'Acme' },
       lines: [{ description: 'Consulting', quantity: 2, rateCents: 500, amountCents: 1000 }],
     });
@@ -32,7 +33,18 @@ describe('GET /invoices/:id/public', () => {
     expect(body.data.status).toBe('viewed');
     expect(body.data.clientName).toBe('Acme');
     expect(body.data.lines).toHaveLength(1);
+    expect(body.data.paymentUrl).toBe('https://checkout.stripe.com/x'); // drives the "Pay Now" button
     expect(update).toHaveBeenCalled();
+  });
+
+  it('omits paymentUrl when none is attached (page renders without a Pay button)', async () => {
+    findUnique.mockResolvedValue({
+      id: 'inv1', number: 'INV-2', amountCents: 500, currency: 'USD',
+      createdAt: new Date('2026-07-01'), dueDate: new Date('2026-08-01'), status: 'viewed',
+      paymentUrl: null, client: { name: 'Acme' }, lines: [],
+    });
+    const body = await (await GET(req(), ctx())).json();
+    expect(body.data.paymentUrl).toBeUndefined();
   });
 
   it('404s a draft invoice (never exposed publicly)', async () => {
