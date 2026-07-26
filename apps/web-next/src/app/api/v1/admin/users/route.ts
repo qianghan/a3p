@@ -58,12 +58,16 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     // Plan + referral stats — joined separately (tenantId == user.id, no FK
     // relation defined between `public` and `plugin_agentbook_billing`
     // schemas) and merged in-memory rather than per-user queries.
-    const [subscriptions, sentCounts, paidReferrals] = await Promise.all([
+    const [subscriptions, sentCounts, paidReferrals, tenantConfigs, salesReps] = await Promise.all([
       prisma.billSubscription.findMany({ select: { accountId: true, plan: { select: { name: true, code: true } } } }),
       prisma.billReferral.groupBy({ by: ['referrerTenantId'], _count: { _all: true } }),
       prisma.billReferral.findMany({ where: { status: 'paid' }, select: { referrerTenantId: true, rewardMonths: true } }),
+      prisma.abTenantConfig.findMany({ select: { userId: true, businessType: true } }),
+      prisma.salesRepProfile.findMany({ where: { status: 'active' }, select: { tenantId: true } }),
     ]);
     const planByTenant = new Map(subscriptions.map((s) => [s.accountId, s.plan]));
+    const businessTypeByTenant = new Map(tenantConfigs.map((c) => [c.userId, c.businessType ?? null]));
+    const salesRepSet = new Set(salesReps.map((r) => r.tenantId));
     const sentByTenant = new Map(sentCounts.map((r) => [r.referrerTenantId, r._count._all]));
     const paidByTenant = new Map<string, number>();
     const rewardByTenant = new Map<string, number>();
@@ -86,6 +90,10 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       lastLoginAt: null, // Not tracked in this schema
       _count: user._count,
       planName: planByTenant.get(user.id)?.name ?? null,
+      planCode: planByTenant.get(user.id)?.code ?? 'free',
+      businessType: businessTypeByTenant.get(user.id) ?? null,
+      isSalesRep: salesRepSet.has(user.id),
+      isAdmin: user.roles.some((ur) => ur.role.name === 'system:admin'),
       invitesSent: sentByTenant.get(user.id) ?? 0,
       invitesPaid: paidByTenant.get(user.id) ?? 0,
       rewardMonthsEarned: rewardByTenant.get(user.id) ?? 0,
