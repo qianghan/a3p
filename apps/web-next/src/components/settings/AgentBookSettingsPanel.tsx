@@ -4,7 +4,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Send, Key, Loader2, Trash2, RefreshCw, CheckCircle, XCircle,
   AlertCircle, ExternalLink, Search, ChevronDown, ChevronUp,
-  Copy, Check, Gift, Users,
+  Copy, Check, Gift, Users, CreditCard,
 } from 'lucide-react';
 import { JURISDICTION_OPTIONS, defaultCurrencyFor, formatCurrencyCents } from '@/lib/jurisdiction-currency';
 import { SubscribeModal } from './SubscribeModal';
@@ -724,12 +724,13 @@ function ChatHistoryTab(): React.ReactElement {
 
 // ── Main panel ────────────────────────────────────────────────────────────────
 
-type SettingsTab = 'profile' | 'personal' | 'invoice' | 'chatbots' | 'history' | 'billing' | 'referrals' | 'sharing' | 'notifications';
+type SettingsTab = 'profile' | 'personal' | 'invoice' | 'payments' | 'chatbots' | 'history' | 'billing' | 'referrals' | 'sharing' | 'notifications';
 
 const TABS: { key: SettingsTab; label: string }[] = [
   { key: 'profile',   label: 'Business Profile' },
   { key: 'personal',  label: 'Personal Profile' },
   { key: 'invoice',   label: 'Invoice Defaults' },
+  { key: 'payments',  label: 'Payments' },
   { key: 'billing',   label: 'Billing' },
   { key: 'referrals', label: 'Referrals' },
   { key: 'sharing',   label: 'Sharing' },
@@ -1624,6 +1625,143 @@ function NotificationsPreferencesTab(): React.ReactElement {
   );
 }
 
+// ── Payments (invoice card-collection via Stripe Connect) ─────────────────────
+//
+// Lets the freelancer connect their OWN Stripe Express account so clients can
+// pay invoices by card and the funds settle to THEM (destination charges — see
+// lib/invoice-connect.ts). Mirrors the Telegram/WhatsApp connect-card pattern.
+
+const INVOICE_API = '/api/v1/agentbook-invoice';
+
+interface InvoicePayoutStatus { connected: boolean; payoutsEnabled: boolean; accountId: string | null }
+
+function PaymentsTab(): React.ReactElement {
+  const [status, setStatus]   = useState<InvoicePayoutStatus | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [working, setWorking] = useState(false);
+  const [error, setError]     = useState<string | null>(null);
+
+  const refresh = useCallback(async (): Promise<void> => {
+    try {
+      const res = await fetch(`${INVOICE_API}/connect/status`);
+      const d = await res.json();
+      if (d.success) setStatus(d.data);
+      else setError(d.error || 'Could not load payment status');
+    } catch {
+      setError('Could not load payment status');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  // On mount we always hit /connect/status, which pulls the latest state from
+  // Stripe and persists payoutsEnabled — so returning from onboarding
+  // (?connect=return) reflects completion without any extra handling here.
+  useEffect(() => { void refresh(); }, [refresh]);
+
+  const connect = async (): Promise<void> => {
+    setWorking(true); setError(null);
+    try {
+      const res = await fetch(`${INVOICE_API}/connect/onboard`, { method: 'POST' });
+      const d = await res.json();
+      if (d.success && d.data?.url) { window.location.href = d.data.url; return; }
+      setError(d.error || 'Could not start onboarding'); setWorking(false);
+    } catch {
+      setError('Could not start onboarding'); setWorking(false);
+    }
+  };
+
+  const ready = status?.connected && status.payoutsEnabled;
+
+  return (
+    <div className="space-y-4">
+      <div>
+        <h3 className="text-sm font-semibold text-foreground mb-1">Accept card payments on invoices</h3>
+        <p className="text-sm text-muted-foreground">
+          Connect your own Stripe account so clients can pay your invoices by card. Payments settle
+          directly to you — AgentBook never holds your money. Stripe&apos;s standard processing fees apply.
+        </p>
+      </div>
+
+      <div className="rounded-xl border border-border bg-card overflow-hidden">
+        <div className="flex items-center gap-3 border-b border-border px-4 py-3">
+          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10 text-primary">
+            <CreditCard className="h-4 w-4" />
+          </div>
+          <div className="flex-1">
+            <div className="text-sm font-semibold text-foreground">Stripe payouts</div>
+            <div className="text-xs text-muted-foreground">Receive invoice payments to your bank account</div>
+          </div>
+          {ready ? (
+            <span className="rounded-full bg-primary/10 px-2.5 py-0.5 text-xs font-medium text-primary">● Connected</span>
+          ) : status?.connected ? (
+            <span className="rounded-full bg-amber-500/10 px-2.5 py-0.5 text-xs font-medium text-amber-500">Incomplete</span>
+          ) : status !== null ? (
+            <span className="rounded-full bg-muted px-2.5 py-0.5 text-xs text-muted-foreground">Not connected</span>
+          ) : null}
+        </div>
+
+        <div className="px-4 py-4">
+          {error && (
+            <div className="mb-3 flex items-start gap-2 rounded-lg border border-destructive/20 bg-destructive/10 p-3 text-sm text-destructive">
+              <XCircle className="mt-0.5 h-4 w-4 shrink-0" />{error}
+            </div>
+          )}
+          {loading ? (
+            <div className="flex items-center justify-center gap-2 py-6 text-muted-foreground">
+              <Loader2 className="h-4 w-4 animate-spin" /><span className="text-sm">Loading…</span>
+            </div>
+          ) : ready ? (
+            <div className="space-y-3">
+              <div className="flex items-start gap-2 rounded-lg bg-primary/5 px-3 py-2.5 text-sm text-foreground">
+                <CheckCircle className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+                <span>You&apos;re all set. Open any sent invoice and choose <strong>Collect by card</strong> to
+                get a payment link for your client.</span>
+              </div>
+              <button
+                onClick={() => { void refresh(); setError(null); }}
+                className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground"
+              >
+                <RefreshCw className="h-3.5 w-3.5" /> Refresh status
+              </button>
+            </div>
+          ) : status?.connected ? (
+            <div className="space-y-3">
+              <p className="text-sm text-muted-foreground">
+                Your Stripe onboarding isn&apos;t finished yet — a few details are still needed before you can
+                receive payouts. Pick up where you left off:
+              </p>
+              <button
+                onClick={() => void connect()}
+                disabled={working}
+                className="flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+              >
+                {working ? <Loader2 className="h-4 w-4 animate-spin" /> : <ExternalLink className="h-4 w-4" />}
+                {working ? 'Opening Stripe…' : 'Finish Stripe onboarding'}
+              </button>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              <p className="text-sm text-muted-foreground">
+                You&apos;ll be taken to Stripe to verify your identity and add a bank account. It takes a couple
+                of minutes, and you can come back here anytime.
+              </p>
+              <button
+                onClick={() => void connect()}
+                disabled={working}
+                className="flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+              >
+                {working ? <Loader2 className="h-4 w-4 animate-spin" /> : <CreditCard className="h-4 w-4" />}
+                {working ? 'Opening Stripe…' : 'Connect Stripe'}
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function AgentBookSettingsPanel({ initialTab }: { initialTab?: string }): React.ReactElement {
   const [tab, setTab] = useState<SettingsTab>(isSettingsTab(initialTab) ? initialTab : 'profile');
   const [form, setForm] = useState<TenantConfig | null>(null);
@@ -2032,6 +2170,8 @@ export function AgentBookSettingsPanel({ initialTab }: { initialTab?: string }):
           </div>
         </div>
       )}
+
+      {tab === 'payments' && <PaymentsTab />}
 
       {tab === 'chatbots' && (
         <div className="space-y-4">

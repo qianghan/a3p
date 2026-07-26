@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { ArrowLeft, Download, Send, CreditCard, AlertTriangle, Loader2, X } from 'lucide-react';
+import { ArrowLeft, Download, Send, CreditCard, AlertTriangle, Loader2, X, Link2 } from 'lucide-react';
 import { InvoiceStatusBadge, type InvoiceStatus } from '../components/InvoiceStatusBadge';
 import { RecordPaymentModal } from '../components/RecordPaymentModal';
 
@@ -152,6 +152,36 @@ export function InvoiceDetailPage(): JSX.Element {
     window.open(`/api/v1/agentbook-invoice/invoices/${id}/pdf`, '_blank');
   };
 
+  // Generate a Stripe Checkout link the client can use to pay this invoice by
+  // card (funds settle to the freelancer's own connected account). We copy it
+  // to the clipboard and open it in a new tab so the freelancer can preview
+  // and paste it to their client. If no payout account is connected the API
+  // returns a 422 whose message points to Settings → Payments — surfaced here.
+  const doPayLink = async (): Promise<void> => {
+    setActionError(null);
+    setActionBusy('paylink');
+    try {
+      const r = await fetch(`/api/v1/agentbook-invoice/invoices/${id}/pay-link`, { method: 'POST' });
+      const d = await r.json().catch(() => null) as { success?: boolean; error?: string; data?: { paymentUrl?: string } } | null;
+      if (!r.ok || !d?.success || !d.data?.paymentUrl) {
+        const msg = d?.error || "Couldn't create a payment link — try again.";
+        showToast(msg, 'error');
+        setActionError(msg);
+        return;
+      }
+      const url = d.data.paymentUrl;
+      let copied = false;
+      try { await navigator.clipboard.writeText(url); copied = true; } catch { /* clipboard may be blocked */ }
+      window.open(url, '_blank', 'noopener');
+      reload();
+      showToast(copied ? 'Payment link copied — send it to your client' : 'Payment link created — opened in a new tab');
+    } catch {
+      const msg = "Couldn't create a payment link — check your connection and try again.";
+      showToast(msg, 'error');
+      setActionError(msg);
+    } finally { setActionBusy(null); }
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center py-20">
@@ -175,6 +205,8 @@ export function InvoiceDetailPage(): JSX.Element {
     : false;
   const canSend = status === 'draft';
   const canDownload = ['sent', 'viewed', 'overdue', 'paid', 'void'].includes(status);
+  // Offer card collection on any unpaid, already-issued invoice with a balance.
+  const canCollect = canRemind && invoice.balanceDueCents > 0;
 
   return (
     <div className="mx-auto max-w-3xl p-4 sm:p-6 space-y-5">
@@ -246,6 +278,18 @@ export function InvoiceDetailPage(): JSX.Element {
             className="flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:opacity-90"
           >
             <CreditCard className="w-4 h-4" /> Record Payment
+          </button>
+        )}
+
+        {/* Secondary: collect by card (Stripe Connect payment link) */}
+        {canCollect && (
+          <button
+            onClick={doPayLink}
+            disabled={actionBusy === 'paylink'}
+            className="flex items-center gap-1.5 rounded-lg border border-border px-4 py-2 text-sm font-medium text-foreground hover:bg-muted disabled:opacity-50"
+          >
+            {actionBusy === 'paylink' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Link2 className="w-4 h-4" />}
+            {actionBusy === 'paylink' ? 'Creating link…' : 'Collect by card'}
           </button>
         )}
 
