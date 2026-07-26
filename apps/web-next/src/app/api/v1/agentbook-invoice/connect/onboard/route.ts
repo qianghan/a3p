@@ -18,10 +18,12 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   const { tenantId } = resolved;
   try {
     const base = getAppBaseUrl(request);
+    // The AgentBook settings panel lives under ?tab=agentbook and reads its
+    // own sub-tab from ?subtab — so land the user back on Payments.
     const url = await createInvoiceOnboardingLink(
       tenantId,
-      `${base}/settings?tab=payments&connect=return`,
-      `${base}/settings?tab=payments&connect=refresh`,
+      `${base}/settings?tab=agentbook&subtab=payments`,
+      `${base}/settings?tab=agentbook&subtab=payments`,
     );
     return NextResponse.json({ success: true, data: { url } });
   } catch (err) {
