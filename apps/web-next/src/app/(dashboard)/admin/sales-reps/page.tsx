@@ -83,7 +83,6 @@ export default function AdminSalesRepsPage() {
   const [showManualFallback, setShowManualFallback] = useState(false);
   const [busy, setBusy] = useState(false);
   const [editTarget, setEditTarget] = useState<Rep | null>(null);
-  const [editPlan, setEditPlan] = useState<'pro' | 'business'>('pro');
   const [editCommissionPercent, setEditCommissionPercent] = useState('20');
   const [editFrequency, setEditFrequency] = useState<'monthly' | 'quarterly' | 'annual'>('quarterly');
   const [historyTarget, setHistoryTarget] = useState<Rep | null>(null);
@@ -213,7 +212,6 @@ export default function AdminSalesRepsPage() {
 
   const openEdit = (rep: Rep) => {
     setEditTarget(rep);
-    setEditPlan(rep.planCode === 'business' ? 'business' : 'pro');
     setEditCommissionPercent(String(rep.commissionBps / 100));
     setEditFrequency((rep.payoutFrequency as 'monthly' | 'quarterly' | 'annual') || 'quarterly');
   };
@@ -224,9 +222,9 @@ export default function AdminSalesRepsPage() {
     setBusy(true);
     setError(null);
     try {
-      const res = await fetch(`/api/v1/admin/users/${editTarget.tenantId}/sales-rep`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
-        body: JSON.stringify({ plan: editPlan, commissionBps, payoutFrequency: editFrequency }),
+      const res = await fetch(`/api/v1/admin/sales-reps/${editTarget.tenantId}`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
+        body: JSON.stringify({ commissionBps, payoutFrequency: editFrequency }),
       });
       const data = await res.json();
       if (data.success) {
@@ -488,13 +486,6 @@ export default function AdminSalesRepsPage() {
               Changes apply going forward only — already-accrued commission keeps its original rate.
             </p>
             <div className="space-y-3">
-              <div>
-                <label className="block text-xs font-medium text-muted-foreground mb-1">Comped plan</label>
-                <Select value={editPlan} onChange={(e) => setEditPlan(e.target.value as 'pro' | 'business')}>
-                  <option value="pro">Pro</option>
-                  <option value="business">Business</option>
-                </Select>
-              </div>
               <div>
                 <label className="block text-xs font-medium text-muted-foreground mb-1">Commission %</label>
                 <Input
