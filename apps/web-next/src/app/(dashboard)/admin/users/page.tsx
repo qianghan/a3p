@@ -21,6 +21,7 @@ import {
   Search,
   Bell,
   Gift,
+  Handshake,
 } from 'lucide-react';
 import { Button, Input, Select, Badge } from '@naap/ui';
 import { useAuth } from '@/contexts/auth-context';
@@ -39,10 +40,21 @@ interface SystemUser {
   lastLoginAt: string | null;
   _count?: { teamMemberships: number };
   planName?: string | null;
+  planCode?: string | null;
+  businessType?: string | null;
+  isSalesRep?: boolean;
+  isAdmin?: boolean;
   invitesSent?: number;
   invitesPaid?: number;
   rewardMonthsEarned?: number;
 }
+
+const BUSINESS_TYPE_LABELS: Record<string, string> = {
+  student: 'Student', freelancer: 'Freelancer', sole_proprietor: 'Sole proprietor',
+  consultant: 'Consultant', contractor: 'Contractor', agency: 'Agency', startup: 'Startup',
+};
+const prettyType = (t?: string | null) => (t ? BUSINESS_TYPE_LABELS[t] ?? t.replace(/_/g, ' ') : null);
+const prettyPlan = (name?: string | null) => name || 'Free';
 
 export default function AdminUsersPage() {
   const router = useRouter();
@@ -166,28 +178,29 @@ export default function AdminUsersPage() {
       user.displayName?.toLowerCase().includes(searchQuery.toLowerCase()) ||
       user.walletAddress?.toLowerCase().includes(searchQuery.toLowerCase());
 
-    const matchesRole =
+    const matchesFilter =
       selectedRole === 'all' ||
-      user.roles.some(r => r.includes(selectedRole));
+      (selectedRole === 'admins' && user.isAdmin) ||
+      (selectedRole === 'sales_reps' && user.isSalesRep) ||
+      (selectedRole === 'students' && user.businessType === 'student') ||
+      (selectedRole === 'paid' && (user.planCode ?? 'free') !== 'free') ||
+      (selectedRole === 'free' && (user.planCode ?? 'free') === 'free');
 
-    return matchesSearch && matchesRole;
+    return matchesSearch && matchesFilter;
   });
 
-  const getRoleIcon = (roles: string[]) => {
-    if (roles.includes('system:admin')) return <Crown className="w-4 h-4 text-yellow-500" />;
-    if (roles.some(r => r.includes(':admin'))) return <Shield className="w-4 h-4 text-blue-500" />;
+  const getRoleIcon = (user: SystemUser) => {
+    if (user.isAdmin) return <Crown className="w-4 h-4 text-yellow-500" />;
+    if (user.isSalesRep) return <Handshake className="w-4 h-4 text-emerald-500" />;
     return <User className="w-4 h-4 text-gray-500" />;
   };
 
-  const getRoleBadges = (roles: string[]) => {
-    return roles.slice(0, 3).map(role => (
-      <Badge
-        key={role}
-        variant="blue"
-      >
-        {role.replace('system:', '').replace(':admin', ' Admin')}
-      </Badge>
-    ));
+  // Meaningful AgentBook access badges (Admin / Sales rep) — not raw RBAC roles.
+  const getAccessBadges = (user: SystemUser) => {
+    const badges = [];
+    if (user.isAdmin) badges.push(<Badge key="admin" variant="amber">Admin</Badge>);
+    if (user.isSalesRep) badges.push(<Badge key="rep" variant="emerald">Sales rep</Badge>);
+    return badges.length ? badges : <span className="text-muted-foreground text-sm">User</span>;
   };
 
   if (!isAdmin) {
@@ -241,10 +254,12 @@ export default function AdminUsersPage() {
           value={selectedRole}
           onChange={(e) => setSelectedRole(e.target.value)}
         >
-          <option value="all">All Roles</option>
-          <option value="system:admin">System Admin</option>
-          <option value=":admin">Plugin Admin</option>
-          <option value="viewer">Viewer</option>
+          <option value="all">Everyone</option>
+          <option value="admins">Admins</option>
+          <option value="sales_reps">Sales reps</option>
+          <option value="students">Students</option>
+          <option value="paid">Paid plans</option>
+          <option value="free">Free plan</option>
         </Select>
       </div>
 
@@ -257,7 +272,7 @@ export default function AdminUsersPage() {
                 User
               </th>
               <th className="px-4 py-2.5 text-left text-[11px] font-medium text-muted-foreground uppercase tracking-wider">
-                Roles
+                Access
               </th>
               <th className="px-4 py-2.5 text-left text-[11px] font-medium text-muted-foreground uppercase tracking-wider">
                 Status
@@ -266,7 +281,7 @@ export default function AdminUsersPage() {
                 Joined
               </th>
               <th className="px-4 py-2.5 text-left text-[11px] font-medium text-muted-foreground uppercase tracking-wider">
-                Teams
+                Type
               </th>
               <th className="px-4 py-2.5 text-left text-[11px] font-medium text-muted-foreground uppercase tracking-wider">
                 Plan
@@ -296,7 +311,7 @@ export default function AdminUsersPage() {
                         {user.avatarUrl ? (
                           <img src={user.avatarUrl} alt="" className="w-8 h-8 rounded-md" />
                         ) : (
-                          getRoleIcon(user.roles)
+                          getRoleIcon(user)
                         )}
                       </div>
                       <div>
@@ -322,12 +337,7 @@ export default function AdminUsersPage() {
                   </td>
                   <td className="px-4 py-2.5">
                     <div className="flex flex-wrap gap-1">
-                      {getRoleBadges(user.roles)}
-                      {user.roles.length > 3 && (
-                        <span className="px-2 py-0.5 text-xs text-muted-foreground">
-                          +{user.roles.length - 3} more
-                        </span>
-                      )}
+                      {getAccessBadges(user)}
                     </div>
                   </td>
                   <td className="px-4 py-2.5">
@@ -350,14 +360,14 @@ export default function AdminUsersPage() {
                     </div>
                   </td>
                   <td className="px-4 py-2.5 text-sm">
-                    {user._count?.teamMemberships || 0}
-                  </td>
-                  <td className="px-4 py-2.5 text-sm">
-                    {user.planName ? (
-                      <Badge variant="blue">{user.planName}</Badge>
+                    {prettyType(user.businessType) ? (
+                      <Badge variant="blue">{prettyType(user.businessType)}</Badge>
                     ) : (
                       <span className="text-muted-foreground">—</span>
                     )}
+                  </td>
+                  <td className="px-4 py-2.5 text-sm">
+                    <Badge variant={(user.planCode ?? 'free') === 'free' ? 'secondary' : 'emerald'}>{prettyPlan(user.planName)}</Badge>
                   </td>
                   <td className="px-4 py-2.5 text-sm text-muted-foreground">
                     {(user.invitesSent ?? 0) > 0 ? (
@@ -376,11 +386,13 @@ export default function AdminUsersPage() {
                     <div className="inline-flex items-center gap-2 justify-end">
                       {user.suspended && <Badge variant="rose">Suspended</Badge>}
                       <Button
-                        variant="ghost"
+                        variant="secondary"
                         size="sm"
                         icon={<MoreVertical className="w-4 h-4" />}
                         onClick={() => setOpenMenuId(openMenuId === user.id ? null : user.id)}
-                      />
+                      >
+                        Manage
+                      </Button>
                     </div>
                     {openMenuId === user.id && (
                       <>
@@ -413,7 +425,7 @@ export default function AdminUsersPage() {
                               Suspend user
                             </button>
                           )}
-                          {user.roles.includes('system:admin') ? (
+                          {user.isAdmin ? (
                             <button
                               type="button"
                               disabled={actionBusy || user.id === currentUser?.id}
@@ -432,7 +444,7 @@ export default function AdminUsersPage() {
                               Make admin
                             </button>
                           )}
-                          {user.roles.includes('sales_rep') ? (
+                          {user.isSalesRep ? (
                             <button
                               type="button"
                               disabled={actionBusy}
