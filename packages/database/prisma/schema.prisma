@@ -1484,6 +1484,10 @@ model AbTenantConfig {
   defaultCurrency         String?
   invoiceFooterNote       String?
   invoiceThankYouMessage  String?
+  // Invoice card-collection via Stripe Connect — the freelancer's own Express
+  // account so clients' card payments settle to THEM (destination charges).
+  stripeInvoiceAccountId       String? // acct_xxx — Connect Express account for receiving invoice payments
+  stripeInvoicePayoutsEnabled  Boolean  @default(false) // onboarding complete + can receive funds
   createdAt               DateTime @default(now())
   updatedAt               DateTime @updatedAt
   cashflowLowBalanceCents Int?
