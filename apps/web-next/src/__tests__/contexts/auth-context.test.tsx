@@ -7,6 +7,12 @@ function TestButton() {
   return <button onClick={() => loginWithOAuth('google')}>go</button>;
 }
 
+function AuthState() {
+  const { isAuthenticated, isLoading, authErrorStatus, user } = useAuth();
+  if (isLoading) return <div>loading</div>;
+  return <div>{`auth:${isAuthenticated} err:${authErrorStatus} user:${user?.email ?? 'none'}`}</div>;
+}
+
 const originalMatchMedia = window.matchMedia;
 
 beforeEach(() => {
@@ -71,5 +77,44 @@ describe('loginWithOAuth — standalone-mode awareness', () => {
       const calledUrl = (global.fetch as ReturnType<typeof vi.fn>).mock.calls[0][0] as string;
       expect(calledUrl).not.toContain('standalone=1');
     });
+  });
+});
+
+describe('initial session hydration — OAuth httpOnly cookie', () => {
+  // Regression: OAuth logins set an httpOnly naap_auth_token cookie that JS
+  // can't read (no localStorage token either). fetchUser used to bail before
+  // calling /auth/me, so the user looked logged-out while the cookie was live
+  // → RequireAuth redirected to /login and middleware bounced back forever.
+  it('authenticates via the cookie when there is no JS-readable token', async () => {
+    (global.fetch as ReturnType<typeof vi.fn>).mockImplementation(async (url: string) => {
+      if (String(url).includes('/v1/auth/me')) {
+        return { ok: true, status: 200, json: async () => ({ data: { user: { email: 'oauth@x.com' } } }) };
+      }
+      return { ok: true, status: 200, json: async () => ({}) };
+    });
+
+    render(<AuthProvider><AuthState /></AuthProvider>);
+
+    await waitFor(() => expect(screen.getByText(/auth:true/)).toBeTruthy());
+    expect(screen.getByText(/user:oauth@x.com/)).toBeTruthy();
+
+    // /me was called — with NO Authorization header (cookie-based) — proving we
+    // no longer bail when getToken() is null.
+    const meCall = (global.fetch as ReturnType<typeof vi.fn>).mock.calls.find((c) => String(c[0]).includes('/v1/auth/me'));
+    expect(meCall).toBeTruthy();
+    expect((meCall![1] as RequestInit & { headers: Record<string, string> }).headers.Authorization).toBeUndefined();
+    expect((meCall![1] as RequestInit).credentials).toBe('include');
+  });
+
+  it('surfaces a 401 (so RequireAuth clears the cookie) when the session is invalid', async () => {
+    (global.fetch as ReturnType<typeof vi.fn>).mockImplementation(async (url: string) => {
+      if (String(url).includes('/v1/auth/me')) return { ok: false, status: 401, json: async () => ({}) };
+      return { ok: true, status: 200, json: async () => ({}) };
+    });
+
+    render(<AuthProvider><AuthState /></AuthProvider>);
+
+    await waitFor(() => expect(screen.getByText(/auth:false/)).toBeTruthy());
+    expect(screen.getByText(/err:401/)).toBeTruthy();
   });
 });

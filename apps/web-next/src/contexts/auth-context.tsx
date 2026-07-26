@@ -119,18 +119,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const fetchUser = useCallback(async (): Promise<{ user: User | null; authErrorStatus: number | null }> => {
     const token = getToken();
-    if (!token) {
-      return { user: null, authErrorStatus: null };
-    }
-
+    // Do NOT bail when there's no JS-readable token. OAuth logins set the
+    // session as an httpOnly `naap_auth_token` cookie that JS cannot read
+    // (getToken() → null) and never populate localStorage — yet that cookie
+    // still authenticates /auth/me via credentials:'include'. Returning early
+    // here made OAuth users look logged-out while their cookie was live, so
+    // RequireAuth redirected to /login (case 3, "no cookie") and middleware —
+    // which DOES see the cookie — bounced them back to /agentbook forever.
+    // Always attempt /me; the cookie covers OAuth, the Bearer header covers
+    // email/password. A genuinely logged-out visitor gets a clean 401.
     try {
       const response = await fetch(`${API_BASE}/v1/auth/me`, {
         headers: {
-          Authorization: `Bearer ${token}`,
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
           'Cache-Control': 'no-cache, no-store, must-revalidate',
           'Pragma': 'no-cache',
         },
-        credentials: 'include', // Include cookies in request
+        credentials: 'include', // httpOnly cookie authenticates the OAuth case
         cache: 'no-store', // Prevent Next.js from caching
       });
 
