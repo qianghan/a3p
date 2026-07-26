@@ -9,7 +9,7 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { Users, DollarSign, FileText, Landmark, Copy, Check, ExternalLink, Loader2 } from 'lucide-react';
+import { Users, DollarSign, FileText, Landmark, Copy, Check, ExternalLink, Loader2, Award } from 'lucide-react';
 import { Button, Input, Badge } from '@naap/ui';
 import { useAuth } from '@/contexts/auth-context';
 
@@ -38,6 +38,11 @@ interface Payout {
   paidAt: string | null;
 }
 
+interface MilestoneProgress {
+  achieved: { key: string; label: string }[];
+  next: { key: string; label: string; metric: string; current: number; threshold: number; pct: number }[];
+}
+
 const money = (cents: number) => `$${(cents / 100).toFixed(2)}`;
 
 export default function SalesRepDashboardPage() {
@@ -45,6 +50,7 @@ export default function SalesRepDashboardPage() {
   const searchParams = useSearchParams();
   const { hasRole, isLoading: authLoading } = useAuth();
   const [summary, setSummary] = useState<SalesRepSummary | null>(null);
+  const [milestones, setMilestones] = useState<MilestoneProgress | null>(null);
   const [payouts, setPayouts] = useState<Payout[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -59,10 +65,13 @@ export default function SalesRepDashboardPage() {
     setLoading(true);
     setError(null);
     try {
-      const [summaryRes, payoutsRes] = await Promise.all([
+      const [summaryRes, payoutsRes, milestonesRes] = await Promise.all([
         fetch('/api/v1/agentbook-billing/sales-rep/summary', { credentials: 'include' }),
         fetch('/api/v1/agentbook-billing/sales-rep/payouts', { credentials: 'include' }),
+        fetch('/api/v1/agentbook-billing/sales-rep/milestones', { credentials: 'include' }),
       ]);
+      const milestonesData = await milestonesRes.json().catch(() => null);
+      if (milestonesData?.success) setMilestones(milestonesData.data);
       const summaryData = await summaryRes.json();
       const payoutsData = await payoutsRes.json();
       if (summaryData.success) setSummary(summaryData.data);
@@ -222,6 +231,37 @@ export default function SalesRepDashboardPage() {
           <div className="text-lg font-semibold">{money(summary.pendingCommissionCents)}</div>
         </div>
       </div>
+
+      {/* Milestones */}
+      {milestones && (milestones.achieved.length > 0 || milestones.next.length > 0) && (
+        <div className="rounded-lg border border-border bg-card p-4">
+          <div className="flex items-center gap-2 text-sm font-medium mb-3"><Award className="w-4 h-4" /> Milestones</div>
+          {milestones.next.length > 0 && (
+            <div className="space-y-3 mb-4">
+              {milestones.next.map((n) => (
+                <div key={n.key}>
+                  <div className="flex justify-between text-xs mb-1">
+                    <span className="text-foreground">Next: {n.label}</span>
+                    <span className="text-muted-foreground">
+                      {n.metric === 'commissionsCents' ? `${money(n.current)} / ${money(n.threshold)}` : `${n.current} / ${n.threshold}`}
+                    </span>
+                  </div>
+                  <div className="h-2 rounded-full bg-muted overflow-hidden">
+                    <div className="h-full rounded-full bg-primary transition-all" style={{ width: `${n.pct}%` }} />
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+          {milestones.achieved.length > 0 && (
+            <div className="flex flex-wrap gap-1.5">
+              {milestones.achieved.map((a) => (
+                <Badge key={a.key} variant="emerald">✓ {a.label}</Badge>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Invitees */}
       <div className="rounded-lg border border-border bg-card p-4">

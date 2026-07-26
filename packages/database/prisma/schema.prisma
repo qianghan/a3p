@@ -3489,6 +3489,23 @@ model SalesRepPayout {
   @@schema("plugin_agentbook_billing")
 }
 
+// One row per milestone a rep has crossed (first paid referral, N paid
+// referrals, $X commissions, first payout). Recorded once so we congratulate
+// only on the first crossing; the autonomous rep-coach agent also reads this
+// to trigger celebration + reward recommendations. @@unique keeps detection
+// idempotent.
+model SalesRepMilestone {
+  id          String    @id @default(uuid())
+  salesRepId  String
+  key         String // e.g. first_paid_referral | referrals_5 | commissions_100 | first_payout
+  achievedAt  DateTime  @default(now())
+  notifiedAt  DateTime?
+
+  @@unique([salesRepId, key])
+  @@index([salesRepId])
+  @@schema("plugin_agentbook_billing")
+}
+
 // ============================================================================
 // Personal Finance plugin (Phase 3) — household/personal finance kept strictly
 // separate from the business books. Transactions flagged `businessFlag` are the
