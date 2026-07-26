@@ -19,6 +19,7 @@ import { usSelfEmploymentTax } from '@agentbook/jurisdictions/us/self-employment
 import { caSelfEmploymentTax } from '@agentbook/jurisdictions/ca/self-employment-tax';
 import { auSelfEmploymentTax } from '@agentbook/jurisdictions/au/self-employment-tax';
 import type { TaxBracketProvider, SelfEmploymentTaxCalculator } from '@agentbook/jurisdictions/interfaces';
+import { calculateStateTax } from '@/lib/state-tax';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -194,7 +195,13 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     const incomeTaxCents = isAuCompany
       ? auCompanyTaxBrackets.calculateTax(taxableIncomeCents, taxYear).taxCents
       : (BRACKET_PROVIDERS[jurisdiction] ?? usTaxBrackets).calculateTax(taxableIncomeCents + w2IncomeCents, taxYear, taxConfig?.filingStatus, region).taxCents;
-    const totalTaxCents = seTaxCents + incomeTaxCents;
+    // State (US) / provincial (CA) income tax — the federal brackets above do
+    // NOT include it. Deterministic + data-driven (lib/state-tax). When the
+    // region isn't modeled yet, stateTax.modeled=false so the response can
+    // disclose the gap rather than silently understate.
+    const stateTax = calculateStateTax(taxableIncomeCents + w2IncomeCents, region, String(jurisdiction).toUpperCase());
+    const stateTaxCents = stateTax.taxCents;
+    const totalTaxCents = seTaxCents + incomeTaxCents + stateTaxCents;
     // What is still owed after crediting W-2 tax already withheld this year.
     const amountOwedCents = Math.max(0, totalTaxCents - w2WithheldCents);
     const period = params.get('period') || currentPeriod();
@@ -218,6 +225,9 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         netIncomeCents,
         seTaxCents,
         incomeTaxCents,
+        stateTaxCents,
+        stateTaxModeled: stateTax.modeled,
+        stateTaxNote: stateTax.note ?? null,
         totalTaxCents,
         // Combined business + W-2 context (zeros/false when no W-2 configured)
         combinedMode,
