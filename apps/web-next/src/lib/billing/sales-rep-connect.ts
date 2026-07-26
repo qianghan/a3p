@@ -22,9 +22,22 @@ const JURISDICTION_TO_COUNTRY: Record<string, string> = {
   au: 'AU',
 };
 
+// A Stripe Connect account's transfers must be in the account's own settlement
+// currency (tied to its country), or the transfer is rejected / force-converted.
+const COUNTRY_TO_CURRENCY: Record<string, string> = {
+  US: 'usd',
+  CA: 'cad',
+  GB: 'gbp',
+  AU: 'aud',
+};
+
 async function countryForRep(tenantId: string): Promise<string> {
   const config = await prisma.abTenantConfig.findUnique({ where: { userId: tenantId } });
   return JURISDICTION_TO_COUNTRY[config?.jurisdiction ?? 'us'] ?? 'US';
+}
+
+async function currencyForRep(tenantId: string): Promise<string> {
+  return COUNTRY_TO_CURRENCY[await countryForRep(tenantId)] ?? 'usd';
 }
 
 /** Idempotent — returns the existing Connect account id if one is already on file. */
@@ -134,7 +147,7 @@ export async function payRepViaStripeTransfer(payoutId: string, paidBy: string):
   let transferId: string;
   try {
     const transfer = await getStripe().transfers.create({
-      currency: 'usd',
+      currency: await currencyForRep(payout.salesRepId),
       amount: payout.totalCents,
       destination: profile.stripeConnectAccountId,
       description: `Commission payout ${payout.invoiceNumber}`,

@@ -9,6 +9,7 @@ const payoutFindUniqueOrThrow = vi.fn();
 const payoutUpdate = vi.fn();
 const accountsRetrieve = vi.fn();
 const transfersCreate = vi.fn();
+const tenantConfigFindUnique = vi.fn();
 
 vi.mock('@naap/database', () => ({
   prisma: {
@@ -20,6 +21,9 @@ vi.mock('@naap/database', () => ({
     salesRepPayout: {
       findUniqueOrThrow: (...a: unknown[]) => payoutFindUniqueOrThrow(...a),
       update: (...a: unknown[]) => payoutUpdate(...a),
+    },
+    abTenantConfig: {
+      findUnique: (...a: unknown[]) => tenantConfigFindUnique(...a),
     },
   },
 }));
@@ -41,6 +45,9 @@ beforeEach(() => {
   payoutUpdate.mockReset();
   accountsRetrieve.mockReset();
   transfersCreate.mockReset();
+  // Default: no tenant config on file → jurisdiction falls back to 'us' → 'usd'.
+  tenantConfigFindUnique.mockReset();
+  tenantConfigFindUnique.mockResolvedValue(null);
 });
 
 describe('refreshConnectStatus', () => {
@@ -117,6 +124,19 @@ describe('payRepViaStripeTransfer', () => {
         stripeTransferId: 'tr_abc123',
       }),
     });
+  });
+
+  it('settles the transfer in the rep\'s own currency (CA rep → cad, not usd)', async () => {
+    payoutFindUniqueOrThrow.mockResolvedValue(payout);
+    profileFindUniqueOrThrow.mockResolvedValue({ tenantId: 'rep-1', stripeConnectAccountId: 'acct_ca', stripeConnectPayoutsEnabled: true });
+    tenantConfigFindUnique.mockResolvedValue({ jurisdiction: 'ca' });
+    transfersCreate.mockResolvedValue({ id: 'tr_ca' });
+
+    await payRepViaStripeTransfer('payout-1', 'admin-1');
+
+    expect(transfersCreate).toHaveBeenCalledWith(
+      expect.objectContaining({ currency: 'cad', amount: 5000, destination: 'acct_ca' }),
+    );
   });
 
   it('translates a balance_insufficient Stripe error into a friendly message', async () => {
