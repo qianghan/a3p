@@ -3506,6 +3506,25 @@ model SalesRepMilestone {
   @@schema("plugin_agentbook_billing")
 }
 
+// Agent-proposed actions that cost money — surfaced for admin approval rather
+// than applied automatically (the agreed autonomy boundary: the coach messages
+// reps autonomously, but commission raises / rewards need a human yes).
+model SalesRepRecommendation {
+  id         String    @id @default(uuid())
+  salesRepId String
+  type       String // commission_raise | reward
+  status     String    @default("pending") // pending | approved | dismissed
+  payload    Json // commission_raise: { fromBps, toBps } · reward: { kind, description }
+  reason     String // why the coach proposed it (shown to the admin)
+  createdAt  DateTime  @default(now())
+  decidedBy  String?
+  decidedAt  DateTime?
+
+  @@index([status])
+  @@index([salesRepId, status])
+  @@schema("plugin_agentbook_billing")
+}
+
 // ============================================================================
 // Personal Finance plugin (Phase 3) — household/personal finance kept strictly
 // separate from the business books. Transactions flagged `businessFlag` are the
