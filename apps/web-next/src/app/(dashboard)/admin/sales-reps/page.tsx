@@ -93,6 +93,7 @@ export default function AdminSalesRepsPage() {
   const [paymentReference, setPaymentReference] = useState('');
   const [showManualFallback, setShowManualFallback] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [coachMsg, setCoachMsg] = useState<string | null>(null);
   const [editTarget, setEditTarget] = useState<Rep | null>(null);
   const [editCommissionPercent, setEditCommissionPercent] = useState('20');
   const [editFrequency, setEditFrequency] = useState<'monthly' | 'quarterly' | 'annual'>('quarterly');
@@ -292,17 +293,44 @@ export default function AdminSalesRepsPage() {
     );
   }
 
+  const runCoach = async () => {
+    if (!window.confirm('Run the rep-coach now? It messages active reps, detects milestones, and queues commission/reward recommendations for your review (the same work the weekly cron does).')) return;
+    setBusy(true);
+    setError(null);
+    setCoachMsg(null);
+    try {
+      const res = await fetch('/api/v1/admin/sales-reps/run-coach', { method: 'POST', credentials: 'include' });
+      const data = await res.json();
+      if (data.success) {
+        setCoachMsg(`Coach ran: ${data.data.repsProcessed} rep(s) processed, ${data.data.messagesSent} messaged, ${data.data.recommendationsCreated} recommendation(s) queued.`);
+        await load();
+      } else {
+        setError(data.error?.message || data.error || 'Failed to run coach');
+      }
+    } catch {
+      setError('Failed to run coach');
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
     <div className="p-4 max-w-6xl mx-auto">
       <AdminNav />
-      <h1 className="text-lg font-semibold flex items-center gap-2 mb-1">
-        <Users className="w-5 h-5" /> Sales Reps
-      </h1>
-      <p className="text-sm text-muted-foreground mb-4">
-        Review submitted commission invoices and pay reps directly via Stripe.
-      </p>
+      <div className="flex items-start justify-between gap-3 mb-4">
+        <div>
+          <h1 className="text-lg font-semibold flex items-center gap-2 mb-1">
+            <Users className="w-5 h-5" /> Sales Reps
+          </h1>
+          <p className="text-sm text-muted-foreground">
+            Review submitted commission invoices and pay reps directly via Stripe.
+          </p>
+        </div>
+        <Button variant="secondary" onClick={runCoach} disabled={busy}>Run coach now</Button>
+      </div>
 
       {error && <div className="rounded-md bg-destructive/10 text-destructive text-sm px-3 py-2 mb-4">{error}</div>}
+      {coachMsg && <div className="rounded-md bg-emerald-500/10 text-emerald-600 text-sm px-3 py-2 mb-4">{coachMsg}</div>}
 
       {/* Coach recommendations awaiting approval */}
       {recommendations.length > 0 && (
