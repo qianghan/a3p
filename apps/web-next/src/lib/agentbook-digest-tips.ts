@@ -57,6 +57,8 @@ export function nextQuarterlyTaxDeadline(
 }
 
 export interface TipContext {
+  /** Owner tenant — used to voice the tip in the advisor's persona. Not sent to the LLM as data. */
+  tenantId: string;
   jurisdiction: string;
   currency: string;
   cashTodayCents: number;
@@ -203,6 +205,7 @@ export async function buildTipContext(tenantId: string): Promise<TipContext> {
   const receiptCoveragePct = totalExpenses > 0 ? Math.round((withReceipts / totalExpenses) * 100) : 100;
 
   return {
+    tenantId,
     jurisdiction,
     currency: tenantConfig?.currency || 'USD',
     cashTodayCents,
@@ -249,7 +252,19 @@ async function generateTipWithGemini(
   const model = process.env.GEMINI_MODEL_FAST || 'gemini-2.0-flash';
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
 
-  const systemPrompt = `You are a senior CPA writing a one-line tip for a freelancer's morning briefing.
+  // Voice the tip as the user's named advisor (first person), falling back to
+  // the generic line if the persona can't be resolved. No extra LLM call.
+  // Imported lazily (and only past the API-key guard) so the deterministic
+  // fallback path never loads the persona module's Prisma client.
+  let identity = 'You are AgentBook, an AI accounting agent (an AI assistant, not a licensed human accountant).';
+  try {
+    const mod = await import('@agentbook-core/advisor-persona');
+    identity = await mod.resolveAdvisorIdentityPrefix(ctx.tenantId);
+  } catch { /* keep the generic line */ }
+  // Don't hand the tenantId to the model as data — it's only for voicing.
+  const { tenantId: _omit, ...ctxForLlm } = ctx;
+
+  const systemPrompt = `${identity} You are writing a one-line tip, in the first person, for the user's morning briefing.
 
 RULES:
    • Maximum two sentences, total length ≤ 220 characters.
@@ -264,7 +279,7 @@ RULES:
 Topic: ${topic === 'tax-planning' ? 'tax planning (deductions, deadlines, withholding, brackets)' : 'cash flow (runway, AR, recurring outflows, near-term liquidity)'}
 
 Tenant context:
-${JSON.stringify(ctx, null, 2)}`;
+${JSON.stringify(ctxForLlm, null, 2)}`;
 
   try {
     const res = await fetch(url, {
