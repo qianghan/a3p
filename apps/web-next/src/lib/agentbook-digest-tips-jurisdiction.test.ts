@@ -11,6 +11,7 @@ vi.mock('@naap/database', () => ({ prisma: {} }));
 import { generateTaxTipDeterministic, type TipContext } from './agentbook-digest-tips';
 
 const baseCtx = (over: Partial<TipContext>): TipContext => ({
+  tenantId: 'test-tenant',
   jurisdiction: 'us',
   currency: 'USD',
   cashTodayCents: 500_00,

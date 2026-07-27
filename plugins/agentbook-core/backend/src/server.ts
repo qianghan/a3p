@@ -2566,7 +2566,7 @@ app.post('/api/v1/agentbook-core/simulate', async (req, res) => {
     // Use LLM for narrative summary if available
     let narrative = '';
     const llmNarrative = await callGemini(
-      'You are a financial advisor. Given a what-if scenario simulation result, provide a 2-3 sentence assessment. Be direct about risks and opportunities. Use dollar amounts.',
+      `${await resolveAdvisorIdentity(tenantId)} Given a what-if scenario simulation result, provide a 2-3 sentence assessment in the first person. Be direct about risks and opportunities. Use dollar amounts.`,
       `Scenario: ${scenarioDescription}\nCurrent monthly net: $${(currentNetMonthly / 100).toFixed(2)}\nProjected monthly net: $${(newNetMonthly / 100).toFixed(2)}\nCash now: $${(currentCash / 100).toFixed(2)}\nProjected cash: $${(newCash / 100).toFixed(2)}\nRunway change: ${(newRunway - (currentCash / monthlyExpenses || 0)).toFixed(1)} months\nTax change: $${((newTax - currentTax) / 100).toFixed(2)}/year`,
       200,
     );
