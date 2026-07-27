@@ -12,6 +12,7 @@ import {
   buildAdvisorVoice, buildIntroMessage, buildAdvisorIdentityPrefix, resolveAdvisorIdentityPrefix,
   learnStyleFromMessages, styleChanged, adaptAdvisorStyle,
   buildAvatarSvg, buildAvatarDataUri, renameAdvisor, personaPublicView,
+  isHumanChannel,
   advisorAge, DEFAULT_STYLE, FALLBACK_NAMES,
   type AdvisorPersona,
 } from '../advisor-persona.js';
@@ -236,6 +237,23 @@ describe('personaPublicView', () => {
     expect(v.bio).toBe('hi');
     expect(v.avatarUrl).toMatch(/^data:image\/svg\+xml;base64,/);
     expect(v.introduced).toBe(false);
+  });
+});
+
+describe('isHumanChannel — the channel-parity contract', () => {
+  it('treats every conversational channel as human, only api opts out', () => {
+    expect(isHumanChannel('web')).toBe(true);
+    expect(isHumanChannel('telegram')).toBe(true);
+    expect(isHumanChannel('api')).toBe(false);
+  });
+
+  it('gives future adapters (WhatsApp, MCP, SMS) parity for free — denylist by design', () => {
+    // These channels do not exist yet; the contract guarantees that when their
+    // adapter routes through handleAgentMessage, they inherit the persona
+    // without any adapter-specific work.
+    for (const ch of ['whatsapp', 'mcp', 'sms', 'slack', 'imessage']) {
+      expect(isHumanChannel(ch)).toBe(true);
+    }
   });
 });
 

@@ -38,6 +38,22 @@ export interface AdvisorPersona {
   introducedAt: Date | null;
 }
 
+/**
+ * The channel-parity contract. Every conversational channel — web chat,
+ * Telegram, and any future adapter (WhatsApp, MCP, SMS…) — is a "human channel"
+ * and gets the full persona treatment: the named voice, the one-time self-
+ * introduction, and style learning. Only 'api' (the machine channel used for
+ * programmatic/tool calls) opts out of the chatty intro.
+ *
+ * This is deliberately a denylist, not an allowlist: a new channel inherits the
+ * persona automatically by construction, with zero adapter work — which is why
+ * WhatsApp/MCP reach parity the moment their adapter routes through
+ * handleAgentMessage. See agentbook/advisor-persona.md.
+ */
+export function isHumanChannel(channel: string): boolean {
+  return channel !== 'api';
+}
+
 // Curated, warm, easy-to-say, gender- and culture-varied fallback pool used
 // when the LLM is unavailable. Deterministic pick keeps a tenant's name stable.
 export const FALLBACK_NAMES = [
