@@ -16,6 +16,7 @@ import { assessComplexity, generatePlan, formatPlan, createSession, getActiveSes
 import { PlanStep, Evaluation, assessStepQuality, buildFinalEvaluation, formatEvaluation } from './agent-evaluator.js';
 import { getActiveTaxQuestionnaireSession, getLatestTaxQuestionnaireSession, isDraftStale } from './tax-questionnaire-session.js';
 import { answerTaxQuestionnaire, cancelTaxQuestionnaire, type CoreResult } from './tax-questionnaire-core.js';
+import { ensureAdvisorPersona, buildAdvisorVoice, buildIntroMessage } from './advisor-persona.js';
 
 // French UI Phase 1: AbTenantConfig.locale is a BCP-47 tag (e.g. 'en-US',
 // 'fr-CA') — any tag whose language subtag is 'fr' counts as French.
@@ -65,14 +66,28 @@ async function brainAccountantFallback(
   pastFilingContext?: string,
   personalProfileContext?: string,
   tenantConfig?: { locale?: string | null } | null,
+  tenantId?: string,
 ): Promise<string> {
   const convoSnippet = (conversation || [])
     .slice(0, 3)
     .map((c) => `User: ${c.question}\nAssistant: ${c.answer}`)
     .join('\n');
 
+  // Persona voice: replaces the generic "You are AgentBook…" identity line with
+  // the tenant's named advisor. Fallback-guarded — a persona failure leaves the
+  // original generic line, so this can never break the reply.
+  let identityLine = 'You are AgentBook, a friendly small-business accountant assistant talking in chat (web or Telegram).';
+  if (tenantId) {
+    try {
+      const persona = await ensureAdvisorPersona(tenantId, { callGemini, tenantConfig });
+      identityLine = `${buildAdvisorVoice(persona, tenantConfig)} You are talking in chat (web or Telegram).`;
+    } catch (e) {
+      console.warn('[brainAccountantFallback] persona voice unavailable, using default:', e);
+    }
+  }
+
   const baseSystemPrompt = [
-    'You are AgentBook, a friendly small-business accountant assistant talking in chat (web or Telegram).',
+    identityLine,
     'You could not confidently understand the user\'s intent.',
     '',
     'In your reply, pick ONE move and stop:',
@@ -580,7 +595,33 @@ async function handleTaxDraftRegenerate(
 
 // ─── Main ───────────────────────────────────────────────────────────────────
 
+/**
+ * Public entry: runs the core pipeline, then (once, on human channels) prepends
+ * the advisor's self-introduction on the user's very first interaction. Fully
+ * fallback-guarded — any persona failure leaves the reply untouched.
+ */
 export async function handleAgentMessage(
+  req: AgentRequest,
+  ctx: AgentContext,
+): Promise<AgentResponse> {
+  const res = await handleAgentMessageCore(req, ctx);
+  try {
+    // 'api' is a machine channel (Express/MCP-style) — no chatty intro there.
+    if (req.channel !== 'api' && res?.data && typeof res.data.message === 'string') {
+      const tenantConfig = await db.abTenantConfig.findFirst({ where: { userId: req.tenantId } }).catch(() => null);
+      const persona = await ensureAdvisorPersona(req.tenantId, { callGemini: ctx.callGemini, tenantConfig });
+      if (!persona.introducedAt) {
+        res.data.message = `${buildIntroMessage(persona)}\n\n${res.data.message}`;
+        await db.abAdvisorPersona.update({ where: { tenantId: req.tenantId }, data: { introducedAt: new Date() } }).catch(() => {});
+      }
+    }
+  } catch (e) {
+    console.warn('[handleAgentMessage] self-introduction skipped (non-fatal):', e);
+  }
+  return res;
+}
+
+async function handleAgentMessageCore(
   req: AgentRequest,
   ctx: AgentContext,
 ): Promise<AgentResponse> {
@@ -1110,7 +1151,7 @@ export async function handleAgentMessage(
       resolvedText, tenantId, channel, attachments, memory, skills, conversation, tenantConfig,
     );
     if (!v1Result) {
-      const engaged = await brainAccountantFallback(ctx.callGemini, resolvedText, conversation, pastFilingContext, personalProfileContext, tenantConfig);
+      const engaged = await brainAccountantFallback(ctx.callGemini, resolvedText, conversation, pastFilingContext, personalProfileContext, tenantConfig, tenantId);
       return buildResponse({
         message: engaged,
         skillUsed: 'none',
@@ -1207,7 +1248,7 @@ export async function handleAgentMessage(
       );
     }
     if (!v1Result) {
-      const engaged = await brainAccountantFallback(ctx.callGemini, text, conversation, pastFilingContext, personalProfileContext, tenantConfig);
+      const engaged = await brainAccountantFallback(ctx.callGemini, text, conversation, pastFilingContext, personalProfileContext, tenantConfig, tenantId);
       return buildResponse({
         message: engaged,
         skillUsed: 'none',
