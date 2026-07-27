@@ -117,10 +117,11 @@ export async function ensureAdvisorPersona(
   const bornOn = new Date();
   bornOn.setFullYear(bornOn.getFullYear() - 28);
   const bio = buildBio(name, opts?.tenantConfig);
+  const avatarUrl = buildAvatarDataUri({ name, styleProfile: DEFAULT_STYLE }, tenantId);
 
   try {
     const created = await db.abAdvisorPersona.create({
-      data: { tenantId, name, bornOn, bio, styleProfile: DEFAULT_STYLE as unknown as object },
+      data: { tenantId, name, bornOn, bio, avatarUrl, styleProfile: DEFAULT_STYLE as unknown as object },
     });
     return normalize(created);
   } catch {
@@ -128,7 +129,7 @@ export async function ensureAdvisorPersona(
     const row = await db.abAdvisorPersona.findUnique({ where: { tenantId } });
     if (row) return normalize(row);
     // Last resort: return an in-memory persona so callers never break.
-    return { name, bornOn, bio, styleProfile: DEFAULT_STYLE, avatarUrl: null, introducedAt: null };
+    return { name, bornOn, bio, styleProfile: DEFAULT_STYLE, avatarUrl, introducedAt: null };
   }
 }
 
@@ -265,6 +266,73 @@ export async function resolveAdvisorIdentityPrefix(
   } catch {
     return generic;
   }
+}
+
+// ============================================================
+// Avatar — a clean, on-brand, deterministic SVG (no external image service),
+// so every advisor has a friendly face that's stable per tenant yet gently
+// reflects the learned personality (hue by tenant, a smile when humor is high).
+// ============================================================
+
+function escapeXml(s: string): string {
+  return s.replace(/[<>&'"]/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', "'": '&apos;', '"': '&quot;' }[c] as string));
+}
+
+export function buildAvatarSvg(persona: Pick<AdvisorPersona, 'name' | 'styleProfile'>, seed: string): string {
+  let h = 0;
+  for (let i = 0; i < seed.length; i++) h = (Math.imul(h, 31) + seed.charCodeAt(i)) >>> 0;
+  const hue = h % 360;
+  const hue2 = (hue + 38) % 360;
+  const sat = 62 + Math.round((persona.styleProfile?.warmth ?? 0.7) * 16);
+  const initial = (persona.name?.trim()?.[0] || 'A').toUpperCase();
+  const smile = (persona.styleProfile?.humor ?? 0) >= 0.5
+    ? '<path d="M38 62 Q48 70 58 62" stroke="rgba(255,255,255,.85)" stroke-width="3" fill="none" stroke-linecap="round"/>'
+    : '';
+  return [
+    `<svg xmlns="http://www.w3.org/2000/svg" width="96" height="96" viewBox="0 0 96 96" role="img" aria-label="${escapeXml(persona.name || 'Advisor')}">`,
+    '<defs><linearGradient id="ag" x1="0" y1="0" x2="1" y2="1">',
+    `<stop offset="0" stop-color="hsl(${hue} ${sat}% 55%)"/><stop offset="1" stop-color="hsl(${hue2} ${sat - 6}% 44%)"/>`,
+    '</linearGradient></defs>',
+    '<rect width="96" height="96" rx="26" fill="url(#ag)"/>',
+    `<text x="48" y="55" font-family="ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,sans-serif" font-size="42" font-weight="600" fill="#fff" text-anchor="middle" dominant-baseline="middle">${escapeXml(initial)}</text>`,
+    smile,
+    '</svg>',
+  ].join('');
+}
+
+/** SVG avatar as a base64 data URI — safe for <img src> and DB storage. */
+export function buildAvatarDataUri(persona: Pick<AdvisorPersona, 'name' | 'styleProfile'>, seed: string): string {
+  const svg = buildAvatarSvg(persona, seed);
+  const b64 = typeof Buffer !== 'undefined' ? Buffer.from(svg).toString('base64') : btoa(unescape(encodeURIComponent(svg)));
+  return `data:image/svg+xml;base64,${b64}`;
+}
+
+const RENAME_RE = /^[A-Za-z][A-Za-z'’-]{1,14}$/;
+
+/** Validate + persist a user-chosen advisor name, regenerating the avatar initial. Returns null if invalid. */
+export async function renameAdvisor(tenantId: string, rawName: string): Promise<AdvisorPersona | null> {
+  const first = (rawName || '').trim().split(/\s+/)[0] || '';
+  if (!RENAME_RE.test(first)) return null;
+  const clean = first.charAt(0).toUpperCase() + first.slice(1);
+  const persona = await ensureAdvisorPersona(tenantId);
+  const avatarUrl = buildAvatarDataUri({ name: clean, styleProfile: persona.styleProfile }, tenantId);
+  try {
+    const row = await db.abAdvisorPersona.update({ where: { tenantId }, data: { name: clean, avatarUrl } });
+    return normalize(row);
+  } catch {
+    return { ...persona, name: clean, avatarUrl };
+  }
+}
+
+/** The public view of the persona for the chat UI (name, avatar, age, bio). */
+export function personaPublicView(persona: AdvisorPersona, seed: string): { name: string; avatarUrl: string; age: number; bio: string | null; introduced: boolean } {
+  return {
+    name: persona.name,
+    avatarUrl: persona.avatarUrl || buildAvatarDataUri(persona, seed),
+    age: advisorAge(persona.bornOn),
+    bio: persona.bio,
+    introduced: !!persona.introducedAt,
+  };
 }
 
 /** The one-time self-introduction shown on first contact (human channels). */

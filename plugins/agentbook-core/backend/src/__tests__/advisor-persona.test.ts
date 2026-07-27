@@ -11,6 +11,7 @@ import {
   pickFallbackName, generateAdvisorName, ensureAdvisorPersona,
   buildAdvisorVoice, buildIntroMessage, buildAdvisorIdentityPrefix, resolveAdvisorIdentityPrefix,
   learnStyleFromMessages, styleChanged, adaptAdvisorStyle,
+  buildAvatarSvg, buildAvatarDataUri, renameAdvisor, personaPublicView,
   advisorAge, DEFAULT_STYLE, FALLBACK_NAMES,
   type AdvisorPersona,
 } from '../advisor-persona.js';
@@ -180,6 +181,61 @@ describe('buildAdvisorVoice reflects learned style', () => {
     const formalDry = buildAdvisorVoice({ ...persona, styleProfile: { warmth: 0.5, verbosity: 'detailed', formality: 0.8, emoji: false, humor: 0.1 } });
     expect(formalDry).toMatch(/skip emoji/i);
     expect(formalDry).toMatch(/formal/i);
+  });
+});
+
+describe('avatar', () => {
+  it('is deterministic per seed, valid SVG, and carries the initial', () => {
+    const a = buildAvatarSvg({ name: 'Maya', styleProfile: DEFAULT_STYLE }, 'tenant-1');
+    const b = buildAvatarSvg({ name: 'Maya', styleProfile: DEFAULT_STYLE }, 'tenant-1');
+    expect(a).toBe(b);
+    expect(a).toMatch(/^<svg /);
+    expect(a).toContain('>M</text>');
+    const c = buildAvatarSvg({ name: 'Maya', styleProfile: DEFAULT_STYLE }, 'tenant-2');
+    expect(c).not.toBe(a); // different seed → different hue
+  });
+
+  it('adds a smile only when humor is high', () => {
+    const dry = buildAvatarSvg({ name: 'Leo', styleProfile: { ...DEFAULT_STYLE, humor: 0.1 } }, 't');
+    const funny = buildAvatarSvg({ name: 'Leo', styleProfile: { ...DEFAULT_STYLE, humor: 0.8 } }, 't');
+    expect(dry).not.toContain('<path');
+    expect(funny).toContain('<path');
+  });
+
+  it('escapes the initial and yields a base64 data URI', () => {
+    const uri = buildAvatarDataUri({ name: 'Maya', styleProfile: DEFAULT_STYLE }, 't');
+    expect(uri).toMatch(/^data:image\/svg\+xml;base64,/);
+    const svg = buildAvatarSvg({ name: '<x', styleProfile: DEFAULT_STYLE }, 't');
+    expect(svg).not.toContain('<x</text>'); // '<' escaped
+  });
+});
+
+describe('renameAdvisor', () => {
+  it('rejects invalid names', async () => {
+    findUnique.mockResolvedValue({ name: 'Maya', bornOn: new Date('1998-01-01'), bio: null, styleProfile: DEFAULT_STYLE, avatarUrl: null, introducedAt: new Date() });
+    expect(await renameAdvisor('t', '')).toBeNull();
+    expect(await renameAdvisor('t', '42')).toBeNull();
+    expect(await renameAdvisor('t', 'a')).toBeNull(); // too short
+    expect(update).not.toHaveBeenCalled();
+  });
+
+  it('accepts a valid name, normalizes it, and regenerates the avatar', async () => {
+    findUnique.mockResolvedValue({ name: 'Maya', bornOn: new Date('1998-01-01'), bio: null, styleProfile: DEFAULT_STYLE, avatarUrl: null, introducedAt: new Date() });
+    update.mockImplementation(({ data }: any) => Promise.resolve({ name: data.name, bornOn: new Date('1998-01-01'), bio: null, styleProfile: DEFAULT_STYLE, avatarUrl: data.avatarUrl, introducedAt: new Date() }));
+    const p = await renameAdvisor('t', '  sofia ');
+    expect(p?.name).toBe('Sofia');
+    expect(p?.avatarUrl).toMatch(/^data:image\/svg\+xml;base64,/);
+    expect(update).toHaveBeenCalled();
+  });
+});
+
+describe('personaPublicView', () => {
+  it('exposes name/avatar/age/bio and synthesizes an avatar when missing', () => {
+    const v = personaPublicView({ name: 'Maya', bornOn: new Date('1998-06-15'), bio: 'hi', styleProfile: DEFAULT_STYLE, avatarUrl: null, introducedAt: null }, 't');
+    expect(v.name).toBe('Maya');
+    expect(v.bio).toBe('hi');
+    expect(v.avatarUrl).toMatch(/^data:image\/svg\+xml;base64,/);
+    expect(v.introduced).toBe(false);
   });
 });
 

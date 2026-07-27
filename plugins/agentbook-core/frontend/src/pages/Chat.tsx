@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Send, MessageSquare, Loader2, BookOpen, Activity, Globe, Phone, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Send, MessageSquare, Loader2, BookOpen, Activity, Globe, Phone, ChevronLeft, ChevronRight, Pencil } from 'lucide-react';
 import { useAgentEvents } from '@naap/plugin-sdk';
 import { PlanPreview, type PlanStep } from '../components/PlanPreview';
 
@@ -76,12 +76,20 @@ interface Message {
   error?: boolean;
 }
 
+interface AdvisorPersona {
+  name: string;
+  avatarUrl: string;
+  age?: number;
+  bio?: string | null;
+}
+
 interface AgentResponseData {
   message?: string;
   skillUsed?: string;
   plan?: PlanPayload;
   sessionId?: string;
   citations?: Citation[];
+  persona?: AdvisorPersona;
 }
 
 function relativeTime(iso: string): string {
@@ -189,6 +197,9 @@ export const ChatPage: React.FC = () => {
   // generic prompts if unavailable.
   const [businessType, setBusinessType] = useState<string | null>(null);
   const [visaStatus, setVisaStatus] = useState<string | null>(null);
+  // The advisor's identity (human name + avatar). Fetched on mount so the header
+  // shows it before the first message, then kept fresh from each reply.
+  const [persona, setPersona] = useState<AdvisorPersona | null>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -217,6 +228,34 @@ export const ChatPage: React.FC = () => {
       .catch(() => { /* fall back to generic prompts */ });
     return () => { cancelled = true; };
   }, []);
+
+  // Load the advisor persona (best-effort) so the header shows the name +
+  // avatar immediately. Kept fresh from each reply's data.persona.
+  useEffect(() => {
+    let cancelled = false;
+    fetch(`${API}/advisor`, { credentials: 'include' })
+      .then((r) => r.json())
+      .then((j) => { if (!cancelled && j?.success && j?.data) setPersona(j.data as AdvisorPersona); })
+      .catch(() => { /* header falls back to the default label */ });
+    return () => { cancelled = true; };
+  }, []);
+
+  // Let the user rename their advisor from the header.
+  const renameAdvisor = useCallback(async () => {
+    const next = window.prompt('What would you like to call your advisor?', persona?.name ?? '');
+    if (next == null) return;
+    try {
+      const r = await fetch(`${API}/advisor`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ name: next }),
+      });
+      const j = (await r.json()) as { success?: boolean; data?: AdvisorPersona; error?: string };
+      if (j?.success && j?.data) setPersona(j.data);
+      else if (j?.error) window.alert(j.error);
+    } catch { /* non-fatal */ }
+  }, [persona?.name]);
 
   // Load threads + web history on mount.
   useEffect(() => {
@@ -308,6 +347,7 @@ export const ChatPage: React.FC = () => {
       };
       if (json?.success && json?.data) {
         const data = json.data;
+        if (data.persona) setPersona(data.persona);
         setMessages((m) => [
           ...m,
           {
@@ -411,10 +451,30 @@ export const ChatPage: React.FC = () => {
               <ChevronRight className="w-4 h-4" />
             </button>
           )}
-          <MessageSquare className="w-5 h-5 text-primary" />
-          <div className="flex-1">
-            <h1 className="text-base font-semibold">AgentBook</h1>
-            <p className="text-xs text-muted-foreground">Your AI bookkeeper</p>
+          {persona?.avatarUrl ? (
+            <img
+              src={persona.avatarUrl}
+              alt={persona.name}
+              className="w-8 h-8 rounded-lg flex-shrink-0"
+            />
+          ) : (
+            <MessageSquare className="w-5 h-5 text-primary" />
+          )}
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-1.5">
+              <h1 className="text-base font-semibold truncate">{persona?.name ?? 'AgentBook'}</h1>
+              <button
+                onClick={() => void renameAdvisor()}
+                title="Rename your advisor"
+                aria-label="Rename your advisor"
+                className="text-muted-foreground/60 hover:text-foreground transition-colors"
+              >
+                <Pencil className="w-3 h-3" />
+              </button>
+            </div>
+            <p className="text-xs text-muted-foreground truncate">
+              {persona ? 'Your AI accounting agent' : 'Your AI bookkeeper'}
+            </p>
           </div>
           {isReadOnly && (
             <div className="flex items-center gap-1.5 text-[11px] text-amber-600 dark:text-amber-400 bg-amber-500/10 border border-amber-500/20 rounded-full px-2 py-0.5">
@@ -469,8 +529,21 @@ export const ChatPage: React.FC = () => {
           {messages.map((msg, i) => (
             <div
               key={i}
-              className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
+              className={`flex gap-2 ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
             >
+              {msg.role === 'agent' && (
+                persona?.avatarUrl ? (
+                  <img
+                    src={persona.avatarUrl}
+                    alt={persona.name}
+                    className="w-7 h-7 rounded-lg flex-shrink-0 mt-0.5"
+                  />
+                ) : (
+                  <div className="w-7 h-7 rounded-lg bg-primary/10 flex items-center justify-center flex-shrink-0 mt-0.5">
+                    <MessageSquare className="w-4 h-4 text-primary" />
+                  </div>
+                )
+              )}
               <div
                 className={
                   msg.role === 'user'
