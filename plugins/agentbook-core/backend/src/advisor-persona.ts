@@ -140,14 +140,102 @@ export async function ensureAdvisorPersona(
 export function buildAdvisorVoice(persona: AdvisorPersona, tenantConfig?: TenantConfigLite): string {
   const audience = tenantConfig?.companyName ? `the team at ${tenantConfig.companyName}` : 'the user';
   const s = persona.styleProfile;
-  const depth = s.verbosity === 'detailed' ? 'thorough but never rambling' : 'concise and to the point';
+  const depth = s.verbosity === 'detailed' ? 'thorough but never rambling' : s.verbosity === 'balanced' ? 'clear and adequately detailed' : 'concise and to the point';
   const warmth = s.warmth >= 0.6 ? 'warm and personable' : 'friendly and businesslike';
+  const tone = s.formality >= 0.6 ? 'lean a little more formal and polished' : s.formality <= 0.3 ? 'keep it casual and relaxed' : 'keep a natural, everyday tone';
+  const emoji = s.emoji ? 'a well-placed emoji is fine when it fits' : 'skip emoji';
+  const humor = s.humor >= 0.5 ? 'a touch of light humor is welcome' : 'keep humor minimal';
   return [
     `You are ${persona.name}, ${audience}'s ${warmth} AI accounting agent at AgentBook, talking in chat.`,
-    `Speak in the first person as ${persona.name}; be ${depth}.`,
+    `Speak in the first person as ${persona.name}; be ${depth}; ${tone}; ${emoji}; ${humor}.`,
     `It's fine to mention you're an AI naturally, but never use robotic disclaimers like "as an AI language model", and never claim to be a licensed human accountant — for legal or tax decisions, suggest confirming with a professional.`,
     `Ground every reply in what you actually did or in the real numbers; never invent figures.`,
   ].join(' ');
+}
+
+// ============================================================
+// Style learning — the persona mirrors the user's own tone over time, so the
+// voice grows more personal the more they chat. Pure & deterministic (no LLM):
+// free, fast, testable, and stable (bounded steps, writes only on real change).
+// ============================================================
+
+const EMOJI_RE = /[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{2190}-\u{21FF}\u{2B00}-\u{2BFF}]/u;
+const CASUAL_RE = /\b(lol|lmao|haha+|hah|gonna|wanna|gotta|yeah|yep|nope|u|ur|thx|pls|plz|sup|hey)\b|!{2,}/i;
+const FORMAL_RE = /\b(please|kindly|regards|dear|therefore|however|regarding|furthermore|appreciate)\b/i;
+const HUMOR_RE = /\b(lol|lmao|haha+|joke|kidding)\b|[\u{1F602}\u{1F923}\u{1F605}]/u;
+
+function clamp01(n: number): number { return Math.max(0, Math.min(1, n)); }
+
+/**
+ * Learn a style profile by mirroring the USER's recent messages. Numeric traits
+ * move by a bounded step toward the observed signal so the voice drifts smoothly
+ * rather than lurching. Returns the current style unchanged if there's too
+ * little signal.
+ */
+export function learnStyleFromMessages(userMessages: string[], current: StyleProfile): StyleProfile {
+  const msgs = userMessages.map((m) => (m || '').trim()).filter(Boolean);
+  if (msgs.length < 3) return current;
+
+  const words = msgs.map((m) => m.split(/\s+/).length);
+  const avgWords = words.reduce((a, b) => a + b, 0) / words.length;
+  const verbosity: StyleProfile['verbosity'] = avgWords < 8 ? 'brief' : avgWords > 24 ? 'detailed' : 'balanced';
+
+  const frac = (re: RegExp) => msgs.filter((m) => re.test(m)).length / msgs.length;
+  const emojiFrac = frac(EMOJI_RE);
+  const casualFrac = frac(CASUAL_RE);
+  const formalFrac = frac(FORMAL_RE);
+  const humorFrac = frac(HUMOR_RE);
+
+  const STEP = 0.18; // max move per reflection — keeps it stable
+  const toward = (cur: number, target: number) => clamp01(cur + Math.max(-STEP, Math.min(STEP, target - cur)));
+
+  const formalityTarget = clamp01(0.4 - casualFrac * 0.6 + formalFrac * 0.6);
+  const humorTarget = clamp01(0.2 + humorFrac * 0.8);
+
+  return {
+    warmth: current.warmth, // the advisor's own trait — stays stable, not mirrored
+    verbosity,
+    formality: toward(current.formality, formalityTarget),
+    emoji: emojiFrac >= 0.2 ? true : emojiFrac === 0 ? false : current.emoji,
+    humor: toward(current.humor, humorTarget),
+  };
+}
+
+/** Material-change detector — avoids a DB write when nothing meaningfully moved. */
+export function styleChanged(a: StyleProfile, b: StyleProfile): boolean {
+  return a.verbosity !== b.verbosity
+    || a.emoji !== b.emoji
+    || Math.abs(a.formality - b.formality) >= 0.05
+    || Math.abs(a.humor - b.humor) >= 0.05;
+}
+
+/** Persist a new style profile for the tenant's persona. Guarded (non-fatal). */
+export async function updateAdvisorStyle(tenantId: string, style: StyleProfile): Promise<void> {
+  await db.abAdvisorPersona.update({
+    where: { tenantId },
+    data: { styleProfile: style as unknown as object },
+  }).catch(() => { /* non-fatal — style learning must never break a reply */ });
+}
+
+/**
+ * Reflect on the user's recent messages and adapt the persona's style, writing
+ * only when it materially changed. Fully guarded — returns the (possibly
+ * unchanged) persona and never throws.
+ */
+export async function adaptAdvisorStyle(
+  tenantId: string,
+  userMessages: string[],
+  opts?: { callGemini?: GeminiFn; tenantConfig?: TenantConfigLite },
+): Promise<AdvisorPersona> {
+  const persona = await ensureAdvisorPersona(tenantId, opts);
+  try {
+    const next = learnStyleFromMessages(userMessages, persona.styleProfile);
+    if (styleChanged(persona.styleProfile, next)) {
+      await updateAdvisorStyle(tenantId, next);
+      return { ...persona, styleProfile: next };
+    }
+  } catch { /* non-fatal — keep the existing persona */ }
+  return persona;
 }
 
 /**
