@@ -2732,6 +2732,27 @@ model AbAgentPersonality {
   @@schema("plugin_agentbook_core")
 }
 
+// The single human-named advisor persona per tenant — the "face" the user
+// talks to across every channel. One row per tenant (distinct from the
+// per-sub-agent AbAgentPersonality config above). bornOn is anchored to the
+// first-intro day minus 28 years, so the advisor is "28" and ages with the
+// relationship. styleProfile holds the learned tone dials; introducedAt gates
+// the one-time self-introduction; avatarUrl is filled in lazily once known.
+model AbAdvisorPersona {
+  id           String    @id @default(uuid())
+  tenantId     String    @unique
+  name         String
+  bornOn       DateTime
+  bio          String?
+  styleProfile Json?
+  avatarUrl    String?
+  introducedAt DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@schema("plugin_agentbook_core")
+}
+
 model AbSkillManifest {
   id               String   @id @default(uuid())
   tenantId         String?
