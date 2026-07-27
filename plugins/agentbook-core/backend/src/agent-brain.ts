@@ -16,7 +16,7 @@ import { assessComplexity, generatePlan, formatPlan, createSession, getActiveSes
 import { PlanStep, Evaluation, assessStepQuality, buildFinalEvaluation, formatEvaluation } from './agent-evaluator.js';
 import { getActiveTaxQuestionnaireSession, getLatestTaxQuestionnaireSession, isDraftStale } from './tax-questionnaire-session.js';
 import { answerTaxQuestionnaire, cancelTaxQuestionnaire, type CoreResult } from './tax-questionnaire-core.js';
-import { ensureAdvisorPersona, buildAdvisorVoice, buildIntroMessage, adaptAdvisorStyle, personaPublicView } from './advisor-persona.js';
+import { ensureAdvisorPersona, buildAdvisorVoice, buildIntroMessage, adaptAdvisorStyle, personaPublicView, isHumanChannel } from './advisor-persona.js';
 
 // French UI Phase 1: AbTenantConfig.locale is a BCP-47 tag (e.g. 'en-US',
 // 'fr-CA') — any tag whose language subtag is 'fr' counts as French.
@@ -609,8 +609,10 @@ export async function handleAgentMessage(
 ): Promise<AgentResponse> {
   const res = await handleAgentMessageCore(req, ctx);
   try {
-    // 'api' is a machine channel (Express/MCP-style) — no chatty intro there.
-    if (req.channel !== 'api' && res?.data && typeof res.data.message === 'string') {
+    // Every conversational channel (web, Telegram, and any future WhatsApp/MCP
+    // adapter) gets the full persona; only the 'api' machine channel opts out.
+    // See isHumanChannel — a denylist, so new channels inherit parity for free.
+    if (isHumanChannel(req.channel) && res?.data && typeof res.data.message === 'string') {
       const tenantConfig = await db.abTenantConfig.findFirst({ where: { userId: req.tenantId } }).catch(() => null);
       const persona = await ensureAdvisorPersona(req.tenantId, { callGemini: ctx.callGemini, tenantConfig });
       if (!persona.introducedAt) {
