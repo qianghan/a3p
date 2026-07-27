@@ -8,7 +8,8 @@ vi.mock('../db/client.js', () => ({
 
 import {
   pickFallbackName, generateAdvisorName, ensureAdvisorPersona,
-  buildAdvisorVoice, buildIntroMessage, advisorAge, DEFAULT_STYLE, FALLBACK_NAMES,
+  buildAdvisorVoice, buildIntroMessage, buildAdvisorIdentityPrefix, resolveAdvisorIdentityPrefix,
+  advisorAge, DEFAULT_STYLE, FALLBACK_NAMES,
   type AdvisorPersona,
 } from '../advisor-persona.js';
 
@@ -77,6 +78,38 @@ describe('buildIntroMessage — discloses AI, warm, actionable', () => {
     expect(m).toMatch(/I'm an AI/i);
     expect(m).toMatch(/receipt|invoice|tax/i);
     expect(m).toMatch(/connect your bank|log your first expense/i);
+  });
+});
+
+describe('buildAdvisorIdentityPrefix — specialized-prompt clause', () => {
+  it('names the advisor and carries the honesty guardrail in one line', () => {
+    const p = buildAdvisorIdentityPrefix(persona);
+    expect(p).toMatch(/You are Maya, AgentBook's AI accounting agent/);
+    expect(p).toMatch(/never a licensed human accountant/i);
+    expect(p).toMatch(/never invent figures/i);
+  });
+});
+
+describe('resolveAdvisorIdentityPrefix — safe resolver', () => {
+  it('returns the generic line (no DB touch) when tenantId is undefined', async () => {
+    const p = await resolveAdvisorIdentityPrefix(undefined);
+    expect(p).toMatch(/You are AgentBook, an AI accounting agent/);
+    expect(findUnique).not.toHaveBeenCalled();
+  });
+
+  it('reflects the persona name when the tenant has one', async () => {
+    findUnique.mockResolvedValue({ name: 'Theo', bornOn: new Date('1998-01-01'), bio: null, styleProfile: null, avatarUrl: null, introducedAt: null });
+    const p = await resolveAdvisorIdentityPrefix('t9');
+    expect(p).toMatch(/You are Theo, AgentBook's AI accounting agent/);
+  });
+
+  it('falls back to the generic line if the persona lookup throws', async () => {
+    findUnique.mockRejectedValue(new Error('db down'));
+    create.mockRejectedValue(new Error('db down'));
+    const p = await resolveAdvisorIdentityPrefix('t10');
+    // ensureAdvisorPersona still returns an in-memory persona on total failure,
+    // so we get a named prefix rather than the raw generic — either way it never throws.
+    expect(p).toMatch(/AgentBook's AI accounting agent|an AI accounting agent/);
   });
 });
 

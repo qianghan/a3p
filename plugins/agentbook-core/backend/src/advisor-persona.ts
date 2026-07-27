@@ -150,6 +150,35 @@ export function buildAdvisorVoice(persona: AdvisorPersona, tenantConfig?: Tenant
   ].join(' ');
 }
 
+/**
+ * A compact identity clause for the specialized LLM prompts (Q&A, briefing,
+ * expense advisor, student-tax) that keep their own domain instructions. Just
+ * establishes WHO is speaking + the honesty guardrail, then the caller appends
+ * the task-specific rules. Pure.
+ */
+export function buildAdvisorIdentityPrefix(persona: AdvisorPersona): string {
+  return `You are ${persona.name}, AgentBook's AI accounting agent (an AI assistant — never a licensed human accountant; suggest a professional for legal or tax decisions and never invent figures).`;
+}
+
+/**
+ * Safe, cached-friendly resolver: get-or-create the persona and return its
+ * identity prefix, falling back to the generic line on any failure so a
+ * specialized prompt can never break. Callers pass tenantId (may be undefined).
+ */
+export async function resolveAdvisorIdentityPrefix(
+  tenantId: string | undefined,
+  opts?: { callGemini?: GeminiFn; tenantConfig?: TenantConfigLite },
+): Promise<string> {
+  const generic = "You are AgentBook, an AI accounting agent (an AI assistant, not a licensed human accountant).";
+  if (!tenantId) return generic;
+  try {
+    const persona = await ensureAdvisorPersona(tenantId, opts);
+    return buildAdvisorIdentityPrefix(persona);
+  } catch {
+    return generic;
+  }
+}
+
 /** The one-time self-introduction shown on first contact (human channels). */
 export function buildIntroMessage(persona: AdvisorPersona): string {
   return [

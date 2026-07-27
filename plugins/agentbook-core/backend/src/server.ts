@@ -8,6 +8,7 @@ import crypto from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { createPluginServer } from '@naap/plugin-server-sdk';
 import { db } from './db/client.js';
+import { resolveAdvisorIdentityPrefix } from './advisor-persona.js';
 import { handleAgentMessage } from './agent-brain.js';
 import { BUILT_IN_SKILLS } from './built-in-skills.js';
 import { selectSkillByPatterns, isBusinessFlaggedPhrase, isPersonalTrendQuery } from './skill-routing.js';
@@ -171,6 +172,7 @@ async function accountantEngagement(opts: {
   attemptedAction?: string;
   errorDetail?: string;
   lowConfidence?: boolean;
+  tenantId?: string;
   recentConvo?: Array<{ question: string; answer: string }>;
 }): Promise<string> {
   try {
@@ -180,7 +182,7 @@ async function accountantEngagement(opts: {
       .join('\n');
 
     const systemPrompt = [
-      'You are AgentBook, a friendly small-business accountant assistant talking with the user in chat (web or Telegram).',
+      await resolveAdvisorIdentity(opts.tenantId) + ' You are talking with the user in chat (web or Telegram).',
       'The classifier could not confidently route this message to a concrete action, or the action it tried failed.',
       '',
       'Your job in this reply is to KEEP THE CONVERSATION GOING — never end with a flat "I don\'t know". Pick ONE of these moves:',
@@ -1284,6 +1286,27 @@ export async function callGemini(systemPrompt: string, userMessage: string, maxT
   }
 }
 
+/**
+ * Resolve the advisor's identity clause for a specialized LLM prompt. Fully
+ * fallback-guarded — never throws (even if the DB is unreachable) — so a
+ * specialized prompt keeps working and simply uses the generic line on failure.
+ */
+async function resolveAdvisorIdentity(tenantId: string | undefined): Promise<string> {
+  const generic = "You are AgentBook, an AI accounting agent (an AI assistant, not a licensed human accountant).";
+  try {
+    const tenantConfig = tenantId
+      ? await db.abTenantConfig.findFirst({ where: { userId: tenantId } }).catch(() => null)
+      : null;
+    // Deliberately NO callGemini: the advisor's name is generated once on the
+    // primary chat path (see agent-brain). These specialized prompts only
+    // reflect the already-chosen (or deterministic fallback) name — so they add
+    // no extra LLM call, and never invent a second name.
+    return await resolveAdvisorIdentityPrefix(tenantId, { tenantConfig: tenantConfig as any });
+  } catch {
+    return generic;
+  }
+}
+
 // POST /ask — Enhanced conversational memory with LLM + pattern matching + conversation history
 app.post('/api/v1/agentbook-core/ask', async (req, res) => {
   try {
@@ -1429,7 +1452,7 @@ app.post('/api/v1/agentbook-core/ask', async (req, res) => {
       }
 
       const llmAnswer = await callGemini(
-        `You are AgentBook, an AI-powered financial agent. Answer questions using the financial data provided. Be concise, specific, and always include dollar amounts. If comparing periods, calculate the difference. If the data doesn't support an answer, say so clearly. Currency: ${context.currency}. Jurisdiction: ${context.jurisdiction}.`,
+        `${await resolveAdvisorIdentity(tenantId)} Answer questions using the financial data provided. Be concise, specific, and always include dollar amounts. If comparing periods, calculate the difference. If the data doesn't support an answer, say so clearly. Currency: ${context.currency}. Jurisdiction: ${context.jurisdiction}.`,
         `${convoHistory ? `Recent conversation:\n${convoHistory}\n\n` : ''}Financial data:\n${contextStr}\n\n${pastFilingBlock ? pastFilingBlock + '\n\n' : ''}New question: ${question}`,
         500,
       );
@@ -4011,7 +4034,7 @@ async function _executeClassificationCore(
       ].join('\n');
 
       const system = [
-        'You are AgentBook, explaining a student\'s tax question about a scholarship, grant, stipend, or RESP/529 withdrawal.',
+        (await resolveAdvisorIdentity(tenantId)) + ' You are explaining a student\'s tax question about a scholarship, grant, stipend, or RESP/529 withdrawal.',
         `The user's tax jurisdiction is ${jurisdiction === 'ca' ? 'Canada' : jurisdiction === 'au' ? 'Australia' : 'the United States'} — answer using only that jurisdiction\'s rules below unless the user explicitly asks about a different one.`,
         'Use ONLY the rules given below — do not invent dollar thresholds or rules not listed here.',
         'Lead with the plain-English answer (tax-free vs taxable, and which part) before explaining the mechanism.',
@@ -4109,7 +4132,7 @@ async function _executeClassificationCore(
             ].join('\n');
 
       const system = [
-        'You are AgentBook, explaining nonresident/international-student tax status to a student on a visa.',
+        (await resolveAdvisorIdentity(tenantId)) + ' You are explaining nonresident/international-student tax status to a student on a visa.',
         'Use ONLY the facts given below — do not invent treaty terms, dollar thresholds, or filing mechanics not listed here.',
         'Lead with the plain-English answer to what they actually asked, then the relevant background.',
         'If the rules below say this jurisdiction\'s guidance isn\'t available yet, say that plainly and give the pointer provided — do not fall back to US rules.',
@@ -5172,7 +5195,7 @@ async function _executeClassificationCore(
         ...recentExpenses,
       ].filter(Boolean).join('\n');
 
-      const sysPrompt = `You are AgentBook Expense Advisor — a friendly, concise financial expert.
+      const sysPrompt = `${await resolveAdvisorIdentity(tenantId)} You are acting as the Expense Advisor — a concise financial expert.
 You have access to the user's expense data for the requested period.
 Answer the question directly using the data provided. Include specific dollar amounts.
 When listing top vendors or top spending, show the amounts prominently.
@@ -5365,7 +5388,7 @@ Only include chartData if visualization adds value. Keep the answer under 200 wo
         : null;
 
       const briefingSystem = [
-        'You are AgentBook, a friendly small-business accountant giving a morning briefing.',
+        (await resolveAdvisorIdentity(tenantId)) + ' You are giving a morning briefing.',
         'Summarize in 3–5 short sentences. Be specific with dollar amounts.',
         'End with exactly one concrete action item the user can take today.',
         'If any data is missing, briefly note it and focus on what you have.',
@@ -5501,6 +5524,7 @@ Only include chartData if visualization adds value. Keep the answer under 200 wo
         attemptedAction: `${endpoint.method || 'POST'} ${endpoint.url}`,
         errorDetail: errorDetail || (skillError ? 'request failed' : 'no response'),
         lowConfidence: typeof confidence === 'number' && confidence < 0.6,
+        tenantId,
       });
     }
   } else {
