@@ -16,7 +16,7 @@ import { assessComplexity, generatePlan, formatPlan, createSession, getActiveSes
 import { PlanStep, Evaluation, assessStepQuality, buildFinalEvaluation, formatEvaluation } from './agent-evaluator.js';
 import { getActiveTaxQuestionnaireSession, getLatestTaxQuestionnaireSession, isDraftStale } from './tax-questionnaire-session.js';
 import { answerTaxQuestionnaire, cancelTaxQuestionnaire, type CoreResult } from './tax-questionnaire-core.js';
-import { ensureAdvisorPersona, buildAdvisorVoice, buildIntroMessage, adaptAdvisorStyle } from './advisor-persona.js';
+import { ensureAdvisorPersona, buildAdvisorVoice, buildIntroMessage, adaptAdvisorStyle, personaPublicView } from './advisor-persona.js';
 
 // French UI Phase 1: AbTenantConfig.locale is a BCP-47 tag (e.g. 'en-US',
 // 'fr-CA') — any tag whose language subtag is 'fr' counts as French.
@@ -215,6 +215,9 @@ interface AgentResponse {
       label: string;
       details?: Record<string, unknown>;
     }>;
+    /** The advisor's identity for the chat UI to render (name + avatar + age).
+     * Attached on human channels; absent on the 'api' channel. */
+    persona?: { name: string; avatarUrl: string; age: number; bio: string | null };
   };
 }
 
@@ -621,9 +624,15 @@ export async function handleAgentMessage(
       const recent = await db.abConversation
         .findMany({ where: { tenantId: req.tenantId }, orderBy: { createdAt: 'desc' }, take: 12, select: { question: true } })
         .catch(() => [] as Array<{ question: string }>);
+      let current = persona;
       if (recent.length >= 3) {
-        await adaptAdvisorStyle(req.tenantId, recent.map((r) => r.question), { tenantConfig }).catch(() => {});
+        current = await adaptAdvisorStyle(req.tenantId, recent.map((r) => r.question), { tenantConfig }).catch(() => persona);
       }
+      // Hand the advisor's identity to the chat UI so it can show the name +
+      // avatar. Telegram ignores this (it only renders message text) — there the
+      // name already comes through the voice + one-time intro.
+      const pub = personaPublicView(current, req.tenantId);
+      res.data.persona = { name: pub.name, avatarUrl: pub.avatarUrl, age: pub.age, bio: pub.bio };
     }
   } catch (e) {
     console.warn('[handleAgentMessage] persona post-processing skipped (non-fatal):', e);
