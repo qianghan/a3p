@@ -16,7 +16,7 @@ import { assessComplexity, generatePlan, formatPlan, createSession, getActiveSes
 import { PlanStep, Evaluation, assessStepQuality, buildFinalEvaluation, formatEvaluation } from './agent-evaluator.js';
 import { getActiveTaxQuestionnaireSession, getLatestTaxQuestionnaireSession, isDraftStale } from './tax-questionnaire-session.js';
 import { answerTaxQuestionnaire, cancelTaxQuestionnaire, type CoreResult } from './tax-questionnaire-core.js';
-import { ensureAdvisorPersona, buildAdvisorVoice, buildIntroMessage } from './advisor-persona.js';
+import { ensureAdvisorPersona, buildAdvisorVoice, buildIntroMessage, adaptAdvisorStyle } from './advisor-persona.js';
 
 // French UI Phase 1: AbTenantConfig.locale is a BCP-47 tag (e.g. 'en-US',
 // 'fr-CA') — any tag whose language subtag is 'fr' counts as French.
@@ -614,9 +614,19 @@ export async function handleAgentMessage(
         res.data.message = `${buildIntroMessage(persona)}\n\n${res.data.message}`;
         await db.abAdvisorPersona.update({ where: { tenantId: req.tenantId }, data: { introducedAt: new Date() } }).catch(() => {});
       }
+      // Learn the user's tone from their recent messages so the voice grows more
+      // personal over time. Reads a dozen recent turns (indexed) every message;
+      // adaptAdvisorStyle only writes when the style materially changed, so this
+      // is cheap and self-limiting. Fully non-fatal.
+      const recent = await db.abConversation
+        .findMany({ where: { tenantId: req.tenantId }, orderBy: { createdAt: 'desc' }, take: 12, select: { question: true } })
+        .catch(() => [] as Array<{ question: string }>);
+      if (recent.length >= 3) {
+        await adaptAdvisorStyle(req.tenantId, recent.map((r) => r.question), { tenantConfig }).catch(() => {});
+      }
     }
   } catch (e) {
-    console.warn('[handleAgentMessage] self-introduction skipped (non-fatal):', e);
+    console.warn('[handleAgentMessage] persona post-processing skipped (non-fatal):', e);
   }
   return res;
 }
