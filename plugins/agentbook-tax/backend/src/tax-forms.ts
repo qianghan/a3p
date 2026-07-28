@@ -244,12 +244,16 @@ export async function resolveSourceQuery(
 
 // === Formula Evaluator ===
 
-// CA federal tax brackets 2025
+// CA federal tax brackets, 2025 tax year (cents). MUST match the canonical
+// values in packages/agentbook-jurisdictions/src/ca/tax-brackets.ts
+// (FEDERAL_BRACKETS_2025) so the generated T1 agrees with the tax estimate —
+// these were previously a stale prior-year table ($55,907 first bracket) that
+// diverged from the estimate's correct $57,375.
 const CA_FEDERAL_BRACKETS = [
-  { limit: 5590700, rate: 0.15 },
-  { limit: 11181400, rate: 0.205 },
-  { limit: 15468200, rate: 0.26 },
-  { limit: 22005200, rate: 0.29 },
+  { limit: 5737500, rate: 0.15 },
+  { limit: 11475000, rate: 0.205 },
+  { limit: 15846800, rate: 0.26 },
+  { limit: 22170800, rate: 0.29 },
   { limit: Infinity, rate: 0.33 },
 ];
 

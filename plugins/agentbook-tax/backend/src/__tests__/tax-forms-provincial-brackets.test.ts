@@ -96,11 +96,13 @@ describe('PROGRESSIVE_TAX formula — federal and provincial bracket keys', () =
   // directly as a PROVINCIAL_BRACKETS key (or the literal 'ca_federal'
   // sentinel) — it is not resolved through `fields`. See tax-forms.ts:
   // `ptMatch[2] === 'ca_federal' ? CA_FEDERAL_BRACKETS : PROVINCIAL_BRACKETS[ptMatch[2]] || CA_FEDERAL_BRACKETS`.
-  it('computes federal tax via the ca_federal bracket key', () => {
-    // CA federal 2025: 5590700*0.15 + (8000000-5590700)*0.205
-    //   = 838605 + 493906.5 = 1332511.5 -> round 1332512
+  it('computes federal tax via the ca_federal bracket key (canonical 2025 brackets)', () => {
+    // CA federal 2025: 5737500*0.15 + (8000000-5737500)*0.205
+    //   = 860625 + 463812.5 = 1324437.5 -> round 1324438
+    // Matches packages/agentbook-jurisdictions FEDERAL_BRACKETS_2025 (first
+    // bracket $57,375), so the T1 agrees with the tax estimate.
     const result = evaluateFormula('PROGRESSIVE_TAX(income, ca_federal)', { income: 8_000_000 });
-    expect(result).toBe(1_332_512);
+    expect(result).toBe(1_324_438);
   });
 
   it('computes a newly-added province directly via its bracket key (no ON/federal fallback needed once the table entry exists)', () => {

@@ -36,6 +36,16 @@ describe('calcJurisdictionTax (C3 — fallback tax estimate)', () => {
     const ca = calcJurisdictionTax(NET, 'ca', YEAR);
     expect(ca.totalCents).toBeGreaterThan(0);
   });
+
+  it('CA/ON includes provincial tax (region) — higher total than federal-only, folded into the income line', () => {
+    const federalOnly = calcJurisdictionTax(NET, 'ca', YEAR);          // no region
+    const withProvince = calcJurisdictionTax(NET, 'ca', YEAR, 'ON');   // region ON
+    expect(withProvince.totalCents).toBeGreaterThan(federalOnly.totalCents);
+    expect(withProvince.incomeCents).toBeGreaterThan(federalOnly.incomeCents);
+    // SE (CPP) is unchanged; the whole increase is provincial income tax.
+    expect(withProvince.seCents).toBe(federalOnly.seCents);
+    expect(withProvince.totalCents).toBe(withProvince.seCents + withProvince.incomeCents);
+  });
 });
 
 describe('renderTaxPackageStepResult (H5 — form name per jurisdiction)', () => {
