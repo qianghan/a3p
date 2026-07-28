@@ -106,6 +106,43 @@ describe('GET /agentbook-tax/tax/estimate — jurisdiction correctness', () => {
     expect(json.data.jurisdiction).toBe('zz');
     expect(res.status).toBe(200); // never throws on an unknown jurisdiction
   });
+
+  // Golden-number regression: CA provincial tax must be counted EXACTLY ONCE.
+  // The bracket provider adds provincial when handed a region, and
+  // calculateStateTax is the single source of sub-national tax — so the route
+  // must NOT pass region to the provider, or provincial gets double-counted.
+  it('CA/ON counts provincial income tax exactly once (guards the double-count bug)', async () => {
+    const { caTaxBrackets } = await import('@agentbook/jurisdictions/ca/tax-brackets');
+    const { caSelfEmploymentTax } = await import('@agentbook/jurisdictions/ca/self-employment-tax');
+    const { calculateStateTax } = await import('@/lib/state-tax');
+
+    // net income = $90,000 revenue − $10,000 expenses = $80,000
+    journalLineAggregate.mockImplementation(({ where }: { where: { accountId: { in: string[] } } }) =>
+      Promise.resolve(
+        where.accountId.in.includes('rev-1')
+          ? { _sum: { creditCents: 90_000_00, debitCents: 0 } }
+          : { _sum: { creditCents: 0, debitCents: 10_000_00 } },
+      ),
+    );
+    tenantConfigFindUnique.mockResolvedValue({ jurisdiction: 'ca', region: 'ON', accountingBasis: 'accrual' });
+    const { GET } = await import('../route');
+    const json = await (await GET(req())).json();
+
+    const net = 80_000_00;
+    const taxYear = new Date().getFullYear();
+    const se = caSelfEmploymentTax.calculate(net, taxYear);
+    const taxable = Math.max(0, net - se.deductiblePortionCents);
+    const federalOnly = caTaxBrackets.calculateTax(taxable, taxYear).taxCents;          // NO region
+    const provincialOnce = calculateStateTax(taxable, 'ON', 'CA').taxCents;
+    const withProvincial = caTaxBrackets.calculateTax(taxable, taxYear, undefined, 'ON').taxCents;
+
+    expect(json.data.seTaxCents).toBe(se.amountCents);
+    expect(json.data.incomeTaxCents).toBe(federalOnly);       // federal only — NOT fed+prov
+    expect(json.data.stateTaxCents).toBe(provincialOnce);     // provincial exactly once
+    expect(json.data.incomeTaxCents).not.toBe(withProvincial); // would-be double-count value
+    expect(json.data.totalTaxCents).toBe(se.amountCents + federalOnly + provincialOnce);
+    expect(provincialOnce).toBeGreaterThan(0);                 // ON provincial actually applied
+  });
 });
 
 describe('GET /agentbook-tax/tax/estimate — filingStatus wiring', () => {

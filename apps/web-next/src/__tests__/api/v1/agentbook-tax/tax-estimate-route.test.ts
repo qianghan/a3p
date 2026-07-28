@@ -62,20 +62,30 @@ describe('GET /api/v1/agentbook-tax/tax/estimate — CA provincial tax (PARITY-1
     const res = await GET(makeRequest());
     const body = await res.json();
 
+    // Provincial tax is counted EXACTLY ONCE, as sub-national tax in
+    // stateTaxCents. The federal bracket provider is federal-only; the CPP
+    // employer-half is deducted before income tax, so the base is 7,561,790,
+    // giving federal-only 1,234,604 and Ontario provincial 482,222 (both
+    // hand-verified). Before the double-count fix, incomeTaxCents wrongly held
+    // federal+provincial (1,716,826) AND stateTaxCents added provincial again.
+    const { caTaxBrackets } = await import('@agentbook/jurisdictions/ca/tax-brackets');
+    const { caSelfEmploymentTax } = await import('@agentbook/jurisdictions/ca/self-employment-tax');
+    const { calculateStateTax } = await import('@/lib/state-tax');
+    const net = 8_000_000;
+    const year = new Date().getFullYear();
+    const se = caSelfEmploymentTax.calculate(net, year);
+    const taxable = Math.max(0, net - se.deductiblePortionCents);
+    const federalOnly = caTaxBrackets.calculateTax(taxable, year).taxCents;
+    const onProvincial = calculateStateTax(taxable, 'ON', 'CA').taxCents;
+
     expect(body.success).toBe(true);
     expect(body.data.jurisdiction).toBe('ca');
     expect(body.data.region).toBe('ON');
-    // NOTE: this is NOT the plan's originally-stated 1,846,756 (federal
-    // 1,324,438 + ON provincial 522,318 on a flat $8,000,000 taxable base).
-    // The real route also computes CA self-employment tax (CPP) on the same
-    // $8,000,000 net income and deducts its employer-equivalent half BEFORE
-    // computing income tax (see route.ts: `taxableIncomeCents = netIncomeCents
-    // - seDeduction`), so the actual base fed into calculateTax() is
-    // 7,561,790, not 8,000,000. Federal-only on that base is 1,234,604
-    // (not 1,324,438), and Ontario provincial on that base is 482,222 (not
-    // 522,318) — independently hand-verified against caTaxBrackets'
-    // calcProvincialTax algorithm. Combined: 1,234,604 + 482,222 = 1,716,826.
-    expect(body.data.incomeTaxCents).toBe(1716826);
+    expect(federalOnly).toBe(1234604);                       // federal-only, hand-verified
+    expect(onProvincial).toBe(482222);                       // ON provincial, hand-verified
+    expect(body.data.incomeTaxCents).toBe(federalOnly);      // federal only — NOT fed+prov
+    expect(body.data.stateTaxCents).toBe(onProvincial);      // provincial exactly once
+    expect(body.data.totalTaxCents).toBe(se.amountCents + federalOnly + onProvincial);
   });
 
   it('includes Quebec provincial tax for a CA/QC tenant with $80,000 net income', async () => {
@@ -90,11 +100,24 @@ describe('GET /api/v1/agentbook-tax/tax/estimate — CA provincial tax (PARITY-1
     const res = await GET(makeRequest());
     const body = await res.json();
 
-    // NOTE: not the plan's originally-stated 2,578,163 — same CPP-deduction
-    // adjustment as the ON test above (real taxable base is 7,561,790, not
-    // 8,000,000). Federal-only on that base is 1,234,604; Quebec provincial
-    // on that base is 1,170,465 (hand-verified). Combined: 2,405,069.
-    expect(body.data.incomeTaxCents).toBe(2405069);
+    // Same single-source contract: federal-only income tax (1,234,604) plus
+    // Quebec provincial (1,170,465, hand-verified) as sub-national tax — each
+    // counted exactly once.
+    const { caTaxBrackets } = await import('@agentbook/jurisdictions/ca/tax-brackets');
+    const { caSelfEmploymentTax } = await import('@agentbook/jurisdictions/ca/self-employment-tax');
+    const { calculateStateTax } = await import('@/lib/state-tax');
+    const net = 8_000_000;
+    const year = new Date().getFullYear();
+    const se = caSelfEmploymentTax.calculate(net, year);
+    const taxable = Math.max(0, net - se.deductiblePortionCents);
+    const federalOnly = caTaxBrackets.calculateTax(taxable, year).taxCents;
+    const qcProvincial = calculateStateTax(taxable, 'QC', 'CA').taxCents;
+
+    expect(federalOnly).toBe(1234604);
+    expect(qcProvincial).toBe(1170465);
+    expect(body.data.incomeTaxCents).toBe(federalOnly);
+    expect(body.data.stateTaxCents).toBe(qcProvincial);
+    expect(body.data.totalTaxCents).toBe(se.amountCents + federalOnly + qcProvincial);
   });
 
   it('US tenant behavior is unchanged (no region argument affects US brackets)', async () => {

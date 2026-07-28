@@ -192,13 +192,19 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     // A company's flat tax rate applies to its own net income only — the
     // tenant's personal W-2 wages don't stack onto a company's tax base
     // the way they stack onto an individual's bracket placement.
+    // Federal income tax ONLY. We deliberately do NOT pass `region` to the
+    // bracket provider: the CA provider ADDS provincial tax when given a region,
+    // and calculateStateTax below is the single source of sub-national (US state
+    // / CA provincial) tax. Passing region here as well double-counted provincial
+    // tax for Canadian tenants — federal + provincial + provincial.
     const incomeTaxCents = isAuCompany
       ? auCompanyTaxBrackets.calculateTax(taxableIncomeCents, taxYear).taxCents
-      : (BRACKET_PROVIDERS[jurisdiction] ?? usTaxBrackets).calculateTax(taxableIncomeCents + w2IncomeCents, taxYear, taxConfig?.filingStatus, region).taxCents;
+      : (BRACKET_PROVIDERS[jurisdiction] ?? usTaxBrackets).calculateTax(taxableIncomeCents + w2IncomeCents, taxYear, taxConfig?.filingStatus).taxCents;
     // State (US) / provincial (CA) income tax — the federal brackets above do
-    // NOT include it. Deterministic + data-driven (lib/state-tax). When the
-    // region isn't modeled yet, stateTax.modeled=false so the response can
-    // disclose the gap rather than silently understate.
+    // NOT include it. Deterministic + data-driven (lib/state-tax), the single
+    // source for sub-national tax. When the region isn't modeled yet,
+    // stateTax.modeled=false so the response discloses the gap rather than
+    // silently understating.
     const stateTax = calculateStateTax(taxableIncomeCents + w2IncomeCents, region, String(jurisdiction).toUpperCase());
     const stateTaxCents = stateTax.taxCents;
     const totalTaxCents = seTaxCents + incomeTaxCents + stateTaxCents;
