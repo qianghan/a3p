@@ -20,6 +20,7 @@ import { caSelfEmploymentTax } from '@agentbook/jurisdictions/ca/self-employment
 import { auSelfEmploymentTax } from '@agentbook/jurisdictions/au/self-employment-tax';
 import type { TaxBracketProvider, SelfEmploymentTaxCalculator } from '@agentbook/jurisdictions/interfaces';
 import { calculateStateTax } from '@/lib/state-tax';
+import { taxYearDisclosure } from '@agentbook/jurisdictions/tax-year';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -176,6 +177,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     const netIncomeCents = grossRevenueCents - expensesCents;
 
     const taxYear = startDate.getFullYear();
+    const taxYearInfo = taxYearDisclosure(taxYear);
     // A Pty Ltd company doesn't pay individual Medicare Levy / self-
     // employment tax on retained business profit (that only applies to
     // wages/dividends an individual actually draws, which isn't modeled
@@ -234,6 +236,10 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         stateTaxCents,
         stateTaxModeled: stateTax.modeled,
         stateTaxNote: stateTax.note ?? null,
+        // Which tax-year tables were actually applied (the packs aren't
+        // year-versioned yet) — surfaced so the UI can disclose it honestly.
+        taxTablesYear: taxYearInfo.tablesYear,
+        taxYearNote: taxYearInfo.note,
         totalTaxCents,
         // Combined business + W-2 context (zeros/false when no W-2 configured)
         combinedMode,
