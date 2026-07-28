@@ -13,41 +13,18 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma as db } from '@naap/database';
 import { safeResolveAgentbookTenant } from '@/lib/agentbook-tenant';
 import { formatCurrencyCents } from '@/lib/jurisdiction-currency';
-import { usTaxBrackets } from '@agentbook/jurisdictions/us/tax-brackets';
-import { caTaxBrackets } from '@agentbook/jurisdictions/ca/tax-brackets';
-import { auTaxBrackets } from '@agentbook/jurisdictions/au/tax-brackets';
-import { usSelfEmploymentTax } from '@agentbook/jurisdictions/us/self-employment-tax';
-import { caSelfEmploymentTax } from '@agentbook/jurisdictions/ca/self-employment-tax';
-import { auSelfEmploymentTax } from '@agentbook/jurisdictions/au/self-employment-tax';
-import type { TaxBracketProvider, SelfEmploymentTaxCalculator } from '@agentbook/jurisdictions/interfaces';
+import { estimateTotalIncomeTax } from '@agentbook/jurisdictions/total-tax';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 export const maxDuration = 30;
 
-// Real, tested jurisdiction-pack logic — same providers `tax/estimate/route.ts`
-// uses, replacing this route's own previously-duplicated, less-accurate
-// US/CA-only inline brackets and the silent "$0 SE tax, US brackets"
-// fallback for every other jurisdiction, including au.
-const BRACKET_PROVIDERS: Record<string, TaxBracketProvider> = {
-  us: usTaxBrackets,
-  ca: caTaxBrackets,
-  au: auTaxBrackets,
-};
-const SE_TAX_CALCULATORS: Record<string, SelfEmploymentTaxCalculator> = {
-  us: usSelfEmploymentTax,
-  ca: caSelfEmploymentTax,
-  au: auSelfEmploymentTax,
-};
-
-function calcTotalTax(netIncomeCents: number, jurisdiction: string, taxYear: number): number {
-  if (netIncomeCents <= 0) return 0;
-  const seCalculator = SE_TAX_CALCULATORS[jurisdiction];
-  const se = seCalculator ? seCalculator.calculate(netIncomeCents, taxYear) : { amountCents: 0, deductiblePortionCents: 0 };
-  const taxable = Math.max(0, netIncomeCents - se.deductiblePortionCents);
-  const bracketProvider = BRACKET_PROVIDERS[jurisdiction] ?? usTaxBrackets;
-  const incomeTaxCents = bracketProvider.calculateTax(taxable, taxYear).taxCents;
-  return se.amountCents + incomeTaxCents;
+// One canonical composer (SE + federal + sub-national) shared with the chat
+// What-If simulator and the estimate route — includes US-state / CA-provincial
+// tax (previously omitted here, which under-estimated the scenario) with no
+// double-count.
+function calcTotalTax(netIncomeCents: number, jurisdiction: string, region: string | null | undefined, taxYear: number): number {
+  return estimateTotalIncomeTax(netIncomeCents, jurisdiction, region, taxYear).totalTaxCents;
 }
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
@@ -64,6 +41,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
     const tenantConfig = await db.abTenantConfig.findUnique({ where: { userId: tenantId } });
     const jurisdiction = tenantConfig?.jurisdiction || 'us';
+    const region = tenantConfig?.region || '';
     const currency = tenantConfig?.currency || 'USD';
     const locale = tenantConfig?.locale || 'en-US';
     const yearStart = new Date(new Date().getFullYear(), 0, 1);
@@ -95,11 +73,11 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     const expensesCents = (expenseAgg._sum.debitCents || 0) - (expenseAgg._sum.creditCents || 0);
     const netIncomeCents = grossRevenueCents - expensesCents;
 
-    const currentTaxCents = calcTotalTax(netIncomeCents, jurisdiction, taxYear);
+    const currentTaxCents = calcTotalTax(netIncomeCents, jurisdiction, region, taxYear);
 
     // Apply scenario: positive changeAmountCents = add expense (lowers net), negative = add income (raises net)
     const projectedNetIncome = netIncomeCents - changeAmountCents;
-    const projectedTaxCents = calcTotalTax(projectedNetIncome, jurisdiction, taxYear);
+    const projectedTaxCents = calcTotalTax(projectedNetIncome, jurisdiction, region, taxYear);
 
     const savingsCents = currentTaxCents - projectedTaxCents;
     const isExpense = changeAmountCents > 0;

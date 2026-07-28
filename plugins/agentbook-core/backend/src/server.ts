@@ -22,13 +22,8 @@ import { startTaxQuestionnaire } from './tax-questionnaire-core.js';
 import { usChartOfAccounts } from '@agentbook/jurisdictions/us/chart-of-accounts';
 import { caChartOfAccounts } from '@agentbook/jurisdictions/ca/chart-of-accounts';
 import { auChartOfAccounts } from '@agentbook/jurisdictions/au/chart-of-accounts';
-import { usTaxBrackets } from '@agentbook/jurisdictions/us/tax-brackets';
-import { caTaxBrackets } from '@agentbook/jurisdictions/ca/tax-brackets';
-import { auTaxBrackets } from '@agentbook/jurisdictions/au/tax-brackets';
-import { usSelfEmploymentTax } from '@agentbook/jurisdictions/us/self-employment-tax';
-import { caSelfEmploymentTax } from '@agentbook/jurisdictions/ca/self-employment-tax';
-import { auSelfEmploymentTax } from '@agentbook/jurisdictions/au/self-employment-tax';
-import type { ChartOfAccountsTemplate, TaxBracketProvider, SelfEmploymentTaxCalculator } from '@agentbook/jurisdictions/interfaces';
+import { estimateTotalIncomeTax } from '@agentbook/jurisdictions/total-tax';
+import type { ChartOfAccountsTemplate } from '@agentbook/jurisdictions/interfaces';
 
 // Read plugin.json for dev-only fields. When bundled by webpack (Next.js
 // on Vercel), `new URL(..., import.meta.url)` is incompatible with fs —
@@ -1034,6 +1029,7 @@ async function buildFinancialContext(tenantId: string) {
 
   return {
     jurisdiction: config?.jurisdiction || 'us',
+    region: config?.region || '',
     currency: config?.currency || 'USD',
     businessName: config?.businessName || 'Unknown',
     totalRevenueCents: totalRevenue,
@@ -1194,35 +1190,15 @@ function deriveEffectiveRate(estimate: {
   return 0;
 }
 
-const SCENARIO_BRACKET_PROVIDERS: Record<string, TaxBracketProvider> = {
-  us: usTaxBrackets,
-  ca: caTaxBrackets,
-  au: auTaxBrackets,
-};
-const SCENARIO_SE_TAX_CALCULATORS: Record<string, SelfEmploymentTaxCalculator> = {
-  us: usSelfEmploymentTax,
-  ca: caSelfEmploymentTax,
-  au: auSelfEmploymentTax,
-};
-
 /**
  * Real jurisdiction-aware tax calculation for the what-if scenario simulator
- * (PARITY-2 remediation). Previously this handler used a flat 25% fallback
- * whenever no stored AbTaxEstimate row existed (the common case in
- * production, since tax/estimate/route.ts is read-only and never writes
- * one) — wrong for every non-25%-effective-rate tenant and jurisdiction-
- * blind. Mirrors apps/web-next/.../cashflow/scenario/route.ts's
- * calcTotalTax exactly (same jurisdiction-pack providers), so the chat
- * simulator and the web What-If simulator agree.
+ * (PARITY-2 remediation). Delegates to the one canonical composer shared with
+ * the web What-If simulator (cashflow/scenario) and the estimate route, so all
+ * three agree — now including US-state / CA-provincial tax (previously omitted
+ * here, which under-estimated the chat simulator) with no double-count.
  */
-export function calcScenarioTax(netIncomeCents: number, jurisdiction: string, taxYear: number): number {
-  if (netIncomeCents <= 0) return 0;
-  const seCalculator = SCENARIO_SE_TAX_CALCULATORS[jurisdiction];
-  const se = seCalculator ? seCalculator.calculate(netIncomeCents, taxYear) : { amountCents: 0, deductiblePortionCents: 0 };
-  const taxable = Math.max(0, netIncomeCents - se.deductiblePortionCents);
-  const bracketProvider = SCENARIO_BRACKET_PROVIDERS[jurisdiction] ?? usTaxBrackets;
-  const incomeTaxCents = bracketProvider.calculateTax(taxable, taxYear).taxCents;
-  return se.amountCents + incomeTaxCents;
+export function calcScenarioTax(netIncomeCents: number, jurisdiction: string, region: string | null | undefined, taxYear: number): number {
+  return estimateTotalIncomeTax(netIncomeCents, jurisdiction, region, taxYear).totalTaxCents;
 }
 
 // Default Gemini call timeout — overridable via GEMINI_TIMEOUT_MS env var.
@@ -2528,8 +2504,8 @@ app.post('/api/v1/agentbook-core/simulate', async (req, res) => {
     const currentAnnualNet = currentNetMonthly * 12;
     const newAnnualNet = newNetMonthly * 12;
     const scenarioTaxYear = new Date().getFullYear();
-    const currentTax = calcScenarioTax(Math.round(currentAnnualNet), context.jurisdiction, scenarioTaxYear);
-    const newTax = calcScenarioTax(Math.round(newAnnualNet), context.jurisdiction, scenarioTaxYear);
+    const currentTax = calcScenarioTax(Math.round(currentAnnualNet), context.jurisdiction, context.region, scenarioTaxYear);
+    const newTax = calcScenarioTax(Math.round(newAnnualNet), context.jurisdiction, context.region, scenarioTaxYear);
 
     // Cash danger month (when cash goes negative)
     const dangerMonth = projection.find(p => p.cashCents < 0)?.month || null;
