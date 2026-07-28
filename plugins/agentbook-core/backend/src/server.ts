@@ -984,7 +984,7 @@ async function buildFinancialContext(tenantId: string) {
   const totalRevenue = revLines.reduce((s: number, l: any) => s + l.creditCents, 0);
 
   // Expenses
-  const expenses = await db.abExpense.findMany({ where: { tenantId, isPersonal: false }, include: { vendor: true } });
+  const expenses = await db.abExpense.findMany({ where: { tenantId, isPersonal: false, deletedAt: null }, include: { vendor: true } });
   const totalExpenses = expenses.reduce((s: number, e: any) => s + e.amountCents, 0);
 
   // Expenses by category
@@ -1390,9 +1390,9 @@ app.post('/api/v1/agentbook-core/ask', async (req, res) => {
         const balance = lines.reduce((s: number, l: any) => s + l.debitCents - l.creditCents, 0);
 
         // Enhanced: add runway calculation
-        const expenses = await db.abExpense.aggregate({ where: { tenantId, isPersonal: false }, _sum: { amountCents: true } });
+        const expenses = await db.abExpense.aggregate({ where: { tenantId, isPersonal: false, deletedAt: null }, _sum: { amountCents: true } });
         const totalExp = expenses._sum.amountCents || 1;
-        const expCount = await db.abExpense.count({ where: { tenantId, isPersonal: false } });
+        const expCount = await db.abExpense.count({ where: { tenantId, isPersonal: false, deletedAt: null } });
         const avgMonthly = expCount > 0 ? Math.round(totalExp / Math.max(1, expCount / 30)) : 0;
         const runway = avgMonthly > 0 ? (balance / avgMonthly).toFixed(1) : 'N/A';
 
@@ -1532,7 +1532,7 @@ app.get('/api/v1/agentbook-core/money-moves', async (req, res) => {
       const balance = lines.reduce((s: number, l: any) => s + l.debitCents - l.creditCents, 0);
       const threeMonthsAgo = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000);
       const expenses = await db.abExpense.aggregate({
-        where: { tenantId, isPersonal: false, date: { gte: threeMonthsAgo } },
+        where: { tenantId, isPersonal: false, deletedAt: null, date: { gte: threeMonthsAgo } },
         _sum: { amountCents: true },
       });
       const monthlyExp = (expenses._sum.amountCents || 0) / 3;
@@ -1615,8 +1615,8 @@ app.get('/api/v1/agentbook-core/tax-package', async (req, res) => {
       if (amount > 0) { categories.push({ category: a.taxCategory || a.name, amountCents: amount }); totalExp += amount; }
     }
 
-    const allExp = await db.abExpense.count({ where: { tenantId, date: { gte: yearStart, lte: yearEnd }, isPersonal: false } });
-    const withReceipts = await db.abExpense.count({ where: { tenantId, date: { gte: yearStart, lte: yearEnd }, isPersonal: false, receiptUrl: { not: null } } });
+    const allExp = await db.abExpense.count({ where: { tenantId, date: { gte: yearStart, lte: yearEnd }, isPersonal: false, deletedAt: null } });
+    const withReceipts = await db.abExpense.count({ where: { tenantId, date: { gte: yearStart, lte: yearEnd }, isPersonal: false, deletedAt: null, receiptUrl: { not: null } } });
     const missing: string[] = [];
     if (allExp > 0 && withReceipts / allExp < 0.8) missing.push(`${allExp - withReceipts} expenses without receipts`);
     if (gross === 0) missing.push('No revenue recorded');
@@ -1668,8 +1668,8 @@ app.get('/api/v1/agentbook-core/tax-package/html', async (req, res) => {
     const currencyPrefix = currency === 'CAD' ? 'C' : currency === 'AUD' ? 'A' : '';
     const fmt = (cents: number) => `${currencyPrefix}$${(cents/100).toLocaleString('en-US', { minimumFractionDigits: 2 })}`;
 
-    const allExp = await db.abExpense.count({ where: { tenantId, date: { gte: yearStart, lte: yearEnd }, isPersonal: false } });
-    const withReceipts = await db.abExpense.count({ where: { tenantId, date: { gte: yearStart, lte: yearEnd }, isPersonal: false, receiptUrl: { not: null } } });
+    const allExp = await db.abExpense.count({ where: { tenantId, date: { gte: yearStart, lte: yearEnd }, isPersonal: false, deletedAt: null } });
+    const withReceipts = await db.abExpense.count({ where: { tenantId, date: { gte: yearStart, lte: yearEnd }, isPersonal: false, deletedAt: null, receiptUrl: { not: null } } });
 
     const html = `<!DOCTYPE html>
 <html lang="en">
@@ -2320,7 +2320,7 @@ app.post('/api/v1/agentbook-core/automations/:id/run', async (req, res) => {
         }
 
         case 'categorize_expense': {
-          const uncategorized = await db.abExpense.count({ where: { tenantId, categoryId: null } });
+          const uncategorized = await db.abExpense.count({ where: { tenantId, categoryId: null, deletedAt: null } });
           actionResult.uncategorized = uncategorized;
           break;
         }
@@ -4660,7 +4660,7 @@ async function _executeClassificationCore(
       // Chat invocations always run (force=true equivalent)
 
       const uncategorized = await db.abExpense.findMany({
-        where: { tenantId, categoryId: null, isPersonal: false, status: { in: ['pending_review', 'confirmed'] } },
+        where: { tenantId, categoryId: null, isPersonal: false, deletedAt: null, status: { in: ['pending_review', 'confirmed'] } },
         include: { vendor: { select: { id: true, name: true, normalizedName: true } } },
         orderBy: { date: 'desc' },
         take: 50,
