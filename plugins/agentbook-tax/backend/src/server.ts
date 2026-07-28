@@ -22,6 +22,14 @@ import { populateFiling, updateFilingField } from './tax-filing.js';
 import { processSlipOCR, confirmSlip, listSlips } from './tax-slips.js';
 import { validateFiling, exportFiling } from './tax-export.js';
 import { submitFiling, checkFilingStatus, seedMockPartner } from './tax-efiling.js';
+import { usTaxBrackets } from '@agentbook/jurisdictions/us/tax-brackets';
+import { caTaxBrackets } from '@agentbook/jurisdictions/ca/tax-brackets';
+import { auTaxBrackets } from '@agentbook/jurisdictions/au/tax-brackets';
+import { usSelfEmploymentTax } from '@agentbook/jurisdictions/us/self-employment-tax';
+import { caSelfEmploymentTax } from '@agentbook/jurisdictions/ca/self-employment-tax';
+import { auSelfEmploymentTax } from '@agentbook/jurisdictions/au/self-employment-tax';
+import { calculateStateTax } from '@agentbook/jurisdictions/sub-national-tax';
+import type { TaxBracketProvider, SelfEmploymentTaxCalculator } from '@agentbook/jurisdictions/interfaces';
 import { checkQuota, incrementUsage } from '@naap/billing';
 import multer from 'multer';
 import {
@@ -50,77 +58,20 @@ try {
 // TAX BRACKET DEFINITIONS
 // ============================================
 
-/** US 2025 Federal single filer brackets (amounts in cents) */
-const US_FEDERAL_BRACKETS = [
-  { upTo: 11_600_00, rate: 0.10 },
-  { upTo: 47_150_00, rate: 0.12 },
-  { upTo: 100_525_00, rate: 0.22 },
-  { upTo: 191_950_00, rate: 0.24 },
-  { upTo: 243_725_00, rate: 0.32 },
-  { upTo: 609_350_00, rate: 0.35 },
-  { upTo: Infinity, rate: 0.37 },
-];
-
-/** CA 2025 Federal brackets (amounts in cents) */
-const CA_FEDERAL_BRACKETS = [
-  { upTo: 57_375_00, rate: 0.15 },
-  { upTo: 114_750_00, rate: 0.205 },
-  { upTo: 158_468_00, rate: 0.26 },
-  { upTo: 221_708_00, rate: 0.29 },
-  { upTo: Infinity, rate: 0.33 },
-];
-
-/**
- * Calculate progressive income tax from brackets.
- * All amounts in cents.
- */
-function calcProgressiveTax(
-  incomeCents: number,
-  brackets: { upTo: number; rate: number }[],
-): number {
-  if (incomeCents <= 0) return 0;
-  let remaining = incomeCents;
-  let tax = 0;
-  let prev = 0;
-  for (const bracket of brackets) {
-    const width = bracket.upTo === Infinity ? remaining : bracket.upTo - prev;
-    const taxable = Math.min(remaining, width);
-    tax += Math.round(taxable * bracket.rate);
-    remaining -= taxable;
-    prev = bracket.upTo;
-    if (remaining <= 0) break;
-  }
-  return tax;
-}
-
-/**
- * Calculate self-employment tax.
- * US: 15.3% on 92.35% of net SE income
- * CA: CPP at 11.9% of net SE income (simplified)
- */
-function calcSelfEmploymentTax(
-  netIncomeCents: number,
-  jurisdiction: string,
-): number {
-  if (netIncomeCents <= 0) return 0;
-  if (jurisdiction === 'us') {
-    // 92.35% of net income is subject to 15.3% SE tax
-    return Math.round(netIncomeCents * 0.9235 * 0.153);
-  }
-  if (jurisdiction === 'ca') {
-    // CPP self-employed contribution: 11.9%
-    return Math.round(netIncomeCents * 0.119);
-  }
-  return 0;
-}
-
-/**
- * Select income tax brackets by jurisdiction.
- */
-function getBrackets(jurisdiction: string) {
-  if (jurisdiction === 'ca') return CA_FEDERAL_BRACKETS;
-  return US_FEDERAL_BRACKETS; // default to US
-}
+// Income-tax + self-employment-tax math now comes from the shared jurisdiction
+// packs — the same source the Next.js estimate route and the What-If simulators
+// use. This replaces the old inline US/CA-only engine (no SS wage cap, flat CPP,
+// no provincial tax, silent US-default for other jurisdictions). One engine.
+const EXPRESS_BRACKET_PROVIDERS: Record<string, TaxBracketProvider> = {
+  us: usTaxBrackets,
+  ca: caTaxBrackets,
+  au: auTaxBrackets,
+};
+const EXPRESS_SE_TAX_CALCULATORS: Record<string, SelfEmploymentTaxCalculator> = {
+  us: usSelfEmploymentTax,
+  ca: caSelfEmploymentTax,
+  au: auSelfEmploymentTax,
+};
 
 // ============================================
 // US QUARTERLY DEADLINES
@@ -319,17 +270,22 @@ router.get('/agentbook-tax/tax/estimate', async (req: any, res) => {
     const expensesCents = (expenseAgg._sum.debitCents || 0) - (expenseAgg._sum.creditCents || 0);
     const netIncomeCents = grossRevenueCents - expensesCents;
 
-    // 3. Calculate self-employment tax
-    const seTaxCents = calcSelfEmploymentTax(netIncomeCents, jurisdiction);
+    // 3. Self-employment tax — real jurisdiction pack (SS wage cap + additional
+    //    Medicare for US; CPP basic exemption + CPP2 ceiling for CA), not the
+    //    old flat approximation.
+    const taxYear = currentYear();
+    const seCalc = EXPRESS_SE_TAX_CALCULATORS[jurisdiction];
+    const se = seCalc ? seCalc.calculate(netIncomeCents, taxYear) : { amountCents: 0, deductiblePortionCents: 0 };
+    const seTaxCents = se.amountCents;
 
-    // 4. Calculate income tax using progressive brackets
-    // For US: SE tax deduction = 50% of SE tax
-    const seDeduction = jurisdiction === 'us' ? Math.round(seTaxCents / 2) : 0;
-    const taxableIncomeCents = Math.max(0, netIncomeCents - seDeduction);
-    const brackets = getBrackets(jurisdiction);
-    // W-2 wages stack on top of self-employment income for bracket placement.
+    // 4. Income tax = federal (bracket provider, NO region) + sub-national
+    //    (US state / CA provincial) via the single sub-national source, so
+    //    provincial can't be double-counted. W-2 wages stack on the base.
+    const taxableIncomeCents = Math.max(0, netIncomeCents - se.deductiblePortionCents);
     const combinedTaxableCents = taxableIncomeCents + w2IncomeCents;
-    const incomeTaxCents = calcProgressiveTax(combinedTaxableCents, brackets);
+    const federalCents = (EXPRESS_BRACKET_PROVIDERS[jurisdiction] ?? usTaxBrackets).calculateTax(combinedTaxableCents, taxYear).taxCents;
+    const stateCents = calculateStateTax(combinedTaxableCents, region, String(jurisdiction).toUpperCase()).taxCents;
+    const incomeTaxCents = federalCents + stateCents;
     const totalTaxCents = seTaxCents + incomeTaxCents;
     // What is still owed after crediting W-2 tax already withheld this year.
     const amountOwedCents = Math.max(0, totalTaxCents - w2WithheldCents);
