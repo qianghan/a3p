@@ -21,6 +21,36 @@ async function mockCheckStatus(confirmationNumber: string): Promise<{ status: st
   return { status: 'accepted', details: 'Package prepared and exported. AgentBook does not lodge with the CRA — file it yourself; the CRA issues your Notice of Assessment after you file.' };
 }
 
+/**
+ * Decide how a submission is recorded and described. Pure — the single source
+ * of truth for the honesty rule: ONLY a certified-partner acceptance counts as
+ * 'filed'; the mock / no-partner path is an export the user still has to lodge,
+ * and must never be reported as filed.
+ */
+export function buildFilingOutcome(
+  viaCertifiedPartner: boolean,
+  result: { confirmationNumber: string; status: string },
+): { dbStatus: string; filedStatus: string; status: string; filed: boolean; filedAtDate: Date | null; message: string } {
+  if (viaCertifiedPartner) {
+    return {
+      dbStatus: 'filed',
+      filedStatus: result.status,
+      status: result.status,
+      filed: true,
+      filedAtDate: new Date(),
+      message: `Your return was filed with the tax authority via a certified e-file partner (confirmation ${result.confirmationNumber}, status ${result.status}).`,
+    };
+  }
+  return {
+    dbStatus: 'exported',
+    filedStatus: 'exported_not_filed',
+    status: 'exported',
+    filed: false,
+    filedAtDate: null,
+    message: `Your return package is finalized and exported (ref ${result.confirmationNumber}). This is NOT a filing — AgentBook does not lodge with the tax authority. File it yourself via NETFILE / your tax authority account.`,
+  };
+}
+
 // === Submit Filing ===
 
 export async function submitFiling(
@@ -57,6 +87,11 @@ export async function submitFiling(
     where: { jurisdiction: filing.jurisdiction, enabled: true },
   });
 
+  // Only a real, certified partner submission may mark a return as actually
+  // 'filed' with the tax authority. The mock/no-partner path produces an
+  // EXPORTED package the user lodges themselves — it must never claim 'filed'.
+  const viaCertifiedPartner = !!partner?.apiUrl;
+
   let result: { confirmationNumber: string; status: string };
   if (partner?.apiUrl) {
     // Real partner API call
@@ -84,14 +119,17 @@ export async function submitFiling(
     result = await mockSubmit({ taxYear, forms });
   }
 
-  // 5. Update filing
+  // 5. Update filing. A certified-partner acceptance is a real filing; the mock
+  // path is an EXPORT the user still has to lodge — record it as 'exported' so
+  // the system (and its "already filed" guard) never believes it was filed.
+  const outcome = buildFilingOutcome(viaCertifiedPartner, result);
   await db.abTaxFiling.update({
     where: { id: filing.id },
     data: {
-      status: 'filed',
-      filedAt: new Date(),
+      status: outcome.dbStatus,
+      filedAt: outcome.filedAtDate,
       filedRef: result.confirmationNumber,
-      filedStatus: result.status,
+      filedStatus: outcome.filedStatus,
     },
   });
 
@@ -99,11 +137,10 @@ export async function submitFiling(
     success: true,
     data: {
       confirmationNumber: result.confirmationNumber,
-      status: result.status,
-      filedAt: new Date().toISOString(),
-      message: result.status === 'accepted'
-        ? `Your return package is finalized and exported (ref ${result.confirmationNumber}). AgentBook does not lodge with the CRA — file it yourself via NETFILE or your CRA My Business Account.`
-        : `Return package exported. Status: ${result.status}. Ref: ${result.confirmationNumber}. AgentBook does not file with the CRA — you lodge it.`,
+      status: outcome.status,
+      filed: outcome.filed,
+      filedAt: outcome.filedAtDate ? outcome.filedAtDate.toISOString() : null,
+      message: outcome.message,
     },
   };
 }
