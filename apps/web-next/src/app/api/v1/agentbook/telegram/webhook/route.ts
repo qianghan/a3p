@@ -23,13 +23,7 @@ import { parseDateHint } from '@/lib/agentbook-time-aggregator';
 import { autoCategorizeForTenant, getPendingSuggestions, dropPendingSuggestion } from '@/lib/agentbook-auto-categorize';
 import { updateMileageEntry } from '@/lib/agentbook-mileage-service';
 import { formatCurrencyCents } from '@/lib/jurisdiction-currency';
-import { usTaxBrackets } from '@agentbook/jurisdictions/us/tax-brackets';
-import { caTaxBrackets } from '@agentbook/jurisdictions/ca/tax-brackets';
-import { auTaxBrackets } from '@agentbook/jurisdictions/au/tax-brackets';
-import { usSelfEmploymentTax } from '@agentbook/jurisdictions/us/self-employment-tax';
-import { caSelfEmploymentTax } from '@agentbook/jurisdictions/ca/self-employment-tax';
-import { auSelfEmploymentTax } from '@agentbook/jurisdictions/au/self-employment-tax';
-import type { TaxBracketProvider, SelfEmploymentTaxCalculator } from '@agentbook/jurisdictions/interfaces';
+import { estimateTotalIncomeTax } from '@agentbook/jurisdictions/total-tax';
 import {
   getDigestPrefs,
   setDigestPrefs,
@@ -141,12 +135,6 @@ function fmtUsd(cents: number): string {
 // and cashflow-scenario routes use. Replaces the fallback agent's previous
 // hardcoded US SE/FICA math (0.9235 × 0.153) + US 22% bracket, which it
 // applied to every non-CA tenant (AU/UK included) — wrong money in chat.
-const TG_BRACKET_PROVIDERS: Record<string, TaxBracketProvider> = {
-  us: usTaxBrackets, ca: caTaxBrackets, au: auTaxBrackets,
-};
-const TG_SE_CALCULATORS: Record<string, SelfEmploymentTaxCalculator> = {
-  us: usSelfEmploymentTax, ca: caSelfEmploymentTax, au: auSelfEmploymentTax,
-};
 // The self-employment / social-contribution line label per jurisdiction.
 const SE_LINE_LABEL: Record<string, string> = {
   us: 'SE tax', ca: 'CPP', au: 'Medicare levy', uk: 'Class 2/4 NI',
@@ -160,13 +148,16 @@ const BUSINESS_TAX_FORM: Record<string, string> = {
   us: 'Schedule C', ca: 'T2125', au: 'business schedule', uk: 'Self Assessment',
 };
 
-/** Split net self-employment income into SE/contribution tax + income tax for a jurisdiction. */
-export function calcJurisdictionTax(netCents: number, jurisdiction: string, taxYear: number): { seCents: number; incomeCents: number; totalCents: number } {
+/**
+ * Split net self-employment income into SE/contribution tax + income tax for a
+ * jurisdiction, via the one shared composer (SE + federal + US-state /
+ * CA-provincial). `region` (province/state) is folded into the income-tax line
+ * for the 2-line Telegram display; omit it and the estimate is federal-only.
+ */
+export function calcJurisdictionTax(netCents: number, jurisdiction: string, taxYear: number, region?: string | null): { seCents: number; incomeCents: number; totalCents: number } {
   if (netCents <= 0) return { seCents: 0, incomeCents: 0, totalCents: 0 };
-  const se = TG_SE_CALCULATORS[jurisdiction]?.calculate(netCents, taxYear) ?? { amountCents: 0, deductiblePortionCents: 0 };
-  const taxable = Math.max(0, netCents - se.deductiblePortionCents);
-  const incomeCents = (TG_BRACKET_PROVIDERS[jurisdiction] ?? usTaxBrackets).calculateTax(taxable, taxYear).taxCents;
-  return { seCents: se.amountCents, incomeCents, totalCents: se.amountCents + incomeCents };
+  const r = estimateTotalIncomeTax(netCents, jurisdiction, region ?? '', taxYear);
+  return { seCents: r.seTaxCents, incomeCents: r.incomeTaxCents + r.stateTaxCents, totalCents: r.totalTaxCents };
 }
 
 /**
@@ -1326,7 +1317,7 @@ async function callMinimalAgent(
       const exp = (expAgg._sum.debitCents || 0) - (expAgg._sum.creditCents || 0);
       const net = gross - exp;
       const currency = tenantConfig?.currency || 'USD';
-      const { seCents, incomeCents, totalCents } = calcJurisdictionTax(net, jurisdiction, new Date().getFullYear());
+      const { seCents, incomeCents, totalCents } = calcJurisdictionTax(net, jurisdiction, new Date().getFullYear(), tenantConfig?.region);
       const money = (c: number) => formatCurrencyCents(c, currency);
       const seLabel = SE_LINE_LABEL[jurisdiction] ?? 'SE tax';
       return { success: true, data: { message: `🧾 <b>YTD tax estimate (${jurisdiction.toUpperCase()})</b>\n\n• Revenue: ${money(gross)}\n• Expenses: ${money(exp)}\n• Net income: ${money(net)}\n• ${seLabel}: ${money(seCents)}\n• Income tax: ${money(incomeCents)}\n• <b>Total: ${money(totalCents)}</b>`, skillUsed: 'query-finance' } };
