@@ -60,6 +60,36 @@ describe('one canonical tax engine', () => {
     expect(src).not.toMatch(/function getBrackets\s*\(/);
   });
 
+  // The two assertions above name the identifiers the deleted engine happened to
+  // use, so they only catch a byte-for-byte revert. Re-adding the same engine
+  // under any other name walked straight through them — verified by mutation.
+  // What actually matters is that bracket DATA lives in the jurisdictions
+  // package and nowhere else, so assert the shape of the data instead of the
+  // names around it. The provider map is `Record<..> = {`, and thresholds are
+  // imported, so a legitimate file has no rate literals at all.
+  it('no tax surface embeds its own rate table (names change; a table is a table)', () => {
+    const RATE_TABLE_SHAPES: [RegExp, string][] = [
+      [/\[\s*\d[\d_]*\s*,\s*0?\.\d+/, 'tuple-style bracket row, e.g. [11925, 0.12]'],
+      [/\brate:\s*0?\.\d+/, 'object-style bracket row, e.g. { rate: 0.12 }'],
+      [/\b(?:const|let|var)\s+\w*(?:BRACKETS|Brackets)\w*\s*(?::[^=]+)?=\s*\[/, 'a locally declared bracket array'],
+    ];
+    for (const [name, path] of [
+      ['express-tax', EXPRESS_TAX],
+      ['chat', CHAT],
+      ['telegram', TELEGRAM],
+      ['cash-flow', CASHFLOW],
+      ['estimate', ESTIMATE],
+    ] as const) {
+      const src = read(path);
+      for (const [shape, description] of RATE_TABLE_SHAPES) {
+        expect(
+          shape.test(src),
+          `${name} (${path}) contains ${description}. Tax rates belong in @agentbook/jurisdictions — a second copy is how CA filers got double-charged (#381) and how chat disagreed with the estimate (#382).`,
+        ).toBe(false);
+      }
+    }
+  });
+
   it('the T1 form uses the canonical 2025 CA federal brackets, not a stale table', () => {
     const src = read('plugins/agentbook-tax/backend/src/tax-forms.ts');
     expect(src).toMatch(/5737500/);   // $57,375 — canonical first bracket

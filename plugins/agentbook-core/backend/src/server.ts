@@ -23,7 +23,23 @@ import { usChartOfAccounts } from '@agentbook/jurisdictions/us/chart-of-accounts
 import { caChartOfAccounts } from '@agentbook/jurisdictions/ca/chart-of-accounts';
 import { auChartOfAccounts } from '@agentbook/jurisdictions/au/chart-of-accounts';
 import { estimateTotalIncomeTax } from '@agentbook/jurisdictions/total-tax';
-import type { ChartOfAccountsTemplate } from '@agentbook/jurisdictions/interfaces';
+import { usTaxBrackets } from '@agentbook/jurisdictions/us/tax-brackets';
+import { caTaxBrackets } from '@agentbook/jurisdictions/ca/tax-brackets';
+import { auTaxBrackets } from '@agentbook/jurisdictions/au/tax-brackets';
+import type { ChartOfAccountsTemplate, TaxBracketProvider } from '@agentbook/jurisdictions/interfaces';
+import { bracketProximityMove } from './bracket-proximity.js';
+
+/**
+ * Bracket providers for advisory features that need to know WHERE a threshold
+ * sits (e.g. bracket-proximity timing advice). Tax OWED is always computed by
+ * estimateTotalIncomeTax — never from these directly, which is what kept
+ * chat and the estimate disagreeing (#382).
+ */
+const CORE_BRACKET_PROVIDERS: Record<string, TaxBracketProvider> = {
+  us: usTaxBrackets,
+  ca: caTaxBrackets,
+  au: auTaxBrackets,
+};
 
 // Read plugin.json for dev-only fields. When bundled by webpack (Next.js
 // on Vercel), `new URL(..., import.meta.url)` is incompatible with fs —
@@ -1535,30 +1551,15 @@ app.get('/api/v1/agentbook-core/money-moves', async (req, res) => {
     const estimate = await db.abTaxEstimate.findFirst({ where: { tenantId }, orderBy: { calculatedAt: 'desc' } });
     if (estimate && estimate.netIncomeCents > 0) {
       const jurisdiction = config?.jurisdiction || 'us';
-      // Simplified bracket check
-      const brackets = jurisdiction === 'ca'
-        ? [{ min: 0, max: 5737500, rate: 0.15 }, { min: 5737500, max: 11475000, rate: 0.205 }, { min: 11475000, max: 15846800, rate: 0.26 }, { min: 15846800, max: 22170800, rate: 0.29 }, { min: 22170800, max: null as number | null, rate: 0.33 }]
-        : jurisdiction === 'au'
-        ? [{ min: 0, max: 1820000, rate: 0 }, { min: 1820000, max: 4500000, rate: 0.16 }, { min: 4500000, max: 13500000, rate: 0.30 }, { min: 13500000, max: 19000000, rate: 0.37 }, { min: 19000000, max: null as number | null, rate: 0.45 }]
-        : [{ min: 0, max: 1160000, rate: 0.10 }, { min: 1160000, max: 4712500, rate: 0.12 }, { min: 4712500, max: 10052500, rate: 0.22 }, { min: 10052500, max: 19190000, rate: 0.24 }, { min: 19190000, max: null as number | null, rate: 0.32 }];
-
-      for (let i = 0; i < brackets.length - 1; i++) {
-        const b = brackets[i];
-        if (b.max && estimate.netIncomeCents > b.min && estimate.netIncomeCents < b.max) {
-          const gap = b.max - estimate.netIncomeCents;
-          if (gap < 500000 && gap > 0) { // Within $5,000 of next bracket
-            const nextRate = brackets[i + 1].rate;
-            const savings = Math.round(gap * (nextRate - b.rate));
-            moves.push({
-              type: 'optimal_timing', urgency: 'informational',
-              title: `$${(gap / 100).toFixed(0)} from next tax bracket`,
-              description: `Prepay $${(gap / 100).toFixed(0)} in deductible expenses before year-end to stay in the ${(b.rate * 100).toFixed(0)}% bracket and save ~$${(savings / 100).toFixed(0)}.`,
-              impactCents: savings,
-            });
-            break;
-          }
-        }
-      }
+      // Brackets come from the jurisdictions package — the single source. They
+      // used to be an inline table here, which had ALREADY drifted a full tax
+      // year: it carried the 2024 US thresholds ($11,600 / $47,125) while the
+      // package held 2025's ($11,925 / $48,475). A second copy of a rate table
+      // doesn't stay correct, it just goes wrong somewhere nobody is looking.
+      const taxYear = Number.parseInt(estimate.period.slice(0, 4), 10) || new Date().getFullYear();
+      const brackets = (CORE_BRACKET_PROVIDERS[jurisdiction] ?? usTaxBrackets).getTaxBrackets(taxYear);
+      const timing = bracketProximityMove(estimate.netIncomeCents, brackets);
+      if (timing) moves.push(timing);
     }
 
     res.json({ success: true, data: moves });

@@ -82,6 +82,40 @@ jobs:
           fi
           echo "Login OK — credentials converged."
 
+  # ===========================================================================
+  # Core regression guards — the money core, re-checked nightly against main.
+  #
+  # PR CI runs these against each PR's merge commit. That is not the same thing
+  # as running them against main: two PRs can each be green alone and wrong
+  # together (the deploy race that dropped columns was exactly this shape). This
+  # job answers "is the shipped tax and ledger core still correct today", which
+  # the e2e phases can't — they prove the site responds, not that the arithmetic
+  # and the wiring are right.
+  #
+  # Independent of `seed`/`e2e` on purpose: it needs no production, no
+  # credentials and no database, so it still reports even when prod is down —
+  # which is when a green-looking silent night is most misleading.
+  # ===========================================================================
+  core-guards:
+    name: Core regression guards
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+      - run: npm ci --prefer-offline --no-audit
+      - name: Architectural invariants, ledger wiring, tax routes
+        run: |
+          cd apps/web-next && npx vitest run \
+            src/__tests__/architecture/ \
+            src/__tests__/api/v1/agentbook-expense/ledger-wiring.test.ts \
+            src/__tests__/api/v1/agentbook-tax/
+      - name: Jurisdiction tax engines (golden numbers, US/CA/AU)
+        run: cd packages/agentbook-jurisdictions && npm test
+
   e2e:
     name: Phase ${{ matrix.phase }}
     runs-on: ubuntu-latest
@@ -127,7 +161,7 @@ jobs:
     # the phase-job scan below finds nothing and the night would pass in silence
     # — the same "no signal looks like good news" trap that hid a dead suite for
     # three months.
-    needs: [seed, e2e]
+    needs: [seed, core-guards, e2e]
     if: always() && github.event_name == 'schedule'
     permissions:
       issues: write
@@ -139,6 +173,40 @@ jobs:
             const { data: { jobs } } = await github.rest.actions.listJobsForWorkflowRun({
               owner: context.repo.owner, repo: context.repo.repo, run_id: context.runId,
             });
+            // A core-guard failure is the most serious signal this workflow can
+            // produce: the tax/ledger core regressed on main. Reported before
+            // (and independently of) the seed check, since it does not depend on
+            // production being reachable.
+            if ('${{ needs.core-guards.result }}' === 'failure') {
+              const title = '[nightly-e2e] core regression guards failing';
+              const search = await github.rest.search.issuesAndPullRequests({
+                q: `repo:${context.repo.owner}/${context.repo.repo} is:issue is:open label:nightly-fail in:title "core regression"`,
+              });
+              const body = [
+                'The money core regressed on `main`: an architectural invariant, the',
+                'expense ledger wiring, a tax route, or a jurisdiction golden number failed.',
+                '',
+                'Treat as launch-blocking until triaged — every one of these guards exists',
+                'because the corresponding bug already shipped once and silently mis-stated',
+                "a user's tax or books.",
+                '',
+                `**Run:** ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
+                `**Commit:** ${context.sha.slice(0, 8)}`,
+              ].join('\n');
+              if (search.data.total_count > 0) {
+                await github.rest.issues.createComment({
+                  owner: context.repo.owner, repo: context.repo.repo,
+                  issue_number: search.data.items[0].number,
+                  body: `Failure repeated:\n\n${body}`,
+                });
+              } else {
+                await github.rest.issues.create({
+                  owner: context.repo.owner, repo: context.repo.repo,
+                  title, body, labels: ['nightly-fail', 'phase:core-guards'],
+                });
+              }
+            }
+
             // Seed failure means the phases never ran at all. Report it loudly
             // rather than letting an empty phase list read as a clean night.
             if ('${{ needs.seed.result }}' !== 'success') {
