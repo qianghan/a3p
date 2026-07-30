@@ -6,74 +6,84 @@ import { SEED } from './helpers/data';
 test.describe('@phase2-dashboard', () => {
   test.beforeEach(async ({ page }) => { await loginAsE2eUser(page); });
 
-  test('forward view renders with non-zero cash', async ({ page }) => {
+  // ---------------------------------------------------------------------
+  // The dashboard was redesigned into an agent-centric view. The old forward
+  // view, "Needs your attention" panel, this-month strip, activity feed and
+  // mobile "Quick actions" bar no longer exist, so ten tests here asserted on
+  // a UI that is gone. They had never run, so nobody noticed the drift.
+  //
+  // Rather than delete the intent, each promise is re-asserted where it now
+  // lives: the numbers against /dashboard/overview (which still computes cash,
+  // the attention queue and month-to-date), and the page itself against what
+  // it actually renders. Asserting rendered content, not just a URL, is the
+  // lesson from the tax-nav bug — a link can be present while the page behind
+  // it is broken.
+  // ---------------------------------------------------------------------
+
+  test('dashboard renders for an authenticated user', async ({ page }) => {
     await page.goto('/agentbook');
-    await expect(page.locator('text=/\\$[\\d,]+\\s*today/i').first()).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByRole('heading', { name: /^Dashboard$/i })).toBeVisible({ timeout: 10_000 });
   });
 
-  test('attention panel shows the seeded overdue invoice', async ({ page }) => {
+  test('the advisor panel renders and is named', async ({ page }) => {
     await page.goto('/agentbook');
-    await expect(page.locator('text=/overdue/i').first()).toBeVisible({ timeout: 10_000 });
+    // The personified advisor is a product promise, not decoration: the panel
+    // must actually mount, not just leave a heading behind.
+    await expect(page.locator('[data-testid="chat-messages"]')).toBeVisible({ timeout: 15_000 });
   });
 
-  test('attention panel renders (with or without items)', async ({ page }) => {
-    // The seed only creates 1 missing-receipt expense. The attention panel's
-    // ranking rule requires ≥3 missing receipts before the callout fires, so
-    // we just assert the panel itself is on the page.
-    await page.goto('/agentbook');
-    await expect(page.locator('text=/Needs your attention/i').first()).toBeVisible({ timeout: 10_000 });
+  test('overview reports non-zero cash for the seeded tenant', async ({ page }) => {
+    const r = await api(page).get('/api/v1/agentbook-core/dashboard/overview');
+    expect(r.status).toBe(200);
+    expect(typeof r.data.data.cashToday).toBe('number');
+    // The seed books real invoices and expenses, so this tenant is never "brand
+    // new". If it flips true, the seed silently did nothing.
+    expect(r.data.data.isBrandNew).toBe(false);
   });
 
-  test('agent summary line is non-empty (LLM or fallback)', async ({ page }) => {
-    await page.goto('/agentbook');
-    const summary = page.locator('section:has-text("Needs your attention") p').first();
-    await expect(summary).not.toHaveText('', { timeout: 10_000 });
+  test('overview surfaces the seeded overdue invoice in the attention queue', async ({ page }) => {
+    const r = await api(page).get('/api/v1/agentbook-core/dashboard/overview');
+    expect(r.status).toBe(200);
+    expect(r.data.data.attention).toBeTruthy();
+    const serialised = JSON.stringify(r.data.data.attention);
+    expect(serialised).toMatch(/overdue/i);
   });
 
-  test('this-month strip shows three numbers', async ({ page }) => {
-    await page.goto('/agentbook');
-    await expect(page.locator('text=/Rev/').first()).toBeVisible();
-    await expect(page.locator('text=/Exp/').first()).toBeVisible();
-    await expect(page.locator('text=/Net/').first()).toBeVisible();
+  test('month-to-date figures are present', async ({ page }) => {
+    const r = await api(page).get('/api/v1/agentbook-core/dashboard/overview');
+    expect(r.status).toBe(200);
+    // monthMtd is deliberately null when both sides are zero; the seeded tenant
+    // has activity, so null here means the aggregation stopped working.
+    expect(r.data.data.monthMtd).not.toBeNull();
+    expect(typeof r.data.data.monthMtd.revenueCents).toBe('number');
+    expect(typeof r.data.data.monthMtd.expenseCents).toBe('number');
   });
 
-  test('activity feed shows ≥3 mixed items', async ({ page }) => {
-    await page.goto('/agentbook');
-    const items = page.locator('section:has-text("Recent activity") li');
-    await expect(items.nth(2)).toBeVisible({ timeout: 10_000 });
+  test('primary money surfaces are reachable AND render', async ({ page }) => {
+    // Each destination must render its own content. A working link to a broken
+    // page is exactly what a URL-only assertion misses.
+    for (const [href, heading] of [
+      ['/agentbook/expenses', /expense/i],
+      ['/agentbook/invoices', /invoice/i],
+      ['/agentbook/tax', /tax|report/i],
+    ] as const) {
+      await page.goto(href);
+      await expect(page.getByRole('heading', { name: heading }).first())
+        .toBeVisible({ timeout: 15_000 });
+    }
   });
 
-  test('sticky bottom bar visible on mobile (375x812)', async ({ page }) => {
+  // The mobile "Quick actions" bar, its "New invoice" link and the kebab menu
+  // were all removed in the dashboard redesign — verified absent at 375x812 on
+  // production, not merely assumed. Their tests are deleted rather than left
+  // failing, since there is no longer a promise behind them.
+  //
+  // Receipt capture IS still a real, recently-fixed feature; it just lives on
+  // /app/capture now, so that coverage is retargeted rather than dropped.
+  test('mobile receipt capture offers a camera input', async ({ page }) => {
     await page.setViewportSize({ width: 375, height: 812 });
-    await page.goto('/agentbook');
-    await expect(page.locator('nav[aria-label="Quick actions"]')).toBeVisible({ timeout: 10_000 });
-  });
-
-  test('sticky bar hidden on desktop (1280x800)', async ({ page }) => {
-    await page.setViewportSize({ width: 1280, height: 800 });
-    await page.goto('/agentbook');
-    await expect(page.locator('nav[aria-label="Quick actions"]')).not.toBeVisible();
-  });
-
-  test('"New invoice" routes correctly', async ({ page }) => {
-    await page.setViewportSize({ width: 375, height: 812 });
-    await page.goto('/agentbook');
-    await page.click('a:has-text("New invoice")');
-    await page.waitForURL(/\/agentbook\/invoices\/new/);
-  });
-
-  test('"Snap" triggers a hidden file input with capture=environment', async ({ page }) => {
-    await page.setViewportSize({ width: 375, height: 812 });
-    await page.goto('/agentbook');
-    const input = page.locator('input[type="file"][capture="environment"]');
-    await expect(input).toHaveCount(1);
-  });
-
-  test('kebab menu opens with refresh + telegram items', async ({ page }) => {
-    await page.goto('/agentbook');
-    await page.click('button[aria-label="More"]');
-    await expect(page.locator('text=/Refresh/i')).toBeVisible();
-    await expect(page.locator('text=/Share to Telegram/i')).toBeVisible();
+    await page.goto('/app/capture');
+    await expect(page.locator('input[type="file"][capture="environment"]')).toHaveCount(1);
   });
 
   test('OnboardingHero is not shown (seed worked)', async ({ page }) => {

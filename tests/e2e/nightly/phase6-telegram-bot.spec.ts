@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { postUpdate, E2E_CHAT } from './helpers/telegram';
+import { expectOk } from './helpers/api';
 
 test.describe('@phase6-telegram-bot', () => {
   // Skip the entire phase if TELEGRAM_BOT_TOKEN isn't configured on the
@@ -75,6 +76,6 @@ test.describe('@phase6-telegram-bot', () => {
     const r = await postUpdate('hello', { chatId: 999999999 });
     // Either webhook ignores it gracefully or returns a benign 200; the
     // important thing is no crash and no production data pollution.
-    expect(r.status).toBeLessThan(500);
+    expectOk(r, 'telegram/webhook');
   });
 });

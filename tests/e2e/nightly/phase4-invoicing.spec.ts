@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { loginAsE2eUser } from './helpers/auth';
-import { api } from './helpers/api';
+import { api, expectOk } from './helpers/api';
 import { SEED, tag } from './helpers/data';
 
 test.describe('@phase4-invoicing', () => {
@@ -16,7 +16,7 @@ test.describe('@phase4-invoicing', () => {
   test('create client', async ({ page }) => {
     const name = `Client-${tag('phase4')}`;
     const r = await api(page).post('/api/v1/agentbook-invoice/clients', { name, email: 't@t.test' });
-    expect(r.status).toBe(200);
+    expect(r.status).toBe(201); // REST-correct create; the test said 200
     await api(page).delete(`/api/v1/agentbook-invoice/clients/${r.data.data.id}`);
   });
   test('edit client', async ({ page }) => {
@@ -45,7 +45,7 @@ test.describe('@phase4-invoicing', () => {
     const r = await api(page).post('/api/v1/agentbook-invoice/invoices', {
       clientId, lines: [{ description: 'Service', amountCents: 50000 }], dueDate: new Date(Date.now()+30*86400000).toISOString(),
     });
-    expect(r.status).toBe(200);
+    expect(r.status).toBe(201);
     await api(page).delete(`/api/v1/agentbook-invoice/invoices/${r.data.data.id}`);
   });
   test('create multi-line invoice', async ({ page }) => {
@@ -70,7 +70,7 @@ test.describe('@phase4-invoicing', () => {
       clientId: clients.data.data[0].id, lines: [{ description: 'X', amountCents: 1000 }], dueDate: new Date(Date.now()+30*86400000).toISOString(),
     });
     const send = await api(page).post(`/api/v1/agentbook-invoice/invoices/${inv.data.data.id}/send`, {});
-    expect(send.status).toBeLessThan(500);
+    expectOk(send, 'agentbook-invoice/invoices/{inv.data.data.id}/send');
     await api(page).delete(`/api/v1/agentbook-invoice/invoices/${inv.data.data.id}`);
   });
 
@@ -79,7 +79,7 @@ test.describe('@phase4-invoicing', () => {
     const r = await api(page).post('/api/v1/agentbook-invoice/payments', {
       invoiceNumber: SEED.invoices.sent, amountCents: 120000, method: 'bank_transfer',
     });
-    expect(r.status).toBeLessThan(500);
+    expectOk(r, 'agentbook-invoice/payments');
   });
   test('void invoice', async ({ page }) => {
     const clients = await api(page).get('/api/v1/agentbook-invoice/clients');
@@ -87,13 +87,15 @@ test.describe('@phase4-invoicing', () => {
       clientId: clients.data.data[0].id, lines: [{ description: 'X', amountCents: 1000 }], dueDate: new Date().toISOString(),
     });
     const v = await api(page).post(`/api/v1/agentbook-invoice/invoices/${inv.data.data.id}/void`, {});
-    expect(v.status).toBeLessThan(500);
+    expectOk(v, 'agentbook-invoice/invoices/{inv.data.data.id}/void');
   });
+  // The endpoint is `pay-link`, not `payment-link` — the latter never existed
+  // in production and 501'd through the [plugin]/[...path] catch-all.
   test('payment link returns mock URL when no Stripe configured', async ({ page }) => {
     const inv = await api(page).get('/api/v1/agentbook-invoice/invoices');
     const id = inv.data.data[0].id;
-    const r = await api(page).post(`/api/v1/agentbook-invoice/invoices/${id}/payment-link`, {});
-    expect(r.status).toBeLessThan(500);
+    const r = await api(page).post(`/api/v1/agentbook-invoice/invoices/${id}/pay-link`, {});
+    expectOk(r, 'agentbook-invoice/invoices/{id}/pay-link');
     if (!process.env.STRIPE_SECRET_KEY) {
       expect(r.data?.data?.paymentUrl).toMatch(/\/pay\//);
     }
@@ -112,12 +114,12 @@ test.describe('@phase4-invoicing', () => {
     const r = await api(page).post('/api/v1/agentbook-invoice/recurring-invoices', {
       clientId: clients.data.data[0].id, cadence: 'monthly', amountCents: 50000, description: `rec-${tag('phase4')}`,
     });
-    expect(r.status).toBeLessThan(500);
+    expectOk(r, 'agentbook-invoice/recurring-invoices');
     if (r.data?.data?.id) await api(page).delete(`/api/v1/agentbook-invoice/recurring-invoices/${r.data.data.id}`);
   });
   test('recurring generator runs', async ({ page }) => {
     const r = await api(page).post('/api/v1/agentbook-invoice/recurring-invoices/generate', {});
-    expect(r.status).toBeLessThan(500);
+    expectOk(r, 'agentbook-invoice/recurring-invoices/generate');
   });
 
   // ESTIMATES + CREDIT NOTES (2)
@@ -128,7 +130,7 @@ test.describe('@phase4-invoicing', () => {
     });
     if (e.data?.data?.id) {
       const c = await api(page).post(`/api/v1/agentbook-invoice/estimates/${e.data.data.id}/convert`, {});
-      expect(c.status).toBeLessThan(500);
+      expectOk(c, 'agentbook-invoice/estimates/{e.data.data.id}/convert');
     }
   });
   test('create credit note against paid invoice', async ({ page }) => {
@@ -137,18 +139,18 @@ test.describe('@phase4-invoicing', () => {
     const r = await api(page).post('/api/v1/agentbook-invoice/credit-notes', {
       invoiceId: inv.data.data[0].id, amountCents: 100,
     });
-    expect(r.status).toBeLessThan(500);
+    expectOk(r, 'agentbook-invoice/credit-notes');
   });
 
   // TIME TRACKING (3)
   test('start timer', async ({ page }) => {
     const clients = await api(page).get('/api/v1/agentbook-invoice/clients');
     const r = await api(page).post('/api/v1/agentbook-invoice/timer/start', { clientId: clients.data.data[0].id });
-    expect(r.status).toBeLessThan(500);
+    expectOk(r, 'agentbook-invoice/timer/start');
   });
   test('stop timer', async ({ page }) => {
     const r = await api(page).post('/api/v1/agentbook-invoice/timer/stop', {});
-    expect(r.status).toBeLessThan(500);
+    expectOk(r, 'agentbook-invoice/timer/stop');
   });
   test('list time entries', async ({ page }) => {
     const r = await api(page).get('/api/v1/agentbook-invoice/time-entries');
@@ -161,14 +163,19 @@ test.describe('@phase4-invoicing', () => {
     expect(r.status).toBe(200);
   });
   test('project profitability', async ({ page }) => {
-    const r = await api(page).get('/api/v1/agentbook-invoice/project-profitability');
+    // /project-profitability is not served in production (501 via the
+    // catch-all). /projects is the endpoint that carries the per-project
+    // billed/cost figures this test is about.
+    const r = await api(page).get('/api/v1/agentbook-invoice/projects');
     expect(r.status).toBe(200);
+    expect(Array.isArray(r.data.data)).toBe(true);
   });
   test('invoice PDF download', async ({ page }) => {
     const inv = await api(page).get('/api/v1/agentbook-invoice/invoices');
     const id = inv.data.data[0].id;
-    const r = await api(page).post(`/api/v1/agentbook-invoice/invoices/${id}/pdf`, {});
-    expect(r.status).toBeLessThan(500);
+    // GET, not POST — a POST fell through to the catch-all.
+    const r = await api(page).get(`/api/v1/agentbook-invoice/invoices/${id}/pdf`);
+    expect(r.status).toBe(200);
   });
 
   // AUTO REMINDERS (1)
@@ -176,6 +183,6 @@ test.describe('@phase4-invoicing', () => {
     const r = await fetch(`${process.env.E2E_BASE_URL}/api/v1/agentbook/cron/payment-reminders`, {
       headers: { 'Authorization': `Bearer ${process.env.CRON_SECRET}` },
     });
-    expect(r.status).toBeLessThan(500);
+    expectOk(r, 'agentbook/cron/payment-reminders');
   });
 });
