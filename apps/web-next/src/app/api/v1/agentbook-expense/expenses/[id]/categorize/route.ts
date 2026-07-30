@@ -9,6 +9,7 @@ import 'server-only';
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma as db } from '@naap/database';
 import { safeResolveAgentbookTenant } from '@/lib/agentbook-tenant';
+import { backfillExpenseJournalEntry } from '@/lib/agentbook-expense-ledger';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -44,6 +45,11 @@ export async function POST(
       where: { id },
       data: { categoryId, confidence: 1.0 },
     });
+
+    // Now that the expense has a category, post its ledger entry if it never
+    // got one at creation (the common case for receipt-capture / bank-import).
+    // Without this the categorized expense stays invisible to the books + tax.
+    await backfillExpenseJournalEntry(tenantId, id);
 
     if (expense.vendorId) {
       const vendor = await db.abVendor.findUnique({ where: { id: expense.vendorId } });

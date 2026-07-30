@@ -15,6 +15,7 @@
 
 import 'server-only';
 import { prisma as db } from '@naap/database';
+import { backfillExpenseJournalEntry } from '@/lib/agentbook-expense-ledger';
 
 export interface AutoCategoryResult {
   appliedCount: number;
@@ -137,6 +138,9 @@ async function applyCategoryAndLearn(
     where: { id: expense.id },
     data: { categoryId: category.id, confidence },
   });
+  // Post the ledger entry now that it has a category — otherwise an
+  // auto-categorized expense stays off the books (and out of the tax estimate).
+  await backfillExpenseJournalEntry(tenantId, expense.id);
   // Persist the vendor → category pattern at moderate confidence so future
   // receipts auto-categorize without going back through Gemini.
   if (expense.vendorId) {
