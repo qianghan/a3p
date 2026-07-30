@@ -19,6 +19,21 @@ export interface CanonicalUtterance {
   text: string;
   category: 'bookkeeping' | 'invoicing' | 'tax' | 'budget' | 'consultation' | 'onboarding';
   expectedSkill?: string;       // which skill SHOULD be invoked
+  /**
+   * Additional skills that are ALSO a correct answer.
+   *
+   * Strict equality on a single expectedSkill is what made this fixture rot.
+   * It was written when there were ~16 skills; there are now 83, and splitting
+   * one coarse skill into two finer ones broke the assertion even though the
+   * agent had got BETTER — "start timer for X" was marked wrong for answering
+   * start-timer instead of the create-invoice the fixture demanded. Twelve of
+   * the fifteen failures on the first real run were this, not the product.
+   *
+   * Use this only where more than one route genuinely answers the user. If one
+   * skill is clearly right, leave it as a single expectedSkill so the assertion
+   * keeps its teeth.
+   */
+  acceptableSkills?: string[];
   forbidden?: string[];          // strings the agent must NOT say
   required?: string[];           // strings the agent MUST include
   isMultiTurn?: boolean;         // if true, this is part of a thread
@@ -67,6 +82,11 @@ export const CANONICAL: CanonicalUtterance[] = [
     persona: 'alex',
     text: 'show me top 5 vendors this quarter',
     category: 'bookkeeping',
+    // DELIBERATELY STRICT. The agent answers query-expenses, whose description
+    // does mention vendors, so this is arguably defensible — but vendor-insights
+    // exists precisely for "top vendors by amount". A router that prefers the
+    // generic skill over the purpose-built one is a quality signal worth keeping.
+    // Do not add query-expenses to acceptableSkills to make this green.
     expectedSkill: 'vendor-insights',
   },
   {
@@ -101,21 +121,24 @@ export const CANONICAL: CanonicalUtterance[] = [
     persona: 'maya',
     text: 'estimate Acme $3000 for the new project',
     category: 'invoicing',
-    expectedSkill: 'create-invoice',
+    // Was 'create-invoice': the user said "estimate"; create-estimate exists.
+    expectedSkill: 'create-estimate',
   },
   {
     id: 'cu-maya-012',
     persona: 'maya',
     text: 'start timer for TechCorp project',
     category: 'invoicing',
-    expectedSkill: 'create-invoice',
+    // Was 'create-invoice': "start timer" is start-timer, not an invoice.
+    expectedSkill: 'start-timer',
   },
   {
     id: 'cu-alex-010',
     persona: 'alex',
     text: 'got $7500 payment from BigCo',
     category: 'invoicing',
-    expectedSkill: 'create-invoice',
+    // Was 'create-invoice': receiving a payment is record-payment; the amount assertion below still stands.
+    expectedSkill: 'record-payment',
     required: ['$7,500'],
   },
   {
@@ -123,7 +146,8 @@ export const CANONICAL: CanonicalUtterance[] = [
     persona: 'alex',
     text: 'who owes me money?',
     category: 'invoicing',
-    expectedSkill: 'query-finance',
+    // Was 'query-finance': aging-report is literally "who owes money and how overdue".
+    expectedSkill: 'aging-report',
     forbidden: ['NaN', 'undefined'],
   },
 
@@ -135,7 +159,12 @@ export const CANONICAL: CanonicalUtterance[] = [
     persona: 'maya',
     text: 'how much will I owe in taxes this quarter?',
     category: 'tax',
-    expectedSkill: 'query-finance',
+    // Was 'query-finance', which is too vague for a tax question. Either tax
+    // skill answers it. The agent currently says manage-bills — whose trigger
+    // is "user mentions owing money" — so this still fails, correctly: routing
+    // a tax question to accounts payable is a real misroute, not fixture drift.
+    expectedSkill: 'tax-estimate',
+    acceptableSkills: ['quarterly-payments'],
     forbidden: ['NaN%', '2500%'],
   },
   {
@@ -143,7 +172,8 @@ export const CANONICAL: CanonicalUtterance[] = [
     persona: 'maya',
     text: 'what deductions can I still claim for last year?',
     category: 'tax',
-    expectedSkill: 'general-question',
+    // Was 'general-question': tax-deductions shows claimable deductions — a direct match.
+    expectedSkill: 'tax-deductions',
   },
   {
     id: 'cu-alex-020',
@@ -169,7 +199,8 @@ export const CANONICAL: CanonicalUtterance[] = [
     persona: 'maya',
     text: 'what is my monthly burn?',
     category: 'budget',
-    expectedSkill: 'query-finance',
+    // Was 'query-finance': burn is outflow/runway, which cashflow-report covers.
+    expectedSkill: 'cashflow-report',
     forbidden: ['NaN', 'undefined'],
   },
   {
@@ -202,6 +233,9 @@ export const CANONICAL: CanonicalUtterance[] = [
     persona: 'maya',
     text: 'what counts as a business meal deduction?',
     category: 'consultation',
+    // DELIBERATELY STRICT. This asks what the RULES are, not what the user can
+    // claim. The agent answers tax-deductions, which shows their own claimable
+    // deductions — the wrong shape of answer to a knowledge question.
     expectedSkill: 'general-question',
   },
   {
@@ -310,7 +344,8 @@ export const CANONICAL: CanonicalUtterance[] = [
     persona: 'jordan',
     text: 'start a timer for Acme on the redesign project',
     category: 'invoicing',
-    expectedSkill: 'create-invoice',
+    // Was 'create-invoice': same as cu-maya-012.
+    expectedSkill: 'start-timer',
     isMultiTurn: true,
     threadId: 't-jordan-timer',
   },
@@ -358,6 +393,11 @@ export const CANONICAL: CanonicalUtterance[] = [
     persona: 'alex',
     text: 'and meals?',
     category: 'bookkeeping',
+    // DELIBERATELY STRICT. Turn 1 asked "how much did I spend on travel last
+    // month?"; "and meals?" wants the same figure for another category in the
+    // same window. The agent answers expense-breakdown — a chart of ALL
+    // categories — which does not answer the question and loses the period.
+    // Same follow-up-context weakness as the correction threads.
     expectedSkill: 'query-expenses',
     isMultiTurn: true,
     threadId: 't-alex-period-followup',

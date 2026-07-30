@@ -24,10 +24,17 @@
  * its cookie once via the browser dev tools, or wire the harness into
  * the Playwright suite which already handles login.
  *
- * The harness is intentionally a thin runner. The same canonical set
- * powers the Playwright nightly suite at phase8-canonical-agent.spec.ts —
- * this script is for ad-hoc runs against a staging or local agent
- * without the Playwright dependency.
+ * This is the SINGLE runner for canonical-utterances.ts.
+ *
+ * A Playwright duplicate (phase8-canonical-agent.spec.ts) drove the same fixture
+ * through the same endpoint with the same three assertions. It was deleted, not
+ * wired into the nightly matrix: its @phase8-canonical tag never matched the
+ * matrix's --grep, so it had never once run. Two runners over one fixture is the
+ * same drift trap as two copies of a secret — they diverge — and running both
+ * would double the LLM spend and race two conversation-state resets against a
+ * single tenant. This runner is also strictly richer: it reports per-category
+ * accuracy, multi-turn coherence and hallucination rate, writes a JSON report,
+ * and exits non-zero below the rubric threshold.
  */
 
 import { CANONICAL, type CanonicalUtterance } from '../tests/e2e/nightly/canonical-utterances';
@@ -110,8 +117,13 @@ function evaluateTurn(cu: CanonicalUtterance, response: AgentMessageResponse | n
   const answer = response.data.message ?? '';
   const skillUsed = response.data.skillUsed;
 
-  if (cu.expectedSkill && skillUsed && skillUsed !== cu.expectedSkill) {
-    reasons.push(`expected skill "${cu.expectedSkill}", got "${skillUsed}"`);
+  const allowedSkills = cu.expectedSkill
+    ? [cu.expectedSkill, ...(cu.acceptableSkills ?? [])]
+    : [];
+  if (allowedSkills.length > 0 && skillUsed && !allowedSkills.includes(skillUsed)) {
+    reasons.push(
+      `expected skill ${allowedSkills.map((s) => `"${s}"`).join(' or ')}, got "${skillUsed}"`,
+    );
   }
   for (const must of cu.required ?? []) {
     if (!answer.includes(must)) {
