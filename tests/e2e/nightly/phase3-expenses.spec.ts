@@ -184,11 +184,26 @@ test.describe('@phase3-expenses', () => {
     // reversal was posted, so it could not fail for the reason it is named
     // after. Assert the ledger effect: the tax estimate must return to where it
     // started once the expense is gone.
+    //
+    // An explicit categoryId is required, and that is not incidental. POST
+    // /expenses only writes a journal entry when a category resolves, so an
+    // uncategorized expense never reaches the books at all — a separate,
+    // confirmed bug (it is saved as `confirmed`, is absent from the P&L, trial
+    // balance and tax estimate, and is not in the review queue either). Passing
+    // a category keeps THIS test about the reversal rather than failing on an
+    // unrelated defect; the defect itself is tracked on its own.
+    const accounts = await api(page).get('/api/v1/agentbook-core/accounts');
+    const expenseAccount = accounts.data.data.find(
+      (a: { accountType: string }) => a.accountType === 'expense',
+    );
+    expect(expenseAccount, 'tenant has no expense account to book against').toBeTruthy();
+
     const before = await api(page).get('/api/v1/agentbook-tax/tax/estimate');
     const baseline = before.data.data.expensesCents;
 
     const create = await api(page).post('/api/v1/agentbook-expense/expenses', {
-      amountCents: 2500, description: `delete-target-${tag('phase3')}`, date: new Date().toISOString(), isPersonal: false,
+      amountCents: 2500, description: `delete-target-${tag('phase3')}`, date: new Date().toISOString(),
+      isPersonal: false, categoryId: expenseAccount.id,
     });
     expect(create.status).toBe(201);
 
