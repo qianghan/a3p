@@ -22,7 +22,20 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     if ('response' in __resolved) return __resolved.response;
     const { tenantId } = __resolved;
 
-    const form = await request.formData();
+    // formData() THROWS on a non-multipart body, so a malformed request became a
+    // 500 and the `file is required` guard below was unreachable — the
+    // endpoint's own documented contract could never be honoured. Bad input is
+    // the caller's mistake, not a server fault, and a 500 sends whoever is
+    // debugging it looking for a crash that never happened.
+    let form: FormData;
+    try {
+      form = await request.formData();
+    } catch {
+      return NextResponse.json(
+        { success: false, error: 'file is required (send multipart/form-data)' },
+        { status: 400 },
+      );
+    }
     const file = form.get('file');
     if (!(file instanceof File)) {
       return NextResponse.json({ success: false, error: 'file is required' }, { status: 400 });
