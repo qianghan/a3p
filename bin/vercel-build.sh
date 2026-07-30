@@ -32,6 +32,12 @@ export DATABASE_URL_UNPOOLED="${DATABASE_URL_UNPOOLED:-${POSTGRES_URL_NON_POOLIN
 echo "=== Vercel Build Pipeline ==="
 echo "Environment: ${VERCEL_ENV:-unknown}"
 
+# Fail a production build that is missing launch-critical config, BEFORE spending
+# time on the plugin + Next builds. Several of these variables fail SILENTLY at
+# runtime (no error — the feature just quietly doesn't work), so this gate is the
+# only place a misconfigured production deploy gets caught.
+./bin/check-launch-env.sh || exit 1
+
 # When CI restores a valid plugin cache (content-based key), skip plugin build to avoid stale output.
 # SKIP_PLUGIN_BUILD is set by .github/workflows/ci.yml when plugin cache hits.
 if [ "${SKIP_PLUGIN_BUILD}" = "true" ] && [ -d "dist/plugins" ] && [ -n "$(ls -A dist/plugins 2>/dev/null)" ]; then
