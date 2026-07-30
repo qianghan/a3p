@@ -120,10 +120,45 @@ export function getEnvConfig() {
  * Validate required environment variables.
  * Call this during startup to catch missing config early.
  */
-export function validateEnv(): { valid: boolean; missing: string[]; warnings: string[] } {
-  const required = ['DATABASE_URL', 'NEXTAUTH_SECRET'];
+/**
+ * Variables whose absence breaks a core user journey in production. Most fail
+ * SILENTLY at runtime — no error, the feature just quietly stops working —
+ * which is why they're enumerated here and gated at build time by
+ * bin/check-launch-env.sh.
+ *
+ * Deliberately NOT added to `required` below: that list drives a hard throw in
+ * development, and a local dev session legitimately runs without Stripe, Resend
+ * or Gemini keys. These are reported as production errors instead.
+ */
+export const LAUNCH_CRITICAL_ENV: { key: string; breaks: string }[] = [
+  { key: 'RESEND_API_KEY', breaks: 'email delivery — signup verification is gated on it, so no new user can register' },
+  { key: 'GEMINI_API_KEY', breaks: 'receipt OCR and assistant quality (silent degradation to pattern matching)' },
+  { key: 'STRIPE_SECRET_KEY', breaks: 'billing entirely' },
+  { key: 'STRIPE_WEBHOOK_SECRET', breaks: 'payment reconciliation — cards charge but invoices never mark paid' },
+  { key: 'CRON_SECRET', breaks: 'all scheduled jobs — they fail closed and return 401' },
+  { key: 'INTERNAL_ADMIN_SECRET', breaks: 'agent skill registration — fails closed' },
+];
+
+export function validateEnv(): {
+  valid: boolean;
+  missing: string[];
+  warnings: string[];
+  /** Launch-critical vars absent in production (always empty outside production). */
+  launchCriticalMissing: { key: string; breaks: string }[];
+} {
+  // NEXTAUTH_SECRET is required only OUTSIDE production. next-auth is not a
+  // dependency, and the deployed Next.js path signs nothing with it — sessions
+  // are opaque crypto.randomBytes tokens stored in the Session table. It is read
+  // only by the dev-api token-encryption helper and the standalone Express
+  // plugin SDK, i.e. local/dev surfaces. It is genuinely unset in production,
+  // where it previously produced a permanent, meaningless "FATAL: missing
+  // required environment variables" log line on every cold start.
+  const required = isProduction
+    ? ['DATABASE_URL']
+    : ['DATABASE_URL', 'NEXTAUTH_SECRET'];
   const missing: string[] = [];
   const warnings: string[] = [];
+  const launchCriticalMissing: { key: string; breaks: string }[] = [];
 
   for (const key of required) {
     if (!process.env[key]) {
@@ -131,8 +166,14 @@ export function validateEnv(): { valid: boolean; missing: string[]; warnings: st
     }
   }
 
-  // Warn about optional but recommended vars in production
   if (isProduction) {
+    for (const entry of LAUNCH_CRITICAL_ENV) {
+      if (!process.env[entry.key]) {
+        launchCriticalMissing.push(entry);
+      }
+    }
+
+    // Warn about optional but recommended vars in production
     const recommended = [
       'BASE_SVC_URL',
       'BLOB_READ_WRITE_TOKEN',
@@ -145,8 +186,12 @@ export function validateEnv(): { valid: boolean; missing: string[]; warnings: st
   }
 
   return {
+    // `valid` keeps its existing meaning (core vars only) so the dev-throw and
+    // health-check semantics are unchanged; launch-critical gaps are surfaced
+    // separately and enforced by the build gate.
     valid: missing.length === 0,
     missing,
     warnings,
+    launchCriticalMissing,
   };
 }

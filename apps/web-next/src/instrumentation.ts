@@ -13,7 +13,7 @@ export async function register() {
   if (process.env.NEXT_RUNTIME === 'nodejs') {
     const { validateEnv, deployStage, isVercel, features } = await import('@/lib/env');
 
-    const { valid, missing, warnings } = validateEnv();
+    const { valid, missing, warnings, launchCriticalMissing } = validateEnv();
 
     // Log deployment context
     console.log(
@@ -42,6 +42,14 @@ export async function register() {
             'See .env.example for configuration reference.',
         );
       }
+    }
+
+    // Report launch-critical gaps loudly. These don't crash the process (a
+    // running production site should not be taken down by config), but most of
+    // them fail silently in the feature itself, so this is the only runtime
+    // signal that they're absent. bin/check-launch-env.sh blocks the deploy.
+    for (const { key, breaks } of launchCriticalMissing) {
+      console.error(`[naap] LAUNCH-CRITICAL: ${key} is not set — breaks ${breaks}`);
     }
 
     // Log warnings for recommended vars
