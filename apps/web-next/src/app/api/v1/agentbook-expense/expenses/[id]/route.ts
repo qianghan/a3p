@@ -12,6 +12,7 @@ import { safeResolveAgentbookTenant } from '@/lib/agentbook-tenant';
 import { audit } from '@/lib/agentbook-audit';
 import { inferSource, inferActor } from '@/lib/agentbook-audit-context';
 import { withSoftDelete, parseIncludeDeleted } from '@/lib/agentbook-soft-delete';
+import { reverseExpenseJournalEntry } from '@/lib/agentbook-expense-ledger';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -164,7 +165,15 @@ export async function DELETE(
       return NextResponse.json({ success: false, error: 'Expense not found' }, { status: 404 });
     }
 
-    await db.abExpense.update({ where: { id }, data: { deletedAt: new Date() } });
+    // Soft-delete AND reverse the ledger atomically. Without the reversal the
+    // expense disappears from the user's list while P&L, the trial balance and
+    // the tax estimate keep counting it — a silent divergence between what the
+    // user sees and what their books say. Journal entries are immutable, so the
+    // correction is a mirror-reversing entry (same approach as invoice void).
+    await db.$transaction(async (tx) => {
+      await tx.abExpense.update({ where: { id }, data: { deletedAt: new Date() } });
+      await reverseExpenseJournalEntry(tenantId, id, tx);
+    });
 
     await audit({
       tenantId,
