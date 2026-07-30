@@ -84,8 +84,10 @@ export async function ensureChartOfAccounts(
   opts?: { force?: boolean },
 ): Promise<{ seeded: boolean; count: number }> {
   if (!opts?.force) {
-    const cash = await db.abAccount.findFirst({
-      where: { tenantId, code: CASH_CODE },
+    // findUnique on the (tenantId, code) compound unique — a direct index hit,
+    // so this guard stays cheap on every write path.
+    const cash = await db.abAccount.findUnique({
+      where: { tenantId_code: { tenantId, code: CASH_CODE } },
       select: { id: true },
     });
     if (cash) return { seeded: false, count: 0 };

@@ -19,6 +19,7 @@ import { withSoftDelete, parseIncludeDeleted } from '@/lib/agentbook-soft-delete
 import { withHttpIdempotency } from '@/lib/agentbook-idempotency';
 import { computeInvoiceTax } from '@/lib/agentbook-invoice-tax';
 import { validateInvoiceLines, validateTaxRateOverride } from '@/lib/money-validation';
+import { ensureChartOfAccounts } from '@/lib/agentbook-chart-of-accounts';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -171,6 +172,13 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
           nextSeq = parseInt(parts[2], 10) + 1;
         }
         const invoiceNumber = `INV-${year}-${String(nextSeq).padStart(4, '0')}`;
+
+        // Seed the chart of accounts on demand. Unlike the expense paths this
+        // route fails LOUDLY when A/R or Revenue is missing (below), which for a
+        // tenant who skipped onboarding meant invoicing was blocked outright.
+        // Seeding first turns that hard failure into working software. Cheap
+        // no-op once seeded.
+        await ensureChartOfAccounts(tenantId);
 
         const requiredLiabilityCodes = [...new Set(taxResult.components.map((c) => c.accountCode))];
         const [arAccount, revenueAccount, liabilityAccounts] = await Promise.all([
