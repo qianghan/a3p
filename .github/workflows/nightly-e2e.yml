@@ -26,7 +26,11 @@ jobs:
           - phase6-telegram-bot
           - phase7-cron-and-cache
     env:
-      E2E_BASE_URL: https://a3book.brainliber.com
+      # Must match the live production domain. This was a3book.brainliber.com,
+      # which stopped resolving when the domains were renamed — every phase then
+      # died at "Could not resolve host" for ~3 months (auto-filed issues #2-#6,
+      # #125-#126), so the nightly suite provided no signal at all.
+      E2E_BASE_URL: https://agentbook.brainliber.com
       E2E_USER_EMAIL: e2e@agentbook.test
       E2E_USER_PASSWORD: ${{ secrets.E2E_USER_PASSWORD }}
       E2E_RESET_TOKEN: ${{ secrets.E2E_RESET_TOKEN }}
