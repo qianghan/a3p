@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@naap/database';
 import { hasAddOn, resolveAddOnPrice, activeAddOnCodes } from '@naap/billing';
 import { safeResolveAgentbookTenant } from '@/lib/agentbook-tenant';
+import { isAddOnAvailable } from '@/lib/addon-availability';
 
 export const runtime = 'nodejs';
 
@@ -27,7 +28,12 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       prisma.billAddOn.findMany({ where: { isActive: true } }),
       activeAddOnCodes(tenantId),
     ]);
-    const addons = await Promise.all(catalog.map(async (a) => ({
+    // Hide add-ons not available in this tenant's jurisdiction (e.g. the
+    // startup benefits engine exists only for US + AU) so they can't be bought
+    // where they'd return "not available" — but still surface any the tenant
+    // already has active, so they can see/cancel it.
+    const offerable = catalog.filter((a) => isAddOnAvailable(a.code, region) || activeCodes.has(a.code));
+    const addons = await Promise.all(offerable.map(async (a) => ({
       code: a.code,
       name: a.name,
       // BillAddOn has no description column today — surface null rather
