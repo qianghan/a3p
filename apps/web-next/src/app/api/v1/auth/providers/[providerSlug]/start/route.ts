@@ -7,6 +7,7 @@ import * as crypto from 'crypto';
 import { NextRequest, NextResponse } from 'next/server';
 import { success, errors, getAuthToken } from '@/lib/api/response';
 import { validateSession } from '@/lib/api/auth';
+import { enforceRateLimit } from '@/lib/api/rate-limit';
 import { prisma } from '@/lib/db';
 
 const DAYDREAM_AUTH_URL =
@@ -15,21 +16,9 @@ const LOGIN_SESSION_TTL_MS = 10 * 60 * 1000; // 10 minutes
 const RATE_LIMIT_WINDOW_MS = 60_000;
 const RATE_LIMIT_MAX = 5;
 
-const rateLimitMap = new Map<string, { count: number; resetAt: number }>();
-
-function checkRateLimit(key: string): boolean {
-  const now = Date.now();
-  const entry = rateLimitMap.get(key);
-  if (!entry || now >= entry.resetAt) {
-    rateLimitMap.set(key, { count: 1, resetAt: now + RATE_LIMIT_WINDOW_MS });
-    return true;
-  }
-  if (entry.count >= RATE_LIMIT_MAX) {
-    return false;
-  }
-  entry.count++;
-  return true;
-}
+// Rate limiting uses the shared (database) store via enforceRateLimit — the
+// previous in-process Map was per-serverless-instance and reset on cold start,
+// so this cap wasn't actually enforced in production.
 
 function firstHeaderValue(value: string | null): string | null {
   if (!value) {
@@ -99,15 +88,12 @@ export async function POST(
   try {
     const { providerSlug } = await params;
 
-    const clientIp = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || 'unknown';
-    if (!checkRateLimit(`billing-auth:${clientIp}`)) {
-      return errors.tooManyRequests
-        ? errors.tooManyRequests('Too many authentication requests. Please try again later.')
-        : new NextResponse(
-            JSON.stringify({ success: false, error: { code: 'RATE_LIMITED', message: 'Too many authentication requests. Please try again later.' } }),
-            { status: 429, headers: { 'Content-Type': 'application/json', 'Retry-After': '60' } }
-          );
-    }
+    const limited = await enforceRateLimit(request, {
+      keyPrefix: 'auth:provider-start',
+      windowMs: RATE_LIMIT_WINDOW_MS,
+      maxRequests: RATE_LIMIT_MAX,
+    });
+    if (limited) return limited;
 
     const providerAuthUrl = resolveProviderAuthUrl(providerSlug);
     if (!providerAuthUrl) {

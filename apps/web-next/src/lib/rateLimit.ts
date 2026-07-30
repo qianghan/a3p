@@ -1,4 +1,13 @@
 /**
+ * @deprecated In-memory rate limiter — DO NOT USE for new code.
+ *
+ * On Vercel each serverless instance has its own memory, so limits here are
+ * per-instance and reset on cold start (i.e. not actually enforced). All auth
+ * endpoints now use the shared, database-backed limiter in
+ * `@/lib/api/rate-limit` (enforceRateLimit). This module is retained only so
+ * any stray importer keeps compiling; migrate it and delete this file.
+ */
+/**
  * Rate Limiting Utility for Vercel Edge/Serverless
  *
  * Uses in-memory LRU cache for rate limiting.

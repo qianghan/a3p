@@ -6,11 +6,17 @@
 import {NextRequest, NextResponse } from 'next/server';
 import { requestPasswordReset } from '@/lib/api/auth';
 import { success, errors } from '@/lib/api/response';
-import { applyRateLimit, rateLimiters } from '@/lib/rateLimit';
+import { enforceRateLimit } from '@/lib/api/rate-limit';
 
 export async function POST(request: NextRequest): Promise<NextResponse | Response> {
-  // Rate limit: 3 requests per 15 minutes per IP
-  const limited = await applyRateLimit(request, rateLimiters.forgotPassword);
+  // Rate limit: 3 requests per 15 minutes per IP. Same limits as before, but via
+  // the shared (database) store — the previous in-process Map was per-serverless
+  // -instance, so this cap was not actually enforced in production.
+  const limited = await enforceRateLimit(request, {
+    keyPrefix: 'auth:forgot-password',
+    maxRequests: 3,
+    windowMs: 900_000,
+  });
   if (limited) return limited;
 
   try {

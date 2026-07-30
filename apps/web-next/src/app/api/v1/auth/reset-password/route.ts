@@ -10,7 +10,7 @@ import { enforceRateLimit } from '@/lib/api/rate-limit';
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
   try {
-    const rateLimitResponse = enforceRateLimit(request, { keyPrefix: 'auth:reset-password' });
+    const rateLimitResponse = await enforceRateLimit(request, { keyPrefix: 'auth:reset-password' });
     if (rateLimitResponse) {
       return rateLimitResponse;
     }
