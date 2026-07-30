@@ -127,6 +127,21 @@ model Session {
   @@schema("public")
 }
 
+/// Shared-store rate limiting. Serverless instances each have their own memory,
+/// so an in-process Map cannot enforce a global limit (it resets on cold start
+/// and is per-instance). This table is the shared counter: one row per
+/// key ("<prefix>:<ip>"), reset when its window expires. Swept by an existing
+/// prune cron / the resetAt index.
+model RateLimit {
+  key       String   @id
+  count     Int      @default(1)
+  resetAt   DateTime
+  updatedAt DateTime @updatedAt
+
+  @@index([resetAt])
+  @@schema("public")
+}
+
 model PasswordResetToken {
   id        String    @id @default(uuid())
   userId    String
