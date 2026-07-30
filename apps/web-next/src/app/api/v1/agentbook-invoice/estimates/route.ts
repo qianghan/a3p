@@ -6,6 +6,7 @@ import 'server-only';
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma as db } from '@naap/database';
 import { safeResolveAgentbookTenant } from '@/lib/agentbook-tenant';
+import { isValidMoneyCents, MAX_MONEY_CENTS } from '@/lib/money-validation';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -57,6 +58,16 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     if (!clientId || !amountCents || !description) {
       return NextResponse.json(
         { success: false, error: 'clientId, amountCents, and description are required' },
+        { status: 400 },
+      );
+    }
+
+    // amountCents comes straight from the client, and an estimate converts into
+    // a real invoice — reject a negative / fractional / out-of-range value here
+    // instead of letting it become a bad invoice (and journal entry) later.
+    if (!isValidMoneyCents(amountCents)) {
+      return NextResponse.json(
+        { success: false, error: `amountCents must be a whole number of cents between 0 and ${MAX_MONEY_CENTS}` },
         { status: 400 },
       );
     }

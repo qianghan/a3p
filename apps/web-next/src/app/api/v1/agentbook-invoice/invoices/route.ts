@@ -18,6 +18,7 @@ import { inferSource, inferActor } from '@/lib/agentbook-audit-context';
 import { withSoftDelete, parseIncludeDeleted } from '@/lib/agentbook-soft-delete';
 import { withHttpIdempotency } from '@/lib/agentbook-idempotency';
 import { computeInvoiceTax } from '@/lib/agentbook-invoice-tax';
+import { validateInvoiceLines, validateTaxRateOverride } from '@/lib/money-validation';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -128,21 +129,34 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
           };
         }
 
+        // Validate client-supplied money BEFORE anything reaches the ledger: a
+        // missing/non-numeric rateCents used to produce NaN amounts, and a
+        // negative one produced a backdoor credit. Bad input is a 400, never a
+        // bad journal entry.
+        const validated = validateInvoiceLines(lines);
+        if (!validated.ok) {
+          return { status: 400, body: { success: false, error: validated.error } };
+        }
+        const taxRateCheck = validateTaxRateOverride(taxRateOverride);
+        if (!taxRateCheck.ok) {
+          return { status: 400, body: { success: false, error: taxRateCheck.error } };
+        }
+
         const client = await db.abClient.findFirst({ where: { id: clientId, tenantId } });
         if (!client) {
           return { status: 404, body: { success: false, error: 'Client not found' } };
         }
 
-        const lineItems = lines.map((l) => ({
+        const lineItems = validated.lines.map((l) => ({
           tenantId, // G-009
-          description: l.description || '',
-          quantity: l.quantity || 1,
+          description: l.description,
+          quantity: l.quantity,
           rateCents: l.rateCents,
-          amountCents: Math.round((l.quantity || 1) * l.rateCents),
+          amountCents: l.amountCents,
         }));
-        const totalAmountCents = lineItems.reduce((sum, l) => sum + l.amountCents, 0);
+        const totalAmountCents = validated.subtotalCents;
         const subtotalCents = totalAmountCents;
-        const taxResult = await computeInvoiceTax(tenantId, subtotalCents, taxRateOverride ?? null);
+        const taxResult = await computeInvoiceTax(tenantId, subtotalCents, taxRateCheck.rate);
         const grandTotalCents = subtotalCents + taxResult.taxCents;
 
         const year = new Date(issuedDate || Date.now()).getFullYear();
