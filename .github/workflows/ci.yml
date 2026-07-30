@@ -426,6 +426,50 @@ jobs:
           token: ${{ secrets.CODECOV_TOKEN }}
 
   # ===========================================================================
+  # Cross-cutting Invariants — runs on ANY code change, by design
+  # ===========================================================================
+  # apps/web-next/src/__tests__/architecture/ asserts structural rules that span
+  # runtimes: that there is exactly ONE tax composer and ONE sub-national source,
+  # that chat/Telegram/cash-flow/T1 all route through them, that the deleted
+  # inline engine stays deleted, that MCP goes through the shared brain.
+  #
+  # Those assertions read source files under packages/ and plugins/ — but they
+  # only ever executed inside `shell-tests`, which is gated on `shell` (i.e.
+  # apps/web-next/** changed). So a PR touching ONLY
+  # plugins/agentbook-tax/backend/src/server.ts — exactly where the duplicate
+  # engine of #383 lived — skipped every one of these guards and could merge
+  # green. A guard that the regression it guards against can route around is
+  # decoration.
+  #
+  # Kept as its own job rather than widening `shell`: that would drag the entire
+  # several-hundred-test web-next suite (and a Postgres service) into every
+  # plugin PR. This suite only reads files, so it needs no database and finishes
+  # in about a minute.
+  # ===========================================================================
+  invariants:
+    name: Cross-cutting Invariants
+    runs-on: ubuntu-latest
+    needs: [paths-filter, lockfile-sync]
+    if: needs.paths-filter.outputs.docs_only != 'true' && needs.paths-filter.outputs.build_relevant == 'true'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run architectural invariants
+        # No DATABASE_URL: these tests read source, they don't query. Verified
+        # DB-free with the env vars explicitly unset.
+        run: cd apps/web-next && npx vitest run src/__tests__/architecture/
+
+  # ===========================================================================
   # Backend Tests — AgentBook plugin backends + jurisdiction packages
   # ===========================================================================
   backend-tests:
@@ -611,7 +655,7 @@ jobs:
   quality-gates:
     name: Quality Gates
     runs-on: ubuntu-latest
-    needs: [lockfile-sync, audit, lint-typecheck, build, sdk-tests, sdk-compat-matrix, plugin-tests, backend-tests, shell-tests, lifecycle-tests]
+    needs: [lockfile-sync, audit, lint-typecheck, build, sdk-tests, sdk-compat-matrix, plugin-tests, backend-tests, shell-tests, lifecycle-tests, invariants]
     if: always() && !cancelled()
     steps:
       - name: Checkout
@@ -637,6 +681,7 @@ jobs:
           echo "backend-tests: ${{ needs.backend-tests.result }}"
           echo "shell-tests: ${{ needs.shell-tests.result }}"
           echo "lifecycle-tests: ${{ needs.lifecycle-tests.result }}"
+          echo "invariants: ${{ needs.invariants.result }}"
 
           FAILED=0
 
@@ -678,6 +723,10 @@ jobs:
           fi
           if [[ "${{ needs.lifecycle-tests.result }}" == "failure" ]]; then
             echo "::error::Lifecycle BDD tests failed"
+            FAILED=1
+          fi
+          if [[ "${{ needs.invariants.result }}" == "failure" ]]; then
+            echo "::error::Cross-cutting invariants failed — a tax/surface consistency rule was broken (duplicate engine, divergent composer, or a surface bypassing the shared brain)"
             FAILED=1
           fi
 
