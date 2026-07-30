@@ -70,10 +70,35 @@ fi
 # Each Vercel environment has its own DATABASE_URL pointing to the correct
 # Neon branch, so there is no risk of preview schema changes affecting production.
 # The preview branch is automatically reset after each production deploy.
-if [ "${VERCEL_ENV}" = "production" ] || [ "${VERCEL_ENV}" = "preview" ]; then
-  echo "[3/6] Prisma db push (${VERCEL_ENV})..."
+if [ "${VERCEL_ENV}" = "production" ]; then
+  # PRODUCTION holds real, irreplaceable financial data. A schema diff that
+  # would DROP data (a removed/retyped column/table) must never apply silently.
+  # Default: run WITHOUT --accept-data-loss, so Prisma refuses a destructive
+  # diff in CI and we FAIL the deploy for a human to review. An operator who
+  # genuinely intends a destructive migration opts in per-deploy with
+  # ALLOW_SCHEMA_DATA_LOSS=1. Additive changes apply normally in both cases.
   cd packages/database || { echo "ERROR: Failed to cd to packages/database"; exit 1; }
-  npx prisma db push --skip-generate --accept-data-loss 2>&1 || echo "WARN: prisma db push had issues (non-fatal)"
+  if [ "${ALLOW_SCHEMA_DATA_LOSS}" = "1" ]; then
+    echo "[3/6] Prisma db push (production — DATA LOSS EXPLICITLY ALLOWED via ALLOW_SCHEMA_DATA_LOSS=1)..."
+    npx prisma db push --skip-generate --accept-data-loss || {
+      echo "ERROR: prisma db push failed (production)"; exit 1;
+    }
+  else
+    echo "[3/6] Prisma db push (production — fail-on-data-loss)..."
+    npx prisma db push --skip-generate || {
+      echo "ERROR: prisma db push failed on production — most likely a schema change that would DROP data."
+      echo "       Review the diff. If the data loss is intended, re-run this deploy with ALLOW_SCHEMA_DATA_LOSS=1."
+      echo "       (Better: adopt versioned 'prisma migrate deploy' — tracked as a follow-up.)"
+      exit 1
+    }
+  fi
+  cd ../.. || { echo "ERROR: Failed to cd back to root"; exit 1; }
+elif [ "${VERCEL_ENV}" = "preview" ]; then
+  # PREVIEW runs against a throwaway branch DB that is reset after each prod
+  # deploy, so accepting data loss here is safe and stays non-fatal.
+  echo "[3/6] Prisma db push (preview)..."
+  cd packages/database || { echo "ERROR: Failed to cd to packages/database"; exit 1; }
+  npx prisma db push --skip-generate --accept-data-loss 2>&1 || echo "WARN: preview prisma db push had issues (non-fatal)"
   cd ../.. || { echo "ERROR: Failed to cd back to root"; exit 1; }
 else
   echo "[3/6] Skipping prisma db push (VERCEL_ENV=${VERCEL_ENV:-unset}, only runs on production/preview)"
