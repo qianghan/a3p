@@ -173,6 +173,11 @@ test.describe('@phase4-invoicing', () => {
       invoiceId: open.id, amountCents: 100, reason: 'e2e adjustment',
     });
     expectOk(r, 'agentbook-invoice/credit-notes');
+    // No teardown, and none is possible: credit notes are immutable financial
+    // documents, so there is no DELETE endpoint — correctly. The row this
+    // leaves behind is why the seed wipe must remove AbCreditNote BEFORE
+    // AbInvoice (that FK does not cascade). Don't add a teardown here; fix the
+    // wipe if a new child table appears.
   });
 
   test('credit note cannot exceed the remaining balance', async ({ page }) => {

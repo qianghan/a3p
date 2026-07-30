@@ -68,16 +68,48 @@ export async function resetE2eUser(opts?: { password?: string }): Promise<ResetR
   const tenantId = E2E_USER_ID;
 
   // Wipe in FK-safe order: leaf rows first.
-  await db.abInvoiceLine.deleteMany({ where: { invoice: { tenantId } } }).catch(() => {});
-  await db.abPayment.deleteMany({ where: { tenantId } }).catch(() => {});
-  await db.abInvoice.deleteMany({ where: { tenantId } }).catch(() => {});
-  await db.abClient.deleteMany({ where: { tenantId } }).catch(() => {});
-  await db.abExpense.deleteMany({ where: { tenantId } }).catch(() => {});
-  await db.abJournalLine.deleteMany({ where: { entry: { tenantId } } }).catch(() => {});
-  await db.abJournalEntry.deleteMany({ where: { tenantId } }).catch(() => {});
-  await db.abAccount.deleteMany({ where: { tenantId } }).catch(() => {});
-  await db.abConversation.deleteMany({ where: { tenantId } }).catch(() => {});
-  await db.abAgentSession.deleteMany({ where: { tenantId } }).catch(() => {});
+  //
+  // Every delete used to end in `.catch(() => {})`, and that swallowing took the
+  // whole suite down. A nightly test created a credit note; AbCreditNote.invoice
+  // has NO `onDelete: Cascade`, so the invoice delete failed with a foreign-key
+  // violation — silently discarded. The invoices survived the wipe, and the seed
+  // then died creating them again with
+  //   Unique constraint failed on the fields: (tenantId, number)
+  // and every phase was skipped. The error named the CREATE, not the DELETE that
+  // actually failed: the worst kind of error to be handed at 3am.
+  //
+  // So: no swallowing. A wipe that cannot complete says so, at the point of
+  // failure, naming the table. If someone adds a child table later and misses
+  // this list, that is exactly the behaviour we want.
+  const wipe: [string, () => Promise<unknown>][] = [
+    // Invoice children first. AbCreditNote, AbDeferredRevenue, AbPayment and
+    // AbTimeEntry do NOT cascade, so they genuinely must precede AbInvoice.
+    // AbInvoiceLine does cascade, but is listed anyway to keep the order
+    // self-documenting rather than relying on the reader knowing which is which.
+    ['abCreditNote', () => db.abCreditNote.deleteMany({ where: { tenantId } })],
+    ['abDeferredRevenue', () => db.abDeferredRevenue.deleteMany({ where: { tenantId } })],
+    ['abTimeEntry', () => db.abTimeEntry.deleteMany({ where: { tenantId } })],
+    ['abInvoiceLine', () => db.abInvoiceLine.deleteMany({ where: { invoice: { tenantId } } })],
+    ['abPayment', () => db.abPayment.deleteMany({ where: { tenantId } })],
+    ['abInvoice', () => db.abInvoice.deleteMany({ where: { tenantId } })],
+    ['abClient', () => db.abClient.deleteMany({ where: { tenantId } })],
+    ['abExpense', () => db.abExpense.deleteMany({ where: { tenantId } })],
+    ['abJournalLine', () => db.abJournalLine.deleteMany({ where: { entry: { tenantId } } })],
+    ['abJournalEntry', () => db.abJournalEntry.deleteMany({ where: { tenantId } })],
+    ['abAccount', () => db.abAccount.deleteMany({ where: { tenantId } })],
+    ['abConversation', () => db.abConversation.deleteMany({ where: { tenantId } })],
+    ['abAgentSession', () => db.abAgentSession.deleteMany({ where: { tenantId } })],
+  ];
+  for (const [table, run] of wipe) {
+    try {
+      await run();
+    } catch (err) {
+      throw new Error(
+        `seed wipe failed at ${table}: ${err instanceof Error ? err.message : String(err)}. ` +
+        `Usually a child row in a table missing from this list — add it ABOVE ${table}.`,
+      );
+    }
+  }
 
   // Default chart of accounts.
   //
