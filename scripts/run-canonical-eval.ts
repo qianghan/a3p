@@ -9,7 +9,7 @@
  *     total, passed, failed, intentAccuracy, hallucinationRate,
  *     byCategory: { bookkeeping: {n, passRate}, ... },
  *     bySkill:    { 'record-expense': {n, passRate}, ... },
- *     failures:   [{ id, text, expectedSkill, actualSkill, reasons }]
+ *     failures:   [{ id, text, expectedSkill, actualSkill, reasons, answer }]
  *   }
  *
  * Usage:
@@ -101,6 +101,9 @@ interface TurnResult {
   reasons: string[];
   skillUsed: string | undefined;
   hallucinated: boolean;
+  /** The agent's actual reply. Recorded so a "missing required substring"
+   *  failure can be triaged from the report instead of guessed at. */
+  answer: string;
 }
 
 function evaluateTurn(cu: CanonicalUtterance, response: AgentMessageResponse | null): TurnResult {
@@ -112,6 +115,7 @@ function evaluateTurn(cu: CanonicalUtterance, response: AgentMessageResponse | n
       reasons: ['agent returned no successful response'],
       skillUsed: undefined,
       hallucinated: false,
+      answer: '',
     };
   }
   const answer = response.data.message ?? '';
@@ -137,7 +141,7 @@ function evaluateTurn(cu: CanonicalUtterance, response: AgentMessageResponse | n
       hallucinated = true;
     }
   }
-  return { cu, passed: reasons.length === 0, reasons, skillUsed, hallucinated };
+  return { cu, passed: reasons.length === 0, reasons, skillUsed, hallucinated, answer };
 }
 
 interface CategoryStat {
@@ -214,6 +218,11 @@ function summarize(results: TurnResult[]) {
         expectedSkill: r.cu.expectedSkill,
         actualSkill: r.skillUsed,
         reasons: r.reasons,
+        // The reply itself. Without this, triaging a "missing required
+        // substring" means reasoning backwards from source code about what the
+        // agent probably said — which I did, for several steps, wrongly. Capped
+        // so the report stays readable.
+        answer: r.answer.slice(0, 400),
       })),
   };
 }
