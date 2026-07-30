@@ -13,13 +13,14 @@
  */
 import 'server-only';
 import { prisma as db } from '@naap/database';
+import { ensureChartOfAccounts, CASH_CODE } from '@/lib/agentbook-chart-of-accounts';
 
 /**
  * Post the balanced journal (DR category / CR cash) for an expense if it needs
  * one. No-op — returns the existing id or null — when the expense is already
- * booked, is personal, has no category, or the Cash account (code 1000) isn't
- * seeded yet. Mirrors the create/confirm posting exactly (same lines, same
- * memo/source), so every path produces identical ledger entries.
+ * booked, is personal, or has no category. Mirrors the create/confirm posting
+ * exactly (same lines, same memo/source), so every path produces identical
+ * ledger entries.
  */
 export async function backfillExpenseJournalEntry(
   tenantId: string,
@@ -29,8 +30,17 @@ export async function backfillExpenseJournalEntry(
   if (!expense) return null;
   if (expense.journalEntryId) return expense.journalEntryId; // already on the books
   if (!expense.categoryId || expense.isPersonal) return null; // nothing bookable
-  const cashAccount = await db.abAccount.findFirst({ where: { tenantId, code: '1000' } });
-  if (!cashAccount) return null; // chart of accounts not seeded — best-effort, matches create/confirm
+
+  // Seed the chart of accounts on demand rather than silently skipping. The
+  // chart is only created by the onboarding flow, so a tenant who skipped
+  // onboarding would otherwise never book anything — their P&L and tax estimate
+  // would quietly omit real money.
+  let cashAccount = await db.abAccount.findFirst({ where: { tenantId, code: CASH_CODE } });
+  if (!cashAccount) {
+    await ensureChartOfAccounts(tenantId);
+    cashAccount = await db.abAccount.findFirst({ where: { tenantId, code: CASH_CODE } });
+  }
+  if (!cashAccount) return null; // seeding genuinely failed — don't post a half entry
 
   const amount = expense.amountCents;
   const desc = expense.description || 'Expense';

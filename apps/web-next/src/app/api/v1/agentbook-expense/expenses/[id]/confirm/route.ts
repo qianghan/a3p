@@ -8,6 +8,7 @@ import 'server-only';
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma as db } from '@naap/database';
 import { safeResolveAgentbookTenant } from '@/lib/agentbook-tenant';
+import { ensureChartOfAccounts } from '@/lib/agentbook-chart-of-accounts';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -45,6 +46,9 @@ export async function POST(
     const finalDescription = body.description || expense.description;
 
     if (!journalEntryId && finalCategoryId && !expense.isPersonal) {
+      // Seed on demand — the chart is otherwise only created by onboarding, so a
+      // tenant who skipped it would silently never book this expense.
+      await ensureChartOfAccounts(tenantId);
       const cashAccount = await db.abAccount.findFirst({ where: { tenantId, code: '1000' } });
       if (cashAccount) {
         const je = await db.abJournalEntry.create({

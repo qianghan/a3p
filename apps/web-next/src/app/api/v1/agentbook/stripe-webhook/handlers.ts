@@ -4,6 +4,7 @@ import { invalidateAccount } from '@naap/billing';
 import { processInviteePaid, applyPendingCredits } from '@/lib/billing/referrals';
 import { accrueSalesRepCommission } from '@/lib/billing/sales-rep';
 import { refreshConnectStatusByAccountId } from '@/lib/billing/sales-rep-connect';
+import { ensureChartOfAccounts } from '@/lib/agentbook-chart-of-accounts';
 import type Stripe from 'stripe';
 
 export async function applyEvent(event: Stripe.Event): Promise<void> {
@@ -208,6 +209,10 @@ export async function applyEvent(event: Stripe.Event): Promise<void> {
       // plugins/agentbook-invoice/backend/src/server.ts's getAccountByCode
       // calls in the manual-payment route, which use the same two codes.
       try {
+        // Seed on demand — the chart is otherwise only created by the onboarding
+        // flow, so a tenant who skipped it would have a real card payment
+        // recorded but never reflected in the ledger.
+        await ensureChartOfAccounts(tenantId);
         const cashAccount = await prisma.abAccount.findFirst({ where: { tenantId, code: '1000' } });
         const arAccount = await prisma.abAccount.findFirst({ where: { tenantId, code: '1100' } });
         if (cashAccount && arAccount) {
