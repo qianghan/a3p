@@ -6,6 +6,7 @@ import 'server-only';
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma as db } from '@naap/database';
 import { safeResolveAgentbookTenant } from '@/lib/agentbook-tenant';
+import { validateInvoiceLines } from '@/lib/money-validation';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -76,10 +77,15 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       return NextResponse.json({ success: false, error: 'Client not found' }, { status: 404 });
     }
 
-    const totalCents = templateLines.reduce(
-      (s, l) => s + Math.round((l.quantity || 1) * l.rateCents),
-      0,
-    );
+    // Validate the template's money now — these lines persist as JSON and the
+    // recurring-invoices cron turns them into real invoices AND journal entries
+    // later, so a NaN/negative here would poison every future run. Store the
+    // normalized lines so the persisted template is always clean.
+    const validated = validateInvoiceLines(templateLines);
+    if (!validated.ok) {
+      return NextResponse.json({ success: false, error: validated.error }, { status: 400 });
+    }
+    const totalCents = validated.subtotalCents;
 
     const recurring = await db.abRecurringInvoice.create({
       data: {
@@ -88,7 +94,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         frequency,
         nextDue: new Date(nextDue),
         endDate: endDate ? new Date(endDate) : null,
-        templateLines: templateLines as never,
+        templateLines: validated.lines as never,
         totalCents,
         daysToPay: daysToPay || 30,
         autoSend: autoSend || false,
