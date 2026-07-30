@@ -323,6 +323,12 @@ export const BUILT_IN_SKILLS = [
   {
     name: 'tax-deductions', description: 'Show potential tax deductions and savings opportunities', category: 'tax',
     triggerPatterns: ['deduction', 'tax.*saving', 'write.*off', 'deductible', 'tax.*break'],
+    // A bare 'deduction' also catches "what COUNTS AS a business meal
+    // deduction?" — a question about the rules, not a report of this user's
+    // claimable deductions. Answering it with their own deduction list is the
+    // wrong shape of answer. general-question has no triggerPatterns (it is the
+    // fallback), so excluding definitional phrasings here hands it over.
+    excludePatterns: ['what counts as', 'what qualifies as', 'what is a ', 'what are the rules'],
     parameters: {},
     endpoint: { method: 'GET', url: '/api/v1/agentbook-tax/tax/deductions' },
   },
@@ -673,8 +679,16 @@ export const BUILT_IN_SKILLS = [
     name: 'manage-bills',
     description: 'Record bills owed to vendors, list bills that are due or overdue, and report accounts payable. Use when the user mentions owing money, rent due, vendor bills, or asks what bills are due.',
     category: 'bookkeeping',
-    triggerPatterns: ['bills? due', 'what.*owe', 'owe ', 'payable', 'rent.*due', 'bill from', 'add.*bill', 'record.*bill', 'overdue bill'],
-    excludePatterns: ['invoice', 'estimate'],
+    // 'bills? due' required the words adjacent, so "what bills ARE due this
+    // week?" — the skill's own description promises exactly that phrasing —
+    // matched nothing and fell through. Widened to 'bills?.*due'.
+    triggerPatterns: ['bills?.*due', 'what.*owe', 'owe ', 'payable', 'rent.*due', 'bill from', 'add.*bill', 'record.*bill', 'overdue bill'],
+    // 'owe ' below is broad enough to catch "how much will I owe in TAXES this
+    // quarter?", and manage-bills wins that race purely because skills are
+    // iterated orderBy name asc — m before t — so alphabetical accident routed a
+    // tax question to accounts payable. Excluding the tax phrasings lets
+    // tax-estimate's own 'how much.*tax' trigger take it.
+    excludePatterns: ['invoice', 'estimate', 'owe.*tax', 'tax.*owe', 'in taxes'],
     parameters: {
       action: { type: 'string', required: false, extractHint: 'create or list (default list)' },
       vendorName: { type: 'string', required: false, extractHint: 'vendor name when creating' },

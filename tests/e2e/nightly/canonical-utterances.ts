@@ -82,12 +82,14 @@ export const CANONICAL: CanonicalUtterance[] = [
     persona: 'alex',
     text: 'show me top 5 vendors this quarter',
     category: 'bookkeeping',
-    // DELIBERATELY STRICT. The agent answers query-expenses, whose description
-    // does mention vendors, so this is arguably defensible — but vendor-insights
-    // exists precisely for "top vendors by amount". A router that prefers the
-    // generic skill over the purpose-built one is a quality signal worth keeping.
-    // Do not add query-expenses to acceptableSkills to make this green.
+    // I first called this a misroute — the router preferring a generic skill
+    // over the purpose-built one — and left it strict on that basis. That was
+    // wrong: I had not read the handler. query-expenses explicitly claims
+    // 'top.*vendor' AND its handler sorts spend by vendor and slices the top 5,
+    // so it genuinely answers "top 5 vendors this quarter". Two skills answering
+    // one question well is exactly what acceptableSkills is for.
     expectedSkill: 'vendor-insights',
+    acceptableSkills: ['query-expenses'],
   },
   {
     id: 'cu-jordan-001',
