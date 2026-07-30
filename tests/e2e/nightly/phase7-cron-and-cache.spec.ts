@@ -10,7 +10,14 @@ test.describe('@phase7-cron-and-cache', () => {
     const r = await fetch(`${BASE}/api/v1/agentbook/cron/morning-digest`, {
       headers: { Authorization: `Bearer ${CRON_SECRET}` },
     });
-    expect(r.status).toBeLessThan(500);
+    // `< 500` let a 401 pass, so the one test written to prove the secret works
+    // could not detect the secret being WRONG. It had in fact drifted, and the
+    // failure surfaced two tests later as an inscrutable `undefined`.
+    expect(
+      r.status,
+      'Expected 200. A 401 here means the CRON_SECRET in GitHub Actions does not match the one ' +
+      'on the deployment — two copies of one value kept in sync by hand.',
+    ).toBe(200);
   });
 
   test('morning-digest without secret → 401', async () => {
@@ -24,9 +31,10 @@ test.describe('@phase7-cron-and-cache', () => {
     const r = await fetch(`${BASE}/api/v1/agentbook/cron/morning-digest`, {
       headers: { Authorization: `Bearer ${CRON_SECRET}` },
     });
-    expect(r.status).toBeLessThan(500);
+    expect(r.status).toBe(200);
     const data = await r.json().catch(() => ({}));
     expect(typeof data.sent).toBe('number');
+    expect(typeof data.skipped).toBe('number');
   });
 
   test('agent-summary returns a stable shape on repeat calls', async ({ page }) => {

@@ -1,3 +1,4 @@
+import { expect } from '@playwright/test';
 import type { Page } from '@playwright/test';
 
 export interface ApiClient {
@@ -42,4 +43,30 @@ export function api(page: Page): ApiClient {
     patch:  (p, b) => call('PATCH',  p, b),
     delete: (p)    => call('DELETE', p),
   };
+}
+
+/**
+ * Assert a request actually succeeded.
+ *
+ * Replaces `expect(status).toBeLessThan(500)`, which 27 tests used and which
+ * passes on 401, 403 and 404. That is how a whole family of tests kept "passing"
+ * against endpoints that do not exist in production: the [plugin]/[...path]
+ * catch-all answers 501 for unimplemented plugin routes, and every 4xx sailed
+ * through. A smoke test that cannot tell "works" from "not found" is not a test.
+ *
+ * Takes the whole response so the failure message can carry the server's own
+ * error text instead of a bare number.
+ */
+export function expectOk(
+  res: { status: number; data?: any },
+  what: string,
+): void {
+  const detail = res.data?.error ?? res.data?.message ?? '';
+  expect(
+    res.status,
+    `${what} returned ${res.status}${detail ? ` — ${detail}` : ''}. ` +
+    `Expected 2xx. A 501 means the path is not served in production and falls through ` +
+    `to the [plugin]/[...path] catch-all; a 404/400 means the path or payload is wrong.`,
+  ).toBeGreaterThanOrEqual(200);
+  expect(res.status, `${what} returned ${res.status}, expected 2xx`).toBeLessThan(300);
 }
