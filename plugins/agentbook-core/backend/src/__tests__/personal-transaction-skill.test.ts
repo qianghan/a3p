@@ -376,6 +376,10 @@ describe('record-personal-transaction — response formatting', () => {
       'I got paid $5,000 salary',
       'tenant-1', 'api',
     );
-    expect(result.responseData.message).toMatch(/\$5000\.00/);
+    // Was /\$5000\.00/ — asserting the unseparated format that fmtCurrency used
+    // to produce. Note this test's own input is 'I got paid $5,000 salary': the
+    // user writes the comma and the assertion demanded the reply drop it. The
+    // currency fallback is what this test is about, not the separator.
+    expect(result.responseData.message).toMatch(/\$5,000\.00/);
   });
 });

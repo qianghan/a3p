@@ -242,7 +242,15 @@ async function accountantEngagement(opts: {
 function fmtCurrency(cents: number, currency?: string): string {
   const symbols: Record<string, string> = { USD: '$', CAD: 'CA$', GBP: '\u00a3', EUR: '\u20ac', AUD: 'A$' };
   const sym = symbols[currency || 'USD'] || (currency || 'USD') + ' ';
-  return `${sym}${(cents / 100).toFixed(2)}`;
+  // Thousands separators. This was `.toFixed(2)`, which renders $1,240 as
+  // "$1240.00" — so the agent confirmed a four-figure expense in a format no
+  // accounting surface uses, and the canonical eval caught it as a missing
+  // "$1,240". Money the user just told us about should come back looking like
+  // money; a wrong-looking number invites them to doubt a correct one.
+  return `${sym}${(cents / 100).toLocaleString('en-US', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })}`;
 }
 
 // === Health Check ===
@@ -5611,7 +5619,7 @@ Only include chartData if visualization adds value. Keep the answer under 200 wo
 
     // Record payment response
     } else if (selectedSkill.name === 'record-payment' && data) {
-      const amt = data.amountCents ? `$${(data.amountCents / 100).toFixed(2)}` : '';
+      const amt = data.amountCents ? fmtCurrency(data.amountCents, data.currency) : '';
       message = `Payment recorded${amt ? ': ' + amt : ''}. Invoice updated.`;
 
     // Record personal transaction response
@@ -5624,9 +5632,30 @@ Only include chartData if visualization adds value. Keep the answer under 200 wo
       const amt = typeof data.amountCents === 'number' ? fmtCurrency(Math.abs(data.amountCents), personalTxnCurrency || 'USD') : '';
       message = `${isIncome ? 'Recorded income' : 'Recorded spending'}${amt ? ': ' + amt : ''}${data.description ? ' — ' + data.description : ''}${data.businessFlag ? ' (flagged as business)' : ''}.`;
 
+    // Create invoice response.
+    //
+    // create-invoice had NO success branch at all, so the most important write
+    // in the product fell through to a generic message naming neither the
+    // client nor the amount. create-estimate — added later, used far less —
+    // did it properly. The canonical eval caught this as "invoice TechCorp
+    // $5000" answering without either "TechCorp" or "$5,000".
+    //
+    // Echoing both back matters beyond the assertion: it is the user's only
+    // confirmation that we understood which client and how much before an
+    // invoice goes out with their name on it.
+    //
+    // NOTE: the invoice API returns the created row with `lines` included but
+    // NOT `client`, so data.client?.name is undefined here — fall back to the
+    // name we extracted from the utterance.
+    } else if (selectedSkill.name === 'create-invoice' && data) {
+      const amt = data.amountCents ? fmtCurrency(data.amountCents, data.currency) : '';
+      const who = data.client?.name || extractedParams.clientName || '';
+      message = `Invoice created${data.number ? ` (${data.number})` : ''}`
+        + `${who ? ` for ${who}` : ''}${amt ? ` \u2014 ${amt}` : ''}.`;
+
     // Create estimate response
     } else if (selectedSkill.name === 'create-estimate' && data) {
-      const amt = data.amountCents ? `$${(data.amountCents / 100).toFixed(2)}` : '';
+      const amt = data.amountCents ? fmtCurrency(data.amountCents, data.currency) : '';
       message = `Estimate created${amt ? ' for ' + amt : ''}${data.client?.name ? ' (' + data.client.name + ')' : ''}.`;
 
     // Start timer response
