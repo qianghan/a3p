@@ -147,6 +147,26 @@ jobs:
       - run: npx playwright install --with-deps chromium
       # No reset here — the `seed` job did it once, before any phase started.
       - run: npx playwright test --config=tests/e2e/nightly/playwright.config.ts --grep "@${{ matrix.phase }}"
+      # A phase where every test skipped exits 0, so the job goes green having
+      # verified nothing. That is the same "no signal reads as good news" failure
+      # that let a dead suite look healthy for three months — a phase silently
+      # opting out of its own coverage must be as loud as a phase failing.
+      - name: Fail if this phase verified nothing
+        if: always()
+        run: |
+          set -euo pipefail
+          report=tests/e2e/nightly/junit.xml
+          if [ ! -f "$report" ]; then
+            echo "::error::No JUnit report — the phase produced no result at all."
+            exit 1
+          fi
+          total=$(grep -o 'tests="[0-9]*"' "$report" | head -1 | grep -o '[0-9]*')
+          skipped=$(grep -o 'skipped="[0-9]*"' "$report" | head -1 | grep -o '[0-9]*')
+          echo "${{ matrix.phase }}: ${total} tests, ${skipped} skipped"
+          if [ "${total:-0}" -eq 0 ] || [ "${skipped:-0}" -ge "${total:-0}" ]; then
+            echo "::error::${{ matrix.phase }} executed 0 tests (${skipped}/${total} skipped). Green here would mean zero coverage, not success."
+            exit 1
+          fi
       - if: failure()
         uses: actions/upload-artifact@v4
         with:
