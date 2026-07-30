@@ -4,6 +4,7 @@ import { prisma } from '@naap/database';
 import { resolveAddOnPrice, invalidateAccount } from '@naap/billing';
 import { getStripe } from '@/lib/billing/stripe';
 import { safeResolveAgentbookTenant } from '@/lib/agentbook-tenant';
+import { isAddOnAvailable } from '@/lib/addon-availability';
 
 export const runtime = 'nodejs';
 
@@ -36,6 +37,15 @@ export async function POST(
   const cfg = await prisma.abTenantConfig.findUnique({ where: { userId: tenantId }, select: { jurisdiction: true } });
   const jur = (cfg?.jurisdiction || 'us').toLowerCase();
   const region: BillingRegion = (BILLING_REGIONS as readonly string[]).includes(jur) ? (jur as BillingRegion) : 'us';
+
+  // Don't take money for a feature this jurisdiction can't use (e.g. the
+  // startup benefits engine exists only for US + AU). Fail before charging.
+  if (!isAddOnAvailable(code, region)) {
+    return NextResponse.json(
+      { error: `This add-on isn't available in your region (${region.toUpperCase()}) yet.` },
+      { status: 400 },
+    );
+  }
 
   const price = await resolveAddOnPrice(code, region);
   if (!price?.stripePriceId) {

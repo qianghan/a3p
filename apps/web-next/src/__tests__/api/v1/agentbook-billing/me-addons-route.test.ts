@@ -74,18 +74,35 @@ describe('GET /me/addons (list-all branch, no ?code)', () => {
     expect(j.addons.every((a: { active: boolean }) => a.active === false)).toBe(true);
   });
 
-  it("resolves each add-on's price using the tenant's own region from AbTenantConfig.jurisdiction", async () => {
+  it("prices region-available add-ons with the tenant's own region, and EXCLUDES ones not available there", async () => {
+    // CA tenant: startup_tax_benefits has no CA engine, so it must NOT be
+    // offered (or priced) — offering it would sell a feature that returns
+    // "not available for your jurisdiction". The others are region-agnostic.
     tenantConfigFindUnique.mockResolvedValue({ jurisdiction: 'ca' });
     billAddOnFindMany.mockResolvedValue(CATALOG);
     activeAddOnCodesMock.mockResolvedValue(new Set());
     resolveAddOnPriceMock.mockResolvedValue({ id: 'price-ca', tier: 'standard', priceCents: 2500, currency: 'cad', stripePriceId: 'price_ca' });
 
-    await GET(new NextRequest('http://x/me/addons'));
+    const r = await GET(new NextRequest('http://x/me/addons'));
+    const j = await r.json();
 
     expect(tenantConfigFindUnique).toHaveBeenCalledWith({ where: { userId: 'tenant-1' } });
-    expect(resolveAddOnPriceMock).toHaveBeenCalledWith('startup_tax_benefits', 'ca');
+    expect(j.addons.map((a: { code: string }) => a.code)).toEqual(['personal_insights', 'sales_rep']);
+    expect(resolveAddOnPriceMock).not.toHaveBeenCalledWith('startup_tax_benefits', 'ca');
     expect(resolveAddOnPriceMock).toHaveBeenCalledWith('personal_insights', 'ca');
     expect(resolveAddOnPriceMock).toHaveBeenCalledWith('sales_rep', 'ca');
+  });
+
+  it('still SHOWS an add-on the tenant already has active, even where it is not region-available (so they can cancel it)', async () => {
+    tenantConfigFindUnique.mockResolvedValue({ jurisdiction: 'ca' });
+    billAddOnFindMany.mockResolvedValue(CATALOG);
+    activeAddOnCodesMock.mockResolvedValue(new Set(['startup_tax_benefits']));
+    resolveAddOnPriceMock.mockResolvedValue({ id: 'price-ca', tier: 'standard', priceCents: 2500, currency: 'cad', stripePriceId: 'price_ca' });
+
+    const r = await GET(new NextRequest('http://x/me/addons'));
+    const j = await r.json();
+    const startup = j.addons.find((a: { code: string }) => a.code === 'startup_tax_benefits');
+    expect(startup?.active).toBe(true);
   });
 
   it('falls back to region "us" when the tenant has no AbTenantConfig row', async () => {
