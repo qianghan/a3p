@@ -120,10 +120,15 @@ test.describe('@phase3-expenses', () => {
     // link-token, exchange, sync and disconnect exist. link-token is the entry
     // point a user actually hits when connecting a bank.
     const r = await api(page).post('/api/v1/agentbook-expense/plaid/link-token', {});
-    // Plaid credentials are an environmental dependency; a 5xx here means the
+    // Plaid credentials are an environmental dependency; a 5xx means the
     // sandbox is unconfigured, not that the product is broken.
     test.skip(r.status >= 500, 'Plaid not configured in this environment');
-    expectOk(r, 'agentbook-expense/plaid/link-token');
+    // 402 is the CORRECT answer here, not a failure: the e2e tenant is on the
+    // free plan and bank connections are a paid feature. Asserting 2xx (my
+    // first attempt) demanded that the paywall not work. Assert the gate
+    // instead — that it holds in production is worth more than a link token.
+    expect(r.status).toBe(402);
+    expect(JSON.stringify(r.data)).toMatch(/plan|upgrade|quota|limit/i);
   });
 
   test('bank patterns list', async ({ page }) => {

@@ -3,7 +3,13 @@ import { defineConfig } from '@playwright/test';
 export default defineConfig({
   testDir: '.',
   testMatch: '**/phase*.spec.ts',
-  timeout: 30_000,
+  // 60s per test, because the login helper alone may wait up to 30s for a cold
+  // serverless start. An earlier change in this series raised that wait to 30s
+  // while this budget was still 30s, so the test was killed at exactly the
+  // moment the wait was allowed to reach — three tests died with "Test timeout
+  // of 30000ms exceeded" pointing at a waitForURL that could never complete.
+  // A sub-timeout has to be strictly smaller than the budget containing it.
+  timeout: 60_000,
   retries: 2,
   workers: 4,
   // fullyParallel stays OFF (the default). Every phase runs against the SAME
