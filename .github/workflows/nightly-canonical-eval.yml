@@ -39,8 +39,17 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
-      E2E_BASE_URL: ${{ inputs.base_url || secrets.E2E_BASE_URL || 'https://a3book.brainliber.com' }}
-      E2E_USER_EMAIL: ${{ secrets.E2E_USER_EMAIL }}
+      # Literal, not a secret. This read
+      #   inputs.base_url || secrets.E2E_BASE_URL || 'https://a3book.brainliber.com'
+      # and the secret is empty, so every run fell through to a domain that
+      # stopped resolving at the rename: "curl: (6) Could not resolve host".
+      # This suite — the 41 canonical chat utterances, the agent's core promise
+      # — has therefore been failing every single night. #398 fixed exactly this
+      # in nightly-e2e.yml and missed this file; there were TWO dead suites, not
+      # one. A hostname hidden behind a secret nobody can read is a hostname
+      # nobody notices rotting, so it lives in the file now.
+      E2E_BASE_URL: ${{ inputs.base_url || 'https://agentbook.brainliber.com' }}
+      E2E_USER_EMAIL: e2e@agentbook.test
       E2E_USER_PASSWORD: ${{ secrets.E2E_USER_PASSWORD }}
       E2E_RESET_TOKEN: ${{ secrets.E2E_RESET_TOKEN }}
     steps:
@@ -57,11 +66,29 @@ jobs:
       # makes sense if turn 1 isn't being shadowed by a prior thread's
       # context. The reset endpoint is gated by E2E_RESET_TOKEN.
       - name: Reset eval user
-        if: env.E2E_RESET_TOKEN != ''
         run: |
-          curl -sS -X POST \
-            -H "x-e2e-reset-token: ${E2E_RESET_TOKEN}" \
-            "${E2E_BASE_URL}/api/v1/e2e-test/reset-e2e-user" || true
+          set -euo pipefail
+          if [ -z "${E2E_RESET_TOKEN}" ]; then
+            echo "::error::E2E_RESET_TOKEN is unset — the eval would run against a previous night's conversation state, and thread-coherence scores would be meaningless."
+            exit 1
+          fi
+          # Send the password this run will authenticate with, so the GitHub
+          # secret is the single source of truth. Reading the server's own copy
+          # is what kept the other nightly suite unable to log in for months.
+          # Secrets go via env and stdin, never argv.
+          code=$(jq -nc --arg p "$E2E_USER_PASSWORD" '{password:$p}' \
+            | curl -sS -o /tmp/reset.json -w '%{http_code}' -X POST \
+                -H "x-e2e-reset-token: ${E2E_RESET_TOKEN}" \
+                -H 'content-type: application/json' \
+                --data-binary @- \
+                "${E2E_BASE_URL}/api/v1/e2e-test/reset-e2e-user")
+          # No `|| true` here. It used to swallow every failure, so a reset that
+          # never happened looked identical to one that did.
+          if [ "$code" != "200" ] || [ "$(jq -r '.passwordSource' /tmp/reset.json)" != "caller" ]; then
+            echo "::error::Reset failed or ignored the supplied password (HTTP ${code})."
+            jq -r '.error // "no error field"' /tmp/reset.json || cat /tmp/reset.json
+            exit 1
+          fi
 
       # Get a session cookie. The login endpoint sets `naap_auth_token` on
       # success; we capture it for the eval harness via -c then -b.
