@@ -98,6 +98,26 @@ describe('skill routing — canonical utterances', () => {
     // query-finance — excludes "how much tax" → tax-estimate
     { text: 'how much tax do I owe', expected: 'tax-estimate' },
 
+    // cu-maya-020, from the 2026-07-30 canonical eval (run 30578028815):
+    // this routed to manage-bills in production. manage-bills' triggerPatterns
+    // include a bare 'owe ', and "will I owe in taxes" contains it, while its
+    // excludePatterns only listed ['invoice', 'estimate'] — nothing tax-shaped.
+    // So a quarterly-tax question collided with accounts payable, and because
+    // abSkillManifest.findMany has no guaranteed row order, manage-bills won.
+    //
+    // tax-estimate is the right destination: query-finance already excludes
+    // 'how much.*tax|tax.*owe' precisely to defer to it. (The eval fixture's
+    // own expectation of query-finance was stale for the same reason.)
+    // The 'do I owe' case above never caught this — no trailing space after
+    // "owe" — so it needs its own case.
+    { text: 'how much will I owe in taxes this quarter?', expected: 'tax-estimate' },
+    // The other side of the exclusion: real accounts-payable questions must
+    // still reach manage-bills, so the tax carve-out can't quietly disable it.
+    { text: 'any bills due this week', expected: 'manage-bills' },
+    { text: 'what do I owe vendors', expected: 'manage-bills' },
+    { text: 'show me accounts payable', expected: 'manage-bills' },
+    { text: 'do I owe anything to vendors', expected: 'manage-bills' },
+
     // query-finance — excludes "profit and loss" → pnl-report
     { text: 'show me profit and loss', expected: 'pnl-report' },
 

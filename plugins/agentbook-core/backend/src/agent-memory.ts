@@ -254,108 +254,67 @@ export async function learnFromInteraction(
 }
 
 // ---------------------------------------------------------------------------
-// 3. handleCorrection
+// 3. learnVendorCategoryCorrection
 // ---------------------------------------------------------------------------
 
 /**
- * Parse a user correction message, look up the target category, patch the
- * expense, and upsert the vendor_category memory with the corrected value.
+ * Record that the user corrected a vendor's category, so the next expense from
+ * that vendor is categorised correctly without a correction.
+ *
+ * REPLACES `handleCorrection`, which conflated three jobs — parsing, patching
+ * the expense, and learning — and got the first two wrong in ways that could
+ * only ever fail in production:
+ *
+ *   - Parsing used a greedy `(\w[\w\s&]*)` capture, so
+ *     "no, that should be Travel category not Meals" looked up an account named
+ *     "Travel category not Meals" and found nothing. Parsing now lives in
+ *     agent-corrections.ts with a properly terminated capture.
+ *
+ *   - Patching called `${expenseBaseUrl}/expenses/${id}/categorize`, missing the
+ *     `/api/v1/agentbook-expense` prefix every working caller uses, with plain
+ *     headers instead of brainHeaders' CRON_SECRET Authorization. It also read
+ *     the expense id from `lastResult.data.id` while the generic persistence
+ *     stores `data: { params }` — so the id was always undefined, the patch was
+ *     skipped, and it STILL returned `applied: true` with
+ *     "Correction applied: expense categorised as X". It reported edits it had
+ *     never made. The edit now goes through the edit-expense executor
+ *     (agent-brain.tryApplyCorrection), which already has working plumbing.
+ *
+ * What is left here is only the part that was correct: the memory write.
+ * Best-effort by design — a failed learn must never fail the user's correction.
  */
-export async function handleCorrection(
+export async function learnVendorCategoryCorrection(
   tenantId: string,
-  feedback: string,
-  lastResult: any,
-  expenseBaseUrl: string,
-): Promise<{ applied: boolean; message: string }> {
-  // Parse intent from feedback
-  const match = feedback.match(
-    /(?:no|wrong|not|should be|it'?s|that'?s)\s+(\w[\w\s&]*)/i,
-  );
-  if (!match) {
-    return { applied: false, message: 'Could not parse correction from feedback.' };
-  }
+  vendorName: string,
+  categoryId: string,
+): Promise<void> {
+  const normalized = vendorName.trim().toLowerCase();
+  if (!normalized || !categoryId) return;
 
-  const rawCategory = match[1].trim();
-
-  // Look up expense category by name (case-insensitive contains)
-  let account: any = null;
+  const key = `vendor_category:${normalized}`;
   try {
-    account = await db.abAccount.findFirst({
-      where: {
+    await db.abUserMemory.upsert({
+      where: { tenantId_key: { tenantId, key } },
+      create: {
         tenantId,
-        accountType: 'expense',
-        name: { contains: rawCategory, mode: 'insensitive' },
-        isActive: true,
+        key,
+        value: categoryId,
+        type: 'vendor_category',
+        confidence: 0.7,
+        source: 'user_corrected',
+        usageCount: 1,
+        lastUsed: new Date(),
+        lastVerified: new Date(),
+      },
+      update: {
+        value: categoryId,
+        confidence: 0.7,
+        source: 'user_corrected',
+        lastVerified: new Date(),
+        lastUsed: new Date(),
       },
     });
-  } catch (_err) {
-    return { applied: false, message: 'Database error looking up category.' };
+  } catch {
+    // Best-effort — never block the correction itself.
   }
-
-  if (!account) {
-    return {
-      applied: false,
-      message: `Could not find an expense category matching "${rawCategory}".`,
-    };
-  }
-
-  const categoryId: string = account.id;
-  const expenseId: string | undefined = lastResult?.data?.id ?? lastResult?.data?.expenseId;
-
-  // Patch expense if we have an ID
-  if (expenseId) {
-    try {
-      const url = `${expenseBaseUrl}/expenses/${expenseId}/categorize`;
-      await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-tenant-id': tenantId },
-        body: JSON.stringify({ categoryId, source: 'user_corrected' }),
-      });
-    } catch (_err) {
-      // Best-effort — still persist the memory correction
-    }
-  }
-
-  // Upsert vendor_category memory with corrected category
-  const vendorName: string = (
-    lastResult?.data?.vendorName ||
-    lastResult?.data?.vendor ||
-    ''
-  )
-    .trim()
-    .toLowerCase();
-
-  if (vendorName) {
-    const key = `vendor_category:${vendorName}`;
-    try {
-      await db.abUserMemory.upsert({
-        where: { tenantId_key: { tenantId, key } },
-        create: {
-          tenantId,
-          key,
-          value: categoryId,
-          type: 'vendor_category',
-          confidence: 0.7,
-          source: 'user_corrected',
-          usageCount: 1,
-          lastUsed: new Date(),
-          lastVerified: new Date(),
-        },
-        update: {
-          value: categoryId,
-          confidence: 0.7,
-          source: 'user_corrected',
-          lastVerified: new Date(),
-          lastUsed: new Date(),
-        },
-      });
-    } catch (_err) {
-      // Best-effort
-    }
-  }
-
-  return {
-    applied: true,
-    message: `Correction applied: expense categorised as "${account.name}".`,
-  };
 }

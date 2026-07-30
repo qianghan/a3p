@@ -680,15 +680,33 @@ export const BUILT_IN_SKILLS = [
     description: 'Record bills owed to vendors, list bills that are due or overdue, and report accounts payable. Use when the user mentions owing money, rent due, vendor bills, or asks what bills are due.',
     category: 'bookkeeping',
     // 'bills? due' required the words adjacent, so "what bills ARE due this
-    // week?" — the skill's own description promises exactly that phrasing —
-    // matched nothing and fell through. Widened to 'bills?.*due'.
+    // week?" — the phrasing this skill's own description promises — matched
+    // nothing and fell through to the fallback.
     triggerPatterns: ['bills?.*due', 'what.*owe', 'owe ', 'payable', 'rent.*due', 'bill from', 'add.*bill', 'record.*bill', 'overdue bill'],
-    // 'owe ' below is broad enough to catch "how much will I owe in TAXES this
-    // quarter?", and manage-bills wins that race purely because skills are
-    // iterated orderBy name asc — m before t — so alphabetical accident routed a
-    // tax question to accounts payable. Excluding the tax phrasings lets
-    // tax-estimate's own 'how much.*tax' trigger take it.
-    excludePatterns: ['invoice', 'estimate', 'owe.*tax', 'tax.*owe', 'in taxes'],
+    // cu-maya-020 (canonical eval run 30578028815, 2026-07-30): "how much will I
+    // owe in taxes this quarter?" routed here instead of tax-estimate. The bare
+    // 'owe ' trigger matches "owe in taxes" and the exclusion list was only
+    // ['invoice', 'estimate'] — nothing tax-shaped — so a quarterly tax question
+    // collided with accounts payable.
+    //
+    // Precedence is alphabetical (server.ts selects with
+    // orderBy: { name: 'asc' } and breaks on first match), so manage-bills beat
+    // tax-estimate purely because m sorts before t. Deterministic, but an
+    // accident of naming rather than a routing decision — which is why the fix
+    // is an exclude, not a reorder.
+    //
+    // Taxes are never accounts payable: money owed to a revenue authority is
+    // tax-estimate / quarterly-payments, and query-finance already excludes
+    // 'how much.*tax|tax.*owe' for the same reason.
+    //
+    // Deliberately phrase-scoped rather than a bare \btaxe?s?\b: that would also
+    // exclude "record a bill from my tax accountant", which IS a payable. The
+    // authority names are unambiguous enough to match bare.
+    excludePatterns: [
+      'invoice', 'estimate',
+      'owe.*tax', 'tax.*owe', 'in taxes', 'taxes.*(quarter|year|owe|due)',
+      '\\bcra\\b', '\\birs\\b', '\\bato\\b',
+    ],
     parameters: {
       action: { type: 'string', required: false, extractHint: 'create or list (default list)' },
       vendorName: { type: 'string', required: false, extractHint: 'vendor name when creating' },

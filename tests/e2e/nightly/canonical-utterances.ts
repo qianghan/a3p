@@ -123,7 +123,12 @@ export const CANONICAL: CanonicalUtterance[] = [
     persona: 'maya',
     text: 'estimate Acme $3000 for the new project',
     category: 'invoicing',
-    // Was 'create-invoice': the user said "estimate"; create-estimate exists.
+    // Was 'create-invoice' — a stale expectation, not a product bug. An
+    // estimate is a distinct document from an invoice (create-estimate is its
+    // own skill, and record-expense explicitly excludes '^estimate\s' to defer
+    // to it). Corrected after the 2026-07-30 canonical eval flagged the
+    // mismatch and routing was verified: this utterance matches
+    // create-estimate and nothing else.
     expectedSkill: 'create-estimate',
   },
   {
@@ -131,7 +136,9 @@ export const CANONICAL: CanonicalUtterance[] = [
     persona: 'maya',
     text: 'start timer for TechCorp project',
     category: 'invoicing',
-    // Was 'create-invoice': "start timer" is start-timer, not an invoice.
+    // Was 'create-invoice' — stale. Starting a timer is time tracking, not
+    // invoice creation; the invoice comes later, from the logged hours.
+    // start-timer is a real skill and this utterance matches only it.
     expectedSkill: 'start-timer',
   },
   {
@@ -139,7 +146,9 @@ export const CANONICAL: CanonicalUtterance[] = [
     persona: 'alex',
     text: 'got $7500 payment from BigCo',
     category: 'invoicing',
-    // Was 'create-invoice': receiving a payment is record-payment; the amount assertion below still stands.
+    // Was 'create-invoice' — stale, and backwards: receiving money records a
+    // payment against an existing invoice, it does not create one.
+    // record-expense excludes 'got.*\$.*from' precisely to defer here.
     expectedSkill: 'record-payment',
     required: ['$7,500'],
   },
@@ -161,11 +170,20 @@ export const CANONICAL: CanonicalUtterance[] = [
     persona: 'maya',
     text: 'how much will I owe in taxes this quarter?',
     category: 'tax',
-    // Was 'query-finance', which is too vague for a tax question. Either tax
-    // skill answers it. The agent currently says manage-bills — whose trigger
-    // is "user mentions owing money" — so this still fails, correctly: routing
-    // a tax question to accounts payable is a real misroute, not fixture drift.
+    // This one had a bug on BOTH sides.
+    //
+    // Product bug (fixed): it routed to manage-bills. manage-bills' bare 'owe '
+    // trigger matches "owe in taxes" and its excludePatterns had nothing
+    // tax-shaped, so a quarterly-tax question collided with accounts payable
+    // and won on unordered DB row order. Fixed in built-in-skills.ts; guarded
+    // in agent-core's skill-routing-canonical.test.ts.
+    //
+    // Fixture bug (fixed here): 'query-finance' was also wrong. query-finance
+    // explicitly excludes 'how much.*tax|tax.*owe' in order to defer to
+    // tax-estimate, which is the skill that actually computes this.
     expectedSkill: 'tax-estimate',
+    // quarterly-payments answers the same question from the schedule side, so
+    // either is a correct route for "…this quarter".
     acceptableSkills: ['quarterly-payments'],
     forbidden: ['NaN%', '2500%'],
   },
@@ -346,7 +364,7 @@ export const CANONICAL: CanonicalUtterance[] = [
     persona: 'jordan',
     text: 'start a timer for Acme on the redesign project',
     category: 'invoicing',
-    // Was 'create-invoice': same as cu-maya-012.
+    // Was 'create-invoice' — stale, same reason as cu-maya-012.
     expectedSkill: 'start-timer',
     isMultiTurn: true,
     threadId: 't-jordan-timer',
