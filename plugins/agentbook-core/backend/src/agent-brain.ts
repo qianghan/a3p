@@ -473,6 +473,22 @@ function shouldEscalateOnConfidence(classification: any): boolean {
  * Kept deliberately simple — the goal is to let the user understand what is
  * about to happen, not to render a full audit log.
  */
+/**
+ * Money as money, for text the user is asked to confirm.
+ *
+ * Kept local rather than imported from server.ts: that module pulls in the
+ * Express app at import time, and agent-brain must stay usable without it.
+ * The duplication is two lines and deliberate — see the guard in
+ * __tests__/agent-money-format.test.ts, which asserts BOTH sites separate
+ * thousands so they cannot drift apart silently.
+ */
+function fmtConfirmMoney(cents: number): string {
+  return `$${(cents / 100).toLocaleString('en-US', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })}`;
+}
+
 function describeDestructiveAction(classification: any, fallbackText: string): string {
   const name = classification?.selectedSkill?.name || 'unknown';
   const params = classification?.extractedParams || {};
@@ -498,7 +514,10 @@ function describeDestructiveAction(classification: any, fallbackText: string): s
       return `Split expense ${params.expenseId || 'last'}${categories.length ? ` (${categories.join(' / ')})` : ''}`;
     }
     case 'record-payment':
-      return `Record payment${params.amountCents ? ` of $${(params.amountCents / 100).toFixed(2)}` : ''}${params.clientName ? ` from ${params.clientName}` : ''}`;
+      // Thousands separators — this is the text the user is asked to CONFIRM
+      // before money moves, so "$7500.00" instead of "$7,500.00" is the worst
+      // place to render a number oddly.
+      return `Record payment${params.amountCents ? ` of ${fmtConfirmMoney(params.amountCents)}` : ''}${params.clientName ? ` from ${params.clientName}` : ''}`;
     default:
       return `Run ${name}: ${fallbackText.slice(0, 100)}`;
   }
