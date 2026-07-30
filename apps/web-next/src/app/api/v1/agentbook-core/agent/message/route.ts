@@ -107,9 +107,44 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     const dbSkills = await db.abSkillManifest.findMany({
       where: { enabled: true, OR: [{ tenantId: null }, { tenantId }] },
     });
-    // Merge in any BUILT_IN_SKILLS not yet seeded into AbSkillManifest, so a
-    // deploy that adds new built-in skills works immediately without a manual
-    // re-seed. DB rows take precedence (they may be customized per tenant).
+    // CODE IS AUTHORITATIVE for global built-in skills.
+    //
+    // This used to be "DB rows take precedence", which made every edit to
+    // BUILT_IN_SKILLS a silent no-op in production until someone remembered to
+    // POST /api/v1/admin/seed-skills. A routing fix shipped, CI went green, and
+    // the agent kept routing the old way — code and data disagreeing with no
+    // signal anywhere. That cost a real misroute: a tax question answered with
+    // accounts payable, still live after the fix had merged.
+    //
+    // So the definition fields (patterns, parameters, endpoint, template) are now
+    // read from code for rows that are global AND built-in. Two things are
+    // deliberately NOT overridden:
+    //   • `enabled` — the admin skill toggle lives in the DB and must keep
+    //     winning, or disabling a skill in the UI would silently un-disable.
+    //   • anything tenant-scoped (tenantId !== null) or source !== 'built_in' —
+    //     those are genuine customisations and code has no business clobbering
+    //     them.
+    // Seeding still works and is still worth running; it just stops being load
+    // bearing for correctness.
+    const builtInByName = new Map(BUILT_IN_SKILLS.map((s) => [s.name, s as Record<string, unknown>]));
+    const reconciled = dbSkills.map((row) => {
+      if (row.tenantId !== null || row.source !== 'built_in') return row;
+      const code = builtInByName.get(row.name);
+      if (!code) return row;
+      return {
+        ...row,
+        description: (code.description as string) ?? row.description,
+        category: (code.category as string) ?? row.category,
+        triggerPatterns: (code.triggerPatterns as string[]) ?? row.triggerPatterns,
+        requirePatterns: (code.requirePatterns as string[]) ?? row.requirePatterns,
+        excludePatterns: (code.excludePatterns as string[]) ?? row.excludePatterns,
+        parameters: (code.parameters as object) ?? row.parameters,
+        endpoint: (code.endpoint as string) ?? row.endpoint,
+        responseTemplate: (code.responseTemplate as string) ?? row.responseTemplate,
+        // enabled intentionally left as the DB has it — see above.
+      };
+    });
+
     const seenNames = new Set(dbSkills.map((s) => s.name));
     const fallbackSkills = BUILT_IN_SKILLS
       .filter((s) => !seenNames.has(s.name))
@@ -131,7 +166,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         createdAt: new Date(),
         updatedAt: new Date(),
       }));
-    const skills = [...dbSkills, ...fallbackSkills] as typeof dbSkills;
+    const skills = [...reconciled, ...fallbackSkills] as typeof dbSkills;
     const baseUrls = getPluginBaseUrls(getAppBaseUrl(request));
 
     const brainResult = await handleAgentMessage(
