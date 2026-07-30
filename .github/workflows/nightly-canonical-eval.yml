@@ -7,11 +7,15 @@ name: Nightly Canonical Eval
 # Schedule: 06:00 UTC daily (after morning-digest finishes at 02:00 UTC).
 # Manual: workflow_dispatch lets a reviewer trigger an ad-hoc run.
 #
+# Target: https://agentbook.brainliber.com, a literal in the job env. Override
+# for a one-off with the `base_url` workflow_dispatch input. It is deliberately
+# NOT read from a secret any more — it was, that secret is empty, and every run
+# silently fell through to a dead hostname for months.
+#
 # Requires the following repo secrets:
-#   E2E_BASE_URL              base URL of the deployment to evaluate
-#                              (defaults to https://a3book.brainliber.com if unset)
-#   E2E_USER_EMAIL            login email for the canonical-eval seed user
-#   E2E_USER_PASSWORD         password for the same
+#   E2E_USER_PASSWORD         password for the canonical-eval seed user. Also
+#                              pushed to the reset endpoint, which makes this
+#                              the single source of truth for that account.
 #   E2E_RESET_TOKEN           one-shot token for /v1/e2e-test/reset-e2e-user
 #                              (clears prior conversation so multi-turn threads
 #                              start with a clean slate)
