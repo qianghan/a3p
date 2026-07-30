@@ -107,8 +107,9 @@ test.describe('@phase3-expenses', () => {
   test('split expense across two categories', async ({ page }) => {
     const create = await api(page).post('/api/v1/agentbook-expense/expenses', { amountCents: 1000, description: 'split-test' });
     const id = create.data.data.id;
+    // The API field is `splits`, not `lines` — a 400 that `status < 500` hid.
     const split = await api(page).post(`/api/v1/agentbook-expense/expenses/${id}/split`, {
-      lines: [{ amountCents: 600, accountCode: '5000' }, { amountCents: 400, accountCode: '5100' }],
+      splits: [{ amountCents: 600, accountCode: '5000' }, { amountCents: 400, accountCode: '5100' }],
     });
     expectOk(split, 'agentbook-expense/expenses/{id}/split');
     await api(page).delete(`/api/v1/agentbook-expense/expenses/${id}`);

@@ -22,7 +22,7 @@ test.describe('@phase5-tax-reports', () => {
     expect(r.data.data.payments.map((p: { quarter: number }) => p.quarter)).toEqual([1, 2, 3, 4]);
   });
   test('record quarterly payment updates dashboard', async ({ page }) => {
-    const r = await api(page).post('/api/v1/agentbook-tax/tax/quarterly/2026/1/record-payment', { amountCents: 100 });
+    const r = await api(page).post('/api/v1/agentbook-tax/tax/quarterly/2026/1/record-payment', { amountPaidCents: 100 });
     expectOk(r, 'agentbook-tax/tax/quarterly/2026/1/record-payment');
   });
   test('deductions list', async ({ page }) => {

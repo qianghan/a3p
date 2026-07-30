@@ -60,7 +60,7 @@ test.describe('@phase4-invoicing', () => {
       ],
       dueDate: new Date(Date.now()+30*86400000).toISOString(),
     });
-    expect(r.status).toBe(200);
+    expect(r.status).toBe(201);
     expect(r.data.data.amountCents).toBe(550000);
     await api(page).delete(`/api/v1/agentbook-invoice/invoices/${r.data.data.id}`);
   });

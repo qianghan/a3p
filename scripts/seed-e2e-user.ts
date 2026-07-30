@@ -79,16 +79,24 @@ export async function resetE2eUser(opts?: { password?: string }): Promise<ResetR
   await db.abConversation.deleteMany({ where: { tenantId } }).catch(() => {});
   await db.abAgentSession.deleteMany({ where: { tenantId } }).catch(() => {});
 
-  // Default chart of accounts
+  // Default chart of accounts.
+  //
+  // Codes must be the CANONICAL ones (1000 = Cash, 1100 = A/R). This used to
+  // seed 1010 and 1200, which no other part of the system looks for: the tax
+  // estimate resolves Cash by `code: '1000'` and found nothing, so it reported
+  // grossRevenueCents = 0 for a tenant with four invoices. Every report keyed
+  // off the standard chart was quietly empty for the e2e tenant.
   const accounts = await Promise.all([
-    db.abAccount.create({ data: { tenantId, code: '1010', name: 'Cash',                accountType: 'asset',   isActive: true } }),
-    db.abAccount.create({ data: { tenantId, code: '1200', name: 'Accounts Receivable', accountType: 'asset',   isActive: true } }),
+    db.abAccount.create({ data: { tenantId, code: '1000', name: 'Cash',                accountType: 'asset',   isActive: true } }),
+    db.abAccount.create({ data: { tenantId, code: '1100', name: 'Accounts Receivable', accountType: 'asset',   isActive: true } }),
     db.abAccount.create({ data: { tenantId, code: '4000', name: 'Revenue',             accountType: 'revenue', isActive: true } }),
     db.abAccount.create({ data: { tenantId, code: '5000', name: 'General Expense',     accountType: 'expense', isActive: true } }),
     db.abAccount.create({ data: { tenantId, code: '5100', name: 'Travel',              accountType: 'expense', isActive: true } }),
     db.abAccount.create({ data: { tenantId, code: '3000', name: 'Equity',              accountType: 'equity',  isActive: true } }),
   ]);
-  const cashAccount    = accounts.find(a => a.code === '1010')!;
+  const cashAccount    = accounts.find(a => a.code === '1000')!;
+  const arAccount      = accounts.find(a => a.code === '1100')!;
+  const revenueAccount = accounts.find(a => a.code === '4000')!;
   const equityAccount  = accounts.find(a => a.code === '3000')!;
   const expenseAccount = accounts.find(a => a.code === '5000')!;
   const travelAccount  = accounts.find(a => a.code === '5100')!;
@@ -121,7 +129,7 @@ export async function resetE2eUser(opts?: { password?: string }): Promise<ResetR
     { date: daysAgo(25), amountCents: 1500,  description: 'Client lunch',              categoryId: expenseAccount.id, receiptUrl: 'https://e2e.test/r/5.jpg' },
   ];
   for (const e of expensesData) {
-    await db.abExpense.create({
+    const expense = await db.abExpense.create({
       data: {
         tenantId,
         date: e.date,
@@ -131,6 +139,24 @@ export async function resetE2eUser(opts?: { password?: string }): Promise<ResetR
         isPersonal: false,
         receiptUrl: e.receiptUrl,
         source: 'manual',
+      },
+    });
+    // Mirror what POST /expenses does. Writing AbExpense rows straight to the
+    // database skips the route that posts the ledger entry, which left the e2e
+    // tenant with expenses that appear in lists but never in the P&L, trial
+    // balance or tax estimate — books that disagree with themselves, and a
+    // tenant unable to exercise the reporting surface the tests are aimed at.
+    await db.abJournalEntry.create({
+      data: {
+        tenantId,
+        date: e.date,
+        memo: e.description,
+        sourceType: 'expense',
+        sourceId: expense.id,
+        lines: { create: [
+          { tenantId, accountId: e.categoryId, debitCents: e.amountCents, creditCents: 0 }, // G-009
+          { tenantId, accountId: cashAccount.id, debitCents: 0, creditCents: e.amountCents }, // G-009
+        ] },
       },
     });
   }
@@ -150,6 +176,50 @@ export async function resetE2eUser(opts?: { password?: string }): Promise<ResetR
   });
   await db.abPayment.create({
     data: { tenantId, invoiceId: paid.id, amountCents: 60000, date: daysAgo(5), method: 'bank_transfer' },
+  });
+
+  // Book the invoices, as the invoice routes would. Without this the tenant has
+  // four invoices and an empty revenue account, so the tax estimate reported
+  // grossRevenueCents = 0 and every revenue-derived report was blank — the
+  // books disagreed with the records they were supposedly derived from.
+  //
+  // Draft is deliberately NOT booked: an unissued invoice is not revenue, and
+  // booking it would make the seed teach the wrong accounting.
+  for (const inv of [
+    { id: 'INV-E2E-SENT', amountCents: 120000, date: daysAgo(23) },
+    { id: 'INV-E2E-OVERDUE', amountCents: 95000, date: daysAgo(60) },
+    { id: 'INV-E2E-PAID', amountCents: 60000, date: daysAgo(40) },
+  ]) {
+    const row = await db.abInvoice.findFirst({ where: { tenantId, number: inv.id } });
+    if (!row) continue;
+    await db.abJournalEntry.create({
+      data: {
+        tenantId,
+        date: inv.date,
+        memo: `Invoice ${inv.id}`,
+        sourceType: 'invoice',
+        sourceId: row.id,
+        lines: { create: [
+          { tenantId, accountId: arAccount.id, debitCents: inv.amountCents, creditCents: 0 }, // G-009
+          { tenantId, accountId: revenueAccount.id, debitCents: 0, creditCents: inv.amountCents }, // G-009
+        ] },
+      },
+    });
+  }
+
+  // Settling the paid invoice moves A/R to Cash.
+  await db.abJournalEntry.create({
+    data: {
+      tenantId,
+      date: daysAgo(5),
+      memo: 'Payment for INV-E2E-PAID',
+      sourceType: 'payment',
+      sourceId: paid.id,
+      lines: { create: [
+        { tenantId, accountId: cashAccount.id, debitCents: 60000, creditCents: 0 }, // G-009
+        { tenantId, accountId: arAccount.id, debitCents: 0, creditCents: 60000 }, // G-009
+      ] },
+    },
   });
 
   return { userId: E2E_USER_ID, expensesCreated: expensesData.length, invoicesCreated: 4, clientsCreated: 3 };

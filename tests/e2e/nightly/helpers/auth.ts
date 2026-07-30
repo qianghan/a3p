@@ -20,8 +20,14 @@ export async function loginAsE2eUser(page: Page): Promise<void> {
   // "/login?redirect=/dashboard" — exactly the URL you sit on when login
   // FAILS. That made a failed login report success, so the suite looked
   // partly green while no session existed at all.
+  // 30s, not 15s. Four workers sign in concurrently against production, and a
+  // cold serverless function comfortably exceeds 15s under that load — which
+  // showed up as tests failing at ~16.7s and passing on retry. That flakiness
+  // is the harness racing a cold start, not the product being broken, and
+  // treating it as a product signal wastes exactly the attention this suite
+  // exists to direct.
   await page.waitForURL((url) => /^\/(dashboard|agentbook)(\/|$)/.test(url.pathname), {
-    timeout: 15_000,
+    timeout: 30_000,
   });
 
   // Prove the session is real. A URL match alone is not proof: the middleware
