@@ -14,7 +14,35 @@ export async function loginAsE2eUser(page: Page): Promise<void> {
   await page.fill('input[type="email"]', E2E_USER.email);
   await page.fill('input[type="password"]', E2E_USER.password);
   await page.click('button[type="submit"]');
-  await page.waitForURL(/\/dashboard|\/agentbook/, { timeout: 15_000 });
+
+  // Match on the PATH, anchored. The previous check was
+  // waitForURL(/\/dashboard|\/agentbook/), which also matches
+  // "/login?redirect=/dashboard" — exactly the URL you sit on when login
+  // FAILS. That made a failed login report success, so the suite looked
+  // partly green while no session existed at all.
+  await page.waitForURL((url) => /^\/(dashboard|agentbook)(\/|$)/.test(url.pathname), {
+    timeout: 15_000,
+  });
+
+  // Prove the session is real. A URL match alone is not proof: the middleware
+  // only checks that an auth cookie is PRESENT (it can't verify a signature at
+  // the edge), so a stale or invalid cookie still navigates fine. One
+  // authenticated request is the only honest confirmation.
+  const status = await page.evaluate(async () => {
+    const r = await fetch('/api/v1/agentbook-core/dashboard/overview', {
+      credentials: 'include',
+    });
+    return r.status;
+  });
+  if (status !== 200) {
+    throw new Error(
+      `E2E login did not establish a valid session (authenticated probe returned ${status}).\n` +
+        'Most likely cause: the E2E_USER_PASSWORD that CI logs in with does not match the ' +
+        'value the PRODUCTION server used when it seeded the user via reset-e2e-user ' +
+        '(scripts/seed-e2e-user.ts reads its own process.env.E2E_USER_PASSWORD). ' +
+        'Check that the GitHub secret and the Vercel production env var hold the same value.',
+    );
+  }
 }
 
 /**
