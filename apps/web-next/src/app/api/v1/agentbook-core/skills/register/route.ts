@@ -55,8 +55,10 @@ interface SkillRegistrationBody {
 
 function isInternalAdmin(request: NextRequest): boolean {
   const secret = process.env.INTERNAL_ADMIN_SECRET;
-  // Dev convention: when the secret is unset, the route is open.
-  if (!secret) return true;
+  // Fail CLOSED: if the secret isn't configured, deny. Skill registration sets
+  // an agent-callable endpoint.url, so leaving it open when the var is unset is
+  // an SSRF / agent-behavior-injection vector.
+  if (!secret) return false;
   return request.headers.get('x-internal-admin') === secret;
 }
 

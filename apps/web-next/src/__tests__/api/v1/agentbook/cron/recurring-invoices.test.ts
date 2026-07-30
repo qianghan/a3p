@@ -76,7 +76,11 @@ const txHandle = {
 };
 
 function req(): NextRequest {
-  return new NextRequest('http://x/cron/recurring-invoices');
+  // Authorized cron request (matches the CRON_SECRET set in beforeEach), so
+  // business-logic tests exercise the handler, not the fail-closed auth gate.
+  return new NextRequest('http://x/cron/recurring-invoices', {
+    headers: { authorization: 'Bearer test-cron-secret' },
+  });
 }
 
 const templateLines = [{ description: 'Consulting', quantity: 1, rateCents: 100000 }];
@@ -124,7 +128,7 @@ const accountsByTenant: Record<string, Record<string, { id: string; code: string
 
 beforeEach(() => {
   vi.clearAllMocks();
-  delete process.env.CRON_SECRET;
+  process.env.CRON_SECRET = 'test-cron-secret';
 
   invoiceUpdateMany.mockResolvedValue({ count: 0 });
   invoiceFindFirst.mockResolvedValue(null); // no prior invoice this year
@@ -172,11 +176,17 @@ beforeEach(() => {
 
 describe('GET /cron/recurring-invoices — sales tax wiring', () => {
   it('returns 401 when CRON_SECRET is set and the bearer token is wrong', async () => {
-    process.env.CRON_SECRET = 'real-secret';
+    process.env.CRON_SECRET = 'a-different-secret'; // req() sends 'test-cron-secret'
     recurringFindMany.mockResolvedValue([]);
     const res = await GET(req());
     expect(res.status).toBe(401);
+  });
+
+  it('returns 401 (fail CLOSED) when CRON_SECRET is not configured', async () => {
     delete process.env.CRON_SECRET;
+    recurringFindMany.mockResolvedValue([]);
+    const res = await GET(req());
+    expect(res.status).toBe(401);
   });
 
   it('AU tenant: generates a 3-line journal entry (AR/Revenue/GST Payable) with correct taxCents', async () => {
