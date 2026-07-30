@@ -92,6 +92,15 @@ export async function resetE2eUser(opts?: { password?: string }): Promise<ResetR
     ['abInvoiceLine', () => db.abInvoiceLine.deleteMany({ where: { invoice: { tenantId } } })],
     ['abPayment', () => db.abPayment.deleteMany({ where: { tenantId } })],
     ['abInvoice', () => db.abInvoice.deleteMany({ where: { tenantId } })],
+    // AbEstimate declares the only real FK to AbClient (no cascade), and the
+    // phase4 estimate test creates one. AbRecurringInvoice has no declared
+    // relation, but its rows accumulate from the same phase with no teardown,
+    // so it goes too. Found by the loud wipe added moments earlier: it reported
+    // `seed wipe failed at abClient` instead of leaving a half-wiped tenant and
+    // surfacing later as an unrelated unique-constraint error. That is the whole
+    // argument for not swallowing.
+    ['abEstimate', () => db.abEstimate.deleteMany({ where: { tenantId } })],
+    ['abRecurringInvoice', () => db.abRecurringInvoice.deleteMany({ where: { tenantId } })],
     ['abClient', () => db.abClient.deleteMany({ where: { tenantId } })],
     ['abExpense', () => db.abExpense.deleteMany({ where: { tenantId } })],
     ['abJournalLine', () => db.abJournalLine.deleteMany({ where: { entry: { tenantId } } })],
