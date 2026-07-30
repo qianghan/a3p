@@ -9,10 +9,83 @@ concurrency:
   group: nightly-e2e
   cancel-in-progress: false
 
+env:
+  # Must match the live production domain. This was a3book.brainliber.com,
+  # which stopped resolving when the domains were renamed — every phase then
+  # died at "Could not resolve host" for ~3 months (auto-filed issues #2-#6,
+  # #125-#126), so the nightly suite provided no signal at all.
+  E2E_BASE_URL: https://agentbook.brainliber.com
+  E2E_USER_EMAIL: e2e@agentbook.test
+
 jobs:
+  # ===========================================================================
+  # Seed — runs ONCE, before any phase.
+  #
+  # Two things were wrong with resetting inside phase1:
+  #   1. The seven phases run as parallel jobs, so phase1 was wiping invoices
+  #      and expenses while phases 3/4/5 asserted on them — a data race that
+  #      makes failures non-reproducible.
+  #   2. Phases 2-7 ran against whatever password the account happened to have.
+  #
+  # This job also PUSHES the password CI is about to log in with, making this
+  # workflow's own secret the single source of truth (see scripts/seed-e2e-user.ts),
+  # then proves login works before spending ~3 compute-hours on seven phases
+  # that would otherwise all fail identically at the first sign-in.
+  # ===========================================================================
+  seed:
+    name: Seed E2E user
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Reset data and set the password this run will use
+        env:
+          # Secrets travel via env and stdin, never argv — argv is readable by
+          # any other process on the runner, `--data-binary @-` is not.
+          E2E_RESET_TOKEN: ${{ secrets.E2E_RESET_TOKEN }}
+          E2E_USER_PASSWORD: ${{ secrets.E2E_USER_PASSWORD }}
+        run: |
+          set -euo pipefail
+          if [ -z "${E2E_USER_PASSWORD}" ]; then
+            echo "::error::secrets.E2E_USER_PASSWORD is empty — the suite cannot authenticate."
+            exit 1
+          fi
+          code=$(jq -nc --arg p "$E2E_USER_PASSWORD" '{password:$p}' \
+            | curl -sS -o /tmp/reset.json -w '%{http_code}' -X POST \
+                -H "x-e2e-reset-token: ${E2E_RESET_TOKEN}" \
+                -H 'content-type: application/json' \
+                --data-binary @- \
+                "${E2E_BASE_URL}/api/v1/e2e-test/reset-e2e-user")
+          echo "reset HTTP ${code}"
+          # `passwordSource` must be "caller": that proves the server hashed OUR
+          # password rather than silently falling back to its own stale env var,
+          # which is the exact failure this whole change exists to make impossible.
+          if [ "$code" != "200" ] || [ "$(jq -r '.passwordSource' /tmp/reset.json)" != "caller" ]; then
+            echo "::error::Reset failed or ignored the supplied password (HTTP ${code})."
+            jq -r '.error // "no error field"' /tmp/reset.json || cat /tmp/reset.json
+            exit 1
+          fi
+          jq -r '"seeded: \(.expensesCreated) expenses, \(.invoicesCreated) invoices, \(.clientsCreated) clients"' /tmp/reset.json
+
+      - name: Prove the credentials actually authenticate
+        env:
+          E2E_USER_PASSWORD: ${{ secrets.E2E_USER_PASSWORD }}
+        run: |
+          set -euo pipefail
+          code=$(jq -nc --arg e "$E2E_USER_EMAIL" --arg p "$E2E_USER_PASSWORD" \
+                   '{email:$e,password:$p}' \
+            | curl -sS -o /dev/null -w '%{http_code}' -X POST \
+                -H 'content-type: application/json' --data-binary @- \
+                "${E2E_BASE_URL}/api/v1/auth/login")
+          if [ "$code" != "200" ]; then
+            echo "::error::Login returned ${code}, expected 200. Every phase would fail at sign-in — stopping here rather than burning ~3 compute-hours on a credential problem."
+            exit 1
+          fi
+          echo "Login OK — credentials converged."
+
   e2e:
     name: Phase ${{ matrix.phase }}
     runs-on: ubuntu-latest
+    needs: seed
     timeout-minutes: 25
     strategy:
       fail-fast: false
@@ -26,12 +99,6 @@ jobs:
           - phase6-telegram-bot
           - phase7-cron-and-cache
     env:
-      # Must match the live production domain. This was a3book.brainliber.com,
-      # which stopped resolving when the domains were renamed — every phase then
-      # died at "Could not resolve host" for ~3 months (auto-filed issues #2-#6,
-      # #125-#126), so the nightly suite provided no signal at all.
-      E2E_BASE_URL: https://agentbook.brainliber.com
-      E2E_USER_EMAIL: e2e@agentbook.test
       E2E_USER_PASSWORD: ${{ secrets.E2E_USER_PASSWORD }}
       E2E_RESET_TOKEN: ${{ secrets.E2E_RESET_TOKEN }}
       CRON_SECRET: ${{ secrets.CRON_SECRET }}
@@ -44,12 +111,7 @@ jobs:
           cache: 'npm'
       - run: npm ci --prefer-offline --no-audit
       - run: npx playwright install --with-deps chromium
-      - name: Reset E2E user data
-        if: matrix.phase == 'phase1-auth'
-        run: |
-          curl -fsS -X POST \
-            -H "x-e2e-reset-token: ${E2E_RESET_TOKEN}" \
-            "${E2E_BASE_URL}/api/v1/e2e-test/reset-e2e-user"
+      # No reset here — the `seed` job did it once, before any phase started.
       - run: npx playwright test --config=tests/e2e/nightly/playwright.config.ts --grep "@${{ matrix.phase }}"
       - if: failure()
         uses: actions/upload-artifact@v4
@@ -61,7 +123,11 @@ jobs:
   notify:
     name: Triage failures
     runs-on: ubuntu-latest
-    needs: e2e
+    # `seed` is included deliberately: if it fails, every phase is SKIPPED, so
+    # the phase-job scan below finds nothing and the night would pass in silence
+    # — the same "no signal looks like good news" trap that hid a dead suite for
+    # three months.
+    needs: [seed, e2e]
     if: always() && github.event_name == 'schedule'
     permissions:
       issues: write
@@ -73,6 +139,25 @@ jobs:
             const { data: { jobs } } = await github.rest.actions.listJobsForWorkflowRun({
               owner: context.repo.owner, repo: context.repo.repo, run_id: context.runId,
             });
+            // Seed failure means the phases never ran at all. Report it loudly
+            // rather than letting an empty phase list read as a clean night.
+            if ('${{ needs.seed.result }}' !== 'success') {
+              await github.rest.issues.create({
+                owner: context.repo.owner, repo: context.repo.repo,
+                title: '[nightly-e2e] seed failed — no phases ran',
+                body: [
+                  'The seed job did not succeed, so all seven phases were skipped.',
+                  'This run produced **no coverage signal at all**.',
+                  '',
+                  `**Run:** ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
+                  '',
+                  'Usual causes: production unreachable, `E2E_RESET_TOKEN` not matching the deployed env var, or the login probe returning non-200.',
+                ].join('\n'),
+                labels: ['nightly-fail', 'phase:seed'],
+              });
+              return;
+            }
+
             const phaseJobs = jobs.filter(j => j.name.startsWith('Phase '));
             const failed = phaseJobs.filter(j => j.conclusion === 'failure').map(j => j.name.replace('Phase ', ''));
             const passed = phaseJobs.filter(j => j.conclusion === 'success').map(j => j.name.replace('Phase ', ''));

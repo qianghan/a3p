@@ -28,14 +28,30 @@ interface ResetResult {
   clientsCreated: number;
 }
 
-export async function resetE2eUser(): Promise<ResetResult> {
+/**
+ * @param opts.password Password to set, supplied by the caller.
+ *
+ * The nightly workflow passes the exact secret it is about to log in WITH,
+ * which makes that one GitHub secret the single source of truth. Reading the
+ * server's own `E2E_USER_PASSWORD` is what broke the suite originally: CI
+ * authenticated with the GitHub secret while the server hashed a different
+ * Vercel env var, so login could never succeed and no amount of correct product
+ * code would have turned the suite green. Two independently-editable copies of
+ * one value will always drift, so this removes the second copy instead of
+ * asking a human to keep them in sync. The env fallback remains for local
+ * `npm run seed:e2e`, where there is only ever one copy.
+ */
+export async function resetE2eUser(opts?: { password?: string }): Promise<ResetResult> {
   await db.user.upsert({
     where: { id: E2E_USER_ID },
     create: { id: E2E_USER_ID, email: E2E_USER_EMAIL, displayName: 'E2E Nightly' },
     update: { displayName: 'E2E Nightly', email: E2E_USER_EMAIL },
   });
 
-  await ensurePassword(E2E_USER_ID, process.env.E2E_USER_PASSWORD || 'e2e-nightly-2026');
+  await ensurePassword(
+    E2E_USER_ID,
+    opts?.password || process.env.E2E_USER_PASSWORD || 'e2e-nightly-2026',
+  );
 
   await db.abTenantConfig.upsert({
     where: { userId: E2E_USER_ID },
