@@ -86,12 +86,31 @@ const CHAT_TO_TENANT_FALLBACK: Record<string, string> = {
 
 // === E2E test capture ===
 //
-// When E2E_TELEGRAM_CAPTURE=1, intercept bot.api.sendMessage so the
-// nightly suite can inspect would-be replies without hitting Telegram.
-// Production behaviour is unchanged when the env var is unset.
+// When enabled, intercept bot.api.sendMessage so the nightly suite can inspect
+// would-be replies without hitting Telegram.
+//
+// SCOPED TO ONE CHAT ID ON PURPOSE. The flag alone used to enable capture for
+// EVERY inbound update, which meant switching it on in production would have
+// swallowed every real user's reply — the bot would have gone silent for
+// everyone while still returning 200. That made the flag unusable against prod,
+// which is why all 14 Telegram tests had no way to run there.
+//
+// Requiring the chat id to match makes capture inert for real traffic, because
+// a real Telegram private chat carries the user's own numeric id and never the
+// synthetic test one. If E2E_TELEGRAM_CHAT_ID is unset, capture never engages
+// at all, whatever E2E_TELEGRAM_CAPTURE says — fail safe, not fail open.
 
 interface CaptureEntry { chatId: number | string; text: string; payload?: unknown; }
-const E2E_CAPTURE = process.env.E2E_TELEGRAM_CAPTURE === '1';
+const E2E_CAPTURE_ENABLED = process.env.E2E_TELEGRAM_CAPTURE === '1';
+const E2E_CAPTURE_CHAT_ID = process.env.E2E_TELEGRAM_CHAT_ID || '';
+/** Capture is possible at all — used to relax the Telegram secret check below. */
+const E2E_CAPTURE = E2E_CAPTURE_ENABLED && E2E_CAPTURE_CHAT_ID !== '';
+
+/** True only for the dedicated synthetic test chat. Real users never match. */
+function isE2eCaptureChat(chatId: number | string | undefined): boolean {
+  return E2E_CAPTURE && chatId !== undefined && String(chatId) === E2E_CAPTURE_CHAT_ID;
+}
+
 let currentCapture: CaptureEntry[] | null = null;
 
 /** Resolve tenant from chat ID via direct DB lookup, then fallback map. */
@@ -6310,7 +6329,19 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     }
     // === end PR 21 =========================================================
 
-    const captureBuf: CaptureEntry[] | null = E2E_CAPTURE ? [] : null;
+    // Capture only for the dedicated synthetic test chat. Previously this was
+    // `E2E_CAPTURE ? [] : null`, i.e. every inbound update, so enabling the flag
+    // in production would have silently swallowed every real user's reply.
+    const updateForCapture = update as {
+      message?: { chat?: { id?: number } };
+      edited_message?: { chat?: { id?: number } };
+      callback_query?: { message?: { chat?: { id?: number } } };
+    };
+    const captureChatId =
+      updateForCapture?.callback_query?.message?.chat?.id ??
+      updateForCapture?.message?.chat?.id ??
+      updateForCapture?.edited_message?.chat?.id;
+    const captureBuf: CaptureEntry[] | null = isE2eCaptureChat(captureChatId) ? [] : null;
     if (captureBuf) currentCapture = captureBuf;
 
     // === PR 25: Rate limits =================================================
