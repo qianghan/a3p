@@ -18,6 +18,12 @@ vi.mock('@naap/database', () => ({
   },
 }));
 
+const ensureChartOfAccounts = vi.fn();
+vi.mock('@/lib/agentbook-chart-of-accounts', () => ({
+  ensureChartOfAccounts: (...a: unknown[]) => ensureChartOfAccounts(...a),
+  CASH_CODE: '1000',
+}));
+
 import { backfillExpenseJournalEntry } from '../agentbook-expense-ledger';
 
 const EXPENSE = {
@@ -30,6 +36,7 @@ beforeEach(() => {
   accountFindFirst.mockResolvedValue({ id: 'acct-cash-1000' });
   journalCreate.mockResolvedValue({ id: 'je-new' });
   expenseUpdate.mockResolvedValue({});
+  ensureChartOfAccounts.mockResolvedValue({ seeded: false, count: 0 });
 });
 
 describe('backfillExpenseJournalEntry', () => {
@@ -66,10 +73,32 @@ describe('backfillExpenseJournalEntry', () => {
     expect(journalCreate).not.toHaveBeenCalled();
   });
 
-  it('no-op (best-effort) when the Cash account 1000 is not seeded', async () => {
+  it('SEEDS the chart on demand when Cash is missing, then posts (no longer gives up)', async () => {
     expenseFindFirst.mockResolvedValue({ ...EXPENSE });
-    accountFindFirst.mockResolvedValue(null);
+    // absent on the first lookup, present after seeding
+    accountFindFirst
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({ id: 'acct-cash-1000' });
+
+    const id = await backfillExpenseJournalEntry('t1', 'exp-1');
+
+    expect(ensureChartOfAccounts).toHaveBeenCalledWith('t1');
+    expect(id).toBe('je-new');
+    expect(journalCreate).toHaveBeenCalled(); // the expense reaches the books
+  });
+
+  it('does not seed when Cash already exists (no needless work on the hot path)', async () => {
+    expenseFindFirst.mockResolvedValue({ ...EXPENSE });
+    accountFindFirst.mockResolvedValue({ id: 'acct-cash-1000' });
+    await backfillExpenseJournalEntry('t1', 'exp-1');
+    expect(ensureChartOfAccounts).not.toHaveBeenCalled();
+  });
+
+  it('returns null without posting if seeding genuinely fails (never a half entry)', async () => {
+    expenseFindFirst.mockResolvedValue({ ...EXPENSE });
+    accountFindFirst.mockResolvedValue(null); // still missing even after seeding
     expect(await backfillExpenseJournalEntry('t1', 'exp-1')).toBeNull();
+    expect(ensureChartOfAccounts).toHaveBeenCalled();
     expect(journalCreate).not.toHaveBeenCalled();
   });
 });

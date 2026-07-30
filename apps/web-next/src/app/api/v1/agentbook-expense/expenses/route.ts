@@ -16,6 +16,7 @@ import { audit } from '@/lib/agentbook-audit';
 import { inferSource, inferActor } from '@/lib/agentbook-audit-context';
 import { withSoftDelete, parseIncludeDeleted } from '@/lib/agentbook-soft-delete';
 import { withHttpIdempotency } from '@/lib/agentbook-idempotency';
+import { ensureChartOfAccounts } from '@/lib/agentbook-chart-of-accounts';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -105,6 +106,16 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
               data: { usageCount: { increment: 1 }, lastUsed: new Date() },
             });
           }
+        }
+
+        // Seed the chart of accounts on demand BEFORE opening the transaction
+        // (ensureChartOfAccounts runs its own transaction, so it can't nest).
+        // The chart is otherwise only created by the onboarding flow, so a
+        // tenant who skipped onboarding would never book anything and their P&L
+        // and tax estimate would quietly omit real money. Cheap no-op when the
+        // chart already exists.
+        if (resolvedCategoryId && !isPersonal) {
+          await ensureChartOfAccounts(tenantId);
         }
 
         const expense = await db.$transaction(async (tx) => {
