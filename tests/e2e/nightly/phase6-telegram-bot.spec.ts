@@ -11,6 +11,18 @@ test.describe('@phase6-telegram-bot', () => {
       probe.data?.error === 'Bot not configured' ||
       probe.status === 503;
     test.skip(isUnconfigured, 'TELEGRAM_BOT_TOKEN not set on the deployed server — phase 6 skipped');
+
+    // Every assertion below reads `botReply`, which the server only echoes for
+    // the dedicated capture chat. Without it all 14 tests fail identically on
+    // `undefined`, which reads like 14 product bugs. Say what is actually wrong.
+    if (probe.data?.botReply === undefined) {
+      throw new Error(
+        'Telegram capture is not active on the deployed server, so it never echoes botReply ' +
+        'and every assertion in this phase would fail on `undefined` — a config gap, not 14 bugs.\n' +
+        `Set BOTH on the deployment: E2E_TELEGRAM_CAPTURE=1 and E2E_TELEGRAM_CHAT_ID=${E2E_CHAT.id}.\n` +
+        'Capture is scoped to that one synthetic chat id, so real users are unaffected.',
+      );
+    }
   });
 
   test('webhook returns 200 + non-empty reply for plain hello', async () => {
