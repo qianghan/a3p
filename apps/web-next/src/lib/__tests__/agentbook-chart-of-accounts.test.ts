@@ -9,7 +9,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 vi.mock('server-only', () => ({}));
 
-const accountFindFirst = vi.fn();
+const accountFindUnique = vi.fn();
 const accountUpsert = vi.fn();
 const tenantFindUnique = vi.fn();
 const transaction = vi.fn();
@@ -17,7 +17,7 @@ const transaction = vi.fn();
 vi.mock('@naap/database', () => ({
   prisma: {
     abAccount: {
-      findFirst: (...a: unknown[]) => accountFindFirst(...a),
+      findUnique: (...a: unknown[]) => accountFindUnique(...a),
       upsert: (...a: unknown[]) => accountUpsert(...a),
     },
     abTenantConfig: { findUnique: (...a: unknown[]) => tenantFindUnique(...a) },
@@ -37,17 +37,17 @@ beforeEach(() => {
 
 describe('ensureChartOfAccounts', () => {
   it('is a cheap no-op when the Cash account already exists', async () => {
-    accountFindFirst.mockResolvedValue({ id: 'acct-cash' });
+    accountFindUnique.mockResolvedValue({ id: 'acct-cash' });
     const r = await ensureChartOfAccounts('t1');
     expect(r).toEqual({ seeded: false, count: 0 });
     expect(accountUpsert).not.toHaveBeenCalled();
     expect(tenantFindUnique).not.toHaveBeenCalled(); // didn't even load config
     // and it checked the code that actually gates posting
-    expect(accountFindFirst.mock.calls[0][0].where.code).toBe(CASH_CODE);
+    expect(accountFindUnique.mock.calls[0][0].where.tenantId_code.code).toBe(CASH_CODE);
   });
 
   it('seeds the chart when Cash is missing, including Cash itself', async () => {
-    accountFindFirst.mockResolvedValue(null);
+    accountFindUnique.mockResolvedValue(null);
     const r = await ensureChartOfAccounts('t1');
     expect(r.seeded).toBe(true);
     expect(r.count).toBeGreaterThan(0);
@@ -56,7 +56,7 @@ describe('ensureChartOfAccounts', () => {
   });
 
   it('upserts by tenantId+code, so re-running cannot duplicate accounts', async () => {
-    accountFindFirst.mockResolvedValue(null);
+    accountFindUnique.mockResolvedValue(null);
     await ensureChartOfAccounts('t1');
     for (const call of accountUpsert.mock.calls) {
       expect(call[0].where).toHaveProperty('tenantId_code');
@@ -65,14 +65,14 @@ describe('ensureChartOfAccounts', () => {
   });
 
   it('force re-upserts the whole chart even when Cash exists (the onboarding endpoint)', async () => {
-    accountFindFirst.mockResolvedValue({ id: 'acct-cash' });
+    accountFindUnique.mockResolvedValue({ id: 'acct-cash' });
     const r = await ensureChartOfAccounts('t1', { force: true });
     expect(r.seeded).toBe(true);
     expect(accountUpsert).toHaveBeenCalled();
   });
 
   it('uses the student chart for a student tenant', async () => {
-    accountFindFirst.mockResolvedValue(null);
+    accountFindUnique.mockResolvedValue(null);
     tenantFindUnique.mockResolvedValue({ businessType: 'student', jurisdiction: 'us' });
     await ensureChartOfAccounts('t-student');
     const names = accountUpsert.mock.calls.map((c) => c[0].create.name);
@@ -81,7 +81,7 @@ describe('ensureChartOfAccounts', () => {
   });
 
   it('uses the tenant jurisdiction chart (CA differs from US)', async () => {
-    accountFindFirst.mockResolvedValue(null);
+    accountFindUnique.mockResolvedValue(null);
     tenantFindUnique.mockResolvedValue({ businessType: 'freelancer', jurisdiction: 'ca' });
     await ensureChartOfAccounts('t-ca');
     const caCodes = accountUpsert.mock.calls.map((c) => c[0].create.code);
@@ -90,7 +90,7 @@ describe('ensureChartOfAccounts', () => {
   });
 
   it('falls back to the US chart for an unknown jurisdiction rather than seeding nothing', async () => {
-    accountFindFirst.mockResolvedValue(null);
+    accountFindUnique.mockResolvedValue(null);
     tenantFindUnique.mockResolvedValue({ businessType: 'freelancer', jurisdiction: 'zz' });
     const r = await ensureChartOfAccounts('t-zz');
     expect(r.seeded).toBe(true);
@@ -98,7 +98,7 @@ describe('ensureChartOfAccounts', () => {
   });
 
   it('still seeds when the tenant has no config row at all', async () => {
-    accountFindFirst.mockResolvedValue(null);
+    accountFindUnique.mockResolvedValue(null);
     tenantFindUnique.mockResolvedValue(null);
     const r = await ensureChartOfAccounts('t-noconfig');
     expect(r.seeded).toBe(true);

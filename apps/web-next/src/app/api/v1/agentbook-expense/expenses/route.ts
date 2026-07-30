@@ -92,6 +92,18 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
           }
         }
 
+        // Guarantee the chart of accounts BEFORE resolving a category — and
+        // unconditionally, not only when a category is already known. A tenant
+        // who skipped onboarding has ZERO accounts, so there is nothing to
+        // categorize into: resolvedCategoryId would stay null, no journal would
+        // post, and a category-gated seed would never fire. Seeding first means
+        // this expense (and every later categorization / auto-categorization)
+        // has real accounts to book against. Cheap no-op once seeded, and it
+        // runs its own transaction so it must stay outside the one below.
+        if (!isPersonal) {
+          await ensureChartOfAccounts(tenantId);
+        }
+
         let resolvedCategoryId: string | null = categoryId ?? null;
         let resolvedConfidence: number | null = confidence ?? null;
         if (!resolvedCategoryId && vendorRecord) {
@@ -106,16 +118,6 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
               data: { usageCount: { increment: 1 }, lastUsed: new Date() },
             });
           }
-        }
-
-        // Seed the chart of accounts on demand BEFORE opening the transaction
-        // (ensureChartOfAccounts runs its own transaction, so it can't nest).
-        // The chart is otherwise only created by the onboarding flow, so a
-        // tenant who skipped onboarding would never book anything and their P&L
-        // and tax estimate would quietly omit real money. Cheap no-op when the
-        // chart already exists.
-        if (resolvedCategoryId && !isPersonal) {
-          await ensureChartOfAccounts(tenantId);
         }
 
         const expense = await db.$transaction(async (tx) => {

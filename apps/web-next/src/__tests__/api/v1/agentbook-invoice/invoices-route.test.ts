@@ -59,6 +59,14 @@ vi.mock('@naap/database', () => ({
   },
 }));
 
+// Chart-of-accounts seeding is an orthogonal concern with its own tests
+// (lib/__tests__/agentbook-chart-of-accounts.test.ts); this suite is about the
+// sales-tax journal wiring, so stub it to a no-op.
+vi.mock('@/lib/agentbook-chart-of-accounts', () => ({
+  ensureChartOfAccounts: vi.fn(async () => ({ seeded: false, count: 0 })),
+  CASH_CODE: '1000',
+}));
+
 import { POST } from '@/app/api/v1/agentbook-invoice/invoices/route';
 
 // The transaction callback receives `tx` — since all our mocked model

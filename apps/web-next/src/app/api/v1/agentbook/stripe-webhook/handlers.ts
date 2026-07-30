@@ -211,8 +211,14 @@ export async function applyEvent(event: Stripe.Event): Promise<void> {
       try {
         // Seed on demand — the chart is otherwise only created by the onboarding
         // flow, so a tenant who skipped it would have a real card payment
-        // recorded but never reflected in the ledger.
-        await ensureChartOfAccounts(tenantId);
+        // recorded but never reflected in the ledger. Guarded separately so a
+        // seeding failure can never prevent posting an entry that the tenant's
+        // existing accounts could already support.
+        try {
+          await ensureChartOfAccounts(tenantId);
+        } catch (seedErr) {
+          console.warn('[stripe-webhook] chart-of-accounts seed skipped:', seedErr);
+        }
         const cashAccount = await prisma.abAccount.findFirst({ where: { tenantId, code: '1000' } });
         const arAccount = await prisma.abAccount.findFirst({ where: { tenantId, code: '1100' } });
         if (cashAccount && arAccount) {
