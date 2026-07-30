@@ -115,12 +115,15 @@ test.describe('@phase3-expenses', () => {
     await api(page).delete(`/api/v1/agentbook-expense/expenses/${id}`);
   });
 
-  test('Plaid sandbox accounts endpoint returns 200', async ({ page }) => {
-    const r = await api(page).get('/api/v1/agentbook-expense/plaid/accounts');
-    // Skipped if Plaid is not configured (returns 5xx). Don't fail the phase
-    // for an environmental dependency.
+  test('Plaid link-token endpoint responds', async ({ page }) => {
+    // Was /plaid/accounts, which production does not serve — only
+    // link-token, exchange, sync and disconnect exist. link-token is the entry
+    // point a user actually hits when connecting a bank.
+    const r = await api(page).post('/api/v1/agentbook-expense/plaid/link-token', {});
+    // Plaid credentials are an environmental dependency; a 5xx here means the
+    // sandbox is unconfigured, not that the product is broken.
     test.skip(r.status >= 500, 'Plaid not configured in this environment');
-    expect(r.status).toBe(200);
+    expectOk(r, 'agentbook-expense/plaid/link-token');
   });
 
   test('bank patterns list', async ({ page }) => {
@@ -143,8 +146,11 @@ test.describe('@phase3-expenses', () => {
   });
 
   test('budget create + alert fires when exceeded', async ({ page }) => {
+    // The API reads { amountCents, categoryName, period }, not
+    // { categoryCode, monthlyLimitCents } — amountCents was undefined, so this
+    // was a guaranteed 400 that `status < 500` waved through.
     const create = await api(page).post('/api/v1/agentbook-expense/budgets', {
-      categoryCode: '5100', monthlyLimitCents: 100,
+      amountCents: 100, categoryName: 'Travel', period: 'monthly',
     });
     expect([200, 201]).toContain(create.status);
     if (create.data?.data?.id) {
@@ -169,10 +175,26 @@ test.describe('@phase3-expenses', () => {
   });
 
   test('delete an expense reverses its journal entry', async ({ page }) => {
-    const create = await api(page).post('/api/v1/agentbook-expense/expenses', { amountCents: 50, description: 'delete-target' });
-    const id = create.data.data.id;
-    const del = await api(page).delete(`/api/v1/agentbook-expense/expenses/${id}`);
+    // This asserted only that DELETE returned <400 — it never checked that a
+    // reversal was posted, so it could not fail for the reason it is named
+    // after. Assert the ledger effect: the tax estimate must return to where it
+    // started once the expense is gone.
+    const before = await api(page).get('/api/v1/agentbook-tax/tax/estimate');
+    const baseline = before.data.data.expensesCents;
+
+    const create = await api(page).post('/api/v1/agentbook-expense/expenses', {
+      amountCents: 2500, description: `delete-target-${tag('phase3')}`, date: new Date().toISOString(), isPersonal: false,
+    });
+    expect(create.status).toBe(201);
+
+    const during = await api(page).get('/api/v1/agentbook-tax/tax/estimate');
+    expect(during.data.data.expensesCents).toBe(baseline + 2500);
+
+    const del = await api(page).delete(`/api/v1/agentbook-expense/expenses/${create.data.data.id}`);
     expect(del.status).toBeLessThan(400);
+
+    const after = await api(page).get('/api/v1/agentbook-tax/tax/estimate');
+    expect(after.data.data.expensesCents).toBe(baseline);
   });
 
   test('list filtered by category', async ({ page }) => {
