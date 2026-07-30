@@ -81,8 +81,13 @@ test.describe('@phase4-invoicing', () => {
 
   // PAID + VOID + PAYMENT LINKS (3)
   test('mark invoice paid → AR balance updates', async ({ page }) => {
+    // The API keys on invoiceId; `invoiceNumber` was never read, so amountCents
+    // arrived without an invoice and the route answered 400.
+    const list = await api(page).get('/api/v1/agentbook-invoice/invoices');
+    const sent = list.data.data.find((i: { number: string }) => i.number === SEED.invoices.sent);
+    expect(sent, `seeded invoice ${SEED.invoices.sent} not found`).toBeTruthy();
     const r = await api(page).post('/api/v1/agentbook-invoice/payments', {
-      invoiceNumber: SEED.invoices.sent, amountCents: 120000, method: 'bank_transfer',
+      invoiceId: sent.id, amountCents: 120000, method: 'bank_transfer',
     });
     expectOk(r, 'agentbook-invoice/payments');
   });
@@ -96,14 +101,22 @@ test.describe('@phase4-invoicing', () => {
   });
   // The endpoint is `pay-link`, not `payment-link` — the latter never existed
   // in production and 501'd through the [plugin]/[...path] catch-all.
-  test('payment link returns mock URL when no Stripe configured', async ({ page }) => {
+  test('payment link is issued, or refused with a clear reason', async ({ page }) => {
     const inv = await api(page).get('/api/v1/agentbook-invoice/invoices');
     const id = inv.data.data[0].id;
     const r = await api(page).post(`/api/v1/agentbook-invoice/invoices/${id}/pay-link`, {});
-    expectOk(r, 'agentbook-invoice/invoices/{id}/pay-link');
-    if (!process.env.STRIPE_SECRET_KEY) {
-      expect(r.data?.data?.paymentUrl).toMatch(/\/pay\//);
+
+    // Card collection settles to the freelancer's CONNECTED account, so a
+    // tenant that has not onboarded to Stripe Connect cannot have a pay link —
+    // 422 with an explanation is the correct answer, not a failure. The e2e
+    // tenant is exactly that tenant. What must never happen is a 500, or a 422
+    // with nothing a user could act on.
+    if (r.status === 422) {
+      expect(String(r.data?.error ?? '')).not.toHaveLength(0);
+      return;
     }
+    expectOk(r, 'agentbook-invoice/invoices/{id}/pay-link');
+    expect(r.data?.data?.paymentUrl).toBeTruthy();
   });
 
   // AGING (1)
@@ -144,14 +157,37 @@ test.describe('@phase4-invoicing', () => {
       expectOk(c, 'agentbook-invoice/estimates/{e.data.data.id}/convert');
     }
   });
-  test('create credit note against paid invoice', async ({ page }) => {
-    const inv = await api(page).get('/api/v1/agentbook-invoice/invoices?status=paid');
-    if (inv.data.data.length === 0) test.skip(true, 'no paid invoice in seed window');
+  test('credit note against an invoice with a balance', async ({ page }) => {
+    // Was aimed at the seeded PAID invoice, whose remaining balance is zero, so
+    // the product correctly answered 422 "Credit amount exceeds remaining
+    // balance". Crediting a fully-settled invoice is a refund, which this
+    // product deliberately does not model — worth knowing, not worth asserting
+    // as a bug. Target an invoice that actually has a balance.
+    const list = await api(page).get('/api/v1/agentbook-invoice/invoices');
+    const open = list.data.data.find(
+      (i: { status: string; number: string }) => i.number === SEED.invoices.overdue,
+    );
+    expect(open, `seeded invoice ${SEED.invoices.overdue} not found`).toBeTruthy();
     const r = await api(page).post('/api/v1/agentbook-invoice/credit-notes', {
       // `reason` is required — omitting it was a guaranteed 400.
-      invoiceId: inv.data.data[0].id, amountCents: 100, reason: 'e2e adjustment',
+      invoiceId: open.id, amountCents: 100, reason: 'e2e adjustment',
     });
     expectOk(r, 'agentbook-invoice/credit-notes');
+  });
+
+  test('credit note cannot exceed the remaining balance', async ({ page }) => {
+    // The money-safety rule behind the 422 above. Asserting it is worth more
+    // than the happy path: a credit note larger than what is owed would put the
+    // ledger into a state no real adjustment could produce.
+    const list = await api(page).get('/api/v1/agentbook-invoice/invoices');
+    const open = list.data.data.find(
+      (i: { number: string }) => i.number === SEED.invoices.overdue,
+    );
+    const r = await api(page).post('/api/v1/agentbook-invoice/credit-notes', {
+      invoiceId: open.id, amountCents: 99_999_999, reason: 'e2e over-credit',
+    });
+    expect(r.status).toBe(422);
+    expect(r.data.error).toMatch(/exceeds remaining balance/i);
   });
 
   // TIME TRACKING (3)
