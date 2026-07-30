@@ -6,6 +6,14 @@ export default defineConfig({
   timeout: 30_000,
   retries: 2,
   workers: 4,
+  // fullyParallel stays OFF (the default). Every phase runs against the SAME
+  // e2e tenant, so tests within a file must run in order: several of them read
+  // a total, mutate, and read it back — the delete-reversal check in phase3
+  // asserts the tax estimate moves by exactly the amount it booked. Turning
+  // fullyParallel on would let same-file tests interleave against shared books
+  // and produce flakes that look like ledger bugs. Files still run in parallel
+  // across workers, which is where the speed comes from.
+  fullyParallel: false,
   reporter: [
     ['list'],
     ['html', { open: 'never', outputFolder: 'playwright-report' }],
