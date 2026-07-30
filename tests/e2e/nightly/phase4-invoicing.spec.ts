@@ -39,11 +39,16 @@ test.describe('@phase4-invoicing', () => {
     expect(numbers).toContain(SEED.invoices.draft);
     expect(numbers).toContain(SEED.invoices.paid);
   });
+  // Invoice LINE items carry `rateCents` (a unit rate, multiplied by quantity),
+  // not `amountCents`. Sending amountCents left rateCents undefined, so
+  // validateInvoiceLines rejected every create with a 400 — and because six
+  // later tests fetch or create an invoice first, one wrong field name failed
+  // most of the phase. `status < 500` had hidden it: 400 passed.
   test('create single-line invoice', async ({ page }) => {
     const clients = await api(page).get('/api/v1/agentbook-invoice/clients');
     const clientId = clients.data.data[0].id;
     const r = await api(page).post('/api/v1/agentbook-invoice/invoices', {
-      clientId, lines: [{ description: 'Service', amountCents: 50000 }], dueDate: new Date(Date.now()+30*86400000).toISOString(),
+      clientId, lines: [{ description: 'Service', rateCents: 50000 }], dueDate: new Date(Date.now()+30*86400000).toISOString(),
     });
     expect(r.status).toBe(201);
     await api(page).delete(`/api/v1/agentbook-invoice/invoices/${r.data.data.id}`);
@@ -54,9 +59,9 @@ test.describe('@phase4-invoicing', () => {
     const r = await api(page).post('/api/v1/agentbook-invoice/invoices', {
       clientId,
       lines: [
-        { description: 'Consulting', amountCents: 300000 },
-        { description: 'Design',     amountCents: 200000 },
-        { description: 'Hosting',    amountCents: 50000 },
+        { description: 'Consulting', rateCents: 300000 },
+        { description: 'Design',     rateCents: 200000 },
+        { description: 'Hosting',    rateCents:  50000 },
       ],
       dueDate: new Date(Date.now()+30*86400000).toISOString(),
     });
@@ -67,7 +72,7 @@ test.describe('@phase4-invoicing', () => {
   test('send invoice', async ({ page }) => {
     const clients = await api(page).get('/api/v1/agentbook-invoice/clients');
     const inv = await api(page).post('/api/v1/agentbook-invoice/invoices', {
-      clientId: clients.data.data[0].id, lines: [{ description: 'X', amountCents: 1000 }], dueDate: new Date(Date.now()+30*86400000).toISOString(),
+      clientId: clients.data.data[0].id, lines: [{ description: 'X', rateCents: 1000 }], dueDate: new Date(Date.now()+30*86400000).toISOString(),
     });
     const send = await api(page).post(`/api/v1/agentbook-invoice/invoices/${inv.data.data.id}/send`, {});
     expectOk(send, 'agentbook-invoice/invoices/{inv.data.data.id}/send');
@@ -84,7 +89,7 @@ test.describe('@phase4-invoicing', () => {
   test('void invoice', async ({ page }) => {
     const clients = await api(page).get('/api/v1/agentbook-invoice/clients');
     const inv = await api(page).post('/api/v1/agentbook-invoice/invoices', {
-      clientId: clients.data.data[0].id, lines: [{ description: 'X', amountCents: 1000 }], dueDate: new Date().toISOString(),
+      clientId: clients.data.data[0].id, lines: [{ description: 'X', rateCents: 1000 }], dueDate: new Date().toISOString(),
     });
     const v = await api(page).post(`/api/v1/agentbook-invoice/invoices/${inv.data.data.id}/void`, {});
     expectOk(v, 'agentbook-invoice/invoices/{inv.data.data.id}/void');
@@ -111,22 +116,28 @@ test.describe('@phase4-invoicing', () => {
   // RECURRING (2)
   test('create recurring invoice template', async ({ page }) => {
     const clients = await api(page).get('/api/v1/agentbook-invoice/clients');
+    // The API takes { clientId, frequency, nextDue, templateLines }, not
+    // { cadence, amountCents, description } — an entirely different shape that
+    // could only ever 400.
     const r = await api(page).post('/api/v1/agentbook-invoice/recurring-invoices', {
-      clientId: clients.data.data[0].id, cadence: 'monthly', amountCents: 50000, description: `rec-${tag('phase4')}`,
+      clientId: clients.data.data[0].id,
+      frequency: 'monthly',
+      nextDue: new Date(Date.now() + 30 * 86400000).toISOString(),
+      templateLines: [{ description: `rec-${tag('phase4')}`, rateCents: 50000 }],
     });
     expectOk(r, 'agentbook-invoice/recurring-invoices');
     if (r.data?.data?.id) await api(page).delete(`/api/v1/agentbook-invoice/recurring-invoices/${r.data.data.id}`);
   });
-  test('recurring generator runs', async ({ page }) => {
-    const r = await api(page).post('/api/v1/agentbook-invoice/recurring-invoices/generate', {});
-    expectOk(r, 'agentbook-invoice/recurring-invoices/generate');
-  });
+  // REMOVED: 'recurring generator runs'.
+  // /recurring-invoices/generate is not served in production — only
+  // /recurring-invoices and /recurring-invoices/[id] exist, so this fell
+  // through to the catch-all. Generation is driven by a cron, not this path.
 
   // ESTIMATES + CREDIT NOTES (2)
   test('convert estimate to invoice', async ({ page }) => {
     const clients = await api(page).get('/api/v1/agentbook-invoice/clients');
     const e = await api(page).post('/api/v1/agentbook-invoice/estimates', {
-      clientId: clients.data.data[0].id, lines: [{ description: 'E', amountCents: 100 }],
+      clientId: clients.data.data[0].id, lines: [{ description: 'E', rateCents: 100 }],
     });
     if (e.data?.data?.id) {
       const c = await api(page).post(`/api/v1/agentbook-invoice/estimates/${e.data.data.id}/convert`, {});
@@ -137,7 +148,8 @@ test.describe('@phase4-invoicing', () => {
     const inv = await api(page).get('/api/v1/agentbook-invoice/invoices?status=paid');
     if (inv.data.data.length === 0) test.skip(true, 'no paid invoice in seed window');
     const r = await api(page).post('/api/v1/agentbook-invoice/credit-notes', {
-      invoiceId: inv.data.data[0].id, amountCents: 100,
+      // `reason` is required — omitting it was a guaranteed 400.
+      invoiceId: inv.data.data[0].id, amountCents: 100, reason: 'e2e adjustment',
     });
     expectOk(r, 'agentbook-invoice/credit-notes');
   });
@@ -145,7 +157,9 @@ test.describe('@phase4-invoicing', () => {
   // TIME TRACKING (3)
   test('start timer', async ({ page }) => {
     const clients = await api(page).get('/api/v1/agentbook-invoice/clients');
-    const r = await api(page).post('/api/v1/agentbook-invoice/timer/start', { clientId: clients.data.data[0].id });
+    const r = await api(page).post('/api/v1/agentbook-invoice/timer/start', {
+      clientId: clients.data.data[0].id, description: `timer-${tag('phase4')}`,
+    });
     expectOk(r, 'agentbook-invoice/timer/start');
   });
   test('stop timer', async ({ page }) => {
