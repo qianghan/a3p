@@ -35,7 +35,24 @@ interface RegionalCase {
   authority: RegExp;
   /** Authorities that must never appear for this tenant. */
   foreignAuthorities: RegExp;
+  /** Seeded descriptions belonging to OTHER tenants — a leak if seen here. */
+  foreignRowMarker: RegExp;
 }
+
+/**
+ * The US tenant's seeded expense descriptions, ANCHORED.
+ *
+ * Anchoring matters: the regional fixtures include "E2E ca client lunch", and an
+ * unanchored /Client lunch/i would match a tenant's OWN row and fail a correct
+ * run — the third time tonight an unanchored substring would have produced a
+ * wrong answer, after the month matcher and the "CA$" contains "A$" assertion.
+ *
+ * "E2E Nightly" was the first attempt here and is useless: it is the user's
+ * displayName, and appears in no expense description, so the assertion could
+ * never fail. A check that cannot fail is not a check.
+ */
+const US_SEEDED_ROW =
+  /^(Uber to client meeting|AWS October bill|Co-working space monthly|Conference ticket|Client lunch)$/i;
 
 const CASES: RegionalCase[] = [
   {
@@ -45,6 +62,7 @@ const CASES: RegionalCase[] = [
     foreignSymbols: ['A$'],
     authority: /\bCRA\b|T2125|T1\b|GST|HST/i,
     foreignAuthorities: /\bIRS\b|Schedule C|1099|\bATO\b|\bBAS\b/i,
+    foreignRowMarker: /^E2E au /i,
   },
   {
     label: 'AU',
@@ -53,6 +71,7 @@ const CASES: RegionalCase[] = [
     foreignSymbols: ['CA$'],
     authority: /\bATO\b|\bBAS\b|\bGST\b|superannuation/i,
     foreignAuthorities: /\bIRS\b|Schedule C|1099|\bCRA\b|T2125/i,
+    foreignRowMarker: /^E2E ca /i,
   },
 ];
 
@@ -113,8 +132,26 @@ for (const c of CASES) {
       expect(msg.length, 'agent must answer').toBeGreaterThan(0);
       expect(msg, 'answer must not contain NaN').not.toContain('NaN');
       expect(msg, `${c.label} tenant must see ${c.currencySymbol}`).toContain(c.currencySymbol);
+
+      // A foreign symbol only counts when it is NOT part of a longer symbol.
+      //
+      // The first version asserted `not.toContain('A$')` for the CA tenant and
+      // failed on a completely correct reply, because "CA$" contains "A$" —
+      // the same unanchored-substring mistake as the month matcher this suite
+      // exists to guard against ("Walmart" contains "mar"), reproduced in the
+      // assertion instead of the product. A test that fails on correct output
+      // is worse than none: it burns the reviewer's attention and teaches them
+      // to distrust the suite.
+      //
+      // Stripping the tenant's own symbol first does NOT work — it fails the
+      // other way round. For the AU tenant (own "A$", foreign "CA$"), removing
+      // every "A$" turns "CA$100" into "C100" and a real violation goes unseen.
+      // The preceding-letter guard is correct in both directions: "A$" after a
+      // "C" is part of CA$, and a genuine "A$" follows a space or punctuation.
       for (const foreign of c.foreignSymbols) {
-        expect(msg, `${c.label} tenant must not see ${foreign}`).not.toContain(foreign);
+        const standalone = new RegExp(`(?<![A-Za-z])${foreign.replace(/\$/g, '\\$')}`);
+        expect(msg, `${c.label} tenant must not see a standalone ${foreign}`)
+          .not.toMatch(standalone);
       }
       // Every expense answer states the window it covered (#429/#431) — a
       // total without its period is what let "the doctor" mean October.
@@ -136,23 +173,28 @@ for (const c of CASES) {
       expect(msg, `${c.label} tenant must not be quoted another country's rules`)
         .not.toMatch(c.foreignAuthorities);
     });
+
+    test(`${c.label}: sees only its own books`, async ({ page }) => {
+      // Inside the per-case describe so it reuses that beforeEach login rather
+      // than opening its own. As a standalone describe it timed out at 30s in
+      // page.waitForURL while the sibling CA tests — same account — signed in
+      // fine: every extra phase adds concurrent sign-ins against production and
+      // makes a cold start likelier. Raising the timeout would have treated the
+      // symptom, and the containing test budget is 60s, so there is not much
+      // room to raise it into anyway. Removing a login fixes the cause, and as
+      // a bonus this now runs for BOTH tenants instead of only CA.
+      const r = await api(page).get('/api/v1/agentbook-expense/expenses?limit=100');
+      expectOk(r, `${c.label} expenses`);
+      const rows: Array<{ description?: string }> = r.data?.data ?? [];
+      expect(rows.length, `${c.label} tenant should have its seeded expenses`).toBeGreaterThan(0);
+      // A cross-tenant leak would be worse than any wrong number.
+      for (const e of rows) {
+        const d = e.description ?? '';
+        expect(d, `${c.label} tenant must not see the other region's rows`)
+          .not.toMatch(c.foreignRowMarker);
+        expect(d, `${c.label} tenant must not see the US tenant's rows`)
+          .not.toMatch(US_SEEDED_ROW);
+      }
+    });
   });
 }
-
-test.describe('@phase8-regional isolation', () => {
-  // The regional tenants must not see the US tenant's books. A cross-tenant
-  // leak here would be worse than any wrong number.
-  test('a regional tenant sees only its own expenses', async ({ page }) => {
-    await loginAsE2eUser(page, 'e2e-ca@agentbook.test');
-    const r = await api(page).get('/api/v1/agentbook-expense/expenses?limit=100');
-    expectOk(r, 'CA expenses');
-    const rows: Array<{ description?: string }> = r.data?.data ?? [];
-    const foreign = rows.filter((e) => (e.description ?? '').includes('E2E au'));
-    expect(foreign, 'CA tenant must not see AU rows').toHaveLength(0);
-    expect(rows.length, 'CA tenant should have its seeded expenses').toBeGreaterThan(0);
-    for (const e of rows) {
-      expect(e.description ?? '', 'every row must belong to the CA tenant')
-        .not.toMatch(/E2E (au|nightly)/i);
-    }
-  });
-});
