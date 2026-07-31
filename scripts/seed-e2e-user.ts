@@ -26,6 +26,8 @@ interface ResetResult {
   expensesCreated: number;
   invoicesCreated: number;
   clientsCreated: number;
+  /** CA and AU tenants — see seedRegionalTenants. */
+  regionalTenants: RegionalTenant[];
 }
 
 /**
@@ -305,7 +307,133 @@ export async function resetE2eUser(opts?: { password?: string }): Promise<ResetR
     },
   });
 
-  return { userId: E2E_USER_ID, expensesCreated: expensesData.length, invoicesCreated: 5, clientsCreated: 4 };
+  const regional = await seedRegionalTenants(
+    opts?.password || process.env.E2E_USER_PASSWORD || 'e2e-nightly-2026',
+  );
+
+  return {
+    userId: E2E_USER_ID,
+    expensesCreated: expensesData.length,
+    invoicesCreated: 5,
+    clientsCreated: 4,
+    regionalTenants: regional,
+  };
+}
+
+/**
+ * Canadian and Australian tenants, seeded alongside the US one.
+ *
+ * The launch assessment's stated reason for holding AU was "no e2e coverage of
+ * the AU path", and the same was true of CA. That was not a hypothetical gap:
+ * on 31 July, probing a real CA account found it being quoted the IRS meal rule
+ * and shown US dollar signs, and an earlier audit found CA provincial tax
+ * double-counted and AU chat answering with US self-employment maths. Every one
+ * of those is invisible to a suite that only ever signs in as a US tenant.
+ *
+ * Deliberately thin — a config, a couple of expenses, one invoice. Enough for
+ * the tax, GST/BAS and currency surfaces to have something to compute, and no
+ * more. The point is to exercise the REGIONAL branches, not to re-test
+ * bookkeeping that phases 3–5 already cover on the US tenant.
+ *
+ * They share the caller-supplied password, so one GitHub secret still governs
+ * every account the suite uses — the same single-source rule as #403. Adding a
+ * per-region password would recreate exactly the drift that kept this suite
+ * dead for three months.
+ */
+export interface RegionalTenant {
+  userId: string;
+  email: string;
+  jurisdiction: string;
+  region: string;
+  currency: string;
+}
+
+export const REGIONAL_TENANTS: RegionalTenant[] = [
+  // Fixed ids so a rerun updates the same rows rather than accumulating
+  // tenants. Ordinary v4-shaped UUIDs; the email is what identifies them.
+  {
+    userId: '0e2e00ca-0000-4000-8000-000000000ca1',
+    email: 'e2e-ca@agentbook.test',
+    jurisdiction: 'ca',
+    region: 'ON',
+    currency: 'CAD',
+  },
+  {
+    userId: '0e2e00a0-0000-4000-8000-000000000a01',
+    email: 'e2e-au@agentbook.test',
+    jurisdiction: 'au',
+    region: 'NSW',
+    currency: 'AUD',
+  },
+];
+
+async function seedRegionalTenants(password: string): Promise<RegionalTenant[]> {
+  for (const t of REGIONAL_TENANTS) {
+    await db.user.upsert({
+      where: { id: t.userId },
+      create: { id: t.userId, email: t.email, displayName: `E2E ${t.jurisdiction.toUpperCase()}` },
+      update: { email: t.email, displayName: `E2E ${t.jurisdiction.toUpperCase()}` },
+    });
+    await ensurePassword(t.userId, password);
+
+    await db.abTenantConfig.upsert({
+      where: { userId: t.userId },
+      create: {
+        userId: t.userId,
+        jurisdiction: t.jurisdiction,
+        region: t.region,
+        currency: t.currency,
+        timezone: t.jurisdiction === 'ca' ? 'America/Toronto' : 'Australia/Sydney',
+        businessType: 'sole_trader',
+        dailyDigestEnabled: false,
+      },
+      // region and currency are the whole point of these tenants — if an
+      // earlier run left them wrong, correct them rather than keeping stale
+      // values, or the regional assertions would silently test the US path.
+      update: {
+        jurisdiction: t.jurisdiction,
+        region: t.region,
+        currency: t.currency,
+      },
+    });
+
+    // Wipe and reseed the minimal financial data. Same named-throw discipline
+    // as the US wipe above: a swallowed delete here would leave duplicate rows
+    // and fail the NEXT run with a confusing unique-constraint error.
+    const wipe: Array<[string, () => Promise<unknown>]> = [
+      ['abJournalLine', () => db.abJournalLine.deleteMany({ where: { tenantId: t.userId } })],
+      ['abJournalEntry', () => db.abJournalEntry.deleteMany({ where: { tenantId: t.userId } })],
+      ['abExpense', () => db.abExpense.deleteMany({ where: { tenantId: t.userId } })],
+      ['abTaxEstimate', () => db.abTaxEstimate.deleteMany({ where: { tenantId: t.userId } })],
+    ];
+    for (const [table, run] of wipe) {
+      try {
+        await run();
+      } catch (err) {
+        throw new Error(
+          `regional seed wipe failed for ${t.jurisdiction} at ${table}: ` +
+          `${err instanceof Error ? err.message : String(err)}. ` +
+          `Usually a child row in a table missing from this list — add it ABOVE ${table}.`,
+        );
+      }
+    }
+
+    await db.abExpense.createMany({
+      data: [
+        {
+          tenantId: t.userId, amountCents: 24000, currency: t.currency,
+          description: `E2E ${t.jurisdiction} software subscription`,
+          date: daysAgo(20), isPersonal: false, status: 'confirmed',
+        },
+        {
+          tenantId: t.userId, amountCents: 8600, currency: t.currency,
+          description: `E2E ${t.jurisdiction} client lunch`,
+          date: daysAgo(9), isPersonal: false, status: 'confirmed',
+        },
+      ],
+    });
+  }
+  return REGIONAL_TENANTS;
 }
 
 function daysAgo(n: number): Date {
