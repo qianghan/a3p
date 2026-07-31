@@ -11,7 +11,9 @@ import { hasAddOn } from '@naap/billing';
 import { db } from './db/client.js';
 import { buildPastFilingContext } from './past-filing-context.js';
 import { buildPersonalProfileContext } from './personal-profile-context.js';
-import { retrieveRelevantMemories, learnFromInteraction, handleCorrection } from './agent-memory.js';
+import { retrieveRelevantMemories, learnFromInteraction, learnVendorCategoryCorrection } from './agent-memory.js';
+import { detectCorrection } from './agent-corrections.js';
+import { BUILT_IN_SKILLS } from './built-in-skills.js';
 import { assessComplexity, generatePlan, formatPlan, createSession, getActiveSession, updateSession, executeStep, buildUndoAction, resolveStepParams } from './agent-planner.js';
 import { PlanStep, Evaluation, assessStepQuality, buildFinalEvaluation, formatEvaluation } from './agent-evaluator.js';
 import { getActiveTaxQuestionnaireSession, getLatestTaxQuestionnaireSession, isDraftStale } from './tax-questionnaire-session.js';
@@ -288,6 +290,17 @@ async function updateThreadTurns(
   userText: string,
   agentText: string,
   intent?: string,
+  /**
+   * Id of the record this turn created or edited (currently only expenses).
+   *
+   * Needed so a follow-up correction edits THAT record instead of asking the
+   * executor for "the most recent expense" — which it resolves with
+   * `orderBy: { date: 'desc' }`, i.e. the expense DATE. Recording two expenses
+   * dated the same day is routine, and the resulting tie is not deterministic,
+   * so the fallback could rewrite the amount on the wrong expense. See
+   * tryApplyCorrection.
+   */
+  entityId?: string,
 ): Promise<void> {
   if (!thread || thread.id === 'ephemeral') return;
   const KEEP = 8;
@@ -295,7 +308,7 @@ async function updateThreadTurns(
   const newTurns = [
     ...existing,
     { role: 'user', text: userText.slice(0, 300), at: new Date().toISOString() },
-    { role: 'bot',  text: agentText.slice(0, 300),  at: new Date().toISOString(), intent },
+    { role: 'bot',  text: agentText.slice(0, 300),  at: new Date().toISOString(), intent, entityId },
   ].slice(-KEEP);
   await db.abConvThread.update({
     where: { id: thread.id },
@@ -523,6 +536,205 @@ function describeDestructiveAction(classification: any, fallbackText: string): s
   }
 }
 
+/**
+ * Skills whose completion means "there is now a specific expense that the user
+ * might correct". A correction only makes sense as a follow-up to one of these.
+ */
+const EXPENSE_WRITE_INTENTS = new Set(['record-expense', 'edit-expense']);
+
+/**
+ * Apply a correction of the immediately-preceding turn, or return null to let
+ * normal classification proceed.
+ *
+ * THE BUG THIS CLOSES (canonical eval run 30578028815, 2026-07-30)
+ * ---------------------------------------------------------------
+ * Thread t-maya-amount-correction:
+ *     "lunch $42"           -> record-expense   (correct)
+ *     "actually it was $52" -> record-expense   (WRONG)
+ *
+ * "actually it was $52" matches record-expense's `\$\d` trigger pattern, so the
+ * correction booked a SECOND expense: the books showed $42 + $52 = $94 for one
+ * lunch, silently double-counting and inflating the deduction. The same root
+ * cause left "no, that should be Travel category not Meals" unapplied.
+ *
+ * Correction detection previously existed ONLY as an inline regex in the
+ * Telegram adapter, which set `req.feedback`. The brain's correction path was
+ * guarded by `if (feedback)`, so web / API / MCP / the eval never entered it.
+ * Detection now lives in agent-corrections.ts and runs for every channel, on
+ * `feedback ?? text`, so Telegram's pre-set flag still works and every other
+ * channel finally gets the same behaviour.
+ *
+ * WHY THIS ROUTES THROUGH executeClassification
+ * ---------------------------------------------
+ * The old agent-memory.handleCorrection did its own HTTP PATCH, and that call
+ * could never have worked in production: it built
+ * `${expenseBaseUrl}/expenses/${id}/categorize` — missing the
+ * `/api/v1/agentbook-expense` prefix that every working caller uses — and sent
+ * plain headers without brainHeaders' CRON_SECRET Authorization (the F4-01 /
+ * F4-02 self-call class). It also resolved the target from
+ * `lastResult.data.id`, but the generic persistence stores
+ * `data: { params }` with no expense id, so the id was always undefined: it
+ * skipped the patch and still returned `applied: true`, reporting an edit it
+ * had not made.
+ *
+ * Rather than re-implement that plumbing, corrections now go through the
+ * edit-expense skill's existing executor, which already resolves "the most
+ * recent expense" against the correctly-prefixed URL with the right headers.
+ * One code path, already proven in production.
+ */
+async function tryApplyCorrection(args: {
+  correctionText: string;
+  userText: string;
+  threadTurns: Array<{ role: string; text: string; intent?: string; entityId?: string }>;
+  tenantId: string;
+  channel: string;
+  attachments: unknown;
+  ctx: AgentContext;
+  skills: Array<{ name?: string }>;
+  activeThread: any;
+  startTime: number;
+}): Promise<AgentResponse | null> {
+  const { correctionText, userText, threadTurns, tenantId, channel, attachments, ctx, skills, activeThread, startTime } = args;
+
+  const intent = detectCorrection(correctionText);
+  if (!intent) return null;
+
+  // Gate on conversational position. detectCorrection is deliberately
+  // conservative, but "actually it was $52" only means "fix the last expense"
+  // when the last thing we did WAS an expense. Without this, a first-turn
+  // message would be swallowed as a correction of nothing.
+  const lastBotTurn = [...threadTurns].reverse().find((t) => t.role === 'bot');
+  if (!lastBotTurn?.intent || !EXPENSE_WRITE_INTENTS.has(lastBotTurn.intent)) return null;
+
+  // executeClassification is what performs the edit. Legacy callers that only
+  // wire classifyAndExecuteV1 have no way to run a synthesised classification,
+  // so fall through rather than guess.
+  if (!ctx.executeClassification) return null;
+
+  const editSkill =
+    (skills.find((s) => s?.name === 'edit-expense') as any) ??
+    (BUILT_IN_SKILLS.find((s) => s.name === 'edit-expense') as any);
+  if (!editSkill) return null;
+
+  // Target the exact expense that turn created. Falling back to 'last' makes
+  // the executor resolve "the most recent expense", which it orders by expense
+  // DATE — same-day ties are not deterministic, so that fallback can hit the
+  // wrong row. Only used when the id wasn't captured (e.g. a turn written
+  // before this field existed).
+  const extractedParams: Record<string, unknown> = {
+    expenseId: lastBotTurn.entityId ?? 'last',
+  };
+  let changeSummary: string;
+
+  if (intent.kind === 'amount') {
+    extractedParams.amountCents = intent.amountCents;
+    changeSummary = `amount to $${(intent.amountCents / 100).toFixed(2).replace(/\.00$/, '')}`;
+  } else {
+    // Resolve the category NAME to an account id. If the tenant has no such
+    // category we must NOT proceed: returning null falls through to normal
+    // handling, which is the honest outcome. The pre-fix code reported
+    // "Correction applied" here regardless.
+    let account: { id: string; name: string } | null = null;
+    try {
+      account = (await db.abAccount.findFirst({
+        where: {
+          tenantId,
+          accountType: 'expense',
+          name: { contains: intent.category, mode: 'insensitive' },
+          isActive: true,
+        },
+      })) as any;
+    } catch {
+      return null;
+    }
+    if (!account) return null;
+
+    extractedParams.categoryId = account.id;
+    changeSummary = `category to ${account.name}`;
+
+    // Teach the vendor→category mapping so the next expense from this vendor
+    // lands in the right place without a correction.
+    const vendorName = extractVendorFromTurns(threadTurns);
+    if (vendorName) {
+      await learnVendorCategoryCorrection(tenantId, vendorName, account.id).catch(() => {});
+    }
+  }
+
+  const classification = {
+    selectedSkill: editSkill,
+    extractedParams,
+    // A correction of the user's own immediately-preceding turn is explicit by
+    // construction, so it is applied directly even though edit-expense carries
+    // confirmBefore. Gating it would leave the WRONG amount on the books until
+    // a second message arrived — the opposite of safe for a money record.
+    confirmBefore: false,
+    confidence: 1,
+    memory: [],
+    skills,
+    conversation: [],
+    tenantConfig: {},
+  };
+
+  // A throw here must NOT fall through to normal classification: that is
+  // exactly the path that books a duplicate expense. Report the failure
+  // instead — a correction the user has to retry beats a silent double-count.
+  let result: any = null;
+  let failure: string | null = null;
+  try {
+    result = await ctx.executeClassification(
+      classification as any, userText, tenantId, channel, attachments as any,
+    );
+  } catch (err) {
+    failure = err instanceof Error ? err.message : String(err);
+    console.error('[agent-brain] correction execution failed:', { tenantId, channel, failure });
+  }
+
+  const ok = !failure && result?.skillResponse?.success !== false;
+  const message = ok
+    ? `Updated — changed the ${changeSummary} on that expense.`
+    : `I couldn't update that expense. ${failure ?? result?.skillResponse?.error ?? 'Please try again.'}`;
+
+  db.abConversation.create({
+    data: {
+      tenantId,
+      question: userText,
+      answer: message,
+      queryType: 'agent',
+      channel,
+      skillUsed: 'edit-expense',
+      data: { correction: intent as any, applied: ok },
+    },
+  }).catch(() => {});
+  // Carry the target id onto this turn too, so a SECOND correction
+  // ("no, $55") still edits the same expense rather than falling back to
+  // "most recent".
+  const correctedId =
+    result?.skillResponse?.data?.id ??
+    (extractedParams.expenseId !== 'last' ? (extractedParams.expenseId as string) : undefined);
+  updateThreadTurns(activeThread, userText, message, 'edit-expense', correctedId).catch(() => {});
+
+  return buildResponse({
+    message,
+    skillUsed: 'edit-expense',
+    confidence: 1,
+    latencyMs: Date.now() - startTime,
+  });
+}
+
+/**
+ * Best-effort vendor name for the expense being corrected, read out of the
+ * user's own prior message ("lunch at Tim Hortons today $15" -> "Tim Hortons").
+ * Only used to seed the vendor→category memory, so a miss is harmless.
+ */
+function extractVendorFromTurns(
+  threadTurns: Array<{ role: string; text: string }>,
+): string | null {
+  const lastUser = [...threadTurns].reverse().find((t) => t.role === 'user');
+  if (!lastUser?.text) return null;
+  const m = lastUser.text.match(/\b(?:at|from)\s+([A-Z][\w'&.-]*(?:\s+[A-Z][\w'&.-]*)*)/);
+  return m ? m[1].trim().toLowerCase() : null;
+}
+
 /** Maps a CoreResult (tax-questionnaire-core.ts) into this file's chat AgentResponse shape. */
 function translateTaxCoreResult(result: CoreResult, startTime: number): AgentResponse {
   if (result.status === 'cancelled') {
@@ -667,30 +879,13 @@ async function handleAgentMessageCore(
 ): Promise<AgentResponse> {
   const startTime = Date.now();
   const { text, tenantId, channel, chatId: reqChatId, attachments, feedback } = req;
-  const expenseBaseUrl = ctx.baseUrls['/api/v1/agentbook-expense'] || 'http://localhost:4051';
 
-  // ── Step 0: Handle feedback / corrections ──────────────────────────────
-  if (feedback) {
-    try {
-      const lastConvo = await db.abConversation.findFirst({
-        where: { tenantId, queryType: 'agent' },
-        orderBy: { createdAt: 'desc' },
-      });
-      const lastResult = (lastConvo?.data as any) ?? null;
-      const correction = await handleCorrection(tenantId, feedback, lastResult, expenseBaseUrl);
-      if (correction.applied) {
-        return buildResponse({
-          message: correction.message,
-          skillUsed: 'correction',
-          confidence: 1,
-          latencyMs: Date.now() - startTime,
-        });
-      }
-      // Not applied — fall through, treat feedback text as a regular message
-    } catch {
-      // Fall through to normal processing
-    }
-  }
+  // ── Corrections: see Step 2b (tryApplyCorrection) ──────────────────────
+  // Correction handling used to live here, gated on `if (feedback)` — a flag
+  // only the Telegram adapter ever set, which is why corrections silently
+  // double-booked expenses on every other channel. It now runs after thread
+  // context is loaded (it needs the previous turn's intent) and applies to all
+  // channels via `feedback ?? text`.
 
   // ── Step 1: Session recovery ───────────────────────────────────────────
   const activeSession = await getActiveSession(tenantId);
@@ -1153,6 +1348,25 @@ async function handleAgentMessageCore(
     });
   }
 
+  // ── Step 2b: Correction of the immediately-preceding turn ──────────────
+  // Runs BEFORE classification: a correction has to beat the classifier, not
+  // be judged by it. "actually it was $52" matches record-expense's `\$\d`
+  // trigger pattern, so left to the classifier it books a SECOND expense.
+  // See tryApplyCorrection for the full bug write-up.
+  const corrected = await tryApplyCorrection({
+    correctionText: feedback ?? text,
+    userText: text,
+    threadTurns,
+    tenantId,
+    channel,
+    attachments,
+    ctx,
+    skills,
+    activeThread,
+    startTime,
+  });
+  if (corrected) return corrected;
+
   // Fetch past filing context for tax-related queries (fast path: only if tax keywords present)
   let pastFilingContext = '';
   const TAX_KEYWORDS = /tax|t1\b|t4\b|noa|1040|w-?2|rrsp|deduct|filing|refund|balance owing/i;
@@ -1383,7 +1597,13 @@ async function handleAgentMessageCore(
       latencyMs: Date.now() - startTime,
     },
   }).catch(() => {});
-  updateThreadTurns(activeThread, text, responseData.message || '', responseData.skillUsed || v1Result.skillUsed).catch(() => {});
+  // Capture the expense this turn touched, so a follow-up correction can edit
+  // exactly it (see updateThreadTurns' entityId param).
+  const writtenSkill = responseData.skillUsed || v1Result.skillUsed;
+  const writtenEntityId = EXPENSE_WRITE_INTENTS.has(writtenSkill)
+    ? (v1Result.skillResponse?.data?.id ?? undefined)
+    : undefined;
+  updateThreadTurns(activeThread, text, responseData.message || '', writtenSkill, writtenEntityId).catch(() => {});
 
   return buildResponse({
     message: responseData.message,
