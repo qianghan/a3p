@@ -51,9 +51,23 @@ export async function postUpdate(
     };
   }
 
+  // Prove we are the suite. The webhook used to accept ANY unauthenticated
+  // POST whenever E2E_TELEGRAM_CAPTURE was set on the server, so turning these
+  // tests on turned the security gate off. It now requires this token — which
+  // means an unset E2E_RESET_TOKEN must fail loudly here, not run the phase
+  // against what would otherwise look like a working endpoint.
+  const e2eToken = process.env.E2E_RESET_TOKEN;
+  if (!e2eToken) {
+    throw new Error(
+      'E2E_RESET_TOKEN is unset, so the webhook will reject these synthetic Updates with 401. ' +
+      'That is the gate working: the token is how the suite identifies itself now that capture ' +
+      'no longer disables the Telegram secret check.',
+    );
+  }
+
   const res = await fetch(`${baseURL}/api/v1/agentbook/telegram/webhook`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', 'x-e2e-token': e2eToken },
     body: JSON.stringify(update),
   });
 
