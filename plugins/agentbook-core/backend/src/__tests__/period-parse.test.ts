@@ -187,6 +187,24 @@ describe('carryForwardPeriod — a follow-up keeps the period of the question it
     expect(carryForwardPeriod('and meals?', [])).toBe('and meals?');
   });
 
+  it('splits trailing punctuation in linear time (js/polynomial-redos)', () => {
+    // Caught by CodeQL on the first version of this function, which used
+    // `/[?.!]+$/`. An unanchored repeated character class matched against
+    // end-of-string is quadratic when the run does NOT end the string: the
+    // engine consumes the whole run from every start position, fails `$`, then
+    // backtracks. Measured on the original: 10k chars 159ms, 20k 633ms,
+    // 40k 2.5s, 80k 10.1s — 4x per doubling. A chat message is uncontrolled
+    // input, so a single request could burn ten seconds of function CPU.
+    //
+    // The bound is deliberately loose (200k under a second, where the old code
+    // needed about a minute) so this pins the complexity CLASS, not the speed
+    // of whatever runner CI happened to give us.
+    const hostile = 'and ' + '!'.repeat(200_000) + 'a';
+    const started = Date.now();
+    carryForwardPeriod(hostile, conv('travel last month?'));
+    expect(Date.now() - started).toBeLessThan(1000);
+  });
+
   it('preserves a missing question mark', () => {
     expect(carryForwardPeriod('and meals', conv('travel last month?'))).toBe('and meals last month');
   });

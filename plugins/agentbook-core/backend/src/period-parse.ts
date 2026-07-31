@@ -267,8 +267,16 @@ export function carryForwardPeriod(
   for (const turn of conversation) {
     const phrase = extractPeriodPhrase(turn.question ?? '');
     if (!phrase) continue;
-    const trailing = trimmed.match(/[?.!]+$/)?.[0] ?? '';
-    const base = trailing ? trimmed.slice(0, -trailing.length).trim() : trimmed;
+    // Split trailing punctuation off with a scan, not `/[?.!]+$/`. An
+    // unanchored repeated character class matched against end-of-string is
+    // quadratic — "!!!!…" from a chat message is uncontrolled input, and
+    // CodeQL flags it as js/polynomial-redos. This is linear.
+    let cut = trimmed.length;
+    while (cut > 0 && (trimmed[cut - 1] === '?' || trimmed[cut - 1] === '.' || trimmed[cut - 1] === '!')) {
+      cut--;
+    }
+    const trailing = trimmed.slice(cut);
+    const base = trimmed.slice(0, cut).trimEnd();
     // A bare month name needs a preposition to read as English — the rewritten
     // text is also what the LLM classifier and the advisor prompt see.
     const isMonthName = MONTH_NAMES.some((n) => phrase.startsWith(n));
