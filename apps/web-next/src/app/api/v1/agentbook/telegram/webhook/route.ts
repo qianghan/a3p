@@ -6268,10 +6268,29 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   const secret = request.headers.get('X-Telegram-Bot-Api-Secret-Token');
   const expectedSecret = process.env.TELEGRAM_WEBHOOK_SECRET;
 
-  // E2E_CAPTURE is a server-side test toggle; production has it off.
-  // When on, we accept synthetic Updates without the Telegram secret so
-  // the e2e suite (and PR-level webhook tests) can hit the route directly.
-  if (expectedSecret && secret !== expectedSecret && !E2E_CAPTURE) {
+  // The e2e suite needs to post synthetic Updates without Telegram's secret,
+  // which it cannot hold. It must PROVE it is the suite in order to do so.
+  //
+  // This read `&& !E2E_CAPTURE`, so setting E2E_TELEGRAM_CAPTURE=1 and
+  // E2E_TELEGRAM_CHAT_ID switched the secret check off entirely. The comment
+  // beside it said "production has it off" — an assumption, not an
+  // enforcement. Neither variable is secret, and setting them is exactly what
+  // was about to be done to bring the 14 Telegram tests online, which would
+  // have silently reopened the unauthenticated-write hole that blocked launch.
+  //
+  // The bypass was also GLOBAL. The chat-id scoping added in #405 protects the
+  // capture BUFFER from real traffic, but this check never looked at the chat
+  // id, so any anonymous POST naming any tenant's chat would have been taken.
+  //
+  // E2E_RESET_TOKEN is reused deliberately: CI already holds it, it already
+  // gates the reset endpoint, and a second token would be a second thing to
+  // keep in sync — the exact failure that kept this suite dead for months
+  // (#403).
+  const e2eToken = process.env.E2E_RESET_TOKEN;
+  const e2eAuthorized =
+    E2E_CAPTURE && !!e2eToken && request.headers.get('x-e2e-token') === e2eToken;
+
+  if (expectedSecret && secret !== expectedSecret && !e2eAuthorized) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
