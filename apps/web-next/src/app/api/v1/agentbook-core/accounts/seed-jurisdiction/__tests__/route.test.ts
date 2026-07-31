@@ -40,7 +40,7 @@ describe('POST /agentbook-core/accounts/seed-jurisdiction', () => {
     const res = await POST(req());
     const json = await res.json();
 
-    expect(json.data.count).toBe(33);
+    expect(json.data.count).toBe(34);
     const codes = accountUpsert.mock.calls.map((c) => (c[0] as { create: { code: string } }).create.code);
     expect(codes).toContain('2100'); // GST Payable
     expect(codes).toContain('2300'); // Superannuation Payable
@@ -54,20 +54,20 @@ describe('POST /agentbook-core/accounts/seed-jurisdiction', () => {
     const res = await POST(req());
     const json = await res.json();
 
-    expect(json.data.count).toBe(33);
+    expect(json.data.count).toBe(34);
     const gstHst = accountUpsert.mock.calls.find((c) => (c[0] as { create: { code: string } }).create.code === '2100');
     expect((gstHst![0] as { create: { name: string } }).create.name).toBe('GST/HST Payable');
     const revenue = accountUpsert.mock.calls.find((c) => (c[0] as { create: { code: string } }).create.code === '4000');
     expect((revenue![0] as { create: { taxCategory?: string } }).create.taxCategory).toBe('Line 8000 - Professional income');
   });
 
-  it('seeds the real (32-account) US Schedule-C chart for jurisdiction=us', async () => {
+  it('seeds the real (33-account) US Schedule-C chart for jurisdiction=us', async () => {
     tenantConfigFindUnique.mockResolvedValue({ businessType: 'freelancer', jurisdiction: 'us' });
     const { POST } = await import('../route');
     const res = await POST(req());
     const json = await res.json();
 
-    expect(json.data.count).toBe(32);
+    expect(json.data.count).toBe(33);
     // Depreciation (6800) exists in the real pack but not in the old inline US_ACCOUNTS list.
     const depreciation = accountUpsert.mock.calls.find((c) => (c[0] as { create: { code: string } }).create.code === '6800');
     expect(depreciation).toBeDefined();
@@ -81,8 +81,29 @@ describe('POST /agentbook-core/accounts/seed-jurisdiction', () => {
     const json = await res.json();
 
     expect(res.status).toBe(200);
-    expect(json.data.count).toBe(32);
+    expect(json.data.count).toBe(33);
   });
+
+  it.each(['us', 'ca', 'au', 'student'])(
+    'seeds the 6999 suspense account for %s — an uncategorized expense has to have somewhere to post',
+    async (kind) => {
+      tenantConfigFindUnique.mockResolvedValue(
+        kind === 'student'
+          ? { businessType: 'student', jurisdiction: 'us' }
+          : { businessType: 'freelancer', jurisdiction: kind },
+      );
+      const { POST } = await import('../route');
+      await POST(req());
+
+      const suspense = accountUpsert.mock.calls.find(
+        (c) => (c[0] as { create: { code: string } }).create.code === '6999',
+      );
+      expect(suspense, `${kind} chart is missing the suspense account`).toBeDefined();
+      const created = (suspense![0] as { create: { accountType: string; taxCategory?: string } }).create;
+      expect(created.accountType).toBe('expense'); // must count in the tax estimate
+      expect(created.taxCategory).toBeUndefined(); // unclassified, not "other"
+    },
+  );
 
   it('still seeds STUDENT_ACCOUNTS for businessType=student regardless of jurisdiction (regression)', async () => {
     tenantConfigFindUnique.mockResolvedValue({ businessType: 'student', jurisdiction: 'au' });
@@ -90,7 +111,7 @@ describe('POST /agentbook-core/accounts/seed-jurisdiction', () => {
     const res = await POST(req());
     const json = await res.json();
 
-    expect(json.data.count).toBe(14);
+    expect(json.data.count).toBe(15);
     const codes = accountUpsert.mock.calls.map((c) => (c[0] as { create: { code: string } }).create.code);
     expect(codes).toContain('4200'); // Scholarship / Grant Income
     // Confirm this did NOT pick up the AU chart's GST Payable account.

@@ -266,7 +266,20 @@ describe('CA Chart of Accounts', () => {
   it('has expense accounts with T2125 tax categories (Line XXXX format)', () => {
     const accounts = caChartOfAccounts.getDefaultAccounts('sole_proprietor');
     const expenseAccounts = accounts.filter(a => a.type === 'expense');
-    expect(expenseAccounts.every(a => a.taxCategory)).toBe(true);
+    // 6999 Uncategorized Expenses is exempt, and deliberately so: it is a
+    // SUSPENSE account. An expense posts there before anyone knows its
+    // category, so tagging it with a T2125 line would assert the money belongs
+    // to a line nobody has determined yet.
+    //
+    // Asserted as an exemption rather than by loosening `every`, so a REAL
+    // category shipping without a tax line still fails — and the last assertion
+    // pins that 6999 stays untagged, so the exemption cannot quietly become a
+    // dumping ground.
+    const SUSPENSE = '6999';
+    const classifiable = expenseAccounts.filter(a => a.code !== SUSPENSE);
+    expect(classifiable.length).toBeGreaterThan(0);
+    expect(classifiable.every(a => a.taxCategory)).toBe(true);
+    expect(expenseAccounts.find(a => a.code === SUSPENSE)?.taxCategory).toBeUndefined();
     // T2125 uses "Line XXXX" format (4-digit codes like 8521, 8810, etc.)
     expect(expenseAccounts.some(a => a.taxCategory?.match(/Line \d{4}/))).toBe(true);
   });

@@ -22,6 +22,7 @@ import { runAgentLoop, type BotContext, type ActiveExpense as BotActive } from '
 import { parseDateHint } from '@/lib/agentbook-time-aggregator';
 import { autoCategorizeForTenant, getPendingSuggestions, dropPendingSuggestion } from '@/lib/agentbook-auto-categorize';
 import { updateMileageEntry } from '@/lib/agentbook-mileage-service';
+import { backfillExpenseJournalEntry } from '@/lib/agentbook-expense-ledger';
 import { formatCurrencyCents } from '@/lib/jurisdiction-currency';
 import { estimateTotalIncomeTax } from '@agentbook/jurisdictions/total-tax';
 import {
@@ -4706,6 +4707,13 @@ function getBot(): Bot {
           where: { id: expenseId },
           data: { categoryId, confidence: 1.0 },
         });
+        // An uncategorized expense is already on the books against the 6999
+        // suspense account, so picking a category has to MOVE that debit —
+        // otherwise the amount is right but sits under "Uncategorized" in the
+        // category breakdown and on every Schedule C / T2125 / BAS line. This
+        // is the same shared helper the HTTP categorize route uses; Telegram
+        // was setting categoryId inline and skipping it entirely.
+        await backfillExpenseJournalEntry(tenantId, expenseId);
         if (expense.vendorId) {
           const vendor = await db.abVendor.findUnique({ where: { id: expense.vendorId } });
           if (vendor) {
