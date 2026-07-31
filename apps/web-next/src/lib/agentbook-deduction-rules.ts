@@ -19,6 +19,7 @@
 
 import 'server-only';
 import { prisma as db } from '@naap/database';
+import { mealDeductionNote } from './agentbook-deduction-copy';
 
 export interface RuleContext {
   tenantId: string;
@@ -135,7 +136,7 @@ const meal_with_client_invoice: Rule = async (ctx) => {
       expenseId: exp.id,
       message:
         `Meal on ${dayKey(exp.date)} fell in the same week as your invoice to ${clientName}. ` +
-        `Looks like a client meeting — these are typically deductible (50% in the US).`,
+        `Looks like a client meeting — ${mealDeductionNote(ctx.jurisdiction)}`,
       suggestedTaxCategory: mealAccount.taxCategory ?? undefined,
       suggestedDeductible: true,
       confidence,
