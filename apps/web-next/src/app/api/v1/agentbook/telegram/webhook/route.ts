@@ -6260,10 +6260,26 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   const secret = request.headers.get('X-Telegram-Bot-Api-Secret-Token');
   const expectedSecret = process.env.TELEGRAM_WEBHOOK_SECRET;
 
-  // E2E_CAPTURE is a server-side test toggle; production has it off.
-  // When on, we accept synthetic Updates without the Telegram secret so
-  // the e2e suite (and PR-level webhook tests) can hit the route directly.
-  if (expectedSecret && secret !== expectedSecret && !E2E_CAPTURE) {
+  // FAIL CLOSED.
+  //
+  // This check used to be skipped entirely when TELEGRAM_WEBHOOK_SECRET was
+  // unset — and it WAS unset in production, so the live webhook accepted
+  // unauthenticated synthetic Updates. Verified against production: an
+  // anonymous POST returned 200. With a chat id that maps to a real tenant, an
+  // anonymous caller could drive that tenant's agent and write to their books:
+  // record expenses, create invoices. Chat ids are 9-10 digit numbers and the
+  // response distinguishes mapped from unmapped, so they are enumerable.
+  //
+  // An absent secret is now a misconfiguration, not an open door. This is the
+  // same fail-open shape fixed in the cron and skill gates; this one was missed.
+  if (!expectedSecret) {
+    console.error(
+      '[telegram/webhook] TELEGRAM_WEBHOOK_SECRET is not set — refusing all updates. ' +
+      'Set it on the deployment AND register it with Telegram via setWebhook?secret_token=…',
+    );
+    return NextResponse.json({ error: 'Webhook not configured' }, { status: 503 });
+  }
+  if (secret !== expectedSecret && !E2E_CAPTURE) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
