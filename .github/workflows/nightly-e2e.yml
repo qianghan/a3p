@@ -165,6 +165,13 @@ jobs:
           - phase5-tax-reports
           - phase6-telegram-bot
           - phase7-cron-and-cache
+          # CA and AU tenants. The launch assessment held AU at "no go" for one
+          # stated reason — no e2e coverage of the AU path — and every regional
+          # defect so far (CA provincial double-count, federal-only chat maths,
+          # a CA tenant quoted the IRS rule) was found by accident, because a
+          # suite that only signs in as a US tenant runs the one path where
+          # every default is already correct.
+          - phase8-regional
     env:
       E2E_USER_PASSWORD: ${{ secrets.E2E_USER_PASSWORD }}
       E2E_RESET_TOKEN: ${{ secrets.E2E_RESET_TOKEN }}

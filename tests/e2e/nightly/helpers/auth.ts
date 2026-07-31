@@ -8,10 +8,16 @@ export const E2E_USER = {
 /**
  * Log in as the dedicated nightly e2e user. After this returns, the page
  * has a valid session cookie and is on /dashboard.
+ *
+ * `email` overrides the default US tenant — the CA and AU tenants seeded by
+ * seed-e2e-user.ts use the same password, so one GitHub secret still governs
+ * every account the suite touches. A per-region password would be a second
+ * copy to keep in sync, which is the drift that left this suite unable to log
+ * in for three months (#403).
  */
-export async function loginAsE2eUser(page: Page): Promise<void> {
+export async function loginAsE2eUser(page: Page, email: string = E2E_USER.email): Promise<void> {
   await page.goto('/login');
-  await page.fill('input[type="email"]', E2E_USER.email);
+  await page.fill('input[type="email"]', email);
   await page.fill('input[type="password"]', E2E_USER.password);
   await page.click('button[type="submit"]');
 
