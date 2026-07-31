@@ -5214,13 +5214,21 @@ Only include chartData if visualization adds value. Keep the answer under 200 wo
         answer += `\n\nHere ${recentExpenses.length === 1 ? 'it is' : 'they are'}:\n${recentExpenses.join('\n')}`;
       }
 
-      // State the window, always. A total means nothing without the period it
-      // covers, and a misparsed period is indistinguishable from a wrong total
-      // unless the reply says which one it used — precisely what hid the
-      // "doctor → October" bug. It also gives the user something to correct.
-      if (!answer.includes(periodLabel)) {
-        answer += `\n\n_Period: ${periodLabel}._`;
-      }
+      // State the window, always — UNCONDITIONALLY.
+      //
+      // A total means nothing without the period it covers, and a misparsed
+      // period is indistinguishable from a wrong total unless the reply says
+      // which one it used; that invisibility is precisely what hid the
+      // "doctor → October" bug.
+      //
+      // This was `if (!answer.includes(periodLabel))` to avoid restating a
+      // window the model had already mentioned in prose. That made the
+      // guarantee "the period appears somewhere, phrased however the LLM
+      // chose", which is not a guarantee at all — nothing downstream can
+      // assert it, and the canonical eval's `required: ['Period:']` failed on
+      // a turn that was in fact correct. A deterministic stamp that is
+      // occasionally redundant beats a conditional one that cannot be checked.
+      answer += `\n\n_Period: ${periodLabel}._`;
 
       await db.abConversation.create({
         data: { tenantId, question, answer, queryType: 'agent', channel, skillUsed: selectedSkill.name },
