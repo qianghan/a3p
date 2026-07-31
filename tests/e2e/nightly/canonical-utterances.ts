@@ -398,7 +398,14 @@ export const CANONICAL: CanonicalUtterance[] = [
     threadId: 't-maya-amount-correction',
     required: ['$52'],
   },
-  // Query thread: follow-up "and..." should keep the time window
+  // Query thread: follow-up "and..." should keep the time window.
+  //
+  // `required: ['Period:']` is the date-independent form of "the answer names
+  // the window it used". Both turns previously PASSED on skill alone while
+  // being wrong on substance — turn 1 answered for last month, turn 2 for
+  // year-to-date — so the user was handed two numbers to compare that were not
+  // comparable, and neither reply said which period it covered. A literal month
+  // name can't be asserted here because the window moves with the run date.
   {
     id: 'cu-alex-100a',
     persona: 'alex',
@@ -407,6 +414,7 @@ export const CANONICAL: CanonicalUtterance[] = [
     expectedSkill: 'query-expenses',
     isMultiTurn: true,
     threadId: 't-alex-period-followup',
+    required: ['Period:'],
   },
   {
     id: 'cu-alex-100b',
@@ -421,6 +429,7 @@ export const CANONICAL: CanonicalUtterance[] = [
     expectedSkill: 'query-expenses',
     isMultiTurn: true,
     threadId: 't-alex-period-followup',
+    required: ['Period:'],
   },
 
   // ============================================================

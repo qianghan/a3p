@@ -12,60 +12,11 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma as db } from '@naap/database';
 import { safeResolveAgentbookTenant } from '@/lib/agentbook-tenant';
 import { advisorGemini, formatCents } from '@/lib/agentbook-advisor';
+import { parsePeriodFromQuestion } from '@agentbook-core/period-parse';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 export const maxDuration = 30;
-
-function parseDateFromQuestion(question: string): { startDate: Date; endDate: Date } {
-  const q = question.toLowerCase();
-  const now = new Date();
-  const year = now.getFullYear();
-
-  // Named months — cover full year so multi-month queries work
-  const monthNames = ['january', 'february', 'march', 'april', 'may', 'june',
-    'july', 'august', 'september', 'october', 'november', 'december'];
-
-  const mentionedMonths = monthNames
-    .map((name, i) => ({ i, found: q.includes(name) || q.includes(name.slice(0, 3)) }))
-    .filter(({ found }) => found)
-    .map(({ i }) => i);
-
-  if (mentionedMonths.length > 0) {
-    const minMonth = Math.min(...mentionedMonths);
-    const maxMonth = Math.max(...mentionedMonths);
-    return {
-      startDate: new Date(year, minMonth, 1),
-      endDate: new Date(year, maxMonth + 1, 0, 23, 59, 59),
-    };
-  }
-
-  if (q.includes('last month')) {
-    const start = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-    const end = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59);
-    return { startDate: start, endDate: end };
-  }
-  if (q.includes('this month')) {
-    return {
-      startDate: new Date(now.getFullYear(), now.getMonth(), 1),
-      endDate: now,
-    };
-  }
-  if (q.includes('last quarter') || q.includes('this quarter')) {
-    const start = new Date(now);
-    start.setMonth(start.getMonth() - 3);
-    return { startDate: start, endDate: now };
-  }
-  if (q.includes('last year')) {
-    return {
-      startDate: new Date(year - 1, 0, 1),
-      endDate: new Date(year - 1, 11, 31, 23, 59, 59),
-    };
-  }
-
-  // Default: year-to-date
-  return { startDate: new Date(year, 0, 1), endDate: now };
-}
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
   try {
@@ -82,11 +33,16 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     // Period: explicit override → NLP extraction from question → year-to-date
     let startDate: Date;
     let endDate: Date;
+    let periodLabel: string;
     if (body.period?.start && body.period?.end) {
       startDate = new Date(body.period.start);
       endDate = new Date(body.period.end);
+      periodLabel = `${startDate.toLocaleDateString()} – ${endDate.toLocaleDateString()}`;
     } else {
-      ({ startDate, endDate } = parseDateFromQuestion(question));
+      const parsed = parsePeriodFromQuestion(question);
+      startDate = parsed.startDate;
+      endDate = parsed.endDate;
+      periodLabel = parsed.label;
     }
 
     // Fetch expenses with vendor
@@ -186,32 +142,46 @@ Only include chartData if visualization adds value. Keep the answer under 200 wo
       const q = question.toLowerCase();
       if (q.match(/vendor|who.*spend|top.*spend|spend.*most/)) {
         answer = byVendor.length > 0
-          ? `Top vendors (${startDate.toLocaleDateString()} – ${endDate.toLocaleDateString()}):\n\n` +
+          ? `Top vendors (${periodLabel}):\n\n` +
             byVendor.slice(0, 8).map(([n, v], i) => `${i + 1}. **${n}**: ${formatCents(v)}`).join('\n') +
             `\n\nTotal: ${formatCents(total)}`
-          : `No expenses found for this period.`;
+          : `No expenses found for ${periodLabel}.`;
         chartData = byVendor.length > 0
           ? { type: 'bar', data: byVendor.slice(0, 8).map(([name, value]) => ({ name, value })) }
           : null;
       } else if (q.match(/top|most|biggest|largest|category/)) {
         answer = byCat.length > 0
-          ? `Top categories:\n\n` + byCat.slice(0, 6).map(([n, v]) => `• **${n}**: ${formatCents(v)}`).join('\n') +
+          ? `Top categories (${periodLabel}):\n\n` + byCat.slice(0, 6).map(([n, v]) => `• **${n}**: ${formatCents(v)}`).join('\n') +
             `\n\nTotal: ${formatCents(total)}`
-          : `No expenses found for this period.`;
+          : `No expenses found for ${periodLabel}.`;
         chartData = byCat.length > 0
           ? { type: 'bar', data: byCat.slice(0, 6).map(([name, value]) => ({ name, value })) }
           : null;
       } else {
         answer = expenses.length === 0
-          ? `No business expenses found for ${startDate.toLocaleDateString()} – ${endDate.toLocaleDateString()}.`
+          ? `No business expenses found for ${periodLabel}.`
           : `You have ${expenses.length} expenses totaling ${formatCents(total)}.\n\nTop vendor: ${byVendor[0] ? `**${byVendor[0][0]}** (${formatCents(byVendor[0][1])})` : 'N/A'}\nTop category: ${byCat[0] ? `**${byCat[0][0]}** (${formatCents(byCat[0][1])})` : 'N/A'}`;
       }
       actions = [{ label: 'Show chart breakdown', type: 'suggestion' }];
     }
 
+    // State the window, always. A total is meaningless without the period it
+    // covers, and a misread period is indistinguishable from a wrong total
+    // unless the answer says which one it used — that is what made the old
+    // substring month-matching bug invisible (see parsePeriodFromQuestion).
+    if (!answer.includes(periodLabel)) {
+      answer = `${answer}\n\n_Period: ${periodLabel}._`;
+    }
+
     return NextResponse.json({
       success: true,
-      data: { answer, chartData, actions, sources: ['expenses', 'categories', 'vendors'] },
+      data: {
+        answer,
+        chartData,
+        actions,
+        period: { start: startDate.toISOString(), end: endDate.toISOString(), label: periodLabel },
+        sources: ['expenses', 'categories', 'vendors'],
+      },
     });
   } catch (err) {
     console.error('[agentbook-expense/advisor/ask] failed:', err);

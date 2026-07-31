@@ -13,6 +13,7 @@ import { buildPastFilingContext } from './past-filing-context.js';
 import { buildPersonalProfileContext } from './personal-profile-context.js';
 import { retrieveRelevantMemories, learnFromInteraction, learnVendorCategoryCorrection } from './agent-memory.js';
 import { detectCorrection } from './agent-corrections.js';
+import { carryForwardPeriod } from './period-parse.js';
 import { BUILT_IN_SKILLS } from './built-in-skills.js';
 import { assessComplexity, generatePlan, formatPlan, createSession, getActiveSession, updateSession, executeStep, buildUndoAction, resolveStepParams } from './agent-planner.js';
 import { PlanStep, Evaluation, assessStepQuality, buildFinalEvaluation, formatEvaluation } from './agent-evaluator.js';
@@ -272,7 +273,23 @@ function resolveSessionAction(
   return null;
 }
 
-function pairTurns(
+/**
+ * Pair a thread's turns into {question, answer}, NEWEST FIRST.
+ *
+ * The order is a contract, not an implementation detail. The other producer of
+ * `conversation[]` — the fallback fetch in classifyAndExecuteV1 — uses
+ * `orderBy: { createdAt: 'desc' }`, and every consumer is written for that:
+ * resolveReferents keeps the first match so newer mentions win,
+ * brainAccountantFallback takes .slice(0, 3) as "recent conversation", and the
+ * planner takes .slice(0, 5).reverse() to get chronological order.
+ *
+ * AbConvThread.turns is appended chronologically, so returning them in that
+ * order pointed all three consumers at the wrong end of the thread: "send the
+ * invoice" resolved to the OLDEST invoice still in the window, and the prompts
+ * labelled "recent conversation" dropped the exchange the user just had.
+ * Reversing here is the one-place fix. See conversation-order.test.ts.
+ */
+export function pairTurns(
   turns: Array<{ role: string; text: string }>,
 ): Array<{ question: string; answer: string }> {
   const pairs: Array<{ question: string; answer: string }> = [];
@@ -282,7 +299,7 @@ function pairTurns(
       i++;
     }
   }
-  return pairs;
+  return pairs.reverse();
 }
 
 async function updateThreadTurns(
@@ -1415,7 +1432,16 @@ async function handleAgentMessageCore(
   // concrete entity refs BEFORE classification, so Stage-1 shortcuts and
   // Stage-2 regex paths see the same resolved text the Stage-3 LLM would.
   // No-op when the input has no pronoun-like tokens.
-  const resolvedText = resolveReferents(text, conversation, threadTurns);
+  //
+  // The same idea applies to the time window: "how much did I spend on travel
+  // last month?" followed by "and meals?" was answered year-to-date, so the two
+  // numbers the user was comparing covered different periods. Rewriting the
+  // text here (rather than in a channel adapter) keeps it true for web,
+  // Telegram, WhatsApp and MCP alike.
+  const resolvedText = carryForwardPeriod(
+    resolveReferents(text, conversation, threadTurns),
+    conversation,
+  );
 
   // ── Step 3a: Classify ONLY (no side effects) ──────────────────────────
   // PR 9 (G-010): split classification from execution so destructive actions
