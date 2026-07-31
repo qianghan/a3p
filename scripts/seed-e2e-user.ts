@@ -172,6 +172,12 @@ export async function resetE2eUser(opts?: { password?: string }): Promise<ResetR
   const acme  = await db.abClient.create({ data: { tenantId, name: 'Acme Corp', email: 'billing@acme.test', defaultTerms: 'net-30' } });
   const beta  = await db.abClient.create({ data: { tenantId, name: 'Beta Inc',  email: 'finance@beta.test', defaultTerms: 'net-30' } });
   const gamma = await db.abClient.create({ data: { tenantId, name: 'Gamma LLC', email: 'ap@gamma.test',     defaultTerms: 'net-15' } });
+  // BigCo exists so "got $7500 payment from BigCo" has something to pay.
+  // The canonical eval sends that utterance BEFORE the thread that invoices
+  // BigCo, so without a seeded receivable the agent correctly answered "I need a
+  // client or invoice reference" and the case failed on the fixture's own
+  // incoherence rather than on the product.
+  const bigco = await db.abClient.create({ data: { tenantId, name: 'BigCo',      email: 'ap@bigco.test',     defaultTerms: 'net-30' } });
 
   // Five expenses (one missing receipt)
   const expensesData = [
@@ -224,6 +230,9 @@ export async function resetE2eUser(opts?: { password?: string }): Promise<ResetR
   await db.abInvoice.create({
     data: { tenantId, clientId: gamma.id, number: 'INV-E2E-OVERDUE', status: 'sent', amountCents: 95000, currency: 'USD', issuedDate: daysAgo(60), dueDate: daysAgo(30) },
   });
+  await db.abInvoice.create({
+    data: { tenantId, clientId: bigco.id, number: 'INV-E2E-BIGCO', status: 'sent', amountCents: 750000, currency: 'USD', issuedDate: daysAgo(15), dueDate: daysFromNow(15) },
+  });
   const paid = await db.abInvoice.create({
     data: { tenantId, clientId: acme.id, number: 'INV-E2E-PAID', status: 'paid', amountCents: 60000, currency: 'USD', issuedDate: daysAgo(40), dueDate: daysAgo(10) },
   });
@@ -241,6 +250,7 @@ export async function resetE2eUser(opts?: { password?: string }): Promise<ResetR
   for (const inv of [
     { id: 'INV-E2E-SENT', amountCents: 120000, date: daysAgo(23) },
     { id: 'INV-E2E-OVERDUE', amountCents: 95000, date: daysAgo(60) },
+    { id: 'INV-E2E-BIGCO', amountCents: 750000, date: daysAgo(15) },
     { id: 'INV-E2E-PAID', amountCents: 60000, date: daysAgo(40) },
   ]) {
     const row = await db.abInvoice.findFirst({ where: { tenantId, number: inv.id } });
@@ -275,7 +285,7 @@ export async function resetE2eUser(opts?: { password?: string }): Promise<ResetR
     },
   });
 
-  return { userId: E2E_USER_ID, expensesCreated: expensesData.length, invoicesCreated: 4, clientsCreated: 3 };
+  return { userId: E2E_USER_ID, expensesCreated: expensesData.length, invoicesCreated: 5, clientsCreated: 4 };
 }
 
 function daysAgo(n: number): Date {
