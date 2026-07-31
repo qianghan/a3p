@@ -27,6 +27,20 @@ import { join } from 'node:path';
 const ROOT = join(__dirname, '..', '..', '..', '..', '..');
 const read = (p: string) => readFileSync(join(ROOT, p), 'utf8');
 
+/**
+ * Source with comments removed.
+ *
+ * Guards that grep for a bug's shape must not match the comment EXPLAINING
+ * that shape. This one did: the note above the period stamp quotes the
+ * `if (!answer.includes(periodLabel))` it replaced, so the guard failed on the
+ * fixed code. The same trap in the other direction cost a false PASS earlier —
+ * a mutation check that hit a comment instead of the live line.
+ */
+const readCode = (p: string) =>
+  read(p)
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/(^|[^:])\/\/.*$/gm, '$1');
+
 const PARSER = 'plugins/agentbook-core/backend/src/period-parse.ts';
 
 /** Every surface that answers a "how much did I spend" question. */
@@ -82,13 +96,31 @@ describe('the period is always stated back to the user', () => {
   // A wrong window is only survivable if the user can SEE it. Both of these
   // reply paths compute a total; both must name the period alongside it, or a
   // misparse is indistinguishable from a wrong total.
-  it('the live chat handler states the period it used', () => {
-    const src = read('plugins/agentbook-core/backend/src/server.ts');
-    expect(src).toMatch(/_Period: \$\{periodLabel\}\._/);
+  const STAMPED = [
+    'plugins/agentbook-core/backend/src/server.ts',
+    'apps/web-next/src/app/api/v1/agentbook-expense/advisor/ask/route.ts',
+  ];
+
+  it('both reply paths stamp the period they used', () => {
+    for (const file of STAMPED) {
+      expect(read(file), `${file} must stamp _Period: …_`).toMatch(/_Period: \$\{periodLabel\}\._/);
+    }
   });
 
-  it('the advisor route states the period it used', () => {
-    const src = read('apps/web-next/src/app/api/v1/agentbook-expense/advisor/ask/route.ts');
-    expect(src).toMatch(/_Period: \$\{periodLabel\}\._/);
+  it('the stamp is UNCONDITIONAL — not skipped when the model names the window itself', () => {
+    // It shipped guarded by `if (!answer.includes(periodLabel))`, to avoid
+    // restating a period the LLM had already worked into its prose. That turned
+    // the guarantee into "the period appears somewhere, phrased however the
+    // model chose" — which nothing downstream can assert, and which failed the
+    // canonical eval (`required: ['Period:']`) on a turn that was in fact
+    // correct. A deterministic stamp that is sometimes redundant is worth more
+    // than a tidy one that cannot be verified.
+    for (const file of STAMPED) {
+      // readCode, not read — the comment above the stamp quotes the very
+      // pattern this forbids, and matching it there is a false failure.
+      expect(readCode(file), `${file} must not gate the period stamp on answer.includes`).not.toMatch(
+        /if\s*\(\s*!\s*answer\.includes\(\s*periodLabel\s*\)\s*\)/,
+      );
+    }
   });
 });

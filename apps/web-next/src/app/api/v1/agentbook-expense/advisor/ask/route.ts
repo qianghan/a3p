@@ -165,13 +165,15 @@ Only include chartData if visualization adds value. Keep the answer under 200 wo
       actions = [{ label: 'Show chart breakdown', type: 'suggestion' }];
     }
 
-    // State the window, always. A total is meaningless without the period it
-    // covers, and a misread period is indistinguishable from a wrong total
-    // unless the answer says which one it used — that is what made the old
-    // substring month-matching bug invisible (see parsePeriodFromQuestion).
-    if (!answer.includes(periodLabel)) {
-      answer = `${answer}\n\n_Period: ${periodLabel}._`;
-    }
+    // State the window, always — UNCONDITIONALLY. A total is meaningless
+    // without the period it covers, and a misread period is indistinguishable
+    // from a wrong total unless the answer says which one it used; that is what
+    // made the old substring month-matching bug invisible (see
+    // parsePeriodFromQuestion). Skipping the stamp when the model happened to
+    // mention the window in prose reduced this to "the period appears
+    // somewhere, phrased however the LLM chose" — unassertable, and it failed
+    // the canonical eval on a turn that was actually correct.
+    answer = `${answer}\n\n_Period: ${periodLabel}._`;
 
     return NextResponse.json({
       success: true,
