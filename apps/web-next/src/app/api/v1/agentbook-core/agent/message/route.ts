@@ -104,9 +104,27 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   }
 
   try {
-    const dbSkills = await db.abSkillManifest.findMany({
-      where: { enabled: true, OR: [{ tenantId: null }, { tenantId }] },
+    // Both enabled AND disabled rows, deliberately.
+    //
+    // `orderBy` — routing tries skills in array order and takes the first match
+    // (see "Skills are tried in array order" in server.ts and the collision
+    // comments in skill-routing.ts). Without it, which of two colliding skills
+    // wins is whatever order Postgres returned. agent-brain asks for this order
+    // on its own fetch, but that fetch only runs when the caller passes no
+    // `skills` — and this route always passes them (Launch-gap PR-5).
+    //
+    // No `enabled: true` — the filter used to live in the query, which made the
+    // admin disable toggle leak: a disabled row was absent from the result, so
+    // `seenNames` below didn't know the skill existed and the built-in fallback
+    // re-created it with `enabled: true`. Nothing downstream re-checks `enabled`,
+    // so a skill an admin switched off kept routing on web chat (Telegram and
+    // WhatsApp were unaffected — they have no fallback merge). The rows are
+    // filtered in code instead, so `seenNames` can see the disabled ones.
+    const allRows = await db.abSkillManifest.findMany({
+      where: { OR: [{ tenantId: null }, { tenantId }] },
+      orderBy: { name: 'asc' },
     });
+    const dbSkills = allRows.filter((row) => row.enabled);
     // CODE IS AUTHORITATIVE for global built-in skills.
     //
     // This used to be "DB rows take precedence", which made every edit to
@@ -145,7 +163,9 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       };
     });
 
-    const seenNames = new Set(dbSkills.map((s) => s.name));
+    // Built from ALL rows, not just the enabled ones: a name the admin disabled
+    // has been seen, and must not be resurrected by the fallback below.
+    const seenNames = new Set(allRows.map((s) => s.name));
     const fallbackSkills = BUILT_IN_SKILLS
       .filter((s) => !seenNames.has(s.name))
       .map((s) => ({

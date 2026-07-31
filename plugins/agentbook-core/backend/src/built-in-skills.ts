@@ -3,10 +3,12 @@ import { BUSINESS_PHRASE_PATTERN, CREATE_INVOICE_TRIGGER_PATTERN, INVOICE_PAID_T
 export const BUILT_IN_SKILLS = [
   {
     // PR-1 (personal-finance parity), tightened post-review: array position
-    // is NOT a reliable priority signal — `db.abSkillManifest.findMany(...)`
-    // at every call site has no `orderBy`, so once skills are seeded into
-    // the DB, row order (not this array's order) decides which skill a
-    // first-match-wins loop sees first. Rather than depend on ordering, this
+    // is NOT a reliable priority signal — once skills are seeded into the DB,
+    // row order (not this array's order) decides which skill a
+    // first-match-wins loop sees first. Every call site now asks for
+    // `orderBy: { name: 'asc' }`, but that only makes the order deterministic;
+    // alphabetical-by-name is not a priority ranking, so it still must not be
+    // what decides a collision. Rather than depend on ordering, this
     // skill and record-expense are made mutually exclusive via patterns:
     // triggerPatterns here are narrow (checking/savings/paycheck/salary/
     // personal-account/deposited/withdrew signals only, never a bare spend/

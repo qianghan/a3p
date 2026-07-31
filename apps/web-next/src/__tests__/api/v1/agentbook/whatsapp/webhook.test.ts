@@ -235,6 +235,24 @@ describe('WhatsApp webhook POST — link-code matching', () => {
     expect(whatsAppLinkFindUnique).not.toHaveBeenCalled();
   });
 
+  it('fetches skills in a deterministic order before routing', async () => {
+    // Routing takes the first skill whose triggers match, so an unordered array
+    // makes the winner of any pattern collision undefined. This route passes its
+    // own `skills`, so agent-brain's internal ordered fetch never runs here —
+    // see agentbook-core/skill-manifest-order.test.ts (Launch-gap PR-5).
+    whatsAppLinkFindMany.mockResolvedValueOnce([
+      { tenantId: 'tenant-x', phoneNumbers: ['+15551234567'] },
+    ]);
+    skillManifestFindMany.mockResolvedValueOnce([]);
+    handleAgentMessage.mockResolvedValueOnce({ success: true, data: { message: 'ok' } });
+    const body = messagePayload('+15551234567', 'log $12 parking');
+    await POST(postReq(body, sign(body, 'app-secret')));
+
+    expect(skillManifestFindMany).toHaveBeenCalledWith(
+      expect.objectContaining({ orderBy: { name: 'asc' } }),
+    );
+  });
+
   it('sends a fallback reply when the agent brain throws', async () => {
     whatsAppLinkFindMany.mockResolvedValueOnce([
       { tenantId: 'tenant-x', phoneNumbers: ['+15551234567'] },

@@ -10,6 +10,13 @@ import { buildTestContext } from './helpers/test-context';
  * comment in skill-routing.ts for the actual correctness fix) — it only
  * guarantees production's row order matches whatever this plan fixed it to,
  * rather than depending on Postgres internals.
+ *
+ * SCOPE: this covers agent-brain's OWN fetch, which only runs when the caller
+ * passes no `skills`. All three production channel routes pass their own array
+ * and never reach it, so for a while this test was green while every real
+ * request still routed against an unordered array. The routes are guarded by
+ * apps/web-next/src/__tests__/api/v1/agentbook-core/skill-manifest-order.test.ts
+ * — a new channel needs coverage there, not just here.
  */
 
 const skillManifestFindMany = vi.fn(async () => []);
