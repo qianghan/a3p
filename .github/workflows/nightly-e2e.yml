@@ -82,6 +82,39 @@ jobs:
           fi
           echo "Login OK — credentials converged."
 
+      # CRON_SECRET cannot be made single-source the way the password was
+      # (#403): the server's value is the authority and CI must present it, so
+      # two copies are unavoidable here. What IS avoidable is burning a run
+      # unable to tell WHICH side is wrong — that is where the last two nights
+      # went, with phase7 ×2 and phase4's reminder test all failing 401 and no
+      # way to distinguish "CI has the wrong value" from "CI has the right value
+      # with a stray byte on the end".
+      #
+      # Prints the LENGTH only. For a random secret that leaks nothing useful,
+      # and it catches the overwhelmingly likely cause: a trailing newline, or
+      # quotes kept when copying the value out of a dotenv file. To compare,
+      # run this against the deployment's own copy:
+      #
+      #     printf %s "$CRON_SECRET" | wc -c
+      #
+      # Equal lengths mean the contents genuinely differ, and the fix is to
+      # rotate BOTH sides from one freshly generated value rather than hunt for
+      # the difference.
+      - name: Fingerprint CRON_SECRET so a mismatch is diagnosable
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          set -euo pipefail
+          if [ -z "${CRON_SECRET}" ]; then
+            echo "::warning::secrets.CRON_SECRET is empty — the cron tests will 401 and phase7 plus phase4's reminder test will fail."
+            exit 0
+          fi
+          echo "CI-side CRON_SECRET length: $(printf %s "${CRON_SECRET}" | wc -c | tr -d ' ')"
+          case "${CRON_SECRET}" in
+            *[[:space:]]*) echo "::warning::CI-side CRON_SECRET contains whitespace — almost certainly a copy artefact. The server will never match it." ;;
+            \"*|*\") echo "::warning::CI-side CRON_SECRET starts or ends with a quote — the quotes were copied along with the value." ;;
+          esac
+
   # ===========================================================================
   # Core regression guards — the money core, re-checked nightly against main.
   #
