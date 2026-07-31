@@ -83,3 +83,53 @@ describe('resolveReferents (G-014)', () => {
     expect(r).toMatch(/INV-2026-0042/);
   });
 });
+
+describe('referent from structured entityId', () => {
+  // "spent $89 on office supplies at Staples" then "mark it as personal" failed
+  // in every eval run: the agent asked WHICH expense, one turn after recording
+  // it. The pronoun path needs lastExpenseId, and the only way to get it was to
+  // match an id pattern in the conversation TEXT — but the reply is
+  // "Recorded: $89.00 — office supplies at Staples", which contains no id,
+  // because showing a user a cuid would be absurd.
+  //
+  // The id already exists in structured form on the turn. These pin that it is
+  // read from there, and that doing so did not make invoice threads worse.
+  const convo = [{ question: 'spent $89 on office supplies at Staples', answer: 'Recorded: $89.00 — office supplies at Staples' }];
+
+  it('resolves "it" from the last turn entityId, with no id in the text', () => {
+    const turns = [
+      { role: 'user', text: 'spent $89 on office supplies at Staples' },
+      { role: 'bot', text: 'Recorded: $89.00 — office supplies at Staples', entityId: 'clx9expense01' },
+    ];
+    const out = resolveReferents('mark it as personal', convo, turns);
+    expect(out).toContain('clx9expense01');
+    expect(out).not.toBe('mark it as personal');
+  });
+
+  it('is unchanged when the last turn recorded nothing', () => {
+    const turns = [
+      { role: 'user', text: 'how much did I spend last month?' },
+      { role: 'bot', text: 'You spent $1,240.00 across 9 transactions.' },
+    ];
+    expect(resolveReferents('mark it as personal', convo, turns)).toBe('mark it as personal');
+  });
+
+  it('does NOT let a stale expense outrank a newer invoice turn', () => {
+    // The regression this nearly introduced. entityId is expense-only, so
+    // seeding from the most recent turn that HAS one would resolve "send it"
+    // to the expense recorded two turns earlier. Only the last bot turn counts.
+    const turns = [
+      { role: 'bot', text: 'Recorded: $89.00 — office supplies', entityId: 'clx9expense01' },
+      { role: 'bot', text: 'Invoice created (INV-2026-0007) for Acme — $5,000.00.' },
+    ];
+    const out = resolveReferents('send it', [
+      { question: 'invoice Acme $5000', answer: 'Invoice created (INV-2026-0007) for Acme — $5,000.00.' },
+    ], turns);
+    expect(out).not.toContain('clx9expense01');
+    expect(out).toContain('INV-2026-0007');
+  });
+
+  it('still works with no turns passed (existing callers)', () => {
+    expect(resolveReferents('mark it as personal', convo)).toBe('mark it as personal');
+  });
+});
