@@ -87,3 +87,30 @@ describe('nothing usable means null, never a junk row', () => {
     expect(cleanClientName('a'.repeat(60))).toBe('a'.repeat(60));
   });
 });
+
+describe('cleaning runs in linear time (js/polynomial-redos)', () => {
+  // The first version used `/\s+(?:for|on|…)$/` inside a loop and
+  // `/[,;:.!?]+$/` — both quadratic on a long run of the repeated character,
+  // on chat text an attacker controls. CodeQL flagged both.
+  //
+  // The punctuation one was the SAME pattern fixed hours earlier in
+  // period-parse.ts and written again here from habit, which is the argument
+  // for a test rather than a resolution to be careful. The bounds are loose so
+  // these assert the complexity class, not runner speed.
+  it('a long run of spaces does not blow up the trailing-grammar loop', () => {
+    const started = Date.now();
+    cleanClientName('Acme' + ' '.repeat(100_000) + 'for');
+    expect(Date.now() - started).toBeLessThan(1000);
+  });
+
+  it('a long run of punctuation does not blow up the trimmer', () => {
+    const started = Date.now();
+    cleanClientName('Acme' + '.'.repeat(100_000) + 'x');
+    expect(Date.now() - started).toBeLessThan(1000);
+  });
+
+  it('refuses an absurdly long capture outright', () => {
+    // Bounds every operation below it regardless of what the regexes do.
+    expect(cleanClientName('Acme ' + 'x '.repeat(100_000))).toBeNull();
+  });
+});
