@@ -96,10 +96,11 @@ export const PERSONAL_STATEMENT_PATTERN =
  * last year" must never be a trigger by itself — it must always be paired
  * with a personal/net-worth anchor, or it risks colliding with
  * query-finance's business-revenue-trend phrasing or query-past-filings'
- * year-anchored tax phrasing (first-match-wins, no `orderBy` on
- * `AbSkillManifest.findMany`, same hazard class as record-personal-
- * transaction's routing fixes). Anchors are intentionally the narrow set
- * personal-snapshot already triggers on (`net worth`, `household`,
+ * year-anchored tax phrasing (first-match-wins, and `orderBy` on
+ * `AbSkillManifest.findMany` only makes array order deterministic, not
+ * meaningful — same hazard class as record-personal-transaction's routing
+ * fixes). Anchors are intentionally the narrow set personal-snapshot already
+ * triggers on (`net worth`, `household`,
  * `savings rate`, `personal finance`/`my personal`) — NOT `family budget`,
  * which would collide with query-budget's broad `how.*budget` trigger.
  */
@@ -140,8 +141,9 @@ export function isPersonalTrendQuery(text: string): boolean {
  *     alone (that stays tax-filing-start's territory).
  *   - tax-filing-start's excludePatterns (built-in-skills.ts) — an anchored
  *     phrase like "help me do this year's filing based on last year's tax
- *     return" would otherwise match both skills simultaneously (routing has
- *     no `orderBy`, so which one "wins" would be undefined).
+ *     return" would otherwise match both skills simultaneously, and which one
+ *     "wins" would come down to alphabetical array position — deterministic
+ *     since Launch-gap PR-5, but still arbitrary.
  *
  * See docs/superpowers/specs/2026-07-13-tax-fast-track-foundation-design.md
  * ("Revised: trigger design") for the full rationale.

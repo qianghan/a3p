@@ -1230,6 +1230,12 @@ async function callAgentBrain(
   try {
     const skills = await db.abSkillManifest.findMany({
       where: { enabled: true, OR: [{ tenantId: null }, { tenantId }] },
+      // Deterministic array order. Routing tries skills in array order and takes
+      // the first match, so without this the winner of any trigger-pattern
+      // collision is whatever order Postgres happened to return. Passing
+      // `skills` here bypasses agent-brain's own ordered fetch, so the ordering
+      // has to be requested at every call site (Launch-gap PR-5).
+      orderBy: { name: 'asc' },
     });
     const baseUrls = getBaseUrls();
     const brainResult = await handleAgentMessage(

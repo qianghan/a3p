@@ -89,6 +89,10 @@ async function callAgentBrain(tenantId: string, phoneNumber: string, text: strin
   try {
     const skills = await db.abSkillManifest.findMany({
       where: { enabled: true, OR: [{ tenantId: null }, { tenantId }] },
+      // Deterministic array order — routing takes the first matching skill, and
+      // passing `skills` here means agent-brain's own ordered fetch never runs.
+      // Same reasoning as the Telegram webhook (Launch-gap PR-5).
+      orderBy: { name: 'asc' },
     });
     const baseUrls = getPluginBaseUrls(getAppBaseUrl());
     const result = await handleAgentMessage(
