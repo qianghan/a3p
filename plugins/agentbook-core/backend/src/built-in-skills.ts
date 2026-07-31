@@ -101,6 +101,22 @@ export const BUILT_IN_SKILLS = [
       // immediately preceding topic wasn't expenses.
       'list (them|these|those)\\b', 'show (them|these|those)\\b',
       'list.*so i can', 'list.*here',
+      // "and meals?" after "how much did I spend on travel last month?".
+      //
+      // This matched nothing, so it fell through to the LLM, which picked
+      // query-expenses on some runs and expense-breakdown on others — the
+      // canonical eval flipped between pass and fail on identical code. Worse,
+      // expense-breakdown resets to year-to-date, so the answer silently
+      // dropped the "last month" the user had just established and reported a
+      // different period without saying so.
+      //
+      // Routing bare "and <thing>?" here makes it deterministic AND keeps the
+      // window, since query-expenses carries the prior turn's period.
+      //
+      // The negative lookahead keeps real questions out: "and what about my
+      // taxes?" / "and how do I file?" are not category follow-ups. The length
+      // cap keeps it to a short noun phrase rather than a sentence.
+      '^and (?!what|how|why|when|who|where|should|can|do|does|is|are)[a-z][a-z ]{0,18}\\??$',
     ],
     parameters: { question: { type: 'string', required: true, extractHint: 'the full user message' } },
     endpoint: { method: 'POST', url: '/api/v1/agentbook-expense/advisor/ask' },

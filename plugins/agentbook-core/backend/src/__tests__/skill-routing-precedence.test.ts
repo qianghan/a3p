@@ -86,3 +86,24 @@ describe('query-expenses legitimately answers vendor ranking', () => {
     expect(SERVER).toMatch(/Top spending:/);
   });
 });
+
+describe('bare "and <thing>?" follow-ups route deterministically', () => {
+  // "and meals?" after "how much did I spend on travel last month?" matched no
+  // pattern, so it fell to the LLM and coin-flipped between query-expenses and
+  // expense-breakdown — the canonical eval flipped pass/fail on IDENTICAL code.
+  // expense-breakdown also resets to year-to-date, so the losing outcome
+  // silently answered for a different period than the user had established.
+  it('routes a category follow-up to query-expenses', () => {
+    expect(matches('query-expenses', 'and meals?')).toBe(true);
+    expect(matches('query-expenses', 'and travel?')).toBe(true);
+    expect(matches('query-expenses', 'and office supplies?')).toBe(true);
+  });
+
+  it('does NOT swallow real questions that happen to start with "and"', () => {
+    // The whole risk of an ^and prefix is over-capture. These must stay out.
+    expect(matches('query-expenses', 'and what about my taxes?')).toBe(false);
+    expect(matches('query-expenses', 'and how do I file?')).toBe(false);
+    expect(matches('query-expenses', 'and should I worry?')).toBe(false);
+    expect(matches('query-expenses', 'and the quarterly payment schedule for next year?')).toBe(false);
+  });
+});
