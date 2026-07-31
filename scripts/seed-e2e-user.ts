@@ -118,6 +118,26 @@ export async function resetE2eUser(opts?: { password?: string }): Promise<ResetR
     ['abExpenseSplit', () => db.abExpenseSplit.deleteMany({ where: { tenantId } })],
     ['abBudget', () => db.abBudget.deleteMany({ where: { tenantId } })],
     ['abAccount', () => db.abAccount.deleteMany({ where: { tenantId } })],
+    // LEARNED AND CONVERSATIONAL STATE.
+    //
+    // None of this was being wiped, so every eval run inherited the previous
+    // one's learning and the suite was not reproducible. That is not abstract:
+    // AbUserMemory shortcuts are consulted at STAGE 1 of classification, before
+    // triggerPatterns are even considered, and the loop breaks on the first
+    // match. So a shortcut learned in an earlier run silently outranks the
+    // routing config in this one.
+    //
+    // That is what made "and meals?" flip between runs on identical code — and
+    // why adding a trigger pattern for it (#424) was necessary but not
+    // sufficient. A guard on selectSkillByPatterns cannot govern a path that
+    // never reaches selectSkillByPatterns.
+    //
+    // AbVendor goes after abExpense: AbExpense.vendorId references it with no
+    // cascade.
+    ['abUserMemory', () => db.abUserMemory.deleteMany({ where: { tenantId } })],
+    ['abLearningEvent', () => db.abLearningEvent.deleteMany({ where: { tenantId } })],
+    ['abConvThread', () => db.abConvThread.deleteMany({ where: { tenantId } })],
+    ['abVendor', () => db.abVendor.deleteMany({ where: { tenantId } })],
     ['abConversation', () => db.abConversation.deleteMany({ where: { tenantId } })],
     ['abAgentSession', () => db.abAgentSession.deleteMany({ where: { tenantId } })],
   ];
