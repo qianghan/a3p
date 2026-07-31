@@ -29,6 +29,7 @@ import { auTaxBrackets } from '@agentbook/jurisdictions/au/tax-brackets';
 import type { ChartOfAccountsTemplate, TaxBracketProvider } from '@agentbook/jurisdictions/interfaces';
 import { bracketProximityMove } from './bracket-proximity.js';
 import { parsePeriodFromQuestion } from './period-parse.js';
+import { cleanClientName } from './client-name.js';
 
 /**
  * Bracket providers for advisory features that need to know WHERE a threshold
@@ -237,6 +238,48 @@ async function accountantEngagement(opts: {
     console.warn('[accountantEngagement] LLM failed, using local fallback:', err);
   }
   return localEngagementFallback(opts);
+}
+
+/**
+ * Render the tax-deductions reply.
+ *
+ * Extracted from the reply formatter so it can be tested, because it could not
+ * be, and it was wrong: it read `d.amountCents` and
+ * `summary.estimatedSavingsCents`, while the endpoint returns
+ * AbDeductionSuggestion rows keyed `estimatedSavingsCents` with a summary keyed
+ * `totalEstimatedSavingsCents`. `undefined / 100` is NaN, so EVERY money figure
+ * in the reply rendered as "$NaN" — ten of them on a real production account,
+ * including the headline "Estimated Savings: $NaN".
+ *
+ * A missing amount now renders as nothing at all. Showing no number is honest;
+ * showing NaN tells the user their books are broken.
+ */
+export function formatDeductionsMessage(
+  data: {
+    deductions: Array<{
+      description?: string; message?: string | null;
+      estimatedSavingsCents?: number; status?: string;
+    }>;
+    summary?: { totalEstimatedSavingsCents?: number };
+  },
+  currency?: string,
+): string {
+  const money = (cents: number | undefined) =>
+    typeof cents === 'number' && Number.isFinite(cents) ? fmtCurrency(cents, currency) : null;
+
+  let message = '**Tax Deductions**\n';
+  for (const d of data.deductions.slice(0, 10)) {
+    const icon = d.status === 'applied' ? '✅' : d.status === 'dismissed' ? '❌' : '\u{1F4A1}';
+    const label = d.message || d.description || 'Deduction';
+    const amount = money(d.estimatedSavingsCents);
+    // "saves" rather than a bare colon: the figure is the estimated TAX SAVING,
+    // not the expense amount, and the old bare "description: $x" read as the
+    // latter.
+    message += `\n${icon} ${label}${amount ? ` — saves ~${amount}` : ''}${d.status ? ` [${d.status}]` : ''}`;
+  }
+  const total = money(data.summary?.totalEstimatedSavingsCents);
+  if (total) message += `\n\n**Estimated savings: ${total}**`;
+  return message;
 }
 
 // === Multi-Currency Formatter ===
@@ -3120,22 +3163,30 @@ export async function classifyOnly(
           extractedParams.description = text;
         }
         if (params.clientName) {
+          // Every one of these captures "whatever sits between the verb and the
+          // amount", so the natural phrasings keep the grammar: "invoice Acme
+          // for $5000" yielded the client "Acme for", and each variant created
+          // a NEW client row. Production had "to Acme for" next to "Acme Corp",
+          // which splits one client's receivables across two records and
+          // understates what either of them owes. cleanClientName strips the
+          // grammar and returns null rather than storing a junk name — see
+          // client-name.ts.
           const invoiceMatch = text.match(/invoice\s+(.+?)\s+\$/i);
-          if (invoiceMatch) extractedParams.clientName = invoiceMatch[1].trim();
+          if (invoiceMatch) extractedParams.clientName = cleanClientName(invoiceMatch[1]) ?? undefined;
           // estimate/quote pattern: "estimate TechCorp $3000 ..."
           if (!extractedParams.clientName) {
             const estMatch = text.match(/(?:estimate|quote|proposal)\s+(.+?)\s+\$/i);
-            if (estMatch) extractedParams.clientName = estMatch[1].trim();
+            if (estMatch) extractedParams.clientName = cleanClientName(estMatch[1]) ?? undefined;
           }
           // payment pattern: "got $5000 from Acme"
           if (!extractedParams.clientName) {
             const payMatch = text.match(/from\s+([A-Z][A-Za-z\s&']+)/i);
-            if (payMatch) extractedParams.clientName = payMatch[1].trim();
+            if (payMatch) extractedParams.clientName = cleanClientName(payMatch[1]) ?? undefined;
           }
           // timer pattern: "start timer for TechCorp"
           if (!extractedParams.clientName) {
             const timerMatch = text.match(/timer\s+(?:for\s+)?(.+?)(?:\s+project)?$/i);
-            if (timerMatch) extractedParams.clientName = timerMatch[1].trim();
+            if (timerMatch) extractedParams.clientName = cleanClientName(timerMatch[1]) ?? undefined;
           }
         }
         if (params.description && !extractedParams.description) extractedParams.description = text;
@@ -5693,14 +5744,15 @@ Only include chartData if visualization adds value. Keep the answer under 200 wo
 
     // Deductions
     } else if (data?.deductions && Array.isArray(data.deductions)) {
-      message = '**Tax Deductions**\n';
-      for (const d of data.deductions.slice(0, 10)) {
-        const icon = d.status === 'applied' ? '\u2705' : d.status === 'dismissed' ? '\u274C' : '\u{1F4A1}';
-        message += `\n${icon} ${d.description}: $${(d.amountCents / 100).toFixed(2)} [${d.status}]`;
-      }
-      if (data.summary) {
-        message += `\n\n**Estimated Savings: $${(data.summary.estimatedSavingsCents / 100).toFixed(2)}**`;
-      }
+      // Tenant currency, not a hardcoded "$" — Maya is a CA tenant and saw her
+      // savings in US dollars. The expense handler in this same file already
+      // does this via fmtCurrency; this branch had been missed.
+      message = formatDeductionsMessage(
+        data,
+        (await db.abTenantConfig.findUnique({
+          where: { userId: tenantId }, select: { currency: true },
+        }))?.currency || 'USD',
+      );
 
     // Budget status
     } else if (data?.budgets && Array.isArray(data.budgets) && data.budgets[0]?.amountCents) {
