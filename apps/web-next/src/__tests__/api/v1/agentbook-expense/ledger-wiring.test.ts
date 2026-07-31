@@ -20,6 +20,7 @@ vi.mock('server-only', () => ({}));
 const ensureChartOfAccounts = vi.fn();
 const backfillExpenseJournalEntry = vi.fn();
 const reverseExpenseJournalEntry = vi.fn();
+const patternDelete = vi.fn();
 
 vi.mock('@/lib/agentbook-chart-of-accounts', () => ({
   ensureChartOfAccounts: (...a: unknown[]) => ensureChartOfAccounts(...a),
@@ -81,6 +82,7 @@ vi.mock('@naap/database', () => ({
       findUnique: (...a: unknown[]) => patternFindFirst(...a),
       update: vi.fn(async () => ({})),
       upsert: vi.fn(async () => ({})),
+      delete: (...a: unknown[]) => patternDelete(...a),
     },
     abAccount: { findFirst: (...a: unknown[]) => accountFindFirst(...a) },
     abJournalEntry: { create: vi.fn(async () => ({ id: 'je-1' })) },
@@ -96,6 +98,7 @@ beforeEach(() => {
   reverseExpenseJournalEntry.mockResolvedValue({ reversed: true });
   vendorFindFirst.mockResolvedValue(null);
   patternFindFirst.mockResolvedValue(null);
+  patternDelete.mockResolvedValue({});
   accountFindFirst.mockResolvedValue({ id: 'acct-cash' });
   expenseCreate.mockResolvedValue({ id: 'exp-new' });
   // Callback-style $transaction (expense create) and array-style both appear.
@@ -175,5 +178,52 @@ describe('DELETE /expenses/:id — reversal wiring (#397)', () => {
     expect(reverseExpenseJournalEntry).toHaveBeenCalled();
     expect(reverseExpenseJournalEntry.mock.calls[0][0]).toBe('tenant-1');
     expect(reverseExpenseJournalEntry.mock.calls[0][1]).toBe('exp-1');
+  });
+
+  it('a remembered category pointing at a deleted account cannot break the write', async () => {
+    // AbPattern.categoryId is a bare String with no relation, so it can outlive
+    // the account it names. AbJournalLine.accountId DOES have a real foreign
+    // key — so a stale pattern did not degrade categorisation, it made the whole
+    // expense fail with a raw Prisma FK error and recorded nothing. Three
+    // recordings broke this way in one eval run once #416 began learning
+    // patterns. Recording an expense must survive a bad remembered preference.
+    vendorFindFirst.mockResolvedValue({ id: 'v1', normalizedName: 'aws', defaultCategoryId: null });
+    patternFindFirst.mockResolvedValue({ id: 'pat-1', categoryId: 'acct-DELETED', confidence: 0.9 });
+    // The category lookup misses; the cash lookup still resolves.
+    accountFindFirst.mockImplementation(async (args: any) =>
+      args?.where?.id === 'acct-DELETED' ? null : { id: 'acct-cash' },
+    );
+
+    const { POST } = await import('@/app/api/v1/agentbook-expense/expenses/route');
+    const res = await POST(
+      new NextRequest('http://x/api/v1/agentbook-expense/expenses', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ amountCents: 124000, description: 'paid AWS for hosting', vendor: 'AWS' }),
+      }),
+    );
+
+    expect(res.status).toBe(201);
+    // And the dangling pattern is removed rather than left to fail every future
+    // expense for this vendor.
+    expect(patternDelete).toHaveBeenCalledWith({ where: { id: 'pat-1' } });
+  });
+
+  it('still uses a remembered category when its account exists', async () => {
+    vendorFindFirst.mockResolvedValue({ id: 'v1', normalizedName: 'aws', defaultCategoryId: null });
+    patternFindFirst.mockResolvedValue({ id: 'pat-1', categoryId: 'acct-hosting', confidence: 0.9 });
+    accountFindFirst.mockResolvedValue({ id: 'acct-hosting' });
+
+    const { POST } = await import('@/app/api/v1/agentbook-expense/expenses/route');
+    const res = await POST(
+      new NextRequest('http://x/api/v1/agentbook-expense/expenses', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ amountCents: 124000, description: 'paid AWS', vendor: 'AWS' }),
+      }),
+    );
+
+    expect(res.status).toBe(201);
+    expect(patternDelete).not.toHaveBeenCalled();
   });
 });

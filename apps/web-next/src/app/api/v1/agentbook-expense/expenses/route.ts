@@ -111,12 +111,43 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
             where: { tenantId_vendorPattern: { tenantId, vendorPattern: vendorRecord.normalizedName } },
           });
           if (pattern) {
-            resolvedCategoryId = pattern.categoryId;
-            resolvedConfidence = pattern.confidence;
-            await db.abPattern.update({
-              where: { id: pattern.id },
-              data: { usageCount: { increment: 1 }, lastUsed: new Date() },
+            // Verify the remembered category still exists before trusting it.
+            //
+            // AbPattern.categoryId is a bare String with no relation, so nothing
+            // at the database level stops it outliving the account it names.
+            // AbJournalLine.accountId DOES have a real foreign key — so a stale
+            // pattern did not degrade categorisation, it made the whole write
+            // explode: the user got
+            //   "I couldn't record that expense. Error: Invalid
+            //    `prisma.abJournalEntry.create()` invocation: Foreign key
+            //    constraint violated: AbJournalLine_accountId_fkey"
+            // and no expense at all. Recording an expense is the most basic
+            // thing this product does; a remembered preference must never be
+            // able to take it down.
+            //
+            // Scoped by tenantId as well as id: a pattern must not be able to
+            // point at another tenant's account.
+            const category = await db.abAccount.findFirst({
+              where: { id: pattern.categoryId, tenantId },
+              select: { id: true },
             });
+            if (category) {
+              resolvedCategoryId = pattern.categoryId;
+              resolvedConfidence = pattern.confidence;
+              await db.abPattern.update({
+                where: { id: pattern.id },
+                data: { usageCount: { increment: 1 }, lastUsed: new Date() },
+              });
+            } else {
+              // Drop the dangling pattern rather than letting it fail every
+              // future expense for this vendor. Categorisation falls back to
+              // uncategorised, which the user can correct — and that correction
+              // relearns the pattern against a live account.
+              console.warn(
+                `[expenses] pattern ${pattern.id} referenced missing account ${pattern.categoryId}; removing`,
+              );
+              await db.abPattern.delete({ where: { id: pattern.id } }).catch(() => {});
+            }
           }
         }
 

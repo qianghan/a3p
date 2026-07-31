@@ -105,6 +105,18 @@ export async function resetE2eUser(opts?: { password?: string }): Promise<ResetR
     ['abExpense', () => db.abExpense.deleteMany({ where: { tenantId } })],
     ['abJournalLine', () => db.abJournalLine.deleteMany({ where: { entry: { tenantId } } })],
     ['abJournalEntry', () => db.abJournalEntry.deleteMany({ where: { tenantId } })],
+    // These name an AbAccount id but have no relation to it, so the database
+    // will happily let them outlive the account. The wipe recreates accounts
+    // with fresh uuids every run, so anything left here points at nothing.
+    //
+    // That is not cosmetic: AbJournalLine.accountId DOES have a real foreign
+    // key, so a surviving AbPattern made the next matching expense fail to
+    // record at all with a raw Prisma FK error. Latent until #416 started
+    // learning vendor→category patterns, at which point three expense
+    // recordings broke in one eval run.
+    ['abPattern', () => db.abPattern.deleteMany({ where: { tenantId } })],
+    ['abExpenseSplit', () => db.abExpenseSplit.deleteMany({ where: { tenantId } })],
+    ['abBudget', () => db.abBudget.deleteMany({ where: { tenantId } })],
     ['abAccount', () => db.abAccount.deleteMany({ where: { tenantId } })],
     ['abConversation', () => db.abConversation.deleteMany({ where: { tenantId } })],
     ['abAgentSession', () => db.abAgentSession.deleteMany({ where: { tenantId } })],
