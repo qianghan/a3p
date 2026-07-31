@@ -192,8 +192,21 @@ describe('US Chart of Accounts', () => {
   it('has expense accounts with Schedule C tax categories', () => {
     const accounts = usChartOfAccounts.getDefaultAccounts('sole_proprietor');
     const expenseAccounts = accounts.filter(a => a.type === 'expense');
-    const allHaveTaxCategory = expenseAccounts.every(a => a.taxCategory);
-    expect(allHaveTaxCategory).toBe(true);
+    // 6999 Uncategorized Expenses is exempt, and deliberately so: it is a
+    // SUSPENSE account. An expense posts there before anyone knows its
+    // category, so tagging it with a Schedule C line would assert the money belongs
+    // to a line nobody has determined yet. Introduced with the fix that stopped
+    // uncategorized expenses skipping the ledger entirely.
+    //
+    // Asserted as an exemption rather than by loosening `every`, so a REAL
+    // category shipping without a tax line still fails — and the second
+    // assertion pins that 6999 stays untagged, so the exemption cannot quietly
+    // become a dumping ground.
+    const SUSPENSE = '6999';
+    const classifiable = expenseAccounts.filter(a => a.code !== SUSPENSE);
+    expect(classifiable.length).toBeGreaterThan(0);
+    expect(classifiable.every(a => a.taxCategory)).toBe(true);
+    expect(expenseAccounts.find(a => a.code === SUSPENSE)?.taxCategory).toBeUndefined();
     // Verify some specific Schedule C lines
     const taxCategories = expenseAccounts.map(a => a.taxCategory);
     expect(taxCategories.some(c => c?.includes('Line 8'))).toBe(true);
