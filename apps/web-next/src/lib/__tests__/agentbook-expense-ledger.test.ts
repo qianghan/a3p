@@ -7,6 +7,7 @@ const journalLineFindMany = vi.fn();
 const accountFindFirst = vi.fn();
 const journalCreate = vi.fn();
 const expenseUpdate = vi.fn();
+const journalLineUpdate = vi.fn();
 
 vi.mock('@naap/database', () => ({
   prisma: {
@@ -16,7 +17,10 @@ vi.mock('@naap/database', () => ({
     },
     abAccount: { findFirst: (...a: unknown[]) => accountFindFirst(...a) },
     abJournalEntry: { create: (...a: unknown[]) => journalCreate(...a) },
-    abJournalLine: { findMany: (...a: unknown[]) => journalLineFindMany(...a) },
+    abJournalLine: {
+      findMany: (...a: unknown[]) => journalLineFindMany(...a),
+      update: (...a: unknown[]) => journalLineUpdate(...a),
+    },
   },
 }));
 
@@ -24,6 +28,7 @@ const ensureChartOfAccounts = vi.fn();
 vi.mock('@/lib/agentbook-chart-of-accounts', () => ({
   ensureChartOfAccounts: (...a: unknown[]) => ensureChartOfAccounts(...a),
   CASH_CODE: '1000',
+  UNCATEGORIZED_CODE: '6999',
 }));
 
 import { backfillExpenseJournalEntry, reverseExpenseJournalEntry } from '../agentbook-expense-ledger';
@@ -54,6 +59,51 @@ describe('backfillExpenseJournalEntry', () => {
     expect(lines.find((l: any) => l.accountId === 'acct-expense').debitCents).toBe(4200);
     expect(lines.find((l: any) => l.accountId === 'acct-cash-1000').creditCents).toBe(4200);
     expect(expenseUpdate).toHaveBeenCalledWith({ where: { id: 'exp-1' }, data: { journalEntryId: 'je-new' } });
+  });
+
+  it('RECLASSIFIES a suspense-booked expense — moves the debit off Uncategorized, no second entry', async () => {
+    expenseFindFirst.mockResolvedValue({ ...EXPENSE, categoryId: 'acct-expense', journalEntryId: 'je-suspense' });
+    accountFindFirst.mockResolvedValue({ id: 'acct-uncategorized' }); // the 6999 lookup
+    journalLineFindMany.mockResolvedValue([
+      { id: 'line-dr', accountId: 'acct-uncategorized', debitCents: 4200, creditCents: 0, description: 'Coffee' },
+      { id: 'line-cr', accountId: 'acct-cash-1000', debitCents: 0, creditCents: 4200, description: 'Payment' },
+    ]);
+
+    const id = await backfillExpenseJournalEntry('t1', 'exp-1');
+
+    expect(id).toBe('je-suspense');
+    // A second entry would double-count the expense in P&L and the tax estimate.
+    expect(journalCreate).not.toHaveBeenCalled();
+    expect(journalLineUpdate).toHaveBeenCalledWith({
+      where: { id: 'line-dr' },
+      data: { accountId: 'acct-expense', description: 'Coffee' },
+    });
+  });
+
+  it('leaves an entry already booked to a REAL category alone', async () => {
+    expenseFindFirst.mockResolvedValue({ ...EXPENSE, categoryId: 'acct-expense', journalEntryId: 'je-real' });
+    accountFindFirst.mockResolvedValue({ id: 'acct-uncategorized' });
+    journalLineFindMany.mockResolvedValue([
+      { id: 'line-dr', accountId: 'acct-meals', debitCents: 4200, creditCents: 0, description: 'Coffee' },
+      { id: 'line-cr', accountId: 'acct-cash-1000', debitCents: 0, creditCents: 4200, description: 'Payment' },
+    ]);
+
+    expect(await backfillExpenseJournalEntry('t1', 'exp-1')).toBe('je-real');
+    expect(journalLineUpdate).not.toHaveBeenCalled();
+    expect(journalCreate).not.toHaveBeenCalled();
+  });
+
+  it('does not touch a SPLIT entry — more than one debit is not a suspense posting', async () => {
+    expenseFindFirst.mockResolvedValue({ ...EXPENSE, categoryId: 'acct-expense', journalEntryId: 'je-split' });
+    accountFindFirst.mockResolvedValue({ id: 'acct-uncategorized' });
+    journalLineFindMany.mockResolvedValue([
+      { id: 'line-a', accountId: 'acct-uncategorized', debitCents: 2000, creditCents: 0, description: 'part A' },
+      { id: 'line-b', accountId: 'acct-travel', debitCents: 2200, creditCents: 0, description: 'part B' },
+      { id: 'line-cr', accountId: 'acct-cash-1000', debitCents: 0, creditCents: 4200, description: 'Payment' },
+    ]);
+
+    expect(await backfillExpenseJournalEntry('t1', 'exp-1')).toBe('je-split');
+    expect(journalLineUpdate).not.toHaveBeenCalled();
   });
 
   it('is idempotent — no-op when the expense is already booked', async () => {

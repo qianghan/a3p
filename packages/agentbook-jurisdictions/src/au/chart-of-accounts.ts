@@ -40,6 +40,10 @@ const BAS_ACCOUNTS: Account[] = [
   { code: '6500', name: 'Software & Subscriptions', type: 'expense', taxCategory: 'ITR - All other expenses' },
   { code: '6600', name: 'Home Office Expenses', type: 'expense', taxCategory: 'ITR - Home office expenses' },
   { code: '6700', name: 'Other Expenses', type: 'expense', taxCategory: 'ITR - All other expenses' },
+  // Suspense. An expense recorded before anyone knows its category still moved
+  // real cash, so it posts here rather than staying off the books entirely.
+  // Deliberately has no taxCategory — it is unclassified, not "other".
+  { code: '6999', name: 'Uncategorized Expenses', type: 'expense' },
 ];
 
 export const auChartOfAccounts: ChartOfAccountsTemplate = {

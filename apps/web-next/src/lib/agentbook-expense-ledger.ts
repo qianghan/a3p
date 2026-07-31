@@ -2,25 +2,67 @@
  * Expense → ledger posting.
  *
  * An expense only reaches the books via a balanced double-entry journal. The
- * base create posts it inline WHEN a category is known at creation time; but
- * mobile receipt-capture, bank import, and any "categorize later" flow assign
- * the category AFTER creation — and those paths must post the journal then, or
- * the expense is silently absent from P&L, the trial balance, and the tax
- * estimate (understating expenses, overstating profit + tax).
+ * base create posts every BUSINESS expense inline — against its category when
+ * one is known, and against the 6999 suspense account when it isn't, because
+ * the cash left the bank either way. (Gating the posting on a resolved category
+ * is what made an uncategorized expense silently absent from P&L, the trial
+ * balance and the tax estimate while still reading as "confirmed".)
  *
- * This helper is the single, idempotent, best-effort posting path for that
- * back-fill: call it whenever an expense gains a category.
+ * Mobile receipt-capture, bank import, and any "categorize later" flow assign
+ * the category AFTER creation. This helper is the single, idempotent,
+ * best-effort path for that second step: call it whenever an expense gains a
+ * category, and it will either post the journal that was never written or move
+ * an existing suspense debit onto the real category.
  */
 import 'server-only';
 import { prisma as db } from '@naap/database';
-import { ensureChartOfAccounts, CASH_CODE } from '@/lib/agentbook-chart-of-accounts';
+import { ensureChartOfAccounts, CASH_CODE, UNCATEGORIZED_CODE } from '@/lib/agentbook-chart-of-accounts';
+
+/**
+ * Move an expense's debit off the suspense account onto its real category.
+ *
+ * Only touches an entry with exactly ONE debit line sitting on 6999 — the shape
+ * the create route posts for an uncategorized expense. A split entry, or one
+ * already booked to a real category, is left alone.
+ *
+ * This MUTATES a posted line, against the usual "journal entries are immutable,
+ * write a reversing entry instead" rule. That rule doesn't work here: the
+ * cash-basis branch of the tax estimate counts expense debits whose entry ALSO
+ * credits the cash account (agentbook-tax/tax/estimate/route.ts). A separate
+ * `DR category / CR suspense` reclassification entry credits suspense, not cash,
+ * so under cash basis the money would stay attributed to Uncategorized forever
+ * while a second, uncounted entry claimed otherwise. Moving the line keeps every
+ * report — accrual, cash basis, trial balance, category breakdown — correct with
+ * one write, and the entry total never changes, so nothing can unbalance.
+ */
+async function reclassifyFromSuspense(
+  tenantId: string,
+  journalEntryId: string,
+  categoryId: string,
+): Promise<void> {
+  const suspense = await db.abAccount.findFirst({ where: { tenantId, code: UNCATEGORIZED_CODE } });
+  if (!suspense) return; // tenant never posted to suspense
+
+  const lines = (await db.abJournalLine.findMany({ where: { entryId: journalEntryId } })) || [];
+  const debits = lines.filter((l) => l.debitCents > 0);
+  if (debits.length !== 1) return; // split or unexpected shape — don't guess
+  const debit = debits[0];
+  if (debit.accountId !== suspense.id) return; // already on a real category
+
+  await db.abJournalLine.update({
+    where: { id: debit.id },
+    data: { accountId: categoryId, description: debit.description },
+  });
+}
 
 /**
  * Post the balanced journal (DR category / CR cash) for an expense if it needs
- * one. No-op — returns the existing id or null — when the expense is already
- * booked, is personal, or has no category. Mirrors the create/confirm posting
- * exactly (same lines, same memo/source), so every path produces identical
- * ledger entries.
+ * one, or move an existing SUSPENSE posting onto the category it just gained.
+ *
+ * Returns the existing id or null and posts nothing when the expense is
+ * personal or still has no category. Mirrors the create/confirm posting exactly
+ * (same lines, same memo/source), so every path produces identical ledger
+ * entries.
  */
 export async function backfillExpenseJournalEntry(
   tenantId: string,
@@ -28,7 +70,15 @@ export async function backfillExpenseJournalEntry(
 ): Promise<string | null> {
   const expense = await db.abExpense.findFirst({ where: { id: expenseId, tenantId } });
   if (!expense) return null;
-  if (expense.journalEntryId) return expense.journalEntryId; // already on the books
+  if (expense.journalEntryId) {
+    // Already on the books — but possibly to the SUSPENSE account, because an
+    // expense with no category still posts (see UNCATEGORIZED_CODE). Gaining a
+    // category means that debit has to move.
+    if (expense.categoryId && !expense.isPersonal) {
+      await reclassifyFromSuspense(tenantId, expense.journalEntryId, expense.categoryId);
+    }
+    return expense.journalEntryId;
+  }
   if (!expense.categoryId || expense.isPersonal) return null; // nothing bookable
 
   // Seed the chart of accounts on demand rather than silently skipping. The

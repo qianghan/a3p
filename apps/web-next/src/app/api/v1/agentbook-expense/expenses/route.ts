@@ -16,7 +16,7 @@ import { audit } from '@/lib/agentbook-audit';
 import { inferSource, inferActor } from '@/lib/agentbook-audit-context';
 import { withSoftDelete, parseIncludeDeleted } from '@/lib/agentbook-soft-delete';
 import { withHttpIdempotency } from '@/lib/agentbook-idempotency';
-import { ensureChartOfAccounts } from '@/lib/agentbook-chart-of-accounts';
+import { ensureChartOfAccounts, ensureUncategorizedAccount } from '@/lib/agentbook-chart-of-accounts';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -120,9 +120,26 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
           }
         }
 
+        // Where the debit lands. A business expense ALWAYS posts: when no
+        // category resolved, it goes to the suspense account rather than
+        // silently skipping the ledger. Gating the journal on a resolved
+        // category is what made an uncategorized expense invisible to the P&L,
+        // the trial balance and the tax estimate while still showing in the
+        // user's list as "confirmed" — and invisible to the review queue too,
+        // so nothing anywhere asked them to fix it. The cash left their bank
+        // regardless; the books have to agree.
+        //
+        // Note this does NOT set expense.categoryId — see below.
+        // Runs its own upsert, so like ensureChartOfAccounts it stays outside
+        // the transaction opened below.
+        let debitAccountId: string | null = resolvedCategoryId;
+        if (!debitAccountId && !isPersonal) {
+          debitAccountId = (await ensureUncategorizedAccount(tenantId)).id;
+        }
+
         const expense = await db.$transaction(async (tx) => {
           let journalEntryId: string | null = null;
-          if (resolvedCategoryId && !isPersonal) {
+          if (debitAccountId && !isPersonal) {
             const cashAccount = await tx.abAccount.findFirst({ where: { tenantId, code: '1000' } });
             if (cashAccount) {
               const je = await tx.abJournalEntry.create({
@@ -134,7 +151,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
                   verified: true,
                   lines: {
                     create: [
-                      { tenantId, accountId: resolvedCategoryId, debitCents: amountCents, creditCents: 0, description: description || vendor || 'Expense' }, // G-009
+                      { tenantId, accountId: debitAccountId, debitCents: amountCents, creditCents: 0, description: description || vendor || 'Expense' }, // G-009
                       { tenantId, accountId: cashAccount.id, debitCents: 0, creditCents: amountCents, description: `Payment: ${vendor || 'Expense'}` }, // G-009
                     ],
                   },
@@ -151,6 +168,11 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
               taxAmountCents: taxAmountCents || 0,
               tipAmountCents: tipAmountCents || 0,
               vendorId: vendorRecord?.id,
+              // resolvedCategoryId, NOT debitAccountId — a suspense posting is
+              // bookkeeping, not classification. The auto-categorize watchdog,
+              // the catch-up summary and the "Uncategorized" reports all key
+              // off categoryId === null; stamping 6999 here would hide the
+              // expense from every prompt to actually classify it.
               categoryId: resolvedCategoryId,
               date: new Date(date || Date.now()),
               description: description || vendor || 'Expense',

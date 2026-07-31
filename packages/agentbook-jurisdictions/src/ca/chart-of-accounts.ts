@@ -40,6 +40,10 @@ const T2125_ACCOUNTS: Account[] = [
   { code: '6700', name: 'Delivery & Freight', type: 'expense', taxCategory: 'Line 8730 - Delivery, freight and express' },
   { code: '6800', name: 'Salary & Wages', type: 'expense', taxCategory: 'Line 9060 - Salaries, wages, and benefits' },
   { code: '6900', name: 'Other Expenses', type: 'expense', taxCategory: 'Line 9270 - Other expenses' },
+  // Suspense. An expense recorded before anyone knows its category still moved
+  // real cash, so it posts here rather than staying off the books entirely.
+  // Deliberately has no taxCategory — it is unclassified, not "other".
+  { code: '6999', name: 'Uncategorized Expenses', type: 'expense' },
 ];
 
 export const caChartOfAccounts: ChartOfAccountsTemplate = {

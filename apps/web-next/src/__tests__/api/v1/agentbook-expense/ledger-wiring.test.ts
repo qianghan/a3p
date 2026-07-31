@@ -18,12 +18,15 @@ import { NextRequest } from 'next/server';
 vi.mock('server-only', () => ({}));
 
 const ensureChartOfAccounts = vi.fn();
+const ensureUncategorizedAccount = vi.fn();
 const backfillExpenseJournalEntry = vi.fn();
 const reverseExpenseJournalEntry = vi.fn();
 
 vi.mock('@/lib/agentbook-chart-of-accounts', () => ({
   ensureChartOfAccounts: (...a: unknown[]) => ensureChartOfAccounts(...a),
+  ensureUncategorizedAccount: (...a: unknown[]) => ensureUncategorizedAccount(...a),
   CASH_CODE: '1000',
+  UNCATEGORIZED_CODE: '6999',
 }));
 vi.mock('@/lib/agentbook-expense-ledger', () => ({
   backfillExpenseJournalEntry: (...a: unknown[]) => backfillExpenseJournalEntry(...a),
@@ -60,6 +63,7 @@ const expenseCreate = vi.fn();
 const vendorFindFirst = vi.fn();
 const patternFindFirst = vi.fn();
 const accountFindFirst = vi.fn();
+const journalEntryCreate = vi.fn();
 const transaction = vi.fn();
 
 vi.mock('@naap/database', () => ({
@@ -83,7 +87,7 @@ vi.mock('@naap/database', () => ({
       upsert: vi.fn(async () => ({})),
     },
     abAccount: { findFirst: (...a: unknown[]) => accountFindFirst(...a) },
-    abJournalEntry: { create: vi.fn(async () => ({ id: 'je-1' })) },
+    abJournalEntry: { create: (...a: unknown[]) => journalEntryCreate(...a) },
     abEvent: { create: vi.fn(async () => ({})) },
     $transaction: (...a: unknown[]) => transaction(...a),
   },
@@ -92,18 +96,20 @@ vi.mock('@naap/database', () => ({
 beforeEach(() => {
   vi.clearAllMocks();
   ensureChartOfAccounts.mockResolvedValue({ seeded: false, count: 0 });
+  ensureUncategorizedAccount.mockResolvedValue({ id: 'acct-uncategorized' });
   backfillExpenseJournalEntry.mockResolvedValue('je-1');
   reverseExpenseJournalEntry.mockResolvedValue({ reversed: true });
   vendorFindFirst.mockResolvedValue(null);
   patternFindFirst.mockResolvedValue(null);
   accountFindFirst.mockResolvedValue({ id: 'acct-cash' });
+  journalEntryCreate.mockResolvedValue({ id: 'je-1' });
   expenseCreate.mockResolvedValue({ id: 'exp-new' });
   // Callback-style $transaction (expense create) and array-style both appear.
   transaction.mockImplementation(async (arg: unknown) =>
     typeof arg === 'function'
       ? (arg as (tx: unknown) => unknown)({
           abAccount: { findFirst: (...a: unknown[]) => accountFindFirst(...a) },
-          abJournalEntry: { create: vi.fn(async () => ({ id: 'je-1' })) },
+          abJournalEntry: { create: (...a: unknown[]) => journalEntryCreate(...a) },
           abExpense: { create: (...a: unknown[]) => expenseCreate(...a), update: (...a: unknown[]) => expenseUpdate(...a) },
           abEvent: { create: vi.fn(async () => ({})) },
         })
@@ -128,6 +134,47 @@ describe('POST /expenses — chart seeding wiring (the #395 regression)', () => 
     expect(ensureChartOfAccounts).toHaveBeenCalledWith('tenant-1');
   });
 
+  it('BOOKS an uncategorized business expense to the suspense account instead of posting nothing', async () => {
+    const { POST } = await import('@/app/api/v1/agentbook-expense/expenses/route');
+    const res = await POST(
+      new NextRequest('http://x/api/v1/agentbook-expense/expenses', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        // no categoryId, and patternFindFirst returns null — nothing resolves
+        body: JSON.stringify({ amountCents: 2500, vendor: 'Tea', description: 'no category' }),
+      }),
+    );
+    expect(res.status).toBe(201);
+
+    // The bug: gating the journal on a resolved category meant this expense was
+    // created status='confirmed' but absent from P&L, trial balance and the tax
+    // estimate — and absent from the review queue too, so nothing ever surfaced it.
+    expect(journalEntryCreate).toHaveBeenCalled();
+    const lines = journalEntryCreate.mock.calls[0][0].data.lines.create;
+    expect(lines.find((l: { accountId: string }) => l.accountId === 'acct-uncategorized'))
+      .toMatchObject({ debitCents: 2500, creditCents: 0 });
+    expect(lines.find((l: { accountId: string }) => l.accountId === 'acct-cash'))
+      .toMatchObject({ debitCents: 0, creditCents: 2500 });
+    // balanced, or it is not a journal entry
+    expect(lines.reduce((s: number, l: { debitCents: number }) => s + l.debitCents, 0))
+      .toBe(lines.reduce((s: number, l: { creditCents: number }) => s + l.creditCents, 0));
+  });
+
+  it('leaves the expense row UNcategorized — the suspense posting must not look like classification', async () => {
+    const { POST } = await import('@/app/api/v1/agentbook-expense/expenses/route');
+    await POST(
+      new NextRequest('http://x/api/v1/agentbook-expense/expenses', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ amountCents: 2500, vendor: 'Tea' }),
+      }),
+    );
+    // categoryId===null is what the auto-categorize watchdog, the catch-up
+    // summary and the "Uncategorized" reports all key off. Stamping 6999 onto
+    // the row would hide the expense from every prompt to classify it.
+    expect(expenseCreate.mock.calls[0][0].data.categoryId).toBeNull();
+  });
+
   it('does NOT seed for a personal expense (not a business ledger entry)', async () => {
     const { POST } = await import('@/app/api/v1/agentbook-expense/expenses/route');
     await POST(
@@ -138,6 +185,9 @@ describe('POST /expenses — chart seeding wiring (the #395 regression)', () => 
       }),
     );
     expect(ensureChartOfAccounts).not.toHaveBeenCalled();
+    // and no suspense posting either — a personal expense is not business money
+    expect(ensureUncategorizedAccount).not.toHaveBeenCalled();
+    expect(journalEntryCreate).not.toHaveBeenCalled();
   });
 });
 

@@ -38,6 +38,10 @@ const SCHEDULE_C_ACCOUNTS: Account[] = [
   { code: '6700', name: 'Bank Fees & Processing', type: 'expense', taxCategory: 'Line 27a - Other expenses' },
   { code: '6800', name: 'Depreciation', type: 'expense', taxCategory: 'Line 13 - Depreciation' },
   { code: '6900', name: 'Other Expenses', type: 'expense', taxCategory: 'Line 27a - Other expenses' },
+  // Suspense. An expense recorded before anyone knows its category still moved
+  // real cash, so it posts here rather than staying off the books entirely.
+  // Deliberately has no taxCategory — it is unclassified, not "other".
+  { code: '6999', name: 'Uncategorized Expenses', type: 'expense' },
 ];
 
 export const usChartOfAccounts: ChartOfAccountsTemplate = {

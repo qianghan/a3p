@@ -1435,7 +1435,20 @@ export async function executeStep(step: PlanStep, ctx: BotContext): Promise<Exec
       case 'expense.confirm': {
         if (!ctx.active) return { stepId: step.id, success: false, error: 'no active' };
         let journalEntryId = null as string | null;
-        if (!ctx.active.categoryId) {
+        // An uncategorized expense is no longer an UNBOOKED one — the create
+        // route posts it to the 6999 suspense account. Confirming after the
+        // user picks a category must not post a second entry on top, or the
+        // same money is counted twice in P&L and the tax estimate.
+        const alreadyBooked = (
+          await db.abExpense.findUnique({
+            where: { id: ctx.active.id },
+            select: { journalEntryId: true },
+          })
+        )?.journalEntryId;
+        if (alreadyBooked) {
+          // Nothing to post. The category move itself is handled by
+          // backfillExpenseJournalEntry on the categorize path.
+        } else if (!ctx.active.categoryId) {
           // can't post a journal yet; just confirm.
         } else if (!ctx.active.isPersonal) {
           const cash = await db.abAccount.findFirst({ where: { tenantId: ctx.tenantId, code: '1000' } });
@@ -1514,7 +1527,13 @@ export async function executeStep(step: PlanStep, ctx: BotContext): Promise<Exec
         // Confirmed + booked → post a reversing journal entry, mark
         // rejected. (Journal entries are immutable per the constraint
         // engine; corrections are reversing entries, never edits.)
-        if (ctx.active.status === 'confirmed' && ctx.active.categoryId && !ctx.active.isPersonal) {
+        //
+        // Gated on being BOOKED, not on having a category: an uncategorized
+        // expense now posts to the 6999 suspense account, so requiring a
+        // category here marked the expense rejected while leaving its money in
+        // the P&L and the tax estimate. The reversal mirrors the original
+        // lines, so it needs no knowledge of which account was debited.
+        if (ctx.active.status === 'confirmed' && !ctx.active.isPersonal) {
           const expenseRow = await db.abExpense.findUnique({
             where: { id: ctx.active.id },
             select: { journalEntryId: true },
@@ -1598,11 +1617,12 @@ export async function executeStep(step: PlanStep, ctx: BotContext): Promise<Exec
         // If the expense is already booked to the ledger, post a
         // reversing entry and a fresh entry at the new amount. The
         // immutability rule means we cannot just patch the journal lines.
-        if (
-          ctx.active.status === 'confirmed' &&
-          ctx.active.categoryId &&
-          !ctx.active.isPersonal
-        ) {
+        //
+        // Gated on being BOOKED, not on having a category: an uncategorized
+        // expense now posts to the 6999 suspense account, so requiring a
+        // category here left the original amount sitting in the books after
+        // the user corrected it.
+        if (ctx.active.status === 'confirmed' && !ctx.active.isPersonal) {
           const expenseRow = await db.abExpense.findUnique({
             where: { id: ctx.active.id },
             select: { journalEntryId: true },
@@ -1612,6 +1632,12 @@ export async function executeStep(step: PlanStep, ctx: BotContext): Promise<Exec
               where: { id: expenseRow.journalEntryId },
               include: { lines: true },
             });
+            // Re-post against whatever the original debited. For an
+            // uncategorized expense that's the suspense account and
+            // ctx.active.categoryId is null — using it would write a line with
+            // no account at all.
+            const originalDebit = original?.lines.find((l) => l.debitCents > 0);
+            const debitAccountId = originalDebit?.accountId || ctx.active.categoryId;
             if (original) {
               await db.abJournalEntry.create({
                 data: {
@@ -1636,7 +1662,11 @@ export async function executeStep(step: PlanStep, ctx: BotContext): Promise<Exec
             const cash = await db.abAccount.findFirst({
               where: { tenantId: ctx.tenantId, code: '1000' },
             });
-            if (cash) {
+            // No debit account at all (no original debit line and no category)
+            // means there is nothing coherent to re-post against — reverse
+            // only, and just record the new amount, rather than writing a line
+            // with no account.
+            if (cash && debitAccountId) {
               const replacement = await db.abJournalEntry.create({
                 data: {
                   tenantId: ctx.tenantId,
@@ -1647,7 +1677,7 @@ export async function executeStep(step: PlanStep, ctx: BotContext): Promise<Exec
                   verified: true,
                   lines: {
                     create: [
-                      { tenantId: ctx.tenantId, accountId: ctx.active.categoryId, debitCents: newAmount, creditCents: 0, description: ctx.active.description || 'Expense' }, // G-009
+                      { tenantId: ctx.tenantId, accountId: debitAccountId, debitCents: newAmount, creditCents: 0, description: ctx.active.description || 'Expense' }, // G-009
                       { tenantId: ctx.tenantId, accountId: cash.id, debitCents: 0, creditCents: newAmount, description: 'Payment' }, // G-009
                     ],
                   },

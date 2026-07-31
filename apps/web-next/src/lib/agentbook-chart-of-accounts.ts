@@ -30,6 +30,18 @@ const CHART_PROVIDERS: Record<string, ChartOfAccountsTemplate> = {
 export const CASH_CODE = '1000';
 
 /**
+ * Suspense account for expenses recorded before their category is known.
+ *
+ * Posting used to be gated on a resolved category, so an expense with no
+ * categoryId and no matching vendor pattern was created `status: 'confirmed'`
+ * and posted NOTHING — missing from P&L, the trial balance and the tax
+ * estimate, and missing from the review queue too (that filters on
+ * `pending_review`, which such an expense never gets). The money left the
+ * user's bank either way, so the books have to say so.
+ */
+export const UNCATEGORIZED_CODE = '6999';
+
+/**
  * businessType='student' gets a separate set — tuition/scholarship/gig income
  * isn't a Schedule-C/T2125/BAS business in any jurisdiction, and there's no
  * per-jurisdiction student chart pack to consume.
@@ -49,6 +61,7 @@ const STUDENT_ACCOUNTS: { code: string; name: string; accountType: string; taxCa
   { code: '5400', name: 'Transportation', accountType: 'expense' },
   { code: '5500', name: 'Phone & Software Subscriptions', accountType: 'expense' },
   { code: '5600', name: 'Student Loan Interest', accountType: 'expense', taxCategory: '1098-E' },
+  { code: UNCATEGORIZED_CODE, name: 'Uncategorized Expenses', accountType: 'expense' },
 ];
 
 /** The default accounts for a tenant, by businessType + jurisdiction. Pure. */
@@ -105,4 +118,31 @@ export async function ensureChartOfAccounts(
   );
 
   return { seeded: true, count: written.length };
+}
+
+/**
+ * Guarantee the suspense account exists and return it.
+ *
+ * Separate from `ensureChartOfAccounts` on purpose: that one short-circuits as
+ * soon as Cash exists, so adding 6999 to the jurisdiction packs reaches NEW
+ * tenants only — every already-seeded tenant would never get the account, and
+ * the uncategorized-posting path would silently do nothing for exactly the
+ * users who already have expenses. This upserts the single account by the
+ * (tenantId, code) compound unique, so it is idempotent and correct for both.
+ *
+ * Only called when an expense fails to resolve a category, so it stays off the
+ * hot path.
+ */
+export async function ensureUncategorizedAccount(tenantId: string): Promise<{ id: string }> {
+  return db.abAccount.upsert({
+    where: { tenantId_code: { tenantId, code: UNCATEGORIZED_CODE } },
+    update: {},
+    create: {
+      tenantId,
+      code: UNCATEGORIZED_CODE,
+      name: 'Uncategorized Expenses',
+      accountType: 'expense',
+    },
+    select: { id: true },
+  });
 }
