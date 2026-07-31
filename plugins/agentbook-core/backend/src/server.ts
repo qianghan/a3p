@@ -3300,6 +3300,12 @@ async function _executeClassificationCore(
 ): Promise<any> {
   const startTime = Date.now();
   let { selectedSkill, extractedParams, confidence } = classification;
+  // The create-invoice pre-processing below REPLACES extractedParams wholesale
+  // with the API payload { clientId, dates, status, lines } — so clientName is
+  // gone by the time the reply is built, and the confirmation said
+  // "Invoice created (INV-2026-0001) — $5,000.00." with no client. Stash the
+  // resolved name here rather than smuggling a non-API key into the payload.
+  let resolvedInvoiceClientName: string | null = null;
   // Set by the record-personal-transaction pre-processing block below —
   // AbPersonalTransaction has no `currency` column (it's a personal account,
   // not tied to an invoice), so the response-formatting step can't read
@@ -3514,6 +3520,7 @@ async function _executeClassificationCore(
       const invoiceBase = baseUrls['/api/v1/agentbook-invoice'] || 'http://localhost:4052';
       const client = await resolveOrCreateClient(invoiceBase, tenantId, extractedParams.clientName);
       if (client) {
+        resolvedInvoiceClientName = client.name ?? extractedParams.clientName ?? null;
         const dueDate = new Date(); dueDate.setDate(dueDate.getDate() + 30);
 
         // Parse multi-line items: "consulting $3000, design $2000, hosting $500"
@@ -5649,7 +5656,7 @@ Only include chartData if visualization adds value. Keep the answer under 200 wo
     // name we extracted from the utterance.
     } else if (selectedSkill.name === 'create-invoice' && data) {
       const amt = data.amountCents ? fmtCurrency(data.amountCents, data.currency) : '';
-      const who = data.client?.name || extractedParams.clientName || '';
+      const who = data.client?.name || resolvedInvoiceClientName || extractedParams.clientName || '';
       message = `Invoice created${data.number ? ` (${data.number})` : ''}`
         + `${who ? ` for ${who}` : ''}${amt ? ` \u2014 ${amt}` : ''}.`;
 

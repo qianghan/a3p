@@ -66,6 +66,9 @@ function parseArgs(argv: string[]): CliArgs {
   return out;
 }
 
+/** Emitted by agent-planner when a plan needs approval before it runs. */
+const CONFIRM_MARKER = /Proceed\?\s*\(yes\/no\)/i;
+
 interface AgentMessageResponse {
   success?: boolean;
   data?: {
@@ -285,7 +288,44 @@ async function main() {
     if (args.verbose) {
       console.log(`  [${cu.id}] ${cu.text.slice(0, 60)}...`);
     }
-    const resp = await sendUtterance(args, cu.text);
+    let resp = await sendUtterance(args, cu.text);
+
+    // If the agent asked for confirmation, answer it before scoring.
+    //
+    // The agent gates irreversible steps behind "Proceed? (yes/no)" — correct
+    // behaviour. But the harness scored that prompt as the final answer, so
+    // "no, that should be Travel category not Meals" was marked FAILED for a
+    // reply reading "Here's my plan: 1. Edit expense last (irreversible)
+    // Proceed? (yes/no)" — the required "Travel" could not possibly appear yet.
+    // A safety gate was being counted as a defect.
+    //
+    // Confirming and scoring the result is what a user does, so it is what the
+    // eval should do. Deliberately ONE follow-up: if the agent asks again, that
+    // is a loop worth failing on rather than papering over.
+    // Detected from the message text, not a flag: the response exposes
+    // { message, actions, chartData, skillUsed, confidence, latencyMs, persona }
+    // and nothing structured for "awaiting approval" — verified against
+    // production. The marker is emitted in exactly one place
+    // (agent-planner.ts: lines.push('\nProceed? (yes/no)')) and a guard test
+    // pins that string, so if the wording changes this detection fails loudly
+    // instead of quietly reverting to scoring the prompt as the answer.
+    //
+    // A structured needsConfirmation flag on the response would be better and is
+    // worth adding; it is a product change, so it is not bundled here.
+    if (CONFIRM_MARKER.test(resp?.data?.message ?? '')) {
+      const confirmed = await sendUtterance(args, 'yes');
+      if (confirmed?.data?.message) {
+        resp = {
+          ...confirmed,
+          data: {
+            ...confirmed.data,
+            // Keep the ORIGINAL classification: the skill under test is the one
+            // chosen for the user's utterance, not for the word "yes".
+            skillUsed: resp.data?.skillUsed ?? confirmed.data.skillUsed,
+          },
+        };
+      }
+    }
     results.push(evaluateTurn(cu, resp));
   }
 
