@@ -353,6 +353,22 @@ function resolveBaseUrlForEndpoint(
 export function resolveReferents(
   text: string,
   conversation: Array<{ question?: string | null; answer?: string | null }>,
+  /**
+   * Structured thread turns, newest last. Optional so existing callers and
+   * tests keep working.
+   *
+   * The referent for "mark it as personal" was previously recoverable only by
+   * matching an id pattern in the conversation TEXT — and the reply to "spent
+   * $89 on office supplies at Staples" is "Recorded: $89.00 — office supplies
+   * at Staples", which contains no id, because showing users a cuid would be
+   * absurd. So lastEntityKind stayed null, the pronoun was never resolved, and
+   * the agent asked which expense the user meant one turn after recording it.
+   *
+   * The id already exists in structured form: the turn writer stores entityId
+   * for exactly this purpose. Reading it here is the difference between
+   * recovering state from rendered prose and just using the state.
+   */
+  structuredTurns?: Array<{ role: string; text: string; entityId?: string }>,
 ): string {
   if (!text || conversation.length === 0) return text;
 
@@ -372,6 +388,21 @@ export function resolveReferents(
   let lastExpenseId: string | null = null;
   let lastClientName: string | null = null;
   let lastEntityKind: 'invoice' | 'expense' | 'client' | null = null;
+
+  // Structured state wins over text scraping — but only from the MOST RECENT
+  // bot turn, not the most recent turn that happens to carry an entityId.
+  //
+  // entityId is currently set for expenses only. Seeding from any older turn
+  // would let a stale expense outrank a newer invoice: "spent $89" then
+  // "invoice Acme $5000" then "send it" would resolve "it" to the expense,
+  // which is worse than today's behaviour. Restricting to the last turn means
+  // the seed fires exactly when the previous thing that happened was the
+  // record in question, and otherwise leaves the existing text scraping alone.
+  const lastBotTurn = [...(structuredTurns ?? [])].reverse().find((t) => t.role === 'bot');
+  if (lastBotTurn?.entityId) {
+    lastExpenseId = lastBotTurn.entityId;
+    lastEntityKind = 'expense';
+  }
 
   for (const turn of turns) {
     const combined = `${turn.question ?? ''}\n${turn.answer ?? ''}`;
@@ -1313,7 +1344,12 @@ async function handleAgentMessageCore(
   }
 
   // Convert thread turns into the {question, answer}[] format used downstream
-  const threadTurns = (activeThread?.turns as Array<{ role: string; text: string }>) ?? [];
+  // entityId is carried through deliberately. resolveReferents needs the id of
+  // the record the last turn touched, and the only other way to get it is to
+  // regex it out of the rendered reply — which does not contain it, because
+  // replies show "Recorded: $89.00 — office supplies" rather than a cuid.
+  const threadTurns =
+    (activeThread?.turns as Array<{ role: string; text: string; intent?: string; entityId?: string }>) ?? [];
   const conversation = pairTurns(threadTurns);
 
   const [tenantConfig, memory, skills, personalProfileContext] = await Promise.all([
@@ -1379,7 +1415,7 @@ async function handleAgentMessageCore(
   // concrete entity refs BEFORE classification, so Stage-1 shortcuts and
   // Stage-2 regex paths see the same resolved text the Stage-3 LLM would.
   // No-op when the input has no pronoun-like tokens.
-  const resolvedText = resolveReferents(text, conversation);
+  const resolvedText = resolveReferents(text, conversation, threadTurns);
 
   // ── Step 3a: Classify ONLY (no side effects) ──────────────────────────
   // PR 9 (G-010): split classification from execution so destructive actions
