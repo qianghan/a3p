@@ -6001,7 +6001,32 @@ Only include chartData if visualization adds value. Keep the answer under 200 wo
       }
 
     } else {
-      message = JSON.stringify(data).slice(0, 300);
+      // Terminal fallback: no branch above recognised this payload.
+      //
+      // This was `JSON.stringify(data).slice(0, 300)`, which shows the user
+      // raw JSON. On production a skill returned an empty array and the reply
+      // to "what should I focus on?" was, in full, the two characters `[]`.
+      // Truncating at 300 chars also means a larger payload arrives as JSON
+      // cut off mid-token.
+      //
+      // An empty result is a normal outcome and deserves a sentence. Anything
+      // else is a bug in this formatter, and saying so plainly is more useful
+      // to the user AND to whoever reads the report than a JSON fragment.
+      const isEmpty =
+        data == null ||
+        (Array.isArray(data) && data.length === 0) ||
+        (typeof data === 'object' && Object.keys(data).length === 0);
+      message = isEmpty
+        ? "I don't have anything to show for that right now."
+        : "I got a result but couldn't put it into words. Try rephrasing, or ask me something more specific.";
+      if (!isEmpty) {
+        console.warn(
+          '[formatSkillReply] unformatted payload for skill',
+          selectedSkill?.name,
+          '— keys:',
+          typeof data === 'object' ? Object.keys(data).slice(0, 12) : typeof data,
+        );
+      }
     }
 
     // Extract chart data if available
