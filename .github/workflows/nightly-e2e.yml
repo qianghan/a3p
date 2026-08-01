@@ -172,6 +172,11 @@ jobs:
           # suite that only signs in as a US tenant runs the one path where
           # every default is already correct.
           - phase8-regional
+          # The installable app. A PWA spec already existed at
+          # tests/e2e/mobile-app.spec.ts and ran in NO workflow — the same dead
+          # -suite shape as this nightly, which sat broken for three months
+          # because nothing reported it.
+          - phase9-pwa
     env:
       E2E_USER_PASSWORD: ${{ secrets.E2E_USER_PASSWORD }}
       E2E_RESET_TOKEN: ${{ secrets.E2E_RESET_TOKEN }}
