@@ -4,7 +4,6 @@
 
 import 'server-only';
 import { NextRequest, NextResponse } from 'next/server';
-import crypto from 'node:crypto';
 import { prisma as db } from '@naap/database';
 import { safeResolveAgentbookTenant } from '@/lib/agentbook-tenant';
 
@@ -49,7 +48,31 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       );
     }
 
-    const webhookSecret = crypto.randomUUID().replace(/-/g, '');
+    // The secret the WEBHOOK ACTUALLY VALIDATES — not a freshly minted one.
+    //
+    // This was `crypto.randomUUID()`, stored per tenant and handed to
+    // setWebhook. But the webhook handler only ever compares against
+    // process.env.TELEGRAM_WEBHOOK_SECRET, and nothing anywhere reads the
+    // stored value back — it was write-only. So every bot connected through
+    // this self-serve flow presented a secret the server had never heard of
+    // and 401'd on every update, forever, in silence.
+    //
+    // Same two-copies-that-must-agree shape as the e2e password (#403) and the
+    // CRON_SECRET drift, except here the second copy was never consulted at
+    // all. Fixed the same way: delete the second copy.
+    const webhookSecret = process.env.TELEGRAM_WEBHOOK_SECRET;
+    if (!webhookSecret) {
+      return NextResponse.json(
+        {
+          success: false,
+          error:
+            'TELEGRAM_WEBHOOK_SECRET is not configured on this deployment. Connecting a bot ' +
+            'without it would register a secret the server cannot verify, and the bot would ' +
+            'never receive a message.',
+        },
+        { status: 409 },
+      );
+    }
     const baseUrl = process.env.TELEGRAM_WEBHOOK_BASE_URL || process.env.NEXTAUTH_URL || '';
     const webhookUrl = baseUrl ? `${baseUrl}/api/v1/agentbook/telegram/webhook` : '';
 
