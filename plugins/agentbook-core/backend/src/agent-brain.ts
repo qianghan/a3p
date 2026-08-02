@@ -15,6 +15,8 @@ import { retrieveRelevantMemories, learnFromInteraction, learnVendorCategoryCorr
 import { detectCorrection } from './agent-corrections.js';
 import { carryForwardPeriod } from './period-parse.js';
 import { languageDirective } from './language.js';
+import { triageTurn } from './consultation-triage.js';
+import { reviewConsultation, repairBrief, safeFallback, type GroundingContext } from './consultation-review.js';
 import { BUILT_IN_SKILLS } from './built-in-skills.js';
 import { assessComplexity, generatePlan, formatPlan, createSession, getActiveSession, updateSession, executeStep, buildUndoAction, resolveStepParams } from './agent-planner.js';
 import { PlanStep, Evaluation, assessStepQuality, buildFinalEvaluation, formatEvaluation } from './agent-evaluator.js';
@@ -63,7 +65,10 @@ async function brainAccountantFallback(
   conversation: Array<{ question: string; answer: string }>,
   pastFilingContext?: string,
   personalProfileContext?: string,
-  tenantConfig?: { locale?: string | null } | null,
+  // `jurisdiction` is read by the consultation reviewer to decide which tax
+  // authority this answer may name. Callers already pass the whole
+  // AbTenantConfig row — the narrower type was simply under-declared.
+  tenantConfig?: { locale?: string | null; jurisdiction?: string | null } | null,
   tenantId?: string,
 ): Promise<string> {
   const convoSnippet = (conversation || [])
@@ -116,10 +121,51 @@ async function brainAccountantFallback(
     'Respond now as the accountant assistant.',
   ].filter(Boolean).join('\n');
 
+  // Everything this answer is allowed to assert. Anything the model states
+  // beyond it was invented — see consultation-review.ts.
+  const grounding: GroundingContext = {
+    jurisdiction: tenantConfig?.jurisdiction || 'us',
+    facts: [personalProfileContext, pastFilingContext].filter(Boolean) as string[],
+  };
+
   try {
     const reply = await callGemini(systemPrompt, userMessage, 220);
-    if (reply && reply.trim()) {
-      return reply.trim().replace(/^```[a-z]*\n?/i, '').replace(/\n?```$/i, '').trim();
+    const draft = reply?.trim().replace(/^```[a-z]*\n?/i, '').replace(/\n?```$/i, '').trim();
+    if (draft) {
+      // Verify before the user sees it. This path is free-text out of an LLM
+      // straight into a financial conversation, and it is where the invented
+      // "save ~$800" and the IRS-quoted-to-a-Canadian both reached production.
+      const first = reviewConsultation(draft, grounding);
+      if (first.verdict === 'pass') return draft;
+
+      console.warn(
+        '[brainAccountantFallback] draft failed review:',
+        first.findings.map((f) => `${f.kind}(${f.span})`).join(', '),
+      );
+
+      // One repair attempt with a specific brief. Not a loop: if the model
+      // reaches for an invented figure twice, a third ask is not going to
+      // produce a grounded one, and each round is latency the user is waiting
+      // through.
+      try {
+        const repaired = (
+          await callGemini(`${systemPrompt}\n\n${repairBrief(first.findings)}`, userMessage, 220)
+        )?.trim();
+        if (repaired) {
+          const second = reviewConsultation(repaired, grounding);
+          if (second.verdict === 'pass') return repaired;
+          console.warn(
+            '[brainAccountantFallback] repair still failed:',
+            second.findings.map((f) => f.kind).join(', '),
+          );
+        }
+      } catch (repairErr) {
+        console.warn('[brainAccountantFallback] repair attempt failed:', repairErr);
+      }
+
+      // Unrepairable. Say less rather than shipping a confident wrong figure —
+      // an annoying answer is recoverable, a misfiled return is not.
+      return safeFallback(grounding.jurisdiction);
     }
     console.warn('[brainAccountantFallback] Gemini returned empty — using local fallback');
   } catch (err) {
