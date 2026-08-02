@@ -76,8 +76,7 @@ const STRONG_CONSULTATIVE = [
   // trailing boundary fails against the following "l". Same anchoring
   // mistake as the month matcher and the CA$/A$ assertion.
   /\b(?:eligib\w*|qualif\w*|allowed to|permitted|legal|compliance|regulations?)\b/i,
-  /\b(?:should i|do i need to|do i have to|is it worth|what happens if)\b/i,
-  /\b(?:advice|advise|recommend)\b/i,
+  /\b(?:advice|advise)\b/i,
 ];
 
 /**
@@ -97,7 +96,11 @@ const STRONG_CONSULTATIVE = [
  */
 const DATA_QUESTION = [
   // possessive + a thing in the ledger
-  /\b(?:my|i)\b[^.?!]{0,40}\b(?:spend|spent|spending|owe[ds]?|balance|revenue|profit|income|expenses?|invoices?|receipts?|vendors?|clients?|budget|payroll|mileage|deduction|refund|estimate)\b/i,
+  // Either order. "what deductions can I still claim" puts the noun BEFORE
+  // the pronoun, and requiring noun-after-pronoun sent it to the advisor —
+  // which cannot see their deductions.
+  /\b(?:my|i|me)\b[^.?!]{0,40}\b(?:spend|spent|spending|owe[ds]?|balance|revenue|profit|income|expenses?|invoices?|receipts?|vendors?|clients?|budget|payroll|mileage|deductions?|refund|estimate|subscriptions?|recurring|alerts?)\b/i,
+  /\b(?:spend|spent|spending|owe[ds]?|balance|revenue|profit|income|expenses?|invoices?|receipts?|vendors?|clients?|budget|payroll|mileage|deductions?|refund|estimate|subscriptions?|recurring|alerts?)\b[^.?!]{0,40}\b(?:my|i|me)\b/i,
   // receivables/payables phrasing that uses "me", not "my"
   /\b(?:who owes|owes me|i owe|owed to me|outstanding|unpaid|overdue)\b/i,
   // Possessive interrogatives — "what is my X", "is my X ready", "how is my X".
