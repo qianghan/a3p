@@ -11,12 +11,16 @@ import { buildTestContext } from './helpers/test-context';
  * guarantees production's row order matches whatever this plan fixed it to,
  * rather than depending on Postgres internals.
  *
- * SCOPE: this covers agent-brain's OWN fetch, which only runs when the caller
- * passes no `skills`. All three production channel routes pass their own array
- * and never reach it, so for a while this test was green while every real
- * request still routed against an unordered array. The routes are guarded by
- * apps/web-next/src/__tests__/api/v1/agentbook-core/skill-manifest-order.test.ts
- * — a new channel needs coverage there, not just here.
+ * SCOPE: this covers agent-brain's OWN fetch. An earlier version of this note
+ * claimed that fetch "only runs when the caller passes no `skills`", and that
+ * the three channel routes bypass it. Both halves are wrong: the fetch is
+ * unconditional, and its result is the array handed to the classifier — the
+ * routes' arrays only ever reach executeStep. So this is the fetch that
+ * matters, and it was the one place the guard belonged all along.
+ *
+ * The order is now requested through SKILL_QUERY in skill-source.ts, which is
+ * where a new channel should get it from; delegation is enforced by
+ * apps/web-next/src/__tests__/api/v1/agentbook-core/skill-manifest-order.test.ts.
  */
 
 const skillManifestFindMany = vi.fn(async () => []);

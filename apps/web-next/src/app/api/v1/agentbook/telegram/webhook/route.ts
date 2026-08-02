@@ -17,6 +17,7 @@ import { prisma as db } from '@naap/database';
 import { formatMoney } from '@agentbook/i18n';
 import { handleAgentMessage } from '@agentbook-core/agent-brain';
 import { callGemini, classifyAndExecuteV1, classifyOnly, executeClassification } from '@agentbook-core/server';
+import { reconcileSkills, SKILL_QUERY } from '@agentbook-core/skill-source';
 import { generateFilingDraft } from '@/lib/tax-fast-track-draft';
 import { runAgentLoop, type BotContext, type ActiveExpense as BotActive } from '@/lib/agentbook-bot-agent';
 import { parseDateHint } from '@/lib/agentbook-time-aggregator';
@@ -1229,15 +1230,10 @@ async function callAgentBrain(
   chatId?: string,
 ): Promise<{ success: true; data: { message: string; skillUsed?: string } } | { success: false; error: string }> {
   try {
-    const skills = await db.abSkillManifest.findMany({
-      where: { enabled: true, OR: [{ tenantId: null }, { tenantId }] },
-      // Deterministic array order. Routing tries skills in array order and takes
-      // the first match, so without this the winner of any trigger-pattern
-      // collision is whatever order Postgres happened to return. Passing
-      // `skills` here bypasses agent-brain's own ordered fetch, so the ordering
-      // has to be requested at every call site (Launch-gap PR-5).
-      orderBy: { name: 'asc' },
-    });
+    // ctx.skills feeds plan execution only — the classifier routes against
+    // the array agent-brain builds itself. reconcileSkills keeps the two in
+    // agreement so a code-only built-in is executable as well as routable.
+    const skills = reconcileSkills(await db.abSkillManifest.findMany(SKILL_QUERY(tenantId)));
     const baseUrls = getBaseUrls();
     const brainResult = await handleAgentMessage(
       { text: text || '', tenantId, channel: 'telegram', chatId, attachments, sessionAction, feedback },

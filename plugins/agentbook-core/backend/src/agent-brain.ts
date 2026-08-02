@@ -18,6 +18,7 @@ import { languageDirective } from './language.js';
 import { triageTurn } from './consultation-triage.js';
 import { reviewConsultation, repairBrief, safeFallback, type GroundingContext } from './consultation-review.js';
 import { BUILT_IN_SKILLS } from './built-in-skills.js';
+import { reconcileSkills, SKILL_QUERY } from './skill-source.js';
 import { assessComplexity, generatePlan, formatPlan, createSession, getActiveSession, updateSession, executeStep, buildUndoAction, resolveStepParams } from './agent-planner.js';
 import { PlanStep, Evaluation, assessStepQuality, buildFinalEvaluation, formatEvaluation } from './agent-evaluator.js';
 import { getActiveTaxQuestionnaireSession, getLatestTaxQuestionnaireSession, isDraftStale } from './tax-questionnaire-session.js';
@@ -1432,18 +1433,24 @@ async function handleAgentMessageCore(
     (activeThread?.turns as Array<{ role: string; text: string; intent?: string; entityId?: string }>) ?? [];
   const conversation = pairTurns(threadTurns);
 
-  const [tenantConfig, memory, skills, personalProfileContext] = await Promise.all([
+  const [tenantConfig, memory, skillRows, personalProfileContext] = await Promise.all([
     db.abTenantConfig.findFirst({ where: { userId: tenantId } }),
     retrieveRelevantMemories(tenantId, text),
-    db.abSkillManifest.findMany({
-      where: { enabled: true, OR: [{ tenantId: null }, { tenantId }] },
-      orderBy: { name: 'asc' }, // deterministic array order — see CREATE_INVOICE_TRIGGER_PATTERN's comment in skill-routing.ts for why correctness never depends on this (Launch-gap PR-5)
-    }),
+    // orderBy name asc for a deterministic array order — see
+    // CREATE_INVOICE_TRIGGER_PATTERN's comment in skill-routing.ts for why
+    // correctness never depends on this (Launch-gap PR-5).
+    db.abSkillManifest.findMany(SKILL_QUERY(tenantId)),
     // Unconditional (not keyword-gated like pastFilingContext below): a single
     // indexed read by userId, and personal context makes every answer richer,
     // not just tax ones.
     buildPersonalProfileContext(tenantId).catch(() => ''),
   ]);
+
+  // Code is authoritative for global built-ins, and a built-in with no row is
+  // still routable. This runs HERE, on the array the classifier actually gets
+  // — doing it in a channel route reconciles an array nothing routes against.
+  // See skill-source.ts.
+  const skills = reconcileSkills(skillRows as Array<Record<string, any>>);
 
   // ── Launch gate: AI chat supports US / CA / AU ─────────────────────────
   // These three jurisdictions have real per-jurisdiction logic across the

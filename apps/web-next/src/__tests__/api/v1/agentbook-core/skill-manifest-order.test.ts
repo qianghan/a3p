@@ -1,6 +1,5 @@
 /**
- * Every skill fetch that feeds routing must ask the DB for a deterministic
- * row order (Launch-gap PR-5, G-5C).
+ * Every skill fetch that feeds routing or execution goes through one query.
  *
  * Skill routing tries skills in array order and takes the first match — see
  * "Skills are tried in array order — first match wins" in server.ts and the
@@ -9,81 +8,107 @@
  * patterns both match an utterance, the winner is undefined and can change
  * between deploys, between replicas, or after a VACUUM.
  *
- * PR-5 added the `orderBy` to agent-brain.ts's own fetch and pinned it with
- * skill-manifest-query-order.test.ts. But agent-brain only runs that fetch when
- * the caller did NOT pass `skills`, and all three production channel routes DO
- * pass `skills` — so the tested guarantee covered a path production never
- * takes, and every real request routed against an unordered array.
+ * The previous version of this file guarded the wrong three files, for a
+ * reason worth recording. Its header read:
  *
- * This is the guard for the routes that actually serve traffic. It is
- * deliberately structural: the Telegram webhook's `callAgentBrain` sits behind
- * grammy bot init, idempotency claims and rate limiting, so driving its POST to
- * reach the fetch would test the harness more than the invariant. Two of the
- * three also have behavioural coverage on the real handler —
- * agent-message-skills.test.ts and agentbook/whatsapp/webhook.test.ts.
+ *   "agent-brain only runs that fetch when the caller did NOT pass `skills`,
+ *    and all three production channel routes DO pass `skills` — so the tested
+ *    guarantee covered a path production never takes"
+ *
+ * The observation was right and the direction was backwards. agent-brain's
+ * fetch is unconditional, and ITS array is the one handed to the classifier;
+ * the arrays the three routes build reach executeStep and nothing else. So the
+ * guard sat on the dead path either way — first on agent-brain, when everyone
+ * believed the routes mattered, then on the routes, when everyone believed
+ * agent-brain didn't run. `set-vendor-alias` is what finally showed it: a
+ * built-in with no DB row, unroutable in production while every test was
+ * green. See skill-source.ts.
+ *
+ * There is now a single query, so the invariant is asserted once on the query
+ * itself, and each call site is checked for delegating to it rather than
+ * hand-rolling an equivalent.
  */
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { SKILL_QUERY, reconcileSkills } from '@agentbook-core/skill-source';
 
 const APP = join(__dirname, '../../../../app/api/v1');
+const CORE = join(__dirname, '../../../../../../../plugins/agentbook-core/backend/src');
 
 /**
- * The channel routes that hand a pre-fetched `skills` array to
- * handleAgentMessage. Each one bypasses agent-brain's internal fetch, so each
- * one needs its own `orderBy`.
+ * Everywhere AbSkillManifest is read for the agent. agent-brain is listed
+ * first because it is the one that feeds the classifier — the omission that
+ * cost this invariant twice.
  */
-const ROUTING_FETCH_SITES = [
+const FETCH_SITES = [
+  ['agent-brain (feeds the classifier)', join(CORE, 'agent-brain.ts')],
   ['web chat', join(APP, 'agentbook-core/agent/message/route.ts')],
   ['telegram', join(APP, 'agentbook/telegram/webhook/route.ts')],
   ['whatsapp', join(APP, 'agentbook/whatsapp/webhook/route.ts')],
 ] as const;
 
-/**
- * Extract the argument object of every `abSkillManifest.findMany(...)` call in
- * a source file, by walking braces from the call site. Regexing the whole file
- * for `orderBy` would pass on an `orderBy` belonging to some unrelated query.
- */
-function skillManifestFindManyArgs(src: string): string[] {
+/** Text of each `abSkillManifest.findMany(...)` argument list, paren-matched. */
+function findManyArgs(src: string): string[] {
   const out: string[] = [];
   const marker = 'abSkillManifest.findMany(';
   let from = 0;
   for (;;) {
     const call = src.indexOf(marker, from);
     if (call === -1) return out;
-    const open = src.indexOf('{', call);
+    let i = call + marker.length - 1;
     let depth = 0;
-    let i = open;
     for (; i < src.length; i++) {
-      if (src[i] === '{') depth++;
-      else if (src[i] === '}' && --depth === 0) break;
+      if (src[i] === '(') depth++;
+      else if (src[i] === ')' && --depth === 0) break;
     }
-    out.push(src.slice(open, i + 1));
+    out.push(src.slice(call + marker.length, i));
     from = i;
   }
 }
 
-const ORDER_BY_NAME_ASC = /orderBy:\s*\{\s*name:\s*'asc'\s*\}/;
+describe('the shared skill query', () => {
+  it('asks for a deterministic row order', () => {
+    expect(SKILL_QUERY('t-1').orderBy).toEqual({ name: 'asc' });
+  });
 
-describe('skill fetches that feed routing request a deterministic order', () => {
-  for (const [channel, file] of ROUTING_FETCH_SITES) {
-    it(`${channel} orders skills by name asc`, () => {
-      const args = skillManifestFindManyArgs(readFileSync(file, 'utf8'));
-      // A route that stopped fetching skills at all would otherwise pass vacuously.
-      expect(args.length).toBeGreaterThan(0);
+  it('scopes to global rows plus this tenant', () => {
+    expect(SKILL_QUERY('t-1').where).toEqual({ OR: [{ tenantId: null }, { tenantId: 't-1' }] });
+  });
+
+  it('does NOT filter on enabled — reconcileSkills needs to see disabled rows', () => {
+    // Filtering in the query is what let a disabled skill be silently
+    // re-enabled by the code fallback (#427): the fallback could not tell
+    // "switched off" from "no row at all".
+    expect(JSON.stringify(SKILL_QUERY('t-1').where)).not.toContain('enabled');
+    const rows = [{ name: 'daily-briefing', tenantId: null, source: 'built_in', enabled: false }];
+    expect(reconcileSkills(rows).map((s) => s.name)).not.toContain('daily-briefing');
+  });
+});
+
+describe('every skill fetch delegates to it', () => {
+  for (const [site, file] of FETCH_SITES) {
+    it(`${site} uses SKILL_QUERY`, () => {
+      const args = findManyArgs(readFileSync(file, 'utf8'));
+      // A file that stopped fetching skills would otherwise pass vacuously.
+      expect(args.length, `${site} no longer reads AbSkillManifest`).toBeGreaterThan(0);
       for (const arg of args) {
-        expect(arg).toMatch(ORDER_BY_NAME_ASC);
+        expect(
+          arg.trim(),
+          `${site} hand-rolls its own query; ordering and the enabled rule then ` +
+            'have to be re-derived correctly at every call site, which is how ' +
+            'this invariant was lost twice',
+        ).toMatch(/^SKILL_QUERY\(/);
       }
     });
   }
 
-  it('covers every channel route that passes skills to the brain', () => {
-    // If a fourth channel appears and passes its own skills array, it inherits
-    // the same hazard — this list has to grow with it.
-    const covered = new Set(ROUTING_FETCH_SITES.map(([, f]) => f));
-    for (const file of covered) {
+  it('covers every caller that passes skills to the brain', () => {
+    // A fourth channel inherits the same hazard — this list has to grow with it.
+    const routes = FETCH_SITES.slice(1);
+    for (const [, file] of routes) {
       expect(readFileSync(file, 'utf8')).toContain('handleAgentMessage');
     }
-    expect(covered.size).toBe(3);
+    expect(routes.length).toBe(3);
   });
 });
