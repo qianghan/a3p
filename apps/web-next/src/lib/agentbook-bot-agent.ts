@@ -207,6 +207,8 @@ export interface Evaluation {
 
 const BIZ_KEYWORDS = /\b(business|work|work[\- ]related|company|client|biz|professional|deductib|writeoff|write[\- ]off|deduct)\b/i;
 const PERSONAL_KEYWORDS = /\b(personal|myself|home|family|private|leisure|not (?:for )?work|not business)\b/i;
+import { lastBotMessageIsAboutExpense } from './agentbook-affirmative';
+
 const CONFIRM_KEYWORDS = /^(yes|yep|yeah|ok|okay|sure|sgtm|approve|confirm|good|looks (?:good|right)|that's right|right|correct|👍|✅)\b/i;
 const REJECT_KEYWORDS = /^(no|nope|wrong|incorrect|delete|cancel|reject|that's not right|nah|👎|❌)\b/i;
 const RECORD_KEYWORDS = /\b(spent|paid|bought|purchased|expense)\b/i;
@@ -451,7 +453,18 @@ INTENT CHOICES (pick exactly one)
 
 RULES
    • If active expense is null, prefer record_expense over confirm/categorize/etc.
-   • A short "yes/yeah/ok" with active expense = confirm. Without active expense = clarify (ask them what to confirm).
+   • A short affirmative ("yes", "yeah", "ok", "sure", and the same in any
+     other language — "oui", "sí", "是的", "はい") answers THE QUESTION YOU
+     JUST ASKED. Look at "Last bot topic" above before assuming it confirms
+     an expense:
+       - last topic was an expense → confirm
+       - last topic was anything else (a tax question, a report, a general
+         question you asked) → continue THAT topic, never confirm
+       - no active expense at all → clarify
+     A real transcript: the bot asked "Are you asking about Australian tax
+     forms?", the user replied "是的", and this rule booked it against a
+     long-dead expense draft — answering a tax question with
+     "I can't book this without a category".
    • If the message contains a \$ amount + a verb (spent / paid / bought) = record_expense regardless of active expense.
    • For categorize, slots.categoryName MUST be one of the available list above. If no exact-or-close match, use clarify with the candidate options in the question.
    • Confidence below 0.7 = clarify (better to ask than to guess wrong on the user's books).
@@ -537,7 +550,11 @@ function classifyIntentWithRegex(text: string, ctx: BotContext): BotIntent {
   }
 
   // Confirm / reject only meaningful with an active expense
-  if (ctx.active && CONFIRM_KEYWORDS.test(lower)) {
+  if (
+    ctx.active
+    && CONFIRM_KEYWORDS.test(lower)
+    && lastBotMessageIsAboutExpense(ctx.conversation?.lastBotMessage, ctx.active)
+  ) {
     return { intent: 'confirm', slots, confidence: 0.85, reason: 'affirmative + active expense', source: 'regex' };
   }
   if (ctx.active && REJECT_KEYWORDS.test(lower)) {
