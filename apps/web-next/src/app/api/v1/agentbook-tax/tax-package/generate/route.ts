@@ -28,7 +28,20 @@ export const maxDuration = 60;
 interface GenerateBody {
   year?: number | string;
   jurisdiction?: 'us' | 'ca' | 'au';
+  /**
+   * Expenses to leave OUT of this filing. Optional; omitting it includes
+   * everything, exactly as before.
+   *
+   * Excluding is NOT deleting — the expense keeps its journal entries and its
+   * receipt, and can be included in a later regeneration. The two must never
+   * share a verb, because "remove from filing" reading as "destroy the
+   * evidence" is how a deduction becomes unsupportable at audit.
+   */
+  excludeExpenseIds?: string[];
 }
+
+/** Cap so a malformed client cannot send an unbounded array into the query. */
+const MAX_EXCLUSIONS = 5000;
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
   try {
@@ -61,7 +74,28 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       jurisdiction = cfg?.jurisdiction === 'ca' || cfg?.jurisdiction === 'au' ? cfg.jurisdiction : 'us';
     }
 
-    const result = await generatePackage({ tenantId, year, jurisdiction });
+    // Validate the exclusion set before it reaches the query. Strings only,
+    // deduplicated, and bounded — a malformed client should get a 400, not an
+    // unbounded `notIn`.
+    const rawExclusions = body.excludeExpenseIds;
+    let excludeExpenseIds: string[] | undefined;
+    if (rawExclusions !== undefined) {
+      if (!Array.isArray(rawExclusions) || rawExclusions.some((v) => typeof v !== 'string')) {
+        return NextResponse.json(
+          { success: false, error: 'excludeExpenseIds must be an array of expense ids' },
+          { status: 400 },
+        );
+      }
+      if (rawExclusions.length > MAX_EXCLUSIONS) {
+        return NextResponse.json(
+          { success: false, error: `excludeExpenseIds is limited to ${MAX_EXCLUSIONS} entries` },
+          { status: 400 },
+        );
+      }
+      excludeExpenseIds = [...new Set(rawExclusions)];
+    }
+
+    const result = await generatePackage({ tenantId, year, jurisdiction, excludeExpenseIds });
 
     return NextResponse.json({
       success: true,

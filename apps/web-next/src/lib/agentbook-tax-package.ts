@@ -36,6 +36,21 @@ export interface PackageInput {
   tenantId: string;
   year: number;
   jurisdiction: 'us' | 'ca' | 'au';
+  /**
+   * Expenses the user has chosen to leave OUT of this filing.
+   *
+   * Opt-out, not opt-in: the default is everything, so a caller that does not
+   * pass this gets exactly the package it got before. Opt-in would silently
+   * produce an empty filing for every existing caller.
+   *
+   * EXCLUDING IS NOT DELETING. The expense stays on the books, keeps its
+   * journal entries and keeps its receipt; it is simply not part of this
+   * year's submission — the user disagrees that it belongs, or their
+   * accountant does. Those two ideas must never share a verb in the API or
+   * the UI, because "remove from filing" reading as "destroy the evidence" is
+   * how a deduction becomes unsupportable at audit.
+   */
+  excludeExpenseIds?: string[];
 }
 
 export interface MileageRow {
@@ -243,7 +258,7 @@ function buildArSnapshot(invoices: InvoiceForAr[], now: Date): PackageData['ar']
  * tenant's bookkeeping policy.
  */
 export async function gatherPackageData(input: PackageInput): Promise<PackageData> {
-  const { tenantId, year, jurisdiction } = input;
+  const { tenantId, year, jurisdiction, excludeExpenseIds } = input;
 
   const start = new Date(Date.UTC(year, 0, 1));
   const end = new Date(Date.UTC(year + 1, 0, 1));
@@ -275,6 +290,11 @@ export async function gatherPackageData(input: PackageInput): Promise<PackageDat
       status: 'confirmed',
       date: { gte: start, lt: end },
       OR: [{ deletedAt: null }, { deletedAt: { gt: end } }],
+      // User-excluded rows stay on the books and keep their receipts — they
+      // are only left out of this submission. See PackageInput.
+      ...(excludeExpenseIds && excludeExpenseIds.length > 0
+        ? { id: { notIn: excludeExpenseIds } }
+        : {}),
     },
     select: {
       id: true,
