@@ -146,3 +146,24 @@ describe('degenerate input', () => {
     }
   });
 });
+
+describe('triage runs in linear time (js/polynomial-redos)', () => {
+  // The Chinese particle check was /[吗呢吧]\s*[?？]?\s*$/. Two `\s*` against
+  // an `$` anchor is quadratic when the trailing run does not satisfy the
+  // anchor: 10k spaces 159ms, 20k 650ms, 40k 2.5s. The input is a chat message.
+  //
+  // Third occurrence of this exact shape in the codebase, after /[?.!]+$/ in
+  // period-parse.ts and again in client-name.ts — which is why it is a scan
+  // now and why this test exists rather than a resolution to be careful.
+  it('a long trailing run does not blow up the particle check', () => {
+    const hostile = '吗' + ' '.repeat(200_000) + 'x';
+    const started = Date.now();
+    triageTurn(hostile);
+    expect(Date.now() - started).toBeLessThan(1000);
+  });
+
+  it('still detects the particle it is there to detect', () => {
+    expect(kind('这个可以抵扣吗')).toBe('consultative');
+    expect(kind('这个可以抵扣吗？')).toBe('consultative');
+  });
+});

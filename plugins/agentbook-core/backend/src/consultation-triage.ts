@@ -49,9 +49,8 @@ const CONSULTATIVE = [
   /\b(?:rules?|regulations?|requirements?|deadline|eligib|qualif|allowed|legal|compliance)\b/i,
   // the transcript's own shape, in Chinese/Japanese/Korean/Spanish/French
   /(?:介绍|规定|建议|应该|如何|为什么|能否|是否)/,
-  // Sentence-final question particles. 可以抵扣吗 puts 抵扣 between 可以
-  // and 吗, so a fixed 可以吗 pair misses the most natural phrasing.
-  /[吗呢吧]\s*[?？]?\s*$/,
+  // Sentence-final particles are checked by endsWithCjkQuestionParticle()
+  // below, not here — see the note there.
   /(?:について教え|どうすれば|べきですか)/,
   /(?:알려줘|어떻게|해야)/,
   /\b(?:qué debo|debería|cómo funciona|puedo deducir)\b/i,
@@ -118,6 +117,28 @@ const DATA_QUESTION = [
   /^\s*(?:and|what about|how about)\s+[a-z][a-z ]{0,20}\??$/i,
 ];
 
+/**
+ * Does the message end with a Chinese question particle (吗 / 呢 / 吧)?
+ *
+ * 可以抵扣吗 puts 抵扣 between 可以 and 吗, so a fixed 可以吗 pair misses the
+ * most natural phrasing — the particle has to be matched where it actually
+ * sits, at the end.
+ *
+ * A scan, not the obvious /[吗呢吧]\s*[?？]?\s*$/. Two `\s*` against an `$`
+ * anchor is quadratic when the trailing run does not satisfy the anchor, and
+ * the input is a chat message. CodeQL flagged it as js/polynomial-redos — the
+ * third time in this codebase for the same shape, after /[?.!]+$/ in
+ * period-parse.ts and again in client-name.ts. Scanning backwards is linear
+ * and cannot regress into it.
+ */
+function endsWithCjkQuestionParticle(t: string): boolean {
+  let i = t.length - 1;
+  while (i >= 0 && (t[i] === ' ' || t[i] === '\t' || t[i] === '\n')) i--;
+  if (i >= 0 && (t[i] === '?' || t[i] === '？')) i--;
+  while (i >= 0 && (t[i] === ' ' || t[i] === '\t' || t[i] === '\n')) i--;
+  return i >= 0 && (t[i] === '吗' || t[i] === '呢' || t[i] === '吧');
+}
+
 export type TurnKind = 'transactional' | 'consultative';
 
 export interface TriageResult {
@@ -162,6 +183,10 @@ export function triageTurn(text: string): TriageResult {
   for (const re of DATA_QUESTION) {
     const m = t.match(re);
     if (m) return { kind: 'transactional', reason: `question about their own books: "${m[0].slice(0, 40)}"` };
+  }
+
+  if (endsWithCjkQuestionParticle(t)) {
+    return { kind: 'consultative', reason: 'ends with a Chinese question particle' };
   }
 
   for (const re of CONSULTATIVE) {
