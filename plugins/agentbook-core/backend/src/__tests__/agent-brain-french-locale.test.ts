@@ -2,16 +2,22 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { buildTestContext } from './helpers/test-context';
 
 /**
- * French UI Phase 1 (AU-1 plan appendix, Task 12, Step 5).
+ * Chat replies follow the USER'S language, not a hardcoded one.
  *
- * When a tenant's AbTenantConfig.locale is French (any 'fr'-prefixed BCP-47
- * tag, e.g. 'fr-CA'), the Gemini system prompt used by the brain's
- * accountant-fallback path should carry a one-line "Respond in French."
- * instruction. Every other locale (including unset) must see a
- * byte-identical prompt to before this feature existed — this test only
- * mocks the Gemini call and inspects the system-prompt string passed to it;
- * it does not (and should not) assert on real French output text, which is
- * a manual verification step per the plan.
+ * This file began as "French UI Phase 1" and asserted the literal string
+ * "Respond in French." — the only language rule the chat path had. Every
+ * other language fell through to English, which is how a user writing
+ * Chinese got one Chinese reply (the model's own default) and then English
+ * on the next turn, breaking the thread mid-conversation.
+ *
+ * The intent survives and is asserted below: a French tenant still gets
+ * French. What changed is that it is no longer a special case — the prompt
+ * now tells the model to mirror the user and name the tenant's configured
+ * language only as the tiebreak for messages too short to detect ("yes",
+ * "是的"). So the same rule covers Chinese, Spanish and everything else.
+ *
+ * Still prompt-level only: this inspects the system string passed to the LLM
+ * and deliberately does not assert on real translated output.
  */
 
 const mockState: { tenantConfig: { locale?: string | null; jurisdiction?: string } | null } = {
@@ -60,75 +66,53 @@ beforeEach(() => {
 // No skills/classification configured — classifyOnly resolves to null,
 // which drives handleAgentMessage down the brainAccountantFallback path
 // that assembles the system prompt under test.
-describe('French UI Phase 1 — chat system-prompt locale instruction', () => {
-  it('includes "Respond in French." when tenant locale is fr-CA', async () => {
-    mockState.tenantConfig = { locale: 'fr-CA', jurisdiction: 'ca' };
-
+describe('the chat prompt tells the model to mirror the user\'s language', () => {
+  async function systemPromptFor(locale: string | null, jurisdiction = 'us'): Promise<string> {
+    mockState.tenantConfig = locale === null ? null : { locale, jurisdiction };
     const { req, ctx, llmCalls } = buildTestContext({
       text: 'asdkjaslkdj nonsense text',
-      tenantId: 'tenant-fr',
+      tenantId: `tenant-${locale ?? 'none'}`,
     });
-
     const { handleAgentMessage } = await import('../agent-brain');
     await handleAgentMessage(req as any, ctx as any);
-
     expect(llmCalls.callCount).toBeGreaterThan(0);
-    expect(llmCalls.history[0].system).toContain('Respond in French.');
+    return llmCalls.history[0].system;
+  }
+
+  it('always instructs the model to answer in the language the user wrote in', async () => {
+    // The rule that was missing entirely. Without it the model defaults to
+    // English for anything it is not explicitly told about.
+    for (const locale of ['en-US', 'fr-CA', 'zh-CN', null]) {
+      expect(await systemPromptFor(locale), `locale ${locale}`)
+        .toMatch(/same language the user wrote/i);
+    }
   });
 
-  it('includes the instruction for a plain "fr" locale tag too', async () => {
-    mockState.tenantConfig = { locale: 'fr', jurisdiction: 'ca' };
-
-    const { req, ctx, llmCalls } = buildTestContext({
-      text: 'asdkjaslkdj nonsense text',
-      tenantId: 'tenant-fr-plain',
-    });
-
-    const { handleAgentMessage } = await import('../agent-brain');
-    await handleAgentMessage(req as any, ctx as any);
-
-    expect(llmCalls.history[0].system).toContain('Respond in French.');
+  it('never lets the model switch language mid-thread', async () => {
+    expect(await systemPromptFor('zh-CN')).toMatch(/Never switch language mid-conversation/i);
   });
 
-  it('omits the instruction when tenant locale is en-US', async () => {
-    mockState.tenantConfig = { locale: 'en-US', jurisdiction: 'us' };
-
-    const { req, ctx, llmCalls } = buildTestContext({
-      text: 'asdkjaslkdj nonsense text',
-      tenantId: 'tenant-en',
-    });
-
-    const { handleAgentMessage } = await import('../agent-brain');
-    await handleAgentMessage(req as any, ctx as any);
-
-    expect(llmCalls.history[0].system).not.toContain('Respond in French.');
+  it('names the tenant language as the tiebreak for a short message', async () => {
+    // "是的" / "ok" carry too little signal to detect; without an anchor the
+    // model guesses English and the thread flips.
+    expect(await systemPromptFor('zh-CN')).toContain('Chinese');
+    expect(await systemPromptFor('es-MX')).toContain('Spanish');
   });
 
-  it('omits the instruction when tenant locale is en-CA (English-speaking Canada)', async () => {
-    mockState.tenantConfig = { locale: 'en-CA', jurisdiction: 'ca' };
-
-    const { req, ctx, llmCalls } = buildTestContext({
-      text: 'asdkjaslkdj nonsense text',
-      tenantId: 'tenant-en-ca',
-    });
-
-    const { handleAgentMessage } = await import('../agent-brain');
-    await handleAgentMessage(req as any, ctx as any);
-
-    expect(llmCalls.history[0].system).not.toContain('Respond in French.');
+  it('still serves French tenants — the original intent, now not a special case', async () => {
+    expect(await systemPromptFor('fr-CA')).toContain('French');
+    expect(await systemPromptFor('fr')).toContain('French');
   });
 
-  it('omits the instruction when there is no tenant config at all (byte-identical to pre-feature behavior)', async () => {
-    mockState.tenantConfig = null;
+  it('does not name French for an English-speaking Canadian tenant', async () => {
+    const prompt = await systemPromptFor('en-CA', 'ca');
+    expect(prompt).toContain('English');
+    expect(prompt).not.toContain('French');
+  });
 
-    const { req, ctx, llmCalls } = buildTestContext({
-      text: 'asdkjaslkdj nonsense text',
-      tenantId: 'tenant-none',
-    });
-
-    const { handleAgentMessage } = await import('../agent-brain');
-    await handleAgentMessage(req as any, ctx as any);
-
-    expect(llmCalls.history[0].system).not.toContain('Respond in French.');
+  it('still carries the mirroring rule when no locale is configured', async () => {
+    // No tiebreak language to name, but the instruction that matters remains.
+    const prompt = await systemPromptFor(null);
+    expect(prompt).toMatch(/same language the user wrote/i);
   });
 });
