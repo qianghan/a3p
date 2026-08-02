@@ -15,6 +15,8 @@ import { retrieveRelevantMemories, learnFromInteraction, learnVendorCategoryCorr
 import { detectCorrection } from './agent-corrections.js';
 import { carryForwardPeriod } from './period-parse.js';
 import { languageDirective } from './language.js';
+import { triageTurn } from './consultation-triage.js';
+import { reviewConsultation, repairBrief, safeFallback, type GroundingContext } from './consultation-review.js';
 import { BUILT_IN_SKILLS } from './built-in-skills.js';
 import { assessComplexity, generatePlan, formatPlan, createSession, getActiveSession, updateSession, executeStep, buildUndoAction, resolveStepParams } from './agent-planner.js';
 import { PlanStep, Evaluation, assessStepQuality, buildFinalEvaluation, formatEvaluation } from './agent-evaluator.js';
@@ -63,8 +65,12 @@ async function brainAccountantFallback(
   conversation: Array<{ question: string; answer: string }>,
   pastFilingContext?: string,
   personalProfileContext?: string,
-  tenantConfig?: { locale?: string | null } | null,
+  // `jurisdiction` is read by the consultation reviewer to decide which tax
+  // authority this answer may name. Callers already pass the whole
+  // AbTenantConfig row — the narrower type was simply under-declared.
+  tenantConfig?: { locale?: string | null; jurisdiction?: string | null } | null,
   tenantId?: string,
+  groundingFacts?: string[],
 ): Promise<string> {
   const convoSnippet = (conversation || [])
     .slice(0, 3)
@@ -106,7 +112,13 @@ async function brainAccountantFallback(
     // and hold it for the thread; see language.ts.
     languageDirective(tenantConfig),
   ].join('\n');
-  const extraContext = [personalProfileContext, pastFilingContext].filter(Boolean).join('\n\n');
+  // The same lines feed the model AND the reviewer. One source means what the
+  // model was told and what the verifier checks can never drift apart.
+  const groundingBlock = (groundingFacts ?? []).length > 0
+    ? `What you know about this user (assert nothing beyond it):\n${(groundingFacts ?? []).join('\n')}`
+    : '';
+  const extraContext = [groundingBlock, personalProfileContext, pastFilingContext]
+    .filter(Boolean).join('\n\n');
   const systemPrompt = extraContext ? `${baseSystemPrompt}\n\n${extraContext}` : baseSystemPrompt;
 
   const userMessage = [
@@ -116,10 +128,55 @@ async function brainAccountantFallback(
     'Respond now as the accountant assistant.',
   ].filter(Boolean).join('\n');
 
+  // Everything this answer is allowed to assert. Anything the model states
+  // beyond it was invented — see consultation-review.ts.
+  const grounding: GroundingContext = {
+    jurisdiction: tenantConfig?.jurisdiction || 'us',
+    facts: [
+      ...(groundingFacts ?? []),
+      personalProfileContext,
+      pastFilingContext,
+    ].filter(Boolean) as string[],
+  };
+
   try {
     const reply = await callGemini(systemPrompt, userMessage, 220);
-    if (reply && reply.trim()) {
-      return reply.trim().replace(/^```[a-z]*\n?/i, '').replace(/\n?```$/i, '').trim();
+    const draft = reply?.trim().replace(/^```[a-z]*\n?/i, '').replace(/\n?```$/i, '').trim();
+    if (draft) {
+      // Verify before the user sees it. This path is free-text out of an LLM
+      // straight into a financial conversation, and it is where the invented
+      // "save ~$800" and the IRS-quoted-to-a-Canadian both reached production.
+      const first = reviewConsultation(draft, grounding);
+      if (first.verdict === 'pass') return draft;
+
+      console.warn(
+        '[brainAccountantFallback] draft failed review:',
+        first.findings.map((f) => `${f.kind}(${f.span})`).join(', '),
+      );
+
+      // One repair attempt with a specific brief. Not a loop: if the model
+      // reaches for an invented figure twice, a third ask is not going to
+      // produce a grounded one, and each round is latency the user is waiting
+      // through.
+      try {
+        const repaired = (
+          await callGemini(`${systemPrompt}\n\n${repairBrief(first.findings)}`, userMessage, 220)
+        )?.trim();
+        if (repaired) {
+          const second = reviewConsultation(repaired, grounding);
+          if (second.verdict === 'pass') return repaired;
+          console.warn(
+            '[brainAccountantFallback] repair still failed:',
+            second.findings.map((f) => f.kind).join(', '),
+          );
+        }
+      } catch (repairErr) {
+        console.warn('[brainAccountantFallback] repair attempt failed:', repairErr);
+      }
+
+      // Unrepairable. Say less rather than shipping a confident wrong figure —
+      // an annoying answer is recoverable, a misfiled return is not.
+      return safeFallback(grounding.jurisdiction);
     }
     console.warn('[brainAccountantFallback] Gemini returned empty — using local fallback');
   } catch (err) {
@@ -186,6 +243,16 @@ interface AgentContext {
     channel: string,
     attachments?: any[],
   ) => Promise<any>;
+  /**
+   * Facts a consultative answer may assert — the tenant's ledger and profile,
+   * as plain lines. Supplied by the caller because it reads the database from
+   * apps/web-next, and this package must not depend on that direction.
+   *
+   * Optional: without it, consultative turns still work but the reviewer has
+   * nothing to verify against and will block any figure. Callers that want
+   * grounded advice must provide it.
+   */
+  buildGroundingFacts?: (tenantId: string) => Promise<string[]>;
 }
 
 interface AgentResponse {
@@ -1438,6 +1505,43 @@ async function handleAgentMessageCore(
     resolveReferents(text, conversation, threadTurns),
     conversation,
   );
+
+  // ── Step 2.6: Transaction or conversation? ────────────────────────────
+  //
+  // Decided BEFORE routing. The advisory path used to be reachable only when
+  // classification returned null, and with 86 skills competing something
+  // always matches a keyword — so "what are this year's new AU tax rules?"
+  // was handed to a data skill and answered "I don't have anything to show
+  // for that right now."
+  //
+  // Note this is deliberately NOT a third destination for questions about the
+  // user's own books: "how much did I spend last month?" stays on the skill
+  // path, because query-expenses can answer it from the ledger and the
+  // advisor cannot. See consultation-triage.ts.
+  const triage = triageTurn(resolvedText);
+  if (triage.kind === 'consultative') {
+    let groundingFacts: string[] = [];
+    if (ctx.buildGroundingFacts) {
+      try {
+        groundingFacts = await ctx.buildGroundingFacts(tenantId);
+      } catch (e) {
+        // Partial grounding beats none — the reviewer blocks whatever cannot
+        // be supported, so this degrades the answer rather than the request.
+        console.warn('[brain] grounding unavailable:', e);
+      }
+    }
+    const answer = await brainAccountantFallback(
+      ctx.callGemini, resolvedText, conversation, pastFilingContext,
+      personalProfileContext, tenantConfig, tenantId, groundingFacts,
+    );
+    await updateThreadTurns(activeThread, text, answer, 'consultation');
+    return buildResponse({
+      message: answer,
+      skillUsed: 'consultation',
+      confidence: 1,
+      latencyMs: Date.now() - startTime,
+    });
+  }
 
   // ── Step 3a: Classify ONLY (no side effects) ──────────────────────────
   // PR 9 (G-010): split classification from execution so destructive actions
