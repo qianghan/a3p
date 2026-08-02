@@ -8,118 +8,111 @@
  * cost a real misroute that stayed live after its fix had shipped: "how much
  * will I owe in taxes this quarter?" answered with accounts payable.
  *
- * The reconciliation has three properties, and getting any of them wrong would
+ * The reconciliation has four properties, and getting any of them wrong would
  * be worse than the footgun it replaces:
  *
  *   1. definition fields for global built-in rows come from CODE
- *   2. `enabled` still comes from the DB — it is the admin toggle
+ *   2. a skill the admin disabled stays gone — that toggle is the DB's
  *   3. tenant-scoped and non-built-in rows are untouched
+ *   4. a built-in with no row at all is still usable
  *
- * Asserted here as a pure function of the merge inputs, so the properties are
- * pinned without standing up Prisma or the whole agent.
+ * These now run against the real `reconcileSkills`. They used to run against a
+ * hand-written mirror of it declared in this file, which is the reason the
+ * whole mechanism could be dead in production while this suite stayed green:
+ * the mirror was correct, and nothing here ever touched the code that shipped.
+ * Property 4 is new and is the one the mirror could never have caught —
+ * `set-vendor-alias` had no row, so it was invisible to the classifier.
  */
 import { describe, it, expect } from 'vitest';
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { reconcileSkills } from '@agentbook-core/skill-source';
+import { BUILT_IN_SKILLS } from '@agentbook-core/built-in-skills';
 
-const ROUTE = readFileSync(
-  join(__dirname, '../../../../app/api/v1/agentbook-core/agent/message/route.ts'),
-  'utf8',
-);
+type Row = Record<string, any>;
 
-/** Mirror of the reconciliation in the route, exercised over crafted rows. */
-type Row = {
-  name: string;
-  tenantId: string | null;
-  source: string;
-  enabled: boolean;
-  triggerPatterns: string[];
-  excludePatterns: string[];
-};
-function reconcile(rows: Row[], code: Record<string, Partial<Row>>): Row[] {
-  const byName = new Map(Object.entries(code));
-  return rows.map((row) => {
-    if (row.tenantId !== null || row.source !== 'built_in') return row;
-    const c = byName.get(row.name);
-    if (!c) return row;
-    return {
-      ...row,
-      triggerPatterns: (c.triggerPatterns as string[]) ?? row.triggerPatterns,
-      excludePatterns: (c.excludePatterns as string[]) ?? row.excludePatterns,
-    };
-  });
+const CODE_MANAGE_BILLS = BUILT_IN_SKILLS.find((s) => s.name === 'manage-bills') as Row;
+
+function row(over: Partial<Row> = {}): Row {
+  return {
+    id: 'row-1',
+    name: 'manage-bills',
+    tenantId: null,
+    source: 'built_in',
+    enabled: true,
+    description: 'stale',
+    category: 'stale',
+    triggerPatterns: ['stale-db-pattern'],
+    requirePatterns: [],
+    excludePatterns: [],
+    parameters: {},
+    endpoint: null,
+    responseTemplate: null,
+    confirmBefore: false,
+    ...over,
+  };
 }
+const only = (rows: Row[], name = 'manage-bills') =>
+  reconcileSkills(rows).filter((s) => s.name === name);
 
-const CODE = {
-  'manage-bills': { triggerPatterns: ['bills?.*due'], excludePatterns: ['owe.*tax'] },
-};
-
-describe('skill reconciliation', () => {
-  it('takes patterns from code for a global built-in row', () => {
-    const [out] = reconcile(
-      [{
-        name: 'manage-bills', tenantId: null, source: 'built_in', enabled: true,
-        triggerPatterns: ['bills? due'],       // the STALE DB value
-        excludePatterns: [],                    // DB never had the tax exclude
-      }],
-      CODE,
-    );
-    expect(out.triggerPatterns).toEqual(['bills?.*due']);
-    expect(out.excludePatterns).toEqual(['owe.*tax']);
+describe('code wins for global built-ins', () => {
+  it('takes the definition from code, not the stale row', () => {
+    const [out] = only([row()]);
+    expect(out.triggerPatterns).toEqual(CODE_MANAGE_BILLS.triggerPatterns);
+    expect(out.triggerPatterns).not.toContain('stale-db-pattern');
+    expect(out.description).toBe(CODE_MANAGE_BILLS.description);
   });
 
-  it('does NOT override the admin enabled toggle', () => {
-    // Someone disabled this skill in the admin UI. Code must not resurrect it.
-    const [out] = reconcile(
-      [{
-        name: 'manage-bills', tenantId: null, source: 'built_in', enabled: false,
-        triggerPatterns: ['old'], excludePatterns: [],
-      }],
-      CODE,
-    );
-    expect(out.enabled).toBe(false);
-    expect(out.triggerPatterns).toEqual(['bills?.*due']); // definition still updated
-  });
-
-  it('leaves a tenant-scoped row completely alone', () => {
-    const row: Row = {
-      name: 'manage-bills', tenantId: 'tenant-7', source: 'built_in', enabled: true,
-      triggerPatterns: ['tenant custom'], excludePatterns: ['tenant exclude'],
-    };
-    expect(reconcile([row], CODE)[0]).toEqual(row);
-  });
-
-  it('leaves a non-built-in row completely alone', () => {
-    const row: Row = {
-      name: 'manage-bills', tenantId: null, source: 'custom', enabled: true,
-      triggerPatterns: ['hand written'], excludePatterns: [],
-    };
-    expect(reconcile([row], CODE)[0]).toEqual(row);
-  });
-
-  it('leaves a DB row with no code counterpart alone', () => {
-    const row: Row = {
-      name: 'some-removed-skill', tenantId: null, source: 'built_in', enabled: true,
-      triggerPatterns: ['still here'], excludePatterns: [],
-    };
-    expect(reconcile([row], CODE)[0]).toEqual(row);
+  it('keeps the row identity — this is an override, not a replacement', () => {
+    const [out] = only([row({ id: 'row-xyz' })]);
+    expect(out.id).toBe('row-xyz');
   });
 });
 
-describe('the route actually wires it', () => {
-  it('reconciles rather than trusting dbSkills directly', () => {
-    // The regression is literally spreading dbSkills into the skill list.
-    expect(ROUTE).toMatch(/const skills = \[\.\.\.reconciled, \.\.\.fallbackSkills\]/);
-    expect(ROUTE).not.toMatch(/const skills = \[\.\.\.dbSkills, \.\.\.fallbackSkills\]/);
+describe('what the DB still owns', () => {
+  it('a skill the admin disabled does not come back', () => {
+    // The row is dropped rather than returned with enabled:false. Nothing
+    // downstream re-checks the flag — classification routes to anything in the
+    // array — so returning it would be the same as ignoring the toggle.
+    expect(only([row({ enabled: false })])).toEqual([]);
   });
 
-  it('guards on both tenantId and source before overriding', () => {
-    expect(ROUTE).toMatch(/row\.tenantId !== null \|\| row\.source !== 'built_in'/);
+  it('and is not resurrected by the code fallback either', () => {
+    // The subtle half of #427: "disabled" and "no row" must not look alike to
+    // the fallback, or switching a skill off silently switches it back on.
+    const out = reconcileSkills([row({ enabled: false })]);
+    expect(out.map((s) => s.name)).not.toContain('manage-bills');
   });
 
-  it('never assigns enabled inside the reconciliation', () => {
-    const i = ROUTE.indexOf('const reconciled =');
-    const block = ROUTE.slice(i, ROUTE.indexOf('const seenNames', i));
-    expect(block).not.toMatch(/^\s*enabled:/m);
+  it('leaves a tenant-scoped row completely alone', () => {
+    const r = row({ tenantId: 'tenant-7', triggerPatterns: ['tenant custom'] });
+    expect(only([r])[0]).toEqual(r);
+  });
+
+  it('leaves a non-built-in row completely alone', () => {
+    const r = row({ source: 'custom', triggerPatterns: ['hand written'] });
+    expect(only([r])[0]).toEqual(r);
+  });
+
+  it('leaves a row with no code counterpart alone', () => {
+    const r = row({ name: 'some-removed-skill', triggerPatterns: ['still here'] });
+    expect(only([r], 'some-removed-skill')[0]).toEqual(r);
+  });
+});
+
+describe('a built-in with no row is still usable', () => {
+  it('is present, enabled, and carries its code definition', () => {
+    const out = reconcileSkills([]);
+    const names = out.map((s) => s.name);
+    for (const s of BUILT_IN_SKILLS) expect(names).toContain(s.name);
+
+    const added = out.find((s) => s.name === 'manage-bills')!;
+    expect(added.enabled).toBe(true);
+    expect(added.source).toBe('built_in');
+    expect(added.tenantId).toBeNull();
+    expect(added.triggerPatterns).toEqual(CODE_MANAGE_BILLS.triggerPatterns);
+  });
+
+  it('does not duplicate a built-in that already has a row', () => {
+    const out = reconcileSkills([row()]);
+    expect(out.filter((s) => s.name === 'manage-bills')).toHaveLength(1);
   });
 });

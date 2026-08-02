@@ -22,6 +22,7 @@ import crypto from 'node:crypto';
 import { prisma as db } from '@naap/database';
 import { handleAgentMessage } from '@agentbook-core/agent-brain';
 import { callGemini, classifyAndExecuteV1, classifyOnly, executeClassification } from '@agentbook-core/server';
+import { reconcileSkills, SKILL_QUERY } from '@agentbook-core/skill-source';
 import { WhatsAppAdapter } from '@/lib/agentbook-chat-adapter';
 import { getAppBaseUrl, getPluginBaseUrls } from '@/lib/agentbook-config';
 import { generateFilingDraft } from '@/lib/tax-fast-track-draft';
@@ -87,13 +88,10 @@ const LINK_CODE_PATTERN = /^LINK-[A-Z0-9]{6}$/;
 /** Run the agent-brain pipeline for a WhatsApp message — same pipeline Telegram uses. */
 async function callAgentBrain(tenantId: string, phoneNumber: string, text: string): Promise<string> {
   try {
-    const skills = await db.abSkillManifest.findMany({
-      where: { enabled: true, OR: [{ tenantId: null }, { tenantId }] },
-      // Deterministic array order — routing takes the first matching skill, and
-      // passing `skills` here means agent-brain's own ordered fetch never runs.
-      // Same reasoning as the Telegram webhook (Launch-gap PR-5).
-      orderBy: { name: 'asc' },
-    });
+    // ctx.skills feeds plan execution only — the classifier routes against
+    // the array agent-brain builds itself. reconcileSkills keeps the two in
+    // agreement so a code-only built-in is executable as well as routable.
+    const skills = reconcileSkills(await db.abSkillManifest.findMany(SKILL_QUERY(tenantId)));
     const baseUrls = getPluginBaseUrls(getAppBaseUrl());
     const result = await handleAgentMessage(
       { text, tenantId, channel: 'whatsapp', chatId: phoneNumber },
