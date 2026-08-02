@@ -17,6 +17,7 @@
 import 'server-only';
 import { after, NextRequest, NextResponse } from 'next/server';
 import { handleAgentMessage } from '@agentbook-core/agent-brain';
+import { buildGroundingFacts } from '@/lib/agentbook-grounding';
 import {
   callGemini,
   classifyAndExecuteV1,
@@ -206,6 +207,11 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         classifyAndExecuteV1,
         classifyOnly,
         executeClassification,
+        // Ledger facts for consultative turns. Supplied here because it reads
+        // the database, and agentbook-core must not depend on apps/web-next.
+        // Called only when the turn is triaged as consultation, so it costs
+        // nothing on the transactional path.
+        buildGroundingFacts,
       },
     );
 

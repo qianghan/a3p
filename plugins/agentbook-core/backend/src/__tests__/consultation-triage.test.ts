@@ -64,13 +64,17 @@ describe('questions about the user\'s OWN books stay on the skill path', () => {
   });
 });
 
-describe('the tie-break favours answering, because the costs are not symmetric', () => {
-  // Answering something that was an instruction wastes a turn. Booking
-  // something that was a question puts a wrong number in the books — which is
-  // exactly what "是的" did against a stale draft.
-  it('an unrecognised longer sentence is consultative', () => {
+describe('ambiguity stays with the skill layer', () => {
+  // This block asserted the opposite until the existing suite corrected me.
+  // I had reasoned that booking a wrong expense is worse than wasting a turn,
+  // so ambiguity should divert to the advisor. That was faulty: the skill
+  // layer does not book blindly — it gates destructive actions behind
+  // confirmation, previews low-confidence intents, has its own clarify path,
+  // and scores 97.5%. Diverting ambiguous input replaced a well-tested
+  // classifier with a regex file, and four established tests failed at once.
+  it('an unrecognised sentence keeps its existing route', () => {
     expect(kind('I have been wondering about the whole superannuation situation lately'))
-      .toBe('consultative');
+      .toBe('transactional');
   });
 
   it('a bare question mark in any script is consultative', () => {
@@ -95,7 +99,10 @@ describe('the tie-break favours answering, because the costs are not symmetric',
     // Caught by "这个可以抵扣吗" ("can this be deducted?") triaging as an
     // expense — which would have mis-handled most Chinese input in the product.
     expect(kind('这个可以抵扣吗')).toBe('consultative');
-    expect(kind('我今年需要交多少税')).toBe('consultative');
+    // "我今年需要交多少税" ("how much tax do I owe this year?") is a question
+    // about THEIR OWN tax — the skill layer answers that from the ledger, so
+    // it belongs there, same as "how much did I spend?".
+    expect(kind('我今年需要交多少税')).toBe('transactional');
     // A genuinely short CJK capture still reads as one.
     expect(kind('咖啡 12')).toBe('transactional');
   });

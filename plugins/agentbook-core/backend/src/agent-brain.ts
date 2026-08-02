@@ -70,6 +70,7 @@ async function brainAccountantFallback(
   // AbTenantConfig row — the narrower type was simply under-declared.
   tenantConfig?: { locale?: string | null; jurisdiction?: string | null } | null,
   tenantId?: string,
+  groundingFacts?: string[],
 ): Promise<string> {
   const convoSnippet = (conversation || [])
     .slice(0, 3)
@@ -111,7 +112,13 @@ async function brainAccountantFallback(
     // and hold it for the thread; see language.ts.
     languageDirective(tenantConfig),
   ].join('\n');
-  const extraContext = [personalProfileContext, pastFilingContext].filter(Boolean).join('\n\n');
+  // The same lines feed the model AND the reviewer. One source means what the
+  // model was told and what the verifier checks can never drift apart.
+  const groundingBlock = (groundingFacts ?? []).length > 0
+    ? `What you know about this user (assert nothing beyond it):\n${(groundingFacts ?? []).join('\n')}`
+    : '';
+  const extraContext = [groundingBlock, personalProfileContext, pastFilingContext]
+    .filter(Boolean).join('\n\n');
   const systemPrompt = extraContext ? `${baseSystemPrompt}\n\n${extraContext}` : baseSystemPrompt;
 
   const userMessage = [
@@ -125,7 +132,11 @@ async function brainAccountantFallback(
   // beyond it was invented — see consultation-review.ts.
   const grounding: GroundingContext = {
     jurisdiction: tenantConfig?.jurisdiction || 'us',
-    facts: [personalProfileContext, pastFilingContext].filter(Boolean) as string[],
+    facts: [
+      ...(groundingFacts ?? []),
+      personalProfileContext,
+      pastFilingContext,
+    ].filter(Boolean) as string[],
   };
 
   try {
@@ -232,6 +243,16 @@ interface AgentContext {
     channel: string,
     attachments?: any[],
   ) => Promise<any>;
+  /**
+   * Facts a consultative answer may assert — the tenant's ledger and profile,
+   * as plain lines. Supplied by the caller because it reads the database from
+   * apps/web-next, and this package must not depend on that direction.
+   *
+   * Optional: without it, consultative turns still work but the reviewer has
+   * nothing to verify against and will block any figure. Callers that want
+   * grounded advice must provide it.
+   */
+  buildGroundingFacts?: (tenantId: string) => Promise<string[]>;
 }
 
 interface AgentResponse {
@@ -1484,6 +1505,43 @@ async function handleAgentMessageCore(
     resolveReferents(text, conversation, threadTurns),
     conversation,
   );
+
+  // ── Step 2.6: Transaction or conversation? ────────────────────────────
+  //
+  // Decided BEFORE routing. The advisory path used to be reachable only when
+  // classification returned null, and with 86 skills competing something
+  // always matches a keyword — so "what are this year's new AU tax rules?"
+  // was handed to a data skill and answered "I don't have anything to show
+  // for that right now."
+  //
+  // Note this is deliberately NOT a third destination for questions about the
+  // user's own books: "how much did I spend last month?" stays on the skill
+  // path, because query-expenses can answer it from the ledger and the
+  // advisor cannot. See consultation-triage.ts.
+  const triage = triageTurn(resolvedText);
+  if (triage.kind === 'consultative') {
+    let groundingFacts: string[] = [];
+    if (ctx.buildGroundingFacts) {
+      try {
+        groundingFacts = await ctx.buildGroundingFacts(tenantId);
+      } catch (e) {
+        // Partial grounding beats none — the reviewer blocks whatever cannot
+        // be supported, so this degrades the answer rather than the request.
+        console.warn('[brain] grounding unavailable:', e);
+      }
+    }
+    const answer = await brainAccountantFallback(
+      ctx.callGemini, resolvedText, conversation, pastFilingContext,
+      personalProfileContext, tenantConfig, tenantId, groundingFacts,
+    );
+    await updateThreadTurns(activeThread, text, answer, 'consultation');
+    return buildResponse({
+      message: answer,
+      skillUsed: 'consultation',
+      confidence: 1,
+      latencyMs: Date.now() - startTime,
+    });
+  }
 
   // ── Step 3a: Classify ONLY (no side effects) ──────────────────────────
   // PR 9 (G-010): split classification from execution so destructive actions

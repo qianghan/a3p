@@ -73,7 +73,59 @@ describe('the advisory path verifies before it answers', () => {
     expect(fallbackBody).toMatch(/jurisdiction:\s*tenantConfig\?\.jurisdiction/);
   });
 
-  it('grounds on the context actually supplied to the model', () => {
-    expect(fallbackBody).toMatch(/facts:\s*\[personalProfileContext,\s*pastFilingContext\]/);
+  it('grounds on the ledger facts AND the context supplied to the model', () => {
+    // Widened deliberately when the grounding pack landed: the tenant's own
+    // ledger lines now lead, so an answer can cite real figures instead of
+    // being blocked for having no support. The guard failing on that change
+    // is the guard working — it is asserting the exact shape of what the
+    // reviewer verifies against.
+    expect(fallbackBody).toMatch(/facts:\s*\[[\s\S]{0,120}groundingFacts/);
+    expect(fallbackBody).toMatch(/personalProfileContext/);
+    expect(fallbackBody).toMatch(/pastFilingContext/);
+  });
+
+  it('feeds the model the SAME lines the reviewer checks against', () => {
+    // If the prompt context and the verifier's fact list can diverge, the
+    // model gets told things the reviewer will then block — the worst of both.
+    expect(fallbackBody).toMatch(/groundingBlock/);
+  });
+});
+
+describe('triage actually decides the route', () => {
+  // consultation-triage.test.ts has 38 tests on the classifier. Not one of
+  // them can tell you the pipeline CALLS it — delete the call and all 38 stay
+  // green while every advisory question goes back to a data skill. That exact
+  // shape has now bitten twice in this codebase (period-parse, and the
+  // reviewer above), so it gets a guard rather than a comment.
+  const brainSource = code;
+
+  it('triages before classification, not after routing fails', () => {
+    const triageAt = brainSource.indexOf('triageTurn(');
+    const classifyAt = brainSource.indexOf('ctx.classifyOnly');
+    expect(triageAt, 'triageTurn must be called').toBeGreaterThan(-1);
+    expect(classifyAt).toBeGreaterThan(-1);
+    expect(
+      triageAt,
+      'triage must run BEFORE classification — running it after is the bug it fixes',
+    ).toBeLessThan(classifyAt);
+  });
+
+  it('a consultative turn returns without touching the skill layer', () => {
+    const branch = brainSource.slice(brainSource.indexOf("triage.kind === 'consultative'"));
+    const head = branch.slice(0, 1400);
+    expect(head).toMatch(/brainAccountantFallback\(/);
+    expect(head).toMatch(/return buildResponse\(/);
+  });
+
+  it('passes the tenant ledger facts into the advisory answer', () => {
+    const branch = brainSource.slice(brainSource.indexOf("triage.kind === 'consultative'"));
+    expect(branch.slice(0, 1400)).toMatch(/buildGroundingFacts\(tenantId\)/);
+  });
+
+  it('a grounding failure degrades the answer rather than the request', () => {
+    // Throwing here would turn a chat message into a 500 for something that is
+    // only context. The reviewer already blocks whatever cannot be supported.
+    const branch = brainSource.slice(brainSource.indexOf('ctx.buildGroundingFacts'));
+    expect(branch.slice(0, 400)).toMatch(/catch/);
   });
 });

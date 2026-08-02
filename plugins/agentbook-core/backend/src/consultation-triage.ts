@@ -26,6 +26,10 @@ const TRANSACTIONAL = [
   /^\/\w+/,                                   // slash commands
   /\b(?:invoice|bill)\s+[A-Z][\w&'. ]{1,30}\s+[$£€]?\d/i,
   /\b\d+(?:\.\d+)?\s?(?:miles|km|kilometres|kilometers|hours|hrs)\b/i,
+  // A currency amount anywhere at all. "maybe log something for $5" carries no
+  // imperative the patterns above recognise, but nobody types a dollar figure
+  // to ask a general question about tax law.
+  /[$£€]\s?\d/,
 ];
 
 /**
@@ -97,6 +101,15 @@ const DATA_QUESTION = [
   /\b(?:my|i)\b[^.?!]{0,40}\b(?:spend|spent|spending|owe[ds]?|balance|revenue|profit|income|expenses?|invoices?|receipts?|vendors?|clients?|budget|payroll|mileage|deduction|refund|estimate)\b/i,
   // receivables/payables phrasing that uses "me", not "my"
   /\b(?:who owes|owes me|i owe|owed to me|outstanding|unpaid|overdue)\b/i,
+  // Possessive interrogatives — "what is my X", "is my X ready", "how is my X".
+  // The user is asking about a thing they own, which lives in the ledger, not
+  // about a rule. Caught by 'what is my bank reconciliation status' and
+  // 'is my tax draft ready' diverting to the advisor and breaking two
+  // established tests.
+  // POSSESSIVE only — not "the". "what are THE new tax rules" is a question
+  // about rules, not about anything the user owns, and including "the" here
+  // swept the original reported utterance back onto the skill path.
+  /^\s*(?:what(?:'?s| is| are)?|how(?:'?s| is| many| much)?|is|are|do i have|when(?:'?s| is)?)\s+my\b/i,
   // report verbs
   /^\s*(?:show|list|give me|what'?s my|whats my|how many|how much (?:did|do|have|is|are))\b/i,
   /\b(?:top|biggest|largest|most)\s+(?:vendors?|clients?|expenses?|categor)/i,
@@ -114,13 +127,23 @@ export interface TriageResult {
 }
 
 /**
- * Ambiguity resolves to CONSULTATIVE.
+ * Ambiguity stays with the SKILL LAYER.
  *
- * Answering a question that turned out to be an instruction wastes a turn and
- * the user repeats themselves. Booking an expense that turned out to be a
- * question puts a wrong number in someone's books — which is what happened
- * when "是的" was read as confirming a stale draft. The costs are not
- * symmetric, so the default is not either.
+ * My first version defaulted the other way, reasoning that booking a wrong
+ * expense is worse than wasting a turn. That reasoning was faulty: the skill
+ * layer does not book blindly. It gates destructive actions behind
+ * confirmation, previews low-confidence intents instead of executing them, and
+ * has its own clarify path — and it scores 97.5% on the canonical eval. Taking
+ * ambiguous input away from it replaces a well-tested classifier with a
+ * two-page regex file.
+ *
+ * The existing suite said so immediately: 'maybe log something for $5',
+ * 'something vague' and a bank-reconciliation question all diverted to the
+ * advisor and four established tests failed.
+ *
+ * So this only ever DIVERTS on positive evidence that the user wants an
+ * explanation. Everything else routes exactly as it did before, which makes
+ * the change additive rather than a rewrite of routing.
  */
 export function triageTurn(text: string): TriageResult {
   const t = (text ?? '').trim();
@@ -166,5 +189,5 @@ export function triageTurn(text: string): TriageResult {
     return { kind: 'transactional', reason: 'short fragment, typical of quick capture' };
   }
 
-  return { kind: 'consultative', reason: 'no transactional signal (ambiguity favours answering)' };
+  return { kind: 'transactional', reason: 'no consultative signal — leave it with the skill layer' };
 }
