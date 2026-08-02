@@ -257,6 +257,11 @@ export const CANONICAL: CanonicalUtterance[] = [
     // claim. The agent answers tax-deductions, which shows their own claimable
     // deductions — the wrong shape of answer to a knowledge question.
     expectedSkill: 'general-question',
+    // 'consultation' is the finer skill that replaced general-question for
+    // advisory turns. Exactly the case acceptableSkills was introduced for:
+    // splitting one coarse skill into two finer ones breaks a strict
+    // assertion even though the agent got BETTER at the question.
+    acceptableSkills: ['consultation'],
   },
   {
     id: 'cu-maya-041',
@@ -264,6 +269,11 @@ export const CANONICAL: CanonicalUtterance[] = [
     text: 'do I need to register for GST?',
     category: 'consultation',
     expectedSkill: 'general-question',
+    // 'consultation' is the finer skill that replaced general-question for
+    // advisory turns. Exactly the case acceptableSkills was introduced for:
+    // splitting one coarse skill into two finer ones breaks a strict
+    // assertion even though the agent got BETTER at the question.
+    acceptableSkills: ['consultation'],
   },
   {
     id: 'cu-jordan-040',
@@ -271,6 +281,11 @@ export const CANONICAL: CanonicalUtterance[] = [
     text: 'should I incorporate?',
     category: 'consultation',
     expectedSkill: 'general-question',
+    // 'consultation' is the finer skill that replaced general-question for
+    // advisory turns. Exactly the case acceptableSkills was introduced for:
+    // splitting one coarse skill into two finer ones breaks a strict
+    // assertion even though the agent got BETTER at the question.
+    acceptableSkills: ['consultation'],
   },
   {
     id: 'cu-jordan-041',
@@ -278,6 +293,11 @@ export const CANONICAL: CanonicalUtterance[] = [
     text: 'what is depreciation?',
     category: 'consultation',
     expectedSkill: 'general-question',
+    // 'consultation' is the finer skill that replaced general-question for
+    // advisory turns. Exactly the case acceptableSkills was introduced for:
+    // splitting one coarse skill into two finer ones breaks a strict
+    // assertion even though the agent got BETTER at the question.
+    acceptableSkills: ['consultation'],
   },
 
   // ============================================================
