@@ -5131,6 +5131,76 @@ async function _executeClassificationCore(
   // These skills previously made HTTP self-calls to /advisor/ask which fail on
   // Vercel because VERCEL_URL resolves to a deployment-specific URL and the
   // loopback has auth/routing issues. Query the DB directly instead.
+  // INTERNAL handler: set-vendor-alias — "SBUX is Starbucks".
+  //
+  // Bank feeds emit cryptic vendor strings and every report inherits them.
+  // Renaming works because vendors are keyed on `normalizedName`: we change
+  // the DISPLAY name and leave the key alone, so every existing expense
+  // re-labels AND the next "SBUX" import finds the same row and shows the
+  // friendly name. No alias table, no migration.
+  //
+  // The DB is the guard, not the regex. "X is Y" is how people actually say
+  // this, and it is also how they say "this is fine" — so the handler acts
+  // only when a vendor with that normalized name really exists, and otherwise
+  // returns null to fall through to normal classification.
+  if (selectedSkill.name === 'set-vendor-alias') {
+    try {
+      const text0 = String(extractedParams.question || text || '');
+      const m =
+        text0.match(/^\s*(?:vendor|merchant)?\s*["']?([\w&'. -]{1,40}?)["']?\s+(?:is|=|means)\s+["']?(.+?)["']?\s*$/i)
+        || text0.match(/^\s*rename\s+["']?([\w&'. -]{1,40}?)["']?\s+to\s+["']?(.+?)["']?\s*$/i);
+      if (!m) return null;
+
+      const fromRaw = m[1].trim();
+      const toRaw = m[2].trim().replace(/[.!]+$/, '');
+      const norm = (v: string) => v.toLowerCase().replace(/[^a-z0-9]/g, '').trim();
+      const fromKey = norm(fromRaw);
+      if (!fromKey || !toRaw || toRaw.length > 60) return null;
+
+      const vendor = await db.abVendor.findFirst({
+        where: { tenantId, normalizedName: fromKey, deletedAt: null },
+        select: { id: true, name: true },
+      });
+      // No such vendor — this was almost certainly not a rename. Fall through
+      // rather than guess.
+      if (!vendor) return null;
+      if (vendor.name === toRaw) {
+        const already = `${toRaw} is already what I call that one.`;
+        return {
+          selectedSkill, extractedParams, confidence, skillUsed: selectedSkill.name,
+          skillResponse: { success: true, data: { answer: already } },
+          responseData: { message: already, actions: [], skillUsed: selectedSkill.name, confidence, latencyMs: Date.now() - startTime },
+        };
+      }
+
+      // Display name only. normalizedName stays as the matching key so future
+      // imports of the cryptic string land on this same row.
+      await db.abVendor.update({ where: { id: vendor.id }, data: { name: toRaw } });
+
+      const affected = await db.abExpense.count({
+        where: { tenantId, vendorId: vendor.id, deletedAt: null },
+      });
+
+      const message =
+        `Got it — ${fromRaw} is ${toRaw}. I've renamed it` +
+        (affected > 0 ? ` on ${affected} transaction${affected === 1 ? '' : 's'}` : '') +
+        `, and I'll use ${toRaw} for future ${fromRaw} charges too.`;
+
+      await db.abConversation.create({
+        data: { tenantId, question: text0, answer: message, queryType: 'agent', channel, skillUsed: selectedSkill.name },
+      }).catch(() => {});
+
+      return {
+        selectedSkill, extractedParams, confidence, skillUsed: selectedSkill.name,
+        skillResponse: { success: true, data: { answer: message, vendorId: vendor.id } },
+        responseData: { message, actions: [], skillUsed: selectedSkill.name, confidence, latencyMs: Date.now() - startTime },
+      };
+    } catch (err) {
+      console.error('[set-vendor-alias] inline handler error:', err);
+      return null;
+    }
+  }
+
   if (['query-expenses', 'vendor-insights', 'expense-breakdown'].includes(selectedSkill.name)) {
     try {
       const question = String(extractedParams.question || text || '');

@@ -226,6 +226,32 @@ export const BUILT_IN_SKILLS = [
     endpoint: { method: 'GET', url: '/api/v1/agentbook-expense/recurring-suggestions' },
   },
   {
+    // Bank feeds emit cryptic vendor strings — SBUX, AMZN MKTP, SQ *COFFEE —
+    // and every one of them shows up in the user's reports looking like that.
+    // Letting them say it once, in passing, is the natural fix.
+    //
+    // The trigger is deliberately loose ("X is Y") because that IS how people
+    // say it, and deliberately verified: the inline handler only acts when a
+    // vendor with that normalized name actually exists, and otherwise falls
+    // through to normal classification. Pattern proposes, database disposes —
+    // without that, "this is fine" would be a rename.
+    name: 'set-vendor-alias',
+    description: 'Rename a vendor, or tell the agent that one vendor name means another (e.g. "SBUX is Starbucks")',
+    category: 'bookkeeping',
+    triggerPatterns: [
+      '^[a-z0-9][\\w&\'. -]{0,30}\\s+(?:is|=|means)\\s+\\S',
+      'rename\\s+\\S+\\s+to\\s+\\S',
+      '(?:vendor|merchant)\\s+\\S+\\s+(?:is|means)\\s+\\S',
+    ],
+    excludePatterns: [
+      // Pronouns and judgements are not vendor names.
+      '^(?:this|that|it|there|here|everything|nothing|which|what|who|why|how)\\b',
+      '\\b(?:is|was)\\s+(?:fine|ok|okay|right|wrong|correct|good|bad|done|ready|personal|business)\\b',
+    ],
+    parameters: { question: { type: 'string', required: true, extractHint: 'the full user message' } },
+    endpoint: { method: 'POST', url: '/api/v1/agentbook-expense/advisor/ask' },
+  },
+  {
     name: 'vendor-insights', description: 'Show spending patterns by vendor — who you spend most with, trends, top vendors by amount', category: 'insights',
     triggerPatterns: ['vendor.*pattern', 'vendor.*trend', 'vendor.*insight'],
     parameters: { question: { type: 'string', required: true, extractHint: 'the full user message' } },
