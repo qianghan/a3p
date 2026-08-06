@@ -72,6 +72,21 @@ async function brainAccountantFallback(
   tenantConfig?: { locale?: string | null; jurisdiction?: string | null } | null,
   tenantId?: string,
   groundingFacts?: string[],
+  /**
+   * Which job this is.
+   *
+   * 'unclear' is what this function was built for: the classifier returned
+   * nothing, so tell the user so and ask a good question.
+   *
+   * 'consultation' is a turn triage sent here deliberately (#439) because the
+   * user asked something advisory. Answering that with the didn't-understand
+   * prompt told the model it had failed to understand a question it had
+   * understood — and it dutifully replied "I can't give tax advice on whether
+   * you can deduct a home office. I can help you track your home office
+   * expenses." Five for five on production. Same reviewer, same grounding,
+   * different framing.
+   */
+  mode: 'unclear' | 'consultation' = 'unclear',
 ): Promise<string> {
   const convoSnippet = (conversation || [])
     .slice(0, 3)
@@ -91,7 +106,35 @@ async function brainAccountantFallback(
     }
   }
 
-  const baseSystemPrompt = [
+  // The advisory prompt. Its whole job is the opposite of the one below: the
+  // user's question was understood, and they want it answered.
+  //
+  // The accuracy rules are stated here as well as enforced by
+  // consultation-review.ts on the way out. That duplication is deliberate —
+  // the reviewer can only delete a bad answer, and an answer deleted is a
+  // question unanswered. Telling the model the same rules up front is what
+  // makes a REVIEWED answer more likely than a BLOCKED one.
+  const consultationPrompt = [
+    identityLine,
+    'The user is asking you to explain something about tax, accounting, or their finances. Answer it.',
+    '',
+    'How to answer:',
+    '  • Explain the rule or the idea in plain English, for their jurisdiction, the way an experienced accountant would explain it to a client.',
+    '  • Say what it depends on and what the usual conditions are.',
+    '  • Explaining how something works is NOT personalised advice. Do not decline to explain a general rule, and never open with "I can\'t give tax advice".',
+    '  • If the answer turns on facts you do not have, give the general rule FIRST and then ask one narrowing question. Never ask instead of answering.',
+    '  • For an actual filing or legal decision, say once — briefly, not as a disclaimer paragraph — that they should confirm it with a licensed professional.',
+    '',
+    'Accuracy, which is what makes the answer worth reading:',
+    '  • Never invent figures. Do not state a dollar amount about this user unless it appears in the facts below.',
+    '  • Do not quote a specific rate, threshold or dollar limit unless it is in the data supplied below. Describe it qualitatively instead ("there is an annual cap", "the rate depends on your bracket").',
+    '  • Name only this user\'s own tax authority. Never another country\'s.',
+    '',
+    'Style: plain conversational text, 2–5 sentences, no markdown bullets, never say "I am an AI".',
+    languageDirective(tenantConfig),
+  ].join('\n');
+
+  const unclearPrompt = [
     identityLine,
     'You could not confidently understand the user\'s intent.',
     '',
@@ -113,6 +156,8 @@ async function brainAccountantFallback(
     // and hold it for the thread; see language.ts.
     languageDirective(tenantConfig),
   ].join('\n');
+
+  const baseSystemPrompt = mode === 'consultation' ? consultationPrompt : unclearPrompt;
   // The same lines feed the model AND the reviewer. One source means what the
   // model was told and what the verifier checks can never drift apart.
   const groundingBlock = (groundingFacts ?? []).length > 0
@@ -1540,6 +1585,7 @@ async function handleAgentMessageCore(
     const answer = await brainAccountantFallback(
       ctx.callGemini, resolvedText, conversation, pastFilingContext,
       personalProfileContext, tenantConfig, tenantId, groundingFacts,
+      'consultation',
     );
     await updateThreadTurns(activeThread, text, answer, 'consultation');
     return buildResponse({
