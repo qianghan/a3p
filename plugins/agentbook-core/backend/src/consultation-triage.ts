@@ -77,6 +77,19 @@ const STRONG_CONSULTATIVE = [
   // mistake as the month matcher and the CA$/A$ assertion.
   /\b(?:eligib\w*|qualif\w*|allowed to|permitted|legal|compliance|regulations?)\b/i,
   /\b(?:advice|advise)\b/i,
+  // ── Chinese ───────────────────────────────────────────────────────────
+  // Checked HERE, above DATA_QUESTION, for exactly the reason the English
+  // entries are: 我应该预留多少税款？ ("how much tax should I set aside?")
+  // contains 税, and 给我介绍一下今年报税的新规定 contains both 今年 and 税 —
+  // the possessive rule below would claim both as ledger lookups. 应该 and
+  // 规定 settle them, the same way "should i" and "regulations" settle their
+  // English twins.
+  /(?:应该|该不该|要不要|值得|建议|意见|推荐)/,
+  /(?:规定|法规|规则|政策|合法|合规|资格|符合条件|截止日期|期限)/,
+  // Tax RULES, not the user's tax. 税率 is the rate and 税法 is the law;
+  // 我的税 is a number in their ledger. Without this, 今年的税率是多少？ reads
+  // as a data question on 今年 + 税.
+  /(?:税率|税法|税制)/,
 ];
 
 /**
@@ -118,6 +131,34 @@ const DATA_QUESTION = [
   /\b(?:summary|breakdown|report|overview|aging|p&l|profit and loss|balance sheet|trial balance)\b/i,
   // bare follow-ups in a data thread ("and meals?")
   /^\s*(?:and|what about|how about)\s+[a-z][a-z ]{0,20}\??$/i,
+
+  // ── Chinese ───────────────────────────────────────────────────────────
+  // Without these, EVERY Chinese question reached the `[?？]$` catch below
+  // and went to the advisor, which cannot read the ledger. Observed on
+  // production: 这个月我花了多少钱 answered "CA$192.00", and the same
+  // sentence with a ？ answered "which kind of expenses did you mean?".
+  //
+  // First person or a period, then something that lives in the ledger. The
+  // {0,14} window is bounded so the match stays inside one clause.
+  /(?:我|我的|本月|这个月|上个月|今年|去年|本季度|上季度)[^。？?！!]{0,14}(?:花了|花费|支出|开支|收入|营收|利润|余额|结余|发票|账单|应收|应付|客户|供应商|预算|工资|薪资|里程|税)/,
+  // 抵扣 (deduct) is deliberately NOT in that list. 我可以抵扣家庭办公室吗？
+  // is a question about the RULES, and 吗 is the reliable signal for it —
+  // the direct mirror of English "deduction" sitting in the consultative
+  // half rather than the data half.
+  /(?:谁欠我|欠我钱|欠我多少|未付|逾期|应收账款|拖欠)/,
+  /(?:显示|列出|给我看|查一下|查询)/,
+  /(?:报表|汇总|明细|概览|账龄|损益|资产负债|对账)/,
+  // Bare follow-up inside a data thread — the mirror of "and meals?" above.
+  // 那餐饮呢？ ends in 呢, so without this the particle check further down
+  // claims it as a yes/no question and the thread changes destination
+  // mid-conversation: turn one answered from the ledger, turn two from the
+  // advisor. Placed here deliberately, ahead of that check, and kept short so
+  // it only claims fragments.
+  // The tail is ONE character class, not `\s*[？?]?\s*$`. Two `\s*` separated
+  // by an optional, against an `$` anchor, is the quadratic shape that has now
+  // appeared four times here — period-parse.ts, client-name.ts, the particle
+  // check below, and very nearly this line. Timed in the ReDoS block.
+  /^\s*(?:那|那么)?[^。？?！!]{0,8}呢[\s？?]*$/,
 ];
 
 /**

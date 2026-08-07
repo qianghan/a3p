@@ -134,6 +134,64 @@ describe('multilingual by construction', () => {
   ])('%s consultative: %s', (_lang, t) => expect(kind(t)).toBe('consultative'));
 });
 
+describe('Chinese questions about their own books stay on the skill path', () => {
+  /**
+   * The English-only DATA_QUESTION list, observed against production.
+   *
+   * A single character decided whether the user got an answer:
+   *
+   *   这个月我花了多少钱      → query-expenses → "本月您共花费了 CA$192.00"
+   *   这个月我花了多少钱？    → consultation   → "我需要知道你是想看商业支出还是个人支出"
+   *
+   * Same question. The version WITHOUT the question mark worked, because it
+   * fell through every marker list to the transactional default. The version
+   * WITH one matched the `[?？]$` catch and was handed to the advisor, which
+   * cannot read the ledger. So the more correctly a Chinese speaker punctuates,
+   * the worse the product behaves — and every list above the catch was English,
+   * so this was true of ALL Chinese data questions, not a few phrasings.
+   *
+   * These assert the pairs directly, because the defect only shows as a pair.
+   */
+  it.each([
+    '这个月我花了多少钱？',      // how much did I spend this month?
+    '谁欠我钱？',                 // who owes me money?
+    '我有多少未付发票？',         // how many unpaid invoices do I have?
+    '显示我这个月的支出',         // show me this month's expenses
+    '我今年的利润是多少？',       // what is my profit this year?
+  ])('data question → skill layer: %s', (t) => expect(kind(t)).toBe('transactional'));
+
+  it('the question mark must not decide it', () => {
+    // The pair from production. Before the fix these disagreed.
+    expect(kind('这个月我花了多少钱')).toBe('transactional');
+    expect(kind('这个月我花了多少钱？')).toBe('transactional');
+  });
+
+  it('still sends genuine Chinese advice questions to the advisor', () => {
+    // The other half. A ledger noun in the sentence must not drag a rules
+    // question onto the skill path — the Chinese mirror of "am I eligible for
+    // the small business deduction", which contains "deduction".
+    expect(kind('我可以抵扣家庭办公室吗？')).toBe('consultative');  // can I deduct a home office?
+    expect(kind('我应该预留多少税款？')).toBe('consultative');       // how much tax should I set aside?
+    expect(kind('今年的税率是多少？')).toBe('consultative');         // what is this year's tax rate?
+    expect(kind('自雇人士有什么规定？')).toBe('consultative');       // what are the rules for the self-employed?
+  });
+
+  it('a bare Chinese follow-up stays in the data thread', () => {
+    // The mirror of "and meals?". 那餐饮呢？ ends in 呢, so the particle check
+    // would otherwise claim it — and the thread would change destination
+    // mid-conversation: turn one from the ledger, turn two from the advisor.
+    expect(kind('那餐饮呢？')).toBe('transactional');
+    expect(kind('那上个月呢？')).toBe('transactional');
+    // Still short-only: a full sentence ending in 呢 is not a follow-up.
+    expect(kind('我不确定这些新的报税规定到底是怎么回事呢')).toBe('consultative');
+  });
+
+  it('distinguishes 花了 (spent) from 应该 (should), like the English pair', () => {
+    expect(kind('我这个月花了多少钱？')).toBe('transactional');
+    expect(kind('我这个月应该花多少钱？')).toBe('consultative');
+  });
+});
+
 describe('degenerate input', () => {
   it('empty is consultative, never a booking', () => {
     expect(kind('')).toBe('consultative');
@@ -157,6 +215,16 @@ describe('triage runs in linear time (js/polynomial-redos)', () => {
   // now and why this test exists rather than a resolution to be careful.
   it('a long trailing run does not blow up the particle check', () => {
     const hostile = '吗' + ' '.repeat(200_000) + 'x';
+    const started = Date.now();
+    triageTurn(hostile);
+    expect(Date.now() - started).toBeLessThan(1000);
+  });
+
+  it('the Chinese follow-up rule does not reintroduce it', () => {
+    // Same shape, one line later: `呢\s*[？?]?\s*$` was the first draft of the
+    // bare-follow-up pattern. Timing the FAILING match, not a succeeding one —
+    // a match that succeeds is fast and proves nothing.
+    const hostile = '那餐饮呢' + ' '.repeat(200_000) + 'x';
     const started = Date.now();
     triageTurn(hostile);
     expect(Date.now() - started).toBeLessThan(1000);

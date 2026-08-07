@@ -137,6 +137,28 @@ function evaluateTurn(cu: CanonicalUtterance, response: AgentMessageResponse | n
       reasons.push(`missing required substring: "${must}"`);
     }
   }
+  // Answer in the language the user wrote in.
+  //
+  // `required` cannot express this: the wording of a correct Chinese answer
+  // varies run to run, so any fixed substring would be flaky. Script presence
+  // is stable — a Chinese answer always contains Han characters and an English
+  // one never does — which makes it the one assertion that survives an LLM.
+  if (cu.expectLang) {
+    // Strip the user's own words first. record-expense answers
+    // "Recorded: $42.00 — 记录 $42 咖啡" — an English template that echoes the
+    // utterance back, so the raw answer contains Han characters and would
+    // satisfy a naive 'zh' check while being entirely English. Echoed input is
+    // not the agent choosing a language.
+    const authored = cu.text ? answer.split(cu.text).join('') : answer;
+    const hasHan = /[㐀-䶿一-鿿]/.test(authored);
+    if (cu.expectLang === 'zh' && !hasHan) {
+      reasons.push('answered in English, but the user wrote Chinese');
+    }
+    if (cu.expectLang === 'en' && hasHan) {
+      reasons.push('answered in Chinese, but the user wrote English');
+    }
+  }
+
   let hallucinated = false;
   for (const forbidden of cu.forbidden ?? []) {
     if (answer.includes(forbidden)) {

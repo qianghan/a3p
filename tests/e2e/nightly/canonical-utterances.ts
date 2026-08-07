@@ -38,6 +38,15 @@ export interface CanonicalUtterance {
   required?: string[];           // strings the agent MUST include
   isMultiTurn?: boolean;         // if true, this is part of a thread
   threadId?: string;             // groups multi-turn utterances
+  /**
+   * The script the answer must come back in.
+   *
+   * Asserted by script presence rather than by a `required` substring: the
+   * wording of a correct Chinese answer varies between runs, so any fixed
+   * string would be flaky, but a Chinese answer always contains Han
+   * characters and an English one never does.
+   */
+  expectLang?: 'zh' | 'en';
 }
 
 export const CANONICAL: CanonicalUtterance[] = [
@@ -468,5 +477,103 @@ export const CANONICAL: CanonicalUtterance[] = [
     text: 'I am a consultant in Toronto',
     category: 'onboarding',
     expectedSkill: 'general-question',
+  },
+
+  // ============================================================
+  // CHINESE — the set had 40 utterances and all 40 were English,
+  // so nothing here could see a non-English regression.
+  //
+  // That mattered: triage decided consultation-vs-skill from
+  // English-only marker lists, so on production a single character
+  // changed the answer —
+  //   这个月我花了多少钱   → query-expenses → "本月您共花费了 CA$192.00"
+  //   这个月我花了多少钱？ → consultation   → "你是想看商业支出还是个人支出？"
+  // The better-punctuated version was the broken one, and it was
+  // broken for EVERY Chinese question, not a few phrasings.
+  // ============================================================
+  {
+    id: 'cu-zh-100',
+    persona: 'maya',
+    // The exact pair above. This is the regression guard for it.
+    text: '这个月我花了多少钱？',
+    category: 'bookkeeping',
+    expectedSkill: 'query-expenses',
+    acceptableSkills: ['expense-breakdown', 'financial-snapshot'],
+    expectLang: 'zh',
+    forbidden: ['error', 'sorry'],
+  },
+  {
+    id: 'cu-zh-101',
+    persona: 'maya',
+    text: '谁欠我钱？',                       // who owes me money?
+    category: 'invoicing',
+    expectedSkill: 'aging-report',
+    acceptableSkills: ['query-invoices', 'query-clients'],
+    expectLang: 'zh',
+  },
+  {
+    id: 'cu-zh-102',
+    persona: 'maya',
+    text: '我可以抵扣家庭办公室吗？',          // can I deduct a home office?
+    category: 'consultation',
+    // The other half of the fix. A ledger noun in a RULES question must not
+    // drag it onto the skill path — the mirror of "am I eligible for the
+    // small business deduction", which contains "deduction".
+    expectedSkill: 'consultation',
+    acceptableSkills: ['tax-deductions', 'general-question'],
+    // No expectLang, for the same reason as cu-zh-104 and measured the same
+    // way: when the consultation reviewer withholds an answer it emits a fixed
+    // English string, so this would assert a gap this change does not close.
+    // Verified against production — the English "can I deduct a home office?"
+    // returns that identical string, so it is not a language defect.
+  },
+  {
+    id: 'cu-zh-103',
+    persona: 'maya',
+    text: '今年的税率是多少？',                // what is this year's tax rate?
+    category: 'tax',
+    expectedSkill: 'consultation',
+    acceptableSkills: ['general-question', 'tax-estimate'],
+    // See cu-zh-102 — routing is asserted, reply language is not, on this path.
+  },
+  {
+    id: 'cu-zh-104',
+    persona: 'maya',
+    text: '记录 $42 咖啡',                     // record $42 coffee
+    category: 'bookkeeping',
+    expectedSkill: 'record-expense',
+    // NO expectLang here, deliberately. record-expense answers from a fixed
+    // template ("Recorded: {{amountFormatted}} — {{description}}"), which is
+    // English whatever the user wrote. Asserting 'zh' would fail on a gap this
+    // change does not close; asserting 'en' would freeze the gap in place. The
+    // skill assertion still guards the routing half.
+    required: ['42'],
+  },
+
+  // Thread: the user switches language mid-conversation, which is the whole
+  // point of the feature — not "pick a language at signup".
+  {
+    id: 'cu-zh-105a',
+    persona: 'maya',
+    text: 'how much did I spend this month?',
+    category: 'bookkeeping',
+    expectedSkill: 'query-expenses',
+    acceptableSkills: ['expense-breakdown', 'financial-snapshot'],
+    expectLang: 'en',
+    isMultiTurn: true,
+    threadId: 't-zh-language-switch',
+  },
+  {
+    id: 'cu-zh-105b',
+    persona: 'maya',
+    // A bare follow-up, in the other language. Two things have to hold at
+    // once: the period carries forward (#429) AND the reply switches script.
+    text: '那餐饮呢？',                        // and dining?
+    category: 'bookkeeping',
+    expectedSkill: 'query-expenses',
+    acceptableSkills: ['expense-breakdown'],
+    expectLang: 'zh',
+    isMultiTurn: true,
+    threadId: 't-zh-language-switch',
   },
 ];
