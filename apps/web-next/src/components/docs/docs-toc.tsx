@@ -10,9 +10,11 @@ interface TocHeading {
 
 interface DocsTocProps {
   headings: TocHeading[];
+  /** Heading for the panel, translated by the page. */
+  label?: string;
 }
 
-export function DocsToc({ headings }: DocsTocProps) {
+export function DocsToc({ headings, label }: DocsTocProps) {
   const [activeId, setActiveId] = useState<string>('');
 
   useEffect(() => {
@@ -45,7 +47,7 @@ export function DocsToc({ headings }: DocsTocProps) {
   return (
     <div className="sticky top-20">
       <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-3">
-        On this page
+        {label ?? 'On this page'}
       </p>
       <nav className="space-y-1">
         {headings.map((heading) => (

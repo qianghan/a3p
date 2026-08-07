@@ -40,6 +40,7 @@
     "ably": "^2.18.0",
     "ai": "^7.0.15",
     "framer-motion": "^12.0.0",
+    "github-slugger": "^2.0.0",
     "ipaddr.js": "^2.3.0",
     "isomorphic-dompurify": "^2.36.0",
     "jszip": "^3.10.1",

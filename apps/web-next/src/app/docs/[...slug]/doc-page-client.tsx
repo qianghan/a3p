@@ -25,13 +25,15 @@ interface NavSection {
 interface DocPageClientProps {
   headings: TocHeading[];
   navigation: NavSection[];
+  /** Translated "On this page" heading, resolved by the server component. */
+  tocLabel?: string;
 }
 
-export function DocPageClient({ headings }: DocPageClientProps) {
+export function DocPageClient({ headings, tocLabel }: DocPageClientProps) {
   return (
     <aside className="hidden xl:block w-56 shrink-0">
       <div className="sticky top-14 h-[calc(100vh-3.5rem)] overflow-y-auto py-10 px-4">
-        <DocsToc headings={headings} />
+        <DocsToc headings={headings} label={tocLabel} />
       </div>
     </aside>
   );

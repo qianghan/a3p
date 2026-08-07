@@ -1,0 +1,42 @@
+---
+title: "Telegram 与提醒"
+description: "用聊天完成记账，并主动收到提醒。"
+order: 5
+---
+
+## Telegram 与提醒
+
+AgentBook 会去你所在的地方。连接 Telegram 后，你不用打开应用就能记录支出、提问，以及接收主动提醒。
+
+### 连接 Telegram
+
+Telegram 机器人是自助创建的——你用大约一分钟建好自己的机器人，然后把它的令牌交给 AgentBook。
+
+1. 进入 **设置 → 聊天机器人**，打开 **Telegram** 卡片。
+2. 在 Telegram 中打开 **@BotFather**，发送 `/newbot`，按提示为你的机器人命名。
+
+   ![与 BotFather 的 Telegram 会话：发送 /newbot、为机器人命名并收到 API 令牌](/docs/telegram/botfather-conversation.svg)
+
+3. 复制 BotFather 给你的 API 令牌，粘贴到 Telegram 卡片中，然后点击**连接机器人**。
+
+   ![设置页聊天机器人选项卡中尚未连接的 Telegram 卡片，显示三个设置步骤和一个粘贴机器人令牌的输入框](/docs/telegram/settings-chatbots-telegram-not-connected.svg)
+
+4. 在 Telegram 中打开你的新机器人并发送 `/start`。这个会话现在已与你的 AgentBook 账户绑定——在那里发的消息会作用于你的账目。
+
+   ![连接后的 Telegram 卡片，显示机器人用户名、已生效的 webhook、已关联的会话和断开选项](/docs/telegram/settings-chatbots-telegram-connected.svg)
+
+在 Telegram 里，你可以拍一张收据照片、说一句*"记录 12 元停车费"*，或者问*"这个季度我在软件上花了多少钱？"*——同一个助理，同一份数据。
+
+> **提示：** 这个机器人是你自己的——只有发给它的消息才会进入你的账目。你随时可以从同一张卡片断开并重新连接。
+
+### 主动提醒
+
+助理会留意值得提醒的情况并主动告知你：
+
+- **异常支出** — 某笔费用明显高于你在该分类下的常规水平。
+- **遗漏的抵扣** — 某些分类下你很可能有可抵扣的支出还没记录。
+- **待办提醒** — 即将到期的账单、需要预留的季度税款、迟迟未收款的发票。
+
+在 **配置 → 通知** 中调整你想接收的内容。为工作区配置好通知密钥后，也可以启用网页推送。
+
+下一步：[向助理提问](/docs/zh/working/ask-the-agent)

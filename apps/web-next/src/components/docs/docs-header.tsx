@@ -5,6 +5,7 @@ import { Moon, Sun, Menu, X, ArrowLeft } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { DocsSearch } from './docs-search';
 import { Wordmark } from '@/components/brand/Wordmark';
+import { useDocsLocale } from '@/lib/docs/use-docs-locale';
 
 interface DocsHeaderProps {
   onToggleSidebar: () => void;
@@ -12,6 +13,7 @@ interface DocsHeaderProps {
 }
 
 export function DocsHeader({ onToggleSidebar, isSidebarOpen }: DocsHeaderProps) {
+  const { ui } = useDocsLocale();
   const [theme, setTheme] = useState<'light' | 'dark'>('dark');
 
   useEffect(() => {
@@ -67,7 +69,7 @@ export function DocsHeader({ onToggleSidebar, isSidebarOpen }: DocsHeaderProps) 
             className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-muted transition-all"
           >
             <ArrowLeft size={14} />
-            Back to App
+            {ui.backToAppShort}
           </Link>
 
           {/* GitHub - optional */}
