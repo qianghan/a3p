@@ -14,6 +14,7 @@ import {
   ArrowLeft,
 } from 'lucide-react';
 import { useState } from 'react';
+import { useDocsLocale } from '@/lib/docs/use-docs-locale';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -63,6 +64,7 @@ interface DocsSidebarProps {
 }
 
 export function DocsSidebar({ navigation, className = '', onNavigate }: DocsSidebarProps) {
+  const { ui } = useDocsLocale();
   const pathname = usePathname();
 
   return (
@@ -73,7 +75,7 @@ export function DocsSidebar({ navigation, className = '', onNavigate }: DocsSide
         className="flex items-center gap-2 px-3 py-2 mb-3 rounded-lg text-sm font-medium text-primary hover:bg-primary/10 transition-colors"
       >
         <ArrowLeft size={16} />
-        Back to the app
+        {ui.backToApp}
       </Link>
       {navigation.map((section) => (
         <SidebarSection

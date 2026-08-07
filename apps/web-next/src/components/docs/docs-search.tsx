@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { Search, FileText, ArrowRight } from 'lucide-react';
+import { useDocsLocale } from '@/lib/docs/use-docs-locale';
 
 interface SearchEntry {
   title: string;
@@ -12,6 +13,7 @@ interface SearchEntry {
 }
 
 export function DocsSearch() {
+  const { ui } = useDocsLocale();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<SearchEntry[]>([]);
@@ -102,7 +104,7 @@ export function DocsSearch() {
         className="flex items-center gap-2 w-full px-3 py-2 rounded-lg border border-border bg-muted/30 text-sm text-muted-foreground hover:bg-muted transition-colors"
       >
         <Search size={16} />
-        <span className="flex-1 text-left">Search docs...</span>
+        <span className="flex-1 text-left">{ui.search}</span>
         <kbd className="hidden sm:inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-muted border border-border text-[10px] font-mono text-muted-foreground">
           <span className="text-xs">⌘</span>K
         </kbd>
