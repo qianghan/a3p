@@ -36,6 +36,8 @@ export type CorrectionIntent =
  * competing-entity and bare-cue guards below, plus the caller-side requirement
  * that the previous turn actually wrote an expense.
  */
+import { parseAmountCents } from './parse-amount.js';
+
 const AMOUNT_CUE = String.raw`actually|no|nope|wrong|oops|sorry|correction|i meant|meant`;
 
 /**
@@ -87,7 +89,34 @@ const QUESTION = /\?\s*$|^\s*(?:how|what|when|where|who|why|which|can|do|does|is
  * A bare "no" / "cancel" / "sorry" with nothing else is session control (or
  * politeness), not a correction. The session layer owns those.
  */
-const BARE_CUE = new RegExp(String.raw`^\s*(?:${AMOUNT_CUE}|cancel|stop|yes|ok)\s*[.!]?\s*$`, 'i');
+// The tail is ONE character class. `\s*[.!]?\s*$` — two quantifiers either
+// side of an optional, against an anchor — is quadratic when the trailing run
+// does not satisfy the anchor: "ok" + 40k spaces + "x" measured at 2547ms on a
+// chat endpoint. Pre-existing and live; CodeQL only gates NEW alerts, so it
+// never surfaced until the Chinese rules below reproduced the same shape.
+const BARE_CUE = new RegExp(String.raw`^\s*(?:${AMOUNT_CUE}|cancel|stop|yes|ok)[\s.!]*$`, 'i');
+
+/**
+ * Chinese correction cues.
+ *
+ * Needed because of a change made alongside it: once parse-amount.ts learned
+ * 元 and 块, "其实是 52 元" started yielding an amount. Without a Chinese cue
+ * here that message falls past the correction gate into classification and
+ * books a SECOND expense — exactly the double-book of #416, reintroduced for
+ * Chinese speakers by the parser fix. Teaching the parser Chinese without
+ * teaching this module Chinese is strictly worse than teaching it neither.
+ */
+const ZH_AMOUNT_CUE =
+  /(?:其实|其實|不对|不對|错了|錯了|弄错|弄錯|应该是|應該是|我是说|我是說|更正|改成|改为|改為|不是)/;
+
+/** Chinese questions. A question is never a correction. */
+const ZH_QUESTION = /[？]\s*$|[吗嗎呢][\s？?]*$/;
+
+/** Chinese nouns that mean a different entity than the expense being fixed. */
+const ZH_COMPETING_ENTITY = /(?:发票|發票|账单|帳單|付款|收款|客户|客戶|报价|報價|预算|預算|工资|工資|计时|計時)/;
+
+/** A bare Chinese cue with nothing else is session control, not a correction. */
+const ZH_BARE_CUE = /^\s*(?:不对|不對|错了|錯了|取消|停止|好的|是的|对|對)[\s。！!.]*$/;
 
 function toCents(raw: string): number | null {
   const n = Number.parseFloat(raw.replace(/,/g, ''));
@@ -108,9 +137,17 @@ function toCents(raw: string): number | null {
  */
 export function detectCorrection(text: string): CorrectionIntent | null {
   if (!text || !text.trim()) return null;
-  if (BARE_CUE.test(text)) return null;
-  if (QUESTION.test(text)) return null;
-  if (COMPETING_ENTITY.test(text)) return null;
+  if (BARE_CUE.test(text) || ZH_BARE_CUE.test(text)) return null;
+  if (QUESTION.test(text) || ZH_QUESTION.test(text)) return null;
+  if (COMPETING_ENTITY.test(text) || ZH_COMPETING_ENTITY.test(text)) return null;
+
+  // Chinese amount correction. Gated on a cue exactly like the English rules,
+  // and delegating the number to the one shared parser rather than growing a
+  // fourth copy of the money regex.
+  if (ZH_AMOUNT_CUE.test(text)) {
+    const zhCents = parseAmountCents(text);
+    if (zhCents !== null && zhCents > 0) return { kind: 'amount', amountCents: zhCents };
+  }
 
   // Amount first: "$52" can never be a category name, and checking it first
   // keeps the two branches from competing over phrasings like "it's $52".
