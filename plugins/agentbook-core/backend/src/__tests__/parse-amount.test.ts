@@ -211,3 +211,33 @@ describe('there is one parser', () => {
     expect(src).toContain('parseAmountCents');
   });
 });
+
+describe('the correction gate runs in linear time (js/polynomial-redos)', () => {
+  /**
+   * Fifth occurrence of one shape in this codebase: `\s*` … optional … `\s*$`,
+   * after period-parse.ts, client-name.ts, consultation-triage.ts twice. I
+   * wrote it again here — in the same session as one of those fixes — and
+   * CodeQL caught two new alerts in agent-corrections.ts.
+   *
+   * Chasing them found a THIRD, pre-existing and live: the English BARE_CUE
+   * took 2547ms on "ok" + 40k spaces + "x". CodeQL gates only NEW alerts, so
+   * it had never surfaced.
+   *
+   * Every case below times the FAILING match. A match that succeeds returns
+   * immediately and proves nothing — the trailing character must be one the
+   * class cannot consume, or this test is decoration. That mistake is exactly
+   * why the parser's own ReDoS test passed while these three were quadratic.
+   */
+  it.each([
+    ['bare English cue', 'ok'],
+    ['bare Chinese cue', '不对'],
+    ['Chinese question particle', '这个可以抵扣吗'],
+    ['Chinese amount correction', '其实是 52 元'],
+  ])('%s: a long trailing run does not blow up', async (_label, prefix) => {
+    const { detectCorrection } = await import('../agent-corrections');
+    const hostile = prefix + ' '.repeat(200_000) + 'x';
+    const started = Date.now();
+    detectCorrection(hostile);
+    expect(Date.now() - started).toBeLessThan(1000);
+  });
+});

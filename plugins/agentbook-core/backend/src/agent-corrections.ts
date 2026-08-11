@@ -89,7 +89,12 @@ const QUESTION = /\?\s*$|^\s*(?:how|what|when|where|who|why|which|can|do|does|is
  * A bare "no" / "cancel" / "sorry" with nothing else is session control (or
  * politeness), not a correction. The session layer owns those.
  */
-const BARE_CUE = new RegExp(String.raw`^\s*(?:${AMOUNT_CUE}|cancel|stop|yes|ok)\s*[.!]?\s*$`, 'i');
+// The tail is ONE character class. `\s*[.!]?\s*$` — two quantifiers either
+// side of an optional, against an anchor — is quadratic when the trailing run
+// does not satisfy the anchor: "ok" + 40k spaces + "x" measured at 2547ms on a
+// chat endpoint. Pre-existing and live; CodeQL only gates NEW alerts, so it
+// never surfaced until the Chinese rules below reproduced the same shape.
+const BARE_CUE = new RegExp(String.raw`^\s*(?:${AMOUNT_CUE}|cancel|stop|yes|ok)[\s.!]*$`, 'i');
 
 /**
  * Chinese correction cues.
@@ -105,13 +110,13 @@ const ZH_AMOUNT_CUE =
   /(?:其实|其實|不对|不對|错了|錯了|弄错|弄錯|应该是|應該是|我是说|我是說|更正|改成|改为|改為|不是)/;
 
 /** Chinese questions. A question is never a correction. */
-const ZH_QUESTION = /[？]\s*$|[吗嗎呢]\s*[？?]?\s*$/;
+const ZH_QUESTION = /[？]\s*$|[吗嗎呢][\s？?]*$/;
 
 /** Chinese nouns that mean a different entity than the expense being fixed. */
 const ZH_COMPETING_ENTITY = /(?:发票|發票|账单|帳單|付款|收款|客户|客戶|报价|報價|预算|預算|工资|工資|计时|計時)/;
 
 /** A bare Chinese cue with nothing else is session control, not a correction. */
-const ZH_BARE_CUE = /^\s*(?:不对|不對|错了|錯了|取消|停止|好的|是的|对|對)\s*[。！!.]?\s*$/;
+const ZH_BARE_CUE = /^\s*(?:不对|不對|错了|錯了|取消|停止|好的|是的|对|對)[\s。！!.]*$/;
 
 function toCents(raw: string): number | null {
   const n = Number.parseFloat(raw.replace(/,/g, ''));
