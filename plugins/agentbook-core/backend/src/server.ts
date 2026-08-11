@@ -12,6 +12,7 @@ import { resolveAdvisorIdentityPrefix } from './advisor-persona.js';
 import { handleAgentMessage } from './agent-brain.js';
 import { BUILT_IN_SKILLS } from './built-in-skills.js';
 import { selectSkillByPatterns, isBusinessFlaggedPhrase, isPersonalTrendQuery } from './skill-routing.js';
+import { parseAmountCents } from './parse-amount.js';
 import { hasAddOn } from '@naap/billing';
 import { handleDashboardOverview } from './dashboard/overview.js';
 import { handleDashboardActivity } from './dashboard/activity.js';
@@ -3136,12 +3137,12 @@ export async function classifyOnly(
         if (params.question) extractedParams.question = text;
         if (params.scenario) extractedParams.scenario = text;
         if (params.amountCents) {
-          // Try $X.XX, then bare number after expense verb, then N bucks/dollars, then X.XX standalone
-          const amtMatch = processedText.match(/\$\s*([\d,]+\.?\d{0,2})/)
-            || processedText.match(/(?:spent|paid|bought|purchased|cost|was)\s+\$?([\d,]+\.?\d{0,2})/i)
-            || processedText.match(/([\d,]+\.?\d{0,2})\s*(?:dollars|bucks|cad|usd)/i)
-            || processedText.match(/\b([\d,]+\.\d{2})\b/);
-          if (amtMatch) extractedParams.amountCents = Math.round(parseFloat(amtMatch[1].replace(/,/g, '')) * 100);
+          // One parser, shared with the LLM path below and Chinese-aware.
+          // See parse-amount.ts — this chain used to be duplicated and
+          // English-only, so "记录 42 元咖啡" was answered "I couldn't find
+          // the amount".
+          const cents = parseAmountCents(processedText);
+          if (cents !== null) extractedParams.amountCents = cents;
         }
         if (params.vendor) {
           // Vendor is the merchant name only — try strongest signals first:
@@ -3229,11 +3230,8 @@ If no skill matches well, use "general-question" with parameter "question" = the
             if (skillParams.scenario && !extractedParams.scenario) extractedParams.scenario = text;
             // For expense/invoice skills, extract amount from text if LLM didn't provide it
             if (skillParams.amountCents && !extractedParams.amountCents) {
-              const amtMatch = text.match(/\$\s*([\d,]+\.?\d{0,2})/)
-                || text.match(/(?:spent|paid|bought|purchased|cost|was)\s+\$?([\d,]+\.?\d{0,2})/i)
-                || text.match(/([\d,]+\.?\d{0,2})\s*(?:dollars|bucks|cad|usd)/i)
-                || text.match(/\b([\d,]+\.\d{2})\b/);
-              if (amtMatch) extractedParams.amountCents = Math.round(parseFloat(amtMatch[1].replace(/,/g, '')) * 100);
+              const cents = parseAmountCents(text);
+              if (cents !== null) extractedParams.amountCents = cents;
             }
             if (skillParams.description && !extractedParams.description) extractedParams.description = text;
           }
