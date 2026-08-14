@@ -17,6 +17,8 @@
 #                           reach the ledger
 #   CRON_SECRET           → every scheduled job 401s (the gates fail closed)
 #   INTERNAL_ADMIN_SECRET → agent skill registration 401s (fails closed)
+#   BASIQ_API_KEY         → every AU Basiq bank-sync route 500s (SILENT — no
+#                           build warning, no runtime alert, indefinitely)
 #
 # Escape hatch: ALLOW_MISSING_LAUNCH_ENV=1 downgrades the failure to a warning
 # for a deliberate partial deploy (e.g. a staging-style production without
@@ -39,6 +41,7 @@ CHECKS=(
   "STRIPE_WEBHOOK_SECRET|payment reconciliation — cards charge but invoices never mark paid"
   "CRON_SECRET|all scheduled jobs — they now fail closed and return 401"
   "INTERNAL_ADMIN_SECRET|agent skill registration — now fails closed"
+  "BASIQ_API_KEY|AU bank sync entirely — every Basiq route 500s (SILENT)"
 )
 
 if [ "${VERCEL_ENV:-}" != "production" ]; then

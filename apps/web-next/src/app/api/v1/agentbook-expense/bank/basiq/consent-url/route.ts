@@ -16,7 +16,7 @@
 import 'server-only';
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma as db } from '@naap/database';
-import { safeResolveAgentbookTenant } from '@/lib/agentbook-tenant';
+import { requireBankConnectionQuota } from '@/lib/agentbook-bank/guard';
 import { createBasiqUser, getBasiqClientToken, sanitizeBasiqError } from '@/lib/agentbook-basiq';
 
 export const runtime = 'nodejs';
@@ -25,9 +25,12 @@ export const maxDuration = 30;
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
   try {
-    const __resolved = await safeResolveAgentbookTenant(request);
-    if ('response' in __resolved) return __resolved.response;
-    const { tenantId } = __resolved;
+    // Bank sync is a paid feature — block free-plan tenants before minting a
+    // Basiq consent URL, matching plaid/link-token's precedent exactly
+    // (Free's bank_connections quota is 0).
+    const guard = await requireBankConnectionQuota(request);
+    if ('response' in guard) return guard.response;
+    const { tenantId } = guard;
 
     const config = await db.abTenantConfig.findUnique({ where: { userId: tenantId } });
     let basiqUserId = config?.basiqUserId;
