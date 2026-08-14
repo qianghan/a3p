@@ -130,3 +130,59 @@ export function parseAmountCents(input: string): number | null {
 
   return null;
 }
+
+/** Why parseAmountCents declined. `null` means it did not. */
+export type AmountRefusal = 'foreign-currency' | 'unreadable-numeral' | 'no-amount';
+
+/**
+ * Why there is no amount, when there is no amount.
+ *
+ * The refusals above are deliberate, but a refusal the user cannot act on
+ * reads as a broken product. "记录 ¥100 咖啡" was answered "I couldn't find
+ * the amount. Try including a number" — wrong twice: the number is right
+ * there, and nothing points at the one thing they could change. So the reason
+ * is reported separately rather than collapsed into a bare null.
+ */
+export function amountRefusalReason(input: string): AmountRefusal | null {
+  const text = normalizeDigits(input ?? '');
+  if (parseAmountCents(text) !== null) return null;
+  if (FOREIGN_CURRENCY.test(text)) return 'foreign-currency';
+  if (CHINESE_NUMERAL.test(text) && new RegExp(ZH_UNIT).test(text)) return 'unreadable-numeral';
+  return 'no-amount';
+}
+
+/** Han characters — the same signal the docs and eval use to pick a language. */
+function isChinese(text: string): boolean {
+  return /[㐀-䶿一-鿿]/.test(text);
+}
+
+/**
+ * What to say when nothing could be booked.
+ *
+ * Answers in the script the user wrote in. The record-expense and
+ * record-personal-transaction paths keep their own worked examples — they were
+ * two different messages in server.ts and flattening them would make the
+ * personal path suggest a business phrasing.
+ */
+export function noAmountMessage(input: string, kind: 'expense' | 'personal'): string {
+  const zh = isChinese(input);
+  switch (amountRefusalReason(input)) {
+    case 'foreign-currency':
+      return zh
+        ? '这笔金额看起来是人民币（¥）。你的账目使用的是另一种货币，按面值直接入账会记错，所以我没有记录。请换算成你的记账币种后再告诉我，例如「记录 42 元咖啡」。'
+        : 'That looks like ¥ (CNY). Your books are kept in a different currency, so recording it at face value would be wrong. Tell me the amount in your own currency and I\'ll book it.';
+    case 'unreadable-numeral':
+      return zh
+        ? '我看得出这里有金额，但中文数字我读不准，不想记错。可以改用阿拉伯数字吗？例如「记录 42 元咖啡」。'
+        : 'I can see there\'s an amount, but I can\'t read it written out in words. Could you use digits instead — e.g. "42元"?';
+    default:
+      if (zh) {
+        return kind === 'expense'
+          ? '我没找到金额。可以带上数字，例如：\n• 「记录 42 元咖啡」\n• 「花了 88 块加油」'
+          : '我没找到金额。可以带上数字，例如：\n• 「工资到账 5,000 元」\n• 「用支票账户花了 80 元买菜」';
+      }
+      return kind === 'expense'
+        ? 'I couldn\'t find the amount. Try including a number, e.g.:\n• "Spent $45 on lunch"\n• "Paid 132.99 for gas"'
+        : 'I couldn\'t find the amount. Try including a number, e.g.:\n• "I got paid $5,000 salary"\n• "Spent $80 on groceries from checking"';
+  }
+}

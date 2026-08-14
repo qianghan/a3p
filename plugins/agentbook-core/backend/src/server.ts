@@ -12,7 +12,7 @@ import { resolveAdvisorIdentityPrefix } from './advisor-persona.js';
 import { handleAgentMessage } from './agent-brain.js';
 import { BUILT_IN_SKILLS } from './built-in-skills.js';
 import { selectSkillByPatterns, isBusinessFlaggedPhrase, isPersonalTrendQuery } from './skill-routing.js';
-import { parseAmountCents } from './parse-amount.js';
+import { parseAmountCents, noAmountMessage } from './parse-amount.js';
 import { hasAddOn } from '@naap/billing';
 import { handleDashboardOverview } from './dashboard/overview.js';
 import { handleDashboardActivity } from './dashboard/activity.js';
@@ -5597,7 +5597,8 @@ Only include chartData if visualization adds value. Keep the answer under 200 wo
     const errorDetail = skillResponse?.error || skillErrorMessage || '';
     if (selectedSkill.name === 'record-expense') {
       if (!extractedParams.amountCents) {
-        message = "I couldn't find the amount. Try including a number, e.g.:\n• \"Spent $45 on lunch\"\n• \"Paid 132.99 for gas\"";
+        // Says WHY. "记录 ¥100 咖啡" used to be told the number was missing.
+        message = noAmountMessage(text, 'expense');
       } else {
         message = `I couldn't record that expense. ${errorDetail ? 'Error: ' + errorDetail : 'Please try again.'}`;
       }
@@ -5611,7 +5612,7 @@ Only include chartData if visualization adds value. Keep the answer under 200 wo
       message = "I couldn't record the payment. I need a client or invoice reference:\n• \"Got $5000 from Acme\"\n• \"Record payment for INV-2026-0001\"";
     } else if (selectedSkill.name === 'record-personal-transaction') {
       if (!extractedParams.amountCents) {
-        message = "I couldn't find the amount. Try including a number, e.g.:\n• \"I got paid $5,000 salary\"\n• \"Spent $80 on groceries from checking\"";
+        message = noAmountMessage(text, 'personal');
       } else {
         message = `I couldn't record that transaction. ${errorDetail ? 'Error: ' + errorDetail : 'Please try again.'}`;
       }
