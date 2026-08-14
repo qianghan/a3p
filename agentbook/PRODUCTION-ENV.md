@@ -169,7 +169,7 @@ The AU bank-sync code (`apps/web-next/src/lib/agentbook-basiq.ts` and the `bank/
    ```
 3. Redeploy so the routes pick it up: `vercel --prod`.
 
-**Until this is set:** AU tenants' Basiq routes (`bank/basiq/consent-url`, `callback`, `status`, `sync`, `disconnect`, and their `agentbook-personal` counterparts) will throw `[basiq] BASIQ_API_KEY not set` — same failure mode as a missing `PLAID_SECRET` today. This does not affect US/CA tenants (Plaid-only) or any other AU feature.
+**Until this is set:** the production build now fails (`bin/check-launch-env.sh`, same gate as `STRIPE_SECRET_KEY`/`CRON_SECRET`/etc.) — this was previously a silent gap, where AU tenants' Basiq routes (`bank/basiq/consent-url`, `callback`, `status`, `sync`, `disconnect`, and their `agentbook-personal` counterparts) would throw `[basiq] BASIQ_API_KEY not set` indefinitely with no build-time or runtime signal. It still does not affect US/CA tenants (Plaid-only) or any other AU feature. If you need to ship a deploy before a real Basiq key is available, set `ALLOW_MISSING_LAUNCH_ENV=1` to downgrade this to a warning (deliberately, not habitually).
 
 Once a real key is available, the manual verification checklist in `docs/superpowers/plans/2026-07-19-au1-basiq-bank-sync.md` (Task 7, Step 5) should be run once against a real Basiq sandbox connection before considering AU-1 fully done.
 

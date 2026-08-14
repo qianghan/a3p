@@ -13,6 +13,7 @@ const LAUNCH_KEYS = [
   'STRIPE_WEBHOOK_SECRET',
   'CRON_SECRET',
   'INTERNAL_ADMIN_SECRET',
+  'BASIQ_API_KEY',
 ];
 
 const saved: Record<string, string | undefined> = {};

@@ -10,7 +10,7 @@
 import 'server-only';
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma as db } from '@naap/database';
-import { safeResolveAgentbookTenant } from '@/lib/agentbook-tenant';
+import { requireBankConnectionQuota } from '@/lib/agentbook-bank/guard';
 import { pollJob, listAccounts, sanitizeBasiqError } from '@/lib/agentbook-basiq';
 
 export const runtime = 'nodejs';
@@ -19,9 +19,13 @@ export const maxDuration = 30;
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
   try {
-    const __resolved = await safeResolveAgentbookTenant(request);
-    if ('response' in __resolved) return __resolved.response;
-    const { tenantId } = __resolved;
+    // Defense-in-depth: gate the persist step too (this is where
+    // AbBankAccount rows actually get created), so a free-plan tenant can't
+    // complete a connection even by calling status directly — mirrors
+    // plaid/exchange's precedent.
+    const guard = await requireBankConnectionQuota(request);
+    if ('response' in guard) return guard.response;
+    const { tenantId } = guard;
 
     const jobId = request.nextUrl.searchParams.get('jobId');
     if (!jobId) {

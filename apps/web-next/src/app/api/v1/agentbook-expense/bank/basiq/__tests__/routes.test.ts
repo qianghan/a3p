@@ -1,11 +1,16 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { NextRequest } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 
 vi.mock('server-only', () => ({}));
 
 const safeResolveAgentbookTenant = vi.fn();
 vi.mock('@/lib/agentbook-tenant', () => ({
   safeResolveAgentbookTenant: (...a: unknown[]) => safeResolveAgentbookTenant(...a),
+}));
+
+const requireBankConnectionQuota = vi.fn();
+vi.mock('@/lib/agentbook-bank/guard', () => ({
+  requireBankConnectionQuota: (...a: unknown[]) => requireBankConnectionQuota(...a),
 }));
 
 const createBasiqUser = vi.fn();
@@ -84,10 +89,27 @@ beforeEach(() => {
   vi.clearAllMocks();
   vi.resetModules();
   safeResolveAgentbookTenant.mockResolvedValue({ tenantId: 'tenant-1' });
+  requireBankConnectionQuota.mockResolvedValue({ tenantId: 'tenant-1' });
   eventCreate.mockResolvedValue({});
 });
 
 describe('POST /bank/basiq/consent-url', () => {
+  it('returns 402 without a paid plan and never touches Basiq', async () => {
+    requireBankConnectionQuota.mockResolvedValueOnce({
+      response: NextResponse.json(
+        { success: false, error: 'Bank sync is a paid feature. Upgrade to Pro or Business to connect a bank account.', upgradeUrl: '/billing' },
+        { status: 402 },
+      ),
+    });
+
+    const { POST } = await import('../consent-url/route');
+    const res = await POST(postReq());
+
+    expect(res.status).toBe(402);
+    expect(createBasiqUser).not.toHaveBeenCalled();
+    expect(getBasiqClientToken).not.toHaveBeenCalled();
+  });
+
   it('creates a basiq user lazily and returns a consentUrl', async () => {
     tenantConfigFindUnique.mockResolvedValue(null);
     userFindUnique.mockResolvedValue({ email: 'maya@agentbook.test' });
@@ -135,6 +157,21 @@ describe('GET /bank/basiq/callback', () => {
 });
 
 describe('GET /bank/basiq/status', () => {
+  it('returns 402 without a paid plan and never polls the job', async () => {
+    requireBankConnectionQuota.mockResolvedValueOnce({
+      response: NextResponse.json(
+        { success: false, error: 'Bank sync is a paid feature. Upgrade to Pro or Business to connect a bank account.', upgradeUrl: '/billing' },
+        { status: 402 },
+      ),
+    });
+
+    const { GET } = await import('../status/route');
+    const res = await GET(getReq('?jobId=job-1'));
+
+    expect(res.status).toBe(402);
+    expect(pollJob).not.toHaveBeenCalled();
+  });
+
   it('creates accounts on job success', async () => {
     tenantConfigFindUnique.mockResolvedValue({ basiqUserId: 'basiq-user-1' });
     pollJob.mockResolvedValue({ status: 'success', connectionId: 'conn-1' });
@@ -281,6 +318,14 @@ describe('POST /bank/basiq/sync', () => {
     const res = await POST(postReq());
     expect(res.status).toBe(400);
   });
+
+  it('is NOT gated by requireBankConnectionQuota — an already-connected account keeps syncing regardless of current plan', async () => {
+    tenantConfigFindUnique.mockResolvedValue({ basiqUserId: 'basiq-user-1' });
+    bankAccountFindMany.mockResolvedValue([]);
+    const { POST } = await import('../sync/route');
+    await POST(postReq());
+    expect(requireBankConnectionQuota).not.toHaveBeenCalled();
+  });
 });
 
 describe('POST /bank/basiq/disconnect', () => {
@@ -310,5 +355,12 @@ describe('POST /bank/basiq/disconnect', () => {
     const { POST } = await import('../disconnect/route');
     const res = await POST(postReq({}));
     expect(res.status).toBe(400);
+  });
+
+  it('is NOT gated by requireBankConnectionQuota — disconnecting an existing account works regardless of current plan', async () => {
+    bankAccountFindFirst.mockResolvedValue(null);
+    const { POST } = await import('../disconnect/route');
+    await POST(postReq({ accountId: 'acct-1' }));
+    expect(requireBankConnectionQuota).not.toHaveBeenCalled();
   });
 });

@@ -137,6 +137,7 @@ export const LAUNCH_CRITICAL_ENV: { key: string; breaks: string }[] = [
   { key: 'STRIPE_WEBHOOK_SECRET', breaks: 'payment reconciliation — cards charge but invoices never mark paid' },
   { key: 'CRON_SECRET', breaks: 'all scheduled jobs — they fail closed and return 401' },
   { key: 'INTERNAL_ADMIN_SECRET', breaks: 'agent skill registration — fails closed' },
+  { key: 'BASIQ_API_KEY', breaks: 'AU bank sync entirely — every Basiq route 500s (silent, no other signal)' },
 ];
 
 export function validateEnv(): {
