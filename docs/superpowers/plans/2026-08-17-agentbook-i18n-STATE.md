@@ -115,7 +115,8 @@ Consequences, which are contained:
 | 3b | formatDateOnly (due dates / deadlines) | **done** | 1 | #457 | merged `ac514a9c` |
 | 3c | Logical-date migration (12 sites) | **done** | 1 | _pushing_ | date-call ratchet 29 -> 17 |
 | 3d | Remaining formatting sweep | pending | 0 | — | 17 date sites (8 are INSTANTS, correctly local), ~110 en-US number sites, ~8 form sites |
-| 4 | Extraction: core + billing | pending | 0 | — | inert |
+| 3e | Translation gate (D2 flag) | **done** | 1 | _pushing_ | D2 had never been implemented |
+| 4 | Extraction: core + billing | pending | 0 | — | inert; UNBLOCKED by 3e |
 | 5 | Extraction: expense + invoice | pending | 0 | — | inert |
 | 6 | Extraction: tax + startup (+ legal denylist) | pending | 0 | — | inert |
 | 7 | Extraction: web-next shell/auth/settings | pending | 0 | — | inert |
@@ -313,6 +314,31 @@ So the NL-parser subset of item 1 is blocked on PR-9's locale threading. The
 form/API subset is not. Options: split PR-3 into form-input (now) and
 NL-input (after PR-9), or move PR-9 ahead of PR-3. Recommend the split —
 reordering would put chat response language before the money-input fix.
+
+### C14 — Decision D2 (the feature flag) was never implemented. Fixed.
+
+D2 was recorded as authoritative on 2026-08-17 and then simply not built. Five
+PRs merged without it. The plan's entire safety story — "PRs 1-11 land dark
+behind a flag, one flip at PR-12" — had no flag behind it.
+
+Exposure so far was benign only by luck: zero UI called `t()`, so selecting
+fr-CA changed formatting and nothing else. The first extraction PR would have
+ended that.
+
+**The gate applies at RESOLUTION, not at the picker.** Hiding non-English
+options is insufficient, because a CA tenant may ALREADY hold
+`locale = 'fr-CA'` written by the Canada-only selector that predates this work.
+Those tenants would have read partial French the moment strings landed. With
+the flag off, the translator is built for `en` regardless of what is stored.
+
+**Formatting is deliberately NOT gated.** Locale-aware dates and money are
+strict correctness fixes already in production — a bill due date was rendering
+a day early west of UTC. Holding them behind the flag would keep a real bug
+alive for no benefit. Only translated STRINGS wait.
+
+Fail-closed (`?? false`, plus a try/catch returning false), matching
+`mcp-flag.ts` and this repo's prior fail-OPEN incident. Flag key:
+`agentbook.i18n.locales.enabled`.
 
 ### C12 — `useI18n` must NOT throw without a provider. Reversed.
 

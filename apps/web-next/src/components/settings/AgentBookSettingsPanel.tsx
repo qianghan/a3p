@@ -16,6 +16,12 @@ const CURRENCY_OPTIONS = ['USD', 'CAD', 'GBP', 'AUD', 'EUR', 'JPY', 'CHF', 'MXN'
 
 
 // Derived once at module load from catalog readiness — see offerableLocales().
+//
+// The RESOLUTION gate in use-shell-i18n.ts is what actually guarantees English
+// while the translation flag is off (a CA tenant may already hold
+// locale='fr-CA' from the old Canada-only selector, so hiding options here
+// would not be sufficient on its own). This list keeps the picker coherent
+// with that: no point offering a language that will render in English.
 const LANGUAGE_OPTIONS = offerableLocales();
 
 /**
