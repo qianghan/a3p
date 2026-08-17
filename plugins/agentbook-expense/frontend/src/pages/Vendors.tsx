@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Store, TrendingUp } from 'lucide-react';
-import { ChatCTA } from '@naap/plugin-sdk';
+import { ChatCTA, useI18n } from '@naap/plugin-sdk';
 
 interface Vendor {
   id: string;
@@ -14,6 +14,9 @@ interface Vendor {
 const API_BASE = '/api/v1/agentbook-expense';
 
 export const VendorsPage: React.FC = () => {
+  // Logical dates (expense/transaction/trip dates) are calendar days, not
+  // instants: local-time rendering showed the previous day west of UTC.
+  const { formatDateOnly } = useI18n();
   const [vendors, setVendors] = useState<Vendor[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -48,7 +51,7 @@ export const VendorsPage: React.FC = () => {
           <div key={vendor.id} className="bg-card border border-border rounded-lg p-4 flex items-center justify-between">
             <div>
               <p className="font-medium">{vendor.name}</p>
-              <p className="text-xs text-muted-foreground">Last seen: {new Date(vendor.lastSeen).toLocaleDateString()}</p>
+              <p className="text-xs text-muted-foreground">Last seen: {formatDateOnly(vendor.lastSeen)}</p>
             </div>
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
               <TrendingUp className="w-4 h-4" />

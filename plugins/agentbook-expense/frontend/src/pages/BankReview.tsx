@@ -8,8 +8,8 @@ import {
   ChevronRight,
   AlertCircle,
 } from 'lucide-react';
-import { ChatCTA } from '@naap/plugin-sdk';
-import { formatMoney } from '@agentbook/i18n';
+import { ChatCTA, useI18n } from '@naap/plugin-sdk';
+import { formatMoney, formatDateOnly } from '@agentbook/i18n';
 import { useTenantCurrency } from '../hooks/useTenantCurrency';
 
 /**
@@ -58,13 +58,16 @@ interface CandidatesResponse {
 function fmtCents(cents: number, currency: string): string {
   return formatMoney(cents, currency);
 }
-function fmtDate(iso: string): string {
+function fmtDate(iso: string, locale: string): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return '—';
-  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  // Transaction dates are calendar days, not instants.
+  return formatDateOnly(d, locale, { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
 export const BankReviewPage: React.FC = () => {
+  // Locale for the UTC-pinned logical-date helper above.
+  const { locale } = useI18n();
   const currency = useTenantCurrency();
   const [txns, setTxns] = useState<BankTxn[]>([]);
   const [loading, setLoading] = useState(true);
@@ -193,7 +196,7 @@ export const BankReviewPage: React.FC = () => {
           {txns.map((t) => {
             const direction: 'inflow' | 'outflow' = t.amount < 0 ? 'inflow' : 'outflow';
             const merchant = t.merchantName || t.name;
-            const dateLabel = fmtDate(t.date);
+            const dateLabel = fmtDate(t.date, locale);
             const candidates = candidatesByTxn[t.id];
             const isLoadingCandidates = loadingTxn === t.id;
             const isActing = actingOn === t.id;
@@ -263,7 +266,7 @@ export const BankReviewPage: React.FC = () => {
                             {c.kind} · {c.label}
                           </div>
                           <div className="text-xs text-muted-foreground mt-0.5">
-                            {fmtCents(c.amountCents, currency)} · {fmtDate(c.date)} · confidence {(c.score * 100).toFixed(0)}%
+                            {fmtCents(c.amountCents, currency)} · {fmtDate(c.date, locale)} · confidence {(c.score * 100).toFixed(0)}%
                           </div>
                         </div>
                         <CheckCircle className={`w-4 h-4 flex-shrink-0 ${ci === 0 ? 'text-emerald-600' : 'text-muted-foreground'}`} />

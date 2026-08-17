@@ -113,7 +113,8 @@ Consequences, which are contained:
 | 2 | Locale plumbing + language selector | **done** | 1 | #455 | merged `8a62a087` |
 | 3a | Locale-safe money/date I/O + bundle split | **done** | 1 | #456 | merged `e3588de2` |
 | 3b | formatDateOnly (due dates / deadlines) | **done** | 1 | #457 | merged `ac514a9c` |
-| 3c | Remaining formatting sweep | pending | 0 | — | ~17 date sites, ~110 en-US sites, ~8 form sites |
+| 3c | Logical-date migration (12 sites) | **done** | 1 | _pushing_ | date-call ratchet 29 -> 17 |
+| 3d | Remaining formatting sweep | pending | 0 | — | 17 date sites (8 are INSTANTS, correctly local), ~110 en-US number sites, ~8 form sites |
 | 4 | Extraction: core + billing | pending | 0 | — | inert |
 | 5 | Extraction: expense + invoice | pending | 0 | — | inert |
 | 6 | Extraction: tax + startup (+ legal denylist) | pending | 0 | — | inert |
@@ -312,6 +313,38 @@ So the NL-parser subset of item 1 is blocked on PR-9's locale threading. The
 form/API subset is not. Options: split PR-3 into form-input (now) and
 NL-input (after PR-9), or move PR-9 ahead of PR-3. Recommend the split —
 reordering would put chat response language before the money-input fix.
+
+### C12 — `useI18n` must NOT throw without a provider. Reversed.
+
+It originally threw outside a `ShellProvider`, justified as "consistent with
+`useAuthService` and friends". That was wrong, and the cost appeared the moment
+i18n reached a real component: `BankConnection.test.tsx` renders the page BARE,
+with no provider, so adding the hook broke 3 tests across 7 render calls.
+
+The distinction those other hooks rely on does not apply here. A missing auth
+or permission service is genuinely fatal — there is nothing to fall back to, so
+failing loudly is right. i18n has a working English fallback **by design**, and
+throwing discarded it. A hook whose entire purpose is graceful degradation
+should not be why a page or a test explodes.
+
+Multiply the tax across ~26 pages of extraction and it becomes a standing
+incentive to skip i18n or to rewrite unrelated tests to accommodate it.
+
+Fix: added `useShellOptional()` (non-throwing) to the SDK and pointed `useI18n`
+at it. `useShell()` still throws, and a test now pins that so nobody
+generalises the change to services that genuinely need to fail loudly.
+
+### C13 — The date ratchet was measuring two unrelated things.
+
+The first version counted `toLocaleDateString` **and** `toLocaleString`. The
+latter is NUMBER formatting — no timezone involved — so the number could not be
+read as "how much of the date bug is left". Narrowed to
+`toLocaleDateString` only; baseline re-set from 55 to 29, now 17.
+
+**Also note: 8 of the remaining 17 are genuine INSTANTS** (`createdAt`,
+`lastSynced`, message timestamps). Local-time rendering is CORRECT for those
+and they must not be migrated. The remaining date work is smaller than the raw
+count suggests.
 
 ### C9 — `jq` is NOT on the PATH in the Monitor shell. Use python3.
 

@@ -99,8 +99,13 @@ count_direct_dates() {
     local files
     files=$(find "$dir" -name '*.tsx' -o -name '*.ts' 2>/dev/null | grep -v '__tests__' || true)
     [ -n "$files" ] || continue
+    # toLocaleDateString ONLY. An earlier version also counted toLocaleString,
+    # which is NUMBER formatting — no timezone involved — so the measure mixed
+    # two unrelated classes and could not be read as "how much of the date bug
+    # is left". Number formatting is tracked by the hardcoded-locale count
+    # above instead.
     local n
-    n=$(echo "$files" | xargs grep -ohE 'toLocaleDateString|toLocaleString' 2>/dev/null | wc -l | tr -d ' ')
+    n=$(echo "$files" | xargs grep -ohE 'toLocaleDateString' 2>/dev/null | wc -l | tr -d ' ')
     total=$((total + n))
   done
   echo "$total"
@@ -156,7 +161,7 @@ if [ ! -f "$DATE_BASELINE_FILE" ]; then
   exit 1
 fi
 DATE_BASELINE=$(tr -d '[:space:]' < "$DATE_BASELINE_FILE")
-echo "[ratchet] direct toLocale*Date calls: $DATE_COUNT (baseline $DATE_BASELINE)"
+echo "[ratchet] direct toLocaleDateString calls: $DATE_COUNT (baseline $DATE_BASELINE)"
 if [ "$DATE_COUNT" -gt "$DATE_BASELINE" ]; then
   echo ""
   echo "[ratchet] FAIL — direct date calls increased by $((DATE_COUNT - DATE_BASELINE))."

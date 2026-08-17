@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Image, Upload } from 'lucide-react';
-import { ChatCTA } from '@naap/plugin-sdk';
+import { ChatCTA, useI18n } from '@naap/plugin-sdk';
 import { formatMoney } from '@agentbook/i18n';
 import { useTenantCurrency } from '../hooks/useTenantCurrency';
 
@@ -15,6 +15,9 @@ interface Expense {
 const API_BASE = '/api/v1/agentbook-expense';
 
 export const ReceiptsPage: React.FC = () => {
+  // Logical dates (expense/transaction/trip dates) are calendar days, not
+  // instants: local-time rendering showed the previous day west of UTC.
+  const { formatDateOnly } = useI18n();
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -67,7 +70,7 @@ export const ReceiptsPage: React.FC = () => {
             <div className="p-3">
               <p className="font-mono font-bold">{fmt(expense.amountCents)}</p>
               <p className="text-xs text-muted-foreground truncate">{expense.description}</p>
-              <p className="text-xs text-muted-foreground">{new Date(expense.date).toLocaleDateString()}</p>
+              <p className="text-xs text-muted-foreground">{formatDateOnly(expense.date)}</p>
             </div>
           </div>
         ))}

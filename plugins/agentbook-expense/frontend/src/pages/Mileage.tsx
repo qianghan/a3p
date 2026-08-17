@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Car, Download, Plus, X } from 'lucide-react';
-import { ChatCTA } from '@naap/plugin-sdk';
+import { ChatCTA, useI18n } from '@naap/plugin-sdk';
 import { formatMoney } from '@agentbook/i18n';
 
 const API = '/api/v1/agentbook-expense';
@@ -88,6 +88,9 @@ function ratePreview(
 }
 
 export const MileagePage: React.FC = () => {
+  // Logical dates (expense/transaction/trip dates) are calendar days, not
+  // instants: local-time rendering showed the previous day west of UTC.
+  const { formatDateOnly } = useI18n();
   const [entries, setEntries] = useState<MileageEntry[]>([]);
   const [summary, setSummary] = useState<MileageSummary | null>(null);
   const [clients, setClients] = useState<Client[]>([]);
@@ -337,7 +340,7 @@ export const MileagePage: React.FC = () => {
                   {e.miles.toLocaleString()} {e.unit} — {e.purpose}
                 </p>
                 <p className="text-xs text-muted-foreground">
-                  {new Date(e.date).toLocaleDateString()}
+                  {formatDateOnly(e.date)}
                   {cli ? ` · ${cli.name}` : ''}
                   {' · '}{e.ratePerUnitCents}¢/{e.unit}
                 </p>

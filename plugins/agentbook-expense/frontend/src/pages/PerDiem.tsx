@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Plane, Plus, X, Hotel } from 'lucide-react';
-import { ChatCTA } from '@naap/plugin-sdk';
+import { ChatCTA, useI18n } from '@naap/plugin-sdk';
 
 const API = '/api/v1/agentbook-expense';
 
@@ -63,6 +63,9 @@ function diffDays(startISO: string, endISO: string): number {
 }
 
 export const PerDiemPage: React.FC = () => {
+  // Logical dates (expense/transaction/trip dates) are calendar days, not
+  // instants: local-time rendering showed the previous day west of UTC.
+  const { formatDateOnly } = useI18n();
   const [entries, setEntries] = useState<PerDiemEntry[]>([]);
   const [showForm, setShowForm] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -261,7 +264,7 @@ export const PerDiemPage: React.FC = () => {
           >
             <div className="min-w-0">
               <p className="text-sm font-medium truncate">{e.description || 'Per-diem entry'}</p>
-              <p className="text-xs text-muted-foreground">{new Date(e.date).toLocaleDateString()}</p>
+              <p className="text-xs text-muted-foreground">{formatDateOnly(e.date)}</p>
             </div>
             <span className="font-mono text-sm font-semibold">{fmtMoney(e.amountCents)}</span>
           </div>

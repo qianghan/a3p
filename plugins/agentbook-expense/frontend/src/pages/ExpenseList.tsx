@@ -203,8 +203,8 @@ function fmt(cents: number, currency = 'USD') {
 function fmtDate(d: string, locale: string) {
   return formatDateOnly(d, locale, { year: 'numeric', month: 'short', day: 'numeric' });
 }
-function fmtDateShort(d: string) {
-  return new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+function fmtDateShort(d: string, locale: string) {
+  return formatDateOnly(d, locale, { month: 'short', day: 'numeric' });
 }
 
 // Date period presets
@@ -805,7 +805,7 @@ export const ExpenseListPage: React.FC = () => {
                     className={`border-b border-border/50 hover:bg-muted/30 cursor-pointer transition-colors ${expense.isPersonal ? 'opacity-50' : ''} ${expense.deletedAt ? 'line-through text-muted-foreground/70' : ''}`}
                     onClick={() => setExpandedId(expandedId === expense.id ? null : expense.id)}
                   >
-                    <td className="px-4 py-3 whitespace-nowrap text-muted-foreground">{fmtDateShort(expense.date)}</td>
+                    <td className="px-4 py-3 whitespace-nowrap text-muted-foreground">{fmtDateShort(expense.date, locale)}</td>
                     <td className="px-4 py-3">
                       <div>
                         <p className="font-medium">

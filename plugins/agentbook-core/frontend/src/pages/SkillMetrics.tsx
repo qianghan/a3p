@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { Loader2, RefreshCw, BarChart3, AlertTriangle, Clock, CheckCircle } from 'lucide-react';
+import { useI18n } from '@naap/plugin-sdk';
 
 /**
  * Skill-metrics dashboard (G-016 / PR 38).
@@ -61,6 +62,9 @@ function rateClass(successRate: number): string {
 }
 
 export const SkillMetricsPage: React.FC = () => {
+  // Logical dates are calendar days, not instants — UTC-pinned so the day
+  // does not shift with the viewer's timezone.
+  const { formatDateOnly } = useI18n();
   const [days, setDays] = useState(7);
   const [data, setData] = useState<MetricsResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -197,7 +201,7 @@ export const SkillMetricsPage: React.FC = () => {
             <AlertTriangle className="w-3 h-3 text-rose-500" /> &lt;85% success
           </div>
           <div className="ml-auto">
-            Window: {new Date(data.since).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} —
+            Window: {formatDateOnly(data.since, { month: 'short', day: 'numeric' })} —
             {' '}now · {data.totalRuns} total runs
           </div>
         </div>

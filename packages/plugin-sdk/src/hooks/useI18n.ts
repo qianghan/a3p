@@ -24,7 +24,7 @@
  */
 
 import { useMemo } from 'react';
-import { useShell } from './useShell.js';
+import { useShellOptional } from './useShell.js';
 import type { II18nService } from '../types/services.js';
 
 /** Currency -> display locale, mirroring @agentbook/i18n's own table. */
@@ -151,20 +151,29 @@ function createFallbackI18n(): II18nService {
 }
 
 /**
- * Localisation service for the current plugin.
+ * Localisation service for the current plugin. NEVER throws.
  *
- * Always returns a usable service. The version-skew case this protects against
- * is a ShellProvider that exists but carries no `i18n` — i.e. a CDN plugin
- * bundle running against an older shell. That degrades to English.
+ * Two distinct absences both degrade to English rather than failing:
  *
- * Used entirely outside a ShellProvider it throws, exactly like every other
- * SDK hook (`useAuthService`, `usePermissions`, ...). That is a wiring mistake
- * in the plugin's own mount(), not version skew, and failing loudly in dev is
- * the right response.
+ *   1. A ShellProvider exists but carries no `i18n` — a CDN plugin bundle
+ *      running against an older shell. This is the version-skew case.
+ *   2. No ShellProvider at all.
+ *
+ * Case 2 was originally made to throw, "consistent with useAuthService and
+ * friends". That was the wrong call. Those services have no fallback, so a
+ * missing provider IS fatal for them and should fail loudly. i18n has a
+ * working English fallback by design, and throwing threw it away.
+ *
+ * The cost showed up immediately: adding useI18n to a component broke its
+ * existing tests, which render the component bare (no provider) — seven render
+ * calls in one suite alone. Multiply that across ~26 pages of string
+ * extraction and the tax is a standing incentive to skip i18n or to rewrite
+ * unrelated tests. A hook whose whole purpose is graceful degradation should
+ * not be the reason a page or a test explodes.
  */
 export function useI18n(): II18nService {
-  const shell = useShell();
-  const injected = shell.i18n;
+  const shell = useShellOptional();
+  const injected = shell?.i18n;
   // Memoised on the injected service so the fallback isn't rebuilt per render.
   return useMemo(() => injected ?? createFallbackI18n(), [injected]);
 }

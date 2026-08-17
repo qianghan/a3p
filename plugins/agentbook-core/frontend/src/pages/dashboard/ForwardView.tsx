@@ -4,6 +4,7 @@ import { NextMomentsList } from './NextMomentsList';
 import type { NextMoment } from './types';
 import { formatMoney } from '@agentbook/i18n';
 import { useTenantCurrency } from '../../hooks/useTenantCurrency';
+import { useI18n } from '@naap/plugin-sdk';
 
 interface Props {
   cashTodayCents: number;
@@ -18,6 +19,9 @@ const moodText = (label: 'healthy' | 'tight' | 'critical') =>
   label === 'healthy' ? 'Healthy' : label === 'tight' ? 'Tight' : 'Critical';
 
 export const ForwardView: React.FC<Props> = ({ cashTodayCents, projection, moments }) => {
+  // Logical dates are calendar days, not instants — UTC-pinned so the day
+  // does not shift with the viewer's timezone.
+  const { formatDateOnly } = useI18n();
   const currency = useTenantCurrency();
   const fmt = (cents: number) => formatMoney(cents, currency);
   const projectedEnd = projection?.days[projection.days.length - 1]?.cents ?? cashTodayCents;
@@ -27,7 +31,7 @@ export const ForwardView: React.FC<Props> = ({ cashTodayCents, projection, momen
     <section className="bg-card border border-border rounded-2xl p-4 sm:p-6">
       <div className="flex items-baseline justify-between gap-2 mb-3 flex-wrap">
         <h2 className="text-lg sm:text-xl font-bold text-foreground">
-          {fmt(cashTodayCents)} today → {fmt(projectedEnd)} {endDate && new Date(endDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+          {fmt(cashTodayCents)} today → {fmt(projectedEnd)} {endDate && formatDateOnly(endDate, { month: 'short', day: 'numeric' })}
         </h2>
         {projection && (
           <span className="text-sm text-muted-foreground hidden sm:inline">
