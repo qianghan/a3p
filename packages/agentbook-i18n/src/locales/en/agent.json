@@ -1,0 +1,7 @@
+{
+  "confirm_lead": "I'd like to do this:",
+  "low_confidence_lead": "I'm not entirely sure I understood — does this look right?",
+  "undo_success": "Undone: {description}",
+  "undo_failed": "I couldn't undo \"{description}\" — the reverse step failed. Try again, or contact support.",
+  "unknown_intent": "I'm not sure what you mean. Try \"Spent $45 on lunch\" or \"How much on travel?\""
+}

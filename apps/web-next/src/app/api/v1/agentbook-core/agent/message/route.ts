@@ -28,7 +28,7 @@ import { reconcileSkills, SKILL_QUERY } from '@agentbook-core/skill-source';
 import { prisma as db } from '@naap/database';
 import { safeResolveAgentbookTenant } from '@/lib/agentbook-tenant';
 import { checkAndIncrement } from '@/lib/agentbook-rate-limit';
-import { t, parseLocaleHeader } from '@/lib/agentbook-i18n';
+import { createTranslator, resolveLocale, CATALOG, AVAILABLE_LOCALES } from '@agentbook/i18n';
 import { getAppBaseUrl, getPluginBaseUrls } from '@/lib/agentbook-config';
 import { generateFilingDraft } from '@/lib/tax-fast-track-draft';
 
@@ -79,13 +79,17 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       const retryAfterSec = limit.retryAfterMs
         ? Math.max(1, Math.ceil(limit.retryAfterMs / 1000))
         : 60;
-      // PR 62: i18n the rate-limit message based on the client's
-      // Accept-Language header. Falls back to English when the locale
-      // isn't supported.
-      const locale = parseLocaleHeader(request.headers.get('accept-language'));
+      // i18n the rate-limit message from the client's Accept-Language
+      // header. Falls back to English when the locale isn't supported.
+      // Translator is built per request — never a module-level singleton,
+      // since concurrent requests share this function instance.
+      const locale = resolveLocale(
+        { acceptLanguage: request.headers.get('accept-language') },
+        AVAILABLE_LOCALES,
+      );
+      const { t } = createTranslator(locale, CATALOG);
       const message = t(
         limit.reason === 'day' ? 'rate.day_exceeded' : 'rate.minute_exceeded',
-        locale,
       );
       return NextResponse.json(
         {

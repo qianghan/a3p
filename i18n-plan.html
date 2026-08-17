@@ -1,0 +1,715 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AgentBook i18n — zh-CN + fr-CA Implementation Plan</title>
+<style>
+  :root {
+    --bg: #0f1117; --surface: #1a1d27; --border: #2d3148;
+    --accent: #6366f1; --accent-dim: #4338ca; --green: #22c55e;
+    --yellow: #eab308; --red: #ef4444; --text: #e2e8f0;
+    --muted: #94a3b8; --code-bg: #0d1117; --cyan: #22d3ee;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; font-size: 14px; line-height: 1.6; }
+  .container { max-width: 1000px; margin: 0 auto; padding: 40px 24px 80px; }
+  h1 { font-size: 28px; font-weight: 700; color: #fff; margin-bottom: 8px; }
+  .subtitle { color: var(--muted); font-size: 14px; margin-bottom: 32px; }
+  .meta-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px,1fr)); gap: 12px; margin-bottom: 32px; }
+  .meta-card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 16px; }
+  .meta-card .label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 4px; }
+  .meta-card .value { font-size: 13px; font-weight: 500; word-break: break-word; }
+  .banner { background: #1e2035; border: 1px solid var(--accent); border-radius: 10px; padding: 16px 20px; margin-bottom: 24px; font-size: 13px; color: #a5b4fc; }
+  .banner strong { color: #c7d2fe; }
+  .banner.warn { background: #2a1f00; border-color: #7a5c00; color: #fde68a; }
+  .banner.warn strong { color: #fef3c7; }
+  .banner.danger { background: #2b1113; border-color: #7f1d1d; color: #fca5a5; }
+  .banner.danger strong { color: #fecaca; }
+  .banner.good { background: #0d2b1a; border-color: #14532d; color: #86efac; }
+  .banner.good strong { color: #bbf7d0; }
+  h2 { font-size: 20px; font-weight: 700; color: #fff; margin: 44px 0 16px; border-bottom: 1px solid var(--border); padding-bottom: 10px; }
+  h3 { font-size: 15px; font-weight: 700; color: #c7d2fe; margin: 28px 0 12px; }
+  h4 { font-size: 13px; font-weight: 700; color: var(--cyan); margin: 18px 0 8px; text-transform: uppercase; letter-spacing: 0.05em; }
+  p { margin-bottom: 12px; }
+  ul, ol { margin: 0 0 14px 22px; }
+  li { margin-bottom: 6px; }
+  code { font-family: 'SF Mono','Fira Code',monospace; background: var(--code-bg); border: 1px solid var(--border); border-radius: 4px; padding: 1px 5px; font-size: 12px; color: #a5f3fc; }
+  pre { background: var(--code-bg); border: 1px solid var(--border); border-radius: 8px; padding: 14px 16px; overflow-x: auto; margin-bottom: 14px; }
+  pre code { background: none; border: none; padding: 0; color: #cbd5e1; font-size: 12px; line-height: 1.55; }
+  table { width: 100%; border-collapse: collapse; margin-bottom: 18px; font-size: 13px; display: block; overflow-x: auto; }
+  th, td { border: 1px solid var(--border); padding: 8px 10px; text-align: left; vertical-align: top; }
+  th { background: #20243a; color: #c7d2fe; font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; }
+  .task { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; margin-bottom: 16px; overflow: hidden; }
+  .task-header { display: flex; align-items: flex-start; gap: 12px; padding: 16px 20px; }
+  .task-num { background: var(--accent); color: #fff; border-radius: 6px; font-size: 11px; font-weight: 700; padding: 2px 8px; white-space: nowrap; flex-shrink: 0; margin-top: 2px; }
+  .task-title { font-weight: 600; font-size: 14px; }
+  .task-subtitle { font-size: 12px; color: var(--muted); margin-top: 2px; }
+  .task-status { margin-left: auto; flex-shrink: 0; }
+  .badge { display: inline-flex; align-items: center; gap: 4px; border-radius: 20px; font-size: 11px; font-weight: 600; padding: 2px 10px; white-space: nowrap; }
+  .badge.inert { background: #0d2b1a; color: var(--green); border: 1px solid #14532d; }
+  .badge.visible { background: #2a1f00; color: var(--yellow); border: 1px solid #4a3800; }
+  .badge.gate { background: #2b1113; color: #fca5a5; border: 1px solid #7f1d1d; }
+  .badge.dark { background: #1a2940; color: #60a5fa; border: 1px solid #1e3a5f; }
+  .task-body { padding: 0 20px 20px; }
+  .file-row { font-size: 12px; margin-bottom: 3px; display: flex; align-items: flex-start; }
+  .file-badge { font-size: 10px; font-weight: 700; border-radius: 4px; padding: 1px 6px; margin-right: 8px; flex-shrink: 0; min-width: 52px; text-align: center; }
+  .file-badge.create { background: #0d2b1a; color: var(--green); }
+  .file-badge.modify { background: #1a2940; color: #60a5fa; }
+  .file-badge.move { background: #2a1f00; color: var(--yellow); }
+  .file-badge.delete { background: #2b1113; color: #fca5a5; }
+  .file-path { font-family: 'SF Mono','Fira Code',monospace; color: #e2e8f0; }
+  .dod { background: #0d1117; border-left: 3px solid var(--green); border-radius: 0 6px 6px 0; padding: 12px 16px; margin-top: 14px; }
+  .dod .label { font-size: 11px; color: var(--green); text-transform: uppercase; letter-spacing: 0.07em; margin-bottom: 8px; font-weight: 700; }
+  .decision { background: var(--surface); border: 1px solid #14532d; border-left: 4px solid var(--green); border-radius: 8px; padding: 16px 20px; margin-bottom: 14px; }
+  .decision .did { font-size: 11px; font-weight: 700; color: var(--green); letter-spacing: 0.06em; margin-bottom: 6px; }
+  .decision .q { font-weight: 600; color: #fff; margin-bottom: 8px; font-size: 14px; }
+  .rec { background: #0d2b1a; border: 1px solid #14532d; border-radius: 6px; padding: 8px 12px; margin-top: 10px; font-size: 12px; color: #86efac; }
+  .rec strong { color: #bbf7d0; }
+  .rec.decided { border-left: 3px solid var(--green); }
+  .rec.decided::before { content: "✓ DECIDED · "; font-weight: 700; color: #bbf7d0; letter-spacing: 0.04em; }
+  .finding { border-left: 3px solid var(--red); background: #1c1418; border-radius: 0 8px 8px 0; padding: 14px 18px; margin-bottom: 14px; }
+  .finding.cut { border-left-color: var(--muted); background: #16181f; }
+  .finding .ftag { font-size: 11px; font-weight: 700; letter-spacing: 0.06em; color: var(--red); margin-bottom: 6px; }
+  .finding.cut .ftag { color: var(--muted); }
+  .finding .ftitle { font-weight: 600; color: #fff; margin-bottom: 6px; }
+  .muted { color: var(--muted); }
+  .toc { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 18px 22px; margin-bottom: 32px; }
+  .toc ol { margin-left: 18px; }
+  .toc a { color: #a5b4fc; text-decoration: none; }
+  .toc a:hover { text-decoration: underline; }
+  .kv { display: grid; grid-template-columns: 150px 1fr; gap: 6px 14px; font-size: 13px; margin-bottom: 14px; }
+  .kv dt { color: var(--muted); }
+  hr { border: none; border-top: 1px solid var(--border); margin: 32px 0; }
+</style>
+</head>
+<body>
+<div class="container">
+
+<h1>AgentBook i18n — Simplified Chinese + Canadian French</h1>
+<p class="subtitle">Implementation plan, structured for unattended loop execution. 12 PRs, 7 test layers. All 8 decisions resolved — cleared to execute.</p>
+
+<div class="meta-grid">
+  <div class="meta-card"><div class="label">Worktree</div><div class="value">.claude/worktrees/agentbook-i18n-plan</div></div>
+  <div class="meta-card"><div class="label">Branch</div><div class="value">worktree-agentbook-i18n-plan</div></div>
+  <div class="meta-card"><div class="label">Base commit</div><div class="value">5dbd7eef (#452)</div></div>
+  <div class="meta-card"><div class="label">Locales</div><div class="value">en-US, fr-CA, zh-CN</div></div>
+  <div class="meta-card"><div class="label">Schema migration</div><div class="value" style="color:var(--green)">None required</div></div>
+  <div class="meta-card"><div class="label">Decisions</div><div class="value" style="color:var(--green)">8 / 8 resolved</div></div>
+  <div class="meta-card"><div class="label">Human gates</div><div class="value">1 (PR-12 flag flip)</div></div>
+</div>
+
+<div class="banner good">
+  <strong>All 8 decisions resolved 2026-08-17 — the loop is cleared to run.</strong>
+  Every decision was answered as recommended. The resolutions are recorded in section 3 and mirrored in the state file, so the loop reads them from disk rather than from any conversation. The one remaining human gate is the PR-12 flag flip, per D1(a).
+</div>
+
+<div class="toc">
+  <ol>
+    <li><a href="#review">Review findings — what changed, and what I cut</a></li>
+    <li><a href="#arch">Architecture</a></li>
+    <li><a href="#decisions">Decisions — all 8 resolved (D1–D8)</a></li>
+    <li><a href="#loop">Autonomous execution contract</a></li>
+    <li><a href="#tests">Test strategy — 7 layers, and which ones actually gate</a></li>
+    <li><a href="#prs">The 12 PRs</a></li>
+    <li><a href="#nongoals">Non-goals</a></li>
+    <li><a href="#risks">Risk register</a></li>
+  </ol>
+</div>
+
+<h2 id="review">1. Review findings</h2>
+
+<p>You asked me to check the design for completeness, regressions, and over-engineering. The review found <strong>five gaps</strong> and <strong>five things to cut</strong>. Three of the gaps would have shipped bugs; one would have shipped a plan whose tests didn't run at all.</p>
+
+<h3>Gaps found — now in the plan</h3>
+
+<div class="finding">
+  <div class="ftag">GAP 1 · SEVERITY: MONEY CORRUPTION</div>
+  <div class="ftitle">Localizing number <em>display</em> without number <em>input</em> is a 100× money bug</div>
+  <p>14 call sites parse user-entered amounts as <code>parseFloat(raw.replace(/,/g, ''))</code> — strip every comma, then parse. In Canadian French, the decimal separator <em>is</em> a comma.</p>
+  <pre><code>// A fr-CA user types "45,50" meaning $45.50
+parseFloat("45,50".replace(/,/g, ''))  // → 4550
+Math.round(4550 * 100)                 // → 455000 cents = $4,550.00</code></pre>
+  <p>Today this is latent — no French UI exists, so nobody types French numbers. But the moment PR-3 renders <code>45,50 $</code> on screen, the app is actively teaching users to type a format it misreads by <strong>100×</strong>, and the wrong figure is booked straight to the double-entry ledger.</p>
+  <p><strong>Consequence for the plan:</strong> input parsing and output formatting must land in the <em>same</em> PR. Splitting them creates a window where the bug is live. Sites: <code>agentbook-invoice-parser.ts:37</code>, <code>agentbook-estimate-parser.ts:41</code>, <code>agentbook-recurring-parser.ts:38</code>, <code>agentbook-bot-agent.ts</code> (×5), <code>telegram/webhook/route.ts</code> (×2), <code>parse-amount.ts:72</code>, <code>agent-corrections.ts:122</code>, <code>consultation-review.ts:84</code>, <code>agentbook-core/backend/src/server.ts:3590</code>.</p>
+</div>
+
+<div class="finding">
+  <div class="ftag">GAP 2 · SEVERITY: SILENT DATA LOSS IN OUTBOUND DOCUMENTS</div>
+  <div class="ftitle">Chinese text will render as blank boxes in every PDF</div>
+  <p><code>agentbook-invoice-pdf.ts</code> and <code>agentbook-tax-pdf.ts</code> use <code>@react-pdf/renderer</code> with <code>fontFamily: 'Helvetica'</code>. Helvetica is one of the 14 standard PDF base fonts and contains <strong>no CJK glyphs</strong>. Chinese characters will drop or render as tofu boxes — in a document that goes to the user's <em>client</em>, not to the user.</p>
+  <p>Fix requires <code>Font.register()</code> with a real CJK face. Unsubsetted Noto Sans SC is ~10MB, which is too large for a serverless bundle, so this needs a subsetting step — a genuine task with a real constraint, not a one-liner. See <a href="#decisions">D5</a>.</p>
+</div>
+
+<div class="finding">
+  <div class="ftag">GAP 3 · SEVERITY: THE PLAN'S OWN TESTS WOULD NOT HAVE RUN</div>
+  <div class="ftitle">Plugin frontend tests cannot fail CI — two independent masks</div>
+  <p>My draft put the "render every page in 3 locales, assert no raw keys leak" layer in <code>plugins/*/frontend/src/__tests__/</code>. That location does not gate:</p>
+  <ol>
+    <li><strong>3 of 6 plugins have no <code>test</code> script.</strong> <code>agentbook-core</code>, <code>agentbook-tax</code>, and <code>agentbook-invoice</code> are missing it — yet <code>agentbook-core</code> already has 4 test files and a <code>vitest.config.ts</code> sitting there unexecuted. CI runs <code>npm test --if-present</code>, so they are silently skipped.</li>
+    <li><strong>Even a present, failing script passes.</strong> The CI step is <code>npm test --if-present || echo "No tests configured"</code> — the <code>|| echo</code> swallows a real failure into exit 0.</li>
+  </ol>
+  <p>The in-repo comment says the mask "covers the legacy naap-fork plugin frontends (not the AgentBook launch surface)" — but the job matrix lists <code>agentbook-billing</code>, <code>agentbook-career</code>, <code>agentbook-core</code>, <code>agentbook-expense</code>, <code>agentbook-invoice</code>, <code>agentbook-startup</code>, <code>agentbook-tax</code>. The comment is inaccurate; the mask does cover the launch surface.</p>
+  <p><strong>Consequence for the plan:</strong> PR-1 adds the 3 missing <code>test</code> scripts and un-masks the 6 AgentBook plugins. Without this, every component test in this plan is decoration.</p>
+</div>
+
+<div class="finding">
+  <div class="ftag">GAP 4 · SEVERITY: WRONG COPY FROM DAY ONE</div>
+  <div class="ftitle">No pluralization — French would be wrong immediately</div>
+  <p>The existing <code>t()</code> has no plural support. <code>"{count} expenses"</code> cannot render <code>1 dépense</code> / <code>3 dépenses</code>, and French plural rules differ from English (French treats 0 as singular). Not separable from the foundation, so it goes in PR-1 via <code>Intl.PluralRules</code> selecting <code>key_one</code>/<code>key_other</code>. zh-CN has one form and the same mechanism covers it for free.</p>
+</div>
+
+<div class="finding">
+  <div class="ftag">GAP 5 · SEVERITY: MINOR, BUT CHEAP</div>
+  <div class="ftitle">No <code>lang</code> attribute on the document root</div>
+  <p>Screen readers pick the wrong pronunciation and browsers pick the wrong CJK font fallback (Simplified vs. Traditional glyph variants differ for the same codepoint). One line in the layout, folded into PR-2.</p>
+</div>
+
+<h3>Over-engineering cut</h3>
+
+<div class="finding cut">
+  <div class="ftag">CUT 1</div>
+  <div class="ftitle">Playwright text-expansion overflow test → manual spot-check</div>
+  <p>French runs 15–20% longer than English, so layouts can truncate. But asserting "no horizontal overflow" in a headless browser is notoriously flaky and would fight the loop for no real signal. The native-speaker spot-check in D3 already looks at these screens with human eyes. Dropped.</p>
+</div>
+
+<div class="finding cut">
+  <div class="ftag">CUT 2</div>
+  <div class="ftitle">Dedicated bundle-size CI job → one assertion</div>
+  <p>The point was to verify the ShellContext decision worked and catalogs didn't get inlined into all 6 UMD bundles. That's one assertion in an existing test, not a job.</p>
+</div>
+
+<div class="finding cut">
+  <div class="ftag">CUT 3</div>
+  <div class="ftitle">New CI job for catalog invariants → reuse <code>invariants</code></div>
+  <p><code>apps/web-next/src/__tests__/architecture/</code> already runs on <em>any</em> code change, un-masked, DB-free, in about a minute. It is the correct and existing home for catalog invariants. No new job.</p>
+</div>
+
+<div class="finding cut">
+  <div class="ftag">CUT 4</div>
+  <div class="ftitle">Spanish and Japanese → deleted, not carried forward</div>
+  <p>The orphaned <code>apps/web-next/src/lib/agentbook-i18n.ts</code> has <code>es</code> and <code>ja</code> translations for 7 keys. They were never wired to anything. Carrying them into the new catalog means the key-parity invariant must permanently special-case two locales that are 7/500ths complete. Delete them; re-add a locale properly when there's demand.</p>
+</div>
+
+<div class="finding cut">
+  <div class="ftag">CUT 5</div>
+  <div class="ftitle">10 test layers → 7</div>
+  <p>Cuts 1–3 and folding the API-client fetch test into PR-2's own suite bring it to 7 layers that each catch a distinct failure class. See section 5.</p>
+</div>
+
+<h3>Verdict</h3>
+<div class="banner good">
+  <strong>Complete</strong> after adding Gaps 1–5. The four in-scope surfaces (app UI, agent chat, Telegram, email/documents) are covered, plus the two input-side surfaces the original draft missed entirely (number parsing, PDF fonts).<br><br>
+  <strong>No regression</strong> rests on four things, not on optimism: PRs 1 and 3–7 are inert by construction; PR-3 carries byte-identical golden tests for every <code>en-US</code> money and date output; PRs 8–11 land dark behind a flag; and the e2e gate is a baseline superset rather than a fictional all-green.<br><br>
+  <strong>Not over-engineered</strong> after Cuts 1–5. What remains is 12 PRs for 3 locales across 4 surfaces, of which 4 PRs are the same mechanical recipe repeated per plugin group.
+</div>
+
+<h2 id="arch">2. Architecture</h2>
+
+<h3>2.1 One package, per-request translator</h3>
+
+<p>Two i18n implementations exist today and neither is usable as-is:</p>
+
+<table>
+  <tr><th>What</th><th>State</th><th>Fate</th></tr>
+  <tr><td><code>packages/agentbook-i18n</code> (<code>@agentbook/i18n</code>)</td><td>Real structure — core, formatters, loader, <code>en</code>+<code>fr</code>, ~111 keys. <strong>Zero consumers.</strong> Added by <code>c612d4f5</code>.</td><td>Becomes the single package, after the <code>core.ts</code> rewrite below</td></tr>
+  <tr><td><code>apps/web-next/src/lib/agentbook-i18n.ts</code></td><td>Second, unrelated implementation. <code>server-only</code>, 7 keys, 5 locales. One consumer: the rate-limit branch of the agent message route.</td><td>Deleted; its 7 keys migrate into the shared catalog</td></tr>
+</table>
+
+<p><strong>The <code>core.ts</code> rewrite is not stylistic.</strong> Today it holds <code>currentLocale</code> in module scope and mutates it through <code>setLocale()</code>. On Fluid Compute, function instances are reused across <em>concurrent</em> requests — so one user calling <code>setLocale('zh-CN')</code> changes the language of another user's in-flight response. Replace the ambient global with a factory:</p>
+
+<pre><code>// packages/agentbook-i18n/src/core.ts
+export function createTranslator(locale: string, catalog: Catalog): Translator
+// returns { locale, t(key, params?) }
+
+// setLocale() and getLocale() are DELETED, not deprecated —
+// they have zero consumers today, so removal is free.</code></pre>
+
+<p>Locale binds at construction, so call sites stay terse (<code>t('expense.saved')</code>) while nothing is mutable across requests. <code>formatters.ts</code> is kept <strong>unchanged</strong> — it already takes <code>locale</code> as an explicit argument, so it was never part of the problem. The rewritten package must <em>not</em> be <code>server-only</code>, since the shell's client components need it too.</p>
+
+<p>Catalog layout: <code>en/</code>, <code>fr-CA/</code> (a rename of the existing <code>fr/</code>, which is already written in Canadian French), <code>zh-CN/</code>. Namespaces: the 6 that exist (<code>common</code>, <code>expense</code>, <code>invoice</code>, <code>tax</code>, <code>proactive</code>, <code>calendar</code>) plus <code>agent</code> for the migrated keys.</p>
+
+<h3>2.2 How locale reaches each surface</h3>
+
+<p><code>AbTenantConfig.locale</code> already exists with <code>@default("en-US")</code>, so there is <strong>no schema migration</strong>. That is worth stating plainly: it sidesteps the known hazard where a remote Vercel build runs <code>prisma db push --accept-data-loss</code> and a concurrent merge from an older commit silently drops new columns.</p>
+
+<p>Resolution precedence: <strong>tenant config → <code>Accept-Language</code> → Telegram <code>language_code</code> → <code>en-US</code></strong>. Any unrecognised stored value falls back to <code>en-US</code> rather than throwing, so pre-existing rows can never break a page.</p>
+
+<table>
+  <tr><th>Surface</th><th>Mechanism</th><th>Anchor</th></tr>
+  <tr><td>Plugin UI (6 UMD bundles)</td><td><code>ShellContext.i18n</code> injected by the shell; consumed via a <code>useI18n()</code> hook in <code>@naap/plugin-sdk</code></td><td><code>shell-context.tsx:363</code> (interface), <code>:1221</code> (value), <code>:1265</code> (<code>useShellServices</code>), <code>PluginLoader.tsx:174</code></td></tr>
+  <tr><td>web-next shell / auth / settings</td><td>Server-resolved locale in the layout, plus <code>&lt;html lang&gt;</code></td><td><code>apps/web-next/src/app/layout.tsx</code></td></tr>
+  <tr><td>Agent chat</td><td>Locale threaded into the brain; response-language directive in the system prompt</td><td><code>agent-brain.ts</code>, <code>agent/message/route.ts</code></td></tr>
+  <tr><td>Telegram</td><td><code>message.from.language_code</code></td><td><code>telegram/webhook/route.ts</code></td></tr>
+  <tr><td>Emails / cron digest</td><td>Per-recipient tenant config — these paths have no request headers at all</td><td><code>lib/email.ts</code>, <code>cron/morning-digest/route.ts</code></td></tr>
+</table>
+
+<p><strong>Why ShellContext rather than bundling.</strong> One catalog copy instead of six, zero per-bundle size cost, and the locale is already resolved server-side before mount so there is no flash of untranslated content. The cost is one required safety property: a CDN bundle can be <em>newer</em> than the shell serving it, so a plugin that finds no <code>i18n</code> on the context must fall back to English rather than crash. That gets its own test.</p>
+
+<h3>2.3 Tax and legal copy stays English</h3>
+
+<p>Per your decision: navigation and chrome are translated, but tax guidance, filing disclosures, and legal copy remain English with a visible "available in English only" notice. Enforced by an <em>inverted</em> invariant — keys matching <code>tax.advice.*</code>, <code>legal.*</code>, and <code>filing.disclosure.*</code> <strong>must not exist</strong> in the <code>fr-CA</code> or <code>zh-CN</code> catalogs. A future PR that helpfully "completes the translation" then fails CI, which is the point.</p>
+
+<h2 id="decisions">3. Decisions — all 8 resolved</h2>
+
+<div class="banner good">
+  <strong>Answered &ldquo;all recommended&rdquo; on 2026-08-17.</strong> Each block below records the decision actually taken. These are the authoritative values — the loop must read them here, not re-infer them.
+</div>
+
+<div class="decision">
+  <div class="did">D1 — MERGE AUTHORITY <span class="muted">(the one that determines whether this is actually autonomous)</span></div>
+  <div class="q">May the loop merge its own PRs after CI goes green?</div>
+  <p>This matters more than it looks: <strong>auto-deploy is ON</strong>, so merging to main deploys to production. Options:</p>
+  <ul>
+    <li><strong>(a)</strong> Loop merges PRs 1–11 unattended, then <strong>halts before PR-12</strong> and waits for you to approve the flag flip. PRs 1–11 are either inert or flag-off, so nothing user-visible ships without your sign-off.</li>
+    <li><strong>(b)</strong> Loop opens each PR and halts for you to merge. Safest, but this is no longer unattended — 12 stops.</li>
+    <li><strong>(c)</strong> Full autonomy including the flag flip. No human sees a Chinese or French screen before your users do.</li>
+  </ul>
+  <div class="rec decided"><strong>Option (a).</strong> The loop merges PRs 1–11 unattended, then <strong>halts before PR-12</strong> and waits for approval of the flag flip. Nothing user-visible ships without sign-off.</div>
+</div>
+
+<div class="decision">
+  <div class="did">D2 — FEATURE FLAG</div>
+  <div class="q">What is the flag key, and which flag system?</div>
+  <p>An admin flag system exists (<code>tests/e2e/admin-feature-flags.spec.ts</code>). The loop needs the exact key name and confirmation it should default <strong>off</strong> in all environments.</p>
+  <div class="rec decided">Flag key <code>agentbook_i18n_locales</code>, default <strong>off</strong> in all environments, flipped on in PR-12 only.</div>
+</div>
+
+<div class="decision">
+  <div class="did">D3 — TRANSLATION AUTHORSHIP</div>
+  <div class="q">May the loop author the fr-CA and zh-CN strings itself?</div>
+  <p>You chose "LLM-drafted + structural tests + spot review". To be unattended, the loop must write the JSON itself. Your spot-review then happens at the D1 halt — after PRs 8–11 have merged dark, before the flag flips. That way you review the real screens, not a diff of JSON.</p>
+  <div class="rec decided">The loop authors the fr-CA and zh-CN strings itself. Spot-review happens at the D1 halt, <strong>on rendered screens</strong> rather than on the catalog JSON.</div>
+</div>
+
+<div class="decision">
+  <div class="did">D4 — FRENCH TERMINOLOGY AUTHORITY</div>
+  <div class="q">Which French does Canadian accounting terminology follow?</div>
+  <p>Quebec accounting French is not generic French: <em>TPS/TVQ</em> not <em>TVA</em>, <em>facture</em>, <em>travailleur autonome</em>. If the loop invents terms, the copy will read as machine-translated to exactly the users it targets.</p>
+  <div class="rec decided"><strong>CRA and Revenu Québec official French</strong> is the authority for every tax and accounting noun. The loop uses the official term, or leaves the key English and lists it for review — it must never invent one.</div>
+</div>
+
+<div class="decision">
+  <div class="did">D5 — CJK FONT FOR PDFs <span class="muted">(governs PR-11)</span></div>
+  <div class="q">How should Chinese render in outbound invoices and tax packs?</div>
+  <ul>
+    <li><strong>(a)</strong> Commit a subsetted <strong>Noto Sans SC</strong> (SIL OFL 1.1 — permissive, redistribution allowed) at roughly 1–2MB after subsetting, registered via <code>Font.register()</code>.</li>
+    <li><strong>(b)</strong> Keep all PDFs English-only in v1 and show a notice. Zero binary, zero licence question, but a zh-CN user's invoices stay English.</li>
+  </ul>
+  <div class="rec decided"><strong>Option (a).</strong> Commit a subsetted <strong>Noto Sans SC</strong> (SIL OFL 1.1, which explicitly permits bundling) and register it via <code>Font.register()</code>. PR-11 records the subsetted byte size in its PR body.</div>
+</div>
+
+<div class="decision">
+  <div class="did">D6 — DECIMAL COMMA POLICY <span class="muted">(governs PR-3 — this is the money one)</span></div>
+  <div class="q">How should <code>1,500</code> be interpreted for a fr-CA user?</div>
+  <p>It is genuinely ambiguous: <code>1,500</code> is <strong>one thousand five hundred</strong> in en-US and <strong>one and a half</strong> in fr-CA. No parser can resolve this from the string alone, and guessing wrong is a 1000× error.</p>
+  <ul>
+    <li><strong>(a)</strong> Parse by locale, and <em>always echo the interpreted amount back</em> in the confirmation step — "Booking $45.50, correct?" — so an ambiguous input is caught by the user before it reaches the ledger.</li>
+    <li><strong>(b)</strong> Accept both separators with heuristics (comma followed by exactly 2 digits = decimal). Fewer confirmations, but silently wrong on <code>1,50</code> meaning 1.50 vs <code>1,500</code>.</li>
+  </ul>
+  <div class="rec decided"><strong>Option (a).</strong> Parse by locale and <strong>always echo the interpreted amount back</strong> in the confirmation step. Ambiguous input becomes a visible question instead of a silent 100× error. Non-negotiable for PR-3.</div>
+</div>
+
+<div class="decision">
+  <div class="did">D7 — NON-GOALS CONFIRMATION</div>
+  <div class="q">Confirm these are out of scope?</div>
+  <p>Receipt/OCR and voice <em>input</em> language; the public marketing and landing pages; <code>/fr/</code>-style locale URL routes (locale comes from tenant config, so routing is untouched); and deleting the never-wired <code>es</code>/<code>ja</code> stubs (Cut 4).</p>
+  <div class="rec decided">All four confirmed out of scope: OCR/voice input language, marketing and landing pages, <code>/fr/</code> locale routes, and the never-wired <code>es</code>/<code>ja</code> stubs (deleted, per Cut 4).</div>
+</div>
+
+<div class="decision">
+  <div class="did">D8 — E2E GATING BASIS</div>
+  <div class="q">Accept baseline-superset gating instead of all-green?</div>
+  <p>The 87-spec Playwright suite does not currently pass in full. The honest gate is: record the passing set at PR-0, and require every later PR's passing set to be a <strong>superset</strong>. Demanding all-green would either block the plan on unrelated pre-existing failures or tempt the loop into deleting tests.</p>
+  <div class="rec decided"><strong>Baseline-superset gating accepted.</strong> The loop records the passing set at PR-0 into the state file; every later PR must pass a superset. An all-green gate is explicitly <em>not</em> the standard.</div>
+</div>
+
+<h2 id="loop">4. Autonomous execution contract</h2>
+
+<p>The loop is a state machine over a checked-in file. It holds no plan in context; it re-derives position from disk each iteration, so it survives restarts and context loss.</p>
+
+<h3>4.1 State file</h3>
+<p><code>docs/superpowers/plans/2026-08-17-agentbook-i18n-STATE.md</code> — created in step 0, updated after every PR, committed with it. One row per PR:</p>
+<pre><code>| PR | Status                          | Attempts | PR link | Notes |
+|----|---------------------------------|----------|---------|-------|
+| 0  | done                            | 1        | —       | baseline: 53/95 e2e, ratchet=612 |
+| 1  | done                            | 1        | #453    | |
+| 2  | in_progress                     | 2        | —       | typecheck red: ShellContext generic |
+| 3  | pending                         | 0        | —       | |</code></pre>
+<p>Statuses: <code>pending</code> → <code>in_progress</code> → <code>done</code> | <code>halted</code>.</p>
+
+<h3>4.2 Iteration algorithm</h3>
+<pre><code>1. Read STATE.md.
+2. If any row is `halted` → STOP. Do not attempt other PRs.
+3. Pick the lowest-numbered row that is not `done`.
+4. If its Attempts >= 3 → mark `halted`, write the diagnosis, STOP.
+5. Execute that PR's recipe from this plan.
+6. Run its Definition of Done commands, in order.
+7. All exit 0 →  commit, push, open PR, merge per D1, mark `done`, continue at 1.
+   Any non-zero → increment Attempts, record the failing command and its
+   output verbatim in Notes, continue at 1 (which retries this same PR).
+8. When all rows are `done` → STOP and report.</code></pre>
+
+<p><strong>PRs are strictly sequential.</strong> Extraction depends on plumbing; the flag flip depends on the catalogs. The loop must never skip ahead past a non-<code>done</code> row, which is what rule 3 enforces.</p>
+
+<h3>4.3 Halt conditions — do not guess about these</h3>
+<ul>
+  <li>Any D1–D8 decision is unanswered or ambiguous when first needed.</li>
+  <li>Definition of Done still red after 3 attempts.</li>
+  <li>The e2e passing set is <em>not</em> a superset of the recorded baseline (a real regression, distinct from a flaky spec — re-run once before concluding).</li>
+  <li>Any <code>packages/database/prisma/schema.prisma</code> change becomes necessary. This plan requires none; if one appears, an assumption was wrong.</li>
+  <li>A secret, credential, or environment variable is needed that isn't already present.</li>
+  <li>A tax, legal, or filing-disclosure string is ambiguous — leave it English and halt rather than translate regulated copy on a guess.</li>
+  <li><code>main</code> has advanced such that a rebase conflicts non-trivially. Main moves fast here; re-verify against current main rather than forcing.</li>
+</ul>
+
+<div class="banner danger">
+  <strong>Two standing prohibitions</strong>, both from prior incidents in this repo: never push directly to <code>main</code> — every change goes through a PR, including one-line fixes that look inert. And never run <code>git stash</code>, <code>checkout</code>, or <code>reset</code> in the main checkout — other agent streams keep in-progress work there. All work stays inside this worktree.
+</div>
+
+<h3>4.4 Kickoff</h3>
+<pre><code>/loop Execute i18n-plan.html against
+docs/superpowers/plans/2026-08-17-agentbook-i18n-STATE.md
+using the section 4.2 iteration algorithm. Halt per section 4.3.</code></pre>
+
+<h2 id="tests">5. Test strategy</h2>
+
+<p>Seven layers. The column that matters is the last one — a test that cannot fail CI is documentation, not a gate.</p>
+
+<table>
+  <tr><th>#</th><th>Layer</th><th>Catches</th><th>Lives in</th><th>Gates?</th></tr>
+  <tr>
+    <td>1</td><td><strong>Translator unit tests</strong></td>
+    <td>Fallback chain, interpolation, missing-var rendering as literal, plural selection per locale, <code>resolveLocale</code> precedence</td>
+    <td><code>packages/agentbook-i18n/src/__tests__/</code></td>
+    <td>Yes — <code>backend-tests</code> matrix (packages)</td>
+  </tr>
+  <tr>
+    <td>2</td><td><strong>Catalog invariants</strong> <span class="muted">(proves "complete")</span></td>
+    <td>Key-set parity across locales; <em>interpolation-variable</em> parity per key (catches a translator localizing <code>{amount}</code>→<code>{montant}</code>, which silently breaks the value); no empty strings; zh-CN values must contain CJK codepoints (catches a key copy-pasted from English); fr-CA/zh-CN must differ from <code>en</code> except an explicit allowlist; tax/legal keys must be <em>absent</em> from non-en catalogs</td>
+    <td><code>apps/web-next/src/__tests__/architecture/</code></td>
+    <td>Yes — <code>invariants</code> job, un-masked, runs on any change</td>
+  </tr>
+  <tr>
+    <td>3</td><td><strong>Golden format + parse tests</strong> <span class="muted">(proves "no regression")</span></td>
+    <td>Every one of the 163 formatting sites and 14 parsing sites, asserted byte-identical to today's output for <code>en-US</code>. Round-trip: <code>parse(format(x, locale), locale) === x</code> for all 3 locales — the property that Gap 1 violates.</td>
+    <td><code>apps/web-next/src/lib/__tests__/</code>, plugin backends</td>
+    <td>Yes — <code>shell-tests</code> + <code>backend-tests</code></td>
+  </tr>
+  <tr>
+    <td>4</td><td><strong>Concurrency test</strong></td>
+    <td>Two interleaved requests with different locales against one module instance, asserting no cross-talk. <em>This test fails against today's <code>core.ts</code></em> — which is what makes the rewrite demonstrably necessary rather than a matter of taste.</td>
+    <td><code>packages/agentbook-i18n/src/__tests__/</code></td>
+    <td>Yes</td>
+  </tr>
+  <tr>
+    <td>5</td><td><strong>Component render in 3 locales</strong></td>
+    <td>Renders each page in en/fr-CA/zh-CN, asserting no raw key (<code>/^[a-z]+\.[a-z_.]+$/</code>) reaches the DOM — i.e. no missing catalog entry shows the user <code>expense.saved</code>. Plus the degrade case: a plugin mounted with no <code>i18n</code> on ShellContext must render English, not crash.</td>
+    <td><code>plugins/*/frontend/src/__tests__/</code></td>
+    <td><strong>Only after PR-1 un-masks it</strong> — see Gap 3</td>
+  </tr>
+  <tr>
+    <td>6</td><td><strong>LLM language eval</strong></td>
+    <td>Per-locale fixtures asserting the reply is <em>in</em> the target language (CJK ratio for zh; diacritic + stopword heuristic for fr) <strong>and</strong> that every number and currency figure in the reply matches the DB exactly. Translating a reply must never become recomputing it — this repo has already shipped a chat bug that stated a dollar figure which was not a real quantity.</td>
+    <td><code>apps/web-next/src/lib/__tests__/</code> (fixtures, no live LLM in CI)</td>
+    <td>Yes</td>
+  </tr>
+  <tr>
+    <td>7</td><td><strong>E2E baseline-superset</strong></td>
+    <td>Whole-app regression across the 87 specs, plus new trilingual specs: switch language in Business Profile, assert a localized page renders, assert Telegram webhook replies in zh-CN.</td>
+    <td><code>tests/e2e/</code></td>
+    <td>Yes — <code>nightly-e2e</code>, compared to the PR-0 baseline</td>
+  </tr>
+</table>
+
+<p>Plus a <strong>ratcheting hardcoded-string baseline</strong>: a checked-in count of bare user-facing literals in plugin JSX that may only ever decrease. A hard zero would either block unrelated PRs or get suppressed with inline ignores; a ratchet can't be gamed and gives PRs 4–7 a mechanical progress signal. Deliberately a dumb grep with an allowlist, not a JSX parser.</p>
+
+<h2 id="prs">6. The 12 PRs</h2>
+
+<p>PRs 1 and 3–7 are <strong>inert by construction</strong> — English output is unchanged and golden-tested. PRs 8–11 land <strong>dark</strong> behind the flag. The entire user-visible change is one flag flip in PR-12. That is the central safety property of this sequencing: eleven of twelve PRs cannot regress a user's experience even if the translations are wrong.</p>
+
+<div class="task">
+  <div class="task-header">
+    <div class="task-num">PR 0</div>
+    <div><div class="task-title">Baseline capture</div><div class="task-subtitle">Not a PR — the loop's first action, committed with PR-1</div></div>
+    <div class="task-status"><span class="badge inert">no code</span></div>
+  </div>
+  <div class="task-body">
+    <div class="file-row"><span class="file-badge create">create</span><span class="file-path">docs/superpowers/plans/2026-08-17-agentbook-i18n-STATE.md</span></div>
+    <ol>
+      <li><code>npm install</code> in the worktree — new worktrees have no <code>@agentbook/*</code> or <code>@naap/*</code> symlinks until this runs, and it must not use <code>--workspaces=false</code>.</li>
+      <li>Verify <code>.vercel/project.json</code> names <code>a3p-plugin-build</code> before any deploy-adjacent step; a wrong link silently pulls plausible-but-empty env.</li>
+      <li>Record the e2e passing set, the hardcoded-string count, and each UMD bundle's byte size into STATE.md.</li>
+    </ol>
+    <div class="dod"><div class="label">Definition of done</div><pre><code>npm install                       # exit 0, symlinks present
+cd tests/e2e &amp;&amp; npx playwright test   # record pass set, do not gate
+# STATE.md contains baseline numbers</code></pre></div>
+  </div>
+</div>
+
+<div class="task">
+  <div class="task-header">
+    <div class="task-num">PR 1</div>
+    <div><div class="task-title">Package foundation + un-mask plugin tests</div><div class="task-subtitle">Per-request translator, plurals, dedupe, invariants — and make plugin tests able to fail</div></div>
+    <div class="task-status"><span class="badge inert">inert</span></div>
+  </div>
+  <div class="task-body">
+    <div class="file-row"><span class="file-badge modify">modify</span><span class="file-path">packages/agentbook-i18n/src/core.ts</span> — <span class="muted">delete setLocale/getLocale, add createTranslator + Intl.PluralRules</span></div>
+    <div class="file-row"><span class="file-badge move">move</span><span class="file-path">packages/agentbook-i18n/src/locales/fr/ → fr-CA/</span></div>
+    <div class="file-row"><span class="file-badge create">create</span><span class="file-path">packages/agentbook-i18n/src/locales/zh-CN/*.json</span> — <span class="muted">structure only, en values, filled in PR-8</span></div>
+    <div class="file-row"><span class="file-badge create">create</span><span class="file-path">packages/agentbook-i18n/src/locales/{en,fr-CA,zh-CN}/agent.json</span> — <span class="muted">the 7 migrated keys</span></div>
+    <div class="file-row"><span class="file-badge delete">delete</span><span class="file-path">apps/web-next/src/lib/agentbook-i18n.ts</span> + its test <span class="muted">(es/ja dropped per Cut 4)</span></div>
+    <div class="file-row"><span class="file-badge modify">modify</span><span class="file-path">apps/web-next/src/app/api/v1/agentbook-core/agent/message/route.ts:30</span> — <span class="muted">repoint the one import</span></div>
+    <div class="file-row"><span class="file-badge create">create</span><span class="file-path">apps/web-next/src/__tests__/architecture/i18n-catalog.test.ts</span></div>
+    <div class="file-row"><span class="file-badge modify">modify</span><span class="file-path">plugins/{agentbook-core,agentbook-tax,agentbook-invoice}/frontend/package.json</span> — <span class="muted">add the missing "test": "vitest run"</span></div>
+    <div class="file-row"><span class="file-badge create">create</span><span class="file-path">plugins/{agentbook-tax,agentbook-invoice}/frontend/vitest.config.ts</span></div>
+    <div class="file-row"><span class="file-badge modify">modify</span><span class="file-path">.github/workflows/ci.yml</span> — <span class="muted">drop <code>|| echo</code> for the 6 agentbook plugins</span></div>
+    <h4>Notes</h4>
+    <p>Un-masking will likely expose <code>agentbook-core</code>'s 4 existing test files as failing — they have never run. Fixing them is <em>in scope for this PR</em>; a mask that gets restored because the tests underneath were red is worse than no mask at all. If any is unfixable, delete it and say so in the PR body rather than re-masking.</p>
+    <div class="dod"><div class="label">Definition of done</div><pre><code>cd packages/agentbook-i18n &amp;&amp; npx vitest run
+cd apps/web-next &amp;&amp; npx vitest run src/__tests__/architecture/
+cd apps/web-next &amp;&amp; npm run typecheck
+npm run lint
+for p in agentbook-core agentbook-billing agentbook-expense \
+         agentbook-invoice agentbook-startup agentbook-tax; do
+  (cd plugins/$p/frontend &amp;&amp; npm test) || exit 1   # no mask
+done</code></pre></div>
+  </div>
+</div>
+
+<div class="task">
+  <div class="task-header">
+    <div class="task-num">PR 2</div>
+    <div><div class="task-title">Locale plumbing + language selector</div><div class="task-subtitle">Resolver, ShellContext.i18n, useI18n(), html lang, Business Profile control</div></div>
+    <div class="task-status"><span class="badge visible">selector appears</span></div>
+  </div>
+  <div class="task-body">
+    <div class="file-row"><span class="file-badge modify">modify</span><span class="file-path">apps/web-next/src/contexts/shell-context.tsx:363,1221,1265</span> — <span class="muted">add i18n to interface + value + useShellServices</span></div>
+    <div class="file-row"><span class="file-badge modify">modify</span><span class="file-path">apps/web-next/src/components/plugin/PluginLoader.tsx:174</span></div>
+    <div class="file-row"><span class="file-badge create">create</span><span class="file-path">packages/plugin-sdk/src/hooks/useI18n.ts</span> — <span class="muted">+ export from hooks/index.ts</span></div>
+    <div class="file-row"><span class="file-badge modify">modify</span><span class="file-path">packages/plugin-sdk/src/types/context.ts</span> — <span class="muted">i18n is optional, for the degrade path</span></div>
+    <div class="file-row"><span class="file-badge modify">modify</span><span class="file-path">apps/web-next/src/app/layout.tsx</span> — <span class="muted">&lt;html lang={locale}&gt;</span></div>
+    <div class="file-row"><span class="file-badge modify">modify</span><span class="file-path">Business Profile settings page + its API route</span> — <span class="muted">language select; whitelist accepts existing en-US rows</span></div>
+    <h4>Notes</h4>
+    <p>The whitelist is the trap here. <code>locale</code> is dual-purpose — it drives both formatting and translation — and every existing row holds <code>en-US</code>. A whitelist of exactly <code>['fr-CA','zh-CN','en-US']</code> is required; a narrower one rejects live rows. This repo has already shipped a hotfix for precisely this shape of bug on <code>businessType</code>.</p>
+    <p>The API-client test must mock <code>fetch</code>, not the client module. Module-mocking gives zero coverage of the fetch and await path inside the client, which is where this class of bug actually lives.</p>
+    <div class="dod"><div class="label">Definition of done</div><pre><code>cd packages/plugin-sdk &amp;&amp; npm run build &amp;&amp; npm run test:coverage
+cd apps/web-next &amp;&amp; npm run typecheck &amp;&amp; npx vitest run
+# asserts: missing-i18n ShellContext renders English, does not throw
+# asserts: each UMD bundle within +2KB of the PR-0 baseline (Cut 2)</code></pre></div>
+  </div>
+</div>
+
+<div class="task">
+  <div class="task-header">
+    <div class="task-num">PR 3</div>
+    <div><div class="task-title">Locale-safe money and date I/O</div><div class="task-subtitle">Both directions in one PR — 163 format sites + 14 parse sites</div></div>
+    <div class="task-status"><span class="badge gate">highest risk</span></div>
+  </div>
+  <div class="task-body">
+    <div class="file-row"><span class="file-badge modify">modify</span><span class="file-path">163 toLocale*/Intl call sites</span> — <span class="muted">96 of which hardcode 'en-US'</span></div>
+    <div class="file-row"><span class="file-badge modify">modify</span><span class="file-path">14 parseFloat(raw.replace(/,/g,'')) sites</span> — <span class="muted">see Gap 1 for the full list</span></div>
+    <div class="file-row"><span class="file-badge create">create</span><span class="file-path">packages/agentbook-i18n/src/parse.ts</span> — <span class="muted">locale-aware parseAmount / parseDate</span></div>
+    <div class="file-row"><span class="file-badge create">create</span><span class="file-path">golden test files alongside each touched module</span></div>
+    <h4>Notes</h4>
+    <p>This is the one PR that can corrupt a ledger, and it's the reason formatting and parsing are not separable — see Gap 1. Implement <strong>D6</strong>'s echo-back confirmation as part of this PR, not later.</p>
+    <p>Date input is the same hazard in a quieter form: <code>03/04/2026</code> is March 4 in en-US and April 3 in fr-CA. Ambiguous date input takes the same echo-back treatment.</p>
+    <div class="dod"><div class="label">Definition of done</div><pre><code>cd apps/web-next &amp;&amp; npx vitest run   # golden: en-US byte-identical
+cd packages/agentbook-i18n &amp;&amp; npx vitest run
+# round-trip property holds for all 3 locales:
+#   parse(format(x, loc), loc) === x
+# explicit case: parse("45,50", "fr-CA") === 4550 cents, NOT 455000</code></pre></div>
+  </div>
+</div>
+
+<div class="task">
+  <div class="task-header">
+    <div class="task-num">PR 4–7</div>
+    <div><div class="task-title">String extraction — one recipe, four groups</div><div class="task-subtitle">4: core+billing · 5: expense+invoice · 6: tax+startup · 7: web-next shell/auth/settings</div></div>
+    <div class="task-status"><span class="badge inert">inert ×4</span></div>
+  </div>
+  <div class="task-body">
+    <p>Four PRs, one identical mechanical recipe. Split by plugin group for blast-radius control: a mistake in tax extraction shouldn't block core extraction, and a red CI run points at ~400 lines rather than ~1600.</p>
+    <h4>The recipe</h4>
+    <ol>
+      <li>Replace user-facing literals with <code>t('ns.key')</code> via <code>useI18n()</code>.</li>
+      <li>Add each key to <code>locales/en/&lt;ns&gt;.json</code> with <strong>the exact current English text</strong> — this is what keeps the PR inert.</li>
+      <li>Mirror the key into <code>fr-CA</code> and <code>zh-CN</code> holding the English value for now. PR-8 fills them.</li>
+      <li>Add the layer-5 component test: render in 3 locales, assert no raw key reaches the DOM.</li>
+      <li>Lower the ratchet baseline by the number of literals removed.</li>
+    </ol>
+    <h4>PR-6 additionally</h4>
+    <p>Applies the tax/legal denylist: guidance, filing-disclosure, and legal keys are registered <code>en</code>-only and must be <em>absent</em> from <code>fr-CA</code>/<code>zh-CN</code>, with the "available in English only" notice rendered beside them. The layer-2 invariant enforces the absence.</p>
+    <div class="dod"><div class="label">Definition of done (per PR)</div><pre><code>cd plugins/&lt;each&gt;/frontend &amp;&amp; npm test        # un-masked since PR-1
+cd apps/web-next &amp;&amp; npx vitest run src/__tests__/architecture/
+cd apps/web-next &amp;&amp; npm run typecheck &amp;&amp; npm run lint
+# ratchet count strictly decreased vs previous PR
+# rebuild UMD + commit the bundle to public/cdn (see PR-12 note)</code></pre></div>
+  </div>
+</div>
+
+<div class="task">
+  <div class="task-header">
+    <div class="task-num">PR 8</div>
+    <div><div class="task-title">fr-CA + zh-CN catalog content</div><div class="task-subtitle">The actual translation work — lands dark behind the flag</div></div>
+    <div class="task-status"><span class="badge dark">flag off</span></div>
+  </div>
+  <div class="task-body">
+    <div class="file-row"><span class="file-badge modify">modify</span><span class="file-path">packages/agentbook-i18n/src/locales/fr-CA/*.json</span></div>
+    <div class="file-row"><span class="file-badge modify">modify</span><span class="file-path">packages/agentbook-i18n/src/locales/zh-CN/*.json</span></div>
+    <p>Per <strong>D3</strong> the loop authors these; per <strong>D4</strong> tax and accounting nouns must use official CRA / Revenu Québec French, and anything the loop cannot source officially stays English and is listed in the PR body for your review. Plural forms get <code>_one</code>/<code>_other</code> variants where the English has a count.</p>
+    <div class="dod"><div class="label">Definition of done</div><pre><code>cd apps/web-next &amp;&amp; npx vitest run src/__tests__/architecture/
+# key parity, interpolation-var parity, no empty values,
+# zh-CN contains CJK, fr-CA/zh-CN differ from en outside the allowlist,
+# tax/legal keys absent from both non-en catalogs</code></pre></div>
+  </div>
+</div>
+
+<div class="task">
+  <div class="task-header">
+    <div class="task-num">PR 9</div>
+    <div><div class="task-title">Agent chat response language</div><div class="task-subtitle">Locale into the brain + LLM language eval</div></div>
+    <div class="task-status"><span class="badge dark">flag off</span></div>
+  </div>
+  <div class="task-body">
+    <div class="file-row"><span class="file-badge modify">modify</span><span class="file-path">plugins/agentbook-core/backend/src/agent-brain.ts</span></div>
+    <div class="file-row"><span class="file-badge modify">modify</span><span class="file-path">apps/web-next/src/app/api/v1/agentbook-core/agent/message/route.ts</span></div>
+    <div class="file-row"><span class="file-badge create">create</span><span class="file-path">apps/web-next/src/lib/__tests__/i18n-llm-language.test.ts</span></div>
+    <h4>Notes</h4>
+    <p>Production serves chat through the Next routes, not the Express plugin backend. Both carry the logic, so a locale directive added to only one is dead code on the path users actually hit. Verify both.</p>
+    <p>The eval asserts language <em>and</em> numeric fidelity. A reply may be translated; it may never be recomputed. Guard the numbers explicitly.</p>
+    <div class="dod"><div class="label">Definition of done</div><pre><code>cd apps/web-next &amp;&amp; npx vitest run
+cd plugins/agentbook-core/backend &amp;&amp; npx vitest run
+# fixtures: zh-CN reply is CJK-dominant; fr-CA reply passes the French
+# heuristic; every currency figure equals the DB value exactly</code></pre></div>
+  </div>
+</div>
+
+<div class="task">
+  <div class="task-header">
+    <div class="task-num">PR 10</div>
+    <div><div class="task-title">Telegram bot localization</div><div class="task-subtitle">language_code detection, session copy, inline buttons</div></div>
+    <div class="task-status"><span class="badge dark">flag off</span></div>
+  </div>
+  <div class="task-body">
+    <div class="file-row"><span class="file-badge modify">modify</span><span class="file-path">apps/web-next/src/app/api/v1/agentbook/telegram/webhook/route.ts</span></div>
+    <div class="file-row"><span class="file-badge modify">modify</span><span class="file-path">apps/web-next/src/lib/agentbook-bot-agent.ts</span></div>
+    <h4>Notes</h4>
+    <p>Telegram copy has historically existed in more than one place in this repo — a past fix had to correct three separate copies of the same strings. Extraction here must grep for duplicates rather than assume one home, or one channel silently keeps its English string. An architecture assertion that the webhook contains zero bare user-facing literals is the durable version of that check.</p>
+    <div class="dod"><div class="label">Definition of done</div><pre><code>cd apps/web-next &amp;&amp; npx vitest run
+cd apps/web-next &amp;&amp; npx vitest run src/__tests__/architecture/
+# asserts: no bare user-facing literal remains in the webhook route</code></pre></div>
+  </div>
+</div>
+
+<div class="task">
+  <div class="task-header">
+    <div class="task-num">PR 11</div>
+    <div><div class="task-title">Emails, invoices, tax packs + CJK font</div><div class="task-subtitle">The surface that reaches third parties</div></div>
+    <div class="task-status"><span class="badge dark">flag off</span></div>
+  </div>
+  <div class="task-body">
+    <div class="file-row"><span class="file-badge modify">modify</span><span class="file-path">apps/web-next/src/lib/email.ts</span> + the transactional send sites</div>
+    <div class="file-row"><span class="file-badge modify">modify</span><span class="file-path">apps/web-next/src/lib/agentbook-invoice-pdf.ts</span>, <span class="file-path">agentbook-tax-pdf.ts</span></div>
+    <div class="file-row"><span class="file-badge create">create</span><span class="file-path">subsetted CJK font asset + Font.register() wiring</span> — <span class="muted">per D5</span></div>
+    <div class="file-row"><span class="file-badge modify">modify</span><span class="file-path">apps/web-next/src/app/api/v1/agentbook/cron/morning-digest/route.ts</span></div>
+    <h4>Notes</h4>
+    <p>Cron and email paths have no request headers, so locale must come from each recipient's tenant config. A digest that reads the <em>caller's</em> locale is a bug that only appears once a second locale exists.</p>
+    <p>Tax packs keep English guidance per the denylist, but their <em>labels</em> and chrome localize. The PDF test must assert rendered glyph presence, not just that bytes were produced — a tofu-box PDF is a valid PDF of the wrong thing.</p>
+    <div class="dod"><div class="label">Definition of done</div><pre><code>cd apps/web-next &amp;&amp; npx vitest run
+# asserts: zh-CN invoice PDF contains CJK glyphs, not .notdef boxes
+# asserts: digest uses the recipient's locale, not the caller's</code></pre></div>
+  </div>
+</div>
+
+<div class="task">
+  <div class="task-header">
+    <div class="task-num">PR 12</div>
+    <div><div class="task-title">GA — flag flip, trilingual e2e, docs</div><div class="task-subtitle">The only user-visible change in the whole plan</div></div>
+    <div class="task-status"><span class="badge gate">human gate (D1)</span></div>
+  </div>
+  <div class="task-body">
+    <div class="file-row"><span class="file-badge modify">modify</span><span class="file-path">feature flag default → on</span></div>
+    <div class="file-row"><span class="file-badge create">create</span><span class="file-path">tests/e2e/i18n-locales.spec.ts</span></div>
+    <div class="file-row"><span class="file-badge modify">modify</span><span class="file-path">CLAUDE.md</span> — <span class="muted">how to add a locale / a key</span></div>
+    <h4>Notes</h4>
+    <p>Plugin frontend changes only reach production once the rebuilt UMD bundle is <strong>committed</strong> to <code>public/cdn</code> — building alone is not shipping. And verification has to happen in a real browser session: curling the CDN bundle returns a plausible response that does not prove the app renders, which has produced a false pass here before.</p>
+    <p>The loop halts <em>before</em> this PR under D1(a) so your spot-review happens on rendered screens.</p>
+    <div class="dod"><div class="label">Definition of done</div><pre><code>cd tests/e2e &amp;&amp; npx playwright test
+# passing set is a SUPERSET of the PR-0 baseline (D8)
+# then: prebuilt deploy, and verify all 3 locales in a real browser</code></pre></div>
+  </div>
+</div>
+
+<h2 id="nongoals">7. Non-goals</h2>
+<p>Explicitly out of scope, pending your confirmation in D7. Each is separate work with its own design questions:</p>
+<ul>
+  <li><strong>Input language for receipts/OCR and voice.</strong> A Chinese receipt is an input-recognition problem, unrelated to UI language.</li>
+  <li><strong>Marketing and landing pages.</strong> Public SEO surface with different concerns (hreflang, per-locale routes, indexing).</li>
+  <li><strong>Locale URL routes</strong> (<code>/fr/...</code>). Locale comes from tenant config, so routing is untouched — this keeps the change far smaller.</li>
+  <li><strong>Spanish and Japanese.</strong> The 7 never-wired stubs are deleted rather than carried (Cut 4).</li>
+  <li><strong>Collation.</strong> Sorting Chinese client names by pinyin needs <code>Intl.Collator</code>; deferred until someone asks.</li>
+</ul>
+
+<h2 id="risks">8. Risk register</h2>
+
+<table>
+  <tr><th>Risk</th><th>Likelihood</th><th>Mitigation</th></tr>
+  <tr>
+    <td><strong>Decimal-comma money corruption</strong> (Gap 1)</td>
+    <td>Certain if format and parse are split</td>
+    <td>Same PR; round-trip property test; D6 echo-back confirmation</td>
+  </tr>
+  <tr>
+    <td><strong>Plugin tests still can't fail</strong> (Gap 3)</td>
+    <td>Certain without PR-1's un-mask</td>
+    <td>Un-mask is a PR-1 deliverable with its own DoD line; the loop's own DoD runs the 6 suites without a mask</td>
+  </tr>
+  <tr>
+    <td><strong>Un-masking reveals pre-existing red suites</strong></td>
+    <td>Likely — <code>agentbook-core</code>'s 4 files have never run</td>
+    <td>Fixing them is in PR-1's scope; if unfixable, delete and disclose rather than re-mask</td>
+  </tr>
+  <tr>
+    <td><strong>CJK renders as tofu in outbound PDFs</strong> (Gap 2)</td>
+    <td>Certain without a registered font</td>
+    <td>D5; glyph-presence assertion, not byte-presence</td>
+  </tr>
+  <tr>
+    <td><strong>Machine-translated tax copy misleads a user</strong></td>
+    <td>Low, by design</td>
+    <td>English-only denylist, inverted invariant, D4 official-terminology rule</td>
+  </tr>
+  <tr>
+    <td><strong>Locale whitelist rejects existing <code>en-US</code> rows</strong></td>
+    <td>Moderate — this exact shape has shipped here before</td>
+    <td>Whitelist unions all three values; unrecognised input falls back rather than throwing</td>
+  </tr>
+  <tr>
+    <td><strong>Newer CDN bundle meets older shell</strong></td>
+    <td>Moderate during rollout</td>
+    <td><code>i18n</code> optional on ShellContext; explicit degrade-to-English test</td>
+  </tr>
+  <tr>
+    <td><strong>Concurrent-request locale bleed</strong></td>
+    <td>Certain if <code>core.ts</code> ships as-is</td>
+    <td>Ambient globals deleted in PR-1; concurrency test fails on today's code</td>
+  </tr>
+  <tr>
+    <td><strong>Main advances under the loop</strong></td>
+    <td>High — main moves fast in this repo</td>
+    <td>Rebase per PR; halt on non-trivial conflict rather than force</td>
+  </tr>
+  <tr>
+    <td><strong><code>bin/regression-guard.sh</code> gives false assurance</strong></td>
+    <td>Certain, but out of scope</td>
+    <td>Its <code>CORE_PLUGINS</code> list is the pre-fork naap plugins — it builds and tests <em>zero</em> AgentBook plugins. The plan relies on <code>plugin-tests</code>, <code>invariants</code>, and <code>backend-tests</code> instead. Flagged, not fixed.</td>
+  </tr>
+</table>
+
+<hr>
+<p class="muted" style="font-size:12px">Plan written 2026-08-17 in worktree <code>agentbook-i18n-plan</code>, branch <code>worktree-agentbook-i18n-plan</code>, base <code>5dbd7eef</code>. All file paths, line numbers, CI job names, and npm scripts in this document were read from the repository at that commit rather than assumed. No implementation code has been written.</p>
+
+</div>
+</body>
+</html>

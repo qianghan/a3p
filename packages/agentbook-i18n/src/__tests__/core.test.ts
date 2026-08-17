@@ -1,134 +1,237 @@
-import { describe, it, expect, beforeEach } from 'vitest';
-import { t, setLocale, getLocale, loadLocale, resolveLocale } from '../core.js';
+import { describe, it, expect } from 'vitest';
+import { createTranslator, resolveLocale, type Catalog } from '../core.js';
 
-describe('core i18n', () => {
-  beforeEach(() => {
-    // Reset to known state before each test
-    setLocale('en');
-    loadLocale('en', {
-      greeting: 'Hello',
-      farewell: 'Goodbye',
-      welcome: 'Welcome, {name}!',
-      invoice_total: 'Total: {amount} ({count} items)',
-      expense: {
-        receipt_saved: 'Receipt saved for {amount}',
-        category: 'Category',
-      },
+/**
+ * Note the absence of beforeEach() resetting shared state. There is no shared
+ * state to reset — that is the point of createTranslator. The old suite needed
+ * a reset hook, and that hook is precisely what hid the concurrency bug:
+ * serialised tests never interleave, so the leak never showed.
+ */
+
+const CATALOG: Catalog = {
+  en: {
+    greeting: 'Hello',
+    welcome: 'Welcome, {name}!',
+    invoice_total: 'Total: {amount} ({count} items)',
+    expense: {
+      receipt_saved: 'Receipt saved for {amount}',
+      category: 'Category',
+    },
+    // Plural variants
+    expense_count_one: '{count} expense',
+    expense_count_other: '{count} expenses',
+  },
+  'fr-CA': {
+    greeting: 'Bonjour',
+    welcome: 'Bienvenue, {name} !',
+    expense: {
+      receipt_saved: 'Reçu enregistré pour {amount}',
+      category: 'Catégorie',
+    },
+    expense_count_one: '{count} dépense',
+    expense_count_other: '{count} dépenses',
+  },
+  'zh-CN': {
+    greeting: '你好',
+    expense_count_other: '{count} 笔支出',
+  },
+};
+
+describe('createTranslator', () => {
+  it('translates a flat key in the bound locale', () => {
+    expect(createTranslator('fr-CA', CATALOG).t('greeting')).toBe('Bonjour');
+  });
+
+  it('translates a nested dot-notated key', () => {
+    expect(createTranslator('fr-CA', CATALOG).t('expense.category')).toBe('Catégorie');
+  });
+
+  it('exposes the bound locale', () => {
+    expect(createTranslator('zh-CN', CATALOG).locale).toBe('zh-CN');
+  });
+
+  it('interpolates named params', () => {
+    expect(createTranslator('en', CATALOG).t('welcome', { name: 'Maya' })).toBe('Welcome, Maya!');
+  });
+
+  it('renders a missing param as the literal placeholder, not an empty string', () => {
+    // A visible {name} is easier to catch in review than a silent blank.
+    expect(createTranslator('en', CATALOG).t('welcome')).toBe('Welcome, {name}!');
+    expect(createTranslator('en', CATALOG).t('welcome', { other: 'x' })).toBe('Welcome, {name}!');
+  });
+
+  it('coerces numeric params to strings', () => {
+    expect(createTranslator('en', CATALOG).t('invoice_total', { amount: '$10', count: 3 }))
+      .toBe('Total: $10 (3 items)');
+  });
+
+  describe('fallback chain', () => {
+    it('falls back to English when the locale lacks the key', () => {
+      // 'invoice_total' exists only in en.
+      expect(createTranslator('fr-CA', CATALOG).t('invoice_total', { amount: '5 $', count: 1 }))
+        .toBe('Total: 5 $ (1 items)');
     });
-    loadLocale('fr', {
-      greeting: 'Bonjour',
-      farewell: 'Au revoir',
-      welcome: 'Bienvenue, {name} !',
-      expense: {
-        receipt_saved: 'Re\u00e7u enregistr\u00e9 pour {amount}',
-        category: 'Cat\u00e9gorie',
-      },
+
+    it('falls back to the base language for a regional tag', () => {
+      // 'en-US' is not a catalog key; 'en' is.
+      expect(createTranslator('en-US', CATALOG).t('greeting')).toBe('Hello');
+    });
+
+    it('falls back to English for an entirely unsupported locale', () => {
+      expect(createTranslator('de-DE', CATALOG).t('greeting')).toBe('Hello');
+    });
+
+    it('returns the key itself when nothing resolves', () => {
+      // Visible miss beats a silent empty string.
+      expect(createTranslator('en', CATALOG).t('does.not.exist')).toBe('does.not.exist');
+    });
+
+    it('returns the key when a path resolves to an object rather than a string', () => {
+      expect(createTranslator('en', CATALOG).t('expense')).toBe('expense');
     });
   });
 
-  describe('t()', () => {
-    it('returns translated string for an existing key', () => {
-      expect(t('greeting')).toBe('Hello');
+  describe('pluralization', () => {
+    it('selects the English singular and plural', () => {
+      const { t } = createTranslator('en', CATALOG);
+      expect(t('expense_count', { count: 1 })).toBe('1 expense');
+      expect(t('expense_count', { count: 3 })).toBe('3 expenses');
     });
 
-    it('replaces {param} placeholders with interpolation values', () => {
-      expect(t('welcome', { name: 'Alice' })).toBe('Welcome, Alice!');
+    it('applies French rules, where 0 is singular', () => {
+      // This is the whole reason plurals are not deferrable: French and
+      // English disagree at zero, so a count-bearing string without variants
+      // is wrong in French from day one.
+      const { t } = createTranslator('fr-CA', CATALOG);
+      expect(t('expense_count', { count: 0 })).toBe('0 dépense');
+      expect(t('expense_count', { count: 1 })).toBe('1 dépense');
+      expect(t('expense_count', { count: 2 })).toBe('2 dépenses');
     });
 
-    it('handles multiple interpolation params', () => {
-      expect(t('invoice_total', { amount: '$45.00', count: 3 })).toBe(
-        'Total: $45.00 (3 items)',
-      );
+    it('handles zh-CN, which has a single form', () => {
+      const { t } = createTranslator('zh-CN', CATALOG);
+      expect(t('expense_count', { count: 1 })).toBe('1 笔支出');
+      expect(t('expense_count', { count: 5 })).toBe('5 笔支出');
     });
 
-    it('leaves unmatched placeholders intact when param is missing', () => {
-      expect(t('welcome')).toBe('Welcome, {name}!');
-    });
-
-    it('resolves dot-notation keys to nested objects', () => {
-      expect(t('expense.receipt_saved', { amount: '$45.00' })).toBe(
-        'Receipt saved for $45.00',
-      );
-      expect(t('expense.category')).toBe('Category');
-    });
-
-    it('falls back to fallback locale when current locale is missing the key', () => {
-      setLocale('fr');
-      // 'invoice_total' only exists in 'en', not in 'fr'
-      expect(t('invoice_total', { amount: '45 $', count: 3 })).toBe(
-        'Total: 45 $ (3 items)',
-      );
-    });
-
-    it('returns the key itself when no locale has a translation', () => {
-      expect(t('nonexistent.key')).toBe('nonexistent.key');
+    it('ignores plural selection when count is absent', () => {
+      expect(createTranslator('en', CATALOG).t('greeting')).toBe('Hello');
     });
   });
+});
 
-  describe('setLocale() / getLocale()', () => {
-    it('changes and reads the current locale', () => {
-      expect(getLocale()).toBe('en');
-      setLocale('fr');
-      expect(getLocale()).toBe('fr');
-    });
+describe('concurrency — the regression this rewrite exists to prevent', () => {
+  it('serves each interleaved request its OWN locale', async () => {
+    // This exact scenario failed against the previous module-global
+    // implementation: request B's locale overwrote the shared variable while
+    // request A was awaiting, so the French user was served English.
+    const results: Record<string, string> = {};
 
-    it('affects subsequent t() calls', () => {
-      setLocale('fr');
-      expect(t('greeting')).toBe('Bonjour');
-    });
+    const requestA = async () => {
+      const { t } = createTranslator('fr-CA', CATALOG);
+      await Promise.resolve();
+      results.a = t('greeting');
+    };
+    const requestB = async () => {
+      const { t } = createTranslator('en', CATALOG);
+      await Promise.resolve();
+      results.b = t('greeting');
+    };
+    const requestC = async () => {
+      const { t } = createTranslator('zh-CN', CATALOG);
+      await Promise.resolve();
+      results.c = t('greeting');
+    };
+
+    await Promise.all([requestA(), requestB(), requestC()]);
+
+    expect(results.a).toBe('Bonjour');
+    expect(results.b).toBe('Hello');
+    expect(results.c).toBe('你好');
   });
 
-  describe('loadLocale()', () => {
-    it('loads translations for a new locale', () => {
-      loadLocale('de', { greeting: 'Hallo' });
-      setLocale('de');
-      expect(t('greeting')).toBe('Hallo');
+  it('keeps translators independent under heavy interleaving', async () => {
+    const locales = ['en', 'fr-CA', 'zh-CN'];
+    const expected = { en: 'Hello', 'fr-CA': 'Bonjour', 'zh-CN': '你好' } as const;
+
+    const jobs = Array.from({ length: 60 }, (_, i) => {
+      const loc = locales[i % 3] as keyof typeof expected;
+      return (async () => {
+        const { t } = createTranslator(loc, CATALOG);
+        // Yield a variable number of times to force real interleaving.
+        for (let n = 0; n <= i % 5; n++) await Promise.resolve();
+        return t('greeting') === expected[loc];
+      })();
     });
 
-    it('merges with existing translations for the same locale', () => {
-      loadLocale('en', { new_key: 'New Value' });
-      // existing keys still work
-      expect(t('greeting')).toBe('Hello');
-      // new key works too
-      expect(t('new_key')).toBe('New Value');
-    });
+    expect((await Promise.all(jobs)).every(Boolean)).toBe(true);
   });
 
-  describe('resolveLocale()', () => {
-    it('prefers tenant locale over other sources', () => {
-      const result = resolveLocale({
-        tenantLocale: 'fr-CA',
-        acceptLanguage: 'en-US,en;q=0.9',
-        telegramLanguageCode: 'en',
-      });
-      expect(result).toBe('fr-CA');
-    });
+  it('does not export an ambient locale setter', async () => {
+    // Guards against a well-meaning future PR reintroducing the global.
+    const mod = await import('../core.js');
+    expect('setLocale' in mod).toBe(false);
+    expect('getLocale' in mod).toBe(false);
+  });
+});
 
-    it('uses acceptLanguage when tenant locale is absent', () => {
-      const result = resolveLocale({
-        acceptLanguage: 'fr-CA,fr;q=0.9,en;q=0.8',
-      });
-      expect(result).toBe('fr-CA');
-    });
+describe('resolveLocale', () => {
+  const AVAILABLE = ['en', 'fr-CA', 'zh-CN'];
 
-    it('uses telegram language code as third priority', () => {
-      const result = resolveLocale({
-        telegramLanguageCode: 'fr',
-      });
-      expect(result).toBe('fr');
-    });
+  it('prefers tenant config over every other signal', () => {
+    expect(resolveLocale(
+      { tenantLocale: 'zh-CN', acceptLanguage: 'fr-CA,fr;q=0.9', telegramLanguageCode: 'fr' },
+      AVAILABLE,
+    )).toBe('zh-CN');
+  });
 
-    it('falls back to "en" when no source matches a loaded locale', () => {
-      const result = resolveLocale({
-        tenantLocale: 'zh-CN',
-        acceptLanguage: 'zh-CN',
-        telegramLanguageCode: 'zh',
-      });
-      expect(result).toBe('en');
-    });
+  it('accepts the en-US value every existing AbTenantConfig row stores', () => {
+    // Regression guard: a narrower whitelist would reject live rows. This
+    // exact shape already shipped as a hotfix on businessType.
+    expect(resolveLocale({ tenantLocale: 'en-US' }, AVAILABLE)).toBe('en');
+  });
 
-    it('falls back to "en" with empty sources', () => {
-      expect(resolveLocale({})).toBe('en');
-    });
+  it('maps a bare language onto its regional catalog entry', () => {
+    expect(resolveLocale({ tenantLocale: 'fr' }, AVAILABLE)).toBe('fr-CA');
+  });
+
+  it('matches locale tags case-insensitively', () => {
+    expect(resolveLocale({ tenantLocale: 'zh-cn' }, AVAILABLE)).toBe('zh-CN');
+  });
+
+  it('falls back to Accept-Language when tenant config is unset', () => {
+    expect(resolveLocale({ tenantLocale: null, acceptLanguage: 'fr-CA,en;q=0.8' }, AVAILABLE))
+      .toBe('fr-CA');
+  });
+
+  it('honours q-weights rather than header order', () => {
+    expect(resolveLocale({ acceptLanguage: 'en;q=0.3,zh-CN;q=0.9' }, AVAILABLE)).toBe('zh-CN');
+  });
+
+  it('skips unsupported languages in Accept-Language', () => {
+    expect(resolveLocale({ acceptLanguage: 'de-DE,de;q=0.9,zh-CN;q=0.5' }, AVAILABLE)).toBe('zh-CN');
+  });
+
+  it('ignores the wildcard tag', () => {
+    expect(resolveLocale({ acceptLanguage: '*' }, AVAILABLE)).toBe('en');
+  });
+
+  it('uses the Telegram language_code when there is no header', () => {
+    // Telegram supplies language_code and no Accept-Language at all.
+    expect(resolveLocale({ telegramLanguageCode: 'zh' }, AVAILABLE)).toBe('zh-CN');
+  });
+
+  it('falls back to English when no signal matches', () => {
+    expect(resolveLocale({ tenantLocale: 'de', acceptLanguage: 'de-DE' }, AVAILABLE)).toBe('en');
+  });
+
+  it('falls back to English on empty input rather than throwing', () => {
+    expect(resolveLocale({}, AVAILABLE)).toBe('en');
+    expect(resolveLocale({ tenantLocale: null, acceptLanguage: null }, AVAILABLE)).toBe('en');
+  });
+
+  it('never throws on a malformed Accept-Language header', () => {
+    expect(() => resolveLocale({ acceptLanguage: ';;;q=,,' }, AVAILABLE)).not.toThrow();
+    expect(resolveLocale({ acceptLanguage: ';;;q=,,' }, AVAILABLE)).toBe('en');
   });
 });
