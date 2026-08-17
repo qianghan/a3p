@@ -1,5 +1,6 @@
 // plugins/agentbook-invoice/frontend/src/components/RecordPaymentModal.tsx
 import { useState } from 'react';
+import { useI18n } from '@naap/plugin-sdk';
 
 const METHODS = [
   { value: 'manual', label: 'Manual' },
@@ -33,10 +34,24 @@ export function RecordPaymentModal({
   const [paidAt, setPaidAt] = useState(new Date().toISOString().slice(0, 10));
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  // Locale-aware money input.
+  //
+  // These are <input type="number">, whose value-sanitization algorithm
+  // (HTML spec) normalises to a dot-decimal string and blanks anything else.
+  // Verified in jsdom: setting '45,50' yields value === '' , so parseFloat
+  // gives NaN — NOT 45. There is therefore no 100x misread on this path.
+  //
+  // Two real problems remain, and parseAmount fixes both:
+  //   1. NaN escaped to the API. Math.round(parseFloat('') * 100) is NaN, and
+  //      that went into the request body. parseAmount returns ok:false / 0.
+  //   2. A fr-CA user cannot type '45,50' into these fields at all — the
+  //      browser blanks it. That is a usability defect, and routing through
+  //      parseAmount means switching a field to type="text" later Just Works.
+  const { parseAmount } = useI18n();
 
   const submit = async (e: React.FormEvent): Promise<void> => {
     e.preventDefault();
-    const amountCents = Math.round(parseFloat(amount) * 100);
+    const amountCents = parseAmount(amount).cents;
     if (isNaN(amountCents) || amountCents <= 0) {
       setErr('Amount must be greater than 0');
       return;

@@ -110,8 +110,8 @@ Consequences, which are contained:
 |----|-------|--------|----------|---------|-------|
 | 0 | Baseline capture | **done** | 1 | (in PR-1) | e2e line deferred to CI — see above |
 | 1 | Package foundation + un-mask plugin tests | **done** | 1 | #454 | merged `4ec17c10`; see corrections below |
-| 2 | Locale plumbing + language selector | **done** | 1 | _pushing_ | selector now shown to ALL jurisdictions, not just CA |
-| 3 | Locale-safe money + date I/O | pending | 0 | — | **highest risk** — see D6 |
+| 2 | Locale plumbing + language selector | **done** | 1 | #455 | merged `8a62a087` |
+| 3 | Locale-safe money + date I/O | **in_progress** | 1 | — | foundation landed; call-site migration remains (see below) |
 | 4 | Extraction: core + billing | pending | 0 | — | inert |
 | 5 | Extraction: expense + invoice | pending | 0 | — | inert |
 | 6 | Extraction: tax + startup (+ legal denylist) | pending | 0 | — | inert |
@@ -206,6 +206,110 @@ that is a material error. CI masks it by running in UTC.
 The formatting PR must fix it (format date-only values in a fixed zone, or
 carry the tenant timezone explicitly) and add a non-UTC test so the fix
 cannot silently regress.
+
+## PR-3 remaining work (foundation landed, migration outstanding)
+
+Landed so far on `i18n-pr3-money-date-io`:
+- `packages/agentbook-i18n/src/parse.ts` — `parseAmountToCents`,
+  `parseDateInput`. Decides decimal-vs-grouping by trailing-digit COUNT rather
+  than by the locale's nominal separator, because keying off the locale breaks
+  in both directions (fr-CA typing "45.50" and en-US reading "45,50" are the
+  same 100x error mirrored). Reports `ambiguous` instead of guessing.
+- `formatDate` date-only UTC fix (correction C3). Verified in
+  `America/Vancouver` AND `UTC`, so it cannot regress on a UTC-only CI.
+- 102 package tests green in both zones, incl. a round-trip property
+  `parse(format(x)) === x` across all three locales.
+
+DONE in part 2:
+- `II18nService.parseAmount` + shell + SDK-fallback implementations, so plugin
+  form inputs get locale-aware parsing through the injected service.
+- **5 form-input files migrated** off `parseFloat(amount) * 100`:
+  NewExpense, Bills, Budgets, RecordPaymentModal, RecurringInvoices.
+- `bin/i18n-bundle-guard.sh` — asserts the locale packs never appear in a
+  plugin UMD bundle. Verified non-vacuous by injecting a marker.
+- All 6 UMD bundles rebuilt and committed to `public/cdn`.
+
+STILL TO DO in PR-3:
+1. **~8 remaining form-input sites** (NewInvoice line-item rate + taxRate,
+   PlanEditorModal, HomeOffice sqft, StartupDiscoveryPage) — same recipe.
+2. **14 comma-stripping NL-parser sites** — BLOCKED on PR-9 locale threading.
+3. **~110 hardcoded `'en-US'` formatting sites** (181 `toLocale*`/`Intl` total).
+4. **Golden tests** asserting `en-US` output is byte-identical for each.
+5. **D6 echo-back** in the chat confirmation step for `ambiguous` amounts.
+
+### C6 — Form inputs are `type="number"`, so the failure is NaN, not 100x.
+
+Two-stage correction; the second stage overrides the first.
+
+**First pass (partly wrong):** found 13 form-input sites doing
+`Math.round(parseFloat(amount) * 100)` and concluded French input would be
+misread 100x-1500x, as with the comma-stripping parsers.
+
+**Verified (jsdom):** every one of those fields is `<input type="number">`.
+Per the HTML value-sanitization algorithm, `.value` is normalised to a
+dot-decimal string and anything else is blanked:
+
+    element.value = '45,50'    ->  .value === ''   ->  parseFloat -> NaN
+    element.value = '1 500,75' ->  .value === ''   ->  parseFloat -> NaN
+    element.value = '8.875'    ->  .value === '8.875'
+
+So there is **no 100x misread on the form path**. The real defects are:
+
+1. **NaN reached the API.** `Math.round(parseFloat('') * 100)` is `NaN`, and
+   that went into the request body as `amountCents`. `parseAmount` returns
+   `ok:false` / `0` instead.
+2. **A fr-CA user cannot type `45,50` into these fields at all** — the browser
+   blanks it. That is a usability defect, not a silent-money one.
+
+The 100x/1500x hazard is real for `type="text"` fields and for the NL parsers,
+which is where the comma-stripping sites live. Do not conflate the two paths.
+
+**Constraint discovered:** `parseAmount` is cents-quantised, so it must NOT be
+used for rate or quantity fields. The invoice tax-rate input uses `step=0.001`
+(e.g. 8.875%); round-tripping through cents gives 8.88 and silently changes the
+tax on an invoice. Those fields keep plain numeric parsing. Tests pin this.
+
+**Inventory lesson that still stands:** grep `parseFloat`/`Number` near
+amount/price/rate, not just `replace(/,/g` — but then check the input TYPE
+before concluding what the failure mode is.
+
+### C7 — PR-1 leaked the catalog into every plugin bundle. Fixed, now guarded.
+
+Putting `CATALOG` in the same barrel as `formatMoney` meant all 21 plugin call
+sites that import `formatMoney` inlined all three locale packs: **+18.8 KB per
+bundle**, ~113 KB duplicated across six CDN bundles. That defeated the entire
+reason for injecting one shared translator through ShellContext.
+
+Nothing failed — the bundles just got bigger, and no test measured them. The
+plan listed a bundle-size assertion as "Cut 2" and it was never written; the
+thing it would have caught then happened.
+
+Fixed by splitting the entry points:
+
+    @agentbook/i18n            functions only — safe for plugin bundles
+    @agentbook/i18n/catalog    locale packs — SHELL ONLY
+
+Guarded two ways: `bin/i18n-bundle-guard.sh` greps built bundles for known
+catalog strings, and a package test asserts the main barrel exports no catalog
+symbol. **Production was never affected** — the committed CDN bundles predated
+the leak, verified with the guard before rebuilding.
+
+### Dependency discovered — affects sequencing
+
+`plugins/agentbook-core/backend/src/parse-amount.ts` is the shared
+natural-language money parser used by chat/Telegram. Two things about it:
+
+- It **already** handles Chinese money words (元 / 块 / 圆) and guards against
+  non-money units (小时, 人份). That work exists and must not be undone.
+- Its `NUM` regex hardcodes en-US shape:
+  `(\d{1,3}(?:,\d{3})*(?:\.\d+)?|\d+(?:\.\d+)?)` — comma-thousands,
+  period-decimal. Making it locale-aware requires the caller's locale, which is
+  only threaded into the agent brain by **PR-9**.
+
+So the NL-parser subset of item 1 is blocked on PR-9's locale threading. The
+form/API subset is not. Options: split PR-3 into form-input (now) and
+NL-input (after PR-9), or move PR-9 ahead of PR-3. Recommend the split —
+reordering would put chat response language before the money-input fix.
 
 ## Known traps (verified in the repo at `5dbd7eef`)
 

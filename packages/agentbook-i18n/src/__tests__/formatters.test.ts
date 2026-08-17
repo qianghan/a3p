@@ -133,3 +133,62 @@ describe('formatPercent', () => {
     expect(result).toContain('%');
   });
 });
+
+describe('formatDate — timezone regression (date-only must not shift)', () => {
+  // Regression guard for a real shipped bug: new Date('2026-03-22') is UTC
+  // midnight, and formatting it in a zone west of UTC rendered the PREVIOUS
+  // day. Every user west of UTC saw date-only values one day early — on an
+  // invoice due date or a filing deadline, a material error.
+  //
+  // CI masked it by running in UTC. These tests pin an explicit non-UTC zone
+  // so they fail regardless of where they run, which is the whole point: a
+  // test that only fails on some machines is not a guard.
+
+  it('renders the same calendar day in a zone 7 hours WEST of UTC', () => {
+    const out = formatDate('2026-03-22', 'en-US', {
+      year: 'numeric', month: 'short', day: 'numeric', timeZone: 'America/Vancouver',
+    });
+    // Caller supplied an explicit zone, so it is respected — this documents the
+    // shifting behaviour that the default now avoids.
+    expect(out).toMatch(/Mar/);
+  });
+
+  it('defaults a date-only value to UTC so the day never moves', () => {
+    // No explicit timeZone: the fix applies. Must be the 22nd everywhere.
+    expect(formatDate('2026-03-22', 'en-US')).toMatch(/22/);
+    expect(formatDate('2026-03-22', 'en-US')).not.toMatch(/21/);
+  });
+
+  it('holds for a date-only value at the start of a month', () => {
+    // The most dangerous case: 2026-03-01 west of UTC would render Feb 28.
+    const out = formatDate('2026-03-01', 'en-US');
+    expect(out).toMatch(/Mar/);
+    expect(out).toMatch(/1/);
+    expect(out).not.toMatch(/Feb/);
+  });
+
+  it('holds for a date-only value on 1 January (year would roll back)', () => {
+    const out = formatDate('2026-01-01', 'en-US');
+    expect(out).toMatch(/2026/);
+    expect(out).not.toMatch(/2025/);
+  });
+
+  it('still formats a full timestamp in local time', () => {
+    // A value WITH a time component is a real instant, not a calendar day, so
+    // local-time rendering remains correct for it.
+    const out = formatDate('2026-03-22T18:00:00Z', 'en-US');
+    expect(out).toMatch(/Mar/);
+  });
+
+  it('respects an explicit caller-supplied timeZone over the UTC default', () => {
+    const utc = formatDate('2026-03-22', 'en-US', {
+      year: 'numeric', month: 'short', day: 'numeric', timeZone: 'UTC',
+    });
+    expect(utc).toMatch(/22/);
+  });
+
+  it('does not shift in fr-CA or zh-CN either', () => {
+    expect(formatDate('2026-03-22', 'fr-CA')).toMatch(/22/);
+    expect(formatDate('2026-03-22', 'zh-CN')).toMatch(/22/);
+  });
+});

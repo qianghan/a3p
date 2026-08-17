@@ -3,6 +3,7 @@ import { Target, Plus, X, Trash2, Pencil } from 'lucide-react';
 import { ChatCTA } from '@naap/plugin-sdk';
 import { formatMoney } from '@agentbook/i18n';
 import { useTenantCurrency } from '../hooks/useTenantCurrency';
+import { useI18n } from '@naap/plugin-sdk';
 
 const API = '/api/v1/agentbook-expense';
 
@@ -40,6 +41,20 @@ function periodLabel(period: string): string {
 export const BudgetsPage: React.FC = () => {
   const currency = useTenantCurrency();
   const [budgets, setBudgets] = useState<BudgetRow[]>([]);
+  // Locale-aware money input.
+  //
+  // These are <input type="number">, whose value-sanitization algorithm
+  // (HTML spec) normalises to a dot-decimal string and blanks anything else.
+  // Verified in jsdom: setting '45,50' yields value === '' , so parseFloat
+  // gives NaN — NOT 45. There is therefore no 100x misread on this path.
+  //
+  // Two real problems remain, and parseAmount fixes both:
+  //   1. NaN escaped to the API. Math.round(parseFloat('') * 100) is NaN, and
+  //      that went into the request body. parseAmount returns ok:false / 0.
+  //   2. A fr-CA user cannot type '45,50' into these fields at all — the
+  //      browser blanks it. That is a usability defect, and routing through
+  //      parseAmount means switching a field to type="text" later Just Works.
+  const { parseAmount } = useI18n();
   const [categories, setCategories] = useState<Category[]>([]);
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -100,7 +115,7 @@ export const BudgetsPage: React.FC = () => {
     setSubmitting(true);
     setFormError(null);
     try {
-      const v = parseFloat(amount);
+      const v = parseAmount(amount).cents / 100;
       if (!isFinite(v) || v <= 0) {
         setFormError('Amount has to be a positive number.');
         setSubmitting(false);

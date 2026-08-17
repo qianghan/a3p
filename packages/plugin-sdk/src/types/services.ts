@@ -738,6 +738,27 @@ export interface II18nService {
 
   /** Locale-aware percentage. `formatPercent(0.283)` -> '28.3%'. */
   formatPercent(value: number, decimals?: number): string;
+
+  /**
+   * Parse a user-typed amount into integer cents, using this locale's
+   * conventions.
+   *
+   * Form inputs MUST use this rather than `parseFloat(value) * 100`. On French
+   * input that shortcut fails three different ways, all of them money bugs:
+   *   parseFloat('45,50')    -> 45   -> $45.00      (cents silently dropped)
+   *   parseFloat('1 500,75') -> 1    -> $1.00       (1500x understatement)
+   *   Number('45,50')        -> NaN  -> NaN payload
+   *
+   * `ambiguous` marks input that could mean something else in this locale
+   * ("1,500" is 1000x apart between en-US and fr-CA). Confirm with the user,
+   * showing `formatted`, before writing an ambiguous amount.
+   */
+  parseAmount(raw: string): {
+    ok: boolean;
+    cents: number;
+    ambiguous: boolean;
+    formatted: string;
+  };
 }
 
 // ============================================

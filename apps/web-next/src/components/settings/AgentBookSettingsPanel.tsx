@@ -7,7 +7,7 @@ import {
   Copy, Check, Gift, Users, CreditCard,
 } from 'lucide-react';
 import { JURISDICTION_OPTIONS, defaultCurrencyFor, formatCurrencyCents } from '@/lib/jurisdiction-currency';
-import { offerableLocales } from '@agentbook/i18n';
+import { offerableLocales } from '@agentbook/i18n/catalog';
 import { SubscribeModal } from './SubscribeModal';
 
 const CURRENCY_OPTIONS = ['USD', 'CAD', 'GBP', 'AUD', 'EUR', 'JPY', 'CHF', 'MXN', 'BRL', 'INR'];

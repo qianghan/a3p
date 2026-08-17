@@ -28,7 +28,8 @@ import { reconcileSkills, SKILL_QUERY } from '@agentbook-core/skill-source';
 import { prisma as db } from '@naap/database';
 import { safeResolveAgentbookTenant } from '@/lib/agentbook-tenant';
 import { checkAndIncrement } from '@/lib/agentbook-rate-limit';
-import { createTranslator, resolveLocale, CATALOG, AVAILABLE_LOCALES } from '@agentbook/i18n';
+import { createTranslator, resolveLocale } from '@agentbook/i18n';
+import { CATALOG, AVAILABLE_LOCALES } from '@agentbook/i18n/catalog';
 import { getAppBaseUrl, getPluginBaseUrls } from '@/lib/agentbook-config';
 import { generateFilingDraft } from '@/lib/tax-fast-track-draft';
 

@@ -11,6 +11,7 @@ import {
   X,
 } from 'lucide-react';
 import { ChatCTA } from '@naap/plugin-sdk';
+import { useI18n } from '@naap/plugin-sdk';
 
 type Frequency = 'weekly' | 'biweekly' | 'monthly' | 'quarterly' | 'annual';
 type Status = 'active' | 'paused' | 'completed';
@@ -81,6 +82,20 @@ const EMPTY_FORM: ScheduleFormState = {
 
 export const RecurringInvoicesPage: React.FC = () => {
   const [items, setItems] = useState<RecurringInvoice[]>([]);
+  // Locale-aware money input.
+  //
+  // These are <input type="number">, whose value-sanitization algorithm
+  // (HTML spec) normalises to a dot-decimal string and blanks anything else.
+  // Verified in jsdom: setting '45,50' yields value === '' , so parseFloat
+  // gives NaN — NOT 45. There is therefore no 100x misread on this path.
+  //
+  // Two real problems remain, and parseAmount fixes both:
+  //   1. NaN escaped to the API. Math.round(parseFloat('') * 100) is NaN, and
+  //      that went into the request body. parseAmount returns ok:false / 0.
+  //   2. A fr-CA user cannot type '45,50' into these fields at all — the
+  //      browser blanks it. That is a usability defect, and routing through
+  //      parseAmount means switching a field to type="text" later Just Works.
+  const { parseAmount } = useI18n();
   const [clients, setClients] = useState<ClientOption[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -160,7 +175,7 @@ export const RecurringInvoicesPage: React.FC = () => {
   const submit = async () => {
     setSubmitting(true);
     try {
-      const rateCents = Math.round(parseFloat(form.amountDollars || '0') * 100);
+      const rateCents = parseAmount(form.amountDollars || '0').cents;
       if (!rateCents || rateCents <= 0) {
         alert('Please enter a positive amount');
         setSubmitting(false);

@@ -1,6 +1,7 @@
 import React, { useRef, useState } from 'react';
 import { Upload, DollarSign, Loader2, CheckCircle, AlertCircle } from 'lucide-react';
 import { ChatCTA } from '@naap/plugin-sdk';
+import { useI18n } from '@naap/plugin-sdk';
 
 const API_BASE = '/api/v1/agentbook-expense';
 
@@ -22,6 +23,20 @@ export const NewExpensePage: React.FC = () => {
   const [submitting, setSubmitting] = useState(false);
   const [success, setSuccess] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  // Locale-aware money input.
+  //
+  // These are <input type="number">, whose value-sanitization algorithm
+  // (HTML spec) normalises to a dot-decimal string and blanks anything else.
+  // Verified in jsdom: setting '45,50' yields value === '' , so parseFloat
+  // gives NaN — NOT 45. There is therefore no 100x misread on this path.
+  //
+  // Two real problems remain, and parseAmount fixes both:
+  //   1. NaN escaped to the API. Math.round(parseFloat('') * 100) is NaN, and
+  //      that went into the request body. parseAmount returns ok:false / 0.
+  //   2. A fr-CA user cannot type '45,50' into these fields at all — the
+  //      browser blanks it. That is a usability defect, and routing through
+  //      parseAmount means switching a field to type="text" later Just Works.
+  const { parseAmount } = useI18n();
 
   // Receipt OCR state (G-031 — closes the "non-functional theater" finding).
   const [receiptStatus, setReceiptStatus] = useState<
@@ -131,7 +146,7 @@ export const NewExpensePage: React.FC = () => {
     setSubmitError(null);
     try {
       const body: Record<string, unknown> = {
-        amountCents: Math.round(parseFloat(amount) * 100),
+        amountCents: parseAmount(amount).cents,
         vendor: vendor || undefined,
         description: description || vendor || 'Expense',
         date,

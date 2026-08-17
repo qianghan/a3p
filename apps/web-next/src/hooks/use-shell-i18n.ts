@@ -24,14 +24,16 @@ import { useEffect, useMemo, useState } from 'react';
 import {
   createTranslator,
   resolveLocale,
-  CATALOG,
-  AVAILABLE_LOCALES,
   formatCurrency,
   formatMoney,
   formatDate,
   formatNumber,
   formatPercent,
+  parseAmountToCents,
 } from '@agentbook/i18n';
+// Catalog comes from the subpath: keeping it out of the main barrel is what
+// stops all three locale packs being inlined into every plugin UMD bundle.
+import { CATALOG, AVAILABLE_LOCALES } from '@agentbook/i18n/catalog';
 /** Tenant config fields this hook needs. Matches `{ data: ... }` from the API. */
 interface TenantLocaleConfig {
   locale?: string | null;
@@ -59,6 +61,7 @@ export interface ShellI18n {
   formatDate(date: string | Date, options?: Intl.DateTimeFormatOptions): string;
   formatNumber(value: number, options?: Intl.NumberFormatOptions): string;
   formatPercent(value: number, decimals?: number): string;
+  parseAmount(raw: string): { ok: boolean; cents: number; ambiguous: boolean; formatted: string };
   /** Tenant's currency, so money formatting doesn't need a second fetch. */
   readonly currency: string;
   /** False until tenant config has been read (or has failed). */
@@ -132,6 +135,9 @@ export function useShellI18n(): ShellI18n {
         formatNumber(value, locale, options),
       formatPercent: (value: number, decimals?: number) =>
         formatPercent(value, locale, decimals),
+      // Locale-aware form input. See II18nService.parseAmount for why
+      // parseFloat(value) * 100 is a money bug on French input.
+      parseAmount: (raw: string) => parseAmountToCents(raw, locale),
     };
   }, [locale, currency, ready]);
 }

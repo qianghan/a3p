@@ -36,7 +36,7 @@ import {
   LOCALE_STATUS,
   TRANSLATED_LOCALES,
   SCAFFOLD_LOCALES,
-} from '@agentbook/i18n';
+} from '@agentbook/i18n/catalog';
 
 /** Flatten a namespace tree into dot-notated leaf keys. */
 function flatten(obj: unknown, prefix = ''): Map<string, string> {

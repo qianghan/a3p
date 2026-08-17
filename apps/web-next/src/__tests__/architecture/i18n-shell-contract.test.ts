@@ -43,6 +43,10 @@ const SHELL_MEMBERS = [
   'formatDate',
   'formatNumber',
   'formatPercent',
+  // Locale-aware form input. Added when the SDK contract gained it — this test
+  // failed first with "ShellI18n is missing 1 member(s): parseAmount", which is
+  // the drift it exists to catch.
+  'parseAmount',
   // Shell-only extras, not part of the SDK contract.
   'currency',
   'ready',
