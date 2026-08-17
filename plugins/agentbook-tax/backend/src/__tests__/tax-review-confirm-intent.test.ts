@@ -105,6 +105,93 @@ describe('rejections and questions must never submit a filing', () => {
   });
 });
 
+/**
+ * Round three of the same defect. Reordering CANCEL_RE ahead of CONFIRM_RE
+ * fixed "No, that's not correct" and nothing else: CONFIRM_RE still matched
+ * `submit`/`proceed` ANYWHERE in a sentence, including inside a negation of
+ * it, and CANCEL_RE had no negation coverage at all. So every one of these
+ * filed a real return.
+ *
+ * The fix is structural (NEGATION_RE vetoes confirmation outright), so these
+ * tests are written to catch a fix that merely special-cases the seven
+ * strings the last review happened to type: the `invented` block below uses
+ * different word orders, different filler, and negation words that appear in
+ * none of the seven ("cannot", "won't", "nope", "rather not").
+ */
+describe('a negated confirmation verb must never file a return', () => {
+  // The seven strings the third review pass found still submitting.
+  const knownBad = [
+    "Don't submit",
+    "don't submit that",
+    "Please don't submit yet",
+    "hold on, don't submit",
+    "Never mind, don't proceed",
+    "That's wrong, don't proceed",
+    'I do not want to submit this',
+  ];
+
+  // Invented here, not reported by any review — the point is to prove the
+  // detector generalises rather than memorising the list above.
+  const invented = [
+    'no, don\'t submit it',                        // two negations, one of them CANCEL_RE's
+    'I would rather not go ahead with this',       // "go ahead" negated; no "submit"/"proceed"
+    'cannot submit this yet',                      // negation word absent from all seven
+    "won't be submitting, please wait",            // contraction the seven never use
+    'nope, submit nothing',                        // slang negation + a decoy "submit"
+    'Do not submit',                               // opens with "do" — reads as interrogative
+    'submit? absolutely not',                      // negation AFTER the approval verb
+    'yes — actually no, do not proceed',           // an approval retracted mid-sentence
+  ];
+
+  for (const text of [...knownBad, ...invented]) {
+    it(`"${text}" does not file the return`, async () => {
+      const { answerReviewMessage } = await import('../tax-review-agent.js');
+      const result = await answerReviewMessage('t1', 2025, text, explainer());
+
+      // The assertion that actually proves it: the submit code path was
+      // never taken. An intent label can be right while the wiring is wrong.
+      expect(submitFiling).not.toHaveBeenCalled();
+      // ...and no 'confirmed' marker was written, which is what would let
+      // the NEXT submit sail straight past hasConfirmedFreshReview().
+      for (const call of reviewUpdate.mock.calls) {
+        expect(call[0].data.status).not.toBe('confirmed');
+      }
+      // The reply is a refusal ack or the re-prompt — never the ✅ filing
+      // receipt confirmAndSubmit() returns.
+      expect(result.message).not.toContain('✅');
+      expect(result.message).toMatch(/cancel|change a number|answer a question/i);
+    });
+  }
+
+  it('a refusal is heard as a refusal — the review is closed, not left hanging', async () => {
+    const { answerReviewMessage } = await import('../tax-review-agent.js');
+    const result = await answerReviewMessage('t1', 2025, "Please don't submit yet", explainer());
+
+    expect(reviewUpdate.mock.calls[0][0].data.status).toBe('cancelled');
+    expect(result.message).toMatch(/cancel/i);
+  });
+
+  it('a negated verb the confirm pattern does not know ("file it") still refuses to act', async () => {
+    const { answerReviewMessage } = await import('../tax-review-agent.js');
+    const result = await answerReviewMessage('t1', 2025, "This isn't right, don't file it", explainer());
+
+    expect(submitFiling).not.toHaveBeenCalled();
+    expect(updateFilingField).not.toHaveBeenCalled();
+    // Falls to the deterministic re-prompt rather than cancel — also safe,
+    // because 'unclear' asks again instead of filing.
+    expect(result.message).toMatch(/change|question|looks good/i);
+  });
+
+  it('"hold on" on its own is a pause, not consent and not a shrug', async () => {
+    const { answerReviewMessage } = await import('../tax-review-agent.js');
+    const result = await answerReviewMessage('t1', 2025, 'hold on', explainer());
+
+    expect(submitFiling).not.toHaveBeenCalled();
+    expect(reviewUpdate.mock.calls[0][0].data.status).toBe('cancelled');
+    expect(result.message).toMatch(/cancel/i);
+  });
+});
+
 describe('genuine affirmations still submit — the happy path survives the narrowing', () => {
   const mustSubmit = [
     'yes, submit it',
@@ -113,6 +200,8 @@ describe('genuine affirmations still submit — the happy path survives the narr
     'confirm',
     "yes that's correct",
     'looks correct',
+    'yes',
+    'proceed',
   ];
 
   for (const text of mustSubmit) {

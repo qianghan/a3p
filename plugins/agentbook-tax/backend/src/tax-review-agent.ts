@@ -289,9 +289,68 @@ type ReplyIntent =
  * return. Approval has to be affirmative on its own: "that's correct" /
  * "looks correct", not the word `correct` appearing anywhere in a sentence
  * that may well be negating it.
+ *
+ * CONFIRM_RE on its own is a test for "an approval word appears SOMEWHERE in
+ * this message" — which is exactly why it cannot be the whole decision. See
+ * NEGATION_RE and isConfirmation() below: approval is CONFIRM_RE *and no
+ * negation anywhere*, never CONFIRM_RE alone.
  */
 const CONFIRM_RE = /\b(yes|confirm|submit|looks good|looks correct|go ahead|that'?s (right|correct)|proceed)\b/i;
-const CANCEL_RE = /\b(no|cancel|stop|not yet|wait)\b/i;
+
+/**
+ * NEGATION — the second half of the confirm decision, and the reason this
+ * classifier stopped being a game of whack-a-mole.
+ *
+ * Two rounds of review each found the same defect wearing a new phrasing:
+ * CONFIRM_RE matches an approval verb anywhere in the sentence, so every
+ * sentence that NEGATES that verb also matched it. "No, that's not correct"
+ * was round one; "Don't submit", "Please don't submit yet", "Never mind,
+ * don't proceed" and "I do not want to submit this" were round two — all of
+ * them filed a real tax return. Adding another alternation to CANCEL_RE per
+ * round would only ever fix the shapes someone happened to type.
+ *
+ * So the structure changed instead: a negation token ANYWHERE in the message
+ * vetoes confirmation outright, whatever approval words sit next to it. This
+ * is deliberately coarse — it will veto some messages that were in fact
+ * approvals ("no changes needed, submit it"). That trade is the right way
+ * round: a false cancel costs the user one extra turn, a false confirm costs
+ * them a filed tax return they never approved.
+ *
+ * `\w+n['’]t\b` is the load-bearing alternative: it covers every English
+ * negative contraction at once — don't, won't, isn't, can't, shouldn't,
+ * ain't, doesn't — so a new one cannot be "missing from the list". The rest
+ * covers the un-contracted and apostrophe-less spellings people actually
+ * type on a phone.
+ */
+const NEGATION_RE =
+  /\w+n['’]t\b|\b(?:no|not|never|none|neither|nor|nope|nah|cannot|dont|doesnt|didnt|isnt|arent|wasnt|werent|wont|wouldnt|shouldnt|couldnt|cant|havent|hasnt|hadnt|aint|mustnt)\b/i;
+
+/**
+ * Explicit refusal. Unchanged in meaning; `abort`/`never mind` added so the
+ * words the rest of the product already accepts as cancel (agent-brain's own
+ * CANCEL_RE) mean the same thing here.
+ */
+const CANCEL_RE = /\b(no|cancel|stop|abort|nevermind|never\s+mind|not yet|wait)\b/i;
+
+/**
+ * "Not now" rather than "not ever" — resolved as cancel (the terminal, safe
+ * outcome; the user restarts the review when they're ready) because the one
+ * thing it definitely is not is consent. "hold on" used to be absent, so
+ * "hold on, don't submit" reached CONFIRM_RE on the word `submit` and filed.
+ */
+const PAUSE_RE =
+  /\b(hold\s+(?:on|off|up)|hang\s+on|one\s+(?:sec|second|minute|moment)|give\s+me\s+a\s+(?:sec|second|minute|moment)|pause)\b/i;
+
+/** Approval: an affirmative marker AND no negation anywhere in the message. */
+function isConfirmation(trimmed: string): boolean {
+  return CONFIRM_RE.test(trimmed) && !NEGATION_RE.test(trimmed);
+}
+
+/** A negated approval verb — "don't submit", "I do not want to submit this". */
+function isNegatedConfirmation(trimmed: string): boolean {
+  return CONFIRM_RE.test(trimmed) && NEGATION_RE.test(trimmed);
+}
+
 const QUESTION_RE = /\b(why|how|what|explain)\b/i;
 /**
  * Question-shaped phrasings that contain none of QUESTION_RE's words:
@@ -322,7 +381,16 @@ function classifyReply(
   // filing. The cost of a wrong guess is asymmetric: a mis-read rejection or
   // question costs one extra turn, a mis-read confirmation costs a filed
   // return the user never approved.
-  if (CANCEL_RE.test(trimmed)) return { kind: 'cancel' };
+  //
+  // isNegatedConfirmation is decided HERE, ahead of the question and
+  // field-edit checks, rather than left to the confirm test at the bottom:
+  // "Do not submit" opens with `do`, which QUESTION_SHAPE_RE reads as an
+  // interrogative, so falling through would answer a refusal with an LLM
+  // explanation instead of stopping. A refusal of the submit verb is a
+  // refusal wherever it sits in the pipeline.
+  if (CANCEL_RE.test(trimmed) || PAUSE_RE.test(trimmed) || isNegatedConfirmation(trimmed)) {
+    return { kind: 'cancel' };
+  }
 
   const lower = trimmed.toLowerCase();
   // Match on the full label, not just its first word — several critical
@@ -342,7 +410,12 @@ function classifyReply(
   if (isQuestion) {
     return { kind: 'question', field: matchedField ? { formCode: matchedField.formCode, fieldId: matchedField.fieldId } : undefined };
   }
-  if (CONFIRM_RE.test(trimmed)) return { kind: 'confirm' };
+  // The ONLY place this function returns 'confirm', and it takes the whole
+  // conjunction (affirmative marker + no negation), not CONFIRM_RE alone.
+  // A message carrying a negation this far has no approval verb in it — it
+  // lands in 'question' or 'unclear', both of which re-prompt rather than
+  // file.
+  if (isConfirmation(trimmed)) return { kind: 'confirm' };
   return { kind: 'unclear' };
 }
 
