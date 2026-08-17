@@ -700,6 +700,47 @@ export interface ICapabilityService {
 }
 
 // ============================================
+// i18n
+// ============================================
+
+/**
+ * Localisation service, injected by the shell.
+ *
+ * The shell resolves the locale once (tenant config > Accept-Language >
+ * default) and hands plugins a translator already bound to it. Plugins never
+ * resolve a locale themselves, and there is no ambient/mutable locale to set:
+ * a shared mutable locale leaks between concurrent requests on reused
+ * serverless instances.
+ *
+ * Injected as OPTIONAL on ShellContext for a specific reason: plugin bundles
+ * are served from a CDN and can be NEWER than the shell hosting them. A plugin
+ * that finds no `i18n` must fall back to English rather than crash. Use the
+ * `useI18n()` hook, which handles that fallback for you.
+ */
+export interface II18nService {
+  /** Resolved locale tag, e.g. 'en', 'fr-CA', 'zh-CN'. */
+  readonly locale: string;
+
+  /** Translate a key, with `{var}` interpolation and `count`-based plurals. */
+  t(key: string, params?: Record<string, string | number>): string;
+
+  /** Cents -> currency string, using the locale implied by the currency. */
+  formatMoney(amountCents: number, currency?: string): string;
+
+  /** Cents -> currency string in this locale. */
+  formatCurrency(amountCents: number, currency?: string): string;
+
+  /** Locale-aware date. */
+  formatDate(date: string | Date, options?: Intl.DateTimeFormatOptions): string;
+
+  /** Locale-aware number. */
+  formatNumber(value: number, options?: Intl.NumberFormatOptions): string;
+
+  /** Locale-aware percentage. `formatPercent(0.283)` -> '28.3%'. */
+  formatPercent(value: number, decimals?: number): string;
+}
+
+// ============================================
 // Shell Context
 // ============================================
 
@@ -736,6 +777,13 @@ export interface ShellContext {
   
   /** API client for making authenticated requests */
   api?: IApiClient;
+
+  /**
+   * Localisation service (optional for backward compatibility).
+   * A CDN plugin bundle may be newer than the shell serving it, so this can be
+   * absent. Prefer the `useI18n()` hook, which degrades to English.
+   */
+  i18n?: II18nService;
   
   /** Plugin-specific configuration context */
   pluginConfig?: PluginConfigContext;

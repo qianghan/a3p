@@ -14,6 +14,10 @@ export {
   useShellV2,
 } from './useShell.js';
 
+// i18n — locale-bound translator injected by the shell, with an English
+// fallback when the host shell predates i18n injection.
+export { useI18n, useLocale } from './useI18n.js';
+
 // Service Hooks
 export {
   useAuthService,  // Preferred - use this instead of useAuth
