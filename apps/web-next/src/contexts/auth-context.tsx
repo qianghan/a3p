@@ -11,6 +11,7 @@ import {
 } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
 import type { User } from '@naap/types';
+import { isStandaloneDisplay } from '@/lib/standalone';
 
 // Re-export for consumers that import User from here
 export type { User };
@@ -248,11 +249,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const loginWithOAuth = useCallback(async (provider: 'google' | 'github' | 'microsoft') => {
     try {
-      const isStandalone =
-        typeof window !== 'undefined' &&
-        (window.matchMedia?.('(display-mode: standalone)').matches ||
-          (window.navigator as unknown as { standalone?: boolean }).standalone === true);
-      const query = isStandalone ? '?standalone=1' : '';
+      // Shared predicate — see lib/standalone.ts. This was the only copy
+      // until the entry gate and /signed-in needed the same answer, and a
+      // device check that disagrees between call sites is how a PWA ends up
+      // half-treated as mobile.
+      const query = isStandaloneDisplay() ? '?standalone=1' : '';
       const response = await fetch(`${API_BASE}/v1/auth/oauth/${provider}${query}`, {
         credentials: 'include',
       });
