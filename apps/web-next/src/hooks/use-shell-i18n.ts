@@ -72,6 +72,10 @@ export interface ShellI18n {
 
 export function useShellI18n(): ShellI18n {
   const [config, setConfig] = useState<TenantLocaleConfig | null>(null);
+  // Translation gate (decision D2). Starts FALSE so the very first render is
+  // English even for a tenant stored as fr-CA — fail-closed, matching the
+  // server-side reader.
+  const [translationEnabled, setTranslationEnabled] = useState(false);
   const [ready, setReady] = useState(false);
 
   useEffect(() => {
@@ -83,6 +87,7 @@ export function useShellI18n(): ShellI18n {
       .then((j) => {
         if (cancelled) return;
         if (j?.data) setConfig(j.data as TenantLocaleConfig);
+        setTranslationEnabled(j?.i18nLocalesEnabled === true);
       })
       .catch(() => {
         // A failed config fetch must not block the UI: fall through to the
@@ -122,7 +127,18 @@ export function useShellI18n(): ShellI18n {
   }, [locale]);
 
   return useMemo(() => {
-    const { t } = createTranslator(locale, CATALOG);
+    // THE SPLIT: strings follow the flag, formatting follows the tenant.
+    //
+    // Formatting stays locale-correct unconditionally because those changes
+    // are bug fixes already in production (a bill due date rendered a day
+    // early west of UTC). Only translated STRINGS wait for the flag.
+    //
+    // Gating at resolution rather than at the picker is deliberate: a CA
+    // tenant may already hold locale='fr-CA' from the old Canada-only
+    // selector, so hiding the picker would not stop them seeing partial
+    // French.
+    const translationLocale = translationEnabled ? locale : 'en';
+    const { t } = createTranslator(translationLocale, CATALOG);
     return {
       locale,
       currency,
@@ -143,5 +159,5 @@ export function useShellI18n(): ShellI18n {
       // parseFloat(value) * 100 is a money bug on French input.
       parseAmount: (raw: string) => parseAmountToCents(raw, locale),
     };
-  }, [locale, currency, ready]);
+  }, [locale, currency, ready, translationEnabled]);
 }

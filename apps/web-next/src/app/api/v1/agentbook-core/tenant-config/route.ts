@@ -8,6 +8,7 @@ import { prisma as db } from '@naap/database';
 import { safeResolveAgentbookTenant } from '@/lib/agentbook-tenant';
 import { normalizeRegionCode } from '@/lib/region-codes';
 import { isSelectableLocale, canonicalizeLocale, localeValidationError } from '@agentbook/i18n';
+import { isI18nLocalesEnabled } from '@/lib/agentbook-i18n-flag';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -24,7 +25,10 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     if (!config) {
       config = await db.abTenantConfig.create({ data: { userId: tenantId } });
     }
-    return NextResponse.json({ success: true, data: config });
+    // The shell already fetches this endpoint once to resolve locale, so the
+    // translation gate rides along rather than costing a second round trip.
+    const i18nLocalesEnabled = await isI18nLocalesEnabled();
+    return NextResponse.json({ success: true, data: config, i18nLocalesEnabled });
   } catch (err) {
     console.error('[agentbook-core/tenant-config GET] failed:', err);
     return NextResponse.json(
