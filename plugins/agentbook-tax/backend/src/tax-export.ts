@@ -12,29 +12,29 @@ interface ValidationResult {
 }
 
 const VALIDATION_RULES = [
-  { ruleId: 'income_positive', formCode: 'T1', check: (forms: any) => (forms.T1?.fields?.total_income_15000 || 0) >= 0, severity: 'warning' as const, message: 'Total income is negative — verify all income sources' },
+  { ruleId: 'income_positive', formCode: 'T1', check: (forms: any) => (forms.T1?.total_income_15000 || 0) >= 0, severity: 'warning' as const, message: 'Total income is negative — verify all income sources' },
   { ruleId: 't2125_expenses_ratio', formCode: 'T2125', check: (forms: any) => {
-    const gross = forms.T2125?.fields?.adjusted_gross_8299 || 1;
-    const expenses = forms.T2125?.fields?.total_expenses_9368 || 0;
+    const gross = forms.T2125?.adjusted_gross_8299 || 1;
+    const expenses = forms.T2125?.total_expenses_9368 || 0;
     return gross <= 0 || expenses / gross < 0.95;
   }, severity: 'warning' as const, message: 'Business expenses exceed 95% of revenue — CRA may flag this' },
   { ruleId: 'gst_registration', formCode: 'GST-HST', check: (forms: any) => {
-    const revenue = forms.T2125?.fields?.gross_sales_8000 || 0;
-    const gstNum = forms['GST-HST']?.fields?.gst_number;
+    const revenue = forms.T2125?.gross_sales_8000 || 0;
+    const gstNum = forms['GST-HST']?.gst_number;
     return revenue < 3000000 || !!gstNum; // $30,000 threshold in cents
   }, severity: 'error' as const, message: 'GST/HST registration required if revenue exceeds $30,000' },
-  { ruleId: 'sin_required', formCode: 'T1', check: (forms: any) => !!forms.T1?.fields?.sin, severity: 'error' as const, message: 'Social Insurance Number is required for filing' },
-  { ruleId: 'name_required', formCode: 'T1', check: (forms: any) => !!forms.T1?.fields?.full_name, severity: 'error' as const, message: 'Full legal name is required for filing' },
+  { ruleId: 'sin_required', formCode: 'T1', check: (forms: any) => !!forms.T1?.sin, severity: 'error' as const, message: 'Social Insurance Number is required for filing' },
+  { ruleId: 'name_required', formCode: 'T1', check: (forms: any) => !!forms.T1?.full_name, severity: 'error' as const, message: 'Full legal name is required for filing' },
   { ruleId: 'vehicle_km_valid', formCode: 'T2125', check: (forms: any) => {
-    const total = forms.T2125?.fields?.vehicle_total_km || 0;
-    const business = forms.T2125?.fields?.vehicle_business_km || 0;
+    const total = forms.T2125?.vehicle_total_km || 0;
+    const business = forms.T2125?.vehicle_business_km || 0;
     return total === 0 || business <= total;
   }, severity: 'error' as const, message: 'Business kilometres cannot exceed total kilometres' },
   { ruleId: 'home_office_pct', formCode: 'T2125', check: (forms: any) => {
-    const pct = forms.T2125?.fields?.home_office_pct || 0;
+    const pct = forms.T2125?.home_office_pct || 0;
     return pct <= 100;
   }, severity: 'error' as const, message: 'Home office percentage cannot exceed 100%' },
-  { ruleId: 'balance_calculated', formCode: 'T1', check: (forms: any) => forms.T1?.fields?.balance_owing_48500 !== undefined, severity: 'warning' as const, message: 'Balance owing/refund has not been calculated — some fields may be missing' },
+  { ruleId: 'balance_calculated', formCode: 'T1', check: (forms: any) => forms.T1?.balance_owing_48500 !== undefined, severity: 'warning' as const, message: 'Balance owing/refund has not been calculated — some fields may be missing' },
 ];
 
 export function validateFiling(forms: Record<string, any>): ValidationResult {
