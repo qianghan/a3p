@@ -111,7 +111,9 @@ Consequences, which are contained:
 | 0 | Baseline capture | **done** | 1 | (in PR-1) | e2e line deferred to CI — see above |
 | 1 | Package foundation + un-mask plugin tests | **done** | 1 | #454 | merged `4ec17c10`; see corrections below |
 | 2 | Locale plumbing + language selector | **done** | 1 | #455 | merged `8a62a087` |
-| 3 | Locale-safe money + date I/O | **in_progress** | 1 | — | foundation landed; call-site migration remains (see below) |
+| 3a | Locale-safe money/date I/O + bundle split | **done** | 1 | #456 | merged `e3588de2` |
+| 3b | formatDateOnly (due dates / deadlines) | **done** | 1 | #457 | merged `ac514a9c` |
+| 3c | Remaining formatting sweep | pending | 0 | — | ~17 date sites, ~110 en-US sites, ~8 form sites |
 | 4 | Extraction: core + billing | pending | 0 | — | inert |
 | 5 | Extraction: expense + invoice | pending | 0 | — | inert |
 | 6 | Extraction: tax + startup (+ legal denylist) | pending | 0 | — | inert |
@@ -310,6 +312,33 @@ So the NL-parser subset of item 1 is blocked on PR-9's locale threading. The
 form/API subset is not. Options: split PR-3 into form-input (now) and
 NL-input (after PR-9), or move PR-9 ahead of PR-3. Recommend the split —
 reordering would put chat response language before the money-input fix.
+
+### C9 — `jq` is NOT on the PATH in the Monitor shell. Use python3.
+
+Three Monitors armed this session produced **zero events** and exited 0. The
+output files show `command not found: jq` — every jq expression silently
+evaluated to nothing, so the poll loops ran to completion emitting nothing.
+
+Worse, I rationalised that silence twice as "stale monitor for an
+already-merged PR". Silence was indistinguishable from "no failures", which is
+exactly the failure mode the Monitor docs warn about. Accurate state only
+survived because each PR was also checked directly.
+
+**Rule for later PRs:** parse JSON in Monitor scripts with `python3 -c`, never
+`jq`. And when a Monitor exits 0 with no output, read its output file before
+concluding anything — do not assume it means "nothing happened".
+
+### C10 — `--delete-branch=false` prevents stacked-PR auto-retarget.
+
+Squash-merging 3a left 3b's base branch alive, so GitHub did not retarget 3b to
+`main`, and 3a's three commits existed in main under a *different* SHA (squash).
+Fix: rebuild the stacked branch as a single cherry-pick onto the new main, then
+PATCH `base` to `main`. Diff went to exactly 1 commit / 27 files.
+
+### C11 — `plugins/*/frontend/dist/` is already tracked (21 files on main).
+
+Committing build output is this repo's existing convention, not noise
+introduced here. Checked before assuming; no change made.
 
 ### C8 — The date-only fix missed the shape the API actually returns.
 
