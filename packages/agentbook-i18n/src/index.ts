@@ -75,3 +75,15 @@ export {
   formatNumber,
   formatPercent,
 } from './formatters.js';
+
+/**
+ * Locale-aware INPUT parsing. Paired with the formatters above deliberately:
+ * localising output without localising input reads a fr-CA user's "45,50" as
+ * 4550 and books $4,550.00 — a silent 100x error straight into the ledger.
+ *
+ * `parseAmountToCents` reports `ambiguous` rather than guessing when a value
+ * like "1,500" could mean two things 1000x apart. Callers must echo `formatted`
+ * back for confirmation before writing an ambiguous amount.
+ */
+export { parseAmountToCents, parseDateInput } from './parse.js';
+export type { ParsedAmount, ParsedDate } from './parse.js';

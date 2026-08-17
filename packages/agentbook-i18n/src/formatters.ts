@@ -41,20 +41,44 @@ export function formatMoney(amountCents: number, currency: string = 'USD'): stri
   return formatCurrency(amountCents, CURRENCY_LOCALES[currency] ?? 'en-US', currency);
 }
 
+/** 'YYYY-MM-DD' with no time component. */
+const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
+
 /**
  * Format date to locale-aware string.
  * formatDate('2026-03-22', 'en-US') -> "Mar 22, 2026"
- * formatDate('2026-03-22', 'fr-CA') -> "22 mars 2026"
+ * formatDate('2026-03-22', 'fr-CA') -> "2026-03-22"  (fr-CA is ISO-order)
+ *
+ * DATE-ONLY VALUES ARE FORMATTED IN UTC. This fixes a real, shipped bug:
+ *
+ *   new Date('2026-03-22')  is UTC midnight
+ *   ...formatted in the LOCAL zone, in America/Vancouver (UTC-7),
+ *      renders "Mar 21, 2026" — one day early.
+ *
+ * Every user west of UTC saw date-only values one day early. On an invoice due
+ * date or a tax filing deadline that is a material error, not a cosmetic one.
+ * CI masked it by running in UTC, and the package's own test asserted the
+ * correct day, so the suite passed there and failed on any developer machine
+ * in the Americas.
+ *
+ * A date-only string carries no zone, so the only reading that cannot shift is
+ * to format it in the same zone it was parsed in — UTC. Values WITH a time
+ * component are genuine instants and keep formatting in local time, which is
+ * what a timestamp should do.
  */
 export function formatDate(date: string | Date, locale: string, options?: Intl.DateTimeFormatOptions): string {
+  const isDateOnly = typeof date === 'string' && DATE_ONLY.test(date.trim());
   const d = typeof date === 'string' ? new Date(date) : date;
   const defaultOptions: Intl.DateTimeFormatOptions = {
     year: 'numeric',
     month: 'short',
     day: 'numeric',
   };
+  const opts: Intl.DateTimeFormatOptions = { ...(options || defaultOptions) };
+  // Don't override an explicit caller-supplied zone.
+  if (isDateOnly && opts.timeZone === undefined) opts.timeZone = 'UTC';
   try {
-    return new Intl.DateTimeFormat(locale, options || defaultOptions).format(d);
+    return new Intl.DateTimeFormat(locale, opts).format(d);
   } catch {
     return d.toLocaleDateString();
   }

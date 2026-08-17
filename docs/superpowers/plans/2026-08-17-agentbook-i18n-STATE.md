@@ -110,8 +110,8 @@ Consequences, which are contained:
 |----|-------|--------|----------|---------|-------|
 | 0 | Baseline capture | **done** | 1 | (in PR-1) | e2e line deferred to CI — see above |
 | 1 | Package foundation + un-mask plugin tests | **done** | 1 | #454 | merged `4ec17c10`; see corrections below |
-| 2 | Locale plumbing + language selector | **done** | 1 | _pushing_ | selector now shown to ALL jurisdictions, not just CA |
-| 3 | Locale-safe money + date I/O | pending | 0 | — | **highest risk** — see D6 |
+| 2 | Locale plumbing + language selector | **done** | 1 | #455 | merged `8a62a087` |
+| 3 | Locale-safe money + date I/O | **in_progress** | 1 | — | foundation landed; call-site migration remains (see below) |
 | 4 | Extraction: core + billing | pending | 0 | — | inert |
 | 5 | Extraction: expense + invoice | pending | 0 | — | inert |
 | 6 | Extraction: tax + startup (+ legal denylist) | pending | 0 | — | inert |
@@ -206,6 +206,43 @@ that is a material error. CI masks it by running in UTC.
 The formatting PR must fix it (format date-only values in a fixed zone, or
 carry the tenant timezone explicitly) and add a non-UTC test so the fix
 cannot silently regress.
+
+## PR-3 remaining work (foundation landed, migration outstanding)
+
+Landed so far on `i18n-pr3-money-date-io`:
+- `packages/agentbook-i18n/src/parse.ts` — `parseAmountToCents`,
+  `parseDateInput`. Decides decimal-vs-grouping by trailing-digit COUNT rather
+  than by the locale's nominal separator, because keying off the locale breaks
+  in both directions (fr-CA typing "45.50" and en-US reading "45,50" are the
+  same 100x error mirrored). Reports `ambiguous` instead of guessing.
+- `formatDate` date-only UTC fix (correction C3). Verified in
+  `America/Vancouver` AND `UTC`, so it cannot regress on a UTC-only CI.
+- 102 package tests green in both zones, incl. a round-trip property
+  `parse(format(x)) === x` across all three locales.
+
+STILL TO DO in PR-3:
+1. **14 comma-stripping call sites.** Full list in the traps section below.
+2. **~110 hardcoded `'en-US'` formatting sites** (181 `toLocale*`/`Intl` total).
+3. **Golden tests** asserting `en-US` output is byte-identical for each.
+4. **D6 echo-back**: surface `ParsedAmount.formatted` in the chat confirmation
+   step so an `ambiguous` amount is confirmed before it is booked.
+
+### Dependency discovered — affects sequencing
+
+`plugins/agentbook-core/backend/src/parse-amount.ts` is the shared
+natural-language money parser used by chat/Telegram. Two things about it:
+
+- It **already** handles Chinese money words (元 / 块 / 圆) and guards against
+  non-money units (小时, 人份). That work exists and must not be undone.
+- Its `NUM` regex hardcodes en-US shape:
+  `(\d{1,3}(?:,\d{3})*(?:\.\d+)?|\d+(?:\.\d+)?)` — comma-thousands,
+  period-decimal. Making it locale-aware requires the caller's locale, which is
+  only threaded into the agent brain by **PR-9**.
+
+So the NL-parser subset of item 1 is blocked on PR-9's locale threading. The
+form/API subset is not. Options: split PR-3 into form-input (now) and
+NL-input (after PR-9), or move PR-9 ahead of PR-3. Recommend the split —
+reordering would put chat response language before the money-input fix.
 
 ## Known traps (verified in the repo at `5dbd7eef`)
 
