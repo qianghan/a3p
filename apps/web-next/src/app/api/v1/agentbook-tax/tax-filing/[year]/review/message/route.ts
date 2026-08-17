@@ -8,6 +8,7 @@
 import 'server-only';
 import { NextRequest, NextResponse } from 'next/server';
 import { safeResolveAgentbookTenant } from '@/lib/agentbook-tenant';
+import { reviewErrorResponse } from '@/lib/agentbook-tax-review/errors';
 import { answerReviewMessage } from '@agentbook-tax/tax-review-agent';
 import { callGemini } from '@/lib/agentbook-tax-review/gemini';
 
@@ -29,10 +30,6 @@ export async function POST(
     const result = await answerReviewMessage(tenantId, parseInt(year, 10), text, callGemini);
     return NextResponse.json({ success: true, data: result });
   } catch (err) {
-    console.error('[agentbook-tax/tax-filing/:year/review/message] failed:', err);
-    return NextResponse.json(
-      { success: false, error: err instanceof Error ? err.message : String(err) },
-      { status: 500 },
-    );
+    return reviewErrorResponse('agentbook-tax/tax-filing/:year/review/message', err);
   }
 }

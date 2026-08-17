@@ -7,6 +7,7 @@
 import 'server-only';
 import { NextRequest, NextResponse } from 'next/server';
 import { safeResolveAgentbookTenant } from '@/lib/agentbook-tenant';
+import { reviewErrorResponse } from '@/lib/agentbook-tax-review/errors';
 import { confirmAndSubmit } from '@agentbook-tax/tax-review-agent';
 
 export const runtime = 'nodejs';
@@ -25,10 +26,6 @@ export async function POST(
     const result = await confirmAndSubmit(tenantId, parseInt(year, 10));
     return NextResponse.json({ success: true, data: result });
   } catch (err) {
-    console.error('[agentbook-tax/tax-filing/:year/review/confirm] failed:', err);
-    return NextResponse.json(
-      { success: false, error: err instanceof Error ? err.message : String(err) },
-      { status: 500 },
-    );
+    return reviewErrorResponse('agentbook-tax/tax-filing/:year/review/confirm', err);
   }
 }

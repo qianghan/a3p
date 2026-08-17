@@ -8,6 +8,23 @@ const getActiveReviewForTenant = vi.fn();
 const applyFieldEdit = vi.fn();
 const confirmAndSubmit = vi.fn();
 
+// The two typed refusals are real classes here rather than stubs, because
+// the route's status mapping is `instanceof`-based. They're declared in the
+// mock factory (not imported via importActual) so the real module — and its
+// Prisma client — is never loaded by this route-level test.
+class NoActiveReviewError extends Error {
+  constructor(tenantId: string, taxYear: number) {
+    super(`No active review for tenant ${tenantId} / year ${taxYear} — start a review before editing or submitting`);
+    this.name = 'NoActiveReviewError';
+  }
+}
+class InvalidMoneyValueError extends Error {
+  constructor(cents: unknown) {
+    super(`Invalid amount: got ${String(cents)}`);
+    this.name = 'InvalidMoneyValueError';
+  }
+}
+
 vi.mock('../tax-review-agent.js', () => ({
   startReview: (...a: any[]) => startReview(...a),
   answerReviewMessage: (...a: any[]) => answerReviewMessage(...a),
@@ -15,6 +32,8 @@ vi.mock('../tax-review-agent.js', () => ({
   getActiveReviewForTenant: (...a: any[]) => getActiveReviewForTenant(...a),
   applyFieldEdit: (...a: any[]) => applyFieldEdit(...a),
   confirmAndSubmit: (...a: any[]) => confirmAndSubmit(...a),
+  NoActiveReviewError,
+  InvalidMoneyValueError,
 }));
 
 beforeEach(() => vi.clearAllMocks());
@@ -76,5 +95,27 @@ describe('tax review HTTP routes', () => {
     const res = await request(app).post('/api/v1/agentbook-tax/tax-filing/2025/review/confirm').set('x-tenant-id', 't1');
     expect(confirmAndSubmit).toHaveBeenCalledWith('t1', 2025);
     expect(res.body.data.message).toBe('Filed!');
+  });
+
+  it('confirming with no active review answers 409 — a refused request, not a server fault', async () => {
+    confirmAndSubmit.mockRejectedValue(new NoActiveReviewError('t1', 2025));
+    const { app } = await import('../server.js');
+    const res = await request(app).post('/api/v1/agentbook-tax/tax-filing/2025/review/confirm').set('x-tenant-id', 't1');
+    expect(res.status).toBe(409);
+    expect(res.body.error).toMatch(/no active review/i);
+  });
+
+  it('an out-of-range amount answers 400, and the route forwards the value rather than pre-judging it', async () => {
+    // The route used to only check Number.isInteger, so it silently ACCEPTED
+    // -$500 and $99,999,999 that the chat path rejected. The bounds now live
+    // in applyFieldEdit, the one shared executor.
+    applyFieldEdit.mockRejectedValue(new InvalidMoneyValueError(-50000));
+    const { app } = await import('../server.js');
+    const res = await request(app)
+      .post('/api/v1/agentbook-tax/tax-filing/2025/review/edit-field')
+      .set('x-tenant-id', 't1')
+      .send({ formCode: 'T1', fieldId: 'total_income_15000', valueCents: -50000 });
+    expect(applyFieldEdit).toHaveBeenCalledWith('t1', 2025, 'T1', 'total_income_15000', -50000);
+    expect(res.status).toBe(400);
   });
 });

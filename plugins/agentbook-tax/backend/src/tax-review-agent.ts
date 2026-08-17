@@ -194,7 +194,33 @@ export async function startReview(
 // Deliberately not a cross-package import of apps/web-next's
 // money-validation.ts — that package boundary doesn't resolve from a
 // plugin backend (Global Constraint 10). This is intentionally small.
-const MAX_MONEY_CENTS = 1_000_000_000; // $10,000,000.00
+export const MAX_MONEY_CENTS = 1_000_000_000; // $10,000,000.00
+
+/** Thrown by applyFieldEdit for an out-of-range amount; routes answer 400. */
+export class InvalidMoneyValueError extends Error {
+  constructor(cents: unknown) {
+    super(`Invalid amount: must be a whole number of cents between 0 and ${MAX_MONEY_CENTS} (got ${String(cents)})`);
+    this.name = 'InvalidMoneyValueError';
+  }
+}
+
+/**
+ * The single definition of "a valid money value" for the review agent.
+ *
+ * Lives here, not in each caller: the chat path went through
+ * parseMoneyInputCents (which rejects negatives and anything over
+ * $10,000,000) while the structured web edit-field route only checked
+ * Number.isInteger — so the same field accepted -$500 or $99,999,999 from
+ * the web tab and refused it from chat. Same money value, two rule sets.
+ * applyFieldEdit is the ONE shared executor, so the check belongs in it and
+ * both callers get it automatically.
+ */
+export function assertValidMoneyCents(cents: number): void {
+  if (!Number.isInteger(cents) || cents < 0 || cents > MAX_MONEY_CENTS) {
+    throw new InvalidMoneyValueError(cents);
+  }
+}
+
 function parseMoneyInputCents(text: string): number | null {
   const cleaned = text.replace(/[^0-9.-]/g, '');
   if (!cleaned) return null;
@@ -290,18 +316,55 @@ export async function getActiveReviewForTenant(tenantId: string): Promise<{ taxY
 }
 
 /**
+ * Thrown when a caller tries to edit or submit a filing without an active
+ * review for it. Typed so the HTTP routes can answer 409 rather than a
+ * generic 500 — this is a refused request, not a server fault.
+ */
+export class NoActiveReviewError extends Error {
+  constructor(tenantId: string, taxYear: number) {
+    super(`No active review for tenant ${tenantId} / year ${taxYear} — start a review before editing or submitting`);
+    this.name = 'NoActiveReviewError';
+  }
+}
+
+/**
+ * The review gate, as a precondition every mutating review operation shares.
+ *
+ * Previously each of these functions did `const review = await findFirst(...)`
+ * followed by `if (review) { ...bookkeeping... }` — which meant a missing
+ * review row only skipped the bookkeeping while the field write, or the real
+ * submitFiling() call, went ahead anyway. POSTing .../review/confirm directly
+ * filed a return that had never been reviewed, which is exactly what the gate
+ * exists to prevent. Statuses matter too: a CANCELLED review is not something
+ * you can confirm.
+ */
+async function requireActiveReview(tenantId: string, taxYear: number) {
+  const review = await db.abTaxFilingReview.findFirst({
+    where: { tenantId, taxYear, status: { in: [...ACTIVE_REVIEW_STATUSES] } },
+  });
+  if (!review) throw new NoActiveReviewError(tenantId, taxYear);
+  return review;
+}
+
+/**
  * Writes one field, recomputes totals, and clears any pending
  * awaiting-edit state — shared executor for both the chat state machine's
  * field-edit branches below AND the web review tab's structured
  * POST .../review/edit-field route (Task 13). Never guesses a field or
  * value; the caller (chat intent classification, or a web form input)
  * already knows exactly which one.
+ *
+ * Because this is the ONE shared executor, the money-value bounds check
+ * lives here rather than in each caller — the chat path and the structured
+ * web route must not be able to disagree about what a valid amount is.
  */
 const CURRENCY_FOR_JURISDICTION: Record<string, string> = { ca: 'CAD', us: 'USD', au: 'AUD' };
 
 export async function applyFieldEdit(
   tenantId: string, taxYear: number, formCode: string, fieldId: string, cents: number,
 ): Promise<{ message: string; computedTotals: ComputedFilingTotals }> {
+  const review = await requireActiveReview(tenantId, taxYear);
+  assertValidMoneyCents(cents);
   await updateFilingField(tenantId, taxYear, formCode, fieldId, cents);
 
   const filing = await db.abTaxFiling.findFirst({ where: { tenantId, taxYear, filingType: 'personal_return' } });
@@ -309,10 +372,7 @@ export async function applyFieldEdit(
   const forms = (filing.forms as Record<string, Record<string, any>>) || {};
   const computedTotals = computeFilingTotals(filing.jurisdiction, filing.region, taxYear, forms);
 
-  const review = await db.abTaxFilingReview.findFirst({ where: { tenantId, taxYear } });
-  if (review) {
-    await db.abTaxFilingReview.update({ where: { id: review.id }, data: { status: 'summarizing', awaitingFieldId: null } });
-  }
+  await db.abTaxFilingReview.update({ where: { id: review.id }, data: { status: 'summarizing', awaitingFieldId: null } });
 
   const config = await db.abTenantConfig.findFirst({ where: { userId: tenantId } });
   const locale = config?.locale || DEFAULT_LOCALE_FOR_JURISDICTION[filing.jurisdiction] || 'en-US';
@@ -328,21 +388,31 @@ export async function applyFieldEdit(
  * tab's structured POST .../review/confirm route (Task 13).
  */
 export async function confirmAndSubmit(tenantId: string, taxYear: number): Promise<{ message: string; filed: boolean }> {
+  const review = await requireActiveReview(tenantId, taxYear);
+
   const filing = await db.abTaxFiling.findFirst({ where: { tenantId, taxYear, filingType: 'personal_return' } });
   if (!filing) throw new Error(`No filing found for tenant ${tenantId} / year ${taxYear}`);
   const forms = (filing.forms as Record<string, Record<string, any>>) || {};
+  // Hashed from the forms as the user reviewed them, BEFORE submitting.
+  // submitFiling() only touches status/filedAt/filedRef, never forms.
+  const reviewedFormsHash = hashForms(forms);
 
-  const review = await db.abTaxFilingReview.findFirst({ where: { tenantId, taxYear } });
-  if (review) {
-    const reviewedFormsHash = hashForms(forms);
+  const result = await submitFiling(tenantId, taxYear);
+
+  // The confirmed marker is written only once submission has actually
+  // succeeded. Writing it first (as this did) meant a failed submit —
+  // validation errors, no partner, a network fault — left the review marked
+  // confirmed-and-fresh, so hasConfirmedFreshReview() reported true and the
+  // NEXT submit attempt sailed straight past the gate with no review having
+  // been completed. Leaving the review active on failure also lets the user
+  // fix the problem and confirm again.
+  if (result.success) {
     await db.abTaxFilingReview.update({
       where: { id: review.id },
       data: { status: 'confirmed', confirmedAt: new Date(), reviewedFormsHash, awaitingFieldId: null },
     });
+    return { message: `✅ ${result.data.message}`, filed: !!result.data.filed };
   }
-
-  const result = await submitFiling(tenantId, taxYear);
-  if (result.success) return { message: `✅ ${result.data.message}`, filed: !!result.data.filed };
   return { message: `❌ ${result.error}`, filed: false };
 }
 
@@ -352,8 +422,9 @@ export async function answerReviewMessage(
   const filing = await db.abTaxFiling.findFirst({ where: { tenantId, taxYear, filingType: 'personal_return' } });
   if (!filing) throw new Error(`No filing found for tenant ${tenantId} / year ${taxYear}`);
 
-  const review = await db.abTaxFilingReview.findFirst({ where: { tenantId, taxYear } });
-  if (!review) throw new Error(`No active review for tenant ${tenantId} / year ${taxYear} — call startReview first`);
+  // Requires an ACTIVE review, not merely a row: a cancelled review must not
+  // be resurrected by the next message the user happens to send.
+  const review = await requireActiveReview(tenantId, taxYear);
 
   const forms = (filing.forms as Record<string, Record<string, any>>) || {};
   const pack = getTaxReviewPack(filing.jurisdiction);

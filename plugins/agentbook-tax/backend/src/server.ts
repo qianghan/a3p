@@ -40,6 +40,7 @@ import {
 import {
   startReview, answerReviewMessage, hasConfirmedFreshReview,
   getActiveReviewForTenant, applyFieldEdit, confirmAndSubmit,
+  NoActiveReviewError, InvalidMoneyValueError,
 } from './tax-review-agent.js';
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024 } });
@@ -1662,6 +1663,19 @@ server.app.post('/api/v1/agentbook-tax/tax-filing/:year/review/start', async (re
   } catch (err) { res.status(500).json({ success: false, error: String(err) }); }
 });
 
+// Maps the review agent's typed refusals to real HTTP statuses. A request
+// refused because there is no active review (or because the amount is out of
+// range) is a 409/400, not a 500 — the caller can act on it.
+function reviewErrorStatus(err: unknown): number {
+  if (err instanceof NoActiveReviewError) return 409;
+  if (err instanceof InvalidMoneyValueError) return 400;
+  return 500;
+}
+function sendReviewError(res: any, err: unknown): void {
+  const status = reviewErrorStatus(err);
+  res.status(status).json({ success: false, error: err instanceof Error ? err.message : String(err) });
+}
+
 server.app.post('/api/v1/agentbook-tax/tax-filing/:year/review/message', async (req, res) => {
   try {
     const tenantId = (req as any).tenantId;
@@ -1669,7 +1683,7 @@ server.app.post('/api/v1/agentbook-tax/tax-filing/:year/review/message', async (
     const text = String(req.body?.text || '');
     const result = await answerReviewMessage(tenantId, taxYear, text, callGemini);
     res.json({ success: true, data: result });
-  } catch (err) { res.status(500).json({ success: false, error: String(err) }); }
+  } catch (err) { sendReviewError(res, err); }
 });
 
 server.app.get('/api/v1/agentbook-tax/tax-filing/:year/review/status', async (req, res) => {
@@ -1689,12 +1703,16 @@ server.app.post('/api/v1/agentbook-tax/tax-filing/:year/review/edit-field', asyn
     const tenantId = (req as any).tenantId;
     const taxYear = parseInt(req.params.year, 10);
     const { formCode, fieldId, valueCents } = req.body || {};
-    if (typeof formCode !== 'string' || typeof fieldId !== 'string' || !Number.isInteger(valueCents)) {
-      return res.status(400).json({ success: false, error: 'formCode, fieldId, and an integer valueCents are required' });
+    // Shape only. The VALUE's bounds are enforced inside applyFieldEdit —
+    // the one shared executor — so this route and the chat path cannot
+    // disagree about what a valid amount is (it used to accept -$500 and
+    // $99,999,999 here while chat refused both).
+    if (typeof formCode !== 'string' || typeof fieldId !== 'string' || typeof valueCents !== 'number') {
+      return res.status(400).json({ success: false, error: 'formCode, fieldId, and a numeric valueCents are required' });
     }
     const result = await applyFieldEdit(tenantId, taxYear, formCode, fieldId, valueCents);
     res.json({ success: true, data: result });
-  } catch (err) { res.status(500).json({ success: false, error: String(err) }); }
+  } catch (err) { sendReviewError(res, err); }
 });
 
 server.app.post('/api/v1/agentbook-tax/tax-filing/:year/review/confirm', async (req, res) => {
@@ -1703,7 +1721,7 @@ server.app.post('/api/v1/agentbook-tax/tax-filing/:year/review/confirm', async (
     const taxYear = parseInt(req.params.year, 10);
     const result = await confirmAndSubmit(tenantId, taxYear);
     res.json({ success: true, data: result });
-  } catch (err) { res.status(500).json({ success: false, error: String(err) }); }
+  } catch (err) { sendReviewError(res, err); }
 });
 
 // ============================================

@@ -24,6 +24,21 @@ const hasConfirmedFreshReview = vi.fn();
 const applyFieldEdit = vi.fn();
 const confirmAndSubmit = vi.fn();
 
+// The two typed refusals are real classes, not stubs — the route's status
+// mapping is `instanceof`-based, so a fake would not exercise it.
+class NoActiveReviewError extends Error {
+  constructor(t: string, y: number) {
+    super(`No active review for tenant ${t} / year ${y} — start a review before editing or submitting`);
+    this.name = 'NoActiveReviewError';
+  }
+}
+class InvalidMoneyValueError extends Error {
+  constructor(cents: unknown) {
+    super(`Invalid amount: got ${String(cents)}`);
+    this.name = 'InvalidMoneyValueError';
+  }
+}
+
 vi.mock('@agentbook-tax/tax-review-agent', () => ({
   getActiveReviewForTenant: (...a: unknown[]) => getActiveReviewForTenant(...a),
   startReview: (...a: unknown[]) => startReview(...a),
@@ -31,6 +46,8 @@ vi.mock('@agentbook-tax/tax-review-agent', () => ({
   hasConfirmedFreshReview: (...a: unknown[]) => hasConfirmedFreshReview(...a),
   applyFieldEdit: (...a: unknown[]) => applyFieldEdit(...a),
   confirmAndSubmit: (...a: unknown[]) => confirmAndSubmit(...a),
+  NoActiveReviewError,
+  InvalidMoneyValueError,
 }));
 
 vi.mock('@/lib/agentbook-tenant', () => ({
@@ -122,5 +139,32 @@ describe('agentbook-tax review routes — production Next surface', () => {
     const res = await POST(post('http://localhost/x'), YEAR);
     expect(res.status).toBe(500);
     expect((await res.json()).error).toContain('no filing found');
+  });
+
+  it('confirming with no active review is a 409, not a 500 — the gate refused it', async () => {
+    confirmAndSubmit.mockRejectedValue(new NoActiveReviewError('tenant-1', 2025));
+    const { POST } = await import('@/app/api/v1/agentbook-tax/tax-filing/[year]/review/confirm/route');
+    const res = await POST(post('http://localhost/x'), YEAR);
+    expect(res.status).toBe(409);
+    expect((await res.json()).error).toMatch(/no active review/i);
+  });
+
+  it('an out-of-range amount is a 400 from the shared executor, not a 500', async () => {
+    // The route deliberately does NOT range-check itself; applyFieldEdit is
+    // the one shared executor for chat and web, so the rule lives there.
+    applyFieldEdit.mockRejectedValue(new InvalidMoneyValueError(-50000));
+    const { POST } = await import('@/app/api/v1/agentbook-tax/tax-filing/[year]/review/edit-field/route');
+    const res = await POST(post('http://localhost/x', { formCode: 'T1', fieldId: 'total_income_15000', valueCents: -50000 }), YEAR);
+    expect(res.status).toBe(400);
+  });
+
+  it('the edit-field route forwards a negative valueCents to applyFieldEdit rather than pre-judging it', async () => {
+    // It used to only check Number.isInteger, silently ACCEPTING negatives
+    // and values over $10,000,000 that the chat path rejected. It must now
+    // pass the value through so the shared bounds check is what decides.
+    applyFieldEdit.mockRejectedValue(new InvalidMoneyValueError(-50000));
+    const { POST } = await import('@/app/api/v1/agentbook-tax/tax-filing/[year]/review/edit-field/route');
+    await POST(post('http://localhost/x', { formCode: 'T1', fieldId: 'total_income_15000', valueCents: -50000 }), YEAR);
+    expect(applyFieldEdit).toHaveBeenCalledWith('tenant-1', 2025, 'T1', 'total_income_15000', -50000);
   });
 });
