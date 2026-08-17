@@ -3,6 +3,7 @@ import { Target, Plus, X, Trash2, Pencil } from 'lucide-react';
 import { ChatCTA } from '@naap/plugin-sdk';
 import { formatMoney } from '@agentbook/i18n';
 import { useTenantCurrency } from '../hooks/useTenantCurrency';
+import { useI18n } from '@naap/plugin-sdk';
 
 const API = '/api/v1/agentbook-expense';
 
@@ -40,6 +41,9 @@ function periodLabel(period: string): string {
 export const BudgetsPage: React.FC = () => {
   const currency = useTenantCurrency();
   const [budgets, setBudgets] = useState<BudgetRow[]>([]);
+  // Locale-aware money input. parseFloat(value) * 100 silently mangles
+  // French input: '45,50' -> 45 -> $45.00, and '1 500,75' -> 1 -> $1.00.
+  const { parseAmount } = useI18n();
   const [categories, setCategories] = useState<Category[]>([]);
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -100,7 +104,7 @@ export const BudgetsPage: React.FC = () => {
     setSubmitting(true);
     setFormError(null);
     try {
-      const v = parseFloat(amount);
+      const v = parseAmount(amount).cents / 100;
       if (!isFinite(v) || v <= 0) {
         setFormError('Amount has to be a positive number.');
         setSubmitting(false);

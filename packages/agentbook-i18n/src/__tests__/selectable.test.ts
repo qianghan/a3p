@@ -100,7 +100,10 @@ describe('selectable values resolve to a real catalog locale', () => {
 
 describe('offerableLocales — scaffold locales are never offered', () => {
   it('omits zh-CN while its catalog is scaffold, but keeps it storable', async () => {
-    const { offerableLocales } = await import('../index.js');
+    // Imported from the CATALOG entry point, not the main barrel: the catalog
+    // is deliberately unreachable from '@agentbook/i18n' so plugin bundles
+    // cannot inline all three locale packs (+18.8 KB each, measured).
+    const { offerableLocales } = await import('../catalog-entry.js');
     const offered = offerableLocales().map((l) => l.value);
 
     // en-US and fr-CA have finished content.

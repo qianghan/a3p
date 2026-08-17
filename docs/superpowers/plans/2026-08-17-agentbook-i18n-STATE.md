@@ -220,12 +220,58 @@ Landed so far on `i18n-pr3-money-date-io`:
 - 102 package tests green in both zones, incl. a round-trip property
   `parse(format(x)) === x` across all three locales.
 
+DONE in part 2:
+- `II18nService.parseAmount` + shell + SDK-fallback implementations, so plugin
+  form inputs get locale-aware parsing through the injected service.
+- **5 form-input files migrated** off `parseFloat(amount) * 100`:
+  NewExpense, Bills, Budgets, RecordPaymentModal, RecurringInvoices.
+- `bin/i18n-bundle-guard.sh` — asserts the locale packs never appear in a
+  plugin UMD bundle. Verified non-vacuous by injecting a marker.
+- All 6 UMD bundles rebuilt and committed to `public/cdn`.
+
 STILL TO DO in PR-3:
-1. **14 comma-stripping call sites.** Full list in the traps section below.
-2. **~110 hardcoded `'en-US'` formatting sites** (181 `toLocale*`/`Intl` total).
-3. **Golden tests** asserting `en-US` output is byte-identical for each.
-4. **D6 echo-back**: surface `ParsedAmount.formatted` in the chat confirmation
-   step so an `ambiguous` amount is confirmed before it is booked.
+1. **~8 remaining form-input sites** (NewInvoice line-item rate + taxRate,
+   PlanEditorModal, HomeOffice sqft, StartupDiscoveryPage) — same recipe.
+2. **14 comma-stripping NL-parser sites** — BLOCKED on PR-9 locale threading.
+3. **~110 hardcoded `'en-US'` formatting sites** (181 `toLocale*`/`Intl` total).
+4. **Golden tests** asserting `en-US` output is byte-identical for each.
+5. **D6 echo-back** in the chat confirmation step for `ambiguous` amounts.
+
+### C6 — The plan's inventory of 14 sites was incomplete.
+
+The plan counted 14 comma-stripping sites and treated that as the money-input
+surface. It missed **13 form-input sites** with the same class of bug in a
+different code shape: `Math.round(parseFloat(amount) * 100)` with no comma
+handling at all. On French input those fail three ways, all money bugs:
+
+    parseFloat('45,50')     -> 45   -> $45.00      cents silently dropped
+    parseFloat('1 500,75')  -> 1    -> $1.00       1500x understatement
+    Number('45,50')         -> NaN  -> NaN payload
+
+The 1500x understatement is worse than the 100x overstatement the plan was
+written around. Grep for `parseFloat`/`Number` near amount/price/rate/cents,
+not just for `replace(/,/g`.
+
+### C7 — PR-1 leaked the catalog into every plugin bundle. Fixed, now guarded.
+
+Putting `CATALOG` in the same barrel as `formatMoney` meant all 21 plugin call
+sites that import `formatMoney` inlined all three locale packs: **+18.8 KB per
+bundle**, ~113 KB duplicated across six CDN bundles. That defeated the entire
+reason for injecting one shared translator through ShellContext.
+
+Nothing failed — the bundles just got bigger, and no test measured them. The
+plan listed a bundle-size assertion as "Cut 2" and it was never written; the
+thing it would have caught then happened.
+
+Fixed by splitting the entry points:
+
+    @agentbook/i18n            functions only — safe for plugin bundles
+    @agentbook/i18n/catalog    locale packs — SHELL ONLY
+
+Guarded two ways: `bin/i18n-bundle-guard.sh` greps built bundles for known
+catalog strings, and a package test asserts the main barrel exports no catalog
+symbol. **Production was never affected** — the committed CDN bundles predated
+the leak, verified with the guard before rebuilding.
 
 ### Dependency discovered — affects sequencing
 

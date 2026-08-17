@@ -1,5 +1,6 @@
 // plugins/agentbook-invoice/frontend/src/components/RecordPaymentModal.tsx
 import { useState } from 'react';
+import { useI18n } from '@naap/plugin-sdk';
 
 const METHODS = [
   { value: 'manual', label: 'Manual' },
@@ -33,10 +34,13 @@ export function RecordPaymentModal({
   const [paidAt, setPaidAt] = useState(new Date().toISOString().slice(0, 10));
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  // Locale-aware money input. parseFloat(value) * 100 silently mangles
+  // French input: '45,50' -> 45 -> $45.00, and '1 500,75' -> 1 -> $1.00.
+  const { parseAmount } = useI18n();
 
   const submit = async (e: React.FormEvent): Promise<void> => {
     e.preventDefault();
-    const amountCents = Math.round(parseFloat(amount) * 100);
+    const amountCents = parseAmount(amount).cents;
     if (isNaN(amountCents) || amountCents <= 0) {
       setErr('Amount must be greater than 0');
       return;

@@ -107,6 +107,24 @@ function createFallbackI18n(): II18nService {
         return String(value);
       }
     },
+    parseAmount: (raw: string) => {
+      // en-US conventions only, matching the rest of this fallback.
+      const cleaned = String(raw ?? '').trim().replace(/[^0-9.,\-]/g, '');
+      const noGroups = cleaned.replace(/,/g, '');
+      const n = Number(noGroups);
+      if (!Number.isFinite(n) || noGroups === '') {
+        return { ok: false, cents: 0, ambiguous: false, formatted: '' };
+      }
+      const cents = Math.round(n * 100);
+      return {
+        ok: true,
+        cents,
+        ambiguous: false,
+        formatted: new Intl.NumberFormat('en-US', {
+          style: 'currency', currency: 'USD',
+        }).format(cents / 100),
+      };
+    },
     formatPercent: (value, decimals = 1) => {
       try {
         return new Intl.NumberFormat(locale, {

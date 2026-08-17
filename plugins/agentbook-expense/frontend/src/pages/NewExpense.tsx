@@ -1,6 +1,7 @@
 import React, { useRef, useState } from 'react';
 import { Upload, DollarSign, Loader2, CheckCircle, AlertCircle } from 'lucide-react';
 import { ChatCTA } from '@naap/plugin-sdk';
+import { useI18n } from '@naap/plugin-sdk';
 
 const API_BASE = '/api/v1/agentbook-expense';
 
@@ -22,6 +23,9 @@ export const NewExpensePage: React.FC = () => {
   const [submitting, setSubmitting] = useState(false);
   const [success, setSuccess] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  // Locale-aware money input. parseFloat(value) * 100 silently mangles
+  // French input: '45,50' -> 45 -> $45.00, and '1 500,75' -> 1 -> $1.00.
+  const { parseAmount } = useI18n();
 
   // Receipt OCR state (G-031 — closes the "non-functional theater" finding).
   const [receiptStatus, setReceiptStatus] = useState<
@@ -131,7 +135,7 @@ export const NewExpensePage: React.FC = () => {
     setSubmitError(null);
     try {
       const body: Record<string, unknown> = {
-        amountCents: Math.round(parseFloat(amount) * 100),
+        amountCents: parseAmount(amount).cents,
         vendor: vendor || undefined,
         description: description || vendor || 'Expense',
         date,

@@ -11,6 +11,7 @@ import {
   X,
 } from 'lucide-react';
 import { ChatCTA } from '@naap/plugin-sdk';
+import { useI18n } from '@naap/plugin-sdk';
 
 type Frequency = 'weekly' | 'biweekly' | 'monthly' | 'quarterly' | 'annual';
 type Status = 'active' | 'paused' | 'completed';
@@ -81,6 +82,9 @@ const EMPTY_FORM: ScheduleFormState = {
 
 export const RecurringInvoicesPage: React.FC = () => {
   const [items, setItems] = useState<RecurringInvoice[]>([]);
+  // Locale-aware money input. parseFloat(value) * 100 silently mangles
+  // French input: '45,50' -> 45 -> $45.00, and '1 500,75' -> 1 -> $1.00.
+  const { parseAmount } = useI18n();
   const [clients, setClients] = useState<ClientOption[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -160,7 +164,7 @@ export const RecurringInvoicesPage: React.FC = () => {
   const submit = async () => {
     setSubmitting(true);
     try {
-      const rateCents = Math.round(parseFloat(form.amountDollars || '0') * 100);
+      const rateCents = parseAmount(form.amountDollars || '0').cents;
       if (!rateCents || rateCents <= 0) {
         alert('Please enter a positive amount');
         setSubmitting(false);

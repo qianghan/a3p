@@ -3,6 +3,7 @@ import { Receipt, Plus, X } from 'lucide-react';
 import { ExpenseTabs } from '../components/ExpenseTabs';
 import { formatMoney } from '@agentbook/i18n';
 import { useTenantCurrency } from '../hooks/useTenantCurrency';
+import { useI18n } from '@naap/plugin-sdk';
 
 const API = '/api/v1/agentbook-expense';
 
@@ -33,6 +34,9 @@ const STATUS_STYLE: Record<string, string> = {
 
 export const BillsPage: React.FC = () => {
   const [bills, setBills] = useState<Bill[]>([]);
+  // Locale-aware money input. parseFloat(value) * 100 silently mangles
+  // French input: '45,50' -> 45 -> $45.00, and '1 500,75' -> 1 -> $1.00.
+  const { parseAmount } = useI18n();
   const [summary, setSummary] = useState<Summary>({ openCents: 0, overdueCents: 0, count: 0 });
   const currency = useTenantCurrency();
   const [tab, setTab] = useState<Tab>('all');
@@ -70,7 +74,7 @@ export const BillsPage: React.FC = () => {
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
           vendorName: vendorName.trim(),
-          amountCents: Math.round(Number(amount) * 100),
+          amountCents: parseAmount(amount).cents,
           dueDate,
           description: description.trim() || undefined,
         }),
