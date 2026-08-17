@@ -159,11 +159,142 @@ const CA_SCHEDULE1_2025 = {
 
 const ALL_CA_FORMS = [CA_T2125_2025, CA_T1_2025, CA_GST_HST_2025, CA_SCHEDULE1_2025];
 
+// === US Form Templates (2025) ===
+// A deliberately simplified subset — Schedule C business income/expenses
+// plus a personal-return summary — matching the same level of simplification
+// CA_T2125_2025/CA_T1_2025 already use (no capital gains, no itemized
+// deductions beyond what's modeled here). Vehicle/home-office deductions are
+// computed but NOT folded into net profit, mirroring CA_T2125_2025's own
+// existing behavior (net_income_9369 = adjusted_gross - total_expenses only)
+// — matching that precedent's scope rather than "fixing" it here.
+
+const US_SCHEDULE_C_2025 = {
+  jurisdiction: 'us', formCode: 'ScheduleC', version: '2025',
+  formName: 'Schedule C — Profit or Loss From Business (Sole Proprietorship)',
+  category: 'business_income', dependencies: [],
+  sections: [
+    {
+      sectionId: 'identification', title: 'Principal Business Information',
+      fields: [
+        { fieldId: 'business_name', label: 'Name of proprietor / business', lineNumber: '', type: 'text', required: true, source: 'auto', sourceQuery: 'tenant_business_name' },
+        { fieldId: 'principal_business_code', label: 'Principal business or profession, code', lineNumber: 'B', type: 'text', required: true, source: 'manual', helpText: '6-digit NAICS code. Consultants: 541611, Software: 541511' },
+        { fieldId: 'ein_or_ssn', label: 'EIN (or SSN if none)', lineNumber: '', type: 'text', required: true, source: 'manual', sensitive: true },
+      ],
+    },
+    {
+      sectionId: 'income', title: 'Part I — Income',
+      fields: [
+        { fieldId: 'gross_receipts_1', label: 'Gross receipts or sales', lineNumber: '1', type: 'currency', required: true, source: 'auto', sourceQuery: 'revenue_total' },
+        { fieldId: 'gross_income_7', label: 'Gross income', lineNumber: '7', type: 'currency', required: true, source: 'calculated', formula: 'gross_receipts_1' },
+      ],
+    },
+    {
+      sectionId: 'expenses', title: 'Part II — Expenses',
+      fields: [
+        { fieldId: 'advertising_8', label: 'Advertising', lineNumber: '8', type: 'currency', required: false, source: 'auto', sourceQuery: 'expense_category:5000' },
+        { fieldId: 'insurance_15', label: 'Insurance (other than health)', lineNumber: '15', type: 'currency', required: false, source: 'auto', sourceQuery: 'expense_category:5400' },
+        { fieldId: 'legal_professional_17', label: 'Legal and professional services', lineNumber: '17', type: 'currency', required: false, source: 'auto', sourceQuery: 'expense_category:5700' },
+        { fieldId: 'office_18', label: 'Office expense', lineNumber: '18', type: 'currency', required: false, source: 'auto', sourceQuery: 'expense_category:5800' },
+        { fieldId: 'supplies_22', label: 'Supplies', lineNumber: '22', type: 'currency', required: false, source: 'auto', sourceQuery: 'expense_category:6100' },
+        { fieldId: 'travel_24a', label: 'Travel', lineNumber: '24a', type: 'currency', required: false, source: 'auto', sourceQuery: 'expense_category:6300' },
+        { fieldId: 'meals_24b', label: 'Deductible meals (50%)', lineNumber: '24b', type: 'currency', required: false, source: 'auto', sourceQuery: 'expense_category:6400:meals_50pct' },
+        { fieldId: 'utilities_25', label: 'Utilities', lineNumber: '25', type: 'currency', required: false, source: 'auto', sourceQuery: 'expense_category:6500' },
+        { fieldId: 'other_expenses_27a', label: 'Other expenses (software, subscriptions)', lineNumber: '27a', type: 'currency', required: false, source: 'auto', sourceQuery: 'expense_category:6600' },
+        { fieldId: 'total_expenses_28', label: 'Total expenses', lineNumber: '28', type: 'currency', required: true, source: 'calculated', formula: 'SUM(advertising_8,insurance_15,legal_professional_17,office_18,supplies_22,travel_24a,meals_24b,utilities_25,other_expenses_27a)' },
+        { fieldId: 'tentative_profit_29', label: 'Tentative profit', lineNumber: '29', type: 'currency', required: true, source: 'calculated', formula: 'gross_income_7 - total_expenses_28' },
+        { fieldId: 'net_profit_31', label: 'Net profit (loss)', lineNumber: '31', type: 'currency', required: true, source: 'calculated', formula: 'tentative_profit_29' },
+      ],
+    },
+    {
+      sectionId: 'vehicle', title: 'Part IV — Vehicle Information',
+      fields: [
+        { fieldId: 'vehicle_total_miles', label: 'Total miles driven', lineNumber: '', type: 'number', required: false, source: 'manual' },
+        { fieldId: 'vehicle_business_miles', label: 'Business miles', lineNumber: '', type: 'number', required: false, source: 'manual' },
+        { fieldId: 'standard_mileage_rate_cents', label: 'Standard mileage rate (cents/mile)', lineNumber: '9', type: 'number', required: false, source: 'auto', sourceQuery: 'us_standard_mileage_rate_cents' },
+        { fieldId: 'vehicle_deduction_9', label: 'Car and truck expenses (standard mileage)', lineNumber: '9', type: 'currency', required: false, source: 'calculated', formula: 'vehicle_business_miles * standard_mileage_rate_cents' },
+      ],
+    },
+    {
+      sectionId: 'home_office', title: 'Part VIII — Home Office (Simplified Method)',
+      fields: [
+        { fieldId: 'home_office_deduction_30', label: 'Home office deduction (simplified method)', lineNumber: '30', type: 'currency', required: false, source: 'manual', helpText: 'Simplified method: $5 x home office square footage, capped at 300 sq ft (max $1,500)' },
+      ],
+    },
+  ],
+};
+
+const US_1040_2025 = {
+  jurisdiction: 'us', formCode: '1040', version: '2025',
+  formName: 'Form 1040 — U.S. Individual Income Tax Return',
+  category: 'personal_return', dependencies: ['ScheduleC'],
+  sections: [
+    {
+      sectionId: 'identification', title: 'Filing Information',
+      fields: [
+        { fieldId: 'full_name', label: 'Full legal name', lineNumber: '', type: 'text', required: true, source: 'manual' },
+        { fieldId: 'ssn', label: 'Social Security Number', lineNumber: '', type: 'text', required: true, source: 'manual', sensitive: true },
+        { fieldId: 'filing_status', label: 'Filing status', lineNumber: '', type: 'text', required: true, source: 'manual', helpText: 'single, married_filing_jointly, married_filing_separately, or head_of_household' },
+        { fieldId: 'state_of_residence', label: 'State of residence', lineNumber: '', type: 'text', required: true, source: 'auto', sourceQuery: 'tenant_region' },
+      ],
+    },
+    {
+      sectionId: 'total_income', title: 'Income',
+      fields: [
+        { fieldId: 'wages_1a', label: 'Wages (W-2 box 1)', lineNumber: '1a', type: 'currency', required: false, source: 'manual' },
+        { fieldId: 'self_employment_income', label: 'Self-employment income (from Schedule C)', lineNumber: '', type: 'currency', required: false, source: 'calculated', formula: 'ScheduleC.net_profit_31' },
+        { fieldId: 'total_income_9', label: 'Total income', lineNumber: '9', type: 'currency', required: true, source: 'calculated', formula: 'SUM(wages_1a,self_employment_income)' },
+      ],
+    },
+    {
+      sectionId: 'deductions', title: 'Adjustments and Deductions',
+      fields: [
+        { fieldId: 'se_tax', label: 'Self-employment tax (Schedule SE)', lineNumber: '', type: 'currency', required: false, source: 'calculated', formula: 'SE_TAX(self_employment_income)' },
+        { fieldId: 'se_tax_deduction_half', label: 'Deductible part of self-employment tax', lineNumber: '', type: 'currency', required: false, source: 'calculated', formula: 'se_tax / 2' },
+        { fieldId: 'standard_deduction', label: 'Standard deduction', lineNumber: '12', type: 'currency', required: true, source: 'auto', sourceQuery: 'us_standard_deduction_2025' },
+        { fieldId: 'taxable_income', label: 'Taxable income', lineNumber: '15', type: 'currency', required: true, source: 'calculated', formula: 'MAX(0, total_income_9 - se_tax_deduction_half - standard_deduction)' },
+      ],
+    },
+    {
+      sectionId: 'tax_calculation', title: 'Tax and Payments',
+      fields: [
+        { fieldId: 'federal_tax_16', label: 'Federal income tax', lineNumber: '16', type: 'currency', required: true, source: 'calculated', formula: 'PROGRESSIVE_TAX(taxable_income, us_federal)' },
+        { fieldId: 'total_tax_24', label: 'Total tax', lineNumber: '24', type: 'currency', required: true, source: 'calculated', formula: 'federal_tax_16 + se_tax' },
+        { fieldId: 'withholding_25a', label: 'Federal income tax withheld (W-2)', lineNumber: '25a', type: 'currency', required: false, source: 'manual' },
+        { fieldId: 'balance_owing_37', label: 'Amount you owe (or refund, if negative)', lineNumber: '37', type: 'currency', required: true, source: 'calculated', formula: 'total_tax_24 - withholding_25a' },
+      ],
+    },
+  ],
+};
+
+const ALL_US_FORMS = [US_SCHEDULE_C_2025, US_1040_2025];
+
 // === Seed Forms ===
 
 export async function seedCanadianForms(): Promise<{ created: number; updated: number }> {
   let created = 0, updated = 0;
   for (const form of ALL_CA_FORMS) {
+    const existing = await db.abTaxFormTemplate.findFirst({
+      where: { jurisdiction: form.jurisdiction, formCode: form.formCode, version: form.version },
+    });
+    if (existing) {
+      await db.abTaxFormTemplate.update({
+        where: { id: existing.id },
+        data: { formName: form.formName, category: form.category, sections: form.sections as any, dependencies: form.dependencies as any },
+      });
+      updated++;
+    } else {
+      await db.abTaxFormTemplate.create({
+        data: { ...form, sections: form.sections as any, dependencies: form.dependencies as any, validationRules: [] },
+      });
+      created++;
+    }
+  }
+  return { created, updated };
+}
+
+export async function seedUsForms(): Promise<{ created: number; updated: number }> {
+  let created = 0, updated = 0;
+  for (const form of ALL_US_FORMS) {
     const existing = await db.abTaxFormTemplate.findFirst({
       where: { jurisdiction: form.jurisdiction, formCode: form.formCode, version: form.version },
     });
@@ -240,6 +371,13 @@ export async function resolveSourceQuery(
   if (query === 'fiscal_year_end') return `${taxYear}-12-31`;
   if (query === 'fiscal_year_range') return `${taxYear}-01-01 to ${taxYear}-12-31`;
   if (query === 'ca_basic_personal_2025') return 1609500;
+
+  // TODO: verify against the current-year IRS optional standard mileage rate
+  // before each new tax year — this is the 2025 rate (IRS Notice 2025-5).
+  if (query === 'us_standard_mileage_rate_cents') return 70;
+  // TODO: verify against the current-year IRS standard deduction (single
+  // filer) before each new tax year — this is the 2025 figure.
+  if (query === 'us_standard_deduction_2025') return 1500000;
 
   return null;
 }
