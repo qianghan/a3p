@@ -108,8 +108,8 @@ Consequences, which are contained:
 
 | PR | Title | Status | Attempts | PR link | Notes |
 |----|-------|--------|----------|---------|-------|
-| 0 | Baseline capture | pending | 0 | — | committed with PR-1 |
-| 1 | Package foundation + un-mask plugin tests | pending | 0 | — | inert |
+| 0 | Baseline capture | **done** | 1 | (in PR-1) | e2e line deferred to CI — see above |
+| 1 | Package foundation + un-mask plugin tests | **done** | 1 | _pushing_ | `f55e3ccf`; see corrections below |
 | 2 | Locale plumbing + language selector | pending | 0 | — | selector becomes visible |
 | 3 | Locale-safe money + date I/O | pending | 0 | — | **highest risk** — see D6 |
 | 4 | Extraction: core + billing | pending | 0 | — | inert |
@@ -125,6 +125,62 @@ Consequences, which are contained:
 Statuses: `pending` → `in_progress` → `done` \| `halted`
 
 ---
+
+## Corrections to the plan, found during execution
+
+The plan was wrong about three things. Later PRs must use these, not the
+plan's original text.
+
+### C1 — `@agentbook/i18n` is NOT orphaned. It has 21 consumers.
+
+The plan claimed "zero consumers". Wrong. `formatMoney` is imported from
+`@agentbook/i18n` by **all six plugin frontends and the Telegram webhook** —
+21 call sites. The original search matched the *directory* name
+(`agentbook-i18n`) rather than the *package* name (`@agentbook/i18n`).
+
+Consequences:
+- The package is load-bearing production code, not scaffolding. Its public
+  export surface is a hard compatibility boundary.
+- PR-1 briefly dropped `formatMoney` from `index.ts` and broke every money
+  figure in the product. The newly un-masked plugin tests caught it in
+  minutes — the un-mask paid for itself immediately.
+- **The ambient API genuinely did have zero consumers** (nothing imported
+  `t`/`setLocale`/`getLocale`/`loadLocale`), so deleting it was safe. Only
+  the formatter exports were load-bearing.
+- Noted for the formatting PR: `formatMoney` infers its display locale from
+  the **currency code**, not the user's locale. A fr-CA user with a CAD
+  account gets `en-CA` formatting. Reconciling that is the formatting PR's
+  job.
+
+### C2 — `npm run typecheck` cannot be a Definition of Done. Use the guard.
+
+The plan's DoD said `npm run typecheck` must exit 0. That is unsatisfiable:
+pristine `origin/main` emits **347 errors across 113 files**, and CI's own
+TypeScript step carries `continue-on-error: true` ("Pre-existing TS errors —
+tracked for separate cleanup"). The `Lint & TypeCheck` job therefore reports
+success regardless of what tsc says. ESLint has the same
+`continue-on-error: true`.
+
+**Replace that DoD line with `./bin/i18n-typecheck-guard.sh`**, which asserts
+zero errors on the i18n surface and that the repo-wide count does not grow.
+Same principle as the e2e baseline-superset rule: measure direction of
+travel, not an absolute that was never true. Baseline now **343** (PR-1's
+deletion removed 4).
+
+### C3 — A pre-existing timezone bug in `formatDate`, owned by the formatting PR.
+
+`formatters.test.ts` passes under `TZ=UTC` and fails in any zone west of it.
+Cause: `formatDate('2026-03-22', locale)` builds `new Date(...)` — parsed as
+**UTC midnight** — then formats it in the **local** zone. In
+`America/Vancouver` that renders "Mar 21, 2026".
+
+This is a live product bug, not a test artifact: any user west of UTC sees
+date-only values one day early. On an invoice due date or a filing deadline
+that is a material error. CI masks it by running in UTC.
+
+The formatting PR must fix it (format date-only values in a fixed zone, or
+carry the tenant timezone explicitly) and add a non-UTC test so the fix
+cannot silently regress.
 
 ## Known traps (verified in the repo at `5dbd7eef`)
 
