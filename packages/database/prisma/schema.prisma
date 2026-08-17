@@ -2419,6 +2419,24 @@ model AbTaxFiling {
   @@schema("plugin_agentbook_tax")
 }
 
+model AbTaxFilingReview {
+  id                String    @id @default(uuid())
+  tenantId          String
+  taxYear           Int
+  status            String    @default("summarizing") // 'summarizing' | 'awaiting_edit' | 'confirmed' | 'stale'
+  awaitingFieldId   String?
+  summaryText       String?
+  editsApplied      Json      @default("[]")
+  reviewedFormsHash String?
+  confirmedAt       DateTime?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  @@unique([tenantId, taxYear])
+  @@index([tenantId])
+  @@schema("plugin_agentbook_tax")
+}
+
 model AbTaxSlip {
   id            String   @id @default(uuid())
   tenantId      String
