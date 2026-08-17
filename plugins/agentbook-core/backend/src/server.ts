@@ -4724,7 +4724,12 @@ async function _executeClassificationCore(
     try {
       const taxBase = baseUrls['/api/v1/agentbook-tax'] || 'http://localhost:4053';
       const IH = brainHeaders(tenantId);
-      const taxYear = extractedParams.taxYear || 2025;
+      // Same resolution handleTaxFilingSubmit's gate and the web review tab
+      // use. This was a literal `|| 2025`: from 2027 chat would have started
+      // populating a 2025 filing while the gate looked for a confirmed 2026
+      // review, so a real filing would dead-end with the two surfaces talking
+      // about different years.
+      const taxYear = extractedParams.taxYear || defaultFilingYear();
 
       // Seed forms
       await fetch(`${taxBase}/api/v1/agentbook-tax/tax-forms/seed`, { method: 'POST', headers: IH });
