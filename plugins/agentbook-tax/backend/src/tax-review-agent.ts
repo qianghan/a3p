@@ -5,6 +5,10 @@ import { usTaxBrackets } from '@agentbook/jurisdictions/us/tax-brackets';
 import { caTaxBrackets } from '@agentbook/jurisdictions/ca/tax-brackets';
 import { auTaxBrackets } from '@agentbook/jurisdictions/au/tax-brackets';
 import type { TaxBracketProvider } from '@agentbook/jurisdictions/interfaces';
+import { updateFilingField } from './tax-filing.js';
+import { submitFiling } from './tax-efiling.js';
+import { createHash } from 'node:crypto';
+import { formatCurrency } from '@agentbook/i18n';
 
 // Local copy, deliberately not a cross-package import — see this task's
 // Interfaces note on why (Global Constraint 10's precedent).
@@ -168,4 +172,206 @@ export async function startReview(
   });
 
   return { message, criticalFields, computedTotals: totals };
+}
+
+// Deliberately not a cross-package import of apps/web-next's
+// money-validation.ts — that package boundary doesn't resolve from a
+// plugin backend (Global Constraint 10). This is intentionally small.
+const MAX_MONEY_CENTS = 1_000_000_000; // $10,000,000.00
+function parseMoneyInputCents(text: string): number | null {
+  const cleaned = text.replace(/[^0-9.-]/g, '');
+  if (!cleaned) return null;
+  const dollars = Number(cleaned);
+  if (!Number.isFinite(dollars) || dollars < 0) return null;
+  const cents = Math.round(dollars * 100);
+  return cents >= 0 && cents <= MAX_MONEY_CENTS ? cents : null;
+}
+
+type ReplyIntent =
+  | { kind: 'confirm' }
+  | { kind: 'cancel' }
+  | { kind: 'field_value'; cents: number }
+  | { kind: 'field_edit_request'; field: { formCode: string; fieldId: string }; cents: number }
+  | { kind: 'question'; field?: { formCode: string; fieldId: string } }
+  | { kind: 'unclear' };
+
+const CONFIRM_RE = /\b(yes|confirm|submit|looks good|go ahead|that'?s (right|correct)|correct|proceed)\b/i;
+const CANCEL_RE = /\b(no|cancel|stop|not yet|wait)\b/i;
+const QUESTION_RE = /\b(why|how|what|explain)\b/i;
+
+function classifyReply(
+  text: string,
+  awaitingField: { formCode: string; fieldId: string } | null,
+  criticalFields: { formCode: string; fieldId: string; label: string }[],
+): ReplyIntent {
+  const trimmed = text.trim();
+
+  if (awaitingField) {
+    const cents = parseMoneyInputCents(trimmed);
+    if (cents !== null) return { kind: 'field_value', cents };
+    // Fall through — a reply to "what's the new value?" that isn't a
+    // number is treated as unclear, not silently ignored.
+  }
+
+  if (CONFIRM_RE.test(trimmed)) return { kind: 'confirm' };
+  if (CANCEL_RE.test(trimmed)) return { kind: 'cancel' };
+
+  const lower = trimmed.toLowerCase();
+  // Match on the full label, not just its first word — several critical
+  // fields across jurisdictions share a first word (e.g. CA's "Total
+  // business expenses" vs "Total income"), so a first-word-only match
+  // would resolve to whichever field happens to sort first rather than
+  // the one the user actually named.
+  const matchedField = criticalFields.find((f) => lower.includes(f.label.toLowerCase()));
+  const cents = parseMoneyInputCents(trimmed);
+
+  if (matchedField && cents !== null) {
+    return { kind: 'field_edit_request', field: { formCode: matchedField.formCode, fieldId: matchedField.fieldId }, cents };
+  }
+  if (QUESTION_RE.test(trimmed)) {
+    return { kind: 'question', field: matchedField ? { formCode: matchedField.formCode, fieldId: matchedField.fieldId } : undefined };
+  }
+  return { kind: 'unclear' };
+}
+
+function hashForms(forms: Record<string, Record<string, any>>): string {
+  return createHash('sha256').update(JSON.stringify(forms)).digest('hex');
+}
+
+export async function hasConfirmedFreshReview(tenantId: string, taxYear: number): Promise<boolean> {
+  const review = await db.abTaxFilingReview.findFirst({ where: { tenantId, taxYear } });
+  if (!review || review.status !== 'confirmed' || !review.reviewedFormsHash) return false;
+
+  const filing = await db.abTaxFiling.findFirst({ where: { tenantId, taxYear, filingType: 'personal_return' } });
+  if (!filing) return false;
+
+  const currentHash = hashForms((filing.forms as Record<string, Record<string, any>>) || {});
+  return currentHash === review.reviewedFormsHash;
+}
+
+export async function getActiveReviewForTenant(tenantId: string): Promise<{ taxYear: number } | null> {
+  const review = await db.abTaxFilingReview.findFirst({
+    where: { tenantId, status: { in: ['summarizing', 'awaiting_edit'] } },
+    orderBy: { updatedAt: 'desc' },
+  });
+  return review ? { taxYear: review.taxYear } : null;
+}
+
+/**
+ * Writes one field, recomputes totals, and clears any pending
+ * awaiting-edit state — shared executor for both the chat state machine's
+ * field-edit branches below AND the web review tab's structured
+ * POST .../review/edit-field route (Task 13). Never guesses a field or
+ * value; the caller (chat intent classification, or a web form input)
+ * already knows exactly which one.
+ */
+const CURRENCY_FOR_JURISDICTION: Record<string, string> = { ca: 'CAD', us: 'USD', au: 'AUD' };
+
+export async function applyFieldEdit(
+  tenantId: string, taxYear: number, formCode: string, fieldId: string, cents: number,
+): Promise<{ message: string; computedTotals: ComputedFilingTotals }> {
+  await updateFilingField(tenantId, taxYear, formCode, fieldId, cents);
+
+  const filing = await db.abTaxFiling.findFirst({ where: { tenantId, taxYear, filingType: 'personal_return' } });
+  if (!filing) throw new Error(`No filing found for tenant ${tenantId} / year ${taxYear}`);
+  const forms = (filing.forms as Record<string, Record<string, any>>) || {};
+  const computedTotals = computeFilingTotals(filing.jurisdiction, filing.region, taxYear, forms);
+
+  const review = await db.abTaxFilingReview.findFirst({ where: { tenantId, taxYear } });
+  if (review) {
+    await db.abTaxFilingReview.update({ where: { id: review.id }, data: { status: 'summarizing', awaitingFieldId: null } });
+  }
+
+  const config = await db.abTenantConfig.findFirst({ where: { userId: tenantId } });
+  const locale = config?.locale || DEFAULT_LOCALE_FOR_JURISDICTION[filing.jurisdiction] || 'en-US';
+  const currency = CURRENCY_FOR_JURISDICTION[filing.jurisdiction] || 'USD';
+  return { message: `Updated to ${formatCurrency(cents, locale, currency)}. Anything else, or reply "looks good" to submit?`, computedTotals };
+}
+
+/**
+ * Marks the review confirmed (hashing the CURRENT forms, so a later edit
+ * through any other path makes hasConfirmedFreshReview go stale
+ * automatically) and calls the real submitFiling() in the same turn —
+ * shared executor for the chat 'confirm' intent below AND the web review
+ * tab's structured POST .../review/confirm route (Task 13).
+ */
+export async function confirmAndSubmit(tenantId: string, taxYear: number): Promise<{ message: string; filed: boolean }> {
+  const filing = await db.abTaxFiling.findFirst({ where: { tenantId, taxYear, filingType: 'personal_return' } });
+  if (!filing) throw new Error(`No filing found for tenant ${tenantId} / year ${taxYear}`);
+  const forms = (filing.forms as Record<string, Record<string, any>>) || {};
+
+  const review = await db.abTaxFilingReview.findFirst({ where: { tenantId, taxYear } });
+  if (review) {
+    const reviewedFormsHash = hashForms(forms);
+    await db.abTaxFilingReview.update({
+      where: { id: review.id },
+      data: { status: 'confirmed', confirmedAt: new Date(), reviewedFormsHash, awaitingFieldId: null },
+    });
+  }
+
+  const result = await submitFiling(tenantId, taxYear);
+  if (result.success) return { message: `✅ ${result.data.message}`, filed: !!result.data.filed };
+  return { message: `❌ ${result.error}`, filed: false };
+}
+
+export async function answerReviewMessage(
+  tenantId: string, taxYear: number, text: string, callGemini: CallGeminiFn,
+): Promise<{ message: string }> {
+  const filing = await db.abTaxFiling.findFirst({ where: { tenantId, taxYear, filingType: 'personal_return' } });
+  if (!filing) throw new Error(`No filing found for tenant ${tenantId} / year ${taxYear}`);
+
+  const review = await db.abTaxFilingReview.findFirst({ where: { tenantId, taxYear } });
+  if (!review) throw new Error(`No active review for tenant ${tenantId} / year ${taxYear} — call startReview first`);
+
+  const forms = (filing.forms as Record<string, Record<string, any>>) || {};
+  const pack = getTaxReviewPack(filing.jurisdiction);
+  const criticalFields = pack.criticalFields(forms);
+
+  const config = await db.abTenantConfig.findFirst({ where: { userId: tenantId } });
+  const locale = config?.locale || DEFAULT_LOCALE_FOR_JURISDICTION[filing.jurisdiction] || 'en-US';
+
+  const awaitingField = review.awaitingFieldId
+    ? (() => { const [formCode, fieldId] = review.awaitingFieldId!.split(':'); return { formCode, fieldId }; })()
+    : null;
+
+  const intent = classifyReply(text, awaitingField, criticalFields);
+
+  if (intent.kind === 'cancel') {
+    await db.abTaxFilingReview.update({ where: { id: review.id }, data: { status: 'summarizing', awaitingFieldId: null } });
+    return { message: "No problem — I've cancelled the review and nothing was submitted. Let me know when you'd like to pick it back up." };
+  }
+
+  if (intent.kind === 'field_value' && awaitingField) {
+    return applyFieldEdit(tenantId, taxYear, awaitingField.formCode, awaitingField.fieldId, intent.cents);
+  }
+
+  if (intent.kind === 'field_edit_request') {
+    return applyFieldEdit(tenantId, taxYear, intent.field.formCode, intent.field.fieldId, intent.cents);
+  }
+
+  if (intent.kind === 'question') {
+    const field = intent.field
+      ? criticalFields.find((f) => f.formCode === intent.field!.formCode && f.fieldId === intent.field!.fieldId)!
+      : { formCode: '_overall', fieldId: '_overall', label: 'your filing', currentValue: null };
+    const totals = computeFilingTotals(filing.jurisdiction, filing.region, taxYear, forms);
+    const prompt = languageDirective(locale) + '\n\n' + pack.explainFieldPrompt({ field, forms, computedTotals: totals, personalProfileContext: '', locale, question: text });
+    const raw = await callGemini(prompt, 'Answer this question.', 300);
+    if (!raw) return { message: "I couldn't generate an answer just now — you can ask again, change a number, or say \"looks good\" to submit." };
+    try {
+      const parsed = pack.parseFieldExplanation(JSON.parse(cleanJson(raw)));
+      if (!verifyGroundedNumbers(parsed.explanation, totals)) {
+        return { message: "I can't confirm that figure against your filing's real numbers, so I won't guess — you can ask a more specific question, change a number, or say \"looks good\" to submit." };
+      }
+      return { message: parsed.explanation };
+    } catch {
+      return { message: "I couldn't generate an answer just now — you can ask again, change a number, or say \"looks good\" to submit." };
+    }
+  }
+
+  if (intent.kind === 'confirm') {
+    return confirmAndSubmit(tenantId, taxYear);
+  }
+
+  // unclear — deterministic, no LLM call.
+  return { message: 'I can update a number, answer a question about your filing, or you can say "looks good" to submit — what would you like to do?' };
 }
