@@ -1370,6 +1370,34 @@ async function handleAgentMessageCore(
     // No session action matched — fall through to normal processing
   }
 
+  // ── Step 1.5: Active tax-filing-review interception ──────────────────
+  // Independent of the activeSession block above — deliberately not
+  // folded into it, since tax review is domain-specific state owned by a
+  // different plugin (plugin_agentbook_tax), reached only via ctx, never
+  // via a direct cross-plugin DB query (Global Constraint 8). Checked
+  // before an activeSession's own classification would run, since a
+  // pending tax-review answer is more time-sensitive than a general plan
+  // session if both happen to exist for the same tenant at once.
+  //
+  // ctx.checkActiveTaxReview/ctx.answerTaxReview are optional (Task 16) —
+  // callers/tests built before this feature (e.g. buildTestContext()) never
+  // construct them, so this guards with a no-op fallback rather than
+  // calling through undefined. Without them wired, in-progress tax reviews
+  // are simply never intercepted mid-flow — no behavior change for those
+  // callers.
+  const activeReview = ctx.checkActiveTaxReview
+    ? await ctx.checkActiveTaxReview(tenantId)
+    : { active: false };
+  if (activeReview.active && activeReview.taxYear && ctx.answerTaxReview) {
+    const { message } = await ctx.answerTaxReview(tenantId, activeReview.taxYear, text);
+    return buildResponse({
+      message,
+      skillUsed: 'tax-review-agent',
+      confidence: 1,
+      latencyMs: Date.now() - startTime,
+    });
+  }
+
   // ── Step 1b: Tax-questionnaire session recovery ───────────────────────
   // Parallel to (not inside) the AbAgentSession branch above. Mutual
   // exclusion (createSession() in agent-planner.ts and
