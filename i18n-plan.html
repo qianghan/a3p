@@ -61,11 +61,13 @@
   .file-path { font-family: 'SF Mono','Fira Code',monospace; color: #e2e8f0; }
   .dod { background: #0d1117; border-left: 3px solid var(--green); border-radius: 0 6px 6px 0; padding: 12px 16px; margin-top: 14px; }
   .dod .label { font-size: 11px; color: var(--green); text-transform: uppercase; letter-spacing: 0.07em; margin-bottom: 8px; font-weight: 700; }
-  .decision { background: var(--surface); border: 1px solid #7a5c00; border-left: 4px solid var(--yellow); border-radius: 8px; padding: 16px 20px; margin-bottom: 14px; }
-  .decision .did { font-size: 11px; font-weight: 700; color: var(--yellow); letter-spacing: 0.06em; margin-bottom: 6px; }
+  .decision { background: var(--surface); border: 1px solid #14532d; border-left: 4px solid var(--green); border-radius: 8px; padding: 16px 20px; margin-bottom: 14px; }
+  .decision .did { font-size: 11px; font-weight: 700; color: var(--green); letter-spacing: 0.06em; margin-bottom: 6px; }
   .decision .q { font-weight: 600; color: #fff; margin-bottom: 8px; font-size: 14px; }
   .rec { background: #0d2b1a; border: 1px solid #14532d; border-radius: 6px; padding: 8px 12px; margin-top: 10px; font-size: 12px; color: #86efac; }
   .rec strong { color: #bbf7d0; }
+  .rec.decided { border-left: 3px solid var(--green); }
+  .rec.decided::before { content: "✓ DECIDED · "; font-weight: 700; color: #bbf7d0; letter-spacing: 0.04em; }
   .finding { border-left: 3px solid var(--red); background: #1c1418; border-radius: 0 8px 8px 0; padding: 14px 18px; margin-bottom: 14px; }
   .finding.cut { border-left-color: var(--muted); background: #16181f; }
   .finding .ftag { font-size: 11px; font-weight: 700; letter-spacing: 0.06em; color: var(--red); margin-bottom: 6px; }
@@ -85,7 +87,7 @@
 <div class="container">
 
 <h1>AgentBook i18n — Simplified Chinese + Canadian French</h1>
-<p class="subtitle">Implementation plan, structured for unattended loop execution. 12 PRs, 7 test layers, 8 decisions required before kickoff.</p>
+<p class="subtitle">Implementation plan, structured for unattended loop execution. 12 PRs, 7 test layers. All 8 decisions resolved — cleared to execute.</p>
 
 <div class="meta-grid">
   <div class="meta-card"><div class="label">Worktree</div><div class="value">.claude/worktrees/agentbook-i18n-plan</div></div>
@@ -93,19 +95,20 @@
   <div class="meta-card"><div class="label">Base commit</div><div class="value">5dbd7eef (#452)</div></div>
   <div class="meta-card"><div class="label">Locales</div><div class="value">en-US, fr-CA, zh-CN</div></div>
   <div class="meta-card"><div class="label">Schema migration</div><div class="value" style="color:var(--green)">None required</div></div>
+  <div class="meta-card"><div class="label">Decisions</div><div class="value" style="color:var(--green)">8 / 8 resolved</div></div>
   <div class="meta-card"><div class="label">Human gates</div><div class="value">1 (PR-12 flag flip)</div></div>
 </div>
 
-<div class="banner warn">
-  <strong>This plan cannot start until the 8 decisions in section 3 are answered.</strong>
-  Each one is a place where guessing would either corrupt money, ship unreviewed regulated copy, or commit a binary asset under an unverified licence. Everything else is specified to the command level and needs no further input.
+<div class="banner good">
+  <strong>All 8 decisions resolved 2026-08-17 — the loop is cleared to run.</strong>
+  Every decision was answered as recommended. The resolutions are recorded in section 3 and mirrored in the state file, so the loop reads them from disk rather than from any conversation. The one remaining human gate is the PR-12 flag flip, per D1(a).
 </div>
 
 <div class="toc">
   <ol>
     <li><a href="#review">Review findings — what changed, and what I cut</a></li>
     <li><a href="#arch">Architecture</a></li>
-    <li><a href="#decisions">Decisions required from you (D1–D8)</a></li>
+    <li><a href="#decisions">Decisions — all 8 resolved (D1–D8)</a></li>
     <li><a href="#loop">Autonomous execution contract</a></li>
     <li><a href="#tests">Test strategy — 7 layers, and which ones actually gate</a></li>
     <li><a href="#prs">The 12 PRs</a></li>
@@ -247,10 +250,10 @@ export function createTranslator(locale: string, catalog: Catalog): Translator
 
 <p>Per your decision: navigation and chrome are translated, but tax guidance, filing disclosures, and legal copy remain English with a visible "available in English only" notice. Enforced by an <em>inverted</em> invariant — keys matching <code>tax.advice.*</code>, <code>legal.*</code>, and <code>filing.disclosure.*</code> <strong>must not exist</strong> in the <code>fr-CA</code> or <code>zh-CN</code> catalogs. A future PR that helpfully "completes the translation" then fails CI, which is the point.</p>
 
-<h2 id="decisions">3. Decisions required from you</h2>
+<h2 id="decisions">3. Decisions — all 8 resolved</h2>
 
-<div class="banner">
-  These are the only inputs the plan needs. Answer all 8 and the loop runs to completion with one deliberate stop (D1). I've marked a recommendation on each; replying <em>"all recommended"</em> is a valid complete answer.
+<div class="banner good">
+  <strong>Answered &ldquo;all recommended&rdquo; on 2026-08-17.</strong> Each block below records the decision actually taken. These are the authoritative values — the loop must read them here, not re-infer them.
 </div>
 
 <div class="decision">
@@ -262,63 +265,63 @@ export function createTranslator(locale: string, catalog: Catalog): Translator
     <li><strong>(b)</strong> Loop opens each PR and halts for you to merge. Safest, but this is no longer unattended — 12 stops.</li>
     <li><strong>(c)</strong> Full autonomy including the flag flip. No human sees a Chinese or French screen before your users do.</li>
   </ul>
-  <div class="rec"><strong>Recommend (a).</strong> It's genuinely unattended for all the engineering, and the single human gate sits exactly where the risk is: the moment translated copy becomes visible.</div>
+  <div class="rec decided"><strong>Option (a).</strong> The loop merges PRs 1–11 unattended, then <strong>halts before PR-12</strong> and waits for approval of the flag flip. Nothing user-visible ships without sign-off.</div>
 </div>
 
 <div class="decision">
   <div class="did">D2 — FEATURE FLAG</div>
   <div class="q">What is the flag key, and which flag system?</div>
   <p>An admin flag system exists (<code>tests/e2e/admin-feature-flags.spec.ts</code>). The loop needs the exact key name and confirmation it should default <strong>off</strong> in all environments.</p>
-  <div class="rec"><strong>Recommend</strong> key <code>agentbook_i18n_locales</code>, default off, flipped on in PR-12 only.</div>
+  <div class="rec decided">Flag key <code>agentbook_i18n_locales</code>, default <strong>off</strong> in all environments, flipped on in PR-12 only.</div>
 </div>
 
 <div class="decision">
   <div class="did">D3 — TRANSLATION AUTHORSHIP</div>
   <div class="q">May the loop author the fr-CA and zh-CN strings itself?</div>
   <p>You chose "LLM-drafted + structural tests + spot review". To be unattended, the loop must write the JSON itself. Your spot-review then happens at the D1 halt — after PRs 8–11 have merged dark, before the flag flips. That way you review the real screens, not a diff of JSON.</p>
-  <div class="rec"><strong>Recommend yes</strong>, with the review at the D1 halt on rendered screens rather than on the catalog files.</div>
+  <div class="rec decided">The loop authors the fr-CA and zh-CN strings itself. Spot-review happens at the D1 halt, <strong>on rendered screens</strong> rather than on the catalog JSON.</div>
 </div>
 
 <div class="decision">
   <div class="did">D4 — FRENCH TERMINOLOGY AUTHORITY</div>
   <div class="q">Which French does Canadian accounting terminology follow?</div>
   <p>Quebec accounting French is not generic French: <em>TPS/TVQ</em> not <em>TVA</em>, <em>facture</em>, <em>travailleur autonome</em>. If the loop invents terms, the copy will read as machine-translated to exactly the users it targets.</p>
-  <div class="rec"><strong>Recommend:</strong> CRA and Revenu Québec official French as the authority for all tax and accounting nouns; the loop must use the official term or leave the key English and flag it, never invent one.</div>
+  <div class="rec decided"><strong>CRA and Revenu Québec official French</strong> is the authority for every tax and accounting noun. The loop uses the official term, or leaves the key English and lists it for review — it must never invent one.</div>
 </div>
 
 <div class="decision">
-  <div class="did">D5 — CJK FONT FOR PDFs <span class="muted">(blocks PR-11)</span></div>
+  <div class="did">D5 — CJK FONT FOR PDFs <span class="muted">(governs PR-11)</span></div>
   <div class="q">How should Chinese render in outbound invoices and tax packs?</div>
   <ul>
     <li><strong>(a)</strong> Commit a subsetted <strong>Noto Sans SC</strong> (SIL OFL 1.1 — permissive, redistribution allowed) at roughly 1–2MB after subsetting, registered via <code>Font.register()</code>.</li>
     <li><strong>(b)</strong> Keep all PDFs English-only in v1 and show a notice. Zero binary, zero licence question, but a zh-CN user's invoices stay English.</li>
   </ul>
-  <div class="rec"><strong>Recommend (a).</strong> An invoice is the artefact that reaches the user's client, so it's the worst place to stay English. OFL-1.1 explicitly permits bundling. If you'd rather not carry a binary in git at all, say so and I'll fetch-and-subset at build time instead.</div>
+  <div class="rec decided"><strong>Option (a).</strong> Commit a subsetted <strong>Noto Sans SC</strong> (SIL OFL 1.1, which explicitly permits bundling) and register it via <code>Font.register()</code>. PR-11 records the subsetted byte size in its PR body.</div>
 </div>
 
 <div class="decision">
-  <div class="did">D6 — DECIMAL COMMA POLICY <span class="muted">(blocks PR-3 — this is the money one)</span></div>
+  <div class="did">D6 — DECIMAL COMMA POLICY <span class="muted">(governs PR-3 — this is the money one)</span></div>
   <div class="q">How should <code>1,500</code> be interpreted for a fr-CA user?</div>
   <p>It is genuinely ambiguous: <code>1,500</code> is <strong>one thousand five hundred</strong> in en-US and <strong>one and a half</strong> in fr-CA. No parser can resolve this from the string alone, and guessing wrong is a 1000× error.</p>
   <ul>
     <li><strong>(a)</strong> Parse by locale, and <em>always echo the interpreted amount back</em> in the confirmation step — "Booking $45.50, correct?" — so an ambiguous input is caught by the user before it reaches the ledger.</li>
     <li><strong>(b)</strong> Accept both separators with heuristics (comma followed by exactly 2 digits = decimal). Fewer confirmations, but silently wrong on <code>1,50</code> meaning 1.50 vs <code>1,500</code>.</li>
   </ul>
-  <div class="rec"><strong>Recommend (a).</strong> The confirmation already exists in the chat flow. Making the parsed amount explicit turns an invisible 100× error into a visible question, and it's the only option that's safe on genuinely ambiguous input.</div>
+  <div class="rec decided"><strong>Option (a).</strong> Parse by locale and <strong>always echo the interpreted amount back</strong> in the confirmation step. Ambiguous input becomes a visible question instead of a silent 100× error. Non-negotiable for PR-3.</div>
 </div>
 
 <div class="decision">
   <div class="did">D7 — NON-GOALS CONFIRMATION</div>
   <div class="q">Confirm these are out of scope?</div>
   <p>Receipt/OCR and voice <em>input</em> language; the public marketing and landing pages; <code>/fr/</code>-style locale URL routes (locale comes from tenant config, so routing is untouched); and deleting the never-wired <code>es</code>/<code>ja</code> stubs (Cut 4).</p>
-  <div class="rec"><strong>Recommend confirming all four.</strong> Each is a separate piece of work with its own design questions, and none blocks the three locales you asked for.</div>
+  <div class="rec decided">All four confirmed out of scope: OCR/voice input language, marketing and landing pages, <code>/fr/</code> locale routes, and the never-wired <code>es</code>/<code>ja</code> stubs (deleted, per Cut 4).</div>
 </div>
 
 <div class="decision">
   <div class="did">D8 — E2E GATING BASIS</div>
   <div class="q">Accept baseline-superset gating instead of all-green?</div>
   <p>The 87-spec Playwright suite does not currently pass in full. The honest gate is: record the passing set at PR-0, and require every later PR's passing set to be a <strong>superset</strong>. Demanding all-green would either block the plan on unrelated pre-existing failures or tempt the loop into deleting tests.</p>
-  <div class="rec"><strong>Recommend accepting.</strong> The loop records the baseline in step 0 and writes it into the state file, so the comparison is mechanical.</div>
+  <div class="rec decided"><strong>Baseline-superset gating accepted.</strong> The loop records the passing set at PR-0 into the state file; every later PR must pass a superset. An all-green gate is explicitly <em>not</em> the standard.</div>
 </div>
 
 <h2 id="loop">4. Autonomous execution contract</h2>
