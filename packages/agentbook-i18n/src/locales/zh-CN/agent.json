@@ -1,0 +1,7 @@
+{
+  "confirm_lead": "我想执行以下操作：",
+  "low_confidence_lead": "我不太确定我理解对了 — 这样可以吗？",
+  "undo_success": "已撤销：{description}",
+  "undo_failed": "无法撤销 \"{description}\" — 反向操作失败。请重试或联系支持。",
+  "unknown_intent": "我不太确定您的意思。试试 \"午餐花了 $45\" 或者 \"差旅花了多少？\""
+}

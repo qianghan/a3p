@@ -1,0 +1,4 @@
+{
+  "minute_exceeded": "You're sending messages very fast. Try again in a minute.",
+  "day_exceeded": "Daily message ceiling reached. Try again tomorrow, or upgrade your plan for a higher limit."
+}

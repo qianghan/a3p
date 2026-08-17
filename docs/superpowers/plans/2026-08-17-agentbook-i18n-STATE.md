@@ -70,16 +70,37 @@ These are authoritative. Do not re-derive or re-ask.
 
 ---
 
-## Baseline (filled by PR-0)
+## Baseline (captured by PR-0, 2026-08-17)
 
 | Metric | Value |
 |--------|-------|
-| e2e passing set | _pending PR-0_ |
-| e2e total specs | _pending PR-0_ |
-| hardcoded-string ratchet count | _pending PR-0_ |
-| UMD bundle sizes (6 plugins, bytes) | _pending PR-0_ |
-| `npm install` symlinks verified | _pending PR-0_ |
-| `.vercel/project.json` = `a3p-plugin-build` | _pending PR-0_ |
+| hardcoded-string ratchet count | **464** (`bin/i18n-string-ratchet.baseline`) |
+| — core / billing / expense | 130 / 30 / 106 |
+| — invoice / startup / tax | 57 / 20 / 52 |
+| `npm install` symlinks | OK — `@agentbook/i18n` linked, 49 `@naap/*` |
+| UMD bundle sizes (bytes) | core 169893 · billing 83953 · expense 583134 · invoice 125330 · startup 91404 · tax 134603 |
+| e2e passing set | **NOT CAPTURED LOCALLY — see below** |
+| `.vercel/project.json` | absent in worktree (`.vercel` is gitignored, not inherited). Only matters at deploy time (PR-12); re-check there. |
+
+### e2e baseline — deferred to CI, deliberately
+
+The suite needs `E2E_MAYA_PASSWORD` / `E2E_USER_PASSWORD` / `E2E_RESET_TOKEN`,
+which exist **only** as GitHub Actions secrets (`.github/workflows/nightly-e2e.yml`
+lines 44-45, 71). No `E2E_*` var is set locally and there is no `.env.local` in
+the worktree. This is #403 working as intended — the CI secret is the single
+source of truth for the e2e password.
+
+**Do not ask the user for the password, and do not create a local copy.** Both
+would undo #403 and neither is necessary.
+
+Consequences, which are contained:
+- PRs 1-11 have **no** e2e step in their Definition of Done. Unaffected.
+- PR-12 is the only consumer of the D8 comparison, and it is already gated on
+  human approval. Take the "before" number from the last `nightly-e2e` run on
+  `main` prior to PR-1 merging, and the "after" from the `nightly-e2e` run on
+  the PR-12 branch. Record both here before requesting approval.
+- If a mid-flight e2e signal is wanted earlier, push a branch and let
+  `nightly-e2e` run it — CI has the secrets, this worktree does not.
 
 ---
 
