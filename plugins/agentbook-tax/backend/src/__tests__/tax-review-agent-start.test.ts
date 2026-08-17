@@ -22,7 +22,7 @@ describe('startReview', () => {
   it('computes real totals via the CA bracket calculator, calls the LLM, verifies the summary is grounded, and persists the review row', async () => {
     filingFindFirst.mockResolvedValue({
       id: 'f1', tenantId: 't1', taxYear: 2025, jurisdiction: 'ca', region: 'ON',
-      forms: { T1: { total_income_15000: 7300000, taxable_income_26000: 7300000 }, T2125: {} },
+      forms: { T1: { total_income_15000: 7300000, taxable_income_26000: 7300000, total_tax_43500: 1145500 }, T2125: {} },
     });
     const callGemini = vi.fn().mockResolvedValue('{"summaryText": "Your taxable income is $73,000 and your estimated tax payable is $11,455. Anything you\'d like to change before submitting?"}');
 
@@ -32,6 +32,12 @@ describe('startReview', () => {
     expect(result.message).toContain('$73,000');
     expect(result.criticalFields.length).toBeGreaterThan(0); // additive field for the web review tab (Task 15)
     expect(result.computedTotals.taxableIncomeCents).toBe(7300000); // additive field for the web review tab
+    // Tax payable is the T1 total-payable line as the forms themselves
+    // computed it (federal + provincial + CPP), not a re-derived subtotal —
+    // so the $11,455 the LLM narrated above verifies as grounded and is
+    // shown, rather than being replaced by the deterministic fallback.
+    expect(result.computedTotals.taxPayableCents).toBe(1145500);
+    expect(result.message).toContain('$11,455');
     expect(reviewUpsert).toHaveBeenCalledWith(expect.objectContaining({
       where: { tenantId_taxYear: { tenantId: 't1', taxYear: 2025 } },
     }));
@@ -41,7 +47,7 @@ describe('startReview', () => {
     tenantConfigFindFirst.mockResolvedValue({ jurisdiction: 'ca', region: 'ON', locale: 'fr-CA' });
     filingFindFirst.mockResolvedValue({
       id: 'f1', tenantId: 't1', taxYear: 2025, jurisdiction: 'ca', region: 'ON',
-      forms: { T1: { total_income_15000: 7300000, taxable_income_26000: 7300000 }, T2125: {} },
+      forms: { T1: { total_income_15000: 7300000, taxable_income_26000: 7300000, total_tax_43500: 1145500 }, T2125: {} },
     });
     const callGemini = vi.fn().mockResolvedValue('{"summaryText": "Votre revenu imposable est de 73 000,00 $."}');
 
@@ -56,7 +62,7 @@ describe('startReview', () => {
   it('falls back to a deterministic, numbers-only message if the LLM invents an ungrounded figure', async () => {
     filingFindFirst.mockResolvedValue({
       id: 'f1', tenantId: 't1', taxYear: 2025, jurisdiction: 'ca', region: 'ON',
-      forms: { T1: { total_income_15000: 7300000, taxable_income_26000: 7300000 }, T2125: {} },
+      forms: { T1: { total_income_15000: 7300000, taxable_income_26000: 7300000, total_tax_43500: 1145500 }, T2125: {} },
     });
     // $99,999 does not match any real computed total — must be caught, not shown.
     const callGemini = vi.fn().mockResolvedValue('{"summaryText": "Your tax payable is $99,999."}');

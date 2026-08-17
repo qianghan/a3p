@@ -1,10 +1,6 @@
 import { db } from './db/client.js';
 import { getTaxReviewPack } from '@agentbook/jurisdictions/tax-review-loader';
 import type { ComputedFilingTotals, CriticalField } from '@agentbook/jurisdictions/interfaces';
-import { usTaxBrackets } from '@agentbook/jurisdictions/us/tax-brackets';
-import { caTaxBrackets } from '@agentbook/jurisdictions/ca/tax-brackets';
-import { auTaxBrackets } from '@agentbook/jurisdictions/au/tax-brackets';
-import type { TaxBracketProvider } from '@agentbook/jurisdictions/interfaces';
 import { updateFilingField } from './tax-filing.js';
 import { submitFiling } from './tax-efiling.js';
 import { createHash } from 'node:crypto';
@@ -52,19 +48,16 @@ function languageDirective(locale: string | null | undefined): string {
   ].join(' ');
 }
 
-// Direct imports, not a generic jurisdiction-pack loader — mirrors the exact
-// existing pattern in tax-fast-track-draft-compute.ts.
-const TAX_BRACKET_PROVIDERS: Record<string, TaxBracketProvider> = {
-  us: usTaxBrackets,
-  ca: caTaxBrackets,
-  au: auTaxBrackets,
-};
-
-// Field IDs each jurisdiction's forms use for the two totals that feed
-// calculateTax(). This is the one place this module needs to know a
-// concrete field name per jurisdiction — everything else goes through
+// Field IDs each jurisdiction's forms use for the three totals this module
+// reports. This is the one place it needs to know a concrete field name per
+// jurisdiction — everything else goes through
 // TaxReviewPack.criticalFields()/summaryPrompt(), which are jurisdiction-
 // agnostic to this module's own code.
+//
+// There is deliberately no TaxBracketProvider here any more: every figure
+// below is read from the filing's own already-computed form fields, so this
+// module never re-derives a tax number in a way that could disagree with
+// the forms the user is about to submit.
 const TAXABLE_INCOME_FIELD: Record<string, { formCode: string; fieldId: string }> = {
   ca: { formCode: 'T1', fieldId: 'taxable_income_26000' },
   us: { formCode: '1040', fieldId: 'taxable_income' },
@@ -76,19 +69,43 @@ const TOTAL_INCOME_FIELD: Record<string, { formCode: string; fieldId: string }> 
   au: { formCode: 'IndividualReturn', fieldId: 'taxable_income' }, // AU forms don't split these — same field
 };
 
+/**
+ * Each jurisdiction's own TOTAL-tax line, as already computed by its form
+ * template's `evaluateFormula` chain during populateFiling().
+ *
+ * This is deliberately NOT `provider.calculateTax()`. That returns income
+ * tax only: for US it excludes self-employment tax (thousands of dollars
+ * for any sole proprietor), and for AU it excludes the 2% Medicare levy —
+ * while the AU review prompt tells the LLM the figure already includes the
+ * levy. The real total already exists in the filing:
+ *   • US  1040.total_tax_24        = federal_tax_16 + se_tax
+ *   • AU  IndividualReturn.total_tax_payable = income_tax + medicare_levy
+ *   • CA  T1.total_tax_43500       = federal + provincial + CPP
+ * so read it rather than recomputing a partial version of it. This figure
+ * is shown on the approve-my-filing screen, so it has to be the number the
+ * user actually owes.
+ */
+const TOTAL_TAX_FIELD: Record<string, { formCode: string; fieldId: string }> = {
+  ca: { formCode: 'T1', fieldId: 'total_tax_43500' },
+  us: { formCode: '1040', fieldId: 'total_tax_24' },
+  au: { formCode: 'IndividualReturn', fieldId: 'total_tax_payable' },
+};
+
 export function computeFilingTotals(
   jurisdiction: string, region: string, taxYear: number, forms: Record<string, Record<string, any>>,
 ): ComputedFilingTotals {
   const taxableField = TAXABLE_INCOME_FIELD[jurisdiction];
   const totalField = TOTAL_INCOME_FIELD[jurisdiction];
+  const taxField = TOTAL_TAX_FIELD[jurisdiction];
   const taxableIncomeCents = taxableField ? forms[taxableField.formCode]?.[taxableField.fieldId] : undefined;
   const totalIncomeCents = totalField ? forms[totalField.formCode]?.[totalField.fieldId] : undefined;
 
-  const provider = TAX_BRACKET_PROVIDERS[jurisdiction];
-  let taxPayableCents: number | undefined;
-  if (provider && typeof taxableIncomeCents === 'number') {
-    taxPayableCents = provider.calculateTax(taxableIncomeCents, taxYear, undefined, region).taxCents;
-  }
+  const rawTaxPayable = taxField ? forms[taxField.formCode]?.[taxField.fieldId] : undefined;
+  // No fallback to provider.calculateTax(): on a filing whose calculated
+  // fields aren't populated yet, that would show an income-tax-only number
+  // under a label promising the full total. Leaving it undefined makes the
+  // summary say "not available", which is honest.
+  const taxPayableCents = typeof rawTaxPayable === 'number' ? rawTaxPayable : undefined;
 
   return { totalIncomeCents, taxableIncomeCents, taxPayableCents };
 }
