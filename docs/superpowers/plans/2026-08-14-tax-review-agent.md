@@ -13,7 +13,7 @@
 These apply to every task below; they encode every decision made during design review so no task requires further human input.
 
 1. **Target flow.** This gates `AbTaxFiling`'s real `submitFiling()` action (`plugins/agentbook-tax/backend/src/tax-efiling.ts`) — the only "complete a filing" action that exists in the codebase. The separate Tax Fast-Track draft flow (`AbTaxFastTrackDraft`) is untouched; it has no completion step to gate.
-2. **Surface.** Chat/MCP only, via the existing shared `classifyAndExecuteV1`/agent-brain pipeline that already serves Telegram, web chat, and MCP from one endpoint. No new frontend page.
+2. **Surface.** Chat/MCP, via the existing shared `classifyAndExecuteV1`/agent-brain pipeline, **plus a new web review tab** (Task 14, added on plan review) — `TaxPackagePage`'s existing tab bar (`plugins/agentbook-tax/frontend/src/pages/TaxPackage.tsx`, currently `'package' | 'past' | 'fast-track'`) gains a fourth `'review'` tab. This is genuinely additive, not a rework: Task 13's HTTP endpoints were already plain REST from the start, so the web tab calls them directly — no chat/agent-brain plumbing required, and nothing about the chat/MCP path changes. Structured (non-text) variants of edit/confirm are added to the backend (Tasks 11-13, revised) specifically so the web tab never has to round-trip a button click through free-text intent classification for something it already knows precisely.
 3. **Trigger.** Fully automatic. There is no new standalone "review my filing" skill manifest entry. The gate lives (a) inside the existing `tax-filing-submit` INTERNAL handler in `server.ts`, and (b) in one new, independent early-interception block in `agent-brain.ts` that only fires when a review is already in progress. The existing `confirmBefore: true` generic plan-preview gate on `tax-filing-submit` is left completely untouched — it may fire once before the new gate is ever reached; that's an accepted, minor UX redundancy, not a defect, and requires no code change.
 4. **Anti-hallucination verifier.** Fully independent from `consultation-review.ts`. Zero changes to that file or its tests. The new review agent gets its own small, purpose-built grounded-number check (Task 10), scoped to the simpler problem of "does every `$` figure in this text match one of the filing's own computed totals" rather than the generic ledger-facts problem `consultation-review.ts` solves.
 5. **Jurisdictions.** US, CA, AU — all real, none fabricated. `AbTaxFiling`'s form-template system (`tax-forms.ts`) turned out to define CA forms only (`T2125`, `T1`, `GST-HST`, `Schedule1`). This plan adds real US (`ScheduleC`, `1040`) and AU (`BusinessSchedule`, `IndividualReturn`) form templates using the identical section/field/sourceQuery/formula engine CA already uses (Tasks 3–5), so the new `TaxReviewPack` implementations for US/AU point at real fields, not invented ones.
@@ -24,9 +24,11 @@ These apply to every task below; they encode every decision made during design r
    - a new `SE_TAX(income_field)` builtin for US self-employment tax, mirroring `SCHEDULE8_CPP`'s exact shape and simplification level (flat-rate approximation, no additional Medicare surtax — matching how `SCHEDULE8_CPP` itself is a simplified CPP calculation, not a byte-perfect one).
 8. **Cross-plugin boundary respected.** `agent-brain.ts` (package `plugins/agentbook-core/backend`) never directly queries `plugin_agentbook_tax` tables or imports tax-plugin modules, even though the shared Prisma client technically permits it — every other cross-plugin interaction in this codebase goes through that plugin's own HTTP API, and this plan follows the same discipline. The new review logic is reached via two new `ctx`-injected functions, `ctx.checkActiveTaxReview` and `ctx.answerTaxReview`, implemented in `server.ts` (which already has `baseUrls`/`brainHeaders` in scope) using the identical `fetch(taxBase + ...)` pattern the existing `tax-filing-submit` handler already uses. This mirrors the existing `CallGeminiFn` dependency-injection convention, which exists specifically to avoid a circular import between these two files.
 9. **Figures needing yearly reverification.** New US/AU form template constants (2025 standard mileage rate, 2025 US standard deduction, AU flat company/individual figures if any) carry an explicit `// TODO: verify against current-year figures` comment, mirroring `tax-forms.ts`'s own existing `// TODO: year-versioned lookup` convention on the CA brackets. This is the established house style for "this number needs revisiting every tax year," not a gap unique to this plan.
-10. **Money parsing for user-supplied edits is local, not cross-package.** `apps/web-next/src/lib/money-validation.ts` lives in the Next.js app package and is not importable from `plugins/agentbook-tax/backend` (a separate Express service/package with its own dependency graph). The review agent (Task 11) gets its own ~10-line local `parseMoneyInput`/range-check, scoped to this module — duplicating a tiny amount of validation logic across a real package boundary, not a cross-package import that wouldn't resolve.
+10. **Money parsing for user-supplied edits is local, not cross-package.** `apps/web-next/src/lib/money-validation.ts` lives in the Next.js app package and is not importable from `plugins/agentbook-tax/backend` (a separate Express service/package with its own dependency graph). The review agent (Task 12) gets its own ~10-line local `parseMoneyInputCents`/range-check, scoped to this module — duplicating a tiny amount of validation logic across a real package boundary, not a cross-package import that wouldn't resolve.
 11. **`AbTaxFilingReview` lives in the `plugin_agentbook_tax` Postgres schema**, alongside `AbTaxFiling` — the review row's lifecycle is filing-specific domain data, not generic agent-session state (`AbAgentSession` stays in `plugin_agentbook_core` and is not reused or modified).
 12. **On confirm, the review agent calls `submitFiling()` directly** (imported from `tax-efiling.ts`, same package) rather than requiring the user to say "submit" a second time. `hasConfirmedFreshReview`'s check inside the existing `tax-filing-submit` HTTP handler (Global Constraint 3b) remains as a defensive fallback for any path that reaches that handler without having gone through a review conversation.
+13. **i18n is two independent mechanisms, both reused from what already exists — nothing new is invented (added on plan review).** Number/currency formatting goes through `formatCurrency`/`formatMoney` from `@agentbook/i18n` (pure, dependency-free, already used by `TaxDashboard.tsx`), driven by the tenant's own `AbTenantConfig.locale`. The language the LLM replies in goes through `languageDirective()` (`plugins/agentbook-core/backend/src/language.ts`), the same "mirror the user" instruction every other chat prompt in this codebase already shares — copied locally into `tax-review-agent.ts` per Global Constraint 10's cross-package precedent, not reworded. Static UI strings for the new web tab (Task 15) go through the existing `t()` runtool (`packages/agentbook-i18n`), which is real and tested but, as of this plan, not yet called by any other page in this plugin — this task makes the new tab the first to use it, without retrofitting its siblings (explicitly out of scope; see Task 14's note). Chinese (`zh`) is registered in `@agentbook/i18n` for the first time by this plan (Task 14), scoped only to the keys this feature adds — every other existing key still falls back to English for a `zh` tenant, unchanged from before this plan (not a regression, since that was already true).
+14. **Structured (non-text) access for the web review tab, added on plan review.** The chat state machine's field-edit and confirm branches are refactored (Task 12) into two standalone, directly-callable functions — `applyFieldEdit` and `confirmAndSubmit` — reused by two new structured HTTP routes (Task 13: `POST .../review/edit-field`, `POST .../review/confirm`) that the web tab (Task 15) calls directly, bypassing free-text intent classification entirely for actions the UI already knows precisely. Chat still owns "understand what the user meant"; both surfaces then call the same executor for "do the thing" — one seam, not two implementations of the same behavior.
 
 ## Decisions Made During Plan Review
 
@@ -44,6 +46,9 @@ Recorded here, in one place, so execution requires no further human input:
 | 8 | Cross-plugin access from `agent-brain.ts` | New `ctx`-injected functions, HTTP-mediated | Direct Prisma query into `plugin_agentbook_tax` tables (technically possible, architecturally inconsistent with every other cross-plugin call in this codebase) |
 | 9 | Money parsing for field edits | New small local helper in `tax-review-agent.ts` | Importing `apps/web-next/src/lib/money-validation.ts` (not resolvable across this package boundary) |
 | 10 | Confirm → submit handoff | Review agent calls `submitFiling()` directly, same turn | Requiring a second explicit "submit" message |
+| 11 | Web review surface (added on plan review) | A 4th tab in `TaxPackagePage`'s existing tab bar, calling Task 13's HTTP endpoints directly | A brand-new page/route; a chat-embedded iframe |
+| 12 | i18n scope (added on plan review) | Reuse the two mechanisms that already exist (`formatCurrency`/`languageDirective`), register `zh` for the first time but only for this feature's own keys, make the new tab the first to call `t()` | Retrofitting every existing tax page's strings; inventing a new translation mechanism |
+| 13 | Structured web access (added on plan review) | Extract `applyFieldEdit`/`confirmAndSubmit`, add two new non-text HTTP routes the web tab calls directly | Routing web button clicks through the chat text-classification path |
 
 ---
 
@@ -233,7 +238,7 @@ describe('autoPopulateForm threads taxYear through to evaluateFormula — source
     // can't currently distinguish "taxYear threaded through" from
     // "taxYear silently dropped and defaulted." This wiring check proves
     // the source shape directly instead, mirroring this plan's other
-    // source-grep wiring tests (Task 14).
+    // source-grep wiring tests (Task 16).
     const { readFileSync } = await import('node:fs');
     const src = readFileSync(new URL('../tax-forms.ts', import.meta.url), 'utf-8');
     const callSite = src.match(/evaluateFormula\(field\.formula,\s*fields,\s*allFormFields,\s*taxYear\)/);
@@ -823,6 +828,8 @@ export interface TaxReviewPack {
     forms: Record<string, Record<string, any>>
     computedTotals: ComputedFilingTotals
     personalProfileContext: string
+    /** BCP-47, e.g. 'en-US', 'fr-CA', 'zh-CN' — from AbTenantConfig.locale. Used ONLY for number/currency formatting inside the prompt (via @agentbook/i18n's formatCurrency); the language the LLM replies in is a separate concern, layered on by the orchestrator via languageDirective() — see Task 11. Packs never decide what language to write in. */
+    locale: string
   }): string
   parseSummary(parsed: unknown): { summaryText: string }
   explainFieldPrompt(input: {
@@ -830,11 +837,14 @@ export interface TaxReviewPack {
     forms: Record<string, Record<string, any>>
     computedTotals: ComputedFilingTotals
     personalProfileContext: string
+    locale: string
     question?: string
   }): string
   parseFieldExplanation(parsed: unknown): { explanation: string }
 }
 ```
+
+**Why `locale` is a pack input but language-of-reply is not (read before Tasks 7-9):** this codebase already has two genuinely separate i18n mechanisms, and conflating them would be a real design mistake, not a simplification. `@agentbook/i18n` (`packages/agentbook-i18n`, pure/dependency-free, already used by `TaxDashboard.tsx` for `formatMoney`) controls how a *number* is formatted (`"$45.00"` vs `"45,00 $"`) — that's what `locale` is for here, and packs call `formatCurrency` directly (Tasks 7-9). `languageDirective()` (`plugins/agentbook-core/backend/src/language.ts`) controls what *language the LLM's prose* is in, already designed as one general "mirror the user" instruction reused by every chat-facing prompt in the codebase (its own docstring gives "是的" as a worked example — Chinese was already a first-class case, just never wired into this specific feature). The orchestrator (Task 11) prepends that instruction to whatever prompt a pack returns; packs stay jurisdiction-only and never see it. Keeping these orthogonal is also why "US/AU/CA + English/French/Chinese" doesn't multiply into nine special cases: jurisdiction picks the tax rules and currency, locale picks the number formatting, language mirrors the user — three independent axes, not one.
 
 - [ ] **Step 2: Write the failing loader test**
 
@@ -934,6 +944,7 @@ This is the canonical worked example for all three jurisdiction packs — Tasks 
 // packages/agentbook-jurisdictions/src/__tests__/ca-tax-review-pack.test.ts
 import { describe, it, expect } from 'vitest';
 import { CaTaxReviewPack } from '../ca/tax-review-pack.js';
+import { formatCurrency } from '@agentbook/i18n';
 
 const forms = {
   T2125: { gross_sales_8000: 8500000, total_expenses_9368: 1200000, net_income_9369: 7300000 },
@@ -964,12 +975,21 @@ describe('CaTaxReviewPack', () => {
     expect(fields.length).toBeGreaterThan(0);
   });
 
-  it('summaryPrompt includes the real computed totals and personal profile context', () => {
-    const prompt = pack.summaryPrompt({ forms, computedTotals, personalProfileContext: 'Married, no dependents.' });
+  it('summaryPrompt includes the real computed totals and personal profile context, en-CA formatting', () => {
+    const prompt = pack.summaryPrompt({ forms, computedTotals, personalProfileContext: 'Married, no dependents.', locale: 'en-CA' });
     expect(prompt).toContain('$73,000');
     expect(prompt).toContain('$11,500');
     expect(prompt).toContain('Married, no dependents.');
     expect(prompt).toContain('CRA');
+  });
+
+  it('summaryPrompt formats the SAME figures per fr-CA number conventions when the tenant is Quebec French — this is a real Intl.NumberFormat call, not a hardcoded en-CA string', () => {
+    const prompt = pack.summaryPrompt({ forms, computedTotals, personalProfileContext: '', locale: 'fr-CA' });
+    // fr-CA groups with a narrow no-break space and puts the symbol after the
+    // amount — assert via the real formatCurrency('fr-CA') output rather than
+    // a hand-typed literal, since the exact whitespace character Intl uses
+    // is easy to get wrong by hand and isn't the point of this test.
+    expect(prompt).toContain(formatCurrency(7300000, 'fr-CA', 'CAD'));
   });
 
   it('parseSummary extracts summaryText', () => {
@@ -983,7 +1003,7 @@ describe('CaTaxReviewPack', () => {
 
   it('explainFieldPrompt grounds the prompt in the specific field and its current value', () => {
     const field = { formCode: 'T2125', fieldId: 'total_expenses_9368', label: 'Total business expenses', currentValue: 1200000 };
-    const prompt = pack.explainFieldPrompt({ field, forms, computedTotals, personalProfileContext: '', question: 'why is this so high' });
+    const prompt = pack.explainFieldPrompt({ field, forms, computedTotals, personalProfileContext: '', locale: 'en-CA', question: 'why is this so high' });
     expect(prompt).toContain('$12,000');
     expect(prompt).toContain('Total business expenses');
     expect(prompt).toContain('why is this so high');
@@ -1010,6 +1030,7 @@ Expected: FAIL — `ca/tax-review-pack.ts` doesn't exist yet.
 ```typescript
 // packages/agentbook-jurisdictions/src/ca/tax-review-pack.ts
 import type { TaxReviewPack, CriticalField, ComputedFilingTotals } from '../interfaces.js';
+import { formatCurrency } from '@agentbook/i18n';
 
 const CA_CRITICAL_FIELDS: { formCode: string; fieldId: string; label: string }[] = [
   { formCode: 'T2125', fieldId: 'gross_sales_8000', label: 'Gross business sales' },
@@ -1019,9 +1040,15 @@ const CA_CRITICAL_FIELDS: { formCode: string; fieldId: string; label: string }[]
   { formCode: 'T1', fieldId: 'balance_owing_48500', label: 'Balance owing (or refund)' },
 ];
 
-function fmtCad(cents?: number): string {
+// Real, shared, locale-aware formatter (packages/agentbook-i18n) — not a
+// local re-implementation. formatCurrency(4500, 'fr-CA', 'CAD') -> "45,00 $",
+// formatCurrency(4500, 'en-CA', 'CAD') -> "$45.00": same jurisdiction (CAD is
+// fixed by being the CA pack), different formatting per the tenant's own
+// locale. See Task 6's note on why locale and language-of-reply are
+// deliberately two different things.
+function fmtCad(cents: number | undefined, locale: string): string {
   if (cents == null) return 'not yet entered';
-  return `$${(cents / 100).toLocaleString('en-CA')}`;
+  return formatCurrency(cents, locale, 'CAD');
 }
 
 export class CaTaxReviewPack implements TaxReviewPack {
@@ -1038,17 +1065,18 @@ export class CaTaxReviewPack implements TaxReviewPack {
     forms: Record<string, Record<string, any>>;
     computedTotals: ComputedFilingTotals;
     personalProfileContext: string;
+    locale: string;
   }): string {
-    const { computedTotals, personalProfileContext } = input;
+    const { computedTotals, personalProfileContext, locale } = input;
     return `You are a Canadian tax preparer giving a freelance/self-employed client a plain-language summary of their T1 filing before they submit it. You do NOT calculate any figures yourself — every number below already comes from the CRA's own federal/provincial bracket tables and this client's real booked income and expenses. Your only job is to explain what these numbers mean in a way this specific client will understand, using their personal situation where relevant.
 
 --- This client's situation ---
 ${personalProfileContext || 'No additional personal context on file.'}
 
 --- Computed figures (already correct — restate them, never recalculate) ---
-- Total income: ${fmtCad(computedTotals.totalIncomeCents)}
-- Taxable income: ${fmtCad(computedTotals.taxableIncomeCents)}
-- Tax payable: ${fmtCad(computedTotals.taxPayableCents)}
+- Total income: ${fmtCad(computedTotals.totalIncomeCents, locale)}
+- Taxable income: ${fmtCad(computedTotals.taxableIncomeCents, locale)}
+- Tax payable: ${fmtCad(computedTotals.taxPayableCents, locale)}
 
 Write a short (3-5 sentence) plain-language summary a non-accountant would understand, mentioning the CRA by name, and end by asking if anything looks wrong or if they'd like to change a number before submitting.
 
@@ -1069,10 +1097,11 @@ Respond with EXACTLY one JSON object and nothing else — no markdown code fence
     forms: Record<string, Record<string, any>>;
     computedTotals: ComputedFilingTotals;
     personalProfileContext: string;
+    locale: string;
     question?: string;
   }): string {
-    const { field, personalProfileContext, question } = input;
-    const valueStr = typeof field.currentValue === 'number' ? fmtCad(field.currentValue) : String(field.currentValue ?? 'not yet entered');
+    const { field, personalProfileContext, locale, question } = input;
+    const valueStr = typeof field.currentValue === 'number' ? fmtCad(field.currentValue, locale) : String(field.currentValue ?? 'not yet entered');
     return `You are a Canadian tax preparer answering a client's question about one specific number on their T1 filing. Ground your answer ONLY in the value given below and general CRA rules — never invent a dollar figure or rate that isn't already stated here.
 
 --- This client's situation ---
@@ -1103,7 +1132,7 @@ Respond with EXACTLY one JSON object and nothing else — no markdown code fence
 - [ ] **Step 4: Run test to verify it passes**
 
 Run: `cd packages/agentbook-jurisdictions && npx vitest run src/__tests__/ca-tax-review-pack.test.ts`
-Expected: PASS, all 9 tests.
+Expected: PASS, all 10 tests.
 
 - [ ] **Step 5: Commit (or hold until Tasks 8-9 land, per Task 6 Step 4's note, then commit together)**
 
@@ -1128,6 +1157,7 @@ git commit -m "feat(jurisdictions): CaTaxReviewPack"
 // packages/agentbook-jurisdictions/src/__tests__/us-tax-review-pack.test.ts
 import { describe, it, expect } from 'vitest';
 import { UsTaxReviewPack } from '../us/tax-review-pack.js';
+import { formatCurrency } from '@agentbook/i18n';
 
 const forms = {
   ScheduleC: { gross_receipts_1: 9000000, total_expenses_28: 1500000, net_profit_31: 7500000 },
@@ -1158,11 +1188,16 @@ describe('UsTaxReviewPack', () => {
   });
 
   it('summaryPrompt includes the real computed totals, personal context, and names the IRS', () => {
-    const prompt = pack.summaryPrompt({ forms, computedTotals, personalProfileContext: 'Single, no dependents.' });
+    const prompt = pack.summaryPrompt({ forms, computedTotals, personalProfileContext: 'Single, no dependents.', locale: 'en-US' });
     expect(prompt).toContain('$75,000');
     expect(prompt).toContain('$13,500');
     expect(prompt).toContain('Single, no dependents.');
     expect(prompt).toContain('IRS');
+  });
+
+  it('summaryPrompt formats the same USD figures per zh-CN number conventions for a Chinese-speaking US tenant — a real Intl.NumberFormat call, not a hardcoded en-US string', () => {
+    const prompt = pack.summaryPrompt({ forms, computedTotals, personalProfileContext: '', locale: 'zh-CN' });
+    expect(prompt).toContain(formatCurrency(7500000, 'zh-CN', 'USD'));
   });
 
   it('parseSummary extracts summaryText', () => {
@@ -1175,7 +1210,7 @@ describe('UsTaxReviewPack', () => {
 
   it('explainFieldPrompt grounds the prompt in the specific field, current value, and question', () => {
     const field = { formCode: 'ScheduleC', fieldId: 'total_expenses_28', label: 'Total business expenses', currentValue: 1500000 };
-    const prompt = pack.explainFieldPrompt({ field, forms, computedTotals, personalProfileContext: '', question: 'is this deductible' });
+    const prompt = pack.explainFieldPrompt({ field, forms, computedTotals, personalProfileContext: '', locale: 'en-US', question: 'is this deductible' });
     expect(prompt).toContain('$15,000');
     expect(prompt).toContain('Total business expenses');
     expect(prompt).toContain('is this deductible');
@@ -1195,6 +1230,7 @@ describe('UsTaxReviewPack', () => {
 ```typescript
 // packages/agentbook-jurisdictions/src/us/tax-review-pack.ts
 import type { TaxReviewPack, CriticalField, ComputedFilingTotals } from '../interfaces.js';
+import { formatCurrency } from '@agentbook/i18n';
 
 const US_CRITICAL_FIELDS: { formCode: string; fieldId: string; label: string }[] = [
   { formCode: 'ScheduleC', fieldId: 'gross_receipts_1', label: 'Gross business receipts' },
@@ -1204,9 +1240,12 @@ const US_CRITICAL_FIELDS: { formCode: string; fieldId: string; label: string }[]
   { formCode: '1040', fieldId: 'balance_owing_37', label: 'Amount you owe (or refund)' },
 ];
 
-function fmtUsd(cents?: number): string {
+// Real, shared, locale-aware formatter (packages/agentbook-i18n), not a
+// local re-implementation — see Task 6's note and Task 7's identical CA
+// treatment.
+function fmtUsd(cents: number | undefined, locale: string): string {
   if (cents == null) return 'not yet entered';
-  return `$${(cents / 100).toLocaleString('en-US')}`;
+  return formatCurrency(cents, locale, 'USD');
 }
 
 export class UsTaxReviewPack implements TaxReviewPack {
@@ -1216,17 +1255,17 @@ export class UsTaxReviewPack implements TaxReviewPack {
     return US_CRITICAL_FIELDS.map((f) => ({ ...f, currentValue: forms[f.formCode]?.[f.fieldId] ?? null }));
   }
 
-  summaryPrompt(input: { forms: Record<string, Record<string, any>>; computedTotals: ComputedFilingTotals; personalProfileContext: string }): string {
-    const { computedTotals, personalProfileContext } = input;
+  summaryPrompt(input: { forms: Record<string, Record<string, any>>; computedTotals: ComputedFilingTotals; personalProfileContext: string; locale: string }): string {
+    const { computedTotals, personalProfileContext, locale } = input;
     return `You are a U.S. tax preparer giving a freelance/self-employed client a plain-language summary of their Form 1040 filing before they submit it. You do NOT calculate any figures yourself — every number below already comes from the IRS's own federal bracket tables and this client's real booked income and expenses. Your only job is to explain what these numbers mean in a way this specific client will understand, using their personal situation where relevant.
 
 --- This client's situation ---
 ${personalProfileContext || 'No additional personal context on file.'}
 
 --- Computed figures (already correct — restate them, never recalculate) ---
-- Total income: ${fmtUsd(computedTotals.totalIncomeCents)}
-- Taxable income: ${fmtUsd(computedTotals.taxableIncomeCents)}
-- Tax payable: ${fmtUsd(computedTotals.taxPayableCents)}
+- Total income: ${fmtUsd(computedTotals.totalIncomeCents, locale)}
+- Taxable income: ${fmtUsd(computedTotals.taxableIncomeCents, locale)}
+- Tax payable: ${fmtUsd(computedTotals.taxPayableCents, locale)}
 
 Write a short (3-5 sentence) plain-language summary a non-accountant would understand, mentioning the IRS by name, and end by asking if anything looks wrong or if they'd like to change a number before submitting.
 
@@ -1240,9 +1279,9 @@ Respond with EXACTLY one JSON object and nothing else — no markdown code fence
     throw new Error('Unexpected review-summary response shape: ' + JSON.stringify(parsed));
   }
 
-  explainFieldPrompt(input: { field: CriticalField; forms: Record<string, Record<string, any>>; computedTotals: ComputedFilingTotals; personalProfileContext: string; question?: string }): string {
-    const { field, personalProfileContext, question } = input;
-    const valueStr = typeof field.currentValue === 'number' ? fmtUsd(field.currentValue) : String(field.currentValue ?? 'not yet entered');
+  explainFieldPrompt(input: { field: CriticalField; forms: Record<string, Record<string, any>>; computedTotals: ComputedFilingTotals; personalProfileContext: string; locale: string; question?: string }): string {
+    const { field, personalProfileContext, locale, question } = input;
+    const valueStr = typeof field.currentValue === 'number' ? fmtUsd(field.currentValue, locale) : String(field.currentValue ?? 'not yet entered');
     return `You are a U.S. tax preparer answering a client's question about one specific number on their Form 1040 filing. Ground your answer ONLY in the value given below and general IRS rules — never invent a dollar figure or rate that isn't already stated here.
 
 --- This client's situation ---
@@ -1268,7 +1307,7 @@ Respond with EXACTLY one JSON object and nothing else — no markdown code fence
 }
 ```
 
-- [ ] **Step 4: Run test to verify it passes.** Run: `cd packages/agentbook-jurisdictions && npx vitest run src/__tests__/us-tax-review-pack.test.ts` — Expected: PASS, all 8 tests.
+- [ ] **Step 4: Run test to verify it passes.** Run: `cd packages/agentbook-jurisdictions && npx vitest run src/__tests__/us-tax-review-pack.test.ts` — Expected: PASS, all 9 tests.
 
 - [ ] **Step 5: Commit (or hold until Task 9 lands, per Task 6 Step 4's note)**
 
@@ -1293,6 +1332,7 @@ git commit -m "feat(jurisdictions): UsTaxReviewPack"
 // packages/agentbook-jurisdictions/src/__tests__/au-tax-review-pack.test.ts
 import { describe, it, expect } from 'vitest';
 import { AuTaxReviewPack } from '../au/tax-review-pack.js';
+import { formatCurrency } from '@agentbook/i18n';
 
 const forms = {
   BusinessSchedule: { gross_business_income: 9500000, total_expenses: 1800000, net_business_income: 7700000 },
@@ -1323,11 +1363,16 @@ describe('AuTaxReviewPack', () => {
   });
 
   it('summaryPrompt includes the real computed totals, personal context, and names the ATO', () => {
-    const prompt = pack.summaryPrompt({ forms, computedTotals, personalProfileContext: 'Sole trader, no dependents.' });
+    const prompt = pack.summaryPrompt({ forms, computedTotals, personalProfileContext: 'Sole trader, no dependents.', locale: 'en-AU' });
     expect(prompt).toContain('$77,000');
     expect(prompt).toContain('$16,000');
     expect(prompt).toContain('Sole trader, no dependents.');
     expect(prompt).toContain('ATO');
+  });
+
+  it('summaryPrompt formats the same AUD figures per zh-CN number conventions for a Chinese-speaking AU tenant', () => {
+    const prompt = pack.summaryPrompt({ forms, computedTotals, personalProfileContext: '', locale: 'zh-CN' });
+    expect(prompt).toContain(formatCurrency(7700000, 'zh-CN', 'AUD'));
   });
 
   it('parseSummary extracts summaryText, and throws on a missing one', () => {
@@ -1337,7 +1382,7 @@ describe('AuTaxReviewPack', () => {
 
   it('explainFieldPrompt grounds the prompt in the specific field, current value, and question, formatted as AUD', () => {
     const field = { formCode: 'BusinessSchedule', fieldId: 'total_expenses', label: 'Total business expenses', currentValue: 1800000 };
-    const prompt = pack.explainFieldPrompt({ field, forms, computedTotals, personalProfileContext: '', question: 'why so high' });
+    const prompt = pack.explainFieldPrompt({ field, forms, computedTotals, personalProfileContext: '', locale: 'en-AU', question: 'why so high' });
     expect(prompt).toContain('$18,000');
     expect(prompt).toContain('Total business expenses');
     expect(prompt).toContain('why so high');
@@ -1357,6 +1402,7 @@ describe('AuTaxReviewPack', () => {
 ```typescript
 // packages/agentbook-jurisdictions/src/au/tax-review-pack.ts
 import type { TaxReviewPack, CriticalField, ComputedFilingTotals } from '../interfaces.js';
+import { formatCurrency } from '@agentbook/i18n';
 
 const AU_CRITICAL_FIELDS: { formCode: string; fieldId: string; label: string }[] = [
   { formCode: 'BusinessSchedule', fieldId: 'gross_business_income', label: 'Gross business income' },
@@ -1366,9 +1412,12 @@ const AU_CRITICAL_FIELDS: { formCode: string; fieldId: string; label: string }[]
   { formCode: 'IndividualReturn', fieldId: 'balance_owing', label: 'Amount you owe (or refund)' },
 ];
 
-function fmtAud(cents?: number): string {
+// Real, shared, locale-aware formatter (packages/agentbook-i18n), not a
+// local re-implementation — see Task 6's note and Task 7's identical CA
+// treatment.
+function fmtAud(cents: number | undefined, locale: string): string {
   if (cents == null) return 'not yet entered';
-  return `$${(cents / 100).toLocaleString('en-AU')}`;
+  return formatCurrency(cents, locale, 'AUD');
 }
 
 export class AuTaxReviewPack implements TaxReviewPack {
@@ -1378,17 +1427,17 @@ export class AuTaxReviewPack implements TaxReviewPack {
     return AU_CRITICAL_FIELDS.map((f) => ({ ...f, currentValue: forms[f.formCode]?.[f.fieldId] ?? null }));
   }
 
-  summaryPrompt(input: { forms: Record<string, Record<string, any>>; computedTotals: ComputedFilingTotals; personalProfileContext: string }): string {
-    const { computedTotals, personalProfileContext } = input;
+  summaryPrompt(input: { forms: Record<string, Record<string, any>>; computedTotals: ComputedFilingTotals; personalProfileContext: string; locale: string }): string {
+    const { computedTotals, personalProfileContext, locale } = input;
     return `You are an Australian tax agent giving a sole-trader client a plain-language summary of their individual tax return before they submit it. You do NOT calculate any figures yourself — every number below already comes from the ATO's own tax brackets and Medicare Levy rate, applied to this client's real booked income and expenses. Your only job is to explain what these numbers mean in a way this specific client will understand, using their personal situation where relevant.
 
 --- This client's situation ---
 ${personalProfileContext || 'No additional personal context on file.'}
 
 --- Computed figures (already correct — restate them, never recalculate) ---
-- Total income: ${fmtAud(computedTotals.totalIncomeCents)}
-- Taxable income: ${fmtAud(computedTotals.taxableIncomeCents)}
-- Tax payable (including Medicare Levy): ${fmtAud(computedTotals.taxPayableCents)}
+- Total income: ${fmtAud(computedTotals.totalIncomeCents, locale)}
+- Taxable income: ${fmtAud(computedTotals.taxableIncomeCents, locale)}
+- Tax payable (including Medicare Levy): ${fmtAud(computedTotals.taxPayableCents, locale)}
 
 Write a short (3-5 sentence) plain-language summary a non-accountant would understand, mentioning the ATO by name, and end by asking if anything looks wrong or if they'd like to change a number before submitting.
 
@@ -1402,9 +1451,9 @@ Respond with EXACTLY one JSON object and nothing else — no markdown code fence
     throw new Error('Unexpected review-summary response shape: ' + JSON.stringify(parsed));
   }
 
-  explainFieldPrompt(input: { field: CriticalField; forms: Record<string, Record<string, any>>; computedTotals: ComputedFilingTotals; personalProfileContext: string; question?: string }): string {
-    const { field, personalProfileContext, question } = input;
-    const valueStr = typeof field.currentValue === 'number' ? fmtAud(field.currentValue) : String(field.currentValue ?? 'not yet entered');
+  explainFieldPrompt(input: { field: CriticalField; forms: Record<string, Record<string, any>>; computedTotals: ComputedFilingTotals; personalProfileContext: string; locale: string; question?: string }): string {
+    const { field, personalProfileContext, locale, question } = input;
+    const valueStr = typeof field.currentValue === 'number' ? fmtAud(field.currentValue, locale) : String(field.currentValue ?? 'not yet entered');
     return `You are an Australian tax agent answering a client's question about one specific number on their individual tax return. Ground your answer ONLY in the value given below and general ATO rules — never invent a dollar figure or rate that isn't already stated here.
 
 --- This client's situation ---
@@ -1430,7 +1479,7 @@ Respond with EXACTLY one JSON object and nothing else — no markdown code fence
 }
 ```
 
-- [ ] **Step 4: Run test to verify it passes.** Run: `cd packages/agentbook-jurisdictions && npx vitest run src/__tests__/au-tax-review-pack.test.ts` — Expected: PASS, all 7 tests.
+- [ ] **Step 4: Run test to verify it passes.** Run: `cd packages/agentbook-jurisdictions && npx vitest run src/__tests__/au-tax-review-pack.test.ts` — Expected: PASS, all 8 tests.
 
 - [ ] **Step 5: Now that Tasks 6-9 are all complete, run the full package test suite and commit everything together**
 
@@ -1505,9 +1554,13 @@ git commit -m "feat(db): add AbTaxFilingReview model"
 
 **Interfaces:**
 - Consumes: `getTaxReviewPack` (Task 6), `usTaxBrackets`/`caTaxBrackets`/`auTaxBrackets` (already-existing, confirmed exports), `db.abTaxFiling`, `db.abTaxFilingReview` (Task 10), `CallGeminiFn`/`cleanJson` (already-existing, from `plugins/agentbook-core/backend/src/tax-questionnaire-core.ts` — **note:** this is a cross-plugin import of a pure, dependency-free utility function, not domain logic; confirm at implementation time whether `plugins/agentbook-tax/backend`'s `package.json` needs `@naap/plugin-agentbook-core-backend` (or equivalent) added as a dependency for this import to resolve, or whether it's simpler to copy the ~10-line `cleanJson` function locally into `tax-review-agent.ts` to avoid a new cross-package dependency entirely — **prefer the local copy** if adding a new package dependency turns out to require any build/registry change beyond editing `package.json`, since Global Constraint 10 already established the precedent of small local duplication over cross-package imports for this exact kind of tiny, dependency-free helper.
-- Produces: `startReview(tenantId: string, taxYear: number): Promise<{ message: string }>`, `ComputedFilingTotals` computation logic reused by Task 12.
+- Produces: `startReview(tenantId: string, taxYear: number, callGemini: CallGeminiFn): Promise<{ message: string; criticalFields: CriticalField[]; computedTotals: ComputedFilingTotals }>` — `message` is the chat-shaped text; `criticalFields`/`computedTotals` are additive fields the web review tab (Task 15) needs to render structured inputs, not just prose. `ComputedFilingTotals` computation logic (`computeFilingTotals`) is reused by Task 12.
 
 This module never trusts the LLM for a number — `computeFilingTotals` below always runs first, and `verifyGroundedNumbers` (this task's own independent verifier, per Global Constraint 4) checks every `$` figure the LLM's summary contains against that real, already-computed set before the summary is ever shown to a user.
+
+**i18n (added on plan review — see Global Constraint 13).** Two separate, deliberately independent mechanisms, both real and already used elsewhere in this codebase:
+- **Number formatting** — `formatCurrency`/`formatMoney` from `@agentbook/i18n` (pure, dependency-free, already imported by `TaxDashboard.tsx`), driven by the tenant's own `AbTenantConfig.locale` (e.g. `'fr-CA'`, `'zh-CN'`). Threaded into each pack's `summaryPrompt`/`explainFieldPrompt` as the new `locale` input (Tasks 7-9).
+- **Language of the LLM's reply** — `languageDirective()` (`plugins/agentbook-core/backend/src/language.ts`), the existing "mirror the user's language" instruction already used by every other chat-facing prompt in this codebase (its own docstring names Chinese as a real, previously-mishandled case — this isn't a new capability, just reusing an existing one that this feature hadn't wired in yet). Per Global Constraint 10's precedent, this task copies `languageDirective`/`localeLanguageName` locally rather than adding a new cross-plugin-backend dependency — copy the two functions verbatim from `language.ts`, since they're pure and take no dependencies of their own.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -1545,9 +1598,27 @@ describe('startReview', () => {
     const result = await startReview('t1', 2025, callGemini);
 
     expect(result.message).toContain('$73,000');
+    expect(result.criticalFields.length).toBeGreaterThan(0); // additive field for the web review tab (Task 15)
+    expect(result.computedTotals.taxableIncomeCents).toBe(7300000); // additive field for the web review tab
     expect(reviewUpsert).toHaveBeenCalledWith(expect.objectContaining({
       where: { tenantId_taxYear: { tenantId: 't1', taxYear: 2025 } },
     }));
+  });
+
+  it('prepends the language directive naming the tenant\'s configured language, and calls the LLM with a French instruction for a fr-CA tenant', async () => {
+    tenantConfigFindFirst.mockResolvedValue({ jurisdiction: 'ca', region: 'ON', locale: 'fr-CA' });
+    filingFindFirst.mockResolvedValue({
+      id: 'f1', tenantId: 't1', taxYear: 2025, jurisdiction: 'ca', region: 'ON',
+      forms: { T1: { total_income_15000: 7300000, taxable_income_26000: 7300000 }, T2125: {} },
+    });
+    const callGemini = vi.fn().mockResolvedValue('{"summaryText": "Votre revenu imposable est de 73 000,00 $."}');
+
+    const { startReview } = await import('../tax-review-agent.js');
+    await startReview('t1', 2025, callGemini);
+
+    const [systemPrompt] = callGemini.mock.calls[0];
+    expect(systemPrompt).toContain('LANGUAGE: Reply in the same language');
+    expect(systemPrompt).toContain('French');
   });
 
   it('falls back to a deterministic, numbers-only message if the LLM invents an ungrounded figure', async () => {
@@ -1581,7 +1652,7 @@ describe('startReview', () => {
 // plugins/agentbook-tax/backend/src/tax-review-agent.ts
 import { db } from './db/client.js';
 import { getTaxReviewPack } from '@agentbook/jurisdictions/tax-review-loader';
-import type { ComputedFilingTotals } from '@agentbook/jurisdictions/interfaces';
+import type { ComputedFilingTotals, CriticalField } from '@agentbook/jurisdictions/interfaces';
 import { usTaxBrackets } from '@agentbook/jurisdictions/us/tax-brackets';
 import { caTaxBrackets } from '@agentbook/jurisdictions/ca/tax-brackets';
 import { auTaxBrackets } from '@agentbook/jurisdictions/au/tax-brackets';
@@ -1600,6 +1671,34 @@ function cleanJson(raw: string): string {
 }
 
 export type CallGeminiFn = (systemPrompt: string, userMessage: string, maxTokens?: number) => Promise<string | null>;
+
+// Local copy of language.ts's languageDirective()/localeLanguageName() —
+// verbatim, not reinvented — same Global Constraint 10 precedent as
+// cleanJson above: both are pure, dependency-free functions, and
+// plugins/agentbook-core/backend is a separate package. Keeping the exact
+// wording matters: it's the one instruction every other chat prompt in
+// this codebase already shares, and a subtly different rewording here
+// would mean two competing "how to mirror the user's language" texts.
+const LANGUAGE_NAMES: Record<string, string> = {
+  en: 'English', fr: 'French', es: 'Spanish', zh: 'Chinese', de: 'German',
+  pt: 'Portuguese', it: 'Italian', ja: 'Japanese', ko: 'Korean', hi: 'Hindi',
+  ar: 'Arabic', vi: 'Vietnamese', th: 'Thai', nl: 'Dutch', pl: 'Polish', ru: 'Russian',
+};
+function localeLanguageName(locale: string | null | undefined): string | null {
+  if (typeof locale !== 'string' || !locale.trim()) return null;
+  const primary = locale.trim().toLowerCase().split(/[-_]/)[0];
+  return LANGUAGE_NAMES[primary] ?? null;
+}
+function languageDirective(locale: string | null | undefined): string {
+  const preferred = localeLanguageName(locale);
+  return [
+    'LANGUAGE: Reply in the same language the user wrote their message in.',
+    'If their message is too short to tell (for example "yes", "ok", "是的", "oui"),',
+    'continue in the language the conversation has been using so far' +
+      (preferred ? `, and otherwise use ${preferred}.` : '.'),
+    'Never switch language mid-conversation unless the user does.',
+  ].join(' ');
+}
 
 // Direct imports, not a generic jurisdiction-pack loader — mirrors the exact
 // existing pattern in tax-fast-track-draft-compute.ts.
@@ -1673,9 +1772,16 @@ function deterministicFallbackSummary(totals: ComputedFilingTotals): string {
   return `Here's where your filing stands: total income ${fmtGeneric(totals.totalIncomeCents)}, taxable income ${fmtGeneric(totals.taxableIncomeCents)}, estimated tax payable ${fmtGeneric(totals.taxPayableCents)}. Reply with a number to change, ask a question about any figure, or say "looks good" to submit.`;
 }
 
+// Jurisdiction picks the currency code passed to formatCurrency; locale
+// (the tenant's own AbTenantConfig.locale) picks the formatting style. A
+// tenant with no locale set falls back to the jurisdiction's own default
+// market locale — unchanged formatting from before this feature existed,
+// not a regression for the common case of an unset locale.
+const DEFAULT_LOCALE_FOR_JURISDICTION: Record<string, string> = { ca: 'en-CA', us: 'en-US', au: 'en-AU' };
+
 export async function startReview(
   tenantId: string, taxYear: number, callGemini: CallGeminiFn,
-): Promise<{ message: string }> {
+): Promise<{ message: string; criticalFields: CriticalField[]; computedTotals: ComputedFilingTotals }> {
   const filing = await db.abTaxFiling.findFirst({
     where: { tenantId, taxYear, filingType: 'personal_return' },
   });
@@ -1684,11 +1790,13 @@ export async function startReview(
   const forms = (filing.forms as Record<string, Record<string, any>>) || {};
   const totals = computeFilingTotals(filing.jurisdiction, filing.region, taxYear, forms);
   const pack = getTaxReviewPack(filing.jurisdiction);
+  const criticalFields = pack.criticalFields(forms);
 
   const config = await db.abTenantConfig.findFirst({ where: { userId: tenantId } });
-  const personalProfileContext = ''; // Task 14 wires the real buildPersonalProfileContext() call at the HTTP boundary; kept out of this pure-DB-and-LLM module to avoid a new cross-plugin dependency here — see Task 13.
+  const locale = config?.locale || DEFAULT_LOCALE_FOR_JURISDICTION[filing.jurisdiction] || 'en-US';
+  const personalProfileContext = ''; // Task 13 wires the real buildPersonalProfileContext() call at the HTTP boundary; kept out of this pure-DB-and-LLM module to avoid a new cross-plugin dependency here.
 
-  const prompt = pack.summaryPrompt({ forms, computedTotals: totals, personalProfileContext });
+  const prompt = languageDirective(locale) + '\n\n' + pack.summaryPrompt({ forms, computedTotals: totals, personalProfileContext, locale });
   const raw = await callGemini(prompt, 'Summarize this filing for review.', 400);
 
   let message: string;
@@ -1711,11 +1819,13 @@ export async function startReview(
     update: { status: 'summarizing', summaryText: message, awaitingFieldId: null, confirmedAt: null },
   });
 
-  return { message };
+  return { message, criticalFields, computedTotals: totals };
 }
 ```
 
-- [ ] **Step 4: Run test to verify it passes.** Run: `cd plugins/agentbook-tax/backend && npx vitest run src/__tests__/tax-review-agent-start.test.ts` — Expected: PASS, all 3 tests.
+**Note on `verifyGroundedNumbers` and non-Latin digits:** `Intl.NumberFormat('zh-CN', ...)` renders Western Arabic numerals by default (e.g. `"$73,000.00"`, not Chinese numeral characters), so the existing `/\$[\d,]+(?:\.\d{2})?/g` regex still matches correctly for a Chinese-locale summary — no change needed to the verifier itself. This is worth stating explicitly rather than leaving implicit, since it's exactly the kind of assumption that's easy to get wrong for a locale you haven't tested against.
+
+- [ ] **Step 4: Run test to verify it passes.** Run: `cd plugins/agentbook-tax/backend && npx vitest run src/__tests__/tax-review-agent-start.test.ts` — Expected: PASS, all 4 tests.
 
 - [ ] **Step 5: Commit**
 
@@ -1734,9 +1844,11 @@ git commit -m "feat(tax): startReview() — grounded summary, independent verifi
 
 **Interfaces:**
 - Consumes: `submitFiling` from `./tax-efiling.js`, `updateFilingField` from `./tax-filing.js`, everything from Task 11.
-- Produces: `answerReviewMessage(tenantId: string, taxYear: number, text: string, callGemini: CallGeminiFn): Promise<{ message: string }>`, `hasConfirmedFreshReview(tenantId: string, taxYear: number): Promise<boolean>`, `getActiveReviewForTenant(tenantId: string): Promise<{ taxYear: number } | null>` — all consumed by Task 13's HTTP endpoints.
+- Produces: `answerReviewMessage(tenantId, taxYear, text, callGemini): Promise<{ message: string }>`, `hasConfirmedFreshReview(tenantId, taxYear): Promise<boolean>`, `getActiveReviewForTenant(tenantId): Promise<{ taxYear: number } | null>` — plus two functions extracted specifically so the web review tab (Task 15) can reuse this exact logic without going through free-text intent classification for something it already knows precisely: `applyFieldEdit(tenantId, taxYear, formCode, fieldId, cents): Promise<{ message: string; computedTotals: ComputedFilingTotals }>` and `confirmAndSubmit(tenantId, taxYear): Promise<{ message: string; filed: boolean }>`. All consumed by Task 13's HTTP endpoints.
 
 Reply classification is deterministic keyword matching, not an LLM call — matching this codebase's own established preference (`consultation-triage.ts`'s explicit rationale: "an LLM triage call... can be argued into anything") for exactly this kind of cheap, high-stakes routing decision.
+
+**Why extract `applyFieldEdit`/`confirmAndSubmit` (added on plan review, per Global Constraint 14):** the web review tab knows exactly which field was edited and exactly when the user clicked Submit — it never needs to guess from free text the way a chat message does. Routing a structured button click through `classifyReply`'s fuzzy label-matching would be a step backward, not a simplification: it introduces exactly the fragility (mismatched label heuristics) that a UI which already has the field's real `formCode`/`fieldId` shouldn't need. So the chat state machine's own field-edit and confirm branches are refactored to call these two extracted functions rather than duplicating "write the field, recompute, respond" or "hash forms, mark confirmed, call submitFiling" logic a second time for the web's structured routes (Task 13). This is the same DRY seam as any "understand intent" (chat-specific) vs. "do the thing" (shared) split — chat still owns turning free text into a decision; both surfaces then call the same executor.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -1857,6 +1969,37 @@ describe('hasConfirmedFreshReview', () => {
     expect(await hasConfirmedFreshReview('t1', 2025)).toBe(false);
   });
 });
+
+describe('applyFieldEdit — the shared executor the web review tab (Task 15) also calls directly, no text classification involved', () => {
+  it('writes the field, recomputes totals, and formats the confirmation using the tenant\'s real locale/currency', async () => {
+    filingFindFirst.mockResolvedValue(baseFiling);
+    reviewFindFirst.mockResolvedValue({ id: 'r1', status: 'summarizing', awaitingFieldId: null });
+    updateFilingField.mockResolvedValue({ updated: true });
+
+    const { applyFieldEdit } = await import('../tax-review-agent.js');
+    const result = await applyFieldEdit('t1', 2025, 'T1', 'total_income_15000', 8000000);
+
+    expect(updateFilingField).toHaveBeenCalledWith('t1', 2025, 'T1', 'total_income_15000', 8000000);
+    expect(result.message).toContain('$80,000');
+    expect(result.computedTotals).toBeDefined();
+  });
+});
+
+describe('confirmAndSubmit — the shared executor the web review tab (Task 15) also calls directly on Submit-button click', () => {
+  it('hashes the current forms, marks the review confirmed, and calls submitFiling — same as the chat confirm path', async () => {
+    filingFindFirst.mockResolvedValue(baseFiling);
+    reviewFindFirst.mockResolvedValue({ id: 'r1', status: 'summarizing', awaitingFieldId: null });
+    submitFiling.mockResolvedValue({ success: true, data: { message: 'Your return package is finalized and exported.', filed: false } });
+
+    const { confirmAndSubmit } = await import('../tax-review-agent.js');
+    const result = await confirmAndSubmit('t1', 2025);
+
+    expect(submitFiling).toHaveBeenCalledWith('t1', 2025);
+    expect(reviewUpdate).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ status: 'confirmed' }) }));
+    expect(result.message).toContain('finalized and exported');
+    expect(result.filed).toBe(false);
+  });
+});
 ```
 
 - [ ] **Step 2: Run test to verify it fails.** Run: `cd plugins/agentbook-tax/backend && npx vitest run src/__tests__/tax-review-agent-answer.test.ts` — Expected: FAIL (`answerReviewMessage`/`hasConfirmedFreshReview` don't exist yet).
@@ -1867,6 +2010,7 @@ describe('hasConfirmedFreshReview', () => {
 import { updateFilingField } from './tax-filing.js';
 import { submitFiling } from './tax-efiling.js';
 import { createHash } from 'node:crypto';
+import { formatCurrency } from '@agentbook/i18n';
 
 // Deliberately not a cross-package import of apps/web-next's
 // money-validation.ts — that package boundary doesn't resolve from a
@@ -1946,6 +2090,63 @@ export async function getActiveReviewForTenant(tenantId: string): Promise<{ taxY
   return review ? { taxYear: review.taxYear } : null;
 }
 
+/**
+ * Writes one field, recomputes totals, and clears any pending
+ * awaiting-edit state — shared executor for both the chat state machine's
+ * field-edit branches below AND the web review tab's structured
+ * POST .../review/edit-field route (Task 13). Never guesses a field or
+ * value; the caller (chat intent classification, or a web form input)
+ * already knows exactly which one.
+ */
+const CURRENCY_FOR_JURISDICTION: Record<string, string> = { ca: 'CAD', us: 'USD', au: 'AUD' };
+
+export async function applyFieldEdit(
+  tenantId: string, taxYear: number, formCode: string, fieldId: string, cents: number,
+): Promise<{ message: string; computedTotals: ComputedFilingTotals }> {
+  await updateFilingField(tenantId, taxYear, formCode, fieldId, cents);
+
+  const filing = await db.abTaxFiling.findFirst({ where: { tenantId, taxYear, filingType: 'personal_return' } });
+  if (!filing) throw new Error(`No filing found for tenant ${tenantId} / year ${taxYear}`);
+  const forms = (filing.forms as Record<string, Record<string, any>>) || {};
+  const computedTotals = computeFilingTotals(filing.jurisdiction, filing.region, taxYear, forms);
+
+  const review = await db.abTaxFilingReview.findFirst({ where: { tenantId, taxYear } });
+  if (review) {
+    await db.abTaxFilingReview.update({ where: { id: review.id }, data: { status: 'summarizing', awaitingFieldId: null } });
+  }
+
+  const config = await db.abTenantConfig.findFirst({ where: { userId: tenantId } });
+  const locale = config?.locale || DEFAULT_LOCALE_FOR_JURISDICTION[filing.jurisdiction] || 'en-US';
+  const currency = CURRENCY_FOR_JURISDICTION[filing.jurisdiction] || 'USD';
+  return { message: `Updated to ${formatCurrency(cents, locale, currency)}. Anything else, or reply "looks good" to submit?`, computedTotals };
+}
+
+/**
+ * Marks the review confirmed (hashing the CURRENT forms, so a later edit
+ * through any other path makes hasConfirmedFreshReview go stale
+ * automatically) and calls the real submitFiling() in the same turn —
+ * shared executor for the chat 'confirm' intent below AND the web review
+ * tab's structured POST .../review/confirm route (Task 13).
+ */
+export async function confirmAndSubmit(tenantId: string, taxYear: number): Promise<{ message: string; filed: boolean }> {
+  const filing = await db.abTaxFiling.findFirst({ where: { tenantId, taxYear, filingType: 'personal_return' } });
+  if (!filing) throw new Error(`No filing found for tenant ${tenantId} / year ${taxYear}`);
+  const forms = (filing.forms as Record<string, Record<string, any>>) || {};
+
+  const review = await db.abTaxFilingReview.findFirst({ where: { tenantId, taxYear } });
+  if (review) {
+    const reviewedFormsHash = hashForms(forms);
+    await db.abTaxFilingReview.update({
+      where: { id: review.id },
+      data: { status: 'confirmed', confirmedAt: new Date(), reviewedFormsHash, awaitingFieldId: null },
+    });
+  }
+
+  const result = await submitFiling(tenantId, taxYear);
+  if (result.success) return { message: `✅ ${result.data.message}`, filed: !!result.data.filed };
+  return { message: `❌ ${result.error}`, filed: false };
+}
+
 export async function answerReviewMessage(
   tenantId: string, taxYear: number, text: string, callGemini: CallGeminiFn,
 ): Promise<{ message: string }> {
@@ -1959,6 +2160,9 @@ export async function answerReviewMessage(
   const pack = getTaxReviewPack(filing.jurisdiction);
   const criticalFields = pack.criticalFields(forms);
 
+  const config = await db.abTenantConfig.findFirst({ where: { userId: tenantId } });
+  const locale = config?.locale || DEFAULT_LOCALE_FOR_JURISDICTION[filing.jurisdiction] || 'en-US';
+
   const awaitingField = review.awaitingFieldId
     ? (() => { const [formCode, fieldId] = review.awaitingFieldId!.split(':'); return { formCode, fieldId }; })()
     : null;
@@ -1971,15 +2175,11 @@ export async function answerReviewMessage(
   }
 
   if (intent.kind === 'field_value' && awaitingField) {
-    await updateFilingField(tenantId, taxYear, awaitingField.formCode, awaitingField.fieldId, intent.cents);
-    await db.abTaxFilingReview.update({ where: { id: review.id }, data: { status: 'summarizing', awaitingFieldId: null } });
-    return { message: `Updated to ${fmtGeneric(intent.cents)}. Anything else, or reply "looks good" to submit?` };
+    return applyFieldEdit(tenantId, taxYear, awaitingField.formCode, awaitingField.fieldId, intent.cents);
   }
 
   if (intent.kind === 'field_edit_request') {
-    await updateFilingField(tenantId, taxYear, intent.field.formCode, intent.field.fieldId, intent.cents);
-    await db.abTaxFilingReview.update({ where: { id: review.id }, data: { status: 'summarizing', awaitingFieldId: null } });
-    return { message: `Updated to ${fmtGeneric(intent.cents)}. Anything else, or reply "looks good" to submit?` };
+    return applyFieldEdit(tenantId, taxYear, intent.field.formCode, intent.field.fieldId, intent.cents);
   }
 
   if (intent.kind === 'question') {
@@ -1987,7 +2187,7 @@ export async function answerReviewMessage(
       ? criticalFields.find((f) => f.formCode === intent.field!.formCode && f.fieldId === intent.field!.fieldId)!
       : { formCode: '_overall', fieldId: '_overall', label: 'your filing', currentValue: null };
     const totals = computeFilingTotals(filing.jurisdiction, filing.region, taxYear, forms);
-    const prompt = pack.explainFieldPrompt({ field, forms, computedTotals: totals, personalProfileContext: '', question: text });
+    const prompt = languageDirective(locale) + '\n\n' + pack.explainFieldPrompt({ field, forms, computedTotals: totals, personalProfileContext: '', locale, question: text });
     const raw = await callGemini(prompt, 'Answer this question.', 300);
     if (!raw) return { message: "I couldn't generate an answer just now — you can ask again, change a number, or say \"looks good\" to submit." };
     try {
@@ -2002,14 +2202,7 @@ export async function answerReviewMessage(
   }
 
   if (intent.kind === 'confirm') {
-    const reviewedFormsHash = hashForms(forms);
-    await db.abTaxFilingReview.update({
-      where: { id: review.id },
-      data: { status: 'confirmed', confirmedAt: new Date(), reviewedFormsHash, awaitingFieldId: null },
-    });
-    const result = await submitFiling(tenantId, taxYear);
-    if (result.success) return { message: `✅ ${result.data.message}` };
-    return { message: `❌ ${result.error}` };
+    return confirmAndSubmit(tenantId, taxYear);
   }
 
   // unclear — deterministic, no LLM call.
@@ -2017,7 +2210,7 @@ export async function answerReviewMessage(
 }
 ```
 
-- [ ] **Step 4: Run test to verify it passes.** Run: `cd plugins/agentbook-tax/backend && npx vitest run src/__tests__/tax-review-agent-answer.test.ts` — Expected: PASS, all 8 tests.
+- [ ] **Step 4: Run test to verify it passes.** Run: `cd plugins/agentbook-tax/backend && npx vitest run src/__tests__/tax-review-agent-answer.test.ts` — Expected: PASS, all 10 tests.
 
 - [ ] **Step 5: Run the whole plugin's test suite to confirm zero regression, then commit**
 
@@ -2037,11 +2230,13 @@ git commit -m "feat(tax): answerReviewMessage() state machine — edit/question/
 - Test: `plugins/agentbook-tax/backend/src/__tests__/tax-review-routes.test.ts`
 
 **Interfaces:**
-- Produces three routes, all under `/api/v1/agentbook-tax`:
+- Produces six routes, all under `/api/v1/agentbook-tax`. The first four are chat-shaped (return `message` text); the last two are structured — added on plan review specifically for the web review tab (Task 15), per Global Constraint 14:
   - `GET /tax-filing/review/active` — no year in the path (a tenant's incoming chat message doesn't carry one); calls `getActiveReviewForTenant(tenantId)`; returns `{ success: true, data: { active: false } }` or `{ success: true, data: { active: true, taxYear } }`.
-  - `POST /tax-filing/:year/review/start` — calls `startReview(tenantId, year, callGemini)`; returns `{ success: true, data: { message } }`.
+  - `POST /tax-filing/:year/review/start` — calls `startReview(tenantId, year, callGemini)`; returns `{ success: true, data: { message, criticalFields, computedTotals } }`.
   - `POST /tax-filing/:year/review/message` — body `{ text: string }`; calls `answerReviewMessage(tenantId, year, text, callGemini)`; returns `{ success: true, data: { message } }`.
   - `GET /tax-filing/:year/review/status` — calls `hasConfirmedFreshReview(tenantId, year)`; returns `{ success: true, data: { confirmedAndFresh: boolean } }`.
+  - `POST /tax-filing/:year/review/edit-field` — body `{ formCode: string, fieldId: string, valueCents: number }`; calls `applyFieldEdit(tenantId, year, formCode, fieldId, valueCents)` directly — **no text classification involved**, since the web UI already knows exactly which field it's editing; returns `{ success: true, data: { message, computedTotals } }`.
+  - `POST /tax-filing/:year/review/confirm` — no body needed; calls `confirmAndSubmit(tenantId, year)` directly; returns `{ success: true, data: { message, filed: boolean } }`.
 
 Wire the real `buildPersonalProfileContext` here (not inside `tax-review-agent.ts`, per Task 11's note) if `plugins/agentbook-tax/backend` can import it — check whether `personal-profile-context.ts` (currently in `plugins/agentbook-core/backend/src`) is reachable from this package; if not (same cross-package boundary issue as Global Constraint 10), pass an empty string for `personalProfileContext` here too, and leave a `// TODO(follow-up): thread real personal-profile context into the tax review agent once a shared cross-plugin utility package exists for it` comment — do not attempt a new shared package for this single string in this plan; it is out of scope.
 
@@ -2061,12 +2256,16 @@ const startReview = vi.fn();
 const answerReviewMessage = vi.fn();
 const hasConfirmedFreshReview = vi.fn();
 const getActiveReviewForTenant = vi.fn();
+const applyFieldEdit = vi.fn();
+const confirmAndSubmit = vi.fn();
 
 vi.mock('../tax-review-agent.js', () => ({
   startReview: (...a: any[]) => startReview(...a),
   answerReviewMessage: (...a: any[]) => answerReviewMessage(...a),
   hasConfirmedFreshReview: (...a: any[]) => hasConfirmedFreshReview(...a),
   getActiveReviewForTenant: (...a: any[]) => getActiveReviewForTenant(...a),
+  applyFieldEdit: (...a: any[]) => applyFieldEdit(...a),
+  confirmAndSubmit: (...a: any[]) => confirmAndSubmit(...a),
 }));
 
 beforeEach(() => vi.clearAllMocks());
@@ -2110,6 +2309,25 @@ describe('tax review HTTP routes', () => {
     const res = await request(app).get('/api/v1/agentbook-tax/tax-filing/2025/review/status').set('x-tenant-id', 't1');
     expect(res.body.data.confirmedAndFresh).toBe(true);
   });
+
+  it('POST /tax-filing/:year/review/edit-field calls applyFieldEdit directly with the exact field named in the body — no text classification', async () => {
+    applyFieldEdit.mockResolvedValue({ message: 'Updated to $80,000.', computedTotals: { taxableIncomeCents: 8000000 } });
+    const { app } = await import('../server.js');
+    const res = await request(app)
+      .post('/api/v1/agentbook-tax/tax-filing/2025/review/edit-field')
+      .set('x-tenant-id', 't1')
+      .send({ formCode: 'T1', fieldId: 'total_income_15000', valueCents: 8000000 });
+    expect(applyFieldEdit).toHaveBeenCalledWith('t1', 2025, 'T1', 'total_income_15000', 8000000);
+    expect(res.body.data.message).toContain('$80,000');
+  });
+
+  it('POST /tax-filing/:year/review/confirm calls confirmAndSubmit directly, no body required', async () => {
+    confirmAndSubmit.mockResolvedValue({ message: 'Filed!', filed: false });
+    const { app } = await import('../server.js');
+    const res = await request(app).post('/api/v1/agentbook-tax/tax-filing/2025/review/confirm').set('x-tenant-id', 't1');
+    expect(confirmAndSubmit).toHaveBeenCalledWith('t1', 2025);
+    expect(res.body.data.message).toBe('Filed!');
+  });
 });
 ```
 
@@ -2120,7 +2338,7 @@ describe('tax review HTTP routes', () => {
 - [ ] **Step 3: Implement the routes**, mirroring the exact structure/middleware of the existing `/tax-filing/:year/submit` route in `server.ts`:
 
 ```typescript
-import { startReview, answerReviewMessage, hasConfirmedFreshReview, getActiveReviewForTenant } from './tax-review-agent.js';
+import { startReview, answerReviewMessage, hasConfirmedFreshReview, getActiveReviewForTenant, applyFieldEdit, confirmAndSubmit } from './tax-review-agent.js';
 // callGemini here is this plugin's own way of reaching the LLM — check
 // whether this package already has a callGemini-equivalent (search for
 // existing Gemini usage in plugins/agentbook-tax/backend/src, e.g. in
@@ -2167,9 +2385,38 @@ app.get('/api/v1/agentbook-tax/tax-filing/:year/review/status', async (req, res)
   const confirmedAndFresh = await hasConfirmedFreshReview(tenantId, taxYear);
   res.json({ success: true, data: { confirmedAndFresh } });
 });
+
+// Structured routes for the web review tab (Task 15) — no text
+// classification, since the UI already knows exactly which field/action
+// it means. Added on plan review, per Global Constraint 14.
+app.post('/api/v1/agentbook-tax/tax-filing/:year/review/edit-field', async (req, res) => {
+  const tenantId = /* ... */;
+  const taxYear = Number(req.params.year);
+  const { formCode, fieldId, valueCents } = req.body || {};
+  if (typeof formCode !== 'string' || typeof fieldId !== 'string' || !Number.isInteger(valueCents)) {
+    return res.status(400).json({ success: false, error: 'formCode, fieldId, and an integer valueCents are required' });
+  }
+  try {
+    const result = await applyFieldEdit(tenantId, taxYear, formCode, fieldId, valueCents);
+    res.json({ success: true, data: result });
+  } catch (err) {
+    res.status(400).json({ success: false, error: err instanceof Error ? err.message : String(err) });
+  }
+});
+
+app.post('/api/v1/agentbook-tax/tax-filing/:year/review/confirm', async (req, res) => {
+  const tenantId = /* ... */;
+  const taxYear = Number(req.params.year);
+  try {
+    const result = await confirmAndSubmit(tenantId, taxYear);
+    res.json({ success: true, data: result });
+  } catch (err) {
+    res.status(400).json({ success: false, error: err instanceof Error ? err.message : String(err) });
+  }
+});
 ```
 
-- [ ] **Step 4: Run tests to verify they pass.** Run: `cd plugins/agentbook-tax/backend && npx vitest run src/__tests__/tax-review-routes.test.ts` — Expected: PASS, all 5 tests.
+- [ ] **Step 4: Run tests to verify they pass.** Run: `cd plugins/agentbook-tax/backend && npx vitest run src/__tests__/tax-review-routes.test.ts` — Expected: PASS, all 7 tests.
 
 - [ ] **Step 5: Commit**
 
@@ -2180,7 +2427,455 @@ git commit -m "feat(tax): HTTP endpoints for the review agent"
 
 ---
 
-### Task 14: `server.ts` (agentbook-core) — `ctx` wiring + the submit gate
+### Task 14: Locale files — French and the first-ever Chinese registration
+
+**Files:**
+- Modify: `packages/agentbook-i18n/src/locales/en/tax.json` (add keys)
+- Modify: `packages/agentbook-i18n/src/locales/fr/tax.json` (add the same keys, French)
+- Create: `packages/agentbook-i18n/src/locales/zh/tax.json` (new locale directory + file — `zh` has never been registered before)
+- Create: `packages/agentbook-i18n/src/locales/zh/common.json` (only the handful of `common.*` keys the new web tab actually uses: `save`, `cancel`, `confirm` — not a full retranslation of `common.json`)
+- Modify: `packages/agentbook-i18n/src/loader.ts` (register `zh`)
+- Test: `packages/agentbook-i18n/src/__tests__/zh-registration.test.ts` (new)
+
+**Interfaces:**
+- Consumes: `loadLocale`, `t`, `resolveLocale` (already exist, Task 6's investigation confirmed their real signatures).
+- Produces: `t('tax.tax_review_*', ...)` resolves correctly for `en`, `fr`, and — for the first time in this codebase — `zh`, for the specific keys this feature adds. `resolveLocale` recognizes `'zh'` as a registered locale for the first time.
+
+**Why this is scoped narrowly (read before writing code):** `packages/agentbook-tax/frontend`'s existing pages (`Quarterly.tsx`, `Reports.tsx`, `CashFlow.tsx`, `TaxDashboard.tsx`, etc.) render hardcoded English JSX today — none of them call `t()` yet, despite the runtime existing and being tested. This task does not retrofit them; that's a separate, much larger effort, and taking it on here would be scope creep well beyond "the new agent supports i18n." This task registers `zh` for the first time ever in `@agentbook/i18n` — but only with the keys this one new tab needs. A `zh` tenant visiting any *other* existing tax page still sees English today (unchanged from before this task — not a regression, since that's already true for every locale on those pages, `fr` included). `loadLocale`'s merge-by-spread semantics (`{...locales.get(locale), ...data}`, confirmed in Task 6's investigation) make this safe regardless of whether some other in-flight effort elsewhere in this codebase also registers `zh` with its own namespaces before or after this lands — the two sets of keys simply accumulate; neither can clobber the other's namespace.
+
+- [ ] **Step 1: Write the failing test**
+
+```typescript
+// packages/agentbook-i18n/src/__tests__/zh-registration.test.ts
+import { describe, it, expect, beforeAll } from 'vitest';
+import { t, setLocale, resolveLocale } from '../core.js';
+import { loadAllLocales } from '../loader.js';
+
+beforeAll(() => { loadAllLocales(); });
+
+describe('zh locale — registered for the first time by this feature', () => {
+  it('resolveLocale now recognizes zh as a real registered locale', () => {
+    expect(resolveLocale({ tenantLocale: 'zh-CN' })).toBe('zh-CN');
+  });
+
+  it('t() resolves the new tax-review keys in zh', () => {
+    setLocale('zh');
+    expect(t('tax.tax_review_title')).not.toBe('tax.tax_review_title'); // not falling through to the raw key
+    expect(t('common.save')).not.toBe('common.save');
+  });
+
+  it('t() still falls back to English for a zh key this feature did NOT add — the honest scope boundary, not a broken fallback', () => {
+    setLocale('zh');
+    // pnl_title is a real, pre-existing tax.json key this task deliberately
+    // did not translate — must fall back to the English string, not the
+    // raw key (proves the existing fallback-to-English chain still works
+    // for the 99% of tax.json this task didn't touch).
+    setLocale('en');
+    const englishPnl = t('tax.pnl_title');
+    setLocale('zh');
+    expect(t('tax.pnl_title')).toBe(englishPnl);
+  });
+
+  it('existing en and fr locales are byte-identical for every key this task did not touch', () => {
+    setLocale('fr');
+    expect(t('common.cancel')).toBe('Annuler'); // unchanged from before this task
+  });
+});
+```
+
+- [ ] **Step 2: Run test to verify it fails.** Run: `cd packages/agentbook-i18n && npx vitest run src/__tests__/zh-registration.test.ts` — Expected: FAIL (`zh` isn't registered; `resolveLocale({tenantLocale:'zh-CN'})` returns `'en'`).
+
+- [ ] **Step 3: Add the new keys to `en/tax.json` and `fr/tax.json`**
+
+Add these six keys to both `packages/agentbook-i18n/src/locales/en/tax.json` and `packages/agentbook-i18n/src/locales/fr/tax.json` (alongside the existing keys — do not remove or reorder anything already there):
+
+English (`en/tax.json` additions):
+```json
+{
+  "tax_review_title": "Filing Review",
+  "tax_review_summary_label": "Summary",
+  "tax_review_ask_placeholder": "Ask a question about any number...",
+  "tax_review_ask_button": "Ask",
+  "tax_review_submit_button": "Submit filing",
+  "tax_review_edit_saved": "Saved"
+}
+```
+
+French (`fr/tax.json` additions — Québec French, matching this codebase's existing "French (Canadian)" convention per `loader.ts`'s own comment, and its established tax-specific vocabulary, e.g. TPS/TVQ elsewhere in this same file):
+```json
+{
+  "tax_review_title": "Revision de la declaration",
+  "tax_review_summary_label": "Sommaire",
+  "tax_review_ask_placeholder": "Posez une question sur un montant...",
+  "tax_review_ask_button": "Demander",
+  "tax_review_submit_button": "Soumettre la declaration",
+  "tax_review_edit_saved": "Enregistre"
+}
+```
+
+- [ ] **Step 4: Create `zh/tax.json` and `zh/common.json`**
+
+```json
+// packages/agentbook-i18n/src/locales/zh/tax.json (new file — only this
+// feature's keys; the other ~18 pre-existing tax.json keys are
+// deliberately NOT translated here, per this task's scope note above)
+{
+  "tax_review_title": "报税审核",
+  "tax_review_summary_label": "摘要",
+  "tax_review_ask_placeholder": "请输入关于任意数字的问题...",
+  "tax_review_ask_button": "提问",
+  "tax_review_submit_button": "提交报税",
+  "tax_review_edit_saved": "已保存"
+}
+```
+
+```json
+// packages/agentbook-i18n/src/locales/zh/common.json (new file — only the
+// 3 keys this feature's UI actually needs, not a full common.json translation)
+{
+  "save": "保存",
+  "cancel": "取消",
+  "confirm": "确认"
+}
+```
+
+- [ ] **Step 5: Register `zh` in the loader**
+
+In `packages/agentbook-i18n/src/loader.ts`, add the new imports and a new `loadLocale('zh', ...)` call, leaving the existing `en`/`fr` registrations completely untouched:
+
+```typescript
+import { loadLocale } from './core.js';
+
+// English
+import enCommon from './locales/en/common.json' assert { type: 'json' };
+import enExpense from './locales/en/expense.json' assert { type: 'json' };
+import enInvoice from './locales/en/invoice.json' assert { type: 'json' };
+import enTax from './locales/en/tax.json' assert { type: 'json' };
+import enProactive from './locales/en/proactive.json' assert { type: 'json' };
+import enCalendar from './locales/en/calendar.json' assert { type: 'json' };
+
+// French
+import frCommon from './locales/fr/common.json' assert { type: 'json' };
+import frExpense from './locales/fr/expense.json' assert { type: 'json' };
+import frInvoice from './locales/fr/invoice.json' assert { type: 'json' };
+import frTax from './locales/fr/tax.json' assert { type: 'json' };
+import frProactive from './locales/fr/proactive.json' assert { type: 'json' };
+import frCalendar from './locales/fr/calendar.json' assert { type: 'json' };
+
+// Chinese — first registration ever in this package (Tax Review Agent
+// feature). Scoped to only the namespaces this feature actually
+// translated (tax, common) — see this file's owning task for why the
+// other namespaces are deliberately not here yet.
+import zhTax from './locales/zh/tax.json' assert { type: 'json' };
+import zhCommon from './locales/zh/common.json' assert { type: 'json' };
+
+export function loadAllLocales(): void {
+  // English
+  loadLocale('en', { common: enCommon, expense: enExpense, invoice: enInvoice, tax: enTax, proactive: enProactive, calendar: enCalendar });
+
+  // French (Canadian)
+  loadLocale('fr', { common: frCommon, expense: frExpense, invoice: frInvoice, tax: frTax, proactive: frProactive, calendar: frCalendar });
+
+  // Chinese (partial — tax + common only, see above)
+  loadLocale('zh', { common: zhCommon, tax: zhTax });
+}
+```
+
+- [ ] **Step 6: Run test to verify it passes.** Run: `cd packages/agentbook-i18n && npx vitest run src/__tests__/zh-registration.test.ts` — Expected: PASS, all 4 tests.
+
+- [ ] **Step 7: Run the full package test suite to confirm zero regression to existing en/fr behavior, then commit**
+
+Run: `cd packages/agentbook-i18n && npx vitest run`
+Expected: PASS — `core.test.ts` and `formatters.test.ts` (pre-existing) are completely unaffected; this task only adds new keys and a new locale, touching no existing key's value.
+
+```bash
+git add packages/agentbook-i18n/src/locales/en/tax.json packages/agentbook-i18n/src/locales/fr/tax.json packages/agentbook-i18n/src/locales/zh/ packages/agentbook-i18n/src/loader.ts packages/agentbook-i18n/src/__tests__/zh-registration.test.ts
+git commit -m "feat(i18n): tax-review keys in en/fr, first-ever zh locale registration"
+```
+
+---
+
+### Task 15: Web review tab — `TaxFilingReviewTab.tsx`
+
+**Files:**
+- Create: `plugins/agentbook-tax/frontend/src/pages/TaxFilingReviewTab.tsx`
+- Modify: `plugins/agentbook-tax/frontend/src/pages/TaxPackage.tsx` (add a 4th tab)
+- Test: `plugins/agentbook-tax/frontend/src/pages/__tests__/TaxFilingReviewTab.test.tsx` (new — mirror whichever test setup this plugin frontend's existing page tests already use, e.g. check for an existing `FastTrackTab.test.tsx` or similar and match its render/mock-fetch conventions exactly)
+
+**Interfaces:**
+- Consumes: Task 13's HTTP endpoints directly (`GET .../review/active`, `POST .../review/start`, `POST .../review/message`, `GET .../review/status`, `POST .../review/edit-field`, `POST .../review/confirm`) — plain `fetch` calls, the same pattern `TaxPackage.tsx`'s own `TaxPackageContent` already uses against `API = '/api/v1/agentbook-tax'`. `t`, `formatMoney` from `@agentbook/i18n` (Task 14's new keys; `formatMoney` already used by `TaxDashboard.tsx`).
+- Produces: a `'review'` tab inside `TaxPackagePage`'s existing tab bar (`plugins/agentbook-tax/frontend/src/pages/TaxPackage.tsx:55-91`, real code quoted in this plan's investigation phase).
+
+This is the first page in this plugin to actually call `t()` — every sibling tab (`TaxPackageContent`, `PastFilingsPage`, `FastTrackTab`) stays hardcoded English, unchanged by this task (Task 14's scope note explains why retrofitting them is explicitly out of scope here).
+
+- [ ] **Step 1: Write the failing test**
+
+```tsx
+// plugins/agentbook-tax/frontend/src/pages/__tests__/TaxFilingReviewTab.test.tsx
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { TaxFilingReviewTab } from '../TaxFilingReviewTab';
+import { loadAllLocales } from '@agentbook/i18n';
+
+beforeEach(() => {
+  loadAllLocales();
+  global.fetch = vi.fn();
+});
+
+function mockFetchSequence(responses: any[]) {
+  let call = 0;
+  (global.fetch as any).mockImplementation(() =>
+    Promise.resolve({ json: () => Promise.resolve(responses[Math.min(call++, responses.length - 1)]) }),
+  );
+}
+
+describe('TaxFilingReviewTab', () => {
+  it('loads the review summary and renders the critical fields with their current values', async () => {
+    mockFetchSequence([
+      { success: true, data: {
+        message: 'Your taxable income is $73,000...',
+        criticalFields: [{ formCode: 'T1', fieldId: 'taxable_income_26000', label: 'Taxable income', currentValue: 7300000 }],
+        computedTotals: { taxableIncomeCents: 7300000, taxPayableCents: 1150000 },
+      } },
+    ]);
+    render(<TaxFilingReviewTab taxYear={2025} />);
+    await waitFor(() => expect(screen.getByText(/taxable income/i)).toBeInTheDocument());
+    expect(screen.getByDisplayValue('73000')).toBeInTheDocument(); // dollars, not cents, in the input
+  });
+
+  it('editing a field calls POST .../review/edit-field with the exact formCode/fieldId — no free-text round trip', async () => {
+    mockFetchSequence([
+      { success: true, data: { message: 'summary', criticalFields: [{ formCode: 'T1', fieldId: 'taxable_income_26000', label: 'Taxable income', currentValue: 7300000 }], computedTotals: {} } },
+      { success: true, data: { message: 'Updated to $80,000.', computedTotals: { taxableIncomeCents: 8000000 } } },
+    ]);
+    render(<TaxFilingReviewTab taxYear={2025} />);
+    await waitFor(() => screen.getByDisplayValue('73000'));
+    fireEvent.change(screen.getByDisplayValue('73000'), { target: { value: '80000' } });
+    fireEvent.click(screen.getByText(/save/i));
+    await waitFor(() => {
+      const editCall = (global.fetch as any).mock.calls.find((c: any[]) => String(c[0]).includes('edit-field'));
+      expect(editCall).toBeDefined();
+      const body = JSON.parse(editCall[1].body);
+      expect(body).toEqual({ formCode: 'T1', fieldId: 'taxable_income_26000', valueCents: 8000000 });
+    });
+  });
+
+  it('clicking Submit calls POST .../review/confirm with no body', async () => {
+    mockFetchSequence([
+      { success: true, data: { message: 'summary', criticalFields: [], computedTotals: {} } },
+      { success: true, data: { message: 'Filed!', filed: false } },
+    ]);
+    render(<TaxFilingReviewTab taxYear={2025} />);
+    await waitFor(() => screen.getByText(/submit filing/i));
+    fireEvent.click(screen.getByText(/submit filing/i));
+    await waitFor(() => {
+      const confirmCall = (global.fetch as any).mock.calls.find((c: any[]) => String(c[0]).includes('/confirm'));
+      expect(confirmCall).toBeDefined();
+    });
+  });
+
+  it('renders French labels when the locale is set to fr', async () => {
+    const { setLocale } = await import('@agentbook/i18n');
+    setLocale('fr');
+    mockFetchSequence([{ success: true, data: { message: 's', criticalFields: [], computedTotals: {} } }]);
+    render(<TaxFilingReviewTab taxYear={2025} />);
+    await waitFor(() => expect(screen.getByText('Revision de la declaration')).toBeInTheDocument());
+    setLocale('en');
+  });
+});
+```
+
+- [ ] **Step 2: Run test to verify it fails.** Run: `cd plugins/agentbook-tax/frontend && npx vitest run src/pages/__tests__/TaxFilingReviewTab.test.tsx` — Expected: FAIL (component doesn't exist).
+
+- [ ] **Step 3: Implement `TaxFilingReviewTab.tsx`**
+
+```tsx
+// plugins/agentbook-tax/frontend/src/pages/TaxFilingReviewTab.tsx
+import React, { useEffect, useState, useCallback } from 'react';
+import { t, formatMoney } from '@agentbook/i18n';
+import { TaxDisclaimer } from '../components/TaxDisclaimer';
+
+const API = '/api/v1/agentbook-tax';
+
+interface CriticalField {
+  formCode: string;
+  fieldId: string;
+  label: string;
+  currentValue: number | string | boolean | null;
+}
+interface ComputedTotals {
+  totalIncomeCents?: number;
+  taxableIncomeCents?: number;
+  taxPayableCents?: number;
+}
+
+export const TaxFilingReviewTab: React.FC<{ taxYear: number }> = ({ taxYear }) => {
+  const [message, setMessage] = useState('');
+  const [fields, setFields] = useState<CriticalField[]>([]);
+  const [totals, setTotals] = useState<ComputedTotals>({});
+  const [edits, setEdits] = useState<Record<string, string>>({});
+  const [question, setQuestion] = useState('');
+  const [answer, setAnswer] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
+
+  const loadReview = useCallback(async () => {
+    setLoading(true);
+    const res = await fetch(`${API}/tax-filing/${taxYear}/review/start`, { method: 'POST' });
+    const json = await res.json();
+    if (json.success) {
+      setMessage(json.data.message);
+      setFields(json.data.criticalFields || []);
+      setTotals(json.data.computedTotals || {});
+    }
+    setLoading(false);
+  }, [taxYear]);
+
+  useEffect(() => { loadReview(); }, [loadReview]);
+
+  const saveField = async (field: CriticalField) => {
+    const raw = edits[field.fieldId];
+    if (raw === undefined) return;
+    const valueCents = Math.round(Number(raw) * 100);
+    if (!Number.isFinite(valueCents)) return;
+    const res = await fetch(`${API}/tax-filing/${taxYear}/review/edit-field`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ formCode: field.formCode, fieldId: field.fieldId, valueCents }),
+    });
+    const json = await res.json();
+    if (json.success) {
+      setTotals(json.data.computedTotals || totals);
+      setMessage(json.data.message);
+    }
+  };
+
+  const askQuestion = async () => {
+    if (!question.trim()) return;
+    const res = await fetch(`${API}/tax-filing/${taxYear}/review/message`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text: question }),
+    });
+    const json = await res.json();
+    if (json.success) setAnswer(json.data.message);
+    setQuestion('');
+  };
+
+  const submit = async () => {
+    setSubmitting(true);
+    const res = await fetch(`${API}/tax-filing/${taxYear}/review/confirm`, { method: 'POST' });
+    const json = await res.json();
+    if (json.success) setMessage(json.data.message);
+    setSubmitting(false);
+  };
+
+  if (loading) return <div className="p-4 sm:p-6">{t('common.loading')}</div>;
+
+  return (
+    <div className="px-4 py-5 sm:p-6 max-w-2xl mx-auto">
+      <TaxDisclaimer />
+      <h2 className="text-lg font-semibold mt-4 mb-2">{t('tax.tax_review_title')}</h2>
+
+      <div className="bg-card border border-border rounded-xl p-4 mb-4">
+        <div className="text-sm font-medium text-muted-foreground mb-1">{t('tax.tax_review_summary_label')}</div>
+        <p className="text-sm">{message}</p>
+      </div>
+
+      <div className="space-y-3 mb-4">
+        {fields.map((field) => (
+          <div key={`${field.formCode}:${field.fieldId}`} className="flex items-center gap-2">
+            <label className="flex-1 text-sm">{field.label}</label>
+            <input
+              type="number"
+              className="w-32 border border-border rounded px-2 py-1 text-sm"
+              value={edits[field.fieldId] ?? (typeof field.currentValue === 'number' ? String(field.currentValue / 100) : '')}
+              onChange={(e) => setEdits((prev) => ({ ...prev, [field.fieldId]: e.target.value }))}
+            />
+            <button onClick={() => saveField(field)} className="text-sm text-primary">{t('common.save')}</button>
+          </div>
+        ))}
+      </div>
+
+      {totals.taxPayableCents != null && (
+        <div className="text-sm text-muted-foreground mb-4">{formatMoney(totals.taxPayableCents, 'USD')}</div>
+      )}
+
+      <div className="flex gap-2 mb-4">
+        <input
+          className="flex-1 border border-border rounded px-2 py-1 text-sm"
+          placeholder={t('tax.tax_review_ask_placeholder')}
+          value={question}
+          onChange={(e) => setQuestion(e.target.value)}
+        />
+        <button onClick={askQuestion} className="text-sm text-primary">{t('tax.tax_review_ask_button')}</button>
+      </div>
+      {answer && <p className="text-sm mb-4">{answer}</p>}
+
+      <button
+        onClick={submit}
+        disabled={submitting}
+        className="w-full bg-primary text-primary-foreground rounded-lg py-2 text-sm font-medium disabled:opacity-50"
+      >
+        {t('tax.tax_review_submit_button')}
+      </button>
+    </div>
+  );
+};
+```
+
+**Note on currency in `formatMoney(totals.taxPayableCents, 'USD')` above:** this is a placeholder needing the tenant's real jurisdiction-derived currency, not a hardcoded `'USD'` — the implementer must plumb the tenant's actual currency (available via whatever hook `TaxDashboard.tsx` already uses, per its own `import { useTenantCurrency } from '../hooks/useTenantCurrency';`, confirmed to exist in this plugin) rather than ship this literal. Flagged explicitly rather than left as a silent wrong-currency bug — reuse `useTenantCurrency()`, don't invent a second way to know the tenant's currency.
+
+- [ ] **Step 4: Wire the new tab into `TaxPackage.tsx`**
+
+In `plugins/agentbook-tax/frontend/src/pages/TaxPackage.tsx`, add the import and extend the existing tab bar (real current code quoted in full in this plan's investigation phase, lines 12-94) — minimal diff, no other tab's behavior changes:
+
+```tsx
+import { TaxFilingReviewTab } from './TaxFilingReviewTab';
+```
+
+Change the tab union type and the tab-bar array:
+```tsx
+const [tab, setTab] = useState<'package' | 'past' | 'fast-track' | 'review'>(() => {
+  if (typeof window === 'undefined') return 'package';
+  const requested = new URLSearchParams(window.location.search).get('tab');
+  return requested === 'past' || requested === 'fast-track' || requested === 'review' ? requested : 'package';
+});
+```
+```tsx
+{(['package', 'past', 'fast-track', 'review'] as const).map((t) => (
+  <button
+    key={t}
+    onClick={() => setTab(t)}
+    className={[
+      'px-4 py-3 text-sm font-medium border-b-2 transition-colors',
+      tab === t ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-foreground',
+    ].join(' ')}
+  >
+    {t === 'package' ? 'Year-end Package' : t === 'past' ? 'Prior-year returns' : t === 'fast-track' ? 'Tax Fast-Track' : t('tax.tax_review_title')}
+  </button>
+))}
+```
+(Note the last label uses the new `t()`-based string while the other three stay their existing hardcoded English — consistent with this task's stated scope: this tab is i18n-aware, its siblings are unchanged.)
+
+```tsx
+{tab === 'package' ? <TaxPackageContent /> : tab === 'past' ? <PastFilingsPage /> : tab === 'fast-track' ? <FastTrackTab /> : <TaxFilingReviewTab taxYear={new Date().getUTCFullYear() - 1} />}
+```
+
+- [ ] **Step 5: Run tests to verify they pass.** Run: `cd plugins/agentbook-tax/frontend && npx vitest run src/pages/__tests__/TaxFilingReviewTab.test.tsx` — Expected: PASS, all 4 tests.
+
+- [ ] **Step 6: Run the full frontend test suite to confirm zero regression to the other three tabs, then commit**
+
+Run: `cd plugins/agentbook-tax/frontend && npx vitest run`
+
+```bash
+git add plugins/agentbook-tax/frontend/src/pages/TaxFilingReviewTab.tsx plugins/agentbook-tax/frontend/src/pages/TaxPackage.tsx plugins/agentbook-tax/frontend/src/pages/__tests__/TaxFilingReviewTab.test.tsx
+git commit -m "feat(tax): web review tab — TaxFilingReviewTab, i18n-aware (en/fr/zh)"
+```
+
+---
+
+### Task 16: `server.ts` (agentbook-core) — `ctx` wiring + the submit gate
 
 **Files:**
 - Modify: `plugins/agentbook-core/backend/src/server.ts` (add `ctx.checkActiveTaxReview`/`ctx.answerTaxReview` implementations and wire them into the `ctx` object passed to `handleAgentMessage`; modify the existing `tax-filing-submit` INTERNAL handler at lines 4646-4672)
@@ -2365,14 +3060,14 @@ git commit -m "feat(core): submit-review gate + ctx.checkActiveTaxReview/answerT
 
 ---
 
-### Task 15: `agent-brain.ts` — early interception for in-progress reviews
+### Task 17: `agent-brain.ts` — early interception for in-progress reviews
 
 **Files:**
 - Modify: `plugins/agentbook-core/backend/src/agent-brain.ts` (add one new, independent `if` block inside `handleAgentMessageCore`, immediately after the existing Step 1 session-recovery block and before intent classification)
 - Test: `plugins/agentbook-core/backend/src/__tests__/agent-brain-tax-review-interception.test.ts`
 
 **Interfaces:**
-- Consumes: `ctx.checkActiveTaxReview`, `ctx.answerTaxReview` (Task 14).
+- Consumes: `ctx.checkActiveTaxReview`, `ctx.answerTaxReview` (Task 16).
 - Produces: a message sent while a tax review is in progress never reaches `ctx.classifyOnly`/`ctx.classifyAndExecuteV1` — it's routed straight to `ctx.answerTaxReview` and the function returns immediately.
 
 This is a new, independent block — **the existing `activeSession`/`pendingConfirmation` code (Step 1, quoted in full in this plan's investigation phase) is not modified at all.** If a tenant somehow has both an active plan session AND an active tax review simultaneously, the review check runs first (more specific, more time-sensitive context wins) — see Step 3.
@@ -2473,7 +3168,7 @@ git commit -m "feat(core): early interception routes in-progress tax reviews bef
 
 ---
 
-### Task 16: End-to-end integration test — the full conversation, CA path
+### Task 18: End-to-end integration test — the full conversation, CA path
 
 **Files:**
 - Test: `plugins/agentbook-core/backend/src/__tests__/tax-review-agent-e2e.test.ts` (new)
@@ -2525,14 +3220,15 @@ git commit -m "test: end-to-end Tax Review Agent conversation (CA path)"
 
 ---
 
-### Task 17: Final whole-branch review
+### Task 19: Final whole-branch review
 
 Per `superpowers:subagent-driven-development`, dispatch a final code-reviewer on the most capable available model against the full branch diff (`git diff main...HEAD` or this repo's equivalent merge-base range), with this plan's Global Constraints block as the reviewer's attention lens. Specifically confirm:
 
 - No CA behavior changed anywhere (formulas, validation rules' meaning, `seedCanadianForms`'s own call sites) — every CA test passes byte-for-byte as before.
 - `consultation-review.ts` is untouched (Global Constraint 4).
-- `agent-brain.ts`'s existing `activeSession`/`pendingConfirmation`/`resolveSessionAction` code is untouched (Task 15's block is additive only).
-- The gate in `handleTaxFilingSubmit` (Task 14) genuinely precedes the real submit call in every code path, not just the happy path tested in Task 14 Step 5's wiring test.
+- `agent-brain.ts`'s existing `activeSession`/`pendingConfirmation`/`resolveSessionAction` code is untouched (Task 17's block is additive only).
+- The gate in `handleTaxFilingSubmit` (Task 16) genuinely precedes the real submit call in every code path, not just the happy path tested in Task 16 Step 5's wiring test.
+- The new i18n keys (Task 14) and the web review tab (Task 15) don't regress any existing tax-plugin page — `en`/`fr` behavior for every pre-existing key is byte-identical, and the other three `TaxPackagePage` tabs are unmodified apart from the new 4th tab entry.
 - No fabricated tax figures anywhere — every dollar amount either comes from a real bracket calculator (`usTaxBrackets`/`caTaxBrackets`/`auTaxBrackets`) or is explicitly user-entered/ledger-derived data; the only genuinely-asserted-without-a-cited-source figures are the two flagged, dated, "verify yearly" constants (US standard mileage rate, US standard deduction) per Global Constraint 9 — confirm no others crept in.
 - Run every affected package/plugin's full test suite one more time from a clean state: `packages/agentbook-jurisdictions`, `plugins/agentbook-tax/backend`, `plugins/agentbook-core/backend`.
 
