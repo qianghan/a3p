@@ -248,9 +248,27 @@ type ReplyIntent =
   | { kind: 'question'; field?: { formCode: string; fieldId: string } }
   | { kind: 'unclear' };
 
-const CONFIRM_RE = /\b(yes|confirm|submit|looks good|go ahead|that'?s (right|correct)|correct|proceed)\b/i;
+/**
+ * Confirmation is the trigger for a REAL filing submission, so it is the
+ * NARROWEST of these patterns and the LAST one tested.
+ *
+ * The bare `correct` alternative this used to carry matched every one of
+ * "No, that's not correct", "Is this correct?" and "That number is not
+ * correct" — a rejection and two questions, each of which filed the user's
+ * return. Approval has to be affirmative on its own: "that's correct" /
+ * "looks correct", not the word `correct` appearing anywhere in a sentence
+ * that may well be negating it.
+ */
+const CONFIRM_RE = /\b(yes|confirm|submit|looks good|looks correct|go ahead|that'?s (right|correct)|proceed)\b/i;
 const CANCEL_RE = /\b(no|cancel|stop|not yet|wait)\b/i;
 const QUESTION_RE = /\b(why|how|what|explain)\b/i;
+/**
+ * Question-shaped phrasings that contain none of QUESTION_RE's words:
+ * "Is this correct?", "Should I submit?", "Can you explain the total before
+ * I submit?" — the last of which contains `submit` and therefore used to
+ * read as consent. A trailing '?' or an interrogative opener is enough.
+ */
+const QUESTION_SHAPE_RE = /\?\s*$|^(is|are|was|were|do|does|did|can|could|should|would|will|which|who|whom|when|where)\b/i;
 
 function classifyReply(
   text: string,
@@ -266,7 +284,13 @@ function classifyReply(
     // number is treated as unclear, not silently ignored.
   }
 
-  if (CONFIRM_RE.test(trimmed)) return { kind: 'confirm' };
+  // ORDER MATTERS, and it is ordered by consequence: 'confirm' is the only
+  // intent that files a real tax return, so every intent that does NOT file
+  // is decided first and 'confirm' is what's left. Cancel used to be tested
+  // AFTER confirm, so "No, that's not correct" — a rejection — submitted the
+  // filing. The cost of a wrong guess is asymmetric: a mis-read rejection or
+  // question costs one extra turn, a mis-read confirmation costs a filed
+  // return the user never approved.
   if (CANCEL_RE.test(trimmed)) return { kind: 'cancel' };
 
   const lower = trimmed.toLowerCase();
@@ -277,13 +301,17 @@ function classifyReply(
   // the one the user actually named.
   const matchedField = criticalFields.find((f) => lower.includes(f.label.toLowerCase()));
   const cents = parseMoneyInputCents(trimmed);
+  const isQuestion = QUESTION_RE.test(trimmed) || QUESTION_SHAPE_RE.test(trimmed);
 
-  if (matchedField && cents !== null) {
+  // "why is my total income 73000?" names a field and carries a number, but
+  // it is asking about that number, not setting it.
+  if (matchedField && cents !== null && !isQuestion) {
     return { kind: 'field_edit_request', field: { formCode: matchedField.formCode, fieldId: matchedField.fieldId }, cents };
   }
-  if (QUESTION_RE.test(trimmed)) {
+  if (isQuestion) {
     return { kind: 'question', field: matchedField ? { formCode: matchedField.formCode, fieldId: matchedField.fieldId } : undefined };
   }
+  if (CONFIRM_RE.test(trimmed)) return { kind: 'confirm' };
   return { kind: 'unclear' };
 }
 
