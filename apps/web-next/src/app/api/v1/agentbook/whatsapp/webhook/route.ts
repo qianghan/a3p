@@ -21,7 +21,7 @@ import { after, NextRequest, NextResponse } from 'next/server';
 import crypto from 'node:crypto';
 import { prisma as db } from '@naap/database';
 import { handleAgentMessage } from '@agentbook-core/agent-brain';
-import { callGemini, classifyAndExecuteV1, classifyOnly, executeClassification } from '@agentbook-core/server';
+import { buildTaxReviewCtx, callGemini, classifyAndExecuteV1, classifyOnly, executeClassification } from '@agentbook-core/server';
 import { reconcileSkills, SKILL_QUERY } from '@agentbook-core/skill-source';
 import { WhatsAppAdapter } from '@/lib/agentbook-chat-adapter';
 import { getAppBaseUrl, getPluginBaseUrls } from '@/lib/agentbook-config';
@@ -95,7 +95,11 @@ async function callAgentBrain(tenantId: string, phoneNumber: string, text: strin
     const baseUrls = getPluginBaseUrls(getAppBaseUrl());
     const result = await handleAgentMessage(
       { text, tenantId, channel: 'whatsapp', chatId: phoneNumber },
-      { skills, callGemini, baseUrls, classifyAndExecuteV1, classifyOnly, executeClassification },
+      // buildTaxReviewCtx: mid-review interception for the Tax Review Agent.
+      // Shared factory rather than an inline copy — this ctx is built in four
+      // places (here, web chat, Telegram, the dev Express route) and the
+      // feature was originally wired only in the last of those.
+      { skills, callGemini, baseUrls, classifyAndExecuteV1, classifyOnly, executeClassification, ...buildTaxReviewCtx(baseUrls) },
     );
     if (result?.data?.taxDraftReady && result.data?.sessionId) {
       const completedSessionId = result.data.sessionId;

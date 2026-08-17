@@ -19,6 +19,7 @@ import { after, NextRequest, NextResponse } from 'next/server';
 import { handleAgentMessage } from '@agentbook-core/agent-brain';
 import { buildGroundingFacts } from '@/lib/agentbook-grounding';
 import {
+  buildTaxReviewCtx,
   callGemini,
   classifyAndExecuteV1,
   classifyOnly,
@@ -136,6 +137,12 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         classifyAndExecuteV1,
         classifyOnly,
         executeClassification,
+        // Mid-review interception for the Tax Review Agent. Shared factory
+        // (defined in agentbook-core's server.ts) rather than an inline copy,
+        // because this ctx is built in four places — here, Telegram, WhatsApp
+        // and the dev Express route — and the feature was originally wired
+        // only in the last of those, i.e. dead on every real channel.
+        ...buildTaxReviewCtx(baseUrls),
         // Ledger facts for consultative turns. Supplied here because it reads
         // the database, and agentbook-core must not depend on apps/web-next.
         // Called only when the turn is triaged as consultation, so it costs

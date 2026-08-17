@@ -3354,6 +3354,59 @@ function resolveTaxBaseUrl(): string {
   return process.env.AGENTBOOK_TAX_URL || _appBase || 'http://localhost:4053';
 }
 
+/**
+ * The two agent-brain ctx functions that let a mid-review message be
+ * intercepted before classification (Task 16).
+ *
+ * Defined ONCE here and exported, because there are four places that
+ * build an agent-brain ctx and every one of them needs these: this
+ * file's dev Express route, plus apps/web-next's web-chat, Telegram and
+ * WhatsApp routes. When the wiring lived inline in the Express route
+ * only, the feature was dead on all three production channels — the
+ * "adapter-only logic" failure mode. A shared factory makes the wiring
+ * one call per site instead of one copy per site, so the four cannot
+ * drift apart.
+ *
+ * Same HTTP, brainHeaders()-authenticated pattern as the submit gate —
+ * agent-brain must not import tax-plugin backend code directly.
+ */
+export function buildTaxReviewCtx(baseUrls?: Record<string, string>): {
+  checkActiveTaxReview: (tenantId: string) => Promise<{ active: boolean; taxYear?: number }>;
+  answerTaxReview: (tenantId: string, taxYear: number, text: string) => Promise<{ message: string }>;
+} {
+  const taxBaseFor = () => baseUrls?.['/api/v1/agentbook-tax'] || resolveTaxBaseUrl();
+  return {
+    // Runs on EVERY inbound message, so it must never be able to take
+    // chat down: a non-JSON body (deployment-protection interstitial,
+    // 502, 404) or a network failure means "no active review", which
+    // routes the message through normal classification. The submit gate
+    // in handleTaxFilingSubmit independently protects the money path, so
+    // failing open here costs an interception, not a safety property.
+    checkActiveTaxReview: async (tenantId: string) => {
+      try {
+        const activeRes = await fetch(`${taxBaseFor()}/api/v1/agentbook-tax/tax-filing/review/active`, { headers: brainHeaders(tenantId) });
+        const activeData = await activeRes.json() as any;
+        return activeData?.data || { active: false };
+      } catch (err) {
+        console.warn('[checkActiveTaxReview] failed, treating as no active review:', err);
+        return { active: false };
+      }
+    },
+    answerTaxReview: async (tenantId: string, taxYear: number, reviewText: string) => {
+      try {
+        const msgRes = await fetch(`${taxBaseFor()}/api/v1/agentbook-tax/tax-filing/${taxYear}/review/message`, {
+          method: 'POST', headers: { ...brainHeaders(tenantId), 'Content-Type': 'application/json' }, body: JSON.stringify({ text: reviewText }),
+        });
+        const msgData = await msgRes.json() as any;
+        return { message: msgData?.data?.message || 'Sorry, something went wrong reviewing your filing.' };
+      } catch (err) {
+        console.error('[answerTaxReview] failed:', err);
+        return { message: 'Sorry, something went wrong reviewing your filing. Nothing was submitted.' };
+      }
+    },
+  };
+}
+
 // tax-filing-submit handler, extracted into its own exported function
 // (Task 16) so the submit-review gate below is unit-testable in isolation.
 // Gate: don't call the real submit endpoint until a confirmed, fresh
@@ -6285,23 +6338,10 @@ app.post('/api/v1/agentbook-core/agent/message', async (req, res) => {
         classifyOnly,
         executeClassification,
         // Task 16: lets agent-brain.ts intercept a message mid-review without
-        // importing tax-plugin backend code directly — same HTTP,
-        // brainHeaders()-authenticated pattern as the submit gate above,
-        // reaching Task 13's review endpoints on the tax plugin's server.
-        checkActiveTaxReview: async (tid: string) => {
-          const taxBase = baseUrls['/api/v1/agentbook-tax'] || 'http://localhost:4053';
-          const activeRes = await fetch(`${taxBase}/api/v1/agentbook-tax/tax-filing/review/active`, { headers: brainHeaders(tid) });
-          const activeData = await activeRes.json() as any;
-          return activeData?.data || { active: false };
-        },
-        answerTaxReview: async (tid: string, taxYear: number, reviewText: string) => {
-          const taxBase = baseUrls['/api/v1/agentbook-tax'] || 'http://localhost:4053';
-          const msgRes = await fetch(`${taxBase}/api/v1/agentbook-tax/tax-filing/${taxYear}/review/message`, {
-            method: 'POST', headers: { ...brainHeaders(tid), 'Content-Type': 'application/json' }, body: JSON.stringify({ text: reviewText }),
-          });
-          const msgData = await msgRes.json() as any;
-          return { message: msgData?.data?.message || 'Sorry, something went wrong reviewing your filing.' };
-        },
+        // importing tax-plugin backend code directly. Shared with the three
+        // apps/web-next channel routes via buildTaxReviewCtx() so no channel
+        // can be left without it.
+        ...buildTaxReviewCtx(baseUrls),
       },
     );
 

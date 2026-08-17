@@ -16,7 +16,7 @@ import { Bot, type Context as GrammyContext } from 'grammy';
 import { prisma as db } from '@naap/database';
 import { formatMoney } from '@agentbook/i18n';
 import { handleAgentMessage } from '@agentbook-core/agent-brain';
-import { callGemini, classifyAndExecuteV1, classifyOnly, executeClassification } from '@agentbook-core/server';
+import { buildTaxReviewCtx, callGemini, classifyAndExecuteV1, classifyOnly, executeClassification } from '@agentbook-core/server';
 import { reconcileSkills, SKILL_QUERY } from '@agentbook-core/skill-source';
 import { generateFilingDraft } from '@/lib/tax-fast-track-draft';
 import { runAgentLoop, type BotContext, type ActiveExpense as BotActive } from '@/lib/agentbook-bot-agent';
@@ -1237,7 +1237,11 @@ async function callAgentBrain(
     const baseUrls = getBaseUrls();
     const brainResult = await handleAgentMessage(
       { text: text || '', tenantId, channel: 'telegram', chatId, attachments, sessionAction, feedback },
-      { skills, callGemini, baseUrls, classifyAndExecuteV1, classifyOnly, executeClassification },
+      // buildTaxReviewCtx: mid-review interception for the Tax Review Agent.
+      // Shared factory rather than an inline copy — this ctx is built in four
+      // places (here, web chat, WhatsApp, the dev Express route) and the
+      // feature was originally wired only in the last of those.
+      { skills, callGemini, baseUrls, classifyAndExecuteV1, classifyOnly, executeClassification, ...buildTaxReviewCtx(baseUrls) },
     );
     if (brainResult?.data?.taxDraftReady && brainResult.data?.sessionId) {
       const completedSessionId = brainResult.data.sessionId;
