@@ -70,6 +70,18 @@ export const ShellProvider = ShellContextInstance.Provider;
  * Hook to access the full shell context.
  * Must be used within a ShellProvider.
  */
+/**
+ * Shell context if a provider is present, else null. Never throws.
+ *
+ * For services that have a usable fallback and must not take a page down when
+ * absent — currently just i18n. Every other service hook should keep using
+ * useShell(), which throws, because a missing auth or permission service is
+ * genuinely fatal and should fail loudly.
+ */
+export function useShellOptional(): ShellContext | null {
+  return useContext(ShellContextInstance);
+}
+
 export function useShell(): ShellContext {
   const context = useContext(ShellContextInstance);
   if (!context) {

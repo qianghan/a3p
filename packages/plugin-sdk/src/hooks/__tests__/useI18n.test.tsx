@@ -136,13 +136,38 @@ describe('useI18n degrade path: older shell injects no i18n', () => {
 });
 
 describe('useI18n outside a ShellProvider', () => {
-  it('throws, like every other SDK service hook', () => {
-    // A wiring mistake in the plugin's own mount(), not version skew. Failing
-    // loudly in dev is correct here.
+  // Originally this threw, "consistent with useAuthService and friends". That
+  // was wrong: those services have no fallback, so a missing provider is fatal
+  // for them. i18n HAS a working English fallback, and throwing discarded it.
+  //
+  // The cost was immediate — adding useI18n to a component broke its existing
+  // tests, which render it bare with no provider (seven render calls in one
+  // suite). Across ~26 pages of string extraction that is a standing incentive
+  // to skip i18n or rewrite unrelated tests.
+  it('renders English instead of throwing', () => {
+    expect(() => render(<Probe />)).not.toThrow();
+    expect(screen.getByTestId('key').textContent).toBe('Receipt saved');
+    expect(screen.getByTestId('locale').textContent).toBe('en');
+  });
+
+  it('still formats money and percentages with no provider', () => {
+    render(<Probe />);
+    expect(screen.getByTestId('money').textContent).toBe('$45.00');
+    expect(screen.getByTestId('pct').textContent).toBe('28.3%');
+  });
+
+  it('leaves the other SDK hooks throwing, which is correct for them', async () => {
+    // Guard against someone generalising this change: a missing auth service
+    // must still fail loudly, because there is nothing to fall back to.
+    const { useShell } = await import('../useShell.js');
+    function AuthProbe() {
+      useShell();
+      return null;
+    }
     const spy = console.error;
     console.error = () => {};
     try {
-      expect(() => render(<Probe />)).toThrow(/ShellProvider/);
+      expect(() => render(<AuthProbe />)).toThrow(/ShellProvider/);
     } finally {
       console.error = spy;
     }

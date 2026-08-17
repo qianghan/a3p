@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { BookOpen, ChevronDown, ChevronRight } from 'lucide-react';
 import { formatMoney } from '@agentbook/i18n';
 import { useTenantCurrency } from '../hooks/useTenantCurrency';
+import { useI18n } from '@naap/plugin-sdk';
 
 interface JournalLine {
   id: string;
@@ -25,6 +26,9 @@ interface JournalEntry {
 const API_BASE = '/api/v1/agentbook-core';
 
 export const LedgerPage: React.FC = () => {
+  // Logical dates are calendar days, not instants — UTC-pinned so the day
+  // does not shift with the viewer's timezone.
+  const { formatDateOnly } = useI18n();
   const [entries, setEntries] = useState<JournalEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -39,7 +43,7 @@ export const LedgerPage: React.FC = () => {
   }, []);
 
   const fmt = (cents: number) => cents > 0 ? formatMoney(cents, currency) : '';
-  const fmtDate = (d: string) => new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  const fmtDate = (d: string) => formatDateOnly(d, { month: 'short', day: 'numeric', year: 'numeric' });
 
   return (
     <div className="p-6 max-w-7xl mx-auto">

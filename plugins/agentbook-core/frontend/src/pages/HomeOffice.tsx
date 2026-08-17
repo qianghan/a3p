@@ -18,7 +18,7 @@
  */
 import React, { useEffect, useMemo, useState } from 'react';
 import { Home, Save, Plus } from 'lucide-react';
-import { ChatCTA } from '@naap/plugin-sdk';
+import { ChatCTA, useI18n } from '@naap/plugin-sdk';
 
 const API = '/api/v1/agentbook-core';
 
@@ -84,6 +84,9 @@ function dollarsToCents(s: string): number {
 }
 
 export const HomeOfficePage: React.FC = () => {
+  // Logical dates are calendar days, not instants — UTC-pinned so the day
+  // does not shift with the viewer's timezone.
+  const { formatDateOnly } = useI18n();
   const [cfg, setCfg] = useState<HomeOfficeConfig | null>(null);
   const [savingCfg, setSavingCfg] = useState(false);
   const [cfgMessage, setCfgMessage] = useState<string | null>(null);
@@ -442,7 +445,7 @@ export const HomeOfficePage: React.FC = () => {
                   {e.description || 'Home-office entry'}
                 </p>
                 <p className="text-xs text-muted-foreground">
-                  {new Date(e.date).toLocaleDateString()}
+                  {formatDateOnly(e.date)}
                 </p>
               </div>
               <span className="font-mono text-sm font-semibold">

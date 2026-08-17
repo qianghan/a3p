@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { usePlaidLink } from 'react-plaid-link';
 import { Building2, Link2, RefreshCw, CheckCircle, AlertCircle, Plus, Clock, Loader2 } from 'lucide-react';
-import { ChatCTA, useBasiqConnect } from '@naap/plugin-sdk';
+import { ChatCTA, useBasiqConnect, useI18n } from '@naap/plugin-sdk';
 import { formatMoney } from '@agentbook/i18n';
 import { useTenantCurrency } from '../hooks/useTenantCurrency';
 
@@ -56,6 +56,9 @@ function fmt(cents: number, currency: string) {
 }
 
 export const BankConnectionPage: React.FC = () => {
+  // Logical dates (expense/transaction/trip dates) are calendar days, not
+  // instants: local-time rendering showed the previous day west of UTC.
+  const { formatDateOnly } = useI18n();
   const currency = useTenantCurrency();
   const [accounts, setAccounts] = useState<BankAccount[]>([]);
   const [transactions, setTransactions] = useState<BankTransaction[]>([]);
@@ -400,7 +403,7 @@ export const BankConnectionPage: React.FC = () => {
                 {transactions.map(txn => (
                   <tr key={txn.id} className="border-b border-border/50 hover:bg-muted/20">
                     <td className="px-4 py-3 text-muted-foreground whitespace-nowrap">
-                      {new Date(txn.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                      {formatDateOnly(txn.date, { month: 'short', day: 'numeric' })}
                     </td>
                     <td className="px-4 py-3">
                       <p className="font-medium">{txn.merchantName || txn.name}</p>

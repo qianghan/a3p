@@ -47,7 +47,7 @@ export const BillsPage: React.FC = () => {
   //   2. A fr-CA user cannot type '45,50' into these fields at all — the
   //      browser blanks it. That is a usability defect, and routing through
   //      parseAmount means switching a field to type="text" later Just Works.
-  const { parseAmount } = useI18n();
+  const { parseAmount, formatDateOnly } = useI18n();
   const [summary, setSummary] = useState<Summary>({ openCents: 0, overdueCents: 0, count: 0 });
   const currency = useTenantCurrency();
   const [tab, setTab] = useState<Tab>('all');
@@ -200,7 +200,10 @@ export const BillsPage: React.FC = () => {
                     {b.description && <span className="block text-xs text-muted-foreground">{b.description}</span>}
                   </td>
                   <td className="px-4 py-2.5 text-muted-foreground">
-                    {new Date(b.dueDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                    {/* A bill DUE DATE is a logical date. Rendering it in local time
+                        showed the previous day to every viewer west of UTC —
+                        a due date off by one. formatDateOnly pins it to UTC. */}
+                    {formatDateOnly(b.dueDate, { month: 'short', day: 'numeric' })}
                   </td>
                   <td className="px-4 py-2.5 text-right text-foreground">{fmt$(b.amountCents, currency)}</td>
                   <td className="px-4 py-2.5">
