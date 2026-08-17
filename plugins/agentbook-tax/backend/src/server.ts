@@ -37,6 +37,10 @@ import {
   confirmPastFiling, updatePastFiling, deletePastFiling,
   buildAdvisorContext, getPrefillSuggestions,
 } from './tax-past-filings.js';
+import {
+  startReview, answerReviewMessage, hasConfirmedFreshReview,
+  getActiveReviewForTenant, applyFieldEdit, confirmAndSubmit,
+} from './tax-review-agent.js';
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024 } });
 
@@ -1559,6 +1563,146 @@ server.app.get('/api/v1/agentbook-tax/tax-filing/:year/status', async (req, res)
     const taxYear = parseInt(req.params.year, 10);
     const result = await checkFilingStatus(tenantId, taxYear);
     res.json(result);
+  } catch (err) { res.status(500).json({ success: false, error: String(err) }); }
+});
+
+// ============================================
+// TAX REVIEW AGENT
+// ============================================
+// This plugin had no existing callGemini-equivalent (the only prior
+// Gemini usage, tax-slips.ts's processSlipOCR, takes callGemini as an
+// injected parameter and this file's only caller of it passed a
+// hardcoded `async () => null` placeholder — see the /tax-slips/ocr
+// route above). Copied verbatim from
+// plugins/agentbook-core/backend/src/server.ts's callGemini rather than
+// attempting a shared cross-package import (same Global Constraint 10
+// precedent already used elsewhere in this plugin, e.g. tax-review-agent.ts's
+// local cleanJson()/languageDirective() copies).
+const GEMINI_DEFAULT_TIMEOUT_MS = 20_000;
+async function callGemini(systemPrompt: string, userMessage: string, maxTokens: number = 500): Promise<string | null> {
+  // Resolve key + model: env var first (production), then DB config (legacy / overrides).
+  let apiKey: string | null = process.env.GEMINI_API_KEY || null;
+  // gemini-2.0-flash was retired by Google in mid-2026 (returns 404
+  // NOT_FOUND). 2.5-flash is the current low-cost model.
+  let model = process.env.GEMINI_MODEL_FAST || 'gemini-2.5-flash';
+  if (!apiKey) {
+    // safe: AbLLMProviderConfig is admin-managed platform config (tenantId nullable).
+    const llmConfig = await db.abLLMProviderConfig.findFirst({ where: { enabled: true, isDefault: true } });
+    if (!llmConfig || llmConfig.provider !== 'gemini') return null;
+    apiKey = llmConfig.apiKey;
+    model = llmConfig.modelFast || model;
+  }
+
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+
+  const timeoutMs = Number(process.env.GEMINI_TIMEOUT_MS) || GEMINI_DEFAULT_TIMEOUT_MS;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        systemInstruction: { parts: [{ text: systemPrompt }] },
+        contents: [{ role: 'user', parts: [{ text: userMessage }] }],
+        // gemini-2.5-flash consumes output tokens on internal "thinking" by
+        // default — small maxOutputTokens budgets get burned before visible
+        // text emerges, producing truncated replies. Disable thinking for
+        // the agent's chat-grade outputs.
+        generationConfig: {
+          maxOutputTokens: maxTokens,
+          temperature: 0.3,
+          thinkingConfig: { thinkingBudget: 0 },
+        },
+      }),
+      signal: controller.signal,
+    });
+
+    if (!res.ok) return null;
+    const data = await res.json();
+    return data.candidates?.[0]?.content?.parts?.[0]?.text || null;
+  } catch (err) {
+    if ((err as Error)?.name === 'AbortError') {
+      console.warn(`[callGemini] timed out after ${timeoutMs}ms`);
+      return null;
+    }
+    console.warn('[callGemini] failed:', err);
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+// personalProfileContext: plugins/agentbook-core/backend/src/personal-profile-context.ts
+// exports buildPersonalProfileContext(), but agentbook-core/backend is not
+// a declared dependency of this plugin's package.json (only
+// @agentbook/jurisdictions, @naap/billing, @naap/database, and
+// @naap/plugin-server-sdk are) — importing it directly would be exactly
+// the cross-package boundary violation Global Constraint 10 warns
+// against, and adding a whole new shared package for a single string is
+// out of scope for this plan. Falling back to the empty string startReview()
+// and answerReviewMessage() already default to internally.
+// TODO(follow-up): thread real personal-profile context into the tax review agent once a shared cross-plugin utility package exists for it.
+
+server.app.get('/api/v1/agentbook-tax/tax-filing/review/active', async (req, res) => {
+  try {
+    const tenantId = (req as any).tenantId;
+    const active = await getActiveReviewForTenant(tenantId);
+    res.json({ success: true, data: active ? { active: true, taxYear: active.taxYear } : { active: false } });
+  } catch (err) { res.status(500).json({ success: false, error: String(err) }); }
+});
+
+server.app.post('/api/v1/agentbook-tax/tax-filing/:year/review/start', async (req, res) => {
+  try {
+    const tenantId = (req as any).tenantId;
+    const taxYear = parseInt(req.params.year, 10);
+    const result = await startReview(tenantId, taxYear, callGemini);
+    res.json({ success: true, data: result });
+  } catch (err) { res.status(500).json({ success: false, error: String(err) }); }
+});
+
+server.app.post('/api/v1/agentbook-tax/tax-filing/:year/review/message', async (req, res) => {
+  try {
+    const tenantId = (req as any).tenantId;
+    const taxYear = parseInt(req.params.year, 10);
+    const text = String(req.body?.text || '');
+    const result = await answerReviewMessage(tenantId, taxYear, text, callGemini);
+    res.json({ success: true, data: result });
+  } catch (err) { res.status(500).json({ success: false, error: String(err) }); }
+});
+
+server.app.get('/api/v1/agentbook-tax/tax-filing/:year/review/status', async (req, res) => {
+  try {
+    const tenantId = (req as any).tenantId;
+    const taxYear = parseInt(req.params.year, 10);
+    const confirmedAndFresh = await hasConfirmedFreshReview(tenantId, taxYear);
+    res.json({ success: true, data: { confirmedAndFresh } });
+  } catch (err) { res.status(500).json({ success: false, error: String(err) }); }
+});
+
+// Structured routes for the web review tab (Task 15) — no text
+// classification, since the UI already knows exactly which field/action
+// it means. Added on plan review, per Global Constraint 14.
+server.app.post('/api/v1/agentbook-tax/tax-filing/:year/review/edit-field', async (req, res) => {
+  try {
+    const tenantId = (req as any).tenantId;
+    const taxYear = parseInt(req.params.year, 10);
+    const { formCode, fieldId, valueCents } = req.body || {};
+    if (typeof formCode !== 'string' || typeof fieldId !== 'string' || !Number.isInteger(valueCents)) {
+      return res.status(400).json({ success: false, error: 'formCode, fieldId, and an integer valueCents are required' });
+    }
+    const result = await applyFieldEdit(tenantId, taxYear, formCode, fieldId, valueCents);
+    res.json({ success: true, data: result });
+  } catch (err) { res.status(500).json({ success: false, error: String(err) }); }
+});
+
+server.app.post('/api/v1/agentbook-tax/tax-filing/:year/review/confirm', async (req, res) => {
+  try {
+    const tenantId = (req as any).tenantId;
+    const taxYear = parseInt(req.params.year, 10);
+    const result = await confirmAndSubmit(tenantId, taxYear);
+    res.json({ success: true, data: result });
   } catch (err) { res.status(500).json({ success: false, error: String(err) }); }
 });
 
