@@ -2423,7 +2423,11 @@ model AbTaxFilingReview {
   id                String    @id @default(uuid())
   tenantId          String
   taxYear           Int
-  status            String    @default("summarizing") // 'summarizing' | 'awaiting_edit' | 'confirmed' | 'stale'
+  // Active: 'summarizing' | 'awaiting_edit'. Terminal: 'confirmed' | 'cancelled' | 'stale'.
+  // Only the active ones make getActiveReviewForTenant() intercept the
+  // tenant's next chat message — see ACTIVE_REVIEW_STATUSES in
+  // plugins/agentbook-tax/backend/src/tax-review-agent.ts.
+  status            String    @default("summarizing")
   awaitingFieldId   String?
   summaryText       String?
   editsApplied      Json      @default("[]")

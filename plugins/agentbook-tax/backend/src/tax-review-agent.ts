@@ -249,9 +249,24 @@ export async function hasConfirmedFreshReview(tenantId: string, taxYear: number)
   return currentHash === review.reviewedFormsHash;
 }
 
+/**
+ * The statuses that mean "this tenant is mid-review", i.e. the next
+ * message they send should be handled by the review state machine rather
+ * than normal classification.
+ *
+ * 'cancelled' and 'confirmed' are TERMINAL and deliberately absent.
+ * REVIEW_TERMINAL_CANCELLED in particular: the cancel branch used to
+ * write 'summarizing' back, which is in this set — so a cancelled review
+ * stayed "active" forever and swallowed every subsequent message from
+ * that tenant. There was no way out of review mode short of a successful
+ * confirm.
+ */
+export const ACTIVE_REVIEW_STATUSES = ['summarizing', 'awaiting_edit'] as const;
+export const REVIEW_STATUS_CANCELLED = 'cancelled';
+
 export async function getActiveReviewForTenant(tenantId: string): Promise<{ taxYear: number } | null> {
   const review = await db.abTaxFilingReview.findFirst({
-    where: { tenantId, status: { in: ['summarizing', 'awaiting_edit'] } },
+    where: { tenantId, status: { in: [...ACTIVE_REVIEW_STATUSES] } },
     orderBy: { updatedAt: 'desc' },
   });
   return review ? { taxYear: review.taxYear } : null;
@@ -337,7 +352,14 @@ export async function answerReviewMessage(
   const intent = classifyReply(text, awaitingField, criticalFields);
 
   if (intent.kind === 'cancel') {
-    await db.abTaxFilingReview.update({ where: { id: review.id }, data: { status: 'summarizing', awaitingFieldId: null } });
+    // A real TERMINAL status, not 'summarizing'. 'summarizing' is in
+    // ACTIVE_REVIEW_STATUSES, so writing it back left the review "active"
+    // and every later message from this tenant kept getting intercepted.
+    // Saying "cancelled" and then not actually exiting review mode is a
+    // lie to the user, and the only escape was a successful confirm.
+    // Restarting is a plain POST review/start (or asking again in chat),
+    // which upserts the row back to 'summarizing'.
+    await db.abTaxFilingReview.update({ where: { id: review.id }, data: { status: REVIEW_STATUS_CANCELLED, awaitingFieldId: null } });
     return { message: "No problem — I've cancelled the review and nothing was submitted. Let me know when you'd like to pick it back up." };
   }
 

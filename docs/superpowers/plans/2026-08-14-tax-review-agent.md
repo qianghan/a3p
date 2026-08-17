@@ -1511,7 +1511,10 @@ model AbTaxFilingReview {
   id                String    @id @default(uuid())
   tenantId          String
   taxYear           Int
-  status            String    @default("summarizing") // 'summarizing' | 'awaiting_edit' | 'confirmed' | 'stale'
+  // Active: 'summarizing' | 'awaiting_edit'. Terminal: 'confirmed' | 'cancelled' | 'stale'.
+  // Only the ACTIVE ones may appear in getActiveReviewForTenant()'s filter —
+  // see the correction note on the cancel branch in Task 12.
+  status            String    @default("summarizing")
   awaitingFieldId   String?
   summaryText       String?
   editsApplied      Json      @default("[]")
@@ -1940,6 +1943,10 @@ describe('answerReviewMessage', () => {
 
     expect(submitFiling).not.toHaveBeenCalled();
     expect(result.message).toMatch(/cancel/i);
+    // PLAN CORRECTION: this assertion was missing, which is why the
+    // never-exits-review-mode defect above shipped. A test that only checks
+    // the reply text passes on a cancel that cancels nothing.
+    expect(reviewUpdate.mock.calls[0][0].data.status).toBe('cancelled');
   });
 
   it('an unclear reply asks a clarifying question without calling the LLM at all', async () => {
@@ -2082,9 +2089,15 @@ export async function hasConfirmedFreshReview(tenantId: string, taxYear: number)
   return currentHash === review.reviewedFormsHash;
 }
 
+// The ACTIVE set — statuses that mean the tenant's next chat message
+// belongs to the review state machine. Terminal statuses ('confirmed',
+// 'cancelled', 'stale') must never appear here.
+export const ACTIVE_REVIEW_STATUSES = ['summarizing', 'awaiting_edit'] as const;
+export const REVIEW_STATUS_CANCELLED = 'cancelled';
+
 export async function getActiveReviewForTenant(tenantId: string): Promise<{ taxYear: number } | null> {
   const review = await db.abTaxFilingReview.findFirst({
-    where: { tenantId, status: { in: ['summarizing', 'awaiting_edit'] } },
+    where: { tenantId, status: { in: [...ACTIVE_REVIEW_STATUSES] } },
     orderBy: { updatedAt: 'desc' },
   });
   return review ? { taxYear: review.taxYear } : null;
@@ -2170,7 +2183,15 @@ export async function answerReviewMessage(
   const intent = classifyReply(text, awaitingField, criticalFields);
 
   if (intent.kind === 'cancel') {
-    await db.abTaxFilingReview.update({ where: { id: review.id }, data: { status: 'summarizing', awaitingFieldId: null } });
+    // PLAN CORRECTION (found in whole-branch review): this originally said
+    // `status: 'summarizing'`, which is one of ACTIVE_REVIEW_STATUSES — so
+    // the row stayed "active" and every subsequent message from the tenant
+    // kept being intercepted by agent-brain's early-interception block.
+    // There was no way out of review mode except a successful confirm, and
+    // the reply above claims the review was cancelled. Cancel MUST write a
+    // terminal status. Restarting is a plain POST review/start, which
+    // upserts the row back to 'summarizing'.
+    await db.abTaxFilingReview.update({ where: { id: review.id }, data: { status: REVIEW_STATUS_CANCELLED, awaitingFieldId: null } });
     return { message: "No problem — nothing was submitted. Let me know when you'd like to pick the review back up." };
   }
 

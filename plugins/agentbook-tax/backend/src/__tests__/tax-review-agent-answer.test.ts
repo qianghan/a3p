@@ -84,6 +84,10 @@ describe('answerReviewMessage', () => {
 
     expect(submitFiling).not.toHaveBeenCalled();
     expect(result.message).toMatch(/cancel/i);
+    // Asserting the reply text alone is what let the never-exits-review-mode
+    // defect ship: a cancel that writes 'summarizing' back leaves the review
+    // ACTIVE, so the message is a lie. See tax-review-cancel-exits.test.ts.
+    expect(reviewUpdate.mock.calls[0][0].data.status).toBe('cancelled');
   });
 
   it('an unclear reply asks a clarifying question without calling the LLM at all', async () => {
