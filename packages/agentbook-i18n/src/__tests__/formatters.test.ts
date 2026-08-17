@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { formatCurrency, formatMoney, formatDate, formatNumber, formatPercent } from '../formatters.js';
+import { formatCurrency, formatMoney, formatDate, formatNumber, formatPercent, formatDateOnly } from '../formatters.js';
 
 describe('formatCurrency', () => {
   it('formats USD cents to en-US dollar string', () => {
@@ -190,5 +190,72 @@ describe('formatDate — timezone regression (date-only must not shift)', () => 
   it('does not shift in fr-CA or zh-CN either', () => {
     expect(formatDate('2026-03-22', 'fr-CA')).toMatch(/22/);
     expect(formatDate('2026-03-22', 'zh-CN')).toMatch(/22/);
+  });
+});
+
+describe('formatDateOnly — logical dates never shift, whatever the value shape', () => {
+  // The gap the formatDate fix left. Prisma DateTime columns holding logical
+  // dates serialise to UTC midnight ('2026-03-22T00:00:00.000Z'), which is
+  // indistinguishable from a real instant, so formatDate must treat it as an
+  // instant and format locally — rendering "Mar 21" west of UTC. Roughly 22
+  // display sites were doing exactly that on due dates and deadlines.
+  const SHAPES = [
+    '2026-03-22',                 // bare date-only string
+    '2026-03-22T00:00:00.000Z',   // Prisma DateTime at UTC midnight
+    '2026-03-22T00:00:00Z',       // same, no millis
+  ];
+
+  it('renders the 22nd for every shape a logical date arrives in', () => {
+    for (const s of SHAPES) {
+      const out = formatDateOnly(s, 'en-US');
+      expect(out, s).toMatch(/22/);
+      expect(out, s).not.toMatch(/21/);
+      expect(out, s).toMatch(/Mar/);
+    }
+  });
+
+  it('is the fix the tax fast-track deadline had hand-patched', () => {
+    // That site passed timeZone:'UTC' inline. Same result, now named.
+    const manual = new Date('2026-03-22T00:00:00.000Z').toLocaleDateString('en-US', {
+      month: 'long', day: 'numeric', year: 'numeric', timeZone: 'UTC',
+    });
+    expect(formatDateOnly('2026-03-22T00:00:00.000Z', 'en-US', {
+      month: 'long', day: 'numeric', year: 'numeric',
+    })).toBe(manual);
+  });
+
+  it('does not roll a month boundary backwards', () => {
+    const out = formatDateOnly('2026-03-01T00:00:00.000Z', 'en-US');
+    expect(out).toMatch(/Mar/);
+    expect(out).not.toMatch(/Feb/);
+  });
+
+  it('does not roll a year boundary backwards', () => {
+    const out = formatDateOnly('2026-01-01T00:00:00.000Z', 'en-US');
+    expect(out).toMatch(/2026/);
+    expect(out).not.toMatch(/2025/);
+  });
+
+  it('ignores a caller-supplied timeZone, which would reintroduce the shift', () => {
+    // A "logical date in Vancouver time" is a contradiction; honouring it would
+    // undo the whole point.
+    const out = formatDateOnly('2026-03-22T00:00:00.000Z', 'en-US', {
+      month: 'short', day: 'numeric', timeZone: 'America/Vancouver',
+    } as Intl.DateTimeFormatOptions);
+    expect(out).toMatch(/22/);
+    expect(out).not.toMatch(/21/);
+  });
+
+  it('localises the rendered day per locale', () => {
+    expect(formatDateOnly('2026-03-22T00:00:00.000Z', 'fr-CA')).toMatch(/2026/);
+    expect(formatDateOnly('2026-03-22T00:00:00.000Z', 'zh-CN')).toMatch(/22/);
+  });
+
+  it('contrasts with formatDate, which correctly treats a timestamp as an instant', () => {
+    // Not a bug in formatDate — a genuine semantic difference. This test pins
+    // the distinction so nobody "fixes" formatDate into ignoring real instants.
+    const instant = '2026-03-22T18:30:00.000Z';
+    expect(formatDate(instant, 'en-US')).toMatch(/Mar/);
+    expect(formatDateOnly(instant, 'en-US')).toMatch(/22/);
   });
 });

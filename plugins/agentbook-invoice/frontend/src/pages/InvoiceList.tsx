@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useAgentEvents } from '@naap/plugin-sdk';
+import { useAgentEvents, useI18n } from '@naap/plugin-sdk';
+import { formatDateOnly } from '@agentbook/i18n';
 import { InvoiceStatusBadge } from '../components/InvoiceStatusBadge';
 import {
   Plus,
@@ -39,14 +40,18 @@ function formatCurrency(cents: number, currency = 'USD') {
   return new Intl.NumberFormat('en-US', { style: 'currency', currency: currency.toUpperCase() || 'USD' }).format(value);
 }
 
-function formatDate(d?: string | null) {
+function formatDate(d: string | null | undefined, locale: string) {
   if (!d) return '—';
   const parsed = new Date(d);
   if (Number.isNaN(parsed.getTime())) return '—';
-  return parsed.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  // Invoice and due dates are logical dates: UTC-rendered so the day is the
+  // same for the freelancer and their client, wherever either of them is.
+  return formatDateOnly(parsed, locale, { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
 export const InvoiceListPage: React.FC = () => {
+  // Locale for the UTC-rendered logical-date helpers above.
+  const { locale } = useI18n();
   const navigate = useNavigate();
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [loading, setLoading] = useState(true);
@@ -297,7 +302,7 @@ export const InvoiceListPage: React.FC = () => {
                   </span>
                   <span className="text-xs flex items-center gap-1" style={{ color: 'var(--text-secondary)' }}>
                     <Clock className="w-3 h-3" />
-                    {formatDate(inv.dueDate)}
+                    {formatDate(inv.dueDate, locale)}
                   </span>
                 </div>
               </div>

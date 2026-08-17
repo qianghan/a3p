@@ -41,6 +41,7 @@ const SHELL_MEMBERS = [
   'formatMoney',
   'formatCurrency',
   'formatDate',
+  'formatDateOnly',
   'formatNumber',
   'formatPercent',
   // Locale-aware form input. Added when the SDK contract gained it — this test

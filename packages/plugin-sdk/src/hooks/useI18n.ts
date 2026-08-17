@@ -100,6 +100,17 @@ function createFallbackI18n(): II18nService {
         return String(date);
       }
     },
+    formatDateOnly: (date, options) => {
+      const d = typeof date === 'string' ? new Date(date) : date;
+      try {
+        return new Intl.DateTimeFormat(locale, {
+          ...(options ?? { year: 'numeric', month: 'short', day: 'numeric' }),
+          timeZone: 'UTC',
+        }).format(d);
+      } catch {
+        return String(date);
+      }
+    },
     formatNumber: (value, options) => {
       try {
         return new Intl.NumberFormat(locale, options).format(value);

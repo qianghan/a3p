@@ -733,6 +733,18 @@ export interface II18nService {
   /** Locale-aware date. */
   formatDate(date: string | Date, options?: Intl.DateTimeFormatOptions): string;
 
+  /**
+   * Format a LOGICAL DATE — a calendar day, not an instant. Always rendered in
+   * UTC so the day never depends on the viewer's timezone.
+   *
+   * Use for due dates, deadlines, transaction dates, period boundaries.
+   * `formatDate` cannot be used for these: Prisma DateTime columns holding
+   * logical dates serialise to UTC midnight, which is indistinguishable from a
+   * real instant, so it formats locally and renders the PREVIOUS day for every
+   * viewer west of UTC.
+   */
+  formatDateOnly(date: string | Date, options?: Intl.DateTimeFormatOptions): string;
+
   /** Locale-aware number. */
   formatNumber(value: number, options?: Intl.NumberFormatOptions): string;
 

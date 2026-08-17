@@ -311,6 +311,41 @@ form/API subset is not. Options: split PR-3 into form-input (now) and
 NL-input (after PR-9), or move PR-9 ahead of PR-3. Recommend the split —
 reordering would put chat response language before the money-input fix.
 
+### C8 — The date-only fix missed the shape the API actually returns.
+
+`formatDate`'s UTC default keys on the bare `YYYY-MM-DD` shape. But `dueDate`
+and `deadline` are Prisma **DateTime** columns, so the API returns
+`'2026-03-22T00:00:00.000Z'` — a time component is present, so `formatDate`
+treats it as a real instant and formats it locally. Measured in
+`America/Vancouver`:
+
+    new Date('2026-03-22T00:00:00.000Z').toLocaleDateString('en-US', ...)
+      -> "Mar 21"
+
+So **bill due dates and tax filing deadlines were displaying a day early** for
+every viewer west of UTC, at ~22 display sites. Evidence this was already known
+and worked around locally: `agentbook-tax/pages/FastTrackTab.tsx:45` passes
+`timeZone: 'UTC'` inline on the fast-track filing deadline.
+
+The two cases are **not distinguishable from the value**: a UTC-midnight
+timestamp is equally consistent with a logical date and with a real instant.
+Only the caller knows. So the fix is an explicit second function, not smarter
+inference:
+
+    formatDate(v, locale)      instants — local time (unchanged)
+    formatDateOnly(v, locale)  logical dates — always UTC
+
+`formatDateOnly` **forces** `timeZone: 'UTC'` rather than defaulting it: a
+caller asking for a logical date *and* passing a zone is a contradiction, and
+honouring it would reintroduce the shift.
+
+Guarded by a second ratchet in `bin/i18n-string-ratchet.sh`: direct
+`toLocaleDateString`/`toLocaleString` calls in plugin frontends may only
+decrease. Baseline 55. Verified non-vacuous.
+
+Migrated so far (highest consequence first): quarterly tax deadline, invoice
+due date, expense date. ~17 display sites remain on the same recipe.
+
 ## Known traps (verified in the repo at `5dbd7eef`)
 
 Each of these has produced a real bug in this repo before. They are not

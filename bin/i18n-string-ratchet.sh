@@ -75,7 +75,39 @@ count_literals() {
   echo "$total"
 }
 
+# -----------------------------------------------------------------------------
+# Second measure: direct toLocaleDateString / toLocaleString calls in plugin
+# frontends.
+#
+# These are how the date-only timezone bug spread. `new Date(x)
+# .toLocaleDateString('en-US', ...)` on a Prisma DateTime that holds a LOGICAL
+# date (a due date, a filing deadline) renders the PREVIOUS day for every viewer
+# west of UTC — because the value serialises to UTC midnight and local-time
+# formatting walks it backwards. It was showing bill due dates and tax deadlines
+# a day early, and one site had already been hand-patched with timeZone:'UTC'.
+#
+# The fix is formatDateOnly() (or useI18n().formatDateOnly). This count must
+# only ever fall.
+# -----------------------------------------------------------------------------
+DATE_BASELINE_FILE="$ROOT_DIR/bin/i18n-date-ratchet.baseline"
+
+count_direct_dates() {
+  local total=0
+  for p in "${PLUGINS[@]}"; do
+    local dir="$ROOT_DIR/plugins/$p/frontend/src"
+    [ -d "$dir" ] || continue
+    local files
+    files=$(find "$dir" -name '*.tsx' -o -name '*.ts' 2>/dev/null | grep -v '__tests__' || true)
+    [ -n "$files" ] || continue
+    local n
+    n=$(echo "$files" | xargs grep -ohE 'toLocaleDateString|toLocaleString' 2>/dev/null | wc -l | tr -d ' ')
+    total=$((total + n))
+  done
+  echo "$total"
+}
+
 COUNT=$(count_literals)
+DATE_COUNT=$(count_direct_dates)
 
 case "${1:-}" in
   --count)
@@ -84,7 +116,8 @@ case "${1:-}" in
     ;;
   --update)
     echo "$COUNT" > "$BASELINE_FILE"
-    echo "[ratchet] baseline updated to $COUNT"
+    echo "$DATE_COUNT" > "$DATE_BASELINE_FILE"
+    echo "[ratchet] baseline updated to $COUNT literals, $DATE_COUNT direct date calls"
     exit 0
     ;;
 esac
@@ -109,8 +142,32 @@ if [ "$COUNT" -gt "$BASELINE" ]; then
 fi
 
 if [ "$COUNT" -lt "$BASELINE" ]; then
-  echo "[ratchet] PASS — count decreased by $((BASELINE - COUNT)). Run --update to lock it in."
+  echo "[ratchet] literals PASS — decreased by $((BASELINE - COUNT)). Run --update to lock it in."
 else
-  echo "[ratchet] PASS — count unchanged."
+  echo "[ratchet] literals PASS — unchanged."
+fi
+
+# ---------------------------------------------------------------------------
+# Direct-date-call ratchet
+# ---------------------------------------------------------------------------
+if [ ! -f "$DATE_BASELINE_FILE" ]; then
+  echo "[ratchet] no date baseline; current direct date calls: $DATE_COUNT"
+  echo "[ratchet] run with --update to establish it"
+  exit 1
+fi
+DATE_BASELINE=$(tr -d '[:space:]' < "$DATE_BASELINE_FILE")
+echo "[ratchet] direct toLocale*Date calls: $DATE_COUNT (baseline $DATE_BASELINE)"
+if [ "$DATE_COUNT" -gt "$DATE_BASELINE" ]; then
+  echo ""
+  echo "[ratchet] FAIL — direct date calls increased by $((DATE_COUNT - DATE_BASELINE))."
+  echo "[ratchet] new Date(x).toLocaleDateString(...) on a logical date (due date,"
+  echo "[ratchet] deadline) renders the PREVIOUS day west of UTC. Use"
+  echo "[ratchet] useI18n().formatDateOnly() instead."
+  exit 1
+fi
+if [ "$DATE_COUNT" -lt "$DATE_BASELINE" ]; then
+  echo "[ratchet] dates PASS — decreased by $((DATE_BASELINE - DATE_COUNT)). Run --update to lock it in."
+else
+  echo "[ratchet] dates PASS — unchanged."
 fi
 exit 0

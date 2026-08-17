@@ -9,9 +9,10 @@ import {
   RefreshCw,
 } from 'lucide-react';
 import { ChatCTA } from '@naap/plugin-sdk';
-import { formatMoney } from '@agentbook/i18n';
+import { formatMoney, formatDateOnly } from '@agentbook/i18n';
 import { useTenantCurrency } from '../hooks/useTenantCurrency';
 import { TaxDisclaimer } from '../components/TaxDisclaimer';
+import { useI18n } from '@naap/plugin-sdk';
 
 interface Quarter {
   id: string;
@@ -26,8 +27,12 @@ function formatCurrency(n: number, currency: string = 'USD') {
   return formatMoney(Math.round(n * 100), currency);
 }
 
-function formatDate(d: string) {
-  return new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+// A quarterly filing DEADLINE is a logical date, not an instant. Rendering it
+// in local time showed the previous day to every viewer west of UTC — a tax
+// deadline off by one day. formatDateOnly forces UTC; locale is passed in
+// because module scope has no hook access.
+function formatDate(d: string, locale: string) {
+  return formatDateOnly(d, locale, { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
 const STATUS_CONFIG: Record<string, { bg: string; border: string; text: string; badge: string; badgeText: string; icon: React.ReactNode }> = {
@@ -58,6 +63,8 @@ const STATUS_CONFIG: Record<string, { bg: string; border: string; text: string; 
 };
 
 export const QuarterlyPage: React.FC = () => {
+  // Locale for the UTC-rendered logical-date helpers above.
+  const { locale } = useI18n();
   const [quarters, setQuarters] = useState<Quarter[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -170,7 +177,7 @@ export const QuarterlyPage: React.FC = () => {
                     <Calendar className="w-3.5 h-3.5" /> Deadline
                   </span>
                   <span className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>
-                    {formatDate(q.deadline)}
+                    {formatDate(q.deadline, locale)}
                   </span>
                 </div>
                 <div className="flex items-center justify-between">

@@ -48,6 +48,7 @@ export {
   formatCurrency,
   formatMoney,
   formatDate,
+  formatDateOnly,
   formatNumber,
   formatPercent,
 } from './formatters.js';
