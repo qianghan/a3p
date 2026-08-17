@@ -735,6 +735,135 @@ function evaluateSimple(expr: string, fields: Record<string, any>): number | nul
   }
 }
 
+// === Recomputation after a manual edit ===
+
+/**
+ * The field IDs a formula reads from the SAME form. Cross-form references
+ * (`T2125.net_income_9369`) are stripped first, so a formula that reads
+ * another form's field of the same name isn't mistaken for a local
+ * dependency.
+ */
+function sameFormDependencies(formula: string, fieldIds: Set<string>): string[] {
+  const stripped = formula.replace(/[A-Za-z]\w*\.\w+/g, '');
+  const deps: string[] = [];
+  for (const token of stripped.match(/[A-Za-z_]\w*/g) || []) {
+    if (fieldIds.has(token) && !deps.includes(token)) deps.push(token);
+  }
+  return deps;
+}
+
+/** `T2125.net_income_9369` style references, as [formCode, fieldId] pairs. */
+function crossFormDependencies(formula: string): [string, string][] {
+  return (formula.match(/[A-Za-z]\w*\.\w+/g) || []).map((ref) => {
+    const [formCode, fieldId] = ref.split('.');
+    return [formCode, fieldId] as [string, string];
+  });
+}
+
+function hasValue(v: any): boolean {
+  return v !== undefined && v !== null && v !== '';
+}
+
+/**
+ * Can this formula produce a real number from what's currently stored?
+ *
+ * `SUM(a,b,c)` means "the sum of the lines that apply", and evaluateFormula
+ * scores an absent member as 0 on purpose (a freelancer with no RRSP slip has
+ * no line 20800) — so SUM is always evaluable.
+ *
+ * Every other branch coerces an absent operand to 0 as well, and there the
+ * result is a fabricated figure, not an honest total: PROGRESSIVE_TAX on a
+ * missing income field returns tax of $0, and MAX(0, missing) returns $0
+ * taxable income. On a partially populated filing that would replace a real
+ * stored number with a phantom zero on the approve-and-file screen, so those
+ * are skipped instead, leaving the stored value alone.
+ */
+function isEvaluable(
+  formula: string, deps: string[], fields: Record<string, any>, allFormFields: Record<string, Record<string, any>>,
+): boolean {
+  if (/^SUM\(/.test(formula)) return true;
+  if (deps.some((d) => !hasValue(fields[d]))) return false;
+  return crossFormDependencies(formula).every(([fc, fid]) => hasValue(allFormFields[fc]?.[fid]));
+}
+
+/**
+ * Re-evaluate one form's `calculated` fields against its own currently
+ * stored values — the same formula pass autoPopulateForm() runs, minus the
+ * ledger/slip queries, so nothing the tenant entered by hand is re-derived
+ * from source data.
+ *
+ * Called after a manual field edit (see updateFilingField). Without it, the
+ * edited value landed in the forms JSON blob while every figure computed FROM
+ * it — including the jurisdiction's own total-tax line, which is what the
+ * review screen and the submitted return both show — kept its pre-edit value.
+ *
+ * @param editedFieldId when given, only fields DOWNSTREAM of it are
+ *   recomputed, and the edited field itself is left exactly as the user
+ *   typed it. Two reasons: a manual override of a calculated field has to
+ *   stick (several jurisdictions' critical review fields, e.g. US
+ *   1040.taxable_income, are calculated fields), and an earlier override of
+ *   some unrelated or upstream calculated field must not be silently
+ *   reverted by an edit elsewhere on the form.
+ */
+export function recomputeCalculatedFields(
+  template: any,
+  fields: Record<string, any>,
+  allFormFields: Record<string, Record<string, any>> = {},
+  taxYear?: number,
+  editedFieldId?: string,
+): Record<string, any> {
+  const allFieldIds = new Set<string>();
+  const calculated: { fieldId: string; formula: string }[] = [];
+  for (const section of template?.sections || []) {
+    for (const field of section.fields || []) {
+      allFieldIds.add(field.fieldId);
+      if (field.source === 'calculated' && field.formula) {
+        calculated.push({ fieldId: field.fieldId, formula: field.formula });
+      }
+    }
+  }
+  if (calculated.length === 0) return fields;
+
+  // Transitive closure of "depends on the edited field".
+  let recomputeSet: Set<string>;
+  if (editedFieldId) {
+    recomputeSet = new Set([editedFieldId]);
+    let grew = true;
+    while (grew) {
+      grew = false;
+      for (const c of calculated) {
+        if (recomputeSet.has(c.fieldId)) continue;
+        if (sameFormDependencies(c.formula, allFieldIds).some((d) => recomputeSet.has(d))) {
+          recomputeSet.add(c.fieldId);
+          grew = true;
+        }
+      }
+    }
+    recomputeSet.delete(editedFieldId);
+  } else {
+    recomputeSet = new Set(calculated.map((c) => c.fieldId));
+  }
+
+  const next = { ...fields };
+  // Cross-form references resolve against the rest of the filing, with THIS
+  // form's in-progress values visible so a formula reading `T1.x` and one
+  // reading bare `x` agree.
+  const scope = { ...allFormFields, [template.formCode]: next };
+  // Two passes, same as populateFiling's, for forms whose fields reference
+  // each other out of template order.
+  for (let pass = 0; pass < 2; pass++) {
+    for (const c of calculated) {
+      if (!recomputeSet.has(c.fieldId)) continue;
+      if (!isEvaluable(c.formula, sameFormDependencies(c.formula, allFieldIds), next, scope)) continue;
+      const value = evaluateFormula(c.formula, next, scope, taxYear);
+      // null means "couldn't evaluate" — keep the stored value rather than
+      // blanking a figure, exactly as autoPopulateForm does.
+      if (value !== null) next[c.fieldId] = value;
+    }
+  }
+  return next;
+}
+
 // === Auto-Population ===
 
 export async function autoPopulateForm(

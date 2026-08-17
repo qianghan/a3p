@@ -2,7 +2,7 @@
  * Tax Filing — session management, auto-populate, completeness tracking.
  */
 import { db } from './db/client.js';
-import { autoPopulateForm, seedCanadianForms, seedUsForms, seedAuForms } from './tax-forms.js';
+import { autoPopulateForm, recomputeCalculatedFields, seedCanadianForms, seedUsForms, seedAuForms } from './tax-forms.js';
 
 // === Helpers ===
 
@@ -198,6 +198,30 @@ export async function updateFilingField(
   const forms = (filing.forms as Record<string, Record<string, any>>) || {};
   if (!forms[formCode]) forms[formCode] = {};
   forms[formCode][fieldId] = value;
+
+  // Re-run the formula pass for the edited form, so every figure derived from
+  // this field moves with it. Without this the edit landed in the blob alone:
+  // the review screen reads the jurisdiction's own pre-computed total-tax line
+  // out of these same stored forms (see computeFilingTotals), so editing
+  // taxable income used to leave a tax figure with no relationship to the
+  // number just entered — and confirmAndSubmit() hashed and filed it that way.
+  //
+  // Scoped to the edited form only, and to fields downstream of the edit: a
+  // full populateFiling() here would re-query the ledger and overwrite every
+  // manual entry on the filing. Cross-form dependants (CA's T1.federal_tax_40400
+  // comes from Schedule1) are therefore NOT refreshed by this pass.
+  try {
+    const template = await db.abTaxFormTemplate.findFirst({
+      where: { jurisdiction: filing.jurisdiction, formCode, version: String(taxYear), enabled: true },
+    });
+    if (template) {
+      forms[formCode] = recomputeCalculatedFields(template, forms[formCode], forms, taxYear, fieldId);
+    }
+  } catch (err) {
+    // An edit must still save if the recompute can't run — the value the user
+    // typed is the thing they asked for. Logged, not swallowed silently.
+    console.error('[updateFilingField] recompute of calculated fields failed:', err);
+  }
 
   // Remove from missingFields if present
   const missingFields: any[] = Array.isArray(filing.missingFields)

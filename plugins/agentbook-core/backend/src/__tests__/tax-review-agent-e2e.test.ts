@@ -113,6 +113,13 @@ vi.mock('../../../../agentbook-tax/backend/src/db/client.js', () => ({
     },
     abTenantConfig: { findFirst: abTenantConfigFindFirstTax },
     abTaxFilingPartner: { findFirst: abTaxFilingPartnerFindFirst },
+    // No template for this filing's year: updateFilingField() looks one up to
+    // re-run the edited form's formula pass after a manual edit, and this
+    // test's T1 fixture is hand-written rather than populateFiling() output,
+    // so it deliberately opts out of that pass. The recompute itself is
+    // covered by the tax plugin's update-filing-field-recompute.test.ts
+    // against the REAL seeded templates.
+    abTaxFormTemplate: { findFirst: vi.fn(async () => null) },
   },
 }));
 
