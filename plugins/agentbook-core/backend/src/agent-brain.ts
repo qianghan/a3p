@@ -299,6 +299,15 @@ interface AgentContext {
    * grounded advice must provide it.
    */
   buildGroundingFacts?: (tenantId: string) => Promise<string[]>;
+  /**
+   * Task 16: reaches the tax plugin's review-agent state (Tasks 11-13) over
+   * HTTP — the plugin boundary means agent-brain.ts never queries
+   * plugin_agentbook_tax tables directly. Optional for backward
+   * compatibility with callers/tests that don't construct these; without
+   * them, in-progress tax reviews are simply never intercepted mid-flow.
+   */
+  checkActiveTaxReview?: (tenantId: string) => Promise<{ active: boolean; taxYear?: number }>;
+  answerTaxReview?: (tenantId: string, taxYear: number, text: string) => Promise<{ message: string }>;
 }
 
 interface AgentResponse {
