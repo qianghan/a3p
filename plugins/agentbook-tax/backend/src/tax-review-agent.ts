@@ -1,5 +1,5 @@
 import { db } from './db/client.js';
-import { getTaxReviewPack } from '@agentbook/jurisdictions/tax-review-loader';
+import { getTaxReviewPack, listSupportedJurisdictions } from '@agentbook/jurisdictions/tax-review-loader';
 import type { ComputedFilingTotals, CriticalField } from '@agentbook/jurisdictions/interfaces';
 import { updateFilingField } from './tax-filing.js';
 import { submitFiling } from './tax-efiling.js';
@@ -148,6 +148,29 @@ function deterministicFallbackSummary(totals: ComputedFilingTotals): string {
 // not a regression for the common case of an unset locale.
 const DEFAULT_LOCALE_FOR_JURISDICTION: Record<string, string> = { ca: 'en-CA', us: 'en-US', au: 'en-AU' };
 
+/**
+ * There are TaxReviewPacks for ca/us/au only, and getTaxReviewPack() throws
+ * for anything else. Every entry point here used to call it unconditionally,
+ * so a tenant whose jurisdiction is (say) 'uk' got a 500 from review/status
+ * AND review/start — and the submit gate, which reads review/status and then
+ * POSTs review/start, therefore repeated "Please review your filing before
+ * submitting" on every attempt with no way to ever satisfy it.
+ *
+ * Same guard shape as startTaxQuestionnaire's
+ * (`listSupportedJurisdictions().includes(...)` → one plain blocked message),
+ * which is this codebase's existing answer to the same question. NOT the
+ * fall-back-to-CA pattern validateFiling uses for its rule lookup: falling
+ * back there means "check something rather than nothing", whereas falling
+ * back here would mean narrating a UK tenant's return through CRA field IDs
+ * their filing doesn't have, and asking them to approve those figures.
+ */
+export const REVIEW_UNSUPPORTED_JURISDICTION_MESSAGE =
+  "Tax Review isn't available yet for your jurisdiction, so I can't walk you through approving this filing — and nothing has been submitted. Please contact support to file directly.";
+
+export function isReviewSupportedJurisdiction(jurisdiction: string | null | undefined): boolean {
+  return listSupportedJurisdictions().includes(String(jurisdiction ?? '').toLowerCase());
+}
+
 export async function startReview(
   tenantId: string, taxYear: number, callGemini: CallGeminiFn,
 ): Promise<{ message: string; criticalFields: CriticalField[]; computedTotals: ComputedFilingTotals }> {
@@ -155,6 +178,14 @@ export async function startReview(
     where: { tenantId, taxYear, filingType: 'personal_return' },
   });
   if (!filing) throw new Error(`No filing found for tenant ${tenantId} / year ${taxYear}`);
+
+  if (!isReviewSupportedJurisdiction(filing.jurisdiction)) {
+    // No review row is written on purpose. A 'summarizing' row is ACTIVE, so
+    // agent-brain would intercept this tenant's every later message into
+    // answerReviewMessage — which can't review this jurisdiction either. That
+    // is the inescapable loop; not creating the row is what breaks it.
+    return { message: REVIEW_UNSUPPORTED_JURISDICTION_MESSAGE, criticalFields: [], computedTotals: {} };
+  }
 
   const forms = (filing.forms as Record<string, Record<string, any>>) || {};
   const totals = computeFilingTotals(filing.jurisdiction, filing.region, taxYear, forms);
@@ -375,6 +406,7 @@ export async function getReviewState(tenantId: string, taxYear: number): Promise
   status: string | null;
   active: boolean;
   confirmedAndFresh: boolean;
+  reviewSupported: boolean;
   summaryText: string | null;
   criticalFields: CriticalField[];
   computedTotals: ComputedFilingTotals;
@@ -382,10 +414,14 @@ export async function getReviewState(tenantId: string, taxYear: number): Promise
   const review = await db.abTaxFilingReview.findFirst({ where: { tenantId, taxYear } });
   const filing = await db.abTaxFiling.findFirst({ where: { tenantId, taxYear, filingType: 'personal_return' } });
 
+  // A filing this feature has no pack for reads as "not reviewable" rather
+  // than throwing a 500 out of the endpoint the submit gate polls.
+  const reviewSupported = !filing || isReviewSupportedJurisdiction(filing.jurisdiction);
+
   let criticalFields: CriticalField[] = [];
   let computedTotals: ComputedFilingTotals = {};
   let confirmedAndFresh = false;
-  if (filing) {
+  if (filing && reviewSupported) {
     const forms = (filing.forms as Record<string, Record<string, any>>) || {};
     criticalFields = getTaxReviewPack(filing.jurisdiction).criticalFields(forms);
     computedTotals = computeFilingTotals(filing.jurisdiction, filing.region, taxYear, forms);
@@ -394,9 +430,12 @@ export async function getReviewState(tenantId: string, taxYear: number): Promise
 
   return {
     status: review?.status ?? null,
-    active: !!review && (ACTIVE_REVIEW_STATUSES as readonly string[]).includes(review.status),
+    // Never report an unreviewable filing as mid-review: `active` is what
+    // routes a tenant's next message into the review state machine.
+    active: reviewSupported && !!review && (ACTIVE_REVIEW_STATUSES as readonly string[]).includes(review.status),
     confirmedAndFresh,
-    summaryText: review?.summaryText ?? null,
+    reviewSupported,
+    summaryText: reviewSupported ? (review?.summaryText ?? null) : REVIEW_UNSUPPORTED_JURISDICTION_MESSAGE,
     criticalFields,
     computedTotals,
   };
@@ -516,6 +555,21 @@ export async function answerReviewMessage(
 ): Promise<{ message: string }> {
   const filing = await db.abTaxFiling.findFirst({ where: { tenantId, taxYear, filingType: 'personal_return' } });
   if (!filing) throw new Error(`No filing found for tenant ${tenantId} / year ${taxYear}`);
+
+  if (!isReviewSupportedJurisdiction(filing.jurisdiction)) {
+    // Retire any review row created before this guard existed. Without this a
+    // tenant already holding an active row stays intercepted on every message,
+    // each one throwing out of getTaxReviewPack — the loop with no exit.
+    try {
+      await db.abTaxFilingReview.updateMany({
+        where: { tenantId, taxYear, status: { in: [...ACTIVE_REVIEW_STATUSES] } },
+        data: { status: REVIEW_STATUS_CANCELLED, awaitingFieldId: null },
+      });
+    } catch (err) {
+      console.error('[answerReviewMessage] could not close review for unsupported jurisdiction:', err);
+    }
+    return { message: REVIEW_UNSUPPORTED_JURISDICTION_MESSAGE };
+  }
 
   // Requires an ACTIVE review, not merely a row: a cancelled review must not
   // be resurrected by the next message the user happens to send.
