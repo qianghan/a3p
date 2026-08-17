@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { loadStripe, type Stripe } from '@stripe/stripe-js';
 import { Elements, PaymentElement, useStripe, useElements } from '@stripe/react-stripe-js';
 import { meApi, type Plan } from '../lib/api';
+import { useI18n } from '@naap/plugin-sdk';
 
 declare global {
   interface Window { STRIPE_PUBLISHABLE_KEY?: string; }
@@ -50,12 +51,12 @@ function PayForm({ plan, onDone }: { plan: Plan; onDone: () => void }): JSX.Elem
       confirmParams: { return_url: window.location.href },
       redirect: 'if_required',
     });
-    if (error) { setErr(error.message ?? 'Payment failed'); setBusy(false); return; }
+    if (error) { setErr(error.message ?? t('billing.payment_failed')); setBusy(false); return; }
     const pmId =
       typeof setupIntent?.payment_method === 'string'
         ? setupIntent.payment_method
         : setupIntent?.payment_method?.id;
-    if (!pmId) { setErr('No payment method returned by Stripe'); setBusy(false); return; }
+    if (!pmId) { setErr(t('billing.no_payment_method')); setBusy(false); return; }
     try {
       await meApi.subscribe(plan.id, pmId);
       onDone();
@@ -98,6 +99,7 @@ export function SubscribeModal({
 }: {
   plan: Plan; onClose: () => void; onDone: () => void;
 }): JSX.Element {
+  const { t } = useI18n();
   const [clientSecret, setClientSecret] = useState<string | null>(null);
   const [step, setStep] = useState<1 | 2>(1);
   const [err, setErr] = useState<string | null>(null);

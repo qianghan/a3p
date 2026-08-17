@@ -26,6 +26,7 @@ import type { Catalog } from './core.js';
 
 // English — the reference locale. Every key must exist here.
 import enAgent from './locales/en/agent.json';
+import enBilling from './locales/en/billing.json';
 import enCalendar from './locales/en/calendar.json';
 import enCommon from './locales/en/common.json';
 import enExpense from './locales/en/expense.json';
@@ -37,6 +38,7 @@ import enTax from './locales/en/tax.json';
 // Canadian French. Tax and accounting nouns follow CRA / Revenu Québec
 // official terminology (TPS/TVQ, not TVA) — see plan decision D4.
 import frAgent from './locales/fr-CA/agent.json';
+import frBilling from './locales/fr-CA/billing.json';
 import frCalendar from './locales/fr-CA/calendar.json';
 import frCommon from './locales/fr-CA/common.json';
 import frExpense from './locales/fr-CA/expense.json';
@@ -47,6 +49,7 @@ import frTax from './locales/fr-CA/tax.json';
 
 // Simplified Chinese.
 import zhAgent from './locales/zh-CN/agent.json';
+import zhBilling from './locales/zh-CN/billing.json';
 import zhCalendar from './locales/zh-CN/calendar.json';
 import zhCommon from './locales/zh-CN/common.json';
 import zhExpense from './locales/zh-CN/expense.json';
@@ -62,6 +65,7 @@ import zhTax from './locales/zh-CN/tax.json';
 export const CATALOG: Catalog = Object.freeze({
   en: {
     agent: enAgent,
+    billing: enBilling,
     calendar: enCalendar,
     common: enCommon,
     expense: enExpense,
@@ -72,6 +76,7 @@ export const CATALOG: Catalog = Object.freeze({
   },
   'fr-CA': {
     agent: frAgent,
+    billing: frBilling,
     calendar: frCalendar,
     common: frCommon,
     expense: frExpense,
@@ -82,6 +87,7 @@ export const CATALOG: Catalog = Object.freeze({
   },
   'zh-CN': {
     agent: zhAgent,
+    billing: zhBilling,
     calendar: zhCalendar,
     common: zhCommon,
     expense: zhExpense,
