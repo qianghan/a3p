@@ -268,6 +268,84 @@ const US_1040_2025 = {
 
 const ALL_US_FORMS = [US_SCHEDULE_C_2025, US_1040_2025];
 
+// === AU Form Templates (2025) ===
+// Income tax only — GST/BAS reporting is a separate, already-existing
+// system (packages/agentbook-jurisdictions's AU BAS engine) and is
+// deliberately not duplicated here. Medicare Levy is a flat 2% of taxable
+// income, not modeling the low-income no-levy threshold — the same
+// simplification level as SCHEDULE8_CPP/SE_TAX (Task 2).
+
+const AU_BUSINESS_SCHEDULE_2025 = {
+  jurisdiction: 'au', formCode: 'BusinessSchedule', version: '2025',
+  formName: 'Business and Professional Items Schedule (Sole Trader)',
+  category: 'business_income', dependencies: [],
+  sections: [
+    {
+      sectionId: 'identification', title: 'Business Details',
+      fields: [
+        { fieldId: 'business_name', label: 'Business name', lineNumber: '', type: 'text', required: true, source: 'auto', sourceQuery: 'tenant_business_name' },
+        { fieldId: 'abn', label: 'Australian Business Number (ABN)', lineNumber: '', type: 'text', required: true, source: 'manual' },
+      ],
+    },
+    {
+      sectionId: 'income', title: 'Business Income',
+      fields: [
+        { fieldId: 'gross_business_income', label: 'Gross business income', lineNumber: 'P8', type: 'currency', required: true, source: 'auto', sourceQuery: 'revenue_total' },
+      ],
+    },
+    {
+      sectionId: 'expenses', title: 'Business Expenses',
+      fields: [
+        { fieldId: 'advertising', label: 'Advertising', lineNumber: '', type: 'currency', required: false, source: 'auto', sourceQuery: 'expense_category:5000' },
+        { fieldId: 'insurance', label: 'Insurance', lineNumber: '', type: 'currency', required: false, source: 'auto', sourceQuery: 'expense_category:5400' },
+        { fieldId: 'legal_professional', label: 'Legal and professional expenses', lineNumber: '', type: 'currency', required: false, source: 'auto', sourceQuery: 'expense_category:5700' },
+        { fieldId: 'office_supplies', label: 'Office supplies and consumables', lineNumber: '', type: 'currency', required: false, source: 'auto', sourceQuery: 'expense_category:6100' },
+        { fieldId: 'travel', label: 'Travel expenses', lineNumber: '', type: 'currency', required: false, source: 'auto', sourceQuery: 'expense_category:6300' },
+        { fieldId: 'phone_internet', label: 'Telephone and internet', lineNumber: '', type: 'currency', required: false, source: 'auto', sourceQuery: 'expense_category:6500' },
+        { fieldId: 'other_expenses', label: 'Other business expenses', lineNumber: '', type: 'currency', required: false, source: 'auto', sourceQuery: 'expense_category:6600' },
+        { fieldId: 'total_expenses', label: 'Total business expenses', lineNumber: '', type: 'currency', required: true, source: 'calculated', formula: 'SUM(advertising,insurance,legal_professional,office_supplies,travel,phone_internet,other_expenses)' },
+        { fieldId: 'net_business_income', label: 'Net business income', lineNumber: '', type: 'currency', required: true, source: 'calculated', formula: 'gross_business_income - total_expenses' },
+      ],
+    },
+  ],
+};
+
+const AU_INDIVIDUAL_RETURN_2025 = {
+  jurisdiction: 'au', formCode: 'IndividualReturn', version: '2025',
+  formName: 'Individual Tax Return (myTax)',
+  category: 'personal_return', dependencies: ['BusinessSchedule'],
+  sections: [
+    {
+      sectionId: 'identification', title: 'Personal Details',
+      fields: [
+        { fieldId: 'full_name', label: 'Full legal name', lineNumber: '', type: 'text', required: true, source: 'manual' },
+        { fieldId: 'tfn', label: 'Tax File Number (TFN)', lineNumber: '', type: 'text', required: true, source: 'manual', sensitive: true },
+        { fieldId: 'state_of_residence', label: 'State/territory of residence', lineNumber: '', type: 'text', required: true, source: 'auto', sourceQuery: 'tenant_region' },
+      ],
+    },
+    {
+      sectionId: 'income', title: 'Income',
+      fields: [
+        { fieldId: 'salary_wages', label: 'Salary or wages', lineNumber: '1', type: 'currency', required: false, source: 'manual' },
+        { fieldId: 'business_income', label: 'Net business income (from Business Schedule)', lineNumber: '', type: 'currency', required: false, source: 'calculated', formula: 'BusinessSchedule.net_business_income' },
+        { fieldId: 'taxable_income', label: 'Taxable income', lineNumber: '', type: 'currency', required: true, source: 'calculated', formula: 'MAX(0, salary_wages + business_income)' },
+      ],
+    },
+    {
+      sectionId: 'tax_calculation', title: 'Tax Payable',
+      fields: [
+        { fieldId: 'income_tax', label: 'Income tax', lineNumber: '', type: 'currency', required: true, source: 'calculated', formula: 'PROGRESSIVE_TAX(taxable_income, au_flat)' },
+        { fieldId: 'medicare_levy', label: 'Medicare levy (2%)', lineNumber: '', type: 'currency', required: true, source: 'calculated', formula: 'taxable_income * 2 / 100' },
+        { fieldId: 'total_tax_payable', label: 'Total tax payable', lineNumber: '', type: 'currency', required: true, source: 'calculated', formula: 'income_tax + medicare_levy' },
+        { fieldId: 'payg_withheld', label: 'PAYG tax withheld', lineNumber: '', type: 'currency', required: false, source: 'manual' },
+        { fieldId: 'balance_owing', label: 'Amount you owe (or refund, if negative)', lineNumber: '', type: 'currency', required: true, source: 'calculated', formula: 'total_tax_payable - payg_withheld' },
+      ],
+    },
+  ],
+};
+
+const ALL_AU_FORMS = [AU_BUSINESS_SCHEDULE_2025, AU_INDIVIDUAL_RETURN_2025];
+
 // === Seed Forms ===
 
 export async function seedCanadianForms(): Promise<{ created: number; updated: number }> {
@@ -295,6 +373,28 @@ export async function seedCanadianForms(): Promise<{ created: number; updated: n
 export async function seedUsForms(): Promise<{ created: number; updated: number }> {
   let created = 0, updated = 0;
   for (const form of ALL_US_FORMS) {
+    const existing = await db.abTaxFormTemplate.findFirst({
+      where: { jurisdiction: form.jurisdiction, formCode: form.formCode, version: form.version },
+    });
+    if (existing) {
+      await db.abTaxFormTemplate.update({
+        where: { id: existing.id },
+        data: { formName: form.formName, category: form.category, sections: form.sections as any, dependencies: form.dependencies as any },
+      });
+      updated++;
+    } else {
+      await db.abTaxFormTemplate.create({
+        data: { ...form, sections: form.sections as any, dependencies: form.dependencies as any, validationRules: [] },
+      });
+      created++;
+    }
+  }
+  return { created, updated };
+}
+
+export async function seedAuForms(): Promise<{ created: number; updated: number }> {
+  let created = 0, updated = 0;
+  for (const form of ALL_AU_FORMS) {
     const existing = await db.abTaxFormTemplate.findFirst({
       where: { jurisdiction: form.jurisdiction, formCode: form.formCode, version: form.version },
     });
