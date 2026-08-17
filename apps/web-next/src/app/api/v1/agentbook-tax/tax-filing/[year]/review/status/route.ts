@@ -9,7 +9,7 @@
 import 'server-only';
 import { NextRequest, NextResponse } from 'next/server';
 import { safeResolveAgentbookTenant } from '@/lib/agentbook-tenant';
-import { hasConfirmedFreshReview } from '@agentbook-tax/tax-review-agent';
+import { getReviewState } from '@agentbook-tax/tax-review-agent';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -24,8 +24,14 @@ export async function GET(
     if ('response' in __resolved) return __resolved.response;
     const { tenantId } = __resolved;
     const { year } = await params;
-    const confirmedAndFresh = await hasConfirmedFreshReview(tenantId, parseInt(year, 10));
-    return NextResponse.json({ success: true, data: { confirmedAndFresh } });
+    // Read-only. `confirmedAndFresh` is what the submit gate reads; the rest
+    // is additive, and lets the web review tab render an existing review
+    // without POSTing review/start (which burns an LLM call and un-confirms
+    // the row).
+    // `state` already carries confirmedAndFresh — the field the submit gate
+    // reads — alongside the additive rendering fields.
+    const state = await getReviewState(tenantId, parseInt(year, 10));
+    return NextResponse.json({ success: true, data: state });
   } catch (err) {
     console.error('[agentbook-tax/tax-filing/:year/review/status] failed:', err);
     return NextResponse.json(

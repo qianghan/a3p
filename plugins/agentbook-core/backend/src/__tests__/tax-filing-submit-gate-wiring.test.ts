@@ -15,7 +15,9 @@ describe('tax-filing-submit gate wiring', () => {
     const src = readFileSync(new URL('../server.ts', import.meta.url), 'utf-8');
     const fnStart = src.indexOf('export async function handleTaxFilingSubmit');
     expect(fnStart).toBeGreaterThan(-1);
-    const fnBody = src.slice(fnStart, fnStart + 3000);
+    // Window sized to cover the whole function body, comments included —
+    // the gate grew a fail-closed try/catch around each hop.
+    const fnBody = src.slice(fnStart, fnStart + 6000);
     const statusIdx = fnBody.indexOf('/review/status');
     const submitIdx = fnBody.indexOf('/tax-filing/${taxYear}/submit');
     expect(statusIdx).toBeGreaterThan(-1);

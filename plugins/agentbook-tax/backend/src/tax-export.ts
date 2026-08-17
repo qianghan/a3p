@@ -105,9 +105,9 @@ export function validateFiling(forms: Record<string, any>, jurisdiction = 'ca'):
   for (const rule of rules) {
     try {
       if (!rule.check(forms)) {
-        const entry = { ruleId: rule.ruleId, formCode: rule.formCode, message: rule.message, severity: rule.severity };
-        if (rule.severity === 'error') errors.push(entry);
-        else warnings.push(entry);
+        const base = { ruleId: rule.ruleId, formCode: rule.formCode, message: rule.message };
+        if (rule.severity === 'error') errors.push({ ...base, severity: 'error' });
+        else warnings.push({ ...base, severity: 'warning' });
       }
     } catch { /* skip broken rules */ }
   }

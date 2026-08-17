@@ -182,10 +182,20 @@ export async function startReview(
     message = deterministicFallbackSummary(totals);
   }
 
+  // Re-opening a review clears the confirmed marker on purpose — the point
+  // of a review is that the user re-approves. reviewedFormsHash is cleared
+  // alongside confirmedAt so hasConfirmedFreshReview() can't keep reporting
+  // true off a stale hash while the status says 'summarizing'; the two used
+  // to disagree.
+  //
+  // The destructive part of this is why callers must not invoke startReview
+  // just to RENDER a review — the web tab did that on every mount, silently
+  // un-confirming an already-confirmed one. getReviewState() is the
+  // side-effect-free read for that.
   await db.abTaxFilingReview.upsert({
     where: { tenantId_taxYear: { tenantId, taxYear } },
     create: { tenantId, taxYear, status: 'summarizing', summaryText: message },
-    update: { status: 'summarizing', summaryText: message, awaitingFieldId: null, confirmedAt: null },
+    update: { status: 'summarizing', summaryText: message, awaitingFieldId: null, confirmedAt: null, reviewedFormsHash: null },
   });
 
   return { message, criticalFields, computedTotals: totals };
@@ -281,15 +291,27 @@ function hashForms(forms: Record<string, Record<string, any>>): string {
   return createHash('sha256').update(JSON.stringify(forms)).digest('hex');
 }
 
+/**
+ * "Confirmed, against these exact numbers." The one definition, shared by
+ * hasConfirmedFreshReview() and getReviewState() so the submit gate and the
+ * web tab can never disagree about whether a review still counts.
+ */
+function isConfirmedAndFresh(
+  review: { status: string; reviewedFormsHash: string | null } | null,
+  forms: Record<string, Record<string, any>> | null,
+): boolean {
+  if (!review || review.status !== 'confirmed' || !review.reviewedFormsHash || !forms) return false;
+  return hashForms(forms) === review.reviewedFormsHash;
+}
+
 export async function hasConfirmedFreshReview(tenantId: string, taxYear: number): Promise<boolean> {
   const review = await db.abTaxFilingReview.findFirst({ where: { tenantId, taxYear } });
-  if (!review || review.status !== 'confirmed' || !review.reviewedFormsHash) return false;
+  if (!review) return false;
 
   const filing = await db.abTaxFiling.findFirst({ where: { tenantId, taxYear, filingType: 'personal_return' } });
   if (!filing) return false;
 
-  const currentHash = hashForms((filing.forms as Record<string, Record<string, any>>) || {});
-  return currentHash === review.reviewedFormsHash;
+  return isConfirmedAndFresh(review, (filing.forms as Record<string, Record<string, any>>) || {});
 }
 
 /**
@@ -306,6 +328,51 @@ export async function hasConfirmedFreshReview(tenantId: string, taxYear: number)
  */
 export const ACTIVE_REVIEW_STATUSES = ['summarizing', 'awaiting_edit'] as const;
 export const REVIEW_STATUS_CANCELLED = 'cancelled';
+
+/**
+ * Everything a surface needs to RENDER the current review without changing
+ * it — no LLM call, no upsert, no side effects at all.
+ *
+ * Exists because the web review tab used to POST review/start on every
+ * mount, which both burned a Gemini call each time the tab was opened AND
+ * upserted the row back to 'summarizing' with confirmedAt cleared — quietly
+ * un-confirming an already-confirmed review. A read-only "what's the state?"
+ * call is what that mount actually wanted.
+ *
+ * `summaryText` is the stored summary from whenever the review was started,
+ * so re-rendering costs nothing. criticalFields/computedTotals are derived
+ * fresh from the filing, so a field edited through some other path shows up.
+ */
+export async function getReviewState(tenantId: string, taxYear: number): Promise<{
+  status: string | null;
+  active: boolean;
+  confirmedAndFresh: boolean;
+  summaryText: string | null;
+  criticalFields: CriticalField[];
+  computedTotals: ComputedFilingTotals;
+}> {
+  const review = await db.abTaxFilingReview.findFirst({ where: { tenantId, taxYear } });
+  const filing = await db.abTaxFiling.findFirst({ where: { tenantId, taxYear, filingType: 'personal_return' } });
+
+  let criticalFields: CriticalField[] = [];
+  let computedTotals: ComputedFilingTotals = {};
+  let confirmedAndFresh = false;
+  if (filing) {
+    const forms = (filing.forms as Record<string, Record<string, any>>) || {};
+    criticalFields = getTaxReviewPack(filing.jurisdiction).criticalFields(forms);
+    computedTotals = computeFilingTotals(filing.jurisdiction, filing.region, taxYear, forms);
+    confirmedAndFresh = isConfirmedAndFresh(review, forms);
+  }
+
+  return {
+    status: review?.status ?? null,
+    active: !!review && (ACTIVE_REVIEW_STATUSES as readonly string[]).includes(review.status),
+    confirmedAndFresh,
+    summaryText: review?.summaryText ?? null,
+    criticalFields,
+    computedTotals,
+  };
+}
 
 export async function getActiveReviewForTenant(tenantId: string): Promise<{ taxYear: number } | null> {
   const review = await db.abTaxFilingReview.findFirst({

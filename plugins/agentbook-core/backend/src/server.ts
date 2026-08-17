@@ -3355,6 +3355,19 @@ function resolveTaxBaseUrl(): string {
 }
 
 /**
+ * The tax year a filing conversation means when the user didn't say one:
+ * the prior calendar year, in UTC. Deliberately identical to
+ * currentFilingYear() in the tax plugin frontend
+ * (plugins/agentbook-tax/frontend/src/lib/filing-year.ts) so the chat path
+ * and the web review tab never end up reviewing different years for the
+ * same tenant. UTC, not local time, so the answer doesn't flip depending on
+ * which side of midnight on Jan 1 the request lands.
+ */
+export function defaultFilingYear(now: Date = new Date()): number {
+  return now.getUTCFullYear() - 1;
+}
+
+/**
  * The two agent-brain ctx functions that let a mid-review message be
  * intercepted before classification (Task 16).
  *
@@ -3421,7 +3434,13 @@ export async function handleTaxFilingSubmit(params: {
   const startTime = params.startTime ?? Date.now();
   const taxBase = resolveTaxBaseUrl();
   const IH = brainHeaders(tenantId);
-  const taxYear = extractedParams.taxYear || 2025;
+  // Same resolution the web review tab uses (see currentFilingYear() in
+  // plugins/agentbook-tax/frontend/src/lib/filing-year.ts). This was a
+  // hardcoded `|| 2025`, so from 2027 onward chat would have reviewed 2025
+  // while the web tab reviewed the prior year — two surfaces disagreeing on
+  // which filing they were talking about, and a submit gate that could never
+  // see a confirmed review for the year being submitted.
+  const taxYear = extractedParams.taxYear || defaultFilingYear();
 
   // The whole gate check runs inside try/catch. These are real HTTP calls in
   // production, and a deployment-protection interstitial, a 502, or a plain

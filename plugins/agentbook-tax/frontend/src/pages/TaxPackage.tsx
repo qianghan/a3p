@@ -16,6 +16,8 @@ import { FastTrackTab } from './FastTrackTab';
 import { TaxFilingReviewTab } from './TaxFilingReviewTab';
 import { TaxDisclaimer } from '../components/TaxDisclaimer';
 import { t } from '@agentbook/i18n';
+import { useTenantLocale } from '../hooks/useTenantLocale';
+import { currentFilingYear } from '../lib/filing-year';
 
 const API = '/api/v1/agentbook-tax';
 
@@ -60,6 +62,10 @@ export const TaxPackagePage: React.FC = () => {
     return requested === 'past' || requested === 'fast-track' || requested === 'review' ? requested : 'package';
   });
 
+  // The tab labels below call t(); without this the review tab's label would
+  // render the raw key. Also applies the tenant's locale to the tab it opens.
+  useTenantLocale();
+
   return (
     <div>
       {/* Tab bar */}
@@ -94,13 +100,15 @@ export const TaxPackagePage: React.FC = () => {
         </div>
       )}
 
-      {tab === 'package' ? <TaxPackageContent /> : tab === 'past' ? <PastFilingsPage /> : tab === 'fast-track' ? <FastTrackTab /> : <TaxFilingReviewTab taxYear={new Date().getUTCFullYear() - 1} />}
+      {tab === 'package' ? <TaxPackageContent /> : tab === 'past' ? <PastFilingsPage /> : tab === 'fast-track' ? <FastTrackTab /> : <TaxFilingReviewTab taxYear={currentFilingYear()} />}
     </div>
   );
 };
 
 const TaxPackageContent: React.FC = () => {
-  const lastYear = new Date().getUTCFullYear() - 1;
+  // Shared with the Filing Review tab above and with the chat path's
+  // defaultFilingYear(), so no two surfaces mean different years.
+  const lastYear = currentFilingYear();
   const yearOptions = useMemo(() => {
     // Show 5 years back + the current year so users can also build a
     // current-year preview if they want to see the running totals.

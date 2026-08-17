@@ -21,7 +21,7 @@ import { describe, it, expect, vi } from 'vitest';
  *      what the real HTTP handlers in agentbook-tax/backend/src/server.ts
  *      do (see lines ~1648-1707: review/active -> getActiveReviewForTenant,
  *      review/start -> startReview, review/message -> answerReviewMessage,
- *      review/status -> hasConfirmedFreshReview).
+ *      review/status -> getReviewState).
  *
  * Everything else in the chain is real: startReview(), answerReviewMessage(),
  * applyFieldEdit(), confirmAndSubmit(), updateFilingField(), submitFiling()
@@ -213,9 +213,11 @@ describe('Tax Review Agent — full conversation, CA path (Task 18 end-to-end)',
     const fetchMock = vi.fn(async (url: string) => {
       const u = String(url);
       if (u.includes('/review/status')) {
-        const { hasConfirmedFreshReview } = await import('../../../../agentbook-tax/backend/src/tax-review-agent.js');
-        const confirmedAndFresh = await hasConfirmedFreshReview('t1', 2025);
-        return { json: async () => ({ success: true, data: { confirmedAndFresh } }) };
+        // Mirrors what the real handlers do — getReviewState() is the
+        // read-only state call both the Express and Next status routes use.
+        const { getReviewState } = await import('../../../../agentbook-tax/backend/src/tax-review-agent.js');
+        const state = await getReviewState('t1', 2025);
+        return { json: async () => ({ success: true, data: state }) };
       }
       if (u.includes('/review/start')) {
         const { startReview } = await import('../../../../agentbook-tax/backend/src/tax-review-agent.js');

@@ -110,6 +110,48 @@ describe('the review gate is not bypassable', () => {
 });
 
 /**
+ * The web review tab used to POST review/start on every mount, which burned a
+ * Gemini call each time AND upserted the row back to 'summarizing' with
+ * confirmedAt/reviewedFormsHash cleared — silently un-confirming an approved
+ * review. getReviewState() is the side-effect-free read that mount wanted.
+ */
+describe('getReviewState is read-only', () => {
+  it('reports an in-progress review with its stored summary, writing nothing', async () => {
+    reviewRow!.status = 'summarizing';
+    (reviewRow as any).summaryText = 'Your taxable income is $73,000.';
+    const { getReviewState } = await import('../tax-review-agent.js');
+
+    const state = await getReviewState('t1', 2025);
+
+    expect(state.active).toBe(true);
+    expect(state.confirmedAndFresh).toBe(false);
+    expect(state.summaryText).toBe('Your taxable income is $73,000.');
+    expect(state.criticalFields.length).toBeGreaterThan(0);
+    expect(state.computedTotals.taxPayableCents).toBe(1639206);
+    expect(reviewUpdate).not.toHaveBeenCalled();
+  });
+
+  it('reports confirmedAndFresh for a confirmed review whose forms have not changed', async () => {
+    const { getReviewState, confirmAndSubmit } = await import('../tax-review-agent.js');
+    submitFiling.mockResolvedValue({ success: true, data: { message: 'Filed!', filed: false } });
+    await confirmAndSubmit('t1', 2025);
+
+    const state = await getReviewState('t1', 2025);
+    expect(state.status).toBe('confirmed');
+    expect(state.active).toBe(false);
+    expect(state.confirmedAndFresh).toBe(true);
+  });
+
+  it('reports nothing (rather than throwing) when the tenant has no review at all', async () => {
+    reviewRow = null;
+    const { getReviewState } = await import('../tax-review-agent.js');
+    const state = await getReviewState('t1', 2025);
+    expect(state).toMatchObject({ status: null, active: false, confirmedAndFresh: false, summaryText: null });
+    expect(reviewUpdate).not.toHaveBeenCalled();
+  });
+});
+
+/**
  * The chat path validated money through parseMoneyInputCents (rejects
  * negatives, caps at $10,000,000); the structured web edit-field route only
  * checked Number.isInteger. Same field, same money, two different rule sets —

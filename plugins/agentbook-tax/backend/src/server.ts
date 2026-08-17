@@ -38,7 +38,7 @@ import {
   buildAdvisorContext, getPrefillSuggestions,
 } from './tax-past-filings.js';
 import {
-  startReview, answerReviewMessage, hasConfirmedFreshReview,
+  startReview, answerReviewMessage, getReviewState,
   getActiveReviewForTenant, applyFieldEdit, confirmAndSubmit,
   NoActiveReviewError, InvalidMoneyValueError,
 } from './tax-review-agent.js';
@@ -1686,12 +1686,17 @@ server.app.post('/api/v1/agentbook-tax/tax-filing/:year/review/message', async (
   } catch (err) { sendReviewError(res, err); }
 });
 
+// Read-only. `confirmedAndFresh` is what the submit gate reads; the rest is
+// additive, and lets the web review tab RENDER an existing review without
+// POSTing review/start (which burns an LLM call and un-confirms the row).
 server.app.get('/api/v1/agentbook-tax/tax-filing/:year/review/status', async (req, res) => {
   try {
     const tenantId = (req as any).tenantId;
     const taxYear = parseInt(req.params.year, 10);
-    const confirmedAndFresh = await hasConfirmedFreshReview(tenantId, taxYear);
-    res.json({ success: true, data: { confirmedAndFresh } });
+    // `state` already carries confirmedAndFresh — the field the submit gate
+    // reads — alongside the additive rendering fields.
+    const state = await getReviewState(tenantId, taxYear);
+    res.json({ success: true, data: state });
   } catch (err) { res.status(500).json({ success: false, error: String(err) }); }
 });
 

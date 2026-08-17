@@ -20,7 +20,7 @@ vi.mock('server-only', () => ({}));
 const getActiveReviewForTenant = vi.fn();
 const startReview = vi.fn();
 const answerReviewMessage = vi.fn();
-const hasConfirmedFreshReview = vi.fn();
+const getReviewState = vi.fn();
 const applyFieldEdit = vi.fn();
 const confirmAndSubmit = vi.fn();
 
@@ -43,7 +43,7 @@ vi.mock('@agentbook-tax/tax-review-agent', () => ({
   getActiveReviewForTenant: (...a: unknown[]) => getActiveReviewForTenant(...a),
   startReview: (...a: unknown[]) => startReview(...a),
   answerReviewMessage: (...a: unknown[]) => answerReviewMessage(...a),
-  hasConfirmedFreshReview: (...a: unknown[]) => hasConfirmedFreshReview(...a),
+  getReviewState: (...a: unknown[]) => getReviewState(...a),
   applyFieldEdit: (...a: unknown[]) => applyFieldEdit(...a),
   confirmAndSubmit: (...a: unknown[]) => confirmAndSubmit(...a),
   NoActiveReviewError,
@@ -102,12 +102,31 @@ describe('agentbook-tax review routes — production Next surface', () => {
     expect(answerReviewMessage.mock.calls[0].slice(0, 3)).toEqual(['tenant-1', 2025, 'why is my tax so high?']);
   });
 
-  it('GET review/status reports hasConfirmedFreshReview', async () => {
-    hasConfirmedFreshReview.mockResolvedValue(true);
+  it('GET review/status reports confirmedAndFresh — what the submit gate reads', async () => {
+    getReviewState.mockResolvedValue({
+      status: 'confirmed', active: false, confirmedAndFresh: true,
+      summaryText: 'Filed.', criticalFields: [], computedTotals: {},
+    });
     const { GET } = await import('@/app/api/v1/agentbook-tax/tax-filing/[year]/review/status/route');
     const res = await GET(new NextRequest('http://localhost/x'), YEAR);
-    expect(await res.json()).toEqual({ success: true, data: { confirmedAndFresh: true } });
-    expect(hasConfirmedFreshReview).toHaveBeenCalledWith('tenant-1', 2025);
+    expect((await res.json()).data.confirmedAndFresh).toBe(true);
+    expect(getReviewState).toHaveBeenCalledWith('tenant-1', 2025);
+  });
+
+  it('GET review/status also returns the stored summary + fields, so the web tab renders without POSTing review/start', async () => {
+    getReviewState.mockResolvedValue({
+      status: 'summarizing', active: true, confirmedAndFresh: false,
+      summaryText: 'Your taxable income is $73,000.',
+      criticalFields: [{ formCode: 'T1', fieldId: 'taxable_income_26000', label: 'Taxable income', currentValue: 7300000 }],
+      computedTotals: { taxableIncomeCents: 7300000 },
+    });
+    const { GET } = await import('@/app/api/v1/agentbook-tax/tax-filing/[year]/review/status/route');
+    const json = await (await GET(new NextRequest('http://localhost/x'), YEAR)).json();
+    expect(json.data.active).toBe(true);
+    expect(json.data.summaryText).toContain('$73,000');
+    expect(json.data.criticalFields).toHaveLength(1);
+    // Read-only: asking for the state must not start a review.
+    expect(startReview).not.toHaveBeenCalled();
   });
 
   it('POST review/edit-field delegates the exact formCode/fieldId/valueCents', async () => {

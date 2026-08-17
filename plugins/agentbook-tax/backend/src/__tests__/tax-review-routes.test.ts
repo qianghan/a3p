@@ -3,7 +3,7 @@ import request from 'supertest';
 
 const startReview = vi.fn();
 const answerReviewMessage = vi.fn();
-const hasConfirmedFreshReview = vi.fn();
+const getReviewState = vi.fn();
 const getActiveReviewForTenant = vi.fn();
 const applyFieldEdit = vi.fn();
 const confirmAndSubmit = vi.fn();
@@ -28,7 +28,7 @@ class InvalidMoneyValueError extends Error {
 vi.mock('../tax-review-agent.js', () => ({
   startReview: (...a: any[]) => startReview(...a),
   answerReviewMessage: (...a: any[]) => answerReviewMessage(...a),
-  hasConfirmedFreshReview: (...a: any[]) => hasConfirmedFreshReview(...a),
+  getReviewState: (...a: any[]) => getReviewState(...a),
   getActiveReviewForTenant: (...a: any[]) => getActiveReviewForTenant(...a),
   applyFieldEdit: (...a: any[]) => applyFieldEdit(...a),
   confirmAndSubmit: (...a: any[]) => confirmAndSubmit(...a),
@@ -71,11 +71,30 @@ describe('tax review HTTP routes', () => {
     expect(res.body.data.message).toBe('Updated.');
   });
 
-  it('GET /tax-filing/:year/review/status returns confirmedAndFresh', async () => {
-    hasConfirmedFreshReview.mockResolvedValue(true);
+  it('GET /tax-filing/:year/review/status returns confirmedAndFresh — what the submit gate reads', async () => {
+    getReviewState.mockResolvedValue({
+      status: 'confirmed', active: false, confirmedAndFresh: true,
+      summaryText: 'Filed.', criticalFields: [], computedTotals: {},
+    });
     const { app } = await import('../server.js');
     const res = await request(app).get('/api/v1/agentbook-tax/tax-filing/2025/review/status').set('x-tenant-id', 't1');
     expect(res.body.data.confirmedAndFresh).toBe(true);
+  });
+
+  it('GET /tax-filing/:year/review/status also returns the stored summary + fields, so the web tab can render without POSTing review/start', async () => {
+    getReviewState.mockResolvedValue({
+      status: 'summarizing', active: true, confirmedAndFresh: false,
+      summaryText: 'Your taxable income is $73,000.',
+      criticalFields: [{ formCode: 'T1', fieldId: 'taxable_income_26000', label: 'Taxable income', currentValue: 7300000 }],
+      computedTotals: { taxableIncomeCents: 7300000 },
+    });
+    const { app } = await import('../server.js');
+    const res = await request(app).get('/api/v1/agentbook-tax/tax-filing/2025/review/status').set('x-tenant-id', 't1');
+    expect(res.body.data.active).toBe(true);
+    expect(res.body.data.summaryText).toContain('$73,000');
+    expect(res.body.data.criticalFields).toHaveLength(1);
+    // Read-only: no review was started as a side effect of asking.
+    expect(startReview).not.toHaveBeenCalled();
   });
 
   it('POST /tax-filing/:year/review/edit-field calls applyFieldEdit directly with the exact field named in the body — no text classification', async () => {

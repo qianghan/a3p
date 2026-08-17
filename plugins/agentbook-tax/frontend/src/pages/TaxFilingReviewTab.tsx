@@ -43,25 +43,61 @@ export const TaxFilingReviewTab: React.FC<{ taxYear: number }> = ({ taxYear }) =
   const [answer, setAnswer] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
+  const [alreadyConfirmed, setAlreadyConfirmed] = useState(false);
 
+  /**
+   * Opening this tab must not CHANGE anything.
+   *
+   * It used to POST review/start unconditionally on mount, which (a) burned a
+   * Gemini call every single time the tab was opened, and (b) upserted the row
+   * back to 'summarizing' with confirmedAt/reviewedFormsHash cleared —
+   * silently un-confirming a review the user had already approved, so the
+   * submit gate would demand it all over again.
+   *
+   * So: read the state first. Only start a review when there genuinely isn't
+   * one to show.
+   */
   const loadReview = useCallback(async () => {
     setLoading(true);
-    const res = await fetch(`${API}/tax-filing/${taxYear}/review/start`, { method: 'POST' });
-    const json = await res.json();
-    if (json.success) {
-      setMessage(json.data.message);
-      setFields(json.data.criticalFields || []);
-      setTotals(json.data.computedTotals || {});
+    try {
+      const stateRes = await fetch(`${API}/tax-filing/${taxYear}/review/status`);
+      const state = await stateRes.json();
+      if (state?.success) {
+        const d = state.data || {};
+        setFields(d.criticalFields || []);
+        setTotals(d.computedTotals || {});
+
+        if (d.confirmedAndFresh) {
+          setAlreadyConfirmed(true);
+          setMessage(d.summaryText || '');
+          return;
+        }
+        if (d.active && d.summaryText) {
+          // An in-progress review already has a summary — render it as-is.
+          setMessage(d.summaryText);
+          return;
+        }
+      }
+
+      // No review to show: start one. This is the only path that costs an
+      // LLM call, and the only one with side effects.
+      const res = await fetch(`${API}/tax-filing/${taxYear}/review/start`, { method: 'POST' });
+      const json = await res.json();
+      if (json.success) {
+        setMessage(json.data.message);
+        setFields(json.data.criticalFields || []);
+        setTotals(json.data.computedTotals || {});
+      }
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   }, [taxYear]);
 
   useEffect(() => { loadReview(); }, [loadReview]);
 
-  // Called after the review-load effect above so the initial `review/start`
-  // request is always the first network call this component makes. The
-  // tenant's real currency (rather than a hardcoded 'USD') only affects
-  // display formatting below, so this ordering has no effect on users.
+  // The tenant's real currency (rather than a hardcoded 'USD'). Locale is
+  // no longer bootstrapped here — the shell resolves it once and injects a
+  // bound translator via useI18n() above.
   const currency = useTenantCurrency();
 
   const saveField = async (field: CriticalField) => {
@@ -78,6 +114,10 @@ export const TaxFilingReviewTab: React.FC<{ taxYear: number }> = ({ taxYear }) =
     if (json.success) {
       setTotals(json.data.computedTotals || totals);
       setMessage(json.data.message);
+    } else if (json.error) {
+      // 409 (no active review) / 400 (amount out of range) both arrive here.
+      // Say so rather than leaving the input looking as if it saved.
+      setMessage(String(json.error));
     }
   };
 
@@ -95,10 +135,20 @@ export const TaxFilingReviewTab: React.FC<{ taxYear: number }> = ({ taxYear }) =
 
   const submit = async () => {
     setSubmitting(true);
-    const res = await fetch(`${API}/tax-filing/${taxYear}/review/confirm`, { method: 'POST' });
-    const json = await res.json();
-    if (json.success) setMessage(json.data.message);
-    setSubmitting(false);
+    try {
+      const res = await fetch(`${API}/tax-filing/${taxYear}/review/confirm`, { method: 'POST' });
+      const json = await res.json();
+      if (json.success) {
+        setMessage(json.data.message);
+        // Reflect the confirmed state so reopening the tab (or clicking again)
+        // doesn't look like the review still needs approving.
+        setAlreadyConfirmed(true);
+      } else if (json.error) {
+        setMessage(String(json.error));
+      }
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   if (loading) return <div className="p-4 sm:p-6">{t('common.loading')}</div>;
@@ -145,7 +195,9 @@ export const TaxFilingReviewTab: React.FC<{ taxYear: number }> = ({ taxYear }) =
 
       <button
         onClick={submit}
-        disabled={submitting}
+        // Already confirmed against these exact numbers — the backend would
+        // refuse a second confirm with a 409, so don't offer it.
+        disabled={submitting || alreadyConfirmed}
         className="w-full bg-primary text-primary-foreground rounded-lg py-2 text-sm font-medium disabled:opacity-50"
       >
         {t('tax.tax_review_submit_button')}
