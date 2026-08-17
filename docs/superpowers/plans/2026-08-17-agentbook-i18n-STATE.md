@@ -237,20 +237,41 @@ STILL TO DO in PR-3:
 4. **Golden tests** asserting `en-US` output is byte-identical for each.
 5. **D6 echo-back** in the chat confirmation step for `ambiguous` amounts.
 
-### C6 — The plan's inventory of 14 sites was incomplete.
+### C6 — Form inputs are `type="number"`, so the failure is NaN, not 100x.
 
-The plan counted 14 comma-stripping sites and treated that as the money-input
-surface. It missed **13 form-input sites** with the same class of bug in a
-different code shape: `Math.round(parseFloat(amount) * 100)` with no comma
-handling at all. On French input those fail three ways, all money bugs:
+Two-stage correction; the second stage overrides the first.
 
-    parseFloat('45,50')     -> 45   -> $45.00      cents silently dropped
-    parseFloat('1 500,75')  -> 1    -> $1.00       1500x understatement
-    Number('45,50')         -> NaN  -> NaN payload
+**First pass (partly wrong):** found 13 form-input sites doing
+`Math.round(parseFloat(amount) * 100)` and concluded French input would be
+misread 100x-1500x, as with the comma-stripping parsers.
 
-The 1500x understatement is worse than the 100x overstatement the plan was
-written around. Grep for `parseFloat`/`Number` near amount/price/rate/cents,
-not just for `replace(/,/g`.
+**Verified (jsdom):** every one of those fields is `<input type="number">`.
+Per the HTML value-sanitization algorithm, `.value` is normalised to a
+dot-decimal string and anything else is blanked:
+
+    element.value = '45,50'    ->  .value === ''   ->  parseFloat -> NaN
+    element.value = '1 500,75' ->  .value === ''   ->  parseFloat -> NaN
+    element.value = '8.875'    ->  .value === '8.875'
+
+So there is **no 100x misread on the form path**. The real defects are:
+
+1. **NaN reached the API.** `Math.round(parseFloat('') * 100)` is `NaN`, and
+   that went into the request body as `amountCents`. `parseAmount` returns
+   `ok:false` / `0` instead.
+2. **A fr-CA user cannot type `45,50` into these fields at all** — the browser
+   blanks it. That is a usability defect, not a silent-money one.
+
+The 100x/1500x hazard is real for `type="text"` fields and for the NL parsers,
+which is where the comma-stripping sites live. Do not conflate the two paths.
+
+**Constraint discovered:** `parseAmount` is cents-quantised, so it must NOT be
+used for rate or quantity fields. The invoice tax-rate input uses `step=0.001`
+(e.g. 8.875%); round-tripping through cents gives 8.88 and silently changes the
+tax on an invoice. Those fields keep plain numeric parsing. Tests pin this.
+
+**Inventory lesson that still stands:** grep `parseFloat`/`Number` near
+amount/price/rate, not just `replace(/,/g` — but then check the input TYPE
+before concluding what the failure mode is.
 
 ### C7 — PR-1 leaked the catalog into every plugin bundle. Fixed, now guarded.
 

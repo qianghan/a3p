@@ -211,3 +211,38 @@ describe('parseDateInput', () => {
     expect(r.iso).toBe('2026-03-22');
   });
 });
+
+describe('parseAmountToCents — replaces the NaN-to-API path', () => {
+  // What the form sites actually suffered from. These are <input type="number">
+  // fields, whose value-sanitization algorithm blanks any non-canonical value
+  // (verified in jsdom: setting '45,50' gives value === ''). So the old code
+  // did NOT misread French input by 100x — it produced NaN:
+  //
+  //     Math.round(parseFloat('') * 100)  ->  NaN
+  //
+  // and NaN went into the request body as amountCents.
+  it('returns ok:false and 0 for the blank a number input produces', () => {
+    const r = parseAmountToCents('', 'fr-CA');
+    expect(r.ok).toBe(false);
+    expect(r.cents).toBe(0);
+    expect(Number.isNaN(r.cents)).toBe(false);
+  });
+
+  it('never yields NaN cents for any input a number field can emit', () => {
+    for (const raw of ['', '   ', '45.50', '8.875', '0', '-0']) {
+      const r = parseAmountToCents(raw, 'en-US');
+      expect(Number.isNaN(r.cents), JSON.stringify(raw)).toBe(false);
+      expect(Number.isFinite(r.cents), JSON.stringify(raw)).toBe(true);
+    }
+  });
+
+  it('is cents-quantised, so it must NOT be used for rate fields', () => {
+    // Documents a real constraint rather than a behaviour to rely on.
+    // A tax-rate input uses step=0.001 (e.g. 8.875%). Round-tripping that
+    // through cents loses the third decimal, silently changing the tax on an
+    // invoice — so rate/quantity fields keep plain numeric parsing.
+    const r = parseAmountToCents('8.875', 'en-US');
+    expect(r.cents).toBe(888); // 8.88, NOT 8.875
+    expect(r.cents / 100).not.toBe(8.875);
+  });
+});
