@@ -1525,7 +1525,7 @@ server.app.post('/api/v1/agentbook-tax/tax-filing/:year/validate', async (req, r
     const taxYear = parseInt(req.params.year, 10);
     const filing = await db.abTaxFiling.findFirst({ where: { tenantId, taxYear, filingType: 'personal_return' } });
     if (!filing) return res.status(404).json({ success: false, error: 'No filing found' });
-    const result = validateFiling((filing.forms as any) || {});
+    const result = validateFiling((filing.forms as any) || {}, filing.jurisdiction);
     res.json({ success: true, data: result });
   } catch (err) { res.status(500).json({ success: false, error: String(err) }); }
 });

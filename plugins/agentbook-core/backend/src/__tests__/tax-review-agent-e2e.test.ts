@@ -63,6 +63,13 @@ let filingRow: any = {
     T1: {
       total_income_15000: 7300000, // $73,000.00
       taxable_income_26000: 7300000,
+      // The T1 total-payable line, as populateFiling's formula chain would
+      // have computed it (federal + provincial + CPP). computeFilingTotals
+      // reads THIS rather than re-deriving income tax from the brackets, so
+      // the review can never show a figure that disagrees with the form the
+      // user is about to submit. $16,392.06 also happens to equal
+      // caTaxBrackets.calculateTax(7300000, 2025, undefined, 'ON').taxCents.
+      total_tax_43500: 1639206,
       balance_owing_48500: 0,
       sin: '123456789',
       full_name: 'Jamie Test',
@@ -175,9 +182,9 @@ vi.mock('../db/client.js', () => ({
 // own deterministic classifyReply() routing.
 const callGeminiMock = vi.fn().mockResolvedValueOnce(
   // $73,000 and $16,392.06 (rounds to $16,392) are the REAL computed
-  // totalIncomeCents/taxableIncomeCents and the real CA/ON 2025 bracket tax
-  // on that income (caTaxBrackets.calculateTax(7300000, 2025, undefined,
-  // 'ON').taxCents === 1639206) — verifyGroundedNumbers() rejects anything
+  // totalIncomeCents/taxableIncomeCents and the filing's own
+  // T1.total_tax_43500 total-payable line (see the fixture above) —
+  // verifyGroundedNumbers() rejects anything
   // that isn't grounded in one of startReview's own computed totals, so an
   // invented figure here (as in Task 11's own anti-hallucination test)
   // would silently fall back to the deterministic summary instead of this
