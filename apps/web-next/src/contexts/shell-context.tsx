@@ -1,5 +1,6 @@
 'use client';
 
+import { useShellI18n, type ShellI18n } from '@/hooks/use-shell-i18n';
 import {
   createContext,
   useContext,
@@ -374,6 +375,12 @@ export interface ShellContext {
   team?: ITeamContext;
   api?: IApiClient;
   capabilities?: ICapabilityService;
+  /**
+   * Localisation, resolved once by the shell and shared by every plugin.
+   * Optional because a CDN plugin bundle can be newer than the shell serving
+   * it; plugins should use the SDK's `useI18n()`, which degrades to English.
+   */
+  i18n?: ShellI18n;
   version: string;
 }
 
@@ -1217,6 +1224,10 @@ export function ShellProvider({ children }: { children: ReactNode }) {
     isLoading: tenantLoading,
   }), [currentInstallation, tenantLoading, tenant, eventBus]);
 
+  // Resolve the locale once here, not per plugin: one catalog copy, no
+  // per-bundle size cost, and every plugin on screen agrees on the language.
+  const i18n = useShellI18n();
+
   // Build context value
   const value = useMemo<ShellContextValue>(() => ({
     auth,
@@ -1232,6 +1243,7 @@ export function ShellProvider({ children }: { children: ReactNode }) {
     team,
     api,
     capabilities,
+    i18n,
     version: '2.0.0',
     isSidebarOpen,
     toggleSidebar,
@@ -1242,7 +1254,7 @@ export function ShellProvider({ children }: { children: ReactNode }) {
     toggleTheme,
   }), [
     auth, navigate, eventBus, theme, notifications, integrations, logger,
-    permissions, tenant, tenantContext, team, api, capabilities,
+    permissions, tenant, tenantContext, team, api, capabilities, i18n,
     isSidebarOpen, toggleSidebar, isMobileMenuOpen, toggleMobileMenu, closeMobileMenu, isDark, toggleTheme
   ]);
 
@@ -1278,6 +1290,7 @@ export function useShellServices(): ShellContext {
     team: shell.team,
     api: shell.api,
     capabilities: shell.capabilities,
+    i18n: shell.i18n,
     version: shell.version,
   };
 }

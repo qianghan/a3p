@@ -7,6 +7,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma as db } from '@naap/database';
 import { safeResolveAgentbookTenant } from '@/lib/agentbook-tenant';
 import { normalizeRegionCode } from '@/lib/region-codes';
+import { isSelectableLocale, canonicalizeLocale, localeValidationError } from '@agentbook/i18n';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -141,7 +142,20 @@ export async function PUT(request: NextRequest): Promise<NextResponse> {
     if (body.abn !== undefined) update.abn = body.abn;
     if (body.brandColor) update.brandColor = body.brandColor;
     if (body.currency) update.currency = body.currency;
-    if (body.locale) update.locale = body.locale;
+    // `locale` now drives UI translation, not just number/date formatting, so
+    // an unvalidated value would select a language pack that does not exist.
+    // Previously this was `update.locale = body.locale` with no check at all,
+    // unlike its whitelisted neighbours above.
+    //
+    // isSelectableLocale deliberately accepts 'en-US' (the column default that
+    // every existing row holds) and other legacy values, so validation cannot
+    // reject data already in the database.
+    if (body.locale) {
+      if (!isSelectableLocale(body.locale)) {
+        return NextResponse.json({ error: localeValidationError() }, { status: 400 });
+      }
+      update.locale = canonicalizeLocale(body.locale);
+    }
     if (body.timezone) update.timezone = body.timezone;
     if (body.fiscalYearStart) update.fiscalYearStart = body.fiscalYearStart;
     if (body.aiCpaAutoFix !== undefined) update.aiCpaAutoFix = !!body.aiCpaAutoFix;
@@ -221,7 +235,7 @@ export async function PUT(request: NextRequest): Promise<NextResponse> {
         visaStatus: body.visaStatus ?? null,
         homeCountry: body.homeCountry ?? null,
         currency: body.currency || 'USD',
-        locale: body.locale || 'en-US',
+        locale: body.locale ? canonicalizeLocale(body.locale) : 'en-US',
         timezone: body.timezone || 'America/New_York',
       },
     });

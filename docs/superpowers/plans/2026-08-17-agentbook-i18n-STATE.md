@@ -109,8 +109,8 @@ Consequences, which are contained:
 | PR | Title | Status | Attempts | PR link | Notes |
 |----|-------|--------|----------|---------|-------|
 | 0 | Baseline capture | **done** | 1 | (in PR-1) | e2e line deferred to CI — see above |
-| 1 | Package foundation + un-mask plugin tests | **done** | 1 | _pushing_ | `f55e3ccf`; see corrections below |
-| 2 | Locale plumbing + language selector | pending | 0 | — | selector becomes visible |
+| 1 | Package foundation + un-mask plugin tests | **done** | 1 | #454 | merged `4ec17c10`; see corrections below |
+| 2 | Locale plumbing + language selector | **done** | 1 | _pushing_ | selector now shown to ALL jurisdictions, not just CA |
 | 3 | Locale-safe money + date I/O | pending | 0 | — | **highest risk** — see D6 |
 | 4 | Extraction: core + billing | pending | 0 | — | inert |
 | 5 | Extraction: expense + invoice | pending | 0 | — | inert |
@@ -166,6 +166,31 @@ zero errors on the i18n surface and that the repo-wide count does not grow.
 Same principle as the e2e baseline-superset rule: measure direction of
 travel, not an absolute that was never true. Baseline now **343** (PR-1's
 deletion removed 4).
+
+### C4 — The language selector already existed, gated to Canada only.
+
+The plan assumed a selector had to be built. One already existed in
+`AgentBookSettingsPanel.tsx`, but behind `form.jurisdiction === 'ca'` and
+offering only `en-CA`/`fr-CA` — so a Chinese- or French-speaking tenant
+anywhere outside Canada could not reach it at all. Its help text also promised
+"the rest of the app interface stays in English", which this plan makes false.
+
+PR-2 removed the jurisdiction gate and made the options derive from catalog
+readiness via `offerableLocales()`, so:
+- a `scaffold` locale (zh-CN today) is never offered — picking 简体中文 and
+  getting English would be worse than not offering it;
+- the picker grows by itself when a language pack lands, with no second list;
+- `isSelectableLocale` stays deliberately WIDER than the picker, so a tenant
+  already stored as `en-CA` can still save their settings page.
+
+### C5 — TS6307 is excluded from the typecheck guard.
+
+75 of the repo's 344 tsc errors are TS6307 ("File X is not listed within the
+file list of project"), a tsconfig-INCLUDE artifact rather than a type error —
+18 on `plugin-sdk/src/hooks/index.ts` alone, one per exported hook, almost all
+predating this work. Counting them meant any new SDK export tripped the guard
+for a reason unrelated to correctness. The guard now measures the **269 real
+type errors**; baseline 269.
 
 ### C3 — A pre-existing timezone bug in `formatDate`, owned by the formatting PR.
 

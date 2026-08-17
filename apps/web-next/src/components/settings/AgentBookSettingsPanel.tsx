@@ -7,11 +7,35 @@ import {
   Copy, Check, Gift, Users, CreditCard,
 } from 'lucide-react';
 import { JURISDICTION_OPTIONS, defaultCurrencyFor, formatCurrencyCents } from '@/lib/jurisdiction-currency';
+import { offerableLocales } from '@agentbook/i18n';
 import { SubscribeModal } from './SubscribeModal';
 
 const CURRENCY_OPTIONS = ['USD', 'CAD', 'GBP', 'AUD', 'EUR', 'JPY', 'CHF', 'MXN', 'BRL', 'INR'];
 
 // ── Types ─────────────────────────────────────────────────────────────────────
+
+
+// Derived once at module load from catalog readiness — see offerableLocales().
+const LANGUAGE_OPTIONS = offerableLocales();
+
+/**
+ * Which offered option represents the tenant's stored locale.
+ *
+ * The stored value is not always an offered value: CA tenants were previously
+ * written as 'en-CA', which is still valid but is not in the picker. Match on
+ * the language subtag so such a tenant sees "English (US)" selected rather than
+ * silently defaulting to the first option and re-saving a different language.
+ */
+function matchOfferableLocale(stored?: string): string {
+  const fallback = LANGUAGE_OPTIONS[0]?.value ?? 'en-US';
+  if (!stored) return fallback;
+  const s = stored.toLowerCase();
+  const exact = LANGUAGE_OPTIONS.find((l) => l.value.toLowerCase() === s);
+  if (exact) return exact.value;
+  const lang = s.split('-')[0];
+  const byLang = LANGUAGE_OPTIONS.find((l) => l.value.toLowerCase().split('-')[0] === lang);
+  return byLang?.value ?? fallback;
+}
 
 interface TenantConfig {
   companyName: string | null;
@@ -1938,23 +1962,35 @@ export function AgentBookSettingsPanel({ initialTab }: { initialTab?: string }):
                 Defaults from your country, but you can override it (e.g. invoicing overseas clients).
               </p>
             </div>
-            {form.jurisdiction === 'ca' && (
-              <div>
-                <label className="block text-sm font-medium text-foreground">Language</label>
-                <select
-                  value={(form.locale ?? 'en-CA').toLowerCase().startsWith('fr') ? 'fr-CA' : 'en-CA'}
-                  onChange={(e) => set({ locale: e.target.value })}
-                  className={inputCls}
-                >
-                  <option value="en-CA">English</option>
-                  <option value="fr-CA">Français</option>
-                </select>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  Switches Quebec sales-tax labels to TPS/TVQ and chat replies to French. Phase 1 — the
-                  rest of the app interface stays in English for now.
-                </p>
-              </div>
-            )}
+            {/*
+              Language is no longer gated on jurisdiction === 'ca'. That gate
+              meant a Chinese- or French-speaking tenant anywhere outside Canada
+              had no way to reach this control at all.
+
+              Options come from offerableLocales(), which filters the selectable
+              set by catalog readiness — a locale whose translations are still
+              placeholder English is never presented as a choice. The list grows
+              on its own when a language pack lands; there is no second list to
+              update here.
+            */}
+            <div>
+              <label className="block text-sm font-medium text-foreground">Language</label>
+              <select
+                value={matchOfferableLocale(form.locale)}
+                onChange={(e) => set({ locale: e.target.value })}
+                className={inputCls}
+              >
+                {LANGUAGE_OPTIONS.map((l) => (
+                  <option key={l.value} value={l.value}>{l.label}</option>
+                ))}
+              </select>
+              <p className="mt-1 text-xs text-muted-foreground">
+                {form.jurisdiction === 'ca'
+                  ? 'Sets your interface language. French also switches Quebec sales-tax labels to TPS/TVQ.'
+                  : 'Sets your interface language.'}
+                {' '}Tax guidance and filing disclosures stay in English.
+              </p>
+            </div>
           </div>
           {form.businessType === 'student' ? (
             <div className="rounded-lg border border-border bg-muted/30 p-4 space-y-4">

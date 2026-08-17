@@ -14,6 +14,10 @@
  * There is deliberately no setLocale()/getLocale(). See core.ts for why.
  */
 
+import { resolveLocale as _resolveLocale } from './core.js';
+import { LOCALE_STATUS as _LOCALE_STATUS, AVAILABLE_LOCALES as _AVAILABLE } from './catalog.js';
+import { getOfferableLocales as _getOfferable } from './selectable.js';
+
 export { createTranslator, resolveLocale, DEFAULT_LOCALE } from './core.js';
 export type { Translator, Catalog, TranslationData } from './core.js';
 
@@ -27,6 +31,27 @@ export {
   SCAFFOLD_LOCALES,
 } from './catalog.js';
 export type { LocaleReadiness } from './catalog.js';
+
+export {
+  getOfferableLocales,
+  SELECTABLE_LOCALES,
+  SELECTABLE_LOCALE_VALUES,
+  isSelectableLocale,
+  canonicalizeLocale,
+  localeValidationError,
+} from './selectable.js';
+export type { SelectableLocale } from './selectable.js';
+
+/**
+ * Locales offerable to a user right now — the selectable set filtered by
+ * catalog readiness, so a `scaffold` locale is never presented as a choice.
+ * Pre-bound to this build's CATALOG and LOCALE_STATUS.
+ */
+export function offerableLocales() {
+  return _getOfferable(_LOCALE_STATUS, (tenantLocale) =>
+    _resolveLocale({ tenantLocale }, _AVAILABLE),
+  );
+}
 
 /**
  * Formatters. Unchanged by the translator rewrite — they already take `locale`
