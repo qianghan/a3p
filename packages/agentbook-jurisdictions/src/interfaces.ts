@@ -271,6 +271,46 @@ export interface FilingDraftPack {
   parseClientLetter(parsed: unknown): { letterBody: string }
 }
 
+// ─── Tax Review Agent ───────────────────────────────────────────────────────
+
+export interface CriticalField {
+  formCode: string
+  fieldId: string
+  label: string
+  /** Read directly from AbTaxFiling.forms[formCode][fieldId] at review time. */
+  currentValue: number | string | boolean | null
+}
+
+export interface ComputedFilingTotals {
+  totalIncomeCents?: number
+  totalDeductionsCents?: number
+  taxableIncomeCents?: number
+  taxPayableCents?: number
+}
+
+export interface TaxReviewPack {
+  jurisdiction: string
+  /** Pure data — no LLM. Which fields in `forms` are worth surfacing for review, and their human labels. */
+  criticalFields(forms: Record<string, Record<string, any>>): CriticalField[]
+  summaryPrompt(input: {
+    forms: Record<string, Record<string, any>>
+    computedTotals: ComputedFilingTotals
+    personalProfileContext: string
+    /** BCP-47, e.g. 'en-US', 'fr-CA', 'zh-CN' — from AbTenantConfig.locale. Used ONLY for number/currency formatting inside the prompt (via @agentbook/i18n's formatCurrency); the language the LLM replies in is a separate concern, layered on by the orchestrator via languageDirective() — see Task 11. Packs never decide what language to write in. */
+    locale: string
+  }): string
+  parseSummary(parsed: unknown): { summaryText: string }
+  explainFieldPrompt(input: {
+    field: CriticalField
+    forms: Record<string, Record<string, any>>
+    computedTotals: ComputedFilingTotals
+    personalProfileContext: string
+    locale: string
+    question?: string
+  }): string
+  parseFieldExplanation(parsed: unknown): { explanation: string }
+}
+
 // ─── Startup Tax Benefits ────────────────────────────────────────────────────
 // Jurisdiction-agnostic contract for the agentbook-startup plugin's 5-phase
 // workflow (recommend → collect → draft → review → submit). One implementation
