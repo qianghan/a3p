@@ -1,6 +1,28 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { handleAgentMessage } from '../agent-brain.js';
 
+// A pending destructive-action confirmation belonging to some OTHER skill,
+// used by the collision test at the bottom of this file. `pendingClassification`
+// is the shape agent-brain's Step 1 confirm branch executes via
+// ctx.executeClassification.
+const OTHER_PENDING_SESSION = {
+  id: 'sess-other',
+  version: 1,
+  status: 'active',
+  trigger: 'delete all my draft invoices',
+  plan: [],
+  currentStep: 0,
+  stepResults: [],
+  undoStack: [],
+  expiresAt: new Date(Date.now() + 60 * 60 * 1000),
+  pendingConfirmation: {
+    pendingClassification: { skill: { name: 'delete-invoices' }, params: {} },
+    text: 'delete all my draft invoices',
+    channel: 'telegram',
+    attachments: [],
+  },
+};
+
 // Same DB-free mock shape used by every other test file in this suite that
 // drives handleAgentMessage end to end (see
 // agent-brain-confidence-escalation.test.ts) — the backend test suite runs
@@ -71,6 +93,78 @@ describe('agent-brain — tax review early interception', () => {
     expect(ctx.classifyOnly).not.toHaveBeenCalled();
     expect(ctx.classifyAndExecuteV1).not.toHaveBeenCalled();
     expect(result.data.message).toContain('$80,000');
+  });
+
+  /**
+   * The step-ordering bug. The interception block's comment always claimed it
+   * ran "before an activeSession's own classification", but the code sat AFTER
+   * Step 1 — so a tenant holding BOTH an in-progress tax review and an
+   * unrelated pending destructive-action confirmation had their bare "yes"
+   * claimed by Step 1, which executed that other action and never delivered
+   * the reply to the review at all. Reachable on Telegram, whose adapter maps
+   * an anchored ^yes$ to sessionAction='confirm' before agent-brain classifies
+   * anything itself.
+   */
+  it('an in-progress tax review outranks an unrelated pending confirmation for the same "yes"', async () => {
+    const { db } = await import('../db/client.js');
+    // $executeRaw returns 1 in this file's mock, so updateSession()'s
+    // optimistic lock SUCCEEDS — the pending-confirmation branch really would
+    // reach ctx.executeClassification if it got there first. Without that the
+    // assertion below would pass for the wrong reason.
+    (db.abAgentSession.findFirst as any).mockResolvedValueOnce(OTHER_PENDING_SESSION);
+
+    const ctx = makeCtx({
+      checkActiveTaxReview: vi.fn().mockResolvedValue({ active: true, taxYear: 2025 }),
+      answerTaxReview: vi.fn().mockResolvedValue({ message: '✅ Filed your 2025 return.' }),
+    });
+
+    const result = await handleAgentMessage(
+      { text: 'yes', tenantId: 't1', channel: 'telegram', sessionAction: 'confirm' } as any,
+      ctx as any,
+    );
+
+    expect(ctx.answerTaxReview).toHaveBeenCalledWith('t1', 2025, 'yes');
+    // The other skill's gated destructive action must NOT have run — that
+    // approval was never given.
+    expect(ctx.executeClassification).not.toHaveBeenCalled();
+    expect(result.data.skillUsed).toBe('tax-review-agent');
+    expect(result.data.message).toContain('2025 return');
+  });
+
+  it('the interception is checked before session recovery even bothers to load a session', async () => {
+    const { db } = await import('../db/client.js');
+    const ctx = makeCtx({
+      checkActiveTaxReview: vi.fn().mockResolvedValue({ active: true, taxYear: 2025 }),
+      answerTaxReview: vi.fn().mockResolvedValue({ message: 'Updated.' }),
+    });
+
+    await handleAgentMessage({ text: 'yes', tenantId: 't1', channel: 'web' } as any, ctx as any);
+
+    // Ordering, asserted structurally: an active review short-circuits before
+    // Step 1's getActiveSession() query runs at all.
+    expect(ctx.checkActiveTaxReview).toHaveBeenCalled();
+    expect(db.abAgentSession.findFirst).not.toHaveBeenCalled();
+  });
+
+  it('a session action for a tenant with NO active review is handled by Step 1 exactly as before', async () => {
+    const { db } = await import('../db/client.js');
+    (db.abAgentSession.findFirst as any).mockResolvedValueOnce(OTHER_PENDING_SESSION);
+
+    const ctx = makeCtx(); // checkActiveTaxReview -> { active: false }
+    ctx.executeClassification.mockResolvedValue({
+      skillUsed: 'delete-invoices',
+      confidence: 1,
+      responseData: { message: 'Deleted 3 draft invoices.', skillUsed: 'delete-invoices', confidence: 1 },
+    });
+
+    const result = await handleAgentMessage(
+      { text: 'yes', tenantId: 't1', channel: 'telegram', sessionAction: 'confirm' } as any,
+      ctx as any,
+    );
+
+    expect(ctx.executeClassification).toHaveBeenCalled();
+    expect(ctx.answerTaxReview).not.toHaveBeenCalled();
+    expect(result.data.message).toContain('Deleted 3 draft invoices');
   });
 
   it('when no review is active, classification runs exactly as before (no behavior change for every other message)', async () => {

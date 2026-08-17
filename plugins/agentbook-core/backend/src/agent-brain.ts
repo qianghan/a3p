@@ -1053,6 +1053,48 @@ async function handleAgentMessageCore(
   // context is loaded (it needs the previous turn's intent) and applies to all
   // channels via `feedback ?? text`.
 
+  // ── Step 0.5: Active tax-filing-review interception ───────────────────
+  // FIRST, ahead of Step 1's session recovery. It used to sit after it,
+  // while its own comment claimed it ran before — and the code was the half
+  // that was wrong. A tenant holding BOTH an in-progress tax review and an
+  // unrelated pending destructive-action confirmation (some other skill's
+  // confirmBefore flow) had a bare "yes" claimed by Step 1: it executed that
+  // OTHER pending action via ctx.executeClassification, and the tax-review
+  // reply never reached answerTaxReview at all. Reachable today on Telegram,
+  // whose adapter maps an anchored ^yes$ to sessionAction='confirm' before
+  // this function runs any classification of its own. A reply typed into a
+  // tax review is about money; it must never be silently re-read as approval
+  // for something else.
+  //
+  // Deliberately not folded into the activeSession block below: tax review is
+  // domain state owned by a different plugin (plugin_agentbook_tax), reached
+  // only via ctx, never via a direct cross-plugin DB query (Global
+  // Constraint 8).
+  //
+  // Cheap early exit — when there is no active review (the overwhelmingly
+  // common case) this costs one indexed read and changes nothing: Step 1's
+  // getActiveSession() is a plain query with no side effects, so running it
+  // second is not observable.
+  //
+  // ctx.checkActiveTaxReview/ctx.answerTaxReview are optional (Task 16) —
+  // callers/tests built before this feature (e.g. buildTestContext()) never
+  // construct them, so this guards with a no-op fallback rather than
+  // calling through undefined. Without them wired, in-progress tax reviews
+  // are simply never intercepted mid-flow — no behavior change for those
+  // callers.
+  const activeReview = ctx.checkActiveTaxReview
+    ? await ctx.checkActiveTaxReview(tenantId)
+    : { active: false };
+  if (activeReview.active && activeReview.taxYear && ctx.answerTaxReview) {
+    const { message } = await ctx.answerTaxReview(tenantId, activeReview.taxYear, text);
+    return buildResponse({
+      message,
+      skillUsed: 'tax-review-agent',
+      confidence: 1,
+      latencyMs: Date.now() - startTime,
+    });
+  }
+
   // ── Step 1: Session recovery ───────────────────────────────────────────
   const activeSession = await getActiveSession(tenantId);
 
@@ -1368,34 +1410,6 @@ async function handleAgentMessageCore(
     }
 
     // No session action matched — fall through to normal processing
-  }
-
-  // ── Step 1.5: Active tax-filing-review interception ──────────────────
-  // Independent of the activeSession block above — deliberately not
-  // folded into it, since tax review is domain-specific state owned by a
-  // different plugin (plugin_agentbook_tax), reached only via ctx, never
-  // via a direct cross-plugin DB query (Global Constraint 8). Checked
-  // before an activeSession's own classification would run, since a
-  // pending tax-review answer is more time-sensitive than a general plan
-  // session if both happen to exist for the same tenant at once.
-  //
-  // ctx.checkActiveTaxReview/ctx.answerTaxReview are optional (Task 16) —
-  // callers/tests built before this feature (e.g. buildTestContext()) never
-  // construct them, so this guards with a no-op fallback rather than
-  // calling through undefined. Without them wired, in-progress tax reviews
-  // are simply never intercepted mid-flow — no behavior change for those
-  // callers.
-  const activeReview = ctx.checkActiveTaxReview
-    ? await ctx.checkActiveTaxReview(tenantId)
-    : { active: false };
-  if (activeReview.active && activeReview.taxYear && ctx.answerTaxReview) {
-    const { message } = await ctx.answerTaxReview(tenantId, activeReview.taxYear, text);
-    return buildResponse({
-      message,
-      skillUsed: 'tax-review-agent',
-      confidence: 1,
-      latencyMs: Date.now() - startTime,
-    });
   }
 
   // ── Step 1b: Tax-questionnaire session recovery ───────────────────────

@@ -144,9 +144,10 @@ vi.mock('../../../../agentbook-tax/backend/src/tax-efiling.js', async () => {
 
 // ─── agentbook-core/backend's own DB ───────────────────────────────────────
 // Same DB-free scaffold used by agent-brain-tax-review-interception.test.ts
-// (Task 17's own test) — handleAgentMessage's session-recovery/context-
-// assembly steps run before Step 1.5's interception check regardless of
-// outcome, so every table they might touch needs a stub. handleTaxFilingSubmit
+// (Task 17's own test) — the interception check is Step 0.5, ahead of session
+// recovery, but the fall-through path (no active review) still runs every
+// session-recovery/context-assembly step, so every table they might touch
+// needs a stub. handleTaxFilingSubmit
 // additionally writes an AbConversation row on a successful real submit
 // (not exercised here, since step 2's submit attempt is gated into a
 // review instead — included anyway for parity with
