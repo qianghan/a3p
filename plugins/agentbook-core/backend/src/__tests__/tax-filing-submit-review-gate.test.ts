@@ -43,6 +43,28 @@ describe('tax-filing-submit gate — calls review/status before the real submit 
     expect(result.responseData.message).toContain('Here is your summary');
   });
 
+  it('fails closed with a user-facing message when the gate check returns non-JSON (e.g. an HTML error page)', async () => {
+    // Production reaches these endpoints over HTTP; a deployment-protection
+    // interstitial, a 502, or a plain 404 all return HTML, and
+    // `await res.json()` then throws SyntaxError. That throw used to escape
+    // handleTaxFilingSubmit entirely — an uncaught error on the money path
+    // instead of a reply the user can act on.
+    fetchMock.mockResolvedValueOnce({
+      json: async () => { throw new SyntaxError('Unexpected token < in JSON at position 0'); },
+    });
+
+    const { handleTaxFilingSubmit } = await import('../server.js');
+    const result = await handleTaxFilingSubmit({ tenantId: 't1', extractedParams: { taxYear: 2025 } } as any);
+
+    // Never reached the real submit endpoint.
+    const urls = fetchMock.mock.calls.map((c) => String(c[0]));
+    expect(urls.some((u) => u.includes('/submit') && !u.includes('review'))).toBe(false);
+    // And the user got told, rather than seeing an unhandled 500.
+    expect(typeof result.responseData.message).toBe('string');
+    expect(result.responseData.message.length).toBeGreaterThan(0);
+    expect(result.responseData.message).toMatch(/review/i);
+  });
+
   it('when the review IS confirmed-and-fresh, calls the real submit endpoint as before', async () => {
     fetchMock
       .mockResolvedValueOnce({ json: async () => ({ success: true, data: { confirmedAndFresh: true } }) })

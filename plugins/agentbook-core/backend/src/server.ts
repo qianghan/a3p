@@ -3370,11 +3370,33 @@ export async function handleTaxFilingSubmit(params: {
   const IH = brainHeaders(tenantId);
   const taxYear = extractedParams.taxYear || 2025;
 
-  const statusRes = await fetch(`${taxBase}/api/v1/agentbook-tax/tax-filing/${taxYear}/review/status`, { headers: IH });
-  const statusData = await statusRes.json() as any;
-  if (!statusData?.data?.confirmedAndFresh) {
-    const startRes = await fetch(`${taxBase}/api/v1/agentbook-tax/tax-filing/${taxYear}/review/start`, { method: 'POST', headers: IH });
-    const startData = await startRes.json() as any;
+  // The whole gate check runs inside try/catch. These are real HTTP calls in
+  // production, and a deployment-protection interstitial, a 502, or a plain
+  // 404 all answer with HTML — `res.json()` then throws SyntaxError. That
+  // throw used to escape this function entirely, surfacing an unhandled 500
+  // on the submit-my-taxes path. Fail CLOSED instead: never fall through to
+  // the real submit endpoint when we could not prove a fresh confirmed
+  // review exists, and always hand the user a message they can act on.
+  let confirmedAndFresh = false;
+  try {
+    const statusRes = await fetch(`${taxBase}/api/v1/agentbook-tax/tax-filing/${taxYear}/review/status`, { headers: IH });
+    const statusData = await statusRes.json() as any;
+    confirmedAndFresh = !!statusData?.data?.confirmedAndFresh;
+  } catch (err) {
+    console.error('[tax-filing-submit] review/status check failed:', err);
+    const message = "I couldn't check whether you've reviewed this filing yet, so I haven't submitted anything. Please open the tax review and confirm your numbers, then try again.";
+    return { selectedSkill: { name: 'tax-filing-submit' }, extractedParams, confidence: params.confidence, skillUsed: 'tax-review-agent', skillResponse: null,
+      responseData: { message, actions: [], chartData: null, skillUsed: 'tax-review-agent', confidence: params.confidence, latencyMs: Date.now() - startTime } };
+  }
+
+  if (!confirmedAndFresh) {
+    let startData: any = null;
+    try {
+      const startRes = await fetch(`${taxBase}/api/v1/agentbook-tax/tax-filing/${taxYear}/review/start`, { method: 'POST', headers: IH });
+      startData = await startRes.json() as any;
+    } catch (err) {
+      console.error('[tax-filing-submit] review/start failed:', err);
+    }
     const message = startData?.data?.message || 'Please review your filing before submitting.';
     return { selectedSkill: { name: 'tax-filing-submit' }, extractedParams, confidence: params.confidence, skillUsed: 'tax-review-agent', skillResponse: startData,
       responseData: { message, actions: [], chartData: null, skillUsed: 'tax-review-agent', confidence: params.confidence, latencyMs: Date.now() - startTime } };
