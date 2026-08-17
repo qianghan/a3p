@@ -2,6 +2,8 @@
  * Tax Forms — template seeding, source query resolution, formula evaluation.
  */
 import { db } from './db/client.js';
+import { usTaxBrackets } from '@agentbook/jurisdictions/us/tax-brackets';
+import { auTaxBrackets } from '@agentbook/jurisdictions/au/tax-brackets';
 
 // === Canadian Form Templates (2025) ===
 // These are the full form definitions from the spec.
@@ -386,6 +388,7 @@ export function evaluateFormula(
   formula: string,
   fields: Record<string, any>,
   allFormFields?: Record<string, Record<string, any>>,
+  taxYear?: number,
 ): number | null {
   try {
     // Cross-form references: "T2125.field_name" → look up in allFormFields
@@ -419,7 +422,20 @@ export function evaluateFormula(
     const ptMatch = resolved.match(/^PROGRESSIVE_TAX\((.+),\s*(\w+)\)$/);
     if (ptMatch) {
       const income = Number(fields[ptMatch[1].trim()] ?? 0);
-      const brackets = ptMatch[2] === 'ca_federal' ? CA_FEDERAL_BRACKETS : PROVINCIAL_BRACKETS[ptMatch[2]] || CA_FEDERAL_BRACKETS;
+      const bracketKey = ptMatch[2];
+
+      // US/AU delegate to the REAL jurisdictions-package calculators —
+      // never a third duplicated local bracket table (CA's own local
+      // table below is left untouched; see this plan's Global
+      // Constraint 7 for why).
+      if (bracketKey === 'us_federal') {
+        return usTaxBrackets.calculateTax(income, taxYear ?? new Date().getFullYear()).taxCents;
+      }
+      if (bracketKey === 'au_flat') {
+        return auTaxBrackets.calculateTax(income, taxYear ?? new Date().getFullYear()).taxCents;
+      }
+
+      const brackets = bracketKey === 'ca_federal' ? CA_FEDERAL_BRACKETS : PROVINCIAL_BRACKETS[bracketKey] || CA_FEDERAL_BRACKETS;
       return calcProgressiveTax(income, brackets);
     }
 
@@ -437,6 +453,19 @@ export function evaluateFormula(
     if (cppMatch) {
       const income = Number(evaluateSimple(cppMatch[1].trim(), fields) ?? 0);
       return schedule8Cpp(income);
+    }
+
+    // SE_TAX(net_profit_field) — flat-rate self-employment tax
+    // approximation: 92.35% of net profit is subject to 15.3%
+    // (12.4% Social Security + 2.9% Medicare), matching the real
+    // IRS Schedule SE base-reduction step but NOT modeling the Social
+    // Security wage-base cap or the additional 0.9% Medicare surtax —
+    // a simplification at the same level as SCHEDULE8_CPP above.
+    const seTaxMatch = resolved.match(/^SE_TAX\((.+)\)$/);
+    if (seTaxMatch) {
+      const netProfit = Number(evaluateSimple(seTaxMatch[1].trim(), fields) ?? 0);
+      const seBase = Math.round(Math.max(0, netProfit) * 0.9235);
+      return Math.round(seBase * 0.153);
     }
 
     // Simple arithmetic: field +- field * field / field
@@ -504,7 +533,7 @@ export async function autoPopulateForm(
           missing.push({ formCode: template.formCode, fieldId: field.fieldId, label: field.label, source: 'slip', slipType: field.slipType });
         }
       } else if (field.source === 'calculated' && field.formula) {
-        const value = evaluateFormula(field.formula, fields, allFormFields);
+        const value = evaluateFormula(field.formula, fields, allFormFields, taxYear);
         if (value !== null) { fields[field.fieldId] = value; filled++; }
       } else if (field.source === 'manual') {
         if (field.required) missing.push({ formCode: template.formCode, fieldId: field.fieldId, label: field.label, source: 'manual' });
