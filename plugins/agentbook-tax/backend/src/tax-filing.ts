@@ -2,7 +2,7 @@
  * Tax Filing — session management, auto-populate, completeness tracking.
  */
 import { db } from './db/client.js';
-import { autoPopulateForm, seedCanadianForms } from './tax-forms.js';
+import { autoPopulateForm, seedCanadianForms, seedUsForms, seedAuForms } from './tax-forms.js';
 
 // === Helpers ===
 
@@ -86,7 +86,13 @@ export async function populateFiling(tenantId: string, taxYear: number) {
 
   // Seed if no templates found, then retry once
   if (templates.length === 0) {
-    await seedCanadianForms();
+    const seedByJurisdiction: Record<string, () => Promise<{ created: number; updated: number }>> = {
+      ca: seedCanadianForms,
+      us: seedUsForms,
+      au: seedAuForms,
+    };
+    const seed = seedByJurisdiction[jurisdiction] ?? seedCanadianForms;
+    await seed();
     templates = await db.abTaxFormTemplate.findMany({
       where: { jurisdiction, version: String(taxYear), enabled: true },
     });
