@@ -27,6 +27,7 @@ import {
   formatCurrency,
   formatMoney,
   formatDate,
+  formatDateOnly,
   formatNumber,
   formatPercent,
   parseAmountToCents,
@@ -59,6 +60,7 @@ export interface ShellI18n {
   formatMoney(amountCents: number, currency?: string): string;
   formatCurrency(amountCents: number, currency?: string): string;
   formatDate(date: string | Date, options?: Intl.DateTimeFormatOptions): string;
+  formatDateOnly(date: string | Date, options?: Intl.DateTimeFormatOptions): string;
   formatNumber(value: number, options?: Intl.NumberFormatOptions): string;
   formatPercent(value: number, decimals?: number): string;
   parseAmount(raw: string): { ok: boolean; cents: number; ambiguous: boolean; formatted: string };
@@ -131,6 +133,8 @@ export function useShellI18n(): ShellI18n {
         formatCurrency(cents, locale, cur),
       formatDate: (date: string | Date, options?: Intl.DateTimeFormatOptions) =>
         formatDate(date, locale, options),
+      formatDateOnly: (date: string | Date, options?: Intl.DateTimeFormatOptions) =>
+        formatDateOnly(date, locale, options),
       formatNumber: (value: number, options?: Intl.NumberFormatOptions) =>
         formatNumber(value, locale, options),
       formatPercent: (value: number, decimals?: number) =>

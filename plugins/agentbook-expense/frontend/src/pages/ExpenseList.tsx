@@ -10,6 +10,8 @@ import { AdvisorChart } from '../components/AdvisorChart';
 import { AskBar } from '../components/AskBar';
 import { AdvisorResponse } from '../components/AdvisorResponse';
 import { ExpenseTabs } from '../components/ExpenseTabs';
+import { formatDateOnly } from '@agentbook/i18n';
+import { useI18n } from '@naap/plugin-sdk';
 
 interface Expense {
   id: string;
@@ -196,8 +198,10 @@ const CATEGORY_ICONS: Record<string, string> = {
 function fmt(cents: number, currency = 'USD') {
   return new Intl.NumberFormat('en-US', { style: 'currency', currency }).format(cents / 100);
 }
-function fmtDate(d: string) {
-  return new Date(d).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
+// An expense DATE is the calendar day the money moved, not an instant, so it
+// must not shift with the viewer's timezone.
+function fmtDate(d: string, locale: string) {
+  return formatDateOnly(d, locale, { year: 'numeric', month: 'short', day: 'numeric' });
 }
 function fmtDateShort(d: string) {
   return new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
@@ -278,6 +282,8 @@ const PERIOD_LABELS: Record<Period, string> = {
 };
 
 export const ExpenseListPage: React.FC = () => {
+  // Locale for the UTC-rendered logical-date helpers above.
+  const { locale } = useI18n();
   const navigate = useNavigate();
   // PR 28 adoption: refetch the list when the agent mutates expense state
   // via chat / Telegram / cron. The hook polls /events/since every 10s and
@@ -867,7 +873,7 @@ export const ExpenseListPage: React.FC = () => {
                   {expandedId === expense.id && (
                     <tr><td colSpan={8} className="px-4 py-4 bg-muted/20">
                       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 text-sm">
-                        <div><p className="text-xs text-muted-foreground mb-0.5">Date</p><p>{fmtDate(expense.date)}</p></div>
+                        <div><p className="text-xs text-muted-foreground mb-0.5">Date</p><p>{fmtDate(expense.date, locale)}</p></div>
                         <div><p className="text-xs text-muted-foreground mb-0.5">Category</p><p>{expense.categoryCode || 'N/A'} — {expense.categoryName || 'Uncategorized'}</p></div>
                         <div><p className="text-xs text-muted-foreground mb-0.5">Currency</p><p>{expense.currency}</p></div>
                         <div><p className="text-xs text-muted-foreground mb-0.5">Confidence</p><p>{expense.confidence ? `${(expense.confidence * 100).toFixed(0)}%` : 'Manual'}</p></div>
@@ -902,7 +908,7 @@ export const ExpenseListPage: React.FC = () => {
                 )}
                 <div className="min-w-0">
                   <p className="font-medium text-sm truncate">{expense.vendorName || expense.description}</p>
-                  <p className="text-xs text-muted-foreground">{fmtDate(expense.date)}</p>
+                  <p className="text-xs text-muted-foreground">{fmtDate(expense.date, locale)}</p>
                 </div>
               </div>
               <div className="text-right shrink-0 ml-2">

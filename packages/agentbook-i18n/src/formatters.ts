@@ -85,6 +85,53 @@ export function formatDate(date: string | Date, locale: string, options?: Intl.D
 }
 
 /**
+ * Format a LOGICAL DATE — a calendar day, not an instant.
+ *
+ * Always formats in UTC, so the rendered day never depends on where the viewer
+ * is. Use this for due dates, filing deadlines, period boundaries, invoice
+ * dates — anything a human would call "a date" rather than "a moment".
+ *
+ * WHY THIS IS SEPARATE FROM formatDate
+ *
+ * The two cases are indistinguishable from the value alone. Prisma `DateTime`
+ * columns holding logical dates serialise to UTC midnight:
+ *
+ *     '2026-03-22T00:00:00.000Z'
+ *
+ * and that string is equally consistent with a real instant that happened at
+ * midnight UTC. formatDate can only special-case the bare 'YYYY-MM-DD' shape;
+ * for a full timestamp it must assume an instant and format locally, which in
+ * America/Vancouver renders "Mar 21".
+ *
+ * Only the caller knows which meaning applies, so it has to say. Roughly 22
+ * display sites were calling toLocaleDateString directly on due dates and
+ * deadlines and showing the previous day to every viewer west of UTC — one of
+ * them (the tax fast-track deadline) had already been patched with a local
+ * `timeZone: 'UTC'` workaround, which is the same fix spelled out by hand.
+ */
+export function formatDateOnly(
+  date: string | Date,
+  locale: string,
+  options?: Intl.DateTimeFormatOptions,
+): string {
+  const d = typeof date === 'string' ? new Date(date) : date;
+  const defaultOptions: Intl.DateTimeFormatOptions = {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+  };
+  // timeZone is forced, not defaulted: a caller asking for a logical date and
+  // also passing a zone is a contradiction, and honouring the zone would
+  // reintroduce the shift this function exists to remove.
+  const opts: Intl.DateTimeFormatOptions = { ...(options || defaultOptions), timeZone: 'UTC' };
+  try {
+    return new Intl.DateTimeFormat(locale, opts).format(d);
+  } catch {
+    return d.toISOString().slice(0, 10);
+  }
+}
+
+/**
  * Format number with locale-aware separators.
  * formatNumber(1234.56, 'en-US') -> "1,234.56"
  * formatNumber(1234.56, 'fr-CA') -> "1 234,56"
