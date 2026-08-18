@@ -117,7 +117,9 @@ Consequences, which are contained:
 | 3d | Remaining formatting sweep | pending | 0 | — | 17 date sites (8 are INSTANTS, correctly local), ~110 en-US number sites, ~8 form sites |
 | 3e | Translation gate (D2 flag) | **done** | 1 | _pushing_ | D2 had never been implemented |
 | 4 | Extraction: billing (user-facing) | **done** | 1 | _pushing_ | 49 keys, real fr-CA; literals 464 -> 456 |
-| 4b | Extraction: core | pending | 0 | — | 130 literals, the largest single plugin |
+| 4b | fr-CA copy repair (28 defects) | **done** | 1 | _pushing_ | accents + 2 upload/download mistranslations |
+| 4c | Extraction: core dashboard cluster | pending | 0 | — | ~24 strings; survey done |
+| 4d | Extraction: rest of core | pending | 0 | — | 186 unique strings total in core, not 130 |
 | 5 | Extraction: expense + invoice | pending | 0 | — | inert |
 | 6 | Extraction: tax + startup (+ legal denylist) | pending | 0 | — | inert |
 | 7 | Extraction: web-next shell/auth/settings | pending | 0 | — | inert |
@@ -315,6 +317,28 @@ So the NL-parser subset of item 1 is blocked on PR-9's locale threading. The
 form/API subset is not. Options: split PR-3 into form-input (now) and
 NL-input (after PR-9), or move PR-9 ahead of PR-3. Recommend the split —
 reordering would put chat response language before the money-input fix.
+
+### C17 — fr-CA shipped with 28 real copy defects. Structural invariants missed all of them.
+
+Key parity, placeholder parity, and "differs from English" ALL passed while 26
+fr-CA values were French with the accents stripped — `Parametres`,
+`Depenses totales`, `Etat des resultats`. A value can be present, unique and
+structurally perfect while being wrong as language.
+
+Two were worse than misspellings. `expense.receipt_upload_prompt` and
+`proactive.upload_now` used **"télécharger"** — which means DOWNLOAD — for an
+UPLOAD action. Fluent, confident, and pointing the user the wrong way. Quebec
+French for upload is *téléverser*.
+
+All 28 fixed. New invariant `i18n-french-quality.test.ts` catches both classes.
+
+**The invariant itself had a bug worth remembering:** `\b` does not work for
+French. JavaScript word boundaries treat accented letters as NON-word
+characters, so `/\btres\b/` matches inside "paramètres" (the è is a boundary)
+and flags a correctly-spelled value. It false-positived on `common.settings`
+the first time it ran. Use lookarounds over an explicit letter class that
+includes the accents. The self-test now shares the real matcher — a self-test
+on a lookalike regex proves nothing about the one in use.
 
 ### C15 — fr-CA is translated AS we extract; it stays `ready`.
 
