@@ -1,5 +1,6 @@
 import React from 'react';
 import { Banknote, FilePlus2, Camera } from 'lucide-react';
+import { useI18n } from '@naap/plugin-sdk';
 
 interface Step {
   icon: React.ReactNode;
@@ -15,6 +16,7 @@ interface Props {
 }
 
 export const OnboardingHero: React.FC<Props> = ({ hasBank, hasInvoice, hasReceipt }) => {
+  const { t } = useI18n();
   const steps: Step[] = [
     { icon: <Banknote className="w-5 h-5" />, label: 'Link bank account', href: '/agentbook/bank',     done: hasBank },
     { icon: <FilePlus2 className="w-5 h-5" />, label: 'Add first invoice',   href: '/agentbook/invoices/new', done: hasInvoice },
@@ -23,8 +25,8 @@ export const OnboardingHero: React.FC<Props> = ({ hasBank, hasInvoice, hasReceip
 
   return (
     <section className="bg-card border border-border rounded-2xl p-4 sm:p-6">
-      <h2 className="text-lg font-bold text-foreground mb-1">Welcome to AgentBook</h2>
-      <p className="text-sm text-muted-foreground mb-4">Three steps to bring your dashboard to life.</p>
+      <h2 className="text-lg font-bold text-foreground mb-1">{t('dashboard.welcome_title')}</h2>
+      <p className="text-sm text-muted-foreground mb-4">{t('dashboard.welcome_subtitle')}</p>
       <ol className="space-y-2">
         {steps.map((s, i) => (
           <li key={i}>

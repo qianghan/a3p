@@ -117,8 +117,8 @@ Consequences, which are contained:
 | 3d | Remaining formatting sweep | pending | 0 | — | 17 date sites (8 are INSTANTS, correctly local), ~110 en-US number sites, ~8 form sites |
 | 3e | Translation gate (D2 flag) | **done** | 1 | _pushing_ | D2 had never been implemented |
 | 4 | Extraction: billing (user-facing) | **done** | 1 | _pushing_ | 49 keys, real fr-CA; literals 464 -> 456 |
-| 4b | fr-CA copy repair (28 defects) | **done** | 1 | _pushing_ | accents + 2 upload/download mistranslations |
-| 4c | Extraction: core dashboard cluster | pending | 0 | — | ~24 strings; survey done |
+| 4b | fr-CA copy repair (28 defects) | **done** | 1 | #463 | merged `49dd3ef2` |
+| 4c | Extraction: core dashboard cluster | **done** | 1 | _pushing_ | 20 keys; literals 456 -> 444 |
 | 4d | Extraction: rest of core | pending | 0 | — | 186 unique strings total in core, not 130 |
 | 5 | Extraction: expense + invoice | pending | 0 | — | inert |
 | 6 | Extraction: tax + startup (+ legal denylist) | pending | 0 | — | inert |
@@ -317,6 +317,21 @@ So the NL-parser subset of item 1 is blocked on PR-9's locale threading. The
 form/API subset is not. Options: split PR-3 into form-input (now) and
 NL-input (after PR-9), or move PR-9 ahead of PR-3. Recommend the split —
 reordering would put chat response language before the money-input fix.
+
+### C18 — Tests asserting exact copy need a real translator injected.
+
+`useI18n` no longer throws without a provider (C12), so a migrated component
+still RENDERS in a bare test — but it renders the humanised key
+(`dashboard.welcome_title` -> "Welcome title"), not the product copy. Two
+Dashboard integration assertions broke on exactly that.
+
+The fix is NOT to loosen the assertions. Wrap the test in a `ShellProvider`
+carrying a **real translator over the real CATALOG**. That keeps the test
+asserting real copy AND makes it fail if a key goes missing — strictly better
+than what it checked before.
+
+Extraction PRs should expect this for any suite that asserts exact strings,
+and should reach for the provider rather than editing the expected text.
 
 ### C17 — fr-CA shipped with 28 real copy defects. Structural invariants missed all of them.
 

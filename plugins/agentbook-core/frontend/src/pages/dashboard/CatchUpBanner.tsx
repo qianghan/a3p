@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { formatMoney } from '@agentbook/i18n';
 import { useTenantCurrency } from '../../hooks/useTenantCurrency';
+import { useI18n } from '@naap/plugin-sdk';
 
 /**
  * Inline banner shown at the top of the dashboard when the URL carries
@@ -61,6 +62,7 @@ function lines(s: CatchUpSummary, currency: string): string[] {
 }
 
 export const CatchUpBanner: React.FC = () => {
+  const { t } = useI18n();
   const [active, setActive] = useState(false);
   const [data, setData] = useState<CatchUpSummary | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -98,10 +100,10 @@ export const CatchUpBanner: React.FC = () => {
         <button
           type="button"
           onClick={() => setDismissed(true)}
-          aria-label="Dismiss catch-up"
+          aria-label={t('dashboard.dismiss_catch_up')}
           className="text-xs text-muted-foreground hover:text-foreground"
         >
-          Dismiss
+          {t('dashboard.dismiss')}
         </button>
       </div>
       {error ? (

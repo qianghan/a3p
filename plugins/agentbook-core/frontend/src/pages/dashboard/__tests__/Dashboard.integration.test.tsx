@@ -1,6 +1,41 @@
+import React from 'react';
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render as rtlRender, screen, waitFor } from '@testing-library/react';
+import { ShellProvider } from '@naap/plugin-sdk';
+import type { ShellContext, II18nService } from '@naap/plugin-sdk';
+import { createTranslator } from '@agentbook/i18n';
+import { CATALOG } from '@agentbook/i18n/catalog';
 import { DashboardPage } from '../../Dashboard';
+
+/**
+ * Render inside a ShellProvider carrying a REAL translator over the REAL
+ * catalog.
+ *
+ * useI18n() does not throw without a provider — it degrades to English by
+ * humanising the key ('dashboard.welcome_title' -> 'Welcome title'). That
+ * keeps a page rendering on an older shell, but it is NOT the product copy,
+ * so a test asserting exact strings has to supply the catalog. Using the real
+ * one also means these assertions fail if a key goes missing.
+ */
+function render(ui: React.ReactElement) {
+  const { t } = createTranslator('en', CATALOG);
+  const i18n = {
+    locale: 'en',
+    t,
+    formatMoney: (c: number) => String(c),
+    formatCurrency: (c: number) => String(c),
+    formatDate: (d: string | Date) => String(d),
+    formatDateOnly: (d: string | Date) => String(d),
+    formatNumber: (n: number) => String(n),
+    formatPercent: (n: number) => String(n),
+    parseAmount: () => ({ ok: true, cents: 0, ambiguous: false, formatted: '' }),
+  } as II18nService;
+  const shell = {
+    auth: {}, navigate: () => {}, eventBus: {}, theme: {}, notifications: {},
+    integrations: {}, logger: {}, permissions: {}, version: '2.0.0', i18n,
+  } as unknown as ShellContext;
+  return rtlRender(<ShellProvider value={shell}>{ui}</ShellProvider>);
+}
 
 const happyOverview = {
   success: true,

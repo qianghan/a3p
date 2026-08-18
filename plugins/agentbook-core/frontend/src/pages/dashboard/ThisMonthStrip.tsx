@@ -1,6 +1,7 @@
 import React from 'react';
 import { formatMoney } from '@agentbook/i18n';
 import { useTenantCurrency } from '../../hooks/useTenantCurrency';
+import { useI18n } from '@naap/plugin-sdk';
 
 export function computeDelta(current: number, prior: number): { pct: number; sign: 'up' | 'down' } | null {
   if (prior === 0) return null;
@@ -31,12 +32,13 @@ interface Props {
 }
 
 export const ThisMonthStrip: React.FC<Props> = ({ mtd, prev }) => {
+  const { t } = useI18n();
   const currency = useTenantCurrency();
   if (!mtd) return null;
   const p = prev || { revenueCents: 0, expenseCents: 0, netCents: 0 };
   return (
     <section className="bg-card border border-border rounded-2xl p-4 flex items-center gap-4 flex-wrap">
-      <span className="text-xs uppercase tracking-wide text-muted-foreground">This month</span>
+      <span className="text-xs uppercase tracking-wide text-muted-foreground">{t('dashboard.this_month')}</span>
       <Cell label="Rev" cents={mtd.revenueCents} prior={p.revenueCents} currency={currency} />
       <Cell label="Exp" cents={mtd.expenseCents} prior={p.expenseCents} currency={currency} />
       <Cell label="Net" cents={mtd.netCents} prior={p.netCents} currency={currency} />

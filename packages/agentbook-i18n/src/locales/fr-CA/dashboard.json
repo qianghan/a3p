@@ -1,0 +1,22 @@
+{
+  "new_invoice": "Nouvelle facture",
+  "snap": "Numériser",
+  "ask": "Demander",
+  "refresh": "Actualiser",
+  "share_to_telegram": "Partager sur Telegram",
+  "more": "Plus",
+  "quick_actions": "Actions rapides",
+  "unreachable": "Impossible de joindre AgentBook.",
+  "welcome_title": "Bienvenue dans AgentBook",
+  "welcome_subtitle": "Trois étapes pour donner vie à votre tableau de bord.",
+  "recent_activity": "Activité récente",
+  "no_recent_activity": "Aucune activité récente.",
+  "this_month": "Ce mois-ci",
+  "resume": "Reprendre",
+  "dismiss": "Ignorer",
+  "no_upcoming": "Aucune créance ni facture à venir.",
+  "today": "Aujourd'hui",
+  "catch_up_summary": "Résumé de rattrapage",
+  "dismiss_catch_up": "Ignorer le rattrapage",
+  "needs_attention": "Requiert votre attention"
+}

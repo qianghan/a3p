@@ -1,13 +1,15 @@
 import React from 'react';
 import { AttentionItem } from './AttentionItem';
 import type { AttentionItem as Item, AgentSummary } from './types';
+import { useI18n } from '@naap/plugin-sdk';
 
 interface Props { items: Item[]; summary: AgentSummary | null; }
 
 export const AttentionPanel: React.FC<Props> = ({ items, summary }) => {
+  const { t } = useI18n();
   return (
     <section className="bg-card border border-border rounded-2xl p-4 sm:p-6">
-      <h2 className="text-sm font-medium text-muted-foreground mb-3 uppercase tracking-wide">Needs your attention</h2>
+      <h2 className="text-sm font-medium text-muted-foreground mb-3 uppercase tracking-wide">{t('dashboard.needs_attention')}</h2>
       {summary && (
         <p className="text-sm text-foreground mb-3 leading-relaxed">{summary.summary}</p>
       )}

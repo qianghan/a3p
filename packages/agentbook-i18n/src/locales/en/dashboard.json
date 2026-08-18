@@ -1,0 +1,22 @@
+{
+  "new_invoice": "New invoice",
+  "snap": "Snap",
+  "ask": "Ask",
+  "refresh": "Refresh",
+  "share_to_telegram": "Share to Telegram",
+  "more": "More",
+  "quick_actions": "Quick actions",
+  "unreachable": "Couldn't reach AgentBook.",
+  "welcome_title": "Welcome to AgentBook",
+  "welcome_subtitle": "Three steps to bring your dashboard to life.",
+  "recent_activity": "Recent activity",
+  "no_recent_activity": "No recent activity.",
+  "this_month": "This month",
+  "resume": "Resume",
+  "dismiss": "Dismiss",
+  "no_upcoming": "No upcoming receivables or bills.",
+  "today": "Today",
+  "catch_up_summary": "Catch-up summary",
+  "dismiss_catch_up": "Dismiss catch-up",
+  "needs_attention": "Needs your attention"
+}
