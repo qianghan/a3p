@@ -79,6 +79,11 @@ const NON_REFERENCE_LOCALES = AVAILABLE_LOCALES.filter((l) => l !== REFERENCE_LO
 const IDENTICAL_ALLOWED = new Set<string>([
   // "Correct" is a valid French word with the same spelling and meaning.
   'common.correct',
+  // Table headers in the chart of accounts. "Code" and "Type" are spelled and
+  // used identically in French; translating them would be inventing a
+  // difference that does not exist.
+  'accounting.code',
+  'accounting.type',
 ]);
 
 /**

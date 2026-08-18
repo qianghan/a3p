@@ -1,0 +1,18 @@
+{
+  "welcome_title": "Bienvenue dans AgentBook",
+  "welcome_subtitle": "Configurons votre comptabilité en moins de 10 minutes.",
+  "setup_progress": "Progression de la configuration",
+  "continue": "Continuer",
+  "create_coa": "Créer le plan comptable",
+  "connect_bank_desc": "Connectez votre compte bancaire pour importer automatiquement les transactions.",
+  "connect_plaid": "Connecter avec Plaid",
+  "skip_for_now": "Passer pour l'instant",
+  "first_expense_desc": "Enregistrez votre première dépense pour voir AgentBook à l'œuvre.",
+  "record_expense": "Enregistrer une dépense",
+  "connect_telegram_desc": "Connectez Telegram pour numériser vos reçus et recevoir des notifications proactives.",
+  "ive_connected": "C'est connecté",
+  "all_set": "Tout est prêt !",
+  "ready_desc": "AgentBook est prêt à gérer vos finances.",
+  "go_to_dashboard": "Aller au tableau de bord",
+  "state_province": "État / Province"
+}

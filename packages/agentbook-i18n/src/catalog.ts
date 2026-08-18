@@ -27,11 +27,14 @@ import type { Catalog } from './core.js';
 // English — the reference locale. Every key must exist here.
 import enAgent from './locales/en/agent.json';
 import enBilling from './locales/en/billing.json';
+import enAccounting from './locales/en/accounting.json';
 import enCalendar from './locales/en/calendar.json';
+import enChat from './locales/en/chat.json';
 import enCommon from './locales/en/common.json';
 import enDashboard from './locales/en/dashboard.json';
 import enExpense from './locales/en/expense.json';
 import enInvoice from './locales/en/invoice.json';
+import enOnboarding from './locales/en/onboarding.json';
 import enProactive from './locales/en/proactive.json';
 import enRate from './locales/en/rate.json';
 import enTax from './locales/en/tax.json';
@@ -40,11 +43,14 @@ import enTax from './locales/en/tax.json';
 // official terminology (TPS/TVQ, not TVA) — see plan decision D4.
 import frAgent from './locales/fr-CA/agent.json';
 import frBilling from './locales/fr-CA/billing.json';
+import frAccounting from './locales/fr-CA/accounting.json';
 import frCalendar from './locales/fr-CA/calendar.json';
+import frChat from './locales/fr-CA/chat.json';
 import frCommon from './locales/fr-CA/common.json';
 import frDashboard from './locales/fr-CA/dashboard.json';
 import frExpense from './locales/fr-CA/expense.json';
 import frInvoice from './locales/fr-CA/invoice.json';
+import frOnboarding from './locales/fr-CA/onboarding.json';
 import frProactive from './locales/fr-CA/proactive.json';
 import frRate from './locales/fr-CA/rate.json';
 import frTax from './locales/fr-CA/tax.json';
@@ -52,11 +58,14 @@ import frTax from './locales/fr-CA/tax.json';
 // Simplified Chinese.
 import zhAgent from './locales/zh-CN/agent.json';
 import zhBilling from './locales/zh-CN/billing.json';
+import zhAccounting from './locales/zh-CN/accounting.json';
 import zhCalendar from './locales/zh-CN/calendar.json';
+import zhChat from './locales/zh-CN/chat.json';
 import zhCommon from './locales/zh-CN/common.json';
 import zhDashboard from './locales/zh-CN/dashboard.json';
 import zhExpense from './locales/zh-CN/expense.json';
 import zhInvoice from './locales/zh-CN/invoice.json';
+import zhOnboarding from './locales/zh-CN/onboarding.json';
 import zhProactive from './locales/zh-CN/proactive.json';
 import zhRate from './locales/zh-CN/rate.json';
 import zhTax from './locales/zh-CN/tax.json';
@@ -69,11 +78,14 @@ export const CATALOG: Catalog = Object.freeze({
   en: {
     agent: enAgent,
     billing: enBilling,
+    accounting: enAccounting,
     calendar: enCalendar,
+    chat: enChat,
     common: enCommon,
     dashboard: enDashboard,
     expense: enExpense,
     invoice: enInvoice,
+    onboarding: enOnboarding,
     proactive: enProactive,
     rate: enRate,
     tax: enTax,
@@ -81,11 +93,14 @@ export const CATALOG: Catalog = Object.freeze({
   'fr-CA': {
     agent: frAgent,
     billing: frBilling,
+    accounting: frAccounting,
     calendar: frCalendar,
+    chat: frChat,
     common: frCommon,
     dashboard: frDashboard,
     expense: frExpense,
     invoice: frInvoice,
+    onboarding: frOnboarding,
     proactive: frProactive,
     rate: frRate,
     tax: frTax,
@@ -93,11 +108,14 @@ export const CATALOG: Catalog = Object.freeze({
   'zh-CN': {
     agent: zhAgent,
     billing: zhBilling,
+    accounting: zhAccounting,
     calendar: zhCalendar,
+    chat: zhChat,
     common: zhCommon,
     dashboard: zhDashboard,
     expense: zhExpense,
     invoice: zhInvoice,
+    onboarding: zhOnboarding,
     proactive: zhProactive,
     rate: zhRate,
     tax: zhTax,

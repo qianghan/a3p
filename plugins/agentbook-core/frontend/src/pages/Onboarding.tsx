@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { CheckCircle, Circle, ChevronRight, Building2, Globe, DollarSign, BookOpen, Link2, Receipt, Send } from 'lucide-react';
-import { ChatCTA } from '@naap/plugin-sdk';
+import { ChatCTA, useI18n } from '@naap/plugin-sdk';
 
 const CORE_API = '/api/v1/agentbook-core';
 
@@ -23,6 +23,7 @@ const STEP_ICONS: Record<string, React.ReactNode> = {
 };
 
 export const OnboardingPage: React.FC = () => {
+  const { t } = useI18n();
   const [steps, setSteps] = useState<OnboardingStep[]>([]);
   const [currentStep, setCurrentStep] = useState(0);
   const [percentComplete, setPercentComplete] = useState(0);
@@ -90,8 +91,8 @@ export const OnboardingPage: React.FC = () => {
 
   return (
     <div className="px-4 py-5 sm:p-6 max-w-2xl mx-auto">
-      <h1 className="text-2xl font-bold mb-2">Welcome to AgentBook</h1>
-      <p className="text-muted-foreground mb-6">Let's set up your accounting in under 10 minutes.</p>
+      <h1 className="text-2xl font-bold mb-2">{t('onboarding.welcome_title')}</h1>
+      <p className="text-muted-foreground mb-6">{t('onboarding.welcome_subtitle')}</p>
 
       {/* PR 52 / Tier 1 #1: chat-first escape hatch (legacy wizard).
           The default onboarding path is /onboarding (OnboardingChat) since PR 27;
@@ -103,7 +104,7 @@ export const OnboardingPage: React.FC = () => {
       {/* Progress bar */}
       <div className="mb-8">
         <div className="flex justify-between text-sm mb-2">
-          <span className="text-muted-foreground">Setup Progress</span>
+          <span className="text-muted-foreground">{t('onboarding.setup_progress')}</span>
           <span className="font-medium">{Math.round(percentComplete * 100)}%</span>
         </div>
         <div className="h-2 bg-muted rounded-full overflow-hidden">
@@ -165,7 +166,7 @@ export const OnboardingPage: React.FC = () => {
                   {j.flag} {j.name}
                 </button>
               ))}
-              <input type="text" placeholder="State / Province" value={region} onChange={e => setRegion(e.target.value)}
+              <input type="text" placeholder={t('onboarding.state_province')} value={region} onChange={e => setRegion(e.target.value)}
                 className="w-full p-3 border border-border rounded-lg bg-background mt-2" />
               <button onClick={() => completeStep('jurisdiction')}
                 className="w-full py-3 bg-primary text-primary-foreground rounded-lg font-medium mt-2">
@@ -194,42 +195,42 @@ export const OnboardingPage: React.FC = () => {
               <p className="text-muted-foreground mb-4">We'll create a chart of accounts based on your tax jurisdiction ({jurisdiction.toUpperCase()}).</p>
               <button onClick={() => completeStep('accounts')}
                 className="w-full py-3 bg-primary text-primary-foreground rounded-lg font-medium">
-                Create Chart of Accounts
+                {t('onboarding.create_coa')}
               </button>
             </div>
           )}
 
           {activeStep.id === 'bank' && (
             <div>
-              <p className="text-muted-foreground mb-4">Connect your bank account to automatically import transactions.</p>
+              <p className="text-muted-foreground mb-4">{t('onboarding.connect_bank_desc')}</p>
               <button onClick={() => completeStep('bank')}
                 className="w-full py-3 bg-primary text-primary-foreground rounded-lg font-medium mb-2">
-                Connect with Plaid
+                {t('onboarding.connect_plaid')}
               </button>
               <button onClick={() => completeStep('bank')}
                 className="w-full py-3 bg-muted text-muted-foreground rounded-lg font-medium">
-                Skip for now
+                {t('onboarding.skip_for_now')}
               </button>
             </div>
           )}
 
           {activeStep.id === 'first_expense' && (
             <div>
-              <p className="text-muted-foreground mb-4">Record your first expense to see AgentBook in action.</p>
+              <p className="text-muted-foreground mb-4">{t('onboarding.first_expense_desc')}</p>
               <button onClick={() => { window.location.href = '/agentbook/expenses/new'; }}
                 className="w-full py-3 bg-primary text-primary-foreground rounded-lg font-medium mb-2">
-                Record an Expense
+                {t('onboarding.record_expense')}
               </button>
               <button onClick={() => completeStep('first_expense')}
                 className="w-full py-3 bg-muted text-muted-foreground rounded-lg font-medium">
-                Skip for now
+                {t('onboarding.skip_for_now')}
               </button>
             </div>
           )}
 
           {activeStep.id === 'telegram' && (
             <div>
-              <p className="text-muted-foreground mb-4">Connect Telegram to snap receipts and get proactive notifications.</p>
+              <p className="text-muted-foreground mb-4">{t('onboarding.connect_telegram_desc')}</p>
               <p className="text-sm bg-muted p-3 rounded-lg font-mono mb-4">Open Telegram &rarr; Search @AgentBookBot &rarr; Send /start</p>
               <button onClick={() => completeStep('telegram')}
                 className="w-full py-3 bg-primary text-primary-foreground rounded-lg font-medium mb-2">
@@ -237,7 +238,7 @@ export const OnboardingPage: React.FC = () => {
               </button>
               <button onClick={() => completeStep('telegram')}
                 className="w-full py-3 bg-muted text-muted-foreground rounded-lg font-medium">
-                Skip for now
+                {t('onboarding.skip_for_now')}
               </button>
             </div>
           )}
@@ -247,11 +248,11 @@ export const OnboardingPage: React.FC = () => {
       {percentComplete === 1 && (
         <div className="bg-green-500/10 border border-green-500/30 rounded-xl p-6 text-center">
           <CheckCircle className="w-12 h-12 text-green-500 mx-auto mb-3" />
-          <h2 className="text-xl font-bold text-green-600 mb-2">You're all set!</h2>
-          <p className="text-muted-foreground mb-4">AgentBook is ready to manage your finances.</p>
+          <h2 className="text-xl font-bold text-green-600 mb-2">{t('onboarding.all_set')}</h2>
+          <p className="text-muted-foreground mb-4">{t('onboarding.ready_desc')}</p>
           <button onClick={() => { window.location.href = '/agentbook'; }}
             className="px-6 py-3 bg-primary text-primary-foreground rounded-lg font-medium">
-            Go to Dashboard
+            {t('onboarding.go_to_dashboard')}
           </button>
         </div>
       )}

@@ -1,0 +1,15 @@
+{
+  "general_ledger": "General Ledger",
+  "loading_entries": "Loading journal entries...",
+  "no_entries": "No journal entries yet. Record an expense to get started!",
+  "account": "Account",
+  "debit": "Debit",
+  "credit": "Credit",
+  "chart_of_accounts": "Chart of Accounts",
+  "loading_accounts": "Loading accounts...",
+  "code": "Code",
+  "name": "Name",
+  "type": "Type",
+  "tax_category": "Tax Category",
+  "no_accounts": "No accounts found."
+}

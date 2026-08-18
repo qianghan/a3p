@@ -1,0 +1,15 @@
+{
+  "general_ledger": "Grand livre général",
+  "loading_entries": "Chargement des écritures…",
+  "no_entries": "Aucune écriture pour l'instant. Enregistrez une dépense pour commencer !",
+  "account": "Compte",
+  "debit": "Débit",
+  "credit": "Crédit",
+  "chart_of_accounts": "Plan comptable",
+  "loading_accounts": "Chargement des comptes…",
+  "code": "Code",
+  "name": "Nom",
+  "type": "Type",
+  "tax_category": "Catégorie fiscale",
+  "no_accounts": "Aucun compte trouvé."
+}

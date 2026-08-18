@@ -1,0 +1,18 @@
+{
+  "welcome_title": "Welcome to AgentBook",
+  "welcome_subtitle": "Let's set up your accounting in under 10 minutes.",
+  "setup_progress": "Setup Progress",
+  "continue": "Continue",
+  "create_coa": "Create Chart of Accounts",
+  "connect_bank_desc": "Connect your bank account to automatically import transactions.",
+  "connect_plaid": "Connect with Plaid",
+  "skip_for_now": "Skip for now",
+  "first_expense_desc": "Record your first expense to see AgentBook in action.",
+  "record_expense": "Record an Expense",
+  "connect_telegram_desc": "Connect Telegram to snap receipts and get proactive notifications.",
+  "ive_connected": "I've Connected",
+  "all_set": "You're all set!",
+  "ready_desc": "AgentBook is ready to manage your finances.",
+  "go_to_dashboard": "Go to Dashboard",
+  "state_province": "State / Province"
+}
