@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { List, Plus } from 'lucide-react';
+import { useI18n } from '@naap/plugin-sdk';
 
 interface Account {
   id: string;
@@ -21,6 +22,7 @@ const TYPE_COLORS: Record<string, string> = {
 };
 
 export const AccountsPage: React.FC = () => {
+  const { t } = useI18n();
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<string>('all');
@@ -41,7 +43,7 @@ export const AccountsPage: React.FC = () => {
       <div className="flex items-center justify-between mb-6">
         <div className="flex items-center gap-3">
           <List className="w-6 h-6 text-primary" />
-          <h1 className="text-2xl font-bold">Chart of Accounts</h1>
+          <h1 className="text-2xl font-bold">{t('accounting.chart_of_accounts')}</h1>
         </div>
       </div>
 
@@ -60,16 +62,16 @@ export const AccountsPage: React.FC = () => {
         ))}
       </div>
 
-      {loading && <p className="text-muted-foreground">Loading accounts...</p>}
+      {loading && <p className="text-muted-foreground">{t('accounting.loading_accounts')}</p>}
 
       <div className="bg-card border border-border rounded-lg overflow-hidden">
         <table className="w-full text-sm">
           <thead>
             <tr className="bg-muted/50 border-b border-border">
-              <th className="text-left p-3 font-medium">Code</th>
-              <th className="text-left p-3 font-medium">Name</th>
-              <th className="text-left p-3 font-medium">Type</th>
-              <th className="text-left p-3 font-medium">Tax Category</th>
+              <th className="text-left p-3 font-medium">{t('accounting.code')}</th>
+              <th className="text-left p-3 font-medium">{t('accounting.name')}</th>
+              <th className="text-left p-3 font-medium">{t('accounting.type')}</th>
+              <th className="text-left p-3 font-medium">{t('accounting.tax_category')}</th>
             </tr>
           </thead>
           <tbody>
@@ -88,7 +90,7 @@ export const AccountsPage: React.FC = () => {
           </tbody>
         </table>
         {filtered.length === 0 && !loading && (
-          <div className="p-8 text-center text-muted-foreground">No accounts found.</div>
+          <div className="p-8 text-center text-muted-foreground">{t('accounting.no_accounts')}</div>
         )}
       </div>
     </div>

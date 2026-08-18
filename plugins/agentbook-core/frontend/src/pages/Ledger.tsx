@@ -49,15 +49,15 @@ export const LedgerPage: React.FC = () => {
     <div className="p-6 max-w-7xl mx-auto">
       <div className="flex items-center gap-3 mb-6">
         <BookOpen className="w-6 h-6 text-primary" />
-        <h1 className="text-2xl font-bold">General Ledger</h1>
+        <h1 className="text-2xl font-bold">{t('accounting.general_ledger')}</h1>
       </div>
 
-      {loading && <p className="text-muted-foreground">Loading journal entries...</p>}
+      {loading && <p className="text-muted-foreground">{t('accounting.loading_entries')}</p>}
 
       {entries.length === 0 && !loading && (
         <div className="text-center py-12 text-muted-foreground">
           <BookOpen className="w-12 h-12 mx-auto mb-4 opacity-50" />
-          <p>No journal entries yet. Record an expense to get started!</p>
+          <p>{t('accounting.no_entries')}</p>
         </div>
       )}
 
@@ -84,9 +84,9 @@ export const LedgerPage: React.FC = () => {
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="text-muted-foreground border-b border-border">
-                      <th className="text-left py-2">Account</th>
-                      <th className="text-right py-2">Debit</th>
-                      <th className="text-right py-2">Credit</th>
+                      <th className="text-left py-2">{t('accounting.account')}</th>
+                      <th className="text-right py-2">{t('accounting.debit')}</th>
+                      <th className="text-right py-2">{t('accounting.credit')}</th>
                     </tr>
                   </thead>
                   <tbody>
