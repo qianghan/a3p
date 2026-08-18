@@ -116,7 +116,8 @@ Consequences, which are contained:
 | 3c | Logical-date migration (12 sites) | **done** | 1 | _pushing_ | date-call ratchet 29 -> 17 |
 | 3d | Remaining formatting sweep | pending | 0 | — | 17 date sites (8 are INSTANTS, correctly local), ~110 en-US number sites, ~8 form sites |
 | 3e | Translation gate (D2 flag) | **done** | 1 | _pushing_ | D2 had never been implemented |
-| 4 | Extraction: core + billing | pending | 0 | — | inert; UNBLOCKED by 3e |
+| 4 | Extraction: billing (user-facing) | **done** | 1 | _pushing_ | 49 keys, real fr-CA; literals 464 -> 456 |
+| 4b | Extraction: core | pending | 0 | — | 130 literals, the largest single plugin |
 | 5 | Extraction: expense + invoice | pending | 0 | — | inert |
 | 6 | Extraction: tax + startup (+ legal denylist) | pending | 0 | — | inert |
 | 7 | Extraction: web-next shell/auth/settings | pending | 0 | — | inert |
@@ -314,6 +315,38 @@ So the NL-parser subset of item 1 is blocked on PR-9's locale threading. The
 form/API subset is not. Options: split PR-3 into form-input (now) and
 NL-input (after PR-9), or move PR-9 ahead of PR-3. Recommend the split —
 reordering would put chat response language before the money-input fix.
+
+### C15 — fr-CA is translated AS we extract; it stays `ready`.
+
+Resolves the conflict between the plan's recipe ("mirror English into fr-CA,
+PR-8 fills them") and the readiness invariant (fr-CA is `ready`, so its values
+must differ from English). Those could not both hold.
+
+**Decision: translate at extraction time.** Every key added to `en` gets real
+Canadian French in the same commit, so `fr-CA` is genuinely `ready` at all
+times and the content invariant stays meaningful. zh-CN remains `scaffold` and
+takes English placeholders, which the invariant already exempts.
+
+Consequence: there is no big-bang PR-8 translation drop for fr-CA. PR-8 becomes
+zh-CN only.
+
+### C16 — My string survey (and the ratchet) undercount multi-line JSX.
+
+The single-line grep `>Text<` misses text nodes that sit on their own line:
+
+    <button>
+      Reactivate        <-- missed
+    </button>
+
+Billing looked like ~30 strings on the first pass; a multi-line-aware regex
+found 6 more, and reading the files found ~10 more again in interpolations and
+props. Final count: 49 keys from a surface first estimated at 30.
+
+`bin/i18n-string-ratchet.sh` uses the same single-line pattern, so **the
+literal count is a lower bound, not a census**. It is still valid as a ratchet
+(direction of travel) but must not be read as "N strings left to do".
+
+For later extraction PRs: read the files. Grep only to find candidates.
 
 ### C14 — Decision D2 (the feature flag) was never implemented. Fixed.
 

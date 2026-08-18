@@ -1,33 +1,25 @@
 import { useEffect, useState } from 'react';
+import { useI18n } from '@naap/plugin-sdk';
 import { billingApi, type Plan } from '../lib/api';
 
-const FEATURE_LABELS: Record<string, string> = {
-  telegram_bot: 'Telegram bot',
-  tax_package_generation: 'Tax package exports',
-  multi_user_teams: 'Multi-user teams',
+// Maps hold translation KEYS, not English text — the API's feature/quota ids
+// stay separate from their display strings so the latter can be translated.
+const FEATURE_LABEL_KEYS: Record<string, string> = {
+  telegram_bot: 'billing.feature_telegram_bot',
+  tax_package_generation: 'billing.feature_tax_package',
+  multi_user_teams: 'billing.feature_multi_user',
 };
 
-const QUOTA_LABELS: Record<string, string> = {
-  expenses_created: 'Expenses/mo',
-  ocr_scans: 'OCR scans/mo',
-  ai_messages: 'AI messages/mo',
-  invoices_sent: 'Invoices/mo',
-  bank_connections: 'Bank connections',
+const QUOTA_LABEL_KEYS: Record<string, string> = {
+  expenses_created: 'billing.quota_expenses_mo',
+  ocr_scans: 'billing.quota_ocr_mo',
+  ai_messages: 'billing.quota_ai_messages_mo',
+  invoices_sent: 'billing.quota_invoices_mo',
+  bank_connections: 'billing.quota_bank_connections',
 };
 
-function formatQuota(v: number): string {
-  return v === -1 ? 'Unlimited' : String(v);
-}
-
-const CURRENCY_LOCALE: Record<string, string> = { usd: 'en-US', cad: 'en-CA', aud: 'en-AU' };
-
-function fmtPrice(cents: number, currency: string): string {
-  return (cents / 100).toLocaleString(CURRENCY_LOCALE[currency] ?? 'en-US', {
-    style: 'currency',
-    currency: currency.toUpperCase(),
-    maximumFractionDigits: 0,
-  });
-}
+// The local CURRENCY_LOCALE table is gone — it was one of four identical
+// copies in this plugin, and formatMoney already carries the same mapping.
 
 function savingsPct(monthlyPlan: Plan, annualPlan: Plan): number {
   if (monthlyPlan.priceCents === 0) return 0;
@@ -42,6 +34,7 @@ export function PlanGrid({
   currentPlanCode: string;
   onSubscribe: (p: Plan) => void;
 }): JSX.Element {
+  const { t, formatMoney } = useI18n();
   const [plans, setPlans] = useState<Plan[] | null>(null);
   const [billingInterval, setBillingInterval] = useState<'month' | 'year'>('month');
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -50,8 +43,10 @@ export function PlanGrid({
     billingApi.listPlans().then(setPlans).catch((e: unknown) => setLoadError(String(e)));
   }, []);
 
-  if (loadError) return <div className="text-sm text-destructive">Failed to load plans: {loadError}</div>;
-  if (!plans) return <div className="text-muted-foreground">Loading plans…</div>;
+  if (loadError) return <div className="text-sm text-destructive">{t('billing.plans_load_failed', { error: loadError })}</div>;
+  if (!plans) return <div className="text-muted-foreground">{t('billing.loading_plans')}</div>;
+
+  const formatQuota = (v: number): string => (v === -1 ? t('billing.unlimited') : String(v));
 
   const visible = plans.filter((p) => p.priceCents === 0 || p.interval === billingInterval);
 
@@ -74,11 +69,11 @@ export function PlanGrid({
                   : 'text-muted-foreground hover:text-foreground'
               }`}
             >
-              {iv === 'month' ? 'Monthly' : (
+              {iv === 'month' ? t('billing.monthly') : (
                 <span className="flex items-center gap-1.5">
-                  Annual
+                  {t('billing.annual')}
                   <span className="rounded-full bg-primary/10 px-1.5 py-0.5 text-xs text-primary">
-                    Save up to 20%
+                    {t('billing.save_up_to')}
                   </span>
                 </span>
               )}
@@ -108,12 +103,12 @@ export function PlanGrid({
               <div className="mb-2 flex items-center gap-2 min-h-[24px]">
                 {isCurrent && (
                   <span className="rounded-full bg-primary px-2.5 py-0.5 text-xs font-medium text-primary-foreground">
-                    Your plan
+                    {t('billing.your_plan')}
                   </span>
                 )}
                 {savings && !isCurrent && (
                   <span className="rounded-full bg-primary/10 px-2.5 py-0.5 text-xs font-medium text-primary">
-                    Save {savings}%
+                    {t('billing.save_pct', { pct: savings })}
                   </span>
                 )}
               </div>
@@ -121,12 +116,12 @@ export function PlanGrid({
               <div className="text-lg font-semibold text-foreground">{p.name}</div>
               <div className="mt-1 text-2xl font-bold text-foreground">
                 {p.priceCents === 0 ? (
-                  'Free'
+                  t('billing.free')
                 ) : (
                   <>
-                    {fmtPrice(p.priceCents, p.currency)}
+                    {formatMoney(p.priceCents, p.currency.toUpperCase())}
                     <span className="text-sm font-normal text-muted-foreground">
-                      /{p.interval === 'year' ? 'yr' : 'mo'}
+                      /{p.interval === 'year' ? t('billing.per_year_short') : t('billing.per_month_short')}
                     </span>
                   </>
                 )}
@@ -137,23 +132,23 @@ export function PlanGrid({
 
               {/* Feature checklist */}
               <ul className="mt-4 flex-1 space-y-2">
-                {Object.entries(FEATURE_LABELS).map(([key, label]) => {
+                {Object.entries(FEATURE_LABEL_KEYS).map(([key, labelKey]) => {
                   const on = p.features[key as keyof typeof p.features];
                   return (
                     <li key={key} className="flex items-center gap-2 text-sm">
                       <span className={on ? 'text-primary' : 'text-muted-foreground/40'}>
                         {on ? '✓' : '—'}
                       </span>
-                      <span className={on ? 'text-foreground' : 'text-muted-foreground'}>{label}</span>
+                      <span className={on ? 'text-foreground' : 'text-muted-foreground'}>{t(labelKey)}</span>
                     </li>
                   );
                 })}
                 <li className="border-t border-border pt-2" />
-                {Object.entries(QUOTA_LABELS).map(([key, label]) => {
+                {Object.entries(QUOTA_LABEL_KEYS).map(([key, labelKey]) => {
                   const val = p.quotas[key as keyof typeof p.quotas];
                   return (
                     <li key={key} className="flex items-center justify-between text-sm">
-                      <span className="text-muted-foreground">{label}</span>
+                      <span className="text-muted-foreground">{t(labelKey)}</span>
                       <span className={`font-medium ${val === -1 ? 'text-primary' : 'text-foreground'}`}>
                         {formatQuota(val)}
                       </span>
@@ -173,7 +168,7 @@ export function PlanGrid({
                     : 'bg-primary text-primary-foreground hover:bg-primary/90'
                 }`}
               >
-                {isCurrent ? 'Current plan' : p.priceCents === 0 ? 'Downgrade to Free' : 'Upgrade'}
+                {isCurrent ? t('billing.current_plan') : p.priceCents === 0 ? t('billing.downgrade_to_free') : t('billing.upgrade')}
               </button>
             </div>
           );

@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useI18n } from '@naap/plugin-sdk';
 import { CurrentPlanCard } from './CurrentPlanCard';
 import { UsageBars } from './UsageBars';
 import { PlanGrid } from './PlanGrid';
@@ -12,6 +13,7 @@ type ModalState =
   | { kind: 'subscribe'; plan: Plan };
 
 export function UserApp(): JSX.Element {
+  const { t } = useI18n();
   const [view, setView] = useState<CurrentPlanView | null>(null);
   const [modal, setModal] = useState<ModalState>({ kind: 'none' });
   const [refresh, setRefresh] = useState(0);
@@ -20,7 +22,7 @@ export function UserApp(): JSX.Element {
     meApi.current().then(setView).catch((e: unknown) => console.error(e));
   }, [refresh]);
 
-  if (!view) return <div className="p-6 text-muted-foreground">Loading…</div>;
+  if (!view) return <div className="p-6 text-muted-foreground">{t('common.loading')}</div>;
 
   const hasActivePaidSub =
     view.plan.priceCents > 0 &&
@@ -28,7 +30,7 @@ export function UserApp(): JSX.Element {
 
   const handleSubscribe = (p: Plan): void => {
     if (p.priceCents === 0) {
-      if (window.confirm('Downgrade to the Free plan at the end of your current period?')) {
+      if (window.confirm(t('billing.confirm_downgrade_free'))) {
         meApi.cancel().then(() => setRefresh((r) => r + 1)).catch(console.error);
       }
       return;
@@ -49,10 +51,10 @@ export function UserApp(): JSX.Element {
     <div className="mx-auto max-w-3xl space-y-6 p-6">
       <CurrentPlanCard view={view} onRefresh={() => setRefresh((r) => r + 1)} />
       <div className="rounded-lg border border-border bg-card p-6">
-        <h3 className="mb-4 text-sm font-medium text-muted-foreground">Usage this period</h3>
+        <h3 className="mb-4 text-sm font-medium text-muted-foreground">{t('billing.usage_this_period')}</h3>
         <UsageBars usage={view.usage} />
       </div>
-      <h3 className="text-lg font-semibold text-foreground">Available plans</h3>
+      <h3 className="text-lg font-semibold text-foreground">{t('billing.available_plans')}</h3>
       <PlanGrid currentPlanCode={view.plan.code} onSubscribe={handleSubscribe} />
 
       {modal.kind === 'timing' && (
