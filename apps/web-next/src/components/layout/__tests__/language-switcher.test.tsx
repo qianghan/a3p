@@ -13,13 +13,26 @@ import { LanguageSwitcher } from '../language-switcher';
 
 const originalFetch = global.fetch;
 
-function mockConfig(locale: string) {
+/**
+ * @param locale   what the tenant has stored
+ * @param enabled  the translation flag. The switcher is HIDDEN when off,
+ *                 because picking a language would change no visible string.
+ */
+function mockConfig(locale: string, enabled = true) {
   global.fetch = vi.fn(async (_url: unknown, init?: RequestInit) => {
     if (init?.method === 'PUT') {
       return { ok: true, json: async () => ({ success: true }) } as Response;
     }
-    return { ok: true, json: async () => ({ success: true, data: { locale } }) } as Response;
+    return {
+      ok: true,
+      json: async () => ({ success: true, data: { locale }, i18nLocalesEnabled: enabled }),
+    } as Response;
   }) as unknown as typeof fetch;
+}
+
+/** The switcher renders after the config fetch resolves. */
+async function waitForSwitcher() {
+  return waitFor(() => screen.getByRole('button', { name: /change language/i }));
 }
 
 beforeEach(() => {
@@ -41,7 +54,7 @@ describe('LanguageSwitcher', () => {
     // language still recognises their own in the list.
     mockConfig('en-US');
     render(<LanguageSwitcher />);
-    fireEvent.click(screen.getByRole('button', { name: /change language/i }));
+    fireEvent.click(await waitForSwitcher());
 
     // Scope to the menu: the TRIGGER also shows the current language, so a
     // bare getByText('English (US)') matches two nodes.
@@ -54,10 +67,7 @@ describe('LanguageSwitcher', () => {
   it('ticks the tenant’s current language', async () => {
     mockConfig('fr-CA');
     render(<LanguageSwitcher />);
-    await waitFor(() => {
-      expect((global.fetch as ReturnType<typeof vi.fn>).mock.calls.length).toBeGreaterThan(0);
-    });
-    fireEvent.click(screen.getByRole('button', { name: /change language/i }));
+    fireEvent.click(await waitForSwitcher());
     await waitFor(() => {
       const fr = screen.getByRole('menuitemradio', { name: /Français/ });
       expect(fr.getAttribute('aria-checked')).toBe('true');
@@ -70,10 +80,7 @@ describe('LanguageSwitcher', () => {
     // look like a no-op.
     mockConfig('en-CA');
     render(<LanguageSwitcher />);
-    await waitFor(() => {
-      expect((global.fetch as ReturnType<typeof vi.fn>).mock.calls.length).toBeGreaterThan(0);
-    });
-    fireEvent.click(screen.getByRole('button', { name: /change language/i }));
+    fireEvent.click(await waitForSwitcher());
     await waitFor(() => {
       const en = screen.getByRole('menuitemradio', { name: /English/ });
       expect(en.getAttribute('aria-checked')).toBe('true');
@@ -83,7 +90,7 @@ describe('LanguageSwitcher', () => {
   it('PUTs the chosen locale to tenant-config', async () => {
     mockConfig('en-US');
     render(<LanguageSwitcher />);
-    fireEvent.click(screen.getByRole('button', { name: /change language/i }));
+    fireEvent.click(await waitForSwitcher());
     fireEvent.click(within(screen.getByRole('menu')).getByText('简体中文'));
 
     await waitFor(() => {
@@ -97,10 +104,7 @@ describe('LanguageSwitcher', () => {
   it('does not PUT when the user re-picks the language they already have', async () => {
     mockConfig('en-US');
     render(<LanguageSwitcher />);
-    await waitFor(() => {
-      expect((global.fetch as ReturnType<typeof vi.fn>).mock.calls.length).toBeGreaterThan(0);
-    });
-    fireEvent.click(screen.getByRole('button', { name: /change language/i }));
+    fireEvent.click(await waitForSwitcher());
     fireEvent.click(within(screen.getByRole('menu')).getByText('English (US)'));
 
     const puts = (global.fetch as ReturnType<typeof vi.fn>).mock.calls
@@ -111,7 +115,7 @@ describe('LanguageSwitcher', () => {
   it('closes on Escape', async () => {
     mockConfig('en-US');
     render(<LanguageSwitcher />);
-    fireEvent.click(screen.getByRole('button', { name: /change language/i }));
+    fireEvent.click(await waitForSwitcher());
     expect(screen.queryByRole('menu')).toBeTruthy();
     fireEvent.keyDown(document, { key: 'Escape' });
     await waitFor(() => expect(screen.queryByRole('menu')).toBeNull());
@@ -128,7 +132,7 @@ describe('LanguageSwitcher', () => {
     // calling useShell again.
     mockConfig('en-US');
     expect(() => render(<LanguageSwitcher />)).not.toThrow();
-    fireEvent.click(screen.getByRole('button', { name: /change language/i }));
+    fireEvent.click(await waitForSwitcher());
     expect(within(screen.getByRole('menu')).getByText('简体中文')).toBeTruthy();
   });
 
@@ -136,22 +140,50 @@ describe('LanguageSwitcher', () => {
     // Same reason: shell.notifications is unreachable without a provider.
     global.fetch = vi.fn(async (_u: unknown, init?: RequestInit) => {
       if (init?.method === 'PUT') return { ok: false, status: 500 } as Response;
-      return { ok: true, json: async () => ({ success: true, data: { locale: 'en-US' } }) } as Response;
+      // Must include the flag, or the switcher is hidden and there is nothing
+      // to click — the GET shape and the visibility gate are coupled.
+      return {
+        ok: true,
+        json: async () => ({ success: true, data: { locale: 'en-US' }, i18nLocalesEnabled: true }),
+      } as Response;
     }) as unknown as typeof fetch;
 
     render(<LanguageSwitcher />);
-    fireEvent.click(screen.getByRole('button', { name: /change language/i }));
+    fireEvent.click(await waitForSwitcher());
     fireEvent.click(within(screen.getByRole('menu')).getByText('简体中文'));
     await waitFor(() => {
       expect(screen.getByText(/could not change language/i)).toBeTruthy();
     });
   });
 
-  it('survives a failed config fetch instead of blanking the header', async () => {
+  it('survives a failed config fetch instead of crashing the header', async () => {
+    // Fail-closed: an unreadable config means we cannot know the flag is on, so
+    // the switcher stays hidden rather than appearing and doing nothing.
     global.fetch = vi.fn(async () => {
       throw new Error('offline');
     }) as unknown as typeof fetch;
     expect(() => render(<LanguageSwitcher />)).not.toThrow();
-    expect(screen.getByRole('button', { name: /change language/i })).toBeTruthy();
+    await waitFor(() => {
+      expect(screen.queryByRole('button', { name: /change language/i })).toBeNull();
+    });
+  });
+
+  it('is HIDDEN while the translation flag is off', async () => {
+    // The bug this fixes: the switcher shipped visible while the gate in
+    // use-shell-i18n.ts forced English, so picking a language changed nothing
+    // a user could see. A control that looks functional and does nothing reads
+    // as broken, not unfinished.
+    mockConfig('en-US', false);
+    render(<LanguageSwitcher />);
+    await waitFor(() => {
+      expect((global.fetch as ReturnType<typeof vi.fn>).mock.calls.length).toBeGreaterThan(0);
+    });
+    expect(screen.queryByRole('button', { name: /change language/i })).toBeNull();
+  });
+
+  it('appears once the flag is on', async () => {
+    mockConfig('en-US', true);
+    render(<LanguageSwitcher />);
+    expect(await waitForSwitcher()).toBeTruthy();
   });
 });
