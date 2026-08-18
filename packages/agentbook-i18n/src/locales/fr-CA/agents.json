@@ -1,0 +1,18 @@
+{
+  "loading": "Chargement des agents…",
+  "title": "Agents IA",
+  "subtitle": "Configurez le fonctionnement de chaque agent",
+  "approach": "Approche",
+  "gentle": "Discret",
+  "assertive": "Affirmé",
+  "auto_approve": "Approuver automatiquement les actions",
+  "execute_without_asking": "Exécuter sans demander au préalable",
+  "notifications": "Notifications",
+  "realtime": "Temps réel",
+  "daily_digest": "Résumé quotidien",
+  "weekly_summary": "Résumé hebdomadaire",
+  "ai_model": "Modèle IA",
+  "model_fast": "Rapide (le moins cher)",
+  "model_standard": "Standard",
+  "model_premium": "Supérieur (le plus performant)"
+}

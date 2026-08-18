@@ -5,14 +5,14 @@
   "bundleFile": "agentbook-core.js",
   "stylesFile": "plugin-agentbook-core-frontend.css",
   "globalName": "NaapPluginAgentbookCore",
-  "bundleHash": "2c332dcb",
-  "bundleSize": 174711,
+  "bundleHash": "a73f6798",
+  "bundleSize": 174835,
   "routes": [
     "/agentbook",
     "/agentbook/*"
   ],
   "category": "finance",
   "description": "Double-entry ledger, chart of accounts, journal entries, constraint engine, and tenant configuration for the AgentBook accounting system.",
-  "buildTime": "2026-08-18T00:56:51.461Z",
+  "buildTime": "2026-08-18T01:08:01.687Z",
   "nodeEnv": "production"
 }

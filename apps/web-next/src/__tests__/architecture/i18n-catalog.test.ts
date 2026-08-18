@@ -84,6 +84,13 @@ const IDENTICAL_ALLOWED = new Set<string>([
   // difference that does not exist.
   'accounting.code',
   'accounting.type',
+  // Same situation: these words are borrowed unchanged into French. Forcing a
+  // synonym to satisfy this check would make the copy WORSE, so each one is
+  // listed deliberately rather than the check being relaxed.
+  'homeoffice.configuration',
+  'homeoffice.internet',
+  'agents.notifications',
+  'agents.model_standard',
 ]);
 
 /**

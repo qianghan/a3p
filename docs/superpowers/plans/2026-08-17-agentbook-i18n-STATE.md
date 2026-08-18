@@ -119,8 +119,9 @@ Consequences, which are contained:
 | 4 | Extraction: billing (user-facing) | **done** | 1 | _pushing_ | 49 keys, real fr-CA; literals 464 -> 456 |
 | 4b | fr-CA copy repair (28 defects) | **done** | 1 | #463 | merged `49dd3ef2` |
 | 4c | Extraction: core dashboard cluster | **done** | 1 | #464 | merged `a240ce6d` |
-| 4d | Extraction: core workflows (onboarding/ledger/accounts/chat) | **done** | 1 | _pushing_ | 34 keys, 3 namespaces; literals 444 -> 420 |
-| 4e | Extraction: rest of core | pending | 0 | — | SavedSearches 22, Agents 16, HomeOffice 16, Activity 15 + admin pages |
+| 4d | Extraction: core workflows | **done** | 1 | #465 | merged `e820a67b` |
+| 4e | Extraction: HomeOffice + Agents | **done** | 1 | _pushing_ | 32 keys; literals 420 -> 402 |
+| 4f | Extraction: SavedSearches + Activity | pending | 0 | — | 37 strings; admin pages deprioritised |
 | 5 | Extraction: expense + invoice | pending | 0 | — | inert |
 | 6 | Extraction: tax + startup (+ legal denylist) | pending | 0 | — | inert |
 | 7 | Extraction: web-next shell/auth/settings | pending | 0 | — | inert |

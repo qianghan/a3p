@@ -1,0 +1,18 @@
+{
+  "title": "Home office",
+  "configuration": "Configuration",
+  "total_sqft": "Total sqft",
+  "office_sqft": "Office sqft",
+  "us_simplified": "Use US simplified method ($5/sqft, max 300 sqft, $1,500/yr cap)",
+  "computed_ratio": "Computed ratio:",
+  "post_quarter": "Post a quarter",
+  "year": "Year",
+  "quarter": "Quarter",
+  "utilities": "Utilities ($)",
+  "internet": "Internet ($)",
+  "rent_mortgage": "Rent / mortgage interest ($)",
+  "insurance": "Insurance ($)",
+  "other": "Other ($)",
+  "total_overhead": "Total quarter overhead:",
+  "past_entries": "Past home-office entries"
+}
