@@ -15,8 +15,19 @@ import { offerableLocales } from '@agentbook/i18n/catalog';
  * so a language whose translations are incomplete is never presented. The list
  * grows on its own when a pack lands.
  *
- * Hidden entirely when only one language is offerable — a one-item picker is
- * noise in the header.
+ * Hidden entirely when only one language is offerable, AND when the translation
+ * flag is off.
+ *
+ * WHY THE FLAG GATES VISIBILITY
+ *
+ * The gate in use-shell-i18n.ts forces the translator to English while
+ * `agentbook.i18n.locales.enabled` is off, so picking a language changes
+ * date/money formatting but leaves every string in English. Shipping a visible
+ * control that appears to work and does nothing is worse than shipping no
+ * control — it reads as a broken feature rather than an unfinished one.
+ *
+ * So the switcher only appears once translation is actually live. Business
+ * Profile keeps its own picker for the formatting/jurisdiction case.
  *
  * DELIBERATELY PROVIDER-INDEPENDENT. This mounts in BOTH shells: the desktop
  * top bar (which has a ShellProvider) and the mobile PWA shell
@@ -43,6 +54,9 @@ export function LanguageSwitcher() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(false);
   const [stored, setStored] = useState<string | undefined>(undefined);
+  // Starts false so the switcher is absent on first paint rather than
+  // flickering in and out — same fail-closed posture as the server reader.
+  const [translationEnabled, setTranslationEnabled] = useState(false);
   const boxRef = useRef<HTMLDivElement>(null);
 
   // Read the tenant's current choice so the menu shows a tick next to it.
@@ -51,7 +65,9 @@ export function LanguageSwitcher() {
     fetch('/api/v1/agentbook-core/tenant-config')
       .then((r) => (r.ok ? r.json() : null))
       .then((j) => {
-        if (!cancelled && j?.data?.locale) setStored(j.data.locale as string);
+        if (cancelled) return;
+        if (j?.data?.locale) setStored(j.data.locale as string);
+        setTranslationEnabled(j?.i18nLocalesEnabled === true);
       })
       .catch(() => {
         // Non-fatal: the switcher still works, it just shows no current tick.
@@ -81,6 +97,9 @@ export function LanguageSwitcher() {
 
   // One option is not a choice.
   if (OPTIONS.length < 2) return null;
+  // Translation is gated off: a switcher here would change nothing a user can
+  // see, so do not offer it.
+  if (!translationEnabled) return null;
 
   const current = matchOption(stored);
 
