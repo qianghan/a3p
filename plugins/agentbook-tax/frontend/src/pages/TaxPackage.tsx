@@ -15,8 +15,7 @@ import { PastFilingsPage } from './PastFilings';
 import { FastTrackTab } from './FastTrackTab';
 import { TaxFilingReviewTab } from './TaxFilingReviewTab';
 import { TaxDisclaimer } from '../components/TaxDisclaimer';
-import { t } from '@agentbook/i18n';
-import { useTenantLocale } from '../hooks/useTenantLocale';
+import { useI18n } from '@naap/plugin-sdk';
 import { currentFilingYear } from '../lib/filing-year';
 
 const API = '/api/v1/agentbook-tax';
@@ -62,9 +61,9 @@ export const TaxPackagePage: React.FC = () => {
     return requested === 'past' || requested === 'fast-track' || requested === 'review' ? requested : 'package';
   });
 
-  // The tab labels below call t(); without this the review tab's label would
-  // render the raw key. Also applies the tenant's locale to the tab it opens.
-  useTenantLocale();
+  // The tab labels below call t() — the shell injects a bound translator via
+  // ShellContext, reached here through useI18n().
+  const { t } = useI18n();
 
   return (
     <div>

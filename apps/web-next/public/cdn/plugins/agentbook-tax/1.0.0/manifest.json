@@ -5,8 +5,8 @@
   "bundleFile": "agentbook-tax.js",
   "stylesFile": "plugin-agentbook-tax-frontend.css",
   "globalName": "NaapPluginAgentbookTax",
-  "bundleHash": "195f2cb3",
-  "bundleSize": 150099,
+  "bundleHash": "3d24dc97",
+  "bundleSize": 140498,
   "routes": [
     "/agentbook/tax",
     "/agentbook/tax/*",
@@ -21,6 +21,6 @@
   ],
   "category": "finance",
   "description": "Tax estimation, quarterly installments, deduction optimization, Schedule C/T2125 generation, P&L, balance sheet, cash flow reports, and proactive tax planning.",
-  "buildTime": "2026-08-17T18:36:18.158Z",
+  "buildTime": "2026-08-18T00:48:48.932Z",
   "nodeEnv": "production"
 }
