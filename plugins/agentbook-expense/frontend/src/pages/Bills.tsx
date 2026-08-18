@@ -125,7 +125,7 @@ export const BillsPage: React.FC = () => {
           className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium bg-primary text-primary-foreground hover:opacity-90"
         >
           {showForm ? <X className="w-4 h-4" /> : <Plus className="w-4 h-4" />}
-          {showForm ? 'Cancel' : 'Add bill'}
+          {showForm ? t('common.cancel') : t('expenses_ui.add_bill')}
         </button>
       </div>
 
@@ -157,7 +157,7 @@ export const BillsPage: React.FC = () => {
           </div>
           <button onClick={() => void addBill()} disabled={submitting || !vendorName || !amount}
             className="px-4 py-2 rounded-lg text-sm font-medium bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-50">
-            {submitting ? 'Saving…' : 'Save bill'}
+            {submitting ? t('common.saving') : t('expenses_ui.save_bill')}
           </button>
         </div>
       )}

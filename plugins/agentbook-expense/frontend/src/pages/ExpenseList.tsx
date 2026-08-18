@@ -708,7 +708,7 @@ export const ExpenseListPage: React.FC = () => {
           ))}
           <button onClick={() => setSortBy(sortBy === 'date' ? 'amount' : 'date')}
             className="px-3 py-1.5 rounded-full text-xs bg-muted text-muted-foreground hover:bg-muted/80 flex items-center gap-1">
-            <ArrowUpDown className="w-3 h-3" />{sortBy === 'date' ? 'Date' : 'Amount'}
+            <ArrowUpDown className="w-3 h-3" />{sortBy === 'date' ? t('expenses_ui.col_date') : t('expenses_ui.col_amount')}
           </button>
           {/* PR 26: Show deleted toggle */}
           <button onClick={() => setShowDeleted(v => !v)}
@@ -716,7 +716,7 @@ export const ExpenseListPage: React.FC = () => {
               showDeleted ? 'bg-destructive/15 text-destructive border border-destructive/30' : 'bg-muted text-muted-foreground hover:bg-muted/80'
             }`}
             title={t('expenses_ui.include_deleted_title')}>
-            {showDeleted ? 'Hide deleted' : 'Show deleted'}
+            {showDeleted ? t('expenses_ui.hide_deleted') : t('expenses_ui.show_deleted')}
           </button>
         </div>
       </div>
@@ -836,7 +836,7 @@ export const ExpenseListPage: React.FC = () => {
                           className="text-xs border border-amber-500/40 text-amber-600 rounded px-1.5 py-1 bg-background disabled:opacity-50"
                         >
                           <option value="" disabled>
-                            {categorizingId === expense.id ? 'Saving…' : 'Categorize…'}
+                            {categorizingId === expense.id ? t('common.saving') : t('expenses_ui.categorize_ellipsis')}
                           </option>
                           {categoryOptions.map(c => (
                             <option key={c.id} value={c.id}>{c.name}</option>
@@ -928,7 +928,7 @@ export const ExpenseListPage: React.FC = () => {
                   onChange={(e) => categorizeExpense(expense.id, e.target.value)}
                   className="text-[10px] border border-amber-500/40 text-amber-600 rounded px-1.5 py-0.5 bg-background disabled:opacity-50"
                 >
-                  <option value="" disabled>{categorizingId === expense.id ? 'Saving…' : 'Categorize…'}</option>
+                  <option value="" disabled>{categorizingId === expense.id ? t('common.saving') : t('expenses_ui.categorize_ellipsis')}</option>
                   {categoryOptions.map(c => (
                     <option key={c.id} value={c.id}>{c.name}</option>
                   ))}

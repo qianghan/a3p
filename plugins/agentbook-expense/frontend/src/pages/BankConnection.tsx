@@ -270,7 +270,7 @@ export const BankConnectionPage: React.FC = () => {
             <button onClick={handleSync} disabled={syncing}
               className="flex items-center gap-2 px-4 py-2 bg-muted text-foreground rounded-lg text-sm hover:bg-muted/80 transition-colors disabled:opacity-50">
               <RefreshCw className={`w-4 h-4 ${syncing ? 'animate-spin' : ''}`} />
-              {syncing ? 'Syncing...' : 'Sync Now'}
+              {syncing ? t('expenses_ui.syncing') : t('expenses_ui.sync_now')}
             </button>
           )}
           <button onClick={handleStartConnect} disabled={isConnecting}

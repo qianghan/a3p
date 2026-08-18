@@ -36,7 +36,7 @@ export const NewExpensePage: React.FC = () => {
   //   2. A fr-CA user cannot type '45,50' into these fields at all — the
   //      browser blanks it. That is a usability defect, and routing through
   //      parseAmount means switching a field to type="text" later Just Works.
-  const { parseAmount } = useI18n();
+  const { parseAmount, t } = useI18n();
 
   // Receipt OCR state (G-031 — closes the "non-functional theater" finding).
   const [receiptStatus, setReceiptStatus] = useState<
@@ -52,11 +52,11 @@ export const NewExpensePage: React.FC = () => {
   const handleReceiptFile = async (file: File) => {
     if (!file) return;
     if (!/^image\/|application\/pdf$/.test(file.type)) {
-      setReceiptStatus({ kind: 'error', message: 'Unsupported file type. Use JPG, PNG, or PDF.' });
+      setReceiptStatus({ kind: 'error', message: t('expenses_ui.file_type_unsupported') });
       return;
     }
     if (file.size > 10 * 1024 * 1024) {
-      setReceiptStatus({ kind: 'error', message: 'File too large (max 10MB).' });
+      setReceiptStatus({ kind: 'error', message: t('expenses_ui.file_too_large') });
       return;
     }
 
@@ -183,13 +183,13 @@ export const NewExpensePage: React.FC = () => {
 
   return (
     <div className="p-6 max-w-2xl mx-auto">
-      <h1 className="text-2xl font-bold mb-3">Record Expense</h1>
+      <h1 className="text-2xl font-bold mb-3">{t('expenses_ui.record_expense')}</h1>
 
       {/* PR 41 / Tier 1 #1: chat-first escape hatch */}
       <ChatCTA example="I spent $42 at Starbucks for client meeting today" />
 
       {success && (
-        <div className="bg-green-500/10 text-green-500 p-4 rounded-lg mb-6">Expense recorded successfully!</div>
+        <div className="bg-green-500/10 text-green-500 p-4 rounded-lg mb-6">{t('expenses_ui.expense_recorded_ok')}</div>
       )}
       {submitError && (
         <div className="bg-destructive/10 text-destructive p-4 rounded-lg mb-6 flex items-center gap-2">
@@ -236,8 +236,7 @@ export const NewExpensePage: React.FC = () => {
                 ? ` · confidence ${Math.round(receiptStatus.result.confidence * 100)}%`
                 : ''}
             </p>
-            <p className="text-xs text-muted-foreground mt-1">
-              Fields below are pre-filled. Review and edit, then click Record.
+            <p className="text-xs text-muted-foreground mt-1">{t('expenses_ui.prefilled_hint')}
             </p>
           </>
         )}
@@ -245,14 +244,14 @@ export const NewExpensePage: React.FC = () => {
           <>
             <AlertCircle className="w-10 h-10 mx-auto mb-3 text-red-500" />
             <p className="text-foreground">{receiptStatus.message}</p>
-            <p className="text-xs text-muted-foreground mt-1">Click to try another file.</p>
+            <p className="text-xs text-muted-foreground mt-1">{t('expenses_ui.try_another_file')}</p>
           </>
         )}
         {receiptStatus.kind === 'idle' && (
           <>
             <Upload className="w-10 h-10 mx-auto mb-3 text-muted-foreground" />
-            <p className="text-muted-foreground">Drag and drop a receipt, or click to upload</p>
-            <p className="text-xs text-muted-foreground mt-1">JPG, PNG, PDF — we'll extract the details automatically</p>
+            <p className="text-muted-foreground">{t('expenses_ui.drop_receipt')}</p>
+            <p className="text-xs text-muted-foreground mt-1">{t('expenses_ui.drop_receipt_formats')}</p>
           </>
         )}
       </div>
@@ -270,31 +269,31 @@ export const NewExpensePage: React.FC = () => {
         </div>
 
         <div>
-          <label className="block text-sm font-medium mb-1">Vendor</label>
+          <label className="block text-sm font-medium mb-1">{t('expenses_ui.col_vendor')}</label>
           <input type="text" value={vendor} onChange={e => setVendor(e.target.value)}
             className="w-full px-4 py-2 bg-background border border-border rounded-lg focus:ring-2 focus:ring-primary/50" placeholder="e.g., Starbucks, Amazon" />
         </div>
 
         <div>
-          <label className="block text-sm font-medium mb-1">Description</label>
+          <label className="block text-sm font-medium mb-1">{t('expenses_ui.col_description')}</label>
           <input type="text" value={description} onChange={e => setDescription(e.target.value)}
-            className="w-full px-4 py-2 bg-background border border-border rounded-lg focus:ring-2 focus:ring-primary/50" placeholder="What was this for?" />
+            className="w-full px-4 py-2 bg-background border border-border rounded-lg focus:ring-2 focus:ring-primary/50" placeholder={t('expenses_ui.description_placeholder')} />
         </div>
 
         <div>
-          <label className="block text-sm font-medium mb-1">Date</label>
+          <label className="block text-sm font-medium mb-1">{t('expenses_ui.col_date')}</label>
           <input type="date" value={date} onChange={e => setDate(e.target.value)}
             className="w-full px-4 py-2 bg-background border border-border rounded-lg focus:ring-2 focus:ring-primary/50" />
         </div>
 
         <label className="flex items-center gap-2 cursor-pointer">
           <input type="checkbox" checked={isPersonal} onChange={e => setIsPersonal(e.target.checked)} className="rounded" />
-          <span className="text-sm">This is a personal expense</span>
+          <span className="text-sm">{t('expenses_ui.is_personal_expense')}</span>
         </label>
 
         <button type="submit" disabled={submitting || !amount}
           className="w-full py-3 bg-primary text-primary-foreground rounded-lg font-medium hover:bg-primary/90 transition-colors disabled:opacity-50">
-          {submitting ? 'Recording...' : 'Record Expense'}
+          {submitting ? t('expenses_ui.recording') : t('expenses_ui.record_expense')}
         </button>
       </form>
     </div>

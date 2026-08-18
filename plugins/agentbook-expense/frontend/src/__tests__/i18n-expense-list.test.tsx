@@ -33,6 +33,12 @@ import { ExpenseListPage } from '../pages/ExpenseList';
 import { BankConnectionPage } from '../pages/BankConnection';
 import { BudgetsPage } from '../pages/Budgets';
 import { BillsPage } from '../pages/Bills';
+import { MileagePage } from '../pages/Mileage';
+import { PerDiemPage } from '../pages/PerDiem';
+import { ReceiptsPage } from '../pages/Receipts';
+import { VendorsPage } from '../pages/Vendors';
+import { BankReviewPage } from '../pages/BankReview';
+import { NewExpensePage } from '../pages/NewExpense';
 
 vi.mock('react-plaid-link', () => ({
   usePlaidLink: () => ({ open: vi.fn(), ready: false, exit: vi.fn() }),
@@ -60,6 +66,23 @@ function installFetch() {
         success: true,
         data: { items: [], uncategorizedCount: 0, totalCount: 0, uncategorizedPct: 0 },
       };
+    } else if (u.includes('/mileage')) {
+      // Shape copied from Mileage.test.tsx's summaryPayload(): the page reads
+      // data.entries and data.summary, and the rate preview reads
+      // summary.ytdByUnit per unit.
+      body = {
+        success: true,
+        data: {
+          entries: [],
+          summary: {
+            ytd: { miles: 0, deductibleCents: 0, entryCount: 0 },
+            ytdByUnit: { mi: 0, km: 0 },
+            monthly: [], byClient: [], byPurpose: [],
+          },
+        },
+      };
+    } else if (u.includes('/per-diem')) {
+      body = { success: true, data: { entries: [] } };
     } else if (u.includes('/budgets')) {
       // Budgets.tsx reads `data.budgets`, not `data`.
       body = { success: true, data: { budgets: [] } };
@@ -86,14 +109,37 @@ const PAGES: Array<{ name: string; el: React.ReactElement; en: string; fr: strin
   },
   { name: 'Budgets', el: <BudgetsPage />, en: 'New Budget', fr: 'Nouveau budget', zh: '新建预算' },
   { name: 'Bills', el: <BillsPage />, en: 'Overdue', fr: 'En retard', zh: '逾期' },
+  { name: 'Mileage', el: <MileagePage />, en: 'Recent trips', fr: 'Trajets récents', zh: '近期行程' },
+  {
+    name: 'PerDiem',
+    el: <PerDiemPage />,
+    en: 'Book per-diem', fr: 'Enregistrer l’indemnité', zh: '登记每日津贴',
+  },
+  { name: 'Receipts', el: <ReceiptsPage />, en: 'Receipts', fr: 'Reçus', zh: '收据' },
+  { name: 'Vendors', el: <VendorsPage />, en: 'Vendors', fr: 'Fournisseurs', zh: '商家' },
+  {
+    name: 'BankReview',
+    el: <BankReviewPage />,
+    en: 'All caught up', fr: 'Tout est à jour', zh: '全部已处理',
+  },
+  {
+    name: 'NewExpense',
+    el: <NewExpensePage />,
+    en: 'Record Expense', fr: 'Enregistrer une dépense', zh: '记录支出',
+  },
 ];
 
 async function renderAt(el: React.ReactElement, locale: string): Promise<string> {
   const { container } = render(<MemoryRouter>{withShell(el, locale)}</MemoryRouter>);
-  // Asserting immediately reads the loading spinner, not the column headers
-  // and empty-state copy that carry most of the strings.
+  // Two conditions, and the non-emptiness one is not optional. An earlier
+  // version waited only for the absence of a loading word, which an EMPTY
+  // container satisfies instantly — so it returned '' before first content
+  // paint, and the "no raw key leaked" assertion passed vacuously on a blank
+  // page. A blank render is a failure, not a pass.
   await waitFor(() => {
-    expect(container.textContent ?? '').not.toMatch(/Loading|Chargement|正在加载/);
+    const text = container.textContent ?? '';
+    expect(text.length, 'page rendered nothing').toBeGreaterThan(20);
+    expect(text).not.toMatch(/Loading|Chargement|正在加载/);
   });
   return container.textContent ?? '';
 }

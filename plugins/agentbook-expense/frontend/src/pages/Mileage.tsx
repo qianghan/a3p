@@ -90,7 +90,7 @@ function ratePreview(
 export const MileagePage: React.FC = () => {
   // Logical dates (expense/transaction/trip dates) are calendar days, not
   // instants: local-time rendering showed the previous day west of UTC.
-  const { formatDateOnly } = useI18n();
+  const { formatDateOnly, t } = useI18n();
   const [entries, setEntries] = useState<MileageEntry[]>([]);
   const [summary, setSummary] = useState<MileageSummary | null>(null);
   const [clients, setClients] = useState<Client[]>([]);
@@ -196,7 +196,7 @@ export const MileagePage: React.FC = () => {
       <div className="flex items-center justify-between mb-6">
         <div className="flex items-center gap-3">
           <Car className="w-6 h-6 text-primary" />
-          <h1 className="text-2xl font-bold">Mileage</h1>
+          <h1 className="text-2xl font-bold">{t('expenses_ui.mileage')}</h1>
         </div>
         <div className="flex items-center gap-2">
           <button
@@ -211,7 +211,7 @@ export const MileagePage: React.FC = () => {
             className="px-3 py-2 text-sm rounded-lg bg-primary text-primary-foreground inline-flex items-center gap-2"
           >
             {showForm ? <X className="w-4 h-4" /> : <Plus className="w-4 h-4" />}
-            {showForm ? 'Cancel' : 'Log trip'}
+            {showForm ? t('common.cancel') : t('expenses_ui.log_trip')}
           </button>
         </div>
       </div>
@@ -223,12 +223,12 @@ export const MileagePage: React.FC = () => {
       {ytd && (
         <div className="bg-card border border-border rounded-xl p-4 mb-6 grid grid-cols-2 gap-4">
           <div>
-            <p className="text-xs text-muted-foreground uppercase tracking-wide">YTD Distance</p>
+            <p className="text-xs text-muted-foreground uppercase tracking-wide">{t('expenses_ui.ytd_distance')}</p>
             <p className="text-2xl font-bold">{ytd.miles.toLocaleString()} {ytdUnit}</p>
             <p className="text-xs text-muted-foreground">{ytd.entryCount} {ytd.entryCount === 1 ? 'trip' : 'trips'}</p>
           </div>
           <div>
-            <p className="text-xs text-muted-foreground uppercase tracking-wide">YTD Deductible</p>
+            <p className="text-xs text-muted-foreground uppercase tracking-wide">{t('expenses_ui.ytd_deductible')}</p>
             <p className="text-2xl font-bold">{fmtMoney(ytd.deductibleCents, currency)}</p>
             {summary?.monthly.length ? (
               <p className="text-xs text-muted-foreground">
@@ -247,7 +247,7 @@ export const MileagePage: React.FC = () => {
         <div className="bg-card border border-border rounded-xl p-4 mb-6 space-y-3">
           <div className="grid grid-cols-3 gap-3">
             <div className="col-span-2">
-              <label className="text-xs text-muted-foreground">Distance</label>
+              <label className="text-xs text-muted-foreground">{t('expenses_ui.distance')}</label>
               <input
                 type="number"
                 inputMode="decimal"
@@ -260,7 +260,7 @@ export const MileagePage: React.FC = () => {
               />
             </div>
             <div>
-              <label className="text-xs text-muted-foreground">Unit</label>
+              <label className="text-xs text-muted-foreground">{t('expenses_ui.unit')}</label>
               <select
                 value={unit}
                 onChange={(e) => setUnit(e.target.value as 'mi' | 'km')}
@@ -275,18 +275,18 @@ export const MileagePage: React.FC = () => {
             Estimated rate: {ratePreview(tenantJurisdiction, unit, summary?.ytdByUnit)} — exact rate is applied when you save.
           </p>
           <div>
-            <label className="text-xs text-muted-foreground">Purpose</label>
+            <label className="text-xs text-muted-foreground">{t('expenses_ui.purpose')}</label>
             <input
               type="text"
               value={purpose}
               onChange={(e) => setPurpose(e.target.value)}
-              placeholder="TechCorp meeting"
+              placeholder={t('expenses_ui.purpose_placeholder')}
               className="w-full p-2 border border-border rounded-lg bg-background"
             />
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="text-xs text-muted-foreground">Client (optional)</label>
+              <label className="text-xs text-muted-foreground">{t('expenses_ui.client_optional')}</label>
               <select
                 value={clientId}
                 onChange={(e) => setClientId(e.target.value)}
@@ -299,7 +299,7 @@ export const MileagePage: React.FC = () => {
               </select>
             </div>
             <div>
-              <label className="text-xs text-muted-foreground">Date</label>
+              <label className="text-xs text-muted-foreground">{t('expenses_ui.col_date')}</label>
               <input
                 type="date"
                 value={date}
@@ -315,18 +315,18 @@ export const MileagePage: React.FC = () => {
               disabled={submitting}
               className="px-4 py-2 bg-primary text-primary-foreground rounded-lg font-medium disabled:opacity-50"
             >
-              {submitting ? 'Saving…' : 'Save trip'}
+              {submitting ? t('common.saving') : t('expenses_ui.save_trip')}
             </button>
           </div>
         </div>
       )}
 
       {/* Entry list */}
-      <h2 className="text-sm font-medium text-muted-foreground mb-3">Recent trips</h2>
+      <h2 className="text-sm font-medium text-muted-foreground mb-3">{t('expenses_ui.recent_trips')}</h2>
       <div className="space-y-2">
         {entries.length === 0 && (
           <p className="text-sm text-muted-foreground text-center py-6">
-            No trips yet. Tap <b>Log trip</b> or message your bot
+            No trips yet. Tap <b>{t('expenses_ui.log_trip')}</b> or message your bot
             {' "drove 47 miles to TechCorp"'}.
           </p>
         )}
@@ -360,7 +360,7 @@ export const MileagePage: React.FC = () => {
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-8">
           {summary.byClient.length > 0 && (
             <div>
-              <h2 className="text-sm font-medium text-muted-foreground mb-3">YTD by client</h2>
+              <h2 className="text-sm font-medium text-muted-foreground mb-3">{t('expenses_ui.ytd_by_client')}</h2>
               <div className="space-y-2">
                 {summary.byClient.map((c) => (
                   <div key={c.clientId} className="bg-card border border-border rounded-lg p-3 flex items-center justify-between">
@@ -376,7 +376,7 @@ export const MileagePage: React.FC = () => {
           )}
           {summary.byPurpose && summary.byPurpose.length > 0 && (
             <div>
-              <h2 className="text-sm font-medium text-muted-foreground mb-3">YTD by purpose</h2>
+              <h2 className="text-sm font-medium text-muted-foreground mb-3">{t('expenses_ui.ytd_by_purpose')}</h2>
               <div className="space-y-2">
                 {summary.byPurpose.map((p) => (
                   <div key={p.purpose} className="bg-card border border-border rounded-lg p-3 flex items-center justify-between">

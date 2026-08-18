@@ -101,6 +101,8 @@ const IDENTICAL_ALLOWED = new Set<string>([
   'expenses_ui.transactions',
   'expenses_ui.exceptions',
   'expenses_ui.budgets',
+  // "Distance" is the same word in French.
+  'expenses_ui.distance',
 ]);
 
 /**

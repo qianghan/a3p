@@ -24,5 +24,9 @@
   "view_details": "View details",
   "mark_personal": "Mark personal",
   "mark_business": "Mark business",
-  "close": "Close"
+  "close": "Close",
+  "refresh": "Refresh",
+  "skip": "Skip",
+  "saving": "Saving…",
+  "create": "Create"
 }

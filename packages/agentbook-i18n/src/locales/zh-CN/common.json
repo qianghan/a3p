@@ -24,5 +24,9 @@
   "view_details": "查看详情",
   "mark_personal": "标记为个人",
   "mark_business": "标记为业务",
-  "close": "关闭"
+  "close": "关闭",
+  "refresh": "刷新",
+  "skip": "跳过",
+  "saving": "正在保存…",
+  "create": "创建"
 }

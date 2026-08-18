@@ -285,7 +285,7 @@ export const BudgetsPage: React.FC = () => {
               disabled={submitting}
               className="px-3 py-2 text-sm rounded-lg bg-primary text-primary-foreground disabled:opacity-50"
             >
-              {submitting ? 'Saving…' : editingId ? 'Save' : 'Create'}
+              {submitting ? t('common.saving') : editingId ? t('common.save') : t('common.create')}
             </button>
           </div>
         </div>

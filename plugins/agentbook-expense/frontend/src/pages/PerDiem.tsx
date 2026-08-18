@@ -65,7 +65,7 @@ function diffDays(startISO: string, endISO: string): number {
 export const PerDiemPage: React.FC = () => {
   // Logical dates (expense/transaction/trip dates) are calendar days, not
   // instants: local-time rendering showed the previous day west of UTC.
-  const { formatDateOnly } = useI18n();
+  const { formatDateOnly, t } = useI18n();
   const [entries, setEntries] = useState<PerDiemEntry[]>([]);
   const [showForm, setShowForm] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -146,7 +146,7 @@ export const PerDiemPage: React.FC = () => {
       <div className="flex items-center justify-between mb-6">
         <div className="flex items-center gap-3">
           <Plane className="w-6 h-6 text-primary" />
-          <h1 className="text-2xl font-bold">Per-diem</h1>
+          <h1 className="text-2xl font-bold">{t('expenses_ui.per_diem')}</h1>
         </div>
         <button
           onClick={() => setShowForm((v) => !v)}
@@ -154,7 +154,7 @@ export const PerDiemPage: React.FC = () => {
           className="px-3 py-2 text-sm rounded-lg bg-primary text-primary-foreground inline-flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
         >
           {showForm ? <X className="w-4 h-4" /> : <Plus className="w-4 h-4" />}
-          {showForm ? 'Cancel' : 'Book per-diem'}
+          {showForm ? t('common.cancel') : t('expenses_ui.book_per_diem')}
         </button>
       </div>
 
@@ -177,18 +177,18 @@ export const PerDiemPage: React.FC = () => {
       {showForm && jurisdiction !== 'ca' && jurisdiction !== 'au' && (
         <div className="bg-card border border-border rounded-xl p-4 mb-6 space-y-3">
           <div>
-            <label className="text-xs text-muted-foreground">City</label>
+            <label className="text-xs text-muted-foreground">{t('expenses_ui.city')}</label>
             <input
               type="text"
               value={city}
               onChange={(e) => setCity(e.target.value)}
-              placeholder="NYC, San Francisco, Boston, …"
+              placeholder={t('expenses_ui.city_placeholder')}
               className="w-full p-2 border border-border rounded-lg bg-background"
             />
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="text-xs text-muted-foreground">Start date</label>
+              <label className="text-xs text-muted-foreground">{t('expenses_ui.start_date')}</label>
               <input
                 type="date"
                 value={startDate}
@@ -197,7 +197,7 @@ export const PerDiemPage: React.FC = () => {
               />
             </div>
             <div>
-              <label className="text-xs text-muted-foreground">End date</label>
+              <label className="text-xs text-muted-foreground">{t('expenses_ui.end_date')}</label>
               <input
                 type="date"
                 value={endDate}
@@ -212,8 +212,7 @@ export const PerDiemPage: React.FC = () => {
               checked={includeLodging}
               onChange={(e) => setIncludeLodging(e.target.checked)}
             />
-            <Hotel className="w-4 h-4 text-muted-foreground" />
-            Include lodging rate
+            <Hotel className="w-4 h-4 text-muted-foreground" />{t('expenses_ui.include_lodging')}
           </label>
 
           {/* Booked-rates preview */}
@@ -243,17 +242,17 @@ export const PerDiemPage: React.FC = () => {
               disabled={submitting}
               className="px-4 py-2 bg-primary text-primary-foreground rounded-lg font-medium disabled:opacity-50"
             >
-              {submitting ? 'Booking…' : 'Book per-diem'}
+              {submitting ? t('expenses_ui.booking') : t('expenses_ui.book_per_diem')}
             </button>
           </div>
         </div>
       )}
 
-      <h2 className="text-sm font-medium text-muted-foreground mb-3">Recent per-diem entries</h2>
+      <h2 className="text-sm font-medium text-muted-foreground mb-3">{t('expenses_ui.recent_per_diem')}</h2>
       <div className="space-y-2">
         {entries.length === 0 && (
           <p className="text-sm text-muted-foreground text-center py-6">
-            No per-diem entries yet. Tap <b>Book per-diem</b> or message your
+            No per-diem entries yet. Tap <b>{t('expenses_ui.book_per_diem')}</b> or message your
             bot {'"per-diem 3 days NYC"'}.
           </p>
         )}
