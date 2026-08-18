@@ -94,6 +94,13 @@ const IDENTICAL_ALLOWED = new Set<string>([
   // "Date" and "Notes" are the same word in French.
   'expenses_ui.col_date',
   'expenses_ui.notes',
+  // Also identical in French: "Description", "Transactions", "Exceptions" and
+  // "Budgets" are all borrowed unchanged. "Budget" in particular is the
+  // standard French accounting term, so a synonym would read as a mistake.
+  'expenses_ui.col_description',
+  'expenses_ui.transactions',
+  'expenses_ui.exceptions',
+  'expenses_ui.budgets',
 ]);
 
 /**

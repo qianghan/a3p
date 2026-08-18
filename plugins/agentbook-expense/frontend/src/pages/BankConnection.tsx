@@ -58,7 +58,7 @@ function fmt(cents: number, currency: string) {
 export const BankConnectionPage: React.FC = () => {
   // Logical dates (expense/transaction/trip dates) are calendar days, not
   // instants: local-time rendering showed the previous day west of UTC.
-  const { formatDateOnly } = useI18n();
+  const { formatDateOnly, t } = useI18n();
   const currency = useTenantCurrency();
   const [accounts, setAccounts] = useState<BankAccount[]>([]);
   const [transactions, setTransactions] = useState<BankTransaction[]>([]);
@@ -261,8 +261,8 @@ export const BankConnectionPage: React.FC = () => {
         <div className="flex items-center gap-3">
           <Building2 className="w-6 h-6 text-primary" />
           <div>
-            <h1 className="text-2xl font-bold">Bank Connections</h1>
-            <p className="text-sm text-muted-foreground">Connect your bank to auto-import and reconcile transactions</p>
+            <h1 className="text-2xl font-bold">{t('expenses_ui.bank_connections')}</h1>
+            <p className="text-sm text-muted-foreground">{t('expenses_ui.bank_connections_sub')}</p>
           </div>
         </div>
         <div className="flex gap-2">
@@ -290,7 +290,7 @@ export const BankConnectionPage: React.FC = () => {
         }`}>
           <CheckCircle className="w-4 h-4 shrink-0" />
           {syncResult.message}
-          <button onClick={() => setSyncResult(null)} className="ml-auto text-xs opacity-60 hover:opacity-100">Dismiss</button>
+          <button onClick={() => setSyncResult(null)} className="ml-auto text-xs opacity-60 hover:opacity-100">{t('common.dismiss')}</button>
         </div>
       )}
 
@@ -298,60 +298,59 @@ export const BankConnectionPage: React.FC = () => {
         <div className="mb-4 p-3 rounded-xl text-sm flex items-center gap-2 bg-red-500/10 text-red-600 border border-red-500/20">
           <AlertCircle className="w-4 h-4 shrink-0" />
           {basiqError}
-          <button onClick={basiq.clearError} className="ml-auto text-xs opacity-60 hover:opacity-100">Dismiss</button>
+          <button onClick={basiq.clearError} className="ml-auto text-xs opacity-60 hover:opacity-100">{t('common.dismiss')}</button>
         </div>
       )}
 
       {reconciliation && reconciliation.totalTransactions > 0 && (
         <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 mb-6">
           <div className="bg-card border border-border rounded-xl p-4">
-            <p className="text-xs text-muted-foreground">Transactions</p>
+            <p className="text-xs text-muted-foreground">{t('expenses_ui.transactions')}</p>
             <p className="text-xl font-bold">{reconciliation.totalTransactions}</p>
           </div>
           <div className="bg-card border border-border rounded-xl p-4">
-            <p className="text-xs text-muted-foreground">Matched</p>
+            <p className="text-xs text-muted-foreground">{t('expenses_ui.matched')}</p>
             <p className="text-xl font-bold text-green-500">{reconciliation.matched}</p>
           </div>
           <div className="bg-card border border-border rounded-xl p-4">
-            <p className="text-xs text-muted-foreground">Pending</p>
+            <p className="text-xs text-muted-foreground">{t('expenses_ui.pending')}</p>
             <p className="text-xl font-bold text-amber-500">{reconciliation.pending}</p>
           </div>
           <div className="bg-card border border-border rounded-xl p-4">
-            <p className="text-xs text-muted-foreground">Exceptions</p>
+            <p className="text-xs text-muted-foreground">{t('expenses_ui.exceptions')}</p>
             <p className="text-xl font-bold text-red-500">{reconciliation.exceptions}</p>
           </div>
           <div className="bg-card border border-border rounded-xl p-4">
-            <p className="text-xs text-muted-foreground">Match Rate</p>
+            <p className="text-xs text-muted-foreground">{t('expenses_ui.match_rate')}</p>
             <p className="text-xl font-bold">{(reconciliation.matchRate * 100).toFixed(0)}%</p>
           </div>
         </div>
       )}
 
-      {loading && <p className="text-muted-foreground py-8 text-center">Loading bank accounts...</p>}
+      {loading && <p className="text-muted-foreground py-8 text-center">{t('expenses_ui.loading_banks')}</p>}
 
       {accounts.length === 0 && !loading && (
         <div className="bg-card border border-dashed border-border rounded-xl p-12 text-center">
           <Building2 className="w-12 h-12 mx-auto mb-4 text-muted-foreground/50" />
-          <h3 className="text-lg font-medium mb-2">No banks connected yet</h3>
-          <p className="text-sm text-muted-foreground mb-4">
-            Connect your bank account to automatically import transactions and reconcile with your recorded expenses.
+          <h3 className="text-lg font-medium mb-2">{t('expenses_ui.no_banks')}</h3>
+          <p className="text-sm text-muted-foreground mb-4">{t('expenses_ui.no_banks_desc')}
           </p>
           <button onClick={handleStartConnect} disabled={isConnecting}
             className="px-6 py-3 bg-primary text-primary-foreground rounded-lg font-medium hover:bg-primary/90 transition-colors disabled:opacity-50">
             <span className="flex items-center gap-2">
               {isConnecting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Link2 className="w-4 h-4" />}
-              {jurisdiction === 'au' ? 'Connect with Basiq' : 'Connect with Plaid'}
+              {jurisdiction === 'au' ? t('expenses_ui.connect_with_basiq') : t('expenses_ui.connect_with_plaid')}
             </span>
           </button>
           {jurisdiction !== 'au' && (
-            <p className="text-xs text-muted-foreground mt-3">Sandbox: use <strong>user_good</strong> / <strong>pass_good</strong></p>
+            <p className="text-xs text-muted-foreground mt-3">{t('expenses_ui.sandbox_hint')} <strong>user_good</strong> / <strong>pass_good</strong></p>
           )}
         </div>
       )}
 
       {accounts.length > 0 && (
         <div className="mb-6">
-          <h2 className="text-sm font-medium text-muted-foreground mb-3 uppercase tracking-wide">Connected Accounts</h2>
+          <h2 className="text-sm font-medium text-muted-foreground mb-3 uppercase tracking-wide">{t('expenses_ui.connected_accounts')}</h2>
           <div className="space-y-2">
             {accounts.map(account => (
               <div key={account.id} className="bg-card border border-border rounded-xl p-4 flex items-center justify-between">
@@ -375,8 +374,7 @@ export const BankConnectionPage: React.FC = () => {
                     </p>
                   </div>
                   <button onClick={() => handleDisconnect(account.id, account.provider)}
-                    className="px-3 py-1.5 text-xs font-medium text-red-600 border border-red-500/20 rounded-lg hover:bg-red-500/10 transition-colors">
-                    Disconnect
+                    className="px-3 py-1.5 text-xs font-medium text-red-600 border border-red-500/20 rounded-lg hover:bg-red-500/10 transition-colors">{t('expenses_ui.disconnect')}
                   </button>
                 </div>
               </div>
@@ -387,16 +385,16 @@ export const BankConnectionPage: React.FC = () => {
 
       {transactions.length > 0 && (
         <div>
-          <h2 className="text-sm font-medium text-muted-foreground mb-3 uppercase tracking-wide">Recent Bank Transactions</h2>
+          <h2 className="text-sm font-medium text-muted-foreground mb-3 uppercase tracking-wide">{t('expenses_ui.recent_bank_txns')}</h2>
           <div className="bg-card border border-border rounded-xl overflow-hidden">
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-border text-left">
-                  <th className="px-4 py-3 text-xs font-medium text-muted-foreground uppercase">Date</th>
-                  <th className="px-4 py-3 text-xs font-medium text-muted-foreground uppercase">Description</th>
-                  <th className="px-4 py-3 text-xs font-medium text-muted-foreground uppercase">Category</th>
-                  <th className="px-4 py-3 text-xs font-medium text-muted-foreground uppercase text-right">Amount</th>
-                  <th className="px-4 py-3 text-xs font-medium text-muted-foreground uppercase">Status</th>
+                  <th className="px-4 py-3 text-xs font-medium text-muted-foreground uppercase">{t('expenses_ui.col_date')}</th>
+                  <th className="px-4 py-3 text-xs font-medium text-muted-foreground uppercase">{t('expenses_ui.col_description')}</th>
+                  <th className="px-4 py-3 text-xs font-medium text-muted-foreground uppercase">{t('expenses_ui.col_category')}</th>
+                  <th className="px-4 py-3 text-xs font-medium text-muted-foreground uppercase text-right">{t('expenses_ui.col_amount')}</th>
+                  <th className="px-4 py-3 text-xs font-medium text-muted-foreground uppercase">{t('expenses_ui.col_status')}</th>
                 </tr>
               </thead>
               <tbody>

@@ -23,5 +23,6 @@
   "dismiss": "Don't remind me about this",
   "view_details": "View details",
   "mark_personal": "Mark personal",
-  "mark_business": "Mark business"
+  "mark_business": "Mark business",
+  "close": "Close"
 }

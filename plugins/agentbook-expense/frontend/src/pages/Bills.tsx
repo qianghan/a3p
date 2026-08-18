@@ -47,7 +47,7 @@ export const BillsPage: React.FC = () => {
   //   2. A fr-CA user cannot type '45,50' into these fields at all — the
   //      browser blanks it. That is a usability defect, and routing through
   //      parseAmount means switching a field to type="text" later Just Works.
-  const { parseAmount, formatDateOnly } = useI18n();
+  const { parseAmount, formatDateOnly, t } = useI18n();
   const [summary, setSummary] = useState<Summary>({ openCents: 0, overdueCents: 0, count: 0 });
   const currency = useTenantCurrency();
   const [tab, setTab] = useState<Tab>('all');
@@ -118,7 +118,7 @@ export const BillsPage: React.FC = () => {
           <h1 className="text-xl font-bold text-foreground flex items-center gap-2">
             <Receipt className="w-5 h-5" /> Bills
           </h1>
-          <p className="text-sm text-muted-foreground mt-0.5">Track what you owe vendors and pay on time.</p>
+          <p className="text-sm text-muted-foreground mt-0.5">{t('expenses_ui.bills_sub')}</p>
         </div>
         <button
           onClick={() => setShowForm((s) => !s)}
@@ -134,11 +134,11 @@ export const BillsPage: React.FC = () => {
       {/* Summary cards */}
       <div className="grid grid-cols-2 gap-3 mb-5">
         <div className="rounded-xl border border-border bg-card p-4">
-          <p className="text-xs text-muted-foreground">Open (owed)</p>
+          <p className="text-xs text-muted-foreground">{t('expenses_ui.open_owed')}</p>
           <p className="text-2xl font-bold text-foreground">{fmt$(summary.openCents, currency)}</p>
         </div>
         <div className="rounded-xl border border-border bg-card p-4">
-          <p className="text-xs text-muted-foreground">Overdue</p>
+          <p className="text-xs text-muted-foreground">{t('expenses_ui.overdue')}</p>
           <p className="text-2xl font-bold text-destructive">{fmt$(summary.overdueCents, currency)}</p>
         </div>
       </div>
@@ -146,13 +146,13 @@ export const BillsPage: React.FC = () => {
       {showForm && (
         <div className="rounded-xl border border-border bg-card p-4 mb-5 space-y-3">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <input value={vendorName} onChange={(e) => setVendorName(e.target.value)} placeholder="Vendor (e.g. Landlord)"
+            <input value={vendorName} onChange={(e) => setVendorName(e.target.value)} placeholder={t('expenses_ui.vendor_placeholder')}
               className="rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground" />
-            <input type="number" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="Amount"
+            <input type="number" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder={t('expenses_ui.amount_placeholder')}
               className="rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground" />
             <input type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)}
               className="rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground" />
-            <input value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Description (optional)"
+            <input value={description} onChange={(e) => setDescription(e.target.value)} placeholder={t('expenses_ui.description_optional')}
               className="rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground" />
           </div>
           <button onClick={() => void addBill()} disabled={submitting || !vendorName || !amount}
@@ -179,16 +179,16 @@ export const BillsPage: React.FC = () => {
       {loading ? (
         <p className="text-sm text-muted-foreground py-10 text-center">Loading…</p>
       ) : bills.length === 0 ? (
-        <p className="text-sm text-muted-foreground py-10 text-center">No bills here.</p>
+        <p className="text-sm text-muted-foreground py-10 text-center">{t('expenses_ui.no_bills')}</p>
       ) : (
         <div className="rounded-xl border border-border bg-card overflow-hidden">
           <table className="w-full text-sm">
             <thead>
               <tr className="text-xs uppercase tracking-wide text-muted-foreground border-b border-border">
-                <th className="text-left px-4 py-2">Vendor</th>
-                <th className="text-left px-4 py-2">Due</th>
-                <th className="text-right px-4 py-2">Amount</th>
-                <th className="text-left px-4 py-2">Status</th>
+                <th className="text-left px-4 py-2">{t('expenses_ui.col_vendor')}</th>
+                <th className="text-left px-4 py-2">{t('expenses_ui.due')}</th>
+                <th className="text-right px-4 py-2">{t('expenses_ui.col_amount')}</th>
+                <th className="text-left px-4 py-2">{t('expenses_ui.col_status')}</th>
                 <th className="px-4 py-2"></th>
               </tr>
             </thead>
@@ -214,8 +214,7 @@ export const BillsPage: React.FC = () => {
                   <td className="px-4 py-2.5 text-right">
                     {b.status === 'open' && (
                       <button onClick={() => void payBill(b.id)}
-                        className="text-xs font-medium text-primary hover:underline">
-                        Pay
+                        className="text-xs font-medium text-primary hover:underline">{t('expenses_ui.pay')}
                       </button>
                     )}
                   </td>

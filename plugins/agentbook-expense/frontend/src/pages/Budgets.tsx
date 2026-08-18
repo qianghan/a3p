@@ -54,7 +54,7 @@ export const BudgetsPage: React.FC = () => {
   //   2. A fr-CA user cannot type '45,50' into these fields at all — the
   //      browser blanks it. That is a usability defect, and routing through
   //      parseAmount means switching a field to type="text" later Just Works.
-  const { parseAmount } = useI18n();
+  const { parseAmount, t } = useI18n();
   const [categories, setCategories] = useState<Category[]>([]);
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -188,13 +188,13 @@ export const BudgetsPage: React.FC = () => {
       <div className="flex items-center justify-between mb-6">
         <div className="flex items-center gap-3">
           <Target className="w-6 h-6 text-primary" />
-          <h1 className="text-2xl font-bold">Budgets</h1>
+          <h1 className="text-2xl font-bold">{t('expenses_ui.budgets')}</h1>
         </div>
         <button
           onClick={openNew}
           className="px-3 py-2 text-sm rounded-lg bg-primary text-primary-foreground inline-flex items-center gap-2"
         >
-          <Plus className="w-4 h-4" /> New Budget
+          <Plus className="w-4 h-4" /> {t('expenses_ui.new_budget')}
         </button>
       </div>
 
@@ -204,18 +204,18 @@ export const BudgetsPage: React.FC = () => {
       {showForm && (
         <div className="bg-card border border-border rounded-xl p-4 mb-6 space-y-3">
           <div className="flex items-center justify-between">
-            <h2 className="font-medium">{editingId ? 'Edit budget' : 'New budget'}</h2>
+            <h2 className="font-medium">{editingId ? t('expenses_ui.edit_budget') : t('expenses_ui.new_budget')}</h2>
             <button
               onClick={() => { setShowForm(false); resetForm(); }}
               className="p-1 rounded hover:bg-muted/50"
-              aria-label="Close"
+              aria-label={t('common.close')}
             >
               <X className="w-4 h-4" />
             </button>
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="text-xs text-muted-foreground">Limit (USD)</label>
+              <label className="text-xs text-muted-foreground">{t('expenses_ui.limit_with_currency', { currency })}</label>
               <input
                 type="number"
                 inputMode="decimal"
@@ -228,22 +228,22 @@ export const BudgetsPage: React.FC = () => {
               />
             </div>
             <div>
-              <label className="text-xs text-muted-foreground">Period</label>
+              <label className="text-xs text-muted-foreground">{t('expenses_ui.period')}</label>
               <select
                 value={period}
                 onChange={(e) => setPeriod(e.target.value as 'monthly' | 'quarterly' | 'annual')}
                 disabled={!!editingId}
                 className="w-full p-2 border border-border rounded-lg bg-background disabled:opacity-50"
               >
-                <option value="monthly">Monthly</option>
-                <option value="quarterly">Quarterly</option>
-                <option value="annual">Annual</option>
+                <option value="monthly">{t('expenses_ui.monthly')}</option>
+                <option value="quarterly">{t('expenses_ui.quarterly')}</option>
+                <option value="annual">{t('expenses_ui.annual')}</option>
               </select>
             </div>
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="text-xs text-muted-foreground">Category (optional)</label>
+              <label className="text-xs text-muted-foreground">{t('expenses_ui.category_optional')}</label>
               <select
                 value={categoryId}
                 onChange={(e) => {
@@ -263,12 +263,12 @@ export const BudgetsPage: React.FC = () => {
               </select>
             </div>
             <div>
-              <label className="text-xs text-muted-foreground">Display name</label>
+              <label className="text-xs text-muted-foreground">{t('expenses_ui.display_name')}</label>
               <input
                 type="text"
                 value={categoryName}
                 onChange={(e) => setCategoryName(e.target.value)}
-                placeholder="Meals"
+                placeholder={t('expenses_ui.example_meals')}
                 className="w-full p-2 border border-border rounded-lg bg-background"
               />
             </div>
@@ -278,8 +278,7 @@ export const BudgetsPage: React.FC = () => {
             <button
               onClick={() => { setShowForm(false); resetForm(); }}
               className="px-3 py-2 text-sm rounded-lg border border-border"
-            >
-              Cancel
+            >{t('common.cancel')}
             </button>
             <button
               onClick={submit}
@@ -317,16 +316,16 @@ export const BudgetsPage: React.FC = () => {
                   <button
                     onClick={() => openEdit(b)}
                     className="p-2 rounded hover:bg-muted/50"
-                    title="Edit"
-                    aria-label="Edit budget"
+                    title={t('common.edit')}
+                    aria-label={t('expenses_ui.edit_budget')}
                   >
                     <Pencil className="w-4 h-4" />
                   </button>
                   <button
                     onClick={() => remove(b.id)}
                     className="p-2 rounded hover:bg-muted/50 text-red-500"
-                    title="Delete"
-                    aria-label="Delete budget"
+                    title={t('common.delete')}
+                    aria-label={t('expenses_ui.delete_budget')}
                   >
                     <Trash2 className="w-4 h-4" />
                   </button>
