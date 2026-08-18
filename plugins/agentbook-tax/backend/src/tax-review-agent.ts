@@ -316,14 +316,22 @@ const CONFIRM_RE = /\b(yes|confirm|submit|looks good|looks correct|go ahead|that
  * round: a false cancel costs the user one extra turn, a false confirm costs
  * them a filed tax return they never approved.
  *
- * `\w+n['’]t\b` is the load-bearing alternative: it covers every English
+ * `n['’]t\b` is the load-bearing alternative: it covers every English
  * negative contraction at once — don't, won't, isn't, can't, shouldn't,
  * ain't, doesn't — so a new one cannot be "missing from the list". The rest
  * covers the un-contracted and apostrophe-less spellings people actually
  * type on a phone.
+ *
+ * No leading `\w+`: the contraction's own letters before the apostrophe don't
+ * need to be consumed to detect it, and a quantifier immediately followed by
+ * a fixed literal, tested unanchored via `.test()`, is exactly the polynomial
+ * ReDoS shape this codebase has hit before (see e87cd825) — a string of many
+ * word characters with no trailing apostrophe-t forces backtracking at every
+ * start position, O(n) work times O(n) positions. Dropping `\w+` collapses
+ * this to a single literal-plus-boundary check with nothing to backtrack.
  */
 const NEGATION_RE =
-  /\w+n['’]t\b|\b(?:no|not|never|none|neither|nor|nope|nah|cannot|dont|doesnt|didnt|isnt|arent|wasnt|werent|wont|wouldnt|shouldnt|couldnt|cant|havent|hasnt|hadnt|aint|mustnt)\b/i;
+  /n['’]t\b|\b(?:no|not|never|none|neither|nor|nope|nah|cannot|dont|doesnt|didnt|isnt|arent|wasnt|werent|wont|wouldnt|shouldnt|couldnt|cant|havent|hasnt|hadnt|aint|mustnt)\b/i;
 
 /**
  * Explicit refusal. Unchanged in meaning; `abort`/`never mind` added so the

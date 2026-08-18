@@ -216,3 +216,35 @@ describe('genuine affirmations still submit — the happy path survives the narr
     });
   }
 });
+
+describe('negation detection does not degrade to polynomial time (CodeQL js/polynomial-redos)', () => {
+  /**
+   * CodeQL flagged NEGATION_RE's original `\w+n['’]t\b` alternative: a
+   * quantifier immediately followed by a fixed literal, tested unanchored,
+   * forces backtracking at every start position in the string — O(n) work at
+   * each of O(n) positions.
+   *
+   * A succeeding match returns immediately and proves nothing (see this
+   * repo's e87cd825). The real test is the FAILING match: a string the `\w+`
+   * class can consume, with no trailing "n't" anywhere, so the engine is
+   * forced through its full worst-case backtracking before giving up. A
+   * quadratic regex hangs on this; a linear one resolves in well under a
+   * second regardless of length.
+   */
+  it('classifies a long word-only string with no negation in well under a second', async () => {
+    const pathological = 'a'.repeat(50_000) + 'b'; // no "n't" anywhere in reach
+    reviewFindFirst.mockResolvedValue({
+      id: 'r1', tenantId: 't1', taxYear: 2025, status: 'summarizing',
+      summaryText: 's', criticalFields: [], reviewedFormsHash: null, confirmedAt: null,
+    });
+    filingFindFirst.mockResolvedValue(baseFiling);
+
+    const { answerReviewMessage } = await import('../tax-review-agent.js');
+    const start = performance.now();
+    await answerReviewMessage('t1', 2025, pathological, vi.fn());
+    const elapsedMs = performance.now() - start;
+
+    expect(elapsedMs).toBeLessThan(1000);
+    expect(submitFiling).not.toHaveBeenCalled();
+  });
+});
