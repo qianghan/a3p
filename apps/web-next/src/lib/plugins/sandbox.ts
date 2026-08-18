@@ -215,6 +215,7 @@ export function createSandboxedContext(
     permissions: realContext.permissions, // Read-only
     integrations: realContext.integrations, // Proxied through shell
     capabilities: realContext.capabilities,
+    i18n: realContext.i18n,
     version: realContext.version || '1.0.0',
     // Include API client for backend communication (Phase 8 fix)
     api: realContext.api,
