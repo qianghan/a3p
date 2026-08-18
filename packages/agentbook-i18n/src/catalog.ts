@@ -162,8 +162,7 @@ export type LocaleReadiness = 'reference' | 'ready' | 'scaffold';
 export const LOCALE_STATUS: Record<string, LocaleReadiness> = Object.freeze({
   en: 'reference',
   'fr-CA': 'ready',
-  // Structure landed with the foundation; content is a follow-up PR.
-  'zh-CN': 'scaffold',
+  'zh-CN': 'ready',
 });
 
 /** Locales whose content is finished and therefore content-invariant-checked. */

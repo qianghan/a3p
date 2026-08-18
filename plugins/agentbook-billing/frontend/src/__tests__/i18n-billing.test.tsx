@@ -100,14 +100,16 @@ describe('UsageBars actually differs by locale', () => {
     expect(frText).not.toBe(enText);
   });
 
-  it('falls back to English for zh-CN, which is still scaffold', () => {
-    // zh-CN holds English placeholders by design until its content lands. This
-    // documents the current state so the day it changes, this test does too.
+  it('renders Chinese for zh-CN now that its content has landed', () => {
+    // Asserted English while zh-CN was `scaffold`; written to fail the day
+    // real content arrived rather than silently keep passing.
     const { container } = render(
       <ShellProvider value={shellFor('zh-CN')}>
         <UsageBars usage={USAGE} />
       </ShellProvider>,
     );
-    expect(container.textContent).toContain('Expenses created');
+    expect(container.textContent).toContain('已创建支出');
+    expect(container.textContent).toContain('无限制');
+    expect(container.textContent).not.toContain('Expenses created');
   });
 });

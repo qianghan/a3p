@@ -120,12 +120,12 @@ Consequences, which are contained:
 | 4b | fr-CA copy repair (28 defects) | **done** | 1 | #463 | merged `49dd3ef2` |
 | 4c | Extraction: core dashboard cluster | **done** | 1 | #464 | merged `a240ce6d` |
 | 4d | Extraction: core workflows | **done** | 1 | #465 | merged `e820a67b` |
-| 4e | Extraction: HomeOffice + Agents | **done** | 1 | _pushing_ | 32 keys; literals 420 -> 402 |
+| 4e | Extraction: HomeOffice + Agents | **done** | 1 | #466 | merged `7551ce01` |
 | 4f | Extraction: SavedSearches + Activity | pending | 0 | — | 37 strings; admin pages deprioritised |
 | 5 | Extraction: expense + invoice | pending | 0 | — | inert |
 | 6 | Extraction: tax + startup (+ legal denylist) | pending | 0 | — | inert |
 | 7 | Extraction: web-next shell/auth/settings | pending | 0 | — | inert |
-| 8 | fr-CA + zh-CN catalog content | pending | 0 | — | dark, flag off |
+| 8 | **zh-CN content (247 keys) + shell language switcher** | **done** | 1 | _pushing_ | zh-CN flipped to `ready` |
 | 9 | Agent chat response language | pending | 0 | — | dark, flag off |
 | 10 | Telegram localization | pending | 0 | — | dark, flag off |
 | 11 | Emails, invoices, tax packs + CJK font | pending | 0 | — | dark, flag off |
@@ -319,6 +319,37 @@ So the NL-parser subset of item 1 is blocked on PR-9's locale threading. The
 form/API subset is not. Options: split PR-3 into form-input (now) and
 NL-input (after PR-9), or move PR-9 ahead of PR-3. Recommend the split —
 reordering would put chat response language before the money-input fix.
+
+### C19 — The English-only tax denylist was VACUOUS. Replaced.
+
+It matched the prefixes `tax.advice.`, `legal.`, `filing.disclosure.`. **Zero
+of the catalog's 253 keys use those names.** The invariant inspected nothing
+and passed trivially — a guard written against a naming convention this
+codebase does not follow.
+
+Meanwhile four genuinely advice-shaped strings live under ordinary names, and
+**two were already translated into French**:
+
+- `tax.deduction_found` — "…You could save ~{savings}."
+- `tax.bracket_alert` — "You're {amount} from the next tax bracket. Prepay
+  expenses to save ~{savings}."
+- `proactive.cash_flow_warning`
+- `proactive.year_end_planning`
+
+`tax.bracket_alert` is the same bracket-timing advice behind a previous
+production incident, where the figure shown to users was not a real quantity.
+
+Fixed three ways:
+1. The denylist is now an **explicit key list**, with a test asserting those
+   keys actually exist — so it can never go vacuous again.
+2. The assertion changed from ABSENCE to **equality with English**. Absence
+   proved nothing: a missing key silently falls back to English and looks
+   identical either way.
+3. All four reverted to English in fr-CA and zh-CN, honouring decision D.
+
+Note the knock-on: three separate invariants (differs-from-English,
+CJK-presence, English-only) all had to learn this exemption. Two of them
+contradicted the third until reconciled.
 
 ### C18 — Tests asserting exact copy need a real translator injected.
 

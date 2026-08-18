@@ -5,6 +5,7 @@ import { Menu } from 'lucide-react';
 import { useShell } from '@/contexts/shell-context';
 import { useIsMobile } from '@/hooks/use-is-mobile';
 import { NotificationBell } from './notification-bell';
+import { LanguageSwitcher } from './language-switcher';
 
 /**
  * Derive a human-readable view title from the current pathname.
@@ -68,6 +69,7 @@ export function TopBar() {
 
         {/* Right side — contextual actions */}
         <div className="flex items-center gap-1">
+          <LanguageSwitcher />
           <NotificationBell />
         </div>
       </div>
