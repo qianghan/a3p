@@ -1,5 +1,6 @@
 import React from 'react';
 import type { ActivityItem } from './types';
+import { useI18n } from '@naap/plugin-sdk';
 
 const fmtAmount = (cents: number) => {
   if (cents === 0) return '';
@@ -26,11 +27,12 @@ interface Props {
 }
 
 export const ActivityFeed: React.FC<Props> = ({ items, loading, onLoadMore }) => {
+  const { t } = useI18n();
   return (
     <section className="bg-card border border-border rounded-2xl p-4 sm:p-6">
-      <h2 className="text-sm font-medium text-muted-foreground mb-3 uppercase tracking-wide">Recent activity</h2>
+      <h2 className="text-sm font-medium text-muted-foreground mb-3 uppercase tracking-wide">{t('dashboard.recent_activity')}</h2>
       {items.length === 0 && !loading && (
-        <p className="text-sm text-muted-foreground">No recent activity.</p>
+        <p className="text-sm text-muted-foreground">{t('dashboard.no_recent_activity')}</p>
       )}
       <ul className="divide-y divide-border">
         {items.map(item => (

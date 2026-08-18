@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Sparkles, ChevronRight, X } from 'lucide-react';
+import { useI18n } from '@naap/plugin-sdk';
 
 /**
  * "Resume your setup" banner (PR 53 / Tier 3 #10 abandon-recovery).
@@ -28,6 +29,7 @@ interface ResumePromptResponse {
 const DISMISS_KEY = 'agentbook-onboarding-resume-dismissed';
 
 export const ResumeOnboardingBanner: React.FC = () => {
+  const { t } = useI18n();
   const [data, setData] = useState<ResumePromptResponse['data'] | null>(null);
   const [dismissed, setDismissed] = useState(() => {
     if (typeof window === 'undefined') return false;
@@ -91,11 +93,11 @@ export const ResumeOnboardingBanner: React.FC = () => {
         href="/agentbook/onboarding"
         className="inline-flex items-center gap-1 text-sm font-medium text-amber-700 hover:text-amber-900 dark:text-amber-400 dark:hover:text-amber-300"
       >
-        Resume <ChevronRight className="w-3 h-3" />
+        {t('dashboard.resume')} <ChevronRight className="w-3 h-3" />
       </a>
       <button
         onClick={dismiss}
-        aria-label="Dismiss"
+        aria-label={t('dashboard.dismiss')}
         className="text-muted-foreground hover:text-foreground"
       >
         <X className="w-4 h-4" />
