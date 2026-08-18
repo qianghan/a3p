@@ -3,7 +3,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Languages, Check } from 'lucide-react';
 import { offerableLocales } from '@agentbook/i18n/catalog';
-import { useShell } from '@/contexts/shell-context';
 
 /**
  * Language switcher for the app shell.
@@ -18,6 +17,12 @@ import { useShell } from '@/contexts/shell-context';
  *
  * Hidden entirely when only one language is offerable — a one-item picker is
  * noise in the header.
+ *
+ * DELIBERATELY PROVIDER-INDEPENDENT. This mounts in BOTH shells: the desktop
+ * top bar (which has a ShellProvider) and the mobile PWA shell
+ * app/app/layout.tsx (which does NOT). web-next's useShell() throws without a
+ * provider, so calling it here would crash the entire PWA. Errors surface
+ * inline instead of through shell notifications.
  */
 
 const OPTIONS = offerableLocales();
@@ -34,9 +39,9 @@ function matchOption(stored: string | undefined): string {
 }
 
 export function LanguageSwitcher() {
-  const shell = useShell();
   const [open, setOpen] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [error, setError] = useState(false);
   const [stored, setStored] = useState<string | undefined>(undefined);
   const boxRef = useRef<HTMLDivElement>(null);
 
@@ -98,9 +103,13 @@ export function LanguageSwitcher() {
       // including the plugin bundles, which receive it through ShellContext.
       window.location.reload();
     } catch {
-      shell?.notifications?.error?.('Could not change language. Please try again.');
+      // Deliberately NOT shell.notifications: this component also mounts in the
+      // mobile PWA shell (app/app/layout.tsx), which has no ShellProvider —
+      // and web-next's useShell() THROWS without one, which would take the
+      // whole PWA down. Surfacing the error inline keeps the component
+      // provider-independent.
+      setError(true);
       setSaving(false);
-      setOpen(false);
     }
   };
 
@@ -108,7 +117,10 @@ export function LanguageSwitcher() {
     <div className="relative" ref={boxRef}>
       <button
         type="button"
-        onClick={() => setOpen((o) => !o)}
+        onClick={() => {
+          setError(false);
+          setOpen((o) => !o);
+        }}
         disabled={saving}
         aria-haspopup="menu"
         aria-expanded={open}
@@ -127,6 +139,11 @@ export function LanguageSwitcher() {
           role="menu"
           className="absolute right-0 z-50 mt-1 w-52 overflow-hidden rounded-lg border border-border bg-card shadow-lg"
         >
+          {error && (
+            <p className="border-b border-border px-3 py-2 text-xs text-destructive">
+              Could not change language. Please try again.
+            </p>
+          )}
           {OPTIONS.map((o) => (
             <button
               key={o.value}

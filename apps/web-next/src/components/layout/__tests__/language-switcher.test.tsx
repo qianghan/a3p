@@ -9,10 +9,6 @@ import React from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, waitFor, fireEvent, within } from '@testing-library/react';
 
-vi.mock('@/contexts/shell-context', () => ({
-  useShell: () => ({ notifications: { error: vi.fn() } }),
-}));
-
 import { LanguageSwitcher } from '../language-switcher';
 
 const originalFetch = global.fetch;
@@ -119,6 +115,36 @@ describe('LanguageSwitcher', () => {
     expect(screen.queryByRole('menu')).toBeTruthy();
     fireEvent.keyDown(document, { key: 'Escape' });
     await waitFor(() => expect(screen.queryByRole('menu')).toBeNull());
+  });
+
+  it('mounts with NO ShellProvider — the PWA shell has none', async () => {
+    // This is the crash that was one commit away from shipping. The mobile PWA
+    // shell (app/app/layout.tsx) has no ShellProvider, and web-next's
+    // useShell() THROWS without one, so a switcher that called it would have
+    // taken the entire PWA down.
+    //
+    // Note there is deliberately no vi.mock of shell-context in this file:
+    // mocking it would make this test pass even if the component started
+    // calling useShell again.
+    mockConfig('en-US');
+    expect(() => render(<LanguageSwitcher />)).not.toThrow();
+    fireEvent.click(screen.getByRole('button', { name: /change language/i }));
+    expect(within(screen.getByRole('menu')).getByText('简体中文')).toBeTruthy();
+  });
+
+  it('reports a failed save inline rather than through shell notifications', async () => {
+    // Same reason: shell.notifications is unreachable without a provider.
+    global.fetch = vi.fn(async (_u: unknown, init?: RequestInit) => {
+      if (init?.method === 'PUT') return { ok: false, status: 500 } as Response;
+      return { ok: true, json: async () => ({ success: true, data: { locale: 'en-US' } }) } as Response;
+    }) as unknown as typeof fetch;
+
+    render(<LanguageSwitcher />);
+    fireEvent.click(screen.getByRole('button', { name: /change language/i }));
+    fireEvent.click(within(screen.getByRole('menu')).getByText('简体中文'));
+    await waitFor(() => {
+      expect(screen.getByText(/could not change language/i)).toBeTruthy();
+    });
   });
 
   it('survives a failed config fetch instead of blanking the header', async () => {
