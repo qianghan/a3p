@@ -184,6 +184,7 @@ export function PluginLoader({
         permissions: currentShell.permissions,
         integrations: currentShell.integrations,
         capabilities: currentShell.capabilities,
+        i18n: currentShell.i18n,
         version: '1.0.0',
         pluginBasePath: `/plugins/${plugin.name}`,
         // Include API client for backend communication (Phase 8 fix)
