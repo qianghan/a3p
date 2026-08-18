@@ -1,0 +1,18 @@
+{
+  "title": "Bureau à domicile",
+  "configuration": "Configuration",
+  "total_sqft": "Superficie totale (pi²)",
+  "office_sqft": "Superficie du bureau (pi²)",
+  "us_simplified": "Utiliser la méthode simplifiée américaine (5 $/pi², max 300 pi², plafond de 1 500 $/an)",
+  "computed_ratio": "Ratio calculé :",
+  "post_quarter": "Comptabiliser un trimestre",
+  "year": "Année",
+  "quarter": "Trimestre",
+  "utilities": "Services publics ($)",
+  "internet": "Internet ($)",
+  "rent_mortgage": "Loyer / intérêts hypothécaires ($)",
+  "insurance": "Assurance ($)",
+  "other": "Autre ($)",
+  "total_overhead": "Frais généraux du trimestre :",
+  "past_entries": "Entrées de bureau à domicile antérieures"
+}

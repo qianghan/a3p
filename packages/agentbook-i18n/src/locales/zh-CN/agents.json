@@ -1,0 +1,18 @@
+{
+  "loading": "Loading agents...",
+  "title": "AI Agents",
+  "subtitle": "Configure how each agent works for you",
+  "approach": "Approach",
+  "gentle": "Gentle",
+  "assertive": "Assertive",
+  "auto_approve": "Auto-approve actions",
+  "execute_without_asking": "Execute without asking first",
+  "notifications": "Notifications",
+  "realtime": "Real-time",
+  "daily_digest": "Daily digest",
+  "weekly_summary": "Weekly summary",
+  "ai_model": "AI Model",
+  "model_fast": "Fast (cheapest)",
+  "model_standard": "Standard",
+  "model_premium": "Premium (most capable)"
+}

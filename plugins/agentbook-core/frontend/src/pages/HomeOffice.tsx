@@ -240,7 +240,7 @@ export const HomeOfficePage: React.FC = () => {
     <div className="px-4 py-5 sm:p-6 max-w-3xl mx-auto">
       <div className="flex items-center gap-3 mb-6">
         <Home className="w-6 h-6 text-primary" />
-        <h1 className="text-2xl font-bold">Home office</h1>
+        <h1 className="text-2xl font-bold">{t('homeoffice.title')}</h1>
       </div>
 
       {/* PR 45 / Tier 1 #1: chat-first escape hatch */}
@@ -260,7 +260,7 @@ export const HomeOfficePage: React.FC = () => {
         </h2>
         <div className="grid grid-cols-2 gap-3">
           <div>
-            <label className="text-xs text-muted-foreground">Total sqft</label>
+            <label className="text-xs text-muted-foreground">{t('homeoffice.total_sqft')}</label>
             <input
               type="number"
               min={0}
@@ -271,7 +271,7 @@ export const HomeOfficePage: React.FC = () => {
             />
           </div>
           <div>
-            <label className="text-xs text-muted-foreground">Office sqft</label>
+            <label className="text-xs text-muted-foreground">{t('homeoffice.office_sqft')}</label>
             <input
               type="number"
               min={0}
@@ -288,11 +288,11 @@ export const HomeOfficePage: React.FC = () => {
             checked={useSimplified}
             onChange={(e) => setUseSimplified(e.target.checked)}
           />
-          Use US simplified method ($5/sqft, max 300 sqft, $1,500/yr cap)
+          {t('homeoffice.us_simplified')}
         </label>
         {!useSimplified && ratio > 0 && (
           <p className="text-xs text-muted-foreground">
-            Computed ratio: <b>{(ratio * 100).toFixed(1)}%</b>
+            {t('homeoffice.computed_ratio')} <b>{(ratio * 100).toFixed(1)}%</b>
           </p>
         )}
         <div className="flex items-center gap-3">
@@ -313,7 +313,7 @@ export const HomeOfficePage: React.FC = () => {
       {/* ─── Quarterly entry ────────────────────────────── */}
       <section className="bg-card border border-border rounded-xl p-4 mb-6 space-y-3">
         <h2 className="text-sm font-medium text-muted-foreground">
-          Post a quarter
+          {t('homeoffice.post_quarter')}
         </h2>
         <div className="grid grid-cols-2 gap-3">
           <div>
@@ -341,7 +341,7 @@ export const HomeOfficePage: React.FC = () => {
         </div>
         <div className="grid grid-cols-2 gap-3">
           <div>
-            <label className="text-xs text-muted-foreground">Utilities ($)</label>
+            <label className="text-xs text-muted-foreground">{t('homeoffice.utilities')}</label>
             <input
               type="text"
               inputMode="decimal"
@@ -352,7 +352,7 @@ export const HomeOfficePage: React.FC = () => {
             />
           </div>
           <div>
-            <label className="text-xs text-muted-foreground">Internet ($)</label>
+            <label className="text-xs text-muted-foreground">{t('homeoffice.internet')}</label>
             <input
               type="text"
               inputMode="decimal"
@@ -364,7 +364,7 @@ export const HomeOfficePage: React.FC = () => {
           </div>
           <div>
             <label className="text-xs text-muted-foreground">
-              Rent / mortgage interest ($)
+              {t('homeoffice.rent_mortgage')}
             </label>
             <input
               type="text"
@@ -376,7 +376,7 @@ export const HomeOfficePage: React.FC = () => {
             />
           </div>
           <div>
-            <label className="text-xs text-muted-foreground">Insurance ($)</label>
+            <label className="text-xs text-muted-foreground">{t('homeoffice.insurance')}</label>
             <input
               type="text"
               inputMode="decimal"
@@ -387,7 +387,7 @@ export const HomeOfficePage: React.FC = () => {
             />
           </div>
           <div className="col-span-2">
-            <label className="text-xs text-muted-foreground">Other ($)</label>
+            <label className="text-xs text-muted-foreground">{t('homeoffice.other')}</label>
             <input
               type="text"
               inputMode="decimal"
@@ -402,7 +402,7 @@ export const HomeOfficePage: React.FC = () => {
         {/* Live preview */}
         <div className="bg-muted/40 rounded-lg p-3 text-sm">
           <p className="text-muted-foreground">
-            Total quarter overhead: <b>{fmtMoney(preview.totalCents)}</b>
+            {t('homeoffice.total_overhead')} <b>{fmtMoney(preview.totalCents)}</b>
           </p>
           <p className="text-muted-foreground">
             Deductible portion ({useSimplified ? 'US simplified' : 'actual'}): {' '}
@@ -426,7 +426,7 @@ export const HomeOfficePage: React.FC = () => {
       {/* ─── History ────────────────────────────────────── */}
       <section>
         <h2 className="text-sm font-medium text-muted-foreground mb-3">
-          Past home-office entries
+          {t('homeoffice.past_entries')}
         </h2>
         <div className="space-y-2">
           {entries.length === 0 && (

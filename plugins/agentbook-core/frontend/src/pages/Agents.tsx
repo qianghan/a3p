@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Bot, Zap, Brain, FileText, TrendingUp } from 'lucide-react';
+import { useI18n } from '@naap/plugin-sdk';
 
 const API = '/api/v1/agentbook-core';
 
@@ -25,6 +26,7 @@ interface Agent {
 }
 
 export const AgentsPage: React.FC = () => {
+  const { t } = useI18n();
   const [agents, setAgents] = useState<Agent[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState<string | null>(null);
@@ -47,15 +49,15 @@ export const AgentsPage: React.FC = () => {
     setSaving(null);
   };
 
-  if (loading) return <div className="p-6 text-muted-foreground">Loading agents...</div>;
+  if (loading) return <div className="p-6 text-muted-foreground">{t('agents.loading')}</div>;
 
   return (
     <div className="px-4 py-5 sm:p-6 max-w-4xl mx-auto">
       <div className="flex items-center gap-3 mb-6">
         <Bot className="w-6 h-6 text-primary" />
         <div>
-          <h1 className="text-2xl font-bold">AI Agents</h1>
-          <p className="text-sm text-muted-foreground">Configure how each agent works for you</p>
+          <h1 className="text-2xl font-bold">{t('agents.title')}</h1>
+          <p className="text-sm text-muted-foreground">{t('agents.subtitle')}</p>
         </div>
       </div>
 
@@ -97,8 +99,8 @@ export const AgentsPage: React.FC = () => {
                 {/* Auto-approve toggle */}
                 <div className="flex items-center justify-between">
                   <div>
-                    <p className="text-sm">Auto-approve actions</p>
-                    <p className="text-xs text-muted-foreground">Execute without asking first</p>
+                    <p className="text-sm">{t('agents.auto_approve')}</p>
+                    <p className="text-xs text-muted-foreground">{t('agents.execute_without_asking')}</p>
                   </div>
                   <label className="relative inline-flex items-center cursor-pointer">
                     <input type="checkbox" checked={agent.config.autoApprove}
@@ -114,21 +116,21 @@ export const AgentsPage: React.FC = () => {
                   <select value={agent.config.notificationFrequency}
                     onChange={e => updateConfig(agent.id, 'notificationFrequency', e.target.value)}
                     className="text-sm p-1.5 border border-border rounded-lg bg-background">
-                    <option value="realtime">Real-time</option>
-                    <option value="daily">Daily digest</option>
-                    <option value="weekly">Weekly summary</option>
+                    <option value="realtime">{t('agents.realtime')}</option>
+                    <option value="daily">{t('agents.daily_digest')}</option>
+                    <option value="weekly">{t('agents.weekly_summary')}</option>
                   </select>
                 </div>
 
                 {/* Model tier */}
                 <div className="flex items-center justify-between">
-                  <span className="text-sm">AI Model</span>
+                  <span className="text-sm">{t('agents.ai_model')}</span>
                   <select value={agent.config.modelTier}
                     onChange={e => updateConfig(agent.id, 'modelTier', e.target.value)}
                     className="text-sm p-1.5 border border-border rounded-lg bg-background">
-                    <option value="fast">Fast (cheapest)</option>
+                    <option value="fast">{t('agents.model_fast')}</option>
                     <option value="standard">Standard</option>
-                    <option value="premium">Premium (most capable)</option>
+                    <option value="premium">{t('agents.model_premium')}</option>
                   </select>
                 </div>
 
