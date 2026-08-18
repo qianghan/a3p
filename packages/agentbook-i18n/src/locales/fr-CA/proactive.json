@@ -8,8 +8,8 @@
   "recurring_anomaly": "Votre abonnement {vendor} a facture {actual} au lieu du montant habituel de {expected}. Augmentation de prix ?",
   "accept_new_amount": "Accepter le nouveau montant",
   "investigate": "Enqueter",
-  "cash_flow_warning": "Attention : votre solde descend a {low_balance} le {date}. Vous avez {bills} de factures mais seulement {income} de revenus attendus. {suggestion}",
-  "year_end_planning": "C'est novembre. Voici votre rapport d'optimisation fiscale de fin d'année : {count} actions pourraient économiser {savings}.",
+  "cash_flow_warning": "Heads up: your cash balance drops to {low_balance} on {date}. You have {bills} in bills but only {income} expected. {suggestion}",
+  "year_end_planning": "It's November. Here's your year-end tax optimization report: {count} actions could save {savings}.",
   "view_report": "Voir le rapport",
   "milestone_revenue": "Vous avez atteint {amount} de revenus cette année ! À ce rythme, projection annuelle : {projection}."
 }

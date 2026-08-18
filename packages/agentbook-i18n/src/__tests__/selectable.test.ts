@@ -98,27 +98,31 @@ describe('selectable values resolve to a real catalog locale', () => {
   });
 });
 
-describe('offerableLocales — scaffold locales are never offered', () => {
-  it('omits zh-CN while its catalog is scaffold, but keeps it storable', async () => {
-    // Imported from the CATALOG entry point, not the main barrel: the catalog
-    // is deliberately unreachable from '@agentbook/i18n' so plugin bundles
-    // cannot inline all three locale packs (+18.8 KB each, measured).
+describe('offerableLocales — only `ready` locales are offered', () => {
+  it('offers all three now that zh-CN content has landed', async () => {
+    // This test previously asserted zh-CN was NOT offered, because its catalog
+    // was `scaffold` (English placeholders). It was written to fail the day
+    // that changed rather than silently keep passing — which is exactly what
+    // happened when the Chinese content landed.
     const { offerableLocales } = await import('../catalog-entry.js');
     const offered = offerableLocales().map((l) => l.value);
+    expect(offered).toEqual(['en-US', 'fr-CA', 'zh-CN']);
 
-    // en-US and fr-CA have finished content.
-    expect(offered).toContain('en-US');
-    expect(offered).toContain('fr-CA');
-
-    // zh-CN is structure-only: offering it would let a user pick 简体中文 and
-    // then read English placeholders.
-    expect(offered).not.toContain('zh-CN');
-
-    // But it must remain VALID to store — the validator is deliberately wider
-    // than the picker, so a tenant already on a non-offered value can still
-    // save their settings.
+    // The validator stays deliberately WIDER than the picker so a tenant on a
+    // legacy value can still save their settings.
     expect(SELECTABLE_LOCALE_VALUES).toContain('zh-CN');
     expect(isSelectableLocale('zh-CN')).toBe(true);
+  });
+
+  it('would still hide a locale that went back to scaffold', async () => {
+    // Keeps the gating logic itself covered now that no locale is scaffold —
+    // otherwise this behaviour would be untested until the next new language.
+    const { getOfferableLocales } = await import('../selectable.js');
+    const offered = getOfferableLocales(
+      { en: 'reference', 'fr-CA': 'ready', 'zh-CN': 'scaffold' },
+      (v) => (v === 'en-US' ? 'en' : v),
+    ).map((l) => l.value);
+    expect(offered).toEqual(['en-US', 'fr-CA']);
   });
 
   it('grows automatically when a locale is marked ready', async () => {

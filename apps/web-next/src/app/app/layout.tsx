@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { Home, Camera, FileText, MessageCircle } from 'lucide-react';
 import { initOfflineQueueReplay } from '@/lib/offline-queue';
+import { LanguageSwitcher } from '@/components/layout/language-switcher';
 
 /** base64url VAPID public key → Uint8Array for pushManager.subscribe. */
 function urlBase64ToUint8Array(base64: string): Uint8Array {
@@ -83,6 +84,26 @@ export default function MobileAppLayout({ children }: { children: React.ReactNod
   }, []);
   return (
     <div style={{ minHeight: '100dvh', display: 'flex', flexDirection: 'column', background: 'var(--background, #0a0a0a)' }}>
+      {/*
+        Slim header carrying ONLY the language switcher.
+
+        The mobile shell is deliberately spare — four tabs, no chrome — so this
+        adds the minimum that makes language reachable on a phone. Without it a
+        PWA user had no way to switch at all: this layout has no top bar, and
+        the tab row has no room for a fifth item.
+
+        The switcher renders nothing when only one language is offerable, so
+        this row collapses to an empty 0-height strip in that case rather than
+        adding permanent furniture.
+      */}
+      <header
+        style={{
+          display: 'flex', justifyContent: 'flex-end', alignItems: 'center',
+          padding: '4px 8px', paddingTop: 'max(4px, env(safe-area-inset-top))',
+        }}
+      >
+        <LanguageSwitcher />
+      </header>
       <main style={{ flex: 1, overflowY: 'auto', paddingBottom: 72 }}>{children}</main>
       <nav
         style={{

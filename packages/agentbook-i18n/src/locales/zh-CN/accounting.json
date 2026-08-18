@@ -1,15 +1,15 @@
 {
-  "general_ledger": "General Ledger",
-  "loading_entries": "Loading journal entries...",
-  "no_entries": "No journal entries yet. Record an expense to get started!",
-  "account": "Account",
-  "debit": "Debit",
-  "credit": "Credit",
-  "chart_of_accounts": "Chart of Accounts",
-  "loading_accounts": "Loading accounts...",
-  "code": "Code",
-  "name": "Name",
-  "type": "Type",
-  "tax_category": "Tax Category",
-  "no_accounts": "No accounts found."
+  "general_ledger": "总账",
+  "loading_entries": "正在加载日记账分录…",
+  "no_entries": "暂无日记账分录。记录一笔支出即可开始！",
+  "account": "科目",
+  "debit": "借方",
+  "credit": "贷方",
+  "chart_of_accounts": "会计科目表",
+  "loading_accounts": "正在加载科目…",
+  "code": "编码",
+  "name": "名称",
+  "type": "类型",
+  "tax_category": "税务类别",
+  "no_accounts": "未找到科目。"
 }

@@ -85,14 +85,16 @@ describe('dashboard copy actually differs by locale', () => {
     expect(frText).not.toBe(enText);
   });
 
-  it('still shows English for zh-CN, which is scaffold', () => {
-    // Documents the current state, so the day zh-CN content lands this test
-    // changes too rather than silently passing.
+  it('renders Chinese for zh-CN now that its content has landed', () => {
+    // This asserted English while zh-CN was `scaffold`, written so it would
+    // fail the day real content arrived rather than silently keep passing.
+    // It did exactly that.
     const { container } = render(
       <ShellProvider value={shellFor('zh-CN')}>
         <NextMomentsList moments={[]} />
       </ShellProvider>,
     );
-    expect(container.textContent).toContain('No upcoming receivables or bills.');
+    expect(container.textContent).toContain('暂无待收款项或待付账单。');
+    expect(container.textContent).not.toContain('No upcoming receivables');
   });
 });

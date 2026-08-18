@@ -105,15 +105,41 @@ function hasTranslatableText(value: string): boolean {
 }
 
 /**
- * Regulated copy that must remain English-only.
- * Tax guidance and legal disclosures are not translated, per the plan's
- * English-only decision, because a fluent mistranslation of tax advice is a
- * liability rather than a cosmetic bug.
+ * Regulated copy that must remain English in EVERY locale.
+ *
+ * Decision: tax guidance, filing disclosures and legal copy are not
+ * translated, because a fluent mistranslation of tax advice is a liability
+ * rather than a cosmetic bug.
+ *
+ * WHY THIS IS AN EXPLICIT KEY LIST AND NOT A PREFIX
+ *
+ * The first version matched the prefixes 'tax.advice.', 'legal.' and
+ * 'filing.disclosure.'. **Zero of the catalog's 253 keys use those names**, so
+ * the invariant passed trivially and always would have — a guard asserting
+ * something about a naming convention this codebase does not follow.
+ *
+ * Meanwhile the genuinely advice-shaped strings live under ordinary names, and
+ * two of them were ALREADY translated into French before anyone noticed:
+ *
+ *   tax.bracket_alert  "You're {amount} from the next tax bracket. Prepay
+ *                       expenses to save ~{savings}."
+ *
+ * That is the same bracket-timing advice behind a previous production
+ * incident, where the figure shown to users was not a real quantity.
+ * Translating it into two more languages multiplies that surface.
+ *
+ * So the list is enumerated by hand. Adding an advice-shaped string means
+ * adding it here; there is no naming convention doing the work silently.
  */
-const ENGLISH_ONLY_PREFIXES = ['tax.advice.', 'legal.', 'filing.disclosure.'];
+const ENGLISH_ONLY_KEYS = new Set<string>([
+  'tax.deduction_found',
+  'tax.bracket_alert',
+  'proactive.cash_flow_warning',
+  'proactive.year_end_planning',
+]);
 
 function isEnglishOnly(key: string): boolean {
-  return ENGLISH_ONLY_PREFIXES.some((p) => key.startsWith(p));
+  return ENGLISH_ONLY_KEYS.has(key);
 }
 
 describe('i18n catalog: structure', () => {
@@ -207,6 +233,10 @@ describe('i18n catalog: value sanity', () => {
       const identical = [...localeKeys(locale)]
         .filter(([k, v]) => reference.get(k) === v)
         .filter(([k]) => !IDENTICAL_ALLOWED.has(k))
+        // Regulated copy is REQUIRED to equal English (see the English-only
+        // block below). Without this the two invariants contradict each other:
+        // one demands these keys differ, the other demands they match.
+        .filter(([k]) => !isEnglishOnly(k))
         .filter(([, v]) => hasTranslatableText(v))
         .map(([k]) => k);
       expect(
@@ -226,6 +256,10 @@ describe('i18n catalog: value sanity', () => {
     }
     const suspect = [...localeKeys('zh-CN')]
       .filter(([k]) => !IDENTICAL_ALLOWED.has(k))
+      // Regulated copy is required to stay English, so it legitimately has no
+      // CJK. Third invariant that needs this exemption — they all describe the
+      // same rule from a different angle.
+      .filter(([k]) => !isEnglishOnly(k))
       .filter(([, v]) => hasTranslatableText(v))
       .filter(([, v]) => !CJK.test(v))
       .map(([k, v]) => `${k}="${v}"`);
@@ -258,14 +292,35 @@ describe('i18n catalog: scaffolding cannot reach users', () => {
 });
 
 describe('i18n catalog: regulated copy stays English', () => {
+  it('the English-only list actually matches real keys', () => {
+    // The check this replaced was VACUOUS: it matched prefixes no key in this
+    // catalog uses, so it passed without inspecting anything. Assert the list
+    // resolves to real keys before trusting any assertion built on it.
+    const reference = localeKeys(REFERENCE_LOCALE);
+    const missing = [...ENGLISH_ONLY_KEYS].filter((k) => !reference.has(k));
+    expect(missing, 'ENGLISH_ONLY_KEYS names keys that do not exist').toEqual([]);
+    expect(ENGLISH_ONLY_KEYS.size).toBeGreaterThan(0);
+  });
+
   for (const locale of NON_REFERENCE_LOCALES) {
-    it(`${locale} contains NO tax-guidance, legal, or filing-disclosure keys`, () => {
-      // Inverted invariant. Presence is the failure.
-      const present = [...localeKeys(locale).keys()].filter(isEnglishOnly);
+    it(`${locale} serves regulated copy in English, verbatim`, () => {
+      // These keys MUST exist (they are user-facing) but must hold the English
+      // text. Asserting equality, not absence: a missing key would silently
+      // fall back to English and look identical, so absence proves nothing.
+      const reference = localeKeys(REFERENCE_LOCALE);
+      const keys = localeKeys(locale);
+      const wrong: string[] = [];
+      for (const k of ENGLISH_ONLY_KEYS) {
+        const en = reference.get(k);
+        const got = keys.get(k);
+        if (en !== undefined && got !== undefined && got !== en) {
+          wrong.push(`${k}: expected the English text, got "${got}"`);
+        }
+      }
       expect(
-        present,
-        `${locale} must not translate regulated copy. Tax guidance and legal ` +
-          `disclosures are English-only with a visible notice. Found: ${present.join(', ')}`,
+        wrong,
+        `${locale} must not translate tax/financial guidance — ` +
+          `a fluent mistranslation of advice is a liability, not a cosmetic bug`,
       ).toEqual([]);
     });
   }
