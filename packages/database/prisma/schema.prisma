@@ -2419,6 +2419,28 @@ model AbTaxFiling {
   @@schema("plugin_agentbook_tax")
 }
 
+model AbTaxFilingReview {
+  id                String    @id @default(uuid())
+  tenantId          String
+  taxYear           Int
+  // Active: 'summarizing' | 'awaiting_edit'. Terminal: 'confirmed' | 'cancelled' | 'stale'.
+  // Only the active ones make getActiveReviewForTenant() intercept the
+  // tenant's next chat message — see ACTIVE_REVIEW_STATUSES in
+  // plugins/agentbook-tax/backend/src/tax-review-agent.ts.
+  status            String    @default("summarizing")
+  awaitingFieldId   String?
+  summaryText       String?
+  editsApplied      Json      @default("[]")
+  reviewedFormsHash String?
+  confirmedAt       DateTime?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  @@unique([tenantId, taxYear])
+  @@index([tenantId])
+  @@schema("plugin_agentbook_tax")
+}
+
 model AbTaxSlip {
   id            String   @id @default(uuid())
   tenantId      String

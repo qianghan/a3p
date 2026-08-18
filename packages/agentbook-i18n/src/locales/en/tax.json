@@ -16,5 +16,11 @@
   "pnl_title": "Profit & Loss Statement",
   "balance_sheet_title": "Balance Sheet",
   "cash_flow_title": "Cash Flow Statement",
-  "trial_balance_title": "Trial Balance"
+  "trial_balance_title": "Trial Balance",
+  "tax_review_title": "Filing Review",
+  "tax_review_summary_label": "Summary",
+  "tax_review_ask_placeholder": "Ask a question about any number...",
+  "tax_review_ask_button": "Ask",
+  "tax_review_submit_button": "Submit filing",
+  "tax_review_edit_saved": "Saved"
 }

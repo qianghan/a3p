@@ -43,6 +43,10 @@ export default defineConfig({
       '@naap/utils': path.resolve(__dirname, '../../packages/utils/src'),
       '@naap/plugin-sdk': path.resolve(__dirname, '../../packages/plugin-sdk/src'),
       '@agentbook-core': path.resolve(__dirname, '../../plugins/agentbook-core/backend/src'),
+      // Matches the tsconfig path alias of the same name — needed so the
+      // agentbook-tax Next route handlers (tax review agent, etc.) are
+      // resolvable under test.
+      '@agentbook-tax': path.resolve(__dirname, '../../plugins/agentbook-tax/backend/src'),
       '@agentbook/jurisdictions': path.resolve(__dirname, '../../packages/agentbook-jurisdictions/src'),
     },
   },

@@ -16,5 +16,11 @@
   "pnl_title": "État des résultats",
   "balance_sheet_title": "Bilan",
   "cash_flow_title": "État des flux de trésorerie",
-  "trial_balance_title": "Balance de verification"
+  "trial_balance_title": "Balance de verification",
+  "tax_review_title": "Révision de la déclaration",
+  "tax_review_summary_label": "Résumé",
+  "tax_review_ask_placeholder": "Posez une question sur un montant...",
+  "tax_review_ask_button": "Demander",
+  "tax_review_submit_button": "Produire la déclaration",
+  "tax_review_edit_saved": "Enregistré"
 }

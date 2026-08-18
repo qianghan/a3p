@@ -72,7 +72,7 @@ export async function submitFiling(
 
   // 3. Validate
   const forms = (filing.forms as Record<string, any>) || {};
-  const validation = validateFiling(forms);
+  const validation = validateFiling(forms, filing.jurisdiction);
   if (!validation.valid) {
     return {
       success: false,

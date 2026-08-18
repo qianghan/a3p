@@ -11,42 +11,103 @@ interface ValidationResult {
   warnings: { ruleId: string; formCode: string; message: string; severity: 'warning' }[];
 }
 
-const VALIDATION_RULES = [
-  { ruleId: 'income_positive', formCode: 'T1', check: (forms: any) => (forms.T1?.fields?.total_income_15000 || 0) >= 0, severity: 'warning' as const, message: 'Total income is negative — verify all income sources' },
+interface ValidationRule {
+  ruleId: string;
+  formCode: string;
+  check: (forms: any) => boolean;
+  severity: 'error' | 'warning';
+  message: string;
+}
+
+/**
+ * Validation rules are per-jurisdiction, because the form codes and field
+ * IDs are. This set used to be CA-only and applied unconditionally: a US or
+ * AU filing was still checked for `T1.sin` and `T1.full_name`, forms it does
+ * not have, so validateFiling() always returned valid:false — and both
+ * submitFiling() and exportFiling() refuse on invalid. US and AU filings
+ * were unsubmittable by construction.
+ *
+ * Field IDs below are the real ones from tax-forms.ts's templates
+ * (CA_T1/T2125, US_1040/ScheduleC, AU_INDIVIDUAL_RETURN/BUSINESS_SCHEDULE).
+ */
+const CA_RULES: ValidationRule[] = [
+  { ruleId: 'income_positive', formCode: 'T1', check: (forms: any) => (forms.T1?.total_income_15000 || 0) >= 0, severity: 'warning', message: 'Total income is negative — verify all income sources' },
   { ruleId: 't2125_expenses_ratio', formCode: 'T2125', check: (forms: any) => {
-    const gross = forms.T2125?.fields?.adjusted_gross_8299 || 1;
-    const expenses = forms.T2125?.fields?.total_expenses_9368 || 0;
+    const gross = forms.T2125?.adjusted_gross_8299 || 1;
+    const expenses = forms.T2125?.total_expenses_9368 || 0;
     return gross <= 0 || expenses / gross < 0.95;
-  }, severity: 'warning' as const, message: 'Business expenses exceed 95% of revenue — CRA may flag this' },
+  }, severity: 'warning', message: 'Business expenses exceed 95% of revenue — CRA may flag this' },
   { ruleId: 'gst_registration', formCode: 'GST-HST', check: (forms: any) => {
-    const revenue = forms.T2125?.fields?.gross_sales_8000 || 0;
-    const gstNum = forms['GST-HST']?.fields?.gst_number;
+    const revenue = forms.T2125?.gross_sales_8000 || 0;
+    const gstNum = forms['GST-HST']?.gst_number;
     return revenue < 3000000 || !!gstNum; // $30,000 threshold in cents
-  }, severity: 'error' as const, message: 'GST/HST registration required if revenue exceeds $30,000' },
-  { ruleId: 'sin_required', formCode: 'T1', check: (forms: any) => !!forms.T1?.fields?.sin, severity: 'error' as const, message: 'Social Insurance Number is required for filing' },
-  { ruleId: 'name_required', formCode: 'T1', check: (forms: any) => !!forms.T1?.fields?.full_name, severity: 'error' as const, message: 'Full legal name is required for filing' },
+  }, severity: 'error', message: 'GST/HST registration required if revenue exceeds $30,000' },
+  { ruleId: 'sin_required', formCode: 'T1', check: (forms: any) => !!forms.T1?.sin, severity: 'error', message: 'Social Insurance Number is required for filing' },
+  { ruleId: 'name_required', formCode: 'T1', check: (forms: any) => !!forms.T1?.full_name, severity: 'error', message: 'Full legal name is required for filing' },
   { ruleId: 'vehicle_km_valid', formCode: 'T2125', check: (forms: any) => {
-    const total = forms.T2125?.fields?.vehicle_total_km || 0;
-    const business = forms.T2125?.fields?.vehicle_business_km || 0;
+    const total = forms.T2125?.vehicle_total_km || 0;
+    const business = forms.T2125?.vehicle_business_km || 0;
     return total === 0 || business <= total;
-  }, severity: 'error' as const, message: 'Business kilometres cannot exceed total kilometres' },
+  }, severity: 'error', message: 'Business kilometres cannot exceed total kilometres' },
   { ruleId: 'home_office_pct', formCode: 'T2125', check: (forms: any) => {
-    const pct = forms.T2125?.fields?.home_office_pct || 0;
+    const pct = forms.T2125?.home_office_pct || 0;
     return pct <= 100;
-  }, severity: 'error' as const, message: 'Home office percentage cannot exceed 100%' },
-  { ruleId: 'balance_calculated', formCode: 'T1', check: (forms: any) => forms.T1?.fields?.balance_owing_48500 !== undefined, severity: 'warning' as const, message: 'Balance owing/refund has not been calculated — some fields may be missing' },
+  }, severity: 'error', message: 'Home office percentage cannot exceed 100%' },
+  { ruleId: 'balance_calculated', formCode: 'T1', check: (forms: any) => forms.T1?.balance_owing_48500 !== undefined, severity: 'warning', message: 'Balance owing/refund has not been calculated — some fields may be missing' },
 ];
 
-export function validateFiling(forms: Record<string, any>): ValidationResult {
+const US_RULES: ValidationRule[] = [
+  { ruleId: 'income_positive', formCode: '1040', check: (forms: any) => (forms['1040']?.total_income_9 || 0) >= 0, severity: 'warning', message: 'Total income is negative — verify all income sources' },
+  { ruleId: 'expenses_ratio', formCode: 'ScheduleC', check: (forms: any) => {
+    const gross = forms.ScheduleC?.gross_income_7 || 1;
+    const expenses = forms.ScheduleC?.total_expenses_28 || 0;
+    return gross <= 0 || expenses / gross < 0.95;
+  }, severity: 'warning', message: 'Business expenses exceed 95% of revenue — the IRS may flag this' },
+  { ruleId: 'ssn_required', formCode: '1040', check: (forms: any) => !!forms['1040']?.ssn, severity: 'error', message: 'Social Security Number is required for filing' },
+  { ruleId: 'name_required', formCode: '1040', check: (forms: any) => !!forms['1040']?.full_name, severity: 'error', message: 'Full legal name is required for filing' },
+  { ruleId: 'vehicle_miles_valid', formCode: 'ScheduleC', check: (forms: any) => {
+    const total = forms.ScheduleC?.vehicle_total_miles || 0;
+    const business = forms.ScheduleC?.vehicle_business_miles || 0;
+    return total === 0 || business <= total;
+  }, severity: 'error', message: 'Business miles cannot exceed total miles' },
+  { ruleId: 'balance_calculated', formCode: '1040', check: (forms: any) => forms['1040']?.balance_owing_37 !== undefined, severity: 'warning', message: 'Amount you owe/refund has not been calculated — some fields may be missing' },
+];
+
+const AU_RULES: ValidationRule[] = [
+  { ruleId: 'income_positive', formCode: 'IndividualReturn', check: (forms: any) => (forms.IndividualReturn?.taxable_income || 0) >= 0, severity: 'warning', message: 'Taxable income is negative — verify all income sources' },
+  { ruleId: 'expenses_ratio', formCode: 'BusinessSchedule', check: (forms: any) => {
+    const gross = forms.BusinessSchedule?.gross_business_income || 1;
+    const expenses = forms.BusinessSchedule?.total_expenses || 0;
+    return gross <= 0 || expenses / gross < 0.95;
+  }, severity: 'warning', message: 'Business expenses exceed 95% of revenue — the ATO may flag this' },
+  { ruleId: 'tfn_required', formCode: 'IndividualReturn', check: (forms: any) => !!forms.IndividualReturn?.tfn, severity: 'error', message: 'Tax File Number (TFN) is required for filing' },
+  { ruleId: 'name_required', formCode: 'IndividualReturn', check: (forms: any) => !!forms.IndividualReturn?.full_name, severity: 'error', message: 'Full legal name is required for filing' },
+  { ruleId: 'balance_calculated', formCode: 'IndividualReturn', check: (forms: any) => forms.IndividualReturn?.balance_owing !== undefined, severity: 'warning', message: 'Amount you owe/refund has not been calculated — some fields may be missing' },
+];
+
+const VALIDATION_RULES_BY_JURISDICTION: Record<string, ValidationRule[]> = {
+  ca: CA_RULES,
+  us: US_RULES,
+  au: AU_RULES,
+};
+
+/**
+ * @param jurisdiction lower-case 'ca' | 'us' | 'au'. Defaults to 'ca' for
+ *   back-compat with callers that predate this parameter. An unrecognised
+ *   value also falls back to CA rather than to an empty rule set — an empty
+ *   set would report valid:true for a filing with no identity fields at all.
+ */
+export function validateFiling(forms: Record<string, any>, jurisdiction = 'ca'): ValidationResult {
   const errors: ValidationResult['errors'] = [];
   const warnings: ValidationResult['warnings'] = [];
+  const rules = VALIDATION_RULES_BY_JURISDICTION[String(jurisdiction).toLowerCase()] ?? CA_RULES;
 
-  for (const rule of VALIDATION_RULES) {
+  for (const rule of rules) {
     try {
       if (!rule.check(forms)) {
-        const entry = { ruleId: rule.ruleId, formCode: rule.formCode, message: rule.message, severity: rule.severity };
-        if (rule.severity === 'error') errors.push(entry);
-        else warnings.push(entry);
+        const base = { ruleId: rule.ruleId, formCode: rule.formCode, message: rule.message };
+        if (rule.severity === 'error') errors.push({ ...base, severity: 'error' });
+        else warnings.push({ ...base, severity: 'warning' });
       }
     } catch { /* skip broken rules */ }
   }
@@ -145,8 +206,8 @@ export async function exportFiling(
 
   const forms = (filing.forms as Record<string, any>) || {};
 
-  // Validate first
-  const validation = validateFiling(forms);
+  // Validate first — against THIS filing's jurisdiction's rules, not CA's.
+  const validation = validateFiling(forms, filing.jurisdiction);
   if (!validation.valid) {
     return {
       success: false,

@@ -14,6 +14,10 @@ import { PastFilingsPage } from './pages/PastFilings';
 import { SalesTaxReturnPage } from './pages/SalesTaxReturn';
 import './globals.css';
 
+// Translation catalogues are no longer bootstrapped here — the shell
+// resolves the tenant's locale once and injects a bound translator via
+// ShellContext, which every page reaches through useI18n() (@naap/plugin-sdk).
+
 function getInitialPath(): string {
   if (typeof window === 'undefined') return '/';
   const path = window.location.pathname.replace(/^\/agentbook/, '') || '/';

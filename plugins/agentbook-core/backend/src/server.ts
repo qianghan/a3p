@@ -3339,6 +3339,164 @@ export async function executeClassification(
   }
 }
 
+// Resolves the tax plugin's base URL the same way _executeClassificationCore's
+// local `baseUrls` map does for the '/api/v1/agentbook-tax' prefix. Needed
+// here because handleTaxFilingSubmit (below) is a standalone top-level
+// function — extracted out of _executeClassificationCore's closure so the
+// submit-review gate is unit-testable in isolation (Task 16) — and so no
+// longer has that local `baseUrls` in scope.
+function resolveTaxBaseUrl(): string {
+  const _appBase =
+    process.env.AGENTBOOK_HOST ||
+    (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : '') ||
+    process.env.NEXTAUTH_URL ||
+    '';
+  return process.env.AGENTBOOK_TAX_URL || _appBase || 'http://localhost:4053';
+}
+
+/**
+ * The tax year a filing conversation means when the user didn't say one:
+ * the prior calendar year, in UTC. Deliberately identical to
+ * currentFilingYear() in the tax plugin frontend
+ * (plugins/agentbook-tax/frontend/src/lib/filing-year.ts) so the chat path
+ * and the web review tab never end up reviewing different years for the
+ * same tenant. UTC, not local time, so the answer doesn't flip depending on
+ * which side of midnight on Jan 1 the request lands.
+ */
+export function defaultFilingYear(now: Date = new Date()): number {
+  return now.getUTCFullYear() - 1;
+}
+
+/**
+ * The two agent-brain ctx functions that let a mid-review message be
+ * intercepted before classification (Task 16).
+ *
+ * Defined ONCE here and exported, because there are four places that
+ * build an agent-brain ctx and every one of them needs these: this
+ * file's dev Express route, plus apps/web-next's web-chat, Telegram and
+ * WhatsApp routes. When the wiring lived inline in the Express route
+ * only, the feature was dead on all three production channels — the
+ * "adapter-only logic" failure mode. A shared factory makes the wiring
+ * one call per site instead of one copy per site, so the four cannot
+ * drift apart.
+ *
+ * Same HTTP, brainHeaders()-authenticated pattern as the submit gate —
+ * agent-brain must not import tax-plugin backend code directly.
+ */
+export function buildTaxReviewCtx(baseUrls?: Record<string, string>): {
+  checkActiveTaxReview: (tenantId: string) => Promise<{ active: boolean; taxYear?: number }>;
+  answerTaxReview: (tenantId: string, taxYear: number, text: string) => Promise<{ message: string }>;
+} {
+  const taxBaseFor = () => baseUrls?.['/api/v1/agentbook-tax'] || resolveTaxBaseUrl();
+  return {
+    // Runs on EVERY inbound message, so it must never be able to take
+    // chat down: a non-JSON body (deployment-protection interstitial,
+    // 502, 404) or a network failure means "no active review", which
+    // routes the message through normal classification. The submit gate
+    // in handleTaxFilingSubmit independently protects the money path, so
+    // failing open here costs an interception, not a safety property.
+    checkActiveTaxReview: async (tenantId: string) => {
+      try {
+        const activeRes = await fetch(`${taxBaseFor()}/api/v1/agentbook-tax/tax-filing/review/active`, { headers: brainHeaders(tenantId) });
+        const activeData = await activeRes.json() as any;
+        return activeData?.data || { active: false };
+      } catch (err) {
+        console.warn('[checkActiveTaxReview] failed, treating as no active review:', err);
+        return { active: false };
+      }
+    },
+    answerTaxReview: async (tenantId: string, taxYear: number, reviewText: string) => {
+      try {
+        const msgRes = await fetch(`${taxBaseFor()}/api/v1/agentbook-tax/tax-filing/${taxYear}/review/message`, {
+          method: 'POST', headers: { ...brainHeaders(tenantId), 'Content-Type': 'application/json' }, body: JSON.stringify({ text: reviewText }),
+        });
+        const msgData = await msgRes.json() as any;
+        return { message: msgData?.data?.message || 'Sorry, something went wrong reviewing your filing.' };
+      } catch (err) {
+        console.error('[answerTaxReview] failed:', err);
+        return { message: 'Sorry, something went wrong reviewing your filing. Nothing was submitted.' };
+      }
+    },
+  };
+}
+
+// tax-filing-submit handler, extracted into its own exported function
+// (Task 16) so the submit-review gate below is unit-testable in isolation.
+// Gate: don't call the real submit endpoint until a confirmed, fresh
+// review exists for this exact filing snapshot. Primary confirm->submit
+// handoff happens inside answerReviewMessage() (Task 12) directly; this
+// is the defensive fallback for any path that reaches this handler
+// without having gone through a review conversation first.
+export async function handleTaxFilingSubmit(params: {
+  tenantId: string; extractedParams: any; text?: string; channel?: string; confidence?: number; startTime?: number;
+}): Promise<any> {
+  const { tenantId, extractedParams } = params;
+  const startTime = params.startTime ?? Date.now();
+  const taxBase = resolveTaxBaseUrl();
+  const IH = brainHeaders(tenantId);
+  // Same resolution the web review tab uses (see currentFilingYear() in
+  // plugins/agentbook-tax/frontend/src/lib/filing-year.ts). This was a
+  // hardcoded `|| 2025`, so from 2027 onward chat would have reviewed 2025
+  // while the web tab reviewed the prior year — two surfaces disagreeing on
+  // which filing they were talking about, and a submit gate that could never
+  // see a confirmed review for the year being submitted.
+  const taxYear = extractedParams.taxYear || defaultFilingYear();
+
+  // The whole gate check runs inside try/catch. These are real HTTP calls in
+  // production, and a deployment-protection interstitial, a 502, or a plain
+  // 404 all answer with HTML — `res.json()` then throws SyntaxError. That
+  // throw used to escape this function entirely, surfacing an unhandled 500
+  // on the submit-my-taxes path. Fail CLOSED instead: never fall through to
+  // the real submit endpoint when we could not prove a fresh confirmed
+  // review exists, and always hand the user a message they can act on.
+  let confirmedAndFresh = false;
+  try {
+    const statusRes = await fetch(`${taxBase}/api/v1/agentbook-tax/tax-filing/${taxYear}/review/status`, { headers: IH });
+    const statusData = await statusRes.json() as any;
+    confirmedAndFresh = !!statusData?.data?.confirmedAndFresh;
+  } catch (err) {
+    console.error('[tax-filing-submit] review/status check failed:', err);
+    const message = "I couldn't check whether you've reviewed this filing yet, so I haven't submitted anything. Please open the tax review and confirm your numbers, then try again.";
+    return { selectedSkill: { name: 'tax-filing-submit' }, extractedParams, confidence: params.confidence, skillUsed: 'tax-review-agent', skillResponse: null,
+      responseData: { message, actions: [], chartData: null, skillUsed: 'tax-review-agent', confidence: params.confidence, latencyMs: Date.now() - startTime } };
+  }
+
+  if (!confirmedAndFresh) {
+    let startData: any = null;
+    try {
+      const startRes = await fetch(`${taxBase}/api/v1/agentbook-tax/tax-filing/${taxYear}/review/start`, { method: 'POST', headers: IH });
+      startData = await startRes.json() as any;
+    } catch (err) {
+      console.error('[tax-filing-submit] review/start failed:', err);
+    }
+    const message = startData?.data?.message || 'Please review your filing before submitting.';
+    return { selectedSkill: { name: 'tax-filing-submit' }, extractedParams, confidence: params.confidence, skillUsed: 'tax-review-agent', skillResponse: startData,
+      responseData: { message, actions: [], chartData: null, skillUsed: 'tax-review-agent', confidence: params.confidence, latencyMs: Date.now() - startTime } };
+  }
+
+  try {
+    const res = await fetch(`${taxBase}/api/v1/agentbook-tax/tax-filing/${taxYear}/submit`, { method: 'POST', headers: IH });
+    const data = await res.json() as any;
+    let message: string;
+    if (data.success) {
+      message = `✅ **${data.data.message}**`;
+    } else {
+      message = `❌ **Filing Failed**\n\n${data.error}`;
+      if (data.data?.validation?.errors?.length > 0) {
+        message += '\n\n**Fix these errors first:**\n';
+        data.data.validation.errors.forEach((e: any) => { message += `- ${e.message}\n`; });
+      }
+    }
+    await db.abConversation.create({ data: { tenantId, question: params.text || '[submit]', answer: message, queryType: 'agent', channel: params.channel, skillUsed: 'tax-filing-submit' } });
+    return { selectedSkill: { name: 'tax-filing-submit' }, extractedParams, confidence: params.confidence, skillUsed: 'tax-filing-submit', skillResponse: data,
+      responseData: { message, actions: [], chartData: null, skillUsed: 'tax-filing-submit', confidence: params.confidence, latencyMs: Date.now() - startTime } };
+  } catch (err) {
+    console.error('Tax submit error:', err);
+    return { selectedSkill: { name: 'tax-filing-submit' }, extractedParams, confidence: params.confidence, skillUsed: 'tax-filing-submit', skillResponse: null,
+      responseData: { message: "Filing submission failed. Please try again.", actions: [], chartData: null, skillUsed: 'tax-filing-submit', confidence: 0, latencyMs: Date.now() - startTime } };
+  }
+}
+
 // Core implementation — renamed from the previous executeClassification body.
 // Kept private so the public export can wrap it with metric collection.
 async function _executeClassificationCore(
@@ -4566,7 +4724,12 @@ async function _executeClassificationCore(
     try {
       const taxBase = baseUrls['/api/v1/agentbook-tax'] || 'http://localhost:4053';
       const IH = brainHeaders(tenantId);
-      const taxYear = extractedParams.taxYear || 2025;
+      // Same resolution handleTaxFilingSubmit's gate and the web review tab
+      // use. This was a literal `|| 2025`: from 2027 chat would have started
+      // populating a 2025 filing while the gate looked for a confirmed 2026
+      // review, so a real filing would dead-end with the two surfaces talking
+      // about different years.
+      const taxYear = extractedParams.taxYear || defaultFilingYear();
 
       // Seed forms
       await fetch(`${taxBase}/api/v1/agentbook-tax/tax-forms/seed`, { method: 'POST', headers: IH });
@@ -4645,30 +4808,7 @@ async function _executeClassificationCore(
 
   // INTERNAL handler: tax-filing-submit
     if (selectedSkill.name === 'tax-filing-submit') {
-      try {
-        const taxBase = baseUrls['/api/v1/agentbook-tax'] || 'http://localhost:4053';
-        const IH = brainHeaders(tenantId);
-        const taxYear = extractedParams.taxYear || 2025;
-        const res = await fetch(`${taxBase}/api/v1/agentbook-tax/tax-filing/${taxYear}/submit`, { method: 'POST', headers: IH });
-        const data = await res.json() as any;
-        let message: string;
-        if (data.success) {
-          message = `\u2705 **${data.data.message}**`;
-        } else {
-          message = `\u274C **Filing Failed**\n\n${data.error}`;
-          if (data.data?.validation?.errors?.length > 0) {
-            message += '\n\n**Fix these errors first:**\n';
-            data.data.validation.errors.forEach((e: any) => { message += `- ${e.message}\n`; });
-          }
-        }
-        await db.abConversation.create({ data: { tenantId, question: text || '[submit]', answer: message, queryType: 'agent', channel, skillUsed: 'tax-filing-submit' } });
-        return { selectedSkill, extractedParams, confidence, skillUsed: 'tax-filing-submit', skillResponse: data,
-          responseData: { message, actions: [], chartData: null, skillUsed: 'tax-filing-submit', confidence, latencyMs: Date.now() - startTime } };
-      } catch (err) {
-        console.error('Tax submit error:', err);
-        return { selectedSkill, extractedParams, confidence, skillUsed: 'tax-filing-submit', skillResponse: null,
-          responseData: { message: "Filing submission failed. Please try again.", actions: [], chartData: null, skillUsed: 'tax-filing-submit', confidence: 0, latencyMs: Date.now() - startTime } };
-      }
+      return handleTaxFilingSubmit({ tenantId, extractedParams, text, channel, confidence, startTime });
     }
 
   // Pre-processing: set-budget — resolve category name to ID
@@ -6221,6 +6361,11 @@ app.post('/api/v1/agentbook-core/agent/message', async (req, res) => {
         // user confirm before firing.
         classifyOnly,
         executeClassification,
+        // Task 16: lets agent-brain.ts intercept a message mid-review without
+        // importing tax-plugin backend code directly. Shared with the three
+        // apps/web-next channel routes via buildTaxReviewCtx() so no channel
+        // can be left without it.
+        ...buildTaxReviewCtx(baseUrls),
       },
     );
 

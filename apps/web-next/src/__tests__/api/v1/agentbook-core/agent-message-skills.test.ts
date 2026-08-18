@@ -69,6 +69,10 @@ vi.mock('@agentbook-core/server', () => ({
   classifyAndExecuteV1: vi.fn(),
   classifyOnly: vi.fn(),
   executeClassification: vi.fn(),
+  // Mid-review interception for the Tax Review Agent. The route spreads the
+  // factory's result into the ctx, so this must return an object even though
+  // this file asserts nothing about it.
+  buildTaxReviewCtx: vi.fn(() => ({ checkActiveTaxReview: vi.fn(), answerTaxReview: vi.fn() })),
 }));
 
 /**

@@ -2,6 +2,8 @@
  * Tax Forms — template seeding, source query resolution, formula evaluation.
  */
 import { db } from './db/client.js';
+import { usTaxBrackets } from '@agentbook/jurisdictions/us/tax-brackets';
+import { auTaxBrackets } from '@agentbook/jurisdictions/au/tax-brackets';
 
 // === Canadian Form Templates (2025) ===
 // These are the full form definitions from the spec.
@@ -157,11 +159,242 @@ const CA_SCHEDULE1_2025 = {
 
 const ALL_CA_FORMS = [CA_T2125_2025, CA_T1_2025, CA_GST_HST_2025, CA_SCHEDULE1_2025];
 
+// === US Form Templates (2025) ===
+// A deliberately simplified subset — Schedule C business income/expenses
+// plus a personal-return summary — matching the same level of simplification
+// CA_T2125_2025/CA_T1_2025 already use (no capital gains, no itemized
+// deductions beyond what's modeled here). Vehicle/home-office deductions are
+// computed but NOT folded into net profit, mirroring CA_T2125_2025's own
+// existing behavior (net_income_9369 = adjusted_gross - total_expenses only)
+// — matching that precedent's scope rather than "fixing" it here.
+
+const US_SCHEDULE_C_2025 = {
+  jurisdiction: 'us', formCode: 'ScheduleC', version: '2025',
+  formName: 'Schedule C — Profit or Loss From Business (Sole Proprietorship)',
+  category: 'business_income', dependencies: [],
+  sections: [
+    {
+      sectionId: 'identification', title: 'Principal Business Information',
+      fields: [
+        { fieldId: 'business_name', label: 'Name of proprietor / business', lineNumber: '', type: 'text', required: true, source: 'auto', sourceQuery: 'tenant_business_name' },
+        { fieldId: 'principal_business_code', label: 'Principal business or profession, code', lineNumber: 'B', type: 'text', required: true, source: 'manual', helpText: '6-digit NAICS code. Consultants: 541611, Software: 541511' },
+        { fieldId: 'ein_or_ssn', label: 'EIN (or SSN if none)', lineNumber: '', type: 'text', required: true, source: 'manual', sensitive: true },
+      ],
+    },
+    {
+      sectionId: 'income', title: 'Part I — Income',
+      fields: [
+        { fieldId: 'gross_receipts_1', label: 'Gross receipts or sales', lineNumber: '1', type: 'currency', required: true, source: 'auto', sourceQuery: 'revenue_total' },
+        { fieldId: 'gross_income_7', label: 'Gross income', lineNumber: '7', type: 'currency', required: true, source: 'calculated', formula: 'gross_receipts_1' },
+      ],
+    },
+    {
+      sectionId: 'expenses', title: 'Part II — Expenses',
+      fields: [
+        { fieldId: 'advertising_8', label: 'Advertising', lineNumber: '8', type: 'currency', required: false, source: 'auto', sourceQuery: 'expense_category:5000' },
+        { fieldId: 'insurance_15', label: 'Insurance (other than health)', lineNumber: '15', type: 'currency', required: false, source: 'auto', sourceQuery: 'expense_category:5400' },
+        { fieldId: 'legal_professional_17', label: 'Legal and professional services', lineNumber: '17', type: 'currency', required: false, source: 'auto', sourceQuery: 'expense_category:5700' },
+        { fieldId: 'office_18', label: 'Office expense', lineNumber: '18', type: 'currency', required: false, source: 'auto', sourceQuery: 'expense_category:5800' },
+        { fieldId: 'supplies_22', label: 'Supplies', lineNumber: '22', type: 'currency', required: false, source: 'auto', sourceQuery: 'expense_category:6100' },
+        { fieldId: 'travel_24a', label: 'Travel', lineNumber: '24a', type: 'currency', required: false, source: 'auto', sourceQuery: 'expense_category:6300' },
+        { fieldId: 'meals_24b', label: 'Deductible meals (50%)', lineNumber: '24b', type: 'currency', required: false, source: 'auto', sourceQuery: 'expense_category:6400:meals_50pct' },
+        { fieldId: 'utilities_25', label: 'Utilities', lineNumber: '25', type: 'currency', required: false, source: 'auto', sourceQuery: 'expense_category:6500' },
+        { fieldId: 'other_expenses_27a', label: 'Other expenses (software, subscriptions)', lineNumber: '27a', type: 'currency', required: false, source: 'auto', sourceQuery: 'expense_category:6600' },
+        { fieldId: 'total_expenses_28', label: 'Total expenses', lineNumber: '28', type: 'currency', required: true, source: 'calculated', formula: 'SUM(advertising_8,insurance_15,legal_professional_17,office_18,supplies_22,travel_24a,meals_24b,utilities_25,other_expenses_27a)' },
+        { fieldId: 'tentative_profit_29', label: 'Tentative profit', lineNumber: '29', type: 'currency', required: true, source: 'calculated', formula: 'gross_income_7 - total_expenses_28' },
+        { fieldId: 'net_profit_31', label: 'Net profit (loss)', lineNumber: '31', type: 'currency', required: true, source: 'calculated', formula: 'tentative_profit_29' },
+      ],
+    },
+    {
+      sectionId: 'vehicle', title: 'Part IV — Vehicle Information',
+      fields: [
+        { fieldId: 'vehicle_total_miles', label: 'Total miles driven', lineNumber: '', type: 'number', required: false, source: 'manual' },
+        { fieldId: 'vehicle_business_miles', label: 'Business miles', lineNumber: '', type: 'number', required: false, source: 'manual' },
+        { fieldId: 'standard_mileage_rate_cents', label: 'Standard mileage rate (cents/mile)', lineNumber: '9', type: 'number', required: false, source: 'auto', sourceQuery: 'us_standard_mileage_rate_cents' },
+        { fieldId: 'vehicle_deduction_9', label: 'Car and truck expenses (standard mileage)', lineNumber: '9', type: 'currency', required: false, source: 'calculated', formula: 'vehicle_business_miles * standard_mileage_rate_cents' },
+      ],
+    },
+    {
+      sectionId: 'home_office', title: 'Part VIII — Home Office (Simplified Method)',
+      fields: [
+        { fieldId: 'home_office_deduction_30', label: 'Home office deduction (simplified method)', lineNumber: '30', type: 'currency', required: false, source: 'manual', helpText: 'Simplified method: $5 x home office square footage, capped at 300 sq ft (max $1,500)' },
+      ],
+    },
+  ],
+};
+
+const US_1040_2025 = {
+  jurisdiction: 'us', formCode: '1040', version: '2025',
+  formName: 'Form 1040 — U.S. Individual Income Tax Return',
+  category: 'personal_return', dependencies: ['ScheduleC'],
+  sections: [
+    {
+      sectionId: 'identification', title: 'Filing Information',
+      fields: [
+        { fieldId: 'full_name', label: 'Full legal name', lineNumber: '', type: 'text', required: true, source: 'manual' },
+        { fieldId: 'ssn', label: 'Social Security Number', lineNumber: '', type: 'text', required: true, source: 'manual', sensitive: true },
+        { fieldId: 'filing_status', label: 'Filing status', lineNumber: '', type: 'text', required: true, source: 'manual', helpText: 'single, married_filing_jointly, married_filing_separately, or head_of_household' },
+        { fieldId: 'state_of_residence', label: 'State of residence', lineNumber: '', type: 'text', required: true, source: 'auto', sourceQuery: 'tenant_region' },
+      ],
+    },
+    {
+      sectionId: 'total_income', title: 'Income',
+      fields: [
+        { fieldId: 'wages_1a', label: 'Wages (W-2 box 1)', lineNumber: '1a', type: 'currency', required: false, source: 'manual' },
+        { fieldId: 'self_employment_income', label: 'Self-employment income (from Schedule C)', lineNumber: '', type: 'currency', required: false, source: 'calculated', formula: 'ScheduleC.net_profit_31' },
+        { fieldId: 'total_income_9', label: 'Total income', lineNumber: '9', type: 'currency', required: true, source: 'calculated', formula: 'SUM(wages_1a,self_employment_income)' },
+      ],
+    },
+    {
+      sectionId: 'deductions', title: 'Adjustments and Deductions',
+      fields: [
+        { fieldId: 'se_tax', label: 'Self-employment tax (Schedule SE)', lineNumber: '', type: 'currency', required: false, source: 'calculated', formula: 'SE_TAX(self_employment_income)' },
+        { fieldId: 'se_tax_deduction_half', label: 'Deductible part of self-employment tax', lineNumber: '', type: 'currency', required: false, source: 'calculated', formula: 'se_tax / 2' },
+        { fieldId: 'standard_deduction', label: 'Standard deduction', lineNumber: '12', type: 'currency', required: true, source: 'auto', sourceQuery: 'us_standard_deduction_2025' },
+        { fieldId: 'taxable_income', label: 'Taxable income', lineNumber: '15', type: 'currency', required: true, source: 'calculated', formula: 'MAX(0, total_income_9 - se_tax_deduction_half - standard_deduction)' },
+      ],
+    },
+    {
+      sectionId: 'tax_calculation', title: 'Tax and Payments',
+      fields: [
+        { fieldId: 'federal_tax_16', label: 'Federal income tax', lineNumber: '16', type: 'currency', required: true, source: 'calculated', formula: 'PROGRESSIVE_TAX(taxable_income, us_federal)' },
+        { fieldId: 'total_tax_24', label: 'Total tax', lineNumber: '24', type: 'currency', required: true, source: 'calculated', formula: 'federal_tax_16 + se_tax' },
+        { fieldId: 'withholding_25a', label: 'Federal income tax withheld (W-2)', lineNumber: '25a', type: 'currency', required: false, source: 'manual' },
+        { fieldId: 'balance_owing_37', label: 'Amount you owe (or refund, if negative)', lineNumber: '37', type: 'currency', required: true, source: 'calculated', formula: 'total_tax_24 - withholding_25a' },
+      ],
+    },
+  ],
+};
+
+const ALL_US_FORMS = [US_SCHEDULE_C_2025, US_1040_2025];
+
+// === AU Form Templates (2025) ===
+// Income tax only — GST/BAS reporting is a separate, already-existing
+// system (packages/agentbook-jurisdictions's AU BAS engine) and is
+// deliberately not duplicated here. Medicare Levy is a flat 2% of taxable
+// income, not modeling the low-income no-levy threshold — the same
+// simplification level as SCHEDULE8_CPP/SE_TAX (Task 2).
+
+const AU_BUSINESS_SCHEDULE_2025 = {
+  jurisdiction: 'au', formCode: 'BusinessSchedule', version: '2025',
+  formName: 'Business and Professional Items Schedule (Sole Trader)',
+  category: 'business_income', dependencies: [],
+  sections: [
+    {
+      sectionId: 'identification', title: 'Business Details',
+      fields: [
+        { fieldId: 'business_name', label: 'Business name', lineNumber: '', type: 'text', required: true, source: 'auto', sourceQuery: 'tenant_business_name' },
+        { fieldId: 'abn', label: 'Australian Business Number (ABN)', lineNumber: '', type: 'text', required: true, source: 'manual' },
+      ],
+    },
+    {
+      sectionId: 'income', title: 'Business Income',
+      fields: [
+        { fieldId: 'gross_business_income', label: 'Gross business income', lineNumber: 'P8', type: 'currency', required: true, source: 'auto', sourceQuery: 'revenue_total' },
+      ],
+    },
+    {
+      sectionId: 'expenses', title: 'Business Expenses',
+      fields: [
+        { fieldId: 'advertising', label: 'Advertising', lineNumber: '', type: 'currency', required: false, source: 'auto', sourceQuery: 'expense_category:5000' },
+        { fieldId: 'insurance', label: 'Insurance', lineNumber: '', type: 'currency', required: false, source: 'auto', sourceQuery: 'expense_category:5400' },
+        { fieldId: 'legal_professional', label: 'Legal and professional expenses', lineNumber: '', type: 'currency', required: false, source: 'auto', sourceQuery: 'expense_category:5700' },
+        { fieldId: 'office_supplies', label: 'Office supplies and consumables', lineNumber: '', type: 'currency', required: false, source: 'auto', sourceQuery: 'expense_category:6100' },
+        { fieldId: 'travel', label: 'Travel expenses', lineNumber: '', type: 'currency', required: false, source: 'auto', sourceQuery: 'expense_category:6300' },
+        { fieldId: 'phone_internet', label: 'Telephone and internet', lineNumber: '', type: 'currency', required: false, source: 'auto', sourceQuery: 'expense_category:6500' },
+        { fieldId: 'other_expenses', label: 'Other business expenses', lineNumber: '', type: 'currency', required: false, source: 'auto', sourceQuery: 'expense_category:6600' },
+        { fieldId: 'total_expenses', label: 'Total business expenses', lineNumber: '', type: 'currency', required: true, source: 'calculated', formula: 'SUM(advertising,insurance,legal_professional,office_supplies,travel,phone_internet,other_expenses)' },
+        { fieldId: 'net_business_income', label: 'Net business income', lineNumber: '', type: 'currency', required: true, source: 'calculated', formula: 'gross_business_income - total_expenses' },
+      ],
+    },
+  ],
+};
+
+const AU_INDIVIDUAL_RETURN_2025 = {
+  jurisdiction: 'au', formCode: 'IndividualReturn', version: '2025',
+  formName: 'Individual Tax Return (myTax)',
+  category: 'personal_return', dependencies: ['BusinessSchedule'],
+  sections: [
+    {
+      sectionId: 'identification', title: 'Personal Details',
+      fields: [
+        { fieldId: 'full_name', label: 'Full legal name', lineNumber: '', type: 'text', required: true, source: 'manual' },
+        { fieldId: 'tfn', label: 'Tax File Number (TFN)', lineNumber: '', type: 'text', required: true, source: 'manual', sensitive: true },
+        { fieldId: 'state_of_residence', label: 'State/territory of residence', lineNumber: '', type: 'text', required: true, source: 'auto', sourceQuery: 'tenant_region' },
+      ],
+    },
+    {
+      sectionId: 'income', title: 'Income',
+      fields: [
+        { fieldId: 'salary_wages', label: 'Salary or wages', lineNumber: '1', type: 'currency', required: false, source: 'manual' },
+        { fieldId: 'business_income', label: 'Net business income (from Business Schedule)', lineNumber: '', type: 'currency', required: false, source: 'calculated', formula: 'BusinessSchedule.net_business_income' },
+        { fieldId: 'taxable_income', label: 'Taxable income', lineNumber: '', type: 'currency', required: true, source: 'calculated', formula: 'MAX(0, salary_wages + business_income)' },
+      ],
+    },
+    {
+      sectionId: 'tax_calculation', title: 'Tax Payable',
+      fields: [
+        { fieldId: 'income_tax', label: 'Income tax', lineNumber: '', type: 'currency', required: true, source: 'calculated', formula: 'PROGRESSIVE_TAX(taxable_income, au_flat)' },
+        { fieldId: 'medicare_levy', label: 'Medicare levy (2%)', lineNumber: '', type: 'currency', required: true, source: 'calculated', formula: 'taxable_income * 2 / 100' },
+        { fieldId: 'total_tax_payable', label: 'Total tax payable', lineNumber: '', type: 'currency', required: true, source: 'calculated', formula: 'income_tax + medicare_levy' },
+        { fieldId: 'payg_withheld', label: 'PAYG tax withheld', lineNumber: '', type: 'currency', required: false, source: 'manual' },
+        { fieldId: 'balance_owing', label: 'Amount you owe (or refund, if negative)', lineNumber: '', type: 'currency', required: true, source: 'calculated', formula: 'total_tax_payable - payg_withheld' },
+      ],
+    },
+  ],
+};
+
+const ALL_AU_FORMS = [AU_BUSINESS_SCHEDULE_2025, AU_INDIVIDUAL_RETURN_2025];
+
 // === Seed Forms ===
 
 export async function seedCanadianForms(): Promise<{ created: number; updated: number }> {
   let created = 0, updated = 0;
   for (const form of ALL_CA_FORMS) {
+    const existing = await db.abTaxFormTemplate.findFirst({
+      where: { jurisdiction: form.jurisdiction, formCode: form.formCode, version: form.version },
+    });
+    if (existing) {
+      await db.abTaxFormTemplate.update({
+        where: { id: existing.id },
+        data: { formName: form.formName, category: form.category, sections: form.sections as any, dependencies: form.dependencies as any },
+      });
+      updated++;
+    } else {
+      await db.abTaxFormTemplate.create({
+        data: { ...form, sections: form.sections as any, dependencies: form.dependencies as any, validationRules: [] },
+      });
+      created++;
+    }
+  }
+  return { created, updated };
+}
+
+export async function seedUsForms(): Promise<{ created: number; updated: number }> {
+  let created = 0, updated = 0;
+  for (const form of ALL_US_FORMS) {
+    const existing = await db.abTaxFormTemplate.findFirst({
+      where: { jurisdiction: form.jurisdiction, formCode: form.formCode, version: form.version },
+    });
+    if (existing) {
+      await db.abTaxFormTemplate.update({
+        where: { id: existing.id },
+        data: { formName: form.formName, category: form.category, sections: form.sections as any, dependencies: form.dependencies as any },
+      });
+      updated++;
+    } else {
+      await db.abTaxFormTemplate.create({
+        data: { ...form, sections: form.sections as any, dependencies: form.dependencies as any, validationRules: [] },
+      });
+      created++;
+    }
+  }
+  return { created, updated };
+}
+
+export async function seedAuForms(): Promise<{ created: number; updated: number }> {
+  let created = 0, updated = 0;
+  for (const form of ALL_AU_FORMS) {
     const existing = await db.abTaxFormTemplate.findFirst({
       where: { jurisdiction: form.jurisdiction, formCode: form.formCode, version: form.version },
     });
@@ -238,6 +471,13 @@ export async function resolveSourceQuery(
   if (query === 'fiscal_year_end') return `${taxYear}-12-31`;
   if (query === 'fiscal_year_range') return `${taxYear}-01-01 to ${taxYear}-12-31`;
   if (query === 'ca_basic_personal_2025') return 1609500;
+
+  // TODO: verify against the current-year IRS optional standard mileage rate
+  // before each new tax year — this is the 2025 rate (IRS Notice 2025-5).
+  if (query === 'us_standard_mileage_rate_cents') return 70;
+  // TODO: verify against the current-year IRS standard deduction (single
+  // filer) before each new tax year — this is the 2025 figure.
+  if (query === 'us_standard_deduction_2025') return 1500000;
 
   return null;
 }
@@ -386,6 +626,7 @@ export function evaluateFormula(
   formula: string,
   fields: Record<string, any>,
   allFormFields?: Record<string, Record<string, any>>,
+  taxYear?: number,
 ): number | null {
   try {
     // Cross-form references: "T2125.field_name" → look up in allFormFields
@@ -419,7 +660,20 @@ export function evaluateFormula(
     const ptMatch = resolved.match(/^PROGRESSIVE_TAX\((.+),\s*(\w+)\)$/);
     if (ptMatch) {
       const income = Number(fields[ptMatch[1].trim()] ?? 0);
-      const brackets = ptMatch[2] === 'ca_federal' ? CA_FEDERAL_BRACKETS : PROVINCIAL_BRACKETS[ptMatch[2]] || CA_FEDERAL_BRACKETS;
+      const bracketKey = ptMatch[2];
+
+      // US/AU delegate to the REAL jurisdictions-package calculators —
+      // never a third duplicated local bracket table (CA's own local
+      // table below is left untouched; see this plan's Global
+      // Constraint 7 for why).
+      if (bracketKey === 'us_federal') {
+        return usTaxBrackets.calculateTax(income, taxYear ?? new Date().getFullYear()).taxCents;
+      }
+      if (bracketKey === 'au_flat') {
+        return auTaxBrackets.calculateTax(income, taxYear ?? new Date().getFullYear()).taxCents;
+      }
+
+      const brackets = bracketKey === 'ca_federal' ? CA_FEDERAL_BRACKETS : PROVINCIAL_BRACKETS[bracketKey] || CA_FEDERAL_BRACKETS;
       return calcProgressiveTax(income, brackets);
     }
 
@@ -437,6 +691,19 @@ export function evaluateFormula(
     if (cppMatch) {
       const income = Number(evaluateSimple(cppMatch[1].trim(), fields) ?? 0);
       return schedule8Cpp(income);
+    }
+
+    // SE_TAX(net_profit_field) — flat-rate self-employment tax
+    // approximation: 92.35% of net profit is subject to 15.3%
+    // (12.4% Social Security + 2.9% Medicare), matching the real
+    // IRS Schedule SE base-reduction step but NOT modeling the Social
+    // Security wage-base cap or the additional 0.9% Medicare surtax —
+    // a simplification at the same level as SCHEDULE8_CPP above.
+    const seTaxMatch = resolved.match(/^SE_TAX\((.+)\)$/);
+    if (seTaxMatch) {
+      const netProfit = Number(evaluateSimple(seTaxMatch[1].trim(), fields) ?? 0);
+      const seBase = Math.round(Math.max(0, netProfit) * 0.9235);
+      return Math.round(seBase * 0.153);
     }
 
     // Simple arithmetic: field +- field * field / field
@@ -466,6 +733,135 @@ function evaluateSimple(expr: string, fields: Record<string, any>): number | nul
   } catch {
     return null;
   }
+}
+
+// === Recomputation after a manual edit ===
+
+/**
+ * The field IDs a formula reads from the SAME form. Cross-form references
+ * (`T2125.net_income_9369`) are stripped first, so a formula that reads
+ * another form's field of the same name isn't mistaken for a local
+ * dependency.
+ */
+function sameFormDependencies(formula: string, fieldIds: Set<string>): string[] {
+  const stripped = formula.replace(/[A-Za-z]\w*\.\w+/g, '');
+  const deps: string[] = [];
+  for (const token of stripped.match(/[A-Za-z_]\w*/g) || []) {
+    if (fieldIds.has(token) && !deps.includes(token)) deps.push(token);
+  }
+  return deps;
+}
+
+/** `T2125.net_income_9369` style references, as [formCode, fieldId] pairs. */
+function crossFormDependencies(formula: string): [string, string][] {
+  return (formula.match(/[A-Za-z]\w*\.\w+/g) || []).map((ref) => {
+    const [formCode, fieldId] = ref.split('.');
+    return [formCode, fieldId] as [string, string];
+  });
+}
+
+function hasValue(v: any): boolean {
+  return v !== undefined && v !== null && v !== '';
+}
+
+/**
+ * Can this formula produce a real number from what's currently stored?
+ *
+ * `SUM(a,b,c)` means "the sum of the lines that apply", and evaluateFormula
+ * scores an absent member as 0 on purpose (a freelancer with no RRSP slip has
+ * no line 20800) — so SUM is always evaluable.
+ *
+ * Every other branch coerces an absent operand to 0 as well, and there the
+ * result is a fabricated figure, not an honest total: PROGRESSIVE_TAX on a
+ * missing income field returns tax of $0, and MAX(0, missing) returns $0
+ * taxable income. On a partially populated filing that would replace a real
+ * stored number with a phantom zero on the approve-and-file screen, so those
+ * are skipped instead, leaving the stored value alone.
+ */
+function isEvaluable(
+  formula: string, deps: string[], fields: Record<string, any>, allFormFields: Record<string, Record<string, any>>,
+): boolean {
+  if (/^SUM\(/.test(formula)) return true;
+  if (deps.some((d) => !hasValue(fields[d]))) return false;
+  return crossFormDependencies(formula).every(([fc, fid]) => hasValue(allFormFields[fc]?.[fid]));
+}
+
+/**
+ * Re-evaluate one form's `calculated` fields against its own currently
+ * stored values — the same formula pass autoPopulateForm() runs, minus the
+ * ledger/slip queries, so nothing the tenant entered by hand is re-derived
+ * from source data.
+ *
+ * Called after a manual field edit (see updateFilingField). Without it, the
+ * edited value landed in the forms JSON blob while every figure computed FROM
+ * it — including the jurisdiction's own total-tax line, which is what the
+ * review screen and the submitted return both show — kept its pre-edit value.
+ *
+ * @param editedFieldId when given, only fields DOWNSTREAM of it are
+ *   recomputed, and the edited field itself is left exactly as the user
+ *   typed it. Two reasons: a manual override of a calculated field has to
+ *   stick (several jurisdictions' critical review fields, e.g. US
+ *   1040.taxable_income, are calculated fields), and an earlier override of
+ *   some unrelated or upstream calculated field must not be silently
+ *   reverted by an edit elsewhere on the form.
+ */
+export function recomputeCalculatedFields(
+  template: any,
+  fields: Record<string, any>,
+  allFormFields: Record<string, Record<string, any>> = {},
+  taxYear?: number,
+  editedFieldId?: string,
+): Record<string, any> {
+  const allFieldIds = new Set<string>();
+  const calculated: { fieldId: string; formula: string }[] = [];
+  for (const section of template?.sections || []) {
+    for (const field of section.fields || []) {
+      allFieldIds.add(field.fieldId);
+      if (field.source === 'calculated' && field.formula) {
+        calculated.push({ fieldId: field.fieldId, formula: field.formula });
+      }
+    }
+  }
+  if (calculated.length === 0) return fields;
+
+  // Transitive closure of "depends on the edited field".
+  let recomputeSet: Set<string>;
+  if (editedFieldId) {
+    recomputeSet = new Set([editedFieldId]);
+    let grew = true;
+    while (grew) {
+      grew = false;
+      for (const c of calculated) {
+        if (recomputeSet.has(c.fieldId)) continue;
+        if (sameFormDependencies(c.formula, allFieldIds).some((d) => recomputeSet.has(d))) {
+          recomputeSet.add(c.fieldId);
+          grew = true;
+        }
+      }
+    }
+    recomputeSet.delete(editedFieldId);
+  } else {
+    recomputeSet = new Set(calculated.map((c) => c.fieldId));
+  }
+
+  const next = { ...fields };
+  // Cross-form references resolve against the rest of the filing, with THIS
+  // form's in-progress values visible so a formula reading `T1.x` and one
+  // reading bare `x` agree.
+  const scope = { ...allFormFields, [template.formCode]: next };
+  // Two passes, same as populateFiling's, for forms whose fields reference
+  // each other out of template order.
+  for (let pass = 0; pass < 2; pass++) {
+    for (const c of calculated) {
+      if (!recomputeSet.has(c.fieldId)) continue;
+      if (!isEvaluable(c.formula, sameFormDependencies(c.formula, allFieldIds), next, scope)) continue;
+      const value = evaluateFormula(c.formula, next, scope, taxYear);
+      // null means "couldn't evaluate" — keep the stored value rather than
+      // blanking a figure, exactly as autoPopulateForm does.
+      if (value !== null) next[c.fieldId] = value;
+    }
+  }
+  return next;
 }
 
 // === Auto-Population ===
@@ -504,7 +900,7 @@ export async function autoPopulateForm(
           missing.push({ formCode: template.formCode, fieldId: field.fieldId, label: field.label, source: 'slip', slipType: field.slipType });
         }
       } else if (field.source === 'calculated' && field.formula) {
-        const value = evaluateFormula(field.formula, fields, allFormFields);
+        const value = evaluateFormula(field.formula, fields, allFormFields, taxYear);
         if (value !== null) { fields[field.fieldId] = value; filled++; }
       } else if (field.source === 'manual') {
         if (field.required) missing.push({ formCode: template.formCode, fieldId: field.fieldId, label: field.label, source: 'manual' });

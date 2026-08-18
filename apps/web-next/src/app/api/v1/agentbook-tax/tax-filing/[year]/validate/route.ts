@@ -29,7 +29,7 @@ export async function POST(
     if (!filing) {
       return NextResponse.json({ success: false, error: 'No filing found' }, { status: 404 });
     }
-    const result = validateFiling((filing.forms as Record<string, unknown>) || {});
+    const result = validateFiling((filing.forms as Record<string, unknown>) || {}, filing.jurisdiction);
     return NextResponse.json({ success: true, data: result });
   } catch (err) {
     console.error('[agentbook-tax/tax-filing/:year/validate] failed:', err);

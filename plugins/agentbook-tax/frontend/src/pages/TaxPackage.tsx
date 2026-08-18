@@ -13,7 +13,10 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Download, FileText, Loader2, RefreshCw } from 'lucide-react';
 import { PastFilingsPage } from './PastFilings';
 import { FastTrackTab } from './FastTrackTab';
+import { TaxFilingReviewTab } from './TaxFilingReviewTab';
 import { TaxDisclaimer } from '../components/TaxDisclaimer';
+import { useI18n } from '@naap/plugin-sdk';
+import { currentFilingYear } from '../lib/filing-year';
 
 const API = '/api/v1/agentbook-tax';
 
@@ -52,28 +55,35 @@ const FORM_NAME: Record<string, string> = {
 export const TaxPackagePage: React.FC = () => {
   // Open the Prior-year returns tab directly when linked with ?tab=past
   // (e.g. the "Upload prior-year returns" CTA on the Tax dashboard).
-  const [tab, setTab] = useState<'package' | 'past' | 'fast-track'>(() => {
+  const [tab, setTab] = useState<'package' | 'past' | 'fast-track' | 'review'>(() => {
     if (typeof window === 'undefined') return 'package';
     const requested = new URLSearchParams(window.location.search).get('tab');
-    return requested === 'past' || requested === 'fast-track' ? requested : 'package';
+    return requested === 'past' || requested === 'fast-track' || requested === 'review' ? requested : 'package';
   });
+
+  // The tab labels below call t() — the shell injects a bound translator via
+  // ShellContext, reached here through useI18n().
+  const { t } = useI18n();
 
   return (
     <div>
       {/* Tab bar */}
       <div className="border-b border-border px-4 sm:px-6 flex gap-0">
-        {(['package', 'past', 'fast-track'] as const).map((t) => (
+        {/* Note: loop var is `tabId`, not `t` — this file now also imports
+            the i18n `t()` function below for the review tab's label, and
+            that name would otherwise be shadowed inside this callback. */}
+        {(['package', 'past', 'fast-track', 'review'] as const).map((tabId) => (
           <button
-            key={t}
-            onClick={() => setTab(t)}
+            key={tabId}
+            onClick={() => setTab(tabId)}
             className={[
               'px-4 py-3 text-sm font-medium border-b-2 transition-colors',
-              tab === t
+              tab === tabId
                 ? 'border-primary text-primary'
                 : 'border-transparent text-muted-foreground hover:text-foreground',
             ].join(' ')}
           >
-            {t === 'package' ? 'Year-end Package' : t === 'past' ? 'Prior-year returns' : 'Tax Fast-Track'}
+            {tabId === 'package' ? 'Year-end Package' : tabId === 'past' ? 'Prior-year returns' : tabId === 'fast-track' ? 'Tax Fast-Track' : t('tax.tax_review_title')}
           </button>
         ))}
       </div>
@@ -81,20 +91,23 @@ export const TaxPackagePage: React.FC = () => {
       {/* Fast-Track's own component has no disclaimer of its own (unlike
           TaxPackageContent and PastFilingsPage, which each already render
           one) — add it here rather than duplicating a second copy on the
-          other two tabs. */}
+          other two tabs. TaxFilingReviewTab renders its own disclaimer
+          internally, so it's excluded from this condition. */}
       {tab === 'fast-track' && (
         <div className="px-4 pt-4 sm:px-6">
           <TaxDisclaimer />
         </div>
       )}
 
-      {tab === 'package' ? <TaxPackageContent /> : tab === 'past' ? <PastFilingsPage /> : <FastTrackTab />}
+      {tab === 'package' ? <TaxPackageContent /> : tab === 'past' ? <PastFilingsPage /> : tab === 'fast-track' ? <FastTrackTab /> : <TaxFilingReviewTab taxYear={currentFilingYear()} />}
     </div>
   );
 };
 
 const TaxPackageContent: React.FC = () => {
-  const lastYear = new Date().getUTCFullYear() - 1;
+  // Shared with the Filing Review tab above and with the chat path's
+  // defaultFilingYear(), so no two surfaces mean different years.
+  const lastYear = currentFilingYear();
   const yearOptions = useMemo(() => {
     // Show 5 years back + the current year so users can also build a
     // current-year preview if they want to see the running totals.
