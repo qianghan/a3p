@@ -34,6 +34,7 @@ import enChat from './locales/en/chat.json';
 import enCommon from './locales/en/common.json';
 import enDashboard from './locales/en/dashboard.json';
 import enExpense from './locales/en/expense.json';
+import enExpensesUi from './locales/en/expenses_ui.json';
 import enHomeOffice from './locales/en/homeoffice.json';
 import enInvoice from './locales/en/invoice.json';
 import enOnboarding from './locales/en/onboarding.json';
@@ -52,6 +53,7 @@ import frChat from './locales/fr-CA/chat.json';
 import frCommon from './locales/fr-CA/common.json';
 import frDashboard from './locales/fr-CA/dashboard.json';
 import frExpense from './locales/fr-CA/expense.json';
+import frExpensesUi from './locales/fr-CA/expenses_ui.json';
 import frHomeOffice from './locales/fr-CA/homeoffice.json';
 import frInvoice from './locales/fr-CA/invoice.json';
 import frOnboarding from './locales/fr-CA/onboarding.json';
@@ -69,6 +71,7 @@ import zhChat from './locales/zh-CN/chat.json';
 import zhCommon from './locales/zh-CN/common.json';
 import zhDashboard from './locales/zh-CN/dashboard.json';
 import zhExpense from './locales/zh-CN/expense.json';
+import zhExpensesUi from './locales/zh-CN/expenses_ui.json';
 import zhHomeOffice from './locales/zh-CN/homeoffice.json';
 import zhInvoice from './locales/zh-CN/invoice.json';
 import zhOnboarding from './locales/zh-CN/onboarding.json';
@@ -91,6 +94,7 @@ export const CATALOG: Catalog = Object.freeze({
     common: enCommon,
     dashboard: enDashboard,
     expense: enExpense,
+    expenses_ui: enExpensesUi,
     homeoffice: enHomeOffice,
     invoice: enInvoice,
     onboarding: enOnboarding,
@@ -108,6 +112,7 @@ export const CATALOG: Catalog = Object.freeze({
     common: frCommon,
     dashboard: frDashboard,
     expense: frExpense,
+    expenses_ui: frExpensesUi,
     homeoffice: frHomeOffice,
     invoice: frInvoice,
     onboarding: frOnboarding,
@@ -125,6 +130,7 @@ export const CATALOG: Catalog = Object.freeze({
     common: zhCommon,
     dashboard: zhDashboard,
     expense: zhExpense,
+    expenses_ui: zhExpensesUi,
     homeoffice: zhHomeOffice,
     invoice: zhInvoice,
     onboarding: zhOnboarding,

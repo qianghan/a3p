@@ -91,6 +91,9 @@ const IDENTICAL_ALLOWED = new Set<string>([
   'homeoffice.internet',
   'agents.notifications',
   'agents.model_standard',
+  // "Date" and "Notes" are the same word in French.
+  'expenses_ui.col_date',
+  'expenses_ui.notes',
 ]);
 
 /**
