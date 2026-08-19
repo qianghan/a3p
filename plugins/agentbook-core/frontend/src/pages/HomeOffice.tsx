@@ -317,7 +317,7 @@ export const HomeOfficePage: React.FC = () => {
         </h2>
         <div className="grid grid-cols-2 gap-3">
           <div>
-            <label className="text-xs text-muted-foreground">Year</label>
+            <label className="text-xs text-muted-foreground">{t('homeoffice.year')}</label>
             <input
               type="number"
               value={year}
@@ -326,7 +326,7 @@ export const HomeOfficePage: React.FC = () => {
             />
           </div>
           <div>
-            <label className="text-xs text-muted-foreground">Quarter</label>
+            <label className="text-xs text-muted-foreground">{t('homeoffice.quarter')}</label>
             <select
               value={quarter}
               onChange={(e) => setQuarter(parseInt(e.target.value, 10))}

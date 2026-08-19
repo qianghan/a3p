@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { FileUp, Loader2, CheckCircle2, AlertCircle, RefreshCw, Download } from 'lucide-react';
 import { useTenantCurrency } from '../hooks/useTenantCurrency';
 import { TaxDisclaimer } from '../components/TaxDisclaimer';
+import { useI18n } from '@naap/plugin-sdk';
 
 const API = '/api/v1/agentbook-tax';
 const YEAR_OPTIONS = Array.from({ length: 6 }, (_, i) => new Date().getFullYear() - 1 - i);
@@ -35,6 +36,7 @@ function StatusBadge({ status }: { status: string }) {
 }
 
 export const PastFilingsPage: React.FC = () => {
+  const { t } = useI18n();
   const [filings, setFilings] = useState<PastFiling[]>([]);
   const [uploading, setUploading] = useState(false);
   const [year, setYear] = useState(YEAR_OPTIONS[0]);
@@ -315,7 +317,7 @@ export const PastFilingsPage: React.FC = () => {
               ))}
             </div>
             <div className="flex gap-2 justify-end">
-              <button onClick={() => setPrefillYear(null)} className="px-4 py-2 text-sm rounded-lg border border-border">Cancel</button>
+              <button onClick={() => setPrefillYear(null)} className="px-4 py-2 text-sm rounded-lg border border-border">{t('common.cancel')}</button>
               <button onClick={applyPrefill} disabled={applyingPrefill || acceptedFields.size === 0}
                 className="px-4 py-2 text-sm rounded-lg bg-primary text-primary-foreground disabled:opacity-50 inline-flex items-center gap-2">
                 {applyingPrefill ? <Loader2 className="w-3 h-3 animate-spin" /> : null}

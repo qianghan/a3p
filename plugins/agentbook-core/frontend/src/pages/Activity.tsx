@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { Activity, User, Bot, Clock, Filter, ChevronDown, ChevronRight } from 'lucide-react';
+import { useI18n } from '@naap/plugin-sdk';
 
 const API = '/api/v1/agentbook-core';
 
@@ -38,6 +39,7 @@ function formatJson(v: unknown): string {
 }
 
 export const ActivityPage: React.FC = () => {
+  const { t } = useI18n();
   const [events, setEvents] = useState<AuditEvent[]>([]);
   const [loading, setLoading] = useState(true);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
@@ -127,7 +129,7 @@ export const ActivityPage: React.FC = () => {
             />
           </div>
           <div>
-            <label className="block text-xs text-muted-foreground mb-1">Start date</label>
+            <label className="block text-xs text-muted-foreground mb-1">{t('expenses_ui.start_date')}</label>
             <input
               type="date"
               className="w-full border rounded px-2 py-1.5 bg-background"
@@ -136,7 +138,7 @@ export const ActivityPage: React.FC = () => {
             />
           </div>
           <div>
-            <label className="block text-xs text-muted-foreground mb-1">End date</label>
+            <label className="block text-xs text-muted-foreground mb-1">{t('expenses_ui.end_date')}</label>
             <input
               type="date"
               className="w-full border rounded px-2 py-1.5 bg-background"

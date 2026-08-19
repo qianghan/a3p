@@ -145,12 +145,11 @@ function CategorizationReviewBanner({
       <div className="space-y-3">
         {items.map(item => {
           const isApproving = approving.has(item.expenseId);
-          const amt = (item.amountCents / 100).toFixed(2);
           const selectedCatId = overrides[item.expenseId] ?? item.suggestedCategoryId;
           const selectedCatName = categories.find(c => c.id === selectedCatId)?.name ?? item.suggestedCategoryName;
           return (
             <div key={item.expenseId} className="flex flex-wrap items-center gap-2">
-              <span className="text-sm font-medium w-20 shrink-0">${amt}</span>
+              <span className="text-sm font-medium w-20 shrink-0">{fmtAmt(item.amountCents)}</span>
               <span className="text-sm text-muted-foreground flex-1 min-w-0 truncate">
                 {item.description || item.vendorName || 'Expense'}
               </span>
@@ -562,7 +561,7 @@ export const ExpenseListPage: React.FC = () => {
         <div className="flex items-center gap-3">
           <Receipt className="w-6 h-6 text-primary" />
           <div>
-            <h1 className="text-2xl font-bold">Expenses</h1>
+            <h1 className="text-2xl font-bold">{t('expenses_ui.title')}</h1>
             <p className="text-sm text-muted-foreground">{filtered.length} expenses &middot; {fmt(total, currency, locale)}</p>
           </div>
         </div>
@@ -761,7 +760,7 @@ export const ExpenseListPage: React.FC = () => {
       {selectedCategory && (
         <div className="flex items-center gap-2 mb-4 p-2 rounded-lg bg-primary/5 border border-primary/20 text-sm">
           <span>{t('expenses_ui.filtered_by')} <strong>{categorySummary.find(c => c.categoryId === selectedCategory)?.categoryName}</strong></span>
-          <button onClick={() => setSelectedCategory(null)} className="text-primary hover:underline text-xs">Clear</button>
+          <button onClick={() => setSelectedCategory(null)} className="text-primary hover:underline text-xs">{t('expenses_ui.clear')}</button>
         </div>
       )}
 
@@ -804,13 +803,13 @@ export const ExpenseListPage: React.FC = () => {
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-border text-left">
-                <th className="px-4 py-3 text-xs font-medium text-muted-foreground uppercase tracking-wide">Date</th>
+                <th className="px-4 py-3 text-xs font-medium text-muted-foreground uppercase tracking-wide">{t('expenses_ui.col_date')}</th>
                 <th className="px-4 py-3 text-xs font-medium text-muted-foreground uppercase tracking-wide">{t('expenses_ui.col_vendor')}</th>
-                <th className="px-4 py-3 text-xs font-medium text-muted-foreground uppercase tracking-wide">Category</th>
+                <th className="px-4 py-3 text-xs font-medium text-muted-foreground uppercase tracking-wide">{t('expenses_ui.col_category')}</th>
                 <th className="px-4 py-3 text-xs font-medium text-muted-foreground uppercase tracking-wide">{t('expenses_ui.col_tags')}</th>
                 <th className="px-4 py-3 text-xs font-medium text-muted-foreground uppercase tracking-wide">{t('expenses_ui.col_payment')}</th>
                 <th className="px-4 py-3 text-xs font-medium text-muted-foreground uppercase tracking-wide text-right">{t('expenses_ui.col_amount')}</th>
-                <th className="px-4 py-3 text-xs font-medium text-muted-foreground uppercase tracking-wide text-right">Tax</th>
+                <th className="px-4 py-3 text-xs font-medium text-muted-foreground uppercase tracking-wide text-right">{t('expenses_ui.col_tax')}</th>
                 <th className="px-4 py-3 w-10"></th>
               </tr>
             </thead>
@@ -889,14 +888,14 @@ export const ExpenseListPage: React.FC = () => {
                   {expandedId === expense.id && (
                     <tr><td colSpan={8} className="px-4 py-4 bg-muted/20">
                       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 text-sm">
-                        <div><p className="text-xs text-muted-foreground mb-0.5">Date</p><p>{fmtDate(expense.date, locale)}</p></div>
-                        <div><p className="text-xs text-muted-foreground mb-0.5">Category</p><p>{expense.categoryCode || 'N/A'} — {expense.categoryName || 'Uncategorized'}</p></div>
+                        <div><p className="text-xs text-muted-foreground mb-0.5">{t('expenses_ui.col_date')}</p><p>{fmtDate(expense.date, locale)}</p></div>
+                        <div><p className="text-xs text-muted-foreground mb-0.5">{t('expenses_ui.col_category')}</p><p>{expense.categoryCode || 'N/A'} — {expense.categoryName || 'Uncategorized'}</p></div>
                         <div><p className="text-xs text-muted-foreground mb-0.5">{t('expenses_ui.currency')}</p><p>{expense.currency}</p></div>
                         <div><p className="text-xs text-muted-foreground mb-0.5">{t('expenses_ui.confidence')}</p><p>{expense.confidence ? `${(expense.confidence * 100).toFixed(0)}%` : 'Manual'}</p></div>
-                        {expense.tipAmountCents > 0 && <div><p className="text-xs text-muted-foreground mb-0.5">Tip</p><p>{fmt(expense.tipAmountCents, expense.currency, locale)}</p></div>}
-                        {expense.notes && <div className="col-span-2"><p className="text-xs text-muted-foreground mb-0.5">Notes</p><p>{expense.notes}</p></div>}
+                        {expense.tipAmountCents > 0 && <div><p className="text-xs text-muted-foreground mb-0.5">{t('expenses_ui.tip')}</p><p>{fmt(expense.tipAmountCents, expense.currency, locale)}</p></div>}
+                        {expense.notes && <div className="col-span-2"><p className="text-xs text-muted-foreground mb-0.5">{t('expenses_ui.notes')}</p><p>{expense.notes}</p></div>}
                         {expense.receiptUrl && <div><p className="text-xs text-muted-foreground mb-0.5">{t('expenses_ui.receipt')}</p><a href={expense.receiptUrl} target="_blank" rel="noopener" className="text-primary text-xs hover:underline flex items-center gap-1"><Image className="w-3 h-3" /> View</a></div>}
-                        <div><p className="text-xs text-muted-foreground mb-0.5">Ledger</p><p className="text-xs">{expense.journalEntryId ? '✓ Posted' : '✗ Not posted'}</p></div>
+                        <div><p className="text-xs text-muted-foreground mb-0.5">{t('expenses_ui.ledger')}</p><p className="text-xs">{expense.journalEntryId ? '✓ Posted' : '✗ Not posted'}</p></div>
                       </div>
                     </td></tr>
                   )}
@@ -950,7 +949,7 @@ export const ExpenseListPage: React.FC = () => {
                   ))}
                 </select>
               )}
-              {expense.isPersonal && <span className="px-2 py-0.5 rounded-full text-[10px] bg-amber-100 text-amber-700 font-medium">Personal</span>}
+              {expense.isPersonal && <span className="px-2 py-0.5 rounded-full text-[10px] bg-amber-100 text-amber-700 font-medium">{t('expenses_ui.personal')}</span>}
               {expense.tags?.split(',').filter(Boolean).slice(0, 2).map(t => (
                 <span key={t} className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${t.trim() === 'high-value' ? TAG_HIGHLIGHT : TAG_STYLE}`}>{t.trim()}</span>
               ))}

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { billingApi, type Plan } from '../lib/api';
+import { useI18n } from '@naap/plugin-sdk';
 
 function fmtPrice(cents: number, currency: string, interval: string): string {
   return `${new Intl.NumberFormat('en-US', { style: 'currency', currency: currency.toUpperCase() }).format(cents / 100)} / ${interval}`;
@@ -8,6 +9,7 @@ function fmtPrice(cents: number, currency: string, interval: string): string {
 interface Props { onEdit: (p: Plan) => void; onAdd: () => void; }
 
 export function PlanList({ onEdit, onAdd }: Props): JSX.Element {
+  const { t } = useI18n();
   const [plans, setPlans] = useState<Plan[] | null>(null);
   const [err, setErr] = useState<string | null>(null);
 
@@ -43,12 +45,12 @@ export function PlanList({ onEdit, onAdd }: Props): JSX.Element {
         <table className="w-full text-sm">
           <thead className="border-b border-border bg-muted/50">
             <tr>
-              <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wide text-muted-foreground">Code</th>
-              <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wide text-muted-foreground">Name</th>
+              <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wide text-muted-foreground">{t('accounting.code')}</th>
+              <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wide text-muted-foreground">{t('accounting.name')}</th>
               <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wide text-muted-foreground">Price</th>
               <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wide text-muted-foreground">Telegram</th>
               <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wide text-muted-foreground">Tax pkg</th>
-              <th className="px-4 py-3 text-right text-xs font-medium uppercase tracking-wide text-muted-foreground">Actions</th>
+              <th className="px-4 py-3 text-right text-xs font-medium uppercase tracking-wide text-muted-foreground">{t('common.actions')}</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-border">

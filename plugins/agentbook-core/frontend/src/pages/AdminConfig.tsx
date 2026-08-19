@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Settings, Key, Cpu, Plus, Trash2, Check, TestTube, Loader2 } from 'lucide-react';
+import { useI18n } from '@naap/plugin-sdk';
 
 const API = '/api/v1/agentbook-core';
 
@@ -25,6 +26,7 @@ const PROVIDERS = [
 ];
 
 export const AdminConfigPage: React.FC = () => {
+  const { t } = useI18n();
   const [configs, setConfigs] = useState<LLMConfig[]>([]);
   const [loading, setLoading] = useState(true);
   const [testing, setTesting] = useState<string | null>(null);
@@ -139,15 +141,15 @@ export const AdminConfigPage: React.FC = () => {
               </div>
               <div className="flex gap-2">
                 <button onClick={addProvider} disabled={!newApiKey}
-                  className="px-4 py-2 bg-primary text-primary-foreground rounded-lg text-sm disabled:opacity-50">Save</button>
+                  className="px-4 py-2 bg-primary text-primary-foreground rounded-lg text-sm disabled:opacity-50">{t('common.save')}</button>
                 <button onClick={() => setShowAddForm(false)}
-                  className="px-4 py-2 bg-muted text-muted-foreground rounded-lg text-sm">Cancel</button>
+                  className="px-4 py-2 bg-muted text-muted-foreground rounded-lg text-sm">{t('common.cancel')}</button>
               </div>
             </div>
           </div>
         )}
 
-        {loading && <p className="text-muted-foreground">Loading...</p>}
+        {loading && <p className="text-muted-foreground">{t('common.loading')}</p>}
 
         {/* Provider list */}
         <div className="space-y-3">

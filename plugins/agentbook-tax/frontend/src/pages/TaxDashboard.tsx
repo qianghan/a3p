@@ -18,6 +18,7 @@ import {
 import { formatMoney } from '@agentbook/i18n';
 import { useTenantCurrency } from '../hooks/useTenantCurrency';
 import { TaxDisclaimer } from '../components/TaxDisclaimer';
+import { useI18n } from '@naap/plugin-sdk';
 
 interface TaxEstimate {
   total_estimated_tax: number;
@@ -78,6 +79,7 @@ const QUARTER_CARD_BORDER: Record<string, string> = {
 };
 
 function DashboardTab({ data, onRefresh }: { data: TaxEstimate; onRefresh: () => void }) {
+  const { t } = useI18n();
   const currency = useTenantCurrency();
   // taxEntityType isn't part of the /tax/estimate response (nested or
   // top-level) — it lives on tenant-config, same source SettingsTab reads.
@@ -212,7 +214,7 @@ function DashboardTab({ data, onRefresh }: { data: TaxEstimate; onRefresh: () =>
               <TrendingDown className="w-5 h-5 text-destructive" />
             </div>
             <div>
-              <p className="text-xs text-muted-foreground">Expenses</p>
+              <p className="text-xs text-muted-foreground">{t('expenses_ui.title')}</p>
               <p className="text-lg font-bold text-destructive">{formatCurrency(data.total_expenses, currency)}</p>
             </div>
           </div>
@@ -480,6 +482,7 @@ function SettingsTab({ onSaved }: { onSaved?: () => void }) {
 }
 
 export const TaxDashboardPage: React.FC = () => {
+  const { t } = useI18n();
   const [tab, setTab] = useState<Tab>('dashboard');
   const [data, setData] = useState<TaxEstimate | null>(null);
   const [loading, setLoading] = useState(true);
@@ -506,7 +509,7 @@ export const TaxDashboardPage: React.FC = () => {
     <div className="p-4 sm:p-6 max-w-4xl mx-auto">
       {/* Header */}
       <div className="mb-5">
-        <h1 className="text-xl font-bold text-foreground">Tax</h1>
+        <h1 className="text-xl font-bold text-foreground">{t('expenses_ui.col_tax')}</h1>
         <p className="text-sm text-muted-foreground mt-0.5">Estimates, quarterly payments, and jurisdiction settings</p>
       </div>
 

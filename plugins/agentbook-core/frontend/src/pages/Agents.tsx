@@ -85,14 +85,14 @@ export const AgentsPage: React.FC = () => {
                 {/* Aggressiveness slider */}
                 <div>
                   <div className="flex justify-between text-xs mb-1">
-                    <span className="text-muted-foreground">Approach</span>
+                    <span className="text-muted-foreground">{t('agents.approach')}</span>
                     <span>{agent.config.aggressiveness < 0.3 ? 'Gentle' : agent.config.aggressiveness < 0.7 ? 'Balanced' : 'Assertive'}</span>
                   </div>
                   <input type="range" min="0" max="1" step="0.1" value={agent.config.aggressiveness}
                     onChange={e => updateConfig(agent.id, 'aggressiveness', parseFloat(e.target.value))}
                     className="w-full h-1.5 bg-muted rounded-full appearance-none cursor-pointer" />
                   <div className="flex justify-between text-[10px] text-muted-foreground mt-0.5">
-                    <span>Gentle</span><span>Assertive</span>
+                    <span>{t('agents.gentle')}</span><span>{t('agents.assertive')}</span>
                   </div>
                 </div>
 
@@ -112,7 +112,7 @@ export const AgentsPage: React.FC = () => {
 
                 {/* Notification frequency */}
                 <div className="flex items-center justify-between">
-                  <span className="text-sm">Notifications</span>
+                  <span className="text-sm">{t('agents.notifications')}</span>
                   <select value={agent.config.notificationFrequency}
                     onChange={e => updateConfig(agent.id, 'notificationFrequency', e.target.value)}
                     className="text-sm p-1.5 border border-border rounded-lg bg-background">
@@ -129,7 +129,7 @@ export const AgentsPage: React.FC = () => {
                     onChange={e => updateConfig(agent.id, 'modelTier', e.target.value)}
                     className="text-sm p-1.5 border border-border rounded-lg bg-background">
                     <option value="fast">{t('agents.model_fast')}</option>
-                    <option value="standard">Standard</option>
+                    <option value="standard">{t('agents.model_standard')}</option>
                     <option value="premium">{t('agents.model_premium')}</option>
                   </select>
                 </div>

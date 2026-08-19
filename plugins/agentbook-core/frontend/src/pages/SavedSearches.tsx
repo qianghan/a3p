@@ -15,7 +15,7 @@
  */
 import React, { useEffect, useMemo, useState } from 'react';
 import { Search, Pin, PinOff, Trash2, Play, Plus, X } from 'lucide-react';
-import { ChatCTA } from '@naap/plugin-sdk';
+import { ChatCTA, useI18n } from '@naap/plugin-sdk';
 
 const API = '/api/v1/agentbook-core';
 
@@ -59,6 +59,7 @@ function dollarsToCents(s: string): number | undefined {
 }
 
 export const SavedSearchesPage: React.FC = () => {
+  const { t } = useI18n();
   const [items, setItems] = useState<SavedSearch[]>([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
@@ -281,8 +282,8 @@ export const SavedSearchesPage: React.FC = () => {
               >
                 <option value="expense">Expense</option>
                 <option value="invoice">Invoice</option>
-                <option value="mileage">Mileage</option>
-                <option value="all">All</option>
+                <option value="mileage">{t('expenses_ui.mileage')}</option>
+                <option value="all">{t('invoice_ui.all')}</option>
               </select>
             </label>
             <label>

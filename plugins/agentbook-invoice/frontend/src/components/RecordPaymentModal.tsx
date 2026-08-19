@@ -47,7 +47,7 @@ export function RecordPaymentModal({
   //   2. A fr-CA user cannot type '45,50' into these fields at all — the
   //      browser blanks it. That is a usability defect, and routing through
   //      parseAmount means switching a field to type="text" later Just Works.
-  const { parseAmount } = useI18n();
+  const { parseAmount, t } = useI18n();
 
   const submit = async (e: React.FormEvent): Promise<void> => {
     e.preventDefault();
@@ -123,7 +123,7 @@ export function RecordPaymentModal({
             />
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700">Method</label>
+            <label className="block text-sm font-medium text-gray-700">{t('invoice_ui.method')}</label>
             <select
               value={method}
               onChange={(e) => setMethod(e.target.value)}

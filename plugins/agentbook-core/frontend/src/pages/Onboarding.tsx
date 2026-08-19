@@ -85,7 +85,7 @@ export const OnboardingPage: React.FC = () => {
     }
   };
 
-  if (loading) return <div className="p-6 text-muted-foreground">Loading...</div>;
+  if (loading) return <div className="p-6 text-muted-foreground">{t('common.loading')}</div>;
 
   const activeStep = steps[currentStep];
 

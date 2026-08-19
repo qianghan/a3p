@@ -11,6 +11,7 @@ import { OnboardingHero } from './dashboard/OnboardingHero';
 import { CatchUpBanner } from './dashboard/CatchUpBanner';
 import { ResumeOnboardingBanner } from './dashboard/ResumeOnboardingBanner';
 import type { AgentSummary } from './dashboard/types';
+import { useI18n } from '@naap/plugin-sdk';
 
 const Skeleton: React.FC<{ className?: string }> = ({ className }) => (
   <div className={`animate-pulse rounded-2xl bg-muted/40 ${className}`} />
@@ -60,6 +61,7 @@ const Kebab: React.FC<{ onRefresh: () => void; showTelegramHint: boolean }> = ({
 };
 
 export const DashboardPage: React.FC = () => {
+  const { t } = useI18n();
   const { data, error, loading, refetch } = useDashboardOverview();
   const { items: activity, loading: actLoading, loadMore } = useDashboardActivity(10);
   const [summary, setSummary] = useState<AgentSummary | null>(null);
@@ -125,8 +127,8 @@ export const DashboardPage: React.FC = () => {
           <DesktopHeaderActions />
         </header>
         <div className="bg-red-500/10 border border-red-500/20 rounded-xl p-4 flex items-center justify-between">
-          <p className="text-sm text-red-700 dark:text-red-300">Couldn't reach AgentBook.</p>
-          <button onClick={refetch} className="text-sm font-medium text-primary px-3 py-1.5 rounded-lg hover:bg-primary/10">Retry</button>
+          <p className="text-sm text-red-700 dark:text-red-300">{t('dashboard.unreachable')}</p>
+          <button onClick={refetch} className="text-sm font-medium text-primary px-3 py-1.5 rounded-lg hover:bg-primary/10">{t('common.retry')}</button>
         </div>
         <QuickActionsBar />
       </div>

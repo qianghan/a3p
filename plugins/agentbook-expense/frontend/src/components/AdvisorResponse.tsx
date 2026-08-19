@@ -1,28 +1,38 @@
 import React from 'react';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 import { Sparkles, X } from 'lucide-react';
+import { useI18n } from '@naap/plugin-sdk';
+import { useTenantCurrency } from '../hooks/useTenantCurrency';
 
 const COLORS = ['#10b981', '#3b82f6', '#8b5cf6', '#f59e0b', '#06b6d4', '#ec4899'];
 
 /**
- * Compact money in the reader's locale and the tenant's currency.
+ * Builds a compact-money formatter bound to a locale and currency.
+ *
+ * A FACTORY, not a 3-arg function. The result is handed to Recharts as
+ * `tickFormatter={...}`, and Recharts invokes it as `(value, index)` — so a
+ * third parameter receives the tick INDEX, and `currency` arrives undefined.
+ * Intl then throws "Currency code is required with currency style" on every
+ * tick, which crashes the chart. An earlier version of this file had exactly
+ * that shape.
  *
  * Replaces `v >= 1000 ? `$${(v/1000).toFixed(1)}K` : ...`, which hardcoded the
- * dollar sign, ignored the locale, and — worse — assumed thousands-grouping.
- * zh-CN groups by 万 (10^4): 1234567 cents is "¥123.5万", not "¥1.2M". A
- * /1000 + 'K' scheme cannot express that.
+ * dollar sign, ignored the locale, and assumed thousands-grouping. zh-CN groups
+ * by 万 (10^4): 1234567 cents is "¥123.5万", not "¥1.2M" — not a preference but
+ * how the number is read.
  *
  * trailingZeroDisplay keeps small values as "$45" rather than "$45.0", matching
- * the previous output so US tenants see no change.
+ * the previous output so existing US tenants see no change.
  */
-function fmtK(cents: number, locale: string, currency: string): string {
-  return new Intl.NumberFormat(locale, {
+function makeFmtK(locale: string, currency: string): (cents: number) => string {
+  const nf = new Intl.NumberFormat(locale, {
     style: 'currency',
     currency,
     notation: 'compact',
     maximumFractionDigits: 1,
     trailingZeroDisplay: 'stripIfInteger',
-  }).format(cents / 100);
+  });
+  return (cents: number) => nf.format(cents / 100);
 }
 
 // Lightweight markdown-to-JSX renderer
@@ -123,6 +133,9 @@ export const AdvisorResponse: React.FC<{
   onDismiss: () => void;
   onAsk: (q: string) => void;
 }> = ({ answer, chartData, actions, onDismiss, onAsk }) => {
+  const { locale } = useI18n();
+  const currency = useTenantCurrency();
+  const fmtK = makeFmtK(locale, currency);
   return (
     <div className="bg-card border border-border rounded-xl p-4 mb-4 relative">
       <button onClick={onDismiss} className="absolute top-3 right-3 p-1 rounded-md hover:bg-muted transition-colors">

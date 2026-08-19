@@ -504,6 +504,7 @@ jobs:
           ./bin/i18n-string-ratchet.sh
           ./bin/i18n-jsx-expr-ratchet.sh
           ./bin/i18n-hardcoded-locale-ratchet.sh
+          ./bin/i18n-unwired-key-guard.sh
           ./bin/i18n-bundle-guard.sh
 
       - name: Plugin frontend typecheck

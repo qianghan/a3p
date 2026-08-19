@@ -31,7 +31,7 @@ const COLORS = ['#10b981', '#3b82f6', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899'
 
 export const AnalyticsPage: React.FC = () => {
   const currency = useTenantCurrency();
-  const { locale } = useI18n();
+  const { locale, t } = useI18n();
   const [categories, setCategories] = useState<CategoryBreakdown[]>([]);
   const [trends, setTrends] = useState<SpendingTrend[]>([]);
   const [vendors, setVendors] = useState<VendorItem[]>([]);
@@ -102,7 +102,7 @@ export const AnalyticsPage: React.FC = () => {
           ))}
         </div>
         <div className="mt-4 pt-3 border-t border-border flex justify-between text-sm">
-          <span className="text-muted-foreground">Total</span>
+          <span className="text-muted-foreground">{t('common.total')}</span>
           <span className="font-bold">{fmt(totalExpenses)}</span>
         </div>
       </div>

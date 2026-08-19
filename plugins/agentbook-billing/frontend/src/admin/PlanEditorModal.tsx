@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { billingApi, type PlanTemplate, type Plan } from '../lib/api';
+import { useI18n } from '@naap/plugin-sdk';
 
 type Mode = { kind: 'create'; template: PlanTemplate } | { kind: 'edit'; plan: Plan };
 
@@ -22,6 +23,7 @@ export function PlanEditorModal({ mode, onClose, onSaved }: {
   onClose: () => void;
   onSaved: () => void;
 }): JSX.Element {
+  const { t } = useI18n();
   const seed = mode.kind === 'create' ? mode.template : mode.plan;
   const [form, setForm] = useState({
     code: 'code' in seed ? seed.code : '',
@@ -92,7 +94,7 @@ export function PlanEditorModal({ mode, onClose, onSaved }: {
 
             {mode.kind === 'create' && (
               <div>
-                <label className="text-sm font-medium text-foreground">Code</label>
+                <label className="text-sm font-medium text-foreground">{t('accounting.code')}</label>
                 <p className="text-xs text-muted-foreground">URL-safe, unique identifier</p>
                 <input
                   className={`${inputCls} font-mono`}
@@ -104,7 +106,7 @@ export function PlanEditorModal({ mode, onClose, onSaved }: {
             )}
 
             <div>
-              <label className="text-sm font-medium text-foreground">Description</label>
+              <label className="text-sm font-medium text-foreground">{t('common.description')}</label>
               <input
                 className={inputCls}
                 value={form.description}
@@ -134,8 +136,8 @@ export function PlanEditorModal({ mode, onClose, onSaved }: {
                   value={form.interval}
                   onChange={e => setForm({ ...form, interval: e.target.value as 'month' | 'year' })}
                 >
-                  <option value="month">Monthly</option>
-                  <option value="year">Annual</option>
+                  <option value="month">{t('billing.monthly')}</option>
+                  <option value="year">{t('billing.annual')}</option>
                 </select>
               </div>
             </div>
