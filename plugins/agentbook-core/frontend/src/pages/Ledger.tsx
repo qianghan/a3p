@@ -28,7 +28,7 @@ const API_BASE = '/api/v1/agentbook-core';
 export const LedgerPage: React.FC = () => {
   // Logical dates are calendar days, not instants — UTC-pinned so the day
   // does not shift with the viewer's timezone.
-  const { formatDateOnly } = useI18n();
+  const { formatDateOnly, t } = useI18n();
   const [entries, setEntries] = useState<JournalEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [expandedId, setExpandedId] = useState<string | null>(null);

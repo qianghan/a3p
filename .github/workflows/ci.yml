@@ -506,6 +506,14 @@ jobs:
           ./bin/i18n-hardcoded-locale-ratchet.sh
           ./bin/i18n-bundle-guard.sh
 
+      - name: Plugin frontend typecheck
+        # The plugin frontends have NO tsconfig and NO typecheck script, and
+        # their vite/esbuild build strips types without checking them. 22
+        # unbound-identifier crashes reached main that way — two of them
+        # white-screening a whole page. Separate step because it runs tsc and
+        # is slower than the greps above.
+        run: ./bin/i18n-plugin-typecheck-guard.sh
+
   # ===========================================================================
   # Backend Tests — AgentBook plugin backends + jurisdiction packages
   # ===========================================================================

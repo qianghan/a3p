@@ -1,11 +1,13 @@
 import React, { useEffect, useState } from 'react';
 import { Briefcase, Clock, DollarSign, TrendingUp } from 'lucide-react';
 import { ChatCTA, useI18n } from '@naap/plugin-sdk';
+import { useTenantCurrency } from '../hooks/useTenantCurrency';
 
 const API = '/api/v1/agentbook-invoice';
 
 export const ProjectsPage: React.FC = () => {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
+  const currency = useTenantCurrency();
   const [projects, setProjects] = useState<any[]>([]);
   const [profitability, setProfitability] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -20,7 +22,15 @@ export const ProjectsPage: React.FC = () => {
     }).finally(() => setLoading(false));
   }, []);
 
-  const fmt = (c: number) => `$${(c / 100).toFixed(0)}`;
+  // Literal '$' replaced. Project budgets are money like any other and a
+  // GBP tenant was reading them as dollars.
+  const fmt = (c: number) =>
+    new Intl.NumberFormat(locale, {
+      style: 'currency',
+      currency,
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 0,
+    }).format(c / 100);
 
   return (
     <div className="px-4 py-5 sm:p-6 max-w-4xl mx-auto">

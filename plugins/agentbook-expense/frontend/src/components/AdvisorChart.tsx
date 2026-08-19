@@ -1,6 +1,8 @@
 import React from 'react';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, LineChart, Line, CartesianGrid } from 'recharts';
 import { Lightbulb } from 'lucide-react';
+import { useTenantCurrency } from '../hooks/useTenantCurrency';
+import { useI18n } from '@naap/plugin-sdk';
 
 interface ChartDataPoint {
   name: string;
@@ -22,9 +24,32 @@ interface ChartProps {
 
 const FALLBACK_COLORS = ['#10b981', '#3b82f6', '#8b5cf6', '#f59e0b', '#06b6d4', '#ec4899', '#ef4444', '#84cc16'];
 
-function fmtK(cents: number): string {
-  const v = cents / 100;
-  return v >= 1000 ? `$${(v / 1000).toFixed(1)}K` : `$${v.toFixed(0)}`;
+/**
+ * Builds a compact-money formatter bound to a locale and currency.
+ *
+ * A FACTORY rather than a 3-arg function because the result is handed to
+ * Recharts as `tickFormatter={...}`, and Recharts calls it as
+ * `(value, index)` — extra parameters would be filled with the tick index.
+ *
+ * Replaces `v >= 1000 ? `$${(v/1000).toFixed(1)}K` : `$${v.toFixed(0)}``,
+ * which had three faults: a literal '$' (wrong currency for a GBP/EUR tenant),
+ * no locale ("1.2K" where French reads "1,2 k"), and an assumption of
+ * thousands-grouping. That last one is the interesting one: zh-CN groups large
+ * numbers by 万 (10^4), so 1234567 cents is "¥123.5万" — not "¥1.2M". A
+ * /1000 + 'K' scheme cannot express that at all.
+ *
+ * trailingZeroDisplay keeps small values as "$45" rather than "$45.0", matching
+ * the previous output so existing US tenants see no change.
+ */
+function makeFmtK(locale: string, currency: string): (cents: number) => string {
+  const nf = new Intl.NumberFormat(locale, {
+    style: 'currency',
+    currency,
+    notation: 'compact',
+    maximumFractionDigits: 1,
+    trailingZeroDisplay: 'stripIfInteger',
+  });
+  return (cents: number) => nf.format(cents / 100);
 }
 
 const CustomTooltip = ({ active, payload }: any) => {
@@ -43,6 +68,9 @@ const CustomTooltip = ({ active, payload }: any) => {
 };
 
 export const AdvisorChart: React.FC<ChartProps> = ({ chartType, title, subtitle, data, annotation, loading, onTypeChange }) => {
+  const { locale } = useI18n();
+  const currency = useTenantCurrency();
+  const fmtK = makeFmtK(locale, currency);
   if (loading) {
     return <div className="bg-card border border-border rounded-xl p-6 mb-4 h-[280px] animate-pulse" />;
   }

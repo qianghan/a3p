@@ -1,5 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { TrendingUp, Target, Calendar } from 'lucide-react';
+import { useI18n } from '@naap/plugin-sdk';
+import { useTenantCurrency } from '../hooks/useTenantCurrency';
 
 const TAX_API = '/api/v1/agentbook-tax';
 
@@ -13,6 +15,8 @@ interface Projection {
 }
 
 export const ProjectionsPage: React.FC = () => {
+  const currency = useTenantCurrency();
+  const { locale } = useI18n();
   const [projection, setProjection] = useState<Projection | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -24,7 +28,13 @@ export const ProjectionsPage: React.FC = () => {
       .finally(() => setLoading(false));
   }, []);
 
-  const fmt = (cents: number) => `$${(cents / 100).toLocaleString('en-US', { minimumFractionDigits: 0 })}`;
+  // Literal '$' + 'en-US' replaced: the symbol now follows the tenant.
+  const fmt = (cents: number) =>
+    new Intl.NumberFormat(locale, {
+      style: 'currency',
+      currency,
+      minimumFractionDigits: 0,
+    }).format(cents / 100);
 
   if (loading) return <div className="p-6 text-muted-foreground">Loading projections...</div>;
 

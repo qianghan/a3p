@@ -11,6 +11,8 @@
  */
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Download, FileText, Loader2, Send, XCircle } from 'lucide-react';
+import { useTenantCurrency } from '../hooks/useTenantCurrency';
+import { useI18n } from '@naap/plugin-sdk';
 
 const API = '/api/v1/agentbook-core/tax-fast-track';
 
@@ -37,15 +39,32 @@ interface StatusResponse {
   nextDeadline: { date: string; titleKey: string } | null;
 }
 
-const fmtMoney = (cents: number) => `$${(cents / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
-const fmtDeadline = (iso: string): string => {
-  const d = new Date(iso);
-  const daysAway = Math.round((d.getTime() - Date.now()) / (1000 * 60 * 60 * 24));
-  return `${d.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric', timeZone: 'UTC' })} — ${daysAway} day${daysAway === 1 ? '' : 's'} away`;
-};
 
 export const FastTrackTab: React.FC = () => {
+  const currency = useTenantCurrency();
+  const { locale, t } = useI18n();
+  // Both helpers were module-level and hardcoded '$' + 'en-US'. The dollar sign
+  // was the worse half: a GBP or EUR tenant read their tax filing amounts
+  // labelled as US dollars, which misstates the unit of the figure rather than
+  // merely formatting it oddly.
+  const fmtMoney = (cents: number) =>
+    new Intl.NumberFormat(locale, {
+      style: 'currency',
+      currency,
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    }).format(cents / 100);
+  // A filing deadline is a logical calendar day, hence timeZone: 'UTC' — local
+  // formatting renders it a day early west of UTC, on a date that matters.
+  const fmtDeadline = (iso: string): string => {
+    const d = new Date(iso);
+    const daysAway = Math.round((d.getTime() - Date.now()) / (1000 * 60 * 60 * 24));
+    const when = d.toLocaleDateString(locale, {
+      month: 'long', day: 'numeric', year: 'numeric', timeZone: 'UTC',
+    });
+    return `${when} — ${t('tax_ui.days_away', { count: String(daysAway) })}`;
+  };
   const [data, setData] = useState<StatusResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [starting, setStarting] = useState(false);

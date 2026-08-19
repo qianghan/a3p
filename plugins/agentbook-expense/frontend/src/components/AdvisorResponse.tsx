@@ -4,7 +4,26 @@ import { Sparkles, X } from 'lucide-react';
 
 const COLORS = ['#10b981', '#3b82f6', '#8b5cf6', '#f59e0b', '#06b6d4', '#ec4899'];
 
-function fmtK(c: number): string { const v = c / 100; return v >= 1000 ? `$${(v/1000).toFixed(1)}K` : `$${v.toFixed(0)}`; }
+/**
+ * Compact money in the reader's locale and the tenant's currency.
+ *
+ * Replaces `v >= 1000 ? `$${(v/1000).toFixed(1)}K` : ...`, which hardcoded the
+ * dollar sign, ignored the locale, and — worse — assumed thousands-grouping.
+ * zh-CN groups by 万 (10^4): 1234567 cents is "¥123.5万", not "¥1.2M". A
+ * /1000 + 'K' scheme cannot express that.
+ *
+ * trailingZeroDisplay keeps small values as "$45" rather than "$45.0", matching
+ * the previous output so US tenants see no change.
+ */
+function fmtK(cents: number, locale: string, currency: string): string {
+  return new Intl.NumberFormat(locale, {
+    style: 'currency',
+    currency,
+    notation: 'compact',
+    maximumFractionDigits: 1,
+    trailingZeroDisplay: 'stripIfInteger',
+  }).format(cents / 100);
+}
 
 // Lightweight markdown-to-JSX renderer
 function renderMarkdown(text: string): React.ReactNode[] {

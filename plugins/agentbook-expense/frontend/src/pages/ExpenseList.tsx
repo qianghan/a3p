@@ -12,6 +12,7 @@ import { AdvisorResponse } from '../components/AdvisorResponse';
 import { ExpenseTabs } from '../components/ExpenseTabs';
 import { formatDateOnly } from '@agentbook/i18n';
 import { useI18n } from '@naap/plugin-sdk';
+import { useTenantCurrency } from '../hooks/useTenantCurrency';
 
 interface Expense {
   id: string;
@@ -57,6 +58,7 @@ function confidenceColor(c: number): string {
 
 function CategorizationReviewBanner({
   items,
+  currency,
   expenseApiBase,
   authHeaders,
   categories,
@@ -70,6 +72,9 @@ function CategorizationReviewBanner({
     suggestedCategoryId: string; suggestedCategoryName: string;
     confidence: number; description: string | null;
   }>;
+  // Passed in rather than fetched again: this component is rendered by
+  // ExpenseListPage, which already holds the tenant currency.
+  currency: string;
   expenseApiBase: string;
   authHeaders: Record<string, string>;
   categories: Array<{ id: string; name: string }>;
@@ -80,6 +85,15 @@ function CategorizationReviewBanner({
 }) {
   const [overrides, setOverrides] = React.useState<Record<string, string>>({});
   const [approving, setApproving] = React.useState<Set<string>>(new Set());
+  // Its own hook call: this is a separate module-level component, not part of
+  // ExpenseListPage, so it cannot see that component's destructured `t`. The
+  // migration added t() calls here without one, which threw ReferenceError
+  // whenever the banner actually rendered — and it renders only when there ARE
+  // pending suggestions, the one state no test exercised.
+  const { locale: bannerLocale, t } = useI18n();
+  const fmtAmt = (cents: number) =>
+    new Intl.NumberFormat(bannerLocale, { style: 'currency', currency })
+      .format(cents / 100);
 
   if (items.length === 0 && uncategorizedPct <= 10) return null;
 
@@ -195,8 +209,8 @@ const CATEGORY_ICONS: Record<string, string> = {
   'Car & Truck': '🚗', 'Legal & Professional': '⚖️', 'Bank Fees': '🏦', 'Uncategorized': '❓',
 };
 
-function fmt(cents: number, currency = 'USD') {
-  return new Intl.NumberFormat('en-US', { style: 'currency', currency }).format(cents / 100);
+function fmt(cents: number, currency: string, locale: string) {
+  return new Intl.NumberFormat(locale, { style: 'currency', currency }).format(cents / 100);
 }
 // An expense DATE is the calendar day the money moved, not an instant, so it
 // must not shift with the viewer's timezone.
@@ -284,6 +298,7 @@ const PERIOD_LABELS: Record<Period, string> = {
 export const ExpenseListPage: React.FC = () => {
   // Locale for the UTC-rendered logical-date helpers above.
   const { locale, t } = useI18n();
+  const currency = useTenantCurrency();
   const navigate = useNavigate();
   // PR 28 adoption: refetch the list when the agent mutates expense state
   // via chat / Telegram / cron. The hook polls /events/since every 10s and
@@ -548,7 +563,7 @@ export const ExpenseListPage: React.FC = () => {
           <Receipt className="w-6 h-6 text-primary" />
           <div>
             <h1 className="text-2xl font-bold">Expenses</h1>
-            <p className="text-sm text-muted-foreground">{filtered.length} expenses &middot; {fmt(total)}</p>
+            <p className="text-sm text-muted-foreground">{filtered.length} expenses &middot; {fmt(total, currency, locale)}</p>
           </div>
         </div>
         <div className="flex items-center gap-2">
@@ -652,7 +667,7 @@ export const ExpenseListPage: React.FC = () => {
 
                 {/* Amount — bold, large, the main thing you read */}
                 <p className={`text-xl font-bold tracking-tight ${isActive ? '' : 'text-foreground'}`}>
-                  {fmt(cat.totalCents)}
+                  {fmt(cat.totalCents, currency, locale)}
                 </p>
 
                 {/* Category name + count */}
@@ -753,6 +768,7 @@ export const ExpenseListPage: React.FC = () => {
       {catPending && !catDismissed && (catPending.items.length > 0 || catPending.uncategorizedPct > 10) && (
         <CategorizationReviewBanner
           items={catPending.items}
+          currency={currency}
           expenseApiBase={API}
           authHeaders={{}}
           uncategorizedPct={catPending.uncategorizedPct}
@@ -858,10 +874,10 @@ export const ExpenseListPage: React.FC = () => {
                     </td>
                     <td className="px-4 py-3 text-right font-bold font-mono">
                       {expense.isPersonal && <span className="text-[10px] font-normal text-amber-500 mr-1">{t('expenses_ui.personal')}</span>}
-                      {fmt(expense.amountCents, expense.currency)}
+                      {fmt(expense.amountCents, expense.currency, locale)}
                     </td>
                     <td className="px-4 py-3 text-right font-mono text-xs text-muted-foreground">
-                      {expense.taxAmountCents > 0 ? fmt(expense.taxAmountCents, expense.currency) : '—'}
+                      {expense.taxAmountCents > 0 ? fmt(expense.taxAmountCents, expense.currency, locale) : '—'}
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-1">
@@ -877,7 +893,7 @@ export const ExpenseListPage: React.FC = () => {
                         <div><p className="text-xs text-muted-foreground mb-0.5">Category</p><p>{expense.categoryCode || 'N/A'} — {expense.categoryName || 'Uncategorized'}</p></div>
                         <div><p className="text-xs text-muted-foreground mb-0.5">{t('expenses_ui.currency')}</p><p>{expense.currency}</p></div>
                         <div><p className="text-xs text-muted-foreground mb-0.5">{t('expenses_ui.confidence')}</p><p>{expense.confidence ? `${(expense.confidence * 100).toFixed(0)}%` : 'Manual'}</p></div>
-                        {expense.tipAmountCents > 0 && <div><p className="text-xs text-muted-foreground mb-0.5">Tip</p><p>{fmt(expense.tipAmountCents)}</p></div>}
+                        {expense.tipAmountCents > 0 && <div><p className="text-xs text-muted-foreground mb-0.5">Tip</p><p>{fmt(expense.tipAmountCents, expense.currency, locale)}</p></div>}
                         {expense.notes && <div className="col-span-2"><p className="text-xs text-muted-foreground mb-0.5">Notes</p><p>{expense.notes}</p></div>}
                         {expense.receiptUrl && <div><p className="text-xs text-muted-foreground mb-0.5">{t('expenses_ui.receipt')}</p><a href={expense.receiptUrl} target="_blank" rel="noopener" className="text-primary text-xs hover:underline flex items-center gap-1"><Image className="w-3 h-3" /> View</a></div>}
                         <div><p className="text-xs text-muted-foreground mb-0.5">Ledger</p><p className="text-xs">{expense.journalEntryId ? '✓ Posted' : '✗ Not posted'}</p></div>
@@ -912,8 +928,8 @@ export const ExpenseListPage: React.FC = () => {
                 </div>
               </div>
               <div className="text-right shrink-0 ml-2">
-                <p className="font-bold font-mono text-sm">{fmt(expense.amountCents, expense.currency)}</p>
-                {expense.taxAmountCents > 0 && <p className="text-[10px] text-muted-foreground">+{fmt(expense.taxAmountCents)} tax</p>}
+                <p className="font-bold font-mono text-sm">{fmt(expense.amountCents, expense.currency, locale)}</p>
+                {expense.taxAmountCents > 0 && <p className="text-[10px] text-muted-foreground">+{fmt(expense.taxAmountCents, expense.currency, locale)} tax</p>}
               </div>
             </div>
             <div className="flex items-center gap-1.5 flex-wrap">

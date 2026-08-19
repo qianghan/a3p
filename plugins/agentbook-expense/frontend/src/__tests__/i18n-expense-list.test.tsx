@@ -53,6 +53,21 @@ vi.mock('react-plaid-link', () => ({
  * "empty" is not the same as "empty AND correctly shaped", and only the
  * latter tells you anything about the component.
  */
+/**
+ * One pending suggestion, so the categorization review banner actually renders.
+ */
+const pendingItems = [
+  {
+    expenseId: 'exp-1',
+    vendorName: 'Staples',
+    amountCents: 4599,
+    suggestedCategoryId: 'cat-1',
+    suggestedCategoryName: 'Office Supplies',
+    confidence: 0.82,
+    description: 'Printer paper',
+  },
+];
+
 function installFetch() {
   globalThis.fetch = vi.fn().mockImplementation((url: string) => {
     const u = String(url);
@@ -62,9 +77,21 @@ function installFetch() {
       body = { success: true, data: { categories: [] } };
     } else if (u.includes('/auto-categorize/pending')) {
       // .../api/v1/agentbook-core/auto-categorize/pending/route.ts
+      //
+      // POPULATED, not empty — and that distinction cost a shipped crash. The
+      // review banner returns null early when `items` is empty and
+      // uncategorizedPct <= 10, so an empty fixture means the component never
+      // renders. It contained a t() call with no binding, which threw
+      // ReferenceError the moment a real user had a pending suggestion, and
+      // every test passed because none of them ever rendered it.
       body = {
         success: true,
-        data: { items: [], uncategorizedCount: 0, totalCount: 0, uncategorizedPct: 0 },
+        data: {
+          items: pendingItems,
+          uncategorizedCount: pendingItems.length,
+          totalCount: 10,
+          uncategorizedPct: 40,
+        },
       };
     } else if (u.includes('/mileage')) {
       // Shape copied from Mileage.test.tsx's summaryPayload(): the page reads

@@ -1,6 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { PieChart, BarChart3, TrendingUp, TrendingDown, Zap } from 'lucide-react';
 import { TaxDisclaimer } from '../components/TaxDisclaimer';
+import { useI18n } from '@naap/plugin-sdk';
+import { useTenantCurrency } from '../hooks/useTenantCurrency';
 
 interface CategoryBreakdown {
   categoryName: string;
@@ -28,6 +30,8 @@ const EXPENSE_API = '/api/v1/agentbook-expense';
 const COLORS = ['#10b981', '#3b82f6', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#14b8a6', '#f97316'];
 
 export const AnalyticsPage: React.FC = () => {
+  const currency = useTenantCurrency();
+  const { locale } = useI18n();
   const [categories, setCategories] = useState<CategoryBreakdown[]>([]);
   const [trends, setTrends] = useState<SpendingTrend[]>([]);
   const [vendors, setVendors] = useState<VendorItem[]>([]);
@@ -48,7 +52,17 @@ export const AnalyticsPage: React.FC = () => {
     }).finally(() => setLoading(false));
   }, []);
 
-  const fmt = (cents: number) => `$${(cents / 100).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
+  // Was a literal '$' plus toLocaleString('en-US'), so every tenant read
+  // their tax analytics in US dollars whatever their actual currency. The
+  // useTenantCurrency hook already existed in this plugin and this page simply
+  // never called it.
+  const fmt = (cents: number) =>
+    new Intl.NumberFormat(locale, {
+      style: 'currency',
+      currency,
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 0,
+    }).format(cents / 100);
   const totalExpenses = categories.reduce((s, c) => s + c.totalCents, 0);
 
   return (

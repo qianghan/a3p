@@ -42,6 +42,7 @@ import enOnboarding from './locales/en/onboarding.json';
 import enProactive from './locales/en/proactive.json';
 import enRate from './locales/en/rate.json';
 import enTax from './locales/en/tax.json';
+import enTaxUi from './locales/en/tax_ui.json';
 
 // Canadian French. Tax and accounting nouns follow CRA / Revenu Québec
 // official terminology (TPS/TVQ, not TVA) — see plan decision D4.
@@ -62,6 +63,7 @@ import frOnboarding from './locales/fr-CA/onboarding.json';
 import frProactive from './locales/fr-CA/proactive.json';
 import frRate from './locales/fr-CA/rate.json';
 import frTax from './locales/fr-CA/tax.json';
+import frTaxUi from './locales/fr-CA/tax_ui.json';
 
 // Simplified Chinese.
 import zhAgent from './locales/zh-CN/agent.json';
@@ -81,6 +83,7 @@ import zhOnboarding from './locales/zh-CN/onboarding.json';
 import zhProactive from './locales/zh-CN/proactive.json';
 import zhRate from './locales/zh-CN/rate.json';
 import zhTax from './locales/zh-CN/tax.json';
+import zhTaxUi from './locales/zh-CN/tax_ui.json';
 
 /**
  * Namespace keys become the first segment of a translation key:
@@ -105,6 +108,7 @@ export const CATALOG: Catalog = Object.freeze({
     proactive: enProactive,
     rate: enRate,
     tax: enTax,
+    tax_ui: enTaxUi,
   },
   'fr-CA': {
     agent: frAgent,
@@ -124,6 +128,7 @@ export const CATALOG: Catalog = Object.freeze({
     proactive: frProactive,
     rate: frRate,
     tax: frTax,
+    tax_ui: frTaxUi,
   },
   'zh-CN': {
     agent: zhAgent,
@@ -143,6 +148,7 @@ export const CATALOG: Catalog = Object.freeze({
     proactive: zhProactive,
     rate: zhRate,
     tax: zhTax,
+    tax_ui: zhTaxUi,
   },
 });
 
