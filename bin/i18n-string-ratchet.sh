@@ -102,8 +102,13 @@ count_direct_dates() {
     # toLocaleDateString ONLY. An earlier version also counted toLocaleString,
     # which is NUMBER formatting — no timezone involved — so the measure mixed
     # two unrelated classes and could not be read as "how much of the date bug
-    # is left". Number formatting is tracked by the hardcoded-locale count
-    # above instead.
+    # is left". Number formatting is tracked by
+    # bin/i18n-hardcoded-locale-ratchet.sh instead.
+    #
+    # That script did not exist when this comment was first written: it said
+    # the count was "above", which was false, and read as reassurance that the
+    # class was covered. It was not — 24 hardcoded 'en-US' formatters were
+    # sitting unmeasured. Naming the actual file so the claim can be checked.
     local n
     n=$(echo "$files" | xargs grep -ohE 'toLocaleDateString' 2>/dev/null | wc -l | tr -d ' ')
     total=$((total + n))

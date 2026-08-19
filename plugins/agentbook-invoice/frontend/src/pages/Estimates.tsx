@@ -10,7 +10,7 @@ import {
   Plus,
   Trash2,
 } from 'lucide-react';
-import { ChatCTA } from '@naap/plugin-sdk';
+import { ChatCTA, useI18n } from '@naap/plugin-sdk';
 import { formatMoney } from '@agentbook/i18n';
 import { useTenantCurrency } from '../hooks/useTenantCurrency';
 
@@ -46,12 +46,12 @@ const STATUS_CONFIG: Record<Estimate['status'], { label: string; bg: string; tex
   converted: { label: 'Converted', bg: 'bg-blue-100', text: 'text-blue-700', icon: <ArrowRightCircle className="w-3 h-3" /> },
 };
 
-function formatCurrency(cents: number, currency: string = 'USD') {
+function formatCurrency(cents: number, currency: string, locale: string) {
   return formatMoney(cents, currency);
 }
 
-function formatDate(d: string) {
-  return new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+function formatDate(d: string, locale: string) {
+  return new Date(d).toLocaleDateString(locale, { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' });
 }
 
 // Mirrors the backend's formatEstimateNumber — kept defensively so the UI
@@ -63,6 +63,7 @@ function fallbackNumber(est: Estimate): string {
 }
 
 export const EstimatesPage: React.FC = () => {
+  const { locale } = useI18n();
   const [estimates, setEstimates] = useState<Estimate[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -206,15 +207,15 @@ export const EstimatesPage: React.FC = () => {
                     </div>
                     <p className="text-sm text-muted-foreground">{clientName}</p>
                     <p className="text-xs mt-1" style={{ color: 'var(--text-secondary)' }}>
-                      {est.description} &middot; Created {formatDate(est.createdAt)} &middot; Valid until{' '}
-                      {formatDate(est.validUntil)}
+                      {est.description} &middot; Created {formatDate(est.createdAt, locale)} &middot; Valid until{' '}
+                      {formatDate(est.validUntil, locale)}
                     </p>
                   </div>
 
                   {/* Amount + actions */}
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="font-bold text-base mr-1" style={{ color: 'var(--text-primary)' }}>
-                      {formatCurrency(est.amountCents, currency)}
+                      {formatCurrency(est.amountCents, currency, locale)}
                     </span>
 
                     {est.status === 'pending' && (

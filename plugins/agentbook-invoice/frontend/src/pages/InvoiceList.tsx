@@ -35,9 +35,12 @@ interface Invoice {
 
 const TABS = ['all', 'draft', 'sent', 'overdue', 'paid'] as const;
 
-function formatCurrency(cents: number, currency = 'USD') {
+// `locale` is threaded in the same way formatDate below already does it — the
+// alternative, formatMoney(cents, currency), infers a locale FROM the currency
+// and would render CAD as en-CA "$1,234.56" for a French-Canadian reader.
+function formatCurrency(cents: number, currency: string, locale: string) {
   const value = Number.isFinite(cents) ? cents / 100 : 0;
-  return new Intl.NumberFormat('en-US', { style: 'currency', currency: currency.toUpperCase() || 'USD' }).format(value);
+  return new Intl.NumberFormat(locale, { style: 'currency', currency: currency.toUpperCase() || 'USD' }).format(value);
 }
 
 function formatDate(d: string | null | undefined, locale: string) {
@@ -152,7 +155,7 @@ export const InvoiceListPage: React.FC = () => {
             Total Outstanding
           </p>
           <p className="text-xl font-bold" style={{ color: 'var(--text-primary)' }}>
-            {formatCurrency(outstandingCents, outstandingCurrency)}
+            {formatCurrency(outstandingCents, outstandingCurrency, locale)}
           </p>
         </div>
       </div>
@@ -201,6 +204,7 @@ export const InvoiceListPage: React.FC = () => {
             {formatCurrency(
               overdueInvoices.reduce((s, inv) => s + inv.amountCents, 0),
               overdueInvoices[0]?.currency ?? 'USD',
+              locale,
             )}{' '}
             outstanding
           </span>
@@ -298,7 +302,7 @@ export const InvoiceListPage: React.FC = () => {
                 {/* Right: amount + due date */}
                 <div className="flex items-center justify-between sm:flex-col sm:items-end gap-1">
                   <span className="font-bold text-base" style={{ color: 'var(--text-primary)' }}>
-                    {formatCurrency(inv.amountCents, inv.currency)}
+                    {formatCurrency(inv.amountCents, inv.currency, locale)}
                   </span>
                   <span className="text-xs flex items-center gap-1" style={{ color: 'var(--text-secondary)' }}>
                     <Clock className="w-3 h-3" />

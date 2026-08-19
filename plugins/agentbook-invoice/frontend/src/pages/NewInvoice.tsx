@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Plus, Trash2, Send, Save, ArrowLeft, Loader2 } from 'lucide-react';
-import { ChatCTA } from '@naap/plugin-sdk';
+import { ChatCTA, useI18n } from '@naap/plugin-sdk';
 
 interface LineItem {
   id: string;
@@ -20,11 +20,11 @@ function uid() {
   return Math.random().toString(36).slice(2, 10);
 }
 
-function formatCurrency(n: number, currency = 'USD') {
+function formatCurrency(n: number, currency: string, locale: string) {
   // Intl will throw on a bad code; fall back to en-US/USD without crashing
   // the page.
   try {
-    return new Intl.NumberFormat('en-US', { style: 'currency', currency }).format(n);
+    return new Intl.NumberFormat(locale, { style: 'currency', currency }).format(n);
   } catch {
     return `${currency} ${n.toFixed(2)}`;
   }
@@ -75,6 +75,7 @@ const API = '/api/v1/agentbook-invoice';
 const CORE_API = '/api/v1/agentbook-core';
 
 export const NewInvoicePage: React.FC = () => {
+  const { locale } = useI18n();
   const navigate = useNavigate();
   const [clients, setClients] = useState<Client[]>([]);
   const [selectedClientId, setSelectedClientId] = useState('');
@@ -501,7 +502,7 @@ export const NewInvoicePage: React.FC = () => {
                 </div>
                 <div className="sm:col-span-2 flex items-center justify-end">
                   <span className="font-semibold text-sm text-foreground">
-                    {formatCurrency(li.quantity * li.rate, currency)}
+                    {formatCurrency(li.quantity * li.rate, currency, locale)}
                   </span>
                 </div>
                 <div className="sm:col-span-1 flex items-center justify-end">
@@ -534,7 +535,7 @@ export const NewInvoicePage: React.FC = () => {
             <div className="mb-6 space-y-2">
               <div className="flex items-center justify-between">
                 <span className="text-sm text-muted-foreground">Subtotal</span>
-                <span className="text-sm font-medium text-foreground">{formatCurrency(subtotal, currency)}</span>
+                <span className="text-sm font-medium text-foreground">{formatCurrency(subtotal, currency, locale)}</span>
               </div>
               <div className="flex items-center justify-between">
                 <label htmlFor="tax-rate" className="text-sm text-muted-foreground">
@@ -553,11 +554,11 @@ export const NewInvoicePage: React.FC = () => {
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-sm text-muted-foreground">Tax</span>
-                <span className="text-sm font-medium text-foreground">{formatCurrency(taxAmount, currency)}</span>
+                <span className="text-sm font-medium text-foreground">{formatCurrency(taxAmount, currency, locale)}</span>
               </div>
               <div className="flex items-center justify-between pt-2 border-t border-border">
                 <span className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Total</span>
-                <span className="text-2xl font-bold text-foreground">{formatCurrency(total, currency)}</span>
+                <span className="text-2xl font-bold text-foreground">{formatCurrency(total, currency, locale)}</span>
               </div>
             </div>
           ) : (
@@ -566,7 +567,7 @@ export const NewInvoicePage: React.FC = () => {
                 Total
               </span>
               <span className="text-2xl font-bold text-foreground">
-                {formatCurrency(total, currency)}
+                {formatCurrency(total, currency, locale)}
               </span>
             </div>
           )}

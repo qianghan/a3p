@@ -3,6 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { ArrowLeft, Download, Send, CreditCard, AlertTriangle, Loader2, X, Link2 } from 'lucide-react';
 import { InvoiceStatusBadge, type InvoiceStatus } from '../components/InvoiceStatusBadge';
 import { RecordPaymentModal } from '../components/RecordPaymentModal';
+import { useI18n } from '@naap/plugin-sdk';
 
 interface InvoiceLine {
   id: string;
@@ -35,16 +36,6 @@ interface InvoiceDetail {
   payments: Payment[];
 }
 
-function fmt(cents: number | null | undefined, currency = 'USD'): string {
-  if (cents == null || isNaN(cents)) return '—';
-  return new Intl.NumberFormat('en-US', { style: 'currency', currency }).format(cents / 100);
-}
-
-function fmtDate(iso: string | null | undefined): string {
-  if (!iso) return '—';
-  return new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
-}
-
 const METHOD_LABELS: Record<string, string> = {
   manual: 'Manual',
   bank_transfer: 'Bank Transfer',
@@ -66,6 +57,18 @@ function reminderTone(days: number): string {
 }
 
 export function InvoiceDetailPage(): JSX.Element {
+  // fmt/fmtDate live here rather than at module scope so they can close over
+  // the shell's locale. They previously hardcoded 'en-US', which rendered
+  // every invoice total and date in US format however the tenant was
+  // configured — a Quebec freelancer read "$1,234.56" where the correct
+  // rendering is "1 234,56 $".
+  const { formatCurrency, formatDateOnly } = useI18n();
+  const fmt = (cents: number | null | undefined, currency = 'USD'): string =>
+    cents == null || isNaN(cents) ? '—' : formatCurrency(cents, currency);
+  // Issue/due/paid dates are logical calendar days. formatDateOnly forces UTC;
+  // plain local-time formatting renders them a day early west of UTC.
+  const fmtDate = (iso: string | null | undefined): string =>
+    !iso ? '—' : formatDateOnly(iso, { month: 'short', day: 'numeric', year: 'numeric' });
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const [invoice, setInvoice] = useState<InvoiceDetail | null>(null);

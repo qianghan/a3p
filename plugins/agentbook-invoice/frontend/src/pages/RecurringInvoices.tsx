@@ -52,14 +52,6 @@ const STATUS_CONFIG: Record<Status, { label: string; bg: string; text: string }>
   completed: { label: 'Completed', bg: 'bg-gray-100', text: 'text-gray-600' },
 };
 
-function formatCurrency(cents: number, currency = 'USD') {
-  return new Intl.NumberFormat('en-US', { style: 'currency', currency }).format(cents / 100);
-}
-
-function formatDate(d: string) {
-  return new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-}
-
 interface ScheduleFormState {
   clientId: string;
   frequency: Frequency;
@@ -95,7 +87,16 @@ export const RecurringInvoicesPage: React.FC = () => {
   //   2. A fr-CA user cannot type '45,50' into these fields at all — the
   //      browser blanks it. That is a usability defect, and routing through
   //      parseAmount means switching a field to type="text" later Just Works.
-  const { parseAmount } = useI18n();
+  const { parseAmount, formatCurrency: fmtCur, formatDateOnly } = useI18n();
+  // Both formatters were module-level and hardcoded 'en-US', so every
+  // scheduled amount and next-due date rendered in US format whatever the
+  // tenant's locale. Defined here to close over the shell's locale; names and
+  // signatures unchanged, so the call sites are untouched.
+  const formatCurrency = (cents: number, cur = 'USD') => fmtCur(cents, cur);
+  // A next-due date is a logical calendar day: formatDateOnly forces UTC,
+  // where local-time formatting renders it a day early west of UTC.
+  const formatDate = (d: string) =>
+    formatDateOnly(d, { month: 'short', day: 'numeric', year: 'numeric' });
   const [clients, setClients] = useState<ClientOption[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
