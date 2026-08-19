@@ -191,6 +191,14 @@ export function PluginLoader({
         // Include tenant and team context for multi-tenancy support
         tenant: currentShell.tenant,
         team: currentShell.team,
+        // Locale, translations and the money/date formatters. Its ABSENCE here
+        // was the root cause of "the language switcher does nothing": every
+        // plugin page reached useI18n(), found no service, and silently used
+        // the fallback that humanises keys — plausible English, forever, with
+        // no error. The note above ("must include all services") was the
+        // invariant being violated, and `i18n?:` being optional on
+        // ShellContext is why the compiler stayed quiet. It is required now.
+        i18n: currentShell.i18n,
         config: {
           // Same-origin so embedded plugins use shell's API routes (avoids Failed to fetch when standalone backend isn't running)
           [pluginEndpointUrlKey]: sameOriginEndpointUrl,

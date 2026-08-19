@@ -221,6 +221,11 @@ export function createSandboxedContext(
     // Include tenant and team context for multi-tenancy support
     tenant: realContext.tenant,
     team: realContext.team,
+    // Passed straight through: it is pure formatting and lookup with no
+    // ambient authority to sandbox. Omitting it here would re-break
+    // translation for every plugin whenever sandboxing is enabled, even with
+    // PluginLoader fixed — this context is rebuilt from scratch, not merged.
+    i18n: realContext.i18n,
   };
 
   return sandboxedContext;
