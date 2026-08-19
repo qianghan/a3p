@@ -46,10 +46,12 @@ interface ClientOption {
 
 const FREQUENCIES: Frequency[] = ['weekly', 'biweekly', 'monthly', 'quarterly', 'annual'];
 
-const STATUS_CONFIG: Record<Status, { label: string; bg: string; text: string }> = {
-  active: { label: 'Active', bg: 'bg-green-100', text: 'text-green-700' },
-  paused: { label: 'Paused', bg: 'bg-amber-100', text: 'text-amber-700' },
-  completed: { label: 'Completed', bg: 'bg-gray-100', text: 'text-gray-600' },
+// `labelKey`, not `label`: t() is a hook result and cannot be called at
+// module scope, so the key is resolved at the render site below.
+const STATUS_CONFIG: Record<Status, { labelKey: string; bg: string; text: string }> = {
+  active: { labelKey: 'invoice_ui.status_active', bg: 'bg-green-100', text: 'text-green-700' },
+  paused: { labelKey: 'invoice_ui.status_paused', bg: 'bg-amber-100', text: 'text-amber-700' },
+  completed: { labelKey: 'invoice_ui.status_completed', bg: 'bg-gray-100', text: 'text-gray-600' },
 };
 
 interface ScheduleFormState {
@@ -87,7 +89,7 @@ export const RecurringInvoicesPage: React.FC = () => {
   //   2. A fr-CA user cannot type '45,50' into these fields at all — the
   //      browser blanks it. That is a usability defect, and routing through
   //      parseAmount means switching a field to type="text" later Just Works.
-  const { parseAmount, formatCurrency: fmtCur, formatDateOnly } = useI18n();
+  const { parseAmount, formatCurrency: fmtCur, formatDateOnly, t } = useI18n();
   // Both formatters were module-level and hardcoded 'en-US', so every
   // scheduled amount and next-due date rendered in US format whatever the
   // tenant's locale. Defined here to close over the shell's locale; names and
@@ -260,11 +262,9 @@ export const RecurringInvoicesPage: React.FC = () => {
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
         <div>
-          <h1 className="text-2xl font-bold" style={{ color: 'var(--text-primary)' }}>
-            Recurring Invoices
+          <h1 className="text-2xl font-bold" style={{ color: 'var(--text-primary)' }}>{t('invoice_ui.recurring_invoices')}
           </h1>
-          <p className="text-sm mt-1" style={{ color: 'var(--text-secondary)' }}>
-            Schedule invoices to be issued automatically.
+          <p className="text-sm mt-1" style={{ color: 'var(--text-secondary)' }}>{t('invoice_ui.recurring_sub')}
           </p>
         </div>
         <button
@@ -272,8 +272,7 @@ export const RecurringInvoicesPage: React.FC = () => {
           className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium text-white transition-colors"
           style={{ backgroundColor: 'var(--accent-emerald, #10b981)' }}
         >
-          <Plus className="w-4 h-4" />
-          New Schedule
+          <Plus className="w-4 h-4" />{t('invoice_ui.new_schedule')}
         </button>
       </div>
 
@@ -298,21 +297,21 @@ export const RecurringInvoicesPage: React.FC = () => {
       ) : items.length === 0 ? (
         <div className="text-center py-20" style={{ color: 'var(--text-secondary)' }}>
           <Repeat className="w-10 h-10 mx-auto mb-3 opacity-40" />
-          <p className="font-medium">No recurring schedules</p>
-          <p className="text-sm mt-1">Create one to bill a client on a regular cadence.</p>
+          <p className="font-medium">{t('invoice_ui.no_schedules')}</p>
+          <p className="text-sm mt-1">{t('invoice_ui.no_schedules_hint')}</p>
         </div>
       ) : (
         <div className="overflow-x-auto rounded-xl border border-border bg-card">
           <table className="min-w-full text-sm">
             <thead className="bg-muted/40 text-left text-xs uppercase tracking-wide">
               <tr>
-                <th className="px-4 py-3">Client</th>
-                <th className="px-4 py-3">Frequency</th>
-                <th className="px-4 py-3">Next Due</th>
-                <th className="px-4 py-3">Total</th>
-                <th className="px-4 py-3">Status</th>
-                <th className="px-4 py-3">Generated</th>
-                <th className="px-4 py-3 text-right">Actions</th>
+                <th className="px-4 py-3">{t('common.client')}</th>
+                <th className="px-4 py-3">{t('invoice_ui.frequency')}</th>
+                <th className="px-4 py-3">{t('invoice_ui.next_due')}</th>
+                <th className="px-4 py-3">{t('common.total')}</th>
+                <th className="px-4 py-3">{t('common.status')}</th>
+                <th className="px-4 py-3">{t('invoice_ui.generated')}</th>
+                <th className="px-4 py-3 text-right">{t('common.actions')}</th>
               </tr>
             </thead>
             <tbody>
@@ -326,7 +325,7 @@ export const RecurringInvoicesPage: React.FC = () => {
                     <td className="px-4 py-3 font-semibold">{formatCurrency(r.totalCents, r.currency)}</td>
                     <td className="px-4 py-3">
                       <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-medium ${cfg.bg} ${cfg.text}`}>
-                        {cfg.label}
+                        {t(cfg.labelKey)}
                       </span>
                     </td>
                     <td className="px-4 py-3">{r.generatedCount}</td>
@@ -335,7 +334,7 @@ export const RecurringInvoicesPage: React.FC = () => {
                         {r.status !== 'completed' && (
                           <button
                             onClick={() => togglePause(r)}
-                            title={r.status === 'active' ? 'Pause' : 'Unpause'}
+                            title={r.status === 'active' ? t('invoice_ui.pause') : t('invoice_ui.unpause')}
                             className="p-1.5 rounded-md hover:bg-muted"
                           >
                             {r.status === 'active' ? (
@@ -347,14 +346,14 @@ export const RecurringInvoicesPage: React.FC = () => {
                         )}
                         <button
                           onClick={() => openEdit(r)}
-                          title="Edit"
+                          title={t('common.edit')}
                           className="p-1.5 rounded-md hover:bg-muted"
                         >
                           <Pencil className="w-4 h-4" />
                         </button>
                         <button
                           onClick={() => deleteSchedule(r)}
-                          title="Delete"
+                          title={t('common.delete')}
                           className="p-1.5 rounded-md hover:bg-red-50 text-red-600"
                         >
                           <Trash2 className="w-4 h-4" />
@@ -380,13 +379,13 @@ export const RecurringInvoicesPage: React.FC = () => {
               <X className="w-4 h-4" />
             </button>
             <h2 className="text-lg font-bold mb-4">
-              {editingId ? 'Edit Schedule' : 'New Recurring Schedule'}
+              {editingId ? t('invoice_ui.edit_schedule') : t('invoice_ui.new_recurring_schedule')}
             </h2>
 
             <div className="space-y-4">
               {!editingId && (
                 <div>
-                  <label className="text-xs font-medium uppercase tracking-wide block mb-1">Client</label>
+                  <label className="text-xs font-medium uppercase tracking-wide block mb-1">{t('common.client')}</label>
                   <select
                     value={form.clientId}
                     onChange={(e) => setForm({ ...form, clientId: e.target.value })}
@@ -401,7 +400,7 @@ export const RecurringInvoicesPage: React.FC = () => {
               )}
 
               <div>
-                <label className="text-xs font-medium uppercase tracking-wide block mb-1">Frequency</label>
+                <label className="text-xs font-medium uppercase tracking-wide block mb-1">{t('invoice_ui.frequency')}</label>
                 <select
                   value={form.frequency}
                   onChange={(e) => setForm({ ...form, frequency: e.target.value as Frequency })}
@@ -414,7 +413,7 @@ export const RecurringInvoicesPage: React.FC = () => {
               </div>
 
               <div>
-                <label className="text-xs font-medium uppercase tracking-wide block mb-1">Next Due</label>
+                <label className="text-xs font-medium uppercase tracking-wide block mb-1">{t('invoice_ui.next_due')}</label>
                 <input
                   type="date"
                   value={form.nextDue}
@@ -424,7 +423,7 @@ export const RecurringInvoicesPage: React.FC = () => {
               </div>
 
               <div>
-                <label className="text-xs font-medium uppercase tracking-wide block mb-1">Description</label>
+                <label className="text-xs font-medium uppercase tracking-wide block mb-1">{t('common.description')}</label>
                 <input
                   type="text"
                   placeholder="e.g. Monthly retainer"
@@ -449,7 +448,7 @@ export const RecurringInvoicesPage: React.FC = () => {
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="text-xs font-medium uppercase tracking-wide block mb-1">Days to Pay</label>
+                  <label className="text-xs font-medium uppercase tracking-wide block mb-1">{t('invoice_ui.days_to_pay')}</label>
                   <input
                     type="number"
                     min="1"
@@ -464,8 +463,7 @@ export const RecurringInvoicesPage: React.FC = () => {
                       type="checkbox"
                       checked={form.autoSend}
                       onChange={(e) => setForm({ ...form, autoSend: e.target.checked })}
-                    />
-                    Auto-send
+                    />{t('invoice_ui.auto_send')}
                   </label>
                 </div>
               </div>
@@ -475,8 +473,7 @@ export const RecurringInvoicesPage: React.FC = () => {
               <button
                 onClick={closeModal}
                 className="px-4 py-2 rounded-md text-sm font-medium border hover:bg-gray-50"
-              >
-                Cancel
+              >{t('common.cancel')}
               </button>
               <button
                 onClick={submit}
@@ -484,7 +481,7 @@ export const RecurringInvoicesPage: React.FC = () => {
                 className="px-4 py-2 rounded-md text-sm font-medium text-white"
                 style={{ backgroundColor: 'var(--accent-emerald, #10b981)' }}
               >
-                {submitting ? 'Saving…' : editingId ? 'Save changes' : 'Create schedule'}
+                {submitting ? t('common.saving') : editingId ? t('invoice_ui.save_changes') : t('invoice_ui.create_schedule')}
               </button>
             </div>
           </div>

@@ -154,6 +154,35 @@ describe('invoice amounts follow the reader locale', () => {
   });
 });
 
+describe('invoice STRINGS are translated too, not only the numbers', () => {
+  // The formatting assertions above would all pass on a page whose every label
+  // was still hardcoded English, so they say nothing about extraction. These
+  // do. Specific words, so the check cannot pass on whitespace drift.
+  it('renders French labels for fr-CA', async () => {
+    const text = await renderAt('fr-CA');
+    expect(text).toContain('Factures');
+    expect(text).toContain('Total impayé');
+    expect(text).not.toContain('Total Outstanding');
+  });
+
+  it('renders Chinese labels for zh-CN', async () => {
+    const text = await renderAt('zh-CN');
+    expect(text).toContain('发票');
+    expect(text).toContain('未收款总额');
+    expect(text).not.toContain('Total Outstanding');
+  });
+
+  it('leaks no raw translation key in any locale', async () => {
+    // t() returns the key on a miss rather than throwing, so without this a
+    // user would simply read `invoice_ui.total_outstanding` on the page.
+    const RAW_KEY = /\b[a-z][a-z0-9]*\.[a-z][a-z0-9_]{2,}\b/;
+    for (const locale of ['en-US', 'fr-CA', 'zh-CN']) {
+      const text = await renderAt(locale);
+      expect(RAW_KEY.exec(text)?.[0], `raw key leaked in ${locale}`).toBeUndefined();
+    }
+  });
+});
+
 describe('due dates are logical calendar days, formatted in UTC', () => {
   it('does not render the previous day west of UTC', async () => {
     // 2026-03-22 parses as UTC midnight; local-time formatting in any negative

@@ -75,7 +75,7 @@ const API = '/api/v1/agentbook-invoice';
 const CORE_API = '/api/v1/agentbook-core';
 
 export const NewInvoicePage: React.FC = () => {
-  const { locale } = useI18n();
+  const { locale, t } = useI18n();
   const navigate = useNavigate();
   const [clients, setClients] = useState<Client[]>([]);
   const [selectedClientId, setSelectedClientId] = useState('');
@@ -277,8 +277,7 @@ export const NewInvoicePage: React.FC = () => {
         <button type="button" onClick={() => navigate('/')} className="p-2 rounded-lg hover:bg-muted transition-colors text-muted-foreground">
           <ArrowLeft className="w-5 h-5" />
         </button>
-        <h1 className="text-2xl font-bold text-foreground">
-          New Invoice
+        <h1 className="text-2xl font-bold text-foreground">{t('invoice_ui.new_invoice')}
         </h1>
       </div>
 
@@ -288,13 +287,11 @@ export const NewInvoicePage: React.FC = () => {
       <div className="space-y-6">
         {/* Client info */}
         <div className="rounded-xl p-4 sm:p-6 border border-border bg-card">
-          <h2 className="text-sm font-semibold uppercase tracking-wide mb-4 text-muted-foreground">
-            Client Details
+          <h2 className="text-sm font-semibold uppercase tracking-wide mb-4 text-muted-foreground">{t('invoice_ui.client_details')}
           </h2>
           {clients.length > 0 && (
             <div className="mb-4">
-              <label className="block text-sm font-medium mb-1 text-foreground">
-                Select Existing Client
+              <label className="block text-sm font-medium mb-1 text-foreground">{t('invoice_ui.select_existing_client')}
               </label>
               <select
                 value={selectedClientId}
@@ -309,20 +306,18 @@ export const NewInvoicePage: React.FC = () => {
           {!selectedClientId && (
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm font-medium mb-1 text-foreground">
-                  Client Name
+                <label className="block text-sm font-medium mb-1 text-foreground">{t('invoice_ui.client_name')}
                 </label>
                 <input
                   type="text"
                   value={clientName}
                   onChange={(e) => setClientName(e.target.value)}
-                  placeholder="Enter client name"
+                  placeholder={t('invoice_ui.client_name_placeholder')}
                   className={fieldClass}
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium mb-1 text-foreground">
-                  Client Email
+                <label className="block text-sm font-medium mb-1 text-foreground">{t('invoice_ui.client_email')}
                 </label>
                 <input
                   type="email"
@@ -338,13 +333,11 @@ export const NewInvoicePage: React.FC = () => {
 
         {/* Invoice details */}
         <div className="rounded-xl p-4 sm:p-6 border border-border bg-card">
-          <h2 className="text-sm font-semibold uppercase tracking-wide mb-4 text-muted-foreground">
-            Invoice Details
+          <h2 className="text-sm font-semibold uppercase tracking-wide mb-4 text-muted-foreground">{t('invoice_ui.invoice_details')}
           </h2>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <div>
-              <label className="block text-sm font-medium mb-1 text-foreground">
-                Invoice Date
+              <label className="block text-sm font-medium mb-1 text-foreground">{t('invoice_ui.invoice_date')}
               </label>
               <input
                 type="date"
@@ -354,8 +347,7 @@ export const NewInvoicePage: React.FC = () => {
               />
             </div>
             <div>
-              <label className="block text-sm font-medium mb-1 text-foreground">
-                Terms
+              <label className="block text-sm font-medium mb-1 text-foreground">{t('invoice_ui.terms')}
               </label>
               <select
                 value={terms}
@@ -377,7 +369,7 @@ export const NewInvoicePage: React.FC = () => {
                 type="text"
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
-                placeholder="Project description"
+                placeholder={t('invoice_ui.project_description')}
                 className={fieldClass}
               />
             </div>
@@ -389,12 +381,11 @@ export const NewInvoicePage: React.FC = () => {
                 type="checkbox"
                 checked={deferEnabled}
                 onChange={(e) => setDeferEnabled(e.target.checked)}
-              />
-              Recognize revenue over time (retainer / subscription)
+              />{t('invoice_ui.recognize_over_time')}
             </label>
             {deferEnabled && (
               <div className="mt-2 flex items-center gap-2">
-                <span className="text-sm text-muted-foreground">Over</span>
+                <span className="text-sm text-muted-foreground">{t('invoice_ui.over')}</span>
                 <input
                   type="number"
                   min={2}
@@ -410,8 +401,7 @@ export const NewInvoicePage: React.FC = () => {
           {/* Currency selector — multi-currency (PR 13) */}
           <div className="mt-4 grid grid-cols-1 sm:grid-cols-3 gap-4">
             <div>
-              <label className="block text-sm font-medium mb-1 text-foreground">
-                Currency
+              <label className="block text-sm font-medium mb-1 text-foreground">{t('invoice_ui.currency_label')}
               </label>
               <select
                 value={currency}
@@ -444,17 +434,16 @@ export const NewInvoicePage: React.FC = () => {
 
         {/* Line items */}
         <div className="rounded-xl p-4 sm:p-6 border border-border bg-card">
-          <h2 className="text-sm font-semibold uppercase tracking-wide mb-4 text-muted-foreground">
-            Line Items
+          <h2 className="text-sm font-semibold uppercase tracking-wide mb-4 text-muted-foreground">{t('invoice_ui.line_items')}
           </h2>
 
           <div className="space-y-3">
             {/* Desktop header */}
             <div className="hidden sm:grid sm:grid-cols-12 gap-3 text-xs font-medium uppercase tracking-wide px-1 text-muted-foreground">
-              <span className="col-span-5">Description</span>
-              <span className="col-span-2 text-right">Qty</span>
-              <span className="col-span-2 text-right">Rate</span>
-              <span className="col-span-2 text-right">Amount</span>
+              <span className="col-span-5">{t('common.description')}</span>
+              <span className="col-span-2 text-right">{t('invoice_ui.qty')}</span>
+              <span className="col-span-2 text-right">{t('invoice_ui.rate')}</span>
+              <span className="col-span-2 text-right">{t('expenses_ui.col_amount')}</span>
               <span className="col-span-1" />
             </div>
 
@@ -471,13 +460,12 @@ export const NewInvoicePage: React.FC = () => {
                     type="text"
                     value={li.description}
                     onChange={(e) => updateLineItem(li.id, 'description', e.target.value)}
-                    placeholder="Item description"
+                    placeholder={t('invoice_ui.item_description')}
                     className={fieldClass}
                   />
                 </div>
                 <div className="sm:col-span-2">
-                  <label className="sm:hidden block text-xs font-medium mb-1 text-muted-foreground">
-                    Quantity
+                  <label className="sm:hidden block text-xs font-medium mb-1 text-muted-foreground">{t('invoice_ui.quantity')}
                   </label>
                   <input
                     type="number"
@@ -524,8 +512,7 @@ export const NewInvoicePage: React.FC = () => {
             onClick={addLineItem}
             className="mt-3 inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium transition-colors hover:bg-muted text-primary"
           >
-            <Plus className="w-4 h-4" />
-            Add Line Item
+            <Plus className="w-4 h-4" />{t('invoice_ui.add_line_item')}
           </button>
         </div>
 
@@ -534,12 +521,11 @@ export const NewInvoicePage: React.FC = () => {
           {showTaxField ? (
             <div className="mb-6 space-y-2">
               <div className="flex items-center justify-between">
-                <span className="text-sm text-muted-foreground">Subtotal</span>
+                <span className="text-sm text-muted-foreground">{t('invoice_ui.subtotal')}</span>
                 <span className="text-sm font-medium text-foreground">{formatCurrency(subtotal, currency, locale)}</span>
               </div>
               <div className="flex items-center justify-between">
-                <label htmlFor="tax-rate" className="text-sm text-muted-foreground">
-                  Tax rate (%)
+                <label htmlFor="tax-rate" className="text-sm text-muted-foreground">{t('invoice_ui.tax_rate_pct')}
                 </label>
                 <input
                   id="tax-rate"
@@ -553,11 +539,11 @@ export const NewInvoicePage: React.FC = () => {
                 />
               </div>
               <div className="flex items-center justify-between">
-                <span className="text-sm text-muted-foreground">Tax</span>
+                <span className="text-sm text-muted-foreground">{t('invoice_ui.tax')}</span>
                 <span className="text-sm font-medium text-foreground">{formatCurrency(taxAmount, currency, locale)}</span>
               </div>
               <div className="flex items-center justify-between pt-2 border-t border-border">
-                <span className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Total</span>
+                <span className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">{t('common.total')}</span>
                 <span className="text-2xl font-bold text-foreground">{formatCurrency(total, currency, locale)}</span>
               </div>
             </div>

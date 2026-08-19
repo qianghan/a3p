@@ -8,7 +8,7 @@ import {
   RefreshCw,
   UserPlus,
 } from 'lucide-react';
-import { ChatCTA } from '@naap/plugin-sdk';
+import { ChatCTA, useI18n } from '@naap/plugin-sdk';
 import { formatMoney } from '@agentbook/i18n';
 import { useTenantCurrency } from '../hooks/useTenantCurrency';
 
@@ -24,11 +24,16 @@ interface Client {
   deletedAt?: string | null;
 }
 
-function formatCurrency(n: number, currency: string = 'USD') {
-  return formatMoney(Math.round(n * 100), currency);
+// locale is REQUIRED. formatMoney() would infer one from the currency code,
+// which renders CAD as en-CA "$1,234.56" for a reader who should see
+// "1 234,56 $" — the same bug, just without an 'en-US' literal to grep for.
+function formatCurrency(n: number, currency: string, locale: string) {
+  return new Intl.NumberFormat(locale, { style: 'currency', currency })
+    .format(Math.round(n * 100) / 100);
 }
 
 export const ClientsPage: React.FC = () => {
+  const { t, locale } = useI18n();
   const [clients, setClients] = useState<Client[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -70,11 +75,9 @@ export const ClientsPage: React.FC = () => {
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
         <div>
-          <h1 className="text-2xl font-bold" style={{ color: 'var(--text-primary)' }}>
-            Clients
+          <h1 className="text-2xl font-bold" style={{ color: 'var(--text-primary)' }}>{t('invoice_ui.clients')}
           </h1>
-          <p className="text-sm mt-1" style={{ color: 'var(--text-secondary)' }}>
-            Manage your billing contacts
+          <p className="text-sm mt-1" style={{ color: 'var(--text-secondary)' }}>{t('invoice_ui.clients_sub')}
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -84,16 +87,15 @@ export const ClientsPage: React.FC = () => {
             className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
               showDeleted ? 'bg-red-100 text-red-700' : 'border hover:bg-gray-50'
             }`}
-            title="Include soft-deleted clients"
+            title={t('invoice_ui.include_deleted_clients')}
           >
-            {showDeleted ? 'Hide deleted' : 'Show deleted'}
+            {showDeleted ? t('invoice_ui.hide_deleted') : t('invoice_ui.show_deleted')}
           </button>
           <button
             className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium text-white transition-colors"
             style={{ backgroundColor: 'var(--accent-emerald, #10b981)' }}
           >
-            <UserPlus className="w-4 h-4" />
-            Add Client
+            <UserPlus className="w-4 h-4" />{t('invoice_ui.add_client')}
           </button>
         </div>
       </div>
@@ -119,8 +121,8 @@ export const ClientsPage: React.FC = () => {
       ) : clients.length === 0 ? (
         <div className="text-center py-20" style={{ color: 'var(--text-secondary)' }}>
           <Users className="w-10 h-10 mx-auto mb-3 opacity-40" />
-          <p className="font-medium">No clients yet</p>
-          <p className="text-sm mt-1">Add your first client to start invoicing.</p>
+          <p className="font-medium">{t('invoice_ui.no_clients')}</p>
+          <p className="text-sm mt-1">{t('invoice_ui.no_clients_hint')}</p>
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -146,45 +148,45 @@ export const ClientsPage: React.FC = () => {
                     <button
                       onClick={() => handleRestore(client.id)}
                       className="px-2 py-0.5 rounded-full text-xs font-medium no-underline bg-emerald-100 text-emerald-700 hover:bg-emerald-200"
-                      title="Restore (within 90 days of delete)"
-                    >Restore</button>
+                      title={t('invoice_ui.restore_within_90')}
+                    >{t('common.restore')}</button>
                   ) : (
                     <span
                       className={`px-2 py-0.5 rounded-full text-xs font-medium ${
                         isPaidUp ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'
                       }`}
                     >
-                      {isPaidUp ? 'Paid Up' : 'Outstanding'}
+                      {isPaidUp ? t('invoice_ui.paid_up') : t('invoice_ui.outstanding')}
                     </span>
                   )}
                 </div>
 
                 <div className="grid grid-cols-2 gap-3 mt-3">
                   <div>
-                    <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>Total Billed</p>
+                    <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>{t('invoice_ui.total_billed')}</p>
                     <p className="text-sm font-semibold flex items-center gap-1" style={{ color: 'var(--text-primary)' }}>
                       <DollarSign className="w-3 h-3" />
-                      {formatCurrency(client.total_billed, currency)}
+                      {formatCurrency(client.total_billed, currency, locale)}
                     </p>
                   </div>
                   <div>
-                    <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>Total Paid</p>
+                    <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>{t('invoice_ui.total_paid')}</p>
                     <p className="text-sm font-semibold text-green-600 flex items-center gap-1">
                       <DollarSign className="w-3 h-3" />
-                      {formatCurrency(client.total_paid, currency)}
+                      {formatCurrency(client.total_paid, currency, locale)}
                     </p>
                   </div>
                   <div>
-                    <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>Outstanding</p>
+                    <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>{t('invoice_ui.outstanding')}</p>
                     <p className={`text-sm font-semibold flex items-center gap-1 ${
                       client.outstanding_balance > 0 ? 'text-amber-600' : 'text-green-600'
                     }`}>
                       <DollarSign className="w-3 h-3" />
-                      {formatCurrency(client.outstanding_balance, currency)}
+                      {formatCurrency(client.outstanding_balance, currency, locale)}
                     </p>
                   </div>
                   <div>
-                    <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>Avg Days to Pay</p>
+                    <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>{t('invoice_ui.avg_days_to_pay')}</p>
                     <p className="text-sm font-semibold flex items-center gap-1" style={{ color: 'var(--text-primary)' }}>
                       <Clock className="w-3 h-3" />
                       {client.avg_days_to_pay} days

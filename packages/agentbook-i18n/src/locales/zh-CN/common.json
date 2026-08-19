@@ -28,5 +28,12 @@
   "refresh": "刷新",
   "skip": "跳过",
   "saving": "正在保存…",
-  "create": "创建"
+  "create": "创建",
+  "actions": "操作",
+  "status": "状态",
+  "description": "说明",
+  "total": "总计",
+  "client": "客户",
+  "loading_ellipsis": "正在加载…",
+  "restore": "恢复"
 }

@@ -1,10 +1,11 @@
 import React, { useEffect, useState } from 'react';
 import { Briefcase, Clock, DollarSign, TrendingUp } from 'lucide-react';
-import { ChatCTA } from '@naap/plugin-sdk';
+import { ChatCTA, useI18n } from '@naap/plugin-sdk';
 
 const API = '/api/v1/agentbook-invoice';
 
 export const ProjectsPage: React.FC = () => {
+  const { t } = useI18n();
   const [projects, setProjects] = useState<any[]>([]);
   const [profitability, setProfitability] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -26,14 +27,14 @@ export const ProjectsPage: React.FC = () => {
       <div className="flex items-center justify-between mb-6">
         <div className="flex items-center gap-3">
           <Briefcase className="w-6 h-6 text-primary" />
-          <h1 className="text-2xl font-bold">Projects</h1>
+          <h1 className="text-2xl font-bold">{t('invoice_ui.projects')}</h1>
         </div>
       </div>
 
       {/* PR 44 / Tier 1 #1: chat-first escape hatch */}
       <ChatCTA example="start a new project for Acme Corp called 'Q2 redesign'" />
 
-      {loading && <p className="text-muted-foreground">Loading...</p>}
+      {loading && <p className="text-muted-foreground">{t('common.loading_ellipsis')}</p>}
 
       <div className="space-y-3">
         {projects.map((p: any) => {
@@ -61,7 +62,7 @@ export const ProjectsPage: React.FC = () => {
               {p.budgetHours && (
                 <div className="mt-3">
                   <div className="flex justify-between text-xs text-muted-foreground mb-1">
-                    <span>Budget</span>
+                    <span>{t('invoice_ui.budget')}</span>
                     <span>{p.totalHours || 0}h / {p.budgetHours}h</span>
                   </div>
                   <div className="h-1.5 bg-muted rounded-full overflow-hidden">
@@ -75,7 +76,7 @@ export const ProjectsPage: React.FC = () => {
         {projects.length === 0 && !loading && (
           <div className="text-center py-8 text-muted-foreground">
             <Briefcase className="w-10 h-10 mx-auto mb-3 opacity-50" />
-            <p>No projects yet. Create one to start tracking time!</p>
+            <p>{t('invoice_ui.no_projects')}</p>
           </div>
         )}
       </div>

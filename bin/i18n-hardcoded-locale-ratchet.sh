@@ -27,6 +27,23 @@
 #
 # A Quebec freelancer reading an invoice total sees the wrong one.
 #
+# A SECOND, QUIETER FORM OF THE SAME BUG
+#
+# formatMoney(cents, currency) has no 'en-US' literal in it, so the grep below
+# would never have found it — but it INFERS a display locale from the currency
+# code, which produces exactly the same wrong output:
+#
+#     formatMoney(123456, 'CAD')  ->  en-CA  ->  "$1,234.56"
+#     correct for a fr-CA reader             ->  "1 234,56 $"
+#
+# That helper is right only where no locale exists at all. Inside a plugin
+# component a locale is ALWAYS available via useI18n(), so every call there is
+# locale-blind. This is not hypothetical: while fixing the invoice plugin I
+# added a `locale` parameter to Estimates' formatCurrency, threaded it through
+# every call site, and left the body calling formatMoney — the parameter was
+# accepted and ignored, and the fix was cosmetic. The measure below counts this
+# class too, so the same mistake fails CI instead of reading as done.
+#
 # THE FIX AT A CALL SITE
 #
 # Inside a component, take the formatter off the shell — it is already bound to
@@ -83,6 +100,16 @@ matches() {
        # which is exactly backwards.` \
       | grep -vE ':[0-9]+:[[:space:]]*(//|\*|/\*)' \
       | sed "s|^$ROOT_DIR/||"
+
+    # Second class: formatMoney() inside a plugin frontend. No 'en-US' literal,
+    # same wrong output — see the header. Import lines are excluded so the
+    # import itself is not counted alongside its call sites.
+    grep -rn --include='*.tsx' --include='*.ts' 'formatMoney(' "$dir" 2>/dev/null \
+      | grep -v '__tests__' \
+      | grep -v '\.test\.' \
+      | grep -vE ':[0-9]+:[[:space:]]*(//|\*|/\*)' \
+      | grep -vE ':[0-9]+:[[:space:]]*import' \
+      | sed "s|^$ROOT_DIR/||"
   done
 }
 
@@ -98,7 +125,7 @@ case "${1:-}" in
 esac
 
 BASELINE=$(cat "$BASELINE_FILE" 2>/dev/null || echo 999999)
-echo "[locale-ratchet] hardcoded 'en-US' in plugin frontends: $COUNT (baseline $BASELINE)"
+echo "[locale-ratchet] locale-blind money/date formatting: $COUNT (baseline $BASELINE)"
 
 if [ "$COUNT" -gt "$BASELINE" ]; then
   echo "[locale-ratchet] FAIL — increased by $((COUNT - BASELINE)). A new call site"

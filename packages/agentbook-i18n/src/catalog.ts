@@ -37,6 +37,7 @@ import enExpense from './locales/en/expense.json';
 import enExpensesUi from './locales/en/expenses_ui.json';
 import enHomeOffice from './locales/en/homeoffice.json';
 import enInvoice from './locales/en/invoice.json';
+import enInvoiceUi from './locales/en/invoice_ui.json';
 import enOnboarding from './locales/en/onboarding.json';
 import enProactive from './locales/en/proactive.json';
 import enRate from './locales/en/rate.json';
@@ -56,6 +57,7 @@ import frExpense from './locales/fr-CA/expense.json';
 import frExpensesUi from './locales/fr-CA/expenses_ui.json';
 import frHomeOffice from './locales/fr-CA/homeoffice.json';
 import frInvoice from './locales/fr-CA/invoice.json';
+import frInvoiceUi from './locales/fr-CA/invoice_ui.json';
 import frOnboarding from './locales/fr-CA/onboarding.json';
 import frProactive from './locales/fr-CA/proactive.json';
 import frRate from './locales/fr-CA/rate.json';
@@ -74,6 +76,7 @@ import zhExpense from './locales/zh-CN/expense.json';
 import zhExpensesUi from './locales/zh-CN/expenses_ui.json';
 import zhHomeOffice from './locales/zh-CN/homeoffice.json';
 import zhInvoice from './locales/zh-CN/invoice.json';
+import zhInvoiceUi from './locales/zh-CN/invoice_ui.json';
 import zhOnboarding from './locales/zh-CN/onboarding.json';
 import zhProactive from './locales/zh-CN/proactive.json';
 import zhRate from './locales/zh-CN/rate.json';
@@ -97,6 +100,7 @@ export const CATALOG: Catalog = Object.freeze({
     expenses_ui: enExpensesUi,
     homeoffice: enHomeOffice,
     invoice: enInvoice,
+    invoice_ui: enInvoiceUi,
     onboarding: enOnboarding,
     proactive: enProactive,
     rate: enRate,
@@ -115,6 +119,7 @@ export const CATALOG: Catalog = Object.freeze({
     expenses_ui: frExpensesUi,
     homeoffice: frHomeOffice,
     invoice: frInvoice,
+    invoice_ui: frInvoiceUi,
     onboarding: frOnboarding,
     proactive: frProactive,
     rate: frRate,
@@ -133,6 +138,7 @@ export const CATALOG: Catalog = Object.freeze({
     expenses_ui: zhExpensesUi,
     homeoffice: zhHomeOffice,
     invoice: zhInvoice,
+    invoice_ui: zhInvoiceUi,
     onboarding: zhOnboarding,
     proactive: zhProactive,
     rate: zhRate,

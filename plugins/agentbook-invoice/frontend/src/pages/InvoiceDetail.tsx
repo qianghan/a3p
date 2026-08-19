@@ -62,7 +62,7 @@ export function InvoiceDetailPage(): JSX.Element {
   // every invoice total and date in US format however the tenant was
   // configured — a Quebec freelancer read "$1,234.56" where the correct
   // rendering is "1 234,56 $".
-  const { formatCurrency, formatDateOnly } = useI18n();
+  const { formatCurrency, formatDateOnly, t } = useI18n();
   const fmt = (cents: number | null | undefined, currency = 'USD'): string =>
     cents == null || isNaN(cents) ? '—' : formatCurrency(cents, currency);
   // Issue/due/paid dates are logical calendar days. formatDateOnly forces UTC;
@@ -195,7 +195,7 @@ export function InvoiceDetailPage(): JSX.Element {
   if (err || !invoice) {
     return (
       <div className="p-6">
-        <p className="text-destructive">{err ?? 'Invoice not found'}</p>
+        <p className="text-destructive">{err ?? t('invoice_ui.invoice_not_found')}</p>
       </div>
     );
   }
@@ -243,7 +243,7 @@ export function InvoiceDetailPage(): JSX.Element {
               <InvoiceStatusBadge status={status} />
             </div>
             <p className="mt-1 text-sm text-muted-foreground">
-              {invoice.client?.name ?? 'No client'}
+              {invoice.client?.name ?? t('invoice_ui.no_client')}
               {invoice.client?.email ? ` · ${invoice.client.email}` : ''}
               {' · Issued '}{fmtDate(invoice.issuedDate)}
               {invoice.dueDate ? ` · Due ${fmtDate(invoice.dueDate)}` : ''}
@@ -272,7 +272,7 @@ export function InvoiceDetailPage(): JSX.Element {
             className="flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:opacity-90 disabled:opacity-50"
           >
             {actionBusy === 'send' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
-            {actionBusy === 'send' ? 'Sending…' : 'Send Invoice'}
+            {actionBusy === 'send' ? t('invoice_ui.sending') : t('invoice_ui.send_invoice')}
           </button>
         )}
         {canRemind && (
@@ -292,7 +292,7 @@ export function InvoiceDetailPage(): JSX.Element {
             className="flex items-center gap-1.5 rounded-lg border border-border px-4 py-2 text-sm font-medium text-foreground hover:bg-muted disabled:opacity-50"
           >
             {actionBusy === 'paylink' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Link2 className="w-4 h-4" />}
-            {actionBusy === 'paylink' ? 'Creating link…' : 'Collect by card'}
+            {actionBusy === 'paylink' ? t('invoice_ui.creating_link') : t('invoice_ui.collect_by_card')}
           </button>
         )}
 
@@ -338,9 +338,9 @@ export function InvoiceDetailPage(): JSX.Element {
       {/* Summary totals */}
       <div className="grid grid-cols-3 gap-3">
         {[
-          { label: 'Invoice total', value: fmt(invoice.amountCents, invoice.currency), highlight: false },
-          { label: 'Amount paid', value: fmt(invoice.totalPaidCents, invoice.currency), highlight: false },
-          { label: 'Balance due', value: fmt(invoice.balanceDueCents, invoice.currency), highlight: invoice.balanceDueCents > 0 },
+          { label: t('invoice_ui.invoice_total'), value: fmt(invoice.amountCents, invoice.currency), highlight: false },
+          { label: t('invoice_ui.amount_paid'), value: fmt(invoice.totalPaidCents, invoice.currency), highlight: false },
+          { label: t('invoice_ui.balance_due'), value: fmt(invoice.balanceDueCents, invoice.currency), highlight: invoice.balanceDueCents > 0 },
         ].map(({ label, value, highlight }) => (
           <div
             key={label}
@@ -363,10 +363,10 @@ export function InvoiceDetailPage(): JSX.Element {
         <table className="w-full text-sm">
           <thead className="border-b border-border bg-background">
             <tr>
-              <th className="px-4 py-2.5 text-left text-xs font-medium text-muted-foreground">Description</th>
-              <th className="px-4 py-2.5 text-right text-xs font-medium text-muted-foreground">Qty</th>
-              <th className="px-4 py-2.5 text-right text-xs font-medium text-muted-foreground">Rate</th>
-              <th className="px-4 py-2.5 text-right text-xs font-medium text-muted-foreground">Amount</th>
+              <th className="px-4 py-2.5 text-left text-xs font-medium text-muted-foreground">{t('common.description')}</th>
+              <th className="px-4 py-2.5 text-right text-xs font-medium text-muted-foreground">{t('invoice_ui.qty')}</th>
+              <th className="px-4 py-2.5 text-right text-xs font-medium text-muted-foreground">{t('invoice_ui.rate')}</th>
+              <th className="px-4 py-2.5 text-right text-xs font-medium text-muted-foreground">{t('expenses_ui.col_amount')}</th>
             </tr>
           </thead>
           <tbody>
@@ -388,18 +388,18 @@ export function InvoiceDetailPage(): JSX.Element {
         <div className="border-t border-border bg-background px-4 py-3 flex justify-end">
           <div className="text-right space-y-1">
             <div className="flex gap-8 text-sm">
-              <span className="text-muted-foreground">Total</span>
+              <span className="text-muted-foreground">{t('common.total')}</span>
               <span className="font-bold text-foreground">{fmt(invoice.amountCents, invoice.currency)}</span>
             </div>
             {invoice.totalPaidCents > 0 && (
               <div className="flex gap-8 text-sm">
-                <span className="text-muted-foreground">Paid</span>
+                <span className="text-muted-foreground">{t('invoice_ui.paid')}</span>
                 <span className="text-primary">−{fmt(invoice.totalPaidCents, invoice.currency)}</span>
               </div>
             )}
             {invoice.balanceDueCents > 0 && (
               <div className="flex gap-8 text-sm border-t border-border pt-1 mt-1">
-                <span className="text-muted-foreground font-medium">Balance due</span>
+                <span className="text-muted-foreground font-medium">{t('invoice_ui.balance_due')}</span>
                 <span className="font-bold text-yellow-400">{fmt(invoice.balanceDueCents, invoice.currency)}</span>
               </div>
             )}
@@ -410,14 +410,14 @@ export function InvoiceDetailPage(): JSX.Element {
       {/* Payment history */}
       {invoice.payments.length > 0 && (
         <div>
-          <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Payment history</h3>
+          <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">{t('invoice_ui.payment_history')}</h3>
           <div className="rounded-xl border border-border bg-card overflow-hidden">
             <table className="w-full text-sm">
               <thead className="border-b border-border bg-background">
                 <tr>
-                  <th className="px-4 py-2.5 text-left text-xs font-medium text-muted-foreground">Date</th>
-                  <th className="px-4 py-2.5 text-left text-xs font-medium text-muted-foreground">Method</th>
-                  <th className="px-4 py-2.5 text-right text-xs font-medium text-muted-foreground">Amount</th>
+                  <th className="px-4 py-2.5 text-left text-xs font-medium text-muted-foreground">{t('expenses_ui.col_date')}</th>
+                  <th className="px-4 py-2.5 text-left text-xs font-medium text-muted-foreground">{t('invoice_ui.method')}</th>
+                  <th className="px-4 py-2.5 text-right text-xs font-medium text-muted-foreground">{t('expenses_ui.col_amount')}</th>
                 </tr>
               </thead>
               <tbody>

@@ -28,5 +28,12 @@
   "refresh": "Refresh",
   "skip": "Skip",
   "saving": "Saving…",
-  "create": "Create"
+  "create": "Create",
+  "actions": "Actions",
+  "status": "Status",
+  "description": "Description",
+  "total": "Total",
+  "client": "Client",
+  "loading_ellipsis": "Loading...",
+  "restore": "Restore"
 }

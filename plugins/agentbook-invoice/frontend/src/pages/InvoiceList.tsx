@@ -54,7 +54,7 @@ function formatDate(d: string | null | undefined, locale: string) {
 
 export const InvoiceListPage: React.FC = () => {
   // Locale for the UTC-rendered logical-date helpers above.
-  const { locale } = useI18n();
+  const { locale, t } = useI18n();
   const navigate = useNavigate();
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [loading, setLoading] = useState(true);
@@ -125,11 +125,9 @@ export const InvoiceListPage: React.FC = () => {
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
         <div>
-          <h1 className="text-2xl font-bold" style={{ color: 'var(--text-primary)' }}>
-            Invoices
+          <h1 className="text-2xl font-bold" style={{ color: 'var(--text-primary)' }}>{t('invoice_ui.invoices')}
           </h1>
-          <p className="text-sm mt-1" style={{ color: 'var(--text-secondary)' }}>
-            Manage and track all your invoices
+          <p className="text-sm mt-1" style={{ color: 'var(--text-secondary)' }}>{t('invoice_ui.invoices_sub')}
           </p>
         </div>
         <button
@@ -137,8 +135,7 @@ export const InvoiceListPage: React.FC = () => {
           className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium text-white transition-colors"
           style={{ backgroundColor: 'var(--accent-emerald, #10b981)' }}
         >
-          <Plus className="w-4 h-4" />
-          New Invoice
+          <Plus className="w-4 h-4" />{t('invoice_ui.new_invoice')}
         </button>
       </div>
 
@@ -151,8 +148,7 @@ export const InvoiceListPage: React.FC = () => {
           <DollarSign className="w-5 h-5 text-amber-600" />
         </div>
         <div>
-          <p className="text-xs font-medium uppercase tracking-wide" style={{ color: 'var(--text-secondary)' }}>
-            Total Outstanding
+          <p className="text-xs font-medium uppercase tracking-wide" style={{ color: 'var(--text-secondary)' }}>{t('invoice_ui.total_outstanding')}
           </p>
           <p className="text-xl font-bold" style={{ color: 'var(--text-primary)' }}>
             {formatCurrency(outstandingCents, outstandingCurrency, locale)}
@@ -190,7 +186,7 @@ export const InvoiceListPage: React.FC = () => {
             showDeleted ? 'bg-red-100 text-red-700' : 'hover:bg-gray-100'
           }`}
           style={!showDeleted ? { color: 'var(--text-secondary)' } : undefined}
-          title="Include soft-deleted invoices"
+          title={t('invoice_ui.include_deleted_invoices')}
         >
           {showDeleted ? 'Hide deleted' : 'Show deleted'}
         </button>
@@ -236,8 +232,8 @@ export const InvoiceListPage: React.FC = () => {
       ) : filtered.length === 0 ? (
         <div className="text-center py-20" style={{ color: 'var(--text-secondary)' }}>
           <FileText className="w-10 h-10 mx-auto mb-3 opacity-40" />
-          <p className="font-medium">No invoices found</p>
-          <p className="text-sm mt-1">Create your first invoice to get started.</p>
+          <p className="font-medium">{t('invoice_ui.no_invoices')}</p>
+          <p className="text-sm mt-1">{t('invoice_ui.no_invoices_hint')}</p>
         </div>
       ) : (
         <div className="space-y-3">
@@ -264,8 +260,8 @@ export const InvoiceListPage: React.FC = () => {
                       <button
                         onClick={(ev) => { ev.stopPropagation(); handleRestore(inv.id); }}
                         className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium no-underline bg-emerald-100 text-emerald-700 hover:bg-emerald-200"
-                        title="Restore (within 90 days of delete)"
-                      >Restore</button>
+                        title={t('invoice_ui.restore_within_90')}
+                      >{t('common.restore')}</button>
                     )}
                     {/* Task 7: per-row remind button for overdue invoices */}
                     {inv.status === 'overdue' && (

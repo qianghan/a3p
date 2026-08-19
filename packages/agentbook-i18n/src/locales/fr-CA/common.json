@@ -28,5 +28,12 @@
   "refresh": "Actualiser",
   "skip": "Passer",
   "saving": "Enregistrement…",
-  "create": "Créer"
+  "create": "Créer",
+  "actions": "Actions",
+  "status": "Statut",
+  "description": "Description",
+  "total": "Total",
+  "client": "Client",
+  "loading_ellipsis": "Chargement…",
+  "restore": "Restaurer"
 }

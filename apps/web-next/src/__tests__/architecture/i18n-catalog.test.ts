@@ -103,6 +103,16 @@ const IDENTICAL_ALLOWED = new Set<string>([
   'expenses_ui.budgets',
   // "Distance" is the same word in French.
   'expenses_ui.distance',
+  // Shared table/section labels that French borrows unchanged. "Client",
+  // "Total" and "Budget" in particular are the standard French accounting
+  // terms, so substituting a synonym to satisfy this check would make the
+  // copy read as a mistake to a native speaker.
+  'common.actions',
+  'common.description',
+  'common.total',
+  'common.client',
+  'invoice_ui.clients',
+  'invoice_ui.budget',
 ]);
 
 /**
