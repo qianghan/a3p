@@ -76,7 +76,7 @@ export const AgentsPage: React.FC = () => {
                 <input type="checkbox" checked={agent.config.enabled}
                   onChange={e => updateConfig(agent.id, 'enabled', e.target.checked)}
                   className="rounded" />
-                <span className="text-xs">{agent.config.enabled ? 'Active' : 'Disabled'}</span>
+                <span className="text-xs">{agent.config.enabled ? t('common.active') : t('common.disabled')}</span>
               </label>
             </div>
 
@@ -86,7 +86,7 @@ export const AgentsPage: React.FC = () => {
                 <div>
                   <div className="flex justify-between text-xs mb-1">
                     <span className="text-muted-foreground">{t('agents.approach')}</span>
-                    <span>{agent.config.aggressiveness < 0.3 ? 'Gentle' : agent.config.aggressiveness < 0.7 ? 'Balanced' : 'Assertive'}</span>
+                    <span>{agent.config.aggressiveness < 0.3 ? t('core_ui.gentle') : agent.config.aggressiveness < 0.7 ? t('core_ui.balanced') : t('core_ui.assertive')}</span>
                   </div>
                   <input type="range" min="0" max="1" step="0.1" value={agent.config.aggressiveness}
                     onChange={e => updateConfig(agent.id, 'aggressiveness', parseFloat(e.target.value))}

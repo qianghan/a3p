@@ -105,6 +105,7 @@ export const TaxPackagePage: React.FC = () => {
 };
 
 const TaxPackageContent: React.FC = () => {
+  const { t } = useI18n();
   // Shared with the Filing Review tab above and with the chat path's
   // defaultFilingYear(), so no two surfaces mean different years.
   const lastYear = currentFilingYear();
@@ -161,7 +162,7 @@ const TaxPackageContent: React.FC = () => {
       <div className="flex items-center justify-between mb-6">
         <div className="flex items-center gap-3">
           <FileText className="w-6 h-6 text-primary" />
-          <h1 className="text-2xl font-bold">Year-end Tax Package</h1>
+          <h1 className="text-2xl font-bold">{t('tax_ui.year_end_package')}</h1>
         </div>
       </div>
 
@@ -173,7 +174,7 @@ const TaxPackageContent: React.FC = () => {
       <div className="bg-card border border-border rounded-xl p-4 mb-6">
         <div className="flex items-end gap-3 flex-wrap">
           <div>
-            <label className="text-xs text-muted-foreground block mb-1">Tax year</label>
+            <label className="text-xs text-muted-foreground block mb-1">{t('tax_ui.tax_year')}</label>
             <select
               value={year}
               onChange={(e) => {
@@ -181,7 +182,7 @@ const TaxPackageContent: React.FC = () => {
                 if (Number.isInteger(y)) setYear(y);
               }}
               className="p-2 border border-border rounded-lg bg-background"
-              aria-label="Tax year"
+              aria-label={t('tax_ui.tax_year')}
             >
               {yearOptions.map((y) => (
                 <option key={y} value={y}>{y}</option>
@@ -195,7 +196,7 @@ const TaxPackageContent: React.FC = () => {
           >
             {generating === year
               ? <><Loader2 className="w-4 h-4 animate-spin" /> Building…</>
-              : <><FileText className="w-4 h-4" /> Generate package</>}
+              : <><FileText className="w-4 h-4" /> {t('tax_ui.generate_package')}</>}
           </button>
           <p className="text-xs text-muted-foreground">
             Bundles your P&amp;L, mileage, deductions, and AR snapshot into a PDF + CSVs
@@ -208,10 +209,10 @@ const TaxPackageContent: React.FC = () => {
       </div>
 
       {/* History */}
-      <h2 className="text-sm font-medium text-muted-foreground mb-3">Past packages</h2>
+      <h2 className="text-sm font-medium text-muted-foreground mb-3">{t('tax_ui.past_packages')}</h2>
       {packages.length === 0 && (
         <p className="text-sm text-muted-foreground text-center py-6">
-          No packages yet. Pick a year above and tap <b>Generate package</b>.
+          No packages yet. Pick a year above and tap <b>{t('tax_ui.generate_package')}</b>.
         </p>
       )}
       <div className="space-y-2">
@@ -277,7 +278,7 @@ const TaxPackageContent: React.FC = () => {
                     onClick={() => generate(p.year)}
                     disabled={generating !== null}
                     className="px-3 py-1.5 text-xs rounded-lg border border-border hover:bg-muted/50 inline-flex items-center gap-1 disabled:opacity-50"
-                    title="Rebuild this package with the latest books"
+                    title={t('tax_ui.rebuild_package')}
                   >
                     {generating === p.year
                       ? <Loader2 className="w-3.5 h-3.5 animate-spin" />

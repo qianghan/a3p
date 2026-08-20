@@ -1,0 +1,18 @@
+{
+  "subscription_plans": "Subscription Plans",
+  "admin_manage_templates": "Admin view — manage plan templates",
+  "basic_info": "Basic info",
+  "plan_name": "Plan name",
+  "url_safe_id": "URL-safe, unique identifier",
+  "plan_desc_placeholder": "Short plan description shown to users",
+  "price_cents": "Price (cents)",
+  "interval": "Interval",
+  "billing_cycle_fixed": "Billing cycle — fixed at create",
+  "features": "Features",
+  "quotas": "Quotas",
+  "tax_package_short": "Tax pkg",
+  "start_from_template": "Start from a template",
+  "admin_creates_plan": "Admin — creates a new plan in the database",
+  "save_plan": "Save plan",
+  "start_trial": "Start trial — {plan}"
+}

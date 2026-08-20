@@ -17,37 +17,43 @@ const Skeleton: React.FC<{ className?: string }> = ({ className }) => (
   <div className={`animate-pulse rounded-2xl bg-muted/40 ${className}`} />
 );
 
-const DesktopHeaderActions: React.FC = () => (
+const DesktopHeaderActions: React.FC = () => {
+  // Block body rather than an implicit return: this component needs its own
+  // useI18n() call, and a hook cannot be called from an expression body.
+  const { t } = useI18n();
+  return (
   <div className="hidden lg:flex items-center gap-2">
     <a href="/agentbook/invoices/new" className="text-sm font-medium px-3 py-2 rounded-lg bg-primary text-primary-foreground hover:opacity-90 flex items-center gap-1.5">
-      <FilePlus2 className="w-4 h-4" /> New invoice
+      <FilePlus2 className="w-4 h-4" /> {t('dashboard.new_invoice')}
     </a>
     <a href="/agentbook/expenses/new" className="text-sm font-medium px-3 py-2 rounded-lg bg-muted hover:bg-muted/80 text-foreground flex items-center gap-1.5">
-      <Camera className="w-4 h-4" /> Snap
+      <Camera className="w-4 h-4" /> {t('dashboard.snap')}
     </a>
     <a href="/agentbook/agents" className="text-sm font-medium px-3 py-2 rounded-lg bg-muted hover:bg-muted/80 text-foreground flex items-center gap-1.5">
-      <MessageSquare className="w-4 h-4" /> Ask
+      <MessageSquare className="w-4 h-4" /> {t('dashboard.ask')}
     </a>
   </div>
-);
+  );
+};
 
 const Kebab: React.FC<{ onRefresh: () => void; showTelegramHint: boolean }> = ({ onRefresh, showTelegramHint }) => {
+  // Its own hook call: Kebab is a nested component and does not inherit
+  // DashboardPage's destructured `t`.
+  const { t } = useI18n();
   const [open, setOpen] = useState(false);
   return (
     <div className="relative">
-      <button onClick={() => setOpen(o => !o)} aria-label="More" className="p-2 rounded-lg hover:bg-muted">
+      <button onClick={() => setOpen(o => !o)} aria-label={t('common.more')} className="p-2 rounded-lg hover:bg-muted">
         <MoreHorizontal className="w-5 h-5 text-muted-foreground" />
       </button>
       {open && (
         <div className="absolute right-0 top-full mt-1 w-64 bg-card border border-border rounded-xl shadow-lg p-2 z-50">
           <button onClick={() => { setOpen(false); onRefresh(); }} className="w-full text-left px-3 py-2 text-sm hover:bg-muted rounded-lg flex items-center gap-2">
-            <RefreshCw className="w-4 h-4" /> Refresh
+            <RefreshCw className="w-4 h-4" /> {t('common.refresh')}
           </button>
-          <a href="/agentbook/telegram" className="w-full block px-3 py-2 text-sm hover:bg-muted rounded-lg">
-            Share to Telegram
+          <a href="/agentbook/telegram" className="w-full block px-3 py-2 text-sm hover:bg-muted rounded-lg">{t('core_ui.share_to_telegram')}
           </a>
-          <a href="/agentbook/settings" className="w-full block px-3 py-2 text-sm hover:bg-muted rounded-lg">
-            Settings
+          <a href="/agentbook/settings" className="w-full block px-3 py-2 text-sm hover:bg-muted rounded-lg">{t('common.settings')}
           </a>
           {showTelegramHint && (
             <a href="/agentbook/telegram" className="block px-3 py-2 mt-1 text-xs text-primary bg-primary/5 rounded-lg">

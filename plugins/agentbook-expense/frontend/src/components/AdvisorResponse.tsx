@@ -133,7 +133,7 @@ export const AdvisorResponse: React.FC<{
   onDismiss: () => void;
   onAsk: (q: string) => void;
 }> = ({ answer, chartData, actions, onDismiss, onAsk }) => {
-  const { locale } = useI18n();
+  const { locale, t } = useI18n();
   const currency = useTenantCurrency();
   const fmtK = makeFmtK(locale, currency);
   return (
@@ -146,7 +146,7 @@ export const AdvisorResponse: React.FC<{
           <Sparkles className="w-4 h-4 text-primary" />
         </div>
         <div className="flex-1 min-w-0 pr-6">
-          <p className="text-xs font-semibold text-primary mb-1.5">Expense Advisor</p>
+          <p className="text-xs font-semibold text-primary mb-1.5">{t('expenses_ui.expense_advisor')}</p>
           <div className="space-y-0.5">{renderMarkdown(answer)}</div>
 
           {chartData && chartData.data && chartData.data.length > 0 && (

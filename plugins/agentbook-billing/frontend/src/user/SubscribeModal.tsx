@@ -93,7 +93,7 @@ function PayForm({ plan, onDone }: { plan: Plan; onDone: () => void }): JSX.Elem
         disabled={!stripe || busy}
         className="w-full rounded-lg bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
       >
-        {busy ? 'Processing…' : `Start trial — ${plan.name}`}
+        {busy ? t('common.processing') : t('billing_ui.start_trial', { plan: plan.name })}
       </button>
     </form>
   );

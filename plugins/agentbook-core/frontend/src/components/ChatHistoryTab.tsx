@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Search, Loader2 } from 'lucide-react';
 import { ConversationRow, type ConversationItem } from './ConversationRow';
+import { useI18n } from '@naap/plugin-sdk';
 
 const CHANNELS = ['all', 'web', 'telegram', 'api'] as const;
 type Channel = typeof CHANNELS[number];
@@ -23,6 +24,7 @@ async function fetchConversations(params: {
 }
 
 export function ChatHistoryTab(): JSX.Element {
+  const { t } = useI18n();
   const [query, setQuery]       = useState('');
   const [channel, setChannel]   = useState<Channel>('all');
   const [items, setItems]       = useState<ConversationItem[]>([]);
@@ -76,7 +78,7 @@ export function ChatHistoryTab(): JSX.Element {
         <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
         <input
           type="text"
-          placeholder="Search messages…"
+          placeholder={t('core_ui.search_messages')}
           value={query}
           onChange={e => handleSearch(e.target.value)}
           className="w-full rounded-lg border border-border bg-background py-2.5 pl-9 pr-4 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none"
@@ -116,11 +118,10 @@ export function ChatHistoryTab(): JSX.Element {
           <div className="px-4 py-8 text-center text-sm text-destructive">{error}</div>
         ) : items.length === 0 ? (
           <div className="px-4 py-12 text-center">
-            <p className="text-sm text-muted-foreground">No messages found</p>
+            <p className="text-sm text-muted-foreground">{t('core_ui.no_messages')}</p>
             {query && (
               <button onClick={() => handleSearch('')}
-                className="mt-2 text-xs text-primary hover:underline">
-                Clear search
+                className="mt-2 text-xs text-primary hover:underline">{t('core_ui.clear_search')}
               </button>
             )}
           </div>
@@ -139,7 +140,7 @@ export function ChatHistoryTab(): JSX.Element {
           className="flex w-full items-center justify-center gap-2 rounded-lg border border-border py-2.5 text-sm text-muted-foreground hover:bg-muted disabled:opacity-50"
         >
           {loadingMore ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-          {loadingMore ? 'Loading…' : 'Load more'}
+          {loadingMore ? t('common.loading_ellipsis_short') : t('common.load_more')}
         </button>
       )}
     </div>

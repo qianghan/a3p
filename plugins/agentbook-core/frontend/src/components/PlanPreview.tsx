@@ -1,5 +1,6 @@
 import React from 'react';
 import { CheckCircle, XCircle } from 'lucide-react';
+import { useI18n } from '@naap/plugin-sdk';
 
 export interface PlanStep {
   skill?: string;
@@ -25,7 +26,11 @@ export const PlanPreview: React.FC<PlanPreviewProps> = ({
   onProceed,
   onCancel,
   disabled,
-}) => (
+}) => {
+  // Block body rather than an implicit return: this component needs its own
+  // useI18n() call, and a hook cannot be called from an expression body.
+  const { t } = useI18n();
+  return (
   <div className="mt-2 border border-border rounded-lg p-3 bg-muted/30">
     <div className="text-xs font-medium text-muted-foreground mb-2">
       I&apos;d like to do this:
@@ -46,7 +51,7 @@ export const PlanPreview: React.FC<PlanPreviewProps> = ({
         className="flex items-center gap-1 px-3 py-1.5 text-sm font-medium bg-primary text-primary-foreground rounded-md hover:opacity-90 disabled:opacity-50"
       >
         <CheckCircle className="w-4 h-4" />
-        Proceed
+        {t('core_ui.proceed')}
       </button>
       <button
         type="button"
@@ -55,8 +60,9 @@ export const PlanPreview: React.FC<PlanPreviewProps> = ({
         className="flex items-center gap-1 px-3 py-1.5 text-sm font-medium border border-border rounded-md hover:bg-muted disabled:opacity-50"
       >
         <XCircle className="w-4 h-4" />
-        Cancel
+        {t('common.cancel')}
       </button>
     </div>
   </div>
-);
+  );
+};

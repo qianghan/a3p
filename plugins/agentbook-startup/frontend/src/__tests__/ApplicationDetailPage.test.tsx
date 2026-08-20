@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
 import { ApplicationDetailPage } from '../pages/ApplicationDetailPage';
+import { withShell } from './i18n-harness';
 
 const getApplication = vi.fn();
 const uploadDocument = vi.fn();
@@ -20,9 +21,14 @@ vi.mock('../lib/api', () => ({
 
 function renderAt(id: string) {
   return render(
-    <MemoryRouter initialEntries={[`/applications/${id}`]}>
-      <Routes><Route path="/applications/:id" element={<ApplicationDetailPage />} /></Routes>
-    </MemoryRouter>,
+    // withShell: prod mounts plugin pages inside the shell, so rendering bare
+    // asserts against useI18n's key-humanising fallback rather than the real
+    // catalog. See src/__tests__/i18n-harness.tsx.
+    withShell(
+      <MemoryRouter initialEntries={[`/applications/${id}`]}>
+        <Routes><Route path="/applications/:id" element={<ApplicationDetailPage />} /></Routes>
+      </MemoryRouter>,
+    ),
   );
 }
 

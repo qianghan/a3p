@@ -172,7 +172,7 @@ export const EstimatesPage: React.FC = () => {
             onClick={fetchEstimates}
             className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium border hover:bg-gray-50"
           >
-            <RefreshCw className="w-4 h-4" /> Retry
+            <RefreshCw className="w-4 h-4" /> {t('common.retry')}
           </button>
         </div>
       ) : visible.length === 0 ? (

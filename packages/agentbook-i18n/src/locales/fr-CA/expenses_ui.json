@@ -123,5 +123,11 @@
   "save_bill": "Enregistrer la facture",
   "hide_deleted": "Masquer les éléments supprimés",
   "show_deleted": "Afficher les éléments supprimés",
-  "categorize_ellipsis": "Catégoriser…"
+  "categorize_ellipsis": "Catégoriser…",
+  "low_confidence_hint": "L’IA n’a pas pu catégoriser ces éléments avec certitude — attribuez une catégorie directement sur chaque ligne dans la liste ci-dessous.",
+  "more_expenses_needed": "Enregistrez quelques dépenses de plus pour débloquer les analyses.",
+  "agent_insights": "Analyses de l’assistant",
+  "expense_advisor": "Conseiller en dépenses",
+  "ask_placeholder": "Posez une question sur vos dépenses…",
+  "per_diem_unsupported": "L’indemnité journalière n’est pas encore une méthode prise en charge pour {jurisdiction} — utilisez plutôt le kilométrage et les dépenses de repas. (À venir dans une prochaine version.)"
 }

@@ -234,7 +234,7 @@ export function InvoiceDetailPage(): JSX.Element {
           onClick={() => navigate('/')}
           className="mb-3 flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground"
         >
-          <ArrowLeft className="w-4 h-4" /> Invoices
+          <ArrowLeft className="w-4 h-4" /> {t('invoice_ui.invoices')}
         </button>
         <div className="flex items-start justify-between gap-3">
           <div>
@@ -304,7 +304,7 @@ export function InvoiceDetailPage(): JSX.Element {
             className="flex items-center gap-1.5 rounded-lg border border-border px-4 py-2 text-sm font-medium text-foreground hover:bg-muted disabled:opacity-50"
           >
             {actionBusy === 'remind' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
-            {actionBusy === 'remind' ? 'Sending…' : remindCooldown ? `Reminded ${fmtDate(invoice.lastRemindedAt ?? '')}` : 'Send Reminder'}
+            {actionBusy === 'remind' ? 'Sending…' : remindCooldown ? t('invoice_ui.reminded_on', { date: fmtDate(invoice.lastRemindedAt ?? '') }) : t('invoice_ui.send_reminder')}
           </button>
         )}
 

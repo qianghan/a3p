@@ -114,6 +114,17 @@ const IDENTICAL_ALLOWED = new Set<string>([
   'common.client',
   'invoice_ui.clients',
   'invoice_ui.budget',
+  // "Canada" is spelled identically in French — it is the country's own name in
+  // both official languages, and inventing a variant would be an error.
+  'tax_ui.canada',
+  // "Notes" is the same word in French (already allowed for expenses_ui).
+  'core_ui.notes',
+  // "Quotas" is borrowed unchanged into French. "Net" is the accounting term in
+  // both languages, and the strip abbreviates it to the same three letters.
+  'billing_ui.quotas',
+  'core_ui.abbr_net',
+  // "Action" is the same word in French (common.actions is already allowed).
+  'core_ui.action',
 ]);
 
 /**

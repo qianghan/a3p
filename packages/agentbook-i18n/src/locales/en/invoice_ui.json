@@ -94,5 +94,10 @@
   "status_expired": "Expired",
   "status_converted": "Converted",
   "invoice_total": "Invoice total",
-  "amount_paid": "Amount paid"
+  "amount_paid": "Amount paid",
+  "record_payment": "Record payment",
+  "send_all_reminders": "Send all reminders",
+  "generate_from_selected": "Generate invoice from selected",
+  "working": "Working...",
+  "reminded_on": "Reminded {date}"
 }

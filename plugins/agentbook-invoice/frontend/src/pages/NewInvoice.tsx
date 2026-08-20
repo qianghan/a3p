@@ -363,7 +363,7 @@ export const NewInvoicePage: React.FC = () => {
             </div>
             <div className="sm:col-span-1">
               <label className="block text-sm font-medium mb-1 text-foreground">
-                Description
+                {t('common.description')}
               </label>
               <input
                 type="text"
@@ -454,7 +454,7 @@ export const NewInvoicePage: React.FC = () => {
               >
                 <div className="sm:col-span-5">
                   <label className="sm:hidden block text-xs font-medium mb-1 text-muted-foreground">
-                    Description
+                    {t('common.description')}
                   </label>
                   <input
                     type="text"
@@ -477,7 +477,7 @@ export const NewInvoicePage: React.FC = () => {
                 </div>
                 <div className="sm:col-span-2">
                   <label className="sm:hidden block text-xs font-medium mb-1 text-muted-foreground">
-                    Rate
+                    {t('invoice_ui.rate')}
                   </label>
                   <input
                     type="number"
@@ -550,7 +550,7 @@ export const NewInvoicePage: React.FC = () => {
           ) : (
             <div className="flex items-center justify-between mb-6">
               <span className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-                Total
+                {t('common.total')}
               </span>
               <span className="text-2xl font-bold text-foreground">
                 {formatCurrency(total, currency, locale)}

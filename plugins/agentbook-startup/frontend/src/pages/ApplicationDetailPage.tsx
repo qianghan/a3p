@@ -10,6 +10,7 @@ import {
   type DocumentRequirement, type DraftField, type StartupBenefitAuditReview, type ProgramInfo,
 } from '../lib/api';
 import { AuditReviewSection } from '../components/AuditReviewSection';
+import { useI18n } from '@naap/plugin-sdk';
 
 const SOURCE_LABEL: Record<DraftField['sourceType'], string> = {
   book_entry: 'From your books',
@@ -58,6 +59,8 @@ function DecisionPointCard({
   onRespond: (id: string, response: string) => void;
   submitting: boolean;
 }) {
+  // Nested component: does not inherit ApplicationDetailPage's `t`.
+  const { t } = useI18n();
   const [answer, setAnswer] = useState('');
   return (
     <div className="bg-amber-500/10 border border-amber-500/20 rounded-lg p-4 mb-3">
@@ -86,13 +89,13 @@ function DecisionPointCard({
         </div>
       ) : (
         <div className="flex gap-2">
-          <label htmlFor={`answer-${decisionPoint.id}`} className="sr-only">Your answer</label>
+          <label htmlFor={`answer-${decisionPoint.id}`} className="sr-only">{t('startup_ui.your_answer')}</label>
           <input
             id={`answer-${decisionPoint.id}`}
             type="text"
             value={answer}
             onChange={(e) => setAnswer(e.target.value)}
-            placeholder="Your answer"
+            placeholder={t('startup_ui.your_answer')}
             className="flex-1 px-3 py-1.5 bg-background border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
           />
           <button
@@ -110,6 +113,7 @@ function DecisionPointCard({
 }
 
 export function ApplicationDetailPage() {
+  const { t } = useI18n();
   const { id } = useParams<{ id: string }>();
 
   const [application, setApplication] = useState<StartupBenefitApplication | null>(null);
@@ -179,7 +183,7 @@ export function ApplicationDetailPage() {
           <FileText className="w-5 h-5 text-primary" />
         </div>
         <div>
-          <h1 className="text-xl font-bold text-foreground">Application</h1>
+          <h1 className="text-xl font-bold text-foreground">{t('startup_ui.application')}</h1>
           <span className="inline-flex text-xs px-2 py-0.5 rounded-full bg-muted text-muted-foreground">
             {STATUS_LABEL[application.status] ?? application.status}
           </span>
@@ -188,7 +192,7 @@ export function ApplicationDetailPage() {
 
       {pendingDecisionPoints.length > 0 && (
         <div className="mb-6">
-          <h2 className="text-sm font-semibold text-foreground mb-2">Needs your input</h2>
+          <h2 className="text-sm font-semibold text-foreground mb-2">{t('startup_ui.needs_your_input')}</h2>
           {pendingDecisionPoints.map((dp) => (
             <DecisionPointCard key={dp.id} decisionPoint={dp} onRespond={handleRespond} submitting={submitting} />
           ))}
@@ -212,7 +216,7 @@ export function ApplicationDetailPage() {
                   </div>
                 </div>
                 {uploaded ? (
-                  <span className="inline-flex items-center gap-1 text-xs text-green-600"><CheckCircle2 className="w-3.5 h-3.5" /> Uploaded</span>
+                  <span className="inline-flex items-center gap-1 text-xs text-green-600"><CheckCircle2 className="w-3.5 h-3.5" /> {t('startup_ui.uploaded')}</span>
                 ) : (
                   <label className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-background border border-border rounded-lg text-xs font-medium hover:bg-muted/50 transition-colors cursor-pointer">
                     {uploadingDocType === req.docType ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Upload className="w-3.5 h-3.5" />}
@@ -243,7 +247,7 @@ export function ApplicationDetailPage() {
           <div key={sectionName} className="bg-card border border-border rounded-xl p-4 mb-3">
             <h3 className="text-sm font-semibold text-foreground mb-2">{sectionName}</h3>
             {fields.length === 0 ? (
-              <p className="text-sm text-muted-foreground">Waiting on the decision point above.</p>
+              <p className="text-sm text-muted-foreground">{t('startup_ui.waiting_on_decision')}</p>
             ) : (
               fields.map((field, i) => <DraftFieldRow key={i} field={field} />)
             )}
@@ -256,8 +260,7 @@ export function ApplicationDetailPage() {
       {application.status === 'audit_reviewed' && (
         <div className="bg-primary/5 border border-primary/20 rounded-lg p-4 flex items-start gap-2">
           <Sparkles className="w-4 h-4 shrink-0 mt-0.5 text-primary" />
-          <p className="text-sm text-muted-foreground">
-            This application has passed audit review and is ready for you to file.
+          <p className="text-sm text-muted-foreground">{t('startup_ui.passed_audit')}
           </p>
         </div>
       )}

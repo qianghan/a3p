@@ -123,5 +123,11 @@
   "save_bill": "Save bill",
   "hide_deleted": "Hide deleted",
   "show_deleted": "Show deleted",
-  "categorize_ellipsis": "Categorize…"
+  "categorize_ellipsis": "Categorize…",
+  "low_confidence_hint": "AI couldn't confidently categorize these — set a category directly on each row in the expense list below.",
+  "more_expenses_needed": "Record a few more expenses to unlock spending insights.",
+  "agent_insights": "Agent Insights",
+  "expense_advisor": "Expense Advisor",
+  "ask_placeholder": "Ask about your expenses...",
+  "per_diem_unsupported": "Per-diem isn't a {jurisdiction}-supported method yet — use mileage + meals expenses instead. (Coming in a future release.)"
 }

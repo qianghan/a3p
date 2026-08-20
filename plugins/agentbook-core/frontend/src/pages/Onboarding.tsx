@@ -153,7 +153,7 @@ export const OnboardingPage: React.FC = () => {
               ))}
               <button onClick={() => completeStep('business_type')}
                 className="w-full py-3 bg-primary text-primary-foreground rounded-lg font-medium mt-4">
-                Continue
+                {t('onboarding.continue')}
               </button>
             </div>
           )}
@@ -170,7 +170,7 @@ export const OnboardingPage: React.FC = () => {
                 className="w-full p-3 border border-border rounded-lg bg-background mt-2" />
               <button onClick={() => completeStep('jurisdiction')}
                 className="w-full py-3 bg-primary text-primary-foreground rounded-lg font-medium mt-2">
-                Continue
+                {t('onboarding.continue')}
               </button>
             </div>
           )}
@@ -185,7 +185,7 @@ export const OnboardingPage: React.FC = () => {
               ))}
               <button onClick={() => completeStep('currency')}
                 className="w-full py-3 bg-primary text-primary-foreground rounded-lg font-medium mt-2">
-                Continue
+                {t('onboarding.continue')}
               </button>
             </div>
           )}
@@ -234,7 +234,7 @@ export const OnboardingPage: React.FC = () => {
               <p className="text-sm bg-muted p-3 rounded-lg font-mono mb-4">Open Telegram &rarr; Search @AgentBookBot &rarr; Send /start</p>
               <button onClick={() => completeStep('telegram')}
                 className="w-full py-3 bg-primary text-primary-foreground rounded-lg font-medium mb-2">
-                I've Connected
+                {t('onboarding.ive_connected')}
               </button>
               <button onClick={() => completeStep('telegram')}
                 className="w-full py-3 bg-muted text-muted-foreground rounded-lg font-medium">

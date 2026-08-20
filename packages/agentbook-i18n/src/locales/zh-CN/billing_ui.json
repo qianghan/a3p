@@ -1,0 +1,18 @@
+{
+  "subscription_plans": "订阅套餐",
+  "admin_manage_templates": "管理员视图 — 管理套餐模板",
+  "basic_info": "基本信息",
+  "plan_name": "套餐名称",
+  "url_safe_id": "适用于 URL 的唯一标识符",
+  "plan_desc_placeholder": "向用户展示的简短套餐说明",
+  "price_cents": "价格（分）",
+  "interval": "计费周期",
+  "billing_cycle_fixed": "计费周期 — 创建时确定",
+  "features": "功能",
+  "quotas": "配额",
+  "tax_package_short": "税务包",
+  "start_from_template": "从模板开始",
+  "admin_creates_plan": "管理员 — 在数据库中创建新套餐",
+  "save_plan": "保存套餐",
+  "start_trial": "开始试用 — {plan}"
+}

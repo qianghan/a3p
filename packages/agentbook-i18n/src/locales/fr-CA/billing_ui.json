@@ -1,0 +1,18 @@
+{
+  "subscription_plans": "Forfaits d’abonnement",
+  "admin_manage_templates": "Vue administrateur — gérer les modèles de forfait",
+  "basic_info": "Renseignements de base",
+  "plan_name": "Nom du forfait",
+  "url_safe_id": "Identifiant unique compatible URL",
+  "plan_desc_placeholder": "Courte description du forfait affichée aux utilisateurs",
+  "price_cents": "Prix (en cents)",
+  "interval": "Périodicité",
+  "billing_cycle_fixed": "Cycle de facturation — fixé à la création",
+  "features": "Fonctionnalités",
+  "quotas": "Quotas",
+  "tax_package_short": "Dossier fiscal",
+  "start_from_template": "Partir d’un modèle",
+  "admin_creates_plan": "Administrateur — crée un nouveau forfait dans la base de données",
+  "save_plan": "Enregistrer le forfait",
+  "start_trial": "Commencer l’essai — {plan}"
+}

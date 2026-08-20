@@ -221,7 +221,7 @@ export const TimerPage: React.FC = () => {
         <p className="text-5xl font-bold font-mono mb-4">{fmtDuration(elapsed)}</p>
         {running ? (
           <div>
-            <p className="text-sm text-muted-foreground mb-4">{entry?.description || 'Working...'}</p>
+            <p className="text-sm text-muted-foreground mb-4">{entry?.description || t('invoice_ui.working')}</p>
             <button onClick={stopTimer} className="px-8 py-3 bg-red-500 text-white rounded-full font-medium flex items-center gap-2 mx-auto active:scale-95">
               <Square className="w-5 h-5" /> Stop
             </button>
@@ -298,7 +298,7 @@ export const TimerPage: React.FC = () => {
               disabled={selectedEntries.size === 0 || generating}
               className="px-4 py-2 bg-primary text-primary-foreground rounded-lg font-medium disabled:opacity-50 disabled:cursor-not-allowed active:scale-95 text-sm"
             >
-              {generating ? 'Generating…' : 'Generate invoice from selected'}
+              {generating ? t('common.generating') : t('invoice_ui.generate_from_selected')}
             </button>
           </div>
           {generateError && (

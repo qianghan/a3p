@@ -45,7 +45,7 @@ export const ActivityFeed: React.FC<Props> = ({ items, loading, onLoadMore }) =>
       </ul>
       {items.length >= 10 && (
         <button onClick={onLoadMore} disabled={loading} className="w-full mt-3 text-sm text-primary hover:bg-primary/5 rounded-lg py-2">
-          {loading ? 'Loading…' : 'Load more'}
+          {loading ? t('common.loading_ellipsis_short') : t('common.load_more')}
         </button>
       )}
     </section>

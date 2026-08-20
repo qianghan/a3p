@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { ShieldAlert, ShieldCheck, ShieldQuestion, ExternalLink, Loader2 } from 'lucide-react';
 import { startupApi, type StartupBenefitApplication, type StartupBenefitAuditReview, type AuditFinding, type ProgramInfo } from '../lib/api';
+import { useI18n } from '@naap/plugin-sdk';
 
 const RISK_STYLE: Record<'low' | 'medium' | 'high', string> = {
   low: 'bg-green-500/10 text-green-600 border-green-500/20',
@@ -23,6 +24,8 @@ function FindingRow({
   onOverride: (index: number, reason: string) => void;
   submitting: boolean;
 }) {
+  // Nested component: does not inherit AuditReviewSection's `t`.
+  const { t } = useI18n();
   const [reason, setReason] = useState('');
   const requiresReason = finding.severity === 'high';
   return (
@@ -31,7 +34,7 @@ function FindingRow({
         <span className={`inline-flex items-center text-xs px-2 py-0.5 rounded-full border ${RISK_STYLE[finding.severity]}`}>
           {finding.severity}
         </span>
-        {alreadyOverridden && <span className="text-xs text-muted-foreground">Overridden</span>}
+        {alreadyOverridden && <span className="text-xs text-muted-foreground">{t('startup_ui.overridden')}</span>}
       </div>
       <p className="text-sm text-foreground">{finding.issue}</p>
       <p className="text-sm text-muted-foreground mt-1">{finding.recommendation}</p>
@@ -39,13 +42,13 @@ function FindingRow({
         <div className="mt-2 flex items-center gap-2">
           {requiresReason && (
             <>
-              <label htmlFor={`override-reason-${index}`} className="sr-only">Reason for overriding this finding</label>
+              <label htmlFor={`override-reason-${index}`} className="sr-only">{t('startup_ui.override_reason')}</label>
               <input
                 id={`override-reason-${index}`}
                 type="text"
                 value={reason}
                 onChange={(e) => setReason(e.target.value)}
-                placeholder="Reason for overriding this finding"
+                placeholder={t('startup_ui.override_reason')}
                 className="flex-1 px-3 py-1.5 bg-background border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
               />
             </>
@@ -55,8 +58,7 @@ function FindingRow({
             disabled={submitting || (requiresReason && !reason.trim())}
             onClick={() => onOverride(index, reason.trim())}
             className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-background border border-border rounded-lg text-xs font-medium hover:bg-muted/50 transition-colors disabled:opacity-50 shrink-0"
-          >
-            Override
+          >{t('startup_ui.override')}
           </button>
         </div>
       )}
@@ -72,6 +74,7 @@ export function AuditReviewSection({
   program: ProgramInfo | null;
   onChange: () => void;
 }) {
+  const { t } = useI18n();
   const [running, setRunning] = useState(false);
   const [overridingIndex, setOverridingIndex] = useState<number | null>(null);
 
@@ -102,7 +105,7 @@ export function AuditReviewSection({
   if (!auditReview) {
     return (
       <div className="mb-6">
-        <h2 className="text-sm font-semibold text-foreground mb-2">Audit review</h2>
+        <h2 className="text-sm font-semibold text-foreground mb-2">{t('startup_ui.audit_review')}</h2>
         <button
           type="button"
           disabled={running}
@@ -122,13 +125,13 @@ export function AuditReviewSection({
   return (
     <div className="mb-6">
       <h2 className="text-sm font-semibold text-foreground mb-2 flex items-center gap-1.5">
-        <RiskIcon className="w-4 h-4" /> Audit review
+        <RiskIcon className="w-4 h-4" /> {t('startup_ui.audit_review')}
         <span className={`inline-flex items-center text-xs px-2 py-0.5 rounded-full border ${RISK_STYLE[auditReview.riskLevel]}`}>
           {auditReview.riskLevel} risk
         </span>
       </h2>
       {auditReview.findings.length === 0 ? (
-        <p className="text-sm text-muted-foreground">No findings — this draft looks well-substantiated.</p>
+        <p className="text-sm text-muted-foreground">{t('startup_ui.no_findings')}</p>
       ) : (
         auditReview.findings.map((finding, i) => (
           <FindingRow

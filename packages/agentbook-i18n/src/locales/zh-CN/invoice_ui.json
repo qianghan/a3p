@@ -94,5 +94,10 @@
   "status_expired": "已过期",
   "status_converted": "已转换",
   "invoice_total": "发票总额",
-  "amount_paid": "已付金额"
+  "amount_paid": "已付金额",
+  "record_payment": "记录付款",
+  "send_all_reminders": "发送全部催款提醒",
+  "generate_from_selected": "根据所选项生成发票",
+  "working": "进行中…",
+  "reminded_on": "已于 {date} 提醒"
 }

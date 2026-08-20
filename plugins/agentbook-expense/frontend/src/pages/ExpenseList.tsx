@@ -139,7 +139,7 @@ function CategorizationReviewBanner({
       </div>
       {items.length === 0 && (
         <p className="text-sm text-muted-foreground mb-3">
-          AI couldn't confidently categorize these — set a category directly on each row in the expense list below.
+          {t('expenses_ui.low_confidence_hint')}
         </p>
       )}
       <div className="space-y-3">
@@ -741,7 +741,7 @@ export const ExpenseListPage: React.FC = () => {
           {selectedTag && (
             <button onClick={() => setSelectedTag(null)}
               className="px-2 py-1 rounded-full text-xs font-medium bg-red-50 text-red-600 border border-red-200 flex items-center gap-1">
-              <X className="w-3 h-3" /> Clear
+              <X className="w-3 h-3" /> {t('expenses_ui.clear')}
             </button>
           )}
           {allTags.map(tag => (
@@ -894,7 +894,7 @@ export const ExpenseListPage: React.FC = () => {
                         <div><p className="text-xs text-muted-foreground mb-0.5">{t('expenses_ui.confidence')}</p><p>{expense.confidence ? `${(expense.confidence * 100).toFixed(0)}%` : 'Manual'}</p></div>
                         {expense.tipAmountCents > 0 && <div><p className="text-xs text-muted-foreground mb-0.5">{t('expenses_ui.tip')}</p><p>{fmt(expense.tipAmountCents, expense.currency, locale)}</p></div>}
                         {expense.notes && <div className="col-span-2"><p className="text-xs text-muted-foreground mb-0.5">{t('expenses_ui.notes')}</p><p>{expense.notes}</p></div>}
-                        {expense.receiptUrl && <div><p className="text-xs text-muted-foreground mb-0.5">{t('expenses_ui.receipt')}</p><a href={expense.receiptUrl} target="_blank" rel="noopener" className="text-primary text-xs hover:underline flex items-center gap-1"><Image className="w-3 h-3" /> View</a></div>}
+                        {expense.receiptUrl && <div><p className="text-xs text-muted-foreground mb-0.5">{t('expenses_ui.receipt')}</p><a href={expense.receiptUrl} target="_blank" rel="noopener" className="text-primary text-xs hover:underline flex items-center gap-1"><Image className="w-3 h-3" /> {t('expenses_ui.view')}</a></div>}
                         <div><p className="text-xs text-muted-foreground mb-0.5">{t('expenses_ui.ledger')}</p><p className="text-xs">{expense.journalEntryId ? '✓ Posted' : '✗ Not posted'}</p></div>
                       </div>
                     </td></tr>

@@ -69,14 +69,14 @@ export const AnalyticsPage: React.FC = () => {
     <div className="px-4 py-5 sm:p-6 max-w-7xl mx-auto">
       <div className="flex items-center gap-3 mb-6">
         <BarChart3 className="w-6 h-6 text-primary" />
-        <h1 className="text-2xl font-bold">Expense Analytics</h1>
+        <h1 className="text-2xl font-bold">{t('tax_ui.expense_analytics')}</h1>
       </div>
 
       <div className="mb-6">
         <TaxDisclaimer />
       </div>
 
-      {loading && <p className="text-muted-foreground">Loading analytics...</p>}
+      {loading && <p className="text-muted-foreground">{t('tax_ui.loading_analytics')}</p>}
 
       {/* Category Breakdown — Visual Bar Chart */}
       <div className="bg-card border border-border rounded-xl p-5 mb-6">

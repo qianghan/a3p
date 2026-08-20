@@ -16,6 +16,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Search, Pin, PinOff, Trash2, Play, Plus, X } from 'lucide-react';
 import { ChatCTA, useI18n } from '@naap/plugin-sdk';
+import { useTenantCurrency } from '../hooks/useTenantCurrency';
 
 const API = '/api/v1/agentbook-core';
 
@@ -60,6 +61,7 @@ function dollarsToCents(s: string): number | undefined {
 
 export const SavedSearchesPage: React.FC = () => {
   const { t } = useI18n();
+  const currency = useTenantCurrency();
   const [items, setItems] = useState<SavedSearch[]>([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
@@ -243,7 +245,7 @@ export const SavedSearchesPage: React.FC = () => {
             background: '#0a66ff', color: 'white', cursor: 'pointer',
           }}
         >
-          <Plus size={16} /> {showCreate ? 'Close' : 'New'}
+          <Plus size={16} /> {showCreate ? t('common.close') : t('common.new')}
         </button>
       </header>
 
@@ -262,58 +264,51 @@ export const SavedSearchesPage: React.FC = () => {
 
       {showCreate && (
         <section style={{ background: '#f7f7f7', padding: 16, borderRadius: 8, marginBottom: 24 }}>
-          <h3 style={{ marginTop: 0 }}>New saved search</h3>
+          <h3 style={{ marginTop: 0 }}>{t('core_ui.new_saved_search')}</h3>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-            <label>
-              Name
+            <label>{t('common.name')}
               <input
                 value={newName}
                 onChange={(e) => setNewName(e.target.value)}
-                placeholder="Client meals over $50 in 2026"
+                placeholder={t('core_ui.search_name_placeholder')}
                 style={{ width: '100%', padding: 8, marginTop: 4 }}
               />
             </label>
-            <label>
-              Scope
+            <label>{t('core_ui.scope')}
               <select
                 value={newScope}
                 onChange={(e) => setNewScope(e.target.value as SearchScope)}
                 style={{ width: '100%', padding: 8, marginTop: 4 }}
               >
-                <option value="expense">Expense</option>
-                <option value="invoice">Invoice</option>
+                <option value="expense">{t('core_ui.expense')}</option>
+                <option value="invoice">{t('core_ui.invoice')}</option>
                 <option value="mileage">{t('expenses_ui.mileage')}</option>
                 <option value="all">{t('invoice_ui.all')}</option>
               </select>
             </label>
-            <label>
-              Category contains
+            <label>{t('core_ui.category_contains')}
               <input value={newCategory} onChange={(e) => setNewCategory(e.target.value)} placeholder="meals" style={{ width: '100%', padding: 8, marginTop: 4 }} />
             </label>
-            <label>
-              Vendor contains
+            <label>{t('core_ui.vendor_contains')}
               <input value={newVendor} onChange={(e) => setNewVendor(e.target.value)} placeholder="Starbucks" style={{ width: '100%', padding: 8, marginTop: 4 }} />
             </label>
             <label>
-              Min amount ($)
+              {t('core_ui.min_amount', { currency })}
               <input value={newMinAmount} onChange={(e) => setNewMinAmount(e.target.value)} placeholder="50" style={{ width: '100%', padding: 8, marginTop: 4 }} />
             </label>
             <label>
-              Max amount ($)
+              {t('core_ui.max_amount', { currency })}
               <input value={newMaxAmount} onChange={(e) => setNewMaxAmount(e.target.value)} placeholder="500" style={{ width: '100%', padding: 8, marginTop: 4 }} />
             </label>
-            <label>
-              Start date
+            <label>{t('expenses_ui.start_date')}
               <input type="date" value={newStartDate} onChange={(e) => setNewStartDate(e.target.value)} style={{ width: '100%', padding: 8, marginTop: 4 }} />
             </label>
-            <label>
-              End date
+            <label>{t('expenses_ui.end_date')}
               <input type="date" value={newEndDate} onChange={(e) => setNewEndDate(e.target.value)} style={{ width: '100%', padding: 8, marginTop: 4 }} />
             </label>
           </div>
           <label style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 12 }}>
-            <input type="checkbox" checked={newPinned} onChange={(e) => setNewPinned(e.target.checked)} />
-            Pin to /searches
+            <input type="checkbox" checked={newPinned} onChange={(e) => setNewPinned(e.target.checked)} />{t('core_ui.pin_to_searches')}
           </label>
           <div style={{ marginTop: 12 }}>
             <button
@@ -322,7 +317,7 @@ export const SavedSearchesPage: React.FC = () => {
               onClick={create}
               style={{ padding: '8px 14px', borderRadius: 6, background: '#0a66ff', color: 'white', border: 'none', cursor: 'pointer' }}
             >
-              {submitting ? 'Saving…' : 'Save'}
+              {submitting ? t('common.saving') : t('common.save')}
             </button>
           </div>
         </section>
@@ -356,7 +351,7 @@ export const SavedSearchesPage: React.FC = () => {
                   type="button"
                   onClick={() => run(s)}
                   disabled={running === s.id}
-                  title="Run"
+                  title={t('common.run')}
                   style={{ padding: 6, borderRadius: 4, border: '1px solid #ccc', background: 'white', cursor: 'pointer' }}
                 >
                   <Play size={16} />
@@ -364,7 +359,7 @@ export const SavedSearchesPage: React.FC = () => {
                 <button
                   type="button"
                   onClick={() => togglePin(s)}
-                  title={s.pinned ? 'Unpin' : 'Pin'}
+                  title={s.pinned ? t('core_ui.unpin') : t('core_ui.pin')}
                   style={{ padding: 6, borderRadius: 4, border: '1px solid #ccc', background: 'white', cursor: 'pointer' }}
                 >
                   {s.pinned ? <PinOff size={16} /> : <Pin size={16} />}
@@ -372,15 +367,15 @@ export const SavedSearchesPage: React.FC = () => {
                 <button
                   type="button"
                   onClick={() => openEdit(s)}
-                  title="Edit"
+                  title={t('common.edit')}
                   style={{ padding: '6px 10px', borderRadius: 4, border: '1px solid #ccc', background: 'white', cursor: 'pointer' }}
                 >
-                  Edit
+                  {t('common.edit')}
                 </button>
                 <button
                   type="button"
                   onClick={() => remove(s)}
-                  title="Delete"
+                  title={t('common.delete')}
                   style={{ padding: 6, borderRadius: 4, border: '1px solid #f99', background: '#fff0f0', cursor: 'pointer' }}
                 >
                   <Trash2 size={16} />
@@ -414,13 +409,12 @@ export const SavedSearchesPage: React.FC = () => {
         >
           <div style={{ background: 'white', padding: 24, borderRadius: 8, minWidth: 360 }}>
             <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-              <h3 style={{ margin: 0 }}>Edit saved search</h3>
+              <h3 style={{ margin: 0 }}>{t('core_ui.edit_saved_search')}</h3>
               <button type="button" onClick={() => setEditing(null)} style={{ background: 'none', border: 'none', cursor: 'pointer' }}>
                 <X size={20} />
               </button>
             </header>
-            <label style={{ display: 'block', marginBottom: 12 }}>
-              Name
+            <label style={{ display: 'block', marginBottom: 12 }}>{t('common.name')}
               <input
                 value={editName}
                 onChange={(e) => setEditName(e.target.value)}
@@ -428,20 +422,17 @@ export const SavedSearchesPage: React.FC = () => {
               />
             </label>
             <label style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 16 }}>
-              <input type="checkbox" checked={editPinned} onChange={(e) => setEditPinned(e.target.checked)} />
-              Pinned
+              <input type="checkbox" checked={editPinned} onChange={(e) => setEditPinned(e.target.checked)} />{t('core_ui.pinned')}
             </label>
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
-              <button type="button" onClick={() => setEditing(null)} style={{ padding: '8px 14px' }}>
-                Cancel
+              <button type="button" onClick={() => setEditing(null)} style={{ padding: '8px 14px' }}>{t('common.cancel')}
               </button>
               <button
                 type="button"
                 onClick={saveEdit}
                 disabled={!editName.trim()}
                 style={{ padding: '8px 14px', background: '#0a66ff', color: 'white', border: 'none', borderRadius: 4, cursor: 'pointer' }}
-              >
-                Save
+              >{t('common.save')}
               </button>
             </div>
           </div>

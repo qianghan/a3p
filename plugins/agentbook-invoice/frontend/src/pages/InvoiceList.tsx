@@ -188,7 +188,7 @@ export const InvoiceListPage: React.FC = () => {
           style={!showDeleted ? { color: 'var(--text-secondary)' } : undefined}
           title={t('invoice_ui.include_deleted_invoices')}
         >
-          {showDeleted ? 'Hide deleted' : 'Show deleted'}
+          {showDeleted ? t('invoice_ui.hide_deleted') : t('invoice_ui.show_deleted')}
         </button>
       </div>
 
@@ -209,7 +209,7 @@ export const InvoiceListPage: React.FC = () => {
             disabled={remindingAll}
             className="rounded-lg bg-red-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-50"
           >
-            {remindingAll ? 'Sending…' : 'Send all reminders'}
+            {remindingAll ? t('common.sending') : t('invoice_ui.send_all_reminders')}
           </button>
         </div>
       )}
@@ -226,7 +226,7 @@ export const InvoiceListPage: React.FC = () => {
             onClick={fetchInvoices}
             className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium border hover:bg-gray-50"
           >
-            <RefreshCw className="w-4 h-4" /> Retry
+            <RefreshCw className="w-4 h-4" /> {t('common.retry')}
           </button>
         </div>
       ) : filtered.length === 0 ? (

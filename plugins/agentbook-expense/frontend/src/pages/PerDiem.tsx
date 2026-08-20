@@ -163,8 +163,9 @@ export const PerDiemPage: React.FC = () => {
 
       {jurisdiction === 'ca' || jurisdiction === 'au' ? (
         <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-4 mb-6 text-sm text-amber-700 dark:text-amber-400">
-          Per-diem isn&apos;t a {jurisdiction === 'ca' ? 'CA' : 'AU'}-supported method yet — use mileage + meals
-          expenses instead. (Coming in a future release.)
+          {t('expenses_ui.per_diem_unsupported', {
+            jurisdiction: jurisdiction === 'ca' ? 'CA' : 'AU',
+          })}
         </div>
       ) : (
         <p className="text-sm text-muted-foreground mb-6">

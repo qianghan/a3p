@@ -117,6 +117,11 @@ function SessionsPanel({
   onSelect: (t: ThreadSummary) => void;
   loadError: boolean;
 }): JSX.Element {
+  // Nested component: does not inherit the page's destructured `t`.
+  // Aliased to `tr` on purpose: this component's map callbacks bind a
+  // parameter named `t` (a thread), which would shadow the translator —
+  // tsc caught it as "this expression is not callable".
+  const { t: tr } = useI18n();
   const channels = ['web', 'telegram', 'whatsapp', 'api'];
   const grouped = channels.reduce<Record<string, ThreadSummary[]>>((acc, ch) => {
     const items = threads.filter((t) => t.channel === ch);
@@ -144,7 +149,7 @@ function SessionsPanel({
             >
               <div className="flex items-center justify-between gap-1">
                 <span className="text-[11px] font-medium text-foreground truncate">
-                  {t.lastTurn?.text?.slice(0, 45) ?? 'No messages yet'}
+                  {t.lastTurn?.text?.slice(0, 45) ?? tr('core_ui.no_messages_yet')}
                 </span>
                 <span className="text-[10px] text-muted-foreground shrink-0">
                   {relativeTime(t.lastActiveAt)}
@@ -160,7 +165,7 @@ function SessionsPanel({
         // user's empty state — a returning user with real history had no
         // way to tell "you have nothing" from "we couldn't load it."
         <p className="text-[11px] text-muted-foreground px-3 py-4">
-          {loadError ? "Couldn't load your sessions. Refresh to try again." : 'No sessions yet.'}
+          {loadError ? tr('core_ui.sessions_load_failed') : tr('core_ui.no_sessions')}
         </p>
       )}
     </div>
@@ -467,14 +472,14 @@ export const ChatPage: React.FC = () => {
               <button
                 onClick={() => void renameAdvisor()}
                 title={t('chat.rename_advisor')}
-                aria-label="Rename your advisor"
+                aria-label={t('core_ui.rename_advisor')}
                 className="text-muted-foreground/60 hover:text-foreground transition-colors"
               >
                 <Pencil className="w-3 h-3" />
               </button>
             </div>
             <p className="text-xs text-muted-foreground truncate">
-              {persona ? 'Your AI accounting agent' : 'Your AI bookkeeper'}
+              {persona ? t('core_ui.ai_accounting_agent') : t('core_ui.ai_bookkeeper')}
             </p>
           </div>
           {isReadOnly && (
@@ -501,7 +506,7 @@ export const ChatPage: React.FC = () => {
             <div className="text-center text-muted-foreground text-sm py-12 max-w-md mx-auto">
               <MessageSquare className="w-8 h-8 mx-auto mb-3 text-muted-foreground/50" />
               <p className="font-medium mb-3">
-                {businessType === 'student' ? 'Hi! As a student, try:' : 'Hi! Try:'}
+                {businessType === 'student' ? t('core_ui.student_greeting') : t('core_ui.greeting')}
               </p>
               <div className="flex flex-col items-center gap-2">
                 {(businessType === 'student'
@@ -567,7 +572,7 @@ export const ChatPage: React.FC = () => {
                   <div className="mt-2 pt-2 border-t border-border/50">
                     <div className="text-[10px] text-muted-foreground/70 mb-1 flex items-center gap-1">
                       <BookOpen className="w-3 h-3" />
-                      Based on
+                      {t('chat.based_on')}
                     </div>
                     <div className="flex flex-wrap gap-1">
                       {msg.citations.map((c, ci) => {
@@ -675,7 +680,7 @@ export const ChatPage: React.FC = () => {
               className="flex items-center gap-1 px-3 py-2 rounded-xl bg-primary text-primary-foreground text-sm font-medium hover:opacity-90 disabled:opacity-50"
             >
               <Send className="w-4 h-4" />
-              Send
+              {t('chat.send')}
             </button>
           </div>
         </form>

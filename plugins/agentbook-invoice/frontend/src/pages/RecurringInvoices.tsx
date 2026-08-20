@@ -12,6 +12,7 @@ import {
 } from 'lucide-react';
 import { ChatCTA } from '@naap/plugin-sdk';
 import { useI18n } from '@naap/plugin-sdk';
+import { useTenantCurrency } from '../hooks/useTenantCurrency';
 
 type Frequency = 'weekly' | 'biweekly' | 'monthly' | 'quarterly' | 'annual';
 type Status = 'active' | 'paused' | 'completed';
@@ -90,6 +91,7 @@ export const RecurringInvoicesPage: React.FC = () => {
   //      browser blanks it. That is a usability defect, and routing through
   //      parseAmount means switching a field to type="text" later Just Works.
   const { parseAmount, formatCurrency: fmtCur, formatDateOnly, t } = useI18n();
+  const tenantCurrency = useTenantCurrency();
   // Both formatters were module-level and hardcoded 'en-US', so every
   // scheduled amount and next-due date rendered in US format whatever the
   // tenant's locale. Defined here to close over the shell's locale; names and
@@ -291,7 +293,7 @@ export const RecurringInvoicesPage: React.FC = () => {
             onClick={fetchAll}
             className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium border hover:bg-gray-50"
           >
-            <RefreshCw className="w-4 h-4" /> Retry
+            <RefreshCw className="w-4 h-4" /> {t('common.retry')}
           </button>
         </div>
       ) : items.length === 0 ? (
@@ -434,7 +436,7 @@ export const RecurringInvoicesPage: React.FC = () => {
               </div>
 
               <div>
-                <label className="text-xs font-medium uppercase tracking-wide block mb-1">Amount (USD)</label>
+                <label className="text-xs font-medium uppercase tracking-wide block mb-1">{t('invoice_ui.amount_with_currency', { currency: tenantCurrency })}</label>
                 <input
                   type="number"
                   step="0.01"

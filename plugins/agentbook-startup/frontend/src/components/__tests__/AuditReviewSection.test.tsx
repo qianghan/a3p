@@ -1,6 +1,9 @@
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { AuditReviewSection } from '../AuditReviewSection';
+// Prod mounts these inside the shell; bare rendering asserts against
+// useI18n's key-humanising fallback. See src/__tests__/i18n-harness.tsx.
+import { withShell } from '../../__tests__/i18n-harness';
 import { startupApi } from '../../lib/api';
 
 vi.mock('../../lib/api', () => ({
@@ -17,14 +20,14 @@ beforeEach(() => {
 
 describe('AuditReviewSection', () => {
   it('shows a "Run audit review" button when no review exists yet', () => {
-    render(<AuditReviewSection application={application} auditReview={null} program={program} onChange={vi.fn()} />);
+    render(withShell(<AuditReviewSection application={application} auditReview={null} program={program} onChange={vi.fn()} />));
     expect(screen.getByRole('button', { name: /run audit review/i })).toBeInTheDocument();
   });
 
   it('triggers the audit review and calls onChange when the button is clicked', async () => {
     vi.mocked(startupApi.runAuditReview).mockResolvedValue({ application, auditReview: { id: 'r1', applicationId: 'app-1', riskLevel: 'low', findings: [], overrides: [], reviewedAt: '2026-01-01', modelVersion: 'us-audit-v1' } });
     const onChange = vi.fn();
-    render(<AuditReviewSection application={application} auditReview={null} program={program} onChange={onChange} />);
+    render(withShell(<AuditReviewSection application={application} auditReview={null} program={program} onChange={onChange} />));
     fireEvent.click(screen.getByRole('button', { name: /run audit review/i }));
     await waitFor(() => expect(onChange).toHaveBeenCalled());
     expect(startupApi.runAuditReview).toHaveBeenCalledWith('app-1');
@@ -36,7 +39,7 @@ describe('AuditReviewSection', () => {
       findings: [{ severity: 'high' as const, issue: 'No cap table uploaded.', recommendation: 'Upload it.', ruleRef: 'irs:irc-1202-gross-assets-cap' }],
       overrides: [], reviewedAt: '2026-01-01', modelVersion: 'us-audit-v1',
     };
-    render(<AuditReviewSection application={application} auditReview={auditReview} program={program} onChange={vi.fn()} />);
+    render(withShell(<AuditReviewSection application={application} auditReview={auditReview} program={program} onChange={vi.fn()} />));
     expect(screen.getByText('No cap table uploaded.')).toBeInTheDocument();
     expect(screen.getByText('Upload it.')).toBeInTheDocument();
   });
@@ -47,7 +50,7 @@ describe('AuditReviewSection', () => {
       findings: [{ severity: 'high' as const, issue: 'No cap table uploaded.', recommendation: 'Upload it.', ruleRef: 'irs:irc-1202-gross-assets-cap' }],
       overrides: [], reviewedAt: '2026-01-01', modelVersion: 'us-audit-v1',
     };
-    render(<AuditReviewSection application={application} auditReview={auditReview} program={program} onChange={vi.fn()} />);
+    render(withShell(<AuditReviewSection application={application} auditReview={auditReview} program={program} onChange={vi.fn()} />));
     const overrideButton = screen.getByRole('button', { name: /override/i });
     expect(overrideButton).toBeDisabled();
     fireEvent.change(screen.getByLabelText(/reason for overriding/i), { target: { value: 'Verified with counsel.' } });
@@ -56,7 +59,7 @@ describe('AuditReviewSection', () => {
 
   it('shows a "Learn more" link to the program source', () => {
     const auditReview = { id: 'r1', applicationId: 'app-1', riskLevel: 'low' as const, findings: [], overrides: [], reviewedAt: '2026-01-01', modelVersion: 'us-audit-v1' };
-    render(<AuditReviewSection application={application} auditReview={auditReview} program={program} onChange={vi.fn()} />);
+    render(withShell(<AuditReviewSection application={application} auditReview={auditReview} program={program} onChange={vi.fn()} />));
     expect(screen.getByRole('link', { name: /learn more/i })).toHaveAttribute('href', program.sourceUrl);
   });
 });

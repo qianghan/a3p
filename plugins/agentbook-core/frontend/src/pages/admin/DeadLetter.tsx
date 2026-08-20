@@ -15,6 +15,7 @@
 
 import React, { useEffect, useState, useCallback } from 'react';
 import { AlertTriangle, RefreshCw, Loader2, Check, ChevronDown, ChevronRight } from 'lucide-react';
+import { useI18n } from '@naap/plugin-sdk';
 
 const API = '/api/v1/agentbook-core';
 
@@ -30,6 +31,7 @@ interface DeadLetterRow {
 }
 
 export const DeadLetterPage: React.FC = () => {
+  const { t } = useI18n();
   const [rows, setRows] = useState<DeadLetterRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [replaying, setReplaying] = useState<string | null>(null);
@@ -97,12 +99,12 @@ export const DeadLetterPage: React.FC = () => {
     <div className="p-6 max-w-6xl mx-auto">
       <div className="flex items-center gap-3 mb-6">
         <AlertTriangle className="w-6 h-6 text-orange-500" />
-        <h1 className="text-2xl font-semibold">Webhook Dead-Letter Queue</h1>
+        <h1 className="text-2xl font-semibold">{t('core_ui.dead_letter_queue')}</h1>
       </div>
 
       <p className="text-sm text-gray-600 mb-4">
         Telegram updates that failed every retry attempt land here. Tap{' '}
-        <span className="font-mono">Replay</span> to send the original payload
+        <span className="font-mono">{t('core_ui.replay')}</span> to send the original payload
         back through the webhook — idempotency keys keep it safe.
       </p>
 
@@ -112,16 +114,14 @@ export const DeadLetterPage: React.FC = () => {
           className="flex items-center gap-2 px-3 py-1.5 text-sm bg-gray-100 hover:bg-gray-200 rounded"
           disabled={loading}
         >
-          <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
-          Refresh
+          <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />{t('common.refresh')}
         </button>
         <label className="flex items-center gap-2 text-sm text-gray-600">
           <input
             type="checkbox"
             checked={showAll}
             onChange={(e) => setShowAll(e.target.checked)}
-          />
-          Include resolved
+          />{t('core_ui.include_resolved')}
         </label>
       </div>
 
@@ -137,8 +137,7 @@ export const DeadLetterPage: React.FC = () => {
         </div>
       ) : rows.length === 0 ? (
         <div className="py-12 text-center text-gray-500">
-          <Check className="w-8 h-8 mx-auto mb-2 text-green-500" />
-          No dead-lettered messages.
+          <Check className="w-8 h-8 mx-auto mb-2 text-green-500" />{t('core_ui.no_dead_letters')}
         </div>
       ) : (
         <div className="space-y-2">
@@ -154,7 +153,7 @@ export const DeadLetterPage: React.FC = () => {
                   <button
                     onClick={() => toggleExpand(row.id)}
                     className="mt-0.5 text-gray-500 hover:text-gray-700"
-                    aria-label={isOpen ? 'Collapse' : 'Expand'}
+                    aria-label={isOpen ? t('common.collapse') : t('common.expand')}
                   >
                     {isOpen ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
                   </button>
@@ -197,13 +196,13 @@ export const DeadLetterPage: React.FC = () => {
                 </div>
                 {isOpen && (
                   <div className="px-3 pb-3 pl-10">
-                    <div className="text-xs text-gray-500 mb-1">Payload</div>
+                    <div className="text-xs text-gray-500 mb-1">{t('core_ui.payload')}</div>
                     <pre className="text-xs bg-gray-50 p-2 rounded overflow-x-auto max-h-64 overflow-y-auto border">
                       {JSON.stringify(row.payload, null, 2)}
                     </pre>
                     {row.error && (
                       <>
-                        <div className="text-xs text-gray-500 mt-2 mb-1">Last error</div>
+                        <div className="text-xs text-gray-500 mt-2 mb-1">{t('core_ui.last_error')}</div>
                         <pre className="text-xs bg-red-50 p-2 rounded overflow-x-auto border border-red-100 whitespace-pre-wrap">
                           {row.error}
                         </pre>

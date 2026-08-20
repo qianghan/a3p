@@ -123,5 +123,11 @@
   "save_bill": "保存账单",
   "hide_deleted": "隐藏已删除",
   "show_deleted": "显示已删除",
-  "categorize_ellipsis": "分类…"
+  "categorize_ellipsis": "分类…",
+  "low_confidence_hint": "AI 无法确定这些项目的类别 — 请在下方支出列表中逐行直接设置类别。",
+  "more_expenses_needed": "再记录几笔支出即可解锁消费洞察。",
+  "agent_insights": "助手洞察",
+  "expense_advisor": "支出顾问",
+  "ask_placeholder": "询问有关支出的问题…",
+  "per_diem_unsupported": "{jurisdiction} 尚不支持每日津贴方式 — 请改用里程和餐饮支出。（将在后续版本中推出。）"
 }

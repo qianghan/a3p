@@ -39,9 +39,9 @@ export const ThisMonthStrip: React.FC<Props> = ({ mtd, prev }) => {
   return (
     <section className="bg-card border border-border rounded-2xl p-4 flex items-center gap-4 flex-wrap">
       <span className="text-xs uppercase tracking-wide text-muted-foreground">{t('dashboard.this_month')}</span>
-      <Cell label="Rev" cents={mtd.revenueCents} prior={p.revenueCents} currency={currency} />
-      <Cell label="Exp" cents={mtd.expenseCents} prior={p.expenseCents} currency={currency} />
-      <Cell label="Net" cents={mtd.netCents} prior={p.netCents} currency={currency} />
+      <Cell label={t('core_ui.abbr_revenue')} cents={mtd.revenueCents} prior={p.revenueCents} currency={currency} />
+      <Cell label={t('core_ui.abbr_expenses')} cents={mtd.expenseCents} prior={p.expenseCents} currency={currency} />
+      <Cell label={t('core_ui.abbr_net')} cents={mtd.netCents} prior={p.netCents} currency={currency} />
     </section>
   );
 };

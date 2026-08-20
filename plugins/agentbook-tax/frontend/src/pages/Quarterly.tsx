@@ -64,7 +64,7 @@ const STATUS_CONFIG: Record<string, { bg: string; border: string; text: string; 
 
 export const QuarterlyPage: React.FC = () => {
   // Locale for the UTC-rendered logical-date helpers above.
-  const { locale } = useI18n();
+  const { locale, t } = useI18n();
   const [quarters, setQuarters] = useState<Quarter[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -126,7 +126,7 @@ export const QuarterlyPage: React.FC = () => {
           onClick={fetchQuarters}
           className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium border hover:bg-gray-50"
         >
-          <RefreshCw className="w-4 h-4" /> Retry
+          <RefreshCw className="w-4 h-4" /> {t('common.retry')}
         </button>
       </div>
     );
@@ -135,11 +135,9 @@ export const QuarterlyPage: React.FC = () => {
   return (
     <div className="p-4 sm:p-6 max-w-4xl mx-auto">
       <div className="mb-6">
-        <h1 className="text-2xl font-bold" style={{ color: 'var(--text-primary)' }}>
-          Quarterly Installments
+        <h1 className="text-2xl font-bold" style={{ color: 'var(--text-primary)' }}>{t('tax_ui.quarterly_installments')}
         </h1>
-        <p className="text-sm mt-1" style={{ color: 'var(--text-secondary)' }}>
-          Track and manage quarterly tax installment payments
+        <p className="text-sm mt-1" style={{ color: 'var(--text-secondary)' }}>{t('tax_ui.quarterly_sub')}
         </p>
       </div>
 
@@ -198,8 +196,7 @@ export const QuarterlyPage: React.FC = () => {
                 </div>
                 {remaining > 0 && (
                   <div className="flex items-center justify-between pt-1 border-t" style={{ borderColor: 'var(--border-primary, #e5e7eb)' }}>
-                    <span className="text-sm font-medium" style={{ color: 'var(--text-secondary)' }}>
-                      Remaining
+                    <span className="text-sm font-medium" style={{ color: 'var(--text-secondary)' }}>{t('tax_ui.remaining')}
                     </span>
                     <span className="text-sm font-bold text-amber-600">
                       {formatCurrency(remaining, currency)}
@@ -215,7 +212,7 @@ export const QuarterlyPage: React.FC = () => {
                     type="number"
                     min={0}
                     step={0.01}
-                    placeholder="Amount"
+                    placeholder={t('expenses_ui.amount_placeholder')}
                     value={paymentAmounts[q.id || q.quarter] || ''}
                     onChange={(e) =>
                       setPaymentAmounts((prev) => ({

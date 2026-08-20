@@ -31,8 +31,8 @@ export function PlanList({ onEdit, onAdd }: Props): JSX.Element {
     <div className="p-6">
       <div className="mb-6 flex items-center justify-between">
         <div>
-          <h2 className="text-xl font-semibold text-foreground">Subscription Plans</h2>
-          <p className="mt-0.5 text-sm text-muted-foreground">Admin view — manage plan templates</p>
+          <h2 className="text-xl font-semibold text-foreground">{t('billing_ui.subscription_plans')}</h2>
+          <p className="mt-0.5 text-sm text-muted-foreground">{t('billing_ui.admin_manage_templates')}</p>
         </div>
         <button
           onClick={onAdd}
@@ -47,9 +47,9 @@ export function PlanList({ onEdit, onAdd }: Props): JSX.Element {
             <tr>
               <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wide text-muted-foreground">{t('accounting.code')}</th>
               <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wide text-muted-foreground">{t('accounting.name')}</th>
-              <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wide text-muted-foreground">Price</th>
+              <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wide text-muted-foreground">{t('common.price')}</th>
               <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wide text-muted-foreground">Telegram</th>
-              <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wide text-muted-foreground">Tax pkg</th>
+              <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wide text-muted-foreground">{t('billing_ui.tax_package_short')}</th>
               <th className="px-4 py-3 text-right text-xs font-medium uppercase tracking-wide text-muted-foreground">{t('common.actions')}</th>
             </tr>
           </thead>
@@ -75,14 +75,12 @@ export function PlanList({ onEdit, onAdd }: Props): JSX.Element {
                   <button
                     onClick={() => onEdit(p)}
                     className="mr-3 text-primary hover:text-primary/80"
-                  >
-                    Edit
+                  >{t('common.edit')}
                   </button>
                   <button
                     onClick={() => archive(p)}
                     className="text-destructive hover:text-destructive/80"
-                  >
-                    Archive
+                  >{t('common.archive')}
                   </button>
                 </td>
               </tr>

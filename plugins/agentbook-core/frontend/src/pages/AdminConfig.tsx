@@ -97,7 +97,7 @@ export const AdminConfigPage: React.FC = () => {
     <div className="px-4 py-5 sm:p-6 max-w-4xl mx-auto">
       <div className="flex items-center gap-3 mb-6">
         <Settings className="w-6 h-6 text-primary" />
-        <h1 className="text-2xl font-bold">Agent Configuration</h1>
+        <h1 className="text-2xl font-bold">{t('core_ui.agent_configuration')}</h1>
       </div>
 
       {/*
@@ -108,7 +108,7 @@ export const AdminConfigPage: React.FC = () => {
         reject. Admins use this page; everyone else never sees it.
       */}
       <div className="mb-6 px-4 py-3 rounded-lg border border-dashed border-amber-500/30 bg-amber-500/5 text-xs text-muted-foreground">
-        <strong className="text-amber-700 dark:text-amber-400">Admin-only:</strong>{' '}
+        <strong className="text-amber-700 dark:text-amber-400">{t('core_ui.admin_only')}</strong>{' '}
         LLM provider configuration is intentionally not chat-driven. The agent
         does not expose API keys or routing weights to itself or to users.
       </div>
@@ -116,7 +116,7 @@ export const AdminConfigPage: React.FC = () => {
       {/* LLM Providers */}
       <div className="mb-8">
         <div className="flex items-center justify-between mb-4">
-          <h2 className="text-lg font-medium flex items-center gap-2"><Cpu className="w-5 h-5" /> LLM Providers</h2>
+          <h2 className="text-lg font-medium flex items-center gap-2"><Cpu className="w-5 h-5" /> {t('core_ui.llm_providers')}</h2>
           <button onClick={() => setShowAddForm(!showAddForm)}
             className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-lg text-sm">
             <Plus className="w-4 h-4" /> Add Provider
@@ -126,17 +126,17 @@ export const AdminConfigPage: React.FC = () => {
         {/* Add form */}
         {showAddForm && (
           <div className="bg-card border border-border rounded-xl p-5 mb-4">
-            <h3 className="font-medium mb-3">Add LLM Provider</h3>
+            <h3 className="font-medium mb-3">{t('core_ui.add_llm_provider')}</h3>
             <div className="space-y-3">
               <select value={newProvider} onChange={e => setNewProvider(e.target.value)}
                 className="w-full p-3 border border-border rounded-lg bg-background">
                 {PROVIDERS.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
               </select>
-              <input type="text" placeholder="Display name (optional)" value={newName} onChange={e => setNewName(e.target.value)}
+              <input type="text" placeholder={t('core_ui.display_name_optional')} value={newName} onChange={e => setNewName(e.target.value)}
                 className="w-full p-3 border border-border rounded-lg bg-background" />
               <div className="relative">
                 <Key className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                <input type="password" placeholder="API Key" value={newApiKey} onChange={e => setNewApiKey(e.target.value)}
+                <input type="password" placeholder={t('core_ui.api_key')} value={newApiKey} onChange={e => setNewApiKey(e.target.value)}
                   className="w-full pl-10 p-3 border border-border rounded-lg bg-background font-mono text-sm" />
               </div>
               <div className="flex gap-2">
@@ -159,19 +159,19 @@ export const AdminConfigPage: React.FC = () => {
                 <div className="flex items-center gap-3">
                   <div className={`w-2 h-2 rounded-full ${cfg.enabled ? 'bg-green-500' : 'bg-red-500'}`} />
                   <h3 className="font-medium">{cfg.name}</h3>
-                  {cfg.isDefault && <span className="text-xs px-2 py-0.5 bg-primary/10 text-primary rounded-full">Default</span>}
+                  {cfg.isDefault && <span className="text-xs px-2 py-0.5 bg-primary/10 text-primary rounded-full">{t('common.default')}</span>}
                 </div>
                 <div className="flex items-center gap-2">
                   <button onClick={() => testProvider(cfg.id)} disabled={testing === cfg.id}
-                    className="p-2 rounded-lg hover:bg-muted transition-colors" title="Test connection">
+                    className="p-2 rounded-lg hover:bg-muted transition-colors" title={t('core_ui.test_connection')}>
                     {testing === cfg.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <TestTube className="w-4 h-4" />}
                   </button>
                   {!cfg.isDefault && (
-                    <button onClick={() => toggleDefault(cfg.id)} className="p-2 rounded-lg hover:bg-muted" title="Set as default">
+                    <button onClick={() => toggleDefault(cfg.id)} className="p-2 rounded-lg hover:bg-muted" title={t('core_ui.set_as_default')}>
                       <Check className="w-4 h-4" />
                     </button>
                   )}
-                  <button onClick={() => deleteConfig(cfg.id)} className="p-2 rounded-lg hover:bg-red-500/10 text-red-500" title="Delete">
+                  <button onClick={() => deleteConfig(cfg.id)} className="p-2 rounded-lg hover:bg-red-500/10 text-red-500" title={t('common.delete')}>
                     <Trash2 className="w-4 h-4" />
                   </button>
                 </div>
@@ -185,7 +185,7 @@ export const AdminConfigPage: React.FC = () => {
           {configs.length === 0 && !loading && (
             <div className="text-center py-8 text-muted-foreground">
               <Cpu className="w-10 h-10 mx-auto mb-3 opacity-50" />
-              <p>No LLM providers configured. Add one to enable AI features.</p>
+              <p>{t('core_ui.no_llm_providers')}</p>
             </div>
           )}
         </div>

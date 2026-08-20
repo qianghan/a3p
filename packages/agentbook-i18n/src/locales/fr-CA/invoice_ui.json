@@ -94,5 +94,10 @@
   "status_expired": "Expiré",
   "status_converted": "Converti",
   "invoice_total": "Total de la facture",
-  "amount_paid": "Montant payé"
+  "amount_paid": "Montant payé",
+  "record_payment": "Enregistrer le paiement",
+  "send_all_reminders": "Envoyer tous les rappels",
+  "generate_from_selected": "Générer une facture à partir de la sélection",
+  "working": "En cours…",
+  "reminded_on": "Rappel envoyé le {date}"
 }

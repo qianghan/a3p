@@ -168,7 +168,7 @@ export const PastFilingsPage: React.FC = () => {
 
   return (
     <div className="px-4 py-5 sm:p-6 max-w-4xl mx-auto">
-      <h1 className="text-2xl font-bold mb-6">Past Tax Filings</h1>
+      <h1 className="text-2xl font-bold mb-6">{t('tax_ui.past_filings')}</h1>
 
       <div className="mb-6">
         <TaxDisclaimer />
@@ -191,26 +191,26 @@ export const PastFilingsPage: React.FC = () => {
 
         <div className="flex gap-3 mt-3 flex-wrap items-end">
           <div>
-            <label className="text-xs text-muted-foreground block mb-1">Tax year</label>
+            <label className="text-xs text-muted-foreground block mb-1">{t('tax_ui.tax_year')}</label>
             <select value={year} onChange={(e) => setYear(Number(e.target.value))}
               className="p-2 border border-border rounded-lg bg-background text-sm">
               {YEAR_OPTIONS.map((y) => <option key={y} value={y}>{y}</option>)}
             </select>
           </div>
           <div>
-            <label className="text-xs text-muted-foreground block mb-1">Jurisdiction</label>
+            <label className="text-xs text-muted-foreground block mb-1">{t('tax_ui.jurisdiction')}</label>
             <select value={jurisdiction} onChange={(e) => setJurisdiction(e.target.value as 'ca' | 'us' | 'au')}
               className="p-2 border border-border rounded-lg bg-background text-sm">
-              <option value="ca">Canada</option>
-              <option value="us">United States</option>
-              <option value="au">Australia</option>
+              <option value="ca">{t('tax_ui.canada')}</option>
+              <option value="us">{t('tax_ui.united_states')}</option>
+              <option value="au">{t('tax_ui.australia')}</option>
             </select>
           </div>
           <div>
-            <label className="text-xs text-muted-foreground block mb-1">Form type</label>
+            <label className="text-xs text-muted-foreground block mb-1">{t('tax_ui.form_type')}</label>
             <select value={formType} onChange={(e) => setFormType(e.target.value)}
               className="p-2 border border-border rounded-lg bg-background text-sm">
-              <option value="">Auto-detect</option>
+              <option value="">{t('tax_ui.auto_detect')}</option>
               {jurisdiction === 'ca'
                 ? ['T1', 'T4', 'T4A', 'T5', 'NOA', 'T2125', 'RRSP'].map((f) => <option key={f} value={f}>{f}</option>)
                 : jurisdiction === 'au'
@@ -224,10 +224,9 @@ export const PastFilingsPage: React.FC = () => {
       </div>
 
       {/* Filings list */}
-      <h2 className="text-sm font-medium text-muted-foreground mb-3">Uploaded filings</h2>
+      <h2 className="text-sm font-medium text-muted-foreground mb-3">{t('tax_ui.uploaded_filings')}</h2>
       {filings.length === 0 && (
-        <p className="text-sm text-muted-foreground text-center py-6">
-          No past filings yet. Upload a T1, NOA, 1040, or other return PDF above.
+        <p className="text-sm text-muted-foreground text-center py-6">{t('tax_ui.no_past_filings')}
         </p>
       )}
       <div className="space-y-2">
@@ -252,7 +251,7 @@ export const PastFilingsPage: React.FC = () => {
                   </div>
                   {income != null && (
                     <p className="text-xs text-muted-foreground mt-1">
-                      Income {fmtCents(income, ccy)}{refund != null ? ` · ${refund >= 0 ? 'Refund' : 'Owing'} ${fmtCents(Math.abs(refund), ccy)}` : ''}
+                      Income {fmtCents(income, ccy)}{refund != null ? ` · ${refund >= 0 ? t('tax_ui.refund') : t('tax_ui.owing')} ${fmtCents(Math.abs(refund), ccy)}` : ''}
                     </p>
                   )}
                   {f.errorMsg && <p className="text-xs text-red-500 mt-1">{f.errorMsg}</p>}
@@ -280,13 +279,11 @@ export const PastFilingsPage: React.FC = () => {
                   )}
                   {f.status !== 'confirmed' && f.status !== 'parsing' && f.status !== 'uploaded' && (
                     <button onClick={() => handleConfirm(f.id)}
-                      className="px-2.5 py-1.5 text-xs rounded-lg border border-emerald-600/40 text-emerald-600 hover:bg-emerald-50/20 text-xs">
-                      Confirm
+                      className="px-2.5 py-1.5 text-xs rounded-lg border border-emerald-600/40 text-emerald-600 hover:bg-emerald-50/20 text-xs">{t('common.confirm_action')}
                     </button>
                   )}
                   <button onClick={() => handleDelete(f.id)}
-                    className="px-2.5 py-1.5 text-xs rounded-lg border border-border hover:bg-red-50/20 text-red-500 text-xs">
-                    Delete
+                    className="px-2.5 py-1.5 text-xs rounded-lg border border-border hover:bg-red-50/20 text-red-500 text-xs">{t('common.delete')}
                   </button>
                 </div>
               </div>

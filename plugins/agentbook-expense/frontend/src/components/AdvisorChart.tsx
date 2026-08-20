@@ -68,7 +68,7 @@ const CustomTooltip = ({ active, payload }: any) => {
 };
 
 export const AdvisorChart: React.FC<ChartProps> = ({ chartType, title, subtitle, data, annotation, loading, onTypeChange }) => {
-  const { locale } = useI18n();
+  const { locale, t } = useI18n();
   const currency = useTenantCurrency();
   const fmtK = makeFmtK(locale, currency);
   if (loading) {
@@ -77,7 +77,7 @@ export const AdvisorChart: React.FC<ChartProps> = ({ chartType, title, subtitle,
   if (!data || data.length === 0) {
     return (
       <div className="bg-card border border-border rounded-xl p-8 mb-4 text-center">
-        <p className="text-sm text-muted-foreground">Record a few more expenses to unlock spending insights.</p>
+        <p className="text-sm text-muted-foreground">{t('expenses_ui.more_expenses_needed')}</p>
       </div>
     );
   }

@@ -56,12 +56,30 @@ for f in sorted(Path('packages/agentbook-i18n/src/locales/en').glob('*.json')):
 # which is a judgement call rather than a mechanical fix.
 en = {v: k for v, k in en.items() if '{' not in v}
 
-# JSX text nodes only — the same shape the string ratchet counts, so the two
-# measures reconcile.
-TEXT = re.compile(r'>([A-Z][A-Za-z0-9 ,.\'!?%$&()/:—–-]{2,})<')
+# JSX text nodes, on ONE line and spanning several.
+#
+# The first version matched only single-line `>Text<` and therefore reported a
+# clean zero while thirteen multi-line nodes — `>\n  Description\n<` — still
+# rendered English over an existing translation. A hard-zero guard that cannot
+# see a common shape is worse than a ratchet, because the zero is believed.
+CHARS = r"[A-Za-z0-9 ,.'!?%$&()/:—–-]"
+TEXT = re.compile(r'>\s*([A-Z]' + CHARS + r'{2,}?)\s*<', re.S)
 
 found = []
+# Scoped to the SIX AgentBook plugins, matching the other ratchets.
+#
+# The wider glob flagged plugins/agentbook-housing and plugins/community, on
+# the grounds that "Australia" and "Pinned" have keys — but those keys live in
+# `tax_ui` and `core_ui`. Wiring a housing roommate panel to a TAX namespace
+# key because the English happens to match would create real coupling between
+# unrelated products to satisfy a check. Those plugins are separate surfaces
+# and need their own namespaces when their turn comes.
+PLUGINS = ('agentbook-core', 'agentbook-billing', 'agentbook-expense',
+           'agentbook-invoice', 'agentbook-startup', 'agentbook-tax')
+
 for p in Path('plugins').glob('*/frontend/src/**/*.tsx'):
+    if p.parts[1] not in PLUGINS:
+        continue
     sp = str(p)
     if '__tests__' in sp or sp.endswith('.test.tsx') or '/dist/' in sp:
         continue

@@ -8,7 +8,7 @@ import {
   RefreshCw,
   Tag,
 } from 'lucide-react';
-import { ChatCTA } from '@naap/plugin-sdk';
+import { ChatCTA, useI18n } from '@naap/plugin-sdk';
 import { formatMoney } from '@agentbook/i18n';
 import { useTenantCurrency } from '../hooks/useTenantCurrency';
 import { TaxDisclaimer } from '../components/TaxDisclaimer';
@@ -32,6 +32,7 @@ const STATUS_CONFIG: Record<string, { label: string; bg: string; text: string; i
 };
 
 export const DeductionsPage: React.FC = () => {
+  const { t } = useI18n();
   const [deductions, setDeductions] = useState<Deduction[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -93,7 +94,7 @@ export const DeductionsPage: React.FC = () => {
           onClick={fetchDeductions}
           className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium border hover:bg-gray-50"
         >
-          <RefreshCw className="w-4 h-4" /> Retry
+          <RefreshCw className="w-4 h-4" /> {t('common.retry')}
         </button>
       </div>
     );
@@ -102,11 +103,9 @@ export const DeductionsPage: React.FC = () => {
   return (
     <div className="p-4 sm:p-6 max-w-4xl mx-auto">
       <div className="mb-6">
-        <h1 className="text-2xl font-bold" style={{ color: 'var(--text-primary)' }}>
-          Deduction Opportunities
+        <h1 className="text-2xl font-bold" style={{ color: 'var(--text-primary)' }}>{t('tax_ui.deduction_opportunities')}
         </h1>
-        <p className="text-sm mt-1" style={{ color: 'var(--text-secondary)' }}>
-          Discover and optimize available tax deductions
+        <p className="text-sm mt-1" style={{ color: 'var(--text-secondary)' }}>{t('tax_ui.deductions_sub')}
         </p>
       </div>
 
@@ -126,8 +125,7 @@ export const DeductionsPage: React.FC = () => {
           <DollarSign className="w-5 h-5 text-emerald-600" />
         </div>
         <div>
-          <p className="text-xs font-medium uppercase tracking-wide" style={{ color: 'var(--text-secondary)' }}>
-            Total Potential Savings
+          <p className="text-xs font-medium uppercase tracking-wide" style={{ color: 'var(--text-secondary)' }}>{t('tax_ui.total_potential_savings')}
           </p>
           <p className="text-xl font-bold text-emerald-600">
             {formatCurrency(totalPotentialSavings, currency)}
@@ -138,8 +136,8 @@ export const DeductionsPage: React.FC = () => {
       {deductions.length === 0 ? (
         <div className="text-center py-20" style={{ color: 'var(--text-secondary)' }}>
           <Sparkles className="w-10 h-10 mx-auto mb-3 opacity-40" />
-          <p className="font-medium">No deductions found</p>
-          <p className="text-sm mt-1">Deduction suggestions will appear as we analyze your data.</p>
+          <p className="font-medium">{t('tax_ui.no_deductions')}</p>
+          <p className="text-sm mt-1">{t('tax_ui.no_deductions_hint')}</p>
         </div>
       ) : (
         <div className="space-y-3">
@@ -172,7 +170,7 @@ export const DeductionsPage: React.FC = () => {
 
                   <div className="flex items-center gap-3 sm:flex-col sm:items-end">
                     <div className="text-right">
-                      <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>Est. Savings</p>
+                      <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>{t('tax_ui.est_savings')}</p>
                       <p className="text-lg font-bold text-emerald-600">
                         {formatCurrency(d.estimated_savings, currency)}
                       </p>
@@ -183,7 +181,7 @@ export const DeductionsPage: React.FC = () => {
                           onClick={() => updateStatus(d.id, 'applied')}
                           disabled={updating === d.id}
                           className="p-2 rounded-lg bg-green-100 text-green-700 hover:bg-green-200 transition-colors disabled:opacity-50"
-                          title="Apply"
+                          title={t('common.apply')}
                         >
                           {updating === d.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle className="w-4 h-4" />}
                         </button>
@@ -191,7 +189,7 @@ export const DeductionsPage: React.FC = () => {
                           onClick={() => updateStatus(d.id, 'dismissed')}
                           disabled={updating === d.id}
                           className="p-2 rounded-lg bg-gray-100 text-gray-500 hover:bg-gray-200 transition-colors disabled:opacity-50"
-                          title="Dismiss"
+                          title={t('common.dismiss')}
                         >
                           <X className="w-4 h-4" />
                         </button>
