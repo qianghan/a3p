@@ -66,14 +66,6 @@ CHARS = r"[A-Za-z0-9 ,.'!?%$&()/:—–-]"
 TEXT = re.compile(r'>\s*([A-Z]' + CHARS + r'{2,}?)\s*<', re.S)
 
 found = []
-# Scoped to the SIX AgentBook plugins, matching the other ratchets.
-#
-# The wider glob flagged plugins/agentbook-housing and plugins/community, on
-# the grounds that "Australia" and "Pinned" have keys — but those keys live in
-# `tax_ui` and `core_ui`. Wiring a housing roommate panel to a TAX namespace
-# key because the English happens to match would create real coupling between
-# unrelated products to satisfy a check. Those plugins are separate surfaces
-# and need their own namespaces when their turn comes.
 # The SHELL plus every plugin frontend. Restricting this to six plugin
 # directories is what let 883 shell literals — the sidebar, the tab bars, every
 # settings page — sit outside every measure while the numbers looked finished.

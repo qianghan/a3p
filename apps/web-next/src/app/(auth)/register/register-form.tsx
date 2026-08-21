@@ -6,10 +6,12 @@ import { useRouter } from 'next/navigation';
 import { Loader2 } from 'lucide-react';
 import { Wordmark } from '@/components/brand/Wordmark';
 import { OAuthButtons, type OAuthProvider } from '@/components/auth/oauth-buttons';
+import { useT } from '@/hooks/use-t';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || '/api';
 
 export default function RegisterForm() {
+  const t = useT();
   const router = useRouter();
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -109,7 +111,7 @@ export default function RegisterForm() {
       <form onSubmit={handleSubmit} className="space-y-3">
         <div>
           <label htmlFor="displayName" className="block text-[13px] font-medium text-muted-foreground mb-1.5">
-            Name
+            {t('accounting.name')}
           </label>
           <input
             id="displayName"
@@ -184,7 +186,7 @@ export default function RegisterForm() {
           <span>
             I confirm I am at least 18 years old and agree to the{' '}
             <Link href="/legal/terms" className="hover:text-muted-foreground transition-colors">
-              Terms
+              {t('invoice_ui.terms')}
             </Link>{' '}
             and{' '}
             <Link href="/legal/privacy" className="hover:text-muted-foreground transition-colors">

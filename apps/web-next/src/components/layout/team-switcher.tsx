@@ -20,6 +20,7 @@ import {
 import { useAuth } from '@/contexts/auth-context';
 import { usePlugins } from '@/contexts/plugin-context';
 import { useEvents } from '@/contexts/shell-context';
+import { useT } from '@/hooks/use-t';
 
 interface Team {
   id: string;
@@ -29,6 +30,7 @@ interface Team {
 }
 
 export function TeamSwitcher() {
+  const t = useT();
   const router = useRouter();
   const { isAuthenticated } = useAuth();
   const { refreshPlugins } = usePlugins();
@@ -161,7 +163,7 @@ export function TeamSwitcher() {
             <div className="w-5 h-5 rounded-md bg-muted flex items-center justify-center">
               <User size={12} className="text-muted-foreground" />
             </div>
-            <span className="text-muted-foreground hidden sm:inline">Personal</span>
+            <span className="text-muted-foreground hidden sm:inline">{t('expenses_ui.personal')}</span>
           </>
         )}
         <ChevronDown
@@ -199,7 +201,7 @@ export function TeamSwitcher() {
                     <User size={16} className="text-white" />
                   </div>
                   <div className="text-left">
-                    <p className="font-medium text-sm">Personal</p>
+                    <p className="font-medium text-sm">{t('expenses_ui.personal')}</p>
                     <p className="text-xs text-muted-foreground">Your workspace</p>
                   </div>
                 </div>

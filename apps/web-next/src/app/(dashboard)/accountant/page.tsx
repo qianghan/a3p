@@ -2,6 +2,7 @@
 
 import React, { useCallback, useEffect, useState } from 'react';
 import { Users, Plus, Copy, RefreshCw, ShieldCheck, Loader2, Mail, FileQuestion, Check } from 'lucide-react';
+import { useT } from '@/hooks/use-t';
 
 const CPA = '/api/v1/agentbook-cpa';
 const CORE = '/api/v1/agentbook-core';
@@ -15,6 +16,7 @@ interface DocRequest { id: string; description: string; status: string; requeste
 const SEV: Record<string, string> = { critical: 'text-destructive', warning: 'text-yellow-600', info: 'text-primary', clean: 'text-green-600' };
 
 export default function AccountantPage() {
+  const t = useT();
   const [links, setLinks] = useState<Link[]>([]);
   const [report, setReport] = useState<Report | null>(null);
   const [autoFix, setAutoFix] = useState(true);
@@ -78,7 +80,7 @@ export default function AccountantPage() {
   return (
     <div className="max-w-4xl mx-auto p-4 sm:p-6">
       <div className="mb-5">
-        <h1 className="text-xl font-bold text-foreground flex items-center gap-2"><Users className="w-5 h-5" /> Account Access</h1>
+        <h1 className="text-xl font-bold text-foreground flex items-center gap-2"><Users className="w-5 h-5" /> {t('nav.account_access')}</h1>
         <p className="text-sm text-muted-foreground mt-0.5">Share read-only books with your CPA and get an AI review.</p>
       </div>
 
@@ -98,7 +100,7 @@ export default function AccountantPage() {
               <div key={l.id} className="flex items-center justify-between gap-2 text-sm">
                 <code className="text-xs bg-muted px-2 py-1 rounded truncate flex-1">{origin}/review/{l.token}</code>
                 <button onClick={() => navigator.clipboard?.writeText(`${origin}/review/${l.token}`)} className="text-primary hover:underline flex items-center gap-1 text-xs">
-                  <Copy className="w-3.5 h-3.5" /> Copy
+                  <Copy className="w-3.5 h-3.5" /> {t('common.copy')}
                 </button>
               </div>
             ))}

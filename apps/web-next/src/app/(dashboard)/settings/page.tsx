@@ -17,6 +17,7 @@ import * as Icons from 'lucide-react';
 import { Button, Input, Textarea, Label, Modal } from '@naap/ui';
 import { AgentBookSettingsPanel } from '@/components/settings/AgentBookSettingsPanel';
 import { ConnectedAppsList } from '@/components/settings/ConnectedAppsList';
+import { useT } from '@/hooks/use-t';
 
 /** Only allow http/https URLs for image sources to prevent XSS via javascript: URIs */
 function getSafeImageUrl(url: string | null | undefined): string | null {
@@ -61,6 +62,7 @@ interface TenantConfigEntry {
 }
 
 export default function SettingsPage() {
+  const t = useT();
   const router = useRouter();
   const searchParams = useSearchParams();
   const { user, logout, isAuthenticated } = useAuth();
@@ -632,7 +634,7 @@ export default function SettingsPage() {
           ) : (
             <div className="space-y-6">
               <div>
-                <h1 className="text-lg font-semibold">Settings</h1>
+                <h1 className="text-lg font-semibold">{t('common.settings')}</h1>
                 <p className="text-muted-foreground mt-1">
                   Manage your account and application preferences
                 </p>
@@ -754,7 +756,7 @@ export default function SettingsPage() {
                 size="md"
                 onClick={handleCancelEditProfile}
               >
-                Cancel
+                {t('common.cancel')}
               </Button>
             </div>
           </div>
@@ -798,7 +800,7 @@ export default function SettingsPage() {
       <section className="bg-card rounded-lg border p-4">
         <div className="flex items-center gap-3 mb-4">
           <Bell className="h-5 w-5 text-muted-foreground" />
-          <h2 className="text-sm font-semibold">Notifications</h2>
+          <h2 className="text-sm font-semibold">{t('agents.notifications')}</h2>
         </div>
         <div className="space-y-3">
           {[
@@ -900,7 +902,7 @@ export default function SettingsPage() {
                     loadPluginsAndPreferences();
                   }}
                 >
-                  Retry
+                  {t('common.retry')}
                 </Button>
               </div>
             </div>
@@ -914,7 +916,7 @@ export default function SettingsPage() {
               className="mt-4"
               onClick={loadPluginsAndPreferences}
             >
-              Retry
+              {t('common.retry')}
             </Button>
           </div>
         ) : (
@@ -1180,7 +1182,7 @@ export default function SettingsPage() {
               setUninstallingPlugin(null);
             }}
           >
-            Cancel
+            {t('common.cancel')}
           </Button>
           <Button
             variant="destructive"
@@ -1253,7 +1255,7 @@ export default function SettingsPage() {
               setTenantConfigEntries([]);
             }}
           >
-            Cancel
+            {t('common.cancel')}
           </Button>
           <Button
             variant="primary"

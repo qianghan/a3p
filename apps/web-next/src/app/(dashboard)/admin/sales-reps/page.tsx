@@ -14,6 +14,7 @@ import { Users, Landmark, CheckCircle2, XCircle, Pencil, History, CreditCard } f
 import { Button, Input, Select, Badge } from '@naap/ui';
 import { useAuth } from '@/contexts/auth-context';
 import { AdminNav } from '@/components/admin/AdminNav';
+import { useT } from '@/hooks/use-t';
 
 type PayoutMethodStatus = 'not_started' | 'pending' | 'active';
 
@@ -33,11 +34,12 @@ interface Rep {
 }
 
 function PayoutStatusBadge({ status }: { status: PayoutMethodStatus }) {
+  const t = useT();
   if (status === 'active') {
     return <span className="inline-flex items-center gap-1 text-emerald-600 text-xs"><Landmark className="w-3.5 h-3.5" /> Connected</span>;
   }
   if (status === 'pending') {
-    return <span className="inline-flex items-center gap-1 text-amber-600 text-xs"><Landmark className="w-3.5 h-3.5" /> Pending</span>;
+    return <span className="inline-flex items-center gap-1 text-amber-600 text-xs"><Landmark className="w-3.5 h-3.5" /> {t('expenses_ui.pending')}</span>;
   }
   return <span className="text-xs text-muted-foreground">Not set up</span>;
 }
@@ -80,6 +82,7 @@ interface RepRecommendation {
 const money = (cents: number) => `$${(cents / 100).toFixed(2)}`;
 
 export default function AdminSalesRepsPage() {
+  const t = useT();
   const router = useRouter();
   const { hasRole } = useAuth();
   const [reps, setReps] = useState<Rep[]>([]);
@@ -358,7 +361,7 @@ export default function AdminSalesRepsPage() {
                   <td className="py-2 text-right whitespace-nowrap">
                     <span className="inline-flex gap-1.5">
                       <Button onClick={() => decideRecommendation(r, 'approve')} disabled={busy} variant="secondary">Approve</Button>
-                      <Button onClick={() => decideRecommendation(r, 'dismiss')} disabled={busy} variant="ghost">Dismiss</Button>
+                      <Button onClick={() => decideRecommendation(r, 'dismiss')} disabled={busy} variant="ghost">{t('dashboard.dismiss')}</Button>
                     </span>
                   </td>
                 </tr>
@@ -381,7 +384,7 @@ export default function AdminSalesRepsPage() {
                 <th className="pb-2">Region</th>
                 <th className="pb-2">Plan / fee</th>
                 <th className="pb-2">Signed rate</th>
-                <th className="pb-2">Status</th>
+                <th className="pb-2">{t('common.status')}</th>
                 <th className="pb-2" />
               </tr>
             </thead>
@@ -405,7 +408,7 @@ export default function AdminSalesRepsPage() {
                           <Button onClick={() => decideApplication(a, 'approve')} disabled={busy} variant="secondary">
                             <CheckCircle2 className="w-3.5 h-3.5" /> Approve
                           </Button>
-                          <Button onClick={() => decideApplication(a, 'request_info')} disabled={busy} variant="ghost">Ask</Button>
+                          <Button onClick={() => decideApplication(a, 'request_info')} disabled={busy} variant="ghost">{t('dashboard.ask')}</Button>
                           <Button onClick={() => decideApplication(a, 'reject')} disabled={busy} variant="ghost">
                             <XCircle className="w-3.5 h-3.5" /> Reject
                           </Button>
@@ -430,9 +433,9 @@ export default function AdminSalesRepsPage() {
             <thead>
               <tr className="text-left text-xs text-muted-foreground border-b border-border">
                 <th className="pb-2">Rep</th>
-                <th className="pb-2">Invoice</th>
-                <th className="pb-2">Period</th>
-                <th className="pb-2 text-right">Amount</th>
+                <th className="pb-2">{t('core_ui.invoice')}</th>
+                <th className="pb-2">{t('expenses_ui.period')}</th>
+                <th className="pb-2 text-right">{t('expenses_ui.col_amount')}</th>
                 <th className="pb-2" />
               </tr>
             </thead>
@@ -460,7 +463,7 @@ export default function AdminSalesRepsPage() {
           <thead>
             <tr className="text-left text-xs text-muted-foreground border-b border-border">
               <th className="pb-2">Rep</th>
-              <th className="pb-2">Status</th>
+              <th className="pb-2">{t('common.status')}</th>
               <th className="pb-2">Commission</th>
               <th className="pb-2">Payout freq.</th>
               <th className="pb-2">Payout method</th>
@@ -531,7 +534,7 @@ export default function AdminSalesRepsPage() {
 
             {!showManualFallback ? (
               <div className="flex justify-end gap-2">
-                <Button variant="secondary" onClick={() => setReviewPayout(null)} disabled={busy}>Cancel</Button>
+                <Button variant="secondary" onClick={() => setReviewPayout(null)} disabled={busy}>{t('common.cancel')}</Button>
                 <Button variant="destructive" onClick={reject} disabled={busy}>
                   <XCircle className="w-4 h-4 mr-1" /> Reject
                 </Button>
@@ -553,7 +556,7 @@ export default function AdminSalesRepsPage() {
                   className="mb-4"
                 />
                 <div className="flex justify-end gap-2">
-                  <Button variant="secondary" onClick={() => setShowManualFallback(false)} disabled={busy}>Back</Button>
+                  <Button variant="secondary" onClick={() => setShowManualFallback(false)} disabled={busy}>{t('common.back')}</Button>
                   <Button onClick={() => markPaid('manual')} disabled={busy}>
                     <CheckCircle2 className="w-4 h-4 mr-1" /> Confirm marked paid manually
                   </Button>
@@ -593,15 +596,15 @@ export default function AdminSalesRepsPage() {
               <div>
                 <label className="block text-xs font-medium text-muted-foreground mb-1">Payout frequency</label>
                 <Select value={editFrequency} onChange={(e) => setEditFrequency(e.target.value as 'monthly' | 'quarterly' | 'annual')}>
-                  <option value="monthly">Monthly</option>
-                  <option value="quarterly">Quarterly</option>
-                  <option value="annual">Annual</option>
+                  <option value="monthly">{t('billing.monthly')}</option>
+                  <option value="quarterly">{t('expenses_ui.quarterly')}</option>
+                  <option value="annual">{t('billing.annual')}</option>
                 </Select>
               </div>
             </div>
             <div className="mt-5 flex justify-end gap-2">
-              <Button variant="secondary" onClick={() => setEditTarget(null)} disabled={busy}>Cancel</Button>
-              <Button onClick={saveEdit} disabled={busy}>Save</Button>
+              <Button variant="secondary" onClick={() => setEditTarget(null)} disabled={busy}>{t('common.cancel')}</Button>
+              <Button onClick={saveEdit} disabled={busy}>{t('common.save')}</Button>
             </div>
           </div>
         </div>
@@ -621,10 +624,10 @@ export default function AdminSalesRepsPage() {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="text-left text-xs text-muted-foreground border-b border-border">
-                    <th className="pb-2">Invoice</th>
-                    <th className="pb-2">Period</th>
-                    <th className="pb-2">Status</th>
-                    <th className="pb-2 text-right">Amount</th>
+                    <th className="pb-2">{t('core_ui.invoice')}</th>
+                    <th className="pb-2">{t('expenses_ui.period')}</th>
+                    <th className="pb-2">{t('common.status')}</th>
+                    <th className="pb-2 text-right">{t('expenses_ui.col_amount')}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -642,7 +645,7 @@ export default function AdminSalesRepsPage() {
               </table>
             )}
             <div className="mt-5 flex justify-end">
-              <Button variant="secondary" onClick={() => setHistoryTarget(null)}>Close</Button>
+              <Button variant="secondary" onClick={() => setHistoryTarget(null)}>{t('billing.close')}</Button>
             </div>
           </div>
         </div>

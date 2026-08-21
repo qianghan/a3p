@@ -7,6 +7,7 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { X, Save, Loader2, AlertCircle } from 'lucide-react';
+import { useT } from '@/hooks/use-t';
 
 interface PluginConfigModalProps {
   isOpen: boolean;
@@ -25,6 +26,7 @@ export function PluginConfigModal({
   pluginName,
   onSaved,
 }: PluginConfigModalProps) {
+  const t = useT();
   const [config, setConfig] = useState<string>('{}');
   const [originalConfig, setOriginalConfig] = useState<string>('{}');
   const [loading, setLoading] = useState(true);
@@ -219,7 +221,7 @@ export function PluginConfigModal({
             className="px-4 py-2 border border-border rounded-lg hover:bg-muted transition-colors"
             disabled={saving}
           >
-            Cancel
+            {t('common.cancel')}
           </button>
           <button
             onClick={handleSave}

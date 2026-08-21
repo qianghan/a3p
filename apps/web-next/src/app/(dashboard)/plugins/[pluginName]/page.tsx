@@ -7,6 +7,7 @@ import { Loader2, AlertCircle, RefreshCw, Cloud } from 'lucide-react';
 import { Button } from '@naap/ui';
 import { PluginLoader, type PluginInfo } from '@/components/plugin/PluginLoader';
 import { PluginInfoButton, type PluginMetadata } from '@/components/plugin/PluginInfoButton';
+import { useT } from '@/hooks/use-t';
 
 // Security: Allowed plugin hosts (configurable via env)
 const DEFAULT_ALLOWED_HOSTS = [
@@ -34,6 +35,7 @@ const ALLOWED_HOSTS = (() => {
  */
 
 export default function PluginPage() {
+  const t = useT();
   const params = useParams();
   const pluginName = params.pluginName as string;
   const { plugins, isLoading: pluginsLoading } = usePlugins();
@@ -153,7 +155,7 @@ export default function PluginPage() {
             icon={<RefreshCw className="h-3.5 w-3.5" />}
             onClick={handleRetry}
           >
-            Retry
+            {t('common.retry')}
           </Button>
         </div>
       </div>

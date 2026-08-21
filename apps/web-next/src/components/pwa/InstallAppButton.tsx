@@ -3,6 +3,7 @@
 import { useState, useCallback, useEffect } from 'react';
 import Link from 'next/link';
 import { usePwaInstall } from '@/hooks/use-pwa-install';
+import { useT } from '@/hooks/use-t';
 
 /**
  * Install-app control for the marketing site. Android/desktop Chromium
@@ -59,6 +60,7 @@ function InstallGlyph() {
 }
 
 function IosInstallModal({ onClose }: { onClose: () => void }) {
+  const t = useT();
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
     document.addEventListener('keydown', onKey);
@@ -123,7 +125,7 @@ function IosInstallModal({ onClose }: { onClose: () => void }) {
             Scroll down and tap <strong>Add to Home Screen</strong>.
           </IosStep>
           <IosStep n={3}>
-            Tap <strong>Add</strong> in the top-right corner.
+            Tap <strong>{t('common.add')}</strong> in the top-right corner.
           </IosStep>
         </ol>
 

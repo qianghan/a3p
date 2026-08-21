@@ -19,6 +19,7 @@ import {
   Loader2
 } from 'lucide-react';
 import { Button, Input, Select, Label, Modal } from '@naap/ui';
+import { useT } from '@/hooks/use-t';
 
 interface Team {
   id: string;
@@ -53,6 +54,7 @@ const ROLE_LABELS: Record<string, string> = {
 };
 
 export default function TeamMembersPage() {
+  const t = useT();
   const params = useParams();
   const router = useRouter();
   const teamId = params.teamId as string;
@@ -261,7 +263,7 @@ export default function TeamMembersPage() {
                       onChange={(e) => handleUpdateRole(member.id, e.target.value)}
                       className="h-8 text-xs w-auto"
                     >
-                      <option value="admin">Admin</option>
+                      <option value="admin">{t('nav.admin')}</option>
                       <option value="member">Member</option>
                       <option value="viewer">Viewer</option>
                     </Select>
@@ -328,7 +330,7 @@ export default function TeamMembersPage() {
               variant="ghost"
               onClick={() => setShowInviteModal(false)}
             >
-              Cancel
+              {t('common.cancel')}
             </Button>
             <Button
               type="submit"

@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { GUIDES_UI, guidesLocaleOf, guidesCounterpart } from '../_i18n';
+import { useT } from '@/hooks/use-t';
 
 /**
  * The guides' header and footer, in the reader's language.
@@ -13,6 +14,7 @@ import { GUIDES_UI, guidesLocaleOf, guidesCounterpart } from '../_i18n';
  * halfway through the partner earnings page wants that page in Chinese.
  */
 export function GuidesTop() {
+  const t = useT();
   const pathname = usePathname() ?? '/guides';
   const locale = guidesLocaleOf(pathname);
   const ui = GUIDES_UI[locale];
@@ -21,7 +23,7 @@ export function GuidesTop() {
   return (
     <header className="gd-top">
       <Link href={locale === 'zh' ? '/guides/zh' : '/'} className="gd-brand">
-        Agent<span>Book</span>
+        {t('core_ui.agent')}<span>Book</span>
       </Link>
       <nav className="gd-topnav">
         <Link href={locale === 'zh' ? '/guides/zh' : '/guides'}>{ui.allGuides}</Link>

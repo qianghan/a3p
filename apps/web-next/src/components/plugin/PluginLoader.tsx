@@ -21,6 +21,7 @@ import {
 import { useShell } from '@/contexts/shell-context';
 import { createSandboxedContext } from '@/lib/plugins/sandbox';
 import { getPluginFeatureFlags } from '@/lib/plugins/feature-flags';
+import { useT } from '@/hooks/use-t';
 
 /**
  * Plugin loading status
@@ -101,6 +102,7 @@ export function PluginLoader({
   showError = true,
   fallback,
 }: PluginLoaderProps) {
+  const t = useT();
   const containerRef = useRef<HTMLDivElement>(null);
   const cleanupRef = useRef<(() => void) | null>(null);
   const mountedRef = useRef(false);
@@ -347,7 +349,7 @@ export function PluginLoader({
               className="flex items-center gap-2 px-4 py-2 bg-accent-blue text-white rounded-lg hover:bg-accent-blue/90 transition-colors"
             >
               <RefreshCw className="w-4 h-4" />
-              Retry
+              {t('common.retry')}
             </button>
             <button
               onClick={handleOpenDirect}

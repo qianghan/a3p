@@ -10,6 +10,7 @@ import { usePlaidLink } from 'react-plaid-link';
 import { useBasiqConnect } from '@naap/plugin-sdk';
 import { formatCurrencyCents } from '@/lib/jurisdiction-currency';
 import { SubscribeModal } from '@/components/settings/SubscribeModal';
+import { useT } from '@/hooks/use-t';
 
 const API = '/api/v1/agentbook-personal';
 
@@ -86,6 +87,7 @@ const todayStr = () => {
 };
 
 export default function PersonalFinancePage() {
+  const t = useT();
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
@@ -426,7 +428,7 @@ export default function PersonalFinancePage() {
       <div className="flex items-center justify-between mb-5 flex-wrap gap-3">
         <div>
           <h1 className="text-xl font-bold text-foreground flex items-center gap-2">
-            <Wallet className="w-5 h-5" /> Personal finance
+            <Wallet className="w-5 h-5" /> {t('nav.personal_finance')}
           </h1>
           <p className="text-sm text-muted-foreground mt-0.5">
             Your household money, kept separate from the business books.
@@ -535,14 +537,14 @@ export default function PersonalFinancePage() {
         <div className="mb-4 p-3 rounded-xl text-sm bg-blue-500/10 text-blue-600 border border-blue-500/20 flex items-center gap-2">
           <Building2 className="w-4 h-4 shrink-0" />
           {bankResult}
-          <button onClick={() => setBankResult(null)} className="ml-auto text-xs opacity-60 hover:opacity-100">Dismiss</button>
+          <button onClick={() => setBankResult(null)} className="ml-auto text-xs opacity-60 hover:opacity-100">{t('dashboard.dismiss')}</button>
         </div>
       )}
       {basiqConnect.error && (
         <div className="mb-4 p-3 rounded-xl text-sm bg-red-500/10 text-red-600 border border-red-500/20 flex items-center gap-2">
           <AlertCircle className="w-4 h-4 shrink-0" />
           {basiqConnect.error}
-          <button onClick={basiqConnect.clearError} className="ml-auto text-xs opacity-60 hover:opacity-100">Dismiss</button>
+          <button onClick={basiqConnect.clearError} className="ml-auto text-xs opacity-60 hover:opacity-100">{t('dashboard.dismiss')}</button>
         </div>
       )}
       {accounts.length === 0 ? (
@@ -560,7 +562,7 @@ export default function PersonalFinancePage() {
                   <p className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5">
                     {a.connected ? <CheckCircle className="w-3 h-3 text-green-500" /> : <AlertCircle className="w-3 h-3 text-red-500" />}
                     {a.institution || 'Bank'} · {a.lastSynced ? `Synced ${new Date(a.lastSynced).toLocaleDateString()}` : 'Not synced'}
-                    <button onClick={() => handleBankDisconnect(a.id, a.provider)} className="ml-2 underline hover:no-underline">Disconnect</button>
+                    <button onClick={() => handleBankDisconnect(a.id, a.provider)} className="ml-2 underline hover:no-underline">{t('expenses_ui.disconnect')}</button>
                   </p>
                 )}
               </div>
@@ -631,7 +633,7 @@ export default function PersonalFinancePage() {
 
       <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
         <h2 className="text-sm font-semibold text-foreground flex items-center gap-1.5">
-          <Receipt className="w-4 h-4" /> Transactions
+          <Receipt className="w-4 h-4" /> {t('expenses_ui.transactions')}
         </h2>
         {accounts.length > 0 && (
           <select name="txnFilter" value={txnFilter} onChange={(e) => setTxnFilter(e.target.value)}
@@ -685,7 +687,7 @@ export default function PersonalFinancePage() {
       )}
 
       <h2 className="text-sm font-semibold text-foreground mb-2 flex items-center gap-1.5">
-        <Target className="w-4 h-4" /> Budgets
+        <Target className="w-4 h-4" /> {t('expenses_ui.budgets')}
       </h2>
       {budgets.length === 0 ? (
         <p className="text-sm text-muted-foreground py-6 text-center rounded-xl border border-border bg-card mb-6">

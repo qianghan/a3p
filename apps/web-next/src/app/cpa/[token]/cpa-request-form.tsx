@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { useT } from '@/hooks/use-t';
 
 interface Props {
   token: string;
@@ -14,6 +15,7 @@ const ENTITY_TYPES = [
 ];
 
 export function CpaRequestForm({ token }: Props) {
+  const t = useT();
   const [entityType, setEntityType] = useState('general');
   const [entityId, setEntityId] = useState('');
   const [message, setMessage] = useState('');
@@ -53,7 +55,7 @@ export function CpaRequestForm({ token }: Props) {
   return (
     <form onSubmit={onSubmit} style={{ display: 'grid', gap: '12px', maxWidth: '600px' }}>
       <label style={{ display: 'grid', gap: '4px', fontSize: '13px' }}>
-        <span style={{ color: '#374151' }}>Type</span>
+        <span style={{ color: '#374151' }}>{t('accounting.type')}</span>
         <select
           value={entityType}
           onChange={(e) => setEntityType(e.target.value)}

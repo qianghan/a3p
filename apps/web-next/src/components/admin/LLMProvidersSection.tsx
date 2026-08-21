@@ -10,6 +10,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Cpu, Star, Trash2, Zap, Plus, AlertTriangle, CheckCircle2 } from 'lucide-react';
 import { Button, Input, Select, Badge } from '@naap/ui';
+import { useT } from '@/hooks/use-t';
 
 interface LLMConfig {
   id: string;
@@ -29,6 +30,7 @@ const BASE = '/api/v1/agentbook-core/admin/llm-configs';
 const PROVIDERS = ['gemini', 'openai', 'claude', 'kimi', 'minimax'];
 
 export function LLMProvidersSection() {
+  const t = useT();
   const [configs, setConfigs] = useState<LLMConfig[]>([]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState<string | null>(null);
@@ -85,7 +87,7 @@ export function LLMProvidersSection() {
         <div className="flex items-center gap-3">
           <div className="p-2 rounded-md bg-muted"><Cpu className="w-5 h-5 text-muted-foreground" /></div>
           <div>
-            <h2 className="text-base font-semibold">LLM Providers</h2>
+            <h2 className="text-base font-semibold">{t('core_ui.llm_providers')}</h2>
             <p className="text-sm text-muted-foreground">The model providers the agent can use. One is the default.</p>
           </div>
         </div>
@@ -97,10 +99,10 @@ export function LLMProvidersSection() {
 
       {adding && (
         <div className="p-4 rounded-lg border border-border bg-card grid sm:grid-cols-4 gap-2 items-end">
-          <div><label className="text-xs text-muted-foreground">Name</label><Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Google Gemini" /></div>
+          <div><label className="text-xs text-muted-foreground">{t('accounting.name')}</label><Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Google Gemini" /></div>
           <div><label className="text-xs text-muted-foreground">Provider</label><Select value={form.provider} onChange={(e) => setForm({ ...form, provider: e.target.value })}>{PROVIDERS.map((p) => <option key={p} value={p}>{p}</option>)}</Select></div>
           <div><label className="text-xs text-muted-foreground">API key</label><Input type="password" value={form.apiKey} onChange={(e) => setForm({ ...form, apiKey: e.target.value })} placeholder="sk-…" /></div>
-          <Button onClick={create} loading={busy === '__new__'}>Save</Button>
+          <Button onClick={create} loading={busy === '__new__'}>{t('common.save')}</Button>
         </div>
       )}
 
@@ -126,7 +128,7 @@ export function LLMProvidersSection() {
                 <span className="text-xs text-muted-foreground whitespace-nowrap">Set via environment variable</span>
               ) : (
                 <>
-                  {!c.isDefault && <Button variant="ghost" size="sm" loading={busy === c.id} onClick={() => setDefault(c.id)} icon={<Star size={14} />}>Default</Button>}
+                  {!c.isDefault && <Button variant="ghost" size="sm" loading={busy === c.id} onClick={() => setDefault(c.id)} icon={<Star size={14} />}>{t('common.default')}</Button>}
                   <Button variant="ghost" size="sm" loading={busy === c.id} onClick={() => test(c.id)} icon={<Zap size={14} />}>Test</Button>
                   <Button variant="ghost" size="sm" onClick={() => remove(c.id)} icon={<Trash2 size={14} />} className="text-destructive hover:bg-destructive/10" />
                 </>

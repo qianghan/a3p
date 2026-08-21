@@ -15,6 +15,7 @@ import { useSearchParams } from 'next/navigation';
 import { useShell, useEvents } from '@/contexts/shell-context';
 import { getCsrfToken } from '@/lib/api/csrf';
 import { Button, Input, Select, Textarea, Modal } from '@naap/ui';
+import { useT } from '@/hooks/use-t';
 import {
   Search,
   Package,
@@ -141,6 +142,7 @@ function PluginDetailModal({
   installingId: string | null;
   uninstallingId: string | null;
 }) {
+  const t = useT();
   const [reviews, setReviews] = useState<PluginReview[]>([]);
   const [aggregate, setAggregate] = useState<RatingAggregate | null>(null);
   const [loadingReviews, setLoadingReviews] = useState(true);
@@ -289,14 +291,14 @@ function PluginDetailModal({
           {activeTab === 'overview' ? (
             <div className="space-y-4">
               <div>
-                <h3 className="text-sm font-semibold mb-2">Description</h3>
+                <h3 className="text-sm font-semibold mb-2">{t('common.description')}</h3>
                 <p className="text-sm text-muted-foreground leading-relaxed">
                   {plugin.description || 'No description available.'}
                 </p>
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <h3 className="text-sm font-semibold mb-1">Category</h3>
+                  <h3 className="text-sm font-semibold mb-1">{t('expenses_ui.col_category')}</h3>
                   <p className="text-sm text-muted-foreground capitalize">{plugin.category}</p>
                 </div>
                 <div>
@@ -425,7 +427,7 @@ function PluginDetailModal({
         {/* Footer - Install/Uninstall action */}
         <div className="border-t border-border p-4 flex justify-end gap-3">
           <Button variant="secondary" size="sm" onClick={onClose}>
-            Close
+            {t('billing.close')}
           </Button>
           {canUninstall ? (
             <Button

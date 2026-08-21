@@ -35,6 +35,7 @@ import {
   Search as SearchIcon,
 } from 'lucide-react';
 import { Button, Input, Textarea, Label, Modal, Badge, Select } from '@naap/ui';
+import { useT } from '@/hooks/use-t';
 
 // -- Types
 
@@ -98,6 +99,7 @@ function getStatusOption(status: FeedbackStatus) {
 // -- Component
 
 export default function AdminFeedbackPage() {
+  const t = useT();
   const router = useRouter();
   const { hasRole } = useAuth();
   const isAdmin = hasRole('system:admin');
@@ -327,7 +329,7 @@ export default function AdminFeedbackPage() {
         >
           <Filter size={16} className={statusFilter === 'all' ? 'text-primary' : 'text-muted-foreground'} />
           <span className="text-lg font-bold mt-1">{stats.total}</span>
-          <span className="text-xs text-muted-foreground">All</span>
+          <span className="text-xs text-muted-foreground">{t('invoice_ui.all')}</span>
         </button>
       </div>
 
@@ -368,11 +370,11 @@ export default function AdminFeedbackPage() {
           <table className="w-full">
             <thead className="bg-muted/50">
               <tr>
-                <th className="px-4 py-2.5 text-left text-[11px] font-medium text-muted-foreground uppercase tracking-wider">Status</th>
-                <th className="px-4 py-2.5 text-left text-[11px] font-medium text-muted-foreground uppercase tracking-wider">Type</th>
+                <th className="px-4 py-2.5 text-left text-[11px] font-medium text-muted-foreground uppercase tracking-wider">{t('common.status')}</th>
+                <th className="px-4 py-2.5 text-left text-[11px] font-medium text-muted-foreground uppercase tracking-wider">{t('accounting.type')}</th>
                 <th className="px-4 py-2.5 text-left text-[11px] font-medium text-muted-foreground uppercase tracking-wider">Title</th>
-                <th className="px-4 py-2.5 text-left text-[11px] font-medium text-muted-foreground uppercase tracking-wider">User</th>
-                <th className="px-4 py-2.5 text-left text-[11px] font-medium text-muted-foreground uppercase tracking-wider">Date</th>
+                <th className="px-4 py-2.5 text-left text-[11px] font-medium text-muted-foreground uppercase tracking-wider">{t('core_ui.user')}</th>
+                <th className="px-4 py-2.5 text-left text-[11px] font-medium text-muted-foreground uppercase tracking-wider">{t('expenses_ui.col_date')}</th>
                 <th className="px-4 py-2.5 text-left text-[11px] font-medium text-muted-foreground uppercase tracking-wider">Release</th>
               </tr>
             </thead>
@@ -479,7 +481,7 @@ export default function AdminFeedbackPage() {
 
             {/* Status */}
             <div>
-              <Label className="mb-1.5 block">Status</Label>
+              <Label className="mb-1.5 block">{t('common.status')}</Label>
               <div className="flex flex-wrap gap-2">
                 {statusOptions.map((opt) => {
                   const Icon = opt.icon;
@@ -531,7 +533,7 @@ export default function AdminFeedbackPage() {
                 variant="ghost"
                 onClick={() => setSelectedFeedback(null)}
               >
-                Cancel
+                {t('common.cancel')}
               </Button>
               <Button
                 variant="primary"
@@ -587,7 +589,7 @@ export default function AdminFeedbackPage() {
               variant="ghost"
               onClick={() => setShowConfig(false)}
             >
-              Cancel
+              {t('common.cancel')}
             </Button>
             <Button
               variant="primary"

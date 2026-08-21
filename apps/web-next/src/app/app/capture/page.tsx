@@ -3,6 +3,7 @@
 import React, { useRef, useState } from 'react';
 import { Camera, Check, CloudOff } from 'lucide-react';
 import { queueExpense, queueReceipt } from '@/lib/offline-queue';
+import { useT } from '@/hooks/use-t';
 
 /** True when there's no connection at all — either `fetch()` itself threw
  * (TypeError, happens if the service worker isn't yet controlling the page)
@@ -45,6 +46,7 @@ async function compressImage(file: File, maxDim = 1800, quality = 0.85): Promise
 }
 
 export default function MobileCapture() {
+  const t = useT();
   const fileRef = useRef<HTMLInputElement>(null);
   const [photoName, setPhotoName] = useState<string | null>(null);
   const [receiptUrl, setReceiptUrl] = useState<string | null>(null);
@@ -168,7 +170,7 @@ export default function MobileCapture() {
           style={inputStyle} />
         <button onClick={() => void save()} disabled={saving || !amount}
           style={{ padding: 14, borderRadius: 12, border: 'none', background: queuedOffline ? '#f59e0b' : '#10b981', color: '#04130c', fontSize: 15, fontWeight: 600, opacity: saving || !amount ? 0.5 : 1 }}>
-          {done ? <span><Check style={{ width: 16, height: 16, verticalAlign: -3 }} /> Saved</span>
+          {done ? <span><Check style={{ width: 16, height: 16, verticalAlign: -3 }} /> {t('tax.tax_review_edit_saved')}</span>
             : queuedOffline ? <span><CloudOff style={{ width: 16, height: 16, verticalAlign: -3 }} /> Saved — will sync when online</span>
             : saving ? 'Saving…' : 'Save expense'}
         </button>

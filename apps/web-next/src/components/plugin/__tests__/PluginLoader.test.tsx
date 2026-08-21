@@ -1,4 +1,5 @@
 import { render, waitFor } from '@testing-library/react';
+import { createContext } from 'react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { PluginLoader } from '../PluginLoader';
 import { useShell } from '@/contexts/shell-context';
@@ -7,6 +8,12 @@ import { getPluginFeatureFlags } from '@/lib/plugins/feature-flags';
 
 vi.mock('@/contexts/shell-context', () => ({
   useShell: vi.fn(),
+  // PluginLoader's error state renders a translated "Retry", which pulls in
+  // hooks/use-t.ts, which reads this context directly rather than through
+  // useShell() (that throws without a provider). A partial mock without it
+  // fails at import time, not at assertion time — so the error looks like a
+  // broken test rather than a missing mock entry.
+  ShellContextReact: createContext(null),
 }));
 
 vi.mock('@/lib/plugins/umd-loader', () => ({
