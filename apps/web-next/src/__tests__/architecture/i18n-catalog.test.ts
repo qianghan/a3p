@@ -134,6 +134,11 @@ const IDENTICAL_ALLOWED = new Set<string>([
   // "Canada" is the country's own name in both official languages (tax_ui.canada
   // is already allowed for the same reason).
   'student_ui.country_ca',
+  // "Commission", "Commissions" and "Message" are spelled identically in
+  // French — all three are ordinary French words, not untranslated English.
+  'admin_ui.commission',
+  'admin_ui.commissions',
+  'admin_ui.message',
 ]);
 
 /**

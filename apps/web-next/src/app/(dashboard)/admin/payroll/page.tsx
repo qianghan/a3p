@@ -104,7 +104,7 @@ export default function AdminPayrollPage() {
       <div className="flex items-center gap-3">
         <div className="p-2 rounded-md bg-muted"><Banknote className="w-5 h-5 text-muted-foreground" /></div>
         <div>
-          <h1 className="text-lg font-semibold">Payroll Providers</h1>
+          <h1 className="text-lg font-semibold">{t('admin_ui.payroll_providers')}</h1>
           <p className="text-sm text-muted-foreground">
             Choose how payroll runs per country. The built-in calculator is the default; connect a provider to run real payroll.
           </p>
@@ -115,7 +115,7 @@ export default function AdminPayrollPage() {
       {successMsg && <div className="flex items-center gap-2 p-3 rounded-lg bg-emerald-500/10 text-emerald-500 text-sm"><CheckCircle2 size={16} /> {successMsg}</div>}
 
       <div className="p-4 rounded-lg bg-muted/50 border border-border/50 text-sm text-muted-foreground">
-        Recommendation: keep <strong>Calculator</strong> as the default (free, every country). For real US+CA payroll the best single provider is <strong>Deel</strong>; <strong>Finch</strong> is the cheapest option to read an existing payroll into the books. Selecting a provider before its adapter ships is recorded — pay runs use the calculator until then.
+        Recommendation: keep <strong>{t('admin_ui.calculator')}</strong> as the default (free, every country). For real US+CA payroll the best single provider is <strong>Deel</strong>; <strong>Finch</strong> is the cheapest option to read an existing payroll into the books. Selecting a provider before its adapter ships is recorded — pay runs use the calculator until then.
       </div>
 
       {loading ? (

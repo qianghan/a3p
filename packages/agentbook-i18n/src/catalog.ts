@@ -44,6 +44,7 @@ import enInvoiceUi from './locales/en/invoice_ui.json';
 import enOnboarding from './locales/en/onboarding.json';
 import enNav from './locales/en/nav.json';
 import enDash from './locales/en/dash.json';
+import enAdminUi from './locales/en/admin_ui.json';
 import enTabs from './locales/en/tabs.json';
 import enStudentUi from './locales/en/student_ui.json';
 import enCommunityUi from './locales/en/community_ui.json';
@@ -73,6 +74,7 @@ import frInvoiceUi from './locales/fr-CA/invoice_ui.json';
 import frOnboarding from './locales/fr-CA/onboarding.json';
 import frNav from './locales/fr-CA/nav.json';
 import frDash from './locales/fr-CA/dash.json';
+import frAdminUi from './locales/fr-CA/admin_ui.json';
 import frTabs from './locales/fr-CA/tabs.json';
 import frStudentUi from './locales/fr-CA/student_ui.json';
 import frCommunityUi from './locales/fr-CA/community_ui.json';
@@ -101,6 +103,7 @@ import zhInvoiceUi from './locales/zh-CN/invoice_ui.json';
 import zhOnboarding from './locales/zh-CN/onboarding.json';
 import zhNav from './locales/zh-CN/nav.json';
 import zhDash from './locales/zh-CN/dash.json';
+import zhAdminUi from './locales/zh-CN/admin_ui.json';
 import zhTabs from './locales/zh-CN/tabs.json';
 import zhStudentUi from './locales/zh-CN/student_ui.json';
 import zhCommunityUi from './locales/zh-CN/community_ui.json';
@@ -134,6 +137,7 @@ export const CATALOG: Catalog = Object.freeze({
     onboarding: enOnboarding,
     nav: enNav,
     dash: enDash,
+    admin_ui: enAdminUi,
     tabs: enTabs,
     student_ui: enStudentUi,
     community_ui: enCommunityUi,
@@ -162,6 +166,7 @@ export const CATALOG: Catalog = Object.freeze({
     onboarding: frOnboarding,
     nav: frNav,
     dash: frDash,
+    admin_ui: frAdminUi,
     tabs: frTabs,
     student_ui: frStudentUi,
     community_ui: frCommunityUi,
@@ -190,6 +195,7 @@ export const CATALOG: Catalog = Object.freeze({
     onboarding: zhOnboarding,
     nav: zhNav,
     dash: zhDash,
+    admin_ui: zhAdminUi,
     tabs: zhTabs,
     student_ui: zhStudentUi,
     community_ui: zhCommunityUi,

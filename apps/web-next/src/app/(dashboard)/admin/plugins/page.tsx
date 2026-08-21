@@ -153,9 +153,9 @@ export default function AdminPluginsPage() {
             <Blocks className="w-5 h-5 text-muted-foreground" />
           </div>
           <div>
-            <h1 className="text-lg font-semibold">Plugin Configuration</h1>
+            <h1 className="text-lg font-semibold">{t('admin_ui.plugin_configuration')}</h1>
             <p className="text-sm text-muted-foreground">
-              Designate core plugins that are auto-installed and cannot be uninstalled by users.
+              {t('admin_ui.designate_core')}
             </p>
           </div>
         </div>
@@ -190,12 +190,12 @@ export default function AdminPluginsPage() {
         <div className="flex items-start gap-3">
           <Shield size={18} className="text-muted-foreground mt-0.5 flex-shrink-0" />
           <div className="text-sm text-muted-foreground space-y-1">
-            <p className="font-medium text-foreground">How core plugins work</p>
+            <p className="font-medium text-foreground">{t('admin_ui.how_core_plugins_work')}</p>
             <ul className="list-disc list-inside space-y-0.5">
-              <li>Core plugins are automatically installed for all users</li>
-              <li>Users <strong>cannot uninstall</strong> core plugins, but can hide them</li>
+              <li>{t('admin_ui.core_auto_installed')}</li>
+              <li>{t('admin_ui.users')} <strong>cannot uninstall</strong> core plugins, but can hide them</li>
               <li>When you add a new core plugin, it is auto-installed for all existing users</li>
-              <li>Currently <strong>{coreCount}</strong> plugin{coreCount !== 1 ? 's' : ''} marked as core</li>
+              <li>{t('admin_ui.currently')} <strong>{coreCount}</strong> plugin{coreCount !== 1 ? 's' : ''} marked as core</li>
             </ul>
           </div>
         </div>
@@ -206,13 +206,13 @@ export default function AdminPluginsPage() {
         icon={<Search size={16} />}
         value={searchQuery}
         onChange={(e) => setSearchQuery(e.target.value)}
-        placeholder="Search plugins..."
+        placeholder={t('admin_ui.ph_search_plugins')}
       />
 
       {loading ? (
         <div className="flex flex-col items-center justify-center py-16">
           <div className="h-5 w-5 animate-spin text-muted-foreground border-2 border-current border-t-transparent rounded-full mb-3" />
-          <p className="text-sm text-muted-foreground">Loading plugins...</p>
+          <p className="text-sm text-muted-foreground">{t('admin_ui.loading_plugins')}</p>
         </div>
       ) : (
         <div className="space-y-6">

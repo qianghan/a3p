@@ -1141,9 +1141,9 @@ function ReferralsTab(): React.ReactElement {
             <table className="w-full text-sm">
               <thead className="bg-muted/50 text-xs text-muted-foreground">
                 <tr>
-                  <th className="text-left px-3 py-2 font-medium">Invitee</th>
+                  <th className="text-left px-3 py-2 font-medium">{t('admin_ui.invitee')}</th>
                   <th className="text-left px-3 py-2 font-medium">{t('common.status')}</th>
-                  <th className="text-left px-3 py-2 font-medium">Joined</th>
+                  <th className="text-left px-3 py-2 font-medium">{t('admin_ui.joined')}</th>
                   <th className="text-left px-3 py-2 font-medium">{t('invoice_ui.paid')}</th>
                 </tr>
               </thead>
@@ -1624,7 +1624,7 @@ function NotificationsPreferencesTab(): React.ReactElement {
             <tr>
               <th className="text-left px-3 py-2 font-medium">{t('expenses_ui.col_category')}</th>
               <th className="text-center px-3 py-2 font-medium w-24">In-app</th>
-              <th className="text-center px-3 py-2 font-medium w-24">Email</th>
+              <th className="text-center px-3 py-2 font-medium w-24">{t('common.email')}</th>
             </tr>
           </thead>
           <tbody>
@@ -2092,7 +2092,7 @@ export function AgentBookSettingsPanel({ initialTab }: { initialTab?: string }):
                   className={inputCls} placeholder="Acme Corp" />
               </div>
               <div>
-                <label className="block text-sm font-medium text-foreground">Email</label>
+                <label className="block text-sm font-medium text-foreground">{t('common.email')}</label>
                 <input type="email" value={form.companyEmail ?? ''} onChange={(e) => set({ companyEmail: e.target.value || null })}
                   className={inputCls} placeholder="billing@acme.com" />
               </div>

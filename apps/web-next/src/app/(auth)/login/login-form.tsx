@@ -7,6 +7,7 @@ import { useAuth } from '@/contexts/auth-context';
 import { Loader2 } from 'lucide-react';
 import { Wordmark } from '@/components/brand/Wordmark';
 import { OAuthButtons, type OAuthProvider } from '@/components/auth/oauth-buttons';
+import { useT } from '@/hooks/use-t';
 
 function formatOAuthError(errorCode: string): string {
   const errorMessages: Record<string, string> = {
@@ -20,6 +21,7 @@ function formatOAuthError(errorCode: string): string {
 }
 
 export default function LoginForm() {
+  const t = useT();
   const { login, loginWithOAuth, isLoading, isAuthenticated } = useAuth();
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -71,7 +73,7 @@ export default function LoginForm() {
       <form onSubmit={handleSubmit} className="space-y-3">
         <div>
           <label htmlFor="email" className="block text-[13px] font-medium text-muted-foreground mb-1.5">
-            Email
+            {t('common.email')}
           </label>
           <input
             id="email"

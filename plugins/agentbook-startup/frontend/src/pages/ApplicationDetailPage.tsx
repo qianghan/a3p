@@ -76,7 +76,7 @@ function DecisionPointCard({
             onClick={() => onRespond(decisionPoint.id, 'approve')}
             className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-primary text-primary-foreground rounded-lg text-sm font-medium hover:bg-primary/90 transition-colors disabled:opacity-50"
           >
-            <CheckCircle2 className="w-4 h-4" /> Approve
+            <CheckCircle2 className="w-4 h-4" /> {t('admin_ui.approve')}
           </button>
           <button
             type="button"

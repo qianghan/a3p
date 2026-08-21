@@ -4,6 +4,7 @@ import { useState } from 'react';
 import Link from 'next/link';
 import { Loader2, ArrowLeft, CheckCircle } from 'lucide-react';
 import { Wordmark } from '@/components/brand/Wordmark';
+import { useT } from '@/hooks/use-t';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || '/api';
 
@@ -11,6 +12,7 @@ const inputClass =
   'w-full px-3 py-2 text-sm bg-background border border-muted-foreground/25 rounded-lg text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:border-muted-foreground/50 focus:ring-1 focus:ring-muted-foreground/20 transition-colors';
 
 export default function ForgotPasswordForm() {
+  const t = useT();
   const [email, setEmail] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -97,7 +99,7 @@ export default function ForgotPasswordForm() {
       <form onSubmit={handleSubmit} className="space-y-3">
         <div>
           <label htmlFor="email" className="block text-[13px] font-medium text-muted-foreground mb-1.5">
-            Email
+            {t('common.email')}
           </label>
           <input
             id="email"

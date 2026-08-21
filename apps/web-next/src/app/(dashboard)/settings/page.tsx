@@ -721,7 +721,7 @@ export default function SettingsPage() {
 
             {/* Email (read-only) */}
             <div>
-              <Label className="mb-1.5 block text-muted-foreground">Email</Label>
+              <Label className="mb-1.5 block text-muted-foreground">{t('common.email')}</Label>
               <p className="text-sm font-mono px-4 py-2.5 bg-muted/50 rounded-lg text-muted-foreground">
                 {user?.email || 'Not set'}
               </p>

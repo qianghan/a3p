@@ -231,7 +231,7 @@ function AdminNotificationsInner() {
             </Select>
           </div>
           <div>
-            <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Severity</label>
+            <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">{t('admin_ui.severity')}</label>
             <Select value={severity} onChange={(e) => setSeverity(e.target.value)} className="mt-1">
               <option value="info">Info</option>
               <option value="success">{t('core_ui.success')}</option>
@@ -246,28 +246,28 @@ function AdminNotificationsInner() {
           <Input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="e.g. Receipt scanning just got faster" className="mt-1" />
         </div>
         <div>
-          <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Message</label>
+          <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">{t('admin_ui.message')}</label>
           <textarea
             value={bodyText}
             onChange={(e) => setBodyText(e.target.value)}
             rows={3}
             className="mt-1 w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
-            placeholder="What changed, and why the user should care."
+            placeholder={t('admin_ui.message_hint')}
           />
         </div>
         <div className="grid grid-cols-2 gap-3">
           <div>
-            <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">CTA label (optional)</label>
-            <Input value={ctaLabel} onChange={(e) => setCtaLabel(e.target.value)} placeholder="Try it now" className="mt-1" />
+            <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">{t('admin_ui.cta_label')}</label>
+            <Input value={ctaLabel} onChange={(e) => setCtaLabel(e.target.value)} placeholder={t('admin_ui.ph_try_it_now')} className="mt-1" />
           </div>
           <div>
-            <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">CTA link (optional)</label>
+            <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">{t('admin_ui.cta_link')}</label>
             <Input value={ctaUrl} onChange={(e) => setCtaUrl(e.target.value)} placeholder="/agentbook/expenses" className="mt-1" />
           </div>
         </div>
 
         <div className="border-t border-border pt-4">
-          <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Audience</label>
+          <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">{t('admin_ui.audience')}</label>
           <Select value={audienceType} onChange={(e) => setAudienceType(e.target.value)} className="mt-1">
             {AUDIENCE_TYPES.map((a) => (
               <option key={a.value} value={a.value}>{a.label}</option>
@@ -278,7 +278,7 @@ function AdminNotificationsInner() {
             <Input
               value={planCodesInput}
               onChange={(e) => setPlanCodesInput(e.target.value)}
-              placeholder="Plan codes, comma-separated (e.g. pro, business)"
+              placeholder={t('admin_ui.ph_plan_codes')}
               className="mt-2"
             />
           )}
@@ -286,23 +286,23 @@ function AdminNotificationsInner() {
           {audienceType === 'segment' && (
             <div className="mt-2 grid grid-cols-2 gap-3">
               <div>
-                <label className="text-[11px] text-muted-foreground">Signed up after</label>
+                <label className="text-[11px] text-muted-foreground">{t('admin_ui.signed_up_after')}</label>
                 <Input type="date" value={signupAfter} onChange={(e) => setSignupAfter(e.target.value)} />
               </div>
               <div>
-                <label className="text-[11px] text-muted-foreground">Signed up before</label>
+                <label className="text-[11px] text-muted-foreground">{t('admin_ui.signed_up_before')}</label>
                 <Input type="date" value={signupBefore} onChange={(e) => setSignupBefore(e.target.value)} />
               </div>
               <div>
-                <label className="text-[11px] text-muted-foreground">Min. invites sent</label>
+                <label className="text-[11px] text-muted-foreground">{t('admin_ui.min_invites_sent')}</label>
                 <Input type="number" min={0} value={minInvitesSent} onChange={(e) => setMinInvitesSent(e.target.value)} />
               </div>
               <div>
-                <label className="text-[11px] text-muted-foreground">Min. invites paid</label>
+                <label className="text-[11px] text-muted-foreground">{t('admin_ui.min_invites_paid')}</label>
                 <Input type="number" min={0} value={minInvitesPaid} onChange={(e) => setMinInvitesPaid(e.target.value)} />
               </div>
               <div className="col-span-2">
-                <label className="text-[11px] text-muted-foreground">Has earned a referral reward</label>
+                <label className="text-[11px] text-muted-foreground">{t('admin_ui.has_referral_reward')}</label>
                 <Select value={hasReward} onChange={(e) => setHasReward(e.target.value as 'any' | 'yes' | 'no')} className="mt-1">
                   <option value="any">{t('core_ui.any')}</option>
                   <option value="yes">{t('common.yes')}</option>
@@ -318,12 +318,12 @@ function AdminNotificationsInner() {
               onChange={(e) => setListInput(e.target.value)}
               rows={2}
               className="mt-2 w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
-              placeholder="Emails or tenant IDs, comma-separated"
+              placeholder={t('admin_ui.ph_emails_or_tenants')}
             />
           )}
 
           {audienceType === 'single' && (
-            <Input value={singleTenantId} onChange={(e) => setSingleTenantId(e.target.value)} placeholder="Tenant ID" className="mt-2" />
+            <Input value={singleTenantId} onChange={(e) => setSingleTenantId(e.target.value)} placeholder={t('admin_ui.tenant_id')} className="mt-2" />
           )}
 
           <div className="mt-2 flex items-center gap-2 text-sm text-muted-foreground">
@@ -334,14 +334,14 @@ function AdminNotificationsInner() {
 
         <div className="border-t border-border pt-4 flex items-center justify-between gap-3">
           <div>
-            <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Send time</label>
+            <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">{t('admin_ui.send_time')}</label>
             <Input
               type="datetime-local"
               value={scheduledFor}
               onChange={(e) => setScheduledFor(e.target.value)}
               className="mt-1"
             />
-            <p className="text-[11px] text-muted-foreground mt-1">Leave blank to send immediately.</p>
+            <p className="text-[11px] text-muted-foreground mt-1">{t('admin_ui.send_immediately_hint')}</p>
           </div>
           <Button variant="primary" icon={<Send className="w-4 h-4" />} onClick={handleSend} disabled={sending}>
             {sending ? 'Sending…' : scheduledFor ? 'Schedule' : 'Send now'}
@@ -351,23 +351,23 @@ function AdminNotificationsInner() {
 
       {/* Log */}
       <div className="bg-card border border-border rounded-lg overflow-hidden">
-        <div className="px-4 py-2.5 border-b border-border text-sm font-medium">Recent broadcasts</div>
+        <div className="px-4 py-2.5 border-b border-border text-sm font-medium">{t('admin_ui.recent_broadcasts')}</div>
         <table className="w-full">
           <thead className="bg-muted/50">
             <tr>
               <th className="px-4 py-2 text-left text-[11px] font-medium text-muted-foreground uppercase tracking-wider">{t('community_ui.title')}</th>
               <th className="px-4 py-2 text-left text-[11px] font-medium text-muted-foreground uppercase tracking-wider">{t('expenses_ui.col_category')}</th>
               <th className="px-4 py-2 text-left text-[11px] font-medium text-muted-foreground uppercase tracking-wider">{t('common.status')}</th>
-              <th className="px-4 py-2 text-left text-[11px] font-medium text-muted-foreground uppercase tracking-wider">Delivered / Read / Acted</th>
-              <th className="px-4 py-2 text-left text-[11px] font-medium text-muted-foreground uppercase tracking-wider">Email sent / failed / skipped</th>
-              <th className="px-4 py-2 text-left text-[11px] font-medium text-muted-foreground uppercase tracking-wider">Created</th>
+              <th className="px-4 py-2 text-left text-[11px] font-medium text-muted-foreground uppercase tracking-wider">{t('admin_ui.delivered_read_acted')}</th>
+              <th className="px-4 py-2 text-left text-[11px] font-medium text-muted-foreground uppercase tracking-wider">{t('admin_ui.email_sent_failed_skipped')}</th>
+              <th className="px-4 py-2 text-left text-[11px] font-medium text-muted-foreground uppercase tracking-wider">{t('admin_ui.created')}</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-border">
             {logLoading ? (
               <tr><td colSpan={6} className="px-4 py-8 text-center text-muted-foreground text-sm">Loading…</td></tr>
             ) : log.length === 0 ? (
-              <tr><td colSpan={6} className="px-4 py-8 text-center text-muted-foreground text-sm">No notifications sent yet.</td></tr>
+              <tr><td colSpan={6} className="px-4 py-8 text-center text-muted-foreground text-sm">{t('admin_ui.no_notifications')}</td></tr>
             ) : (
               log.map((n) => (
                 <tr key={n.id} className="hover:bg-muted/30">
@@ -375,9 +375,9 @@ function AdminNotificationsInner() {
                   <td className="px-4 py-2.5 text-sm"><Badge variant="secondary">{n.category}</Badge></td>
                   <td className="px-4 py-2.5 text-sm">
                     {n.status === 'sent' ? (
-                      <span className="flex items-center gap-1 text-emerald-600"><CheckCircle2 className="w-3.5 h-3.5" />Sent</span>
+                      <span className="flex items-center gap-1 text-emerald-600"><CheckCircle2 className="w-3.5 h-3.5" />{t('admin_ui.sent')}</span>
                     ) : n.status === 'pending' && n.scheduledFor ? (
-                      <span className="flex items-center gap-1 text-amber-600"><Clock className="w-3.5 h-3.5" />Scheduled</span>
+                      <span className="flex items-center gap-1 text-amber-600"><Clock className="w-3.5 h-3.5" />{t('admin_ui.scheduled')}</span>
                     ) : (
                       <span className="text-muted-foreground">{n.status}</span>
                     )}
