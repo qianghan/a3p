@@ -1,4 +1,5 @@
 import React from 'react';
+import { useI18n } from '@naap/plugin-sdk';
 
 /**
  * Page-level tab bar shared by ExpenseList and Bills — Bills is a sibling
@@ -18,12 +19,17 @@ import React from 'react';
  * /agentbook/expenses/bills via its `path.includes('/bills')` check.
  */
 
+// labelKey, not label: TABS is module scope, where t() cannot be called. The
+// render site resolves it — same shape the status configs needed.
 const TABS = [
-  { id: 'expenses' as const, label: 'Expenses', href: '/agentbook/expenses' },
-  { id: 'bills' as const, label: 'Bills', href: '/agentbook/expenses/bills' },
+  { id: 'expenses' as const, labelKey: 'tabs.expenses', href: '/agentbook/expenses' },
+  { id: 'bills' as const, labelKey: 'tabs.bills', href: '/agentbook/expenses/bills' },
 ];
 
 export const ExpenseTabs: React.FC<{ active: 'expenses' | 'bills' }> = ({ active }) => {
+  // Aliased: the map callback below binds `t` (a tab), which would shadow
+  // the translator.
+  const { t: tr } = useI18n();
   return (
     <div className="flex border-b border-border mb-5">
       {TABS.map((t) => (
@@ -36,7 +42,7 @@ export const ExpenseTabs: React.FC<{ active: 'expenses' | 'bills' }> = ({ active
               : 'border-transparent text-muted-foreground hover:text-foreground'
           }`}
         >
-          {t.label}
+          {tr(t.labelKey)}
         </a>
       ))}
     </div>

@@ -2,6 +2,7 @@
 
 import React, { useState, useRef, useCallback } from 'react';
 import { Check, Copy, Terminal, FileCode } from 'lucide-react';
+import { useT } from '@/hooks/use-t';
 
 // ---------------------------------------------------------------------------
 // Language display config
@@ -84,6 +85,7 @@ function findLanguageClass(node: React.ReactNode): string {
 // ---------------------------------------------------------------------------
 
 function CopyButton({ text, className = '' }: { text: string; className?: string }) {
+  const t = useT();
   const [state, setState] = useState<'idle' | 'copied' | 'error'>('idle');
   const timeoutRef = useRef<NodeJS.Timeout | null>(null);
 
@@ -132,7 +134,7 @@ function CopyButton({ text, className = '' }: { text: string; className?: string
       ) : (
         <>
           <Copy size={13} className="shrink-0" />
-          <span>Copy</span>
+          <span>{t('common.copy')}</span>
         </>
       )}
     </button>

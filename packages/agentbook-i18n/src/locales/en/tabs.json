@@ -1,0 +1,16 @@
+{
+  "expenses": "Expenses",
+  "bills": "Bills",
+  "dashboard": "Dashboard",
+  "tax_package": "Tax Package",
+  "past_filings": "Past Filings",
+  "fast_track": "Fast-Track",
+  "review": "Review",
+  "invoices": "Invoices",
+  "clients": "Clients",
+  "estimates": "Estimates",
+  "projects": "Projects",
+  "time": "Time",
+  "recurring": "Recurring",
+  "gst_bas_return": "GST/BAS Return"
+}

@@ -13,3 +13,17 @@ If this number grows, find out whose change did it before re-baselining. The
 guard flagged the +9 above and the investigation is what established it was
 upstream — re-baselining without checking would have silently absorbed someone
 else's regression into the i18n budget.
+
+## 278 -> 280 (post-merge of #471)
+
+Investigated before re-baselining, per the instruction above. NOT caused by this
+work: reverting the only apps/web-next change in flight (exporting
+ShellContextReact) gives **283**, and with it **280** — so the change reduces
+the count by 3. The 278 figure was locked on a branch before #471 merged; main
+moved underneath it.
+
+Also recorded because it cost time: this guard runs `npx tsc --noEmit` from
+`apps/web-next`, NOT the repo root. Running it from the root compiles nothing —
+the root tsconfig is composite with an empty file list and exits 0 — so a
+root-level reproduction of the number silently reports zero errors and looks
+like the problem vanished.

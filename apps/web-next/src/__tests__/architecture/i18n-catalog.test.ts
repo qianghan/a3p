@@ -125,6 +125,12 @@ const IDENTICAL_ALLOWED = new Set<string>([
   'core_ui.abbr_net',
   // "Action" is the same word in French (common.actions is already allowed).
   'core_ui.action',
+  // "CPA" is a professional designation (CPA Canada / AICPA) and is the same
+  // in every locale — a French Canadian accountant is a CPA too. It is the one
+  // nav entry that is a credential rather than a word.
+  'nav.plugin_agentbookcpa',
+  // "Clients" is the same word in French (invoice_ui.clients already allowed).
+  'tabs.clients',
 ]);
 
 /**

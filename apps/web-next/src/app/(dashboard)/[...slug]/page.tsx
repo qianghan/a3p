@@ -19,8 +19,10 @@ import Link from 'next/link';
 import { getSafeErrorMessage } from '@naap/plugin-sdk';
 import { PluginLoader, type PluginInfo } from '@/components/plugin/PluginLoader';
 import { PluginInfoButton, type PluginMetadata } from '@/components/plugin/PluginInfoButton';
+import { useT } from '@/hooks/use-t';
 
 export default function CatchAllPluginPage() {
+  const t = useT();
   const pathname = usePathname();
   const { plugins, isLoading: pluginsLoading } = usePlugins();
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading');
@@ -126,7 +128,7 @@ export default function CatchAllPluginPage() {
           className="flex items-center gap-2 px-4 py-2 mt-4 bg-primary text-primary-foreground rounded-lg hover:opacity-90 transition-opacity"
         >
           <RefreshCw className="h-4 w-4" />
-          Retry
+          {t('common.retry')}
         </button>
       </div>
     );

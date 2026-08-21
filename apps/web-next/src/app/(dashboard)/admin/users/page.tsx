@@ -26,6 +26,7 @@ import {
 import { Button, Input, Select, Badge } from '@naap/ui';
 import { useAuth } from '@/contexts/auth-context';
 import { AdminNav } from '@/components/admin/AdminNav';
+import { useT } from '@/hooks/use-t';
 
 interface SystemUser {
   id: string;
@@ -57,6 +58,7 @@ const prettyType = (t?: string | null) => (t ? BUSINESS_TYPE_LABELS[t] ?? t.repl
 const prettyPlan = (name?: string | null) => name || 'Free';
 
 export default function AdminUsersPage() {
+  const t = useT();
   const router = useRouter();
   const { hasRole, user: currentUser } = useAuth();
   const [users, setUsers] = useState<SystemUser[]>([]);
@@ -222,9 +224,9 @@ export default function AdminUsersPage() {
   // Meaningful AgentBook access badges (Admin / Sales rep) — not raw RBAC roles.
   const getAccessBadges = (user: SystemUser) => {
     const badges = [];
-    if (user.isAdmin) badges.push(<Badge key="admin" variant="amber">Admin</Badge>);
+    if (user.isAdmin) badges.push(<Badge key="admin" variant="amber">{t('nav.admin')}</Badge>);
     if (user.isSalesRep) badges.push(<Badge key="rep" variant="emerald">Sales rep</Badge>);
-    return badges.length ? badges : <span className="text-muted-foreground text-sm">User</span>;
+    return badges.length ? badges : <span className="text-muted-foreground text-sm">{t('core_ui.user')}</span>;
   };
 
   if (!isAdmin) {
@@ -293,19 +295,19 @@ export default function AdminUsersPage() {
           <thead className="bg-muted/50">
             <tr>
               <th className="px-4 py-2.5 text-left text-[11px] font-medium text-muted-foreground uppercase tracking-wider">
-                User
+                {t('core_ui.user')}
               </th>
               <th className="px-4 py-2.5 text-left text-[11px] font-medium text-muted-foreground uppercase tracking-wider">
                 Access
               </th>
               <th className="px-4 py-2.5 text-left text-[11px] font-medium text-muted-foreground uppercase tracking-wider">
-                Status
+                {t('common.status')}
               </th>
               <th className="px-4 py-2.5 text-left text-[11px] font-medium text-muted-foreground uppercase tracking-wider">
                 Joined
               </th>
               <th className="px-4 py-2.5 text-left text-[11px] font-medium text-muted-foreground uppercase tracking-wider">
-                Type
+                {t('accounting.type')}
               </th>
               <th className="px-4 py-2.5 text-left text-[11px] font-medium text-muted-foreground uppercase tracking-wider">
                 Plan
@@ -314,7 +316,7 @@ export default function AdminUsersPage() {
                 Referrals
               </th>
               <th className="px-4 py-2.5 text-right text-[11px] font-medium text-muted-foreground uppercase tracking-wider">
-                Actions
+                {t('common.actions')}
               </th>
             </tr>
           </thead>
@@ -563,15 +565,15 @@ export default function AdminUsersPage() {
                   value={promoteFrequency}
                   onChange={(e) => setPromoteFrequency(e.target.value as 'monthly' | 'quarterly' | 'annual')}
                 >
-                  <option value="monthly">Monthly</option>
-                  <option value="quarterly">Quarterly</option>
-                  <option value="annual">Annual</option>
+                  <option value="monthly">{t('billing.monthly')}</option>
+                  <option value="quarterly">{t('expenses_ui.quarterly')}</option>
+                  <option value="annual">{t('billing.annual')}</option>
                 </Select>
               </div>
             </div>
             <div className="mt-5 flex justify-end gap-2">
               <Button variant="secondary" onClick={() => setPromoteTarget(null)} disabled={actionBusy}>
-                Cancel
+                {t('common.cancel')}
               </Button>
               <Button onClick={doPromoteToSalesRep} disabled={actionBusy}>
                 Promote

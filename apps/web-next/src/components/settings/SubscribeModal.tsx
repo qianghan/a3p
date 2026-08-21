@@ -10,6 +10,7 @@ import {
 } from '@stripe/react-stripe-js';
 import { Loader2, X } from 'lucide-react';
 import { formatCurrencyCents } from '@/lib/jurisdiction-currency';
+import { useT } from '@/hooks/use-t';
 
 interface PlanTarget {
   kind: 'plan';
@@ -63,6 +64,7 @@ function fmtTargetPrice(target: SubscribeTarget): string {
 }
 
 function SubscribeForm({ target, onClose, onSubscribed }: Props): React.ReactElement {
+  const t = useT();
   const stripe = useStripe();
   const elements = useElements();
   const [submitting, setSubmitting] = useState(false);
@@ -125,7 +127,7 @@ function SubscribeForm({ target, onClose, onSubscribed }: Props): React.ReactEle
           disabled={submitting}
           className="rounded-lg border border-border px-4 py-2 text-sm text-foreground hover:bg-muted transition-colors"
         >
-          Cancel
+          {t('common.cancel')}
         </button>
         <button
           type="submit"

@@ -1,5 +1,6 @@
 import React from 'react';
 import { Outlet, useLocation } from 'react-router-dom';
+import { useI18n } from '@naap/plugin-sdk';
 
 /**
  * Shared tab bar for Tax: Dashboard and Tax Package. Before this, Tax
@@ -17,13 +18,16 @@ import { Outlet, useLocation } from 'react-router-dom';
  * An extra "/tax" segment doesn't match any route and silently falls back to
  * the catch-all (Dashboard) — which was the bug this fixes.
  */
-const TABS: Array<{ href: string; path: string; label: string }> = [
-  { href: '/agentbook/tax', path: '/', label: 'Dashboard' },
-  { href: '/agentbook/tax-package', path: '/tax-package', label: 'Tax Package' },
-  { href: '/agentbook/sales-tax-return', path: '/sales-tax-return', label: 'GST/BAS Return' },
+// labelKey, not label: module scope cannot call t().
+const TABS: Array<{ href: string; path: string; labelKey: string }> = [
+  { href: '/agentbook/tax', path: '/', labelKey: 'tabs.dashboard' },
+  { href: '/agentbook/tax-package', path: '/tax-package', labelKey: 'tabs.tax_package' },
+  { href: '/agentbook/sales-tax-return', path: '/sales-tax-return', labelKey: 'tabs.gst_bas_return' },
 ];
 
 export const TaxLayout: React.FC = () => {
+  // Aliased: the map callback binds `t` (a tab), shadowing the translator.
+  const { t: tr } = useI18n();
   const location = useLocation();
 
   return (
@@ -42,7 +46,7 @@ export const TaxLayout: React.FC = () => {
                   : 'border-transparent text-muted-foreground hover:text-foreground',
               ].join(' ')}
             >
-              {t.label}
+              {tr(t.labelKey)}
             </a>
           );
         })}

@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { usePathname } from 'next/navigation';
 import { Smartphone, X, Share } from 'lucide-react';
 import { usePwaInstall } from '@/hooks/use-pwa-install';
+import { useT } from '@/hooks/use-t';
 
 const DISMISS_KEY = 'ab_pwa_banner_dismissed';
 
@@ -86,6 +87,7 @@ export function InstallAppBanner() {
 }
 
 function IosInstallModal({ onClose }: { onClose: () => void }) {
+  const t = useT();
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
     document.addEventListener('keydown', onKey);
@@ -136,7 +138,7 @@ function IosInstallModal({ onClose }: { onClose: () => void }) {
         <ol className="mt-5 space-y-5">
           <Step n={1} icon={<Share size={14} />}>Tap the <strong>Share</strong> icon in Safari&apos;s toolbar.</Step>
           <Step n={2}>Scroll down and tap <strong>Add to Home Screen</strong>.</Step>
-          <Step n={3}>Tap <strong>Add</strong> in the top-right corner.</Step>
+          <Step n={3}>Tap <strong>{t('common.add')}</strong> in the top-right corner.</Step>
         </ol>
 
         <div className="mt-6 pt-4 border-t border-border flex items-center justify-between gap-3">

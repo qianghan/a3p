@@ -4,6 +4,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { Users, Plus, Play, Loader2, Check, Landmark, FileText, CalendarClock, Download, AlertTriangle } from 'lucide-react';
 import { formatCurrencyCents } from '@/lib/jurisdiction-currency';
 import { splitCaDeductions, PERIODS_PER_YEAR } from '@/lib/payroll-engine';
+import { useT } from '@/hooks/use-t';
 
 const API = '/api/v1/agentbook-payroll';
 
@@ -80,6 +81,7 @@ function itemizeCaStub(
 }
 
 export default function PayrollPage() {
+  const t = useT();
   const [tab, setTab] = useState<Tab>('employees');
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [runs, setRuns] = useState<PayRun[]>([]);
@@ -185,7 +187,7 @@ export default function PayrollPage() {
   return (
     <div className="max-w-4xl mx-auto p-4 sm:p-6">
       <div className="flex items-center justify-between mb-1">
-        <h1 className="text-xl font-bold text-foreground flex items-center gap-2"><Users className="w-5 h-5" /> Payroll</h1>
+        <h1 className="text-xl font-bold text-foreground flex items-center gap-2"><Users className="w-5 h-5" /> {t('nav.payroll')}</h1>
         <div className="flex gap-2">
           <button onClick={() => { setTab('employees'); setShowForm((s) => !s); }} className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium border border-border hover:bg-muted">
             <Plus className="w-4 h-4" /> Employee
@@ -240,7 +242,7 @@ export default function PayrollPage() {
                 <input value={region} onChange={(e) => setRegion(e.target.value.toUpperCase())} placeholder={juris === 'ca' ? 'Province (e.g. QC)' : 'State (e.g. CA)'}
                   maxLength={2} className="rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground" />
               )}
-              <button onClick={() => void addEmployee()} disabled={busy || !name || !salary} className="px-4 py-2 rounded-lg text-sm font-medium bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-50">Save</button>
+              <button onClick={() => void addEmployee()} disabled={busy || !name || !salary} className="px-4 py-2 rounded-lg text-sm font-medium bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-50">{t('common.save')}</button>
             </div>
           )}
           {employees.length === 0 ? (

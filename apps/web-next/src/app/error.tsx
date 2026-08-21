@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect } from 'react';
+import { useT } from '@/hooks/use-t';
 
 export default function Error({
   error,
@@ -9,6 +10,7 @@ export default function Error({
   error: Error & { digest?: string };
   reset: () => void;
 }) {
+  const t = useT();
   useEffect(() => {
     // Log the error to an error reporting service
     console.error('Application error:', error);
@@ -32,7 +34,7 @@ export default function Error({
           onClick={reset}
           className="px-6 py-3 bg-primary text-primary-foreground rounded-lg font-medium hover:opacity-90 transition-opacity"
         >
-          Try again
+          {t('common.try_again')}
         </button>
       </div>
     </div>

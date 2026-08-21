@@ -11,6 +11,7 @@ import { Bell, Send, AlertTriangle, CheckCircle2, Clock, Users as UsersIcon } fr
 import { Button, Input, Select, Badge } from '@naap/ui';
 import { useAuth } from '@/contexts/auth-context';
 import { AdminNav } from '@/components/admin/AdminNav';
+import { useT } from '@/hooks/use-t';
 
 const CATEGORIES = [
   { value: 'feature', label: 'New feature' },
@@ -39,6 +40,7 @@ interface NotificationLogItem {
 }
 
 function AdminNotificationsInner() {
+  const t = useT();
   const router = useRouter();
   const searchParams = useSearchParams();
   const { hasRole } = useAuth();
@@ -197,7 +199,7 @@ function AdminNotificationsInner() {
       <div className="mb-4">
         <h1 className="text-lg font-semibold flex items-center gap-2">
           <Bell className="w-5 h-5" />
-          Notifications
+          {t('agents.notifications')}
         </h1>
         <p className="text-muted-foreground mt-1 text-sm">Compose an in-app + email broadcast, or view past sends.</p>
       </div>
@@ -219,7 +221,7 @@ function AdminNotificationsInner() {
       <div className="bg-card border border-border rounded-lg p-4 mb-6 space-y-4">
         <div className="grid grid-cols-2 gap-3">
           <div>
-            <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Category</label>
+            <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">{t('expenses_ui.col_category')}</label>
             <Select value={category} onChange={(e) => setCategory(e.target.value)} className="mt-1">
               {CATEGORIES.map((c) => (
                 <option key={c.value} value={c.value} disabled={c.value === 'referral_thanks'}>
@@ -232,7 +234,7 @@ function AdminNotificationsInner() {
             <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Severity</label>
             <Select value={severity} onChange={(e) => setSeverity(e.target.value)} className="mt-1">
               <option value="info">Info</option>
-              <option value="success">Success</option>
+              <option value="success">{t('core_ui.success')}</option>
               <option value="warning">Warning</option>
               <option value="urgent">Urgent</option>
             </Select>
@@ -302,8 +304,8 @@ function AdminNotificationsInner() {
               <div className="col-span-2">
                 <label className="text-[11px] text-muted-foreground">Has earned a referral reward</label>
                 <Select value={hasReward} onChange={(e) => setHasReward(e.target.value as 'any' | 'yes' | 'no')} className="mt-1">
-                  <option value="any">Any</option>
-                  <option value="yes">Yes</option>
+                  <option value="any">{t('core_ui.any')}</option>
+                  <option value="yes">{t('common.yes')}</option>
                   <option value="no">No</option>
                 </Select>
               </div>
@@ -354,8 +356,8 @@ function AdminNotificationsInner() {
           <thead className="bg-muted/50">
             <tr>
               <th className="px-4 py-2 text-left text-[11px] font-medium text-muted-foreground uppercase tracking-wider">Title</th>
-              <th className="px-4 py-2 text-left text-[11px] font-medium text-muted-foreground uppercase tracking-wider">Category</th>
-              <th className="px-4 py-2 text-left text-[11px] font-medium text-muted-foreground uppercase tracking-wider">Status</th>
+              <th className="px-4 py-2 text-left text-[11px] font-medium text-muted-foreground uppercase tracking-wider">{t('expenses_ui.col_category')}</th>
+              <th className="px-4 py-2 text-left text-[11px] font-medium text-muted-foreground uppercase tracking-wider">{t('common.status')}</th>
               <th className="px-4 py-2 text-left text-[11px] font-medium text-muted-foreground uppercase tracking-wider">Delivered / Read / Acted</th>
               <th className="px-4 py-2 text-left text-[11px] font-medium text-muted-foreground uppercase tracking-wider">Email sent / failed / skipped</th>
               <th className="px-4 py-2 text-left text-[11px] font-medium text-muted-foreground uppercase tracking-wider">Created</th>

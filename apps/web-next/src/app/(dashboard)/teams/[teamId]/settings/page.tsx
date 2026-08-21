@@ -16,6 +16,7 @@ import {
   Crown
 } from 'lucide-react';
 import { Button, Input, Textarea, Label, Select, Modal } from '@naap/ui';
+import { useT } from '@/hooks/use-t';
 
 interface Team {
   id: string;
@@ -35,6 +36,7 @@ interface TeamMember {
 }
 
 export default function TeamSettingsPage() {
+  const t = useT();
   const params = useParams();
   const router = useRouter();
   const teamId = params.teamId as string;
@@ -235,7 +237,7 @@ export default function TeamSettingsPage() {
           </div>
 
           <div>
-            <Label className="mb-1.5 block">Description</Label>
+            <Label className="mb-1.5 block">{t('common.description')}</Label>
             <Textarea
               value={description}
               onChange={(e) => setDescription(e.target.value)}
@@ -315,7 +317,7 @@ export default function TeamSettingsPage() {
 
         <div className="mb-4">
           <Label className="mb-1.5 block">
-            Type <strong>{team.name}</strong> to confirm
+            {t('accounting.type')} <strong>{team.name}</strong> to confirm
           </Label>
           <Input
             type="text"
@@ -333,7 +335,7 @@ export default function TeamSettingsPage() {
               setDeleteConfirmText('');
             }}
           >
-            Cancel
+            {t('common.cancel')}
           </Button>
           <Button
             variant="destructive"
@@ -383,7 +385,7 @@ export default function TeamSettingsPage() {
               setNewOwnerId('');
             }}
           >
-            Cancel
+            {t('common.cancel')}
           </Button>
           <Button
             variant="primary"

@@ -8,7 +8,8 @@ import { useShell, useEvents } from '@/contexts/shell-context';
 import { usePlugins, type PluginManifest } from '@/contexts/plugin-context';
 import { useIsMobile } from '@/hooks/use-is-mobile';
 import { normalizePluginName } from '@/lib/plugins/normalize';
-import { pluginNavGroup, NAV_GROUP_LABEL, type NavGroupId } from '@/lib/plugins/nav-groups';
+import { pluginNavGroup, NAV_GROUP_LABEL_KEY, pluginLabel, type NavGroupId } from '@/lib/plugins/nav-groups';
+import { useT } from '@/hooks/use-t';
 import { WorkspaceSwitcher } from './workspace-switcher';
 import {
   Activity,
@@ -151,6 +152,7 @@ const SIDEBAR_DEFAULT_WIDTH = 240;
 const SIDEBAR_COLLAPSED_WIDTH = 52;
 
 export function Sidebar() {
+  const t = useT();
   const pathname = usePathname();
   const { hasRole } = useAuth();
   const { isSidebarOpen, toggleSidebar, isMobileMenuOpen, closeMobileMenu } = useShell();
@@ -334,7 +336,15 @@ export function Sidebar() {
     for (const plugin of sorted) {
       const normalized = normalizePluginName(plugin.name);
       const item: NavItem = {
-        name: normalized === 'agentbookcore' ? 'Dashboard' : plugin.displayName,
+        // displayName comes from the DB plugin registry, so it cannot be
+        // translated at the call site — the string is data. `nav.plugin_<name>`
+        // supplies a translation where we have one; anything unrecognised
+        // (a third-party plugin) keeps its own displayName rather than
+        // rendering a raw key.
+        name:
+          normalized === 'agentbookcore'
+            ? t('nav.dashboard')
+            : pluginLabel(t, normalized, plugin.displayName),
         href: plugin.routes?.[0]?.replace('/*', '') || `/plugins/${plugin.name}`,
         icon: normalized === 'agentbookcore' ? LayoutDashboard : resolveIcon(plugin.icon),
       };
@@ -355,20 +365,20 @@ export function Sidebar() {
     accounting: [
       // Payroll doesn't apply to students (no employees to pay) — hidden once
       // a business type is configured and it isn't relevant.
-      ...(businessType === 'student' ? [] : [{ name: 'Payroll', href: '/payroll', icon: Banknote }]),
+      ...(businessType === 'student' ? [] : [{ name: t('nav.payroll'), href: '/payroll', icon: Banknote }]),
     ],
     personal: [
-      { name: 'Personal finance', href: '/personal', icon: Wallet },
+      { name: t('nav.personal_finance'), href: '/personal', icon: Wallet },
     ],
     'for-your-business': [],
     'advisors-community': [
-      { name: 'Account Access', href: '/accountant', icon: UserCheck },
+      { name: t('nav.account_access'), href: '/accountant', icon: UserCheck },
     ],
     resources: [
-      ...(marketplaceVisible ? [{ name: 'Marketplace', href: '/marketplace', icon: ShoppingBag }] : []),
-      { name: 'Feedback', href: '/feedback', icon: MessageSquare },
-      { name: 'Teams', href: '/teams', icon: Users },
-      { name: 'Docs', href: '/docs', icon: BookOpen },
+      ...(marketplaceVisible ? [{ name: t('nav.marketplace'), href: '/marketplace', icon: ShoppingBag }] : []),
+      { name: t('nav.feedback'), href: '/feedback', icon: MessageSquare },
+      { name: t('nav.teams'), href: '/teams', icon: Users },
+      { name: t('nav.docs'), href: '/docs', icon: BookOpen },
     ],
   };
 
@@ -496,7 +506,7 @@ export function Sidebar() {
               return (
                 <nav key={section} className="mb-2">
                   <SectionHeader
-                    title={NAV_GROUP_LABEL[section]}
+                    title={t(NAV_GROUP_LABEL_KEY[section])}
                     expanded={sectionExpanded[section]}
                     onToggle={() => toggleSection(section)}
                     isOpen={effectiveOpen}
@@ -526,14 +536,14 @@ export function Sidebar() {
         <div className="shrink-0 p-2 border-t border-border/50">
           {isSalesRep && (
             <NavLink
-              item={{ name: 'Sales Rep', href: '/sales-rep', icon: Banknote }}
+              item={{ name: t('nav.sales_rep'), href: '/sales-rep', icon: Banknote }}
               isActive={isActive('/sales-rep')}
               isOpen={effectiveOpen}
             />
           )}
           {isAdmin && (
             <NavLink
-              item={{ name: 'Admin', href: '/admin/users', icon: Shield }}
+              item={{ name: t('nav.admin'), href: '/admin/users', icon: Shield }}
               isActive={isActive('/admin')}
               isOpen={effectiveOpen}
             />

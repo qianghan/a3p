@@ -15,6 +15,7 @@ import { Button, Input, Badge } from '@naap/ui';
 import { useAuth } from '@/contexts/auth-context';
 import { AdminNav } from '@/components/admin/AdminNav';
 import { LLMProvidersSection } from '@/components/admin/LLMProvidersSection';
+import { useT } from '@/hooks/use-t';
 
 interface Flag {
   key: string;
@@ -26,6 +27,7 @@ interface Flag {
 const PATH = '/api/v1/admin/feature-flags';
 
 export default function AdminConfigPage() {
+  const t = useT();
   const router = useRouter();
   const { hasRole } = useAuth();
   const [flags, setFlags] = useState<Flag[]>([]);
@@ -117,7 +119,7 @@ export default function AdminConfigPage() {
 
       <div className="p-4 rounded-lg border border-border bg-card flex flex-col sm:flex-row gap-2 sm:items-end">
         <div className="flex-1"><label className="text-xs text-muted-foreground">Key</label><Input value={newKey} onChange={(e) => setNewKey(e.target.value)} placeholder="agentbook.new-feature" /></div>
-        <div className="flex-1"><label className="text-xs text-muted-foreground">Description (optional)</label><Input value={newDesc} onChange={(e) => setNewDesc(e.target.value)} placeholder="What it gates" /></div>
+        <div className="flex-1"><label className="text-xs text-muted-foreground">{t('expenses_ui.description_optional')}</label><Input value={newDesc} onChange={(e) => setNewDesc(e.target.value)} placeholder="What it gates" /></div>
         <Button onClick={create} loading={busy === '__new__'} disabled={!newKey.trim()} icon={<Plus size={16} />}>Add flag</Button>
       </div>
 

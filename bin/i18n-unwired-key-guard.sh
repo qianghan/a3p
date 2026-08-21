@@ -66,20 +66,16 @@ CHARS = r"[A-Za-z0-9 ,.'!?%$&()/:—–-]"
 TEXT = re.compile(r'>\s*([A-Z]' + CHARS + r'{2,}?)\s*<', re.S)
 
 found = []
-# Scoped to the SIX AgentBook plugins, matching the other ratchets.
-#
-# The wider glob flagged plugins/agentbook-housing and plugins/community, on
-# the grounds that "Australia" and "Pinned" have keys — but those keys live in
-# `tax_ui` and `core_ui`. Wiring a housing roommate panel to a TAX namespace
-# key because the English happens to match would create real coupling between
-# unrelated products to satisfy a check. Those plugins are separate surfaces
-# and need their own namespaces when their turn comes.
-PLUGINS = ('agentbook-core', 'agentbook-billing', 'agentbook-expense',
-           'agentbook-invoice', 'agentbook-startup', 'agentbook-tax')
+# The SHELL plus every plugin frontend. Restricting this to six plugin
+# directories is what let 883 shell literals — the sidebar, the tab bars, every
+# settings page — sit outside every measure while the numbers looked finished.
+ROOTS = [Path('apps/web-next/src')] + sorted(Path('plugins').glob('*/frontend/src'))
 
-for p in Path('plugins').glob('*/frontend/src/**/*.tsx'):
-    if p.parts[1] not in PLUGINS:
-        continue
+def all_tsx():
+    for root in ROOTS:
+        yield from root.rglob('*.tsx')
+
+for p in all_tsx():
     sp = str(p)
     if '__tests__' in sp or sp.endswith('.test.tsx') or '/dist/' in sp:
         continue
@@ -90,27 +86,68 @@ for p in Path('plugins').glob('*/frontend/src/**/*.tsx'):
             line = text[:m.start()].count('\n') + 1
             found.append(f'{sp}:{line}  "{val}"  -> t(\'{en[val]}\')')
 
-for f in found:
-    print(f)
-print(f'COUNT={len(found)}')
+# The HARD ZERO applies to the six plugins that have actually been migrated.
+# The shell and the newer plugins (career, housing, community, scholarship) were
+# outside every measure until now and are ratcheted instead — holding them to
+# zero today would only mean switching the guard off.
+#
+# Those four also produce cross-namespace coincidences: housing's "Australia"
+# matching tax_ui.australia, community's "Pinned" matching core_ui.pinned. Using
+# a tax key on a roommate panel would couple unrelated products to satisfy a
+# check. They need their own namespaces.
+MIGRATED = ('agentbook-core', 'agentbook-billing', 'agentbook-expense',
+            'agentbook-invoice', 'agentbook-startup', 'agentbook-tax')
+plugin = [f for f in found
+          if f.startswith('plugins/') and f.split('/')[1] in MIGRATED]
+shell = [f for f in found if f not in plugin]
+for f in plugin:
+    print(f'PLUGIN {f}')
+for f in shell:
+    print(f'SHELL  {f}')
+print(f'PLUGIN_COUNT={len(plugin)}')
+print(f'SHELL_COUNT={len(shell)}')
+
 PY
 )
 
-COUNT=$(printf '%s\n' "$OUT" | sed -n 's/^COUNT=//p')
-LIST=$(printf '%s\n' "$OUT" | grep -v '^COUNT=' || true)
+PLUGIN_COUNT=$(printf '%s\n' "$OUT" | sed -n 's/^PLUGIN_COUNT=//p')
+SHELL_COUNT=$(printf '%s\n' "$OUT" | sed -n 's/^SHELL_COUNT=//p')
+SHELL_BASELINE=$(cat "$ROOT_DIR/bin/i18n-unwired-key-guard.shell.baseline" 2>/dev/null || echo 999999)
 
-echo "[unwired-keys] literals whose translation already exists: ${COUNT:-0}"
+echo "[unwired-keys] plugins: ${PLUGIN_COUNT:-0} (must be 0)"
+echo "[unwired-keys] shell:   ${SHELL_COUNT:-0} (baseline $SHELL_BASELINE)"
 
-if [ "${1:-}" = '--list' ] || [ "${COUNT:-0}" -gt 0 ]; then
-  [ -n "$LIST" ] && printf '%s\n' "$LIST" | sed 's/^/               /'
+if [ "${1:-}" = '--list' ]; then
+  printf '%s\n' "$OUT" | grep -E '^(PLUGIN|SHELL) ' | sed 's/^/               /'
 fi
 
-if [ "${COUNT:-0}" -gt 0 ]; then
-  echo "[unwired-keys] FAIL — each of these has a French and Chinese translation"
-  echo "               sitting unused in the pack. Replace the literal with the"
-  echo "               t() call shown; no new translation work is needed."
-  exit 1
+if [ "${1:-}" = '--update' ]; then
+  echo "${SHELL_COUNT:-0}" > "$ROOT_DIR/bin/i18n-unwired-key-guard.shell.baseline"
+  echo "[unwired-keys] shell baseline updated to ${SHELL_COUNT:-0}"
+  exit 0
 fi
 
-echo '[unwired-keys] PASS — every existing translation is actually rendered.'
-exit 0
+FAIL=0
+
+# HARD ZERO for the plugins. They reached zero and must not regress: each of
+# these is a one-line change with the French and Chinese already written.
+if [ "${PLUGIN_COUNT:-0}" -gt 0 ]; then
+  echo "[unwired-keys] FAIL — a plugin literal has a translation that is not"
+  echo "               being rendered. Run --list; replace the literal with the"
+  echo "               t() call shown. No new translation work is needed."
+  printf '%s\n' "$OUT" | grep '^PLUGIN ' | sed 's/^/               /'
+  FAIL=1
+fi
+
+# RATCHET for the shell, whose migration is in flight. Deliberately not a hard
+# zero yet: the shell was outside every measure until this change, and holding
+# it to zero today would just mean turning the guard off. It may only fall.
+if [ "${SHELL_COUNT:-0}" -gt "$SHELL_BASELINE" ]; then
+  echo "[unwired-keys] FAIL — shell count grew by $(( SHELL_COUNT - SHELL_BASELINE ))."
+  FAIL=1
+elif [ "${SHELL_COUNT:-0}" -lt "$SHELL_BASELINE" ]; then
+  echo "[unwired-keys] shell decreased by $(( SHELL_BASELINE - SHELL_COUNT )). Run --update to lock it in."
+fi
+
+[ "$FAIL" -eq 0 ] && echo '[unwired-keys] PASS'
+exit "$FAIL"

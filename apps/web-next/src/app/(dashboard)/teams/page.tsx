@@ -21,6 +21,7 @@ import {
 import { useAuth } from '@/contexts/auth-context';
 import { useEvents } from '@/contexts/shell-context';
 import { Button, Input, Textarea, Label, Modal } from '@naap/ui';
+import { useT } from '@/hooks/use-t';
 
 interface Team {
   id: string;
@@ -46,6 +47,7 @@ const ROLE_LABELS: Record<string, string> = {
 };
 
 export default function TeamListPage() {
+  const t = useT();
   const router = useRouter();
   const { } = useAuth();
   const eventBus = useEvents();
@@ -129,7 +131,7 @@ export default function TeamListPage() {
     <div className="max-w-4xl mx-auto">
       <div className="flex items-center justify-between mb-4">
         <div>
-          <h1 className="text-lg font-semibold">Teams</h1>
+          <h1 className="text-lg font-semibold">{t('nav.teams')}</h1>
           <p className="text-[13px] text-muted-foreground mt-0.5">
             Manage your teams and collaborate with others
           </p>
@@ -229,7 +231,7 @@ export default function TeamListPage() {
           </div>
 
           <div>
-            <Label className="mb-1.5 block">Description (optional)</Label>
+            <Label className="mb-1.5 block">{t('expenses_ui.description_optional')}</Label>
             <Textarea
               value={newTeamDescription}
               onChange={(e) => setNewTeamDescription(e.target.value)}
@@ -245,7 +247,7 @@ export default function TeamListPage() {
               variant="ghost"
               onClick={() => setShowCreateModal(false)}
             >
-              Cancel
+              {t('common.cancel')}
             </Button>
             <Button
               type="submit"

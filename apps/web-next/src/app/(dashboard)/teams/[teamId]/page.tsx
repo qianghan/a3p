@@ -31,6 +31,7 @@ import { Button } from '@naap/ui';
 import { PluginConfigModal } from '@/components/teams/plugin-config-modal';
 import { MemberAccessModal } from '@/components/teams/member-access-modal';
 import { PersonalConfigModal } from '@/components/teams/personal-config-modal';
+import { useT } from '@/hooks/use-t';
 
 interface Team {
   id: string;
@@ -71,6 +72,7 @@ const ROLE_LABELS: Record<string, string> = {
 };
 
 export default function TeamDashboardPage() {
+  const t = useT();
   const params = useParams();
   const router = useRouter();
   const teamId = params.teamId as string;
@@ -285,7 +287,7 @@ export default function TeamDashboardPage() {
                 icon={<Settings className="w-4 h-4" />}
                 onClick={() => router.push(`/teams/${teamId}/settings`)}
               >
-                Settings
+                {t('common.settings')}
               </Button>
             )}
           </div>
@@ -392,7 +394,7 @@ export default function TeamDashboardPage() {
                           ) : (
                             <>
                               <ToggleLeft className="w-3.5 h-3.5" />
-                              Disabled
+                              {t('common.disabled')}
                             </>
                           )}
                         </button>

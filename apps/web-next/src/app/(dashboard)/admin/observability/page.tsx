@@ -14,6 +14,7 @@
  */
 
 import React, { useEffect, useState } from 'react';
+import { useT } from '@/hooks/use-t';
 import {
   Loader2,
   BarChart3,
@@ -72,6 +73,7 @@ function ago(iso: string): string {
 }
 
 export default function ObservabilityPage() {
+  const t = useT();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -144,7 +146,7 @@ export default function ObservabilityPage() {
           disabled={loading}
         >
           <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
-          Refresh
+          {t('common.refresh')}
         </button>
       </div>
 
@@ -190,9 +192,9 @@ export default function ObservabilityPage() {
           <table className="w-full text-sm">
             <thead className="bg-muted/50 text-left text-xs uppercase tracking-wide text-muted-foreground">
               <tr>
-                <th className="px-4 py-2 font-medium">Skill</th>
-                <th className="px-4 py-2 font-medium text-right">Runs</th>
-                <th className="px-4 py-2 font-medium text-right">Success</th>
+                <th className="px-4 py-2 font-medium">{t('core_ui.skill')}</th>
+                <th className="px-4 py-2 font-medium text-right">{t('core_ui.runs')}</th>
+                <th className="px-4 py-2 font-medium text-right">{t('core_ui.success')}</th>
                 <th className="px-4 py-2 font-medium text-right">p50</th>
                 <th className="px-4 py-2 font-medium text-right">p95</th>
                 <th className="px-4 py-2 font-medium text-right">Avg conf.</th>
@@ -239,7 +241,7 @@ export default function ObservabilityPage() {
                 <div className="text-xl font-semibold">{funnel.totals.started}</div>
               </div>
               <div className="rounded-lg bg-muted/30 p-3">
-                <div className="text-xs text-muted-foreground">Completed</div>
+                <div className="text-xs text-muted-foreground">{t('invoice_ui.status_completed')}</div>
                 <div className="text-xl font-semibold">{funnel.totals.completed}</div>
               </div>
               <div className="rounded-lg bg-muted/30 p-3">
@@ -263,7 +265,7 @@ export default function ObservabilityPage() {
               <thead className="text-left text-xs uppercase tracking-wide text-muted-foreground">
                 <tr>
                   <th className="px-2 py-1 font-medium">Step</th>
-                  <th className="px-2 py-1 font-medium text-right">Completed</th>
+                  <th className="px-2 py-1 font-medium text-right">{t('invoice_ui.status_completed')}</th>
                   <th className="px-2 py-1 font-medium text-right">Drop-off</th>
                 </tr>
               </thead>
@@ -304,7 +306,7 @@ export default function ObservabilityPage() {
           <div className="p-4 space-y-4">
             <div className="grid grid-cols-3 gap-3 text-sm">
               <div className="rounded-lg bg-rose-50 dark:bg-rose-950/30 p-3">
-                <div className="text-xs text-muted-foreground">Errors</div>
+                <div className="text-xs text-muted-foreground">{t('core_ui.errors')}</div>
                 <div className="text-xl font-semibold text-rose-600">{recentErrors.totals.error}</div>
               </div>
               <div className="rounded-lg bg-amber-50 dark:bg-amber-950/30 p-3">

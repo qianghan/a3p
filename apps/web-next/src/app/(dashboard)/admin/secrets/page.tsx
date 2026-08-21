@@ -19,6 +19,7 @@ import {
 import { Button, Input, Textarea, Select, Label, Modal, Badge } from '@naap/ui';
 import { useAuth } from '@/contexts/auth-context';
 import { AdminNav } from '@/components/admin/AdminNav';
+import { useT } from '@/hooks/use-t';
 
 interface Secret {
   key: string;
@@ -30,6 +31,7 @@ interface Secret {
 }
 
 export default function AdminSecretsPage() {
+  const t = useT();
   const router = useRouter();
   const { hasRole } = useAuth();
   const [secrets, setSecrets] = useState<Secret[]>([]);
@@ -284,12 +286,12 @@ export default function AdminSecretsPage() {
           </div>
 
           <div>
-            <Label className="mb-1.5 block">Category</Label>
+            <Label className="mb-1.5 block">{t('expenses_ui.col_category')}</Label>
             <Select
               value={newSecret.category}
               onChange={(e) => setNewSecret({ ...newSecret, category: e.target.value })}
             >
-              <option value="api">API Key</option>
+              <option value="api">{t('core_ui.api_key')}</option>
               <option value="database">Database</option>
               <option value="encryption">Encryption</option>
               <option value="integration">Integration</option>
@@ -297,7 +299,7 @@ export default function AdminSecretsPage() {
           </div>
 
           <div>
-            <Label className="mb-1.5 block">Description (optional)</Label>
+            <Label className="mb-1.5 block">{t('expenses_ui.description_optional')}</Label>
             <Textarea
               value={newSecret.description}
               onChange={(e) => setNewSecret({ ...newSecret, description: e.target.value })}
@@ -313,7 +315,7 @@ export default function AdminSecretsPage() {
               variant="ghost"
               onClick={() => setShowAddModal(false)}
             >
-              Cancel
+              {t('common.cancel')}
             </Button>
             <Button
               type="submit"

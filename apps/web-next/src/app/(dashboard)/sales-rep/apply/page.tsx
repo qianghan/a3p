@@ -13,6 +13,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import { Loader2, CheckCircle2, Circle } from 'lucide-react';
 import { Button, Textarea, Select, Label } from '@naap/ui';
+import { useT } from '@/hooks/use-t';
 
 type Eligibility = { eligible: true } | { eligible: false; reason: string };
 
@@ -59,6 +60,7 @@ async function getJson(url: string, init?: RequestInit) {
 }
 
 export default function PartnerApplicationPage() {
+  const t = useT();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -343,7 +345,7 @@ export default function PartnerApplicationPage() {
             </Select>
           </div>
           <div className="flex justify-between">
-            <Button variant="secondary" onClick={() => setStep(1)}>Back</Button>
+            <Button variant="secondary" onClick={() => setStep(1)}>{t('common.back')}</Button>
             <Button
               disabled={busy}
               onClick={async () => {
@@ -383,9 +385,9 @@ export default function PartnerApplicationPage() {
             </div>
           )}
           <div className="flex justify-between">
-            <Button variant="secondary" onClick={() => setStep(2)}>Back</Button>
+            <Button variant="secondary" onClick={() => setStep(2)}>{t('common.back')}</Button>
             <Button disabled={busy || !preview?.allSectionsAcknowledged} onClick={() => setStep(4)}>
-              Continue
+              {t('onboarding.continue')}
             </Button>
           </div>
         </div>
@@ -409,9 +411,9 @@ export default function PartnerApplicationPage() {
             <span className="text-sm">I understand and acknowledge this.</span>
           </label>
           <div className="flex justify-between">
-            <Button variant="secondary" onClick={() => setStep(3)}>Back</Button>
+            <Button variant="secondary" onClick={() => setStep(3)}>{t('common.back')}</Button>
             <Button disabled={busy || !preview?.taxpayerNoticeAcknowledged} onClick={() => setStep(5)}>
-              Continue
+              {t('onboarding.continue')}
             </Button>
           </div>
         </div>
@@ -437,7 +439,7 @@ export default function PartnerApplicationPage() {
             By typing your name and clicking sign, you agree this is your legally binding electronic signature.
           </p>
           <div className="flex justify-between">
-            <Button variant="secondary" onClick={() => setStep(4)}>Back</Button>
+            <Button variant="secondary" onClick={() => setStep(4)}>{t('common.back')}</Button>
             <Button disabled={busy || !preview?.readyToSign || !signedByName.trim()} onClick={submit}>
               {busy && <Loader2 className="w-4 h-4 animate-spin mr-1.5" />}
               Sign & submit application

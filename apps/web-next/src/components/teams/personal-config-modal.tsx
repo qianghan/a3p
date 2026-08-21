@@ -8,6 +8,7 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { X, Save, Loader2, AlertCircle, RotateCcw, ArrowRight } from 'lucide-react';
+import { useT } from '@/hooks/use-t';
 
 interface PersonalConfigModalProps {
   isOpen: boolean;
@@ -56,6 +57,7 @@ export function PersonalConfigModal({
   pluginName,
   onSaved,
 }: PersonalConfigModalProps) {
+  const t = useT();
   const [sharedConfig, setSharedConfig] = useState<Record<string, unknown>>({});
   const [personalConfig, setPersonalConfig] = useState<string>('{}');
   const [originalPersonalConfig, setOriginalPersonalConfig] = useState<string>('{}');
@@ -377,7 +379,7 @@ export function PersonalConfigModal({
               className="px-4 py-2 border border-border rounded-lg hover:bg-muted transition-colors"
               disabled={saving || resetting}
             >
-              Cancel
+              {t('common.cancel')}
             </button>
             <button
               onClick={handleSave}
@@ -392,7 +394,7 @@ export function PersonalConfigModal({
               ) : (
                 <>
                   <Save className="w-4 h-4" />
-                  Save
+                  {t('common.save')}
                 </>
               )}
             </button>

@@ -6,6 +6,7 @@
  */
 
 import React, { useState, useEffect, useCallback } from 'react';
+import { useT } from '@/hooks/use-t';
 import {
   X,
   Save,
@@ -86,6 +87,7 @@ export function MemberAccessModal({
   pluginName,
   onSaved,
 }: MemberAccessModalProps) {
+  const t = useT();
   const [members, setMembers] = useState<TeamMember[]>([]);
   const [accessMap, setAccessMap] = useState<Map<string, MemberAccess>>(new Map());
   const [originalAccessMap, setOriginalAccessMap] = useState<Map<string, MemberAccess>>(new Map());
@@ -512,7 +514,7 @@ export function MemberAccessModal({
             className="px-4 py-2 border border-border rounded-lg hover:bg-muted transition-colors"
             disabled={saving}
           >
-            Cancel
+            {t('common.cancel')}
           </button>
           <button
             onClick={handleSave}

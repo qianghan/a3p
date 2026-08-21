@@ -19,6 +19,7 @@ import {
   ChevronUp,
 } from 'lucide-react';
 import { Button, Input, Textarea, Label, Badge } from '@naap/ui';
+import { useT } from '@/hooks/use-t';
 
 type FeedbackType = 'bug' | 'feature' | 'general';
 type FeedbackStatus = 'open' | 'investigating' | 'roadmap' | 'released' | 'closed';
@@ -63,6 +64,7 @@ const feedbackTypeConfig = [
 ];
 
 export default function FeedbackPage() {
+  const t = useT();
   const { user, isAuthenticated } = useAuth();
   const { notifications } = useShell();
 
@@ -163,7 +165,7 @@ export default function FeedbackPage() {
     <div className="max-w-4xl mx-auto space-y-6">
       {/* Header */}
       <div>
-        <h1 className="text-lg font-semibold">Feedback</h1>
+        <h1 className="text-lg font-semibold">{t('nav.feedback')}</h1>
         <p className="text-muted-foreground mt-1 text-sm">
           Help us improve NaaP by sharing your thoughts
         </p>
@@ -271,7 +273,7 @@ export default function FeedbackPage() {
 
           {/* Description */}
           <div>
-            <Label required className="mb-1.5 block">Description</Label>
+            <Label required className="mb-1.5 block">{t('common.description')}</Label>
             <Textarea
               value={description}
               onChange={(e) => setDescription(e.target.value)}

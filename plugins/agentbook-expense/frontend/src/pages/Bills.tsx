@@ -116,8 +116,7 @@ export const BillsPage: React.FC = () => {
       <div className="flex items-center justify-between mb-5">
         <div>
           <h1 className="text-xl font-bold text-foreground flex items-center gap-2">
-            <Receipt className="w-5 h-5" /> Bills
-          </h1>
+            <Receipt className="w-5 h-5" />{t('tabs.bills')}</h1>
           <p className="text-sm text-muted-foreground mt-0.5">{t('expenses_ui.bills_sub')}</p>
         </div>
         <button

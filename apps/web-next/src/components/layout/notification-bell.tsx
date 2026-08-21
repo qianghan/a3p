@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Bell, CheckCheck } from 'lucide-react';
+import { useT } from '@/hooks/use-t';
 
 interface NotificationItem {
   id: string;
@@ -38,6 +39,7 @@ const SEVERITY_DOT: Record<string, string> = {
 };
 
 export function NotificationBell() {
+  const t = useT();
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [items, setItems] = useState<NotificationItem[]>([]);
@@ -115,7 +117,7 @@ export function NotificationBell() {
           <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
           <div className="absolute right-0 top-full mt-1 w-80 max-h-[28rem] overflow-y-auto rounded-lg border border-border bg-card shadow-xl z-50">
             <div className="flex items-center justify-between px-3 py-2 border-b border-border/60 sticky top-0 bg-card">
-              <span className="text-[13px] font-semibold text-foreground">Notifications</span>
+              <span className="text-[13px] font-semibold text-foreground">{t('agents.notifications')}</span>
               {unreadCount > 0 && (
                 <button
                   onClick={markAllRead}

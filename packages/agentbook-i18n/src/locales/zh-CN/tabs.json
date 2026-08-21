@@ -1,0 +1,16 @@
+{
+  "expenses": "支出",
+  "bills": "应付账单",
+  "dashboard": "仪表板",
+  "tax_package": "税务资料包",
+  "past_filings": "历史申报",
+  "fast_track": "快速通道",
+  "review": "复核",
+  "invoices": "发票",
+  "clients": "客户",
+  "estimates": "报价单",
+  "projects": "项目",
+  "time": "工时",
+  "recurring": "周期性",
+  "gst_bas_return": "GST/BAS 申报"
+}

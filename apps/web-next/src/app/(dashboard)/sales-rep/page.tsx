@@ -12,6 +12,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { Users, DollarSign, FileText, Landmark, Copy, Check, ExternalLink, Loader2, Award } from 'lucide-react';
 import { Button, Input, Badge } from '@naap/ui';
 import { useAuth } from '@/contexts/auth-context';
+import { useT } from '@/hooks/use-t';
 
 type PayoutMethodStatus = 'not_started' | 'pending' | 'active';
 
@@ -46,6 +47,7 @@ interface MilestoneProgress {
 const money = (cents: number) => `$${(cents / 100).toFixed(2)}`;
 
 export default function SalesRepDashboardPage() {
+  const t = useT();
   const router = useRouter();
   const searchParams = useSearchParams();
   const { hasRole, isLoading: authLoading } = useAuth();
@@ -215,7 +217,7 @@ export default function SalesRepDashboardPage() {
       {/* Revenue tiles */}
       <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
         <div className="rounded-lg border border-border bg-card p-4">
-          <div className="flex items-center gap-2 text-xs text-muted-foreground mb-1"><DollarSign className="w-3.5 h-3.5" /> This month</div>
+          <div className="flex items-center gap-2 text-xs text-muted-foreground mb-1"><DollarSign className="w-3.5 h-3.5" /> {t('dashboard.this_month')}</div>
           <div className="text-lg font-semibold">{money(summary.revenue.thisMonthCents)}</div>
         </div>
         <div className="rounded-lg border border-border bg-card p-4">
@@ -273,7 +275,7 @@ export default function SalesRepDashboardPage() {
             <thead>
               <tr className="text-left text-xs text-muted-foreground border-b border-border">
                 <th className="pb-2">Email</th>
-                <th className="pb-2">Status</th>
+                <th className="pb-2">{t('common.status')}</th>
                 <th className="pb-2">Joined</th>
                 <th className="pb-2 text-right">Commission earned</th>
               </tr>
@@ -307,10 +309,10 @@ export default function SalesRepDashboardPage() {
           <table className="w-full text-sm mt-2">
             <thead>
               <tr className="text-left text-xs text-muted-foreground border-b border-border">
-                <th className="pb-2">Invoice</th>
-                <th className="pb-2">Period</th>
-                <th className="pb-2">Status</th>
-                <th className="pb-2 text-right">Amount</th>
+                <th className="pb-2">{t('core_ui.invoice')}</th>
+                <th className="pb-2">{t('expenses_ui.period')}</th>
+                <th className="pb-2">{t('common.status')}</th>
+                <th className="pb-2 text-right">{t('expenses_ui.col_amount')}</th>
               </tr>
             </thead>
             <tbody>

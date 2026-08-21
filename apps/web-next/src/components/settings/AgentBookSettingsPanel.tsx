@@ -9,6 +9,7 @@ import {
 import { JURISDICTION_OPTIONS, defaultCurrencyFor, formatCurrencyCents } from '@/lib/jurisdiction-currency';
 import { offerableLocales } from '@agentbook/i18n/catalog';
 import { SubscribeModal } from './SubscribeModal';
+import { useT } from '@/hooks/use-t';
 
 const CURRENCY_OPTIONS = ['USD', 'CAD', 'GBP', 'AUD', 'EUR', 'JPY', 'CHF', 'MXN', 'BRL', 'INR'];
 
@@ -276,6 +277,7 @@ function ProfilePreview({
 }
 
 function ConversationRow({ item, searchQuery = '' }: { item: ConversationItem; searchQuery?: string }): React.ReactElement {
+  const t = useT();
   const [expanded, setExpanded] = useState(false);
   const ch = CHANNEL_META[item.channel] ?? { icon: '🔗', label: item.channel };
   return (
@@ -295,12 +297,12 @@ function ConversationRow({ item, searchQuery = '' }: { item: ConversationItem; s
           <span className="ml-auto">{expanded ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}</span>
         </div>
         <p className="text-sm text-foreground line-clamp-1">
-          <span className="mr-1 font-medium text-muted-foreground">You:</span>
+          <span className="mr-1 font-medium text-muted-foreground">{t('core_ui.you_label')}</span>
           {expanded ? highlight(item.question, searchQuery) : highlight(item.question.slice(0, 120), searchQuery)}
         </p>
         {!expanded && (
           <p className="mt-0.5 text-xs text-muted-foreground line-clamp-1">
-            <span className="mr-1 font-medium">Agent:</span>
+            <span className="mr-1 font-medium">{t('core_ui.agent_label')}</span>
             {item.answer.slice(0, 180)}
           </p>
         )}
@@ -308,11 +310,11 @@ function ConversationRow({ item, searchQuery = '' }: { item: ConversationItem; s
       {expanded && (
         <div className="mx-4 mb-3 space-y-2 rounded-lg border border-border bg-background p-3 text-sm">
           <div>
-            <span className="text-xs font-medium text-muted-foreground">You</span>
+            <span className="text-xs font-medium text-muted-foreground">{t('core_ui.you')}</span>
             <p className="mt-0.5 text-foreground whitespace-pre-wrap">{highlight(item.question, searchQuery)}</p>
           </div>
           <div className="border-t border-border pt-2">
-            <span className="text-xs font-medium text-muted-foreground">Agent</span>
+            <span className="text-xs font-medium text-muted-foreground">{t('core_ui.agent')}</span>
             <p className="mt-0.5 text-foreground whitespace-pre-wrap">{highlight(item.answer, searchQuery)}</p>
           </div>
         </div>
@@ -322,6 +324,7 @@ function ConversationRow({ item, searchQuery = '' }: { item: ConversationItem; s
 }
 
 function TelegramCard(): React.ReactElement {
+  const t = useT();
   const [status, setStatus]       = useState<BotStatus | null>(null);
   const [loading, setLoading]     = useState(true);
   const [saving, setSaving]       = useState(false);
@@ -400,7 +403,7 @@ function TelegramCard(): React.ReactElement {
           <span className="rounded-full bg-primary/10 px-2.5 py-0.5 text-xs font-medium text-primary">● Connected</span>
         )}
         {status !== null && !status.configured && (
-          <span className="rounded-full bg-muted px-2.5 py-0.5 text-xs text-muted-foreground">Not connected</span>
+          <span className="rounded-full bg-muted px-2.5 py-0.5 text-xs text-muted-foreground">{t('core_ui.not_connected')}</span>
         )}
       </div>
       <div className="px-4 py-4">
@@ -434,7 +437,7 @@ function TelegramCard(): React.ReactElement {
                 </div>
               </div>
               <div className="rounded-lg bg-background px-3 py-2">
-                <div className="text-xs text-muted-foreground">Linked chats</div>
+                <div className="text-xs text-muted-foreground">{t('core_ui.linked_chats')}</div>
                 <div className="text-sm font-medium text-foreground">{status.chatIds?.length ?? 0}</div>
               </div>
             </div>
@@ -444,7 +447,7 @@ function TelegramCard(): React.ReactElement {
               </div>
             )}
             <div className="rounded-lg bg-background px-3 py-2">
-              <div className="mb-1 text-xs font-medium text-muted-foreground">Quick start</div>
+              <div className="mb-1 text-xs font-medium text-muted-foreground">{t('core_ui.quick_start')}</div>
               <p className="text-xs text-muted-foreground leading-relaxed">
                 Open{' '}
                 {status.botUsername && (
@@ -484,11 +487,11 @@ function TelegramCard(): React.ReactElement {
               </li>
               <li className="flex gap-2">
                 <span className="mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-muted text-xs">2</span>
-                Send <code className="mx-1 rounded bg-muted px-1 py-0.5 text-xs">/newbot</code> and follow prompts
+                {t('chat.send')} <code className="mx-1 rounded bg-muted px-1 py-0.5 text-xs">/newbot</code> and follow prompts
               </li>
               <li className="flex gap-2">
                 <span className="mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-muted text-xs">3</span>
-                Copy the API token and paste below
+                {t('core_ui.copy_api_token')}
               </li>
             </ol>
             <div className="flex gap-2">
@@ -520,6 +523,7 @@ function TelegramCard(): React.ReactElement {
 }
 
 function WhatsAppCard(): React.ReactElement {
+  const t = useT();
   const [status, setStatus] = useState<WhatsAppStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [disconnecting, setDisconnecting] = useState(false);
@@ -579,7 +583,7 @@ function WhatsAppCard(): React.ReactElement {
           <span className="rounded-full bg-primary/10 px-2.5 py-0.5 text-xs font-medium text-primary">● Connected</span>
         )}
         {status !== null && !connected && (
-          <span className="rounded-full bg-muted px-2.5 py-0.5 text-xs text-muted-foreground">Not connected</span>
+          <span className="rounded-full bg-muted px-2.5 py-0.5 text-xs text-muted-foreground">{t('core_ui.not_connected')}</span>
         )}
       </div>
       <div className="px-4 py-4">
@@ -648,6 +652,7 @@ function WhatsAppCard(): React.ReactElement {
 }
 
 function ChatHistoryTab(): React.ReactElement {
+  const t = useT();
   const [query, setQuery]     = useState('');
   const [channel, setChannel] = useState<Channel>('all');
   const [items, setItems]     = useState<ConversationItem[]>([]);
@@ -727,10 +732,10 @@ function ChatHistoryTab(): React.ReactElement {
           <div className="px-4 py-8 text-center text-sm text-destructive">{error}</div>
         ) : items.length === 0 ? (
           <div className="px-4 py-12 text-center">
-            <p className="text-sm text-muted-foreground">No messages found</p>
+            <p className="text-sm text-muted-foreground">{t('core_ui.no_messages')}</p>
             {query && (
               <button onClick={() => handleSearch('')} className="mt-2 text-xs text-primary hover:underline">
-                Clear search
+                {t('core_ui.clear_search')}
               </button>
             )}
           </div>
@@ -776,6 +781,7 @@ function isSettingsTab(v: string | undefined | null): v is SettingsTab {
 interface BillingPlan { id: string; code: string; name: string; description?: string | null; priceCents: number; currency: string; interval: string }
 
 function BillingTab(): React.ReactElement {
+  const t = useT();
   const [plans, setPlans] = useState<BillingPlan[]>([]);
   const [current, setCurrent] = useState<{ code?: string; name?: string; status?: string; cancelAtPeriodEnd?: boolean } | null>(null);
   const [loading, setLoading] = useState(true);
@@ -818,7 +824,7 @@ function BillingTab(): React.ReactElement {
   return (
     <div className="space-y-4">
       <div>
-        <h3 className="text-sm font-semibold text-foreground mb-1">Your plan</h3>
+        <h3 className="text-sm font-semibold text-foreground mb-1">{t('billing.your_plan')}</h3>
         <p className="text-sm text-muted-foreground">
           {current?.name || current?.code
             ? <>Currently on <span className="font-medium text-foreground capitalize">{current.name || current.code}</span>{current.status ? ` · ${current.status}` : ''}.</>
@@ -832,7 +838,7 @@ function BillingTab(): React.ReactElement {
             <div key={p.id} className={`rounded-xl border p-4 ${isCurrent ? 'border-primary' : 'border-border'} bg-card`}>
               <div className="flex items-center justify-between mb-1">
                 <p className="text-sm font-semibold text-foreground">{p.name}</p>
-                {isCurrent && <span className="text-xs px-2 py-0.5 rounded-full bg-primary/10 text-primary">Current</span>}
+                {isCurrent && <span className="text-xs px-2 py-0.5 rounded-full bg-primary/10 text-primary">{t('invoice.current')}</span>}
               </div>
               <p className="text-2xl font-bold text-foreground">{fmt(p.priceCents, p.currency)}<span className="text-xs font-normal text-muted-foreground">{p.priceCents > 0 ? `/${p.interval}` : ''}</span></p>
               {p.description && <p className="text-xs text-muted-foreground mt-1.5">{p.description}</p>}
@@ -888,7 +894,7 @@ function BillingTab(): React.ReactElement {
               <div key={a.code} className={`rounded-xl border p-4 ${a.active ? 'border-primary' : 'border-border'} bg-card`}>
                 <div className="flex items-center justify-between mb-1">
                   <p className="text-sm font-semibold text-foreground">{a.name}</p>
-                  {a.active && <span className="text-xs px-2 py-0.5 rounded-full bg-primary/10 text-primary">Active</span>}
+                  {a.active && <span className="text-xs px-2 py-0.5 rounded-full bg-primary/10 text-primary">{t('common.active')}</span>}
                 </div>
                 {a.description && <p className="text-xs text-muted-foreground mt-1">{a.description}</p>}
                 {a.price && <p className="text-lg font-bold text-foreground mt-1.5">{fmt(a.price.priceCents, a.price.currency)}<span className="text-xs font-normal text-muted-foreground">/{a.interval === 'year' ? 'yr' : 'mo'}</span></p>}
@@ -1063,6 +1069,7 @@ function QrCard({ code }: { code: string }): React.ReactElement {
 }
 
 function ReferralsTab(): React.ReactElement {
+  const t = useT();
   const [summary, setSummary] = useState<ReferralSummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
@@ -1135,9 +1142,9 @@ function ReferralsTab(): React.ReactElement {
               <thead className="bg-muted/50 text-xs text-muted-foreground">
                 <tr>
                   <th className="text-left px-3 py-2 font-medium">Invitee</th>
-                  <th className="text-left px-3 py-2 font-medium">Status</th>
+                  <th className="text-left px-3 py-2 font-medium">{t('common.status')}</th>
                   <th className="text-left px-3 py-2 font-medium">Joined</th>
-                  <th className="text-left px-3 py-2 font-medium">Paid</th>
+                  <th className="text-left px-3 py-2 font-medium">{t('invoice_ui.paid')}</th>
                 </tr>
               </thead>
               <tbody>
@@ -1316,6 +1323,7 @@ const EMPLOYMENT_TYPE_OPTIONS = [
 ];
 
 function PersonalProfileTab(): React.ReactElement {
+  const t = useT();
   const [profile, setProfile] = useState<PersonalProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -1528,8 +1536,8 @@ function PersonalProfileTab(): React.ReactElement {
           </select>
           <select value={uploadJurisdiction} onChange={(e) => setUploadJurisdiction(e.target.value)}
             className="rounded-lg border border-border bg-background px-2 py-1.5 text-sm text-foreground">
-            <option value="us">United States</option>
-            <option value="ca">Canada</option>
+            <option value="us">{t('tax_ui.united_states')}</option>
+            <option value="ca">{t('tax_ui.canada')}</option>
           </select>
           <input ref={uploadFileRef} type="file" accept="application/pdf" className="hidden" onChange={(e) => void handleUpload(e)} />
           <button type="button" onClick={() => uploadFileRef.current?.click()} disabled={uploading}
@@ -1564,6 +1572,7 @@ const NOTIFICATION_CATEGORY_LABELS: Record<string, { label: string; description:
 };
 
 function NotificationsPreferencesTab(): React.ReactElement {
+  const t = useT();
   const [prefs, setPrefs] = useState<NotificationPreference[]>([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
@@ -1603,7 +1612,7 @@ function NotificationsPreferencesTab(): React.ReactElement {
   return (
     <div className="space-y-4">
       <div>
-        <h3 className="text-sm font-semibold text-foreground mb-1">Notifications</h3>
+        <h3 className="text-sm font-semibold text-foreground mb-1">{t('agents.notifications')}</h3>
         <p className="text-sm text-muted-foreground">
           Choose what you hear about, and how. Tax, invoice, and expense-review reminders can&apos;t be turned off — they&apos;re about your own money.
         </p>
@@ -1613,7 +1622,7 @@ function NotificationsPreferencesTab(): React.ReactElement {
         <table className="w-full text-sm">
           <thead className="bg-muted/50 text-xs text-muted-foreground">
             <tr>
-              <th className="text-left px-3 py-2 font-medium">Category</th>
+              <th className="text-left px-3 py-2 font-medium">{t('expenses_ui.col_category')}</th>
               <th className="text-center px-3 py-2 font-medium w-24">In-app</th>
               <th className="text-center px-3 py-2 font-medium w-24">Email</th>
             </tr>
@@ -1666,6 +1675,7 @@ const INVOICE_API = '/api/v1/agentbook-invoice';
 interface InvoicePayoutStatus { connected: boolean; payoutsEnabled: boolean; accountId: string | null }
 
 function PaymentsTab(): React.ReactElement {
+  const t = useT();
   const [status, setStatus]   = useState<InvoicePayoutStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [working, setWorking] = useState(false);
@@ -1727,7 +1737,7 @@ function PaymentsTab(): React.ReactElement {
           ) : status?.connected ? (
             <span className="rounded-full bg-amber-500/10 px-2.5 py-0.5 text-xs font-medium text-amber-500">Incomplete</span>
           ) : status !== null ? (
-            <span className="rounded-full bg-muted px-2.5 py-0.5 text-xs text-muted-foreground">Not connected</span>
+            <span className="rounded-full bg-muted px-2.5 py-0.5 text-xs text-muted-foreground">{t('core_ui.not_connected')}</span>
           ) : null}
         </div>
 
@@ -1745,7 +1755,7 @@ function PaymentsTab(): React.ReactElement {
             <div className="space-y-3">
               <div className="flex items-start gap-2 rounded-lg bg-primary/5 px-3 py-2.5 text-sm text-foreground">
                 <CheckCircle className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
-                <span>You&apos;re all set. Open any sent invoice and choose <strong>Collect by card</strong> to
+                <span>You&apos;re all set. Open any sent invoice and choose <strong>{t('invoice_ui.collect_by_card')}</strong> to
                 get a payment link for your client.</span>
               </div>
               <button
@@ -1793,6 +1803,7 @@ function PaymentsTab(): React.ReactElement {
 }
 
 export function AgentBookSettingsPanel({ initialTab }: { initialTab?: string }): React.ReactElement {
+  const t = useT();
   const [tab, setTab] = useState<SettingsTab>(isSettingsTab(initialTab) ? initialTab : 'profile');
   const [form, setForm] = useState<TenantConfig | null>(null);
   const [pendingLogoUrl, setPendingLogoUrl] = useState<string | null>(null);
@@ -1956,7 +1967,7 @@ export function AgentBookSettingsPanel({ initialTab }: { initialTab?: string }):
                 className={inputCls} placeholder="ON" />
             </div>
             <div>
-              <label className="block text-sm font-medium text-foreground">Currency</label>
+              <label className="block text-sm font-medium text-foreground">{t('expenses_ui.currency')}</label>
               <select
                 value={form.currency ?? defaultCurrencyFor(form.jurisdiction)}
                 onChange={(e) => set({ currency: e.target.value })}
@@ -2104,7 +2115,7 @@ export function AgentBookSettingsPanel({ initialTab }: { initialTab?: string }):
               </div>
               <div>
                 <label className="block text-sm font-medium text-foreground">
-                  Description <span className="font-normal text-muted-foreground">(what does your business do?)</span>
+                  {t('common.description')} <span className="font-normal text-muted-foreground">(what does your business do?)</span>
                 </label>
                 <textarea
                   value={form.businessDescription ?? ''}
@@ -2117,7 +2128,7 @@ export function AgentBookSettingsPanel({ initialTab }: { initialTab?: string }):
               </div>
               <div>
                 <label className="block text-sm font-medium text-foreground">
-                  Tags <span className="font-normal text-muted-foreground">(comma-separated, helps classify your business)</span>
+                  {t('expenses_ui.col_tags')} <span className="font-normal text-muted-foreground">(comma-separated, helps classify your business)</span>
                 </label>
                 <input
                   type="text"

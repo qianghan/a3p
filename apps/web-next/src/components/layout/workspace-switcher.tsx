@@ -28,6 +28,7 @@ import {
 import { useAuth } from '@/contexts/auth-context';
 import { usePlugins } from '@/contexts/plugin-context';
 import { useEvents, useShell } from '@/contexts/shell-context';
+import { useT } from '@/hooks/use-t';
 
 interface Team {
   id: string;
@@ -51,6 +52,7 @@ function getSafeImageUrl(url: string | null | undefined): string | null {
 }
 
 export function WorkspaceSwitcher({ isOpen }: { isOpen: boolean }) {
+  const t = useT();
   const router = useRouter();
   const { isAuthenticated, user, logout } = useAuth();
   const { refreshPlugins } = usePlugins();
@@ -229,7 +231,7 @@ export function WorkspaceSwitcher({ isOpen }: { isOpen: boolean }) {
                   <div className="w-5 h-5 rounded-md bg-muted flex items-center justify-center shrink-0">
                     <User size={11} className="text-muted-foreground" />
                   </div>
-                  <span className="text-[13px] truncate">Personal</span>
+                  <span className="text-[13px] truncate">{t('expenses_ui.personal')}</span>
                 </div>
                 {!currentTeam && <Check size={14} className="text-primary shrink-0" />}
               </button>
@@ -281,7 +283,7 @@ export function WorkspaceSwitcher({ isOpen }: { isOpen: boolean }) {
                 className="w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-muted-foreground hover:bg-muted/40 hover:text-foreground transition-colors"
               >
                 <Settings size={14} className="shrink-0" />
-                <span className="text-[13px]">Settings</span>
+                <span className="text-[13px]">{t('common.settings')}</span>
               </button>
               <button
                 onClick={() => { theme.toggle(); }}

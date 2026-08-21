@@ -73,13 +73,22 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 BASELINE_FILE="$ROOT_DIR/bin/i18n-hardcoded-locale-ratchet.baseline"
 
-PLUGINS=(
-  agentbook-core
-  agentbook-billing
-  agentbook-expense
-  agentbook-invoice
-  agentbook-startup
-  agentbook-tax
+# Scope widened to the SHELL and every plugin frontend. This measure, like the
+# string ratchet, previously covered only six plugin directories — so its number
+# described the directories it scanned rather than the product. See the comment
+# in bin/i18n-string-ratchet.sh for what that cost.
+SCAN_DIRS=(
+  "plugins/agentbook-core/frontend/src"
+  "plugins/agentbook-billing/frontend/src"
+  "plugins/agentbook-expense/frontend/src"
+  "plugins/agentbook-invoice/frontend/src"
+  "plugins/agentbook-startup/frontend/src"
+  "plugins/agentbook-tax/frontend/src"
+  "plugins/agentbook-scholarship/frontend/src"
+  "plugins/agentbook-housing/frontend/src"
+  "plugins/agentbook-career/frontend/src"
+  "plugins/community/frontend/src"
+  "apps/web-next/src"
 )
 
 # Any literal 'en-US' / "en-US" in non-test frontend source. Deliberately broad:
@@ -87,8 +96,8 @@ PLUGINS=(
 # surface, because there is no legitimate reason for a plugin page to name a
 # display locale.
 matches() {
-  for p in "${PLUGINS[@]}"; do
-    local dir="$ROOT_DIR/plugins/$p/frontend/src"
+  for rel in "${SCAN_DIRS[@]}"; do
+    local dir="$ROOT_DIR/$rel"
     [ -d "$dir" ] || continue
     grep -rn --include='*.tsx' --include='*.ts' -E "['\"]en-US['\"]" "$dir" 2>/dev/null \
       | grep -v '__tests__' \

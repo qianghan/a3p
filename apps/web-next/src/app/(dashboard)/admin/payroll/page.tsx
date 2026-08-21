@@ -12,6 +12,7 @@ import { Banknote, AlertTriangle, CheckCircle2 } from 'lucide-react';
 import { Button, Input, Select, Badge } from '@naap/ui';
 import { useAuth } from '@/contexts/auth-context';
 import { AdminNav } from '@/components/admin/AdminNav';
+import { useT } from '@/hooks/use-t';
 
 interface ProviderMeta {
   id: string;
@@ -31,6 +32,7 @@ interface JurisdictionConfig {
 const JNAME: Record<string, string> = { us: 'United States', ca: 'Canada', uk: 'United Kingdom', au: 'Australia' };
 
 export default function AdminPayrollPage() {
+  const t = useT();
   const router = useRouter();
   const { hasRole } = useAuth();
   const [config, setConfig] = useState<JurisdictionConfig[]>([]);
@@ -131,7 +133,7 @@ export default function AdminPayrollPage() {
                     <Badge variant={c.provider === 'calculator' ? 'secondary' : 'blue'}>{c.provider}</Badge>
                     {c.hasApiKey && <Badge variant="emerald">key set</Badge>}
                   </div>
-                  <Button size="sm" loading={savingJ === c.jurisdiction} onClick={() => save(c.jurisdiction)}>Save</Button>
+                  <Button size="sm" loading={savingJ === c.jurisdiction} onClick={() => save(c.jurisdiction)}>{t('common.save')}</Button>
                 </div>
                 <div className="grid sm:grid-cols-2 gap-3">
                   <Select

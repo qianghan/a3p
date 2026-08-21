@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Bell, CheckCheck, Loader2 } from 'lucide-react';
+import { useT } from '@/hooks/use-t';
 
 interface NotificationItem {
   id: string;
@@ -44,6 +45,7 @@ function formatDate(iso: string | null): string {
 }
 
 export default function NotificationsPage() {
+  const t = useT();
   const router = useRouter();
   const [items, setItems] = useState<NotificationItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -95,7 +97,7 @@ export default function NotificationsPage() {
         <div>
           <h1 className="text-lg font-semibold flex items-center gap-2">
             <Bell className="w-5 h-5" />
-            Notifications
+            {t('agents.notifications')}
           </h1>
           <p className="text-muted-foreground mt-1 text-sm">Everything AgentBook has sent you, in one place.</p>
         </div>
