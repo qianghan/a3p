@@ -333,7 +333,7 @@ export function MemberAccessModal({
           <button
             onClick={handleClose}
             className="p-2 rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
-            aria-label="Close"
+            aria-label={t('common.close')}
           >
             <X className="w-5 h-5" />
           </button>

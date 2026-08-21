@@ -14,6 +14,7 @@ import { useT } from '@/hooks/use-t';
  * a link to the fully illustrated version in the docs.
  */
 export function InstallAppButton() {
+  const t = useT();
   const { platform, canOfferInstall, promptInstall } = usePwaInstall();
   const [showIosSteps, setShowIosSteps] = useState(false);
 
@@ -37,7 +38,7 @@ export function InstallAppButton() {
       <button
         onClick={handleClick}
         className="ab-link flex items-center gap-1.5 text-[12px] tracking-[0.06em]"
-        aria-label="Install the AgentBook app"
+        aria-label={t('common.install_app')}
         title="Install app"
       >
         <InstallGlyph />
@@ -94,7 +95,7 @@ function IosInstallModal({ onClose }: { onClose: () => void }) {
       onClick={onClose}
       role="dialog"
       aria-modal="true"
-      aria-label="Install AgentBook on iOS"
+      aria-label={t('common.install_on_ios')}
     >
       <div
         onClick={(e) => e.stopPropagation()}
@@ -107,7 +108,7 @@ function IosInstallModal({ onClose }: { onClose: () => void }) {
           </h2>
           <button
             onClick={onClose}
-            aria-label="Close"
+            aria-label={t('common.close')}
             className="shrink-0 text-[20px] leading-none text-[var(--muted)] hover:text-[var(--ink)]"
           >
             ×

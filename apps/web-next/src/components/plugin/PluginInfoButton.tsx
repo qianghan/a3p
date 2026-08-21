@@ -143,7 +143,7 @@ export function PluginInfoButton({ metadata, className = '' }: PluginInfoButtonP
           hover:shadow-lg hover:shadow-slate-900/20 dark:hover:shadow-black/20
         `}
         title="Plugin Info"
-        aria-label="Show plugin information"
+        aria-label={t('common.show_plugin_information')}
         aria-expanded={isOpen}
       >
         <Info className="w-4 h-4" />
@@ -173,7 +173,7 @@ export function PluginInfoButton({ metadata, className = '' }: PluginInfoButtonP
             animation: 'pluginInfoFadeIn 0.2s ease-out',
           }}
           role="dialog"
-          aria-label="Plugin information"
+          aria-label={t('common.plugin_information')}
         >
           {/* Header with accent background */}
           <div className="relative px-5 pt-5 pb-4 bg-gradient-to-br from-slate-50 to-slate-100/50 dark:from-transparent dark:to-transparent border-b border-slate-100 dark:border-white/5">
@@ -194,7 +194,7 @@ export function PluginInfoButton({ metadata, className = '' }: PluginInfoButtonP
               <button
                 onClick={() => setIsOpen(false)}
                 className="p-1.5 rounded-lg text-slate-400 dark:text-white/40 hover:text-slate-600 dark:hover:text-white/70 hover:bg-slate-100 dark:hover:bg-white/10 transition-colors"
-                aria-label="Close"
+                aria-label={t('common.close')}
               >
                 <X className="w-4 h-4" />
               </button>

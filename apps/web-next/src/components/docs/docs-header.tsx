@@ -6,6 +6,7 @@ import { useState, useEffect } from 'react';
 import { DocsSearch } from './docs-search';
 import { Wordmark } from '@/components/brand/Wordmark';
 import { useDocsLocale } from '@/lib/docs/use-docs-locale';
+import { useT } from '@/hooks/use-t';
 
 interface DocsHeaderProps {
   onToggleSidebar: () => void;
@@ -13,6 +14,7 @@ interface DocsHeaderProps {
 }
 
 export function DocsHeader({ onToggleSidebar, isSidebarOpen }: DocsHeaderProps) {
+  const t = useT();
   const { ui } = useDocsLocale();
   const [theme, setTheme] = useState<'light' | 'dark'>('dark');
 
@@ -36,7 +38,7 @@ export function DocsHeader({ onToggleSidebar, isSidebarOpen }: DocsHeaderProps) 
         <button
           onClick={onToggleSidebar}
           className="mr-3 p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted transition-all lg:hidden"
-          aria-label="Toggle navigation"
+          aria-label={t('common.toggle_navigation')}
         >
           {isSidebarOpen ? <X size={20} /> : <Menu size={20} />}
         </button>
@@ -58,7 +60,7 @@ export function DocsHeader({ onToggleSidebar, isSidebarOpen }: DocsHeaderProps) 
           <button
             onClick={toggleTheme}
             className="p-2 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted transition-all"
-            aria-label="Toggle theme"
+            aria-label={t('common.toggle_theme')}
           >
             {theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}
           </button>

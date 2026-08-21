@@ -261,7 +261,7 @@ export default function AdminUsersPage() {
           </p>
         </div>
         <div className="text-sm text-muted-foreground">
-          {users.length} total users
+          {t('admin_ui.total_users', { count: users.length })}
         </div>
       </div>
 

@@ -18,6 +18,7 @@ const DISMISS_KEY = 'ab_pwa_banner_dismissed';
  * dashboard so it doesn't become a persistent nag on every page.
  */
 export function InstallAppBanner() {
+  const t = useT();
   const pathname = usePathname();
   const { platform, canOfferInstall, promptInstall } = usePwaInstall();
   const [visible, setVisible] = useState(false);
@@ -67,7 +68,7 @@ export function InstallAppBanner() {
         <button
           type="button"
           onClick={dismiss}
-          aria-label="Dismiss"
+          aria-label={t('common.dismiss_label')}
           className="shrink-0 text-muted-foreground hover:text-foreground p-1 rounded-md hover:bg-muted transition-colors"
         >
           <X size={14} />
@@ -120,7 +121,7 @@ function IosInstallModal({ onClose }: { onClose: () => void }) {
       onClick={onClose}
       role="dialog"
       aria-modal="true"
-      aria-label="Install AgentBook on iOS"
+      aria-label={t('common.install_on_ios')}
     >
       <div
         onClick={(e) => e.stopPropagation()}
@@ -129,7 +130,7 @@ function IosInstallModal({ onClose }: { onClose: () => void }) {
       >
         <div className="flex items-start justify-between gap-4">
           <h2 className="text-base font-semibold text-foreground">Add to your Home Screen</h2>
-          <button onClick={onClose} aria-label="Close" className="shrink-0 text-muted-foreground hover:text-foreground">
+          <button onClick={onClose} aria-label={t('common.close')} className="shrink-0 text-muted-foreground hover:text-foreground">
             <X size={18} />
           </button>
         </div>

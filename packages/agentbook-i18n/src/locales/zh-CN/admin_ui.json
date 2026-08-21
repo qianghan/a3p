@@ -209,7 +209,7 @@
   "tenant_id": "租户 ID",
   "timeouts": "超时",
   "top_sales_reps": "顶级销售代表",
-  "total_users": "用户总数",
+  "total_users": "共 {count} 位用户",
   "unverified": "未验证",
   "user_management": "用户管理",
   "users": "用户",

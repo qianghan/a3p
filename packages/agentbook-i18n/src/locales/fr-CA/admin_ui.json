@@ -209,7 +209,7 @@
   "tenant_id": "Identifiant de locataire",
   "timeouts": "Expirations",
   "top_sales_reps": "Meilleurs représentants",
-  "total_users": "Utilisateurs au total",
+  "total_users": "{count} utilisateurs au total",
   "unverified": "Non vérifié",
   "user_management": "Gestion des utilisateurs",
   "users": "Utilisateurs",
