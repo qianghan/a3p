@@ -1,0 +1,22 @@
+{
+  "community_hub": "Community Hub",
+  "community_sub": "Ask questions, share knowledge, help others",
+  "search_discussions": "Search discussions...",
+  "pinned": "Pinned",
+  "no_posts": "No posts found",
+  "no_posts_hint": "Start a new discussion or try a different search",
+  "logged_in_as": "Logged in as",
+  "create_new_post": "Create New Post",
+  "post_type": "What type of post is this?",
+  "category": "Category",
+  "title": "Title",
+  "content": "Content",
+  "tags": "Tags (comma separated)",
+  "posting": "Posting...",
+  "post_not_found": "Post not found",
+  "back_to_forum": "Back to forum",
+  "no_answers": "No answers yet. Be the first to help!",
+  "your_answer": "Your Answer",
+  "ph_answer": "Write your answer... You can use Markdown for formatting and code blocks.",
+  "logged_in_as_named": "Logged in as {name}"
+}

@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { X, Loader2, HelpCircle, MessageSquare, Sparkles } from 'lucide-react';
 import { createPost } from '../api/client';
+import { useI18n } from '@naap/plugin-sdk';
 
 interface CreatePostModalProps {
   onClose: () => void;
@@ -23,6 +24,7 @@ const CATEGORIES = [
 ];
 
 export const CreatePostModal: React.FC<CreatePostModalProps> = ({ onClose, onCreated }) => {
+  const { t: tr } = useI18n();
   const [postType, setPostType] = useState('QUESTION');
   const [category, setCategory] = useState('GENERAL');
   const [title, setTitle] = useState('');
@@ -66,7 +68,7 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({ onClose, onCre
       <div className="bg-bg-primary border border-white/10 rounded-lg w-full max-w-2xl max-h-[90vh] overflow-y-auto shadow-2xl">
         {/* Header */}
         <div className="flex items-center justify-between p-4 border-b border-white/10">
-          <h2 className="text-sm font-semibold text-text-primary">Create New Post</h2>
+          <h2 className="text-sm font-semibold text-text-primary">{tr('community_ui.create_new_post')}</h2>
           <button
             onClick={onClose}
             className="p-1.5 hover:bg-white/10 rounded-lg transition-colors"
@@ -78,8 +80,7 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({ onClose, onCre
         <form onSubmit={handleSubmit} className="p-4 space-y-4">
           {/* Post Type */}
           <div>
-            <label className="block text-xs font-medium text-text-secondary mb-2">
-              What type of post is this?
+            <label className="block text-xs font-medium text-text-secondary mb-2">{tr('community_ui.post_type')}
             </label>
             <div className="grid grid-cols-3 gap-3">
               {POST_TYPES.map((type) => (
@@ -109,8 +110,7 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({ onClose, onCre
 
           {/* Category */}
           <div>
-            <label className="block text-xs font-medium text-text-secondary mb-1.5">
-              Category
+            <label className="block text-xs font-medium text-text-secondary mb-1.5">{tr('community_ui.category')}
             </label>
             <select
               value={category}
@@ -127,8 +127,7 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({ onClose, onCre
 
           {/* Title */}
           <div>
-            <label className="block text-xs font-medium text-text-secondary mb-1.5">
-              Title
+            <label className="block text-xs font-medium text-text-secondary mb-1.5">{tr('community_ui.title')}
             </label>
             <input
               type="text"
@@ -145,8 +144,7 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({ onClose, onCre
 
           {/* Content */}
           <div>
-            <label className="block text-xs font-medium text-text-secondary mb-1.5">
-              Content
+            <label className="block text-xs font-medium text-text-secondary mb-1.5">{tr('community_ui.content')}
             </label>
             <textarea
               value={content}
@@ -169,8 +167,7 @@ Be specific and include relevant details like:
 
           {/* Tags */}
           <div>
-            <label className="block text-xs font-medium text-text-secondary mb-1.5">
-              Tags (comma separated)
+            <label className="block text-xs font-medium text-text-secondary mb-1.5">{tr('community_ui.tags')}
             </label>
             <input
               type="text"
@@ -194,8 +191,7 @@ Be specific and include relevant details like:
               type="button"
               onClick={onClose}
               className="px-3 py-1.5 text-xs text-text-secondary hover:text-text-primary transition-colors"
-            >
-              Cancel
+            >{tr('common.cancel')}
             </button>
             <button
               type="submit"
@@ -204,8 +200,7 @@ Be specific and include relevant details like:
             >
               {submitting ? (
                 <>
-                  <Loader2 size={16} className="animate-spin" />
-                  Posting...
+                  <Loader2 size={16} className="animate-spin" />{tr('community_ui.posting')}
                 </>
               ) : (
                 'Post'

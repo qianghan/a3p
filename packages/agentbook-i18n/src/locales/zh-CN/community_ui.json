@@ -1,0 +1,22 @@
+{
+  "community_hub": "社区中心",
+  "community_sub": "提出问题、分享知识、帮助他人",
+  "search_discussions": "搜索讨论…",
+  "pinned": "已置顶",
+  "no_posts": "未找到帖子",
+  "no_posts_hint": "发起新讨论，或尝试其他搜索条件",
+  "logged_in_as": "当前登录身份",
+  "create_new_post": "创建新帖子",
+  "post_type": "这是哪种类型的帖子？",
+  "category": "类别",
+  "title": "标题",
+  "content": "内容",
+  "tags": "标签（用逗号分隔）",
+  "posting": "正在发布…",
+  "post_not_found": "未找到帖子",
+  "back_to_forum": "返回论坛",
+  "no_answers": "暂无回答。快来第一个帮忙吧！",
+  "your_answer": "您的回答",
+  "ph_answer": "撰写您的回答…可使用 Markdown 进行排版和插入代码块。",
+  "logged_in_as_named": "当前登录：{name}"
+}

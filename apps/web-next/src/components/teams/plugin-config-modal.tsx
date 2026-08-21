@@ -236,7 +236,7 @@ export function PluginConfigModal({
             ) : (
               <>
                 <Save className="w-4 h-4" />
-                Save Configuration
+                {t('dash.save_configuration')}
               </>
             )}
           </button>

@@ -10,6 +10,7 @@
 
 import React, { useState, useRef, useEffect } from 'react';
 import { Info, X, Package, User, Calendar, Tag, Clock } from 'lucide-react';
+import { useT } from '@/hooks/use-t';
 
 export interface PluginMetadata {
   /** Plugin name (technical) */
@@ -85,6 +86,7 @@ if (typeof document !== 'undefined' && !document.getElementById('plugin-info-sty
 }
 
 export function PluginInfoButton({ metadata, className = '' }: PluginInfoButtonProps) {
+  const t = useT();
   const [isOpen, setIsOpen] = useState(false);
   const buttonRef = useRef<HTMLButtonElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
@@ -240,7 +242,7 @@ export function PluginInfoButton({ metadata, className = '' }: PluginInfoButtonP
                 <div className="p-1.5 rounded-md bg-slate-100 dark:bg-white/5">
                   <Clock className="w-3.5 h-3.5" />
                 </div>
-                <span className="text-xs font-medium">Installed</span>
+                <span className="text-xs font-medium">{t('dash.installed')}</span>
               </div>
               <div className="text-right">
                 <span className="text-sm font-medium text-slate-900 dark:text-white">

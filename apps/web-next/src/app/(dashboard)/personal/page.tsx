@@ -88,6 +88,9 @@ const todayStr = () => {
 
 export default function PersonalFinancePage() {
   const t = useT();
+  // Resolved here, not inside the transaction map below: that callback binds
+  // a parameter named `t`, which shadows the translator.
+  const tBiz = t('core_ui.expense');
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
@@ -430,8 +433,7 @@ export default function PersonalFinancePage() {
           <h1 className="text-xl font-bold text-foreground flex items-center gap-2">
             <Wallet className="w-5 h-5" /> {t('nav.personal_finance')}
           </h1>
-          <p className="text-sm text-muted-foreground mt-0.5">
-            Your household money, kept separate from the business books.
+          <p className="text-sm text-muted-foreground mt-0.5">{t('dash.personal_sub')}
           </p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
@@ -452,7 +454,7 @@ export default function PersonalFinancePage() {
 
       {/* Net worth + month stats */}
       <div className="rounded-xl border border-border bg-card p-6 text-center mb-5">
-        <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">Net worth</p>
+        <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">{t('dash.net_worth')}</p>
         <p className="text-4xl sm:text-5xl font-bold text-foreground">{fmt$(snapshot?.netWorthCents ?? 0)}</p>
         <p className="mt-2 text-sm text-muted-foreground">
           {fmt$(snapshot?.assetsCents ?? 0)} assets &minus; {fmt$(snapshot?.liabilitiesCents ?? 0)} liabilities
@@ -460,10 +462,10 @@ export default function PersonalFinancePage() {
       </div>
 
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
-        <Stat icon={<TrendingUp className="w-4 h-4 text-primary" />} label="Income (mo)" value={fmt$(m?.incomeCents ?? 0)} />
-        <Stat icon={<TrendingDown className="w-4 h-4 text-destructive" />} label="Spending (mo)" value={fmt$(m?.spendingCents ?? 0)} />
-        <Stat icon={<PiggyBank className="w-4 h-4 text-primary" />} label="Savings rate" value={`${m?.savingsRate ?? 0}%`} />
-        <Stat icon={<Briefcase className="w-4 h-4 text-violet-400" />} label="Business-flagged" value={fmt$(m?.businessFlaggedCents ?? 0)} />
+        <Stat icon={<TrendingUp className="w-4 h-4 text-primary" />} label={t('dash.income_mo')} value={fmt$(m?.incomeCents ?? 0)} />
+        <Stat icon={<TrendingDown className="w-4 h-4 text-destructive" />} label={t('dash.spending_mo')} value={fmt$(m?.spendingCents ?? 0)} />
+        <Stat icon={<PiggyBank className="w-4 h-4 text-primary" />} label={t('dash.savings_rate')} value={`${m?.savingsRate ?? 0}%`} />
+        <Stat icon={<Briefcase className="w-4 h-4 text-violet-400" />} label={t('dash.business_flagged')} value={fmt$(m?.businessFlaggedCents ?? 0)} />
       </div>
 
       {/* Net worth trend (Personal Insights add-on) */}
@@ -477,7 +479,7 @@ export default function PersonalFinancePage() {
       ) : trendGated ? (
         <div className="rounded-xl border border-border bg-card p-6 mb-6 text-center">
           <Lock className="w-5 h-5 text-muted-foreground mx-auto mb-2" />
-          <p className="text-sm font-medium text-foreground mb-1">Personal Insights</p>
+          <p className="text-sm font-medium text-foreground mb-1">{t('dash.personal_insights')}</p>
           <p className="text-sm text-muted-foreground max-w-md mx-auto mb-4">
             Net-worth trends and proactive nudges — budget alerts, monthly net-worth changes, and
             savings-rate warnings — are part of Personal Insights.
@@ -500,13 +502,13 @@ export default function PersonalFinancePage() {
 
       {showForm && (
         <div className="rounded-xl border border-border bg-card p-4 mb-5 grid grid-cols-1 sm:grid-cols-4 gap-3 items-end">
-          <input name="name" value={name} onChange={(e) => setName(e.target.value)} placeholder="Account name"
+          <input name="name" value={name} onChange={(e) => setName(e.target.value)} placeholder={t('dash.ph_account_name')}
             className="rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground" />
           <select name="type" value={type} onChange={(e) => setType(e.target.value)}
             className="rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground">
             {ACCOUNT_TYPES.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
           </select>
-          <input name="balance" type="number" value={balance} onChange={(e) => setBalance(e.target.value)} placeholder="Balance"
+          <input name="balance" type="number" value={balance} onChange={(e) => setBalance(e.target.value)} placeholder={t('dash.ph_balance')}
             className="rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground" />
           <button onClick={() => void addAccount()} disabled={saving || !name}
             className="px-4 py-2 rounded-lg text-sm font-medium bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-50">
@@ -517,7 +519,7 @@ export default function PersonalFinancePage() {
 
       {/* Accounts */}
       <div className="flex items-center justify-between mb-2">
-        <h2 className="text-sm font-semibold text-foreground">Accounts</h2>
+        <h2 className="text-sm font-semibold text-foreground">{t('dash.accounts')}</h2>
         <div className="flex gap-2">
           {accounts.some((a) => a.plaidAccountId) && (
             <button onClick={handleBankSync} disabled={syncingBank}
@@ -548,8 +550,7 @@ export default function PersonalFinancePage() {
         </div>
       )}
       {accounts.length === 0 ? (
-        <p className="text-sm text-muted-foreground py-6 text-center rounded-xl border border-border bg-card mb-6">
-          No accounts yet. Add your checking, savings, or credit card to see your net worth, or connect a bank above.
+        <p className="text-sm text-muted-foreground py-6 text-center rounded-xl border border-border bg-card mb-6">{t('dash.no_accounts')}
         </p>
       ) : (
         <div className="rounded-xl border border-border bg-card divide-y divide-border mb-6">
@@ -577,8 +578,7 @@ export default function PersonalFinancePage() {
       {/* Record transaction */}
       {showTxnForm && (
         accounts.length === 0 ? (
-          <div className="rounded-xl border border-border bg-card p-4 mb-5 text-sm text-muted-foreground">
-            Add a personal account above before recording a transaction.
+          <div className="rounded-xl border border-border bg-card p-4 mb-5 text-sm text-muted-foreground">{t('dash.add_account_first')}
           </div>
         ) : (
           <div className="rounded-xl border border-border bg-card p-4 mb-5 space-y-3">
@@ -588,10 +588,10 @@ export default function PersonalFinancePage() {
                 {accounts.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
               </select>
               <input name="description" value={txnDescription} onChange={(e) => setTxnDescription(e.target.value)}
-                placeholder="Description"
+                placeholder={t('common.description')}
                 className="rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground" />
               <input name="category" list="personal-categories" value={txnCategory}
-                onChange={(e) => setTxnCategory(e.target.value)} placeholder="Category"
+                onChange={(e) => setTxnCategory(e.target.value)} placeholder={t('expenses_ui.col_category')}
                 className="rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground" />
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
@@ -610,7 +610,7 @@ export default function PersonalFinancePage() {
                 </button>
               </div>
               <input name="amount" type="number" min="0" step="0.01" value={txnAmount}
-                onChange={(e) => setTxnAmount(e.target.value)} placeholder="Amount"
+                onChange={(e) => setTxnAmount(e.target.value)} placeholder={t('expenses_ui.amount_placeholder')}
                 className="rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground" />
               <input name="date" type="date" value={txnDate} onChange={(e) => setTxnDate(e.target.value)}
                 className="rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground" />
@@ -618,8 +618,7 @@ export default function PersonalFinancePage() {
             <div className="flex items-center justify-between flex-wrap gap-2">
               <label className="flex items-center gap-2 text-xs text-muted-foreground">
                 <input name="businessFlag" type="checkbox" checked={txnBusinessFlag}
-                  onChange={(e) => setTxnBusinessFlag(e.target.checked)} className="rounded border-border" />
-                This is a business expense
+                  onChange={(e) => setTxnBusinessFlag(e.target.checked)} className="rounded border-border" />{t('dash.is_business_expense')}
               </label>
               <button onClick={() => void addTransaction()}
                 disabled={savingTxn || !txnAccountId || !txnDescription.trim() || !txnAmount}
@@ -638,14 +637,13 @@ export default function PersonalFinancePage() {
         {accounts.length > 0 && (
           <select name="txnFilter" value={txnFilter} onChange={(e) => setTxnFilter(e.target.value)}
             className="rounded-lg border border-border bg-background px-2 py-1.5 text-xs text-foreground">
-            <option value="">All accounts</option>
+            <option value="">{t('dash.all_accounts')}</option>
             {accounts.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
           </select>
         )}
       </div>
       {transactions.length === 0 ? (
-        <p className="text-sm text-muted-foreground py-6 text-center rounded-xl border border-border bg-card mb-6">
-          No transactions yet. Record income or a spend above.
+        <p className="text-sm text-muted-foreground py-6 text-center rounded-xl border border-border bg-card mb-6">{t('dash.no_transactions')}
         </p>
       ) : (
         <div className="rounded-xl border border-border bg-card divide-y divide-border mb-6">
@@ -659,7 +657,7 @@ export default function PersonalFinancePage() {
               </div>
               <div className="flex items-center gap-2 shrink-0">
                 {t.businessFlag && (
-                  <span className="px-2 py-0.5 text-xs rounded-full bg-violet-500/10 text-violet-400">Business</span>
+                  <span className="px-2 py-0.5 text-xs rounded-full bg-violet-500/10 text-violet-400">{tBiz}</span>
                 )}
                 <span className={`text-sm font-bold ${t.amountCents >= 0 ? 'text-emerald-500' : 'text-destructive'}`}>
                   {t.amountCents >= 0 ? '+' : ''}{fmt$(t.amountCents)}
@@ -674,10 +672,10 @@ export default function PersonalFinancePage() {
       {showBudgetForm && (
         <div className="rounded-xl border border-border bg-card p-4 mb-5 grid grid-cols-1 sm:grid-cols-3 gap-3 items-end">
           <input name="budgetCategory" list="personal-categories" value={budgetCategory}
-            onChange={(e) => setBudgetCategory(e.target.value)} placeholder="Category"
+            onChange={(e) => setBudgetCategory(e.target.value)} placeholder={t('expenses_ui.col_category')}
             className="rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground" />
           <input name="monthlyLimit" type="number" min="0" step="0.01" value={budgetLimit}
-            onChange={(e) => setBudgetLimit(e.target.value)} placeholder="Monthly limit"
+            onChange={(e) => setBudgetLimit(e.target.value)} placeholder={t('dash.ph_monthly_limit')}
             className="rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground" />
           <button onClick={() => void addBudget()} disabled={savingBudget || !budgetCategory.trim() || !budgetLimit}
             className="px-4 py-2 rounded-lg text-sm font-medium bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-50">
@@ -690,8 +688,7 @@ export default function PersonalFinancePage() {
         <Target className="w-4 h-4" /> {t('expenses_ui.budgets')}
       </h2>
       {budgets.length === 0 ? (
-        <p className="text-sm text-muted-foreground py-6 text-center rounded-xl border border-border bg-card mb-6">
-          No budgets yet. Set a monthly limit for a category to track your spending.
+        <p className="text-sm text-muted-foreground py-6 text-center rounded-xl border border-border bg-card mb-6">{t('dash.no_budgets')}
         </p>
       ) : (
         <div className="rounded-xl border border-border bg-card divide-y divide-border mb-6">
@@ -721,7 +718,7 @@ export default function PersonalFinancePage() {
       {/* Spend by category */}
       {m && m.spendByCategory.length > 0 && (
         <>
-          <h2 className="text-sm font-semibold text-foreground mb-2">This month by category</h2>
+          <h2 className="text-sm font-semibold text-foreground mb-2">{t('dash.this_month_by_category')}</h2>
           <div className="rounded-xl border border-border bg-card divide-y divide-border">
             {m.spendByCategory.map((s) => (
               <div key={s.category} className="flex items-center justify-between px-4 py-2.5">
@@ -755,6 +752,7 @@ function Stat({ icon, label, value }: { icon: React.ReactNode; label: string; va
 // this app, and this is a single simple 12-point line — a small inline SVG
 // is a better fit than pulling in and wiring up an unused library.
 function NetWorthTrendChart({ points, fmt$ }: { points: TrendPoint[]; fmt$: (cents: number) => string }) {
+  const t = useT();
   const width = 640;
   const height = 160;
   const padX = 8;
@@ -789,7 +787,7 @@ function NetWorthTrendChart({ points, fmt$ }: { points: TrendPoint[]; fmt$: (cen
   return (
     <div>
       <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-auto text-primary" role="img"
-        aria-label="Net worth trend, last 12 months">
+        aria-label={t('dash.net_worth_trend')}>
         <path d={areaPath} fill="currentColor" fillOpacity={0.12} stroke="none" />
         <path d={linePath} fill="none" stroke="currentColor" strokeWidth={2} strokeLinejoin="round" strokeLinecap="round" />
         {coords.map((c) => (

@@ -3,6 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { ArrowLeft, ThumbsUp, Clock, CheckCircle, MessageSquare, Send, Loader2, Eye } from 'lucide-react';
 import DOMPurify from 'dompurify';
 import { Card, Badge } from '@naap/ui';
+import { useI18n } from '@naap/plugin-sdk';
 import {
   fetchPost,
   votePost,
@@ -69,6 +70,7 @@ function renderMarkdown(content: string | undefined | null): string {
 }
 
 export const PostDetailPage: React.FC = () => {
+  const { t } = useI18n();
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const [post, setPost] = useState<Post | null>(null);
@@ -223,9 +225,8 @@ export const PostDetailPage: React.FC = () => {
   if (!post) {
     return (
       <div className="text-center py-20">
-        <h2 className="text-sm font-semibold text-text-primary mb-2">Post not found</h2>
-        <button onClick={() => navigate('/')} className="text-accent-blue hover:underline">
-          Back to forum
+        <h2 className="text-sm font-semibold text-text-primary mb-2">{t('community_ui.post_not_found')}</h2>
+        <button onClick={() => navigate('/')} className="text-accent-blue hover:underline">{t('community_ui.back_to_forum')}
         </button>
       </div>
     );
@@ -263,7 +264,7 @@ export const PostDetailPage: React.FC = () => {
           <div className="flex-1">
             {/* Meta */}
             <div className="flex items-center gap-3 mb-4 flex-wrap">
-              {post.isPinned && <Badge variant="amber">Pinned</Badge>}
+              {post.isPinned && <Badge variant="amber">{t('community_ui.pinned')}</Badge>}
               <Badge variant={post.postType === 'QUESTION' ? 'blue' : 'secondary'}>
                 {post.postType.charAt(0) + post.postType.slice(1).toLowerCase()}
               </Badge>
@@ -420,7 +421,7 @@ export const PostDetailPage: React.FC = () => {
           {(!post.comments || post.comments.length === 0) && (
             <Card className="text-center py-6">
               <MessageSquare size={20} className="mx-auto mb-2 text-text-secondary opacity-30" />
-              <p className="text-text-secondary">No answers yet. Be the first to help!</p>
+              <p className="text-text-secondary">{t('community_ui.no_answers')}</p>
             </Card>
           )}
         </div>
@@ -428,12 +429,12 @@ export const PostDetailPage: React.FC = () => {
 
       {/* Add Answer */}
       <Card>
-        <h3 className="font-bold text-text-primary mb-4">Your Answer</h3>
+        <h3 className="font-bold text-text-primary mb-4">{t('community_ui.your_answer')}</h3>
         <form onSubmit={handleSubmitComment}>
           <textarea
             value={commentText}
             onChange={(e) => setCommentText(e.target.value)}
-            placeholder="Write your answer... You can use Markdown for formatting and code blocks."
+            placeholder={t('community_ui.ph_answer')}
             className="w-full h-28 bg-bg-secondary border border-white/10 rounded-lg p-3 text-sm resize-none focus:outline-none focus:border-accent-blue"
           />
           <div className="flex items-center justify-between mt-4">

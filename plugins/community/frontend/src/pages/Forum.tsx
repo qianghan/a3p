@@ -4,6 +4,7 @@ import { Users, Plus, Search, MessageSquare, ThumbsUp, Clock, CheckCircle, Trend
 import { Card, Badge } from '@naap/ui';
 import { fetchPosts, fetchLeaderboard, fetchTags, votePost, removeVote, checkVoted, isUserLoggedIn, getCurrentUser, type Post, type LeaderboardEntry, type Tag as TagType } from '../api/client';
 import { CreatePostModal } from '../components/CreatePostModal';
+import { useI18n } from '@naap/plugin-sdk';
 
 const CATEGORIES = [
   { value: 'all', label: 'All', icon: null },
@@ -48,6 +49,7 @@ const LEVEL_NAMES: Record<number, string> = {
 };
 
 export const ForumPage: React.FC = () => {
+  const { t } = useI18n();
   const navigate = useNavigate();
   const [posts, setPosts] = useState<Post[]>([]);
   const [total, setTotal] = useState(0);
@@ -228,8 +230,8 @@ export const ForumPage: React.FC = () => {
           {/* Title + New Post */}
           <div className="flex items-center justify-between">
             <div>
-              <h1 className="text-lg font-semibold text-text-primary">Community Hub</h1>
-              <p className="text-text-secondary mt-1 text-[13px]">Ask questions, share knowledge, help others</p>
+              <h1 className="text-lg font-semibold text-text-primary">{t('community_ui.community_hub')}</h1>
+              <p className="text-text-secondary mt-1 text-[13px]">{t('community_ui.community_sub')}</p>
             </div>
             <button
               onClick={() => {
@@ -251,7 +253,7 @@ export const ForumPage: React.FC = () => {
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-text-secondary opacity-40" size={12} />
               <input
                 type="text"
-                placeholder="Search discussions..."
+                placeholder={t('community_ui.search_discussions')}
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="w-full bg-bg-secondary border border-white/10 rounded-lg py-1.5 pl-9 pr-3 text-xs focus:outline-none focus:border-accent-blue"
@@ -345,7 +347,7 @@ export const ForumPage: React.FC = () => {
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 mb-1 flex-wrap">
                       {post.isPinned && (
-                        <Badge variant="amber">Pinned</Badge>
+                        <Badge variant="amber">{t('community_ui.pinned')}</Badge>
                       )}
                       <Badge variant={POST_TYPE_COLORS[post.postType] as 'blue' | 'secondary' | 'amber' | 'emerald'}>
                         <span className="flex items-center gap-1">
@@ -422,8 +424,8 @@ export const ForumPage: React.FC = () => {
             {posts.length === 0 && (
               <Card className="text-center py-10">
                 <Users size={32} className="mx-auto mb-4 text-text-secondary opacity-30" />
-                <h3 className="text-sm font-semibold text-text-primary mb-2">No posts found</h3>
-                <p className="text-text-secondary">Start a new discussion or try a different search</p>
+                <h3 className="text-sm font-semibold text-text-primary mb-2">{t('community_ui.no_posts')}</h3>
+                <p className="text-text-secondary">{t('community_ui.no_posts_hint')}</p>
               </Card>
             )}
 
@@ -455,7 +457,7 @@ export const ForumPage: React.FC = () => {
               <Trophy size={16} className="text-accent-amber" /> Welcome
             </h3>
             <div className="text-sm text-text-primary">
-              <p>Logged in as <span className="font-medium">{currentUser.displayName}</span></p>
+              <p>{t('community_ui.logged_in_as_named', { name: currentUser.displayName })}</p>
             </div>
           </Card>
         )}

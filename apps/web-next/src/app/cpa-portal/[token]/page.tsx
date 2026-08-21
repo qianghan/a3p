@@ -2,6 +2,7 @@
 
 import React, { useCallback, useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
+import { useT } from '@/hooks/use-t';
 
 const fmt$ = (c: number) => (c < 0 ? '-' : '') + '$' + Math.abs(c / 100).toLocaleString('en-US', { maximumFractionDigits: 0 });
 
@@ -15,6 +16,7 @@ interface PortalData {
 }
 
 export default function CpaPortalPage() {
+  const t = useT();
   const params = useParams();
   const token = String(params?.token || '');
   const [data, setData] = useState<PortalData | null>(null);
@@ -60,7 +62,7 @@ export default function CpaPortalPage() {
         <Card label="Net income" value={fmt$(data.pnl.netIncomeCents)} />
       </div>
 
-      <h2 style={{ fontSize: 16, fontWeight: 500, marginBottom: 8 }}>Document requests</h2>
+      <h2 style={{ fontSize: 16, fontWeight: 500, marginBottom: 8 }}>{t('dash.document_requests')}</h2>
       {data.documentRequests.length === 0 && <p style={{ color: '#888', fontSize: 14, marginBottom: 12 }}>No requests yet.</p>}
       {data.documentRequests.map((d) => (
         <div key={d.id} style={{ borderLeft: `3px solid ${d.status === 'fulfilled' ? '#0ca30c' : '#eda100'}`, paddingLeft: 12, marginBottom: 10 }}>

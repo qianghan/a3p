@@ -372,7 +372,7 @@ export default function AdminFeedbackPage() {
               <tr>
                 <th className="px-4 py-2.5 text-left text-[11px] font-medium text-muted-foreground uppercase tracking-wider">{t('common.status')}</th>
                 <th className="px-4 py-2.5 text-left text-[11px] font-medium text-muted-foreground uppercase tracking-wider">{t('accounting.type')}</th>
-                <th className="px-4 py-2.5 text-left text-[11px] font-medium text-muted-foreground uppercase tracking-wider">Title</th>
+                <th className="px-4 py-2.5 text-left text-[11px] font-medium text-muted-foreground uppercase tracking-wider">{t('community_ui.title')}</th>
                 <th className="px-4 py-2.5 text-left text-[11px] font-medium text-muted-foreground uppercase tracking-wider">{t('core_ui.user')}</th>
                 <th className="px-4 py-2.5 text-left text-[11px] font-medium text-muted-foreground uppercase tracking-wider">{t('expenses_ui.col_date')}</th>
                 <th className="px-4 py-2.5 text-left text-[11px] font-medium text-muted-foreground uppercase tracking-wider">Release</th>
@@ -541,7 +541,7 @@ export default function AdminFeedbackPage() {
                 loading={saving}
                 icon={!saving ? <Save size={16} /> : undefined}
               >
-                Save Changes
+                {t('dash.save_changes')}
               </Button>
             </div>
           </div>

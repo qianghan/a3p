@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { GraduationCap, Search, ExternalLink, Loader2, Plus, Trash2, Calendar } from 'lucide-react';
 import { scholarshipApi, type Opportunity, type Candidate, STATUS_FLOW } from '../lib/api';
+import { useI18n } from '@naap/plugin-sdk';
 
 const inputCls =
   'w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-primary/30';
@@ -12,6 +13,7 @@ function fmtDeadline(d: string | null): string | null {
 }
 
 export const ScholarshipPage: React.FC = () => {
+  const { t } = useI18n();
   const [items, setItems] = useState<Opportunity[]>([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
@@ -103,8 +105,7 @@ export const ScholarshipPage: React.FC = () => {
             Search
           </button>
         </div>
-        <p className="mt-2 text-xs text-muted-foreground">
-          Matched to your school, region, and visa status from your profile. Every result links to its source — always confirm details there.
+        <p className="mt-2 text-xs text-muted-foreground">{t('student_ui.scholarship_grounding')}
         </p>
 
         {searchNote && candidates.length === 0 && (

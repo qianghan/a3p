@@ -261,7 +261,7 @@ export default function FeedbackPage() {
 
           {/* Title */}
           <div>
-            <Label required className="mb-1.5 block">Title</Label>
+            <Label required className="mb-1.5 block">{t('community_ui.title')}</Label>
             <Input
               type="text"
               value={title}
