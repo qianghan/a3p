@@ -134,7 +134,7 @@ export default function ObservabilityPage() {
         <div>
           <h1 className="text-2xl font-bold flex items-center gap-2">
             <BarChart3 className="w-6 h-6" />
-            Observability
+            {t('admin_ui.observability')}
           </h1>
           <p className="text-sm text-muted-foreground mt-1">
             Skill performance · onboarding funnel · recent failures
@@ -154,7 +154,7 @@ export default function ObservabilityPage() {
         <div className="rounded-lg p-4 bg-rose-50 dark:bg-rose-950/30 text-rose-700 dark:text-rose-300 flex items-start gap-2">
           <AlertTriangle className="w-5 h-5 mt-0.5 flex-shrink-0" />
           <div>
-            <p className="font-medium">Failed to load some sections</p>
+            <p className="font-medium">{t('admin_ui.sections_load_failed')}</p>
             <p className="text-sm">{error}</p>
             <p className="text-xs mt-1">
               You must be on the admin allowlist (ADMIN_EMAILS env var).
@@ -168,7 +168,7 @@ export default function ObservabilityPage() {
         <div className="px-4 py-3 border-b border-border flex items-center justify-between flex-wrap gap-2">
           <h2 className="text-base font-semibold flex items-center gap-2">
             <CheckCircle className="w-4 h-4 text-emerald-600" />
-            Skill performance
+            {t('admin_ui.skill_performance')}
           </h2>
           <div className="flex items-center gap-1">
             {[1, 7, 30].map((d) => (
@@ -187,7 +187,7 @@ export default function ObservabilityPage() {
         {loading && skillMetrics.length === 0 ? (
           <div className="p-8 flex justify-center"><Loader2 className="w-5 h-5 animate-spin" /></div>
         ) : skillMetrics.length === 0 ? (
-          <p className="p-8 text-center text-sm text-muted-foreground">No skill runs in this window.</p>
+          <p className="p-8 text-center text-sm text-muted-foreground">{t('admin_ui.no_skill_runs_window')}</p>
         ) : (
           <table className="w-full text-sm">
             <thead className="bg-muted/50 text-left text-xs uppercase tracking-wide text-muted-foreground">
@@ -197,7 +197,7 @@ export default function ObservabilityPage() {
                 <th className="px-4 py-2 font-medium text-right">{t('core_ui.success')}</th>
                 <th className="px-4 py-2 font-medium text-right">p50</th>
                 <th className="px-4 py-2 font-medium text-right">p95</th>
-                <th className="px-4 py-2 font-medium text-right">Avg conf.</th>
+                <th className="px-4 py-2 font-medium text-right">{t('admin_ui.avg_conf')}</th>
               </tr>
             </thead>
             <tbody>
@@ -226,18 +226,18 @@ export default function ObservabilityPage() {
         <div className="px-4 py-3 border-b border-border">
           <h2 className="text-base font-semibold flex items-center gap-2">
             <Users className="w-4 h-4 text-blue-600" />
-            Onboarding funnel
+            {t('admin_ui.onboarding_funnel')}
           </h2>
         </div>
         {loading && !funnel ? (
           <div className="p-8 flex justify-center"><Loader2 className="w-5 h-5 animate-spin" /></div>
         ) : !funnel || funnel.totals.started === 0 ? (
-          <p className="p-8 text-center text-sm text-muted-foreground">No onboarding sessions yet.</p>
+          <p className="p-8 text-center text-sm text-muted-foreground">{t('admin_ui.no_onboarding_sessions')}</p>
         ) : (
           <div className="p-4 space-y-4">
             <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 text-sm">
               <div className="rounded-lg bg-muted/30 p-3">
-                <div className="text-xs text-muted-foreground">Started</div>
+                <div className="text-xs text-muted-foreground">{t('admin_ui.started')}</div>
                 <div className="text-xl font-semibold">{funnel.totals.started}</div>
               </div>
               <div className="rounded-lg bg-muted/30 p-3">
@@ -245,7 +245,7 @@ export default function ObservabilityPage() {
                 <div className="text-xl font-semibold">{funnel.totals.completed}</div>
               </div>
               <div className="rounded-lg bg-muted/30 p-3">
-                <div className="text-xs text-muted-foreground">Completion</div>
+                <div className="text-xs text-muted-foreground">{t('admin_ui.completion')}</div>
                 <div className="text-xl font-semibold">{fmtPct(funnel.completionRate)}</div>
               </div>
               <div className="rounded-lg bg-muted/30 p-3">
@@ -253,7 +253,7 @@ export default function ObservabilityPage() {
                 <div className="text-xl font-semibold">{fmtPct(funnel.under15MinRate)}</div>
               </div>
               <div className="rounded-lg bg-muted/30 p-3">
-                <div className="text-xs text-muted-foreground">Median time</div>
+                <div className="text-xs text-muted-foreground">{t('admin_ui.median_time')}</div>
                 <div className="text-xl font-semibold">
                   {funnel.medianTimeToCompleteSec === null
                     ? '—'
@@ -264,9 +264,9 @@ export default function ObservabilityPage() {
             <table className="w-full text-sm">
               <thead className="text-left text-xs uppercase tracking-wide text-muted-foreground">
                 <tr>
-                  <th className="px-2 py-1 font-medium">Step</th>
+                  <th className="px-2 py-1 font-medium">{t('admin_ui.step')}</th>
                   <th className="px-2 py-1 font-medium text-right">{t('invoice_ui.status_completed')}</th>
-                  <th className="px-2 py-1 font-medium text-right">Drop-off</th>
+                  <th className="px-2 py-1 font-medium text-right">{t('admin_ui.drop_off')}</th>
                 </tr>
               </thead>
               <tbody>
@@ -300,7 +300,7 @@ export default function ObservabilityPage() {
           <div className="p-8 flex justify-center"><Loader2 className="w-5 h-5 animate-spin" /></div>
         ) : !recentErrors || recentErrors.recent.length === 0 ? (
           <p className="p-8 text-center text-sm text-muted-foreground">
-            No failed skill runs in the last 24 hours. Nice.
+            {t('admin_ui.no_failed_runs_24h')}
           </p>
         ) : (
           <div className="p-4 space-y-4">
@@ -310,17 +310,17 @@ export default function ObservabilityPage() {
                 <div className="text-xl font-semibold text-rose-600">{recentErrors.totals.error}</div>
               </div>
               <div className="rounded-lg bg-amber-50 dark:bg-amber-950/30 p-3">
-                <div className="text-xs text-muted-foreground">Timeouts</div>
+                <div className="text-xs text-muted-foreground">{t('admin_ui.timeouts')}</div>
                 <div className="text-xl font-semibold text-amber-600">{recentErrors.totals.timeout}</div>
               </div>
               <div className="rounded-lg bg-muted/30 p-3">
-                <div className="text-xs text-muted-foreground">Skipped</div>
+                <div className="text-xs text-muted-foreground">{t('admin_ui.skipped')}</div>
                 <div className="text-xl font-semibold">{recentErrors.totals.skipped}</div>
               </div>
             </div>
             {recentErrors.byErrorType.length > 0 && (
               <div className="text-xs text-muted-foreground">
-                <span className="font-medium">By type:</span>{' '}
+                <span className="font-medium">{t('admin_ui.by_type')}</span>{' '}
                 {recentErrors.byErrorType.map((t) => `${t.errorType}: ${t.count}`).join(' · ')}
               </div>
             )}
@@ -363,7 +363,7 @@ export default function ObservabilityPage() {
       </section>
 
       <p className="text-xs text-muted-foreground">
-        Auto-refreshes every 30 seconds while this tab is open.
+        {t('admin_ui.auto_refresh_30s')}
       </p>
     </div>
   );

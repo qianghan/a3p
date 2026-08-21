@@ -109,8 +109,8 @@ export default function AdminConfigPage() {
       <div className="flex items-center gap-3">
         <div className="p-2 rounded-md bg-muted"><ToggleRight className="w-5 h-5 text-muted-foreground" /></div>
         <div>
-          <h1 className="text-lg font-semibold">Feature Flags</h1>
-          <p className="text-sm text-muted-foreground">Global flags to dark-ship and toggle features without a deploy.</p>
+          <h1 className="text-lg font-semibold">{t('admin_ui.feature_flags')}</h1>
+          <p className="text-sm text-muted-foreground">{t('admin_ui.feature_flags_sub')}</p>
         </div>
       </div>
 
@@ -118,15 +118,15 @@ export default function AdminConfigPage() {
       {successMsg && <div className="flex items-center gap-2 p-3 rounded-lg bg-emerald-500/10 text-emerald-500 text-sm"><CheckCircle2 size={16} /> {successMsg}</div>}
 
       <div className="p-4 rounded-lg border border-border bg-card flex flex-col sm:flex-row gap-2 sm:items-end">
-        <div className="flex-1"><label className="text-xs text-muted-foreground">Key</label><Input value={newKey} onChange={(e) => setNewKey(e.target.value)} placeholder="agentbook.new-feature" /></div>
-        <div className="flex-1"><label className="text-xs text-muted-foreground">{t('expenses_ui.description_optional')}</label><Input value={newDesc} onChange={(e) => setNewDesc(e.target.value)} placeholder="What it gates" /></div>
-        <Button onClick={create} loading={busy === '__new__'} disabled={!newKey.trim()} icon={<Plus size={16} />}>Add flag</Button>
+        <div className="flex-1"><label className="text-xs text-muted-foreground">{t('admin_ui.key')}</label><Input value={newKey} onChange={(e) => setNewKey(e.target.value)} placeholder="agentbook.new-feature" /></div>
+        <div className="flex-1"><label className="text-xs text-muted-foreground">{t('expenses_ui.description_optional')}</label><Input value={newDesc} onChange={(e) => setNewDesc(e.target.value)} placeholder={t('admin_ui.ph_what_it_gates')} /></div>
+        <Button onClick={create} loading={busy === '__new__'} disabled={!newKey.trim()} icon={<Plus size={16} />}>{t('admin_ui.add_flag')}</Button>
       </div>
 
       {loading ? (
         <div className="py-16 text-center text-sm text-muted-foreground">Loading…</div>
       ) : flags.length === 0 ? (
-        <div className="text-center py-8 text-muted-foreground"><ToggleRight size={32} className="mx-auto mb-3 opacity-30" /><p className="text-sm">No flags yet</p></div>
+        <div className="text-center py-8 text-muted-foreground"><ToggleRight size={32} className="mx-auto mb-3 opacity-30" /><p className="text-sm">{t('admin_ui.no_flags')}</p></div>
       ) : (
         <div className="grid gap-2">
           {flags.map((flag) => (

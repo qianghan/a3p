@@ -112,16 +112,31 @@ export interface DigestSummary {
  * Evening 17-23, Night 0-4. Default 'Morning' if the cron fires at the
  * usual pre-7am window.
  */
-export function buildHeader(opts: { tenantTimezone: string; name: string; now?: Date }): string {
+export function buildHeader(opts: {
+  tenantTimezone: string;
+  name: string;
+  now?: Date;
+  /** Tenant locale. Defaults to en-US so existing callers are unchanged. */
+  locale?: string;
+}): string {
   const now = opts.now ?? new Date();
   const tz = opts.tenantTimezone || 'America/New_York';
+  const loc = opts.locale || 'en-US';
 
-  const dateFmt = new Intl.DateTimeFormat('en-US', {
+  // DISPLAYED to the user, so both follow the tenant locale.
+  const dateFmt = new Intl.DateTimeFormat(loc, {
     weekday: 'long', month: 'long', day: 'numeric', timeZone: tz,
   });
-  const timeFmt = new Intl.DateTimeFormat('en-US', {
-    hour: 'numeric', minute: '2-digit', hour12: true, timeZone: tz,
+  // hour12 deliberately unset: whether a clock is 12- or 24-hour is a locale
+  // convention, and fr-CA and zh-CN both read 24-hour. en-US still gets 12-hour
+  // from Intl's own default, so US output is unchanged.
+  const timeFmt = new Intl.DateTimeFormat(loc, {
+    hour: 'numeric', minute: '2-digit', timeZone: tz,
   });
+  // NOT localised, on purpose: this one is PARSED with parseInt below to pick a
+  // salutation, never shown. A locale that renders digits differently — or an
+  // Arabic-Indic numeral locale — would make the parse return NaN and every
+  // digest would greet the user with "Late night".
   const hourFmt = new Intl.DateTimeFormat('en-US', {
     hour: 'numeric', hour12: false, timeZone: tz,
   });
@@ -235,7 +250,10 @@ export function buildHighlights(s: DigestSummary): string[] {
  *
  * If no budgets are set, the third line shows MTD spend without a target.
  */
-export function buildSnapshot(s: DigestSummary, opts: { tenantTimezone: string; now?: Date }): string[] {
+export function buildSnapshot(
+  s: DigestSummary,
+  opts: { tenantTimezone: string; now?: Date; locale?: string },
+): string[] {
   const fmtMoney = (cents: number) => formatCurrencyCents(cents, s.currency);
   const now = opts.now ?? new Date();
   const tz = opts.tenantTimezone || 'America/New_York';
@@ -258,7 +276,8 @@ export function buildSnapshot(s: DigestSummary, opts: { tenantTimezone: string; 
   }
 
   // MTD spend vs budget
-  const monthFmt = new Intl.DateTimeFormat('en-US', { month: 'long', timeZone: tz });
+  // Displayed in a sentence, so it follows the tenant locale.
+  const monthFmt = new Intl.DateTimeFormat(opts.locale || 'en-US', { month: 'long', timeZone: tz });
   const monthName = monthFmt.format(now);
   if (s.snapshot.mtdBudgetTotalCents && s.snapshot.mtdBudgetTotalCents > 0) {
     const pct = Math.round((s.snapshot.mtdSpendCents / s.snapshot.mtdBudgetTotalCents) * 100);

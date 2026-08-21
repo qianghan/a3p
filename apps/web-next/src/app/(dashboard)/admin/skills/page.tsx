@@ -14,6 +14,7 @@ import { Sparkles, AlertTriangle, CheckCircle2, Search, Power, PowerOff } from '
 import { Button, Input, Badge } from '@naap/ui';
 import { useAuth } from '@/contexts/auth-context';
 import { AdminNav } from '@/components/admin/AdminNav';
+import { useT } from '@/hooks/use-t';
 
 interface SkillEntry {
   name: string;
@@ -24,6 +25,7 @@ interface SkillEntry {
 }
 
 export default function AdminSkillsPage() {
+  const t = useT();
   const router = useRouter();
   const { hasRole } = useAuth();
   const [skills, setSkills] = useState<SkillEntry[]>([]);
@@ -106,7 +108,7 @@ export default function AdminSkillsPage() {
           <Sparkles className="w-5 h-5 text-muted-foreground" />
         </div>
         <div>
-          <h1 className="text-lg font-semibold">Agent Skills</h1>
+          <h1 className="text-lg font-semibold">{t('admin_ui.agent_skills')}</h1>
           <p className="text-sm text-muted-foreground">
             Install or uninstall the skills the agent can use. {enabledCount} of {skills.length} enabled.
           </p>
@@ -128,13 +130,13 @@ export default function AdminSkillsPage() {
         icon={<Search size={16} />}
         value={searchQuery}
         onChange={(e) => setSearchQuery(e.target.value)}
-        placeholder="Search skills..."
+        placeholder={t('admin_ui.ph_search_skills')}
       />
 
       {loading ? (
         <div className="flex flex-col items-center justify-center py-16">
           <div className="h-5 w-5 animate-spin text-muted-foreground border-2 border-current border-t-transparent rounded-full mb-3" />
-          <p className="text-sm text-muted-foreground">Loading skills...</p>
+          <p className="text-sm text-muted-foreground">{t('admin_ui.loading_skills')}</p>
         </div>
       ) : filtered.length === 0 ? (
         <div className="text-center py-8 text-muted-foreground">

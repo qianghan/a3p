@@ -127,7 +127,7 @@ export default function RegisterForm() {
 
         <div>
           <label htmlFor="email" className="block text-[13px] font-medium text-muted-foreground mb-1.5">
-            Email
+            {t('common.email')}
           </label>
           <input
             id="email"

@@ -36,12 +36,12 @@ interface Rep {
 function PayoutStatusBadge({ status }: { status: PayoutMethodStatus }) {
   const t = useT();
   if (status === 'active') {
-    return <span className="inline-flex items-center gap-1 text-emerald-600 text-xs"><Landmark className="w-3.5 h-3.5" /> Connected</span>;
+    return <span className="inline-flex items-center gap-1 text-emerald-600 text-xs"><Landmark className="w-3.5 h-3.5" /> {t('admin_ui.connected')}</span>;
   }
   if (status === 'pending') {
     return <span className="inline-flex items-center gap-1 text-amber-600 text-xs"><Landmark className="w-3.5 h-3.5" /> {t('expenses_ui.pending')}</span>;
   }
-  return <span className="text-xs text-muted-foreground">Not set up</span>;
+  return <span className="text-xs text-muted-foreground">{t('admin_ui.not_set_up')}</span>;
 }
 
 interface Payout {
@@ -326,10 +326,10 @@ export default function AdminSalesRepsPage() {
             <Users className="w-5 h-5" /> Sales Reps
           </h1>
           <p className="text-sm text-muted-foreground">
-            Review submitted commission invoices and pay reps directly via Stripe.
+            {t('admin_ui.review_commission_invoices')}
           </p>
         </div>
-        <Button variant="secondary" onClick={runCoach} disabled={busy}>Run coach now</Button>
+        <Button variant="secondary" onClick={runCoach} disabled={busy}>{t('admin_ui.run_coach_now')}</Button>
       </div>
 
       {error && <div className="rounded-md bg-destructive/10 text-destructive text-sm px-3 py-2 mb-4">{error}</div>}
@@ -342,9 +342,9 @@ export default function AdminSalesRepsPage() {
           <table className="w-full text-sm">
             <thead>
               <tr className="text-left text-xs text-muted-foreground border-b border-border">
-                <th className="pb-2">Rep</th>
-                <th className="pb-2">Proposal</th>
-                <th className="pb-2">Why</th>
+                <th className="pb-2">{t('admin_ui.rep')}</th>
+                <th className="pb-2">{t('admin_ui.proposal')}</th>
+                <th className="pb-2">{t('admin_ui.why')}</th>
                 <th className="pb-2" />
               </tr>
             </thead>
@@ -355,12 +355,12 @@ export default function AdminSalesRepsPage() {
                   <td className="py-2">
                     {r.type === 'commission_raise'
                       ? <Badge variant="amber">Raise {r.payload?.fromBps != null ? `${(r.payload.fromBps / 100).toFixed(0)}%` : '?'} → {r.payload?.toBps != null ? `${(r.payload.toBps / 100).toFixed(0)}%` : '?'}</Badge>
-                      : <Badge variant="blue">Reward</Badge>}
+                      : <Badge variant="blue">{t('admin_ui.reward')}</Badge>}
                   </td>
                   <td className="py-2 text-muted-foreground max-w-xs">{r.reason}</td>
                   <td className="py-2 text-right whitespace-nowrap">
                     <span className="inline-flex gap-1.5">
-                      <Button onClick={() => decideRecommendation(r, 'approve')} disabled={busy} variant="secondary">Approve</Button>
+                      <Button onClick={() => decideRecommendation(r, 'approve')} disabled={busy} variant="secondary">{t('admin_ui.approve')}</Button>
                       <Button onClick={() => decideRecommendation(r, 'dismiss')} disabled={busy} variant="ghost">{t('dashboard.dismiss')}</Button>
                     </span>
                   </td>
@@ -375,15 +375,15 @@ export default function AdminSalesRepsPage() {
       <div className="rounded-lg border border-border bg-card p-4 mb-6">
         <div className="text-sm font-medium mb-3">Applications ({applications.length})</div>
         {applications.length === 0 ? (
-          <p className="text-sm text-muted-foreground">No applications awaiting review.</p>
+          <p className="text-sm text-muted-foreground">{t('admin_ui.no_applications')}</p>
         ) : (
           <table className="w-full text-sm">
             <thead>
               <tr className="text-left text-xs text-muted-foreground border-b border-border">
-                <th className="pb-2">Applicant</th>
-                <th className="pb-2">Region</th>
-                <th className="pb-2">Plan / fee</th>
-                <th className="pb-2">Signed rate</th>
+                <th className="pb-2">{t('admin_ui.applicant')}</th>
+                <th className="pb-2">{t('admin_ui.region')}</th>
+                <th className="pb-2">{t('admin_ui.plan_fee')}</th>
+                <th className="pb-2">{t('admin_ui.signed_rate')}</th>
                 <th className="pb-2">{t('common.status')}</th>
                 <th className="pb-2" />
               </tr>
@@ -406,7 +406,7 @@ export default function AdminSalesRepsPage() {
                       {!decided && (
                         <span className="inline-flex gap-1.5">
                           <Button onClick={() => decideApplication(a, 'approve')} disabled={busy} variant="secondary">
-                            <CheckCircle2 className="w-3.5 h-3.5" /> Approve
+                            <CheckCircle2 className="w-3.5 h-3.5" /> {t('admin_ui.approve')}
                           </Button>
                           <Button onClick={() => decideApplication(a, 'request_info')} disabled={busy} variant="ghost">{t('dashboard.ask')}</Button>
                           <Button onClick={() => decideApplication(a, 'reject')} disabled={busy} variant="ghost">
@@ -427,12 +427,12 @@ export default function AdminSalesRepsPage() {
       <div className="rounded-lg border border-border bg-card p-4 mb-6">
         <div className="text-sm font-medium mb-3">Pending invoices ({payouts.length})</div>
         {payouts.length === 0 ? (
-          <p className="text-sm text-muted-foreground">Nothing awaiting payment.</p>
+          <p className="text-sm text-muted-foreground">{t('admin_ui.nothing_awaiting_payment')}</p>
         ) : (
           <table className="w-full text-sm">
             <thead>
               <tr className="text-left text-xs text-muted-foreground border-b border-border">
-                <th className="pb-2">Rep</th>
+                <th className="pb-2">{t('admin_ui.rep')}</th>
                 <th className="pb-2">{t('core_ui.invoice')}</th>
                 <th className="pb-2">{t('expenses_ui.period')}</th>
                 <th className="pb-2 text-right">{t('expenses_ui.col_amount')}</th>
@@ -462,13 +462,13 @@ export default function AdminSalesRepsPage() {
         <table className="w-full text-sm">
           <thead>
             <tr className="text-left text-xs text-muted-foreground border-b border-border">
-              <th className="pb-2">Rep</th>
+              <th className="pb-2">{t('admin_ui.rep')}</th>
               <th className="pb-2">{t('common.status')}</th>
-              <th className="pb-2">Commission</th>
-              <th className="pb-2">Payout freq.</th>
-              <th className="pb-2">Payout method</th>
-              <th className="pb-2 text-right">Lifetime paid</th>
-              <th className="pb-2 text-right">Paid this year</th>
+              <th className="pb-2">{t('admin_ui.commission')}</th>
+              <th className="pb-2">{t('admin_ui.payout_freq_short')}</th>
+              <th className="pb-2">{t('admin_ui.payout_method')}</th>
+              <th className="pb-2 text-right">{t('admin_ui.lifetime_paid')}</th>
+              <th className="pb-2 text-right">{t('admin_ui.paid_this_year')}</th>
               <th className="pb-2" />
             </tr>
           </thead>
@@ -485,18 +485,18 @@ export default function AdminSalesRepsPage() {
                   <div className="flex items-center justify-end gap-2">
                     {money(r.paidThisYearCents)}
                     {r.crossed1099Threshold && (
-                      <span title="Crossed the $600/year 1099-NEC reporting threshold">
+                      <span title={t('admin_ui.crossed_1099_threshold')}>
                         <Badge variant="amber">1099</Badge>
                       </span>
                     )}
                   </div>
                 </td>
                 <td className="py-2 text-right whitespace-nowrap">
-                  <button type="button" onClick={() => openHistory(r)} className="p-1.5 rounded hover:bg-muted text-muted-foreground" title="Payout history">
+                  <button type="button" onClick={() => openHistory(r)} className="p-1.5 rounded hover:bg-muted text-muted-foreground" title={t('admin_ui.payout_history')}>
                     <History className="w-4 h-4" />
                   </button>
                   {r.status === 'active' && (
-                    <button type="button" onClick={() => openEdit(r)} className="p-1.5 rounded hover:bg-muted text-muted-foreground" title="Edit commission / frequency">
+                    <button type="button" onClick={() => openEdit(r)} className="p-1.5 rounded hover:bg-muted text-muted-foreground" title={t('admin_ui.edit_commission')}>
                       <Pencil className="w-4 h-4" />
                     </button>
                   )}
@@ -518,7 +518,7 @@ export default function AdminSalesRepsPage() {
             </p>
             <div className="rounded-md bg-muted/50 p-3 mb-3">
               <div className="text-xs font-medium text-muted-foreground mb-1 flex items-center gap-1">
-                <Landmark className="w-3.5 h-3.5" /> Payout method
+                <Landmark className="w-3.5 h-3.5" /> {t('admin_ui.payout_method')}
               </div>
               {reviewPayoutStatus === null ? (
                 <p className="text-sm text-muted-foreground">Loading…</p>
@@ -548,9 +548,9 @@ export default function AdminSalesRepsPage() {
               </div>
             ) : (
               <>
-                <label className="block text-xs font-medium text-muted-foreground mb-1">Payment reference (optional)</label>
+                <label className="block text-xs font-medium text-muted-foreground mb-1">{t('admin_ui.payment_reference')}</label>
                 <Input
-                  placeholder="Wire confirmation #, transfer ID, etc."
+                  placeholder={t('admin_ui.ph_wire_confirmation')}
                   value={paymentReference}
                   onChange={(e) => setPaymentReference(e.target.value)}
                   className="mb-4"
@@ -570,7 +570,7 @@ export default function AdminSalesRepsPage() {
                 onClick={() => setShowManualFallback(true)}
                 className="mt-3 text-xs text-muted-foreground hover:text-foreground underline"
               >
-                Paid outside Stripe instead? Mark paid manually
+                {t('admin_ui.paid_outside_stripe')}
               </button>
             )}
           </div>
@@ -582,11 +582,11 @@ export default function AdminSalesRepsPage() {
           <div className="w-full max-w-sm rounded-lg border border-border bg-card p-5 shadow-xl">
             <h3 className="text-base font-semibold mb-1">Edit {editTarget.email || editTarget.displayName}</h3>
             <p className="text-sm text-muted-foreground mb-4">
-              Changes apply going forward only — already-accrued commission keeps its original rate.
+              {t('admin_ui.rate_change_forward_only')}
             </p>
             <div className="space-y-3">
               <div>
-                <label className="block text-xs font-medium text-muted-foreground mb-1">Commission %</label>
+                <label className="block text-xs font-medium text-muted-foreground mb-1">{t('admin_ui.commission_pct')}</label>
                 <Input
                   type="number" min={1} max={100} step={1}
                   value={editCommissionPercent}
@@ -594,7 +594,7 @@ export default function AdminSalesRepsPage() {
                 />
               </div>
               <div>
-                <label className="block text-xs font-medium text-muted-foreground mb-1">Payout frequency</label>
+                <label className="block text-xs font-medium text-muted-foreground mb-1">{t('admin_ui.payout_frequency')}</label>
                 <Select value={editFrequency} onChange={(e) => setEditFrequency(e.target.value as 'monthly' | 'quarterly' | 'annual')}>
                   <option value="monthly">{t('billing.monthly')}</option>
                   <option value="quarterly">{t('expenses_ui.quarterly')}</option>
@@ -619,7 +619,7 @@ export default function AdminSalesRepsPage() {
             {historyPayouts === null ? (
               <p className="text-sm text-muted-foreground">Loading…</p>
             ) : historyPayouts.length === 0 ? (
-              <p className="text-sm text-muted-foreground">No invoices submitted yet.</p>
+              <p className="text-sm text-muted-foreground">{t('admin_ui.no_invoices_submitted')}</p>
             ) : (
               <table className="w-full text-sm">
                 <thead>

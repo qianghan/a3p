@@ -277,10 +277,10 @@ export default function AdminFeedbackPage() {
         <div>
           <h1 className="text-lg font-semibold flex items-center gap-2">
             <MessageSquare className="w-5 h-5" />
-            Feedback Management
+            {t('admin_ui.feedback_management')}
           </h1>
           <p className="text-muted-foreground mt-1 text-sm">
-            Review, triage, and track all user feedback
+            {t('admin_ui.feedback_sub')}
           </p>
         </div>
         <Button
@@ -288,7 +288,7 @@ export default function AdminFeedbackPage() {
           icon={<Settings2 size={16} />}
           onClick={() => setShowConfig(true)}
         >
-          Configure Links
+          {t('admin_ui.configure_links')}
         </Button>
       </div>
 
@@ -341,17 +341,17 @@ export default function AdminFeedbackPage() {
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             onKeyDown={handleSearchKeyDown}
-            placeholder="Search title, description, or email..."
+            placeholder={t('admin_ui.ph_search_feedback')}
           />
         </div>
         <Select
           value={typeFilter}
           onChange={(e) => { setTypeFilter(e.target.value); setPage(1); }}
         >
-          <option value="all">All Types</option>
-          <option value="bug">Bug Reports</option>
-          <option value="feature">Feature Requests</option>
-          <option value="general">General Feedback</option>
+          <option value="all">{t('admin_ui.all_types')}</option>
+          <option value="bug">{t('admin_ui.bug_reports')}</option>
+          <option value="feature">{t('admin_ui.feature_requests')}</option>
+          <option value="general">{t('admin_ui.general_feedback')}</option>
         </Select>
       </div>
 
@@ -364,7 +364,7 @@ export default function AdminFeedbackPage() {
         ) : feedbacks.length === 0 ? (
           <div className="text-center py-8 text-muted-foreground">
             <MessageSquare className="w-8 h-8 mx-auto mb-3 opacity-50" />
-            <p className="text-sm">No feedback found</p>
+            <p className="text-sm">{t('admin_ui.no_feedback')}</p>
           </div>
         ) : (
           <table className="w-full">
@@ -375,7 +375,7 @@ export default function AdminFeedbackPage() {
                 <th className="px-4 py-2.5 text-left text-[11px] font-medium text-muted-foreground uppercase tracking-wider">{t('community_ui.title')}</th>
                 <th className="px-4 py-2.5 text-left text-[11px] font-medium text-muted-foreground uppercase tracking-wider">{t('core_ui.user')}</th>
                 <th className="px-4 py-2.5 text-left text-[11px] font-medium text-muted-foreground uppercase tracking-wider">{t('expenses_ui.col_date')}</th>
-                <th className="px-4 py-2.5 text-left text-[11px] font-medium text-muted-foreground uppercase tracking-wider">Release</th>
+                <th className="px-4 py-2.5 text-left text-[11px] font-medium text-muted-foreground uppercase tracking-wider">{t('admin_ui.release')}</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
@@ -456,7 +456,7 @@ export default function AdminFeedbackPage() {
       <Modal
         isOpen={!!selectedFeedback}
         onClose={() => setSelectedFeedback(null)}
-        title="Feedback Detail"
+        title={t('admin_ui.feedback_detail')}
         size="xl"
       >
         {selectedFeedback && (
@@ -474,9 +474,9 @@ export default function AdminFeedbackPage() {
 
             {/* Meta */}
             <div className="flex flex-wrap gap-3 text-sm text-muted-foreground">
-              <span>By: <span className="text-foreground">{selectedFeedback.user?.displayName || selectedFeedback.userEmail || 'Unknown'}</span></span>
-              <span>Email: <span className="text-foreground">{selectedFeedback.userEmail || '-'}</span></span>
-              <span>Created: <span className="text-foreground">{new Date(selectedFeedback.createdAt).toLocaleString()}</span></span>
+              <span>{t('admin_ui.by')} <span className="text-foreground">{selectedFeedback.user?.displayName || selectedFeedback.userEmail || 'Unknown'}</span></span>
+              <span>{t('admin_ui.email')} <span className="text-foreground">{selectedFeedback.userEmail || '-'}</span></span>
+              <span>{t('admin_ui.created_label')} <span className="text-foreground">{new Date(selectedFeedback.createdAt).toLocaleString()}</span></span>
             </div>
 
             {/* Status */}
@@ -505,7 +505,7 @@ export default function AdminFeedbackPage() {
 
             {/* Release Tag */}
             <div>
-              <Label className="mb-1.5 block">Release Tag</Label>
+              <Label className="mb-1.5 block">{t('admin_ui.release_tag')}</Label>
               <Input
                 type="text"
                 value={editReleaseTag}
@@ -517,12 +517,12 @@ export default function AdminFeedbackPage() {
 
             {/* Admin Note */}
             <div>
-              <Label className="mb-1.5 block">Admin Note (internal)</Label>
+              <Label className="mb-1.5 block">{t('admin_ui.admin_note')}</Label>
               <Textarea
                 value={editAdminNote}
                 onChange={(e) => setEditAdminNote(e.target.value)}
                 rows={3}
-                placeholder="Internal notes for the team..."
+                placeholder={t('admin_ui.ph_internal_notes')}
                 className="resize-none"
               />
             </div>
@@ -552,12 +552,12 @@ export default function AdminFeedbackPage() {
       <Modal
         isOpen={showConfig}
         onClose={() => setShowConfig(false)}
-        title="Feedback Config"
+        title={t('admin_ui.feedback_config')}
         size="md"
       >
         <div className="space-y-4">
           <div>
-            <Label className="mb-1.5 block">GitHub Issues URL</Label>
+            <Label className="mb-1.5 block">{t('admin_ui.github_issues_url')}</Label>
             <div className="flex items-center gap-2">
               <ExternalLink size={16} className="text-muted-foreground shrink-0" />
               <Input
@@ -571,7 +571,7 @@ export default function AdminFeedbackPage() {
           </div>
 
           <div>
-            <Label className="mb-1.5 block">Discord Invite URL</Label>
+            <Label className="mb-1.5 block">{t('admin_ui.discord_invite_url')}</Label>
             <div className="flex items-center gap-2">
               <ExternalLink size={16} className="text-muted-foreground shrink-0" />
               <Input
@@ -597,7 +597,7 @@ export default function AdminFeedbackPage() {
               loading={savingConfig}
               icon={!savingConfig ? <Save size={16} /> : undefined}
             >
-              Save Config
+              {t('admin_ui.save_config')}
             </Button>
           </div>
         </div>

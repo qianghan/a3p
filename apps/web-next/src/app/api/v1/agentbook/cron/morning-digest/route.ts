@@ -25,6 +25,7 @@ import {
 } from '@/lib/agentbook-digest-builder';
 import { reportError } from '@/lib/logger';
 import { sendToAllChannels } from '@/lib/agentbook-chat-adapter';
+import { resolveOutboundLocale, outMoney, OUTBOUND_FALLBACK, type OutboundLocale } from '@/lib/agentbook-outbound-format';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -95,8 +96,19 @@ interface BankReviewItem {
   guess: { kind: 'invoice' | 'expense'; targetId: string; label: string; amountCents: number } | null;
 }
 
-function fmt$(cents: number): string {
-  return '$' + Math.round(cents / 100).toLocaleString('en-US');
+/**
+ * Money for the digest, in the TENANT's locale and currency.
+ *
+ * Was `'$' + toLocaleString('en-US')`: a literal dollar sign plus US grouping,
+ * so a Quebec user's morning digest read "$1,235" where it should read
+ * "1 235 $", and a GBP user was shown pounds labelled as dollars. A digest is
+ * read in an inbox or a chat app, away from any UI that might correct the
+ * impression — there is no language switcher in an email.
+ *
+ * Rounded to whole units, as before: the digest is a glance, not a ledger.
+ */
+function fmtMoney(cents: number, loc: OutboundLocale): string {
+  return outMoney(Math.round(cents / 100) * 100, loc).replace(/[.,]00(?=\D*$)/, '');
 }
 
 export async function buildDigest(tenantId: string): Promise<DigestData> {
@@ -453,14 +465,23 @@ export function composeMessage(
   prefs: DigestPrefs,
   tips: { tax?: string | null; cashFlow?: string | null },
   budgets?: BudgetProgress[],
-  ctx: { tenantTimezone: string; now: Date } = { tenantTimezone: 'America/New_York', now: new Date() },
+  // `loc` joins tenantTimezone here rather than becoming a new parameter: the
+  // two travel together, and every money/date line in the digest needs both.
+  ctx: { tenantTimezone: string; now: Date; loc?: OutboundLocale } = {
+    tenantTimezone: 'America/New_York',
+    now: new Date(),
+  },
 ): string {
+  const loc: OutboundLocale = ctx.loc ?? {
+    ...OUTBOUND_FALLBACK,
+    timezone: ctx.tenantTimezone || OUTBOUND_FALLBACK.timezone,
+  };
   const concise = prefs.tone === 'concise';
   const sec = prefs.sections;
   const lines: string[] = [];
 
   // ─── Header (date + greeting) ─────────────────────────────────────
-  lines.push(buildHeader({ tenantTimezone: ctx.tenantTimezone, name, now: ctx.now }));
+  lines.push(buildHeader({ tenantTimezone: ctx.tenantTimezone, name, now: ctx.now, locale: loc.locale }));
 
   // Build the summary object once; reused by highlights / snapshot / todos.
   const hot = (budgets || []).filter((b) => b.percent >= 80);
@@ -510,7 +531,7 @@ export function composeMessage(
 
   // ─── Snapshot (cash + AR + MTD spend) ─────────────────────────────
   if (sec.snapshot) {
-    const snapshotLines = buildSnapshot(summary, { tenantTimezone: ctx.tenantTimezone, now: ctx.now });
+    const snapshotLines = buildSnapshot(summary, { tenantTimezone: ctx.tenantTimezone, now: ctx.now, locale: loc.locale });
     if (snapshotLines.length > 0) {
       lines.push('');
       lines.push('📊 <b>Snapshot</b>');
@@ -523,13 +544,13 @@ export function composeMessage(
   // explicitly disabled the snapshot but kept those toggles on.
   if (!sec.snapshot && sec.cashOnHand) {
     lines.push('');
-    lines.push(`💰 Cash on hand: <b>${fmt$(d.cashTodayCents)}</b>`);
+    lines.push(`💰 Cash on hand: <b>${fmtMoney(d.cashTodayCents, loc)}</b>`);
   }
 
   if (!sec.snapshot && sec.yesterday && (d.yesterday.paymentCount > 0 || d.yesterday.expenseCount > 0)) {
     const sign = d.yesterday.netCents >= 0 ? '+' : '';
     lines.push(
-      `📊 Yesterday: ${sign}${fmt$(d.yesterday.netCents)} (${d.yesterday.paymentCount} payment${d.yesterday.paymentCount === 1 ? '' : 's'} in / ${d.yesterday.expenseCount} expense${d.yesterday.expenseCount === 1 ? '' : 's'} out)`,
+      `📊 Yesterday: ${sign}${fmtMoney(d.yesterday.netCents, loc)} (${d.yesterday.paymentCount} payment${d.yesterday.paymentCount === 1 ? '' : 's'} in / ${d.yesterday.expenseCount} expense${d.yesterday.expenseCount === 1 ? '' : 's'} out)`,
     );
   }
 
@@ -554,7 +575,7 @@ export function composeMessage(
     lines.push(`🚨 <b>Overdue invoices</b>`);
     const limit = concise ? 2 : 3;
     for (const a of d.attention.slice(0, limit)) {
-      lines.push(`  • ${escapeHtml(a.title)}${a.amountCents ? ' — ' + fmt$(a.amountCents) : ''}`);
+      lines.push(`  • ${escapeHtml(a.title)}${a.amountCents ? ' — ' + fmtMoney(a.amountCents, loc) : ''}`);
     }
     if (d.attention.length > limit) lines.push(`  … and ${d.attention.length - limit} more`);
   }
@@ -565,7 +586,7 @@ export function composeMessage(
     const limit = concise ? 3 : 4;
     for (const u of d.upcomingThisWeek.slice(0, limit)) {
       const arrow = u.kind === 'income' ? '↗' : '↘';
-      lines.push(`  ${arrow} ${escapeHtml(u.label)} — ${fmt$(u.amountCents)} in ${u.daysOut}d`);
+      lines.push(`  ${arrow} ${escapeHtml(u.label)} — ${fmtMoney(u.amountCents, loc)} in ${u.daysOut}d`);
     }
   }
 
@@ -585,11 +606,12 @@ export function composeMessage(
     // user sees the count even when Telegram is the channel.
     const limit = concise ? 2 : 3;
     for (const b of d.bankReview.items.slice(0, limit)) {
-      const dayLabel = new Intl.DateTimeFormat('en-US', { weekday: 'short' }).format(
-        new Date(b.date),
-      );
+      const dayLabel = new Intl.DateTimeFormat(loc.locale, {
+        weekday: 'short',
+        timeZone: loc.timezone,
+      }).format(new Date(b.date));
       const merchant = b.merchantName || 'unknown';
-      lines.push(`  • ${fmt$(b.amountCents)} from ${escapeHtml(merchant)} on ${dayLabel}`);
+      lines.push(`  • ${fmtMoney(b.amountCents, loc)} from ${escapeHtml(merchant)} on ${dayLabel}`);
     }
     if (d.bankReview.count > limit) {
       lines.push(`  … and ${d.bankReview.count - limit} more`);
@@ -614,7 +636,7 @@ export function composeMessage(
     const limit = concise ? 2 : 5;
     for (const r of d.missingReceipts.items.slice(0, limit)) {
       const label = r.vendorName || r.description || 'expense';
-      lines.push(`  • ${escapeHtml(label)} — ${fmt$(r.amountCents)} · ${r.daysOld}d ago`);
+      lines.push(`  • ${escapeHtml(label)} — ${fmtMoney(r.amountCents, loc)} · ${r.daysOld}d ago`);
     }
     if (d.missingReceipts.count > limit) {
       lines.push(`  … and ${d.missingReceipts.count - limit} more`);
@@ -673,7 +695,7 @@ export function composeMessage(
         const label = b.categoryName || 'Total';
         const periodWord = b.period === 'annual' ? 'yr' : b.period === 'quarterly' ? 'qtr' : 'mo';
         lines.push(
-          `  ${bar} <b>${escapeHtml(label)}</b> — ${fmt$(b.spentCents)}/${fmt$(b.limitCents)}/${periodWord} (${b.percent}%)`,
+          `  ${bar} <b>${escapeHtml(label)}</b> — ${fmtMoney(b.spentCents, loc)}/${fmtMoney(b.limitCents, loc)}/${periodWord} (${b.percent}%)`,
         );
       }
       if (hot.length > limit) lines.push(`  … and ${hot.length - limit} more`);
@@ -760,6 +782,9 @@ async function sendDigest(
 async function sendBankReviewMessages(
   tenantId: string,
   items: BankReviewItem[],
+  // Passed in rather than re-queried: the caller already has it, and a second
+  // read per message would be a query per tenant per digest for no gain.
+  loc: OutboundLocale,
 ): Promise<void> {
   const bot = await db.abTelegramBot.findFirst({ where: { tenantId, enabled: true } });
   if (!bot) return;
@@ -767,7 +792,7 @@ async function sendBankReviewMessages(
   if (chats.length === 0) return;
 
   for (const item of items) {
-    const dayLabel = new Intl.DateTimeFormat('en-US', { weekday: 'short', month: 'short', day: 'numeric' }).format(
+    const dayLabel = new Intl.DateTimeFormat(loc.locale, { weekday: 'short', month: 'short', day: 'numeric', timeZone: loc.timezone }).format(
       new Date(item.date),
     );
     const merchant = item.merchantName || 'unknown';
@@ -775,12 +800,12 @@ async function sendBankReviewMessages(
     let text: string;
     if (item.guess) {
       const guessLabel = escapeHtml(item.guess.label);
-      const guessAmount = fmt$(item.guess.amountCents);
+      const guessAmount = fmtMoney(item.guess.amountCents, loc);
       text =
-        `💰 ${fmt$(item.amountCents)} ${directionWord} ${escapeHtml(merchant)} on ${dayLabel}` +
+        `💰 ${fmtMoney(item.amountCents, loc)} ${directionWord} ${escapeHtml(merchant)} on ${dayLabel}` +
         ` — possible match: <b>${guessLabel}</b> (${guessAmount}). Match it?`;
     } else {
-      text = `💰 ${fmt$(item.amountCents)} ${directionWord} ${escapeHtml(merchant)} on ${dayLabel} — no obvious match. Pick one?`;
+      text = `💰 ${fmtMoney(item.amountCents, loc)} ${directionWord} ${escapeHtml(merchant)} on ${dayLabel} — no obvious match. Pick one?`;
     }
 
     // Picker callback depends on direction: inflow ⇒ invoice picker,
@@ -896,6 +921,10 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       // Default time is 7am if they haven't run setup yet.
       const prefs = await getDigestPrefs(tenant.userId);
 
+      // fmtH/fmtM are PARSED with parseInt below to gate the send time — never
+      // shown. They must stay on a fixed locale: a locale that renders digits
+      // differently would make the parse NaN and the digest would never send.
+      // The locale ratchet counts them, and that is the honest trade.
       const fmtH = new Intl.DateTimeFormat('en-US', {
         hour: 'numeric',
         hour12: false,
@@ -923,6 +952,11 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       const ai = await autoCategorizeForTenant(tenant.userId);
 
       const digest = await buildDigest(tenant.userId);
+      // One config read per tenant, not per formatted field. The tenant row
+      // already carried locale and currency; the digest just never asked.
+      const loc = resolveOutboundLocale(
+        await db.abTenantConfig.findUnique({ where: { userId: tenant.userId } }),
+      );
       const user = await db.user.findUnique({ where: { id: tenant.userId } });
       const name = user?.displayName?.split(' ')[0] || 'there';
 
@@ -961,7 +995,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         prefs,
         { tax: taxTip, cashFlow: cashFlowTip },
         budgets,
-        { tenantTimezone: tenant.timezone || 'America/New_York', now },
+        { tenantTimezone: tenant.timezone || 'America/New_York', now, loc },
       );
       // Review button covers BOTH queues — AI suggestions AND uncategorized
       // draft expenses. The unified review batch handler walks through both.
@@ -1003,7 +1037,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
           select: { id: true },
         });
         if (!alreadySent) {
-          await sendBankReviewMessages(tenant.userId, digest.bankReview.items);
+          await sendBankReviewMessages(tenant.userId, digest.bankReview.items, loc);
           await db.abEvent.create({
             data: {
               tenantId: tenant.userId,

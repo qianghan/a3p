@@ -127,7 +127,7 @@ export default function PluginPage() {
     return (
       <div className="flex flex-col items-center justify-center min-h-[400px]">
         <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-        <p className="text-sm text-muted-foreground mt-3">Loading plugins...</p>
+        <p className="text-sm text-muted-foreground mt-3">{t('admin_ui.loading_plugins')}</p>
       </div>
     );
   }

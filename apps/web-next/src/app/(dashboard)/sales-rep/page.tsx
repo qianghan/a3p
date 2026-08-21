@@ -274,10 +274,10 @@ export default function SalesRepDashboardPage() {
           <table className="w-full text-sm">
             <thead>
               <tr className="text-left text-xs text-muted-foreground border-b border-border">
-                <th className="pb-2">Email</th>
+                <th className="pb-2">{t('common.email')}</th>
                 <th className="pb-2">{t('common.status')}</th>
-                <th className="pb-2">Joined</th>
-                <th className="pb-2 text-right">Commission earned</th>
+                <th className="pb-2">{t('admin_ui.joined')}</th>
+                <th className="pb-2 text-right">{t('admin_ui.commission_earned')}</th>
               </tr>
             </thead>
             <tbody>
@@ -332,9 +332,9 @@ export default function SalesRepDashboardPage() {
       {/* Payout method */}
       <div className="rounded-lg border border-border bg-card p-4">
         <div className="flex items-center gap-2 text-sm font-medium mb-2">
-          <Landmark className="w-4 h-4" /> Payout method
-          {summary.profile.payoutStatus === 'active' && <Badge variant="emerald">Connected</Badge>}
-          {summary.profile.payoutStatus === 'pending' && <Badge variant="blue">Verification pending</Badge>}
+          <Landmark className="w-4 h-4" /> {t('admin_ui.payout_method')}
+          {summary.profile.payoutStatus === 'active' && <Badge variant="emerald">{t('admin_ui.connected')}</Badge>}
+          {summary.profile.payoutStatus === 'pending' && <Badge variant="blue">{t('admin_ui.verification_pending')}</Badge>}
         </div>
         {summary.profile.payoutStatus === 'active' ? (
           <>

@@ -215,3 +215,47 @@ describe('buildTodos', () => {
     expect(buildTodos(makeSummary({ taxDaysUntilQ: 5, taxQEstimateCents: 100000 }))[0]).toContain('5d');
   });
 });
+
+describe('buildHeader follows the tenant locale (i18n)', () => {
+  const now = new Date('2026-05-08T18:00:00.000Z'); // 2pm in Toronto
+
+  it('renders English for an en-US tenant', () => {
+    const out = buildHeader({ tenantTimezone: 'America/Toronto', name: 'Maya', now });
+    expect(out).toMatch(/Friday/);
+    expect(out).toMatch(/May/);
+  });
+
+  it('renders French for a fr-CA tenant — the regression', () => {
+    const out = buildHeader({
+      tenantTimezone: 'America/Toronto', name: 'Maya', now, locale: 'fr-CA',
+    });
+    expect(out).toMatch(/vendredi/);
+    expect(out).toMatch(/mai/);
+    expect(out).not.toMatch(/Friday/);
+  });
+
+  it('renders Chinese for a zh-CN tenant', () => {
+    const out = buildHeader({
+      tenantTimezone: 'Asia/Shanghai', name: 'Maya', now, locale: 'zh-CN',
+    });
+    expect(/[一-鿿]/.test(out)).toBe(true);
+    expect(out).not.toMatch(/Friday|Saturday/);
+  });
+
+  it('picks the salutation from the tenant HOUR, not the locale', () => {
+    // The hour is parsed from a formatter deliberately pinned to en-US. If that
+    // were localised, parseInt could return NaN and every digest would greet
+    // the user with "Late night" — so this asserts the salutation still tracks
+    // local time in a non-English locale.
+    const morning = new Date('2026-05-08T13:00:00.000Z'); // 9am Toronto
+    const out = buildHeader({
+      tenantTimezone: 'America/Toronto', name: 'Maya', now: morning, locale: 'fr-CA',
+    });
+    expect(out).toContain('Morning');
+  });
+
+  it('defaults to English when no locale is supplied', () => {
+    const out = buildHeader({ tenantTimezone: 'America/Toronto', name: 'Maya', now });
+    expect(out).toMatch(/Friday/);
+  });
+});

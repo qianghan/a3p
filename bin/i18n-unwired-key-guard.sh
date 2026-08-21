@@ -99,31 +99,62 @@ MIGRATED = ('agentbook-core', 'agentbook-billing', 'agentbook-expense',
             'agentbook-invoice', 'agentbook-startup', 'agentbook-tax')
 plugin = [f for f in found
           if f.startswith('plugins/') and f.split('/')[1] in MIGRATED]
-shell = [f for f in found if f not in plugin]
+
+# React Server Components are reported SEPARATELY, because for them this
+# guard's central claim — "replace the literal with the t() call shown, it is a
+# one-line change" — is false. t() comes from a React hook, and a Server
+# Component cannot call one. The fix is either a request-scoped server
+# translator or a conversion to a client component: a design decision, not a
+# substitution.
+#
+# Lumping them in with the client components made the shell number unactionable
+# and, worse, meant that adding a legitimate key whose English happened to match
+# a literal on a marketing page (admin_ui.plan vs the "Plan" column of the
+# pricing table in guides/) failed the ratchet with no correct fix available.
+#
+# They are still COUNTED and still ratcheted — just in their own bucket, so
+# neither number can hide behind the other.
+def is_rsc(entry):
+    path = Path(entry.split(':')[0])
+    if not str(path).startswith('apps/web-next/src/app/'):
+        return False  # only route files are server components by default
+    head = path.read_text(encoding='utf-8', errors='ignore')[:400]
+    return "'use client'" not in head and '"use client"' not in head
+
+rest = [f for f in found if f not in plugin]
+rsc = [f for f in rest if is_rsc(f)]
+shell = [f for f in rest if f not in rsc]
 for f in plugin:
     print(f'PLUGIN {f}')
 for f in shell:
     print(f'SHELL  {f}')
+for f in rsc:
+    print(f'RSC    {f}')
 print(f'PLUGIN_COUNT={len(plugin)}')
 print(f'SHELL_COUNT={len(shell)}')
+print(f'RSC_COUNT={len(rsc)}')
 
 PY
 )
 
 PLUGIN_COUNT=$(printf '%s\n' "$OUT" | sed -n 's/^PLUGIN_COUNT=//p')
 SHELL_COUNT=$(printf '%s\n' "$OUT" | sed -n 's/^SHELL_COUNT=//p')
+RSC_COUNT=$(printf '%s\n' "$OUT" | sed -n 's/^RSC_COUNT=//p')
 SHELL_BASELINE=$(cat "$ROOT_DIR/bin/i18n-unwired-key-guard.shell.baseline" 2>/dev/null || echo 999999)
+RSC_BASELINE=$(cat "$ROOT_DIR/bin/i18n-unwired-key-guard.rsc.baseline" 2>/dev/null || echo 999999)
 
 echo "[unwired-keys] plugins: ${PLUGIN_COUNT:-0} (must be 0)"
 echo "[unwired-keys] shell:   ${SHELL_COUNT:-0} (baseline $SHELL_BASELINE)"
+echo "[unwired-keys] server:  ${RSC_COUNT:-0} (baseline $RSC_BASELINE) — needs a server translator, not a t() call"
 
 if [ "${1:-}" = '--list' ]; then
-  printf '%s\n' "$OUT" | grep -E '^(PLUGIN|SHELL) ' | sed 's/^/               /'
+  printf '%s\n' "$OUT" | grep -E '^(PLUGIN|SHELL|RSC) ' | sed 's/^/               /'
 fi
 
 if [ "${1:-}" = '--update' ]; then
   echo "${SHELL_COUNT:-0}" > "$ROOT_DIR/bin/i18n-unwired-key-guard.shell.baseline"
-  echo "[unwired-keys] shell baseline updated to ${SHELL_COUNT:-0}"
+  echo "${RSC_COUNT:-0}" > "$ROOT_DIR/bin/i18n-unwired-key-guard.rsc.baseline"
+  echo "[unwired-keys] baselines updated to shell=${SHELL_COUNT:-0} server=${RSC_COUNT:-0}"
   exit 0
 fi
 
@@ -147,6 +178,15 @@ if [ "${SHELL_COUNT:-0}" -gt "$SHELL_BASELINE" ]; then
   FAIL=1
 elif [ "${SHELL_COUNT:-0}" -lt "$SHELL_BASELINE" ]; then
   echo "[unwired-keys] shell decreased by $(( SHELL_BASELINE - SHELL_COUNT )). Run --update to lock it in."
+fi
+
+# RATCHET for the server components, for the reason given in the classifier
+# above: real, counted, but not fixable by substitution.
+if [ "${RSC_COUNT:-0}" -gt "$RSC_BASELINE" ]; then
+  echo "[unwired-keys] FAIL — server-component count grew by $(( RSC_COUNT - RSC_BASELINE ))."
+  FAIL=1
+elif [ "${RSC_COUNT:-0}" -lt "$RSC_BASELINE" ]; then
+  echo "[unwired-keys] server decreased by $(( RSC_BASELINE - RSC_COUNT )). Run --update to lock it in."
 fi
 
 [ "$FAIL" -eq 0 ] && echo '[unwired-keys] PASS'

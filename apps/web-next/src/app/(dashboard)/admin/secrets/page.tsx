@@ -157,10 +157,10 @@ export default function AdminSecretsPage() {
         <div>
           <h1 className="text-lg font-semibold flex items-center gap-2">
             <Key className="w-5 h-5" />
-            Secrets Management
+            {t('admin_ui.secrets_management')}
           </h1>
           <p className="text-muted-foreground mt-1 text-sm">
-            Manage system secrets and API keys
+            {t('admin_ui.secrets_sub')}
           </p>
         </div>
         <Button
@@ -168,7 +168,7 @@ export default function AdminSecretsPage() {
           icon={<Plus className="w-4 h-4" />}
           onClick={() => setShowAddModal(true)}
         >
-          Add Secret
+          {t('admin_ui.add_secret')}
         </Button>
       </div>
 
@@ -183,16 +183,16 @@ export default function AdminSecretsPage() {
       {secrets.length === 0 ? (
         <div className="text-center py-8 bg-muted/50 rounded-lg">
           <Key className="w-8 h-8 mx-auto text-muted-foreground mb-4" />
-          <h3 className="text-sm font-semibold mb-2">No secrets configured</h3>
+          <h3 className="text-sm font-semibold mb-2">{t('admin_ui.no_secrets')}</h3>
           <p className="text-muted-foreground mb-4 text-sm">
-            Add your first secret to get started
+            {t('admin_ui.add_first_secret_hint')}
           </p>
           <Button
             variant="primary"
             icon={<Plus className="w-4 h-4" />}
             onClick={() => setShowAddModal(true)}
           >
-            Add Your First Secret
+            {t('admin_ui.add_first_secret')}
           </Button>
         </div>
       ) : (
@@ -212,7 +212,7 @@ export default function AdminSecretsPage() {
                     <button
                       onClick={() => copyToClipboard(secret.key)}
                       className="p-1 hover:bg-muted rounded transition-colors"
-                      title="Copy key"
+                      title={t('admin_ui.copy_key')}
                     >
                       {copiedKey === secret.key ? (
                         <CheckCircle2 className="w-3 h-3 text-green-500" />
@@ -237,7 +237,7 @@ export default function AdminSecretsPage() {
                     size="sm"
                     icon={<RefreshCw className="w-4 h-4" />}
                     onClick={() => handleRotateSecret(secret.key)}
-                    title="Rotate secret"
+                    title={t('admin_ui.rotate_secret')}
                   />
                   <Button
                     variant="ghost"
@@ -245,7 +245,7 @@ export default function AdminSecretsPage() {
                     className="text-destructive hover:bg-destructive/10"
                     icon={<Trash2 className="w-4 h-4" />}
                     onClick={() => handleDeleteSecret(secret.key)}
-                    title="Delete secret"
+                    title={t('admin_ui.delete_secret')}
                   />
                 </div>
               </div>
@@ -258,12 +258,12 @@ export default function AdminSecretsPage() {
       <Modal
         isOpen={showAddModal}
         onClose={() => setShowAddModal(false)}
-        title="Add New Secret"
+        title={t('admin_ui.add_new_secret')}
         size="md"
       >
         <form onSubmit={handleAddSecret} className="space-y-4">
           <div>
-            <Label className="mb-1.5 block">Secret Key</Label>
+            <Label className="mb-1.5 block">{t('admin_ui.secret_key')}</Label>
             <Input
               type="text"
               value={newSecret.key}
@@ -275,7 +275,7 @@ export default function AdminSecretsPage() {
           </div>
 
           <div>
-            <Label className="mb-1.5 block">Secret Value</Label>
+            <Label className="mb-1.5 block">{t('admin_ui.secret_value')}</Label>
             <Input
               type="password"
               value={newSecret.value}
@@ -292,9 +292,9 @@ export default function AdminSecretsPage() {
               onChange={(e) => setNewSecret({ ...newSecret, category: e.target.value })}
             >
               <option value="api">{t('core_ui.api_key')}</option>
-              <option value="database">Database</option>
-              <option value="encryption">Encryption</option>
-              <option value="integration">Integration</option>
+              <option value="database">{t('admin_ui.database')}</option>
+              <option value="encryption">{t('admin_ui.encryption')}</option>
+              <option value="integration">{t('admin_ui.integration')}</option>
             </Select>
           </div>
 
@@ -304,7 +304,7 @@ export default function AdminSecretsPage() {
               value={newSecret.description}
               onChange={(e) => setNewSecret({ ...newSecret, description: e.target.value })}
               rows={2}
-              placeholder="What is this secret used for?"
+              placeholder={t('admin_ui.ph_secret_purpose')}
               className="resize-none"
             />
           </div>
@@ -322,7 +322,7 @@ export default function AdminSecretsPage() {
               variant="primary"
               loading={adding}
             >
-              Add Secret
+              {t('admin_ui.add_secret')}
             </Button>
           </div>
         </form>

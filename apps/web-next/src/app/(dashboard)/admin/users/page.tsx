@@ -225,7 +225,7 @@ export default function AdminUsersPage() {
   const getAccessBadges = (user: SystemUser) => {
     const badges = [];
     if (user.isAdmin) badges.push(<Badge key="admin" variant="amber">{t('nav.admin')}</Badge>);
-    if (user.isSalesRep) badges.push(<Badge key="rep" variant="emerald">Sales rep</Badge>);
+    if (user.isSalesRep) badges.push(<Badge key="rep" variant="emerald">{t('admin_ui.sales_rep')}</Badge>);
     return badges.length ? badges : <span className="text-muted-foreground text-sm">{t('core_ui.user')}</span>;
   };
 
@@ -248,10 +248,10 @@ export default function AdminUsersPage() {
         <div>
           <h1 className="text-lg font-semibold flex items-center gap-2">
             <Shield className="w-5 h-5" />
-            User Management
+            {t('admin_ui.user_management')}
           </h1>
           <p className="text-muted-foreground mt-1 text-sm">
-            View and manage all users in the system
+            {t('admin_ui.users_sub')}
           </p>
         </div>
         <div className="text-sm text-muted-foreground">
@@ -273,19 +273,19 @@ export default function AdminUsersPage() {
             icon={<Search className="w-4 h-4" />}
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Search by email, name, or wallet..."
+            placeholder={t('admin_ui.ph_search_users')}
           />
         </div>
         <Select
           value={selectedRole}
           onChange={(e) => setSelectedRole(e.target.value)}
         >
-          <option value="all">Everyone</option>
-          <option value="admins">Admins</option>
-          <option value="sales_reps">Sales reps</option>
-          <option value="students">Students</option>
-          <option value="paid">Paid plans</option>
-          <option value="free">Free plan</option>
+          <option value="all">{t('admin_ui.everyone')}</option>
+          <option value="admins">{t('admin_ui.admins')}</option>
+          <option value="sales_reps">{t('admin_ui.sales_reps')}</option>
+          <option value="students">{t('admin_ui.students')}</option>
+          <option value="paid">{t('admin_ui.paid_plans')}</option>
+          <option value="free">{t('admin_ui.free_plan')}</option>
         </Select>
       </div>
 
@@ -298,22 +298,22 @@ export default function AdminUsersPage() {
                 {t('core_ui.user')}
               </th>
               <th className="px-4 py-2.5 text-left text-[11px] font-medium text-muted-foreground uppercase tracking-wider">
-                Access
+                {t('admin_ui.access')}
               </th>
               <th className="px-4 py-2.5 text-left text-[11px] font-medium text-muted-foreground uppercase tracking-wider">
                 {t('common.status')}
               </th>
               <th className="px-4 py-2.5 text-left text-[11px] font-medium text-muted-foreground uppercase tracking-wider">
-                Joined
+                {t('admin_ui.joined')}
               </th>
               <th className="px-4 py-2.5 text-left text-[11px] font-medium text-muted-foreground uppercase tracking-wider">
                 {t('accounting.type')}
               </th>
               <th className="px-4 py-2.5 text-left text-[11px] font-medium text-muted-foreground uppercase tracking-wider">
-                Plan
+                {t('admin_ui.plan')}
               </th>
               <th className="px-4 py-2.5 text-left text-[11px] font-medium text-muted-foreground uppercase tracking-wider">
-                Referrals
+                {t('admin_ui.referrals')}
               </th>
               <th className="px-4 py-2.5 text-right text-[11px] font-medium text-muted-foreground uppercase tracking-wider">
                 {t('common.actions')}
@@ -325,7 +325,7 @@ export default function AdminUsersPage() {
               <tr>
                 <td colSpan={8} className="px-4 py-8 text-center text-muted-foreground">
                   <Users className="w-8 h-8 mx-auto mb-3 opacity-50" />
-                  <p className="text-sm">No users found</p>
+                  <p className="text-sm">{t('admin_ui.no_users')}</p>
                 </td>
               </tr>
             ) : (
@@ -370,12 +370,12 @@ export default function AdminUsersPage() {
                     {user.emailVerified ? (
                       <span className="flex items-center gap-1 text-green-500 text-sm">
                         <CheckCircle2 className="w-4 h-4" />
-                        Verified
+                        {t('admin_ui.verified')}
                       </span>
                     ) : (
                       <span className="flex items-center gap-1 text-muted-foreground text-sm">
                         <XCircle className="w-4 h-4" />
-                        Unverified
+                        {t('admin_ui.unverified')}
                       </span>
                     )}
                   </td>
@@ -410,14 +410,14 @@ export default function AdminUsersPage() {
                   </td>
                   <td className="px-4 py-2.5 text-right relative">
                     <div className="inline-flex items-center gap-2 justify-end">
-                      {user.suspended && <Badge variant="rose">Suspended</Badge>}
+                      {user.suspended && <Badge variant="rose">{t('admin_ui.suspended')}</Badge>}
                       <Button
                         variant="secondary"
                         size="sm"
                         icon={<MoreVertical className="w-4 h-4" />}
                         onClick={() => setOpenMenuId(openMenuId === user.id ? null : user.id)}
                       >
-                        Manage
+                        {t('admin_ui.manage')}
                       </Button>
                     </div>
                     {openMenuId === user.id && (
@@ -430,7 +430,7 @@ export default function AdminUsersPage() {
                             className="w-full text-left px-3 py-2 text-sm hover:bg-muted flex items-center gap-2"
                           >
                             <Bell className="w-3.5 h-3.5" />
-                            Send notification
+                            {t('admin_ui.send_notification')}
                           </button>
                           {user.suspended ? (
                             <button
@@ -439,7 +439,7 @@ export default function AdminUsersPage() {
                               onClick={() => doAction(user.id, 'reactivate')}
                               className="w-full text-left px-3 py-2 text-sm hover:bg-muted disabled:opacity-50"
                             >
-                              Reactivate user
+                              {t('admin_ui.reactivate_user')}
                             </button>
                           ) : (
                             <button
@@ -448,7 +448,7 @@ export default function AdminUsersPage() {
                               onClick={() => doAction(user.id, 'suspend')}
                               className="w-full text-left px-3 py-2 text-sm text-destructive hover:bg-destructive/10 disabled:opacity-40"
                             >
-                              Suspend user
+                              {t('admin_ui.suspend_user')}
                             </button>
                           )}
                           {user.isAdmin ? (
@@ -458,7 +458,7 @@ export default function AdminUsersPage() {
                               onClick={() => doAction(user.id, 'revokeAdmin')}
                               className="w-full text-left px-3 py-2 text-sm hover:bg-muted disabled:opacity-40"
                             >
-                              Remove admin
+                              {t('admin_ui.remove_admin')}
                             </button>
                           ) : (
                             <button
@@ -467,7 +467,7 @@ export default function AdminUsersPage() {
                               onClick={() => doAction(user.id, 'grantAdmin')}
                               className="w-full text-left px-3 py-2 text-sm hover:bg-muted disabled:opacity-50"
                             >
-                              Make admin
+                              {t('admin_ui.make_admin')}
                             </button>
                           )}
                           {user.isSalesRep ? (
@@ -477,7 +477,7 @@ export default function AdminUsersPage() {
                               onClick={() => doRevokeSalesRep(user.id)}
                               className="w-full text-left px-3 py-2 text-sm hover:bg-muted disabled:opacity-40"
                             >
-                              Remove sales rep
+                              {t('admin_ui.remove_sales_rep')}
                             </button>
                           ) : (
                             <button
@@ -490,11 +490,11 @@ export default function AdminUsersPage() {
                               className="w-full text-left px-3 py-2 text-sm hover:bg-muted disabled:opacity-50 flex items-center gap-2"
                             >
                               <Gift className="w-3.5 h-3.5" />
-                              Promote to sales rep
+                              {t('admin_ui.promote_to_rep')}
                             </button>
                           )}
                           <div className="border-t border-border mt-1 pt-1">
-                            <div className="px-3 py-1 text-[11px] uppercase tracking-wider text-muted-foreground">Comp plan</div>
+                            <div className="px-3 py-1 text-[11px] uppercase tracking-wider text-muted-foreground">{t('admin_ui.comp_plan')}</div>
                             {(['free', 'pro', 'business'] as const).map((p) => {
                               const current = (user.planCode ?? 'free') === p;
                               return (
@@ -525,7 +525,7 @@ export default function AdminUsersPage() {
       {promoteTarget && (
         <div className="fixed inset-0 z-30 flex items-center justify-center bg-black/40">
           <div className="w-full max-w-sm rounded-lg border border-border bg-card p-5 shadow-xl">
-            <h3 className="text-base font-semibold mb-1">Promote to sales rep</h3>
+            <h3 className="text-base font-semibold mb-1">{t('admin_ui.promote_to_rep')}</h3>
             <p className="text-sm text-muted-foreground mb-4">
               {promoteTarget.email || promoteTarget.displayName} gets a free comped plan and their own
               commission-tracked referral link — no Stripe charge.
@@ -539,7 +539,7 @@ export default function AdminUsersPage() {
             )}
             <div className="space-y-3">
               <div>
-                <label className="block text-xs font-medium text-muted-foreground mb-1">Comped plan</label>
+                <label className="block text-xs font-medium text-muted-foreground mb-1">{t('admin_ui.comped_plan')}</label>
                 <Select
                   value={promotePlan}
                   onChange={(e) => setPromotePlan(e.target.value as 'pro' | 'business')}
@@ -549,7 +549,7 @@ export default function AdminUsersPage() {
                 </Select>
               </div>
               <div>
-                <label className="block text-xs font-medium text-muted-foreground mb-1">Commission %</label>
+                <label className="block text-xs font-medium text-muted-foreground mb-1">{t('admin_ui.commission_pct')}</label>
                 <Input
                   type="number"
                   min={1}
@@ -560,7 +560,7 @@ export default function AdminUsersPage() {
                 />
               </div>
               <div>
-                <label className="block text-xs font-medium text-muted-foreground mb-1">Payout frequency</label>
+                <label className="block text-xs font-medium text-muted-foreground mb-1">{t('admin_ui.payout_frequency')}</label>
                 <Select
                   value={promoteFrequency}
                   onChange={(e) => setPromoteFrequency(e.target.value as 'monthly' | 'quarterly' | 'annual')}
@@ -576,7 +576,7 @@ export default function AdminUsersPage() {
                 {t('common.cancel')}
               </Button>
               <Button onClick={doPromoteToSalesRep} disabled={actionBusy}>
-                Promote
+                {t('admin_ui.promote')}
               </Button>
             </div>
           </div>

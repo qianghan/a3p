@@ -262,7 +262,7 @@ export function PluginInfoButton({ metadata, className = '' }: PluginInfoButtonP
                 <div className="p-1.5 rounded-md bg-slate-100 dark:bg-white/5">
                   <Calendar className="w-3.5 h-3.5" />
                 </div>
-                <span className="text-xs font-medium">Created</span>
+                <span className="text-xs font-medium">{t('admin_ui.created')}</span>
               </div>
               <span className="text-sm font-medium text-slate-900 dark:text-white">
                 {formatDate(metadata.createdAt)}

@@ -81,7 +81,7 @@ export function CpaRequestForm({ token }: Props) {
       )}
 
       <label style={{ display: 'grid', gap: '4px', fontSize: '13px' }}>
-        <span style={{ color: '#374151' }}>Message</span>
+        <span style={{ color: '#374151' }}>{t('admin_ui.message')}</span>
         <textarea
           value={message}
           onChange={(e) => setMessage(e.target.value)}
