@@ -42,6 +42,8 @@ import enHomeOffice from './locales/en/homeoffice.json';
 import enInvoice from './locales/en/invoice.json';
 import enInvoiceUi from './locales/en/invoice_ui.json';
 import enOnboarding from './locales/en/onboarding.json';
+import enNav from './locales/en/nav.json';
+import enTabs from './locales/en/tabs.json';
 import enProactive from './locales/en/proactive.json';
 import enRate from './locales/en/rate.json';
 import enTax from './locales/en/tax.json';
@@ -66,6 +68,8 @@ import frHomeOffice from './locales/fr-CA/homeoffice.json';
 import frInvoice from './locales/fr-CA/invoice.json';
 import frInvoiceUi from './locales/fr-CA/invoice_ui.json';
 import frOnboarding from './locales/fr-CA/onboarding.json';
+import frNav from './locales/fr-CA/nav.json';
+import frTabs from './locales/fr-CA/tabs.json';
 import frProactive from './locales/fr-CA/proactive.json';
 import frRate from './locales/fr-CA/rate.json';
 import frTax from './locales/fr-CA/tax.json';
@@ -89,6 +93,8 @@ import zhHomeOffice from './locales/zh-CN/homeoffice.json';
 import zhInvoice from './locales/zh-CN/invoice.json';
 import zhInvoiceUi from './locales/zh-CN/invoice_ui.json';
 import zhOnboarding from './locales/zh-CN/onboarding.json';
+import zhNav from './locales/zh-CN/nav.json';
+import zhTabs from './locales/zh-CN/tabs.json';
 import zhProactive from './locales/zh-CN/proactive.json';
 import zhRate from './locales/zh-CN/rate.json';
 import zhTax from './locales/zh-CN/tax.json';
@@ -117,6 +123,8 @@ export const CATALOG: Catalog = Object.freeze({
     invoice: enInvoice,
     invoice_ui: enInvoiceUi,
     onboarding: enOnboarding,
+    nav: enNav,
+    tabs: enTabs,
     proactive: enProactive,
     rate: enRate,
     tax: enTax,
@@ -140,6 +148,8 @@ export const CATALOG: Catalog = Object.freeze({
     invoice: frInvoice,
     invoice_ui: frInvoiceUi,
     onboarding: frOnboarding,
+    nav: frNav,
+    tabs: frTabs,
     proactive: frProactive,
     rate: frRate,
     tax: frTax,
@@ -163,6 +173,8 @@ export const CATALOG: Catalog = Object.freeze({
     invoice: zhInvoice,
     invoice_ui: zhInvoiceUi,
     onboarding: zhOnboarding,
+    nav: zhNav,
+    tabs: zhTabs,
     proactive: zhProactive,
     rate: zhRate,
     tax: zhTax,

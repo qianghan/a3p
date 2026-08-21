@@ -506,6 +506,9 @@ jobs:
           ./bin/i18n-hardcoded-locale-ratchet.sh
           ./bin/i18n-unwired-key-guard.sh
           ./bin/i18n-bundle-guard.sh
+          # scope note: the string/jsx/locale ratchets and the unwired-key guard
+          # now cover apps/web-next and every plugin frontend, not just six
+          # plugin directories. See bin/i18n-string-ratchet.sh for why.
 
       - name: Plugin frontend typecheck
         # The plugin frontends have NO tsconfig and NO typecheck script, and

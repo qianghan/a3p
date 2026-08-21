@@ -921,7 +921,10 @@ function createCapabilityService(integrations: IIntegrationService): ICapability
 // Context and Provider
 // ============================================
 
-const ShellContextReact = createContext<ShellContextValue | null>(null);
+// Exported so shell components can read the context WITHOUT useShell(), which
+// throws when there is no provider — see hooks/use-t.ts for why that matters
+// (the PWA route renders outside ShellProvider).
+export const ShellContextReact = createContext<ShellContextValue | null>(null);
 
 export function ShellProvider({ children }: { children: ReactNode }) {
   const router = useRouter();

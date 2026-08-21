@@ -31,13 +31,35 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 BASELINE_FILE="$ROOT_DIR/bin/i18n-string-ratchet.baseline"
 
-PLUGINS=(
-  agentbook-core
-  agentbook-billing
-  agentbook-expense
-  agentbook-invoice
-  agentbook-startup
-  agentbook-tax
+# EVERY user-facing frontend, not just the six AgentBook plugins.
+#
+# This list used to hold only those six, and that made the number a lie. When
+# it read "10 literals remaining", the truth was:
+#
+#     counted            10   (plugins/{six}/frontend/src)
+#     never counted     883   (apps/web-next/src — the SHELL)
+#     never counted      48   (student / career / housing / community plugins)
+#
+# The shell owns the sidebar, every tab bar, and every settings page: the
+# most-seen text in the product. A user reported the side menu, the settings
+# workflow and the tab headers as untranslated while this measure said the work
+# was essentially done, and the measure was the reason nobody looked.
+#
+# The lesson is not "add more directories". It is that a scoped measure reported
+# as a completion metric will define the scope of the work, so the scope has to
+# be the product rather than whatever was convenient to scan.
+SCAN_DIRS=(
+  "plugins/agentbook-core/frontend/src"
+  "plugins/agentbook-billing/frontend/src"
+  "plugins/agentbook-expense/frontend/src"
+  "plugins/agentbook-invoice/frontend/src"
+  "plugins/agentbook-startup/frontend/src"
+  "plugins/agentbook-tax/frontend/src"
+  "plugins/agentbook-scholarship/frontend/src"
+  "plugins/agentbook-housing/frontend/src"
+  "plugins/agentbook-career/frontend/src"
+  "plugins/community/frontend/src"
+  "apps/web-next/src"
 )
 
 # -----------------------------------------------------------------------------
@@ -52,8 +74,8 @@ PLUGINS=(
 # -----------------------------------------------------------------------------
 count_literals() {
   local total=0
-  for p in "${PLUGINS[@]}"; do
-    local dir="$ROOT_DIR/plugins/$p/frontend/src"
+  for rel in "${SCAN_DIRS[@]}"; do
+    local dir="$ROOT_DIR/$rel"
     [ -d "$dir" ] || continue
 
     local files
@@ -93,8 +115,8 @@ DATE_BASELINE_FILE="$ROOT_DIR/bin/i18n-date-ratchet.baseline"
 
 count_direct_dates() {
   local total=0
-  for p in "${PLUGINS[@]}"; do
-    local dir="$ROOT_DIR/plugins/$p/frontend/src"
+  for rel in "${SCAN_DIRS[@]}"; do
+    local dir="$ROOT_DIR/$rel"
     [ -d "$dir" ] || continue
     local files
     files=$(find "$dir" -name '*.tsx' -o -name '*.ts' 2>/dev/null | grep -v '__tests__' || true)
