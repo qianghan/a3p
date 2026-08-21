@@ -1,6 +1,9 @@
 import 'server-only';
 import { AsyncLocalStorage } from 'node:async_hooks';
 
+import { createTranslator, type Translator } from '@agentbook/i18n';
+import { CATALOG } from '@agentbook/i18n/catalog';
+
 import {
   OUTBOUND_FALLBACK,
   resolveOutboundLocale,
@@ -55,7 +58,35 @@ import {
  * exactly the behaviour that existed before this module, so an unwrapped code
  * path degrades to the old output rather than throwing inside a reply.
  */
-const store = new AsyncLocalStorage<OutboundLocale>();
+interface BotScope {
+  loc: OutboundLocale;
+  t: Translator['t'];
+}
+
+const store = new AsyncLocalStorage<BotScope>();
+
+/**
+ * Translators are cached per locale rather than built per update.
+ *
+ * createTranslator resolves its lookup chain once at construction, so building
+ * one costs real work; there are three locales and thousands of updates. The
+ * cache is safe to share because a Translator is immutable — its locale is
+ * readonly and t() holds no per-call state. That is the property that made a
+ * shared LOCALE unsafe and makes a shared TRANSLATOR fine.
+ */
+const translators = new Map<string, Translator['t']>();
+
+function translatorFor(locale: string): Translator['t'] {
+  let t = translators.get(locale);
+  if (!t) {
+    t = createTranslator(locale, CATALOG).t;
+    translators.set(locale, t);
+  }
+  return t;
+}
+
+/** The en-US translator, for any path that runs outside a scope. */
+const FALLBACK_T = translatorFor(OUTBOUND_FALLBACK.locale);
 
 /** Row shape read from AbTenantConfig — see resolveOutboundLocale. */
 export interface TenantLocaleRow {
@@ -69,12 +100,39 @@ export interface TenantLocaleRow {
  * however deep, sees the same value; a concurrent update sees its own.
  */
 export function runWithBotLocale<T>(row: TenantLocaleRow | null | undefined, fn: () => T): T {
-  return store.run(resolveOutboundLocale(row), fn);
+  const loc = resolveOutboundLocale(row);
+  return store.run({ loc, t: translatorFor(loc.locale) }, fn);
 }
 
 /** The current update's locale, or the en-US fallback outside any scope. */
 export function botLoc(): OutboundLocale {
-  return store.getStore() ?? OUTBOUND_FALLBACK;
+  return store.getStore()?.loc ?? OUTBOUND_FALLBACK;
+}
+
+/**
+ * The bot's translator, for the strings the ADAPTER composes.
+ *
+ * The dynamic half of a reply — the agent brain's prose — has been localised
+ * for a while: agent-brain.ts appends languageDirective(tenantConfig) to every
+ * chat prompt. So a French user already received French prose wrapped in
+ * English chrome:
+ *
+ *     📒 Draft receipt — Café Olimpico pour 12,50 $ sous Repas.
+ *        This isn't on the books yet. Tap ✅ to confirm...
+ *
+ * which reads worse than either language alone. These 304 keys are that
+ * chrome.
+ *
+ * NOT translated, deliberately:
+ *   - Gemini prompts ("Extract the receipt data."). They flow to a model, not
+ *     a person; translating them degrades OCR silently.
+ *   - buildTaxNote's guidance, English in every locale by product decision.
+ *     Its AMOUNTS still follow the tenant, via fmtAmount.
+ *   - slash commands. `/help expenses` is a literal the user types; only the
+ *     description after the dash is translated.
+ */
+export function botT(key: string, params?: Record<string, string | number>): string {
+  return (store.getStore()?.t ?? FALLBACK_T)(key, params);
 }
 
 /** Whether a scope is active. For tests and diagnostics, not for branching. */

@@ -15,7 +15,7 @@ import { randomBytes } from 'node:crypto';
 import { Bot, type Context as GrammyContext } from 'grammy';
 import { prisma as db } from '@naap/database';
 import { outMoney, outMoneyCompact, outDate, outNumber } from '@/lib/agentbook-outbound-format';
-import { botLoc, runWithBotLocale } from '@/lib/agentbook-bot-locale';
+import { botLoc, botT, runWithBotLocale } from '@/lib/agentbook-bot-locale';
 import { handleAgentMessage } from '@agentbook-core/agent-brain';
 import { buildTaxReviewCtx, callGemini, classifyAndExecuteV1, classifyOnly, executeClassification } from '@agentbook-core/server';
 import { reconcileSkills, SKILL_QUERY } from '@agentbook-core/skill-source';
@@ -600,8 +600,8 @@ function formatExpenseSummary(e: ActiveExpense, leadLine: string): string {
   lines.push(`• Amount: <b>${fmtAmount(e.amountCents, e.currency)}</b>`);
   lines.push(`• Date: ${e.date.toISOString().slice(0, 10)}`);
   lines.push(`• Category: <b>${e.categoryName ? escHtml(e.categoryName) : '—'}</b>`);
-  lines.push(`• Type: ${e.isPersonal ? '🏠 Personal' : '💼 Business'}`);
-  lines.push(`• Status: ${e.status === 'confirmed' ? '✅ Confirmed' : e.status === 'rejected' ? '❌ Rejected' : '⚠️ Draft — not on the books yet'}`);
+  lines.push(`• Type: ${e.isPersonal ? botT('bot.personal') : botT('bot.business')}`);
+  lines.push(`• Status: ${e.status === 'confirmed' ? botT('bot.confirmed') : e.status === 'rejected' ? botT('bot.rejected') : botT('bot.draft_not_on_the_books_yet')}`);
   return lines.join('\n');
 }
 
@@ -648,9 +648,9 @@ function buildDraftReceiptReply(
   if (ocr.tax_cents) extras.push(`• Tax: ${fmtAmount(ocr.tax_cents)}`);
   if (ocr.tip_cents) extras.push(`• Tip: ${fmtAmount(ocr.tip_cents)}`);
   if (ocrConf < 80) {
-    extras.push(`• ⚠️ OCR confidence: ${ocrConf}% — double-check the amount`);
+    extras.push(botT('bot.ocr_confidence_double_check_the_amount', { p0: ocrConf }));
   } else {
-    extras.push(`• OCR confidence: ${ocrConf}%`);
+    extras.push(botT('bot.ocr_confidence', { p0: ocrConf }));
   }
 
   return formatExpenseSummary(active, lead) + '\n' + extras.join('\n');
@@ -697,7 +697,7 @@ async function sendPendingReviewBatch(tenantId: string, ctx: ReplyableCtx): Prom
 
   const total = aiItems.length + draftsOnly.length;
   if (total === 0) {
-    await ctx.reply('🎉 All caught up — nothing in the review queue.');
+    await ctx.reply(botT('bot.all_caught_up_nothing_in_the_review'));
     return 0;
   }
 
@@ -719,11 +719,11 @@ async function sendPendingReviewBatch(tenantId: string, ctx: ReplyableCtx): Prom
   if (aiItems.length > 0) sections.push(`<b>${aiItems.length}</b> AI-suggested`);
   const withCat = draftsOnly.filter((d) => d.categoryId).length;
   const noCat = draftsOnly.length - withCat;
-  if (withCat > 0) sections.push(`<b>${withCat}</b> awaiting confirmation`);
-  if (noCat > 0) sections.push(`<b>${noCat}</b> needing a category`);
+  if (withCat > 0) sections.push(botT('bot.awaiting_confirmation', { p0: withCat }));
+  if (noCat > 0) sections.push(botT('bot.needing_a_category', { p0: noCat }));
 
   await ctx.reply(
-    `📂 Walking you through <b>${total}</b> item${total === 1 ? '' : 's'} in the review queue (${sections.join(' + ')}). Tap a button or just tell me what to do.`,
+    botT('bot.walking_you_through_item_in_the_review', { count: total, p2: sections.join(' + ') }),
     { parse_mode: 'HTML' },
   );
 
@@ -738,8 +738,8 @@ async function sendPendingReviewBatch(tenantId: string, ctx: ReplyableCtx): Prom
       parse_mode: 'HTML',
       reply_markup: {
         inline_keyboard: [[
-          { text: '✅ Yes — book it', callback_data: `aiok:${it.expenseId}` },
-          { text: '📁 Different', callback_data: `aichg:${it.expenseId}` },
+          { text: botT('bot.yes_book_it'), callback_data: `aiok:${it.expenseId}` },
+          { text: botT('bot.different'), callback_data: `aichg:${it.expenseId}` },
         ]],
       },
     });
@@ -759,12 +759,12 @@ async function sendPendingReviewBatch(tenantId: string, ctx: ReplyableCtx): Prom
         reply_markup: {
           inline_keyboard: [
             [
-              { text: '✅ Confirm — book it', callback_data: `confirm:${d.id}` },
-              { text: '📁 Change category', callback_data: `change_cat:${d.id}` },
+              { text: botT('bot.confirm_book_it'), callback_data: `confirm:${d.id}` },
+              { text: botT('bot.change_category'), callback_data: `change_cat:${d.id}` },
             ],
             [
-              { text: d.isPersonal ? '💼 Make business' : '🏠 Make personal', callback_data: `${d.isPersonal ? 'business' : 'personal'}:${d.id}` },
-              { text: '❌ Reject', callback_data: `reject:${d.id}` },
+              { text: d.isPersonal ? botT('bot.make_business') : botT('bot.make_personal'), callback_data: `${d.isPersonal ? 'business' : 'personal'}:${d.id}` },
+              { text: botT('bot.reject'), callback_data: `reject:${d.id}` },
             ],
           ],
         },
@@ -778,11 +778,11 @@ async function sendPendingReviewBatch(tenantId: string, ctx: ReplyableCtx): Prom
         reply_markup: {
           inline_keyboard: [
             [
-              { text: '📁 Pick category', callback_data: `change_cat:${d.id}` },
-              { text: '🏠 Personal', callback_data: `personal:${d.id}` },
+              { text: botT('bot.pick_category'), callback_data: `change_cat:${d.id}` },
+              { text: botT('bot.personal'), callback_data: `personal:${d.id}` },
             ],
             [
-              { text: '❌ Reject', callback_data: `reject:${d.id}` },
+              { text: botT('bot.reject'), callback_data: `reject:${d.id}` },
             ],
           ],
         },
@@ -846,7 +846,7 @@ function currencyMismatchNote(
 ): string | null {
   if (!tenantCurrency) return null;
   if (receiptCurrency.toUpperCase() === tenantCurrency.toUpperCase()) return null;
-  return `Note: receipt is in ${receiptCurrency.toUpperCase()} but your books run in ${tenantCurrency.toUpperCase()}. I've stored the original amount; bank reconciliation will need the converted figure.`;
+  return botT('bot.note_receipt_is_in_but_your_books', { p0: receiptCurrency.toUpperCase(), p1: tenantCurrency.toUpperCase() });
 }
 
 /**
@@ -866,7 +866,7 @@ async function beginSetup(tenantId: string, ctx: ReplyableCtx): Promise<void> {
   const draft: DigestPrefs = { ...existing, setupComplete: false };
   await setSetupState(tenantId, { step: 'time', draft, startedAt: Date.now() });
   await ctx.reply(
-    `⚙️ <b>Let's set up your daily briefing.</b>\n\nWhat time would you like it? Say something like "7am", "morning", or "8:30".\n\n<i>(Say "cancel" any time to stop.)</i>`,
+    botT('bot.let_s_set_up_your_daily_briefing'),
     { parse_mode: 'HTML' },
   );
 }
@@ -880,14 +880,14 @@ async function handleSetupTurn(
   const lower = text.toLowerCase().trim();
   if (/^(cancel|stop|abort|never mind|nvm|quit)\b/.test(lower)) {
     await clearSetupState(tenantId);
-    await ctx.reply('Cancelled. Your briefing prefs are unchanged.');
+    await ctx.reply(botT('bot.cancelled_your_briefing_prefs_are_unchanged'));
     return;
   }
 
   if (state.step === 'time') {
     const t = parseTimeString(text);
     if (!t) {
-      await ctx.reply('I didn\'t catch a time there. Try "7am", "morning", "8:30", or just a number 0–23.');
+      await ctx.reply(botT('bot.i_didn_t_catch_a_time_there'));
       return;
     }
     state.draft.hour = t.hour;
@@ -907,7 +907,7 @@ async function handleSetupTurn(
       'auto-categorizer summary',
     ];
     await ctx.reply(
-      `Got it — <b>${formatTime(t.hour, t.minute)}</b>.\n\nWhat should I include? Reply <b>all</b> for everything, or list what to keep/skip:\n\n${sectionList.map((s) => `• ${s}`).join('\n')}\n\n<i>e.g. "all", "skip anomalies", "no tips", "everything but auto-categorizer".</i>`,
+      botT('bot.got_it_what_should_i_include_reply', { p0: formatTime(t.hour, t.minute), p1: sectionList.map((s) => `• ${s}`).join('\n') }),
       { parse_mode: 'HTML' },
     );
     return;
@@ -933,7 +933,7 @@ async function handleSetupTurn(
     state.step = 'preview';
     await setSetupState(tenantId, state);
     await ctx.reply(
-      `Preview of your briefing:\n\n${formatPrefsSummary(state.draft)}\n\nWant to <b>see a sample</b>, <b>tweak</b> something, or save? Reply "preview", anything to tweak, or "good" to lock it in.`,
+      botT('bot.preview_of_your_briefing_want_to_see', { p0: formatPrefsSummary(state.draft) }),
       { parse_mode: 'HTML' },
     );
     return;
@@ -958,7 +958,7 @@ async function handleSetupTurn(
       state.step = 'tuning';
       await setSetupState(tenantId, state);
       await ctx.reply(
-        '☝️ Sample sent above. Reply with feedback to tune ("shorter", "skip cash flow tips", "move to 8am") or "good" to lock it in.',
+        botT('bot.sample_sent_above_reply_with_feedback_to'),
       );
       return;
     }
@@ -968,7 +968,7 @@ async function handleSetupTurn(
       await setDigestPrefs(tenantId, finalPrefs);
       await clearSetupState(tenantId);
       await ctx.reply(
-        `✅ <b>Locked in.</b> Your briefing will arrive at ${formatTime(finalPrefs.hour, finalPrefs.minute)} every morning.\n\nReply to any future briefing with "shorter", "skip X", "move to Y" — I'll keep tuning.`,
+        botT('bot.locked_in_your_briefing_will_arrive_at', { p0: formatTime(finalPrefs.hour, finalPrefs.minute) }),
         { parse_mode: 'HTML' },
       );
       return;
@@ -981,12 +981,12 @@ async function handleSetupTurn(
     await setSetupState(tenantId, state);
     if (result.explanations.length > 0) {
       await ctx.reply(
-        `🔧 ${result.explanations.join(' ')}\n\nUpdated:\n${formatPrefsSummary(state.draft)}\n\nReply again to keep tuning, or "good" to lock it in.`,
+        botT('bot.updated_reply_again_to_keep_tuning_or', { p0: result.explanations.join(' '), p1: formatPrefsSummary(state.draft) }),
         { parse_mode: 'HTML' },
       );
     } else {
       await ctx.reply(
-        'I didn\'t catch a tweak there. Try "shorter", "skip cash flow tips", "move to 8am", "preview", or "good".',
+        botT('bot.i_didn_t_catch_a_tweak_there'),
       );
     }
     return;
@@ -1029,22 +1029,22 @@ async function sendDuplicateReply(
   const sameAmount = active.amountCents === dup.amountCents;
 
   const lines: string[] = [];
-  lines.push(`🪄 <b>Looks like a duplicate.</b>`);
+  lines.push(botT('bot.looks_like_a_duplicate'));
   lines.push('');
   lines.push(
-    `I already have <b>${escHtml(dup.vendorName || active.vendorName || 'an expense')}</b> for <b>${fmtAmount(dup.amountCents)}</b> on ${dupDate}${dup.status === 'confirmed' ? ' (booked)' : ' (draft)'}${dup.hasReceipt ? ', with a receipt' : ', no receipt yet'}.`,
+    botT('bot.i_already_have_for_on', { p0: escHtml(dup.vendorName || active.vendorName || botT('bot.an_expense')), p1: fmtAmount(dup.amountCents), p2: dupDate, p3: dup.status === 'confirmed' ? ' (booked)' : ' (draft)', p4: dup.hasReceipt ? botT('bot.with_a_receipt') : botT('bot.no_receipt_yet') }),
   );
   if (!sameDate || !sameAmount) {
     const diffs: string[] = [];
-    if (!sameDate) diffs.push(`new one is dated ${newDate}`);
-    if (!sameAmount) diffs.push(`new amount is ${fmtAmount(active.amountCents)}`);
-    lines.push(`<i>(small differences — ${diffs.join(', ')})</i>`);
+    if (!sameDate) diffs.push(botT('bot.new_one_is_dated', { p0: newDate }));
+    if (!sameAmount) diffs.push(botT('bot.new_amount_is', { p0: fmtAmount(active.amountCents) }));
+    lines.push(botT('bot.small_differences', { p0: diffs.join(', ') }));
   }
   lines.push('');
   if (dup.hasReceipt) {
-    lines.push(`Pick whether to attach this receipt to the existing record (replaces the old one), keep both as separate expenses, or reject this draft.`);
+    lines.push(botT('bot.pick_whether_to_attach_this_receipt_to'));
   } else {
-    lines.push(`Want to attach the new receipt to that existing record, or keep both as separate expenses?`);
+    lines.push(botT('bot.want_to_attach_the_new_receipt_to'));
   }
 
   await ctx.reply(lines.join('\n'), {
@@ -1052,11 +1052,11 @@ async function sendDuplicateReply(
     reply_markup: {
       inline_keyboard: [
         [
-          { text: '🔗 Attach receipt to existing', callback_data: `attach:${draftId}:${dup.id}` },
+          { text: botT('bot.attach_receipt_to_existing'), callback_data: `attach:${draftId}:${dup.id}` },
         ],
         [
-          { text: '✅ Keep both — book it anyway', callback_data: `keepboth:${draftId}` },
-          { text: '❌ Reject draft', callback_data: `reject:${draftId}` },
+          { text: botT('bot.keep_both_book_it_anyway'), callback_data: `keepboth:${draftId}` },
+          { text: botT('bot.reject_draft'), callback_data: `reject:${draftId}` },
         ],
       ],
     },
@@ -1158,7 +1158,7 @@ async function buildAnomalyNote(tenantId: string, categoryId: string | null, amo
   if (avg <= 0) return null;
   const ratio = amountCents / avg;
   if (ratio < 3) return null;
-  return `📈 This is ~${ratio.toFixed(1)}× your typical spend in this category (avg ≈ ${fmtAmount(Math.round(avg))}). Take a second look before confirming.`;
+  return botT('bot.this_is_your_typical_spend_in_this', { p0: ratio.toFixed(1), p1: fmtAmount(Math.round(avg)) });
 }
 
 /**
@@ -1190,7 +1190,7 @@ async function buildRecurringSuggestionNote(tenantId: string, vendorId: string |
   if (avg <= 0) return null;
   const allClose = peers.every((p) => Math.abs(p.amountCents - avg) / avg < 0.1);
   if (!allClose) return null;
-  return `🔁 I've seen ${peers.length} similar charges from this vendor over the last 6 months. Want me to set up a recurring expense rule? (Reply "set up recurring" to do it.)`;
+  return botT('bot.i_ve_seen_similar_charges_from_this', { p0: peers.length });
 }
 
 /**
@@ -1214,7 +1214,7 @@ async function buildBankMatchNote(tenantId: string, amountCents: number, date: D
   });
   if (!match) return null;
   const label = match.merchantName || match.name;
-  return `🔗 This matches a pending bank charge from ${match.date.toISOString().slice(0, 10)}${label ? ` (${escHtml(label)})` : ''} — I'll link them on confirm.`;
+  return botT('bot.this_matches_a_pending_bank_charge_from', { p0: match.date.toISOString().slice(0, 10), p1: label ? ` (${escHtml(label)})` : '' });
 }
 
 async function persistReceiptBlob(sourceUrl: string, tenantId: string, contentType: string): Promise<string> {
@@ -1286,7 +1286,7 @@ async function callMinimalAgent(
   sessionAction?: string,
 ): Promise<{ success: true; data: { message: string; skillUsed?: string } } | { success: false; error: string }> {
   if (sessionAction) {
-    return { success: true, data: { message: 'Session is no longer active.' } };
+    return { success: true, data: { message: botT('bot.session_is_no_longer_active') } };
   }
 
   const lower = text.toLowerCase().trim();
@@ -1303,7 +1303,7 @@ async function callMinimalAgent(
         .filter((a) => a.bal !== 0)
         .slice(0, 5);
       const detail = lines.length ? '\n\n' + lines.map((l) => `• ${l.name}: ${fmtAmount(l.bal)}`).join('\n') : '';
-      return { success: true, data: { message: `💰 <b>Cash on hand:</b> ${fmtAmount(total)}${detail}`, skillUsed: 'query-finance' } };
+      return { success: true, data: { message: botT('bot.cash_on_hand', { p0: fmtAmount(total), p1: detail }), skillUsed: 'query-finance' } };
     }
 
     if (/(invoice|owed|outstanding|unpaid|who owes)/i.test(lower)) {
@@ -1314,7 +1314,7 @@ async function callMinimalAgent(
         take: 8,
       });
       if (open.length === 0) {
-        return { success: true, data: { message: '🧾 No outstanding invoices.', skillUsed: 'query-finance' } };
+        return { success: true, data: { message: botT('bot.no_outstanding_invoices'), skillUsed: 'query-finance' } };
       }
       const total = open.reduce((s, i) => s + i.amountCents, 0);
       const today = Date.now();
@@ -1323,7 +1323,7 @@ async function callMinimalAgent(
         const tag = days > 0 ? ` · ${days}d overdue` : days < 0 ? ` · due in ${-days}d` : ' · due today';
         return `• ${i.client?.name || 'Client'} ${i.number} — ${fmtAmount(i.amountCents)}${tag}`;
       }).join('\n');
-      return { success: true, data: { message: `🧾 <b>${open.length} open invoice${open.length === 1 ? '' : 's'}</b> — total ${fmtAmount(total)}\n\n${list}`, skillUsed: 'query-finance' } };
+      return { success: true, data: { message: botT('bot.open_invoice_total', { count: open.length, p2: fmtAmount(total), p3: list }), skillUsed: 'query-finance' } };
     }
 
     if (/(expense|spent|spending|recent.*(expense|spend))/i.test(lower)) {
@@ -1334,10 +1334,10 @@ async function callMinimalAgent(
         take: 5,
       });
       if (recent.length === 0) {
-        return { success: true, data: { message: '💸 No business expenses on record yet. Send "Spent $X on Y" to add one.', skillUsed: 'query-expenses' } };
+        return { success: true, data: { message: botT('bot.no_business_expenses_on_record_yet_send'), skillUsed: 'query-expenses' } };
       }
       const list = recent.map((e) => `• ${e.date.toISOString().slice(0, 10)} — ${e.vendor?.name || e.description || 'Expense'} ${fmtAmount(e.amountCents)}`).join('\n');
-      return { success: true, data: { message: `💸 <b>Last ${recent.length} expense${recent.length === 1 ? '' : 's'}:</b>\n\n${list}`, skillUsed: 'query-expenses' } };
+      return { success: true, data: { message: botT('bot.last_expense', { count: recent.length, p2: list }), skillUsed: 'query-expenses' } };
     }
 
     if (/(tax|owe.*(cra|irs|government))/i.test(lower)) {
@@ -1365,13 +1365,13 @@ async function callMinimalAgent(
       const { seCents, incomeCents, totalCents } = calcJurisdictionTax(net, jurisdiction, new Date().getFullYear(), tenantConfig?.region);
       const money = (c: number) => formatCurrencyCents(c, currency);
       const seLabel = SE_LINE_LABEL[jurisdiction] ?? 'SE tax';
-      return { success: true, data: { message: `🧾 <b>YTD tax estimate (${jurisdiction.toUpperCase()})</b>\n\n• Revenue: ${money(gross)}\n• Expenses: ${money(exp)}\n• Net income: ${money(net)}\n• ${seLabel}: ${money(seCents)}\n• Income tax: ${money(incomeCents)}\n• <b>Total: ${money(totalCents)}</b>`, skillUsed: 'query-finance' } };
+      return { success: true, data: { message: botT('bot.ytd_tax_estimate_revenue_expenses_net_income', { p0: jurisdiction.toUpperCase(), p1: money(gross), p2: money(exp), p3: money(net), p4: seLabel, p5: money(seCents), p6: money(incomeCents), p7: money(totalCents) }), skillUsed: 'query-finance' } };
     }
 
     return {
       success: true,
       data: {
-        message: 'I can help with a few things directly:\n\n• <b>"balance"</b> — cash on hand\n• <b>"invoices"</b> — who owes you\n• <b>"expenses"</b> — recent spending\n• <b>"tax"</b> — YTD tax estimate\n\nThe full conversational agent (record-expense, scan-receipt, planning) needs the agent-brain pipeline, which isn\'t enabled in this build yet.',
+        message: botT('bot.i_can_help_with_a_few_things'),
       },
     };
   } catch (err) {
@@ -1480,35 +1480,35 @@ function shortDate(iso: string): string {
 function buildDraftPreviewText(d: DraftCreated): string {
   const lines: string[] = [];
   const total = fmtMoney(d.totalCents, d.currency);
-  lines.push(`📒 <b>Draft ready</b> — ${escHtml(d.invoiceNumber)}.`);
+  lines.push(botT('bot.draft_ready', { p0: escHtml(d.invoiceNumber) }));
   // Multi-currency: surface both quoted and booked amounts so the user
   // sees what we actually persisted.
   if (d.originalCurrency && d.originalAmountCents != null && d.originalCurrency !== d.currency) {
     const original = fmtMoney(d.originalAmountCents, d.originalCurrency);
     lines.push(
-      `Net-30, due <b>${shortDate(d.dueDate)}</b>, <b>${original}</b> (~<b>${total}</b> ${d.currency}) to <b>${escHtml(d.clientName)}</b>.`,
+      botT('bot.net_30_due_to', { p0: shortDate(d.dueDate), p1: original, p2: total, p3: d.currency, p4: escHtml(d.clientName) }),
     );
   } else {
-    lines.push(`Net-30, due <b>${shortDate(d.dueDate)}</b>, <b>${total}</b> to <b>${escHtml(d.clientName)}</b>.`);
+    lines.push(botT('bot.net_30_due_to_2', { p0: shortDate(d.dueDate), p1: total, p2: escHtml(d.clientName) }));
   }
   if (d.lines.length > 1) {
     lines.push('');
-    lines.push('<i>Line items:</i>');
+    lines.push(botT('bot.line_items'));
     for (const l of d.lines) {
       lines.push(`• ${escHtml(l.description || '—')}: ${fmtMoney(l.amountCents, d.currency)}`);
     }
   }
   lines.push('');
-  lines.push('Send it?');
+  lines.push(botT('bot.send_it'));
   return lines.join('\n');
 }
 
 function draftKeyboard(draftId: string) {
   return {
     inline_keyboard: [
-      [{ text: '📨 Send now', callback_data: `inv_send:${draftId}` }],
-      [{ text: '✏️ Edit', callback_data: `inv_edit:${draftId}` }],
-      [{ text: '❌ Cancel', callback_data: `inv_cancel:${draftId}` }],
+      [{ text: botT('bot.send_now'), callback_data: `inv_send:${draftId}` }],
+      [{ text: botT('bot.edit'), callback_data: `inv_edit:${draftId}` }],
+      [{ text: botT('bot.cancel'), callback_data: `inv_cancel:${draftId}` }],
     ],
   };
 }
@@ -1522,7 +1522,7 @@ function pickerKeyboard(token: string, candidates: Array<{ id: string; name: str
   const rows: { text: string; callback_data: string }[][] = candidates.slice(0, MAX_PICKER_CANDIDATES).map((c) => [
     { text: c.name, callback_data: `inv_pickclient:${token}:${c.id}` },
   ]);
-  rows.push([{ text: '❌ Cancel', callback_data: `inv_pickcancel:${token}` }]);
+  rows.push([{ text: botT('bot.cancel'), callback_data: `inv_pickcancel:${token}` }]);
   return { inline_keyboard: rows };
 }
 
@@ -1541,7 +1541,7 @@ async function renderInvoiceCreateResult(
   result: { success: boolean; data?: unknown; error?: string } | undefined,
 ): Promise<void> {
   if (!result || !result.success || !result.data) {
-    await ctx.reply(result?.error || "Couldn't draft that invoice — try again with a client name and amount.");
+    await ctx.reply(result?.error || botT('bot.couldn_t_draft_that_invoice_try_again'));
     return;
   }
   const data = result.data as InvoiceStepData;
@@ -1583,7 +1583,7 @@ async function renderInvoiceCreateResult(
     const suffix = overflow > 0 ? ` (and ${overflow} more)` : '';
 
     await ctx.reply(
-      `Which ${escHtml(data.clientNameHint)} did you mean — ${namesText}${suffix}?`,
+      botT('bot.which_did_you_mean', { p0: escHtml(data.clientNameHint), p1: namesText, p2: suffix }),
       { parse_mode: 'HTML', reply_markup: pickerKeyboard(token, data.candidates) },
     );
     return;
@@ -1664,7 +1664,7 @@ function timerPickerKeyboard(token: string, candidates: Array<{ id: string; name
   const rows: { text: string; callback_data: string }[][] = candidates
     .slice(0, MAX_PICKER_CANDIDATES)
     .map((c) => [{ text: c.name, callback_data: `tmr_pickclient:${token}:${c.id}` }]);
-  rows.push([{ text: '❌ Cancel', callback_data: `tmr_pickcancel:${token}` }]);
+  rows.push([{ text: botT('bot.cancel'), callback_data: `tmr_pickcancel:${token}` }]);
   return { inline_keyboard: rows };
 }
 
@@ -1672,7 +1672,7 @@ function timerInvoicePickerKeyboard(token: string, candidates: Array<{ id: strin
   const rows: { text: string; callback_data: string }[][] = candidates
     .slice(0, MAX_PICKER_CANDIDATES)
     .map((c) => [{ text: c.name, callback_data: `tmr_pickinvoice:${token}:${c.id}` }]);
-  rows.push([{ text: '❌ Cancel', callback_data: `tmr_pickinvoicecancel:${token}` }]);
+  rows.push([{ text: botT('bot.cancel'), callback_data: `tmr_pickinvoicecancel:${token}` }]);
   return { inline_keyboard: rows };
 }
 
@@ -1683,7 +1683,7 @@ async function renderTimerStepResult(
   result: { success: boolean; data?: unknown; error?: string } | undefined,
 ): Promise<void> {
   if (!result || !result.success || !result.data) {
-    await ctx.reply(result?.error || "Couldn't reach the timer — try again.");
+    await ctx.reply(result?.error || botT('bot.couldn_t_reach_the_timer_try_again'));
     return;
   }
 
@@ -1713,7 +1713,7 @@ async function renderTimerStepResult(
       const cands = data.candidates || [];
       const namesText = cands.slice(0, MAX_PICKER_CANDIDATES).map((c) => escHtml(c.name)).join(' or ');
       await ctx.reply(
-        `Which ${escHtml(data.clientNameHint || 'client')} did you mean — ${namesText}?`,
+        botT('bot.which_did_you_mean_2', { p0: escHtml(data.clientNameHint || 'client'), p1: namesText }),
         { parse_mode: 'HTML', reply_markup: timerPickerKeyboard(token, cands) },
       );
       return;
@@ -1735,7 +1735,7 @@ async function renderTimerStepResult(
   if (intent === 'stop_timer') {
     const data = result.data as TimerStoppedData;
     if (data.kind === 'not_running') {
-      await ctx.reply('No active timer.');
+      await ctx.reply(botT('bot.no_active_timer'));
       return;
     }
     const target = data.clientName ? escHtml(data.clientName) : (data.description ? escHtml(data.description) : 'this task');
@@ -1750,14 +1750,14 @@ async function renderTimerStepResult(
     const data = result.data as TimerStatusData;
     const today = fmtMinutes(data.todayTotalMinutes || 0);
     if (data.kind === 'idle') {
-      await ctx.reply(`No timer running. Today's total: <b>${today}</b>.`, { parse_mode: 'HTML' });
+      await ctx.reply(botT('bot.no_timer_running_today_s_total', { p0: today }), { parse_mode: 'HTML' });
       return;
     }
     const target = data.clientName ? escHtml(data.clientName) : 'this task';
     const desc = data.description ? ` (${escHtml(data.description)})` : '';
     const elapsed = fmtMinutes(data.elapsedMinutes || 0);
     await ctx.reply(
-      `⏱ Running for <b>${target}</b>${desc} — <b>${elapsed}</b> so far. Today's total: <b>${today}</b>.`,
+      botT('bot.running_for_so_far_today_s_total', { p0: target, p1: desc, p2: elapsed, p3: today }),
       { parse_mode: 'HTML' },
     );
     return;
@@ -1802,7 +1802,7 @@ async function renderInvoiceFromTimerResult(
   result: { success: boolean; data?: unknown; error?: string } | undefined,
 ): Promise<void> {
   if (!result || !result.success || !result.data) {
-    await ctx.reply(result?.error || "Couldn't generate that invoice — try again.");
+    await ctx.reply(result?.error || botT('bot.couldn_t_generate_that_invoice_try_again'));
     return;
   }
   const data = result.data as
@@ -1817,7 +1817,7 @@ async function renderInvoiceFromTimerResult(
   }
   if (data.kind === 'no_entries') {
     await ctx.reply(
-      `No unbilled time for <b>${escHtml(data.clientName)}</b> ${escHtml(data.dateHint)}. Track a few hours first, then ask again.`,
+      botT('bot.no_unbilled_time_track_hours_first', { p0: escHtml(data.clientName), p1: escHtml(data.dateHint) }),
       { parse_mode: 'HTML' },
     );
     return;
@@ -1843,7 +1843,7 @@ async function renderInvoiceFromTimerResult(
     });
     const namesText = data.candidates.slice(0, MAX_PICKER_CANDIDATES).map((c) => escHtml(c.name)).join(' or ');
     await ctx.reply(
-      `Which ${escHtml(data.clientNameHint)} did you mean — ${namesText}?`,
+      botT('bot.which_did_you_mean_2', { p0: escHtml(data.clientNameHint), p1: namesText }),
       {
         parse_mode: 'HTML',
         reply_markup: timerInvoicePickerKeyboard(token, data.candidates),
@@ -1889,7 +1889,7 @@ async function renderMileageStepResult(
   result: { success: boolean; data?: unknown; error?: string } | undefined,
 ): Promise<void> {
   if (!result || !result.success || !result.data) {
-    await ctx.reply(result?.error || "Couldn't record that trip — try again.");
+    await ctx.reply(result?.error || botT('bot.couldn_t_record_that_trip_try_again'));
     return;
   }
   const data = result.data as MileageRecordedData;
@@ -1909,13 +1909,13 @@ async function renderMileageStepResult(
     `📒 ${data.miles} ${data.unit} to ${target} = <b>${dollars}</b> deductible (${rateLabel}). On the books.`,
   ];
   if (!data.journalPosted) {
-    lines.push("(Couldn't find a Vehicle Expense / Owner's Equity account in your chart — saved the entry but skipped the journal. Seed the chart of accounts and edit me to repost.)");
+    lines.push(botT('bot.couldn_t_find_a_vehicle_expense_owner'));
   }
   await ctx.reply(lines.join('\n'), {
     parse_mode: 'HTML',
     reply_markup: {
       inline_keyboard: [[
-        { text: '✏️ Edit miles', callback_data: `mlg_edit:${data.entryId}` },
+        { text: botT('bot.edit_miles'), callback_data: `mlg_edit:${data.entryId}` },
       ]],
     },
   });
@@ -1944,16 +1944,16 @@ async function renderPerDiemStepResult(
   result: { success: boolean; data?: unknown; error?: string } | undefined,
 ): Promise<void> {
   if (!result || !result.success || !result.data) {
-    await ctx.reply(result?.error || "Couldn't record per-diem — try again.");
+    await ctx.reply(result?.error || botT('bot.couldn_t_record_per_diem_try_again'));
     return;
   }
   const data = result.data as PerDiemRecordedData;
   if (data.kind === 'unsupported_jurisdiction') {
-    await ctx.reply(data.message || "Per-diem isn't a CA-supported method yet — use mileage + meals expenses instead. (Coming in a future release.)");
+    await ctx.reply(data.message || botT('bot.per_diem_isn_t_a_ca_supported'));
     return;
   }
   if (data.kind !== 'per_diem_recorded') {
-    await ctx.reply('Per-diem booked.');
+    await ctx.reply(botT('bot.per_diem_booked'));
     return;
   }
   const fmt = (cents: number) => outMoneyCompact(cents, botLoc());
@@ -1968,7 +1968,7 @@ async function renderPerDiemStepResult(
     `📒 ${cityLabel} per-diem ${escHtml(dateRangeLabel)}: ${days} × ${fmt(mie)} (M&IE) = <b>${fmt(total)}</b>. Use M&IE only?`,
   ];
   if (data.usingFallbackRate) {
-    lines.push('<i>(used CONUS standard fallback — couldn\'t find a high-cost rate for that city)</i>');
+    lines.push(botT('bot.used_conus_standard_fallback_couldn_t_find'));
   }
 
   // Stash a token so the lodging-button callback can find these rows
@@ -2013,8 +2013,8 @@ async function renderPerDiemStepResult(
     parse_mode: 'HTML',
     reply_markup: {
       inline_keyboard: [[
-        { text: '✅ M&IE only', callback_data: `pdm_mie_only:${token}` },
-        { text: '🏨 +Lodging', callback_data: `pdm_with_lodging:${token}` },
+        { text: botT('bot.m_ie_only'), callback_data: `pdm_mie_only:${token}` },
+        { text: botT('bot.lodging'), callback_data: `pdm_with_lodging:${token}` },
       ]],
     },
   });
@@ -2109,7 +2109,7 @@ type RecurringStepData = RecurringCreatedData | RecurringNeedsClarify;
 function cadenceAdverb(c: RecurringCreatedData['cadence']): string {
   switch (c) {
     case 'weekly': return 'week';
-    case 'biweekly': return 'two weeks';
+    case 'biweekly': return botT('bot.two_weeks');
     case 'monthly': return 'month';
     case 'quarterly': return 'quarter';
     case 'annual': return 'year';
@@ -2132,9 +2132,9 @@ export function renderRecurringStepResult(
     keyboard: {
       inline_keyboard: [
         [
-          { text: '✅ Confirm', callback_data: `rec_confirm:${data.recurringId}` },
+          { text: botT('bot.confirm'), callback_data: `rec_confirm:${data.recurringId}` },
           { text: '⏸ Pause', callback_data: `rec_pause:${data.recurringId}` },
-          { text: '❌ Cancel', callback_data: `rec_cancel:${data.recurringId}` },
+          { text: botT('bot.cancel'), callback_data: `rec_cancel:${data.recurringId}` },
         ],
       ],
     },
@@ -2146,7 +2146,7 @@ async function renderRecurringReply(
   result: { success: boolean; data?: unknown; error?: string } | undefined,
 ): Promise<void> {
   if (!result || !result.success || !result.data) {
-    await ctx.reply(result?.error || "Couldn't set up the recurring invoice — try again with cadence + client + amount.");
+    await ctx.reply(result?.error || botT('bot.couldn_t_set_up_the_recurring_invoice'));
     return;
   }
   const data = result.data as RecurringStepData;
@@ -2163,7 +2163,7 @@ async function renderTaxPackageReply(
   result: { success: boolean; data?: unknown; error?: string } | undefined,
 ): Promise<void> {
   if (!result || !result.success || !result.data) {
-    await ctx.reply(result?.error || "Couldn't build the tax package — try again.");
+    await ctx.reply(result?.error || botT('bot.couldn_t_build_the_tax_package_try'));
     return;
   }
   const data = result.data as TaxPackageData;
@@ -2223,7 +2223,7 @@ export function renderBudgetSetResult(
     html,
     keyboard: {
       inline_keyboard: [
-        [{ text: '✅ OK', callback_data: `bdg_ok:${data.budgetId}` }],
+        [{ text: botT('bot.ok'), callback_data: `bdg_ok:${data.budgetId}` }],
       ],
     },
   };
@@ -2234,7 +2234,7 @@ async function renderBudgetSetReply(
   result: { success: boolean; data?: unknown; error?: string } | undefined,
 ): Promise<void> {
   if (!result || !result.success || !result.data) {
-    await ctx.reply(result?.error || "Couldn't set that budget — try \"max $200 on meals each month\".");
+    await ctx.reply(result?.error || botT('bot.couldn_t_set_that_budget_try_max'));
     return;
   }
   const data = result.data as BudgetStepData;
@@ -2290,9 +2290,9 @@ type EstimateStepData = EstimateCreatedData | EstimateConvertedData | NeedsClari
 function estimateKeyboard(estimateId: string) {
   return {
     inline_keyboard: [
-      [{ text: '📨 Send email', callback_data: `est_send:${estimateId}` }],
-      [{ text: '✏️ Edit', callback_data: `est_edit:${estimateId}` }],
-      [{ text: '❌ Cancel', callback_data: `est_cancel:${estimateId}` }],
+      [{ text: botT('bot.send_email'), callback_data: `est_send:${estimateId}` }],
+      [{ text: botT('bot.edit'), callback_data: `est_edit:${estimateId}` }],
+      [{ text: botT('bot.cancel'), callback_data: `est_cancel:${estimateId}` }],
     ],
   };
 }
@@ -2301,10 +2301,10 @@ function buildEstimatePreviewText(d: EstimateCreatedData): string {
   const total = outMoneyCompact(d.amountCents, botLoc());
   const valid = shortDate(d.validUntil);
   const lines: string[] = [];
-  lines.push(`📒 <b>${escHtml(d.estimateNumber)}</b> drafted, valid until <b>${valid}</b>.`);
-  lines.push(`<b>${total}</b> to <b>${escHtml(d.clientName)}</b> for ${escHtml(d.description)}.`);
+  lines.push(botT('bot.drafted_valid_until', { p0: escHtml(d.estimateNumber), p1: valid }));
+  lines.push(botT('bot.to_for', { p0: total, p1: escHtml(d.clientName), p2: escHtml(d.description) }));
   lines.push('');
-  lines.push('Send via email?');
+  lines.push(botT('bot.send_via_email'));
   return lines.join('\n');
 }
 
@@ -2315,9 +2315,9 @@ function buildConvertedInvoicePreviewText(d: EstimateConvertedData): string {
     : 'created from';
   const lines: string[] = [];
   lines.push(`✅ <b>${escHtml(d.invoiceNumber)}</b> ${verb} <b>${escHtml(d.estimateNumber)}</b>.`);
-  lines.push(`Net-30, due <b>${shortDate(d.dueDate)}</b>, <b>${total}</b> to <b>${escHtml(d.clientName)}</b>.`);
+  lines.push(botT('bot.net_30_due_to_2', { p0: shortDate(d.dueDate), p1: total, p2: escHtml(d.clientName) }));
   lines.push('');
-  lines.push(d.kind === 'already_converted' ? 'Already on the books — review or send below.' : 'Send it?');
+  lines.push(d.kind === 'already_converted' ? botT('bot.already_on_the_books_review_or_send') : botT('bot.send_it'));
   return lines.join('\n');
 }
 
@@ -2326,7 +2326,7 @@ async function renderEstimateCreateResult(
   result: { success: boolean; data?: unknown; error?: string } | undefined,
 ): Promise<void> {
   if (!result || !result.success || !result.data) {
-    await ctx.reply(result?.error || "Couldn't draft that estimate — try \"estimate Beta $4K for new website\".");
+    await ctx.reply(result?.error || botT('bot.couldn_t_draft_that_estimate_try_estimate'));
     return;
   }
   const data = result.data as EstimateStepData;
@@ -2351,7 +2351,7 @@ async function renderEstimateConvertResult(
   result: { success: boolean; data?: unknown; error?: string } | undefined,
 ): Promise<void> {
   if (!result || !result.success || !result.data) {
-    await ctx.reply(result?.error || "Couldn't convert that estimate — try again with the EST-… number.");
+    await ctx.reply(result?.error || botT('bot.couldn_t_convert_that_estimate_try_again'));
     return;
   }
   const data = result.data as EstimateStepData;
@@ -2366,7 +2366,7 @@ async function renderEstimateConvertResult(
     });
     return;
   }
-  await ctx.reply("Couldn't convert that estimate.");
+  await ctx.reply(botT('bot.couldn_t_convert_that_estimate'));
 }
 
 // Lazy-initialize bot (cold start optimization for serverless)
@@ -2432,7 +2432,7 @@ function getBot(): Bot {
       const { canUseFeature } = await import('@naap/billing');
       if (!(await canUseFeature(tenantId, 'telegram_bot'))) {
         await ctx.reply(
-          `🔒 The Telegram bot is a Pro feature. Upgrade your AgentBook plan to chat here:\n${AGENTBOOK_CANONICAL_URL}/billing`,
+          botT('bot.the_telegram_bot_is_a_pro_feature', { p0: AGENTBOOK_CANONICAL_URL }),
         );
         return;
       }
@@ -2511,7 +2511,7 @@ function getBot(): Bot {
         thread = await threadMod.setTopic(thread, 'reporting', 'daily_briefing');
       } catch (err) {
         console.error('[telegram] on-demand briefing failed:', err);
-        await ctx.reply('Couldn\'t pull today\'s briefing right now. Try again in a moment.');
+        await ctx.reply(botT('bot.couldn_t_pull_today_s_briefing_right'));
       }
       return;
     }
@@ -2561,7 +2561,7 @@ function getBot(): Bot {
         thread = await threadMod.addTurn(thread, 'bot', 'Detailed briefing rendered.', 'show_daily_briefing');
       } catch (err) {
         console.error('[telegram] briefing follow-up failed:', err);
-        await ctx.reply('Couldn\'t expand the briefing right now.');
+        await ctx.reply(botT('bot.couldn_t_expand_the_briefing_right_now'));
       }
       return;
     }
@@ -2605,26 +2605,26 @@ function getBot(): Bot {
 
     // Commands that show static help text
     if (text === '/start') {
-      await ctx.reply('👋 Welcome to <b>AgentBook</b>!\n\nI\'m your AI accounting agent. Here\'s what I can do:\n\n💬 <b>Record expenses:</b> "Spent $45 on lunch at Starbucks"\n📸 <b>Snap receipts:</b> Send a photo or PDF\n❓ <b>Ask anything:</b> "How much on travel this month?"\n📊 <b>Get insights:</b> "Show me spending breakdown"\n💰 <b>Check balance:</b> "What\'s my cash balance?"\n🧾 <b>Invoicing:</b> "Invoice Acme $5000 for consulting"\n\n/help for all commands', { parse_mode: 'HTML' });
+      await ctx.reply(botT('bot.welcome_to_agentbook_i_m_your_ai'), { parse_mode: 'HTML' });
       return;
     }
     if (text === '/help' || text === '/help@Agentbookdev_bot') {
       await ctx.reply(
-        '📚 <b>AgentBook — What I Can Do</b>\n\n'
-        + 'Just type naturally — I\'ll figure it out. Or use /help [topic] for details:\n\n'
-        + '/help expenses — record, query, categorize\n'
-        + '/help invoices — create, send, track payments\n'
-        + '/help tax — estimates, deductions, filing\n'
-        + '/help reports — P&amp;L, balance sheet, cashflow\n'
-        + '/help timer — time tracking &amp; billing\n'
-        + '/help planning — multi-step tasks &amp; automation\n'
-        + '/help telegram — connect your own bot\n\n'
-        + '<b>Quick examples:</b>\n'
-        + '• "Spent $45 on lunch at Starbucks"\n'
-        + '• "Show my invoices"\n'
-        + '• "How much tax do I owe?"\n'
-        + '• Send a receipt photo or tax slip\n'
-        + '• "Start my tax filing"',
+        botT('bot.agentbook_what_i_can_do')
+        + botT('bot.just_type_naturally_i_ll_figure_it')
+        + botT('bot.help_expenses_record_query_categorize')
+        + botT('bot.help_invoices_create_send_track_payments')
+        + botT('bot.help_tax_estimates_deductions_filing')
+        + botT('bot.help_reports_p_l_balance_sheet_cashflow')
+        + botT('bot.help_timer_time_tracking_billing')
+        + botT('bot.help_planning_multi_step_tasks_automation')
+        + botT('bot.help_telegram_connect_your_own_bot')
+        + botT('bot.quick_examples')
+        + botT('bot.spent_45_on_lunch_at_starbucks')
+        + botT('bot.show_my_invoices')
+        + botT('bot.how_much_tax_do_i_owe')
+        + botT('bot.send_a_receipt_photo_or_tax_slip')
+        + botT('bot.start_my_tax_filing'),
         { parse_mode: 'HTML' },
       );
       return;
@@ -2740,7 +2740,7 @@ function getBot(): Bot {
       if (helpText) {
         await ctx.reply(helpText, { parse_mode: 'HTML' });
       } else {
-        await ctx.reply(`No help found for "${topic}". Try: /help expenses, /help invoices, /help tax, /help reports, /help timer, /help planning, /help cpa`);
+        await ctx.reply(botT('bot.no_help_found_for_try_help_expenses', { p0: topic }));
       }
       return;
     }
@@ -2815,7 +2815,7 @@ function getBot(): Bot {
             error?: string;
           };
           if (!res.ok || !json.success || !json.data) {
-            await ctx.reply(`Sorry, I couldn't pull your catch-up just now.${json.error ? `\n${json.error}` : ''}`);
+            await ctx.reply(botT('bot.sorry_i_couldn_t_pull_your_catch', { p0: json.error ? `\n${json.error}` : '' }));
             return;
           }
           const lines = renderCatchUpLines(json.data);
@@ -2823,12 +2823,12 @@ function getBot(): Bot {
             ? `since ${sinceHint}`
             : `since ${outDate(sinceAt, botLoc(), { hour: 'numeric', minute: '2-digit' })}`;
           await ctx.reply(
-            `📰 <b>Catch-up</b> — ${sinceStr}\n\n${lines.map((l) => `• ${l}`).join('\n')}`,
+            botT('bot.catch_up', { p0: sinceStr, p1: lines.map((l) => `• ${l}`).join('\n') }),
             { parse_mode: 'HTML' },
           );
         } catch (err) {
           console.error('[telegram catch-me-up] failed:', err);
-          await ctx.reply("Sorry, I couldn't pull your catch-up just now.");
+          await ctx.reply(botT('bot.sorry_i_couldn_t_pull_your_catch_2'));
         }
 
         // Update last-interaction stamp AFTER replying so the next
@@ -2878,7 +2878,7 @@ function getBot(): Bot {
             error?: string;
           };
           if (!res.ok || !json.success || !json.data) {
-            await ctx.reply(`Sorry, I couldn't pull status just now.${json.error ? `\n${json.error}` : ''}`);
+            await ctx.reply(botT('bot.sorry_i_couldn_t_pull_status_just', { p0: json.error ? `\n${json.error}` : '' }));
             return;
           }
           // Re-hydrate Date objects — JSON transport stringifies them.
@@ -2901,12 +2901,12 @@ function getBot(): Bot {
             })),
           };
           const lines = renderStatusLines(data);
-          await ctx.reply(`📡 <b>Status</b>\n\n${lines.join('\n')}`, {
+          await ctx.reply(botT('bot.status', { p0: lines.join('\n') }), {
             parse_mode: 'HTML',
           });
         } catch (err) {
           console.error('[telegram /status] failed:', err);
-          await ctx.reply("Sorry, I couldn't pull status just now.");
+          await ctx.reply(botT('bot.sorry_i_couldn_t_pull_status_just_2'));
         }
         return;
       }
@@ -2945,7 +2945,7 @@ function getBot(): Bot {
           const fuzzy = exact ?? all.find((s) => s.name.toLowerCase().includes(needle));
           if (!fuzzy) {
             await ctx.reply(
-              `Couldn't find a saved search matching "${runMatch[1].trim()}". Type /searches to see what's available.`,
+              botT('bot.couldn_t_find_a_saved_search_matching', { p0: runMatch[1].trim() }),
             );
             return;
           }
@@ -2959,11 +2959,11 @@ function getBot(): Bot {
             error?: string;
           };
           if (!runRes.ok || !runJson.success) {
-            await ctx.reply(`Run failed: ${runJson.error ?? 'unknown error'}`);
+            await ctx.reply(botT('bot.run_failed', { p0: runJson.error ?? botT('bot.unknown_error') }));
             return;
           }
           await ctx.reply(
-            `🔎 <b>${fuzzy.name}</b>\nScope: ${runJson.data?.scope}\nMatches: ${runJson.data?.count ?? 0}`,
+            botT('bot.scope_matches', { p0: fuzzy.name, p1: runJson.data?.scope ?? '', p2: runJson.data?.count ?? 0 }),
             { parse_mode: 'HTML' },
           );
           return;
@@ -2973,20 +2973,20 @@ function getBot(): Bot {
         const pinned = all.filter((s) => s.pinned).slice(0, 10);
         if (pinned.length === 0) {
           await ctx.reply(
-            '📌 No pinned searches yet.\n\nHead to the Saved Searches page in the app to create and pin one, then come back here to re-run it in a tap.',
+            botT('bot.no_pinned_searches_yet_head_to_the'),
           );
           return;
         }
         const rows = pinned.map((s) => [
           { text: `▶️ ${s.name}`, callback_data: `srch_run:${s.id}` },
         ]);
-        await ctx.reply('📌 <b>Pinned searches</b>', {
+        await ctx.reply(botT('bot.pinned_searches'), {
           parse_mode: 'HTML',
           reply_markup: { inline_keyboard: rows },
         });
       } catch (err) {
         console.error('[telegram /searches] failed:', err);
-        await ctx.reply('Sorry, I couldn\'t load your saved searches right now.');
+        await ctx.reply(botT('bot.sorry_i_couldn_t_load_your_saved'));
       }
       return;
     }
@@ -3026,13 +3026,13 @@ function getBot(): Bot {
       if (prefs.setupComplete && isPlausibleDigestFeedback(lower)) {
         const result = await applyFeedbackToPrefs(prefs, text);
         if (result.satisfied) {
-          await ctx.reply('👍 Saved. Tomorrow\'s briefing will look the same as today\'s.');
+          await ctx.reply(botT('bot.saved_tomorrow_s_briefing_will_look_the'));
           return;
         }
         if (result.explanations.length > 0) {
           await setDigestPrefs(tenantId, result.updated);
           await ctx.reply(
-            `🔧 Got it — ${result.explanations.join(' ')}\n\nNext briefing: <b>${formatTime(result.updated.hour, result.updated.minute)}</b>, <b>${result.updated.tone}</b> tone. Reply again to keep tuning, or "good" to lock it in.`,
+            botT('bot.got_it_next_briefing_tone_reply_again', { p0: result.explanations.join(' '), p1: formatTime(result.updated.hour, result.updated.minute), p2: result.updated.tone }),
             { parse_mode: 'HTML' },
           );
           return;
@@ -3083,7 +3083,7 @@ function getBot(): Bot {
           }
           // Unknown field name — clear the state and let the user start fresh.
           await db.abUserMemory.deleteMany({ where: { tenantId, key: editKey } });
-          await ctx.reply("I didn't catch that — try <b>amount</b> or <b>due date</b>. Tap ✏️ Edit again to retry.", { parse_mode: 'HTML' });
+          await ctx.reply(botT('bot.i_didn_t_catch_that_try_amount'), { parse_mode: 'HTML' });
           return;
         }
         if (parsedEdit.draftId && parsedEdit.awaiting === 'value' && parsedEdit.field) {
@@ -3093,14 +3093,14 @@ function getBot(): Bot {
           });
           if (!draft || draft.status !== 'draft') {
             await db.abUserMemory.deleteMany({ where: { tenantId, key: editKey } });
-            await ctx.reply("That draft is no longer editable.");
+            await ctx.reply(botT('bot.that_draft_is_no_longer_editable'));
             return;
           }
           if (parsedEdit.field === 'amount') {
             const m = text.match(/\$?\s*([\d,]+(?:\.\d{1,2})?)\s*(K|k)?/);
             const n = m ? parseFloat(m[1].replace(/,/g, '')) : NaN;
             if (!m || !isFinite(n) || n <= 0) {
-              await ctx.reply('I need a positive dollar amount. Try <code>$5500</code>.', { parse_mode: 'HTML' });
+              await ctx.reply(botT('bot.i_need_a_positive_dollar_amount_try'), { parse_mode: 'HTML' });
               return;
             }
             const newTotal = Math.round((m[2] ? n * 1000 : n) * 100);
@@ -3109,7 +3109,7 @@ function getBot(): Bot {
             // below silently produces wrong line amounts.
             const MAX_INVOICE_CENTS = 1_000_000_000_000;
             if (!Number.isFinite(newTotal) || newTotal <= 0 || newTotal > MAX_INVOICE_CENTS) {
-              await ctx.reply('That amount looks off — try again with a smaller number?');
+              await ctx.reply(botT('bot.that_amount_looks_off_try_again_with'));
               return;
             }
             // Distribute across existing lines proportionally; if a single
@@ -3141,7 +3141,7 @@ function getBot(): Bot {
             });
             await db.abUserMemory.deleteMany({ where: { tenantId, key: editKey } });
             await ctx.reply(
-              `📒 Updated <b>${escHtml(draft.number)}</b> total → <b>${fmtAmount(newTotal)}</b>. Send it?`,
+              botT('bot.updated_total_send_it', { p0: escHtml(draft.number), p1: fmtAmount(newTotal) }),
               {
                 parse_mode: 'HTML',
                 reply_markup: draftKeyboard(draft.id),
@@ -3153,7 +3153,7 @@ function getBot(): Bot {
             const trimmed = text.trim();
             const parsedDate = new Date(trimmed);
             if (isNaN(parsedDate.getTime())) {
-              await ctx.reply('I couldn\'t read that date. Try <code>2026-06-30</code> or <code>July 30</code>.', { parse_mode: 'HTML' });
+              await ctx.reply(botT('bot.i_couldn_t_read_that_date_try'), { parse_mode: 'HTML' });
               return;
             }
             // Bound to [issuedDate, issuedDate + 5 years] so a typo like
@@ -3162,7 +3162,7 @@ function getBot(): Bot {
             const FIVE_YEARS_MS = 5 * 365 * 24 * 60 * 60 * 1000;
             const issuedTs = draft.issuedDate.getTime();
             if (parsedDate.getTime() < issuedTs || parsedDate.getTime() > issuedTs + FIVE_YEARS_MS) {
-              await ctx.reply("That date doesn't look right — try YYYY-MM-DD or 'in 30 days'.");
+              await ctx.reply(botT('bot.that_date_doesn_t_look_right_try'));
               return;
             }
             await db.abInvoice.update({
@@ -3171,7 +3171,7 @@ function getBot(): Bot {
             });
             await db.abUserMemory.deleteMany({ where: { tenantId, key: editKey } });
             await ctx.reply(
-              `📒 Updated <b>${escHtml(draft.number)}</b> due date → <b>${outDate(parsedDate, botLoc())}</b>. Send it?`,
+              botT('bot.updated_due_date_send_it', { p0: escHtml(draft.number), p1: outDate(parsedDate, botLoc()) }),
               {
                 parse_mode: 'HTML',
                 reply_markup: draftKeyboard(draft.id),
@@ -3198,13 +3198,13 @@ function getBot(): Bot {
           // Accept "47", "47 miles", "47 mi", "47.5 km".
           const m = text.match(/^\s*(\d+(?:\.\d+)?)\s*(mi|miles|km|kilometers|kilometres)?\s*$/i);
           if (!m) {
-            await ctx.reply('I need a positive number (e.g. <code>47</code>). Tap ✏️ Edit miles again to retry.', { parse_mode: 'HTML' });
+            await ctx.reply(botT('bot.i_need_a_positive_number_e_g'), { parse_mode: 'HTML' });
             await db.abUserMemory.deleteMany({ where: { tenantId, key: mileageEditKey } });
             return;
           }
           const newMiles = parseFloat(m[1]);
           if (!isFinite(newMiles) || newMiles <= 0) {
-            await ctx.reply('Distance has to be positive. Tap ✏️ Edit miles to try again.');
+            await ctx.reply(botT('bot.distance_has_to_be_positive_tap_edit'));
             await db.abUserMemory.deleteMany({ where: { tenantId, key: mileageEditKey } });
             return;
           }
@@ -3219,18 +3219,18 @@ function getBot(): Bot {
               miles: newMiles,
             });
             if (!result.ok) {
-              await ctx.reply(`Couldn't update that trip — ${result.error}.`);
+              await ctx.reply(botT('bot.couldn_t_update_that_trip', { p0: result.error }));
             } else {
               const data = result.entry;
               const dollars = outMoney(data.deductibleAmountCents, botLoc());
               await ctx.reply(
-                `🔧 Updated to ${data.miles} ${data.unit} = <b>${dollars}</b>. Reposted the journal entry.`,
+                botT('bot.updated_to_reposted_the_journal_entry', { p0: data.miles, p1: data.unit, p2: dollars }),
                 { parse_mode: 'HTML' },
               );
             }
           } catch (err) {
             console.warn('[mileage edit] patch failed:', err);
-            await ctx.reply("Couldn't update that trip — try again in a sec.");
+            await ctx.reply(botT('bot.couldn_t_update_that_trip_try_again'));
           }
           await db.abUserMemory.deleteMany({ where: { tenantId, key: mileageEditKey } });
           return;
@@ -3264,16 +3264,16 @@ function getBot(): Bot {
       const result = await autoCategorizeForTenant(tenantId, { force: true });
       const lines: string[] = [];
       if (result.appliedCount > 0) {
-        lines.push(`📁 Auto-categorized <b>${result.appliedCount}</b> expense${result.appliedCount === 1 ? '' : 's'}.`);
+        lines.push(botT('bot.auto_categorized_expense', { count: result.appliedCount }));
       }
       if (result.pending.length > 0) {
-        lines.push(`🤔 <b>${result.pending.length}</b> need${result.pending.length === 1 ? 's' : ''} a quick check — type <code>review</code> to walk through them.`);
+        lines.push(botT('bot.need_a_quick_check_type_review_to', { count: result.pending.length }));
       }
       if (result.skippedCount > 0 && result.appliedCount === 0 && result.pending.length === 0) {
-        lines.push(`Nothing I can categorize automatically. ${result.skippedCount} expense${result.skippedCount === 1 ? '' : 's'} need manual category.`);
+        lines.push(botT('bot.nothing_i_can_categorize_automatically_expense_need', { count: result.skippedCount }));
       }
       if (lines.length === 0) {
-        lines.push('🎉 All expenses already categorized — nothing to do.');
+        lines.push(botT('bot.all_expenses_already_categorized_nothing_to_do'));
       }
       await ctx.reply(lines.join('\n'), { parse_mode: 'HTML' });
       return;
@@ -3331,7 +3331,7 @@ function getBot(): Bot {
         const best = pickBestExpenseMatch(parsed.target, flat);
         if (!best) {
           await ctx.reply(
-            `I couldn't find a receipt-pending expense matching "<b>${escHtml(parsed.target)}</b>". Try the vendor or description from your morning briefing.`,
+            botT('bot.i_couldn_t_find_a_receipt_pending', { p0: escHtml(parsed.target) }),
             { parse_mode: 'HTML' },
           );
           return;
@@ -3351,7 +3351,7 @@ function getBot(): Bot {
             },
           });
           await ctx.reply(
-            `🗑️ Skipped — won't ask about <b>${escHtml(label)}</b> again.`,
+            botT('bot.skipped_won_t_ask_about_again', { p0: escHtml(label) }),
             { parse_mode: 'HTML' },
           );
           return;
@@ -3374,7 +3374,7 @@ function getBot(): Bot {
           },
         });
         await ctx.reply(
-          `📎 OK — send me the receipt photo or PDF for <b>${escHtml(label)}</b> and I'll attach it.`,
+          botT('bot.ok_send_me_the_receipt_photo_or', { p0: escHtml(label) }),
           { parse_mode: 'HTML' },
         );
         return;
@@ -3573,13 +3573,13 @@ function getBot(): Bot {
         const planMaybe = (result.data as { plan?: { requiresConfirmation?: boolean } }).plan;
         if (planMaybe?.requiresConfirmation) {
           keyboard = { inline_keyboard: [[
-            { text: '\u2705 Proceed', callback_data: 'session:confirm' },
-            { text: '\u274C Cancel', callback_data: 'session:cancel' },
+            { text: botT('bot.proceed'), callback_data: 'session:confirm' },
+            { text: botT('bot.cancel'), callback_data: 'session:cancel' },
           ]] };
         } else if (result.data.skillUsed === 'record-expense' && result.data.message?.includes('Recorded')) {
           keyboard = { inline_keyboard: [[
-            { text: '\u{1F4C1} Category', callback_data: 'change_cat:agent' },
-            { text: '\u{1F3E0} Personal', callback_data: 'personal:agent' },
+            { text: botT('bot.category'), callback_data: 'change_cat:agent' },
+            { text: botT('bot.personal'), callback_data: 'personal:agent' },
           ]] };
         }
 
@@ -3589,18 +3589,18 @@ function getBot(): Bot {
           await ctx.reply(result.data.message || reply, { reply_markup: keyboard });
         }
       } else {
-        await ctx.reply('I\'m not sure what you mean. Type /help for options.');
+        await ctx.reply(botT('bot.i_m_not_sure_what_you_mean'));
       }
     } catch (err) {
       console.error('Agent brain error:', err);
-      await ctx.reply('Something went wrong. Please try again.');
+      await ctx.reply(botT('bot.something_went_wrong_please_try_again'));
     }
   });
 
   // === Voice notes → Gemini transcription → same intent flow as text ===
   bot.on('message:voice', async (ctx) => {
     const tenantId = await resolveTenantId(ctx.chat.id);
-    await ctx.reply('🎙️ One sec — listening to your note…');
+    await ctx.reply(botT('bot.one_sec_listening_to_your_note'));
 
     // PR 19: Telegram `file_id` is stable per voice note, so the same
     // `(tenantId, file_id)` pair points to the same audio bytes forever.
@@ -3629,11 +3629,11 @@ function getBot(): Bot {
     }
 
     if (!text) {
-      await ctx.reply('Couldn\'t transcribe that — try again or type the message out.');
+      await ctx.reply(botT('bot.couldn_t_transcribe_that_try_again_or'));
       return;
     }
 
-    await ctx.reply(`📝 I heard: "<i>${escHtml(text)}</i>"`, { parse_mode: 'HTML' });
+    await ctx.reply(botT('bot.i_heard', { p0: escHtml(text) }), { parse_mode: 'HTML' });
 
     // Route the transcribed text through the same intent → plan → execute
     // flow as a typed message. Run the agent loop first, then fall back to
@@ -3669,11 +3669,11 @@ function getBot(): Bot {
           await ctx.reply(result.data.message || reply);
         }
       } else {
-        await ctx.reply('Got the note but I\'m not sure what to do with it. Try saying it differently?');
+        await ctx.reply(botT('bot.got_the_note_but_i_m_not'));
       }
     } catch (err) {
       console.error('[telegram/voice/process] failed:', err);
-      await ctx.reply('Heard the note but couldn\'t act on it. Try typing the same thing.');
+      await ctx.reply(botT('bot.heard_the_note_but_couldn_t_act'));
     }
   });
 
@@ -3739,11 +3739,11 @@ function getBot(): Bot {
 
     const ocr = await ocrReceipt(permanentUrl, 'image/jpeg');
     if (!ocr) {
-      await ctx.reply('I saved the photo but the OCR step came back empty — either the image is unreadable or my Gemini key isn\'t set. Type the expense in plain English ("Spent $45 on lunch at Starbucks") and I\'ll book it.');
+      await ctx.reply(botT('bot.i_saved_the_photo_but_the_ocr'));
       return;
     }
     if (ocr.amount_cents === 0) {
-      await ctx.reply('I read the image but couldn\'t pin down the total. Try a clearer photo, or just type it ("Spent $45 on gas at Shell"). I\'ll figure out the rest.');
+      await ctx.reply(botT('bot.i_read_the_image_but_couldn_t'));
       return;
     }
 
@@ -3752,7 +3752,7 @@ function getBot(): Bot {
 
     const active = await getActiveExpense(tenantId);
     if (!active) {
-      await ctx.reply('Saved the receipt but I lost track of it. Type "expenses" to see it.');
+      await ctx.reply(botT('bot.saved_the_receipt_but_i_lost_track'));
       return;
     }
     if (ctx.chat?.id) {
@@ -3800,12 +3800,12 @@ function getBot(): Bot {
       reply_markup: {
         inline_keyboard: [
           [
-            { text: '✅ Looks right — book it', callback_data: `confirm:${expense.id}` },
-            { text: '📁 Change category', callback_data: `change_cat:${expense.id}` },
+            { text: botT('bot.looks_right_book_it'), callback_data: `confirm:${expense.id}` },
+            { text: botT('bot.change_category'), callback_data: `change_cat:${expense.id}` },
           ],
           [
-            { text: active.isPersonal ? '💼 Make business' : '🏠 Make personal', callback_data: `${active.isPersonal ? 'business' : 'personal'}:${expense.id}` },
-            { text: '❌ Not real', callback_data: `reject:${expense.id}` },
+            { text: active.isPersonal ? botT('bot.make_business') : botT('bot.make_personal'), callback_data: `${active.isPersonal ? 'business' : 'personal'}:${expense.id}` },
+            { text: botT('bot.not_real'), callback_data: `reject:${expense.id}` },
           ],
         ],
       },
@@ -3933,7 +3933,7 @@ function getBot(): Bot {
       await ctx.reply(text, {
         reply_markup: {
           inline_keyboard: [[
-            { text: '📂 Review now', callback_data: 'review_drafts' },
+            { text: botT('bot.review_now'), callback_data: 'review_drafts' },
           ]],
         },
       });
@@ -3957,7 +3957,7 @@ function getBot(): Bot {
       const q = await checkQuota(tenantId, 'ocr_scans');
       if (!q.allowed) {
         await ctx.reply(
-          `You've used all ${q.limit} receipt scans this month. Upgrade for more:\n${AGENTBOOK_CANONICAL_URL}/billing`,
+          botT('bot.you_ve_used_all_receipt_scans_this', { p0: q.limit, p1: AGENTBOOK_CANONICAL_URL }),
         );
         return;
       }
@@ -4004,7 +4004,7 @@ function getBot(): Bot {
                 where: { tenantId, key: 'telegram:pending_receipt_target' },
               });
               await ctx.reply(
-                `✅ Receipt attached to <b>${escHtml(target.description || 'expense')}</b>.`,
+                botT('bot.receipt_attached_to', { p0: escHtml(target.description || 'expense') }),
                 { parse_mode: 'HTML' },
               );
               return;
@@ -4030,7 +4030,7 @@ function getBot(): Bot {
       // First photo in the window → tell the user we're collecting.
       // Subsequent photos: stay quiet so we don't spam.
       if (!beforeState || beforeState.items.length === 0) {
-        await ctx.reply('📒 Got it — reading your receipt(s)… (you can keep sending more)');
+        await ctx.reply(botT('bot.got_it_reading_your_receipt_s_you'));
       }
 
       // 2. Wait the idle window. If another photo arrives, its own
@@ -4059,7 +4059,7 @@ function getBot(): Bot {
       }
     } catch (err) {
       console.error('[telegram/photo] failed:', err);
-      await ctx.reply('Sorry — couldn\'t process that receipt. Try a clearer photo or type the expense in plain English.');
+      await ctx.reply(botT('bot.sorry_couldn_t_process_that_receipt_try'));
     }
   });
 
@@ -4068,10 +4068,10 @@ function getBot(): Bot {
     const doc = ctx.message.document;
     const mimeType = doc.mime_type || '';
     if (!mimeType.includes('pdf') && !mimeType.includes('image')) {
-      await ctx.reply('I can read PDF or image receipts. Send one of those or just type the expense in plain English.');
+      await ctx.reply(botT('bot.i_can_read_pdf_or_image_receipts'));
       return;
     }
-    await ctx.reply(`📄 One sec — reading ${doc.file_name || 'that document'}…`);
+    await ctx.reply(botT('bot.one_sec_reading', { p0: doc.file_name || botT('bot.that_document') }));
 
     try {
       const file = await ctx.api.getFile(doc.file_id);
@@ -4108,7 +4108,7 @@ function getBot(): Bot {
                 where: { tenantId, key: 'telegram:pending_receipt_target' },
               });
               await ctx.reply(
-                `✅ Receipt attached to <b>${escHtml(target.description || 'expense')}</b>.`,
+                botT('bot.receipt_attached_to', { p0: escHtml(target.description || 'expense') }),
                 { parse_mode: 'HTML' },
               );
               return;
@@ -4119,7 +4119,7 @@ function getBot(): Bot {
 
       const ocr = await ocrReceipt(permanentUrl, mimeType);
       if (!ocr || ocr.amount_cents === 0) {
-        await ctx.reply(`Saved ${doc.file_name || 'document'} but couldn't extract a total. Type the expense manually if you want it on the books.`);
+        await ctx.reply(botT('bot.saved_but_couldn_t_extract_a_total', { p0: doc.file_name || 'document' }));
         return;
       }
 
@@ -4133,7 +4133,7 @@ function getBot(): Bot {
 
       const active = await getActiveExpense(tenantId);
       if (!active) {
-        await ctx.reply('Document saved but I lost track of it. Type "expenses" to see it.');
+        await ctx.reply(botT('bot.document_saved_but_i_lost_track_of'));
         return;
       }
       await focusThreadExpense(tenantId, ctx.chat.id, active.id,
@@ -4179,19 +4179,19 @@ function getBot(): Bot {
         reply_markup: {
           inline_keyboard: [
             [
-              { text: '✅ Looks right — book it', callback_data: `confirm:${expense.id}` },
-              { text: '📁 Change category', callback_data: `change_cat:${expense.id}` },
+              { text: botT('bot.looks_right_book_it'), callback_data: `confirm:${expense.id}` },
+              { text: botT('bot.change_category'), callback_data: `change_cat:${expense.id}` },
             ],
             [
-              { text: active.isPersonal ? '💼 Make business' : '🏠 Make personal', callback_data: `${active.isPersonal ? 'business' : 'personal'}:${expense.id}` },
-              { text: '❌ Not real', callback_data: `reject:${expense.id}` },
+              { text: active.isPersonal ? botT('bot.make_business') : botT('bot.make_personal'), callback_data: `${active.isPersonal ? 'business' : 'personal'}:${expense.id}` },
+              { text: botT('bot.not_real'), callback_data: `reject:${expense.id}` },
             ],
           ],
         },
       });
     } catch (err) {
       console.error('[telegram/document] failed:', err);
-      await ctx.reply('Sorry, I couldn\'t process that document. Try sending it as a photo or type it in plain English.');
+      await ctx.reply(botT('bot.sorry_i_couldn_t_process_that_document'));
     }
   });
 
@@ -4205,19 +4205,19 @@ function getBot(): Bot {
       if (action === 'confirm') {
         const expenseId = await resolveExpenseId(tenantId, parts[1]);
         if (!expenseId) {
-          await ctx.answerCallbackQuery({ text: 'No recent expense to confirm' });
+          await ctx.answerCallbackQuery({ text: botT('bot.no_recent_expense_to_confirm') });
           return;
         }
         const expense = await db.abExpense.findFirst({ where: { id: expenseId, tenantId } });
         if (!expense) {
-          await ctx.answerCallbackQuery({ text: 'Expense not found' });
+          await ctx.answerCallbackQuery({ text: botT('bot.expense_not_found') });
           return;
         }
 
         // Confirmation gate: refuse to book without a category.
         if (!expense.categoryId && !expense.isPersonal) {
-          await ctx.answerCallbackQuery({ text: 'Need a category first' });
-          await ctx.reply('I can\'t book this without a category — tap 📁 below or tell me one ("Fuel", "Meals", "Office Expenses").');
+          await ctx.answerCallbackQuery({ text: botT('bot.need_a_category_first') });
+          await ctx.reply(botT('bot.i_can_t_book_this_without_a'));
           return;
         }
 
@@ -4241,15 +4241,15 @@ function getBot(): Bot {
               const after = outMoneyCompact(overLimit.spentAfterCents, botLoc());
               const limit = outMoneyCompact(overLimit.limitCents, botLoc());
               const pct = Math.round((overLimit.spentAfterCents / Math.max(1, overLimit.limitCents)) * 100);
-              await ctx.answerCallbackQuery({ text: '⚠ Over budget' });
+              await ctx.answerCallbackQuery({ text: botT('bot.over_budget') });
               await ctx.reply(
-                `⚠ This would push <b>${escHtml(cat)}</b> to ${after}/${limit} (${pct}%). Book anyway?`,
+                botT('bot.this_would_push_to_book_anyway', { p0: escHtml(cat), p1: after, p2: limit, p3: pct }),
                 {
                   parse_mode: 'HTML',
                   reply_markup: {
                     inline_keyboard: [[
-                      { text: '✅ Yes, book', callback_data: `bdg_book:${expense.id}` },
-                      { text: '💡 Maybe later', callback_data: `bdg_skip:${expense.id}` },
+                      { text: botT('bot.yes_book'), callback_data: `bdg_book:${expense.id}` },
+                      { text: botT('bot.maybe_later'), callback_data: `bdg_skip:${expense.id}` },
                     ]],
                   },
                 },
@@ -4309,7 +4309,7 @@ function getBot(): Bot {
           },
         });
         const updated = await getActiveExpense(tenantId);
-        await ctx.answerCallbackQuery({ text: '✅ Booked' });
+        await ctx.answerCallbackQuery({ text: botT('bot.booked') });
 
         // Tax-line implication note (gaps 11, 12, 14) — surface deduction
         // rules + ITC eligibility based on category, amount, tax_cents,
@@ -4359,7 +4359,7 @@ function getBot(): Bot {
               const limit = outMoneyCompact(at80.limitCents, botLoc());
               const periodLabel = at80.period === 'annual' ? 'this year' : at80.period === 'quarterly' ? 'this quarter' : 'this month';
               await ctx.reply(
-                `🟡 Heads up — <b>${escHtml(cat)}</b> is at 80% (${after}/${limit}) for ${periodLabel}.`,
+                botT('bot.heads_up_is_at_80_for', { p0: escHtml(cat), p1: after, p2: limit, p3: periodLabel }),
                 { parse_mode: 'HTML' },
               );
             }
@@ -4373,18 +4373,18 @@ function getBot(): Bot {
       if (action === 'reject') {
         const expenseId = await resolveExpenseId(tenantId, parts[1]);
         if (!expenseId) {
-          await ctx.answerCallbackQuery({ text: 'No recent expense to reject' });
+          await ctx.answerCallbackQuery({ text: botT('bot.no_recent_expense_to_reject') });
           return;
         }
         await db.abExpense.updateMany({
           where: { id: expenseId, tenantId },
           data: { status: 'rejected' },
         });
-        await ctx.answerCallbackQuery({ text: '❌ Expense rejected' });
+        await ctx.answerCallbackQuery({ text: botT('bot.expense_rejected') });
         try {
-          await ctx.editMessageText('❌ Expense rejected — won\'t appear on the books.');
+          await ctx.editMessageText(botT('bot.expense_rejected_won_t_appear_on_the'));
         } catch {
-          await ctx.reply('❌ Expense rejected — won\'t appear on the books.');
+          await ctx.reply(botT('bot.expense_rejected_won_t_appear_on_the'));
         }
         return;
       }
@@ -4396,7 +4396,7 @@ function getBot(): Bot {
       if (action === 'cpa_resolve') {
         const requestId = parts[1];
         if (!requestId) {
-          await ctx.answerCallbackQuery({ text: 'Bad request id' });
+          await ctx.answerCallbackQuery({ text: botT('bot.bad_request_id') });
           return;
         }
         const reqRow = await db.abAccountantRequest.findFirst({
@@ -4404,18 +4404,18 @@ function getBot(): Bot {
           select: { id: true, status: true, message: true, entityType: true, entityId: true },
         });
         if (!reqRow) {
-          await ctx.answerCallbackQuery({ text: 'Request not found' });
+          await ctx.answerCallbackQuery({ text: botT('bot.request_not_found') });
           return;
         }
         if (reqRow.status !== 'open') {
-          await ctx.answerCallbackQuery({ text: 'Already resolved' });
+          await ctx.answerCallbackQuery({ text: botT('bot.already_resolved') });
           return;
         }
         await db.abAccountantRequest.update({
           where: { id: requestId },
           data: { status: 'resolved', resolvedAt: new Date(), resolution: 'acknowledged via Telegram' },
         });
-        await ctx.answerCallbackQuery({ text: '✅ Marked resolved' });
+        await ctx.answerCallbackQuery({ text: botT('bot.marked_resolved') });
         const hint =
           reqRow.entityType === 'AbExpense'
             ? 'If they need a receipt, snap a photo and send it here.'
@@ -4424,21 +4424,21 @@ function getBot(): Bot {
             : 'Reply here with whatever they need.';
         try {
           await ctx.editMessageText(
-            `✅ <b>Resolved</b> — ${escHtml(reqRow.message.slice(0, 200))}\n\n<i>${hint}</i>`,
+            botT('bot.resolved', { p0: escHtml(reqRow.message.slice(0, 200)), p1: hint }),
             { parse_mode: 'HTML' },
           );
         } catch {
-          await ctx.reply(`✅ Resolved. ${hint}`);
+          await ctx.reply(botT('bot.resolved_2', { p0: hint }));
         }
         return;
       }
 
       if (action === 'cpa_skip') {
         const requestId = parts[1];
-        await ctx.answerCallbackQuery({ text: '⏭ Skipped — still in your queue' });
+        await ctx.answerCallbackQuery({ text: botT('bot.skipped_still_in_your_queue') });
         try {
           await ctx.editMessageText(
-            `⏭ Skipped — your CPA's request is still in your queue.\n<i>(Tap "show CPA requests" anytime.)</i>`,
+            botT('bot.skipped_your_cpa_s_request_is_still'),
             { parse_mode: 'HTML' },
           );
         } catch {
@@ -4455,28 +4455,28 @@ function getBot(): Bot {
       if (action === 'dd_apply' || action === 'dd_skip' || action === 'dd_explain') {
         const suggestionId = parts[1];
         if (!suggestionId) {
-          await ctx.answerCallbackQuery({ text: 'Bad suggestion id' });
+          await ctx.answerCallbackQuery({ text: botT('bot.bad_suggestion_id') });
           return;
         }
         const suggestion = await db.abDeductionSuggestion.findFirst({
           where: { id: suggestionId, tenantId },
         });
         if (!suggestion) {
-          await ctx.answerCallbackQuery({ text: 'Suggestion not found' });
+          await ctx.answerCallbackQuery({ text: botT('bot.suggestion_not_found') });
           return;
         }
 
         if (action === 'dd_explain') {
           await ctx.answerCallbackQuery();
           await ctx.reply(
-            `💡 <b>Why I flagged this</b>\n\n${escHtml(suggestion.message || suggestion.description || 'No reasoning recorded.')}`,
+            botT('bot.why_i_flagged_this', { p0: escHtml(suggestion.message || suggestion.description || botT('bot.no_reasoning_recorded')) }),
             { parse_mode: 'HTML' },
           );
           return;
         }
 
         if (suggestion.status === 'applied' || suggestion.status === 'dismissed') {
-          await ctx.answerCallbackQuery({ text: `Already ${suggestion.status}` });
+          await ctx.answerCallbackQuery({ text: botT('bot.already', { p0: suggestion.status }) });
           return;
         }
 
@@ -4525,14 +4525,14 @@ function getBot(): Bot {
             before: { status: suggestion.status },
             after: { status: updated.status, ruleId: suggestion.ruleId, expenseId: suggestion.expenseId },
           });
-          await ctx.answerCallbackQuery({ text: '✅ Applied' });
+          await ctx.answerCallbackQuery({ text: botT('bot.applied') });
           try {
             await ctx.editMessageText(
-              `✅ <b>Applied</b>${expenseSummary} — marked as deductible${suggestion.suggestedTaxCategory ? ` (${escHtml(suggestion.suggestedTaxCategory)})` : ''}.`,
+              botT('bot.applied_marked_as_deductible', { p0: expenseSummary, p1: suggestion.suggestedTaxCategory ? ` (${escHtml(suggestion.suggestedTaxCategory)})` : '' }),
               { parse_mode: 'HTML' },
             );
           } catch {
-            await ctx.reply(`✅ Applied — marked as deductible.`);
+            await ctx.reply(botT('bot.applied_marked_as_deductible_2'));
           }
           return;
         }
@@ -4553,14 +4553,14 @@ function getBot(): Bot {
           before: { status: suggestion.status, expiresAt: suggestion.expiresAt },
           after: { status: updated.status, expiresAt: updated.expiresAt },
         });
-        await ctx.answerCallbackQuery({ text: 'Dismissed for 90 days.' });
+        await ctx.answerCallbackQuery({ text: botT('bot.dismissed_for_90_days') });
         try {
           await ctx.editMessageText(
-            `⏭ Dismissed for 90 days. <i>I'll quiet down on this one.</i>`,
+            botT('bot.dismissed_for_90_days_i_ll_quiet'),
             { parse_mode: 'HTML' },
           );
         } catch {
-          await ctx.reply('Dismissed for 90 days.');
+          await ctx.reply(botT('bot.dismissed_for_90_days'));
         }
         return;
       }
@@ -4568,14 +4568,14 @@ function getBot(): Bot {
       if (action === 'personal') {
         const expenseId = await resolveExpenseId(tenantId, parts[1]);
         if (!expenseId) {
-          await ctx.answerCallbackQuery({ text: 'No recent expense to update' });
+          await ctx.answerCallbackQuery({ text: botT('bot.no_recent_expense_to_update') });
           return;
         }
         await db.abExpense.updateMany({
           where: { id: expenseId, tenantId },
           data: { isPersonal: true },
         });
-        await ctx.answerCallbackQuery({ text: '🏠 Marked as personal' });
+        await ctx.answerCallbackQuery({ text: botT('bot.marked_as_personal') });
         const updated = await getActiveExpense(tenantId);
         // Keep the draft actionable (same reasoning as the cat: handler —
         // editing without a keyboard stranded the draft with no way to book
@@ -4584,12 +4584,12 @@ function getBot(): Bot {
         const personalReplyMarkup = {
           inline_keyboard: [
             [
-              { text: '✅ Confirm — book it', callback_data: `confirm:${expenseId}` },
-              { text: '📁 Change category', callback_data: `change_cat:${expenseId}` },
+              { text: botT('bot.confirm_book_it'), callback_data: `confirm:${expenseId}` },
+              { text: botT('bot.change_category'), callback_data: `change_cat:${expenseId}` },
             ],
             [
-              { text: '💼 Make business', callback_data: `business:${expenseId}` },
-              { text: '❌ Reject', callback_data: `reject:${expenseId}` },
+              { text: botT('bot.make_business'), callback_data: `business:${expenseId}` },
+              { text: botT('bot.reject'), callback_data: `reject:${expenseId}` },
             ],
           ],
         };
@@ -4604,14 +4604,14 @@ function getBot(): Bot {
       if (action === 'business') {
         const expenseId = await resolveExpenseId(tenantId, parts[1]);
         if (!expenseId) {
-          await ctx.answerCallbackQuery({ text: 'No recent expense to update' });
+          await ctx.answerCallbackQuery({ text: botT('bot.no_recent_expense_to_update') });
           return;
         }
         await db.abExpense.updateMany({
           where: { id: expenseId, tenantId },
           data: { isPersonal: false },
         });
-        await ctx.answerCallbackQuery({ text: '💼 Marked as business' });
+        await ctx.answerCallbackQuery({ text: botT('bot.marked_as_business') });
         const updated = await getActiveExpense(tenantId);
         // Keep the draft actionable. A business expense still needs a category
         // to pass the confirm gate, so Change category sits right next to
@@ -4620,12 +4620,12 @@ function getBot(): Bot {
         const businessReplyMarkup = {
           inline_keyboard: [
             [
-              { text: '✅ Confirm — book it', callback_data: `confirm:${expenseId}` },
-              { text: '📁 Change category', callback_data: `change_cat:${expenseId}` },
+              { text: botT('bot.confirm_book_it'), callback_data: `confirm:${expenseId}` },
+              { text: botT('bot.change_category'), callback_data: `change_cat:${expenseId}` },
             ],
             [
-              { text: '🏠 Make personal', callback_data: `personal:${expenseId}` },
-              { text: '❌ Reject', callback_data: `reject:${expenseId}` },
+              { text: botT('bot.make_personal'), callback_data: `personal:${expenseId}` },
+              { text: botT('bot.reject'), callback_data: `reject:${expenseId}` },
             ],
           ],
         };
@@ -4642,7 +4642,7 @@ function getBot(): Bot {
         // Stash the active expense in AbUserMemory and reference by code only.
         const expenseId = await resolveExpenseId(tenantId, parts[1]);
         if (!expenseId) {
-          await ctx.answerCallbackQuery({ text: 'No recent expense to categorize' });
+          await ctx.answerCallbackQuery({ text: botT('bot.no_recent_expense_to_categorize') });
           return;
         }
         const categories = await db.abAccount.findMany({
@@ -4652,7 +4652,7 @@ function getBot(): Bot {
           take: 12,
         });
         if (categories.length === 0) {
-          await ctx.answerCallbackQuery({ text: 'No expense categories — seed your chart of accounts first' });
+          await ctx.answerCallbackQuery({ text: botT('bot.no_expense_categories_seed_your_chart_of') });
           return;
         }
         // Remember which expense this Telegram chat is recategorizing, so the
@@ -4681,15 +4681,15 @@ function getBot(): Bot {
             })),
           );
         }
-        await ctx.answerCallbackQuery({ text: 'Pick a category' });
-        await ctx.reply('📁 Pick a category:', { reply_markup: { inline_keyboard: rows } });
+        await ctx.answerCallbackQuery({ text: botT('bot.pick_a_category') });
+        await ctx.reply(botT('bot.pick_a_category_2'), { reply_markup: { inline_keyboard: rows } });
         return;
       }
 
       if (action === 'cat') {
         const code = parts[1];
         if (!code) {
-          await ctx.answerCallbackQuery({ text: 'Bad callback data' });
+          await ctx.answerCallbackQuery({ text: botT('bot.bad_callback_data') });
           return;
         }
         // Recover the expense id from the memory we wrote above.
@@ -4707,20 +4707,20 @@ function getBot(): Bot {
           }
         }
         if (!expenseId) {
-          await ctx.answerCallbackQuery({ text: 'No expense in flight — re-record then tap Category' });
+          await ctx.answerCallbackQuery({ text: botT('bot.no_expense_in_flight_re_record_then') });
           return;
         }
         const account = await db.abAccount.findUnique({
           where: { tenantId_code: { tenantId, code } },
         });
         if (!account) {
-          await ctx.answerCallbackQuery({ text: `Category ${code} not found` });
+          await ctx.answerCallbackQuery({ text: botT('bot.category_not_found', { p0: code }) });
           return;
         }
         const categoryId = account.id;
         const expense = await db.abExpense.findFirst({ where: { id: expenseId, tenantId } });
         if (!expense) {
-          await ctx.answerCallbackQuery({ text: 'Expense not found' });
+          await ctx.answerCallbackQuery({ text: botT('bot.expense_not_found') });
           return;
         }
         await db.abExpense.update({
@@ -4747,7 +4747,7 @@ function getBot(): Bot {
         }
         await setActiveExpense(tenantId, expenseId);
         if (ctx.chat?.id) await focusThreadExpense(tenantId, ctx.chat.id, expenseId);
-        await ctx.answerCallbackQuery({ text: `✅ Categorized as ${account.name}` });
+        await ctx.answerCallbackQuery({ text: botT('bot.categorized_as', { p0: account.name }) });
         const updated = await getActiveExpense(tenantId);
         // The draft is now categorized but still pending_review — the
         // confirmation gate (confirm handler) refuses to book without a
@@ -4759,12 +4759,12 @@ function getBot(): Bot {
         const catReplyMarkup = {
           inline_keyboard: [
             [
-              { text: '✅ Confirm — book it', callback_data: `confirm:${expenseId}` },
-              { text: '📁 Change category', callback_data: `change_cat:${expenseId}` },
+              { text: botT('bot.confirm_book_it'), callback_data: `confirm:${expenseId}` },
+              { text: botT('bot.change_category'), callback_data: `change_cat:${expenseId}` },
             ],
             [
-              { text: expense.isPersonal ? '💼 Make business' : '🏠 Make personal', callback_data: `${expense.isPersonal ? 'business' : 'personal'}:${expenseId}` },
-              { text: '❌ Reject', callback_data: `reject:${expenseId}` },
+              { text: expense.isPersonal ? botT('bot.make_business') : botT('bot.make_personal'), callback_data: `${expense.isPersonal ? 'business' : 'personal'}:${expenseId}` },
+              { text: botT('bot.reject'), callback_data: `reject:${expenseId}` },
             ],
           ],
         };
@@ -4795,13 +4795,13 @@ function getBot(): Bot {
       }
 
       if (action === 'review_drafts') {
-        await ctx.answerCallbackQuery({ text: 'Loading review batch…' });
+        await ctx.answerCallbackQuery({ text: botT('bot.loading_review_batch') });
         await sendPendingReviewBatch(tenantId, ctx);
         return;
       }
 
       if (action === 'setup_briefing') {
-        await ctx.answerCallbackQuery({ text: 'Starting setup…' });
+        await ctx.answerCallbackQuery({ text: botT('bot.starting_setup') });
         await beginSetup(tenantId, ctx);
         return;
       }
@@ -4814,7 +4814,7 @@ function getBot(): Bot {
         const draftId = parts[1];
         const existingId = parts[2];
         if (!draftId || !existingId) {
-          await ctx.answerCallbackQuery({ text: 'Bad callback' });
+          await ctx.answerCallbackQuery({ text: botT('bot.bad_callback') });
           return;
         }
         const draft = await db.abExpense.findFirst({
@@ -4826,7 +4826,7 @@ function getBot(): Bot {
           include: { vendor: { select: { name: true } } },
         });
         if (!draft || !existing) {
-          await ctx.answerCallbackQuery({ text: 'Records not found' });
+          await ctx.answerCallbackQuery({ text: botT('bot.records_not_found') });
           return;
         }
         if (draft.receiptUrl) {
@@ -4851,7 +4851,7 @@ function getBot(): Bot {
         await db.abUserMemory.deleteMany({
           where: { tenantId, key: 'telegram:active_expense' },
         });
-        await ctx.answerCallbackQuery({ text: '🔗 Receipt attached' });
+        await ctx.answerCallbackQuery({ text: botT('bot.receipt_attached') });
         const vendor = existing.vendor?.name || 'expense';
         const date = existing.date.toISOString().slice(0, 10);
         const reply =
@@ -4870,15 +4870,15 @@ function getBot(): Bot {
       if (action === 'keepboth') {
         const draftId = parts[1];
         if (!draftId) {
-          await ctx.answerCallbackQuery({ text: 'Bad callback' });
+          await ctx.answerCallbackQuery({ text: botT('bot.bad_callback') });
           return;
         }
         await setActiveExpense(tenantId, draftId);
         if (ctx.chat?.id) await focusThreadExpense(tenantId, ctx.chat.id, draftId);
         const updated = await getActiveExpense(tenantId);
-        await ctx.answerCallbackQuery({ text: 'Treating as separate' });
+        await ctx.answerCallbackQuery({ text: botT('bot.treating_as_separate') });
         if (!updated) {
-          await ctx.reply('Couldn\'t find the draft.');
+          await ctx.reply(botT('bot.couldn_t_find_the_draft'));
           return;
         }
         const reply = formatExpenseSummary(
@@ -4891,12 +4891,12 @@ function getBot(): Bot {
             reply_markup: {
               inline_keyboard: [
                 [
-                  { text: '✅ Confirm — book it', callback_data: `confirm:${draftId}` },
-                  { text: '📁 Change category', callback_data: `change_cat:${draftId}` },
+                  { text: botT('bot.confirm_book_it'), callback_data: `confirm:${draftId}` },
+                  { text: botT('bot.change_category'), callback_data: `change_cat:${draftId}` },
                 ],
                 [
-                  { text: updated.isPersonal ? '💼 Make business' : '🏠 Make personal', callback_data: `${updated.isPersonal ? 'business' : 'personal'}:${draftId}` },
-                  { text: '❌ Reject', callback_data: `reject:${draftId}` },
+                  { text: updated.isPersonal ? botT('bot.make_business') : botT('bot.make_personal'), callback_data: `${updated.isPersonal ? 'business' : 'personal'}:${draftId}` },
+                  { text: botT('bot.reject'), callback_data: `reject:${draftId}` },
                 ],
               ],
             },
@@ -4912,20 +4912,20 @@ function getBot(): Bot {
       if (action === 'aiok') {
         const expenseId = parts[1];
         if (!expenseId) {
-          await ctx.answerCallbackQuery({ text: 'Bad callback' });
+          await ctx.answerCallbackQuery({ text: botT('bot.bad_callback') });
           return;
         }
         const pending = await getPendingSuggestions(tenantId);
         const suggestion = pending.find((p) => p.expenseId === expenseId);
         if (!suggestion) {
-          await ctx.answerCallbackQuery({ text: 'No longer pending' });
-          await ctx.editMessageText('✅ Already handled.');
+          await ctx.answerCallbackQuery({ text: botT('bot.no_longer_pending') });
+          await ctx.editMessageText(botT('bot.already_handled'));
           return;
         }
         // Apply the category + learn the vendor pattern
         const expense = await db.abExpense.findFirst({ where: { id: expenseId, tenantId } });
         if (!expense) {
-          await ctx.answerCallbackQuery({ text: 'Expense not found' });
+          await ctx.answerCallbackQuery({ text: botT('bot.expense_not_found') });
           return;
         }
         await db.abExpense.update({
@@ -4956,14 +4956,14 @@ function getBot(): Bot {
           }
         }
         const remaining = await dropPendingSuggestion(tenantId, expenseId);
-        await ctx.answerCallbackQuery({ text: `✅ Booked under ${suggestion.suggestedCategoryName}` });
+        await ctx.answerCallbackQuery({ text: botT('bot.booked_under', { p0: suggestion.suggestedCategoryName }) });
         try {
           await ctx.editMessageText(
-            `✅ <b>${escHtml(suggestion.vendorName || 'Expense')}</b> ${fmtAmount(suggestion.amountCents)} → <b>${escHtml(suggestion.suggestedCategoryName)}</b>${remaining > 0 ? `\n\n${remaining} left to review.` : '\n\nAll caught up. 🎉'}`,
+            `✅ <b>${escHtml(suggestion.vendorName || 'Expense')}</b> ${fmtAmount(suggestion.amountCents)} → <b>${escHtml(suggestion.suggestedCategoryName)}</b>${remaining > 0 ? botT('bot.left_to_review', { p0: remaining }) : botT('bot.all_caught_up')}`,
             { parse_mode: 'HTML' },
           );
         } catch {
-          await ctx.reply(`✅ Booked under ${suggestion.suggestedCategoryName}.`);
+          await ctx.reply(botT('bot.booked_under_2', { p0: suggestion.suggestedCategoryName }));
         }
         return;
       }
@@ -4974,7 +4974,7 @@ function getBot(): Bot {
       if (action === 'aichg') {
         const expenseId = parts[1];
         if (!expenseId) {
-          await ctx.answerCallbackQuery({ text: 'Bad callback' });
+          await ctx.answerCallbackQuery({ text: botT('bot.bad_callback') });
           return;
         }
         await setActiveExpense(tenantId, expenseId);
@@ -4986,7 +4986,7 @@ function getBot(): Bot {
           take: 12,
         });
         if (categories.length === 0) {
-          await ctx.answerCallbackQuery({ text: 'No expense categories' });
+          await ctx.answerCallbackQuery({ text: botT('bot.no_expense_categories') });
           return;
         }
         await db.abUserMemory.upsert({
@@ -5009,25 +5009,25 @@ function getBot(): Bot {
             })),
           );
         }
-        await ctx.answerCallbackQuery({ text: 'Pick the right one' });
-        await ctx.reply('📁 Pick a category:', { reply_markup: { inline_keyboard: rows } });
+        await ctx.answerCallbackQuery({ text: botT('bot.pick_the_right_match') });
+        await ctx.reply(botT('bot.pick_a_category_2'), { reply_markup: { inline_keyboard: rows } });
         return;
       }
 
       // === Invoice-from-chat (PR 1) ====================================
       if (action === 'inv_send') {
         const draftId = parts[1];
-        if (!draftId) { await ctx.answerCallbackQuery({ text: 'Bad callback' }); return; }
+        if (!draftId) { await ctx.answerCallbackQuery({ text: botT('bot.bad_callback') }); return; }
         const inv = await db.abInvoice.findFirst({
           where: { id: draftId, tenantId },
           include: { client: { select: { name: true, email: true } } },
         });
         if (!inv) {
-          await ctx.answerCallbackQuery({ text: 'Draft not found' });
+          await ctx.answerCallbackQuery({ text: botT('bot.draft_not_found') });
           return;
         }
         if (inv.status !== 'draft') {
-          await ctx.answerCallbackQuery({ text: `Already ${inv.status}` });
+          await ctx.answerCallbackQuery({ text: botT('bot.already', { p0: inv.status }) });
           return;
         }
 
@@ -5039,8 +5039,8 @@ function getBot(): Bot {
         ]);
 
         if (!arAccount || !revenueAccount) {
-          await ctx.answerCallbackQuery({ text: 'Chart of accounts not seeded' });
-          await ctx.reply("❌ Can't post the journal — AR (1100) or Revenue (4000) account is missing. Seed your chart of accounts first.");
+          await ctx.answerCallbackQuery({ text: botT('bot.chart_of_accounts_not_seeded') });
+          await ctx.reply(botT('bot.can_t_post_the_journal_ar_1100'));
           return;
         }
 
@@ -5081,7 +5081,7 @@ function getBot(): Bot {
           });
         } catch (err) {
           console.error('[inv_send] failed:', err);
-          await ctx.answerCallbackQuery({ text: 'Send failed' });
+          await ctx.answerCallbackQuery({ text: botT('bot.send_failed') });
           return;
         }
 
@@ -5090,7 +5090,7 @@ function getBot(): Bot {
           where: { tenantId, key: `telegram:editing_invoice:${ctx.chat?.id}` },
         });
 
-        await ctx.answerCallbackQuery({ text: '📨 Sent' });
+        await ctx.answerCallbackQuery({ text: botT('bot.sent') });
         const recipient = inv.client.email
           ? ` to <b>${escHtml(inv.client.email)}</b>`
           : '';
@@ -5105,7 +5105,7 @@ function getBot(): Bot {
 
       if (action === 'inv_edit') {
         const draftId = parts[1];
-        if (!draftId) { await ctx.answerCallbackQuery({ text: 'Bad callback' }); return; }
+        if (!draftId) { await ctx.answerCallbackQuery({ text: botT('bot.bad_callback') }); return; }
         // PR 1 scope cap: edit only supports `amount` and `dueDate` for
         // now. `client` and `lines` will land in a follow-up PR — those
         // require multi-step flows that aren't worth shipping until the
@@ -5125,15 +5125,15 @@ function getBot(): Bot {
             confidence: 1,
           },
         });
-        await ctx.answerCallbackQuery({ text: 'Pick a field' });
+        await ctx.answerCallbackQuery({ text: botT('bot.pick_a_field') });
         await ctx.reply(
-          'Which field — <b>amount</b> or <b>due date</b>? (Client and line-item edits land in the next release.)',
+          botT('bot.which_field_amount_or_due_date_client'),
           {
             parse_mode: 'HTML',
             reply_markup: {
               inline_keyboard: [[
                 { text: 'Amount', callback_data: `inv_editfield:${draftId}:amount` },
-                { text: 'Due date', callback_data: `inv_editfield:${draftId}:dueDate` },
+                { text: botT('bot.due_date'), callback_data: `inv_editfield:${draftId}:dueDate` },
               ]],
             },
           },
@@ -5145,7 +5145,7 @@ function getBot(): Bot {
         const draftId = parts[1];
         const field = parts[2];
         if (!draftId || !['amount', 'dueDate'].includes(field)) {
-          await ctx.answerCallbackQuery({ text: 'Bad callback' });
+          await ctx.answerCallbackQuery({ text: botT('bot.bad_callback') });
           return;
         }
         const memoryKey = `telegram:editing_invoice:${ctx.chat?.id}`;
@@ -5163,7 +5163,7 @@ function getBot(): Bot {
             confidence: 1,
           },
         });
-        await ctx.answerCallbackQuery({ text: `Send the new ${field}` });
+        await ctx.answerCallbackQuery({ text: botT('bot.send_the_new', { p0: field }) });
         const prompt = field === 'amount'
           ? "What's the new total? (e.g. <code>$5500</code> or <code>5500.00</code>)"
           : "What's the new due date? (e.g. <code>2026-06-30</code> or <code>July 30</code>)";
@@ -5173,14 +5173,14 @@ function getBot(): Bot {
 
       if (action === 'inv_cancel') {
         const draftId = parts[1];
-        if (!draftId) { await ctx.answerCallbackQuery({ text: 'Bad callback' }); return; }
+        if (!draftId) { await ctx.answerCallbackQuery({ text: botT('bot.bad_callback') }); return; }
         const inv = await db.abInvoice.findFirst({ where: { id: draftId, tenantId } });
         if (!inv) {
-          await ctx.answerCallbackQuery({ text: 'Already gone' });
+          await ctx.answerCallbackQuery({ text: botT('bot.already_gone') });
           return;
         }
         if (inv.status !== 'draft') {
-          await ctx.answerCallbackQuery({ text: `Cannot cancel — invoice is ${inv.status}` });
+          await ctx.answerCallbackQuery({ text: botT('bot.cannot_cancel_invoice_is', { p0: inv.status }) });
           return;
         }
         await db.$transaction([
@@ -5198,11 +5198,11 @@ function getBot(): Bot {
             action: { number: inv.number, source: 'telegram' },
           },
         });
-        await ctx.answerCallbackQuery({ text: '❌ Cancelled' });
+        await ctx.answerCallbackQuery({ text: botT('bot.cancelled') });
         try {
-          await ctx.editMessageText('Cancelled. Nothing booked.');
+          await ctx.editMessageText(botT('bot.cancelled_nothing_booked'));
         } catch {
-          await ctx.reply('Cancelled. Nothing booked.');
+          await ctx.reply(botT('bot.cancelled_nothing_booked'));
         }
         return;
       }
@@ -5210,13 +5210,13 @@ function getBot(): Bot {
       if (action === 'inv_pickclient') {
         const token = parts[1];
         const clientId = parts[2];
-        if (!token || !clientId) { await ctx.answerCallbackQuery({ text: 'Bad callback' }); return; }
+        if (!token || !clientId) { await ctx.answerCallbackQuery({ text: botT('bot.bad_callback') }); return; }
         const memoryKey = `telegram:pending_invoice_draft:${token}`;
         const memory = await db.abUserMemory.findUnique({
           where: { tenantId_key: { tenantId, key: memoryKey } },
         });
         if (!memory) {
-          await ctx.answerCallbackQuery({ text: 'Pick expired — try again' });
+          await ctx.answerCallbackQuery({ text: botT('bot.pick_expired_try_again') });
           return;
         }
         let parsed: unknown = null;
@@ -5226,7 +5226,7 @@ function getBot(): Bot {
           parsed = null;
         }
         if (!parsed) {
-          await ctx.answerCallbackQuery({ text: 'Pick expired — try again' });
+          await ctx.answerCallbackQuery({ text: botT('bot.pick_expired_try_again') });
           return;
         }
         // Forward to the draft-from-text endpoint with clientId pre-set.
@@ -5241,10 +5241,10 @@ function getBot(): Bot {
           await db.abUserMemory.deleteMany({ where: { tenantId, key: memoryKey } });
           if (!json.success || !json.data) {
             await ctx.answerCallbackQuery({ text: 'Failed' });
-            await ctx.reply(`❌ ${json.error || 'Could not create draft.'}`);
+            await ctx.reply(`❌ ${json.error || botT('bot.could_not_create_draft')}`);
             return;
           }
-          await ctx.answerCallbackQuery({ text: 'Got it' });
+          await ctx.answerCallbackQuery({ text: botT('bot.got_it') });
           const text = buildDraftPreviewText(json.data);
           try {
             await ctx.editMessageText(text, {
@@ -5259,7 +5259,7 @@ function getBot(): Bot {
           }
         } catch (err) {
           console.error('[inv_pickclient] failed:', err);
-          await ctx.answerCallbackQuery({ text: 'Network error' });
+          await ctx.answerCallbackQuery({ text: botT('bot.network_error') });
         }
         return;
       }
@@ -5273,9 +5273,9 @@ function getBot(): Bot {
         }
         await ctx.answerCallbackQuery({ text: 'Cancelled' });
         try {
-          await ctx.editMessageText('Cancelled. Nothing booked.');
+          await ctx.editMessageText(botT('bot.cancelled_nothing_booked'));
         } catch {
-          await ctx.reply('Cancelled. Nothing booked.');
+          await ctx.reply(botT('bot.cancelled_nothing_booked'));
         }
         return;
       }
@@ -5287,47 +5287,47 @@ function getBot(): Bot {
       // send something it can't.
       if (action === 'est_send') {
         const estimateId = parts[1];
-        if (!estimateId) { await ctx.answerCallbackQuery({ text: 'Bad callback' }); return; }
+        if (!estimateId) { await ctx.answerCallbackQuery({ text: botT('bot.bad_callback') }); return; }
         const est = await db.abEstimate.findFirst({ where: { id: estimateId, tenantId } });
         if (!est) {
-          await ctx.answerCallbackQuery({ text: 'Estimate not found' });
+          await ctx.answerCallbackQuery({ text: botT('bot.estimate_not_found') });
           return;
         }
-        await ctx.answerCallbackQuery({ text: 'Coming soon' });
-        await ctx.reply('📨 Email send: coming soon. For now copy the preview above and email it manually — the estimate is saved.');
+        await ctx.answerCallbackQuery({ text: botT('bot.coming_soon') });
+        await ctx.reply(botT('bot.email_send_coming_soon_for_now_copy'));
         return;
       }
 
       if (action === 'est_edit') {
         const estimateId = parts[1];
-        if (!estimateId) { await ctx.answerCallbackQuery({ text: 'Bad callback' }); return; }
+        if (!estimateId) { await ctx.answerCallbackQuery({ text: botT('bot.bad_callback') }); return; }
         const est = await db.abEstimate.findFirst({ where: { id: estimateId, tenantId } });
         if (!est) {
-          await ctx.answerCallbackQuery({ text: 'Estimate not found' });
+          await ctx.answerCallbackQuery({ text: botT('bot.estimate_not_found') });
           return;
         }
         if (est.status !== 'pending') {
-          await ctx.answerCallbackQuery({ text: `Cannot edit — status=${est.status}` });
+          await ctx.answerCallbackQuery({ text: botT('bot.cannot_edit_status', { p0: est.status }) });
           return;
         }
         // PR 7 scope cap: edit lands as a follow-up (parallels how PR 1
         // shipped invoice-edit in a follow-up). Acknowledge and link to
         // the web UI.
-        await ctx.answerCallbackQuery({ text: 'Edit on web' });
-        await ctx.reply('✏️ Edit on the web for now: <b>/agentbook/estimates</b>. Inline edit lands in the next release.', { parse_mode: 'HTML' });
+        await ctx.answerCallbackQuery({ text: botT('bot.edit_on_web') });
+        await ctx.reply(botT('bot.edit_on_the_web_for_now_agentbook'), { parse_mode: 'HTML' });
         return;
       }
 
       if (action === 'est_cancel') {
         const estimateId = parts[1];
-        if (!estimateId) { await ctx.answerCallbackQuery({ text: 'Bad callback' }); return; }
+        if (!estimateId) { await ctx.answerCallbackQuery({ text: botT('bot.bad_callback') }); return; }
         const est = await db.abEstimate.findFirst({ where: { id: estimateId, tenantId } });
         if (!est) {
-          await ctx.answerCallbackQuery({ text: 'Already gone' });
+          await ctx.answerCallbackQuery({ text: botT('bot.already_gone') });
           return;
         }
         if (est.status !== 'pending' && est.status !== 'declined' && est.status !== 'expired') {
-          await ctx.answerCallbackQuery({ text: `Cannot cancel — status=${est.status}` });
+          await ctx.answerCallbackQuery({ text: botT('bot.cannot_cancel_status', { p0: est.status }) });
           return;
         }
         await db.abEstimate.delete({ where: { id: estimateId } });
@@ -5339,11 +5339,11 @@ function getBot(): Bot {
             action: { estimateId, source: 'telegram', previousStatus: est.status },
           },
         });
-        await ctx.answerCallbackQuery({ text: '❌ Cancelled' });
+        await ctx.answerCallbackQuery({ text: botT('bot.cancelled') });
         try {
-          await ctx.editMessageText('Cancelled. Estimate deleted.');
+          await ctx.editMessageText(botT('bot.cancelled_estimate_deleted'));
         } catch {
-          await ctx.reply('Cancelled. Estimate deleted.');
+          await ctx.reply(botT('bot.cancelled_estimate_deleted'));
         }
         return;
       }
@@ -5355,13 +5355,13 @@ function getBot(): Bot {
       if (action === 'tmr_pickclient') {
         const token = parts[1];
         const clientId = parts[2];
-        if (!token || !clientId) { await ctx.answerCallbackQuery({ text: 'Bad callback' }); return; }
+        if (!token || !clientId) { await ctx.answerCallbackQuery({ text: botT('bot.bad_callback') }); return; }
         const memoryKey = `telegram:pending_timer_start:${token}`;
         const memory = await db.abUserMemory.findUnique({
           where: { tenantId_key: { tenantId, key: memoryKey } },
         });
         if (!memory) {
-          await ctx.answerCallbackQuery({ text: 'Pick expired — try again' });
+          await ctx.answerCallbackQuery({ text: botT('bot.pick_expired_try_again') });
           return;
         }
         let pending: { taskDescription?: string; clientNameHint?: string } = {};
@@ -5376,7 +5376,7 @@ function getBot(): Bot {
             select: { id: true, name: true },
           });
           if (!client) {
-            await ctx.answerCallbackQuery({ text: 'Client missing' });
+            await ctx.answerCallbackQuery({ text: botT('bot.client_missing') });
             await db.abUserMemory.deleteMany({ where: { tenantId, key: memoryKey } });
             return;
           }
@@ -5412,7 +5412,7 @@ function getBot(): Bot {
           }
         } catch (err) {
           console.warn('[tmr_pickclient] failed:', err);
-          await ctx.answerCallbackQuery({ text: 'Timer start failed' });
+          await ctx.answerCallbackQuery({ text: botT('bot.timer_start_failed') });
         }
         return;
       }
@@ -5426,9 +5426,9 @@ function getBot(): Bot {
         }
         await ctx.answerCallbackQuery({ text: 'Cancelled' });
         try {
-          await ctx.editMessageText('Cancelled. No timer running.');
+          await ctx.editMessageText(botT('bot.cancelled_no_timer_running'));
         } catch {
-          await ctx.reply('Cancelled. No timer running.');
+          await ctx.reply(botT('bot.cancelled_no_timer_running'));
         }
         return;
       }
@@ -5437,7 +5437,7 @@ function getBot(): Bot {
       if (action === 'tmr_pickinvoice') {
         const token = parts[1];
         const clientId = parts[2];
-        if (!token || !clientId) { await ctx.answerCallbackQuery({ text: 'Bad callback' }); return; }
+        if (!token || !clientId) { await ctx.answerCallbackQuery({ text: botT('bot.bad_callback') }); return; }
         // Fail closed locally before invoking the HTTP route — same
         // pattern as `tmr_pickclient` above. The route does verify
         // ownership too, but doing the check here keeps the bot from
@@ -5448,8 +5448,8 @@ function getBot(): Bot {
           select: { id: true },
         });
         if (!owns) {
-          await ctx.answerCallbackQuery({ text: 'Client missing' });
-          await ctx.reply("That client isn't available anymore.");
+          await ctx.answerCallbackQuery({ text: botT('bot.client_missing') });
+          await ctx.reply(botT('bot.that_client_isn_t_available_anymore'));
           return;
         }
         const memoryKey = `telegram:pending_invoice_from_timer:${token}`;
@@ -5457,7 +5457,7 @@ function getBot(): Bot {
           where: { tenantId_key: { tenantId, key: memoryKey } },
         });
         if (!memory) {
-          await ctx.answerCallbackQuery({ text: 'Pick expired — try again' });
+          await ctx.answerCallbackQuery({ text: botT('bot.pick_expired_try_again') });
           return;
         }
         let pending: { dateHint?: string } = {};
@@ -5500,10 +5500,10 @@ function getBot(): Bot {
           await db.abUserMemory.deleteMany({ where: { tenantId, key: memoryKey } });
           if (!json.success || !json.data) {
             await ctx.answerCallbackQuery({ text: 'Failed' });
-            await ctx.reply(`❌ ${json.error || 'Could not generate invoice.'}`);
+            await ctx.reply(`❌ ${json.error || botT('bot.could_not_generate_invoice')}`);
             return;
           }
-          await ctx.answerCallbackQuery({ text: 'Got it' });
+          await ctx.answerCallbackQuery({ text: botT('bot.got_it') });
           const total = fmtMoney(json.data.totalCents, json.data.currency);
           const reply =
             `📒 ${json.data.entryIdsConsumed.length} entries → <b>${total}</b>.\n`
@@ -5522,7 +5522,7 @@ function getBot(): Bot {
           }
         } catch (err) {
           console.warn('[tmr_pickinvoice] failed:', err);
-          await ctx.answerCallbackQuery({ text: 'Network error' });
+          await ctx.answerCallbackQuery({ text: botT('bot.network_error') });
         }
         return;
       }
@@ -5536,9 +5536,9 @@ function getBot(): Bot {
         }
         await ctx.answerCallbackQuery({ text: 'Cancelled' });
         try {
-          await ctx.editMessageText('Cancelled. Nothing booked.');
+          await ctx.editMessageText(botT('bot.cancelled_nothing_booked'));
         } catch {
-          await ctx.reply('Cancelled. Nothing booked.');
+          await ctx.reply(botT('bot.cancelled_nothing_booked'));
         }
         return;
       }
@@ -5550,14 +5550,14 @@ function getBot(): Bot {
       if (action === 'rec_confirm') {
         const recurringId = parts[1];
         if (!recurringId) {
-          await ctx.answerCallbackQuery({ text: 'Bad callback' });
+          await ctx.answerCallbackQuery({ text: botT('bot.bad_callback') });
           return;
         }
         const existing = await db.abRecurringInvoice.findFirst({
           where: { id: recurringId, tenantId },
         });
         if (!existing) {
-          await ctx.answerCallbackQuery({ text: 'Schedule not found' });
+          await ctx.answerCallbackQuery({ text: botT('bot.schedule_not_found') });
           return;
         }
         // Schedule is already 'active' on creation — this is just a
@@ -5569,13 +5569,13 @@ function getBot(): Bot {
             data: { status: 'active' },
           });
         }
-        await ctx.answerCallbackQuery({ text: '✅ Active' });
+        await ctx.answerCallbackQuery({ text: botT('bot.active') });
         try {
-          await ctx.editMessageText('✅ Recurring schedule active', {
+          await ctx.editMessageText(botT('bot.recurring_schedule_active'), {
             parse_mode: 'HTML',
           });
         } catch {
-          await ctx.reply('✅ Recurring schedule active');
+          await ctx.reply(botT('bot.recurring_schedule_active'));
         }
         return;
       }
@@ -5583,14 +5583,14 @@ function getBot(): Bot {
       if (action === 'rec_pause') {
         const recurringId = parts[1];
         if (!recurringId) {
-          await ctx.answerCallbackQuery({ text: 'Bad callback' });
+          await ctx.answerCallbackQuery({ text: botT('bot.bad_callback') });
           return;
         }
         const existing = await db.abRecurringInvoice.findFirst({
           where: { id: recurringId, tenantId },
         });
         if (!existing) {
-          await ctx.answerCallbackQuery({ text: 'Schedule not found' });
+          await ctx.answerCallbackQuery({ text: botT('bot.schedule_not_found') });
           return;
         }
         await db.abRecurringInvoice.update({
@@ -5607,11 +5607,11 @@ function getBot(): Bot {
         });
         await ctx.answerCallbackQuery({ text: '⏸ Paused' });
         try {
-          await ctx.editMessageText('⏸ Paused. Use Telegram to unpause anytime.', {
+          await ctx.editMessageText(botT('bot.paused_use_telegram_to_unpause_anytime'), {
             parse_mode: 'HTML',
           });
         } catch {
-          await ctx.reply('⏸ Paused. Use Telegram to unpause anytime.');
+          await ctx.reply(botT('bot.paused_use_telegram_to_unpause_anytime'));
         }
         return;
       }
@@ -5619,14 +5619,14 @@ function getBot(): Bot {
       if (action === 'rec_cancel') {
         const recurringId = parts[1];
         if (!recurringId) {
-          await ctx.answerCallbackQuery({ text: 'Bad callback' });
+          await ctx.answerCallbackQuery({ text: botT('bot.bad_callback') });
           return;
         }
         const existing = await db.abRecurringInvoice.findFirst({
           where: { id: recurringId, tenantId },
         });
         if (!existing) {
-          await ctx.answerCallbackQuery({ text: 'Already gone' });
+          await ctx.answerCallbackQuery({ text: botT('bot.already_gone') });
           return;
         }
         // Hard delete — prior generated invoices stay on the books, but
@@ -5642,11 +5642,11 @@ function getBot(): Bot {
             action: { recurringId, source: 'telegram' },
           },
         });
-        await ctx.answerCallbackQuery({ text: '❌ Cancelled' });
+        await ctx.answerCallbackQuery({ text: botT('bot.cancelled') });
         try {
-          await ctx.editMessageText('❌ Recurring schedule cancelled.');
+          await ctx.editMessageText(botT('bot.recurring_schedule_cancelled'));
         } catch {
-          await ctx.reply('❌ Recurring schedule cancelled.');
+          await ctx.reply(botT('bot.recurring_schedule_cancelled'));
         }
         return;
       }
@@ -5654,7 +5654,7 @@ function getBot(): Bot {
       // === Budget callbacks (PR 8) ====================================
       if (action === 'bdg_ok') {
         // Pure ack — the budget was already created in the bot loop.
-        await ctx.answerCallbackQuery({ text: '🎯 Budget saved' });
+        await ctx.answerCallbackQuery({ text: botT('bot.budget_saved') });
         try {
           // Strip the inline keyboard; leave the existing message text.
           await ctx.editMessageReplyMarkup({ reply_markup: undefined });
@@ -5670,16 +5670,16 @@ function getBot(): Bot {
         // posting stays in one place.
         const expenseId = parts[1];
         if (!expenseId) {
-          await ctx.answerCallbackQuery({ text: 'Bad callback' });
+          await ctx.answerCallbackQuery({ text: botT('bot.bad_callback') });
           return;
         }
         const expense = await db.abExpense.findFirst({ where: { id: expenseId, tenantId } });
         if (!expense) {
-          await ctx.answerCallbackQuery({ text: 'Draft not found' });
+          await ctx.answerCallbackQuery({ text: botT('bot.draft_not_found') });
           return;
         }
         if (expense.status === 'confirmed') {
-          await ctx.answerCallbackQuery({ text: 'Already booked' });
+          await ctx.answerCallbackQuery({ text: botT('bot.already_booked') });
           return;
         }
         let journalEntryId = expense.journalEntryId;
@@ -5717,29 +5717,29 @@ function getBot(): Bot {
             action: { expenseId, source: 'telegram_budget_override' },
           },
         });
-        await ctx.answerCallbackQuery({ text: '✅ Booked over budget' });
+        await ctx.answerCallbackQuery({ text: botT('bot.booked_over_budget') });
         try {
-          await ctx.editMessageText('✅ Booked — and noted that you went over budget.');
+          await ctx.editMessageText(botT('bot.booked_and_noted_that_you_went_over'));
         } catch {
-          await ctx.reply('✅ Booked — and noted that you went over budget.');
+          await ctx.reply(botT('bot.booked_and_noted_that_you_went_over'));
         }
         return;
       }
       if (action === 'bdg_skip') {
         const expenseId = parts[1];
         if (!expenseId) {
-          await ctx.answerCallbackQuery({ text: 'Bad callback' });
+          await ctx.answerCallbackQuery({ text: botT('bot.bad_callback') });
           return;
         }
         await db.abExpense.updateMany({
           where: { id: expenseId, tenantId },
           data: { status: 'rejected' },
         });
-        await ctx.answerCallbackQuery({ text: '💡 Skipped — saved your budget' });
+        await ctx.answerCallbackQuery({ text: botT('bot.skipped_saved_your_budget') });
         try {
-          await ctx.editMessageText('💡 Skipped — your budget thanks you.');
+          await ctx.editMessageText(botT('bot.skipped_your_budget_thanks_you'));
         } catch {
-          await ctx.reply('💡 Skipped — your budget thanks you.');
+          await ctx.reply(botT('bot.skipped_your_budget_thanks_you'));
         }
         return;
       }
@@ -5753,14 +5753,14 @@ function getBot(): Bot {
       if (action === 'bnk_match') {
         const txnId = parts[1];
         if (!txnId) {
-          await ctx.answerCallbackQuery({ text: 'Bad callback' });
+          await ctx.answerCallbackQuery({ text: botT('bot.bad_callback') });
           return;
         }
         const txn = await db.abBankTransaction.findFirst({
           where: { id: txnId, tenantId },
         });
         if (!txn) {
-          await ctx.answerCallbackQuery({ text: 'Transaction not found' });
+          await ctx.answerCallbackQuery({ text: botT('bot.transaction_not_found') });
           return;
         }
         // Pull the best-guess target the matcher (PR 3) pre-stored on
@@ -5774,9 +5774,9 @@ function getBot(): Bot {
         if (!targetType || !targetId) {
           // Toast is short and easy to miss — also send a reply so the
           // user has the explicit guidance in their chat history.
-          await ctx.answerCallbackQuery({ text: 'No guess on file — use Pick another' });
+          await ctx.answerCallbackQuery({ text: botT('bot.no_guess_on_file_use_pick_another') });
           await ctx.reply(
-            'No guess on file for this transaction. Tap <b>🔍 Pick another</b> on the digest message to choose a match manually.',
+            botT('bot.no_guess_on_file_for_this_transaction'),
             { parse_mode: 'HTML' },
           );
           return;
@@ -5792,7 +5792,7 @@ function getBot(): Bot {
               invoiceId: targetId,
               source: 'telegram_button',
             });
-            await ctx.answerCallbackQuery({ text: '✅ Matched & paid' });
+            await ctx.answerCallbackQuery({ text: botT('bot.matched_paid') });
             const replyText = `✅ Marked ${fmtAmount(result.paymentAmountCents)} to <b>${escHtml(result.invoiceNumber)}</b> — paid.`;
             try {
               await ctx.editMessageText(replyText, { parse_mode: 'HTML' });
@@ -5809,7 +5809,7 @@ function getBot(): Bot {
             expenseId: targetId,
             source: 'telegram_button',
           });
-          await ctx.answerCallbackQuery({ text: '✅ Matched' });
+          await ctx.answerCallbackQuery({ text: botT('bot.matched') });
           // Re-fetch description for the reply text — applyExpenseMatch
           // doesn't return it because the HTTP path doesn't need it.
           const expense = await db.abExpense.findFirst({
@@ -5833,7 +5833,7 @@ function getBot(): Bot {
             return;
           }
           console.error('[bnk_match] failed:', err);
-          await ctx.answerCallbackQuery({ text: 'Error matching — try again' });
+          await ctx.answerCallbackQuery({ text: botT('bot.error_matching_try_again') });
         }
         return;
       }
@@ -5841,14 +5841,14 @@ function getBot(): Bot {
       if (action === 'bnk_skip') {
         const txnId = parts[1];
         if (!txnId) {
-          await ctx.answerCallbackQuery({ text: 'Bad callback' });
+          await ctx.answerCallbackQuery({ text: botT('bot.bad_callback') });
           return;
         }
         const txn = await db.abBankTransaction.findFirst({
           where: { id: txnId, tenantId },
         });
         if (!txn) {
-          await ctx.answerCallbackQuery({ text: 'Transaction not found' });
+          await ctx.answerCallbackQuery({ text: botT('bot.transaction_not_found') });
           return;
         }
         await db.$transaction([
@@ -5865,7 +5865,7 @@ function getBot(): Bot {
             },
           }),
         ]);
-        await ctx.answerCallbackQuery({ text: '🟡 Skipped' });
+        await ctx.answerCallbackQuery({ text: botT('bot.skipped') });
         const skipReply = `🟡 Skipped — I'll leave it pending.`;
         try {
           await ctx.editMessageText(skipReply);
@@ -5878,14 +5878,14 @@ function getBot(): Bot {
       if (action === 'bnk_pickinvoice' || action === 'bnk_pickexpense') {
         const txnId = parts[1];
         if (!txnId) {
-          await ctx.answerCallbackQuery({ text: 'Bad callback' });
+          await ctx.answerCallbackQuery({ text: botT('bot.bad_callback') });
           return;
         }
         const txn = await db.abBankTransaction.findFirst({
           where: { id: txnId, tenantId },
         });
         if (!txn) {
-          await ctx.answerCallbackQuery({ text: 'Transaction not found' });
+          await ctx.answerCallbackQuery({ text: botT('bot.transaction_not_found') });
           return;
         }
 
@@ -5976,10 +5976,10 @@ function getBot(): Bot {
         const top = candidates.slice(0, 5);
 
         if (top.length === 0) {
-          await ctx.answerCallbackQuery({ text: 'No candidates found' });
+          await ctx.answerCallbackQuery({ text: botT('bot.no_candidates_found') });
           await ctx.reply(
-            `No likely ${action === 'bnk_pickinvoice' ? 'invoices' : 'expenses'} match. ` +
-              `Tap ❌ Skip if you want to ignore this transaction.`,
+            botT('bot.no_likely_match', { p0: action === 'bnk_pickinvoice' ? 'invoices' : 'expenses' }) +
+              botT('bot.tap_skip_if_you_want_to_ignore'),
           );
           return;
         }
@@ -6004,9 +6004,9 @@ function getBot(): Bot {
           rows.push([{ text: c.label, callback_data: `bnk_m2:${token}` }]);
         }
 
-        rows.push([{ text: '❌ Cancel', callback_data: `bnk_skip:${txnId}` }]);
-        await ctx.answerCallbackQuery({ text: 'Pick a match' });
-        await ctx.reply(`Pick the ${action === 'bnk_pickinvoice' ? 'invoice' : 'expense'} this matches:`, {
+        rows.push([{ text: botT('bot.cancel'), callback_data: `bnk_skip:${txnId}` }]);
+        await ctx.answerCallbackQuery({ text: botT('bot.pick_a_match') });
+        await ctx.reply(botT('bot.pick_the_this_matches', { p0: action === 'bnk_pickinvoice' ? 'invoice' : 'expense' }), {
           reply_markup: { inline_keyboard: rows },
         });
         return;
@@ -6015,7 +6015,7 @@ function getBot(): Bot {
       if (action === 'bnk_m2') {
         const token = parts[1];
         if (!token) {
-          await ctx.answerCallbackQuery({ text: 'Bad callback' });
+          await ctx.answerCallbackQuery({ text: botT('bot.bad_callback') });
           return;
         }
         const memo = await db.abUserMemory.findUnique({
@@ -6026,7 +6026,7 @@ function getBot(): Bot {
         // on possibly-stale data.
         const TOKEN_TTL_MS = 24 * 60 * 60 * 1000;
         if (!memo || Date.now() - memo.updatedAt.getTime() > TOKEN_TTL_MS) {
-          await ctx.answerCallbackQuery({ text: 'Pick expired — open digest again' });
+          await ctx.answerCallbackQuery({ text: botT('bot.pick_expired_open_digest_again') });
           if (memo) {
             // Stale row — clean it up so it doesn't accumulate.
             await db.abUserMemory.delete({ where: { id: memo.id } }).catch(() => null);
@@ -6037,7 +6037,7 @@ function getBot(): Bot {
         try {
           parsed = JSON.parse(memo.value);
         } catch {
-          await ctx.answerCallbackQuery({ text: 'Bad pick token' });
+          await ctx.answerCallbackQuery({ text: botT('bot.bad_pick_token') });
           return;
         }
         const { txnId, targetType, targetId } = parsed;
@@ -6045,7 +6045,7 @@ function getBot(): Bot {
           where: { id: txnId, tenantId },
         });
         if (!txn) {
-          await ctx.answerCallbackQuery({ text: 'Transaction not found' });
+          await ctx.answerCallbackQuery({ text: botT('bot.transaction_not_found') });
           return;
         }
         try {
@@ -6068,8 +6068,8 @@ function getBot(): Bot {
                 value: { contains: `"txnId":"${txnId}"` },
               },
             });
-            await ctx.answerCallbackQuery({ text: '✅ Matched & paid' });
-            await ctx.reply(`✅ Marked ${fmtAmount(result.paymentAmountCents)} to <b>${escHtml(result.invoiceNumber)}</b> — paid.`, {
+            await ctx.answerCallbackQuery({ text: botT('bot.matched_paid') });
+            await ctx.reply(botT('bot.marked_to_paid', { p0: fmtAmount(result.paymentAmountCents), p1: escHtml(result.invoiceNumber) }), {
               parse_mode: 'HTML',
             });
             return;
@@ -6093,8 +6093,8 @@ function getBot(): Bot {
             where: { id: targetId, tenantId },
             select: { description: true },
           });
-          await ctx.answerCallbackQuery({ text: '✅ Linked' });
-          await ctx.reply(`✅ Linked ${fmtAmount(Math.abs(txn.amount))} to expense <b>${escHtml(expense?.description || 'expense')}</b>.`, {
+          await ctx.answerCallbackQuery({ text: botT('bot.linked') });
+          await ctx.reply(botT('bot.linked_to_expense', { p0: fmtAmount(Math.abs(txn.amount)), p1: escHtml(expense?.description || 'expense') }), {
             parse_mode: 'HTML',
           });
         } catch (err) {
@@ -6108,7 +6108,7 @@ function getBot(): Bot {
             return;
           }
           console.error('[bnk_match2] failed:', err);
-          await ctx.answerCallbackQuery({ text: 'Error matching — try again' });
+          await ctx.answerCallbackQuery({ text: botT('bot.error_matching_try_again') });
         }
         return;
       }
@@ -6121,7 +6121,7 @@ function getBot(): Bot {
       if (action === 'pdm_mie_only' || action === 'pdm_with_lodging') {
         const token = parts[1];
         if (!token) {
-          await ctx.answerCallbackQuery({ text: 'Token missing' });
+          await ctx.answerCallbackQuery({ text: botT('bot.token_missing') });
           return;
         }
         const memoryKey = `telegram:pending_perdiem:${token}`;
@@ -6129,7 +6129,7 @@ function getBot(): Bot {
           where: { tenantId_key: { tenantId, key: memoryKey } },
         });
         if (!stash) {
-          await ctx.answerCallbackQuery({ text: 'Per-diem session expired' });
+          await ctx.answerCallbackQuery({ text: botT('bot.per_diem_session_expired') });
           return;
         }
         const parsed = JSON.parse(stash.value) as {
@@ -6143,15 +6143,15 @@ function getBot(): Bot {
         };
         if (action === 'pdm_mie_only') {
           await db.abUserMemory.deleteMany({ where: { tenantId, key: memoryKey } });
-          await ctx.answerCallbackQuery({ text: '✅ M&IE only — booked' });
-          await ctx.reply('✅ Booked M&IE only. Have a good trip.');
+          await ctx.answerCallbackQuery({ text: botT('bot.m_ie_only_booked') });
+          await ctx.reply(botT('bot.booked_m_ie_only_have_a_good'));
           return;
         }
         // +Lodging: create sister entries
         const lodgingCents = parsed.lodgingCents || 0;
         if (!lodgingCents || !parsed.ids?.length) {
-          await ctx.answerCallbackQuery({ text: 'No lodging rate available' });
-          await ctx.reply('Couldn\'t find a lodging rate for that city — leaving M&IE only.');
+          await ctx.answerCallbackQuery({ text: botT('bot.no_lodging_rate_available') });
+          await ctx.reply(botT('bot.couldn_t_find_a_lodging_rate_for'));
           return;
         }
         const mieRows = await db.abExpense.findMany({
@@ -6193,15 +6193,15 @@ function getBot(): Bot {
         await db.abUserMemory.deleteMany({ where: { tenantId, key: memoryKey } });
         const totalLodging = lodgingCents * created.length;
         const fmt = (c: number) => outMoneyCompact(c, botLoc());
-        await ctx.answerCallbackQuery({ text: '🏨 Lodging added' });
-        await ctx.reply(`🏨 Added ${created.length} × ${fmt(lodgingCents)} lodging = <b>${fmt(totalLodging)}</b>.`, { parse_mode: 'HTML' });
+        await ctx.answerCallbackQuery({ text: botT('bot.lodging_added') });
+        await ctx.reply(botT('bot.added_lodging', { p0: created.length, p1: fmt(lodgingCents), p2: fmt(totalLodging) }), { parse_mode: 'HTML' });
         return;
       }
 
       if (action === 'mlg_edit') {
         const entryId = parts[1];
         if (!entryId) {
-          await ctx.answerCallbackQuery({ text: 'No entry on file' });
+          await ctx.answerCallbackQuery({ text: botT('bot.no_entry_on_file') });
           return;
         }
         const exists = await db.abMileageEntry.findFirst({
@@ -6209,7 +6209,7 @@ function getBot(): Bot {
           select: { id: true },
         });
         if (!exists) {
-          await ctx.answerCallbackQuery({ text: 'Entry not found' });
+          await ctx.answerCallbackQuery({ text: botT('bot.entry_not_found') });
           return;
         }
         const memoryKey = `telegram:editing_mileage:${ctx.chat?.id ?? ''}`;
@@ -6225,8 +6225,8 @@ function getBot(): Bot {
             confidence: 1,
           },
         });
-        await ctx.answerCallbackQuery({ text: '✏️ Send the new distance' });
-        await ctx.reply('How many miles? (e.g. <code>47</code>)', { parse_mode: 'HTML' });
+        await ctx.answerCallbackQuery({ text: botT('bot.send_the_new_distance') });
+        await ctx.reply(botT('bot.how_many_miles_e_g_47'), { parse_mode: 'HTML' });
         return;
       }
 
@@ -6237,7 +6237,7 @@ function getBot(): Bot {
       if (action === 'srch_run') {
         const id = parts[1];
         if (!id) {
-          await ctx.answerCallbackQuery({ text: 'Missing search id' });
+          await ctx.answerCallbackQuery({ text: botT('bot.missing_search_id') });
           return;
         }
         try {
@@ -6256,7 +6256,7 @@ function getBot(): Bot {
             error?: string;
           };
           if (!res.ok || !json.success) {
-            await ctx.answerCallbackQuery({ text: json.error ?? 'Run failed' });
+            await ctx.answerCallbackQuery({ text: json.error ?? botT('bot.run_failed_2') });
             return;
           }
           const name = json.data?.search?.name ?? 'Saved search';
@@ -6264,20 +6264,20 @@ function getBot(): Bot {
           const count = json.data?.count ?? 0;
           await ctx.answerCallbackQuery({ text: `${count} match${count === 1 ? '' : 'es'}` });
           await ctx.reply(
-            `🔎 <b>${escHtml(name)}</b>\nScope: ${escHtml(scope)}\nMatches: ${count}`,
+            botT('bot.scope_matches', { p0: escHtml(name), p1: escHtml(scope), p2: count }),
             { parse_mode: 'HTML' },
           );
         } catch (err) {
           console.error('[telegram srch_run] failed:', err);
-          await ctx.answerCallbackQuery({ text: 'Run failed' });
+          await ctx.answerCallbackQuery({ text: botT('bot.run_failed_2') });
         }
         return;
       }
 
-      await ctx.answerCallbackQuery({ text: `Unknown action: ${action}` });
+      await ctx.answerCallbackQuery({ text: botT('bot.unknown_action', { p0: action }) });
     } catch (err) {
       console.error('Callback error:', err);
-      await ctx.answerCallbackQuery({ text: 'Error processing action' });
+      await ctx.answerCallbackQuery({ text: botT('bot.error_processing_action') });
     }
   });
 

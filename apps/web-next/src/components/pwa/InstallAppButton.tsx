@@ -135,7 +135,7 @@ function IosInstallModal({ onClose }: { onClose: () => void }) {
             Full illustrated guide →
           </Link>
           <button onClick={onClose} className="shrink-0 btn btn-ghost text-[12px] !py-2 !px-4">
-            Got it
+            {t('common.got_it')}
           </button>
         </div>
       </div>

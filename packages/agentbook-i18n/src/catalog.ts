@@ -26,6 +26,7 @@ import type { Catalog } from './core.js';
 
 // English — the reference locale. Every key must exist here.
 import enAgent from './locales/en/agent.json';
+import enBot from './locales/en/bot.json';
 import enBilling from './locales/en/billing.json';
 import enStartupUi from './locales/en/startup_ui.json';
 import enBillingUi from './locales/en/billing_ui.json';
@@ -56,6 +57,7 @@ import enTaxUi from './locales/en/tax_ui.json';
 // Canadian French. Tax and accounting nouns follow CRA / Revenu Québec
 // official terminology (TPS/TVQ, not TVA) — see plan decision D4.
 import frAgent from './locales/fr-CA/agent.json';
+import frBot from './locales/fr-CA/bot.json';
 import frBilling from './locales/fr-CA/billing.json';
 import frStartupUi from './locales/fr-CA/startup_ui.json';
 import frBillingUi from './locales/fr-CA/billing_ui.json';
@@ -85,6 +87,7 @@ import frTaxUi from './locales/fr-CA/tax_ui.json';
 
 // Simplified Chinese.
 import zhAgent from './locales/zh-CN/agent.json';
+import zhBot from './locales/zh-CN/bot.json';
 import zhBilling from './locales/zh-CN/billing.json';
 import zhStartupUi from './locales/zh-CN/startup_ui.json';
 import zhBillingUi from './locales/zh-CN/billing_ui.json';
@@ -119,7 +122,8 @@ import zhTaxUi from './locales/zh-CN/tax_ui.json';
 export const CATALOG: Catalog = Object.freeze({
   en: {
     agent: enAgent,
-    billing: enBilling,
+    bot: enBot,
+  billing: enBilling,
     startup_ui: enStartupUi,
     billing_ui: enBillingUi,
     accounting: enAccounting,
@@ -148,7 +152,8 @@ export const CATALOG: Catalog = Object.freeze({
   },
   'fr-CA': {
     agent: frAgent,
-    billing: frBilling,
+    bot: frBot,
+  billing: frBilling,
     startup_ui: frStartupUi,
     billing_ui: frBillingUi,
     accounting: frAccounting,
@@ -177,7 +182,8 @@ export const CATALOG: Catalog = Object.freeze({
   },
   'zh-CN': {
     agent: zhAgent,
-    billing: zhBilling,
+    bot: zhBot,
+  billing: zhBilling,
     startup_ui: zhStartupUi,
     billing_ui: zhBillingUi,
     accounting: zhAccounting,
