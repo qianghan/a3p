@@ -43,7 +43,10 @@ import enInvoice from './locales/en/invoice.json';
 import enInvoiceUi from './locales/en/invoice_ui.json';
 import enOnboarding from './locales/en/onboarding.json';
 import enNav from './locales/en/nav.json';
+import enDash from './locales/en/dash.json';
 import enTabs from './locales/en/tabs.json';
+import enStudentUi from './locales/en/student_ui.json';
+import enCommunityUi from './locales/en/community_ui.json';
 import enProactive from './locales/en/proactive.json';
 import enRate from './locales/en/rate.json';
 import enTax from './locales/en/tax.json';
@@ -69,7 +72,10 @@ import frInvoice from './locales/fr-CA/invoice.json';
 import frInvoiceUi from './locales/fr-CA/invoice_ui.json';
 import frOnboarding from './locales/fr-CA/onboarding.json';
 import frNav from './locales/fr-CA/nav.json';
+import frDash from './locales/fr-CA/dash.json';
 import frTabs from './locales/fr-CA/tabs.json';
+import frStudentUi from './locales/fr-CA/student_ui.json';
+import frCommunityUi from './locales/fr-CA/community_ui.json';
 import frProactive from './locales/fr-CA/proactive.json';
 import frRate from './locales/fr-CA/rate.json';
 import frTax from './locales/fr-CA/tax.json';
@@ -94,7 +100,10 @@ import zhInvoice from './locales/zh-CN/invoice.json';
 import zhInvoiceUi from './locales/zh-CN/invoice_ui.json';
 import zhOnboarding from './locales/zh-CN/onboarding.json';
 import zhNav from './locales/zh-CN/nav.json';
+import zhDash from './locales/zh-CN/dash.json';
 import zhTabs from './locales/zh-CN/tabs.json';
+import zhStudentUi from './locales/zh-CN/student_ui.json';
+import zhCommunityUi from './locales/zh-CN/community_ui.json';
 import zhProactive from './locales/zh-CN/proactive.json';
 import zhRate from './locales/zh-CN/rate.json';
 import zhTax from './locales/zh-CN/tax.json';
@@ -124,7 +133,10 @@ export const CATALOG: Catalog = Object.freeze({
     invoice_ui: enInvoiceUi,
     onboarding: enOnboarding,
     nav: enNav,
+    dash: enDash,
     tabs: enTabs,
+    student_ui: enStudentUi,
+    community_ui: enCommunityUi,
     proactive: enProactive,
     rate: enRate,
     tax: enTax,
@@ -149,7 +161,10 @@ export const CATALOG: Catalog = Object.freeze({
     invoice_ui: frInvoiceUi,
     onboarding: frOnboarding,
     nav: frNav,
+    dash: frDash,
     tabs: frTabs,
+    student_ui: frStudentUi,
+    community_ui: frCommunityUi,
     proactive: frProactive,
     rate: frRate,
     tax: frTax,
@@ -174,7 +189,10 @@ export const CATALOG: Catalog = Object.freeze({
     invoice_ui: zhInvoiceUi,
     onboarding: zhOnboarding,
     nav: zhNav,
+    dash: zhDash,
     tabs: zhTabs,
+    student_ui: zhStudentUi,
+    community_ui: zhCommunityUi,
     proactive: zhProactive,
     rate: zhRate,
     tax: zhTax,

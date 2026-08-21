@@ -131,6 +131,9 @@ const IDENTICAL_ALLOWED = new Set<string>([
   'nav.plugin_agentbookcpa',
   // "Clients" is the same word in French (invoice_ui.clients already allowed).
   'tabs.clients',
+  // "Canada" is the country's own name in both official languages (tax_ui.canada
+  // is already allowed for the same reason).
+  'student_ui.country_ca',
 ]);
 
 /**

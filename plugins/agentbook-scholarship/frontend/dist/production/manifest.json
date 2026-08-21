@@ -5,14 +5,14 @@
   "bundleFile": "agentbook-scholarship.js",
   "stylesFile": "plugin-agentbook-scholarship-frontend.css",
   "globalName": "NaapPluginAgentbookScholarship",
-  "bundleHash": "9b9d2d5f",
-  "bundleSize": 52502,
+  "bundleHash": "2c69c37f",
+  "bundleSize": 54281,
   "routes": [
     "/plugins/agentbook-scholarship",
     "/plugins/agentbook-scholarship/*"
   ],
   "category": "finance",
   "description": "Finds scholarships you're actually eligible for with grounded, source-cited search, then helps you manage each application — deadlines, requirements, and essay critique. It consults; you decide and submit.",
-  "buildTime": "2026-07-19T22:00:26.420Z",
+  "buildTime": "2026-08-21T05:10:36.972Z",
   "nodeEnv": "production"
 }

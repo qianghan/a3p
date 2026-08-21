@@ -1,0 +1,22 @@
+{
+  "community_hub": "Carrefour communautaire",
+  "community_sub": "Posez des questions, partagez vos connaissances, aidez les autres",
+  "search_discussions": "Rechercher dans les discussions…",
+  "pinned": "Épinglé",
+  "no_posts": "Aucune publication trouvée",
+  "no_posts_hint": "Lancez une nouvelle discussion ou essayez une autre recherche",
+  "logged_in_as": "Connecté en tant que",
+  "create_new_post": "Créer une publication",
+  "post_type": "De quel type de publication s’agit-il?",
+  "category": "Catégorie",
+  "title": "Titre",
+  "content": "Contenu",
+  "tags": "Étiquettes (séparées par des virgules)",
+  "posting": "Publication…",
+  "post_not_found": "Publication introuvable",
+  "back_to_forum": "Retour au forum",
+  "no_answers": "Aucune réponse pour l’instant. Soyez le premier à aider!",
+  "your_answer": "Votre réponse",
+  "ph_answer": "Rédigez votre réponse… Vous pouvez utiliser Markdown pour la mise en forme et les blocs de code.",
+  "logged_in_as_named": "Connecté en tant que {name}"
+}

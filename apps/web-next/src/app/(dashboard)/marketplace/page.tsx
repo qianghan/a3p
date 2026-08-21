@@ -242,7 +242,7 @@ function PluginDetailModal({
                   <span className="text-xs text-muted-foreground">({aggregate.totalRatings})</span>
                 </div>
               ) : (
-                <span className="text-xs text-muted-foreground">No ratings yet</span>
+                <span className="text-xs text-muted-foreground">{t('dash.no_ratings_yet')}</span>
               )}
               <div className="flex items-center gap-1 text-xs text-muted-foreground">
                 <Download className="w-3 h-3" />
@@ -267,8 +267,7 @@ function PluginDetailModal({
                 ? 'border-primary text-foreground'
                 : 'border-transparent text-muted-foreground hover:text-foreground'
             }`}
-          >
-            Overview
+          >{t('dash.overview')}
           </button>
           <button
             onClick={() => setActiveTab('reviews')}
@@ -302,7 +301,7 @@ function PluginDetailModal({
                   <p className="text-sm text-muted-foreground capitalize">{plugin.category}</p>
                 </div>
                 <div>
-                  <h3 className="text-sm font-semibold mb-1">Latest Version</h3>
+                  <h3 className="text-sm font-semibold mb-1">{t('dash.latest_version')}</h3>
                   <p className="text-sm text-muted-foreground font-mono">
                     {plugin.versions[0]?.version || 'N/A'}
                   </p>
@@ -312,7 +311,7 @@ function PluginDetailModal({
               {/* Rating Distribution */}
               {aggregate && aggregate.totalRatings > 0 && (
                 <div>
-                  <h3 className="text-sm font-semibold mb-3">Rating Breakdown</h3>
+                  <h3 className="text-sm font-semibold mb-3">{t('dash.rating_breakdown')}</h3>
                   <div className="space-y-1.5">
                     {[5, 4, 3, 2, 1].map((star) => {
                       const count = aggregate.distribution[star] || 0;
@@ -339,9 +338,9 @@ function PluginDetailModal({
             <div className="space-y-4">
               {/* Submit Review Form */}
               <div className="bg-muted/50 rounded-lg p-4 space-y-3">
-                <h3 className="text-sm font-semibold">Write a Review</h3>
+                <h3 className="text-sm font-semibold">{t('dash.write_review')}</h3>
                 <div className="flex items-center gap-2">
-                  <span className="text-sm text-muted-foreground">Your rating:</span>
+                  <span className="text-sm text-muted-foreground">{t('dash.your_rating')}</span>
                   <StarRating
                     rating={myRating}
                     size="md"
@@ -372,8 +371,7 @@ function PluginDetailModal({
                     disabled={myRating === 0}
                     loading={submittingReview}
                     icon={!submittingReview ? <Send className="w-3.5 h-3.5" /> : undefined}
-                  >
-                    Submit Review
+                  >{t('dash.submit_review')}
                   </Button>
                 </div>
               </div>
@@ -386,8 +384,7 @@ function PluginDetailModal({
               ) : reviews.length === 0 ? (
                 <div className="text-center py-8">
                   <MessageSquare className="w-8 h-8 mx-auto text-muted-foreground/40 mb-2" />
-                  <p className="text-sm text-muted-foreground">
-                    No reviews yet. Be the first to review this plugin!
+                  <p className="text-sm text-muted-foreground">{t('dash.no_reviews')}
                   </p>
                 </div>
               ) : (
@@ -441,8 +438,7 @@ function PluginDetailModal({
             </Button>
           ) : isInstalled && isCore ? (
             <div className="flex items-center gap-2 px-3 py-1.5 text-sm rounded-lg bg-muted text-muted-foreground">
-              <Check className="w-4 h-4" />
-              Core Plugin
+              <Check className="w-4 h-4" />{t('dash.core_plugin')}
             </div>
           ) : (
             <Button
@@ -481,6 +477,7 @@ const CATEGORIES = [
 // ============================================
 
 export default function MarketplacePage() {
+  const t = useT();
   const searchParams = useSearchParams();
   const urlTeamId = searchParams.get('teamId');
   const urlTeamName = searchParams.get('teamName');
@@ -724,7 +721,7 @@ export default function MarketplacePage() {
       <div className="max-w-6xl mx-auto py-24 text-center">
         <Package className="w-8 h-8 text-muted-foreground mx-auto mb-3" />
         <h1 className="text-lg font-semibold mb-1">Marketplace isn&apos;t available yet</h1>
-        <p className="text-sm text-muted-foreground">Check back soon.</p>
+        <p className="text-sm text-muted-foreground">{t('dash.check_back_soon')}</p>
       </div>
     );
   }
@@ -733,12 +730,11 @@ export default function MarketplacePage() {
     <div className="max-w-6xl mx-auto">
       <div className="mb-4">
         <h1 className="text-lg font-semibold flex items-center gap-2">
-          <Package className="w-5 h-5" />
-          Plugin Marketplace
+          <Package className="w-5 h-5" />{t('dash.plugin_marketplace')}
         </h1>
         <p className="text-muted-foreground mt-1">
           {teamId ? (
-            <>Managing plugins for team: <strong>{teamName || 'Team'}</strong></>
+            <>{t('dash.managing_for_team_named', { team: teamName || 'Team' })}</>
           ) : (
             'Discover and install plugins to extend your NAAP experience'
           )}
@@ -752,7 +748,7 @@ export default function MarketplacePage() {
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Search plugins..."
+            placeholder={t('dash.search_plugins')}
             icon={<Search className="w-4 h-4" />}
           />
         </div>
@@ -782,9 +778,8 @@ export default function MarketplacePage() {
       ) : packages.length === 0 ? (
         <div className="text-center py-8 bg-muted/50 rounded-lg">
           <Package className="w-10 h-10 mx-auto text-muted-foreground mb-4" />
-          <h3 className="text-sm font-semibold mb-2">No plugins found</h3>
-          <p className="text-muted-foreground">
-            Try adjusting your search or filter criteria
+          <h3 className="text-sm font-semibold mb-2">{t('dash.no_plugins_found')}</h3>
+          <p className="text-muted-foreground">{t('dash.adjust_search')}
           </p>
         </div>
       ) : (
@@ -813,8 +808,7 @@ export default function MarketplacePage() {
                         </span>
                       )}
                       {isInstalled && (
-                        <span className="px-1.5 py-0.5 text-xs bg-green-500/10 text-green-500 rounded">
-                          Installed
+                        <span className="px-1.5 py-0.5 text-xs bg-green-500/10 text-green-500 rounded">{t('dash.installed')}
                         </span>
                       )}
                     </div>
@@ -851,7 +845,7 @@ export default function MarketplacePage() {
                   ) : (
                     <div className="flex items-center gap-1.5">
                       <StarRating rating={0} size="sm" />
-                      <span className="text-xs text-muted-foreground">No ratings</span>
+                      <span className="text-xs text-muted-foreground">{t('dash.no_ratings')}</span>
                     </div>
                   )}
                 </div>
@@ -871,8 +865,7 @@ export default function MarketplacePage() {
                     </Button>
                   ) : isInstalled && pkg.isCore ? (
                     <div className="w-full flex items-center justify-center gap-2 px-3 py-1.5 rounded-lg bg-muted text-muted-foreground cursor-not-allowed text-sm">
-                      <Check className="w-4 h-4" />
-                      Core Plugin
+                      <Check className="w-4 h-4" />{t('dash.core_plugin')}
                     </div>
                   ) : (
                     <Button

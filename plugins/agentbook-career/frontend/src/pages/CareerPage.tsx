@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { Briefcase, Search, ExternalLink, Loader2, Plus, Trash2, Calendar, MapPin } from 'lucide-react';
 import { careerApi, type Opportunity, type Candidate, STATUS_FLOW } from '../lib/api';
+import { useI18n } from '@naap/plugin-sdk';
 
 const inputCls =
   'w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-primary/30';
@@ -12,6 +13,7 @@ function fmtDeadline(d: string | null): string | null {
 }
 
 export const CareerPage: React.FC = () => {
+  const { t } = useI18n();
   const [items, setItems] = useState<Opportunity[]>([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
@@ -103,8 +105,7 @@ export const CareerPage: React.FC = () => {
             Search
           </button>
         </div>
-        <p className="mt-2 text-xs text-muted-foreground">
-          Matched to your program, region, and — for international students — work authorization. Every result links to its source.
+        <p className="mt-2 text-xs text-muted-foreground">{t('student_ui.career_grounding')}
         </p>
 
         {searchNote && candidates.length === 0 && (
@@ -144,7 +145,7 @@ export const CareerPage: React.FC = () => {
       </div>
 
       {/* Tracker */}
-      <h2 className="text-sm font-semibold text-foreground mb-2">Your applications</h2>
+      <h2 className="text-sm font-semibold text-foreground mb-2">{t('startup_ui.your_applications')}</h2>
       {loading ? (
         <div className="flex justify-center py-10"><Loader2 className="w-5 h-5 animate-spin text-muted-foreground" /></div>
       ) : err ? (

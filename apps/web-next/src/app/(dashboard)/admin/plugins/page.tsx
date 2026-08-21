@@ -24,6 +24,7 @@ import { Button, Input, Badge } from '@naap/ui';
 import { useAuth } from '@/contexts/auth-context';
 import { AdminNav } from '@/components/admin/AdminNav';
 import { Search } from 'lucide-react';
+import { useT } from '@/hooks/use-t';
 
 /** Resolve a Lucide icon name (e.g. "ShoppingBag") to a React component, with fallback. */
 function getPluginIcon(iconName?: string | null): React.ReactNode {
@@ -43,6 +44,7 @@ interface PluginEntry {
 }
 
 export default function AdminPluginsPage() {
+  const t = useT();
   const router = useRouter();
   const { hasRole } = useAuth();
   const [plugins, setPlugins] = useState<PluginEntry[]>([]);
@@ -165,7 +167,7 @@ export default function AdminPluginsPage() {
           loading={saving}
           icon={!saving ? <Shield size={16} /> : undefined}
         >
-          Save Changes
+          {t('dash.save_changes')}
         </Button>
       </div>
 

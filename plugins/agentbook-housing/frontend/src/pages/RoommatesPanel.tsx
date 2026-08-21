@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { Loader2, Users, ShieldCheck, Power, Search } from 'lucide-react';
+import { useI18n } from '@naap/plugin-sdk';
 import {
   roommateApi, fmtCents, LIFESTYLE_TAGS,
   type RoommateProfile, type RoommateMatch, type RoommateProfileInput,
@@ -16,6 +17,7 @@ function budgetText(min: number | null, max: number | null): string {
 }
 
 export const RoommatesPanel: React.FC = () => {
+  const { t: tr } = useI18n();
   const [profile, setProfile] = useState<RoommateProfile | null>(null);
   const [matches, setMatches] = useState<RoommateMatch[]>([]);
   const [matchNote, setMatchNote] = useState('');
@@ -142,10 +144,10 @@ export const RoommatesPanel: React.FC = () => {
           <ShieldCheck className="w-4 h-4" /> How roommate matching works
         </div>
         <ul className="text-sm text-muted-foreground list-disc pl-5 space-y-0.5">
-          <li>Your profile is <strong>off until you turn it on</strong>, and only opted-in students appear in matches.</li>
-          <li>We store <strong>no contact details and no exact address</strong> — just a handle, area, budget, and preferences.</li>
-          <li>AgentBook shows <strong>compatibility only</strong>. It never messages anyone — you reach out through your school or housing group.</li>
-          <li>Turn your profile off any time to disappear from every match list instantly.</li>
+          <li>{tr('student_ui.privacy_off_by_default')}</li>
+          <li>{tr('student_ui.privacy_no_contact')}</li>
+          <li>{tr('student_ui.privacy_compat_only')}</li>
+          <li>{tr('student_ui.turn_off_any_time')}</li>
         </ul>
       </div>
 
@@ -154,28 +156,28 @@ export const RoommatesPanel: React.FC = () => {
       {/* Profile editor */}
       <div className="rounded-xl border border-border bg-card p-4 mb-6">
         <div className="flex items-center justify-between mb-2">
-          <div className="text-sm font-medium text-foreground">Your roommate profile</div>
+          <div className="text-sm font-medium text-foreground">{tr('student_ui.roommate_profile')}</div>
           {isLive
             ? <span className="text-[11px] px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-600">Live &amp; discoverable</span>
-            : <span className="text-[11px] px-2 py-0.5 rounded-full bg-muted text-muted-foreground">Off</span>}
+            : <span className="text-[11px] px-2 py-0.5 rounded-full bg-muted text-muted-foreground">{tr('student_ui.off')}</span>}
         </div>
         <div className="grid gap-2 sm:grid-cols-2">
-          <input className={inputCls} placeholder="Display handle* (not your real name)" value={handle} onChange={(e) => setHandle(e.target.value)} />
+          <input className={inputCls} placeholder={tr('student_ui.ph_handle')} value={handle} onChange={(e) => setHandle(e.target.value)} />
           <select className={inputCls} value={jurisdiction} onChange={(e) => setJurisdiction(e.target.value)}>
-            <option value="us">United States</option>
-            <option value="ca">Canada</option>
-            <option value="uk">United Kingdom</option>
-            <option value="au">Australia</option>
+            <option value="us">{tr('student_ui.country_us')}</option>
+            <option value="ca">{tr('student_ui.country_ca')}</option>
+            <option value="uk">{tr('student_ui.country_uk')}</option>
+            <option value="au">{tr('student_ui.country_au')}</option>
           </select>
-          <input className={inputCls} placeholder="Area / campus* (e.g. Boston, UBC)" value={area} onChange={(e) => setArea(e.target.value)} />
-          <input className={inputCls} placeholder="Move-in month (e.g. 2026-09)" value={moveIn} onChange={(e) => setMoveIn(e.target.value)} />
-          <input className={inputCls} placeholder="Budget min /mo (e.g. 800)" inputMode="decimal" value={budgetMin} onChange={(e) => setBudgetMin(e.target.value)} />
-          <input className={inputCls} placeholder="Budget max /mo (e.g. 1500)" inputMode="decimal" value={budgetMax} onChange={(e) => setBudgetMax(e.target.value)} />
+          <input className={inputCls} placeholder={tr('student_ui.ph_campus')} value={area} onChange={(e) => setArea(e.target.value)} />
+          <input className={inputCls} placeholder={tr('student_ui.ph_move_in')} value={moveIn} onChange={(e) => setMoveIn(e.target.value)} />
+          <input className={inputCls} placeholder={tr('student_ui.ph_budget_min')} inputMode="decimal" value={budgetMin} onChange={(e) => setBudgetMin(e.target.value)} />
+          <input className={inputCls} placeholder={tr('student_ui.ph_budget_max')} inputMode="decimal" value={budgetMax} onChange={(e) => setBudgetMax(e.target.value)} />
         </div>
-        <textarea className={`${inputCls} mt-2`} rows={2} placeholder="Short intro (optional — no contact info)" value={bio} onChange={(e) => setBio(e.target.value)} />
+        <textarea className={`${inputCls} mt-2`} rows={2} placeholder={tr('student_ui.ph_intro')} value={bio} onChange={(e) => setBio(e.target.value)} />
 
         <div className="mt-3">
-          <div className="text-xs text-muted-foreground mb-1">Lifestyle preferences</div>
+          <div className="text-xs text-muted-foreground mb-1">{tr('student_ui.lifestyle_preferences')}</div>
           <div className="flex flex-wrap gap-1.5">
             {LIFESTYLE_TAGS.map((t) => (
               <button
@@ -192,7 +194,7 @@ export const RoommatesPanel: React.FC = () => {
 
         <label className="mt-3 flex items-start gap-2 text-xs text-muted-foreground">
           <input type="checkbox" className="mt-0.5" checked={consent} onChange={(e) => setConsent(e.target.checked)} />
-          <span>I consent to my handle, area, budget, and preferences being shown to other opted-in students for roommate matching. No contact details are shared.</span>
+          <span>{tr('student_ui.consent')}</span>
         </label>
 
         <div className="mt-3 flex flex-wrap gap-2">
@@ -204,8 +206,7 @@ export const RoommatesPanel: React.FC = () => {
               <button onClick={() => void save(false)} disabled={saving} className="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-2 text-sm text-foreground hover:bg-muted disabled:opacity-50">
                 <Power className="w-4 h-4" /> Turn off
               </button>
-              <button onClick={() => void withdraw()} disabled={saving} className="inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm text-destructive hover:bg-destructive/10 disabled:opacity-50">
-                Delete profile
+              <button onClick={() => void withdraw()} disabled={saving} className="inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm text-destructive hover:bg-destructive/10 disabled:opacity-50">{tr('student_ui.delete_profile')}
               </button>
             </>
           ) : (
@@ -219,11 +220,10 @@ export const RoommatesPanel: React.FC = () => {
       {/* Matches */}
       {isLive && (
         <>
-          <h2 className="text-sm font-semibold text-foreground mb-1">Compatible students</h2>
+          <h2 className="text-sm font-semibold text-foreground mb-1">{tr('student_ui.compatible_students')}</h2>
           {matchNote && <p className="text-xs text-muted-foreground mb-3">{matchNote}</p>}
           {matches.length === 0 ? (
-            <p className="text-sm text-muted-foreground py-6 text-center rounded-lg border border-dashed border-border">
-              No compatible students yet — check back as more opt in for your area.
+            <p className="text-sm text-muted-foreground py-6 text-center rounded-lg border border-dashed border-border">{tr('student_ui.no_compatible')}
             </p>
           ) : (
             <div className="space-y-2">

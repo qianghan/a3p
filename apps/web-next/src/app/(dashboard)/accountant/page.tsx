@@ -81,19 +81,19 @@ export default function AccountantPage() {
     <div className="max-w-4xl mx-auto p-4 sm:p-6">
       <div className="mb-5">
         <h1 className="text-xl font-bold text-foreground flex items-center gap-2"><Users className="w-5 h-5" /> {t('nav.account_access')}</h1>
-        <p className="text-sm text-muted-foreground mt-0.5">Share read-only books with your CPA and get an AI review.</p>
+        <p className="text-sm text-muted-foreground mt-0.5">{t('dash.cpa_share_sub')}</p>
       </div>
 
       {/* Share links */}
       <div className="rounded-xl border border-border bg-card p-4 mb-5">
         <div className="flex items-center justify-between mb-3">
-          <h2 className="text-sm font-semibold text-foreground">Share with your accountant</h2>
+          <h2 className="text-sm font-semibold text-foreground">{t('dash.share_with_accountant')}</h2>
           <button onClick={() => void createLink()} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium bg-primary text-primary-foreground hover:opacity-90">
             <Plus className="w-4 h-4" /> New link
           </button>
         </div>
         {links.filter((l) => l.status === 'active').length === 0 ? (
-          <p className="text-sm text-muted-foreground">No active links. Create one to give your CPA read-only access.</p>
+          <p className="text-sm text-muted-foreground">{t('dash.no_active_links')}</p>
         ) : (
           <div className="space-y-2">
             {links.filter((l) => l.status === 'active').map((l) => (
@@ -110,13 +110,13 @@ export default function AccountantPage() {
 
       {/* Invite a named CPA */}
       <div className="rounded-xl border border-border bg-card p-4 mb-5">
-        <h2 className="text-sm font-semibold text-foreground mb-1 flex items-center gap-1.5"><Mail className="w-4 h-4" /> Invite your accountant</h2>
-        <p className="text-xs text-muted-foreground mb-3">They get a private portal to review your books and request documents.</p>
+        <h2 className="text-sm font-semibold text-foreground mb-1 flex items-center gap-1.5"><Mail className="w-4 h-4" /> {t('dash.invite_accountant')}</h2>
+        <p className="text-xs text-muted-foreground mb-3">{t('dash.invite_accountant_desc')}</p>
         <div className="flex gap-2 mb-3">
           <input value={inviteEmail} onChange={(e) => setInviteEmail(e.target.value)} type="email" placeholder="accountant@firm.com"
             className="flex-1 rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground" />
           <button onClick={() => void inviteCpa()} disabled={!inviteEmail.trim()}
-            className="px-3 py-2 rounded-lg text-sm font-medium bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-50">Invite</button>
+            className="px-3 py-2 rounded-lg text-sm font-medium bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-50">{t('dash.invite')}</button>
         </div>
         {invites.filter((i) => i.status !== 'revoked').map((i) => (
           <div key={i.id} className="flex items-center justify-between gap-2 text-sm py-1">
@@ -131,7 +131,7 @@ export default function AccountantPage() {
       {/* Document requests from the CPA */}
       {docRequests.length > 0 && (
         <div className="rounded-xl border border-border bg-card p-4 mb-5">
-          <h2 className="text-sm font-semibold text-foreground mb-3 flex items-center gap-1.5"><FileQuestion className="w-4 h-4" /> Document requests</h2>
+          <h2 className="text-sm font-semibold text-foreground mb-3 flex items-center gap-1.5"><FileQuestion className="w-4 h-4" /> {t('dash.document_requests')}</h2>
           <div className="divide-y divide-border">
             {docRequests.map((d) => (
               <div key={d.id} className="flex items-center justify-between gap-3 py-2.5">
@@ -141,7 +141,7 @@ export default function AccountantPage() {
                 </div>
                 {d.status === 'fulfilled'
                   ? <span className="text-xs text-primary inline-flex items-center gap-1 shrink-0"><Check className="w-3.5 h-3.5" />fulfilled</span>
-                  : <button onClick={() => void fulfillDoc(d.id)} className="text-xs px-2.5 py-1 rounded-md border border-border hover:bg-muted shrink-0">Fulfill</button>}
+                  : <button onClick={() => void fulfillDoc(d.id)} className="text-xs px-2.5 py-1 rounded-md border border-border hover:bg-muted shrink-0">{t('dash.fulfill')}</button>}
               </div>
             ))}
           </div>
@@ -151,7 +151,7 @@ export default function AccountantPage() {
       {/* AI review */}
       <div className="rounded-xl border border-border bg-card p-4">
         <div className="flex items-center justify-between mb-3">
-          <h2 className="text-sm font-semibold text-foreground">AI CPA review</h2>
+          <h2 className="text-sm font-semibold text-foreground">{t('dash.ai_cpa_review')}</h2>
           <button onClick={() => void runReview()} disabled={running} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium border border-border hover:bg-muted disabled:opacity-50">
             <RefreshCw className={`w-4 h-4 ${running ? 'animate-spin' : ''}`} /> {running ? 'Reviewing…' : 'Run review'}
           </button>
@@ -164,7 +164,7 @@ export default function AccountantPage() {
 
         {report ? (
           <>
-            <p className="text-sm text-muted-foreground mb-2">Health score <span className="font-bold text-foreground">{report.score}/100</span> · {report.period}</p>
+            <p className="text-sm text-muted-foreground mb-2">{t('dash.health_score_value', { score: report.score })} · {report.period}</p>
             <div className="divide-y divide-border">
               {report.findings.map((f, i) => (
                 <div key={i} className="py-2.5">
@@ -176,7 +176,7 @@ export default function AccountantPage() {
             </div>
           </>
         ) : (
-          <p className="text-sm text-muted-foreground">No review yet. Run one to see actionable findings.</p>
+          <p className="text-sm text-muted-foreground">{t('dash.no_review_yet')}</p>
         )}
       </div>
     </div>

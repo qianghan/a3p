@@ -242,7 +242,7 @@ function AdminNotificationsInner() {
         </div>
 
         <div>
-          <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Title</label>
+          <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">{t('community_ui.title')}</label>
           <Input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="e.g. Receipt scanning just got faster" className="mt-1" />
         </div>
         <div>
@@ -355,7 +355,7 @@ function AdminNotificationsInner() {
         <table className="w-full">
           <thead className="bg-muted/50">
             <tr>
-              <th className="px-4 py-2 text-left text-[11px] font-medium text-muted-foreground uppercase tracking-wider">Title</th>
+              <th className="px-4 py-2 text-left text-[11px] font-medium text-muted-foreground uppercase tracking-wider">{t('community_ui.title')}</th>
               <th className="px-4 py-2 text-left text-[11px] font-medium text-muted-foreground uppercase tracking-wider">{t('expenses_ui.col_category')}</th>
               <th className="px-4 py-2 text-left text-[11px] font-medium text-muted-foreground uppercase tracking-wider">{t('common.status')}</th>
               <th className="px-4 py-2 text-left text-[11px] font-medium text-muted-foreground uppercase tracking-wider">Delivered / Read / Acted</th>

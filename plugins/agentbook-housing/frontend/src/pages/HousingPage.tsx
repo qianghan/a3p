@@ -2,6 +2,7 @@ import React, { useEffect, useState, useCallback } from 'react';
 import { Home, Loader2, Plus, Trash2, MapPin, ExternalLink, Wallet, Users } from 'lucide-react';
 import { housingApi, fmtCents, type Listing, type Affordability, type ListingInput, STATUS_FLOW } from '../lib/api';
 import { RoommatesPanel } from './RoommatesPanel';
+import { useI18n } from '@naap/plugin-sdk';
 
 const inputCls =
   'w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-primary/30';
@@ -15,6 +16,7 @@ function verdict(rentCents: number | null, maxCents: number | null): { label: st
 }
 
 export const HousingPage: React.FC = () => {
+  const { t } = useI18n();
   const [tab, setTab] = useState<'listings' | 'roommates'>('listings');
   const [items, setItems] = useState<Listing[]>([]);
   const [aff, setAff] = useState<Affordability | null>(null);
@@ -113,7 +115,7 @@ export const HousingPage: React.FC = () => {
           </p>
         ) : (
           <p className="text-sm text-muted-foreground">
-            Add income in <strong>Personal finances</strong> to see affordability flags on your listings.
+            Add income in <strong>{t('student_ui.personal_finances')}</strong> to see affordability flags on your listings.
           </p>
         )}
       </div>
@@ -122,12 +124,12 @@ export const HousingPage: React.FC = () => {
       <div className="rounded-xl border border-border bg-card p-4 mb-6">
         <div className="text-sm font-medium text-foreground mb-2">Add a listing you&apos;re considering</div>
         <div className="grid gap-2 sm:grid-cols-2">
-          <input className={inputCls} placeholder="Name / address*" value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} />
-          <input className={inputCls} placeholder="Monthly rent (e.g. 1200)" inputMode="decimal" value={form.rent} onChange={(e) => setForm({ ...form, rent: e.target.value })} />
-          <input className={inputCls} placeholder="Area / neighbourhood" value={form.area} onChange={(e) => setForm({ ...form, area: e.target.value })} />
-          <input className={inputCls} placeholder="Commute (e.g. 20 min to campus)" value={form.commute} onChange={(e) => setForm({ ...form, commute: e.target.value })} />
-          <input className={inputCls} placeholder="Lease term (e.g. 12 months)" value={form.leaseTerm} onChange={(e) => setForm({ ...form, leaseTerm: e.target.value })} />
-          <input className={inputCls} placeholder="Listing URL (optional)" value={form.sourceUrl} onChange={(e) => setForm({ ...form, sourceUrl: e.target.value })} />
+          <input className={inputCls} placeholder={t('student_ui.ph_name_address')} value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} />
+          <input className={inputCls} placeholder={t('student_ui.ph_monthly_rent')} inputMode="decimal" value={form.rent} onChange={(e) => setForm({ ...form, rent: e.target.value })} />
+          <input className={inputCls} placeholder={t('student_ui.ph_area')} value={form.area} onChange={(e) => setForm({ ...form, area: e.target.value })} />
+          <input className={inputCls} placeholder={t('student_ui.ph_commute')} value={form.commute} onChange={(e) => setForm({ ...form, commute: e.target.value })} />
+          <input className={inputCls} placeholder={t('student_ui.ph_lease_term')} value={form.leaseTerm} onChange={(e) => setForm({ ...form, leaseTerm: e.target.value })} />
+          <input className={inputCls} placeholder={t('student_ui.ph_listing_url')} value={form.sourceUrl} onChange={(e) => setForm({ ...form, sourceUrl: e.target.value })} />
         </div>
         <button
           onClick={() => void add()}
@@ -139,14 +141,13 @@ export const HousingPage: React.FC = () => {
       </div>
 
       {/* Listings */}
-      <h2 className="text-sm font-semibold text-foreground mb-2">Your listings</h2>
+      <h2 className="text-sm font-semibold text-foreground mb-2">{t('student_ui.your_listings')}</h2>
       {loading ? (
         <div className="flex justify-center py-10"><Loader2 className="w-5 h-5 animate-spin text-muted-foreground" /></div>
       ) : err ? (
         <p className="text-sm text-destructive py-4">{err}</p>
       ) : items.length === 0 ? (
-        <p className="text-sm text-muted-foreground py-6 text-center rounded-lg border border-dashed border-border">
-          No listings yet — add one above to start comparing.
+        <p className="text-sm text-muted-foreground py-6 text-center rounded-lg border border-dashed border-border">{t('student_ui.no_listings')}
         </p>
       ) : (
         <div className="space-y-2">
@@ -179,7 +180,7 @@ export const HousingPage: React.FC = () => {
                   >
                     {STATUS_FLOW.map((s) => <option key={s} value={s}>{s}</option>)}
                   </select>
-                  <button onClick={() => void remove(o.id)} aria-label="Remove" className="text-muted-foreground hover:text-destructive p-1 rounded hover:bg-muted">
+                  <button onClick={() => void remove(o.id)} aria-label={t('student_ui.remove')} className="text-muted-foreground hover:text-destructive p-1 rounded hover:bg-muted">
                     <Trash2 className="w-3.5 h-3.5" />
                   </button>
                 </div>

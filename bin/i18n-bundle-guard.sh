@@ -31,6 +31,9 @@ set -uo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 
+# Every plugin that ships a UMD bundle. The four newer ones now call t() too,
+# so they can leak the catalog exactly as the original six could — and a leak
+# is 19KB of locale data in every bundle, per bundle.
 PLUGINS=(
   agentbook-core
   agentbook-billing
@@ -38,6 +41,10 @@ PLUGINS=(
   agentbook-invoice
   agentbook-startup
   agentbook-tax
+  agentbook-scholarship
+  agentbook-housing
+  agentbook-career
+  community
 )
 
 # Distinctive strings that exist ONLY in the locale packs. Chosen to be

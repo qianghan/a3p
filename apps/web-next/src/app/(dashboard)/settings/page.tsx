@@ -635,8 +635,7 @@ export default function SettingsPage() {
             <div className="space-y-6">
               <div>
                 <h1 className="text-lg font-semibold">{t('common.settings')}</h1>
-                <p className="text-muted-foreground mt-1">
-                  Manage your account and application preferences
+                <p className="text-muted-foreground mt-1">{t('dash.settings_sub')}
                 </p>
               </div>
 
@@ -653,8 +652,7 @@ export default function SettingsPage() {
               size="sm"
               icon={<Pencil size={14} />}
               onClick={handleStartEditProfile}
-            >
-              Edit Profile
+            >{t('dash.edit_profile')}
             </Button>
           )}
         </div>
@@ -748,8 +746,7 @@ export default function SettingsPage() {
                 icon={<Save size={16} />}
                 loading={savingProfile}
                 onClick={handleSaveProfile}
-              >
-                Save Profile
+              >{t('dash.save_profile')}
               </Button>
               <Button
                 variant="ghost"
@@ -852,8 +849,7 @@ export default function SettingsPage() {
                 </div>
                 <div>
                   <p className="font-medium text-sm">Team Context Active</p>
-                  <p className="text-sm text-muted-foreground">
-                    Showing plugins installed for your team
+                  <p className="text-sm text-muted-foreground">{t('dash.showing_team_plugins')}
                   </p>
                 </div>
               </div>
@@ -863,16 +859,14 @@ export default function SettingsPage() {
                   size="sm"
                   icon={<SettingsIcon size={14} />}
                   onClick={() => router.push(`/teams/${currentTeamId}`)}
-                >
-                  Manage Team
+                >{t('dash.manage_team')}
                 </Button>
                 <Button
                   variant="primary"
                   size="sm"
                   icon={<ExternalLink size={14} />}
                   onClick={() => router.push(`/marketplace?teamId=${currentTeamId}`)}
-                >
-                  Install More
+                >{t('dash.install_more')}
                 </Button>
               </div>
             </div>
@@ -929,8 +923,7 @@ export default function SettingsPage() {
                 variant="ghost"
                 size="sm"
                 onClick={handleResetToDefaults}
-              >
-                Reset to Defaults
+              >{t('dash.reset_defaults')}
               </Button>
             </div>
 
@@ -1006,8 +999,7 @@ export default function SettingsPage() {
 
             {saving && (
               <div className="mt-3 text-center text-sm text-muted-foreground flex items-center justify-center gap-2">
-                <Loader2 className="w-4 h-4 animate-spin" />
-                Saving preferences...
+                <Loader2 className="w-4 h-4 animate-spin" />{t('dash.saving_preferences')}
               </div>
             )}
           </div>
@@ -1053,8 +1045,7 @@ export default function SettingsPage() {
             <SettingsIcon className="h-5 w-5 text-muted-foreground" />
             <h2 className="text-sm font-semibold">My Plugin Configurations</h2>
           </div>
-          <p className="text-sm text-muted-foreground mb-3">
-            Personal settings for your installed plugins (isolated per user)
+          <p className="text-sm text-muted-foreground mb-3">{t('dash.personal_plugin_settings')}
           </p>
 
           {loadingTenantInstalls ? (
@@ -1126,8 +1117,7 @@ export default function SettingsPage() {
           size="lg"
           icon={<Save size={18} />}
           loading={saving}
-        >
-          Save Changes
+        >{t('dash.save_changes')}
         </Button>
       </div>
 
@@ -1140,8 +1130,7 @@ export default function SettingsPage() {
         <div className="flex items-center justify-between">
           <div>
             <p className="font-medium text-sm">Sign Out</p>
-            <p className="text-sm text-muted-foreground">
-              Sign out from all devices
+            <p className="text-sm text-muted-foreground">{t('dash.sign_out_all')}
             </p>
           </div>
           <Button
@@ -1189,8 +1178,7 @@ export default function SettingsPage() {
             size="md"
             loading={uninstallLoading}
             onClick={handleUninstallConfirm}
-          >
-            Uninstall
+          >{t('dash.uninstall')}
           </Button>
         </div>
       </Modal>
@@ -1206,8 +1194,7 @@ export default function SettingsPage() {
         description={configuringPlugin ? `v${configuringPlugin.deployment.version.version}` : undefined}
         size="lg"
       >
-        <p className="text-sm text-muted-foreground mb-4">
-          Add custom configuration key-value pairs for this plugin
+        <p className="text-sm text-muted-foreground mb-4">{t('dash.add_config_pairs')}
         </p>
 
         <div className="space-y-3">
@@ -1240,8 +1227,7 @@ export default function SettingsPage() {
             onClick={handleAddConfigEntry}
             className="w-full py-2 border border-dashed border-muted-foreground/30 rounded-lg text-muted-foreground hover:text-primary hover:border-primary/30 transition-all flex items-center justify-center gap-2"
           >
-            <Plus size={16} />
-            Add Entry
+            <Plus size={16} />{t('dash.add_entry')}
           </button>
         </div>
 
@@ -1263,8 +1249,7 @@ export default function SettingsPage() {
             className="flex-1"
             loading={saving}
             onClick={handleSavePluginConfig}
-          >
-            Save Configuration
+          >{t('dash.save_configuration')}
           </Button>
         </div>
       </Modal>

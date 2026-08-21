@@ -248,7 +248,7 @@ export default function TeamSettingsPage() {
 
           <div className="flex justify-end">
             <Button type="submit" variant="primary" loading={saving}>
-              Save Changes
+              {t('dash.save_changes')}
             </Button>
           </div>
         </form>
