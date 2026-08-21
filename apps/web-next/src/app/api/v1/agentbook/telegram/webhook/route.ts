@@ -14,7 +14,8 @@ import { after, NextRequest, NextResponse } from 'next/server';
 import { randomBytes } from 'node:crypto';
 import { Bot, type Context as GrammyContext } from 'grammy';
 import { prisma as db } from '@naap/database';
-import { formatMoney } from '@agentbook/i18n';
+import { outMoney, outMoneyCompact, outDate, outNumber } from '@/lib/agentbook-outbound-format';
+import { botLoc, runWithBotLocale } from '@/lib/agentbook-bot-locale';
 import { handleAgentMessage } from '@agentbook-core/agent-brain';
 import { buildTaxReviewCtx, callGemini, classifyAndExecuteV1, classifyOnly, executeClassification } from '@agentbook-core/server';
 import { reconcileSkills, SKILL_QUERY } from '@agentbook-core/skill-source';
@@ -148,8 +149,23 @@ async function resolveTenantId(chatId: number, botToken?: string): Promise<strin
   return `unmapped:${chatStr}`;
 }
 
-function fmtUsd(cents: number): string {
-  return '$' + (Math.abs(cents) / 100).toLocaleString('en-US', { maximumFractionDigits: 2, minimumFractionDigits: 2 });
+/**
+ * An amount, in the tenant's currency and locale.
+ *
+ * Replaces `fmtUsd`, whose name was accurate about what it did — prefix a
+ * literal '$' — and wrong about what it was used for: 27 call sites, most of
+ * them on amounts that were not necessarily USD. A GBP tenant was shown a
+ * dollar sign on a pound figure.
+ *
+ * `currency` overrides the tenant default for genuinely per-record currencies
+ * (an expense or invoice raised in EUR stays EUR).
+ *
+ * Math.abs is preserved from the original: these are display amounts where the
+ * sign is carried by the surrounding sentence ("Marked X to invoice — paid"),
+ * not by the number.
+ */
+function fmtAmount(cents: number, currency?: string): string {
+  return outMoney(Math.abs(cents), botLoc(), currency);
 }
 
 // Real, per-jurisdiction tax logic — the same providers the web tax-estimate
@@ -193,7 +209,10 @@ function buildTaxNote(
   taxCents: number = 0,
   jurisdiction: string = 'us',
 ): string {
-  const dollars = (cents: number) => `$${(cents / 100).toFixed(2)}`;
+  // The tax GUIDANCE stays English in every locale (product decision), but the
+  // AMOUNT inside it is a number, not guidance: a Canadian or Australian
+  // tenant still needs their own symbol and separators.
+  const dollars = (cents: number) => fmtAmount(cents);
   const cat = categoryName.toLowerCase();
   const line = (taxCategory || '').toLowerCase();
   const notes: string[] = [];
@@ -578,7 +597,7 @@ async function getActiveExpense(tenantId: string): Promise<ActiveExpense | null>
 function formatExpenseSummary(e: ActiveExpense, leadLine: string): string {
   const lines: string[] = [leadLine, ''];
   if (e.vendorName) lines.push(`• Vendor: <b>${escHtml(e.vendorName)}</b>`);
-  lines.push(`• Amount: <b>${fmtUsd(e.amountCents)} ${e.currency}</b>`);
+  lines.push(`• Amount: <b>${fmtAmount(e.amountCents, e.currency)}</b>`);
   lines.push(`• Date: ${e.date.toISOString().slice(0, 10)}`);
   lines.push(`• Category: <b>${e.categoryName ? escHtml(e.categoryName) : '—'}</b>`);
   lines.push(`• Type: ${e.isPersonal ? '🏠 Personal' : '💼 Business'}`);
@@ -610,7 +629,7 @@ function buildDraftReceiptReply(
 ): string {
   const ocrConf = Math.round(ocr.confidence * 100);
   const vendorPhrase = active.vendorName ? `<b>${escHtml(active.vendorName)}</b>` : '<b>this one</b>';
-  const amountPhrase = `<b>${fmtUsd(active.amountCents)} ${active.currency}</b>`;
+  const amountPhrase = `<b>${fmtAmount(active.amountCents, active.currency)}</b>`;
 
   let lead: string;
   if (active.categoryName) {
@@ -626,8 +645,8 @@ function buildDraftReceiptReply(
   }
 
   const extras: string[] = [];
-  if (ocr.tax_cents) extras.push(`• Tax: ${fmtUsd(ocr.tax_cents)}`);
-  if (ocr.tip_cents) extras.push(`• Tip: ${fmtUsd(ocr.tip_cents)}`);
+  if (ocr.tax_cents) extras.push(`• Tax: ${fmtAmount(ocr.tax_cents)}`);
+  if (ocr.tip_cents) extras.push(`• Tip: ${fmtAmount(ocr.tip_cents)}`);
   if (ocrConf < 80) {
     extras.push(`• ⚠️ OCR confidence: ${ocrConf}% — double-check the amount`);
   } else {
@@ -712,7 +731,7 @@ async function sendPendingReviewBatch(tenantId: string, ctx: ReplyableCtx): Prom
   for (const it of aiItems) {
     const conf = Math.round(it.confidence * 100);
     const date = new Date(it.date).toISOString().slice(0, 10);
-    const text = `<b>${escHtml(it.vendorName || 'Expense')}</b> — <b>${fmtUsd(it.amountCents)}</b> · ${date}\n`
+    const text = `<b>${escHtml(it.vendorName || 'Expense')}</b> — <b>${fmtAmount(it.amountCents)}</b> · ${date}\n`
       + `I think this is <b>${escHtml(it.suggestedCategoryName)}</b> (~${conf}% sure).`
       + (it.reason ? `\n<i>${escHtml(it.reason)}</i>` : '');
     await ctx.reply(text, {
@@ -733,7 +752,7 @@ async function sendPendingReviewBatch(tenantId: string, ctx: ReplyableCtx): Prom
     if (d.categoryId) {
       const catName = draftCatNameById.get(d.categoryId) || 'category';
       const text =
-        `<b>${escHtml(vendor)}</b> — <b>${fmtUsd(d.amountCents)}</b> · ${date}\n`
+        `<b>${escHtml(vendor)}</b> — <b>${fmtAmount(d.amountCents)}</b> · ${date}\n`
         + `Auto-categorized as <b>${escHtml(catName)}</b>. Confirm to put it on the books.`;
       await ctx.reply(text, {
         parse_mode: 'HTML',
@@ -752,7 +771,7 @@ async function sendPendingReviewBatch(tenantId: string, ctx: ReplyableCtx): Prom
       });
     } else {
       const text =
-        `<b>${escHtml(vendor)}</b> — <b>${fmtUsd(d.amountCents)}</b> · ${date}\n`
+        `<b>${escHtml(vendor)}</b> — <b>${fmtAmount(d.amountCents)}</b> · ${date}\n`
         + `<i>Draft, no category yet.</i>`;
       await ctx.reply(text, {
         parse_mode: 'HTML',
@@ -1013,12 +1032,12 @@ async function sendDuplicateReply(
   lines.push(`🪄 <b>Looks like a duplicate.</b>`);
   lines.push('');
   lines.push(
-    `I already have <b>${escHtml(dup.vendorName || active.vendorName || 'an expense')}</b> for <b>${fmtUsd(dup.amountCents)}</b> on ${dupDate}${dup.status === 'confirmed' ? ' (booked)' : ' (draft)'}${dup.hasReceipt ? ', with a receipt' : ', no receipt yet'}.`,
+    `I already have <b>${escHtml(dup.vendorName || active.vendorName || 'an expense')}</b> for <b>${fmtAmount(dup.amountCents)}</b> on ${dupDate}${dup.status === 'confirmed' ? ' (booked)' : ' (draft)'}${dup.hasReceipt ? ', with a receipt' : ', no receipt yet'}.`,
   );
   if (!sameDate || !sameAmount) {
     const diffs: string[] = [];
     if (!sameDate) diffs.push(`new one is dated ${newDate}`);
-    if (!sameAmount) diffs.push(`new amount is ${fmtUsd(active.amountCents)}`);
+    if (!sameAmount) diffs.push(`new amount is ${fmtAmount(active.amountCents)}`);
     lines.push(`<i>(small differences — ${diffs.join(', ')})</i>`);
   }
   lines.push('');
@@ -1139,7 +1158,7 @@ async function buildAnomalyNote(tenantId: string, categoryId: string | null, amo
   if (avg <= 0) return null;
   const ratio = amountCents / avg;
   if (ratio < 3) return null;
-  return `📈 This is ~${ratio.toFixed(1)}× your typical spend in this category (avg ≈ ${fmtUsd(Math.round(avg))}). Take a second look before confirming.`;
+  return `📈 This is ~${ratio.toFixed(1)}× your typical spend in this category (avg ≈ ${fmtAmount(Math.round(avg))}). Take a second look before confirming.`;
 }
 
 /**
@@ -1283,8 +1302,8 @@ async function callMinimalAgent(
         .map((a) => ({ name: a.name, bal: a.journalLines.reduce((s, l) => s + l.debitCents - l.creditCents, 0) }))
         .filter((a) => a.bal !== 0)
         .slice(0, 5);
-      const detail = lines.length ? '\n\n' + lines.map((l) => `• ${l.name}: ${fmtUsd(l.bal)}`).join('\n') : '';
-      return { success: true, data: { message: `💰 <b>Cash on hand:</b> ${fmtUsd(total)}${detail}`, skillUsed: 'query-finance' } };
+      const detail = lines.length ? '\n\n' + lines.map((l) => `• ${l.name}: ${fmtAmount(l.bal)}`).join('\n') : '';
+      return { success: true, data: { message: `💰 <b>Cash on hand:</b> ${fmtAmount(total)}${detail}`, skillUsed: 'query-finance' } };
     }
 
     if (/(invoice|owed|outstanding|unpaid|who owes)/i.test(lower)) {
@@ -1302,9 +1321,9 @@ async function callMinimalAgent(
       const list = open.map((i) => {
         const days = Math.round((today - i.dueDate.getTime()) / 86_400_000);
         const tag = days > 0 ? ` · ${days}d overdue` : days < 0 ? ` · due in ${-days}d` : ' · due today';
-        return `• ${i.client?.name || 'Client'} ${i.number} — ${fmtUsd(i.amountCents)}${tag}`;
+        return `• ${i.client?.name || 'Client'} ${i.number} — ${fmtAmount(i.amountCents)}${tag}`;
       }).join('\n');
-      return { success: true, data: { message: `🧾 <b>${open.length} open invoice${open.length === 1 ? '' : 's'}</b> — total ${fmtUsd(total)}\n\n${list}`, skillUsed: 'query-finance' } };
+      return { success: true, data: { message: `🧾 <b>${open.length} open invoice${open.length === 1 ? '' : 's'}</b> — total ${fmtAmount(total)}\n\n${list}`, skillUsed: 'query-finance' } };
     }
 
     if (/(expense|spent|spending|recent.*(expense|spend))/i.test(lower)) {
@@ -1317,7 +1336,7 @@ async function callMinimalAgent(
       if (recent.length === 0) {
         return { success: true, data: { message: '💸 No business expenses on record yet. Send "Spent $X on Y" to add one.', skillUsed: 'query-expenses' } };
       }
-      const list = recent.map((e) => `• ${e.date.toISOString().slice(0, 10)} — ${e.vendor?.name || e.description || 'Expense'} ${fmtUsd(e.amountCents)}`).join('\n');
+      const list = recent.map((e) => `• ${e.date.toISOString().slice(0, 10)} — ${e.vendor?.name || e.description || 'Expense'} ${fmtAmount(e.amountCents)}`).join('\n');
       return { success: true, data: { message: `💸 <b>Last ${recent.length} expense${recent.length === 1 ? '' : 's'}:</b>\n\n${list}`, skillUsed: 'query-expenses' } };
     }
 
@@ -1383,7 +1402,7 @@ function formatResponse(data: any): string {
     reply += '\n\n📊 <b>Breakdown:</b>';
     for (const item of data.chartData.data.slice(0, 8)) {
       const val = typeof item.value === 'number' && item.value > 100
-        ? '$' + (item.value / 100).toLocaleString()
+        ? fmtAmount(item.value)
         : item.value;
       reply += `\n• ${item.name}: ${val}`;
     }
@@ -1442,13 +1461,20 @@ interface NeedsClarifyPartial {
 
 type InvoiceStepData = DraftCreated | AmbiguousClient | NeedsClarify | NeedsClarifyPartial;
 
+/**
+ * A per-record amount whose currency is known. Drops the cents when the amount
+ * is whole, as the old implementation did.
+ *
+ * The old version emitted the CODE rather than the symbol for everything that
+ * was not USD ("CAD 1,234.56"), and always in US number format.
+ */
 function fmtMoney(cents: number, currency: string): string {
-  return `${currency === 'USD' ? '$' : currency + ' '}${(cents / 100).toLocaleString('en-US', { maximumFractionDigits: 2, minimumFractionDigits: cents % 100 === 0 ? 0 : 2 })}`;
+  return outMoneyCompact(cents, botLoc(), currency);
 }
 
+/** A calendar date, in the tenant's locale AND timezone. */
 function shortDate(iso: string): string {
-  const d = new Date(iso);
-  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  return outDate(iso, botLoc());
 }
 
 function buildDraftPreviewText(d: DraftCreated): string {
@@ -1828,7 +1854,7 @@ async function renderInvoiceFromTimerResult(
 
   // Happy path — draft created.
   const totalHours = (data.totalMinutes / 60);
-  const hoursLabel = totalHours.toLocaleString('en-US', { maximumFractionDigits: 2 });
+  const hoursLabel = outNumber(totalHours, botLoc(), { maximumFractionDigits: 2 });
   const rateLabel = data.headlineRateCents
     ? `${fmtMoney(data.headlineRateCents, data.currency)}/hr`
     : 'varied rates';
@@ -1877,7 +1903,7 @@ async function renderMileageStepResult(
   // from which jurisdiction's mileage rate was applied (a US-jurisdiction
   // tenant can still have a non-USD currency configured).
   const tenantConfig = await db.abTenantConfig.findUnique({ where: { userId: tenantId }, select: { currency: true } });
-  const dollars = formatMoney(data.deductibleAmountCents, tenantConfig?.currency || 'USD');
+  const dollars = outMoney(data.deductibleAmountCents, botLoc(), tenantConfig?.currency || undefined);
   const rateLabel = RATE_AGENCY_LABEL[data.jurisdiction] ?? 'std rate';
   const lines: string[] = [
     `📒 ${data.miles} ${data.unit} to ${target} = <b>${dollars}</b> deductible (${rateLabel}). On the books.`,
@@ -1930,7 +1956,7 @@ async function renderPerDiemStepResult(
     await ctx.reply('Per-diem booked.');
     return;
   }
-  const fmt = (cents: number) => '$' + (cents / 100).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
+  const fmt = (cents: number) => outMoneyCompact(cents, botLoc());
   const days = data.days || 0;
   const mie = data.mieCents || 0;
   const total = data.totalCents || 0;
@@ -2025,7 +2051,7 @@ interface TaxPackageData {
  */
 export function renderTaxPackageStepResult(data: TaxPackageData): { html: string; keyboard?: unknown } {
   const dollars = (cents: number): string =>
-    `$${(cents / 100).toLocaleString('en-US', { maximumFractionDigits: 2, minimumFractionDigits: 2 })}`;
+    outMoney(cents, botLoc());
   const formName = BUSINESS_TAX_FORM[data.jurisdiction] ?? 'Schedule C';
   const lines: string[] = [
     `✅ <b>${data.year} ${formName} package ready</b>`,
@@ -2097,10 +2123,7 @@ export function renderRecurringStepResult(
     return { html: `🤔 ${escHtml(data.question)}` };
   }
   const periodLabel = cadenceAdverb(data.cadence);
-  const amountLabel = `$${(data.amountCents / 100).toLocaleString('en-US', {
-    maximumFractionDigits: 2,
-    minimumFractionDigits: data.amountCents % 100 === 0 ? 0 : 2,
-  })}`;
+  const amountLabel = outMoneyCompact(data.amountCents, botLoc());
   const firstRun = shortDate(data.firstRun);
   const html =
     `📒 Got it — recurring invoice will be issued automatically every ${periodLabel} starting <b>${firstRun}</b>, <b>${amountLabel}</b> to <b>${escHtml(data.clientName)}</b>.`;
@@ -2193,10 +2216,7 @@ export function renderBudgetSetResult(
   if (data.kind === 'needs_clarify') {
     return { html: `🤔 ${escHtml(data.question)}` };
   }
-  const amount = `$${(data.amountCents / 100).toLocaleString('en-US', {
-    maximumFractionDigits: 2,
-    minimumFractionDigits: data.amountCents % 100 === 0 ? 0 : 2,
-  })}`;
+  const amount = outMoneyCompact(data.amountCents, botLoc());
   const html =
     `🎯 Got it — max <b>${amount}${periodPhrase(data.period)}</b> on <b>${escHtml(data.categoryName)}</b>. I'll nudge you at 80% and ask before going over.`;
   return {
@@ -2278,7 +2298,7 @@ function estimateKeyboard(estimateId: string) {
 }
 
 function buildEstimatePreviewText(d: EstimateCreatedData): string {
-  const total = fmtMoney(d.amountCents, 'USD');
+  const total = outMoneyCompact(d.amountCents, botLoc());
   const valid = shortDate(d.validUntil);
   const lines: string[] = [];
   lines.push(`📒 <b>${escHtml(d.estimateNumber)}</b> drafted, valid until <b>${valid}</b>.`);
@@ -2801,7 +2821,7 @@ function getBot(): Bot {
           const lines = renderCatchUpLines(json.data);
           const sinceStr = sinceHint
             ? `since ${sinceHint}`
-            : `since ${sinceAt.toLocaleString()}`;
+            : `since ${outDate(sinceAt, botLoc(), { hour: 'numeric', minute: '2-digit' })}`;
           await ctx.reply(
             `📰 <b>Catch-up</b> — ${sinceStr}\n\n${lines.map((l) => `• ${l}`).join('\n')}`,
             { parse_mode: 'HTML' },
@@ -3121,7 +3141,7 @@ function getBot(): Bot {
             });
             await db.abUserMemory.deleteMany({ where: { tenantId, key: editKey } });
             await ctx.reply(
-              `📒 Updated <b>${escHtml(draft.number)}</b> total → <b>${fmtUsd(newTotal)}</b>. Send it?`,
+              `📒 Updated <b>${escHtml(draft.number)}</b> total → <b>${fmtAmount(newTotal)}</b>. Send it?`,
               {
                 parse_mode: 'HTML',
                 reply_markup: draftKeyboard(draft.id),
@@ -3151,7 +3171,7 @@ function getBot(): Bot {
             });
             await db.abUserMemory.deleteMany({ where: { tenantId, key: editKey } });
             await ctx.reply(
-              `📒 Updated <b>${escHtml(draft.number)}</b> due date → <b>${parsedDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</b>. Send it?`,
+              `📒 Updated <b>${escHtml(draft.number)}</b> due date → <b>${outDate(parsedDate, botLoc())}</b>. Send it?`,
               {
                 parse_mode: 'HTML',
                 reply_markup: draftKeyboard(draft.id),
@@ -3202,7 +3222,7 @@ function getBot(): Bot {
               await ctx.reply(`Couldn't update that trip — ${result.error}.`);
             } else {
               const data = result.entry;
-              const dollars = (data.deductibleAmountCents / 100).toLocaleString('en-US', { style: 'currency', currency: 'USD' });
+              const dollars = outMoney(data.deductibleAmountCents, botLoc());
               await ctx.reply(
                 `🔧 Updated to ${data.miles} ${data.unit} = <b>${dollars}</b>. Reposted the journal entry.`,
                 { parse_mode: 'HTML' },
@@ -3737,7 +3757,7 @@ function getBot(): Bot {
     }
     if (ctx.chat?.id) {
       await focusThreadExpense(tenantId, ctx.chat.id, active.id,
-        active.vendorName ? `${active.vendorName} · ${fmtUsd(active.amountCents)}` : `${fmtUsd(active.amountCents)} expense`);
+        active.vendorName ? `${active.vendorName} · ${fmtAmount(active.amountCents)}` : `${fmtAmount(active.amountCents)} expense`);
     }
 
     const tenantConfig = await db.abTenantConfig.findUnique({
@@ -4117,7 +4137,7 @@ function getBot(): Bot {
         return;
       }
       await focusThreadExpense(tenantId, ctx.chat.id, active.id,
-        active.vendorName ? `${active.vendorName} · ${fmtUsd(active.amountCents)}` : `${fmtUsd(active.amountCents)} expense`);
+        active.vendorName ? `${active.vendorName} · ${fmtAmount(active.amountCents)}` : `${fmtAmount(active.amountCents)} expense`);
 
       const tenantConfig = await db.abTenantConfig.findUnique({
         where: { userId: tenantId },
@@ -4218,8 +4238,8 @@ function getBot(): Bot {
             const overLimit = check.alerts.find((a) => a.overLimit);
             if (overLimit) {
               const cat = overLimit.categoryName || 'this category';
-              const after = `$${(overLimit.spentAfterCents / 100).toLocaleString('en-US', { maximumFractionDigits: 2, minimumFractionDigits: overLimit.spentAfterCents % 100 === 0 ? 0 : 2 })}`;
-              const limit = `$${(overLimit.limitCents / 100).toLocaleString('en-US', { maximumFractionDigits: 2, minimumFractionDigits: overLimit.limitCents % 100 === 0 ? 0 : 2 })}`;
+              const after = outMoneyCompact(overLimit.spentAfterCents, botLoc());
+              const limit = outMoneyCompact(overLimit.limitCents, botLoc());
               const pct = Math.round((overLimit.spentAfterCents / Math.max(1, overLimit.limitCents)) * 100);
               await ctx.answerCallbackQuery({ text: '⚠ Over budget' });
               await ctx.reply(
@@ -4308,7 +4328,7 @@ function getBot(): Bot {
         // tax note if any. The user just saw the full summary in the
         // draft message and doesn't need to see it again on confirm.
         const oneLine = updated
-          ? `✅ <b>On the books</b> — ${escHtml(updated.vendorName || 'expense')} ${fmtUsd(updated.amountCents)}${updated.categoryName ? ' → <b>' + escHtml(updated.categoryName) + '</b>' : ''}.`
+          ? `✅ <b>On the books</b> — ${escHtml(updated.vendorName || 'expense')} ${fmtAmount(updated.amountCents)}${updated.categoryName ? ' → <b>' + escHtml(updated.categoryName) + '</b>' : ''}.`
           : '✅ <b>On the books.</b>';
         const reply = taxNote ? `${oneLine}\n\n${taxNote}` : oneLine;
         try {
@@ -4335,8 +4355,8 @@ function getBot(): Bot {
             const at80 = followUp.alerts.find((a) => a.threshold === 80 && !a.overLimit);
             if (at80) {
               const cat = at80.categoryName || 'this category';
-              const after = `$${(at80.spentAfterCents / 100).toLocaleString('en-US', { maximumFractionDigits: 2, minimumFractionDigits: at80.spentAfterCents % 100 === 0 ? 0 : 2 })}`;
-              const limit = `$${(at80.limitCents / 100).toLocaleString('en-US', { maximumFractionDigits: 2, minimumFractionDigits: at80.limitCents % 100 === 0 ? 0 : 2 })}`;
+              const after = outMoneyCompact(at80.spentAfterCents, botLoc());
+              const limit = outMoneyCompact(at80.limitCents, botLoc());
               const periodLabel = at80.period === 'annual' ? 'this year' : at80.period === 'quarterly' ? 'this quarter' : 'this month';
               await ctx.reply(
                 `🟡 Heads up — <b>${escHtml(cat)}</b> is at 80% (${after}/${limit}) for ${periodLabel}.`,
@@ -4835,7 +4855,7 @@ function getBot(): Bot {
         const vendor = existing.vendor?.name || 'expense';
         const date = existing.date.toISOString().slice(0, 10);
         const reply =
-          `🔗 Receipt attached to <b>${escHtml(vendor)}</b> ${fmtUsd(existing.amountCents)} (${date}). Draft dropped — no double-booking.`;
+          `🔗 Receipt attached to <b>${escHtml(vendor)}</b> ${fmtAmount(existing.amountCents)} (${date}). Draft dropped — no double-booking.`;
         try {
           await ctx.editMessageText(reply, { parse_mode: 'HTML' });
         } catch {
@@ -4939,7 +4959,7 @@ function getBot(): Bot {
         await ctx.answerCallbackQuery({ text: `✅ Booked under ${suggestion.suggestedCategoryName}` });
         try {
           await ctx.editMessageText(
-            `✅ <b>${escHtml(suggestion.vendorName || 'Expense')}</b> ${fmtUsd(suggestion.amountCents)} → <b>${escHtml(suggestion.suggestedCategoryName)}</b>${remaining > 0 ? `\n\n${remaining} left to review.` : '\n\nAll caught up. 🎉'}`,
+            `✅ <b>${escHtml(suggestion.vendorName || 'Expense')}</b> ${fmtAmount(suggestion.amountCents)} → <b>${escHtml(suggestion.suggestedCategoryName)}</b>${remaining > 0 ? `\n\n${remaining} left to review.` : '\n\nAll caught up. 🎉'}`,
             { parse_mode: 'HTML' },
           );
         } catch {
@@ -5074,7 +5094,7 @@ function getBot(): Bot {
         const recipient = inv.client.email
           ? ` to <b>${escHtml(inv.client.email)}</b>`
           : '';
-        const reply = `✅ Sent${recipient} — <b>${escHtml(inv.number)}</b> (${fmtUsd(inv.amountCents)}). I'll ping you when they pay.`;
+        const reply = `✅ Sent${recipient} — <b>${escHtml(inv.number)}</b> (${fmtAmount(inv.amountCents)}). I'll ping you when they pay.`;
         try {
           await ctx.editMessageText(reply, { parse_mode: 'HTML' });
         } catch {
@@ -5773,7 +5793,7 @@ function getBot(): Bot {
               source: 'telegram_button',
             });
             await ctx.answerCallbackQuery({ text: '✅ Matched & paid' });
-            const replyText = `✅ Marked ${fmtUsd(result.paymentAmountCents)} to <b>${escHtml(result.invoiceNumber)}</b> — paid.`;
+            const replyText = `✅ Marked ${fmtAmount(result.paymentAmountCents)} to <b>${escHtml(result.invoiceNumber)}</b> — paid.`;
             try {
               await ctx.editMessageText(replyText, { parse_mode: 'HTML' });
             } catch {
@@ -5796,7 +5816,7 @@ function getBot(): Bot {
             where: { id: targetId, tenantId },
             select: { description: true },
           });
-          const expReply = `✅ Linked ${fmtUsd(Math.abs(txn.amount))} to expense <b>${escHtml(expense?.description || 'expense')}</b>.`;
+          const expReply = `✅ Linked ${fmtAmount(Math.abs(txn.amount))} to expense <b>${escHtml(expense?.description || 'expense')}</b>.`;
           try {
             await ctx.editMessageText(expReply, { parse_mode: 'HTML' });
           } catch {
@@ -5944,7 +5964,7 @@ function getBot(): Bot {
               description: exp.description,
               vendorName: exp.vendor?.name || null,
             });
-            const label = `${exp.vendor?.name || exp.description || 'expense'} ${fmtUsd(exp.amountCents)}`.slice(0, 40);
+            const label = `${exp.vendor?.name || exp.description || 'expense'} ${fmtAmount(exp.amountCents)}`.slice(0, 40);
             candidates.push({ label, targetType: 'expense', targetId: exp.id, score });
           }
         }
@@ -6049,7 +6069,7 @@ function getBot(): Bot {
               },
             });
             await ctx.answerCallbackQuery({ text: '✅ Matched & paid' });
-            await ctx.reply(`✅ Marked ${fmtUsd(result.paymentAmountCents)} to <b>${escHtml(result.invoiceNumber)}</b> — paid.`, {
+            await ctx.reply(`✅ Marked ${fmtAmount(result.paymentAmountCents)} to <b>${escHtml(result.invoiceNumber)}</b> — paid.`, {
               parse_mode: 'HTML',
             });
             return;
@@ -6074,7 +6094,7 @@ function getBot(): Bot {
             select: { description: true },
           });
           await ctx.answerCallbackQuery({ text: '✅ Linked' });
-          await ctx.reply(`✅ Linked ${fmtUsd(Math.abs(txn.amount))} to expense <b>${escHtml(expense?.description || 'expense')}</b>.`, {
+          await ctx.reply(`✅ Linked ${fmtAmount(Math.abs(txn.amount))} to expense <b>${escHtml(expense?.description || 'expense')}</b>.`, {
             parse_mode: 'HTML',
           });
         } catch (err) {
@@ -6172,7 +6192,7 @@ function getBot(): Bot {
         });
         await db.abUserMemory.deleteMany({ where: { tenantId, key: memoryKey } });
         const totalLodging = lodgingCents * created.length;
-        const fmt = (c: number) => '$' + (c / 100).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
+        const fmt = (c: number) => outMoneyCompact(c, botLoc());
         await ctx.answerCallbackQuery({ text: '🏨 Lodging added' });
         await ctx.reply(`🏨 Added ${created.length} × ${fmt(lodgingCents)} lodging = <b>${fmt(totalLodging)}</b>.`, { parse_mode: 'HTML' });
         return;
@@ -6391,12 +6411,26 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     // an attacker hammering an unknown chat id can't write to AbUserMemory
     // anyway because there's no tenantId to scope against.
     let rateLimited = false;
+    // The tenant's locale, currency and timezone, for every amount and date
+    // the reply will contain. Read from the query the rate limiter already
+    // makes rather than adding a second round trip.
+    //
+    // If that query throws (a counter-table outage), this stays null and
+    // runWithBotLocale falls back to en-US — the behaviour that existed
+    // before this change, rather than a failed reply.
+    let botLocaleRow: {
+      locale?: string | null; currency?: string | null; timezone?: string | null;
+    } | null = null;
     if (idemTenantId) {
       try {
         const cfg = await db.abTenantConfig.findUnique({
           where: { userId: idemTenantId },
-          select: { botRateLimitPerMin: true, botRateLimitPerDay: true },
+          select: {
+            botRateLimitPerMin: true, botRateLimitPerDay: true,
+            locale: true, currency: true, timezone: true,
+          },
         });
+        botLocaleRow = cfg;
         const rl = await checkAndIncrement(idemTenantId, 'telegram', {
           perMinute: cfg?.botRateLimitPerMin ?? 60,
           perDay: cfg?.botRateLimitPerDay ?? 1000,
@@ -6495,7 +6529,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
           if (fakeFailMode === 'once' && attemptsTried === 1) {
             throw new Error('connect ECONNREFUSED (e2e fake first-attempt)');
           }
-          await b.handleUpdate(update);
+          await runWithBotLocale(botLocaleRow, () => b.handleUpdate(update));
         },
         { maxAttempts: 3, backoffMs: [50, 100, 200] },
       );
