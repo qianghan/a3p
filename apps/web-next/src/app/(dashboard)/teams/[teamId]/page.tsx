@@ -389,7 +389,7 @@ export default function TeamDashboardPage() {
                           {plugin.enabled ? (
                             <>
                               <ToggleRight className="w-3.5 h-3.5" />
-                              Enabled
+                              {t('common.enabled')}
                             </>
                           ) : (
                             <>

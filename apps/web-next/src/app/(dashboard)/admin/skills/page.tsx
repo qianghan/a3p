@@ -74,7 +74,7 @@ export default function AdminSkillsPage() {
       const data = await res.json();
       if (data.success) {
         setSkills((prev) => prev.map((s) => (s.name === name ? { ...s, enabled } : s)));
-        setSuccessMsg(`${enabled ? 'Enabled' : 'Disabled'} "${name}".`);
+        setSuccessMsg(t(enabled ? 'admin_ui.skill_enabled' : 'admin_ui.skill_disabled', { name }));
         setTimeout(() => setSuccessMsg(null), 4000);
       } else {
         setError(data.error || 'Failed to update skill');
@@ -141,7 +141,7 @@ export default function AdminSkillsPage() {
       ) : filtered.length === 0 ? (
         <div className="text-center py-8 text-muted-foreground">
           <Sparkles size={32} className="mx-auto mb-3 opacity-30" />
-          <p className="text-sm">{searchQuery ? 'No skills match your search' : 'No skills found'}</p>
+          <p className="text-sm">{searchQuery ? t('admin_ui.no_skills_match') : t('admin_ui.no_skills_found')}</p>
         </div>
       ) : (
         <div className="grid gap-2">
@@ -169,7 +169,7 @@ export default function AdminSkillsPage() {
                 icon={skill.enabled ? <PowerOff size={14} /> : <Power size={14} />}
                 className={skill.enabled ? 'text-muted-foreground' : 'text-emerald-500 hover:bg-emerald-500/10'}
               >
-                {skill.enabled ? 'Disable' : 'Enable'}
+                {skill.enabled ? t('admin_ui.disable') : t('admin_ui.enable')}
               </Button>
             </div>
           ))}

@@ -230,6 +230,9 @@ export default function AdminSalesRepsPage() {
     try {
       const res = await fetch(`/api/v1/admin/sales-reps/payouts/${reviewPayout.id}`, {
         method: 'PATCH', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
+        // Stays English on purpose: this is a stored audit value sent to the
+        // API, not UI copy. Localising it would make the record read in
+        // whatever language the admin happened to be using at the time.
         body: JSON.stringify({ action: 'reject', rejectionReason: 'Rejected by admin' }),
       });
       const data = await res.json();
@@ -323,7 +326,7 @@ export default function AdminSalesRepsPage() {
       <div className="flex items-start justify-between gap-3 mb-4">
         <div>
           <h1 className="text-lg font-semibold flex items-center gap-2 mb-1">
-            <Users className="w-5 h-5" /> Sales Reps
+            <Users className="w-5 h-5" /> {t('admin_ui.sales_reps_heading')}
           </h1>
           <p className="text-sm text-muted-foreground">
             {t('admin_ui.review_commission_invoices')}
