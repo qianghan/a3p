@@ -446,7 +446,7 @@ export function Sidebar() {
             onClick={isMobile ? closeMobileMenu : toggleSidebar}
             className="p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors shrink-0"
             title={isMobile ? 'Close' : (isSidebarOpen ? 'Collapse' : 'Expand')}
-            aria-label={isMobile ? 'Close menu' : (isSidebarOpen ? 'Collapse sidebar' : 'Expand sidebar')}
+            aria-label={isMobile ? t('common.close_menu') : (isSidebarOpen ? t('common.collapse_sidebar') : t('common.expand_sidebar'))}
           >
             {isMobile ? <X size={14} /> : (isSidebarOpen ? <ChevronLeft size={14} /> : <ChevronRight size={14} />)}
           </button>
@@ -459,7 +459,7 @@ export function Sidebar() {
             title="Search (⌘K)"
           >
             <Search size={14} className="shrink-0" />
-            <span className="text-[13px]">Search...</span>
+            <span className="text-[13px]">{t('common.search_placeholder')}</span>
             <kbd className="ml-auto hidden lg:inline-flex items-center gap-0.5 px-1.5 py-0.5 text-[10px] font-medium bg-background/50 border border-border/50 rounded opacity-50 group-hover:opacity-80 transition-opacity">
               <Command size={9} />K
             </kbd>
