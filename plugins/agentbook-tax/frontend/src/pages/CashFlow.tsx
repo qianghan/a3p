@@ -10,6 +10,7 @@ import {
 import { formatMoney } from '@agentbook/i18n';
 import { useTenantCurrency } from '../hooks/useTenantCurrency';
 import { TaxDisclaimer } from '../components/TaxDisclaimer';
+import { useI18n } from '@naap/plugin-sdk';
 
 interface Projection {
   period: string;
@@ -28,6 +29,7 @@ function formatCurrency(n: number, currency: string = 'USD') {
 }
 
 export const CashFlowPage: React.FC = () => {
+  const { t } = useI18n();
   const [data, setData] = useState<CashFlowData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -84,7 +86,7 @@ export const CashFlowPage: React.FC = () => {
           onClick={fetchData}
           className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium border hover:bg-gray-50"
         >
-          <RefreshCw className="w-4 h-4" /> Retry
+          <RefreshCw className="w-4 h-4" /> {t('common.retry')}
         </button>
       </div>
     );
@@ -101,11 +103,9 @@ export const CashFlowPage: React.FC = () => {
   return (
     <div className="p-4 sm:p-6 max-w-4xl mx-auto">
       <div className="mb-6">
-        <h1 className="text-2xl font-bold" style={{ color: 'var(--text-primary)' }}>
-          Cash Flow Projection
+        <h1 className="text-2xl font-bold" style={{ color: 'var(--text-primary)' }}>{t('tax_ui.cash_flow_projection')}
         </h1>
-        <p className="text-sm mt-1" style={{ color: 'var(--text-secondary)' }}>
-          Forecast and analyze cash flow with scenario modeling
+        <p className="text-sm mt-1" style={{ color: 'var(--text-secondary)' }}>{t('tax_ui.cash_flow_sub')}
         </p>
       </div>
 
@@ -122,8 +122,7 @@ export const CashFlowPage: React.FC = () => {
           <div className="p-2 rounded-lg bg-emerald-100">
             <Wallet className="w-5 h-5 text-emerald-600" />
           </div>
-          <span className="text-xs font-semibold uppercase tracking-wide" style={{ color: 'var(--text-secondary)' }}>
-            Current Cash Balance
+          <span className="text-xs font-semibold uppercase tracking-wide" style={{ color: 'var(--text-secondary)' }}>{t('tax_ui.current_cash_balance')}
           </span>
         </div>
         <p
@@ -163,7 +162,7 @@ export const CashFlowPage: React.FC = () => {
                     <TrendingUp className="w-4 h-4 text-green-600" />
                   </div>
                   <div className="flex-1">
-                    <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>Expected Income</p>
+                    <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>{t('tax_ui.expected_income')}</p>
                     <p className="text-sm font-semibold text-green-600">
                       {formatCurrency(p.expected_income, currency)}
                     </p>
@@ -175,7 +174,7 @@ export const CashFlowPage: React.FC = () => {
                     <TrendingDown className="w-4 h-4 text-red-600" />
                   </div>
                   <div className="flex-1">
-                    <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>Expected Expenses</p>
+                    <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>{t('tax_ui.expected_expenses')}</p>
                     <p className="text-sm font-semibold text-red-600">
                       {formatCurrency(p.expected_expenses, currency)}
                     </p>

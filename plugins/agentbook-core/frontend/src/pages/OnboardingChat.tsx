@@ -21,6 +21,7 @@
 
 import React, { useEffect, useRef, useState } from 'react';
 import { Send, CheckCircle, Bot, User } from 'lucide-react';
+import { useI18n } from '@naap/plugin-sdk';
 
 const API_BASE = '/api/v1/agentbook-core';
 
@@ -176,6 +177,7 @@ const SCRIPT: Record<StepId, (state: OnboardingState) => ChatMessage[]> = {
 };
 
 export const OnboardingChatPage: React.FC = () => {
+  const { t } = useI18n();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [step, setStep] = useState<StepId>('welcome');
   const [state, setState] = useState<OnboardingState>({});
@@ -341,7 +343,7 @@ export const OnboardingChatPage: React.FC = () => {
       {/* Progress banner */}
       <div className="border-b border-border bg-card/50 px-4 py-3 text-center">
         <h1 className="text-sm font-medium text-muted-foreground">
-          {completed ? 'Setup complete' : 'Welcome — 2-minute setup'}
+          {completed ? t('core_ui.setup_complete') : t('core_ui.welcome_setup')}
         </h1>
       </div>
 
@@ -407,7 +409,7 @@ export const OnboardingChatPage: React.FC = () => {
               type="text"
               value={input}
               onChange={(e) => setInput(e.target.value)}
-              placeholder="Or type your answer..."
+              placeholder={t('core_ui.or_type_answer')}
               disabled={submitting}
               className="flex-1 px-3 py-2 bg-background border border-border rounded-lg focus:ring-2 focus:ring-primary/50 disabled:opacity-50"
             />
@@ -426,7 +428,7 @@ export const OnboardingChatPage: React.FC = () => {
               href="/agentbook/chat"
               className="inline-block px-4 py-2 bg-primary text-primary-foreground rounded-lg font-medium hover:opacity-90"
             >
-              Open chat
+              {t('core_ui.open_chat')}
             </a>
           </div>
         )}

@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { billingApi, type PlanTemplate, type Plan } from '../lib/api';
+import { useI18n } from '@naap/plugin-sdk';
 
 type Mode = { kind: 'create'; template: PlanTemplate } | { kind: 'edit'; plan: Plan };
 
@@ -22,6 +23,7 @@ export function PlanEditorModal({ mode, onClose, onSaved }: {
   onClose: () => void;
   onSaved: () => void;
 }): JSX.Element {
+  const { t } = useI18n();
   const seed = mode.kind === 'create' ? mode.template : mode.plan;
   const [form, setForm] = useState({
     code: 'code' in seed ? seed.code : '',
@@ -78,10 +80,10 @@ export function PlanEditorModal({ mode, onClose, onSaved }: {
         <div className="space-y-4">
           {/* Basic info */}
           <div className="rounded-lg border border-border bg-background/50 p-4 space-y-3">
-            <h4 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Basic info</h4>
+            <h4 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{t('billing_ui.basic_info')}</h4>
 
             <div>
-              <label className="text-sm font-medium text-foreground">Plan name</label>
+              <label className="text-sm font-medium text-foreground">{t('billing_ui.plan_name')}</label>
               <input
                 className={inputCls}
                 value={form.name}
@@ -92,8 +94,8 @@ export function PlanEditorModal({ mode, onClose, onSaved }: {
 
             {mode.kind === 'create' && (
               <div>
-                <label className="text-sm font-medium text-foreground">Code</label>
-                <p className="text-xs text-muted-foreground">URL-safe, unique identifier</p>
+                <label className="text-sm font-medium text-foreground">{t('accounting.code')}</label>
+                <p className="text-xs text-muted-foreground">{t('billing_ui.url_safe_id')}</p>
                 <input
                   className={`${inputCls} font-mono`}
                   value={form.code}
@@ -104,18 +106,18 @@ export function PlanEditorModal({ mode, onClose, onSaved }: {
             )}
 
             <div>
-              <label className="text-sm font-medium text-foreground">Description</label>
+              <label className="text-sm font-medium text-foreground">{t('common.description')}</label>
               <input
                 className={inputCls}
                 value={form.description}
                 onChange={e => setForm({ ...form, description: e.target.value })}
-                placeholder="Short plan description shown to users"
+                placeholder={t('billing_ui.plan_desc_placeholder')}
               />
             </div>
 
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="text-sm font-medium text-foreground">Price (cents)</label>
+                <label className="text-sm font-medium text-foreground">{t('billing_ui.price_cents')}</label>
                 <p className="text-xs text-muted-foreground">1900 = $19.00 — fixed at create</p>
                 <input
                   type="number"
@@ -126,16 +128,16 @@ export function PlanEditorModal({ mode, onClose, onSaved }: {
                 />
               </div>
               <div>
-                <label className="text-sm font-medium text-foreground">Interval</label>
-                <p className="text-xs text-muted-foreground">Billing cycle — fixed at create</p>
+                <label className="text-sm font-medium text-foreground">{t('billing_ui.interval')}</label>
+                <p className="text-xs text-muted-foreground">{t('billing_ui.billing_cycle_fixed')}</p>
                 <select
                   disabled={mode.kind !== 'create'}
                   className={inputCls}
                   value={form.interval}
                   onChange={e => setForm({ ...form, interval: e.target.value as 'month' | 'year' })}
                 >
-                  <option value="month">Monthly</option>
-                  <option value="year">Annual</option>
+                  <option value="month">{t('billing.monthly')}</option>
+                  <option value="year">{t('billing.annual')}</option>
                 </select>
               </div>
             </div>
@@ -143,7 +145,7 @@ export function PlanEditorModal({ mode, onClose, onSaved }: {
 
           {/* Features */}
           <div className="rounded-lg border border-border bg-background/50 p-4">
-            <h4 className="mb-3 text-xs font-medium uppercase tracking-wide text-muted-foreground">Features</h4>
+            <h4 className="mb-3 text-xs font-medium uppercase tracking-wide text-muted-foreground">{t('billing_ui.features')}</h4>
             <div className="space-y-3">
               {FEATURE_META.map(({ key, label, desc }) => (
                 <label key={key} className="flex items-start gap-3 cursor-pointer">
@@ -166,7 +168,7 @@ export function PlanEditorModal({ mode, onClose, onSaved }: {
 
           {/* Quotas */}
           <div className="rounded-lg border border-border bg-background/50 p-4">
-            <h4 className="mb-3 text-xs font-medium uppercase tracking-wide text-muted-foreground">Quotas</h4>
+            <h4 className="mb-3 text-xs font-medium uppercase tracking-wide text-muted-foreground">{t('billing_ui.quotas')}</h4>
             <div className="space-y-3">
               {QUOTA_META.map(({ key, label, desc }) => (
                 <div key={key} className="flex items-center justify-between gap-4">
@@ -190,15 +192,14 @@ export function PlanEditorModal({ mode, onClose, onSaved }: {
           <button
             onClick={onClose}
             className="rounded-lg border border-border bg-transparent px-4 py-2 text-sm text-muted-foreground hover:bg-muted"
-          >
-            Cancel
+          >{t('common.cancel')}
           </button>
           <button
             disabled={saving}
             onClick={save}
             className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
           >
-            {saving ? 'Saving…' : 'Save plan'}
+            {saving ? t('common.saving') : t('billing_ui.save_plan')}
           </button>
         </div>
       </div>

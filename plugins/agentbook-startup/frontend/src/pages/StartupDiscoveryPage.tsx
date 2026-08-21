@@ -4,9 +4,10 @@ import {
   Rocket, Building2, Users, TrendingUp, Wallet, Search, Loader2,
   Info, ExternalLink, Landmark, Sparkles, CheckCircle2, HelpCircle, XCircle, FileText, ArrowRight, AlertCircle,
 } from 'lucide-react';
-import { ChatCTA } from '@naap/plugin-sdk';
+import { ChatCTA, useI18n } from '@naap/plugin-sdk';
 import { AddOnCheckoutModal } from '@naap/ui';
 import { startupApi, formatCents, type ProgramRecommendation, type AddOnPriceTeaser, type StartupBenefitApplication } from '../lib/api';
+import { useTenantCurrency } from '../hooks/useTenantCurrency';
 
 const APPLICATION_STATUS_LABEL: Record<string, string> = {
   recommended: 'Recommended',
@@ -21,11 +22,13 @@ const APPLICATION_STATUS_LABEL: Record<string, string> = {
 };
 
 function MyApplicationsList({ applications }: { applications: StartupBenefitApplication[] }) {
+  // Nested component: does not inherit StartupDiscoveryPage's `t`.
+  const { t } = useI18n();
   const navigate = useNavigate();
   if (applications.length === 0) return null;
   return (
     <div className="mb-6">
-      <h2 className="text-sm font-semibold text-foreground mb-2">Your applications</h2>
+      <h2 className="text-sm font-semibold text-foreground mb-2">{t('startup_ui.your_applications')}</h2>
       {applications.map((app) => (
         <button
           key={app.id}
@@ -33,7 +36,7 @@ function MyApplicationsList({ applications }: { applications: StartupBenefitAppl
           onClick={() => navigate(`/applications/${app.id}`)}
           className="w-full flex items-center justify-between bg-card border border-border rounded-lg p-3 mb-2 text-left hover:bg-muted/50 transition-colors"
         >
-          <span className="text-sm text-foreground">{app.draft?.programCode ?? 'Application'}</span>
+          <span className="text-sm text-foreground">{app.draft?.programCode ?? t('startup_ui.application')}</span>
           <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
             {APPLICATION_STATUS_LABEL[app.status] ?? app.status}
             <ArrowRight className="w-3.5 h-3.5" />
@@ -124,6 +127,8 @@ function ProgramCard({ program, onStart, starting }: {
 }
 
 export function StartupDiscoveryPage() {
+  const { t } = useI18n();
+  const currency = useTenantCurrency();
   const navigate = useNavigate();
   const [companyType, setCompanyType] = useState('');
   const [headcount, setHeadcount] = useState('');
@@ -197,10 +202,9 @@ export function StartupDiscoveryPage() {
         <div className="w-9 h-9 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
           <Rocket className="w-5 h-5 text-primary" />
         </div>
-        <h1 className="text-2xl font-bold text-foreground">Startup Tax Benefits</h1>
+        <h1 className="text-2xl font-bold text-foreground">{t('startup_ui.startup_tax_benefits')}</h1>
       </div>
-      <p className="text-sm text-muted-foreground mb-4">
-        Answer a few questions about your company to see what government tax-benefit programs you likely qualify for — free, no commitment.
+      <p className="text-sm text-muted-foreground mb-4">{t('startup_ui.discovery_intro')}
       </p>
 
       <ChatCTA example="Am I eligible for the R&D tax credit?" />
@@ -209,7 +213,7 @@ export function StartupDiscoveryPage() {
 
       <form onSubmit={handleSubmit} className="space-y-4 mb-6">
         <div>
-          <label htmlFor="companyType" className="block text-sm font-medium mb-1">Company type</label>
+          <label htmlFor="companyType" className="block text-sm font-medium mb-1">{t('startup_ui.company_type')}</label>
           <div className="relative">
             <Building2 className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
             <select
@@ -218,17 +222,17 @@ export function StartupDiscoveryPage() {
               onChange={(e) => setCompanyType(e.target.value)}
               className={`${inputClass} appearance-none`}
             >
-              <option value="">Select...</option>
+              <option value="">{t('startup_ui.select_placeholder')}</option>
               <option value="c_corp">C-corp</option>
               <option value="llc">LLC</option>
-              <option value="ccpc">CCPC (Canada)</option>
-              <option value="ltd">Ltd (UK)</option>
+              <option value="ccpc">{t('startup_ui.ccpc_canada')}</option>
+              <option value="ltd">{t('startup_ui.ltd_uk')}</option>
             </select>
           </div>
         </div>
 
         <div>
-          <label htmlFor="headcount" className="block text-sm font-medium mb-1">Headcount</label>
+          <label htmlFor="headcount" className="block text-sm font-medium mb-1">{t('startup_ui.headcount')}</label>
           <div className="relative">
             <Users className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
             <input
@@ -244,7 +248,7 @@ export function StartupDiscoveryPage() {
         </div>
 
         <div>
-          <label htmlFor="annualRdSpend" className="block text-sm font-medium mb-1">Annual R&D spend ($)</label>
+          <label htmlFor="annualRdSpend" className="block text-sm font-medium mb-1">{t('startup_ui.rd_spend', { currency })}</label>
           <div className="relative">
             <TrendingUp className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
             <input
@@ -261,7 +265,7 @@ export function StartupDiscoveryPage() {
         </div>
 
         <div>
-          <label htmlFor="equityRaised" className="block text-sm font-medium mb-1">Equity raised ($)</label>
+          <label htmlFor="equityRaised" className="block text-sm font-medium mb-1">{t('startup_ui.equity_raised', { currency })}</label>
           <div className="relative">
             <Wallet className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
             <input
@@ -283,7 +287,7 @@ export function StartupDiscoveryPage() {
           className="w-full py-3 bg-primary text-primary-foreground rounded-lg font-medium hover:bg-primary/90 transition-colors disabled:opacity-50 inline-flex items-center justify-center gap-2"
         >
           {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}
-          {loading ? 'Checking…' : 'See what I qualify for'}
+          {loading ? t('common.checking') : t('startup_ui.see_what_i_qualify_for')}
         </button>
       </form>
 
@@ -321,8 +325,7 @@ export function StartupDiscoveryPage() {
               type="button"
               onClick={() => setShowCheckout(true)}
               className="mt-2 text-sm font-medium text-primary hover:underline"
-            >
-              Upgrade
+            >{t('startup_ui.upgrade')}
             </button>
           </div>
         </div>
@@ -330,7 +333,7 @@ export function StartupDiscoveryPage() {
 
       {showCheckout && (
         <AddOnCheckoutModal
-          title="Startup Tax Benefits"
+          title={t('startup_ui.startup_tax_benefits')}
           priceLabel={teaser?.price ? `${formatCents(teaser.price.priceCents)}/year` : undefined}
           onClose={() => setShowCheckout(false)}
           fetchClientSecret={startupApi.getAddOnIntent}

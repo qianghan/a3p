@@ -64,7 +64,7 @@ function rateClass(successRate: number): string {
 export const SkillMetricsPage: React.FC = () => {
   // Logical dates are calendar days, not instants — UTC-pinned so the day
   // does not shift with the viewer's timezone.
-  const { formatDateOnly } = useI18n();
+  const { formatDateOnly, t } = useI18n();
   const [days, setDays] = useState(7);
   const [data, setData] = useState<MetricsResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -94,8 +94,7 @@ export const SkillMetricsPage: React.FC = () => {
       <div className="flex items-center justify-between gap-4 mb-6 flex-wrap">
         <div>
           <h1 className="text-2xl font-bold flex items-center gap-2" style={{ color: 'var(--text-primary)' }}>
-            <BarChart3 className="w-6 h-6" />
-            Skill metrics
+            <BarChart3 className="w-6 h-6" />{t('core_ui.skill_metrics')}
           </h1>
           <p className="text-sm mt-1" style={{ color: 'var(--text-secondary)' }}>
             How each skill performed across {data?.totalRuns ?? '—'} runs in the last {days} days.
@@ -119,7 +118,7 @@ export const SkillMetricsPage: React.FC = () => {
           <button
             onClick={load}
             className="ml-2 p-2 rounded-lg hover:bg-muted"
-            title="Refresh"
+            title={t('common.refresh')}
           >
             <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
           </button>
@@ -134,28 +133,28 @@ export const SkillMetricsPage: React.FC = () => {
         <div className="rounded-lg p-4 bg-rose-50 dark:bg-rose-950/30 text-rose-700 dark:text-rose-300 flex items-start gap-2">
           <AlertTriangle className="w-5 h-5 mt-0.5 flex-shrink-0" />
           <div>
-            <p className="font-medium">Failed to load metrics</p>
+            <p className="font-medium">{t('core_ui.metrics_load_failed')}</p>
             <p className="text-sm">{error}</p>
           </div>
         </div>
       ) : !data || data.skills.length === 0 ? (
         <div className="text-center py-20" style={{ color: 'var(--text-secondary)' }}>
           <BarChart3 className="w-10 h-10 mx-auto mb-3 opacity-40" />
-          <p className="font-medium">No skill runs yet in this window</p>
-          <p className="text-sm mt-1">Try a wider window, or chat with the agent to start recording metrics.</p>
+          <p className="font-medium">{t('core_ui.no_skill_runs')}</p>
+          <p className="text-sm mt-1">{t('core_ui.no_skill_runs_hint')}</p>
         </div>
       ) : (
         <div className="overflow-x-auto rounded-xl border border-border bg-card">
           <table className="w-full text-sm">
             <thead className="bg-muted/50">
               <tr className="text-left">
-                <th className="px-4 py-3 font-medium" style={{ color: 'var(--text-secondary)' }}>Skill</th>
-                <th className="px-4 py-3 font-medium text-right" style={{ color: 'var(--text-secondary)' }}>Runs</th>
-                <th className="px-4 py-3 font-medium text-right" style={{ color: 'var(--text-secondary)' }}>Success</th>
-                <th className="px-4 py-3 font-medium text-right" style={{ color: 'var(--text-secondary)' }}>Errors</th>
+                <th className="px-4 py-3 font-medium" style={{ color: 'var(--text-secondary)' }}>{t('core_ui.skill')}</th>
+                <th className="px-4 py-3 font-medium text-right" style={{ color: 'var(--text-secondary)' }}>{t('core_ui.runs')}</th>
+                <th className="px-4 py-3 font-medium text-right" style={{ color: 'var(--text-secondary)' }}>{t('core_ui.success')}</th>
+                <th className="px-4 py-3 font-medium text-right" style={{ color: 'var(--text-secondary)' }}>{t('core_ui.errors')}</th>
                 <th className="px-4 py-3 font-medium text-right" style={{ color: 'var(--text-secondary)' }}>p50</th>
                 <th className="px-4 py-3 font-medium text-right" style={{ color: 'var(--text-secondary)' }}>p95</th>
-                <th className="px-4 py-3 font-medium text-right" style={{ color: 'var(--text-secondary)' }}>Avg conf</th>
+                <th className="px-4 py-3 font-medium text-right" style={{ color: 'var(--text-secondary)' }}>{t('core_ui.avg_confidence')}</th>
               </tr>
             </thead>
             <tbody>

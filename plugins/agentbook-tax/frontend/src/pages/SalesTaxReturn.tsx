@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Loader2, FileSpreadsheet, AlertCircle } from 'lucide-react';
 import { formatMoney } from '@agentbook/i18n';
 import { TaxDisclaimer } from '../components/TaxDisclaimer';
+import { useI18n } from '@naap/plugin-sdk';
 
 /**
  * GST/HST (Canada) & BAS (Australia) sales-tax return view. Reads the tenant's
@@ -35,6 +36,7 @@ interface AuReturn {
 }
 
 export const SalesTaxReturnPage: React.FC = () => {
+  const { t } = useI18n();
   const [jurisdiction, setJurisdiction] = useState<string | null>(null);
   const [currency, setCurrency] = useState('USD');
   const [lines, setLines] = useState<Line[] | null>(null);
@@ -104,7 +106,13 @@ export const SalesTaxReturnPage: React.FC = () => {
       <div className="p-6 max-w-2xl">
         <div className="flex items-start gap-3 rounded-lg border border-border bg-muted/40 p-4 text-sm text-muted-foreground">
           <AlertCircle className="w-5 h-5 shrink-0 text-amber-500" />
-          <div>Sales-tax returns are available for <b>Canada (GST/HST)</b> and <b>Australia (BAS)</b>. Your business is set to <b>{jurisdiction.toUpperCase()}</b> — set your jurisdiction to CA or AU in Business Profile to prepare one.</div>
+          <div>
+            {t('tax_ui.sales_tax_unsupported', {
+              ca: t('tax_ui.canada_gst_hst'),
+              au: t('tax_ui.australia_bas'),
+              current: jurisdiction.toUpperCase(),
+            })}
+          </div>
         </div>
       </div>
     );
@@ -115,7 +123,7 @@ export const SalesTaxReturnPage: React.FC = () => {
       <div className="p-6 max-w-2xl">
         <div className="flex items-start gap-3 rounded-lg border border-destructive/30 bg-destructive/5 p-4 text-sm">
           <AlertCircle className="w-5 h-5 shrink-0 text-destructive" />
-          <div><b>Couldn't load your return.</b> {error}</div>
+          <div><b>{t('tax_ui.return_load_failed')}</b> {error}</div>
         </div>
       </div>
     );

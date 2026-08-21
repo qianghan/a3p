@@ -67,7 +67,7 @@ function fmtDate(iso: string, locale: string): string {
 
 export const BankReviewPage: React.FC = () => {
   // Locale for the UTC-pinned logical-date helper above.
-  const { locale } = useI18n();
+  const { locale, t } = useI18n();
   const currency = useTenantCurrency();
   const [txns, setTxns] = useState<BankTxn[]>([]);
   const [loading, setLoading] = useState(true);
@@ -156,9 +156,8 @@ export const BankReviewPage: React.FC = () => {
         <div className="flex items-center gap-3">
           <Building2 className="w-6 h-6 text-primary" />
           <div>
-            <h1 className="text-2xl font-bold">Bank review</h1>
-            <p className="text-sm text-muted-foreground">
-              Transactions we couldn't auto-match. Pick the best candidate or skip.
+            <h1 className="text-2xl font-bold">{t('expenses_ui.bank_review')}</h1>
+            <p className="text-sm text-muted-foreground">{t('expenses_ui.bank_review_sub')}
             </p>
           </div>
         </div>
@@ -167,8 +166,7 @@ export const BankReviewPage: React.FC = () => {
           className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border text-sm hover:bg-muted"
           disabled={loading}
         >
-          <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
-          Refresh
+          <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />{t('common.refresh')}
         </button>
       </div>
 
@@ -188,8 +186,8 @@ export const BankReviewPage: React.FC = () => {
       ) : txns.length === 0 ? (
         <div className="py-16 text-center text-muted-foreground">
           <CheckCircle className="w-10 h-10 mx-auto mb-3 opacity-40" />
-          <p className="font-medium">All caught up</p>
-          <p className="text-sm mt-1">No bank transactions waiting for review.</p>
+          <p className="font-medium">{t('expenses_ui.all_caught_up')}</p>
+          <p className="text-sm mt-1">{t('expenses_ui.no_bank_review')}</p>
         </div>
       ) : (
         <div className="space-y-3">
@@ -223,8 +221,7 @@ export const BankReviewPage: React.FC = () => {
                     onClick={() => void skip(t.id)}
                     disabled={isActing}
                     className="text-xs px-2 py-1 rounded border border-border hover:bg-muted disabled:opacity-50"
-                  >
-                    Skip
+                  >{t('common.skip')}
                   </button>
                 </div>
 

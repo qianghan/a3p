@@ -36,6 +36,11 @@ function trialEndLabel(): string {
 }
 
 function PayForm({ plan, onDone }: { plan: Plan; onDone: () => void }): JSX.Element {
+  // Its own hook call: PayForm is a separate component from SubscribeModal and
+  // cannot see that one's destructured `t`. Without this, the two t() calls in
+  // submit() below threw ReferenceError — on the card-submission path of the
+  // subscribe flow, i.e. exactly where a crash costs a conversion.
+  const { t } = useI18n();
   const stripe = useStripe();
   const elements = useElements();
   const [busy, setBusy] = useState(false);
@@ -88,7 +93,7 @@ function PayForm({ plan, onDone }: { plan: Plan; onDone: () => void }): JSX.Elem
         disabled={!stripe || busy}
         className="w-full rounded-lg bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
       >
-        {busy ? 'Processing…' : `Start trial — ${plan.name}`}
+        {busy ? t('common.processing') : t('billing_ui.start_trial', { plan: plan.name })}
       </button>
     </form>
   );

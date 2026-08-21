@@ -25,7 +25,6 @@ import {
   createTranslator,
   resolveLocale,
   formatCurrency,
-  formatMoney,
   formatDate,
   formatDateOnly,
   formatNumber,
@@ -144,7 +143,21 @@ export function useShellI18n(): ShellI18n {
       currency,
       ready,
       t,
-      formatMoney: (cents: number, cur: string = currency) => formatMoney(cents, cur),
+      // Both money formatters go through formatCurrency with the RESOLVED
+      // USER LOCALE. The bare formatMoney() helper infers a display locale
+      // from the currency code instead — that fallback exists for call sites
+      // that hold a tenant `currency` and no locale at all, and using it here
+      // was wrong: the shell has the locale, so inferring one threw it away.
+      //
+      // Concretely, for CAD: currency-inference gives en-CA "$1,234.56" to a
+      // French-Canadian user, who should read "1 234,56 $". Every money figure
+      // on every page reached through useI18n() was formatted in English.
+      //
+      // Note this is NOT behind the translation feature flag, deliberately.
+      // Formatting follows the tenant locale unconditionally, because getting
+      // it wrong is a correctness bug rather than a missing translation.
+      formatMoney: (cents: number, cur: string = currency) =>
+        formatCurrency(cents, locale, cur),
       formatCurrency: (cents: number, cur: string = currency) =>
         formatCurrency(cents, locale, cur),
       formatDate: (date: string | Date, options?: Intl.DateTimeFormatOptions) =>

@@ -47,7 +47,7 @@ export function RecordPaymentModal({
   //   2. A fr-CA user cannot type '45,50' into these fields at all — the
   //      browser blanks it. That is a usability defect, and routing through
   //      parseAmount means switching a field to type="text" later Just Works.
-  const { parseAmount } = useI18n();
+  const { parseAmount, t } = useI18n();
 
   const submit = async (e: React.FormEvent): Promise<void> => {
     e.preventDefault();
@@ -90,7 +90,7 @@ export function RecordPaymentModal({
       <div className="w-[420px] rounded-xl bg-white p-6 shadow-xl">
         <div className="mb-4 flex items-center justify-between">
           <h3 className="text-lg font-semibold">Record Payment — {invoiceNumber}</h3>
-          <button onClick={onClose} aria-label="Close" className="text-xl text-gray-400 hover:text-gray-600">×</button>
+          <button onClick={onClose} aria-label={t('common.close')} className="text-xl text-gray-400 hover:text-gray-600">×</button>
         </div>
 
         <form onSubmit={submit} className="space-y-4">
@@ -113,7 +113,7 @@ export function RecordPaymentModal({
             </p>
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700">Payment date</label>
+            <label className="block text-sm font-medium text-gray-700">{t('core_ui.payment_date')}</label>
             <input
               type="date"
               value={paidAt}
@@ -123,7 +123,7 @@ export function RecordPaymentModal({
             />
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700">Method</label>
+            <label className="block text-sm font-medium text-gray-700">{t('invoice_ui.method')}</label>
             <select
               value={method}
               onChange={(e) => setMethod(e.target.value)}
@@ -140,14 +140,13 @@ export function RecordPaymentModal({
               disabled={busy}
               className="flex-1 rounded-lg bg-green-600 py-2.5 text-sm font-medium text-white hover:bg-green-700 disabled:opacity-50"
             >
-              {busy ? 'Recording…' : 'Record payment'}
+              {busy ? t('common.recording') : t('invoice_ui.record_payment')}
             </button>
             <button
               type="button"
               onClick={onClose}
               className="flex-1 rounded-lg border py-2.5 text-sm text-gray-600 hover:bg-gray-50"
-            >
-              Cancel
+            >{t('common.cancel')}
             </button>
           </div>
         </form>

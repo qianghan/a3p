@@ -86,7 +86,7 @@ function dollarsToCents(s: string): number {
 export const HomeOfficePage: React.FC = () => {
   // Logical dates are calendar days, not instants — UTC-pinned so the day
   // does not shift with the viewer's timezone.
-  const { formatDateOnly } = useI18n();
+  const { formatDateOnly, t } = useI18n();
   const [cfg, setCfg] = useState<HomeOfficeConfig | null>(null);
   const [savingCfg, setSavingCfg] = useState(false);
   const [cfgMessage, setCfgMessage] = useState<string | null>(null);
@@ -255,8 +255,7 @@ export const HomeOfficePage: React.FC = () => {
 
       {/* ─── Config ─────────────────────────────────────── */}
       <section className="bg-card border border-border rounded-xl p-4 mb-6 space-y-3">
-        <h2 className="text-sm font-medium text-muted-foreground">
-          Configuration
+        <h2 className="text-sm font-medium text-muted-foreground">{t('homeoffice.configuration')}
         </h2>
         <div className="grid grid-cols-2 gap-3">
           <div>
@@ -302,7 +301,7 @@ export const HomeOfficePage: React.FC = () => {
             className="px-3 py-2 text-sm rounded-lg bg-primary text-primary-foreground inline-flex items-center gap-2 disabled:opacity-50"
           >
             <Save className="w-4 h-4" />
-            {savingCfg ? 'Saving…' : 'Save config'}
+            {savingCfg ? t('common.saving') : t('core_ui.save_config')}
           </button>
           {cfgMessage && (
             <span className="text-xs text-muted-foreground">{cfgMessage}</span>
@@ -317,7 +316,7 @@ export const HomeOfficePage: React.FC = () => {
         </h2>
         <div className="grid grid-cols-2 gap-3">
           <div>
-            <label className="text-xs text-muted-foreground">Year</label>
+            <label className="text-xs text-muted-foreground">{t('homeoffice.year')}</label>
             <input
               type="number"
               value={year}
@@ -326,16 +325,16 @@ export const HomeOfficePage: React.FC = () => {
             />
           </div>
           <div>
-            <label className="text-xs text-muted-foreground">Quarter</label>
+            <label className="text-xs text-muted-foreground">{t('homeoffice.quarter')}</label>
             <select
               value={quarter}
               onChange={(e) => setQuarter(parseInt(e.target.value, 10))}
               className="w-full p-2 border border-border rounded-lg bg-background"
             >
-              <option value={1}>Q1 (Jan–Mar)</option>
-              <option value={2}>Q2 (Apr–Jun)</option>
-              <option value={3}>Q3 (Jul–Sep)</option>
-              <option value={4}>Q4 (Oct–Dec)</option>
+              <option value={1}>{t('core_ui.q1')}</option>
+              <option value={2}>{t('core_ui.q2')}</option>
+              <option value={3}>{t('core_ui.q3')}</option>
+              <option value={4}>{t('core_ui.q4')}</option>
             </select>
           </div>
         </div>
@@ -405,7 +404,7 @@ export const HomeOfficePage: React.FC = () => {
             {t('homeoffice.total_overhead')} <b>{fmtMoney(preview.totalCents)}</b>
           </p>
           <p className="text-muted-foreground">
-            Deductible portion ({useSimplified ? 'US simplified' : 'actual'}): {' '}
+            Deductible portion ({useSimplified ? t('core_ui.us_simplified') : t('core_ui.actual_method')}): {' '}
             <b>{fmtMoney(preview.deductibleCents)}</b>
           </p>
         </div>
@@ -418,7 +417,7 @@ export const HomeOfficePage: React.FC = () => {
             className="px-4 py-2 bg-primary text-primary-foreground rounded-lg font-medium disabled:opacity-50 inline-flex items-center gap-2"
           >
             <Plus className="w-4 h-4" />
-            {submitting ? 'Posting…' : 'Post quarter'}
+            {submitting ? t('common.posting') : t('core_ui.post_quarter')}
           </button>
         </div>
       </section>

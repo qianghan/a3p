@@ -14,6 +14,7 @@ import { ChatCTA } from '@naap/plugin-sdk';
 import { formatMoney } from '@agentbook/i18n';
 import { useTenantCurrency } from '../hooks/useTenantCurrency';
 import { TaxDisclaimer } from '../components/TaxDisclaimer';
+import { useI18n } from '@naap/plugin-sdk';
 
 interface ReportRow {
   label: string;
@@ -154,6 +155,7 @@ function transformReport(key: string, json: { success: boolean; data?: any; erro
 }
 
 export const ReportsPage: React.FC = () => {
+  const { t } = useI18n();
   const [expanded, setExpanded] = useState<string | null>(null);
   const [reportData, setReportData] = useState<Record<string, ReportData>>({});
   const [loadingReport, setLoadingReport] = useState<string | null>(null);
@@ -238,7 +240,7 @@ export const ReportsPage: React.FC = () => {
             style={{ borderColor: 'var(--border-primary, #e5e7eb)' }}
           >
             <span className="text-sm font-bold" style={{ color: 'var(--text-primary)' }}>
-              Net Income
+              {t('tax_ui.net_income')}
             </span>
             <span className={`text-base font-bold ${data.net_income >= 0 ? 'text-green-600' : 'text-red-600'}`}>
               {formatCurrency(data.net_income, currency)}
@@ -253,10 +255,10 @@ export const ReportsPage: React.FC = () => {
     <div className="p-4 sm:p-6 max-w-4xl mx-auto">
       <div className="mb-6">
         <h1 className="text-2xl font-bold" style={{ color: 'var(--text-primary)' }}>
-          Financial Reports
+          {t('tax_ui.financial_reports')}
         </h1>
         <p className="text-sm mt-1" style={{ color: 'var(--text-secondary)' }}>
-          Generate and view financial reports for your business
+          {t('tax_ui.financial_reports_sub')}
         </p>
       </div>
 

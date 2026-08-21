@@ -2,6 +2,9 @@ import React from 'react';
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import { BankConnectionPage } from '../pages/BankConnection';
+// Prod always mounts plugin pages inside the shell; rendering bare would
+// assert against useI18n's lossy key-humanising fallback instead.
+import { withShell } from './i18n-harness';
 
 /**
  * AU-1 task 3: BankConnection.tsx AU (Basiq) branch + the disconnect button
@@ -63,7 +66,7 @@ describe('BankConnectionPage — AU (Basiq) branch', () => {
 
   it('AU jurisdiction: clicking Connect Bank calls the Basiq consent-url route, not Plaid link-token', async () => {
     installFetch({ jurisdiction: 'au' });
-    render(<BankConnectionPage />);
+    render(withShell(<BankConnectionPage />));
 
     const connectButton = await screen.findByText('Connect with Basiq');
     fireEvent.click(connectButton);
@@ -79,7 +82,7 @@ describe('BankConnectionPage — AU (Basiq) branch', () => {
 
   it('AU jurisdiction: never invokes usePlaidLink\'s open (Plaid flow untouched)', async () => {
     installFetch({ jurisdiction: 'au' });
-    render(<BankConnectionPage />);
+    render(withShell(<BankConnectionPage />));
     await screen.findByText('Connect with Basiq');
     // usePlaidLink is still called (it's an unconditional hook call), but
     // with a null token — assert no Plaid Link token was ever set for AU.
@@ -102,7 +105,7 @@ describe('BankConnectionPage — AU (Basiq) branch', () => {
       return jsonResponse({ success: true, data: {} });
     });
 
-    render(<BankConnectionPage />);
+    render(withShell(<BankConnectionPage />));
     const connectButton = await screen.findByText('Connect with Plaid');
     fireEvent.click(connectButton);
 
@@ -137,7 +140,7 @@ describe('BankConnectionPage — AU (Basiq) branch', () => {
     });
     vi.spyOn(window, 'confirm').mockReturnValue(true);
 
-    render(<BankConnectionPage />);
+    render(withShell(<BankConnectionPage />));
     const disconnectButton = await screen.findByText('Disconnect');
     fireEvent.click(disconnectButton);
 
@@ -171,7 +174,7 @@ describe('BankConnectionPage — AU (Basiq) branch', () => {
     });
     vi.spyOn(window, 'confirm').mockReturnValue(true);
 
-    render(<BankConnectionPage />);
+    render(withShell(<BankConnectionPage />));
     const disconnectButton = await screen.findByText('Disconnect');
     fireEvent.click(disconnectButton);
 
@@ -205,7 +208,7 @@ describe('BankConnectionPage — AU (Basiq) branch', () => {
     });
     vi.spyOn(window, 'confirm').mockReturnValue(false);
 
-    render(<BankConnectionPage />);
+    render(withShell(<BankConnectionPage />));
     const disconnectButton = await screen.findByText('Disconnect');
     fireEvent.click(disconnectButton);
 
@@ -233,7 +236,7 @@ describe('BankConnectionPage — AU (Basiq) branch', () => {
       return jsonResponse({ success: true, data: {} });
     });
 
-    render(<BankConnectionPage />);
+    render(withShell(<BankConnectionPage />));
     const connectButton = await screen.findByText('Connect with Basiq');
     fireEvent.click(connectButton);
 

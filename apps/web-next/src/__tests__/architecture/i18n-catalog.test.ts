@@ -37,6 +37,7 @@ import {
   TRANSLATED_LOCALES,
   SCAFFOLD_LOCALES,
 } from '@agentbook/i18n/catalog';
+import { createTranslator } from '@agentbook/i18n';
 
 /** Flatten a namespace tree into dot-notated leaf keys. */
 function flatten(obj: unknown, prefix = ''): Map<string, string> {
@@ -91,6 +92,39 @@ const IDENTICAL_ALLOWED = new Set<string>([
   'homeoffice.internet',
   'agents.notifications',
   'agents.model_standard',
+  // "Date" and "Notes" are the same word in French.
+  'expenses_ui.col_date',
+  'expenses_ui.notes',
+  // Also identical in French: "Description", "Transactions", "Exceptions" and
+  // "Budgets" are all borrowed unchanged. "Budget" in particular is the
+  // standard French accounting term, so a synonym would read as a mistake.
+  'expenses_ui.col_description',
+  'expenses_ui.transactions',
+  'expenses_ui.exceptions',
+  'expenses_ui.budgets',
+  // "Distance" is the same word in French.
+  'expenses_ui.distance',
+  // Shared table/section labels that French borrows unchanged. "Client",
+  // "Total" and "Budget" in particular are the standard French accounting
+  // terms, so substituting a synonym to satisfy this check would make the
+  // copy read as a mistake to a native speaker.
+  'common.actions',
+  'common.description',
+  'common.total',
+  'common.client',
+  'invoice_ui.clients',
+  'invoice_ui.budget',
+  // "Canada" is spelled identically in French — it is the country's own name in
+  // both official languages, and inventing a variant would be an error.
+  'tax_ui.canada',
+  // "Notes" is the same word in French (already allowed for expenses_ui).
+  'core_ui.notes',
+  // "Quotas" is borrowed unchanged into French. "Net" is the accounting term in
+  // both languages, and the strip abbreviates it to the same three letters.
+  'billing_ui.quotas',
+  'core_ui.abbr_net',
+  // "Action" is the same word in French (common.actions is already allowed).
+  'core_ui.action',
 ]);
 
 /**
@@ -336,5 +370,52 @@ describe('i18n runtime: no ambient locale state', () => {
     expect('setLocale' in mod).toBe(false);
     expect('getLocale' in mod).toBe(false);
     expect('loadLocale' in mod).toBe(false);
+  });
+});
+
+describe('plural variants in the REAL catalog', () => {
+  // The MECHANICS of plural selection are covered against a synthetic fixture
+  // in packages/agentbook-i18n. What that cannot check is whether the shipped
+  // catalog actually HAS the variants the pages ask for — a half-declared
+  // plural (`_one` with no `_other`) resolves to the bare key, and the user
+  // reads the key.
+  it('every _one variant has a matching _other, in every locale', () => {
+    const missing: string[] = [];
+    for (const locale of AVAILABLE_LOCALES) {
+      for (const [ns, data] of Object.entries(CATALOG[locale] ?? {})) {
+        const keys = data as Record<string, unknown>;
+        for (const key of Object.keys(keys)) {
+          if (!key.endsWith('_one')) continue;
+          const other = key.replace(/_one$/, '_other');
+          if (!(other in keys)) missing.push(`${locale}/${ns}.${other}`);
+        }
+      }
+    }
+    expect(
+      missing,
+      'a plural with no _other variant falls through and renders the raw key',
+    ).toEqual([]);
+  });
+
+  it('tax_ui.days_away resolves per locale, including the French zero', () => {
+    // The code this replaced was `${n} day${n === 1 ? '' : 's'} away` — English
+    // plural logic inlined in a component. French counts 0 as SINGULAR, so that
+    // produced "dans 0 jours" where "dans 0 jour" is correct. This asserts the
+    // real catalog key rather than the selection mechanism.
+    const en = createTranslator('en', CATALOG).t;
+    const fr = createTranslator('fr-CA', CATALOG).t;
+    const zh = createTranslator('zh-CN', CATALOG).t;
+
+    expect(en('tax_ui.days_away', { count: 1 })).toBe('1 day away');
+    expect(en('tax_ui.days_away', { count: 0 })).toBe('0 days away');
+
+    // The case the hand-rolled check got wrong.
+    expect(fr('tax_ui.days_away', { count: 0 })).toBe('dans 0 jour');
+    expect(fr('tax_ui.days_away', { count: 1 })).toBe('dans 1 jour');
+    expect(fr('tax_ui.days_away', { count: 2 })).toBe('dans 2 jours');
+
+    // Chinese has no plural inflection; one form serves every count.
+    expect(zh('tax_ui.days_away', { count: 1 })).toBe('1 天后');
+    expect(zh('tax_ui.days_away', { count: 9 })).toBe('9 天后');
   });
 });

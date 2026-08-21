@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { StartupDiscoveryPage } from '../pages/StartupDiscoveryPage';
+import { withShell } from './i18n-harness';
 
 const getProfile = vi.fn();
 const saveProfile = vi.fn();
@@ -38,9 +39,13 @@ vi.mock('@naap/ui', () => ({
 
 function renderPage() {
   return render(
-    <MemoryRouter>
-      <StartupDiscoveryPage />
-    </MemoryRouter>,
+    // withShell: prod mounts plugin pages inside the shell, so rendering bare
+    // asserts against useI18n's key-humanising fallback. See i18n-harness.tsx.
+    withShell(
+      <MemoryRouter>
+        <StartupDiscoveryPage />
+      </MemoryRouter>,
+    ),
   );
 }
 

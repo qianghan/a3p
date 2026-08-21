@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Calculator, ArrowRight, DollarSign } from 'lucide-react';
-import { ChatCTA } from '@naap/plugin-sdk';
+import { ChatCTA, useI18n } from '@naap/plugin-sdk';
 import { TaxDisclaimer } from '../components/TaxDisclaimer';
 import { useTenantCurrency } from '../hooks/useTenantCurrency';
 
@@ -16,6 +16,7 @@ interface WhatIfResult {
 }
 
 export const WhatIfPage: React.FC = () => {
+  const { t } = useI18n();
   const [amount, setAmount] = useState('');
   const [type, setType] = useState<'expense' | 'income'>('expense');
   const [result, setResult] = useState<WhatIfResult | null>(null);
@@ -53,14 +54,13 @@ export const WhatIfPage: React.FC = () => {
     <div className="px-4 py-5 sm:p-6 max-w-2xl mx-auto">
       <div className="flex items-center gap-3 mb-6">
         <Calculator className="w-6 h-6 text-primary" />
-        <h1 className="text-2xl font-bold">What If...?</h1>
+        <h1 className="text-2xl font-bold">{t('tax_ui.what_if')}</h1>
       </div>
 
       {/* PR 45 / Tier 1 #1: chat-first escape hatch */}
       <ChatCTA example="simulate raising my hourly rate from $150 to $180 for the rest of the year" />
 
-      <p className="text-muted-foreground mb-6">
-        See how adding expenses or income would affect your tax liability.
+      <p className="text-muted-foreground mb-6">{t('tax_ui.what_if_sub')}
       </p>
 
       <div className="bg-card border border-border rounded-xl p-5 mb-6">
@@ -68,14 +68,12 @@ export const WhatIfPage: React.FC = () => {
           <button
             onClick={() => setType('expense')}
             className={`flex-1 py-2.5 rounded-lg text-sm font-medium transition-colors ${type === 'expense' ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground'}`}
-          >
-            Add Expense
+          >{t('tax_ui.add_expense')}
           </button>
           <button
             onClick={() => setType('income')}
             className={`flex-1 py-2.5 rounded-lg text-sm font-medium transition-colors ${type === 'income' ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground'}`}
-          >
-            Add Income
+          >{t('tax_ui.add_income')}
           </button>
         </div>
 
@@ -86,7 +84,7 @@ export const WhatIfPage: React.FC = () => {
             step="0.01"
             value={amount}
             onChange={e => setAmount(e.target.value)}
-            placeholder="Enter amount"
+            placeholder={t('tax_ui.enter_amount')}
             className="w-full pl-9 pr-4 py-3 bg-background border border-border rounded-lg focus:ring-2 focus:ring-primary/50 text-lg"
           />
         </div>
@@ -96,7 +94,7 @@ export const WhatIfPage: React.FC = () => {
           disabled={!amount || loading}
           className="w-full py-3 bg-primary text-primary-foreground rounded-lg font-medium hover:bg-primary/90 transition-colors disabled:opacity-50"
         >
-          {loading ? 'Calculating...' : 'Calculate Tax Impact'}
+          {loading ? t('common.calculating') : t('tax_ui.calculate_tax_impact')}
         </button>
       </div>
 
@@ -106,12 +104,12 @@ export const WhatIfPage: React.FC = () => {
 
           <div className="flex items-center justify-between gap-4 mb-4">
             <div className="text-center flex-1">
-              <p className="text-xs text-muted-foreground">Current Tax</p>
+              <p className="text-xs text-muted-foreground">{t('tax_ui.current_tax')}</p>
               <p className="text-xl font-bold">{fmt(result.currentTaxCents)}</p>
             </div>
             <ArrowRight className="w-5 h-5 text-muted-foreground shrink-0" />
             <div className="text-center flex-1">
-              <p className="text-xs text-muted-foreground">Projected Tax</p>
+              <p className="text-xs text-muted-foreground">{t('tax_ui.projected_tax')}</p>
               <p className="text-xl font-bold">{fmt(result.projectedTaxCents)}</p>
             </div>
           </div>

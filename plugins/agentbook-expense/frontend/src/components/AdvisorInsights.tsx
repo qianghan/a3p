@@ -1,5 +1,6 @@
 import React from 'react';
 import { AlertTriangle, TrendingUp, Copy, FileX, Tag, Lightbulb, X } from 'lucide-react';
+import { useI18n } from '@naap/plugin-sdk';
 
 interface Insight {
   id: string;
@@ -31,6 +32,7 @@ export const AdvisorInsights: React.FC<{
   loading: boolean;
   onDismiss: (id: string) => void;
 }> = ({ insights, loading, onDismiss }) => {
+  const { t } = useI18n();
   if (loading) {
     return (
       <div className="flex gap-3 overflow-x-auto pb-2 mb-4">
@@ -46,7 +48,7 @@ export const AdvisorInsights: React.FC<{
   return (
     <div className="mb-4">
       <div className="flex items-center gap-2 mb-2 px-1">
-        <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Agent Insights</span>
+        <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">{t('expenses_ui.agent_insights')}</span>
         <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-primary/10 text-primary font-medium">{insights.length}</span>
       </div>
       <div className="flex gap-2.5 overflow-x-auto pb-2 -mx-1 px-1 snap-x">

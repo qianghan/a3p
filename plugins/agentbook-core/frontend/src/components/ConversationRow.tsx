@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { ChevronDown, ChevronUp } from 'lucide-react';
+import { useI18n } from '@naap/plugin-sdk';
 
 export interface ConversationItem {
   id: string;
@@ -47,6 +48,7 @@ export function ConversationRow({
   item: ConversationItem;
   searchQuery?: string;
 }): JSX.Element {
+  const { t } = useI18n();
   const [expanded, setExpanded] = useState(false);
   const ch = CHANNEL_META[item.channel] ?? { icon: '🔗', label: item.channel };
 
@@ -70,12 +72,12 @@ export function ConversationRow({
           <span className="ml-auto">{expanded ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}</span>
         </div>
         <p className="text-sm text-foreground line-clamp-1">
-          <span className="mr-1 font-medium text-muted-foreground">You:</span>
+          <span className="mr-1 font-medium text-muted-foreground">{t('core_ui.you_label')}</span>
           {expanded ? highlight(item.question, searchQuery) : highlight(item.question.slice(0, 120), searchQuery)}
         </p>
         {!expanded && (
           <p className="mt-0.5 text-xs text-muted-foreground line-clamp-1">
-            <span className="mr-1 font-medium">Agent:</span>
+            <span className="mr-1 font-medium">{t('core_ui.agent_label')}</span>
             {item.answer.slice(0, 180)}
           </p>
         )}
@@ -83,11 +85,11 @@ export function ConversationRow({
       {expanded && (
         <div className="mx-4 mb-3 space-y-2 rounded-lg border border-border bg-background p-3 text-sm">
           <div>
-            <span className="text-xs font-medium text-muted-foreground">You</span>
+            <span className="text-xs font-medium text-muted-foreground">{t('core_ui.you')}</span>
             <p className="mt-0.5 text-foreground whitespace-pre-wrap">{highlight(item.question, searchQuery)}</p>
           </div>
           <div className="border-t border-border pt-2">
-            <span className="text-xs font-medium text-muted-foreground">Agent</span>
+            <span className="text-xs font-medium text-muted-foreground">{t('core_ui.agent')}</span>
             <p className="mt-0.5 text-foreground whitespace-pre-wrap">{highlight(item.answer, searchQuery)}</p>
           </div>
         </div>

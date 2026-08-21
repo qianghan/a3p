@@ -1,6 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { PieChart, BarChart3, TrendingUp, TrendingDown, Zap } from 'lucide-react';
 import { TaxDisclaimer } from '../components/TaxDisclaimer';
+import { useI18n } from '@naap/plugin-sdk';
+import { useTenantCurrency } from '../hooks/useTenantCurrency';
 
 interface CategoryBreakdown {
   categoryName: string;
@@ -28,6 +30,8 @@ const EXPENSE_API = '/api/v1/agentbook-expense';
 const COLORS = ['#10b981', '#3b82f6', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#14b8a6', '#f97316'];
 
 export const AnalyticsPage: React.FC = () => {
+  const currency = useTenantCurrency();
+  const { locale, t } = useI18n();
   const [categories, setCategories] = useState<CategoryBreakdown[]>([]);
   const [trends, setTrends] = useState<SpendingTrend[]>([]);
   const [vendors, setVendors] = useState<VendorItem[]>([]);
@@ -48,21 +52,31 @@ export const AnalyticsPage: React.FC = () => {
     }).finally(() => setLoading(false));
   }, []);
 
-  const fmt = (cents: number) => `$${(cents / 100).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
+  // Was a literal '$' plus toLocaleString('en-US'), so every tenant read
+  // their tax analytics in US dollars whatever their actual currency. The
+  // useTenantCurrency hook already existed in this plugin and this page simply
+  // never called it.
+  const fmt = (cents: number) =>
+    new Intl.NumberFormat(locale, {
+      style: 'currency',
+      currency,
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 0,
+    }).format(cents / 100);
   const totalExpenses = categories.reduce((s, c) => s + c.totalCents, 0);
 
   return (
     <div className="px-4 py-5 sm:p-6 max-w-7xl mx-auto">
       <div className="flex items-center gap-3 mb-6">
         <BarChart3 className="w-6 h-6 text-primary" />
-        <h1 className="text-2xl font-bold">Expense Analytics</h1>
+        <h1 className="text-2xl font-bold">{t('tax_ui.expense_analytics')}</h1>
       </div>
 
       <div className="mb-6">
         <TaxDisclaimer />
       </div>
 
-      {loading && <p className="text-muted-foreground">Loading analytics...</p>}
+      {loading && <p className="text-muted-foreground">{t('tax_ui.loading_analytics')}</p>}
 
       {/* Category Breakdown — Visual Bar Chart */}
       <div className="bg-card border border-border rounded-xl p-5 mb-6">
@@ -88,7 +102,7 @@ export const AnalyticsPage: React.FC = () => {
           ))}
         </div>
         <div className="mt-4 pt-3 border-t border-border flex justify-between text-sm">
-          <span className="text-muted-foreground">Total</span>
+          <span className="text-muted-foreground">{t('common.total')}</span>
           <span className="font-bold">{fmt(totalExpenses)}</span>
         </div>
       </div>

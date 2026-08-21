@@ -35,9 +35,12 @@ interface Invoice {
 
 const TABS = ['all', 'draft', 'sent', 'overdue', 'paid'] as const;
 
-function formatCurrency(cents: number, currency = 'USD') {
+// `locale` is threaded in the same way formatDate below already does it — the
+// alternative, formatMoney(cents, currency), infers a locale FROM the currency
+// and would render CAD as en-CA "$1,234.56" for a French-Canadian reader.
+function formatCurrency(cents: number, currency: string, locale: string) {
   const value = Number.isFinite(cents) ? cents / 100 : 0;
-  return new Intl.NumberFormat('en-US', { style: 'currency', currency: currency.toUpperCase() || 'USD' }).format(value);
+  return new Intl.NumberFormat(locale, { style: 'currency', currency: currency.toUpperCase() || 'USD' }).format(value);
 }
 
 function formatDate(d: string | null | undefined, locale: string) {
@@ -51,7 +54,7 @@ function formatDate(d: string | null | undefined, locale: string) {
 
 export const InvoiceListPage: React.FC = () => {
   // Locale for the UTC-rendered logical-date helpers above.
-  const { locale } = useI18n();
+  const { locale, t } = useI18n();
   const navigate = useNavigate();
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [loading, setLoading] = useState(true);
@@ -122,11 +125,9 @@ export const InvoiceListPage: React.FC = () => {
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
         <div>
-          <h1 className="text-2xl font-bold" style={{ color: 'var(--text-primary)' }}>
-            Invoices
+          <h1 className="text-2xl font-bold" style={{ color: 'var(--text-primary)' }}>{t('invoice_ui.invoices')}
           </h1>
-          <p className="text-sm mt-1" style={{ color: 'var(--text-secondary)' }}>
-            Manage and track all your invoices
+          <p className="text-sm mt-1" style={{ color: 'var(--text-secondary)' }}>{t('invoice_ui.invoices_sub')}
           </p>
         </div>
         <button
@@ -134,8 +135,7 @@ export const InvoiceListPage: React.FC = () => {
           className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium text-white transition-colors"
           style={{ backgroundColor: 'var(--accent-emerald, #10b981)' }}
         >
-          <Plus className="w-4 h-4" />
-          New Invoice
+          <Plus className="w-4 h-4" />{t('invoice_ui.new_invoice')}
         </button>
       </div>
 
@@ -148,11 +148,10 @@ export const InvoiceListPage: React.FC = () => {
           <DollarSign className="w-5 h-5 text-amber-600" />
         </div>
         <div>
-          <p className="text-xs font-medium uppercase tracking-wide" style={{ color: 'var(--text-secondary)' }}>
-            Total Outstanding
+          <p className="text-xs font-medium uppercase tracking-wide" style={{ color: 'var(--text-secondary)' }}>{t('invoice_ui.total_outstanding')}
           </p>
           <p className="text-xl font-bold" style={{ color: 'var(--text-primary)' }}>
-            {formatCurrency(outstandingCents, outstandingCurrency)}
+            {formatCurrency(outstandingCents, outstandingCurrency, locale)}
           </p>
         </div>
       </div>
@@ -187,9 +186,9 @@ export const InvoiceListPage: React.FC = () => {
             showDeleted ? 'bg-red-100 text-red-700' : 'hover:bg-gray-100'
           }`}
           style={!showDeleted ? { color: 'var(--text-secondary)' } : undefined}
-          title="Include soft-deleted invoices"
+          title={t('invoice_ui.include_deleted_invoices')}
         >
-          {showDeleted ? 'Hide deleted' : 'Show deleted'}
+          {showDeleted ? t('invoice_ui.hide_deleted') : t('invoice_ui.show_deleted')}
         </button>
       </div>
 
@@ -201,6 +200,7 @@ export const InvoiceListPage: React.FC = () => {
             {formatCurrency(
               overdueInvoices.reduce((s, inv) => s + inv.amountCents, 0),
               overdueInvoices[0]?.currency ?? 'USD',
+              locale,
             )}{' '}
             outstanding
           </span>
@@ -209,7 +209,7 @@ export const InvoiceListPage: React.FC = () => {
             disabled={remindingAll}
             className="rounded-lg bg-red-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-50"
           >
-            {remindingAll ? 'Sending…' : 'Send all reminders'}
+            {remindingAll ? t('common.sending') : t('invoice_ui.send_all_reminders')}
           </button>
         </div>
       )}
@@ -226,14 +226,14 @@ export const InvoiceListPage: React.FC = () => {
             onClick={fetchInvoices}
             className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium border hover:bg-gray-50"
           >
-            <RefreshCw className="w-4 h-4" /> Retry
+            <RefreshCw className="w-4 h-4" /> {t('common.retry')}
           </button>
         </div>
       ) : filtered.length === 0 ? (
         <div className="text-center py-20" style={{ color: 'var(--text-secondary)' }}>
           <FileText className="w-10 h-10 mx-auto mb-3 opacity-40" />
-          <p className="font-medium">No invoices found</p>
-          <p className="text-sm mt-1">Create your first invoice to get started.</p>
+          <p className="font-medium">{t('invoice_ui.no_invoices')}</p>
+          <p className="text-sm mt-1">{t('invoice_ui.no_invoices_hint')}</p>
         </div>
       ) : (
         <div className="space-y-3">
@@ -260,8 +260,8 @@ export const InvoiceListPage: React.FC = () => {
                       <button
                         onClick={(ev) => { ev.stopPropagation(); handleRestore(inv.id); }}
                         className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium no-underline bg-emerald-100 text-emerald-700 hover:bg-emerald-200"
-                        title="Restore (within 90 days of delete)"
-                      >Restore</button>
+                        title={t('invoice_ui.restore_within_90')}
+                      >{t('common.restore')}</button>
                     )}
                     {/* Task 7: per-row remind button for overdue invoices */}
                     {inv.status === 'overdue' && (
@@ -298,7 +298,7 @@ export const InvoiceListPage: React.FC = () => {
                 {/* Right: amount + due date */}
                 <div className="flex items-center justify-between sm:flex-col sm:items-end gap-1">
                   <span className="font-bold text-base" style={{ color: 'var(--text-primary)' }}>
-                    {formatCurrency(inv.amountCents, inv.currency)}
+                    {formatCurrency(inv.amountCents, inv.currency, locale)}
                   </span>
                   <span className="text-xs flex items-center gap-1" style={{ color: 'var(--text-secondary)' }}>
                     <Clock className="w-3 h-3" />

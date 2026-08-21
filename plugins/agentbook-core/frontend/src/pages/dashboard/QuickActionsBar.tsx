@@ -42,7 +42,7 @@ export const QuickActionsBar: React.FC = () => {
         </a>
         <button onClick={() => fileRef.current?.click()} disabled={uploading} className="flex-1 flex flex-col items-center justify-center py-3 active:scale-95 transition-transform disabled:opacity-50">
           <Camera className="w-5 h-5" />
-          <span className="text-[11px] mt-0.5">{uploading ? 'Uploading…' : 'Snap'}</span>
+          <span className="text-[11px] mt-0.5">{uploading ? t('common.uploading') : t('core_ui.snap')}</span>
         </button>
         <a href="/agentbook/agents" className="flex-1 flex flex-col items-center justify-center py-3 active:scale-95 transition-transform">
           <MessageSquare className="w-5 h-5" />

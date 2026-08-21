@@ -1,0 +1,32 @@
+{
+  "//": "Typecheck config for the plugin FRONTENDS, which otherwise have none. See bin/i18n-plugin-typecheck-guard.sh for why this exists and what it caught.",
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "jsx": "react-jsx",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "strict": false,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "resolveJsonModule": true,
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
+    "baseUrl": "../..",
+    "paths": {
+      "@naap/plugin-sdk": ["packages/plugin-sdk/src"],
+      "@naap/plugin-sdk/*": ["packages/plugin-sdk/src/*"],
+      "@naap/plugin-utils": ["packages/plugin-utils/src"],
+      "@naap/ui": ["packages/ui/src"],
+      "@naap/types": ["packages/types/src"],
+      "@naap/theme": ["packages/theme/src"],
+      "@naap/utils": ["packages/utils/src"],
+      "@agentbook/i18n": ["packages/agentbook-i18n/src/index.ts"],
+      "@agentbook/i18n/catalog": ["packages/agentbook-i18n/src/catalog.ts"]
+    }
+  },
+  "include": [
+    "../../plugins/*/frontend/src/**/*.ts",
+    "../../plugins/*/frontend/src/**/*.tsx"
+  ]
+}

@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Shield, FileText, MessageSquare, Download, Eye, Clock } from 'lucide-react';
+import { useI18n } from '@naap/plugin-sdk';
 
 const CORE_API = '/api/v1/agentbook-core';
 const TAX_API = '/api/v1/agentbook-tax';
@@ -13,6 +14,7 @@ interface CPANote {
 }
 
 export const CPAPortalPage: React.FC = () => {
+  const { t } = useI18n();
   const [notes, setNotes] = useState<CPANote[]>([]);
   const [newNote, setNewNote] = useState('');
   const [cpaLink, setCpaLink] = useState('');
@@ -62,21 +64,21 @@ export const CPAPortalPage: React.FC = () => {
     <div className="px-4 py-5 sm:p-6 max-w-4xl mx-auto">
       <div className="flex items-center gap-3 mb-6">
         <Shield className="w-6 h-6 text-primary" />
-        <h1 className="text-2xl font-bold">CPA Collaboration</h1>
+        <h1 className="text-2xl font-bold">{t('core_ui.cpa_collaboration')}</h1>
       </div>
 
       {/* Generate CPA Link */}
       <div className="bg-card border border-border rounded-xl p-5 mb-6">
-        <h2 className="font-medium mb-2 flex items-center gap-2"><Eye className="w-4 h-4" /> Share Read-Only Access</h2>
-        <p className="text-sm text-muted-foreground mb-4">Generate a secure link for your CPA. They can view your books and leave notes. Expires in 30 days.</p>
+        <h2 className="font-medium mb-2 flex items-center gap-2"><Eye className="w-4 h-4" /> {t('core_ui.share_readonly')}</h2>
+        <p className="text-sm text-muted-foreground mb-4">{t('core_ui.share_readonly_desc')}</p>
         {cpaLink ? (
           <div className="flex gap-2">
             <input type="text" value={cpaLink} readOnly className="flex-1 p-3 bg-muted border border-border rounded-lg font-mono text-xs" />
-            <button onClick={() => navigator.clipboard.writeText(cpaLink)} className="px-4 py-2 bg-primary text-primary-foreground rounded-lg text-sm">Copy</button>
+            <button onClick={() => navigator.clipboard.writeText(cpaLink)} className="px-4 py-2 bg-primary text-primary-foreground rounded-lg text-sm">{t('common.copy')}</button>
           </div>
         ) : (
           <button onClick={generateLink} disabled={generating} className="px-6 py-3 bg-primary text-primary-foreground rounded-lg font-medium disabled:opacity-50">
-            {generating ? 'Generating...' : 'Generate CPA Link'}
+            {generating ? t('common.generating') : t('core_ui.generate_cpa_link')}
           </button>
         )}
       </div>
@@ -99,15 +101,15 @@ export const CPAPortalPage: React.FC = () => {
 
       {/* CPA Notes */}
       <div className="bg-card border border-border rounded-xl p-5">
-        <h2 className="font-medium mb-4 flex items-center gap-2"><MessageSquare className="w-4 h-4" /> Notes</h2>
+        <h2 className="font-medium mb-4 flex items-center gap-2"><MessageSquare className="w-4 h-4" /> {t('core_ui.notes')}</h2>
 
         <div className="flex gap-2 mb-4">
-          <input type="text" value={newNote} onChange={e => setNewNote(e.target.value)} placeholder="Add a note..."
+          <input type="text" value={newNote} onChange={e => setNewNote(e.target.value)} placeholder={t('core_ui.add_note_placeholder')}
             className="flex-1 p-3 border border-border rounded-lg bg-background" onKeyDown={e => e.key === 'Enter' && addNote()} />
-          <button onClick={addNote} className="px-4 py-2 bg-primary text-primary-foreground rounded-lg text-sm">Add</button>
+          <button onClick={addNote} className="px-4 py-2 bg-primary text-primary-foreground rounded-lg text-sm">{t('common.add')}</button>
         </div>
 
-        {loading && <p className="text-muted-foreground text-sm">Loading notes...</p>}
+        {loading && <p className="text-muted-foreground text-sm">{t('core_ui.loading_notes')}</p>}
 
         <div className="space-y-3">
           {notes.map(note => (
@@ -121,7 +123,7 @@ export const CPAPortalPage: React.FC = () => {
             </div>
           ))}
           {notes.length === 0 && !loading && (
-            <p className="text-sm text-muted-foreground text-center py-4">No notes yet.</p>
+            <p className="text-sm text-muted-foreground text-center py-4">{t('core_ui.no_notes')}</p>
           )}
         </div>
       </div>

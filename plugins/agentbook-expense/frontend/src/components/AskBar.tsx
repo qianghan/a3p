@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Send, Sparkles } from 'lucide-react';
+import { useI18n } from '@naap/plugin-sdk';
 
 const SUGGESTIONS = ['Top spending?', 'Any duplicates?', 'Travel this quarter?', 'Compare to last month'];
 
@@ -7,6 +8,7 @@ export const AskBar: React.FC<{
   onAsk: (question: string) => void;
   loading: boolean;
 }> = ({ onAsk, loading }) => {
+  const { t } = useI18n();
   const [question, setQuestion] = useState('');
 
   const handleSubmit = () => {
@@ -24,7 +26,7 @@ export const AskBar: React.FC<{
             type="text" value={question}
             onChange={e => setQuestion(e.target.value)}
             onKeyDown={e => e.key === 'Enter' && handleSubmit()}
-            placeholder="Ask about your expenses..."
+            placeholder={t('expenses_ui.ask_placeholder')}
             className="flex-1 bg-transparent text-sm text-foreground placeholder:text-muted-foreground focus:outline-none py-2.5"
             disabled={loading}
           />

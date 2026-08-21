@@ -489,6 +489,32 @@ jobs:
         # DB-free with the env vars explicitly unset.
         run: cd apps/web-next && npx vitest run src/__tests__/architecture/
 
+      - name: i18n guards
+        # These three were written during the i18n work but never wired into
+        # CI, so they only ever ran when someone remembered to. A ratchet that
+        # is not enforced is documentation, not a guard.
+        #
+        # All three read committed files only — the two ratchets grep source,
+        # and the bundle guard reads the UMD bundles under public/cdn — so no
+        # build step is needed here.
+        #
+        # The typecheck guard is deliberately NOT here: it runs tsc across the
+        # repo and belongs with the lint-typecheck job's budget, not this one.
+        run: |
+          ./bin/i18n-string-ratchet.sh
+          ./bin/i18n-jsx-expr-ratchet.sh
+          ./bin/i18n-hardcoded-locale-ratchet.sh
+          ./bin/i18n-unwired-key-guard.sh
+          ./bin/i18n-bundle-guard.sh
+
+      - name: Plugin frontend typecheck
+        # The plugin frontends have NO tsconfig and NO typecheck script, and
+        # their vite/esbuild build strips types without checking them. 22
+        # unbound-identifier crashes reached main that way — two of them
+        # white-screening a whole page. Separate step because it runs tsc and
+        # is slower than the greps above.
+        run: ./bin/i18n-plugin-typecheck-guard.sh
+
   # ===========================================================================
   # Backend Tests — AgentBook plugin backends + jurisdiction packages
   # ===========================================================================

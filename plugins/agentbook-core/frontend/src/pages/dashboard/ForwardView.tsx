@@ -21,7 +21,7 @@ const moodText = (label: 'healthy' | 'tight' | 'critical') =>
 export const ForwardView: React.FC<Props> = ({ cashTodayCents, projection, moments }) => {
   // Logical dates are calendar days, not instants — UTC-pinned so the day
   // does not shift with the viewer's timezone.
-  const { formatDateOnly } = useI18n();
+  const { formatDateOnly, t } = useI18n();
   const currency = useTenantCurrency();
   const fmt = (cents: number) => formatMoney(cents, currency);
   const projectedEnd = projection?.days[projection.days.length - 1]?.cents ?? cashTodayCents;
@@ -42,7 +42,7 @@ export const ForwardView: React.FC<Props> = ({ cashTodayCents, projection, momen
       <div className="text-foreground mb-4">
         <CashflowTimeline days={projection?.days || []} moments={moments} />
         <div className="flex justify-between text-xs text-muted-foreground mt-1 px-2">
-          <span>Today</span><span>+30d</span>
+          <span>{t('dashboard.today')}</span><span>+30d</span>
         </div>
       </div>
       <NextMomentsList moments={moments} />

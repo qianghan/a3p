@@ -18,6 +18,7 @@ import {
 import { formatMoney } from '@agentbook/i18n';
 import { useTenantCurrency } from '../hooks/useTenantCurrency';
 import { TaxDisclaimer } from '../components/TaxDisclaimer';
+import { useI18n } from '@naap/plugin-sdk';
 
 interface TaxEstimate {
   total_estimated_tax: number;
@@ -78,6 +79,7 @@ const QUARTER_CARD_BORDER: Record<string, string> = {
 };
 
 function DashboardTab({ data, onRefresh }: { data: TaxEstimate; onRefresh: () => void }) {
+  const { t } = useI18n();
   const currency = useTenantCurrency();
   // taxEntityType isn't part of the /tax/estimate response (nested or
   // top-level) — it lives on tenant-config, same source SettingsTab reads.
@@ -103,14 +105,13 @@ function DashboardTab({ data, onRefresh }: { data: TaxEstimate; onRefresh: () =>
           onClick={onRefresh}
           className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground px-2 py-1 rounded-md hover:bg-muted/50"
         >
-          <RefreshCw className="w-3.5 h-3.5" /> Refresh
+          <RefreshCw className="w-3.5 h-3.5" /> {t('common.refresh')}
         </button>
       </div>
 
       {/* Big number */}
       <div className="rounded-xl border border-border bg-card p-6 text-center">
-        <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">
-          Total Estimated Tax
+        <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">{t('tax_ui.total_estimated_tax')}
         </p>
         <p className="text-4xl sm:text-5xl font-bold text-foreground">
           {formatCurrency(data.total_estimated_tax, currency)}
@@ -151,7 +152,7 @@ function DashboardTab({ data, onRefresh }: { data: TaxEstimate; onRefresh: () =>
           <FileUp className="w-5 h-5 text-primary" />
         </div>
         <div className="flex-1 min-w-0">
-          <div className="font-medium text-foreground">Upload prior-year returns</div>
+          <div className="font-medium text-foreground">{t('tax_ui.upload_prior_returns')}</div>
           <p className="text-sm text-muted-foreground">
             Bring last year&apos;s tax returns — we&apos;ll extract the figures and use them to prefill and advise.
           </p>
@@ -166,7 +167,7 @@ function DashboardTab({ data, onRefresh }: { data: TaxEstimate; onRefresh: () =>
             <div className="p-1.5 rounded-lg bg-primary/10">
               <DollarSign className="w-4 h-4 text-primary" />
             </div>
-            <span className="text-xs font-medium text-muted-foreground">Income Tax</span>
+            <span className="text-xs font-medium text-muted-foreground">{t('tax_ui.income_tax')}</span>
           </div>
           <p className="text-xl font-bold text-foreground">{formatCurrency(data.income_tax, currency)}</p>
         </div>
@@ -176,7 +177,7 @@ function DashboardTab({ data, onRefresh }: { data: TaxEstimate; onRefresh: () =>
             <div className="p-1.5 rounded-lg bg-violet-500/10">
               <DollarSign className="w-4 h-4 text-violet-400" />
             </div>
-            <span className="text-xs font-medium text-muted-foreground">SE Tax / CPP</span>
+            <span className="text-xs font-medium text-muted-foreground">{t('tax_ui.se_tax_cpp')}</span>
           </div>
           <p className="text-xl font-bold text-foreground">{formatCurrency(data.self_employment_tax, currency)}</p>
         </div>
@@ -186,7 +187,7 @@ function DashboardTab({ data, onRefresh }: { data: TaxEstimate; onRefresh: () =>
             <div className="p-1.5 rounded-lg bg-yellow-500/10">
               <Percent className="w-4 h-4 text-yellow-400" />
             </div>
-            <span className="text-xs font-medium text-muted-foreground">Effective Rate</span>
+            <span className="text-xs font-medium text-muted-foreground">{t('tax_ui.effective_rate')}</span>
           </div>
           <p className="text-xl font-bold text-foreground">{formatPercent(data.effective_rate)}</p>
         </div>
@@ -194,8 +195,7 @@ function DashboardTab({ data, onRefresh }: { data: TaxEstimate; onRefresh: () =>
 
       {/* Revenue vs Expenses */}
       <div className="rounded-xl border border-border bg-card p-4 sm:p-5">
-        <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-4">
-          Revenue vs Expenses
+        <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-4">{t('tax_ui.revenue_vs_expenses')}
         </h2>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <div className="flex items-center gap-3">
@@ -203,7 +203,7 @@ function DashboardTab({ data, onRefresh }: { data: TaxEstimate; onRefresh: () =>
               <TrendingUp className="w-5 h-5 text-primary" />
             </div>
             <div>
-              <p className="text-xs text-muted-foreground">Revenue</p>
+              <p className="text-xs text-muted-foreground">{t('tax_ui.revenue')}</p>
               <p className="text-lg font-bold text-primary">{formatCurrency(data.total_revenue, currency)}</p>
             </div>
           </div>
@@ -212,7 +212,7 @@ function DashboardTab({ data, onRefresh }: { data: TaxEstimate; onRefresh: () =>
               <TrendingDown className="w-5 h-5 text-destructive" />
             </div>
             <div>
-              <p className="text-xs text-muted-foreground">Expenses</p>
+              <p className="text-xs text-muted-foreground">{t('expenses_ui.title')}</p>
               <p className="text-lg font-bold text-destructive">{formatCurrency(data.total_expenses, currency)}</p>
             </div>
           </div>
@@ -221,7 +221,7 @@ function DashboardTab({ data, onRefresh }: { data: TaxEstimate; onRefresh: () =>
               <DollarSign className={`w-5 h-5 ${data.net_income >= 0 ? 'text-primary' : 'text-destructive'}`} />
             </div>
             <div>
-              <p className="text-xs text-muted-foreground">Net Income</p>
+              <p className="text-xs text-muted-foreground">{t('tax_ui.net_income')}</p>
               <p className={`text-lg font-bold ${data.net_income >= 0 ? 'text-primary' : 'text-destructive'}`}>
                 {formatCurrency(data.net_income, currency)}
               </p>
@@ -233,8 +233,7 @@ function DashboardTab({ data, onRefresh }: { data: TaxEstimate; onRefresh: () =>
       {/* Quarterly tracker */}
       {data.quarterly_payments.length > 0 && (
         <div className="rounded-xl border border-border bg-card p-4 sm:p-5">
-          <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-4">
-            Quarterly Payments
+          <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-4">{t('tax_ui.quarterly_payments')}
           </h2>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
             {data.quarterly_payments.map((q) => {
@@ -297,6 +296,7 @@ const DEFAULT_SETTINGS: TaxSettings = {
 };
 
 function SettingsTab({ onSaved }: { onSaved?: () => void }) {
+  const { t } = useI18n();
   const [settings, setSettings] = useState<TaxSettings>(() => {
     try {
       const saved = localStorage.getItem('agentbook_tax_settings');
@@ -391,18 +391,17 @@ function SettingsTab({ onSaved }: { onSaved?: () => void }) {
   return (
     <div className="max-w-lg space-y-6">
       <div>
-        <h2 className="text-sm font-semibold text-foreground mb-1">Tax Jurisdiction</h2>
-        <p className="text-xs text-muted-foreground mb-3">
-          AgentBook uses this to load the correct tax rates and filing skills for your situation.
+        <h2 className="text-sm font-semibold text-foreground mb-1">{t('tax_ui.tax_jurisdiction')}</h2>
+        <p className="text-xs text-muted-foreground mb-3">{t('tax_ui.jurisdiction_help')}
         </p>
 
         <div className="space-y-3">
           <div className="rounded-lg border border-border bg-background px-3 py-2.5 text-sm">
             <p className="text-xs font-medium text-muted-foreground mb-1">
-              <Globe className="inline w-3.5 h-3.5 mr-1" />Jurisdiction
+              <Globe className="inline w-3.5 h-3.5 mr-1" />{t('tax_ui.jurisdiction')}
             </p>
             <p className="text-foreground">
-              {jurisdiction ? (JURISDICTION_LABELS[jurisdiction] ?? jurisdiction.toUpperCase()) : 'Loading…'}
+              {jurisdiction ? (JURISDICTION_LABELS[jurisdiction] ?? jurisdiction.toUpperCase()) : t('common.loading_ellipsis_short')}
               {region ? ` (${region})` : ''}
             </p>
             <p className="text-xs text-muted-foreground mt-1">
@@ -426,8 +425,7 @@ function SettingsTab({ onSaved }: { onSaved?: () => void }) {
           </div>
 
           <div>
-            <label className="block text-xs font-medium text-muted-foreground mb-1.5">
-              W-2 annual income (if employed alongside this business)
+            <label className="block text-xs font-medium text-muted-foreground mb-1.5">{t('tax_ui.w2_income')}
             </label>
             <input
               type="number"
@@ -437,12 +435,11 @@ function SettingsTab({ onSaved }: { onSaved?: () => void }) {
               onChange={e => handleW2Change('w2IncomeAnnual', e.target.value)}
               className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/40"
             />
-            <p className="text-xs text-muted-foreground mt-1">Your gross W-2 salary, before tax. Leave blank if none.</p>
+            <p className="text-xs text-muted-foreground mt-1">{t('tax_ui.w2_salary_help')}</p>
           </div>
 
           <div>
-            <label className="block text-xs font-medium text-muted-foreground mb-1.5">
-              W-2 income tax withheld (year to date)
+            <label className="block text-xs font-medium text-muted-foreground mb-1.5">{t('tax_ui.w2_withheld')}
             </label>
             <input
               type="number"
@@ -452,7 +449,7 @@ function SettingsTab({ onSaved }: { onSaved?: () => void }) {
               onChange={e => handleW2Change('w2WithheldYtd', e.target.value)}
               className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/40"
             />
-            <p className="text-xs text-muted-foreground mt-1">Federal/income tax already withheld from your paycheck this year.</p>
+            <p className="text-xs text-muted-foreground mt-1">{t('tax_ui.w2_withheld_help')}</p>
           </div>
         </div>
       </div>
@@ -473,13 +470,14 @@ function SettingsTab({ onSaved }: { onSaved?: () => void }) {
         }`}
       >
         {saved ? <CheckCircle className="w-4 h-4" /> : saving ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
-        {saved ? 'Saved!' : saving ? 'Saving…' : 'Save Settings'}
+        {saved ? t('common.saved_exclaim') : saving ? t('common.saving') : t('tax_ui.save_settings')}
       </button>
     </div>
   );
 }
 
 export const TaxDashboardPage: React.FC = () => {
+  const { t } = useI18n();
   const [tab, setTab] = useState<Tab>('dashboard');
   const [data, setData] = useState<TaxEstimate | null>(null);
   const [loading, setLoading] = useState(true);
@@ -506,8 +504,8 @@ export const TaxDashboardPage: React.FC = () => {
     <div className="p-4 sm:p-6 max-w-4xl mx-auto">
       {/* Header */}
       <div className="mb-5">
-        <h1 className="text-xl font-bold text-foreground">Tax</h1>
-        <p className="text-sm text-muted-foreground mt-0.5">Estimates, quarterly payments, and jurisdiction settings</p>
+        <h1 className="text-xl font-bold text-foreground">{t('expenses_ui.col_tax')}</h1>
+        <p className="text-sm text-muted-foreground mt-0.5">{t('tax_ui.estimates_sub')}</p>
       </div>
 
       {/* Tabs */}
@@ -543,7 +541,7 @@ export const TaxDashboardPage: React.FC = () => {
               onClick={fetchData}
               className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium border border-border hover:bg-muted"
             >
-              <RefreshCw className="w-4 h-4" /> Retry
+              <RefreshCw className="w-4 h-4" /> {t('common.retry')}
             </button>
           </div>
         ) : data ? (

@@ -1,6 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import { ThisMonthStrip, computeDelta } from '../ThisMonthStrip';
+// Prod mounts core pages inside the shell; rendering bare asserts against
+// useI18n's lossy key-humanising fallback. See __tests__/i18n-harness.tsx.
+import { withShell } from '../../../__tests__/i18n-harness';
 
 describe('computeDelta', () => {
   it('returns positive % when current > prior', () => {
@@ -16,20 +19,20 @@ describe('computeDelta', () => {
 
 describe('ThisMonthStrip', () => {
   it('renders all three numbers with deltas', () => {
-    render(<ThisMonthStrip
+    render(withShell(<ThisMonthStrip
       mtd={{ revenueCents: 1240000, expenseCents: 410000, netCents: 830000 }}
       prev={{ revenueCents: 1078260, expenseCents: 422680, netCents: 680320 }}
-    />);
+    />));
     expect(screen.getByText(/Rev/)).toBeInTheDocument();
     expect(screen.getByText(/Exp/)).toBeInTheDocument();
     expect(screen.getByText(/Net/)).toBeInTheDocument();
   });
 
   it('renders "—" instead of Infinity when prior is 0', () => {
-    const { container } = render(<ThisMonthStrip
+    const { container } = render(withShell(<ThisMonthStrip
       mtd={{ revenueCents: 100000, expenseCents: 0, netCents: 100000 }}
       prev={{ revenueCents: 0, expenseCents: 0, netCents: 0 }}
-    />);
+    />));
     expect(container.textContent).not.toMatch(/Infinity/);
     expect(container.textContent).toMatch(/—/);
   });

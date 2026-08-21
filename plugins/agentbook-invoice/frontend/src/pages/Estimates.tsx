@@ -10,7 +10,7 @@ import {
   Plus,
   Trash2,
 } from 'lucide-react';
-import { ChatCTA } from '@naap/plugin-sdk';
+import { ChatCTA, useI18n } from '@naap/plugin-sdk';
 import { formatMoney } from '@agentbook/i18n';
 import { useTenantCurrency } from '../hooks/useTenantCurrency';
 
@@ -38,20 +38,25 @@ interface Estimate {
 
 const STATUSES: Array<Estimate['status'] | 'all'> = ['all', 'pending', 'approved', 'declined', 'expired', 'converted'];
 
-const STATUS_CONFIG: Record<Estimate['status'], { label: string; bg: string; text: string; icon: React.ReactNode }> = {
-  pending: { label: 'Pending', bg: 'bg-amber-100', text: 'text-amber-700', icon: <Clock className="w-3 h-3" /> },
-  approved: { label: 'Approved', bg: 'bg-green-100', text: 'text-green-700', icon: <CheckCircle className="w-3 h-3" /> },
-  declined: { label: 'Declined', bg: 'bg-red-100', text: 'text-red-700', icon: <XCircle className="w-3 h-3" /> },
-  expired: { label: 'Expired', bg: 'bg-gray-100', text: 'text-gray-500', icon: <Clock className="w-3 h-3" /> },
-  converted: { label: 'Converted', bg: 'bg-blue-100', text: 'text-blue-700', icon: <ArrowRightCircle className="w-3 h-3" /> },
+const STATUS_CONFIG: Record<Estimate['status'], { labelKey: string; bg: string; text: string; icon: React.ReactNode }> = {
+  pending: { labelKey: 'invoice_ui.status_pending', bg: 'bg-amber-100', text: 'text-amber-700', icon: <Clock className="w-3 h-3" /> },
+  approved: { labelKey: 'invoice_ui.status_approved', bg: 'bg-green-100', text: 'text-green-700', icon: <CheckCircle className="w-3 h-3" /> },
+  declined: { labelKey: 'invoice_ui.status_declined', bg: 'bg-red-100', text: 'text-red-700', icon: <XCircle className="w-3 h-3" /> },
+  expired: { labelKey: 'invoice_ui.status_expired', bg: 'bg-gray-100', text: 'text-gray-500', icon: <Clock className="w-3 h-3" /> },
+  converted: { labelKey: 'invoice_ui.status_converted', bg: 'bg-blue-100', text: 'text-blue-700', icon: <ArrowRightCircle className="w-3 h-3" /> },
 };
 
-function formatCurrency(cents: number, currency: string = 'USD') {
-  return formatMoney(cents, currency);
+// Uses the locale. An earlier pass added the `locale` parameter and threaded
+// it through the call sites but left the body calling formatMoney(), which
+// INFERS a locale from the currency code — so the parameter was accepted and
+// ignored, and the fix was cosmetic. formatMoney is the right helper only where
+// no locale exists; in a component one always does.
+function formatCurrency(cents: number, currency: string, locale: string) {
+  return new Intl.NumberFormat(locale, { style: 'currency', currency }).format(cents / 100);
 }
 
-function formatDate(d: string) {
-  return new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+function formatDate(d: string, locale: string) {
+  return new Date(d).toLocaleDateString(locale, { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' });
 }
 
 // Mirrors the backend's formatEstimateNumber — kept defensively so the UI
@@ -63,6 +68,7 @@ function fallbackNumber(est: Estimate): string {
 }
 
 export const EstimatesPage: React.FC = () => {
+  const { locale, t } = useI18n();
   const [estimates, setEstimates] = useState<Estimate[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -121,19 +127,16 @@ export const EstimatesPage: React.FC = () => {
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
         <div>
-          <h1 className="text-2xl font-bold" style={{ color: 'var(--text-primary)' }}>
-            Estimates
+          <h1 className="text-2xl font-bold" style={{ color: 'var(--text-primary)' }}>{t('invoice_ui.estimates')}
           </h1>
-          <p className="text-sm mt-1" style={{ color: 'var(--text-secondary)' }}>
-            Create estimates and convert them to invoices
+          <p className="text-sm mt-1" style={{ color: 'var(--text-secondary)' }}>{t('invoice_ui.estimates_sub')}
           </p>
         </div>
         <button
           className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium text-white transition-colors"
           style={{ backgroundColor: 'var(--accent-emerald, #10b981)' }}
         >
-          <Plus className="w-4 h-4" />
-          New Estimate
+          <Plus className="w-4 h-4" />{t('invoice_ui.new_estimate')}
         </button>
       </div>
 
@@ -152,7 +155,7 @@ export const EstimatesPage: React.FC = () => {
                 : 'bg-white border-gray-200 text-gray-600 hover:bg-gray-50'
             }`}
           >
-            {s === 'all' ? 'All' : STATUS_CONFIG[s].label}
+            {s === 'all' ? t('invoice_ui.all') : t(STATUS_CONFIG[s].labelKey)}
           </button>
         ))}
       </div>
@@ -169,14 +172,14 @@ export const EstimatesPage: React.FC = () => {
             onClick={fetchEstimates}
             className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium border hover:bg-gray-50"
           >
-            <RefreshCw className="w-4 h-4" /> Retry
+            <RefreshCw className="w-4 h-4" /> {t('common.retry')}
           </button>
         </div>
       ) : visible.length === 0 ? (
         <div className="text-center py-20" style={{ color: 'var(--text-secondary)' }}>
           <FileText className="w-10 h-10 mx-auto mb-3 opacity-40" />
-          <p className="font-medium">No estimates yet</p>
-          <p className="text-sm mt-1">Create your first estimate to get started.</p>
+          <p className="font-medium">{t('invoice_ui.no_estimates')}</p>
+          <p className="text-sm mt-1">{t('invoice_ui.no_estimates_hint')}</p>
         </div>
       ) : (
         <div className="space-y-3">
@@ -201,20 +204,20 @@ export const EstimatesPage: React.FC = () => {
                         className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${cfg.bg} ${cfg.text}`}
                       >
                         {cfg.icon}
-                        {cfg.label}
+                        {t(cfg.labelKey)}
                       </span>
                     </div>
                     <p className="text-sm text-muted-foreground">{clientName}</p>
                     <p className="text-xs mt-1" style={{ color: 'var(--text-secondary)' }}>
-                      {est.description} &middot; Created {formatDate(est.createdAt)} &middot; Valid until{' '}
-                      {formatDate(est.validUntil)}
+                      {est.description} &middot; Created {formatDate(est.createdAt, locale)} &middot; Valid until{' '}
+                      {formatDate(est.validUntil, locale)}
                     </p>
                   </div>
 
                   {/* Amount + actions */}
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="font-bold text-base mr-1" style={{ color: 'var(--text-primary)' }}>
-                      {formatCurrency(est.amountCents, currency)}
+                      {formatCurrency(est.amountCents, currency, locale)}
                     </span>
 
                     {est.status === 'pending' && (
@@ -258,7 +261,7 @@ export const EstimatesPage: React.FC = () => {
                         onClick={() => handleDelete(est.id)}
                         disabled={isBusy}
                         className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border bg-white hover:bg-red-50 disabled:opacity-50"
-                        title="Delete estimate"
+                        title={t('invoice_ui.delete_estimate')}
                       >
                         <Trash2 className="w-3 h-3" />
                       </button>

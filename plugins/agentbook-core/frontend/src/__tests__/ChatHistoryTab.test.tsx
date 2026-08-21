@@ -1,6 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import { ChatHistoryTab } from '../components/ChatHistoryTab';
+// Prod mounts these inside the shell; bare rendering asserts against
+// useI18n's key-humanising fallback. See ./i18n-harness.tsx.
+import { withShell } from './i18n-harness';
 
 const mockFetch = vi.fn();
 beforeEach(() => { vi.stubGlobal('fetch', mockFetch); mockFetch.mockReset(); });
@@ -17,31 +20,31 @@ function searchRes(items = [ITEM], total = 1, nextCursor: string | null = null) 
 describe('ChatHistoryTab', () => {
   it('renders conversation items after load', async () => {
     mockFetch.mockReturnValue(searchRes());
-    render(<ChatHistoryTab />);
+    render(withShell(<ChatHistoryTab />));
     await waitFor(() => expect(screen.getByText(/Spent \$45 on lunch/)).toBeTruthy());
   });
 
   it('shows total count', async () => {
     mockFetch.mockReturnValue(searchRes([ITEM], 42));
-    render(<ChatHistoryTab />);
+    render(withShell(<ChatHistoryTab />));
     await waitFor(() => expect(screen.getByText(/42 messages/i)).toBeTruthy());
   });
 
   it('shows empty state when no results', async () => {
     mockFetch.mockReturnValue(searchRes([], 0, null));
-    render(<ChatHistoryTab />);
+    render(withShell(<ChatHistoryTab />));
     await waitFor(() => expect(screen.getByText(/No messages found/i)).toBeTruthy());
   });
 
   it('hides Load more when nextCursor is null', async () => {
     mockFetch.mockReturnValue(searchRes([ITEM], 1, null));
-    render(<ChatHistoryTab />);
+    render(withShell(<ChatHistoryTab />));
     await waitFor(() => expect(screen.queryByText(/Load more/i)).toBeNull());
   });
 
   it('shows Load more when nextCursor is set', async () => {
     mockFetch.mockReturnValue(searchRes([ITEM], 21, '2026-06-20T00:00:00.000Z'));
-    render(<ChatHistoryTab />);
+    render(withShell(<ChatHistoryTab />));
     await waitFor(() => expect(screen.getByText(/Load more/i)).toBeTruthy());
   });
 });

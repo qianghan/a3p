@@ -27,54 +27,72 @@ import type { Catalog } from './core.js';
 // English — the reference locale. Every key must exist here.
 import enAgent from './locales/en/agent.json';
 import enBilling from './locales/en/billing.json';
+import enStartupUi from './locales/en/startup_ui.json';
+import enBillingUi from './locales/en/billing_ui.json';
 import enAccounting from './locales/en/accounting.json';
 import enAgents from './locales/en/agents.json';
 import enCalendar from './locales/en/calendar.json';
 import enChat from './locales/en/chat.json';
 import enCommon from './locales/en/common.json';
+import enCoreUi from './locales/en/core_ui.json';
 import enDashboard from './locales/en/dashboard.json';
 import enExpense from './locales/en/expense.json';
+import enExpensesUi from './locales/en/expenses_ui.json';
 import enHomeOffice from './locales/en/homeoffice.json';
 import enInvoice from './locales/en/invoice.json';
+import enInvoiceUi from './locales/en/invoice_ui.json';
 import enOnboarding from './locales/en/onboarding.json';
 import enProactive from './locales/en/proactive.json';
 import enRate from './locales/en/rate.json';
 import enTax from './locales/en/tax.json';
+import enTaxUi from './locales/en/tax_ui.json';
 
 // Canadian French. Tax and accounting nouns follow CRA / Revenu Québec
 // official terminology (TPS/TVQ, not TVA) — see plan decision D4.
 import frAgent from './locales/fr-CA/agent.json';
 import frBilling from './locales/fr-CA/billing.json';
+import frStartupUi from './locales/fr-CA/startup_ui.json';
+import frBillingUi from './locales/fr-CA/billing_ui.json';
 import frAccounting from './locales/fr-CA/accounting.json';
 import frAgents from './locales/fr-CA/agents.json';
 import frCalendar from './locales/fr-CA/calendar.json';
 import frChat from './locales/fr-CA/chat.json';
 import frCommon from './locales/fr-CA/common.json';
+import frCoreUi from './locales/fr-CA/core_ui.json';
 import frDashboard from './locales/fr-CA/dashboard.json';
 import frExpense from './locales/fr-CA/expense.json';
+import frExpensesUi from './locales/fr-CA/expenses_ui.json';
 import frHomeOffice from './locales/fr-CA/homeoffice.json';
 import frInvoice from './locales/fr-CA/invoice.json';
+import frInvoiceUi from './locales/fr-CA/invoice_ui.json';
 import frOnboarding from './locales/fr-CA/onboarding.json';
 import frProactive from './locales/fr-CA/proactive.json';
 import frRate from './locales/fr-CA/rate.json';
 import frTax from './locales/fr-CA/tax.json';
+import frTaxUi from './locales/fr-CA/tax_ui.json';
 
 // Simplified Chinese.
 import zhAgent from './locales/zh-CN/agent.json';
 import zhBilling from './locales/zh-CN/billing.json';
+import zhStartupUi from './locales/zh-CN/startup_ui.json';
+import zhBillingUi from './locales/zh-CN/billing_ui.json';
 import zhAccounting from './locales/zh-CN/accounting.json';
 import zhAgents from './locales/zh-CN/agents.json';
 import zhCalendar from './locales/zh-CN/calendar.json';
 import zhChat from './locales/zh-CN/chat.json';
 import zhCommon from './locales/zh-CN/common.json';
+import zhCoreUi from './locales/zh-CN/core_ui.json';
 import zhDashboard from './locales/zh-CN/dashboard.json';
 import zhExpense from './locales/zh-CN/expense.json';
+import zhExpensesUi from './locales/zh-CN/expenses_ui.json';
 import zhHomeOffice from './locales/zh-CN/homeoffice.json';
 import zhInvoice from './locales/zh-CN/invoice.json';
+import zhInvoiceUi from './locales/zh-CN/invoice_ui.json';
 import zhOnboarding from './locales/zh-CN/onboarding.json';
 import zhProactive from './locales/zh-CN/proactive.json';
 import zhRate from './locales/zh-CN/rate.json';
 import zhTax from './locales/zh-CN/tax.json';
+import zhTaxUi from './locales/zh-CN/tax_ui.json';
 
 /**
  * Namespace keys become the first segment of a translation key:
@@ -84,53 +102,71 @@ export const CATALOG: Catalog = Object.freeze({
   en: {
     agent: enAgent,
     billing: enBilling,
+    startup_ui: enStartupUi,
+    billing_ui: enBillingUi,
     accounting: enAccounting,
     agents: enAgents,
     calendar: enCalendar,
     chat: enChat,
     common: enCommon,
+    core_ui: enCoreUi,
     dashboard: enDashboard,
     expense: enExpense,
+    expenses_ui: enExpensesUi,
     homeoffice: enHomeOffice,
     invoice: enInvoice,
+    invoice_ui: enInvoiceUi,
     onboarding: enOnboarding,
     proactive: enProactive,
     rate: enRate,
     tax: enTax,
+    tax_ui: enTaxUi,
   },
   'fr-CA': {
     agent: frAgent,
     billing: frBilling,
+    startup_ui: frStartupUi,
+    billing_ui: frBillingUi,
     accounting: frAccounting,
     agents: frAgents,
     calendar: frCalendar,
     chat: frChat,
     common: frCommon,
+    core_ui: frCoreUi,
     dashboard: frDashboard,
     expense: frExpense,
+    expenses_ui: frExpensesUi,
     homeoffice: frHomeOffice,
     invoice: frInvoice,
+    invoice_ui: frInvoiceUi,
     onboarding: frOnboarding,
     proactive: frProactive,
     rate: frRate,
     tax: frTax,
+    tax_ui: frTaxUi,
   },
   'zh-CN': {
     agent: zhAgent,
     billing: zhBilling,
+    startup_ui: zhStartupUi,
+    billing_ui: zhBillingUi,
     accounting: zhAccounting,
     agents: zhAgents,
     calendar: zhCalendar,
     chat: zhChat,
     common: zhCommon,
+    core_ui: zhCoreUi,
     dashboard: zhDashboard,
     expense: zhExpense,
+    expenses_ui: zhExpensesUi,
     homeoffice: zhHomeOffice,
     invoice: zhInvoice,
+    invoice_ui: zhInvoiceUi,
     onboarding: zhOnboarding,
     proactive: zhProactive,
     rate: zhRate,
     tax: zhTax,
+    tax_ui: zhTaxUi,
   },
 });
 

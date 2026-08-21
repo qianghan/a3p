@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { Activity, User, Bot, Clock, Filter, ChevronDown, ChevronRight } from 'lucide-react';
+import { useI18n } from '@naap/plugin-sdk';
 
 const API = '/api/v1/agentbook-core';
 
@@ -38,6 +39,7 @@ function formatJson(v: unknown): string {
 }
 
 export const ActivityPage: React.FC = () => {
+  const { t } = useI18n();
   const [events, setEvents] = useState<AuditEvent[]>([]);
   const [loading, setLoading] = useState(true);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
@@ -81,7 +83,7 @@ export const ActivityPage: React.FC = () => {
     <div className="p-6 space-y-6">
       <header className="flex items-center gap-3">
         <Activity className="w-6 h-6 text-primary" />
-        <h1 className="text-2xl font-semibold">Activity log</h1>
+        <h1 className="text-2xl font-semibold">{t('core_ui.activity_log')}</h1>
       </header>
       <p className="text-sm text-muted-foreground">
         Every change to your books is recorded here — who did it, where it
@@ -95,21 +97,21 @@ export const ActivityPage: React.FC = () => {
         </div>
         <div className="grid grid-cols-1 md:grid-cols-5 gap-3 text-sm">
           <div>
-            <label className="block text-xs text-muted-foreground mb-1">Actor</label>
+            <label className="block text-xs text-muted-foreground mb-1">{t('core_ui.actor')}</label>
             <select
               className="w-full border rounded px-2 py-1.5 bg-background"
               value={actor}
               onChange={(e) => setActor(e.target.value)}
             >
-              <option value="">Any</option>
-              <option value="user">User</option>
-              <option value="bot">Bot</option>
-              <option value="cron">Cron</option>
+              <option value="">{t('core_ui.any')}</option>
+              <option value="user">{t('core_ui.user')}</option>
+              <option value="bot">{t('core_ui.bot')}</option>
+              <option value="cron">{t('core_ui.cron')}</option>
               <option value="api">API</option>
             </select>
           </div>
           <div>
-            <label className="block text-xs text-muted-foreground mb-1">Action</label>
+            <label className="block text-xs text-muted-foreground mb-1">{t('core_ui.action')}</label>
             <input
               className="w-full border rounded px-2 py-1.5 bg-background"
               placeholder="e.g. invoice.create"
@@ -118,7 +120,7 @@ export const ActivityPage: React.FC = () => {
             />
           </div>
           <div>
-            <label className="block text-xs text-muted-foreground mb-1">Entity type</label>
+            <label className="block text-xs text-muted-foreground mb-1">{t('core_ui.entity_type')}</label>
             <input
               className="w-full border rounded px-2 py-1.5 bg-background"
               placeholder="e.g. AbInvoice"
@@ -127,7 +129,7 @@ export const ActivityPage: React.FC = () => {
             />
           </div>
           <div>
-            <label className="block text-xs text-muted-foreground mb-1">Start date</label>
+            <label className="block text-xs text-muted-foreground mb-1">{t('expenses_ui.start_date')}</label>
             <input
               type="date"
               className="w-full border rounded px-2 py-1.5 bg-background"
@@ -136,7 +138,7 @@ export const ActivityPage: React.FC = () => {
             />
           </div>
           <div>
-            <label className="block text-xs text-muted-foreground mb-1">End date</label>
+            <label className="block text-xs text-muted-foreground mb-1">{t('expenses_ui.end_date')}</label>
             <input
               type="date"
               className="w-full border rounded px-2 py-1.5 bg-background"
@@ -150,8 +152,7 @@ export const ActivityPage: React.FC = () => {
       {loading ? (
         <div className="text-muted-foreground">Loading activity…</div>
       ) : events.length === 0 ? (
-        <div className="rounded-lg border bg-card p-8 text-center text-muted-foreground">
-          No activity yet for these filters.
+        <div className="rounded-lg border bg-card p-8 text-center text-muted-foreground">{t('core_ui.no_activity')}
         </div>
       ) : (
         <div className="rounded-lg border bg-card divide-y">
@@ -186,11 +187,11 @@ export const ActivityPage: React.FC = () => {
                 {isOpen && (
                   <div className="mt-3 ml-7 grid grid-cols-1 md:grid-cols-2 gap-3">
                     <div>
-                      <div className="text-xs font-medium text-muted-foreground mb-1">Before</div>
+                      <div className="text-xs font-medium text-muted-foreground mb-1">{t('core_ui.before')}</div>
                       <pre className="text-xs bg-muted rounded p-2 overflow-x-auto">{formatJson(e.before)}</pre>
                     </div>
                     <div>
-                      <div className="text-xs font-medium text-muted-foreground mb-1">After</div>
+                      <div className="text-xs font-medium text-muted-foreground mb-1">{t('core_ui.after')}</div>
                       <pre className="text-xs bg-muted rounded p-2 overflow-x-auto">{formatJson(e.after)}</pre>
                     </div>
                   </div>

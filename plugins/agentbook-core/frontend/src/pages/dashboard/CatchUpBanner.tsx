@@ -92,7 +92,7 @@ export const CatchUpBanner: React.FC = () => {
   return (
     <section
       role="status"
-      aria-label="Catch-up summary"
+      aria-label={t('core_ui.catch_up_summary')}
       className="mb-4 bg-primary/5 border border-primary/20 rounded-2xl p-4"
     >
       <div className="flex items-start justify-between gap-3 mb-2">

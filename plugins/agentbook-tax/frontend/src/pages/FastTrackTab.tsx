@@ -11,6 +11,8 @@
  */
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Download, FileText, Loader2, Send, XCircle } from 'lucide-react';
+import { useTenantCurrency } from '../hooks/useTenantCurrency';
+import { useI18n } from '@naap/plugin-sdk';
 
 const API = '/api/v1/agentbook-core/tax-fast-track';
 
@@ -37,15 +39,32 @@ interface StatusResponse {
   nextDeadline: { date: string; titleKey: string } | null;
 }
 
-const fmtMoney = (cents: number) => `$${(cents / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
-const fmtDeadline = (iso: string): string => {
-  const d = new Date(iso);
-  const daysAway = Math.round((d.getTime() - Date.now()) / (1000 * 60 * 60 * 24));
-  return `${d.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric', timeZone: 'UTC' })} — ${daysAway} day${daysAway === 1 ? '' : 's'} away`;
-};
 
 export const FastTrackTab: React.FC = () => {
+  const currency = useTenantCurrency();
+  const { locale, t } = useI18n();
+  // Both helpers were module-level and hardcoded '$' + 'en-US'. The dollar sign
+  // was the worse half: a GBP or EUR tenant read their tax filing amounts
+  // labelled as US dollars, which misstates the unit of the figure rather than
+  // merely formatting it oddly.
+  const fmtMoney = (cents: number) =>
+    new Intl.NumberFormat(locale, {
+      style: 'currency',
+      currency,
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    }).format(cents / 100);
+  // A filing deadline is a logical calendar day, hence timeZone: 'UTC' — local
+  // formatting renders it a day early west of UTC, on a date that matters.
+  const fmtDeadline = (iso: string): string => {
+    const d = new Date(iso);
+    const daysAway = Math.round((d.getTime() - Date.now()) / (1000 * 60 * 60 * 24));
+    const when = d.toLocaleDateString(locale, {
+      month: 'long', day: 'numeric', year: 'numeric', timeZone: 'UTC',
+    });
+    return `${when} — ${t('tax_ui.days_away', { count: String(daysAway) })}`;
+  };
   const [data, setData] = useState<StatusResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [starting, setStarting] = useState(false);
@@ -136,7 +155,7 @@ export const FastTrackTab: React.FC = () => {
     <div className="px-4 py-5 sm:p-6 max-w-3xl mx-auto">
       <div className="flex items-center gap-3 mb-6">
         <FileText className="w-6 h-6 text-primary" />
-        <h1 className="text-2xl font-bold">Tax Fast-Track</h1>
+        <h1 className="text-2xl font-bold">{t('tax_ui.tax_fast_track')}</h1>
       </div>
 
       {error && <p className="text-sm text-red-500 mb-4">{error}</p>}
@@ -147,15 +166,14 @@ export const FastTrackTab: React.FC = () => {
           {data?.nextDeadline && (
             <p className="text-xs text-muted-foreground mb-3">Filing deadline: {fmtDeadline(data.nextDeadline.date)}</p>
           )}
-          <p className="text-sm text-muted-foreground mb-4">
-            Answer a short, adaptive set of questions based on your confirmed prior-year return, and get an estimated filing draft plus a cover letter for your accountant.
+          <p className="text-sm text-muted-foreground mb-4">{t('tax_ui.fast_track_intro')}
           </p>
           <button
             onClick={start}
             disabled={starting}
             className="px-4 py-2 bg-primary text-primary-foreground rounded-lg font-medium disabled:opacity-50 inline-flex items-center gap-2"
           >
-            {starting ? <><Loader2 className="w-4 h-4 animate-spin" /> Starting…</> : 'Start'}
+            {starting ? <><Loader2 className="w-4 h-4 animate-spin" /> {t('common.starting')}</> : t('common.start')}
           </button>
         </div>
       )}
@@ -176,7 +194,7 @@ export const FastTrackTab: React.FC = () => {
               value={answerText}
               onChange={(e) => setAnswerText(e.target.value)}
               onKeyDown={(e) => { if (e.key === 'Enter') sendAnswer(); }}
-              placeholder="Type your answer…"
+              placeholder={t('tax_ui.type_your_answer')}
               className="flex-1 p-2 border border-border rounded-lg bg-background text-sm"
               disabled={sending}
             />
@@ -205,12 +223,12 @@ export const FastTrackTab: React.FC = () => {
         <div className="bg-card border border-border rounded-xl p-4 space-y-4">
           {draft.draftSummary.estimatedTaxPayableCents != null && (
             <div>
-              <h2 className="text-sm font-medium text-muted-foreground mb-2">Estimated figures</h2>
+              <h2 className="text-sm font-medium text-muted-foreground mb-2">{t('tax_ui.estimated_figures')}</h2>
               <div className="text-sm space-y-1">
-                <div className="flex justify-between"><span>Estimated tax payable</span><span>{fmtMoney(draft.draftSummary.estimatedTaxPayableCents)}</span></div>
+                <div className="flex justify-between"><span>{t('tax_ui.estimated_tax_payable')}</span><span>{fmtMoney(draft.draftSummary.estimatedTaxPayableCents)}</span></div>
                 {draft.draftSummary.taxPayableDeltaVsLastYearCents != null && (
                   <div className="flex justify-between text-muted-foreground">
-                    <span>Vs. last year's actual tax payable</span>
+                    <span>{t('tax_ui.vs_last_year')}</span>
                     <span>{draft.draftSummary.taxPayableDeltaVsLastYearCents >= 0 ? '+' : '-'}{fmtMoney(Math.abs(draft.draftSummary.taxPayableDeltaVsLastYearCents))}</span>
                   </div>
                 )}
@@ -218,16 +236,16 @@ export const FastTrackTab: React.FC = () => {
             </div>
           )}
           <div>
-            <h2 className="text-sm font-medium text-muted-foreground mb-2">What changed this year</h2>
+            <h2 className="text-sm font-medium text-muted-foreground mb-2">{t('tax_ui.what_changed')}</h2>
             {draft.draftSummary.changesFromLastYear.length
               ? <ul className="text-sm list-disc pl-4 space-y-1">{draft.draftSummary.changesFromLastYear.map((c, i) => <li key={i}>{c}</li>)}</ul>
-              : <p className="text-sm text-muted-foreground">No material changes identified.</p>}
+              : <p className="text-sm text-muted-foreground">{t('tax_ui.no_material_changes')}</p>}
           </div>
           <div>
-            <h2 className="text-sm font-medium text-muted-foreground mb-2">Open questions for your accountant</h2>
+            <h2 className="text-sm font-medium text-muted-foreground mb-2">{t('tax_ui.open_questions')}</h2>
             {draft.draftSummary.openQuestions.length
               ? <ul className="text-sm list-disc pl-4 space-y-1">{draft.draftSummary.openQuestions.map((q, i) => <li key={i}>{q}</li>)}</ul>
-              : <p className="text-sm text-muted-foreground">None identified.</p>}
+              : <p className="text-sm text-muted-foreground">{t('tax_ui.none_identified')}</p>}
           </div>
           <p className="text-xs italic text-red-700">{draft.draftSummary.caveat}</p>
           <div className="flex gap-2 pt-2 border-t border-border">
@@ -252,7 +270,7 @@ export const FastTrackTab: React.FC = () => {
             {draft.status === 'failed' ? `Something went wrong (${draft.errorMsg}).` : 'This is taking longer than expected.'}
           </p>
           <button onClick={retry} disabled={retrying} className="px-4 py-2 bg-primary text-primary-foreground rounded-lg font-medium disabled:opacity-50 inline-flex items-center gap-2">
-            {retrying ? <><Loader2 className="w-4 h-4 animate-spin" /> Retrying…</> : 'Try again'}
+            {retrying ? <><Loader2 className="w-4 h-4 animate-spin" /> {t('common.retrying')}</> : t('common.try_again')}
           </button>
         </div>
       )}
@@ -260,9 +278,9 @@ export const FastTrackTab: React.FC = () => {
       {/* A cancelled/abandoned session with no draft falls back to screen 1's copy on next load (session is not null but status isn't in_progress/completed) */}
       {session && session.status !== 'in_progress' && session.status !== 'completed' && !draft && (
         <div className="bg-card border border-border rounded-xl p-6 text-center">
-          <p className="text-sm text-muted-foreground mb-4">Your last fast-track session was cancelled. Start a new one whenever you're ready.</p>
+          <p className="text-sm text-muted-foreground mb-4">{t('tax_ui.session_cancelled')}</p>
           <button onClick={start} disabled={starting} className="px-4 py-2 bg-primary text-primary-foreground rounded-lg font-medium disabled:opacity-50 inline-flex items-center gap-2">
-            {starting ? <><Loader2 className="w-4 h-4 animate-spin" /> Starting…</> : 'Start'}
+            {starting ? <><Loader2 className="w-4 h-4 animate-spin" /> {t('common.starting')}</> : t('common.start')}
           </button>
         </div>
       )}

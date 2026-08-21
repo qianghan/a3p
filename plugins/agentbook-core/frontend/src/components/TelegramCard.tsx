@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useI18n } from '@naap/plugin-sdk';
 import {
   Send, Key, Loader2, Trash2, RefreshCw,
   CheckCircle, XCircle, AlertCircle, ExternalLink,
@@ -24,6 +25,7 @@ interface SetupResult {
 }
 
 export function TelegramCard(): JSX.Element {
+  const { t } = useI18n();
   const [status, setStatus]           = useState<BotStatus | null>(null);
   const [loading, setLoading]         = useState(true);
   const [saving, setSaving]           = useState(false);
@@ -107,8 +109,7 @@ export function TelegramCard(): JSX.Element {
           </span>
         )}
         {status !== null && !status.configured && (
-          <span className="rounded-full bg-muted px-2.5 py-0.5 text-xs text-muted-foreground">
-            Not connected
+          <span className="rounded-full bg-muted px-2.5 py-0.5 text-xs text-muted-foreground">{t('core_ui.not_connected')}
           </span>
         )}
       </div>
@@ -146,12 +147,12 @@ export function TelegramCard(): JSX.Element {
                   {status.webhookActive === true ? <CheckCircle className="h-3.5 w-3.5" /> :
                    status.webhookActive === false ? <XCircle className="h-3.5 w-3.5" /> :
                    <AlertCircle className="h-3.5 w-3.5" />}
-                  {status.webhookActive === true ? 'Active' :
+                  {status.webhookActive === true ? t('common.active') :
                    status.webhookActive === false ? 'Error' : 'Unknown'}
                 </div>
               </div>
               <div className="rounded-lg bg-background px-3 py-2">
-                <div className="text-xs text-muted-foreground">Linked chats</div>
+                <div className="text-xs text-muted-foreground">{t('core_ui.linked_chats')}</div>
                 <div className="text-sm font-medium text-foreground">
                   {status.chatIds?.length ?? 0}
                 </div>
@@ -163,7 +164,7 @@ export function TelegramCard(): JSX.Element {
               </div>
             )}
             <div className="rounded-lg bg-background px-3 py-2">
-              <div className="mb-1 text-xs font-medium text-muted-foreground">Quick start</div>
+              <div className="mb-1 text-xs font-medium text-muted-foreground">{t('core_ui.quick_start')}</div>
               <p className="text-xs text-muted-foreground leading-relaxed">
                 Open{' '}
                 {status.botUsername && (
@@ -206,11 +207,10 @@ export function TelegramCard(): JSX.Element {
               </li>
               <li className="flex gap-2">
                 <span className="mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-muted text-xs">2</span>
-                Send <code className="mx-1 rounded bg-muted px-1 py-0.5 text-xs">/newbot</code> and follow prompts
+                {t('chat.send')} <code className="mx-1 rounded bg-muted px-1 py-0.5 text-xs">/newbot</code> and follow prompts
               </li>
               <li className="flex gap-2">
-                <span className="mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-muted text-xs">3</span>
-                Copy the API token and paste below
+                <span className="mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-muted text-xs">3</span>{t('core_ui.copy_api_token')}
               </li>
             </ol>
             <div className="flex gap-2">
@@ -218,7 +218,7 @@ export function TelegramCard(): JSX.Element {
                 <Key className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                 <input
                   type="password"
-                  placeholder="Paste bot token here"
+                  placeholder={t('core_ui.paste_bot_token')}
                   value={botToken}
                   onChange={e => { setBotToken(e.target.value); setError(null); }}
                   onKeyDown={e => e.key === 'Enter' && void handleSetup()}
@@ -231,7 +231,7 @@ export function TelegramCard(): JSX.Element {
                 className="flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-50"
               >
                 {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-                {saving ? 'Connecting…' : 'Connect Bot'}
+                {saving ? t('common.connecting') : t('core_ui.connect_bot')}
               </button>
             </div>
           </div>

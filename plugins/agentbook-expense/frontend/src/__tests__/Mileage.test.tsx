@@ -1,6 +1,9 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import { MileagePage } from '../pages/Mileage';
+// Prod mounts plugin pages inside the shell; see i18n-harness for why bare
+// rendering asserts against mangled English.
+import { withShell } from './i18n-harness';
 
 // PARITY-8 regression coverage: the rate-preview tooltip must pick the
 // CRA tier (72¢ vs 66¢, 5,000 km break) using the YTD total scoped to
@@ -71,7 +74,7 @@ describe('MileagePage — CRA tier preview', () => {
     // break). Combined would be 8,000 — if the preview wrongly summed
     // across units, even the mi preview would show the high tier.
     installFetch(summaryPayload({ mi: 2000, km: 6000 }), 'ca');
-    render(<MileagePage />);
+    render(withShell(<MileagePage />));
     await openForm();
 
     // Default unit is 'mi' — should show the LOW tier (72¢), because
@@ -89,7 +92,7 @@ describe('MileagePage — CRA tier preview', () => {
     // Every entry logged in km — scoping by unit changes nothing here,
     // this must keep behaving exactly as before.
     installFetch(summaryPayload({ mi: 0, km: 6000 }), 'ca');
-    render(<MileagePage />);
+    render(withShell(<MileagePage />));
     await openForm();
 
     fireEvent.change(getUnitSelect(), { target: { value: 'km' } });
@@ -98,7 +101,7 @@ describe('MileagePage — CRA tier preview', () => {
 
   it('single-unit tenant (all mi), under the break: preview is unaffected by the unit-scoping fix', async () => {
     installFetch(summaryPayload({ mi: 3000, km: 0 }), 'ca');
-    render(<MileagePage />);
+    render(withShell(<MileagePage />));
     await openForm();
 
     // Stays on default 'mi' unit.
@@ -107,14 +110,14 @@ describe('MileagePage — CRA tier preview', () => {
 
   it('US jurisdiction preview is unaffected (flat rate, no tiering)', async () => {
     installFetch(summaryPayload({ mi: 12000, km: 0 }), 'us');
-    render(<MileagePage />);
+    render(withShell(<MileagePage />));
     await openForm();
     expect(await screen.findByText(/67¢\/mi \(IRS standard rate\)/i)).toBeInTheDocument();
   });
 
   it('AU jurisdiction preview is unaffected (flat rate, no tiering)', async () => {
     installFetch(summaryPayload({ mi: 0, km: 12000 }), 'au');
-    render(<MileagePage />);
+    render(withShell(<MileagePage />));
     await openForm();
     expect(await screen.findByText(/88¢\/km \(ATO cents-per-km method\)/i)).toBeInTheDocument();
   });

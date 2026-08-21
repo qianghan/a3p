@@ -1,9 +1,11 @@
 import { useEffect, useState } from 'react';
 import { billingApi, type PlanTemplate } from '../lib/api';
+import { useI18n } from '@naap/plugin-sdk';
 
 interface Props { onClose: () => void; onPicked: (t: PlanTemplate) => void; }
 
 export function TemplatePickerModal({ onClose, onPicked }: Props): JSX.Element {
+  const { t } = useI18n();
   const [tpls, setTpls] = useState<PlanTemplate[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   // F6-2: listTemplates() had no .catch() — a 403 (e.g. a stale/non-admin
@@ -22,8 +24,8 @@ export function TemplatePickerModal({ onClose, onPicked }: Props): JSX.Element {
       <div className="w-[600px] rounded-xl border border-border bg-card p-6 shadow-2xl">
         <div className="mb-5 flex items-center justify-between">
           <div>
-            <h3 className="text-lg font-semibold text-foreground">Start from a template</h3>
-            <p className="mt-0.5 text-xs text-muted-foreground">Admin — creates a new plan in the database</p>
+            <h3 className="text-lg font-semibold text-foreground">{t('billing_ui.start_from_template')}</h3>
+            <p className="mt-0.5 text-xs text-muted-foreground">{t('billing_ui.admin_creates_plan')}</p>
           </div>
           <button
             onClick={onClose}

@@ -377,8 +377,24 @@ export interface ShellContext {
   capabilities?: ICapabilityService;
   /**
    * Localisation, resolved once by the shell and shared by every plugin.
-   * Optional because a CDN plugin bundle can be newer than the shell serving
-   * it; plugins should use the SDK's `useI18n()`, which degrades to English.
+   *
+   * STAYS OPTIONAL, for the reason it always was: a CDN plugin bundle can be
+   * NEWER than the shell serving it, so a plugin must tolerate an older shell
+   * that has no i18n at all. `useI18n()` degrades to English rather than
+   * throwing.
+   *
+   * But that same optionality let both shell-side constructors of this context
+   * — PluginLoader's baseContext and sandbox.ts's sandboxedContext — silently
+   * omit i18n, with no compiler complaint. Both enumerate services by hand, so
+   * a new service is only present if someone remembers it, and neither
+   * remembered. Every plugin page therefore reached useI18n(), found nothing,
+   * and rendered humanised keys — which is precisely the reported bug where
+   * choosing French changed nothing.
+   *
+   * Since the type cannot enforce it without breaking the skew contract, the
+   * shell side is guarded behaviourally instead:
+   *   apps/web-next/src/__tests__/architecture/i18n-plugin-context.test.ts
+   * Add i18n to any new constructor of this context, or that test fails.
    */
   i18n?: ShellI18n;
   version: string;
