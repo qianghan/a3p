@@ -54,14 +54,14 @@ export function ProfileCompletionBanner() {
     <div className="mb-3 flex items-center gap-3 rounded-lg border border-primary/25 bg-primary/5 px-4 py-2.5">
       <UserCircle size={16} className="text-primary shrink-0" />
       <p className="flex-1 text-sm text-foreground min-w-0">
-        Tell your agent a bit about yourself — name, income, family — for much better tax and financial advice.
+        {t('common.complete_profile_prompt')}
       </p>
       <button
         type="button"
         onClick={() => { router.push('/settings?tab=agentbook&subtab=personal'); dismiss(); }}
         className="shrink-0 text-sm font-medium text-primary hover:underline"
       >
-        Complete profile
+        {t('common.complete_profile')}
       </button>
       <button
         type="button"

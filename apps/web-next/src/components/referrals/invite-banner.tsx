@@ -38,14 +38,14 @@ export function InviteBanner() {
     <div className="mb-3 flex items-center gap-3 rounded-lg border border-primary/25 bg-primary/5 px-4 py-2.5">
       <Gift size={16} className="text-primary shrink-0" />
       <p className="flex-1 text-sm text-foreground min-w-0">
-        Invite a friend — for every paid signup you get <span className="font-medium">1 month free</span>, up to a year.
+        {t('common.invite_a_friend', { bonus: t('common.invite_bonus') })}
       </p>
       <button
         type="button"
         onClick={() => router.push('/settings?tab=agentbook&subtab=referrals')}
         className="shrink-0 text-sm font-medium text-primary hover:underline"
       >
-        Invite now
+        {t('common.invite_now')}
       </button>
       <button
         type="button"
