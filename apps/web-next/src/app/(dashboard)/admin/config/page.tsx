@@ -70,7 +70,7 @@ export default function AdminConfigPage() {
         body: JSON.stringify({ key: flag.key, enabled: !flag.enabled }),
       });
       const data = await res.json();
-      if (data.success) { setFlags((p) => p.map((f) => (f.key === flag.key ? { ...f, enabled: !f.enabled } : f))); flash(`${!flag.enabled ? 'Enabled' : 'Disabled'} "${flag.key}".`); }
+      if (data.success) { setFlags((p) => p.map((f) => (f.key === flag.key ? { ...f, enabled: !f.enabled } : f))); flash(t(!flag.enabled ? 'admin_ui.flag_enabled' : 'admin_ui.flag_disabled', { key: flag.key })); }
       else setError(data.error || 'Toggle failed');
     } catch { setError('Toggle failed'); } finally { setBusy(null); }
   };
@@ -139,7 +139,7 @@ export default function AdminConfigPage() {
                 {flag.description && <p className="text-xs text-muted-foreground truncate mt-0.5">{flag.description}</p>}
               </div>
               <Button variant="ghost" size="sm" loading={busy === flag.key} onClick={() => toggle(flag)} icon={flag.enabled ? <PowerOff size={14} /> : <Power size={14} />}>
-                {flag.enabled ? 'Disable' : 'Enable'}
+                {flag.enabled ? t('admin_ui.disable') : t('admin_ui.enable')}
               </Button>
               <Button variant="ghost" size="sm" onClick={() => remove(flag.key)} icon={<Trash2 size={14} />} className="text-destructive hover:bg-destructive/10" />
             </div>

@@ -81,13 +81,13 @@ interface TenantConfig {
 // switch to) any persona after signup — previously businessType was only
 // settable during onboarding, leaving students with no way to self-identify.
 const BUSINESS_TYPE_OPTIONS = [
-  { value: 'freelancer', label: 'Freelancer' },
-  { value: 'sole_proprietor', label: 'Sole proprietor' },
-  { value: 'consultant', label: 'Consultant' },
-  { value: 'contractor', label: 'Contractor' },
-  { value: 'agency', label: 'Agency' },
-  { value: 'startup', label: 'Startup' },
-  { value: 'student', label: 'Student' },
+  { value: 'freelancer', labelKey: 'common.persona_freelancer' },
+  { value: 'sole_proprietor', labelKey: 'common.persona_sole_proprietor' },
+  { value: 'consultant', labelKey: 'common.persona_consultant' },
+  { value: 'contractor', labelKey: 'common.persona_contractor' },
+  { value: 'agency', labelKey: 'common.persona_agency' },
+  { value: 'startup', labelKey: 'common.persona_startup' },
+  { value: 'student', labelKey: 'common.persona_student' },
 ];
 
 const DEGREE_OPTIONS = [
@@ -1931,12 +1931,14 @@ export function AgentBookSettingsPanel({ initialTab }: { initialTab?: string }):
               }}
               className={inputCls}
             >
-              {BUSINESS_TYPE_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+              {BUSINESS_TYPE_OPTIONS.map((o) => <option key={o.value} value={o.value}>{t(o.labelKey)}</option>)}
             </select>
             <p className="mt-1 text-xs text-muted-foreground">
-              Tailors your categories, tax guidance, and the agent&apos;s tone, and which plugins you see.
-              Pick <strong>Student</strong> to unlock scholarship, career &amp; housing help, or{' '}
-              <strong>Startup</strong> for startup tax benefits.
+              {t('common.business_type_hint')}{' '}
+              {t('common.business_type_hint_pick', {
+                student: t('common.persona_student'),
+                startup: t('common.persona_startup'),
+              })}
             </p>
           </div>
           <div className="rounded-lg border border-border bg-muted/30 p-4 space-y-4">

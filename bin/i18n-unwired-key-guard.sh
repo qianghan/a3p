@@ -63,7 +63,20 @@ en = {v: k for v, k in en.items() if '{' not in v}
 # rendered English over an existing translation. A hard-zero guard that cannot
 # see a common shape is worse than a ratchet, because the zero is believed.
 CHARS = r"[A-Za-z0-9 ,.'!?%$&()/:—–-]"
-TEXT = re.compile(r'>\s*([A-Z]' + CHARS + r'{2,}?)\s*<', re.S)
+# The trailing (?=</|$) rejects a fragment that runs INTO a sibling element:
+#
+#     <span>1</span> Open <a href=...>@BotFather</a> in Telegram
+#
+# "Open" there is a verb in the middle of a sentence, and the key whose English
+# happens to be "Open" is a feedback STATUS ("Ouvert"). Wiring it would not fix
+# a bug, it would introduce one — and the real fix, a sentence with a link
+# inside it, is not a substitution at all: Chinese puts the link in a different
+# position, so the sentence cannot be split around it.
+#
+# A text node that ends at its parent's CLOSING tag is still matched, because
+# that is the ordinary icon-plus-label shape (`<Icon /> Save</button>`), where
+# the text really is the whole label.
+TEXT = re.compile(r'>\s*([A-Z]' + CHARS + r'{2,}?)\s*<(?=/)', re.S)
 
 found = []
 # The SHELL plus every plugin frontend. Restricting this to six plugin
@@ -78,6 +91,11 @@ def all_tsx():
 for p in all_tsx():
     sp = str(p)
     if '__tests__' in sp or sp.endswith('.test.tsx') or '/dist/' in sp:
+        continue
+    # Legal copy — terms, privacy — stays English in every locale by decision.
+    # Counting it would create a number that can never fall, which is how a
+    # measure stops being read.
+    if '/app/legal/' in sp:
         continue
     text = p.read_text(encoding='utf-8', errors='ignore')
     for m in TEXT.finditer(text):

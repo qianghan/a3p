@@ -14,17 +14,17 @@ import { AdminNav } from '@/components/admin/AdminNav';
 import { useT } from '@/hooks/use-t';
 
 const CATEGORIES = [
-  { value: 'feature', label: 'New feature' },
-  { value: 'reward', label: 'Discount / reward' },
-  { value: 'admin_broadcast', label: 'General broadcast' },
-  { value: 'referral_thanks', label: 'Referral thank-you (system-triggered — not composable here)' },
+  { value: 'feature', labelKey: 'admin_ui.kind_new_feature' },
+  { value: 'reward', labelKey: 'admin_ui.kind_discount_reward' },
+  { value: 'admin_broadcast', labelKey: 'admin_ui.kind_general_broadcast' },
+  { value: 'referral_thanks', labelKey: 'admin_ui.kind_referral_thankyou' },
 ];
 const AUDIENCE_TYPES = [
-  { value: 'all', label: 'Everyone' },
-  { value: 'plan', label: 'By plan' },
-  { value: 'segment', label: 'Segment (richer filters)' },
-  { value: 'list', label: 'Specific emails / tenant IDs' },
-  { value: 'single', label: 'Single user' },
+  { value: 'all', labelKey: 'admin_ui.everyone' },
+  { value: 'plan', labelKey: 'admin_ui.audience_by_plan' },
+  { value: 'segment', labelKey: 'admin_ui.audience_segment' },
+  { value: 'list', labelKey: 'admin_ui.audience_list' },
+  { value: 'single', labelKey: 'admin_ui.audience_single_user' },
 ];
 
 interface NotificationLogItem {
@@ -171,7 +171,7 @@ function AdminNotificationsInner() {
       });
       const data = await res.json();
       if (data.success) {
-        setSuccessMsg(scheduledFor ? 'Notification scheduled.' : 'Notification sent.');
+        setSuccessMsg(t(scheduledFor ? 'admin_ui.notification_scheduled' : 'admin_ui.notification_sent'));
         setTitle('');
         setBodyText('');
         setCtaLabel('');
@@ -225,7 +225,7 @@ function AdminNotificationsInner() {
             <Select value={category} onChange={(e) => setCategory(e.target.value)} className="mt-1">
               {CATEGORIES.map((c) => (
                 <option key={c.value} value={c.value} disabled={c.value === 'referral_thanks'}>
-                  {c.label}
+                  {t(c.labelKey)}
                 </option>
               ))}
             </Select>
@@ -270,7 +270,7 @@ function AdminNotificationsInner() {
           <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">{t('admin_ui.audience')}</label>
           <Select value={audienceType} onChange={(e) => setAudienceType(e.target.value)} className="mt-1">
             {AUDIENCE_TYPES.map((a) => (
-              <option key={a.value} value={a.value}>{a.label}</option>
+              <option key={a.value} value={a.value}>{t(a.labelKey)}</option>
             ))}
           </Select>
 
@@ -328,7 +328,7 @@ function AdminNotificationsInner() {
 
           <div className="mt-2 flex items-center gap-2 text-sm text-muted-foreground">
             <UsersIcon className="w-3.5 h-3.5" />
-            {previewLoading ? 'Estimating reach…' : previewCount === null ? 'Reach unknown' : `Will reach ${previewCount} user${previewCount === 1 ? '' : 's'}`}
+            {previewLoading ? t('admin_ui.estimating_reach') : previewCount === null ? t('admin_ui.reach_unknown') : t('admin_ui.will_reach_users', { count: previewCount })}
           </div>
         </div>
 
@@ -344,7 +344,7 @@ function AdminNotificationsInner() {
             <p className="text-[11px] text-muted-foreground mt-1">{t('admin_ui.send_immediately_hint')}</p>
           </div>
           <Button variant="primary" icon={<Send className="w-4 h-4" />} onClick={handleSend} disabled={sending}>
-            {sending ? 'Sending…' : scheduledFor ? 'Schedule' : 'Send now'}
+            {sending ? t('admin_ui.sending') : scheduledFor ? t('admin_ui.schedule') : t('admin_ui.send_now')}
           </Button>
         </div>
       </div>

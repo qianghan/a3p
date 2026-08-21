@@ -258,7 +258,7 @@ export default function AdminPluginsPage() {
             <div className="text-center py-8 text-muted-foreground">
               <Blocks size={32} className="mx-auto mb-3 opacity-30" />
               <p className="text-sm">
-                {searchQuery ? 'No plugins match your search' : 'No plugins found'}
+                {searchQuery ? t('admin_ui.no_plugins_match') : t('admin_ui.no_plugins_found')}
               </p>
             </div>
           )}
@@ -275,6 +275,7 @@ function PluginRow({
   plugin: PluginEntry;
   onToggle: (name: string) => void;
 }) {
+  const t = useT();
   const getCategoryBadgeVariant = (category: string): 'secondary' | 'blue' | 'emerald' | 'amber' | 'rose' => {
     const map: Record<string, 'secondary' | 'blue' | 'emerald' | 'amber' | 'rose'> = {
       platform: 'secondary',
@@ -325,7 +326,7 @@ function PluginRow({
         icon={plugin.isCore ? <StarOff size={14} /> : <Star size={14} />}
         className={plugin.isCore ? 'text-amber-500 hover:bg-amber-500/10' : ''}
       >
-        {plugin.isCore ? 'Remove Core' : 'Make Core'}
+        {plugin.isCore ? t('admin_ui.remove_core') : t('admin_ui.make_core')}
       </Button>
     </div>
   );

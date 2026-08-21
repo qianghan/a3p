@@ -50,11 +50,17 @@ interface SystemUser {
   rewardMonthsEarned?: number;
 }
 
-const BUSINESS_TYPE_LABELS: Record<string, string> = {
-  student: 'Student', freelancer: 'Freelancer', sole_proprietor: 'Sole proprietor',
-  consultant: 'Consultant', contractor: 'Contractor', agency: 'Agency', startup: 'Startup',
+// Key map, not a label map — module scope has no translator. `prettyType`
+// therefore takes one; the old parameter was also named `t`, which would have
+// shadowed it.
+const BUSINESS_TYPE_KEYS: Record<string, string> = {
+  student: 'common.persona_student', freelancer: 'common.persona_freelancer',
+  sole_proprietor: 'common.persona_sole_proprietor',
+  consultant: 'common.persona_consultant', contractor: 'common.persona_contractor',
+  agency: 'common.persona_agency', startup: 'common.persona_startup',
 };
-const prettyType = (t?: string | null) => (t ? BUSINESS_TYPE_LABELS[t] ?? t.replace(/_/g, ' ') : null);
+const prettyType = (t: (k: string) => string, type?: string | null) =>
+  (type ? (BUSINESS_TYPE_KEYS[type] ? t(BUSINESS_TYPE_KEYS[type]) : type.replace(/_/g, ' ')) : null);
 const prettyPlan = (name?: string | null) => name || 'Free';
 
 export default function AdminUsersPage() {
@@ -355,7 +361,7 @@ export default function AdminUsersPage() {
                               {user.walletAddress.slice(0, 6)}...{user.walletAddress.slice(-4)}
                             </span>
                           ) : (
-                            'No email'
+                            t('admin_ui.no_email')
                           )}
                         </div>
                       </div>
@@ -386,8 +392,8 @@ export default function AdminUsersPage() {
                     </div>
                   </td>
                   <td className="px-4 py-2.5 text-sm">
-                    {prettyType(user.businessType) ? (
-                      <Badge variant="blue">{prettyType(user.businessType)}</Badge>
+                    {prettyType(t, user.businessType) ? (
+                      <Badge variant="blue">{prettyType(t, user.businessType)}</Badge>
                     ) : (
                       <span className="text-muted-foreground">—</span>
                     )}

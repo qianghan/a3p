@@ -78,12 +78,12 @@ interface FeedbackConfig {
 
 // -- Helpers
 
-const statusOptions: { value: FeedbackStatus; label: string; icon: React.ComponentType<{ size?: number; className?: string }>; color: string; badgeVariant: 'blue' | 'amber' | 'secondary' | 'emerald' | 'rose' }[] = [
-  { value: 'open', label: 'Open', icon: Clock, color: 'text-blue-500 bg-blue-500/10 border-blue-500/30', badgeVariant: 'blue' },
-  { value: 'investigating', label: 'Investigating', icon: SearchIcon, color: 'text-amber-500 bg-amber-500/10 border-amber-500/30', badgeVariant: 'amber' },
-  { value: 'roadmap', label: 'Roadmap', icon: Map, color: 'text-purple-500 bg-purple-500/10 border-purple-500/30', badgeVariant: 'secondary' },
-  { value: 'released', label: 'Released', icon: Rocket, color: 'text-green-500 bg-green-500/10 border-green-500/30', badgeVariant: 'emerald' },
-  { value: 'closed', label: 'Closed', icon: XCircle, color: 'text-muted-foreground bg-muted border-border', badgeVariant: 'secondary' },
+const statusOptions: { value: FeedbackStatus; labelKey: string; icon: React.ComponentType<{ size?: number; className?: string }>; color: string; badgeVariant: 'blue' | 'amber' | 'secondary' | 'emerald' | 'rose' }[] = [
+  { value: 'open', labelKey: 'admin_ui.status_open', icon: Clock, color: 'text-blue-500 bg-blue-500/10 border-blue-500/30', badgeVariant: 'blue' },
+  { value: 'investigating', labelKey: 'admin_ui.status_investigating', icon: SearchIcon, color: 'text-amber-500 bg-amber-500/10 border-amber-500/30', badgeVariant: 'amber' },
+  { value: 'roadmap', labelKey: 'admin_ui.status_roadmap', icon: Map, color: 'text-purple-500 bg-purple-500/10 border-purple-500/30', badgeVariant: 'secondary' },
+  { value: 'released', labelKey: 'admin_ui.status_released', icon: Rocket, color: 'text-green-500 bg-green-500/10 border-green-500/30', badgeVariant: 'emerald' },
+  { value: 'closed', labelKey: 'admin_ui.status_closed', icon: XCircle, color: 'text-muted-foreground bg-muted border-border', badgeVariant: 'secondary' },
 ];
 
 const typeIcons: Record<string, React.ComponentType<{ size?: number; className?: string }>> = {
@@ -317,7 +317,7 @@ export default function AdminFeedbackPage() {
             >
               <Icon size={16} className={isActive ? undefined : 'text-muted-foreground'} />
               <span className="text-lg font-bold mt-1">{count}</span>
-              <span className="text-xs text-muted-foreground">{opt.label}</span>
+              <span className="text-xs text-muted-foreground">{t(opt.labelKey)}</span>
             </button>
           );
         })}
@@ -393,7 +393,7 @@ export default function AdminFeedbackPage() {
                       <Badge variant={statusOpt.badgeVariant}>
                         <span className="inline-flex items-center gap-1">
                           <StatusIcon size={12} />
-                          {statusOpt.label}
+                          {t(statusOpt.labelKey)}
                         </span>
                       </Badge>
                     </td>
@@ -496,7 +496,7 @@ export default function AdminFeedbackPage() {
                       }`}
                     >
                       <Icon size={14} />
-                      {opt.label}
+                      {t(opt.labelKey)}
                     </button>
                   );
                 })}

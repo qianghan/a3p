@@ -29,7 +29,11 @@ interface JurisdictionConfig {
   hasApiKey: boolean;
 }
 
-const JNAME: Record<string, string> = { us: 'United States', ca: 'Canada', uk: 'United Kingdom', au: 'Australia' };
+// Key map, not a label map: this is module scope, so t() cannot run here.
+const JNAME_KEY: Record<string, string> = {
+  us: 'common.country_us', ca: 'common.country_ca',
+  uk: 'common.country_gb', au: 'common.country_au',
+};
 
 export default function AdminPayrollPage() {
   const t = useT();
@@ -82,7 +86,9 @@ export default function AdminPayrollPage() {
       });
       const data = await res.json();
       if (data.success) {
-        setSuccessMsg(`Saved ${JNAME[jurisdiction] || jurisdiction}.`);
+        setSuccessMsg(t('admin_ui.saved_jurisdiction', {
+          jurisdiction: JNAME_KEY[jurisdiction] ? t(JNAME_KEY[jurisdiction]) : jurisdiction,
+        }));
         setTimeout(() => setSuccessMsg(null), 4000);
         await load();
       } else setError(data.error || 'Save failed');
@@ -129,7 +135,7 @@ export default function AdminPayrollPage() {
               <div key={c.jurisdiction} className="p-4 rounded-lg border border-border bg-card">
                 <div className="flex items-center justify-between mb-3">
                   <div className="flex items-center gap-2">
-                    <span className="font-medium">{JNAME[c.jurisdiction] || c.jurisdiction.toUpperCase()}</span>
+                    <span className="font-medium">{JNAME_KEY[c.jurisdiction] ? t(JNAME_KEY[c.jurisdiction]) : c.jurisdiction.toUpperCase()}</span>
                     <Badge variant={c.provider === 'calculator' ? 'secondary' : 'blue'}>{c.provider}</Badge>
                     {c.hasApiKey && <Badge variant="emerald">key set</Badge>}
                   </div>
@@ -141,7 +147,7 @@ export default function AdminPayrollPage() {
                     onChange={(e) => setDrafts((d) => ({ ...d, [c.jurisdiction]: { ...draft, provider: e.target.value } }))}
                   >
                     {providers.map((p) => (
-                      <option key={p.id} value={p.id}>{p.label}{p.status === 'planned' ? ' — coming soon' : ''}</option>
+                      <option key={p.id} value={p.id}>{p.label}{p.status === 'planned' ? t('admin_ui.coming_soon_suffix') : ''}</option>
                     ))}
                   </Select>
                   {meta?.requiresApiKey && (

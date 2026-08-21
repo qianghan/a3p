@@ -139,6 +139,14 @@ const IDENTICAL_ALLOWED = new Set<string>([
   'admin_ui.commission',
   'admin_ui.commissions',
   'admin_ui.message',
+  // Same again: "Notifications", "Secrets" and "Consultant" are ordinary
+  // French words with the same spelling as their English counterparts.
+  'admin_ui.nav_notifications',
+  'admin_ui.nav_secrets',
+  'common.persona_consultant',
+  // Canada names itself the same way in both of its official languages.
+  // (tax_ui.canada and student_ui.country_ca are allowed for this reason too.)
+  'common.country_ca',
 ]);
 
 /**
