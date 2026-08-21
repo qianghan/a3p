@@ -149,6 +149,8 @@ const IDENTICAL_ALLOWED = new Set<string>([
   // separate keys even when the word is identical.
   'common.notifications',
   'nav.documentation',
+  // "OK" is "OK" in French. Translating it would be worse than leaving it.
+  'bot.ok',
   // Canada names itself the same way in both of its official languages.
   // (tax_ui.canada and student_ui.country_ca are allowed for this reason too.)
   'common.country_ca',
