@@ -469,7 +469,7 @@ export function Sidebar() {
           <button
             className="w-full flex items-center justify-center py-1.5 rounded-md text-muted-foreground hover:bg-muted/50 hover:text-foreground transition-colors duration-100"
             title="Search (⌘K)"
-            aria-label="Search"
+            aria-label={t('common.search')}
           >
             <Search size={16} />
           </button>

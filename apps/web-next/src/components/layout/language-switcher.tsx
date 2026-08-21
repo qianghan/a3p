@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Languages, Check } from 'lucide-react';
 import { offerableLocales } from '@agentbook/i18n/catalog';
+import { useT } from '@/hooks/use-t';
 
 /**
  * Language switcher for the app shell.
@@ -50,6 +51,7 @@ function matchOption(stored: string | undefined): string {
 }
 
 export function LanguageSwitcher() {
+  const t = useT();
   const [open, setOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(false);
@@ -143,7 +145,7 @@ export function LanguageSwitcher() {
         disabled={saving}
         aria-haspopup="menu"
         aria-expanded={open}
-        aria-label="Change language"
+        aria-label={t('common.change_language')}
         title="Change language"
         className="flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-sm text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-50"
       >

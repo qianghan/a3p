@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import { UserCircle, X } from 'lucide-react';
+import { useT } from '@/hooks/use-t';
 
 const DISMISS_KEY = 'ab_profile_banner_dismissed';
 
@@ -16,6 +17,7 @@ const DISMISS_KEY = 'ab_profile_banner_dismissed';
  * completed, not just when the user clicks away.
  */
 export function ProfileCompletionBanner() {
+  const t = useT();
   const pathname = usePathname();
   const router = useRouter();
   const [visible, setVisible] = useState(false);
@@ -64,7 +66,7 @@ export function ProfileCompletionBanner() {
       <button
         type="button"
         onClick={dismiss}
-        aria-label="Dismiss"
+        aria-label={t('common.dismiss_label')}
         className="shrink-0 text-muted-foreground hover:text-foreground p-1 rounded-md hover:bg-muted transition-colors"
       >
         <X size={14} />

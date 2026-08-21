@@ -209,7 +209,7 @@
   "tenant_id": "Tenant ID",
   "timeouts": "Timeouts",
   "top_sales_reps": "Top sales reps",
-  "total_users": "Total users",
+  "total_users": "{count} total users",
   "unverified": "Unverified",
   "user_management": "User Management",
   "users": "Users",

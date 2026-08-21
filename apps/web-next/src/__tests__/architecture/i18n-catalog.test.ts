@@ -144,6 +144,11 @@ const IDENTICAL_ALLOWED = new Set<string>([
   'admin_ui.nav_notifications',
   'admin_ui.nav_secrets',
   'common.persona_consultant',
+  // "Notifications" and "Documentation" are the same word in French. They
+  // appear again here because a screen-reader label and a nav label are
+  // separate keys even when the word is identical.
+  'common.notifications',
+  'nav.documentation',
   // Canada names itself the same way in both of its official languages.
   // (tax_ui.canada and student_ui.country_ca are allowed for this reason too.)
   'common.country_ca',

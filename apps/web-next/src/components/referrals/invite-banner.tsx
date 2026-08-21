@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import { Gift, X } from 'lucide-react';
+import { useT } from '@/hooks/use-t';
 
 const DISMISS_KEY = 'ab_referral_banner_dismissed';
 
@@ -12,6 +13,7 @@ const DISMISS_KEY = 'ab_referral_banner_dismissed';
  * until the user dismisses it once, ever (localStorage).
  */
 export function InviteBanner() {
+  const t = useT();
   const pathname = usePathname();
   const router = useRouter();
   const [visible, setVisible] = useState(false);
@@ -48,7 +50,7 @@ export function InviteBanner() {
       <button
         type="button"
         onClick={dismiss}
-        aria-label="Dismiss"
+        aria-label={t('common.dismiss_label')}
         className="shrink-0 text-muted-foreground hover:text-foreground p-1 rounded-md hover:bg-muted transition-colors"
       >
         <X size={14} />
