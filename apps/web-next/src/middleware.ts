@@ -7,7 +7,9 @@ import type { NextRequest } from 'next/server';
 // Keep in sync with WorkflowPlugin.routes / plugin.json.
 // Routes with their own page.tsx (/marketplace, /agentbook) are excluded.
 // /plugins/* paths are handled by the dynamic [pluginName] route automatically.
-const PLUGIN_ROUTE_MAP: Record<string, string> = {
+// Exported so the architecture test can compare this map against the plugin
+// manifests directly, rather than a hand-copied list that could itself drift.
+export const PLUGIN_ROUTE_MAP: Record<string, string> = {
   '/forum': 'community',
   // AgentBook — specific sub-paths BEFORE the catch-all
   '/agentbook/expenses': 'agentbookExpense',
@@ -31,6 +33,7 @@ const PLUGIN_ROUTE_MAP: Record<string, string> = {
   '/agentbook/cashflow': 'agentbookTax',
   '/agentbook/analytics': 'agentbookTax',
   '/agentbook/whatif': 'agentbookTax',
+  '/agentbook/sales-tax-return': 'agentbookTax',
   '/agentbook/agents': 'agentbookCore',
   '/agentbook/activity': 'agentbookCore',
   '/agentbook/home-office': 'agentbookCore',
