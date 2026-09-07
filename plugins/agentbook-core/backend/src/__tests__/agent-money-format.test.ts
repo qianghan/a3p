@@ -102,3 +102,27 @@ describe('agent money formatting', () => {
     expect(branch).toMatch(/clientName|client\?\.name/);
   });
 });
+
+describe('the currency prefix substitution', () => {
+  it('does not treat the "$" inside the prefix as a replacement pattern', () => {
+    // `CA$` and `A$` both contain `$`, which is special in a replacement
+    // STRING ($&, $1, $`). A replacer function is used so the prefix lands
+    // literally rather than re-inserting the matched text.
+    expect(fmtCurrency(5_650, 'CAD', 'en-CA')).toBe('CA$56.50');
+    expect(fmtCurrency(5_650, 'CAD', 'en-CA')).not.toContain('$$');
+    expect(fmtCurrency(1_250, 'AUD', 'en-AU')).toBe('A$12.50');
+  });
+
+  it('leaves a sign Intl already qualified alone', () => {
+    // en-US renders CAD as "CA$" itself. Substituting again would give
+    // "CACA$" — which a `replace('$', …)` on the first occurrence would do.
+    const out = fmtCurrency(5_650, 'CAD', 'en-US');
+    expect(out).toBe('CA$56.50');
+    expect(out).not.toContain('CACA');
+  });
+
+  it('falls back to the code with a space for a currency it has no prefix for', () => {
+    expect(fmtCurrency(5_650, 'ZAR', 'en-US')).toMatch(/ZAR|R/);
+    expect(fmtCurrency(5_650, 'ZAR', 'en-US')).not.toContain('$');
+  });
+});

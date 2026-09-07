@@ -302,6 +302,9 @@ export function formatDeductionsMessage(
  * So a non-USD amount that would render as a bare `$` keeps its
  * disambiguating prefix (`CA$`, `A$`), while the digits follow her locale.
  */
+/** A `$` with no letter beside it, i.e. one Intl did not already qualify. */
+const BARE_CURRENCY_SIGN = /(?<![A-Za-z])\$/;
+
 const CURRENCY_PREFIX: Record<string, string> = {
   CAD: 'CA$',
   AUD: 'A$',
@@ -319,10 +322,14 @@ export function fmtCurrency(cents: number, currency?: string, locale?: string): 
     ? formatCurrency(cents, locale, cur)
     : formatMoney(cents, cur);
   if (cur === 'USD') return out;
-  // `$` not already qualified by letters — i.e. Intl gave the bare sign.
-  return /(?<![A-Za-z])\$/.test(out)
-    ? out.replace('$', CURRENCY_PREFIX[cur] ?? `${cur} `)
-    : out;
+  // Qualify a bare `$` — one Intl produced without letters beside it. One
+  // pass, with the same pattern doing the matching and the substituting: a
+  // `test()` on the lookbehind followed by `replace('$', …)` would have
+  // matched on a bare sign and then replaced whichever `$` came first, and a
+  // replacer function is used because `$` in a replacement STRING is special
+  // ($&, $1), which `CA$` and `A$` both contain.
+  const prefix = CURRENCY_PREFIX[cur] ?? `${cur} `;
+  return out.replace(BARE_CURRENCY_SIGN, () => prefix);
 }
 
 // === Health Check ===
