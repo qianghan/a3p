@@ -126,3 +126,62 @@ describe('the currency prefix substitution', () => {
     expect(fmtCurrency(5_650, 'ZAR', 'en-US')).not.toContain('$');
   });
 });
+
+describe('the replies the user actually reads', () => {
+  /**
+   * #497 fixed the money HELPERS. It left 39 inline interpolations that built
+   * their own `$${(cents / 100).toFixed(2)}` — a literal dollar sign for
+   * every currency, and no thousands separator. The receipt confirmation, the
+   * most-used write in the product, therefore confirmed a four-figure receipt
+   * as "$1240.00": the exact format this file's header calls one that no
+   * accounting surface uses.
+   */
+  const SRC = readFileSync(join(__dirname, '../server.ts'), 'utf8');
+
+  /**
+   * Drop the lines a `money-format-ok:` marker exempts, then strip comments.
+   * In that order: stripping first removes the marker along with every other
+   * comment, and removes block comments' newlines too, so the line numbers no
+   * longer line up. Grep `money-format-ok` to review every exemption.
+   */
+  const rawLines = SRC.split('\n');
+  const exempt = new Set<number>();
+  rawLines.forEach((l, i) => {
+    if (l.includes('money-format-ok')) {
+      for (let k = 0; k <= 6; k++) exempt.add(i + k);
+    }
+  });
+  const stripped = rawLines
+    .filter((_l, i) => !exempt.has(i))
+    .join('\n')
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/(^|[^:])\/\/.*$/gm, '$1');
+  const PROD = stripped.slice(stripped.indexOf('async function _executeClassificationCore'));
+
+  it('the receipt confirmations format through the tenant helper', () => {
+    expect(PROD).toContain('const amt = tenantMoney(data.amount_cents, data.currency);');
+    expect(PROD).not.toMatch(/const amt = \(data\.amount_cents \/ 100\)\.toFixed\(2\)/);
+  });
+
+  it('no reply builds its own literal-$ amount', () => {
+    // `$${…}` inside a template: a hardcoded sign in front of a raw number.
+    const offenders = PROD.split('\n')
+      .map((l, i) => [i, l] as [number, string])
+      .filter(([, l]) => /\$\$\{\([^{}]+ \/ 100\)\.to(Fixed\(2\)|LocaleString\(\))\}/.test(l))
+      // A Gemini prompt keeps a machine-stable format on purpose; those
+      // lines carry a `money-format-ok:` marker and are already dropped above.
+      .filter(([, l]) => !/\b(userMsg|catList)\b/i.test(l))
+      .map(([, l]) => l.trim().slice(0, 90));
+    expect(offenders, `replies with a hardcoded currency sign:\n  ${offenders.join('\n  ')}`).toEqual(
+      [],
+    );
+  });
+
+  it('the report builders use it too, so a CAD tenant sees CA$ in their P&L', () => {
+    for (const label of ['Gross Revenue', 'Net Income', 'Total Tax', 'Liabilities', 'Current Cash']) {
+      const line = PROD.split('\n').find((l) => l.includes(`${label}:`) && l.includes('message +='));
+      expect(line, `no ${label} line found`).toBeTruthy();
+      expect(line, label).toContain('tenantMoney(');
+    }
+  });
+});
