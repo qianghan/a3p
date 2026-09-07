@@ -24,44 +24,11 @@
 import 'server-only';
 import { prisma as db } from '@naap/database';
 import JSZip from 'jszip';
+import { isAllowedReceiptUrl } from '@/lib/agentbook-safe-fetch';
 
 const MAX_FILE_BYTES = 5 * 1024 * 1024; // 5 MB per file
 const FETCH_TIMEOUT_MS = 8_000;
 const FETCH_CONCURRENCY = 8;
-
-/**
- * Allow-list of receipt hostnames. SSRF guard: anything matched here
- * is considered safe to fetch from the server. Update when new storage
- * hosts come online.
- *
- * Dev hosts (`localhost`, `127.0.0.1`) are kept in the list so the
- * unit tests + local Telegram loops can work with `data:` and local
- * blob shims; production traffic only lands on the vercel-storage /
- * a3book hosts.
- */
-const ALLOWED_RECEIPT_HOSTS: RegExp[] = [
-  /\.vercel-storage\.com$/i,
-  /^blob\.vercel-storage\.com$/i,
-  /^a3book\.brainliber\.com$/i,
-  /^agentbook\.brainliber\.com$/i,
-  /^localhost$/i,
-  /^127\.0\.0\.1$/i,
-];
-
-/**
- * Returns true iff `urlStr` parses as a valid http(s) URL whose
- * hostname matches the receipt allow-list. Any parse error or
- * unrecognised host returns false.
- */
-export function isAllowedReceiptHost(urlStr: string): boolean {
-  try {
-    const u = new URL(urlStr);
-    if (u.protocol !== 'http:' && u.protocol !== 'https:') return false;
-    return ALLOWED_RECEIPT_HOSTS.some((rx) => rx.test(u.hostname));
-  } catch {
-    return false;
-  }
-}
 
 function extFromContentType(ct: string | null, url: string): string {
   if (ct) {
@@ -85,7 +52,10 @@ async function fetchWithTimeout(url: string, ms: number): Promise<Response | nul
   const ctl = new AbortController();
   const t = setTimeout(() => ctl.abort(), ms);
   try {
-    const res = await fetch(url, { signal: ctl.signal });
+    // `redirect: 'error'`: fetch follows up to 20 redirects by default, so
+    // without this an allow-listed host could bounce us anywhere and the host
+    // check above would have decided nothing.
+    const res = await fetch(url, { signal: ctl.signal, redirect: 'error' });
     return res;
   } catch {
     return null;
@@ -112,7 +82,7 @@ interface ZipEntry {
  */
 async function fetchOne(e: ExpenseRow): Promise<ZipEntry | null> {
   if (!e.receiptUrl) return null;
-  if (!isAllowedReceiptHost(e.receiptUrl)) {
+  if (!isAllowedReceiptUrl(e.receiptUrl)) {
     console.warn(
       `[tax-package/receipts-zip] skipping disallowed host expenseId=${e.id}`,
     );

@@ -59,7 +59,7 @@ import {
   renderMileageCsv,
   renderDeductionsCsv,
 } from './agentbook-tax-csv';
-import { isAllowedReceiptHost } from './agentbook-tax-receipts-zip';
+import { isAllowedReceiptUrl } from './agentbook-safe-fetch';
 
 // Cast the mocked module so each method has `.mockResolvedValue`.
 const mockedDb = db as unknown as {
@@ -338,27 +338,27 @@ describe('CSV renderers', () => {
 
 describe('isAllowedReceiptHost (SSRF guard)', () => {
   it('allows known storage hosts', () => {
-    expect(isAllowedReceiptHost('https://blob.vercel-storage.com/foo.jpg')).toBe(true);
-    expect(isAllowedReceiptHost('https://abc.public.blob.vercel-storage.com/foo')).toBe(true);
-    expect(isAllowedReceiptHost('https://a3book.brainliber.com/r.png')).toBe(true);
-    expect(isAllowedReceiptHost('https://agentbook.brainliber.com/r.png')).toBe(true);
+    expect(isAllowedReceiptUrl('https://blob.vercel-storage.com/foo.jpg')).toBe(true);
+    expect(isAllowedReceiptUrl('https://abc.public.blob.vercel-storage.com/foo')).toBe(true);
+    expect(isAllowedReceiptUrl('https://a3book.brainliber.com/r.png')).toBe(true);
+    expect(isAllowedReceiptUrl('https://agentbook.brainliber.com/r.png')).toBe(true);
   });
 
   it('rejects cloud-metadata and internal hosts', () => {
-    expect(isAllowedReceiptHost('http://169.254.169.254/latest/meta-data/')).toBe(false);
-    expect(isAllowedReceiptHost('http://10.0.0.5/')).toBe(false);
-    expect(isAllowedReceiptHost('http://example.com/r.jpg')).toBe(false);
+    expect(isAllowedReceiptUrl('http://169.254.169.254/latest/meta-data/')).toBe(false);
+    expect(isAllowedReceiptUrl('http://10.0.0.5/')).toBe(false);
+    expect(isAllowedReceiptUrl('http://example.com/r.jpg')).toBe(false);
   });
 
   it('rejects non-http(s) schemes (file:, ftp:, gopher:, data:)', () => {
-    expect(isAllowedReceiptHost('file:///etc/passwd')).toBe(false);
-    expect(isAllowedReceiptHost('ftp://localhost/foo')).toBe(false);
-    expect(isAllowedReceiptHost('gopher://localhost/x')).toBe(false);
-    expect(isAllowedReceiptHost('data:text/plain;base64,QQ==')).toBe(false);
+    expect(isAllowedReceiptUrl('file:///etc/passwd')).toBe(false);
+    expect(isAllowedReceiptUrl('ftp://localhost/foo')).toBe(false);
+    expect(isAllowedReceiptUrl('gopher://localhost/x')).toBe(false);
+    expect(isAllowedReceiptUrl('data:text/plain;base64,QQ==')).toBe(false);
   });
 
   it('rejects unparseable URLs', () => {
-    expect(isAllowedReceiptHost('not a url')).toBe(false);
-    expect(isAllowedReceiptHost('')).toBe(false);
+    expect(isAllowedReceiptUrl('not a url')).toBe(false);
+    expect(isAllowedReceiptUrl('')).toBe(false);
   });
 });
