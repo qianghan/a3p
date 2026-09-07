@@ -30,6 +30,24 @@ export interface ExpenseLike {
   description?: string | null;
 }
 
+/**
+ * Strip digit grouping and unify the decimal mark, so a formatted amount can
+ * be compared against `toFixed(2)` regardless of locale.
+ *
+ *   "$1,234.56"  -> "$1234.56"
+ *   "1 234,56 $" -> "1234.56 $"     (narrow no-break space, as fr-CA uses)
+ *   "¥1,234.56"  -> "¥1234.56"
+ *   "89,00 $"    -> "89.00 $"
+ *
+ * Grouping is removed only before exactly three digits, so a decimal comma is
+ * not mistaken for a separator.
+ */
+export function normalizeAmounts(text: string): string {
+  return text
+    .replace(/(\d)[\s\u00a0\u202f,'](?=\d{3}(?!\d))/g, '$1')
+    .replace(/(\d),(\d{1,2})(?!\d)/g, '$1.$2');
+}
+
 export function lastBotMessageIsAboutExpense(
   lastBotMessage: string | null | undefined,
   active: ExpenseLike | null | undefined,
@@ -41,9 +59,18 @@ export function lastBotMessageIsAboutExpense(
 
   // The draft is normally echoed back with its amount, so that is the
   // strongest signal: "Recorded: $89.00 — office supplies at Staples".
+  //
+  // The comparison has to be separator-agnostic, and not only for other
+  // locales. `toFixed(2)` yields "1234.56" while the reply is formatted by
+  // Intl as "$1,234.56", so this check silently failed for every amount over
+  // a thousand dollars in ENGLISH — the binding then fell through to the
+  // keyword regex below, which does not match a plain "Recorded: … — office
+  // supplies" either. fr-CA formats the same amount "1 234,56 $" and zh-CN
+  // "¥1,234.56", so one normalisation covers all three.
   const dollars = (active.amountCents / 100).toFixed(2);
   const withoutCents = String(Math.round(active.amountCents / 100));
-  if (msg.includes(dollars) || msg.includes(withoutCents)) return true;
+  const flat = normalizeAmounts(msg);
+  if (flat.includes(dollars) || flat.includes(withoutCents)) return true;
 
   if (active.vendorName && msg.includes(active.vendorName.toLowerCase())) return true;
   if (active.description && msg.includes(active.description.toLowerCase().slice(0, 24))) return true;
