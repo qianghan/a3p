@@ -28,7 +28,7 @@ interface CreatePaymentBody {
 
 // Typed error for the payment-transaction balance re-check (mirrors the
 // legacy plugin handler in plugins/agentbook-invoice/backend/src/server.ts).
-class PaymentExceedsBalanceError extends Error {
+class PaymentExceedsBalanceError extends PublicError {
   constructor(public readonly amountCents: number, public readonly remainingBalance: number) {
     super(`Payment amount (${amountCents}) exceeds remaining balance (${remainingBalance})`);
     this.name = 'PaymentExceedsBalanceError';

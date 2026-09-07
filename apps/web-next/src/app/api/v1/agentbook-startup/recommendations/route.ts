@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@naap/database';
 import { computeRecommendations } from '@/lib/agentbook-startup/discovery';
 import { safeResolveAgentbookTenant } from '@/lib/agentbook-tenant';
+import { publicErrorMessage } from '@/lib/api-error';
 
 export const runtime = 'nodejs';
 
@@ -47,11 +48,10 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
     return NextResponse.json(result);
   } catch (err) {
-    const error = err instanceof Error ? err : new Error(String(err));
-    console.error('[agentbook-startup] recommendations failed:', error);
-    return NextResponse.json(
-      { error: error.message, stack: error.stack?.split('\n').slice(0, 8).join('\n') },
-      { status: 500 },
-    );
+    console.error('[agentbook-startup] recommendations failed:', err);
+    // This returned `error.message` AND eight lines of stack trace to the
+    // caller. The #492 codemod missed it because the local is named `error`
+    // rather than `err`, so the pattern did not match.
+    return NextResponse.json({ error: publicErrorMessage(err) }, { status: 500 });
   }
 }

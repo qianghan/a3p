@@ -19,6 +19,7 @@
 
 import 'server-only';
 import { prisma as db } from '@naap/database';
+import { PublicError } from '@/lib/api-error';
 
 export type MatchSource = 'reconciliation' | 'telegram_button' | 'telegram_picker';
 
@@ -50,7 +51,7 @@ export interface ApplyExpenseMatchResult {
   expenseId: string;
 }
 
-export class BankMatchError extends Error {
+export class BankMatchError extends PublicError {
   constructor(
     message: string,
     /** A short, user-presentable code so callers can pick a stable copy. */

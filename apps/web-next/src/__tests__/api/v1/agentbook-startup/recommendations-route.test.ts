@@ -78,13 +78,20 @@ describe('GET /api/v1/agentbook-startup/recommendations', () => {
     expect(computeRecommendationsMock).toHaveBeenCalledWith('us', expect.anything(), expect.anything());
   });
 
-  it('surfaces the real error message and a short stack trace instead of an empty 500', async () => {
+  it('answers a failure with a referenced 500, not the error text and a stack trace', async () => {
+    // This test used to be titled "surfaces the real error message and a short
+    // stack trace" and asserted exactly that -- it was asserting the leak. The
+    // intent it was written for, an informative 500 rather than an empty one,
+    // is kept: the caller gets a reference they can quote, and the message and
+    // stack go to the server log.
     profileFindUnique.mockResolvedValue({ tenantId: 'tenant-1', companyType: null, incorporatedAt: null, headcount: null, annualRdSpendCents: null, equityRaisedCents: null });
     tenantConfigFindUnique.mockRejectedValue(new Error('boom: db unreachable'));
     const r = await GET(req());
     expect(r.status).toBe(500);
     const j = await r.json();
-    expect(j.error).toBe('boom: db unreachable');
-    expect(typeof j.stack).toBe('string');
+    expect(j.error).toBeTruthy();
+    expect(j.error).not.toContain('boom: db unreachable');
+    expect(j.error).toMatch(/Reference: [a-z0-9]+/);
+    expect(j.stack).toBeUndefined();
   });
 });

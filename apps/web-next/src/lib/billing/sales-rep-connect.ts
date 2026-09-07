@@ -2,6 +2,7 @@ import 'server-only';
 import { prisma } from '@naap/database';
 import { getStripe } from './stripe';
 import { requireActiveSalesRep } from './sales-rep';
+import { PublicError } from '@/lib/api-error';
 
 /**
  * Stripe Connect Express integration for sales rep payouts — replaces the
@@ -119,7 +120,7 @@ export async function refreshConnectStatusByAccountId(accountId: string): Promis
 export async function createExpressDashboardLoginLink(tenantId: string): Promise<string> {
   const profile = await requireActiveSalesRep(tenantId);
   if (!profile.stripeConnectAccountId || !profile.stripeConnectPayoutsEnabled) {
-    throw new Error('Payout account is not fully set up yet.');
+    throw new PublicError('Payout account is not fully set up yet.');
   }
   const link = await getStripe().accounts.createLoginLink(profile.stripeConnectAccountId);
   return link.url;
