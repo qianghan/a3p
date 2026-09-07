@@ -19,6 +19,7 @@ import { botLoc, botT, runWithBotLocale } from '@/lib/agentbook-bot-locale';
 import { handleAgentMessage } from '@agentbook-core/agent-brain';
 import { buildTaxReviewCtx, callGemini, classifyAndExecuteV1, classifyOnly, executeClassification } from '@agentbook-core/server';
 import { reconcileSkills, SKILL_QUERY } from '@agentbook-core/skill-source';
+import { getCashPosition } from '@agentbook-core/cash-position';
 import { generateFilingDraft } from '@/lib/tax-fast-track-draft';
 import { runAgentLoop, type BotContext, type ActiveExpense as BotActive } from '@/lib/agentbook-bot-agent';
 import { parseDateHint } from '@/lib/agentbook-time-aggregator';
@@ -1293,15 +1294,12 @@ async function callMinimalAgent(
 
   try {
     if (/(balance|cash|how much.*(have|in the bank))/i.test(lower)) {
-      const accounts = await db.abAccount.findMany({
-        where: { tenantId, accountType: 'asset', isActive: true },
-        select: { name: true, journalLines: { select: { debitCents: true, creditCents: true } } },
-      });
-      const total = accounts.reduce((sum, a) => sum + a.journalLines.reduce((s, l) => s + l.debitCents - l.creditCents, 0), 0);
-      const lines = accounts
-        .map((a) => ({ name: a.name, bal: a.journalLines.reduce((s, l) => s + l.debitCents - l.creditCents, 0) }))
-        .filter((a) => a.bal !== 0)
-        .slice(0, 5);
+        // Computation shared with the brain — see @agentbook-core/cash-position.
+        // This was Telegram's own copy, which is why the same question answered
+        // correctly here and evasively on web and MCP.
+        const pos = await getCashPosition(tenantId);
+        const total = pos.totalCents;
+        const lines = pos.accounts.slice(0, 5).map((a) => ({ name: a.name, bal: a.balanceCents }));
       const detail = lines.length ? '\n\n' + lines.map((l) => `• ${l.name}: ${fmtAmount(l.bal)}`).join('\n') : '';
       return { success: true, data: { message: botT('bot.cash_on_hand', { p0: fmtAmount(total), p1: detail }), skillUsed: 'query-finance' } };
     }
