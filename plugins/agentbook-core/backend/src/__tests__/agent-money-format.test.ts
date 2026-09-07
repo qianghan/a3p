@@ -15,6 +15,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
+import { fmtCurrency } from '../server';
 import { join } from 'node:path';
 
 const SERVER = readFileSync(join(__dirname, '../server.ts'), 'utf8');
@@ -43,11 +44,37 @@ describe('agent money formatting', () => {
   });
 
   it('fmtCurrency separates thousands (server.ts reply path)', () => {
-    const fn = SERVER.slice(SERVER.indexOf('function fmtCurrency'));
-    const body = fn.slice(0, fn.indexOf('\n}'));
-    expect(body).toContain('toLocaleString');
-    // The exact regression: a bare toFixed with no separator.
-    expect(body).not.toMatch(/\(cents \/ 100\)\.toFixed\(2\)/);
+    // Was a source scan for the string 'toLocaleString'. That asserted an
+    // implementation, so it failed the moment the same rule was delegated to
+    // Intl — while the regression it guards, a bare toFixed with no
+    // separator, would have passed if the literal happened to be present.
+    // Call it instead.
+    expect(fmtCurrency(124_000, 'USD', 'en-US')).toBe('$1,240.00');
+    expect(fmtCurrency(123_456_789, 'USD', 'en-US')).toBe('$1,234,567.89');
+    expect(fmtCurrency(4_200, 'USD', 'en-US')).toBe('$42.00');
+  });
+
+  it('formats the digits for the tenant locale, not for en-US', () => {
+    // A fr-CA tenant writes 1 234,56. This read 1,234.56 for every tenant on
+    // earth because the locale was hardcoded.
+    expect(fmtCurrency(123_456, 'CAD', 'fr-CA')).toMatch(/1\s234,56/);
+    expect(fmtCurrency(123_456, 'CNY', 'zh-CN')).toBe('¥1,234.56');
+  });
+
+  it('keeps a non-USD amount from reading as a bare dollar sign', () => {
+    // Intl renders CAD as "$" for an en-CA reader. A Canadian tenant's
+    // savings shown as "$56.50" is the ambiguity deduction-message-format
+    // was written to prevent, so the prefix is kept deliberately.
+    expect(fmtCurrency(5_650, 'CAD', 'en-CA')).toBe('CA$56.50');
+    expect(fmtCurrency(1_250, 'AUD', 'en-AU')).toBe('A$12.50');
+    expect(fmtCurrency(123_456, 'USD', 'en-US')).toBe('$1,234.56');
+  });
+
+  it('falls back to the currency home market when no locale is known', () => {
+    // Call sites that genuinely hold only a per-record currency must not
+    // silently get en-US.
+    expect(fmtCurrency(5_650, 'CAD')).toBe('CA$56.50');
+    expect(fmtCurrency(5_650)).toBe('$56.50');
   });
 
   it('the confirm-prompt formatter separates thousands (agent-brain.ts)', () => {

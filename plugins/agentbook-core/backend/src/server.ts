@@ -32,6 +32,7 @@ import { bracketProximityMove } from './bracket-proximity.js';
 import { parsePeriodFromQuestion } from './period-parse.js';
 import { cleanClientName } from './client-name.js';
 import { getCashPosition, isCashBalanceQuestion } from './cash-position.js';
+import { formatCurrency, formatMoney } from '@agentbook/i18n';
 
 /**
  * Bracket providers for advisory features that need to know WHERE a threshold
@@ -285,18 +286,43 @@ export function formatDeductionsMessage(
 }
 
 // === Multi-Currency Formatter ===
-function fmtCurrency(cents: number, currency?: string): string {
-  const symbols: Record<string, string> = { USD: '$', CAD: 'CA$', GBP: '\u00a3', EUR: '\u20ac', AUD: 'A$' };
-  const sym = symbols[currency || 'USD'] || (currency || 'USD') + ' ';
-  // Thousands separators. This was `.toFixed(2)`, which renders $1,240 as
-  // "$1240.00" — so the agent confirmed a four-figure expense in a format no
-  // accounting surface uses, and the canonical eval caught it as a missing
-  // "$1,240". Money the user just told us about should come back looking like
-  // money; a wrong-looking number invites them to doubt a correct one.
-  return `${sym}${(cents / 100).toLocaleString('en-US', {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  })}`;
+/**
+ * Money, in the tenant's currency and formatted for the tenant's locale.
+ *
+ * Two things were wrong here and only one of them was the symbol.
+ *
+ * The number was formatted with a hardcoded `'en-US'`, so a fr-CA tenant read
+ * `1,234.56` where their locale writes `1 234,56`. Intl knows that rule; the
+ * locale is now passed in.
+ *
+ * The symbol is deliberately NOT left to Intl. `Intl` renders CAD as a bare
+ * `$` for an en-CA reader, and a bare `$` on a Canadian tenant's savings is
+ * the exact bug deduction-message-format.test.ts was written to prevent —
+ * Maya's figures were shown in US dollars, and "$" could not tell her which.
+ * So a non-USD amount that would render as a bare `$` keeps its
+ * disambiguating prefix (`CA$`, `A$`), while the digits follow her locale.
+ */
+const CURRENCY_PREFIX: Record<string, string> = {
+  CAD: 'CA$',
+  AUD: 'A$',
+  NZD: 'NZ$',
+  SGD: 'S$',
+  HKD: 'HK$',
+};
+
+export function fmtCurrency(cents: number, currency?: string, locale?: string): string {
+  const cur = currency || 'USD';
+  // No locale at the call site means the caller genuinely has only a currency
+  // (a per-record currency on a multi-currency invoice). Fall back to that
+  // currency's home market rather than to en-US.
+  const out = locale
+    ? formatCurrency(cents, locale, cur)
+    : formatMoney(cents, cur);
+  if (cur === 'USD') return out;
+  // `$` not already qualified by letters — i.e. Intl gave the bare sign.
+  return /(?<![A-Za-z])\$/.test(out)
+    ? out.replace('$', CURRENCY_PREFIX[cur] ?? `${cur} `)
+    : out;
 }
 
 // === Health Check ===
@@ -3509,6 +3535,31 @@ async function _executeClassificationCore(
 ): Promise<any> {
   const startTime = Date.now();
   let { selectedSkill, extractedParams, confidence } = classification;
+  // The tenant's locale and currency, resolved once for every amount this turn
+  // renders. Six branches below built their own `'$' + …` helper, so a CAD,
+  // AUD or CNY tenant was shown a US dollar sign — and `Math.round` in five of
+  // them dropped the cents, reporting a $1,234.56 bill as $1,235 in an
+  // accounting product. Named `tenantMoney` rather than `money` so it does not
+  // shadow the module-level helper of that name.
+  const tenantLocale: string = classification.tenantConfig?.locale || 'en-US';
+  const tenantCurrency: string = classification.tenantConfig?.currency || 'USD';
+  /** Money in the tenant's own currency and locale. */
+  const tenantMoney = (cents: number, currency?: string) =>
+    fmtCurrency(cents, currency || tenantCurrency, tenantLocale);
+  /**
+   * The same, with the cents dropped when there are none — for the terse
+   * summary lines (net-worth trend, payroll totals, bill lists) that read
+   * better without them.
+   *
+   * The helpers this replaces used `Math.round(c / 100)`, which dropped the
+   * cents ALWAYS: a $1,234.56 bill was reported as $1,235, which in an
+   * accounting product is not terseness, it is a wrong number. Whole amounts
+   * still read "$1,080".
+   */
+  const tenantMoneyCompact = (cents: number, currency?: string) =>
+    cents % 100 === 0
+      ? fmtCurrency(cents, currency || tenantCurrency, tenantLocale).replace(/[.,]00\b/, '')
+      : tenantMoney(cents, currency);
   // The create-invoice pre-processing below REPLACES extractedParams wholesale
   // with the API payload { clientId, dates, status, lines } — so clientName is
   // gone by the time the reply is built, and the confirmation said
@@ -4373,7 +4424,7 @@ async function _executeClassificationCore(
   // INTERNAL handler: manage-bills — accounts payable via direct DB
   if (selectedSkill.name === 'manage-bills') {
     try {
-      const fmt = (c: number) => '$' + (c / 100).toLocaleString();
+      const fmt = (c: number) => tenantMoneyCompact(c);
       const action = String(extractedParams.action || 'list').toLowerCase();
       if (action === 'create' && extractedParams.vendorName && extractedParams.amountCents) {
         const due = extractedParams.dueDate ? new Date(extractedParams.dueDate as string) : new Date(Date.now() + 14 * 86400000);
@@ -4445,7 +4496,8 @@ async function _executeClassificationCore(
         // mirroring the existing precedent immediately below, which
         // already re-implements lib/personal-snapshot.ts's asset/liability
         // math inline instead of importing it, for the same reason.
-        const fmt = (c: number) => (c < 0 ? '-$' : '$') + Math.round(Math.abs(c) / 100).toLocaleString();
+        // Intl renders the sign itself, so the manual '-' prefix goes too.
+        const fmt = (c: number) => tenantMoneyCompact(c);
         const accounts = await db.abPersonalAccount.findMany({ where: { tenantId, archived: false } });
         if (accounts.length === 0) {
           const message = "You haven't set up any personal accounts yet. Add your checking, savings, or credit cards on the Personal page to see your net-worth trend.";
@@ -4519,7 +4571,7 @@ async function _executeClassificationCore(
     }
 
     try {
-      const fmt = (c: number) => '$' + Math.round(c / 100).toLocaleString();
+      const fmt = (c: number) => tenantMoneyCompact(c);
       const monthStart = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
       const [accounts, txns] = await Promise.all([
         db.abPersonalAccount.findMany({ where: { tenantId, archived: false } }),
@@ -4554,7 +4606,7 @@ async function _executeClassificationCore(
   // INTERNAL handler: payroll-status — direct DB
   if (selectedSkill.name === 'payroll-status') {
     try {
-      const fmt = (c: number) => '$' + Math.round(c / 100).toLocaleString();
+      const fmt = (c: number) => tenantMoneyCompact(c);
       const [employees, lastRun] = await Promise.all([
         db.abEmployee.findMany({ where: { tenantId, isActive: true } }),
         db.abPayRun.findFirst({ where: { tenantId }, orderBy: { periodEnd: 'desc' }, include: { stubs: true } }),
@@ -4588,7 +4640,7 @@ async function _executeClassificationCore(
   // it on the Payroll page — this skill never persists a pay run itself.
   if (selectedSkill.name === 'run-payroll') {
     try {
-      const fmt = (c: number) => '$' + Math.round(c / 100).toLocaleString();
+      const fmt = (c: number) => tenantMoneyCompact(c);
       const employees = await db.abEmployee.findMany({ where: { tenantId, isActive: true } });
       if (employees.length === 0) {
         const message = "There are no active employees to pay. Add them on the Payroll page first.";
@@ -4635,7 +4687,7 @@ async function _executeClassificationCore(
   // INTERNAL handler: cpa-review — quick books-health check via direct DB
   if (selectedSkill.name === 'cpa-review') {
     try {
-      const fmt = (c: number) => '$' + Math.round(c / 100).toLocaleString();
+      const fmt = (c: number) => tenantMoneyCompact(c);
       const now = new Date();
       const [uncategorized, missingReceipts, openBills] = await Promise.all([
         db.abExpense.count({ where: { tenantId, deletedAt: null, status: 'confirmed', categoryId: null } }),
@@ -5416,7 +5468,7 @@ async function _executeClassificationCore(
       // Format in the tenant's booking currency — not a hardcoded US $ — so
       // CA/AU tenants see CA$/A$ in the "how much did I spend" reply (H7).
       const expCfg = await db.abTenantConfig.findUnique({ where: { userId: tenantId }, select: { currency: true } });
-      const fmt = (cents: number) => fmtCurrency(cents, expCfg?.currency || 'USD');
+      const fmt = (cents: number) => tenantMoney(cents, expCfg?.currency);
 
       const byCatRaw: Record<string, number> = {};
       for (const e of expenses) {
@@ -5586,7 +5638,7 @@ Only include chartData if visualization adds value. Keep the answer under 200 wo
       };
       // Tenant booking currency, not a hardcoded US $, across the projection (H7).
       const cashCfg = await db.abTenantConfig.findUnique({ where: { userId: tenantId }, select: { currency: true } });
-      const fmt = (c: number) => fmtCurrency(c, cashCfg?.currency || 'USD');
+      const fmt = (c: number) => tenantMoney(c, cashCfg?.currency);
       const proj30 = { income: calcIncome(30), expense: calcRecurring(30) };
       const proj60 = { income: calcIncome(60), expense: calcRecurring(60) };
       const proj90 = { income: calcIncome(90), expense: calcRecurring(90) };
