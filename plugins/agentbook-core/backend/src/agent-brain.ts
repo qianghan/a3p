@@ -25,6 +25,7 @@ import { getActiveTaxQuestionnaireSession, getLatestTaxQuestionnaireSession, isD
 import { answerTaxQuestionnaire, cancelTaxQuestionnaire, type CoreResult } from './tax-questionnaire-core.js';
 import { ensureAdvisorPersona, buildAdvisorVoice, buildIntroMessage, adaptAdvisorStyle, personaPublicView, isHumanChannel } from './advisor-persona.js';
 import { isReviewInterceptable } from './review-interception.js';
+import { replyT } from './reply-locale.js';
 
 // Deterministic local engagement fallback when LLM is unreachable.
 // Keeps the user moving forward with a clarifying question or hint
@@ -1064,6 +1065,17 @@ async function handleAgentMessageCore(
   const startTime = Date.now();
   const { text, tenantId, channel, chatId: reqChatId, attachments, feedback } = req;
 
+  // The tenant's reply language. One indexed read, once, for a function that
+  // already performs session recovery, thread context and history queries and
+  // then usually an LLM call — the cost is not material, and threading the
+  // value would mean touching four channel call sites for a value only this
+  // module uses. `replyT` falls back to English if the row is missing, so a
+  // failed read costs wording, never the answer.
+  const replyConfig = await db.abTenantConfig
+    .findFirst({ where: { userId: tenantId }, select: { locale: true } })
+    .catch(() => null);
+  const t = replyT(replyConfig);
+
   // ── Corrections: see Step 2b (tryApplyCorrection) ──────────────────────
   // Correction handling used to live here, gated on `if (feedback)` — a flag
   // only the Telegram adapter ever set, which is why corrections silently
@@ -1216,7 +1228,7 @@ async function handleAgentMessageCore(
           reverseError,
         });
         return buildResponse({
-          message: `I couldn't undo "${lastUndo.description}" — the reverse step failed. Try again, or contact support if it keeps happening.`,
+          message: t('agent.undo_failed', { description: lastUndo.description }),
           skillUsed: 'session',
           confidence: 1,
           sessionId: activeSession.id,
@@ -1229,7 +1241,7 @@ async function handleAgentMessageCore(
       undoStack.pop();
       await updateSession(activeSession.id, activeSession.version, { undoStack });
       return buildResponse({
-        message: `Undone: ${lastUndo.description}`,
+        message: t('agent.undo_success', { description: lastUndo.description }),
         skillUsed: 'session',
         confidence: 1,
         sessionId: activeSession.id,
@@ -1719,7 +1731,7 @@ async function handleAgentMessageCore(
       // user sees a clear "I'm not sure" framing rather than the standard
       // confirm prompt — accuracy signal AND a chance to correct.
       const lead = !classification.confirmBefore && escalateLowConfidence
-        ? `I'm not entirely sure I understood — does this look right?\n`
+        ? `${t('agent.low_confidence_lead')}\n`
         : '';
       const planSteps: PlanStep[] = [
         {

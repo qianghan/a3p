@@ -2,6 +2,6 @@
   "confirm_lead": "J'aimerais faire ceci :",
   "low_confidence_lead": "Je ne suis pas entièrement sûr d'avoir compris — est-ce que cela vous semble correct ?",
   "undo_success": "Annulé : {description}",
-  "undo_failed": "Impossible d'annuler \"{description}\" — l'étape inverse a échoué. Réessayez ou contactez le support.",
+  "undo_failed": "Impossible d'annuler « {description} » — l'étape inverse a échoué. Réessayez, ou contactez le support si cela persiste.",
   "unknown_intent": "Je ne suis pas sûr de comprendre. Essayez « Dépensé 45 $ pour le déjeuner » ou « Combien en voyages ? »"
 }
