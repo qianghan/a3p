@@ -94,6 +94,15 @@ describe('every skill.* key the reply path asks for exists', () => {
       "I couldn't record the payment.",
       "I couldn't record that transaction.",
       "I couldn't find an invoice to send. Try:",
+      // The report-builder labels.
+      '\\nGross Revenue: ',
+      '\\nNet Income: ',
+      '\\nSE Tax: ',
+      '\\nIncome Tax: ',
+      '**Total Tax: ',
+      '\\nEffective Rate: ',
+      '\\n\\nTotal Due: ',
+      '**Total Unbilled:**',
     ]) {
       expect(stripped, gone).not.toContain(gone);
     }
@@ -132,6 +141,34 @@ describe('the failure replies speak the tenant language', () => {
       expect(out.split('\n').length, loc).toBeGreaterThanOrEqual(3);
       expect(out, loc).toContain('•');
     }
+  });
+});
+
+describe('the report labels speak the tenant language', () => {
+  it('renders a P&L line per locale', () => {
+    const p = { amount: '$1,240.00' };
+    expect(replyT({ locale: 'en-US' })('skill.report_gross_revenue', p)).toBe('Gross Revenue: $1,240.00');
+    expect(replyT({ locale: 'fr-CA' })('skill.report_gross_revenue', p)).toBe('Revenus bruts : $1,240.00');
+    expect(replyT({ locale: 'zh-CN' })('skill.report_gross_revenue', p)).toBe('总收入：$1,240.00');
+  });
+
+  it('keeps the markdown emphasis the chat surfaces render', () => {
+    // Telegram converts these with mdToHtml. A translation that drops the
+    // asterisks loses the bold on the total, silently.
+    for (const loc of ['en-US', 'fr-CA', 'zh-CN']) {
+      const out = replyT({ locale: loc })('skill.report_total_tax', { amount: '$1.00' });
+      expect(out.startsWith('**') && out.endsWith('**'), `${loc}: ${out}`).toBe(true);
+    }
+  });
+
+  it('labels a quarter without assuming the English letter', () => {
+    expect(replyT({ locale: 'en-US' })('skill.report_quarter_due', { quarter: 3, amount: '$1.00' })).toBe(
+      'Q3: $1.00',
+    );
+    // French uses T for trimestre.
+    expect(replyT({ locale: 'fr-CA' })('skill.report_quarter_due', { quarter: 3, amount: '$1.00' })).toBe(
+      'T3 : $1.00',
+    );
   });
 });
 
