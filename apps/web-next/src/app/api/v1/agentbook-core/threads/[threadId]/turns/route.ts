@@ -2,6 +2,7 @@ import 'server-only';
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma as db } from '@naap/database';
 import { safeResolveAgentbookTenant } from '@/lib/agentbook-tenant';
+import { publicErrorMessage } from '@/lib/api-error';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -25,6 +26,6 @@ export async function GET(
     const turns = (thread.turns as unknown[]) ?? [];
     return NextResponse.json({ success: true, data: turns });
   } catch (err) {
-    return NextResponse.json({ success: false, error: String(err) }, { status: 500 });
+    return NextResponse.json({ success: false, error: publicErrorMessage(err) }, { status: 500 });
   }
 }

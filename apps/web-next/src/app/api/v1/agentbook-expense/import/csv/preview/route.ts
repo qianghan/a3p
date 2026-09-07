@@ -7,6 +7,7 @@ import 'server-only';
 import { NextRequest, NextResponse } from 'next/server';
 import { safeResolveAgentbookTenant } from '@/lib/agentbook-tenant';
 import { parseCsvWithHeaders } from '@/lib/agentbook-csv';
+import { publicErrorMessage } from '@/lib/api-error';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -77,7 +78,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   } catch (err) {
     console.error('[agentbook-expense/import/csv/preview] failed:', err);
     return NextResponse.json(
-      { success: false, error: err instanceof Error ? err.message : String(err) },
+      { success: false, error: publicErrorMessage(err) },
       { status: 500 },
     );
   }

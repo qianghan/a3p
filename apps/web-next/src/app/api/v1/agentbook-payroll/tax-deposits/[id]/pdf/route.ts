@@ -18,6 +18,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma as db } from '@naap/database';
 import { safeResolveAgentbookTenant } from '@/lib/agentbook-tenant';
 import { render941Pdf, render940Pdf, renderGenericDepositPdf } from '@/lib/payroll-forms-pdf';
+import { publicErrorMessage } from '@/lib/api-error';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -115,6 +116,6 @@ export async function GET(request: NextRequest, ctx: RouteCtx): Promise<Response
     });
   } catch (err) {
     console.error('[agentbook-payroll/tax-deposits/:id/pdf] failed:', err);
-    return NextResponse.json({ success: false, error: err instanceof Error ? err.message : String(err) }, { status: 500 });
+    return NextResponse.json({ success: false, error: publicErrorMessage(err) }, { status: 500 });
   }
 }

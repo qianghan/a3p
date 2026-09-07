@@ -5,6 +5,7 @@ import { invalidateAll } from '@naap/billing';
 import { getStripe } from '@/lib/billing/stripe';
 import { requireAdmin, HttpError } from '@/lib/billing/admin-auth';
 import { safeResolveAgentbookTenant } from '@/lib/agentbook-tenant';
+import { publicErrorMessage } from '@/lib/api-error';
 
 export const runtime = 'nodejs';
 
@@ -42,7 +43,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       await requireAdmin(request);
     } catch (err) {
       const e = err as HttpError;
-      return NextResponse.json({ error: e.message }, { status: e.status });
+      return NextResponse.json({ error: publicErrorMessage(e) }, { status: e.status });
     }
     const plans = await prisma.billPlan.findMany({
       where: { isActive: true },
@@ -68,7 +69,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     await requireAdmin(request);
   } catch (err) {
     const e = err as HttpError;
-    return NextResponse.json({ error: e.message }, { status: e.status });
+    return NextResponse.json({ error: publicErrorMessage(e) }, { status: e.status });
   }
 
   const parsed = PlanBody.safeParse(await request.json().catch(() => ({})));

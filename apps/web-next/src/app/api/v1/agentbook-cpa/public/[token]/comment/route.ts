@@ -4,6 +4,7 @@ import 'server-only';
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma as db } from '@naap/database';
 import { resolveActiveLink } from '@/lib/cpa-link';
+import { publicErrorMessage } from '@/lib/api-error';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -32,6 +33,6 @@ export async function POST(request: NextRequest, ctx: RouteCtx): Promise<NextRes
     return NextResponse.json({ success: true, data: comment }, { status: 201 });
   } catch (err) {
     console.error('[agentbook-cpa/public/comment POST] failed:', err);
-    return NextResponse.json({ success: false, error: err instanceof Error ? err.message : String(err) }, { status: 500 });
+    return NextResponse.json({ success: false, error: publicErrorMessage(err) }, { status: 500 });
   }
 }

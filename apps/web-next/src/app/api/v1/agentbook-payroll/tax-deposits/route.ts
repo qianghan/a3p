@@ -4,6 +4,7 @@ import 'server-only';
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma as db } from '@naap/database';
 import { safeResolveAgentbookTenant } from '@/lib/agentbook-tenant';
+import { publicErrorMessage } from '@/lib/api-error';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -21,7 +22,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ success: true, data: deposits });
   } catch (err) {
     console.error('[agentbook-payroll/tax-deposits GET] failed:', err);
-    return NextResponse.json({ success: false, error: err instanceof Error ? err.message : String(err) }, { status: 500 });
+    return NextResponse.json({ success: false, error: publicErrorMessage(err) }, { status: 500 });
   }
 }
 
@@ -38,6 +39,6 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ success: true, data: updated });
   } catch (err) {
     console.error('[agentbook-payroll/tax-deposits POST] failed:', err);
-    return NextResponse.json({ success: false, error: err instanceof Error ? err.message : String(err) }, { status: 500 });
+    return NextResponse.json({ success: false, error: publicErrorMessage(err) }, { status: 500 });
   }
 }

@@ -10,6 +10,7 @@ import { prisma } from '@/lib/db';
 import { validateSession } from '@/lib/api/auth';
 import { success, errors, getAuthToken } from '@/lib/api/response';
 import { validateCSRF } from '@/lib/api/csrf';
+import { PublicError } from '@/lib/api-error';
 
 const DAYDREAM_API = 'https://api.daydream.live';
 
@@ -46,7 +47,7 @@ async function getUserApiKey(userId: string): Promise<string> {
   }
 
   if (!settings?.apiKey) {
-    throw new Error('No Daydream API key configured. Go to Settings to add your API key.');
+    throw new PublicError('No Daydream API key configured. Go to Settings to add your API key.');
   }
 
   return settings.apiKey;

@@ -12,6 +12,7 @@ import { prisma as db } from '@naap/database';
 import { dispatchNotification } from '@/lib/notifications';
 import { reportError } from '@/lib/logger';
 import { requireCronSecret } from '@/lib/cron-auth';
+import { publicErrorMessage } from '@/lib/api-error';
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
   const unauthorized = requireCronSecret(request);
@@ -37,6 +38,6 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ success: true, data: { checked: due.length, dispatched } });
   } catch (err) {
     reportError('[notifications-dispatch] cron failed', err);
-    return NextResponse.json({ success: false, error: err instanceof Error ? err.message : String(err) }, { status: 500 });
+    return NextResponse.json({ success: false, error: publicErrorMessage(err) }, { status: 500 });
   }
 }

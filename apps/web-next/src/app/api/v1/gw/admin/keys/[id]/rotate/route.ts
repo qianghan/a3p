@@ -14,6 +14,7 @@ import { prisma } from '@/lib/db';
 import { success, errors } from '@/lib/api/response';
 import { getAdminContext, isErrorResponse } from '@/lib/gateway/admin/team-guard';
 import { logAudit } from '@/lib/gateway/admin/audit';
+import { PublicError } from '@/lib/api-error';
 
 type RouteContext = { params: Promise<{ id: string }> };
 
@@ -69,7 +70,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
     });
 
     if (revoked.count !== 1) {
-      throw new Error('API key already rotated or revoked');
+      throw new PublicError('API key already rotated or revoked');
     }
 
     return created;

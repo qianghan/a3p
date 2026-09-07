@@ -13,6 +13,7 @@ import { prisma as db } from '@naap/database';
 import { safeResolveAgentbookTenant } from '@/lib/agentbook-tenant';
 import { advisorGemini, formatCents } from '@/lib/agentbook-advisor';
 import { parsePeriodFromQuestion } from '@agentbook-core/period-parse';
+import { publicErrorMessage } from '@/lib/api-error';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -188,7 +189,7 @@ Only include chartData if visualization adds value. Keep the answer under 200 wo
   } catch (err) {
     console.error('[agentbook-expense/advisor/ask] failed:', err);
     return NextResponse.json(
-      { success: false, error: err instanceof Error ? err.message : String(err) },
+      { success: false, error: publicErrorMessage(err) },
       { status: 500 },
     );
   }

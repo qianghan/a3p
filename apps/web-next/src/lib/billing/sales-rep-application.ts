@@ -1,5 +1,6 @@
 import 'server-only';
 import { prisma, Prisma } from '@naap/database';
+import { PublicError } from '@/lib/api-error';
 
 const REAPPLY_COOLDOWN_DAYS = 90;
 
@@ -69,10 +70,10 @@ export async function withLockedDraftApplication(
     `;
     const application = rows[0];
     if (!application || application.tenantId !== tenantId) {
-      throw new Error('Application not found.');
+      throw new PublicError('Application not found.');
     }
     if (application.status !== 'draft') {
-      throw new Error('This application has already been submitted and can no longer be edited here.');
+      throw new PublicError('This application has already been submitted and can no longer be edited here.');
     }
 
     const data = mutate(application);
@@ -102,22 +103,22 @@ export async function getLatestApplication(tenantId: string) {
 export async function startOrResumeApplication(tenantId: string) {
   const eligibility = await checkPartnerEligibility(tenantId);
   if (!eligibility.eligible) {
-    throw new Error(eligibility.reason);
+    throw new PublicError(eligibility.reason);
   }
 
   const latest = await getLatestApplication(tenantId);
   if (latest) {
     if (latest.status === 'draft') return latest;
     if (latest.status === 'submitted' || latest.status === 'under_review' || latest.status === 'more_info_requested') {
-      throw new Error('You already have an application in progress.');
+      throw new PublicError('You already have an application in progress.');
     }
     if (latest.status === 'approved') {
-      throw new Error('You are already an approved partner.');
+      throw new PublicError('You are already an approved partner.');
     }
     if (latest.status === 'rejected' && latest.reviewedAt) {
       const cooldownEnds = new Date(latest.reviewedAt.getTime() + REAPPLY_COOLDOWN_DAYS * 24 * 60 * 60 * 1000);
       if (cooldownEnds > new Date()) {
-        throw new Error(`You can reapply after ${cooldownEnds.toISOString().slice(0, 10)}.`);
+        throw new PublicError(`You can reapply after ${cooldownEnds.toISOString().slice(0, 10)}.`);
       }
     }
   }

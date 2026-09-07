@@ -9,6 +9,7 @@ import { safeResolveAgentbookTenant } from '@/lib/agentbook-tenant';
 import { normalizeRegionCode } from '@/lib/region-codes';
 import { isSelectableLocale, canonicalizeLocale, localeValidationError } from '@agentbook/i18n';
 import { isI18nLocalesEnabled } from '@/lib/agentbook-i18n-flag';
+import { publicErrorMessage } from '@/lib/api-error';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -32,7 +33,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   } catch (err) {
     console.error('[agentbook-core/tenant-config GET] failed:', err);
     return NextResponse.json(
-      { success: false, error: err instanceof Error ? err.message : String(err) },
+      { success: false, error: publicErrorMessage(err) },
       { status: 500 },
     );
   }
@@ -247,7 +248,7 @@ export async function PUT(request: NextRequest): Promise<NextResponse> {
   } catch (err) {
     console.error('[agentbook-core/tenant-config PUT] failed:', err);
     return NextResponse.json(
-      { success: false, error: err instanceof Error ? err.message : String(err) },
+      { success: false, error: publicErrorMessage(err) },
       { status: 500 },
     );
   }

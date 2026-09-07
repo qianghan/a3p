@@ -10,6 +10,8 @@ import { safeResolveAgentbookTenant } from '@/lib/agentbook-tenant';
 import { audit } from '@/lib/agentbook-audit';
 import { inferSource, inferActor } from '@/lib/agentbook-audit-context';
 import { withHttpIdempotency } from '@/lib/agentbook-idempotency';
+import { publicErrorMessage } from '@/lib/api-error';
+import { PublicError } from '@/lib/api-error';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -153,7 +155,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
               include: { payments: true, client: true },
             });
             if (!invoice) {
-              throw new Error('Invoice not found'); // extremely unlikely: deleted between precheck and lock
+              throw new PublicError('Invoice not found'); // extremely unlikely: deleted between precheck and lock
             }
 
             const existingPaid = invoice.payments.reduce((sum, p) => sum + p.amountCents, 0);
@@ -287,12 +289,12 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         };
       } catch (err) {
         if (err instanceof PaymentExceedsBalanceError) {
-          return { status: 422, body: { success: false, error: err.message } };
+          return { status: 422, body: { success: false, error: publicErrorMessage(err) } };
         }
         console.error('[agentbook-invoice/payments POST] failed:', err);
         return {
           status: 500,
-          body: { success: false, error: err instanceof Error ? err.message : String(err) },
+          body: { success: false, error: publicErrorMessage(err) },
         };
       }
     },

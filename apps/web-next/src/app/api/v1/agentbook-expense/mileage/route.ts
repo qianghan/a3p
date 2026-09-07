@@ -18,6 +18,7 @@ import { safeResolveAgentbookTenant } from '@/lib/agentbook-tenant';
 import { getMileageRate } from '@/lib/agentbook-mileage-rates';
 import { resolveVehicleAccounts } from '@/lib/agentbook-account-resolver';
 import { withSoftDelete, parseIncludeDeleted } from '@/lib/agentbook-soft-delete';
+import { publicErrorMessage } from '@/lib/api-error';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -219,7 +220,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   } catch (err) {
     console.error('[agentbook-expense/mileage POST] failed:', err);
     return NextResponse.json(
-      { success: false, error: err instanceof Error ? err.message : String(err) },
+      { success: false, error: publicErrorMessage(err) },
       { status: 500 },
     );
   }
@@ -362,7 +363,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   } catch (err) {
     console.error('[agentbook-expense/mileage GET] failed:', err);
     return NextResponse.json(
-      { success: false, error: err instanceof Error ? err.message : String(err) },
+      { success: false, error: publicErrorMessage(err) },
       { status: 500 },
     );
   }

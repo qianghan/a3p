@@ -9,6 +9,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma as db } from '@naap/database';
 import { requireStudentAddon } from '@/lib/agentbook-student/guard';
 import { discoverJobs } from '@/lib/agentbook-career/discover';
+import { publicErrorMessage } from '@/lib/api-error';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -39,6 +40,6 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ success: true, data: result });
   } catch (err) {
     console.error('[agentbook-career/discover] failed:', err);
-    return NextResponse.json({ success: false, error: err instanceof Error ? err.message : String(err) }, { status: 500 });
+    return NextResponse.json({ success: false, error: publicErrorMessage(err) }, { status: 500 });
   }
 }

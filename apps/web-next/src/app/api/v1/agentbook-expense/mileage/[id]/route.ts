@@ -18,6 +18,7 @@ import { safeResolveAgentbookTenant } from '@/lib/agentbook-tenant';
 import { updateMileageEntry } from '@/lib/agentbook-mileage-service';
 import { audit } from '@/lib/agentbook-audit';
 import { inferSource, inferActor } from '@/lib/agentbook-audit-context';
+import { publicErrorMessage } from '@/lib/api-error';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -56,7 +57,7 @@ export async function PATCH(
   } catch (err) {
     console.error('[agentbook-expense/mileage PATCH] failed:', err);
     return NextResponse.json(
-      { success: false, error: err instanceof Error ? err.message : String(err) },
+      { success: false, error: publicErrorMessage(err) },
       { status: 500 },
     );
   }
@@ -148,7 +149,7 @@ export async function DELETE(
   } catch (err) {
     console.error('[agentbook-expense/mileage DELETE] failed:', err);
     return NextResponse.json(
-      { success: false, error: err instanceof Error ? err.message : String(err) },
+      { success: false, error: publicErrorMessage(err) },
       { status: 500 },
     );
   }

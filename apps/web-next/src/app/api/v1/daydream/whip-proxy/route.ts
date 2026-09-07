@@ -14,6 +14,7 @@ import { prisma } from '@/lib/db';
 import { validateSession } from '@/lib/api/auth';
 import { errors, getAuthToken } from '@/lib/api/response';
 import { validateCSRF } from '@/lib/api/csrf';
+import { PublicError } from '@/lib/api-error';
 
 const ALLOWED_HOSTS = ['ai.livepeer.com', 'livepeer.studio', 'api.daydream.live'];
 const PROXY_TIMEOUT = 30_000;
@@ -34,7 +35,7 @@ async function verifyUserApiKey(userId: string): Promise<void> {
   }
 
   if (!settings?.apiKey) {
-    throw new Error('No Daydream API key configured. Go to Settings to add your API key.');
+    throw new PublicError('No Daydream API key configured. Go to Settings to add your API key.');
   }
 }
 

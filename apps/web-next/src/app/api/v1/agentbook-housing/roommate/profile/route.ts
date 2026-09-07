@@ -12,6 +12,7 @@ import 'server-only';
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma as db } from '@naap/database';
 import { requireStudentAddon } from '@/lib/agentbook-student/guard';
+import { publicErrorMessage } from '@/lib/api-error';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -30,7 +31,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ success: true, data: profile });
   } catch (err) {
     console.error('[roommate/profile GET] failed:', err);
-    return NextResponse.json({ success: false, error: err instanceof Error ? err.message : String(err) }, { status: 500 });
+    return NextResponse.json({ success: false, error: publicErrorMessage(err) }, { status: 500 });
   }
 }
 
@@ -108,7 +109,7 @@ export async function PUT(request: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ success: true, data: profile });
   } catch (err) {
     console.error('[roommate/profile PUT] failed:', err);
-    return NextResponse.json({ success: false, error: err instanceof Error ? err.message : String(err) }, { status: 500 });
+    return NextResponse.json({ success: false, error: publicErrorMessage(err) }, { status: 500 });
   }
 }
 
@@ -120,6 +121,6 @@ export async function DELETE(request: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ success: true, data: { deleted: true } });
   } catch (err) {
     console.error('[roommate/profile DELETE] failed:', err);
-    return NextResponse.json({ success: false, error: err instanceof Error ? err.message : String(err) }, { status: 500 });
+    return NextResponse.json({ success: false, error: publicErrorMessage(err) }, { status: 500 });
   }
 }

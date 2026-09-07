@@ -17,6 +17,7 @@ import { inferSource, inferActor } from '@/lib/agentbook-audit-context';
 import { withSoftDelete, parseIncludeDeleted } from '@/lib/agentbook-soft-delete';
 import { withHttpIdempotency } from '@/lib/agentbook-idempotency';
 import { ensureChartOfAccounts, ensureUncategorizedAccount } from '@/lib/agentbook-chart-of-accounts';
+import { publicErrorMessage } from '@/lib/api-error';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -277,7 +278,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         console.error('[agentbook-expense/expenses POST] failed:', err);
         return {
           status: 500,
-          body: { success: false, error: err instanceof Error ? err.message : String(err) },
+          body: { success: false, error: publicErrorMessage(err) },
         };
       }
     },
@@ -344,7 +345,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   } catch (err) {
     console.error('[agentbook-expense/expenses GET] failed:', err);
     return NextResponse.json(
-      { success: false, error: err instanceof Error ? err.message : String(err) },
+      { success: false, error: publicErrorMessage(err) },
       { status: 500 },
     );
   }

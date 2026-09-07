@@ -8,6 +8,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma as db } from '@naap/database';
 import { requireAdmin } from '@/lib/admin-guard';
 import { parseFlagUpsert, normalizeFlagKey } from '@/lib/admin-feature-flags';
+import { publicErrorMessage } from '@/lib/api-error';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -24,7 +25,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ success: true, data: { flags, total: flags.length } });
   } catch (err) {
     console.error('[admin/feature-flags GET] failed:', err);
-    return NextResponse.json({ success: false, error: err instanceof Error ? err.message : String(err) }, { status: 500 });
+    return NextResponse.json({ success: false, error: publicErrorMessage(err) }, { status: 500 });
   }
 }
 
@@ -45,7 +46,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ success: true, data: flag }, { status: 201 });
   } catch (err) {
     console.error('[admin/feature-flags POST] failed:', err);
-    return NextResponse.json({ success: false, error: err instanceof Error ? err.message : String(err) }, { status: 500 });
+    return NextResponse.json({ success: false, error: publicErrorMessage(err) }, { status: 500 });
   }
 }
 
@@ -67,7 +68,7 @@ export async function PATCH(request: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ success: true, data: flag });
   } catch (err) {
     console.error('[admin/feature-flags PATCH] failed:', err);
-    return NextResponse.json({ success: false, error: err instanceof Error ? err.message : String(err) }, { status: 500 });
+    return NextResponse.json({ success: false, error: publicErrorMessage(err) }, { status: 500 });
   }
 }
 
@@ -81,6 +82,6 @@ export async function DELETE(request: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ success: true, data: { key, deleted: true } });
   } catch (err) {
     console.error('[admin/feature-flags DELETE] failed:', err);
-    return NextResponse.json({ success: false, error: err instanceof Error ? err.message : String(err) }, { status: 500 });
+    return NextResponse.json({ success: false, error: publicErrorMessage(err) }, { status: 500 });
   }
 }

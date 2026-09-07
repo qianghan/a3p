@@ -25,6 +25,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma as db } from '@naap/database';
 import { reportError } from '@/lib/logger';
 import { createNotification } from '@/lib/notifications';
+import { publicErrorMessage } from '@/lib/api-error';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -102,6 +103,6 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ success: true, data: { checked: overdue.length, sent } });
   } catch (err) {
     reportError('[payment-reminders] cron failed', err);
-    return NextResponse.json({ success: false, error: err instanceof Error ? err.message : String(err) }, { status: 500 });
+    return NextResponse.json({ success: false, error: publicErrorMessage(err) }, { status: 500 });
   }
 }

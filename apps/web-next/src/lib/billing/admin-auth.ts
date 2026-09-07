@@ -1,9 +1,19 @@
 import 'server-only';
 import type { NextRequest } from 'next/server';
 import { validateSession } from '@/lib/api/auth';
+import { PublicError } from '@/lib/api-error';
 
-export class HttpError extends Error {
-  constructor(public status: number, message: string) { super(message); }
+/**
+ * `PublicError` so the message survives the API error sanitizer: "not
+ * authenticated" / "not authorized" are for the caller, and a 401 carrying
+ * "Something went wrong on our side." would be a worse answer than the truth.
+ */
+export class HttpError extends PublicError {
+  // Narrows the base's optional `status` to required: callers do
+  // `(err as HttpError).status` and pass it straight to NextResponse.
+  constructor(public override readonly status: number, message: string) {
+    super(message, status);
+  }
 }
 
 interface AdminUser { id: string; email: string; }
