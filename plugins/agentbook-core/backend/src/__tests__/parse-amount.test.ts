@@ -241,3 +241,37 @@ describe('the correction gate runs in linear time (js/polynomial-redos)', () => 
     expect(Date.now() - started).toBeLessThan(1000);
   });
 });
+
+describe('four-digit amounts without a thousands separator', () => {
+  /**
+   * The bug that shipped with this module. Regex alternation is ordered, not
+   * longest-match: `\d{1,3}(?:,\d{3})*` matched the "124" of "$1240" with zero
+   * comma groups and the engine stopped. $1240 booked as $124.00, $5000 as
+   * $500, $12345 as $123 — a tenth or a hundredth of the real figure, silently,
+   * on the primary input path, for a month.
+   *
+   * The suite had "$1,240" (with the comma) and "$5" and "$42". It never had a
+   * four-digit amount typed the way people actually type them.
+   */
+  it.each([
+    ['paid AWS $1240 for hosting', 124000],
+    ['$5000', 500000],
+    ['got $7500 from BigCo', 750000],
+    ['$12345', 1234500],
+    ['spent 1240 on hosting', 124000],
+    ['1240 dollars', 124000],
+    ['it was 1240.50', 124050],
+    ['花了 1240 元', 124000],
+  ])('%s → %i', (t, want) => expect(cents(t)).toBe(want));
+
+  it('still reads comma-grouped amounts', () => {
+    expect(cents('$1,240')).toBe(124000);
+    expect(cents('$1,234,567.89')).toBe(123456789);
+  });
+
+  it('never returns a tenth of a four-digit amount', () => {
+    // The specific regression, asserted as a NOT.
+    expect(cents('$1240')).not.toBe(12400);
+    expect(cents('$5000')).not.toBe(50000);
+  });
+});
