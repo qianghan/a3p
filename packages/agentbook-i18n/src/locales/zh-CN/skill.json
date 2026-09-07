@@ -86,5 +86,20 @@
   "payroll_ready_exact_one": "可以发放薪资了：**{count} 名员工** — 应发 **{gross}**，代扣 **{withheld}**，实发 **{net}**。请打开 **{page}** 页面并点击 \"Run payroll\" 处理。",
   "payroll_ready_exact_other": "可以发放薪资了：**{count} 名员工** — 应发 **{gross}**，代扣 **{withheld}**，实发 **{net}**。请打开 **{page}** 页面并点击 \"Run payroll\" 处理。",
   "payroll_ready_estimate_one": "可以发放薪资了：**{count} 名员工** — 本期应发约 **{gross}**。请打开 **{page}** 页面并点击 \"Run payroll\" 以计算准确代扣并处理。",
-  "payroll_ready_estimate_other": "可以发放薪资了：**{count} 名员工** — 本期应发约 **{gross}**。请打开 **{page}** 页面并点击 \"Run payroll\" 以计算准确代扣并处理。"
+  "payroll_ready_estimate_other": "可以发放薪资了：**{count} 名员工** — 本期应发约 **{gross}**。请打开 **{page}** 页面并点击 \"Run payroll\" 以计算准确代扣并处理。",
+  "recorded_item": "已记录：{amount} — {description}{category}",
+  "invoice_created": "已创建发票 {number} — {amount}",
+  "payment_recorded": "已记录付款{amount}。发票已更新。",
+  "timer_stopped": "计时已停止。时长：{minutes} 分钟。",
+  "bill_recorded": "已记录账单：**{vendor}**，金额 {amount}，到期 {date}。",
+  "bills_none_open": "您没有未付账单。可在 **{page}** 页面添加，或直接说\"添加一笔周五到期的 800 元房租账单\"。",
+  "invoices_none_overdue": "没有逾期发票，所有客户均已结清！",
+  "reminders_sent": "已为 {total} 张逾期发票中的 {sent} 张发送付款提醒。",
+  "all_categorized": "您的所有支出都已分类完成！做得好。",
+  "recurring_none": "暂未检测到定期模式 — 需要先积累几个月的记录。",
+  "payroll_no_employees": "没有需要发薪的在职员工。请先在 **{page}** 页面添加。",
+  "net_worth": "**净资产：{net}**（资产 {assets} − 负债 {liabilities}）。",
+  "completeness_overall": "整体完整度：**{percent}%**",
+  "filing_failed": "❌ **申报失败**\n\n{error}",
+  "tax_pdf_ready": "报税表 PDF 已生成，可供查阅和打印。"
 }
