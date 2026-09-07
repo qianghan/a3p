@@ -80,5 +80,11 @@
   "opportunities_found_one": "**找到 {count} 个机会**\n",
   "opportunities_found_other": "**找到 {count} 个机会**\n",
   "bills_open_one": "您有 {count} 张未付账单，共 **{amount}**",
-  "bills_open_other": "您有 {count} 张未付账单，共 **{amount}**"
+  "bills_open_other": "您有 {count} 张未付账单，共 **{amount}**",
+  "payroll_on_payroll_one": "薪资名单上有 **{count} 名员工**：",
+  "payroll_on_payroll_other": "薪资名单上有 **{count} 名员工**：",
+  "payroll_ready_exact_one": "可以发放薪资了：**{count} 名员工** — 应发 **{gross}**，代扣 **{withheld}**，实发 **{net}**。请打开 **{page}** 页面并点击 \"Run payroll\" 处理。",
+  "payroll_ready_exact_other": "可以发放薪资了：**{count} 名员工** — 应发 **{gross}**，代扣 **{withheld}**，实发 **{net}**。请打开 **{page}** 页面并点击 \"Run payroll\" 处理。",
+  "payroll_ready_estimate_one": "可以发放薪资了：**{count} 名员工** — 本期应发约 **{gross}**。请打开 **{page}** 页面并点击 \"Run payroll\" 以计算准确代扣并处理。",
+  "payroll_ready_estimate_other": "可以发放薪资了：**{count} 名员工** — 本期应发约 **{gross}**。请打开 **{page}** 页面并点击 \"Run payroll\" 以计算准确代扣并处理。"
 }

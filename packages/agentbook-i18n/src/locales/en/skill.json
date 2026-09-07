@@ -80,5 +80,11 @@
   "opportunities_found_one": "**{count} opportunity found**\n",
   "opportunities_found_other": "**{count} opportunities found**\n",
   "bills_open_one": "You owe **{amount}** across {count} open bill",
-  "bills_open_other": "You owe **{amount}** across {count} open bills"
+  "bills_open_other": "You owe **{amount}** across {count} open bills",
+  "payroll_on_payroll_one": "You have **{count} employee** on payroll:",
+  "payroll_on_payroll_other": "You have **{count} employees** on payroll:",
+  "payroll_ready_exact_one": "Ready to run payroll for **{count} employee** — **{gross}** gross, **{withheld}** withheld, **{net}** net this period. Open the **{page}** page and click \"Run payroll\" to process it.",
+  "payroll_ready_exact_other": "Ready to run payroll for **{count} employees** — **{gross}** gross, **{withheld}** withheld, **{net}** net this period. Open the **{page}** page and click \"Run payroll\" to process it.",
+  "payroll_ready_estimate_one": "Ready to run payroll for **{count} employee** — about **{gross}** gross this period. Open the **{page}** page and click \"Run payroll\" to compute exact withholding and process it.",
+  "payroll_ready_estimate_other": "Ready to run payroll for **{count} employees** — about **{gross}** gross this period. Open the **{page}** page and click \"Run payroll\" to compute exact withholding and process it."
 }
