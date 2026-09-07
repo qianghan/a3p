@@ -43,7 +43,7 @@ describe('cron reset-quotas', () => {
 
   it('accepts x-vercel-cron header', async () => {
     billSubFindMany.mockResolvedValue([]);
-    const r = await resetQuotas(cronReq({ 'x-vercel-cron': '1' }));
+    const r = await resetQuotas(cronReq({ authorization: 'Bearer shh' }));
     expect(r.status).toBe(200);
   });
 
@@ -61,7 +61,7 @@ describe('cron reset-quotas', () => {
       status: 'active', current_period_start: 1717200000, current_period_end: 1719792000, cancel_at_period_end: false,
     });
     billSubUpdate.mockResolvedValue({});
-    const r = await resetQuotas(cronReq({ 'x-vercel-cron': '1' }));
+    const r = await resetQuotas(cronReq({ authorization: 'Bearer shh' }));
     const j = await r.json();
     expect(j.updated).toBe(1);
     expect(subscriptionsRetrieve).toHaveBeenCalledWith('sub_x');
@@ -72,7 +72,7 @@ describe('cron reset-quotas', () => {
       { accountId: 't1', stripeSubscriptionId: null, currentPeriodStart: new Date('2026-04-01'), currentPeriodEnd: new Date('2026-05-01') },
     ]);
     billSubUpdate.mockResolvedValue({});
-    const r = await resetQuotas(cronReq({ 'x-vercel-cron': '1' }));
+    const r = await resetQuotas(cronReq({ authorization: 'Bearer shh' }));
     expect(r.status).toBe(200);
     expect(subscriptionsRetrieve).not.toHaveBeenCalled();
     expect(billSubUpdate).toHaveBeenCalled();
@@ -87,7 +87,7 @@ describe('cron cleanup-events', () => {
 
   it('deletes events older than 90 days', async () => {
     billEventDeleteMany.mockResolvedValue({ count: 42 });
-    const r = await cleanupEvents(cronReq({ 'x-vercel-cron': '1' }));
+    const r = await cleanupEvents(cronReq({ authorization: 'Bearer shh' }));
     const j = await r.json();
     expect(j.deleted).toBe(42);
     expect(billEventDeleteMany).toHaveBeenCalled();
