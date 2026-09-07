@@ -4188,7 +4188,7 @@ async function _executeClassificationCore(
       if (ocrData.success && ocrData.data?.slipType && ocrData.data.slipType !== 'unknown') {
         const d = ocrData.data;
         message = `\u{1F9FE} **${d.slipType}** scanned${d.issuer ? ` from ${d.issuer}` : ''}\n`;
-        message += `Confidence: ${Math.round((d.confidence || 0) * 100)}%\n\n`;
+        message += `${t('skill.confidence_pct', { percent: Math.round((d.confidence || 0) * 100) })}\n\n`;
         // Show extracted fields
         const fields = d.extractedData || {};
         for (const [k, v] of Object.entries(fields)) {
@@ -4247,7 +4247,7 @@ async function _executeClassificationCore(
         return `${statusIcon} **${f.taxYear} ${f.formType}** (${f.jurisdiction.toUpperCase()}${f.region ? `/${f.region}` : ''})${conf}${incomeStr}\n   [📄 View PDF](${downloadLink})`;
       }).join('\n\n');
 
-      const message = `Here are your past tax filings:\n\n${list}${filtered.length > 8 ? `\n\n…and ${filtered.length - 8} more. Open the Past Filings tab for the full list.` : ''}`;
+      const message = `${t('skill.past_filings_header')}\n\n${list}${filtered.length > 8 ? `\n\n…and ${filtered.length - 8} more. Open the Past Filings tab for the full list.` : ''}`;
       await db.abConversation.create({ data: { tenantId, question: text, answer: message, queryType: 'agent', channel, skillUsed: 'query-past-filings' } });
       return { selectedSkill, extractedParams, confidence, skillUsed: 'query-past-filings', skillResponse: { data: filings },
         responseData: { message, actions: [], chartData: null, skillUsed: 'query-past-filings', confidence, latencyMs: Date.now() - startTime } };
@@ -4506,7 +4506,7 @@ async function _executeClassificationCore(
           // assessComplexity() treats confidence < 0.6 as 'complex' and
           // re-routes through the planner, a separate execution path that
           // does NOT run this gate. Do not repeat that mistake.
-          const message = "Net-worth trends are part of Personal Insights — enable it in your Personal Finance settings to see how it's changed over time.";
+          const message = t('skill.net_worth_trend_gated');
           await db.abConversation.create({ data: { tenantId, question: text, answer: message, queryType: 'agent', channel, skillUsed: 'personal-snapshot' } });
           return {
             selectedSkill, extractedParams, confidence: 1, skillUsed: 'personal-snapshot', skillResponse: null,
@@ -4615,7 +4615,10 @@ async function _executeClassificationCore(
       let income = 0, spending = 0;
       for (const t of txns) { if (t.amountCents >= 0) income += t.amountCents; else spending += Math.abs(t.amountCents); }
       const savingsRate = income > 0 ? Math.round(((income - spending) / income) * 100) : 0;
-      const message = `**Net worth: ${fmt(net)}** (${fmt(assets)} assets − ${fmt(liabilities)} liabilities).\nThis month: income ${fmt(income)}, spending ${fmt(spending)}, savings rate ${savingsRate}%.`;
+      const message = t('skill.net_worth_full', {
+        net: fmt(net), assets: fmt(assets), liabilities: fmt(liabilities),
+        income: fmt(income), spending: fmt(spending), rate: savingsRate,
+      });
       await db.abConversation.create({ data: { tenantId, question: text, answer: message, queryType: 'agent', channel, skillUsed: 'personal-snapshot' } });
       return { selectedSkill, extractedParams, confidence, skillUsed: 'personal-snapshot', skillResponse: { data: { net } }, responseData: { message, actions: [], chartData: null, skillUsed: 'personal-snapshot', confidence, latencyMs: Date.now() - startTime } };
     } catch (err) {
@@ -4749,7 +4752,7 @@ async function _executeClassificationCore(
   if (selectedSkill.name === 'start-tax-fast-track') {
     try {
       if (!(await hasAddOn(tenantId, 'tax_fast_track'))) {
-        const message = 'Tax Fast-Track is a paid add-on — enable it in Settings to start a filing draft review.';
+        const message = t('skill.fast_track_gated');
         await db.abConversation.create({ data: { tenantId, question: text || '[tax fast track]', answer: message, queryType: 'agent', channel, skillUsed: 'start-tax-fast-track' } }).catch(() => {});
         return {
           selectedSkill, extractedParams, confidence: 1, skillUsed: 'start-tax-fast-track', skillResponse: null,
@@ -4771,7 +4774,7 @@ async function _executeClassificationCore(
         message = result.message;
         sessionId = result.status === 'failed' ? result.sessionId : undefined;
       } else if (result.status === 'done') {
-        message = "Got everything I need from your last return — I'll have your filing draft ready shortly.";
+        message = t('skill.fast_track_ready');
         sessionId = result.sessionId;
         taxDraftReady = true;
       } else if (result.status === 'question') {
@@ -4782,7 +4785,7 @@ async function _executeClassificationCore(
         // (only cancelTaxQuestionnaire returns it); this branch exists so
         // the compiler can see every CoreResult status is handled.
         sessionId = result.sessionId;
-        message = "Got everything I need from your last return — I'll have your filing draft ready shortly.";
+        message = t('skill.fast_track_ready');
       }
 
       await db.abConversation.create({ data: { tenantId, question: text || '[tax fast track]', answer: message, queryType: 'agent', channel, skillUsed: 'start-tax-fast-track' } }).catch(() => {});
@@ -4821,7 +4824,7 @@ async function _executeClassificationCore(
       if (!data.success) throw new Error(data.error || 'Filing failed');
 
       const filing = data.data;
-      let message = `**Tax Filing ${taxYear} — ${(filing.jurisdiction || 'ca').toUpperCase()}**\n\n`;
+      let message = `${t('skill.hdr_tax_filing_jurisdiction', { year: taxYear, jurisdiction: (filing.jurisdiction || 'ca').toUpperCase() })}\n\n`;
       message += `${t('skill.completeness_overall', { percent: Math.round((filing.completeness || 0) * 100) })}\n\n`;
 
       for (const form of (filing.forms || [])) {
@@ -5020,11 +5023,17 @@ async function _executeClassificationCore(
       if (uncategorized.length === 0) {
         message = t('skill.all_categorized');
       } else if (applied === 0 && pending.length === 0) {
-        message = `I reviewed ${uncategorized.length} expense${uncategorized.length !== 1 ? 's' : ''} but couldn't categorize ${uncategorized.length !== 1 ? 'them' : 'it'} confidently:\n\n${uncategorizedList}${uncategorizedListSuffix}\n\nReply with a category for one (e.g. "the Staples one is Office Supplies"), or open the Expenses page to assign them there.`;
+        message = `${t('skill.categorize_unsure', { count: uncategorized.length })}\n\n${uncategorizedList}${uncategorizedListSuffix}\n\nReply with a category for one (e.g. "the Staples one is Office Supplies"), or open the Expenses page to assign them there.`;
       } else if (pending.length === 0) {
-        message = `Applied **${applied}** categor${applied !== 1 ? 'ies' : 'y'} automatically. All expenses are now categorized!`;
+        message = t('skill.categorized_all', { count: applied });
       } else {
-        message = `Applied **${applied}** categor${applied !== 1 ? 'ies' : 'y'} automatically. **${pending.length}** expense${pending.length !== 1 ? 's' : ''} need your review:`;
+        // Two counts in one sentence: the plural mechanism keys on a single
+        // `count`, so the second is composed from its own plural key. Each
+        // half is a complete phrase in its own language, not a fragment.
+        message = t('skill.categorized_partial', {
+          count: applied,
+          pending: t('skill.pending_review_phrase', { count: pending.length }),
+        });
         const preview = pending.slice(0, 5).map((i) => `• ${tenantMoney(i.amountCents)} ${i.vendorName || 'expense'} → ${i.suggestedCategoryName} (${Math.round(i.confidence * 100)}%)`).join('\n');
         message += '\n\n' + preview;
         if (pending.length > 5) message += `\n...and ${pending.length - 5} more — check the Expenses page.`;
@@ -5962,7 +5971,7 @@ Only include chartData if visualization adds value. Keep the answer under 200 wo
         message = `\u2705 **Receipt recorded!**\n\n\u{1F4B0} **${amt}**${data.vendor ? ` at ${data.vendor}` : ''}`;
         if (data.date) message += `\n\u{1F4C5} ${data.date}`;
         if (data.items) message += `\n\u{1F4DD} ${data.items}`;
-        message += `\n\u{1F50D} Confidence: ${Math.round((data.confidence || 0) * 100)}%`;
+        message += `\n\u{1F50D} ${t('skill.confidence_pct', { percent: Math.round((data.confidence || 0) * 100) })}`;
       } else if (data.amount_cents > 0) {
         const amt = tenantMoney(data.amount_cents, data.currency);
         message = `\u{1F9FE} **Receipt scanned** (needs review)\n\n\u{1F4B0} ${amt}${data.vendor ? ` \u2014 ${data.vendor}` : ''}`;
@@ -6067,17 +6076,23 @@ Only include chartData if visualization adds value. Keep the answer under 200 wo
     } else if (selectedSkill.name === 'create-invoice' && data) {
       const amt = data.amountCents ? fmtCurrency(data.amountCents, data.currency) : '';
       const who = data.client?.name || resolvedInvoiceClientName || extractedParams.clientName || '';
-      message = `Invoice created${data.number ? ` (${data.number})` : ''}`
-        + `${who ? ` for ${who}` : ''}${amt ? ` \u2014 ${amt}` : ''}.`;
+      message = t('skill.invoice_created_full', {
+        number: data.number ? ` (${data.number})` : '',
+        client: who ? ` — ${who}` : '',
+        amount: amt ? ` \u2014 ${amt}` : '',
+      });
 
     // Create estimate response
     } else if (selectedSkill.name === 'create-estimate' && data) {
       const amt = data.amountCents ? fmtCurrency(data.amountCents, data.currency) : '';
-      message = `Estimate created${amt ? ' for ' + amt : ''}${data.client?.name ? ' (' + data.client.name + ')' : ''}.`;
+      message = t('skill.estimate_created', {
+        amount: amt ? ' ' + amt : '',
+        client: data.client?.name ? ' (' + data.client.name + ')' : '',
+      });
 
     // Start timer response
     } else if (selectedSkill.name === 'start-timer' && data) {
-      message = `Timer started${data.description ? ': ' + data.description : ''}.`;
+      message = t('skill.timer_started', { description: data.description ? ': ' + data.description : '' });
 
     // Stop timer response
     } else if (selectedSkill.name === 'stop-timer' && data) {
@@ -6295,8 +6310,8 @@ Only include chartData if visualization adds value. Keep the answer under 200 wo
 
     // Tax filing status
     } else if (data?.filingId && data?.completeness !== undefined && data?.forms) {
-      message = `**Tax Filing ${data.taxYear || '2025'}**\n\n`;
-      message += `Overall: **${Math.round((data.completeness || 0) * 100)}%** complete\n\n`;
+      message = `${t('skill.hdr_tax_filing', { year: data.taxYear || '2025' })}\n\n`;
+      message += `${t('skill.completeness_short', { percent: Math.round((data.completeness || 0) * 100) })}\n\n`;
       for (const form of (data.forms || [])) {
         const icon = form.completeness >= 100 ? '\u2705' : form.completeness >= 50 ? '\u{1F7E1}' : '\u{1F534}';
         message += `${icon} **${form.formCode}**: ${form.completeness}%\n`;
@@ -6369,9 +6384,9 @@ Only include chartData if visualization adds value. Keep the answer under 200 wo
     // Roommate matches
     } else if (selectedSkill.name === 'find-roommate-matches' && Array.isArray(data?.matches)) {
       if (data.matches.length === 0) {
-        message = data.note || 'No compatible students found yet.';
+        message = data.note || t('skill.roommates_none');
       } else {
-        message = `**${data.matches.length} compatible student${data.matches.length === 1 ? '' : 's'}**\n`;
+        message = `${t('skill.roommates_found', { count: data.matches.length })}\n`;
         data.matches.slice(0, 5).forEach((m: any) => {
           const min = m.budgetMinCents != null ? `$${(m.budgetMinCents / 100).toFixed(0)}` : '?';
           const max = m.budgetMaxCents != null ? `$${(m.budgetMaxCents / 100).toFixed(0)}` : '?';

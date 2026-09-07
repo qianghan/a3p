@@ -146,6 +146,21 @@ describe('every skill.* key the reply path asks for exists', () => {
       'Overall completeness: **',
       'Tax return PDF generated!',
       'Expense split into ${parts.length} parts',
+      'Applied **${applied}** categor',
+      'Estimate created${amt',
+      'Timer started${data.description',
+      'Confidence: ${Math.round',
+      'Net-worth trends are part of Personal Insights',
+      'Tax Fast-Track is a paid add-on',
+      "'No compatible students found yet.'",
+      'Net worth: ${fmt(net)}',
+      'Tax Filing ${taxYear}',
+      'Tax Filing ${data.taxYear',
+      'compatible student${data.matches',
+      'Got everything I need from your last return',
+      'Here are your past tax filings:',
+      "I reviewed ${uncategorized.length} expense",
+      'Invoice created${data.number',
     ]) {
       expect(stripped, gone).not.toContain(gone);
     }
@@ -358,6 +373,30 @@ describe('the write confirmations', () => {
     for (const loc of ['en-US', 'fr-CA', 'zh-CN']) {
       expect(replyT({ locale: loc })('skill.filing_failed', { error: 'x' }), loc).toContain('❌');
     }
+  });
+});
+
+describe('the gated-feature messages', () => {
+  it('translate the sentence but not the product names inside it', () => {
+    // "Personal Insights", "Personal Finance", "Settings" and "Tax
+    // Fast-Track" are things the user has to find on a screen whose own
+    // translation is flag-gated. The sentence is French; the names are not.
+    const fr = replyT({ locale: 'fr-CA' });
+    const trend = fr('skill.net_worth_trend_gated');
+    expect(trend).toContain('Personal Insights');
+    expect(trend).toContain('Personal Finance');
+    expect(trend).toContain('valeur nette');
+
+    const ft = fr('skill.fast_track_gated');
+    expect(ft).toContain('Tax Fast-Track');
+    expect(ft).toContain('Settings');
+    expect(ft).toContain('module payant');
+  });
+
+  it('agrees in number when reporting how many categories were applied', () => {
+    const fr = replyT({ locale: 'fr-CA' });
+    expect(fr('skill.categorized_all', { count: 1 })).toContain('catégorie appliquée');
+    expect(fr('skill.categorized_all', { count: 6 })).toContain('catégories appliquées');
   });
 });
 
