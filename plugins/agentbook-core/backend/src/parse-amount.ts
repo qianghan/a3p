@@ -66,7 +66,15 @@ const ZH_UNIT = '(?:元|块钱|块|塊錢|塊|圆|圓)';
 const ZH_VERB = '(?:记录|記錄|花费|花費|花了|付了|支付|买了|買了|消费|消費|付)';
 
 /** A number with optional thousands separators and decimals. */
-const NUM = '(\\d{1,3}(?:,\\d{3})*(?:\\.\\d+)?|\\d+(?:\\.\\d+)?)';
+// Regex alternation is ORDERED, not longest-match. The first draft was
+// `\d{1,3}(?:,\d{3})*|\d+`: for "$1240" the first branch matches "124" —
+// three digits, then ZERO comma groups — and the engine stops there. So
+// $1240 booked as $124.00, $5000 as $500, $12345 as $123: every amount of four
+// or more digits typed without a thousands separator landed at a tenth or a
+// hundredth of itself, silently, in production, from the day this module
+// shipped. The comma-grouped branch now REQUIRES at least one group (`+`), so
+// a plain run of digits cannot half-match it and falls through to `\d+`.
+const NUM = '(\\d{1,3}(?:,\\d{3})+(?:\\.\\d+)?|\\d+(?:\\.\\d+)?)';
 
 function toCents(raw: string, multiplier = 1): number {
   return Math.round(parseFloat(raw.replace(/,/g, '')) * multiplier * 100);
