@@ -15,6 +15,7 @@ import { validateSession } from '@/lib/api/auth';
 import { errors, getAuthToken } from '@/lib/api/response';
 import { validateCSRF } from '@/lib/api/csrf';
 import { PublicError } from '@/lib/api-error';
+import { publicErrorMessage } from '@/lib/api-error';
 
 const ALLOWED_HOSTS = ['ai.livepeer.com', 'livepeer.studio', 'api.daydream.live'];
 const PROXY_TIMEOUT = 30_000;
@@ -128,8 +129,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     console.error('WHIP proxy error:', err);
     const message = err?.message || 'WHIP proxy failed';
     if (message.includes('API key')) {
-      return errors.badRequest(message);
+      return errors.badRequest(publicErrorMessage(err));
     }
-    return errors.internal(message);
+    return errors.internal(publicErrorMessage(err));
   }
 }

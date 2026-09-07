@@ -3,6 +3,7 @@ import { prisma } from '@/lib/prisma';
 import { validateSession } from '@/lib/api/auth';
 import { validateTeamAccess } from '@/lib/api/teams';
 import { getAuthToken, errors } from '@/lib/api/response';
+import { publicErrorMessage } from '@/lib/api-error';
 
 // PUT /api/v1/teams/[teamId]/plugins/[installId]/config - Update plugin config
 // Required role: admin
@@ -95,7 +96,7 @@ export async function GET(
       if (message.includes('not found')) {
         return errors.notFound('Team');
       }
-      return errors.forbidden(message);
+      return errors.forbidden(publicErrorMessage(err));
     }
 
     const install = await prisma.teamPluginInstall.findFirst({

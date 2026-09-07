@@ -15,6 +15,7 @@ import {
 import { success, errors, getAuthToken } from '@/lib/api/response';
 import { validateCSRF } from '@/lib/api/csrf';
 import { prisma } from '@/lib/prisma';
+import { publicErrorMessage } from '@/lib/api-error';
 
 interface RouteParams {
   params: Promise<{ teamId: string }>;
@@ -48,10 +49,10 @@ export async function GET(request: NextRequest, { params }: RouteParams): Promis
     const message = err instanceof Error ? err.message : 'Failed to list members';
 
     if (message.includes('Not a member') || message.includes('not found')) {
-      return errors.forbidden(message);
+      return errors.forbidden(publicErrorMessage(err));
     }
 
-    return errors.internal(message);
+    return errors.internal(publicErrorMessage(err));
   }
 }
 
@@ -118,13 +119,13 @@ export async function POST(request: NextRequest, { params }: RouteParams): Promi
     const message = err instanceof Error ? err.message : 'Failed to invite member';
 
     if (message.includes('already a member')) {
-      return errors.conflict(message);
+      return errors.conflict(publicErrorMessage(err));
     }
 
     if (message.includes('not found')) {
       return errors.notFound('User');
     }
 
-    return errors.badRequest(message);
+    return errors.badRequest(publicErrorMessage(err));
   }
 }

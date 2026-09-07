@@ -5,6 +5,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { handleOAuthCallback } from '@/lib/api/auth';
+import { publicErrorMessage } from '@/lib/api-error';
 
 interface RouteParams {
   params: Promise<{ provider: string }>;
@@ -84,8 +85,10 @@ export async function GET(request: NextRequest, { params }: RouteParams): Promis
     return response;
   } catch (err) {
     console.error('OAuth callback error:', err);
-    const message = err instanceof Error ? encodeURIComponent(err.message) : 'oauth_failed';
-    return NextResponse.redirect(new URL(`/login?error=${message}`, request.url));
+    // A fixed code, not the error text. This put `err.message` into a query
+    // string, so an OAuth failure's internal detail ended up in the browser
+    // URL, in history, and in any referrer or access log that recorded it.
+    return NextResponse.redirect(new URL('/login?error=oauth_failed', request.url));
   }
 }
 
@@ -140,9 +143,8 @@ export async function POST(request: NextRequest, { params }: RouteParams): Promi
     return response;
   } catch (err) {
     console.error('OAuth callback error:', err);
-    const message = err instanceof Error ? err.message : 'OAuth authentication failed';
     return NextResponse.json(
-      { success: false, error: { code: 'OAUTH_FAILED', message } },
+      { success: false, error: { code: 'OAUTH_FAILED', message: publicErrorMessage(err) } },
       { status: 400 }
     );
   }

@@ -9,6 +9,7 @@ import { validateSession } from '@/lib/api/auth';
 import { success, errors, getAuthToken } from '@/lib/api/response';
 import { validateCSRF } from '@/lib/api/csrf';
 import { PublicError } from '@/lib/api-error';
+import { publicErrorMessage } from '@/lib/api-error';
 
 const DAYDREAM_API = 'https://api.daydream.live';
 
@@ -131,8 +132,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     console.error('Error creating stream:', err);
     const message = err?.message || 'Failed to create stream';
     if (message.includes('API key')) {
-      return errors.badRequest(message);
+      return errors.badRequest(publicErrorMessage(err));
     }
-    return errors.internal(message);
+    return errors.internal(publicErrorMessage(err));
   }
 }

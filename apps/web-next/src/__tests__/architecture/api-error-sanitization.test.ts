@@ -159,6 +159,40 @@ describe('API responses do not echo unexpected error text', () => {
     expect(isPublicError(new admin.HttpError(403, 'not authorized'))).toBe(true);
   });
 
+  it('no route passes a raw-derived message to the platform error helpers', () => {
+    // A third shape, on the inherited platform routes: a local built from the
+    // caught value, then handed to errors.badRequest/forbidden/conflict/
+    // internal. The text-based branching above those calls is fine -- it
+    // inspects a local and three branches deliberately map "not found" to 403
+    // for anti-enumeration -- but the value must not reach the response.
+    const offenders = files
+      .filter((f) => {
+        const src = responseLines(readFileSync(f, 'utf8'));
+        if (!/const message = \w+ instanceof Error \?/.test(src)) return false;
+        return /errors\.[a-zA-Z]+\(message\)/.test(src);
+      })
+      .map((f) => f.slice(ROOT.length + 1));
+    expect(
+      offenders,
+      `These routes hand a raw-derived message to an error helper:\n  ${offenders.join('\n  ')}`,
+    ).toEqual([]);
+  });
+
+  it('the team-management copy is public, so a 403/409 still says why', async () => {
+    // lib/api/teams.ts reports its rules by throwing them ("Team slug is
+    // already taken", "Only admins can invite members"), and the routes
+    // surface those at 400/403/409. If they stop being public those statuses
+    // start answering with a generic line -- the #492 regression, again.
+    const [{ isPublicError }, teams] = await Promise.all([
+      import('@/lib/api-error'),
+      import('@/lib/api/teams'),
+    ]);
+    expect(typeof teams.validateTeamAccess).toBe('function');
+    const src = readFileSync(join(ROOT, 'apps/web-next/src/lib/api/teams.ts'), 'utf8');
+    expect(stripComments(src)).not.toMatch(/throw new Error\(/);
+    expect(isPublicError(new (class extends (await import('@/lib/api-error')).PublicError {})('x'))).toBe(true);
+  });
+
   it('every route that sanitizes actually imports the helper', () => {
     const missing = files
       .filter((f) => {

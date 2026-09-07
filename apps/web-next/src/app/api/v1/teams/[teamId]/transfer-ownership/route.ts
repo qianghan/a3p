@@ -8,6 +8,7 @@ import { validateSession } from '@/lib/api/auth';
 import { transferOwnership } from '@/lib/api/teams';
 import { success, errors, getAuthToken } from '@/lib/api/response';
 import { validateCSRF } from '@/lib/api/csrf';
+import { publicErrorMessage } from '@/lib/api-error';
 
 interface RouteParams {
   params: Promise<{ teamId: string }>;
@@ -44,7 +45,6 @@ export async function POST(request: NextRequest, { params }: RouteParams): Promi
 
     return success({ message: 'Ownership transferred' });
   } catch (err) {
-    const message = err instanceof Error ? err.message : 'Failed to transfer ownership';
-    return errors.badRequest(message);
+    return errors.badRequest(publicErrorMessage(err));
   }
 }
