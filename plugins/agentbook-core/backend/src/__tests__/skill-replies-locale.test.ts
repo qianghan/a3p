@@ -123,6 +123,12 @@ describe('every skill.* key the reply path asks for exists', () => {
       "message = '**Bank Reconciliation**",
       "message = '**Cash Flow Projection**",
       "message = '**Accounts Receivable Aging**",
+      // Inline plural ternaries — the shape that cannot survive translation.
+      "expense${data.length === 1 ? '' : 's'}",
+      "recurring pattern${data.length === 1 ? '' : 's'}",
+      "scholarship${data.candidates.length === 1 ? '' : 's'}",
+      "opportunit${data.candidates.length === 1 ? 'y' : 'ies'}",
+      "open bill${bills.length === 1 ? '' : 's'}",
     ]) {
       expect(stripped, gone).not.toContain(gone);
     }
@@ -246,6 +252,28 @@ describe('the report headers', () => {
         expect(out.startsWith('**') && out.endsWith('**'), `${loc} ${k}: ${out}`).toBe(true);
       }
     }
+  });
+});
+
+describe('the count-bearing replies pluralise per language', () => {
+  it('agrees in number in French, where the noun and participle both inflect', () => {
+    const fr = replyT({ locale: 'fr-CA' });
+    expect(fr('skill.scholarships_found', { count: 1 })).toBe('**1 bourse trouvée**\n');
+    expect(fr('skill.scholarships_found', { count: 4 })).toBe('**4 bourses trouvées**\n');
+    // English hides this: "found" does not change, so a single string looks
+    // fine in English and is wrong in French twice over.
+    expect(fr('skill.recurring_detected', { count: 1 })).toContain('détectée');
+    expect(fr('skill.recurring_detected', { count: 3 })).toContain('détectées');
+  });
+
+  it('treats zero as singular in French and plural in English', () => {
+    expect(replyT({ locale: 'en-US' })('skill.review_queue', { count: 0 })).toContain('expenses need');
+    expect(replyT({ locale: 'fr-CA' })('skill.review_queue', { count: 0 })).toContain('dépense à');
+  });
+
+  it('uses one form for Chinese, without special casing at the call site', () => {
+    const zh = replyT({ locale: 'zh-CN' });
+    expect(zh('skill.review_queue', { count: 1 })).toBe(zh('skill.review_queue', { count: 9 }).replace('9', '1'));
   });
 });
 

@@ -70,5 +70,15 @@
   "hdr_unbilled_time": "**未开票工时**",
   "hdr_net_worth_trend": "**净资产变化：**",
   "expense_split_one": "**支出已拆分为 {count} 笔**",
-  "expense_split_other": "**支出已拆分为 {count} 笔**"
+  "expense_split_other": "**支出已拆分为 {count} 笔**",
+  "review_queue_one": "**{count} 笔支出待审核**\n",
+  "review_queue_other": "**{count} 笔支出待审核**\n",
+  "recurring_detected_one": "**检测到 {count} 项定期模式**\n",
+  "recurring_detected_other": "**检测到 {count} 项定期模式**\n",
+  "scholarships_found_one": "**找到 {count} 项奖学金**\n",
+  "scholarships_found_other": "**找到 {count} 项奖学金**\n",
+  "opportunities_found_one": "**找到 {count} 个机会**\n",
+  "opportunities_found_other": "**找到 {count} 个机会**\n",
+  "bills_open_one": "您有 {count} 张未付账单，共 **{amount}**",
+  "bills_open_other": "您有 {count} 张未付账单，共 **{amount}**"
 }
