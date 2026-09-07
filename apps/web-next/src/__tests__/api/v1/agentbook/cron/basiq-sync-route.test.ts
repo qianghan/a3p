@@ -28,6 +28,7 @@ const reportError = vi.fn();
 vi.mock('@/lib/logger', () => ({ reportError: (...a: unknown[]) => reportError(...a) }));
 
 import { GET } from '@/app/api/v1/agentbook/cron/basiq-sync/route';
+import { cronRequest, unauthenticatedCronRequest, setCronSecret, clearCronSecret, CRON_TEST_SECRET } from '../../../../helpers/cron-request';
 
 function req(bearer?: string) {
   return new NextRequest('http://x/cron/basiq-sync', {
@@ -36,6 +37,7 @@ function req(bearer?: string) {
 }
 
 beforeEach(() => {
+    setCronSecret();
   vi.clearAllMocks();
   eventCreate.mockResolvedValue({});
   bankAccountFindMany.mockResolvedValue([]);
@@ -73,7 +75,7 @@ describe('GET /cron/basiq-sync', () => {
       .mockResolvedValueOnce({ added: 2, modified: 0, removed: 0, hasMore: false })
       .mockResolvedValueOnce({ added: 1, modified: 0, removed: 0, hasMore: false });
 
-    const res = await GET(req());
+    const res = await GET(req(CRON_TEST_SECRET));
     const json = await res.json();
 
     expect(json.ok).toBe(true);
@@ -108,7 +110,7 @@ describe('GET /cron/basiq-sync', () => {
       return { added: 5, modified: 0, removed: 0, hasMore: false };
     });
 
-    const res = await GET(req());
+    const res = await GET(req(CRON_TEST_SECRET));
     const json = await res.json();
 
     expect(json.errorCount).toBe(1);
@@ -144,7 +146,7 @@ describe('GET /cron/basiq-sync', () => {
     bankAccountFindMany.mockResolvedValue([{ id: 'a1', tenantId: 'tenant-orphan', lastSynced: null }]);
     tenantConfigFindUnique.mockResolvedValue(null);
 
-    const res = await GET(req());
+    const res = await GET(req(CRON_TEST_SECRET));
     const json = await res.json();
 
     expect(json.errorCount).toBe(1);

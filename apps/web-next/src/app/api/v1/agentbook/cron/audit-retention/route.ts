@@ -23,10 +23,10 @@
  */
 
 import 'server-only';
-import { timingSafeEqual } from 'node:crypto';
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma as db } from '@naap/database';
 import { reportError } from '@/lib/logger';
+import { requireCronSecret } from '@/lib/cron-auth';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -38,13 +38,6 @@ const MAX_RETENTION_DAYS = 3650;
 const CHUNK_SIZE = 5000;
 const MAX_CHUNKS_PER_RUN = 50; // cap a single cron to ~250k rows
 
-function safeCompareBearer(provided: string | null, expected: string): boolean {
-  if (!provided) return false;
-  const a = Buffer.from(provided);
-  const b = Buffer.from(`Bearer ${expected}`);
-  if (a.length !== b.length) return false;
-  return timingSafeEqual(a, b);
-}
 
 function getRetentionDays(): number {
   const raw = process.env.AUDIT_EVENT_RETENTION_DAYS;
@@ -55,12 +48,8 @@ function getRetentionDays(): number {
 }
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
-  if (
-    process.env.CRON_SECRET &&
-    !safeCompareBearer(request.headers.get('authorization'), process.env.CRON_SECRET)
-  ) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
+  const unauthorized = requireCronSecret(request);
+  if (unauthorized) return unauthorized;
 
   const retentionDays = getRetentionDays();
   const cutoff = new Date(Date.now() - retentionDays * 24 * 3600 * 1000);

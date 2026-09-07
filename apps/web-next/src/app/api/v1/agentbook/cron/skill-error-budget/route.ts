@@ -26,11 +26,11 @@
  */
 
 import 'server-only';
-import { timingSafeEqual } from 'node:crypto';
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma as db } from '@naap/database';
 import { sendToAllChannels } from '@/lib/agentbook-chat-adapter';
 import { reportError } from '@/lib/logger';
+import { requireCronSecret } from '@/lib/cron-auth';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -43,13 +43,6 @@ const DEFAULTS = {
   COOLDOWN_HOURS: 12,
 } as const;
 
-function safeCompareBearer(provided: string | null, expected: string): boolean {
-  if (!provided) return false;
-  const a = Buffer.from(provided);
-  const b = Buffer.from(`Bearer ${expected}`);
-  if (a.length !== b.length) return false;
-  return timingSafeEqual(a, b);
-}
 
 function readNumEnv(name: string, fallback: number, min = 0, max = Number.MAX_SAFE_INTEGER): number {
   const raw = process.env[name];
@@ -69,12 +62,8 @@ interface AlertCandidate {
 }
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
-  if (
-    process.env.CRON_SECRET &&
-    !safeCompareBearer(request.headers.get('authorization'), process.env.CRON_SECRET)
-  ) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
+  const unauthorized = requireCronSecret(request);
+  if (unauthorized) return unauthorized;
 
   const windowHours = readNumEnv('SKILL_ALERT_WINDOW_HOURS', DEFAULTS.WINDOW_HOURS, 1, 720);
   const minRuns = readNumEnv('SKILL_ALERT_MIN_RUNS', DEFAULTS.MIN_RUNS, 1, 10_000);

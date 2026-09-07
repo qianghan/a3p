@@ -17,29 +17,16 @@
  */
 
 import 'server-only';
-import { timingSafeEqual } from 'node:crypto';
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma as db } from '@naap/database';
 import { syncTransactionsForAccount, sanitizePlaidError } from '@/lib/agentbook-plaid';
 import { reportError } from '@/lib/logger';
+import { requireCronSecret } from '@/lib/cron-auth';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
 
-/**
- * Constant-time bearer-token comparison. Comparing length first is fine
- * (length is not a secret) and lets us skip allocating equal-sized buffers
- * just to short-circuit. We always allocate before comparing so a same-length
- * mismatch still takes constant time relative to the string contents.
- */
-function safeCompareBearer(provided: string | null, expected: string): boolean {
-  if (!provided) return false;
-  const a = Buffer.from(provided);
-  const b = Buffer.from(`Bearer ${expected}`);
-  if (a.length !== b.length) return false;
-  return timingSafeEqual(a, b);
-}
 
 /**
  * Run `fn` over `items` with at most `n` concurrent in-flight calls.
@@ -64,13 +51,8 @@ async function processAll<T, R>(
 }
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
-  const authHeader = request.headers.get('authorization');
-  if (
-    process.env.CRON_SECRET &&
-    !safeCompareBearer(authHeader, process.env.CRON_SECRET)
-  ) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
+  const unauthorized = requireCronSecret(request);
+  if (unauthorized) return unauthorized;
 
   const accounts = await db.abBankAccount.findMany({
     where: { connected: true, accessTokenEnc: { not: null } },

@@ -28,6 +28,7 @@ const reportError = vi.fn();
 vi.mock('@/lib/logger', () => ({ reportError: (...a: unknown[]) => reportError(...a) }));
 
 import { GET } from '@/app/api/v1/agentbook/cron/personal-basiq-sync/route';
+import { cronRequest, unauthenticatedCronRequest, setCronSecret, clearCronSecret, CRON_TEST_SECRET } from '../../../../helpers/cron-request';
 
 function req(bearer?: string) {
   return new NextRequest('http://x/cron/personal-basiq-sync', {
@@ -36,6 +37,7 @@ function req(bearer?: string) {
 }
 
 beforeEach(() => {
+    setCronSecret();
   vi.clearAllMocks();
   eventCreate.mockResolvedValue({});
   personalAccountFindMany.mockResolvedValue([]);
@@ -59,7 +61,7 @@ describe('GET /cron/personal-basiq-sync', () => {
       .mockResolvedValueOnce({ added: 2, modified: 0, removed: 0, hasMore: false })
       .mockResolvedValueOnce({ added: 1, modified: 0, removed: 0, hasMore: false });
 
-    const res = await GET(req());
+    const res = await GET(req(CRON_TEST_SECRET));
     const json = await res.json();
 
     expect(json.ok).toBe(true);
@@ -92,7 +94,7 @@ describe('GET /cron/personal-basiq-sync', () => {
       return { added: 4, modified: 0, removed: 0, hasMore: false };
     });
 
-    const res = await GET(req());
+    const res = await GET(req(CRON_TEST_SECRET));
     const json = await res.json();
 
     expect(json.errorCount).toBe(1);

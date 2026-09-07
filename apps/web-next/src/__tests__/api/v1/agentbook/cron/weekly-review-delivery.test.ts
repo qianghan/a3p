@@ -26,10 +26,14 @@ vi.mock('@/lib/jurisdiction-currency', () => ({ formatCurrencyCents: (c: number,
 vi.mock('@/lib/logger', () => ({ reportError: vi.fn() }));
 
 import { GET } from '@/app/api/v1/agentbook/cron/weekly-review/route';
+import { cronRequest, unauthenticatedCronRequest, setCronSecret, clearCronSecret, CRON_TEST_SECRET } from '../../../../helpers/cron-request';
 
-function req(): NextRequest { return new NextRequest('http://x/api/v1/agentbook/cron/weekly-review'); }
+function req(): NextRequest { return cronRequest('http://x/api/v1/agentbook/cron/weekly-review'); }
+/** Unauthenticated — the guard must refuse this. */
+function reqNoAuth(): NextRequest { return unauthenticatedCronRequest('http://x/api/v1/agentbook/cron/weekly-review'); }
 
 beforeEach(() => {
+    setCronSecret();
   vi.clearAllMocks();
   eventCreate.mockResolvedValue({});
   invoiceCount.mockResolvedValue(0);
