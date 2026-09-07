@@ -4179,7 +4179,7 @@ async function _executeClassificationCore(
           if (v && v !== 0) {
             const label = k.replace(/_/g, ' ').replace(/\b\w/g, (c: string) => c.toUpperCase());
             const display = typeof v === 'number' && k.includes('income') || k.includes('amount') || k.includes('deducted') || k.includes('contributions') || k.includes('premiums')
-              ? `$${(Number(v) / 100).toFixed(2)}` : String(v);
+              ? `${tenantMoney(Number(v))}` : String(v);
             message += `\u2022 ${label}: ${display}\n`;
           }
         }
@@ -4226,7 +4226,7 @@ async function _executeClassificationCore(
         const statusIcon = f.status === 'confirmed' ? '✅' : f.status === 'error' ? '❌' : '⏳';
         const conf = f.confidence > 0 ? ` (conf: ${Math.round(f.confidence * 100)}%)` : '';
         const income = f.extractedData?.totalIncomeCents;
-        const incomeStr = income != null ? ` · Income: $${(income / 100).toLocaleString()}` : '';
+        const incomeStr = income != null ? ` · Income: ${tenantMoneyCompact(income)}` : '';
         const downloadLink = `${linkBase}/api/v1/agentbook-tax/past-filings/${f.id}/download`;
         return `${statusIcon} **${f.taxYear} ${f.formType}** (${f.jurisdiction.toUpperCase()}${f.region ? `/${f.region}` : ''})${conf}${incomeStr}\n   [📄 View PDF](${downloadLink})`;
       }).join('\n\n');
@@ -4991,7 +4991,7 @@ async function _executeClassificationCore(
       // instead of a bare "check the Expenses page" pointer.
       const uncategorizedList = uncategorized
         .slice(0, 10)
-        .map((e) => `• ${new Date(e.date).toLocaleDateString()} — $${(e.amountCents / 100).toFixed(2)} ${e.vendor?.name || '(no vendor)'}`)
+        .map((e) => `• ${new Date(e.date).toLocaleDateString()} — ${tenantMoney(e.amountCents)} ${e.vendor?.name || '(no vendor)'}`)
         .join('\n');
       const uncategorizedListSuffix =
         uncategorized.length > 10 ? `\n...and ${uncategorized.length - 10} more.` : '';
@@ -5005,7 +5005,7 @@ async function _executeClassificationCore(
         message = `Applied **${applied}** categor${applied !== 1 ? 'ies' : 'y'} automatically. All expenses are now categorized!`;
       } else {
         message = `Applied **${applied}** categor${applied !== 1 ? 'ies' : 'y'} automatically. **${pending.length}** expense${pending.length !== 1 ? 's' : ''} need your review:`;
-        const preview = pending.slice(0, 5).map((i) => `• $${(i.amountCents / 100).toFixed(2)} ${i.vendorName || 'expense'} → ${i.suggestedCategoryName} (${Math.round(i.confidence * 100)}%)`).join('\n');
+        const preview = pending.slice(0, 5).map((i) => `• ${tenantMoney(i.amountCents)} ${i.vendorName || 'expense'} → ${i.suggestedCategoryName} (${Math.round(i.confidence * 100)}%)`).join('\n');
         message += '\n\n' + preview;
         if (pending.length > 5) message += `\n...and ${pending.length - 5} more — check the Expenses page.`;
       }
@@ -5740,6 +5740,12 @@ Only include chartData if visualization adds value. Keep the answer under 200 wo
           ? `Alerts: ${JSON.stringify(alertData.data)}`
           : 'Alerts: unavailable.',
         nextDeadline
+          // money-format-ok: machine-stable on purpose. `briefingUser` is a
+          // Gemini prompt, not
+          // a reply. Locale-formatting its amounts changes what the model
+          // parses — the same exclusion the bot locale module makes for
+          // prompts. A codemod converted this line and daily-briefing's tests
+          // caught it.
           ? `Next quarterly tax deadline: $${(nextDeadline.amountDueCents / 100).toFixed(2)} due ${nextDeadline.deadline.toISOString().slice(0, 10)}.`
           : 'Next quarterly tax deadline: none upcoming or unavailable.',
       ].join('\n');
@@ -5892,7 +5898,7 @@ Only include chartData if visualization adds value. Keep the answer under 200 wo
     } else if (data?.narrative) {
       message = data.narrative;
       if (data.impact) {
-        message += `\n\nImpact: Monthly net change $${(data.impact.monthlyNetChangeCents / 100).toLocaleString()}`;
+        message += `\n\nImpact: Monthly net change ${tenantMoneyCompact(data.impact.monthlyNetChangeCents)}`;
       }
     } else if (data?.annotation) {
       message = data.annotation;
@@ -5901,14 +5907,14 @@ Only include chartData if visualization adds value. Keep the answer under 200 wo
     // Receipt OCR result
     } else if (data?.status && (data.status.startsWith('processed_by_') || data.status === 'gemini_parse_error' || data.status === 'gemini_error' || data.status === 'no_llm_configured')) {
       if (data.amount_cents > 0 && data.autoRecorded) {
-        const amt = (data.amount_cents / 100).toFixed(2);
-        message = `\u2705 **Receipt recorded!**\n\n\u{1F4B0} **$${amt}**${data.vendor ? ` at ${data.vendor}` : ''}`;
+        const amt = tenantMoney(data.amount_cents, data.currency);
+        message = `\u2705 **Receipt recorded!**\n\n\u{1F4B0} **${amt}**${data.vendor ? ` at ${data.vendor}` : ''}`;
         if (data.date) message += `\n\u{1F4C5} ${data.date}`;
         if (data.items) message += `\n\u{1F4DD} ${data.items}`;
         message += `\n\u{1F50D} Confidence: ${Math.round((data.confidence || 0) * 100)}%`;
       } else if (data.amount_cents > 0) {
-        const amt = (data.amount_cents / 100).toFixed(2);
-        message = `\u{1F9FE} **Receipt scanned** (needs review)\n\n\u{1F4B0} $${amt}${data.vendor ? ` \u2014 ${data.vendor}` : ''}`;
+        const amt = tenantMoney(data.amount_cents, data.currency);
+        message = `\u{1F9FE} **Receipt scanned** (needs review)\n\n\u{1F4B0} ${amt}${data.vendor ? ` \u2014 ${data.vendor}` : ''}`;
         if (data.date) message += `\n\u{1F4C5} ${data.date}`;
         message += `\n\u{1F50D} Low confidence (${Math.round((data.confidence || 0) * 100)}%)`;
         message += `\n\nConfirm or type the correct amount.`;
@@ -5946,15 +5952,15 @@ Only include chartData if visualization adds value. Keep the answer under 200 wo
     // Client list
     } else if (Array.isArray(data) && data.length > 0 && data[0]?.name && data[0]?.totalBilledCents !== undefined) {
       message = data.slice(0, 10).map((c: any) => {
-        const balance = ((c.totalBilledCents - c.totalPaidCents) / 100).toFixed(2);
-        return `\u2022 **${c.name}**${c.email ? ` (${c.email})` : ''} \u2014 outstanding: $${balance}`;
+        const balance = tenantMoney(c.totalBilledCents - c.totalPaidCents);
+        return `\u2022 **${c.name}**${c.email ? ` (${c.email})` : ''} \u2014 outstanding: ${balance}`;
       }).join('\n');
 
     // Estimate list
     } else if (Array.isArray(data) && data.length > 0 && data[0]?.validUntil && data[0]?.amountCents) {
       message = data.slice(0, 10).map((e: any) => {
         const icon = e.status === 'approved' ? '\u2705' : e.status === 'declined' ? '\u274C' : '\u{1F7E1}';
-        return `${icon} $${(e.amountCents / 100).toFixed(2)} \u2014 ${e.description} (${e.client?.name || 'Unknown'}) [${e.status}]`;
+        return `${icon} ${tenantMoney(e.amountCents)} \u2014 ${e.description} (${e.client?.name || 'Unknown'}) [${e.status}]`;
       }).join('\n');
 
     // Timer status
@@ -5968,10 +5974,10 @@ Only include chartData if visualization adds value. Keep the answer under 200 wo
       message = '**Unbilled Time**\n';
       let total = 0;
       for (const item of data) {
-        message += `\n\u2022 **${item.clientName || 'Unknown'}**: ${item.totalHours?.toFixed(1) || 0}h \u2014 $${(item.unbilledAmountCents / 100).toFixed(2)}`;
+        message += `\n\u2022 **${item.clientName || 'Unknown'}**: ${item.totalHours?.toFixed(1) || 0}h \u2014 ${tenantMoney(item.unbilledAmountCents)}`;
         total += item.unbilledAmountCents;
       }
-      message += `\n\n**Total Unbilled:** $${(total / 100).toFixed(2)}`;
+      message += `\n\n**Total Unbilled:** ${tenantMoney(total)}`;
 
     // Send invoice response
     } else if (selectedSkill.name === 'send-invoice' && data) {
@@ -6030,13 +6036,13 @@ Only include chartData if visualization adds value. Keep the answer under 200 wo
     // Tax estimate
     } else if (data?.totalTaxCents !== undefined && data?.effectiveRate !== undefined) {
       message = '**Tax Estimate**\n';
-      if (data.grossRevenueCents) message += `\nGross Revenue: $${(data.grossRevenueCents / 100).toFixed(2)}`;
-      if (data.totalExpensesCents) message += `\nExpenses: $${(data.totalExpensesCents / 100).toFixed(2)}`;
-      if (data.netIncomeCents !== undefined) message += `\nNet Income: $${(data.netIncomeCents / 100).toFixed(2)}`;
+      if (data.grossRevenueCents) message += `\nGross Revenue: ${tenantMoney(data.grossRevenueCents)}`;
+      if (data.totalExpensesCents) message += `\nExpenses: ${tenantMoney(data.totalExpensesCents)}`;
+      if (data.netIncomeCents !== undefined) message += `\nNet Income: ${tenantMoney(data.netIncomeCents)}`;
       message += `\n\n**Taxes:**`;
-      if (data.selfEmploymentTaxCents) message += `\nSE Tax: $${(data.selfEmploymentTaxCents / 100).toFixed(2)}`;
-      if (data.incomeTaxCents) message += `\nIncome Tax: $${(data.incomeTaxCents / 100).toFixed(2)}`;
-      message += `\n**Total Tax: $${(data.totalTaxCents / 100).toFixed(2)}**`;
+      if (data.selfEmploymentTaxCents) message += `\nSE Tax: ${tenantMoney(data.selfEmploymentTaxCents)}`;
+      if (data.incomeTaxCents) message += `\nIncome Tax: ${tenantMoney(data.incomeTaxCents)}`;
+      message += `\n**Total Tax: ${tenantMoney(data.totalTaxCents)}**`;
       message += `\nEffective Rate: ${(deriveEffectiveRate(data) * 100).toFixed(1)}%`;
 
     // Quarterly payments
@@ -6044,12 +6050,12 @@ Only include chartData if visualization adds value. Keep the answer under 200 wo
       message = '**Quarterly Tax Payments**\n';
       for (const q of data.quarters) {
         const icon = q.status === 'paid' ? '\u2705' : q.status === 'due' ? '\u{1F534}' : '\u{1F7E1}';
-        message += `\n${icon} Q${q.quarter}: $${(q.amountDueCents / 100).toFixed(2)}`;
-        if (q.amountPaidCents > 0) message += ` (paid: $${(q.amountPaidCents / 100).toFixed(2)})`;
+        message += `\n${icon} Q${q.quarter}: ${tenantMoney(q.amountDueCents)}`;
+        if (q.amountPaidCents > 0) message += ` (paid: ${tenantMoney(q.amountPaidCents)})`;
         message += ` [${q.status}]`;
       }
       if (data.summary) {
-        message += `\n\nTotal Due: $${(data.summary.totalDueCents / 100).toFixed(2)} | Paid: $${(data.summary.totalPaidCents / 100).toFixed(2)} | Remaining: $${(data.summary.remainingCents / 100).toFixed(2)}`;
+        message += `\n\nTotal Due: ${tenantMoney(data.summary.totalDueCents)} | Paid: ${tenantMoney(data.summary.totalPaidCents)} | Remaining: ${tenantMoney(data.summary.remainingCents)}`;
       }
 
     // Deductions
@@ -6101,32 +6107,32 @@ Only include chartData if visualization adds value. Keep the answer under 200 wo
     // Balance sheet
     } else if (data?.totalAssetsCents !== undefined && data?.totalLiabilitiesCents !== undefined) {
       message = '**Balance Sheet**\n';
-      message += `\nAssets: $${(data.totalAssetsCents / 100).toFixed(2)}`;
-      message += `\nLiabilities: $${(data.totalLiabilitiesCents / 100).toFixed(2)}`;
-      message += `\n**Equity: $${((data.totalAssetsCents - data.totalLiabilitiesCents) / 100).toFixed(2)}**`;
+      message += `\nAssets: ${tenantMoney(data.totalAssetsCents)}`;
+      message += `\nLiabilities: ${tenantMoney(data.totalLiabilitiesCents)}`;
+      message += `\n**Equity: ${tenantMoney((data.totalAssetsCents - data.totalLiabilitiesCents))}**`;
 
     // Cashflow projection
     } else if (data?.currentBalanceCents !== undefined && data?.projections) {
       message = '**Cash Flow Projection**\n';
-      message += `\nCurrent Cash: $${(data.currentBalanceCents / 100).toFixed(2)}`;
-      if (data.outstandingInvoicesCents) message += `\nOutstanding Invoices: $${(data.outstandingInvoicesCents / 100).toFixed(2)}`;
-      if (data.recurringExpensesCents) message += `\nMonthly Recurring: $${(data.recurringExpensesCents / 100).toFixed(2)}`;
+      message += `\nCurrent Cash: ${tenantMoney(data.currentBalanceCents)}`;
+      if (data.outstandingInvoicesCents) message += `\nOutstanding Invoices: ${tenantMoney(data.outstandingInvoicesCents)}`;
+      if (data.recurringExpensesCents) message += `\nMonthly Recurring: ${tenantMoney(data.recurringExpensesCents)}`;
       if (data.projections) {
         message += '\n\nProjections:';
-        if (data.projections.days30) message += `\n  30 days: $${(data.projections.days30.balanceCents / 100).toFixed(2)}`;
-        if (data.projections.days60) message += `\n  60 days: $${(data.projections.days60.balanceCents / 100).toFixed(2)}`;
-        if (data.projections.days90) message += `\n  90 days: $${(data.projections.days90.balanceCents / 100).toFixed(2)}`;
+        if (data.projections.days30) message += `\n  30 days: ${tenantMoney(data.projections.days30.balanceCents)}`;
+        if (data.projections.days60) message += `\n  60 days: ${tenantMoney(data.projections.days60.balanceCents)}`;
+        if (data.projections.days90) message += `\n  90 days: ${tenantMoney(data.projections.days90.balanceCents)}`;
       }
 
     // Financial snapshot
     } else if (data?.snapshot || (data?.cashBalanceCents !== undefined && data?.revenueThisMonthCents !== undefined)) {
       const s = data.snapshot || data;
       message = '**Financial Summary**\n';
-      if (s.cashBalanceCents !== undefined) message += `\nCash: $${(s.cashBalanceCents / 100).toFixed(2)}`;
-      if (s.revenueThisMonthCents !== undefined) message += `\nRevenue (this month): $${(s.revenueThisMonthCents / 100).toFixed(2)}`;
-      if (s.expensesThisMonthCents !== undefined) message += `\nExpenses (this month): $${(s.expensesThisMonthCents / 100).toFixed(2)}`;
-      if (s.profitThisMonthCents !== undefined) message += `\n**Profit: $${(s.profitThisMonthCents / 100).toFixed(2)}**`;
-      if (s.outstandingInvoicesCents !== undefined) message += `\nOutstanding Invoices: $${(s.outstandingInvoicesCents / 100).toFixed(2)}`;
+      if (s.cashBalanceCents !== undefined) message += `\nCash: ${tenantMoney(s.cashBalanceCents)}`;
+      if (s.revenueThisMonthCents !== undefined) message += `\nRevenue (this month): ${tenantMoney(s.revenueThisMonthCents)}`;
+      if (s.expensesThisMonthCents !== undefined) message += `\nExpenses (this month): ${tenantMoney(s.expensesThisMonthCents)}`;
+      if (s.profitThisMonthCents !== undefined) message += `\n**Profit: ${tenantMoney(s.profitThisMonthCents)}**`;
+      if (s.outstandingInvoicesCents !== undefined) message += `\nOutstanding Invoices: ${tenantMoney(s.outstandingInvoicesCents)}`;
 
     // Money moves / suggestions. The endpoint returns the array as `data`
     // directly (not `{moves: [...]}`), so the `data?.moves` shape this
@@ -6139,7 +6145,7 @@ Only include chartData if visualization adds value. Keep the answer under 200 wo
       for (const m of moves.slice(0, 8)) {
         const icon = m.priority === 'high' || m.urgency === 'important' ? '\u{1F534}' : m.priority === 'medium' ? '\u{1F7E1}' : '\u{1F7E2}';
         message += `\n${icon} **${m.title}**${m.description ? `\n  ${m.description}` : ''}`;
-        if (m.savingsCents) message += ` (save $${(m.savingsCents / 100).toFixed(2)})`;
+        if (m.savingsCents) message += ` (save ${tenantMoney(m.savingsCents)})`;
       }
 
     // Review queue — expenses needing manual attention (low confidence,
@@ -6174,7 +6180,7 @@ Only include chartData if visualization adds value. Keep the answer under 200 wo
         const label = p.categoryId && categoryNames.has(p.categoryId)
           ? categoryNames.get(p.categoryId)
           : p.isPersonal ? 'personal' : 'business';
-        message += `\n• $${(p.amountCents / 100).toFixed(2)} (${label})`;
+        message += `\n• ${tenantMoney(p.amountCents)} (${label})`;
       }
 
     // Recurring-expense pattern suggestions. Same raw-JSON-dump bug as
@@ -6185,7 +6191,7 @@ Only include chartData if visualization adds value. Keep the answer under 200 wo
       } else {
         message = `**${data.length} recurring pattern${data.length === 1 ? '' : 's'} detected**\n`;
         for (const s of data.slice(0, 10)) {
-          message += `\n• ${s.vendorName} — ~$${((s.avgAmountCents || 0) / 100).toFixed(2)} ${s.frequency}`;
+          message += `\n• ${s.vendorName} — ~${tenantMoney((s.avgAmountCents || 0))} ${s.frequency}`;
         }
       }
 
@@ -6194,8 +6200,8 @@ Only include chartData if visualization adds value. Keep the answer under 200 wo
       message = '**Bank Reconciliation**\n';
       message += `\nMatched: ${data.matched} transactions`;
       message += `\nUnmatched: ${data.unmatched} transactions`;
-      if (data.totalMatchedCents) message += `\nMatched Amount: $${(data.totalMatchedCents / 100).toFixed(2)}`;
-      if (data.totalUnmatchedCents) message += `\nUnmatched Amount: $${(data.totalUnmatchedCents / 100).toFixed(2)}`;
+      if (data.totalMatchedCents) message += `\nMatched Amount: ${tenantMoney(data.totalMatchedCents)}`;
+      if (data.totalUnmatchedCents) message += `\nUnmatched Amount: ${tenantMoney(data.totalUnmatchedCents)}`;
 
     // CPA notes
     } else if (Array.isArray(data) && data.length > 0 && data[0]?.note) {
