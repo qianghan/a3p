@@ -294,6 +294,7 @@ export function formatDeductionsMessage(
  * does not exist on their screen.
  */
 const PAGE_PAYROLL = 'Payroll';
+const PAGE_BILLS = 'Bills';
 
 // === Multi-Currency Formatter ===
 /**
@@ -3525,7 +3526,10 @@ export async function handleTaxFilingSubmit(params: {
     if (data.success) {
       message = `✅ **${data.data.message}**`;
     } else {
-      message = `❌ **Filing Failed**\n\n${data.error}`;
+      // Not localised here: this sits in handleTaxFilingSubmit, which has no
+      // tenant config and therefore no translator. The key exists in the
+      // catalog; wiring it means giving that function a locale source.
+      message = `\u274C **Filing Failed**\n\n${data.error}`;
       if (data.data?.validation?.errors?.length > 0) {
         message += '\n\n**Fix these errors first:**\n';
         data.data.validation.errors.forEach((e: any) => { message += `- ${e.message}\n`; });
@@ -4129,7 +4133,7 @@ async function _executeClassificationCore(
         const overdue = listData.data || [];
 
         if (overdue.length === 0) {
-          message = 'No overdue invoices found. All clients are up to date!';
+          message = t('skill.invoices_none_overdue');
         } else {
           let sent = 0;
           for (const inv of overdue) {
@@ -4138,7 +4142,7 @@ async function _executeClassificationCore(
               sent++;
             } catch { /* skip failed */ }
           }
-          message = `Sent payment reminders for ${sent} of ${overdue.length} overdue invoices.`;
+          message = t('skill.reminders_sent', { sent, total: overdue.length });
         }
       }
 
@@ -4448,7 +4452,11 @@ async function _executeClassificationCore(
       if (action === 'create' && extractedParams.vendorName && extractedParams.amountCents) {
         const due = extractedParams.dueDate ? new Date(extractedParams.dueDate as string) : new Date(Date.now() + 14 * 86400000);
         const bill = await db.abBill.create({ data: { tenantId, vendorName: String(extractedParams.vendorName), amountCents: Number(extractedParams.amountCents), dueDate: isNaN(due.getTime()) ? new Date(Date.now() + 14 * 86400000) : due, status: 'open' } });
-        const message = `Recorded a bill: **${bill.vendorName}** for ${fmt(bill.amountCents)}, due ${new Date(bill.dueDate).toLocaleDateString()}.`;
+        const message = t('skill.bill_recorded', {
+          vendor: bill.vendorName,
+          amount: fmt(bill.amountCents),
+          date: new Date(bill.dueDate).toLocaleDateString(tenantLocale),
+        });
         await db.abConversation.create({ data: { tenantId, question: text, answer: message, queryType: 'agent', channel, skillUsed: 'manage-bills' } });
         return { selectedSkill, extractedParams, confidence, skillUsed: 'manage-bills', skillResponse: { data: bill }, responseData: { message, actions: [], chartData: null, skillUsed: 'manage-bills', confidence, latencyMs: Date.now() - startTime } };
       }
@@ -4458,7 +4466,7 @@ async function _executeClassificationCore(
       const overdue = bills.filter((b) => b.dueDate < now);
       let message: string;
       if (bills.length === 0) {
-        message = "You have no open bills. Add one on the Bills page or say e.g. \"add a $800 rent bill due Friday\".";
+        message = t('skill.bills_none_open', { page: PAGE_BILLS });
       } else {
         const list = bills.slice(0, 8).map((b) => `${b.dueDate < now ? '🔴' : '🟡'} **${b.vendorName}** — ${fmt(b.amountCents)} due ${new Date(b.dueDate).toLocaleDateString()}`).join('\n');
         message = `${t('skill.bills_open', { amount: fmt(openCents), count: bills.length })}${overdue.length ? ` (${overdue.length} overdue)` : ''}:\n\n${list}`;
@@ -4662,7 +4670,7 @@ async function _executeClassificationCore(
       const fmt = (c: number) => tenantMoneyCompact(c);
       const employees = await db.abEmployee.findMany({ where: { tenantId, isActive: true } });
       if (employees.length === 0) {
-        const message = "There are no active employees to pay. Add them on the Payroll page first.";
+        const message = t('skill.payroll_no_employees', { page: PAGE_PAYROLL });
         await db.abConversation.create({ data: { tenantId, question: text, answer: message, queryType: 'agent', channel, skillUsed: 'run-payroll' } });
         return { selectedSkill, extractedParams, confidence, skillUsed: 'run-payroll', skillResponse: { data: null }, responseData: { message, actions: [], chartData: null, skillUsed: 'run-payroll', confidence, latencyMs: Date.now() - startTime } };
       }
@@ -4814,7 +4822,7 @@ async function _executeClassificationCore(
 
       const filing = data.data;
       let message = `**Tax Filing ${taxYear} — ${(filing.jurisdiction || 'ca').toUpperCase()}**\n\n`;
-      message += `Overall completeness: **${Math.round((filing.completeness || 0) * 100)}%**\n\n`;
+      message += `${t('skill.completeness_overall', { percent: Math.round((filing.completeness || 0) * 100) })}\n\n`;
 
       for (const form of (filing.forms || [])) {
         const icon = form.completeness >= 100 ? '\u2705' : form.completeness >= 50 ? '\u{1F7E1}' : '\u{1F534}';
@@ -4854,7 +4862,7 @@ async function _executeClassificationCore(
         const data = format === 'pdf' ? { success: true, format: 'pdf' } : await res.json() as any;
         let message: string;
         if (format === 'pdf' && res.ok) {
-          message = 'Tax return PDF generated! Your return is ready for review and printing.';
+          message = t('skill.tax_pdf_ready');
         } else if (data.success) {
           message = `${t('skill.hdr_tax_return_exported')} in JSON format.`;
           if (data.data?.validation?.warnings?.length > 0) {
@@ -5010,7 +5018,7 @@ async function _executeClassificationCore(
 
       let message: string;
       if (uncategorized.length === 0) {
-        message = 'All your expenses are already categorized! Great work.';
+        message = t('skill.all_categorized');
       } else if (applied === 0 && pending.length === 0) {
         message = `I reviewed ${uncategorized.length} expense${uncategorized.length !== 1 ? 's' : ''} but couldn't categorize ${uncategorized.length !== 1 ? 'them' : 'it'} confidently:\n\n${uncategorizedList}${uncategorizedListSuffix}\n\nReply with a category for one (e.g. "the Staples one is Office Supplies"), or open the Expenses page to assign them there.`;
       } else if (pending.length === 0) {
@@ -6029,7 +6037,7 @@ Only include chartData if visualization adds value. Keep the answer under 200 wo
     // Record payment response
     } else if (selectedSkill.name === 'record-payment' && data) {
       const amt = data.amountCents ? fmtCurrency(data.amountCents, data.currency) : '';
-      message = `Payment recorded${amt ? ': ' + amt : ''}. Invoice updated.`;
+      message = t('skill.payment_recorded', { amount: amt ? ': ' + amt : '' });
 
     // Record personal transaction response
     } else if (selectedSkill.name === 'record-personal-transaction' && data) {
@@ -6074,7 +6082,7 @@ Only include chartData if visualization adds value. Keep the answer under 200 wo
     // Stop timer response
     } else if (selectedSkill.name === 'stop-timer' && data) {
       const mins = data.durationMinutes || data.elapsedMinutes || 0;
-      message = `Timer stopped. Duration: ${mins} minutes.`;
+      message = t('skill.timer_stopped', { minutes: mins });
 
     // Tax estimate
     } else if (data?.totalTaxCents !== undefined && data?.effectiveRate !== undefined) {
@@ -6218,7 +6226,7 @@ Only include chartData if visualization adds value. Keep the answer under 200 wo
       const categoryNames = categoryIds.length > 1
         ? new Map((await db.abAccount.findMany({ where: { id: { in: categoryIds }, tenantId }, select: { id: true, name: true } })).map((c) => [c.id, c.name]))
         : new Map<string, string>();
-      message = `**Expense split into ${parts.length} parts**\n`;
+      message = `${t('skill.expense_split', { count: parts.length })}\n`;
       for (const p of parts) {
         const label = p.categoryId && categoryNames.has(p.categoryId)
           ? categoryNames.get(p.categoryId)
@@ -6230,7 +6238,7 @@ Only include chartData if visualization adds value. Keep the answer under 200 wo
     // review-queue above.
     } else if (selectedSkill.name === 'manage-recurring' && Array.isArray(data)) {
       if (data.length === 0) {
-        message = "No recurring patterns detected yet — I'll suggest one once I see a vendor charge you a similar amount a few times.";
+        message = t('skill.recurring_none');
       } else {
         message = t('skill.recurring_detected', { count: data.length });
         for (const s of data.slice(0, 10)) {
@@ -6310,7 +6318,11 @@ Only include chartData if visualization adds value. Keep the answer under 200 wo
 
     } else if (data?.id && data?.amountCents !== undefined) {
       const catLabel = data.categoryName ? ` [${data.categoryName}]` : '';
-      message = `Recorded: ${fmtCurrency(data.amountCents, data.currency)} — ${data.description || data.number || 'Item'}${catLabel}`;
+      message = t('skill.recorded_item', {
+        amount: fmtCurrency(data.amountCents, data.currency, tenantLocale),
+        description: data.description || data.number || t('skill.not_available'),
+        category: catLabel,
+      });
       // The Telegram adapter used to decide whether to attach the
       // Category/Personal keyboard by testing `message.includes('Recorded')`,
       // so the buttons were coupled to one English word in this template.
@@ -6318,7 +6330,10 @@ Only include chartData if visualization adds value. Keep the answer under 200 wo
       // Same shape as the existing `taxDraftReady` signal.
       recordedEntityId = String(data.id);
     } else if (data?.number) {
-      message = `Invoice ${data.number} created — ${fmtCurrency(data.amountCents, data.currency)}`;
+      message = t('skill.invoice_created', {
+        number: data.number,
+        amount: fmtCurrency(data.amountCents, data.currency, tenantLocale),
+      });
       if (data.lines?.length > 1) {
         message += '\n\nLine items:';
         data.lines.forEach((l: any) => {

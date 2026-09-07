@@ -131,6 +131,21 @@ describe('every skill.* key the reply path asks for exists', () => {
       "open bill${bills.length === 1 ? '' : 's'}",
       "employee${employees.length === 1 ? '' : 's'}",
       'Ready to run payroll for',
+      // Final tranche: write confirmations and empty states.
+      'message = `Recorded: ',
+      'message = `Invoice ${data.number} created',
+      'Timer stopped. Duration:',
+      'No overdue invoices found.',
+      'All your expenses are already categorized!',
+      'Sent payment reminders for',
+      'There are no active employees to pay.',
+      'Payment recorded${amt',
+      'Recorded a bill: **',
+      'You have no open bills.',
+      'No recurring patterns detected yet',
+      'Overall completeness: **',
+      'Tax return PDF generated!',
+      'Expense split into ${parts.length} parts',
     ]) {
       expect(stripped, gone).not.toContain(gone);
     }
@@ -313,6 +328,36 @@ describe('replies that point at a page in the web UI', () => {
     const fr = replyT({ locale: 'fr-CA' });
     expect(fr('skill.payroll_on_payroll', { count: 1 })).toContain('1 employé**');
     expect(fr('skill.payroll_on_payroll', { count: 5 })).toContain('5 employés**');
+  });
+});
+
+describe('the write confirmations', () => {
+  it('confirm in the tenant language', () => {
+    const fr = replyT({ locale: 'fr-CA' });
+    expect(fr('skill.invoice_created', { number: 'INV-1', amount: '5 000,00 $' })).toBe(
+      'Facture INV-1 créée — 5 000,00 $',
+    );
+    expect(fr('skill.timer_stopped', { minutes: 45 })).toBe('Minuteur arrêté. Durée : 45 minutes.');
+    expect(replyT({ locale: 'zh-CN' })('skill.all_categorized')).toBe('您的所有支出都已分类完成！做得好。');
+  });
+
+  it('keeps the identifier and the page name findable', () => {
+    // An invoice number is an identifier, and a page name is something the
+    // user has to locate on a screen whose own translation is flag-gated.
+    const fr = replyT({ locale: 'fr-CA' });
+    expect(fr('skill.invoice_created', { number: 'INV-2026-0001', amount: 'x' })).toContain(
+      'INV-2026-0001',
+    );
+    expect(fr('skill.payroll_no_employees', { page: 'Payroll' })).toContain('**Payroll**');
+  });
+
+  it('does not lose the emoji that carries the status', () => {
+    // The cross is the only signal that this is a failure before the text is
+    // read; a translation that drops it changes what the message looks like
+    // at a glance.
+    for (const loc of ['en-US', 'fr-CA', 'zh-CN']) {
+      expect(replyT({ locale: loc })('skill.filing_failed', { error: 'x' }), loc).toContain('❌');
+    }
   });
 });
 

@@ -86,5 +86,20 @@
   "payroll_ready_exact_one": "Prêt à traiter la paie pour **{count} employé** — **{gross}** brut, **{withheld}** retenu, **{net}** net pour cette période. Ouvrez la page **{page}** et cliquez sur « Run payroll » pour la traiter.",
   "payroll_ready_exact_other": "Prêt à traiter la paie pour **{count} employés** — **{gross}** brut, **{withheld}** retenu, **{net}** net pour cette période. Ouvrez la page **{page}** et cliquez sur « Run payroll » pour la traiter.",
   "payroll_ready_estimate_one": "Prêt à traiter la paie pour **{count} employé** — environ **{gross}** brut pour cette période. Ouvrez la page **{page}** et cliquez sur « Run payroll » pour calculer les retenues exactes et la traiter.",
-  "payroll_ready_estimate_other": "Prêt à traiter la paie pour **{count} employés** — environ **{gross}** brut pour cette période. Ouvrez la page **{page}** et cliquez sur « Run payroll » pour calculer les retenues exactes et la traiter."
+  "payroll_ready_estimate_other": "Prêt à traiter la paie pour **{count} employés** — environ **{gross}** brut pour cette période. Ouvrez la page **{page}** et cliquez sur « Run payroll » pour calculer les retenues exactes et la traiter.",
+  "recorded_item": "Enregistré : {amount} — {description}{category}",
+  "invoice_created": "Facture {number} créée — {amount}",
+  "payment_recorded": "Paiement enregistré{amount}. Facture mise à jour.",
+  "timer_stopped": "Minuteur arrêté. Durée : {minutes} minutes.",
+  "bill_recorded": "Facture fournisseur enregistrée : **{vendor}** pour {amount}, échéance {date}.",
+  "bills_none_open": "Vous n'avez aucune facture à payer. Ajoutez-en une sur la page **{page}**, ou dites par exemple « ajouter une facture de loyer de 800 $ due vendredi ».",
+  "invoices_none_overdue": "Aucune facture en retard. Tous vos clients sont à jour !",
+  "reminders_sent": "Rappels de paiement envoyés pour {sent} des {total} factures en retard.",
+  "all_categorized": "Toutes vos dépenses sont déjà catégorisées ! Beau travail.",
+  "recurring_none": "Aucune récurrence détectée pour l'instant — il me faut d'abord quelques mois d'historique.",
+  "payroll_no_employees": "Aucun employé actif à payer. Ajoutez-les d'abord sur la page **{page}**.",
+  "net_worth": "**Valeur nette : {net}** ({assets} d'actifs − {liabilities} de passifs).",
+  "completeness_overall": "Exhaustivité globale : **{percent} %**",
+  "filing_failed": "❌ **Échec de la déclaration**\n\n{error}",
+  "tax_pdf_ready": "PDF de la déclaration généré. Il est prêt à être révisé et imprimé."
 }

@@ -86,5 +86,20 @@
   "payroll_ready_exact_one": "Ready to run payroll for **{count} employee** — **{gross}** gross, **{withheld}** withheld, **{net}** net this period. Open the **{page}** page and click \"Run payroll\" to process it.",
   "payroll_ready_exact_other": "Ready to run payroll for **{count} employees** — **{gross}** gross, **{withheld}** withheld, **{net}** net this period. Open the **{page}** page and click \"Run payroll\" to process it.",
   "payroll_ready_estimate_one": "Ready to run payroll for **{count} employee** — about **{gross}** gross this period. Open the **{page}** page and click \"Run payroll\" to compute exact withholding and process it.",
-  "payroll_ready_estimate_other": "Ready to run payroll for **{count} employees** — about **{gross}** gross this period. Open the **{page}** page and click \"Run payroll\" to compute exact withholding and process it."
+  "payroll_ready_estimate_other": "Ready to run payroll for **{count} employees** — about **{gross}** gross this period. Open the **{page}** page and click \"Run payroll\" to compute exact withholding and process it.",
+  "recorded_item": "Recorded: {amount} — {description}{category}",
+  "invoice_created": "Invoice {number} created — {amount}",
+  "payment_recorded": "Payment recorded{amount}. Invoice updated.",
+  "timer_stopped": "Timer stopped. Duration: {minutes} minutes.",
+  "bill_recorded": "Recorded a bill: **{vendor}** for {amount}, due {date}.",
+  "bills_none_open": "You have no open bills. Add one on the **{page}** page, or say e.g. \"add a $800 rent bill due Friday\".",
+  "invoices_none_overdue": "No overdue invoices found. All clients are up to date!",
+  "reminders_sent": "Sent payment reminders for {sent} of {total} overdue invoices.",
+  "all_categorized": "All your expenses are already categorized! Great work.",
+  "recurring_none": "No recurring patterns detected yet — I need a few months of history first.",
+  "payroll_no_employees": "There are no active employees to pay. Add them on the **{page}** page first.",
+  "net_worth": "**Net worth: {net}** ({assets} assets − {liabilities} liabilities).",
+  "completeness_overall": "Overall completeness: **{percent}%**",
+  "filing_failed": "❌ **Filing failed**\n\n{error}",
+  "tax_pdf_ready": "Tax return PDF generated. It is ready for review and printing."
 }
