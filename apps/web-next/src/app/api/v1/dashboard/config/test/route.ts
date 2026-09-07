@@ -8,6 +8,7 @@ import { prisma } from '@/lib/db';
 import { validateSession } from '@/lib/api/auth';
 import { success, errors, getAuthToken } from '@/lib/api/response';
 import { validateCSRF } from '@/lib/api/csrf';
+import { isPrivateHost } from '@/lib/gateway/types';
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
   try {
@@ -47,8 +48,32 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 5000);
 
+      // Validate the destination before touching the network. This endpoint
+      // reports whether the URL answered, so with an attacker-chosen host it
+      // is an internal port-probe oracle. The host is now written by admins
+      // only (see ../route.ts), but a reachability check must not be usable
+      // against the cloud metadata endpoint or a loopback service even then.
+      let target: URL;
+      try {
+        target = new URL(config.metabaseUrl);
+      } catch {
+        return success({ connected: false, error: 'Metabase URL is not a valid URL' });
+      }
+      if (target.protocol !== 'https:' && target.protocol !== 'http:') {
+        return success({ connected: false, error: 'Metabase URL must be http or https' });
+      }
+      if (isPrivateHost(target.hostname)) {
+        return success({
+          connected: false,
+          error: 'Metabase URL must not point at a private or loopback address',
+        });
+      }
+
       const res = await fetch(`${config.metabaseUrl}/api/health`, {
         signal: controller.signal,
+        // No redirects: an allowed host must not be able to bounce the probe
+        // somewhere internal, which would defeat the check above.
+        redirect: 'error',
       });
 
       clearTimeout(timeoutId);

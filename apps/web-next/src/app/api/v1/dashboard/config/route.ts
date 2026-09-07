@@ -9,6 +9,7 @@ import { prisma } from '@/lib/db';
 import { validateSession } from '@/lib/api/auth';
 import { success, errors, getAuthToken } from '@/lib/api/response';
 import { validateCSRF } from '@/lib/api/csrf';
+import { requireAdmin, HttpError } from '@/lib/billing/admin-auth';
 
 /**
  * Read all DashboardPluginConfig rows into a key-value object.
@@ -36,15 +37,13 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
     const config = await readConfig();
 
-    // Mask the secret key for security
-    const maskedConfig = {
-      ...config,
-      metabaseSecretKey: config.metabaseSecretKey
-        ? `${config.metabaseSecretKey.substring(0, 8)}...`
-        : '',
-    };
-
-    return success(maskedConfig);
+    // Report WHETHER a secret is set, never any of it. This used to return
+    // `substring(0, 8)` of the key — eight real bytes of a signing secret to
+    // every authenticated caller, which is the same shape as the connection
+    // string /api/health used to publish (#490). The settings UI only needs
+    // to know whether one is configured.
+    const { metabaseSecretKey, ...rest } = config;
+    return success({ ...rest, metabaseSecretKeyConfigured: Boolean(metabaseSecretKey) });
   } catch (err) {
     console.error('Error fetching config:', err);
     return errors.internal('Failed to fetch configuration');
@@ -63,10 +62,12 @@ export async function PUT(request: NextRequest): Promise<NextResponse> {
       return csrfError;
     }
 
-    const user = await validateSession(token);
-    if (!user) {
-      return errors.unauthorized('Invalid or expired session');
-    }
+    // Admin, not merely authenticated. `dashboardPluginConfig` is upserted by
+    // `key` alone with no tenant column, so this writes the Metabase URL and
+    // secret key for the WHOLE installation. Any logged-in user could point
+    // it at a server they controlled. requireAdmin throws an HttpError with
+    // the right status, which the catch below maps.
+    await requireAdmin(request);
 
     const body = await request.json();
     const { metabaseUrl, metabaseSecretKey, tokenExpiry, enableInteractive } = body;
@@ -99,6 +100,11 @@ export async function PUT(request: NextRequest): Promise<NextResponse> {
       ...(valid ? {} : { validationMessage: 'Metabase URL or Secret Key not set' }),
     });
   } catch (err) {
+    // requireAdmin signals with an HttpError carrying 401 or 403; anything
+    // else is unexpected and stays generic.
+    if (err instanceof HttpError) {
+      return err.status === 401 ? errors.unauthorized(err.message) : errors.forbidden(err.message);
+    }
     console.error('Error saving config:', err);
     return errors.internal('Failed to save configuration');
   }
