@@ -857,9 +857,18 @@ async function tryApplyCorrection(args: {
   }
 
   const ok = !failure && result?.skillResponse?.success !== false;
+  // `failure` is the raw message of whatever was thrown locally — a Prisma
+  // error names tables and columns, a fetch failure names internal hosts. It
+  // was being interpolated straight into the user's reply and then persisted
+  // as the conversation answer. It stays in the log above.
+  //
+  // `skillResponse.error` is different: it is the `error` field of an HTTP
+  // response from a skill endpoint, already sanitized at that boundary, so it
+  // is either copy written for the user or a generic line with a reference.
+  // That one is worth showing — it is usually the actual reason.
   const message = ok
     ? `Updated — changed the ${changeSummary} on that expense.`
-    : `I couldn't update that expense. ${failure ?? result?.skillResponse?.error ?? 'Please try again.'}`;
+    : `I couldn't update that expense. ${result?.skillResponse?.error ?? 'Please try again.'}`;
 
   db.abConversation.create({
     data: {

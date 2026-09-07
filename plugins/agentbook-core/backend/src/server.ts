@@ -5707,7 +5707,6 @@ Only include chartData if visualization adds value. Keep the answer under 200 wo
 
   let skillResponse: any = null;
   let skillError = false;
-  let skillErrorMessage = '';
   let attemptedUrl = targetUrl;
   try {
     if (endpoint.method === 'GET') {
@@ -5746,7 +5745,6 @@ Only include chartData if visualization adds value. Keep the answer under 200 wo
   } catch (err) {
     console.error('Skill execution error:', err, 'url=', attemptedUrl);
     skillError = true;
-    skillErrorMessage = err instanceof Error ? err.message : String(err);
   }
 
   // Post-processing: resolve category name for newly created expenses
@@ -5769,7 +5767,13 @@ Only include chartData if visualization adds value. Keep the answer under 200 wo
     // clarifying question or actionable suggestion instead of a flat
     // "I don't know" — only the skill-specific branches below keep their
     // canned guidance because those are precise enough to be useful.
-    const errorDetail = skillResponse?.error || skillErrorMessage || '';
+    // Only the skill's own HTTP `error` field, which is sanitized at that
+    // boundary (#492) and is therefore either copy written for the user or a
+    // generic line with a reference. The local catch's message used to be the
+    // fallback here, so a fetch failure reached the user as
+    // "Error: connect ECONNREFUSED 127.0.0.1:4051" on the most-used write
+    // path in the product. The full error is logged above.
+    const errorDetail = skillResponse?.error || '';
     if (selectedSkill.name === 'record-expense') {
       if (!extractedParams.amountCents) {
         // Says WHY. "记录 ¥100 咖啡" used to be told the number was missing.
