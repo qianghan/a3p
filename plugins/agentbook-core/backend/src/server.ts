@@ -6011,7 +6011,7 @@ Only include chartData if visualization adds value. Keep the answer under 200 wo
         message += `\n\u2022 **${item.clientName || 'Unknown'}**: ${item.totalHours?.toFixed(1) || 0}h \u2014 ${tenantMoney(item.unbilledAmountCents)}`;
         total += item.unbilledAmountCents;
       }
-      message += `\n\n**Total Unbilled:** ${tenantMoney(total)}`;
+      message += `\n\n${t('skill.report_total_unbilled', { amount: tenantMoney(total) })}`;
 
     // Send invoice response
     } else if (selectedSkill.name === 'send-invoice' && data) {
@@ -6070,26 +6070,26 @@ Only include chartData if visualization adds value. Keep the answer under 200 wo
     // Tax estimate
     } else if (data?.totalTaxCents !== undefined && data?.effectiveRate !== undefined) {
       message = '**Tax Estimate**\n';
-      if (data.grossRevenueCents) message += `\nGross Revenue: ${tenantMoney(data.grossRevenueCents)}`;
-      if (data.totalExpensesCents) message += `\nExpenses: ${tenantMoney(data.totalExpensesCents)}`;
-      if (data.netIncomeCents !== undefined) message += `\nNet Income: ${tenantMoney(data.netIncomeCents)}`;
-      message += `\n\n**Taxes:**`;
-      if (data.selfEmploymentTaxCents) message += `\nSE Tax: ${tenantMoney(data.selfEmploymentTaxCents)}`;
-      if (data.incomeTaxCents) message += `\nIncome Tax: ${tenantMoney(data.incomeTaxCents)}`;
-      message += `\n**Total Tax: ${tenantMoney(data.totalTaxCents)}**`;
-      message += `\nEffective Rate: ${(deriveEffectiveRate(data) * 100).toFixed(1)}%`;
+      if (data.grossRevenueCents) message += `\n${t('skill.report_gross_revenue', { amount: tenantMoney(data.grossRevenueCents) })}`;
+      if (data.totalExpensesCents) message += `\n${t('skill.report_expenses', { amount: tenantMoney(data.totalExpensesCents) })}`;
+      if (data.netIncomeCents !== undefined) message += `\n${t('skill.report_net_income', { amount: tenantMoney(data.netIncomeCents) })}`;
+      message += `\n\n${t('skill.report_taxes_header')}`;
+      if (data.selfEmploymentTaxCents) message += `\n${t('skill.report_se_tax', { amount: tenantMoney(data.selfEmploymentTaxCents) })}`;
+      if (data.incomeTaxCents) message += `\n${t('skill.report_income_tax', { amount: tenantMoney(data.incomeTaxCents) })}`;
+      message += `\n${t('skill.report_total_tax', { amount: tenantMoney(data.totalTaxCents) })}`;
+      message += `\n${t('skill.report_effective_rate', { rate: (deriveEffectiveRate(data) * 100).toFixed(1) })}`;
 
     // Quarterly payments
     } else if (data?.quarters && Array.isArray(data.quarters)) {
       message = '**Quarterly Tax Payments**\n';
       for (const q of data.quarters) {
         const icon = q.status === 'paid' ? '\u2705' : q.status === 'due' ? '\u{1F534}' : '\u{1F7E1}';
-        message += `\n${icon} Q${q.quarter}: ${tenantMoney(q.amountDueCents)}`;
-        if (q.amountPaidCents > 0) message += ` (paid: ${tenantMoney(q.amountPaidCents)})`;
+        message += `\n${icon} ${t('skill.report_quarter_due', { quarter: q.quarter, amount: tenantMoney(q.amountDueCents) })}`;
+        if (q.amountPaidCents > 0) message += t('skill.report_quarter_paid', { amount: tenantMoney(q.amountPaidCents) });
         message += ` [${q.status}]`;
       }
       if (data.summary) {
-        message += `\n\nTotal Due: ${tenantMoney(data.summary.totalDueCents)} | Paid: ${tenantMoney(data.summary.totalPaidCents)} | Remaining: ${tenantMoney(data.summary.remainingCents)}`;
+        message += `\n\n${t('skill.report_total_due_paid', { due: tenantMoney(data.summary.totalDueCents), paid: tenantMoney(data.summary.totalPaidCents) })}`;
       }
 
     // Deductions

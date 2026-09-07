@@ -21,5 +21,17 @@
   "personal_record_failed_reason": "Je n'ai pas pu enregistrer cette transaction. Erreur : {detail}",
   "send_invoice_not_found": "Je n'ai pas trouvé de facture à envoyer. Essayez :\n• « Envoyer la facture INV-2026-0001 »\n• Créez-en une d'abord : « Facture Acme 5000 $ »",
   "send_invoice_need_number": "Je n'ai pas trouvé de facture à envoyer. Veuillez préciser un numéro de facture.",
-  "payment_record_failed": "Je n'ai pas pu enregistrer le paiement. Veuillez réessayer."
+  "payment_record_failed": "Je n'ai pas pu enregistrer le paiement. Veuillez réessayer.",
+  "report_gross_revenue": "Revenus bruts : {amount}",
+  "report_expenses": "Dépenses : {amount}",
+  "report_net_income": "Revenu net : {amount}",
+  "report_taxes_header": "**Impôts :**",
+  "report_se_tax": "Impôt sur le travail autonome : {amount}",
+  "report_income_tax": "Impôt sur le revenu : {amount}",
+  "report_total_tax": "**Impôt total : {amount}**",
+  "report_effective_rate": "Taux effectif : {rate} %",
+  "report_quarter_due": "T{quarter} : {amount}",
+  "report_quarter_paid": " (payé : {amount})",
+  "report_total_due_paid": "Total dû : {due} | Payé : {paid}",
+  "report_total_unbilled": "**Total non facturé :** {amount}"
 }

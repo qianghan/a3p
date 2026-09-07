@@ -21,5 +21,17 @@
   "personal_record_failed_reason": "无法记录这笔交易。错误：{detail}",
   "send_invoice_not_found": "未找到可发送的发票。试试：\n• \"发送发票 INV-2026-0001\"\n• 先创建一张：\"给 Acme 开 5000 元发票\"",
   "send_invoice_need_number": "未找到可发送的发票。请指定发票号码。",
-  "payment_record_failed": "无法记录付款。请重试。"
+  "payment_record_failed": "无法记录付款。请重试。",
+  "report_gross_revenue": "总收入：{amount}",
+  "report_expenses": "支出：{amount}",
+  "report_net_income": "净收入：{amount}",
+  "report_taxes_header": "**税款：**",
+  "report_se_tax": "自雇税：{amount}",
+  "report_income_tax": "所得税：{amount}",
+  "report_total_tax": "**税款合计：{amount}**",
+  "report_effective_rate": "实际税率：{rate}%",
+  "report_quarter_due": "第 {quarter} 季度：{amount}",
+  "report_quarter_paid": "（已付：{amount}）",
+  "report_total_due_paid": "应付合计：{due} | 已付：{paid}",
+  "report_total_unbilled": "**未开票合计：**{amount}"
 }

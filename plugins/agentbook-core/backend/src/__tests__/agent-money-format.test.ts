@@ -178,7 +178,22 @@ describe('the replies the user actually reads', () => {
   });
 
   it('the report builders use it too, so a CAD tenant sees CA$ in their P&L', () => {
-    for (const label of ['Gross Revenue', 'Net Income', 'Total Tax', 'Liabilities', 'Current Cash']) {
+    // The P&L and tax labels have since moved into the `skill.report_*` keys,
+    // so this looks for the key rather than the English text — the invariant
+    // is unchanged: whatever renders an amount goes through tenantMoney.
+    for (const key of [
+      'skill.report_gross_revenue',
+      'skill.report_net_income',
+      'skill.report_total_tax',
+      'skill.report_effective_rate',
+    ]) {
+      const line = PROD.split('\n').find((l) => l.includes(key));
+      expect(line, `no ${key} line found`).toBeTruthy();
+      // Effective rate is a percentage, not money; every other one is money.
+      if (!key.endsWith('effective_rate')) expect(line, key).toContain('tenantMoney(');
+    }
+    // Labels that have not been translated yet still carry money inline.
+    for (const label of ['Liabilities', 'Current Cash']) {
       const line = PROD.split('\n').find((l) => l.includes(`${label}:`) && l.includes('message +='));
       expect(line, `no ${label} line found`).toBeTruthy();
       expect(line, label).toContain('tenantMoney(');

@@ -21,5 +21,17 @@
   "personal_record_failed_reason": "I couldn't record that transaction. Error: {detail}",
   "send_invoice_not_found": "I couldn't find an invoice to send. Try:\n• \"Send invoice INV-2026-0001\"\n• Create one first: \"Invoice Acme $5000\"",
   "send_invoice_need_number": "I couldn't find an invoice to send. Please specify an invoice number.",
-  "payment_record_failed": "I couldn't record the payment. Please try again."
+  "payment_record_failed": "I couldn't record the payment. Please try again.",
+  "report_gross_revenue": "Gross Revenue: {amount}",
+  "report_expenses": "Expenses: {amount}",
+  "report_net_income": "Net Income: {amount}",
+  "report_taxes_header": "**Taxes:**",
+  "report_se_tax": "SE Tax: {amount}",
+  "report_income_tax": "Income Tax: {amount}",
+  "report_total_tax": "**Total Tax: {amount}**",
+  "report_effective_rate": "Effective Rate: {rate}%",
+  "report_quarter_due": "Q{quarter}: {amount}",
+  "report_quarter_paid": " (paid: {amount})",
+  "report_total_due_paid": "Total Due: {due} | Paid: {paid}",
+  "report_total_unbilled": "**Total Unbilled:** {amount}"
 }
