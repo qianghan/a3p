@@ -3952,10 +3952,10 @@ async function _executeClassificationCore(
         if (invoices.length > 0) invoiceId = invoices[0].id;
       }
       if (!invoiceId) {
-        await db.abConversation.create({ data: { tenantId, question: text || '[send-invoice]', answer: "I couldn't find an invoice to send. Please specify an invoice number.", queryType: 'agent', channel, skillUsed: 'send-invoice' } });
+        await db.abConversation.create({ data: { tenantId, question: text || '[send-invoice]', answer: t('skill.send_invoice_need_number'), queryType: 'agent', channel, skillUsed: 'send-invoice' } });
         return {
           selectedSkill, extractedParams, confidence, skillUsed: selectedSkill.name, skillResponse: null,
-          responseData: { message: "I couldn't find an invoice to send. Please specify an invoice number.", skillUsed: 'send-invoice', confidence, latencyMs: Date.now() - startTime },
+          responseData: { message: t('skill.send_invoice_need_number'), skillUsed: 'send-invoice', confidence, latencyMs: Date.now() - startTime },
         };
       }
       targetUrl = targetUrl.replace(':id', invoiceId);
@@ -5150,7 +5150,7 @@ async function _executeClassificationCore(
       console.error('Record-invoice-payment error:', err);
       return {
         selectedSkill, extractedParams, confidence: 0, skillUsed: 'record-invoice-payment', skillResponse: null,
-        responseData: { message: "I couldn't record the payment. Please try again.", skillUsed: 'record-invoice-payment', confidence: 0, latencyMs: Date.now() - startTime },
+        responseData: { message: t('skill.payment_record_failed'), skillUsed: 'record-invoice-payment', confidence: 0, latencyMs: Date.now() - startTime },
       };
     }
   }
@@ -5873,24 +5873,32 @@ Only include chartData if visualization adds value. Keep the answer under 200 wo
         // Says WHY. "记录 ¥100 咖啡" used to be told the number was missing.
         message = noAmountMessage(text, 'expense');
       } else {
-        message = `I couldn't record that expense. ${errorDetail ? 'Error: ' + errorDetail : 'Please try again.'}`;
+        // Two whole sentences rather than one composed from fragments: the
+        // reason clause does not sit in the same place in every language.
+        message = errorDetail
+          ? t('skill.expense_record_failed_reason', { detail: errorDetail })
+          : t('skill.expense_record_failed');
       }
     } else if (selectedSkill.name === 'create-invoice' || selectedSkill.name === 'create-estimate') {
       if (!extractedParams.clientName && !extractedParams.clientId) {
-        message = "I need a client name and amount. Try:\n• \"Invoice Acme $5000 for consulting\"\n• \"Estimate TechCorp $3000 for web design\"";
+        message = t('skill.invoice_need_client');
       } else {
-        message = `I couldn't create that. ${errorDetail ? 'Error: ' + errorDetail : 'Please check the client name and amount.'}`;
+        message = errorDetail
+          ? t('skill.invoice_create_failed_reason', { detail: errorDetail })
+          : t('skill.invoice_create_failed');
       }
     } else if (selectedSkill.name === 'record-payment') {
-      message = "I couldn't record the payment. I need a client or invoice reference:\n• \"Got $5000 from Acme\"\n• \"Record payment for INV-2026-0001\"";
+      message = t('skill.payment_need_reference');
     } else if (selectedSkill.name === 'record-personal-transaction') {
       if (!extractedParams.amountCents) {
         message = noAmountMessage(text, 'personal');
       } else {
-        message = `I couldn't record that transaction. ${errorDetail ? 'Error: ' + errorDetail : 'Please try again.'}`;
+        message = errorDetail
+          ? t('skill.personal_record_failed_reason', { detail: errorDetail })
+          : t('skill.personal_record_failed');
       }
     } else if (selectedSkill.name === 'send-invoice') {
-      message = "I couldn't find an invoice to send. Try:\n• \"Send invoice INV-2026-0001\"\n• Create one first: \"Invoice Acme $5000\"";
+      message = t('skill.send_invoice_not_found');
     } else {
       // Catch-all: engage the user (clarify or suggest) instead of dead-ending.
       // accountantEngagement is now infallible — falls back to a local heuristic

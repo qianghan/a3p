@@ -10,5 +10,16 @@
   "here_it_is_one": "La voici :",
   "here_it_is_other": "Les voici :",
   "expenses_top_vendor": "Principal fournisseur : **{vendor}** ({amount})",
-  "not_available": "s.o."
+  "not_available": "s.o.",
+  "expense_record_failed": "Je n'ai pas pu enregistrer cette dépense. Veuillez réessayer.",
+  "expense_record_failed_reason": "Je n'ai pas pu enregistrer cette dépense. Erreur : {detail}",
+  "invoice_create_failed": "Je n'ai pas pu créer cela. Vérifiez le nom du client et le montant.",
+  "invoice_create_failed_reason": "Je n'ai pas pu créer cela. Erreur : {detail}",
+  "invoice_need_client": "J'ai besoin d'un nom de client et d'un montant. Essayez :\n• « Facture Acme 5000 $ pour consultation »\n• « Estimation TechCorp 3000 $ pour conception web »",
+  "payment_need_reference": "Je n'ai pas pu enregistrer le paiement. J'ai besoin d'une référence de client ou de facture :\n• « Reçu 5000 $ d'Acme »\n• « Enregistrer le paiement pour INV-2026-0001 »",
+  "personal_record_failed": "Je n'ai pas pu enregistrer cette transaction. Veuillez réessayer.",
+  "personal_record_failed_reason": "Je n'ai pas pu enregistrer cette transaction. Erreur : {detail}",
+  "send_invoice_not_found": "Je n'ai pas trouvé de facture à envoyer. Essayez :\n• « Envoyer la facture INV-2026-0001 »\n• Créez-en une d'abord : « Facture Acme 5000 $ »",
+  "send_invoice_need_number": "Je n'ai pas trouvé de facture à envoyer. Veuillez préciser un numéro de facture.",
+  "payment_record_failed": "Je n'ai pas pu enregistrer le paiement. Veuillez réessayer."
 }

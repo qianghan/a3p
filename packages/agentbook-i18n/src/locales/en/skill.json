@@ -10,5 +10,16 @@
   "here_it_is_one": "Here it is:",
   "here_it_is_other": "Here they are:",
   "expenses_top_vendor": "Top vendor: **{vendor}** ({amount})",
-  "not_available": "N/A"
+  "not_available": "N/A",
+  "expense_record_failed": "I couldn't record that expense. Please try again.",
+  "expense_record_failed_reason": "I couldn't record that expense. Error: {detail}",
+  "invoice_create_failed": "I couldn't create that. Please check the client name and amount.",
+  "invoice_create_failed_reason": "I couldn't create that. Error: {detail}",
+  "invoice_need_client": "I need a client name and amount. Try:\n• \"Invoice Acme $5000 for consulting\"\n• \"Estimate TechCorp $3000 for web design\"",
+  "payment_need_reference": "I couldn't record the payment. I need a client or invoice reference:\n• \"Got $5000 from Acme\"\n• \"Record payment for INV-2026-0001\"",
+  "personal_record_failed": "I couldn't record that transaction. Please try again.",
+  "personal_record_failed_reason": "I couldn't record that transaction. Error: {detail}",
+  "send_invoice_not_found": "I couldn't find an invoice to send. Try:\n• \"Send invoice INV-2026-0001\"\n• Create one first: \"Invoice Acme $5000\"",
+  "send_invoice_need_number": "I couldn't find an invoice to send. Please specify an invoice number.",
+  "payment_record_failed": "I couldn't record the payment. Please try again."
 }

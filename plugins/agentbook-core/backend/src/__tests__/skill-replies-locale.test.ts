@@ -86,8 +86,52 @@ describe('every skill.* key the reply path asks for exists', () => {
       'No business expenses found for ${periodLabel}',
       'Top vendors (${periodLabel})',
       "Here ${recentExpenses.length === 1 ? 'it is' : 'they are'}",
+      // The skill failure cluster. Without these the catalog tests above pass
+      // on a fully reverted server.ts — they exercise replyT, not the wiring.
+      "I couldn't record that expense.",
+      "I couldn't create that.",
+      'I need a client name and amount.',
+      "I couldn't record the payment.",
+      "I couldn't record that transaction.",
+      "I couldn't find an invoice to send. Try:",
     ]) {
       expect(stripped, gone).not.toContain(gone);
     }
   });
 });
+
+describe('the failure replies speak the tenant language', () => {
+  it('gives the reason clause its own whole sentence per language', () => {
+    // Composing "I couldn't record that expense." + "Error: X" from fragments
+    // assumes English word order. Each variant is a complete sentence.
+    expect(replyT({ locale: 'en-US' })('skill.expense_record_failed_reason', { detail: 'db down' })).toBe(
+      "I couldn't record that expense. Error: db down",
+    );
+    expect(replyT({ locale: 'fr-CA' })('skill.expense_record_failed_reason', { detail: 'db down' })).toBe(
+      "Je n'ai pas pu enregistrer cette dépense. Erreur : db down",
+    );
+    expect(replyT({ locale: 'zh-CN' })('skill.expense_record_failed')).toBe('无法记录这笔支出。请重试。');
+  });
+
+  it('keeps the worked examples usable in each language', () => {
+    // These strings teach the user what to type. A French user typing the
+    // English example would still work, but reading it should not require
+    // English.
+    const fr = replyT({ locale: 'fr-CA' })('skill.invoice_need_client');
+    expect(fr).toContain('Facture Acme');
+    expect(fr).toContain('5000 $');
+    const zh = replyT({ locale: 'zh-CN' })('skill.payment_need_reference');
+    expect(zh).toContain('INV-2026-0001');
+  });
+
+  it('preserves the bullet layout the chat surfaces render', () => {
+    // Telegram runs these through mdToHtml; losing the newlines would run the
+    // examples together into one line.
+    for (const loc of ['en-US', 'fr-CA', 'zh-CN']) {
+      const out = replyT({ locale: loc })('skill.send_invoice_not_found');
+      expect(out.split('\n').length, loc).toBeGreaterThanOrEqual(3);
+      expect(out, loc).toContain('•');
+    }
+  });
+});
+

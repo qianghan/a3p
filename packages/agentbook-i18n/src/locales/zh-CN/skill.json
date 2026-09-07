@@ -10,5 +10,16 @@
   "here_it_is_one": "如下：",
   "here_it_is_other": "如下：",
   "expenses_top_vendor": "主要供应商：**{vendor}**（{amount}）",
-  "not_available": "无"
+  "not_available": "无",
+  "expense_record_failed": "无法记录这笔支出。请重试。",
+  "expense_record_failed_reason": "无法记录这笔支出。错误：{detail}",
+  "invoice_create_failed": "无法创建。请检查客户名称和金额。",
+  "invoice_create_failed_reason": "无法创建。错误：{detail}",
+  "invoice_need_client": "我需要客户名称和金额。试试：\n• \"给 Acme 开 5000 元咨询费发票\"\n• \"给 TechCorp 报价 3000 元网页设计\"",
+  "payment_need_reference": "无法记录付款。我需要客户或发票参考：\n• \"收到 Acme 的 5000 元\"\n• \"记录 INV-2026-0001 的付款\"",
+  "personal_record_failed": "无法记录这笔交易。请重试。",
+  "personal_record_failed_reason": "无法记录这笔交易。错误：{detail}",
+  "send_invoice_not_found": "未找到可发送的发票。试试：\n• \"发送发票 INV-2026-0001\"\n• 先创建一张：\"给 Acme 开 5000 元发票\"",
+  "send_invoice_need_number": "未找到可发送的发票。请指定发票号码。",
+  "payment_record_failed": "无法记录付款。请重试。"
 }
