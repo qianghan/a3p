@@ -1,0 +1,93 @@
+import { describe, it, expect } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+
+import { replyT } from '../reply-locale';
+
+/**
+ * The query-expenses answers — "You have 12 expenses totaling $1,240.00 for
+ * last month", the top-vendor list, the nothing-found states. All interface
+ * copy: labels, counts and empty states, no tax or money advice, so all three
+ * locales carry a real translation.
+ *
+ * Advice-shaped replies are deliberately NOT in this namespace. The catalog
+ * invariants keep a separate ENGLISH_ONLY_KEYS list for those, because a
+ * fluent mistranslation of tax guidance is a liability rather than a cosmetic
+ * bug.
+ */
+
+const CATALOG_DIR = join(__dirname, '../../../../../packages/agentbook-i18n/src/locales');
+const load = (loc: string) =>
+  JSON.parse(readFileSync(join(CATALOG_DIR, loc, 'skill.json'), 'utf8')) as Record<string, string>;
+
+describe('the query-expenses answers speak the tenant language', () => {
+  it('answers a populated query in each locale', () => {
+    const params = { count: 12, amount: '$1,240.00', period: 'last month' };
+    expect(replyT({ locale: 'en-US' })('skill.expenses_summary', params)).toBe(
+      'You have 12 expenses totaling $1,240.00 for last month.',
+    );
+    expect(replyT({ locale: 'fr-CA' })('skill.expenses_summary', params)).toBe(
+      'Vous avez 12 dépenses totalisant $1,240.00 pour last month.',
+    );
+    expect(replyT({ locale: 'zh-CN' })('skill.expenses_summary', params)).toContain('12 笔支出');
+  });
+
+  it('selects the singular for one expense, in every locale', () => {
+    const p = { count: 1, amount: '$42.00', period: 'today' };
+    expect(replyT({ locale: 'en-US' })('skill.expenses_summary', p)).toContain('1 expense totaling');
+    expect(replyT({ locale: 'fr-CA' })('skill.expenses_summary', p)).toContain('1 dépense totalisant');
+  });
+
+  it('French treats zero as singular — the reason plural variants exist', () => {
+    // fr uses the singular for 0 where English uses the plural. A single
+    // count-bearing string would be wrong in French from the first render.
+    const p = { count: 0, amount: '$0.00', period: 'today' };
+    expect(replyT({ locale: 'en-US' })('skill.expenses_summary', p)).toContain('0 expenses');
+    expect(replyT({ locale: 'fr-CA' })('skill.expenses_summary', p)).toContain('0 dépense ');
+  });
+
+  it('the list lead-in agrees in number', () => {
+    expect(replyT({ locale: 'en-US' })('skill.here_it_is', { count: 1 })).toBe('Here it is:');
+    expect(replyT({ locale: 'en-US' })('skill.here_it_is', { count: 3 })).toBe('Here they are:');
+    expect(replyT({ locale: 'fr-CA' })('skill.here_it_is', { count: 1 })).toBe('La voici :');
+    expect(replyT({ locale: 'fr-CA' })('skill.here_it_is', { count: 3 })).toBe('Les voici :');
+  });
+
+  it('never leaks a key to the user when a locale is unknown', () => {
+    const out = replyT({ locale: 'xx-YY' })('skill.expenses_none_for_period', { period: 'today' });
+    expect(out).toBe('No expenses found for today.');
+    expect(out).not.toContain('skill.');
+  });
+});
+
+describe('every skill.* key the reply path asks for exists', () => {
+  // t() returns the KEY on a miss, so a typo ships to the user as
+  // "skill.expenses_summry". Parity tests compare catalogs to each other and
+  // cannot see a code-to-catalog miss.
+  const SRC = readFileSync(join(__dirname, '../server.ts'), 'utf8');
+  const en = load('en');
+  const used = [...SRC.matchAll(/\bt\('skill\.([a-z0-9_]+)'/g)].map((m) => m[1]);
+
+  it('finds the call sites (not vacuous)', () => {
+    expect(new Set(used).size).toBeGreaterThanOrEqual(6);
+  });
+
+  it('resolves every key, counting plural variants', () => {
+    const missing = used.filter(
+      (k) => !(k in en) && !(`${k}_one` in en && `${k}_other` in en),
+    );
+    expect(missing, 'skill.* keys used in server.ts but absent from en/skill.json').toEqual([]);
+  });
+
+  it('leaves no English literal behind in the branch it replaced', () => {
+    const stripped = SRC.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1');
+    for (const gone of [
+      'No expenses found for ${periodLabel}',
+      'No business expenses found for ${periodLabel}',
+      'Top vendors (${periodLabel})',
+      "Here ${recentExpenses.length === 1 ? 'it is' : 'they are'}",
+    ]) {
+      expect(stripped, gone).not.toContain(gone);
+    }
+  });
+});
