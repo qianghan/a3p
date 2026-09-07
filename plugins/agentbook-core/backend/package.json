@@ -14,10 +14,11 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@agentbook/i18n": "*",
     "@agentbook/jurisdictions": "*",
-    "@naap/plugin-server-sdk": "*",
-    "@naap/database": "*",
     "@naap/billing": "*",
+    "@naap/database": "*",
+    "@naap/plugin-server-sdk": "*",
     "cors": "^2.8.6",
     "dotenv": "^16.6.1",
     "express": "^4.21.0"
