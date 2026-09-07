@@ -80,5 +80,11 @@
   "opportunities_found_one": "**{count} occasion trouvée**\n",
   "opportunities_found_other": "**{count} occasions trouvées**\n",
   "bills_open_one": "Vous devez **{amount}** sur {count} facture à payer",
-  "bills_open_other": "Vous devez **{amount}** sur {count} factures à payer"
+  "bills_open_other": "Vous devez **{amount}** sur {count} factures à payer",
+  "payroll_on_payroll_one": "Vous avez **{count} employé** sur la paie :",
+  "payroll_on_payroll_other": "Vous avez **{count} employés** sur la paie :",
+  "payroll_ready_exact_one": "Prêt à traiter la paie pour **{count} employé** — **{gross}** brut, **{withheld}** retenu, **{net}** net pour cette période. Ouvrez la page **{page}** et cliquez sur « Run payroll » pour la traiter.",
+  "payroll_ready_exact_other": "Prêt à traiter la paie pour **{count} employés** — **{gross}** brut, **{withheld}** retenu, **{net}** net pour cette période. Ouvrez la page **{page}** et cliquez sur « Run payroll » pour la traiter.",
+  "payroll_ready_estimate_one": "Prêt à traiter la paie pour **{count} employé** — environ **{gross}** brut pour cette période. Ouvrez la page **{page}** et cliquez sur « Run payroll » pour calculer les retenues exactes et la traiter.",
+  "payroll_ready_estimate_other": "Prêt à traiter la paie pour **{count} employés** — environ **{gross}** brut pour cette période. Ouvrez la page **{page}** et cliquez sur « Run payroll » pour calculer les retenues exactes et la traiter."
 }

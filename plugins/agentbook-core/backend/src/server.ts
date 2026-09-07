@@ -286,6 +286,15 @@ export function formatDeductionsMessage(
   return message;
 }
 
+/**
+ * Names of pages in the web UI, referenced by replies that tell the user where
+ * to go. Deliberately NOT translated: the shell's own translation is behind a
+ * feature flag, so a French reply pointing at « Paie » would name a tab that
+ * still reads "Payroll". A user cannot follow an instruction to a label that
+ * does not exist on their screen.
+ */
+const PAGE_PAYROLL = 'Payroll';
+
 // === Multi-Currency Formatter ===
 /**
  * Money, in the tenant's currency and formatted for the tenant's locale.
@@ -4632,7 +4641,7 @@ async function _executeClassificationCore(
           const net = lastRun.stubs.reduce((s, st) => s + st.netCents, 0);
           runLine = `Last run ${new Date(lastRun.periodStart).toLocaleDateString()}–${new Date(lastRun.periodEnd).toLocaleDateString()} (${lastRun.status}): gross ${fmt(gross)}, net ${fmt(net)}.`;
         }
-        message = `You have **${employees.length} employee${employees.length === 1 ? '' : 's'}** on payroll:\n${names}\n\n${runLine}`;
+        message = `${t('skill.payroll_on_payroll', { count: employees.length })}\n${names}\n\n${runLine}`;
       }
       if (employees.some((e) => e.jurisdiction === 'au')) {
         message += `\n\n${AU_STP_DISCLOSURE}`;
@@ -4675,13 +4684,13 @@ async function _executeClassificationCore(
       let message: string;
       if (previewData?.success) {
         const { totalGrossCents, totalWithheldCents, totalNetCents } = previewData.data;
-        message = `Ready to run payroll for **${employees.length} employee${employees.length === 1 ? '' : 's'}** — **${fmt(totalGrossCents)}** gross, **${fmt(totalWithheldCents)}** withheld, **${fmt(totalNetCents)}** net this period. Open the **Payroll** page and click "Run payroll" to process it.`;
+        message = t('skill.payroll_ready_exact', { count: employees.length, gross: fmt(totalGrossCents), withheld: fmt(totalWithheldCents), net: fmt(totalNetCents), page: PAGE_PAYROLL });
       } else {
         // Preview service unavailable — fall back to the old gross-only
         // estimate rather than failing the whole skill.
         const PERIODS: Record<string, number> = { weekly: 52, biweekly: 26, semimonthly: 24, monthly: 12 };
         const totalGross = employees.reduce((s, e) => s + (e.payType === 'salary' ? Math.round(e.payRateCents / (PERIODS[e.payFrequency] ?? 26)) : e.payRateCents), 0);
-        message = `Ready to run payroll for **${employees.length} employee${employees.length === 1 ? '' : 's'}** — about **${fmt(totalGross)}** gross this period. Open the **Payroll** page and click "Run payroll" to compute exact withholding and process it.`;
+        message = t('skill.payroll_ready_estimate', { count: employees.length, gross: fmt(totalGross), page: PAGE_PAYROLL });
       }
       if (employees.some((e) => e.jurisdiction === 'au')) {
         message += `\n\n${AU_STP_DISCLOSURE}`;

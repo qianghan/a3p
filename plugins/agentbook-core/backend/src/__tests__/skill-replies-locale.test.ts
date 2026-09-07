@@ -129,6 +129,8 @@ describe('every skill.* key the reply path asks for exists', () => {
       "scholarship${data.candidates.length === 1 ? '' : 's'}",
       "opportunit${data.candidates.length === 1 ? 'y' : 'ies'}",
       "open bill${bills.length === 1 ? '' : 's'}",
+      "employee${employees.length === 1 ? '' : 's'}",
+      'Ready to run payroll for',
     ]) {
       expect(stripped, gone).not.toContain(gone);
     }
@@ -274,6 +276,43 @@ describe('the count-bearing replies pluralise per language', () => {
   it('uses one form for Chinese, without special casing at the call site', () => {
     const zh = replyT({ locale: 'zh-CN' });
     expect(zh('skill.review_queue', { count: 1 })).toBe(zh('skill.review_queue', { count: 9 }).replace('9', '1'));
+  });
+});
+
+describe('replies that point at a page in the web UI', () => {
+  it('names the page in English, because the shell may not be translated', () => {
+    // The shell's own translation is behind a feature flag. A French reply
+    // telling the user to open « Paie » would name a tab that still reads
+    // "Payroll" — an instruction they cannot follow.
+    const fr = replyT({ locale: 'fr-CA' })('skill.payroll_ready_estimate', {
+      count: 3,
+      gross: '5 000,00 $',
+      page: 'Payroll',
+    });
+    expect(fr).toContain('Ouvrez la page **Payroll**');
+    expect(fr).not.toContain('Paie**');
+
+    const zh = replyT({ locale: 'zh-CN' })('skill.payroll_ready_estimate', {
+      count: 3,
+      gross: '¥5,000.00',
+      page: 'Payroll',
+    });
+    expect(zh).toContain('**Payroll**');
+  });
+
+  it('keeps the literal button label the user must click', () => {
+    for (const loc of ['en-US', 'fr-CA', 'zh-CN']) {
+      const out = replyT({ locale: loc })('skill.payroll_ready_exact', {
+        count: 1, gross: 'x', withheld: 'y', net: 'z', page: 'Payroll',
+      });
+      expect(out, loc).toContain('Run payroll');
+    }
+  });
+
+  it('still agrees in number around the untranslated page name', () => {
+    const fr = replyT({ locale: 'fr-CA' });
+    expect(fr('skill.payroll_on_payroll', { count: 1 })).toContain('1 employé**');
+    expect(fr('skill.payroll_on_payroll', { count: 5 })).toContain('5 employés**');
   });
 });
 
