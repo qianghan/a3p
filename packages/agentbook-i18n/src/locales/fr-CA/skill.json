@@ -70,5 +70,15 @@
   "hdr_unbilled_time": "**Temps non facturé**",
   "hdr_net_worth_trend": "**Évolution de la valeur nette :**",
   "expense_split_one": "**Dépense divisée en {count} partie**",
-  "expense_split_other": "**Dépense divisée en {count} parties**"
+  "expense_split_other": "**Dépense divisée en {count} parties**",
+  "review_queue_one": "**{count} dépense à réviser**\n",
+  "review_queue_other": "**{count} dépenses à réviser**\n",
+  "recurring_detected_one": "**{count} récurrence détectée**\n",
+  "recurring_detected_other": "**{count} récurrences détectées**\n",
+  "scholarships_found_one": "**{count} bourse trouvée**\n",
+  "scholarships_found_other": "**{count} bourses trouvées**\n",
+  "opportunities_found_one": "**{count} occasion trouvée**\n",
+  "opportunities_found_other": "**{count} occasions trouvées**\n",
+  "bills_open_one": "Vous devez **{amount}** sur {count} facture à payer",
+  "bills_open_other": "Vous devez **{amount}** sur {count} factures à payer"
 }

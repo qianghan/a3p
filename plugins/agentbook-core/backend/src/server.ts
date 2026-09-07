@@ -4452,7 +4452,7 @@ async function _executeClassificationCore(
         message = "You have no open bills. Add one on the Bills page or say e.g. \"add a $800 rent bill due Friday\".";
       } else {
         const list = bills.slice(0, 8).map((b) => `${b.dueDate < now ? '🔴' : '🟡'} **${b.vendorName}** — ${fmt(b.amountCents)} due ${new Date(b.dueDate).toLocaleDateString()}`).join('\n');
-        message = `You owe **${fmt(openCents)}** across ${bills.length} open bill${bills.length === 1 ? '' : 's'}${overdue.length ? ` (${overdue.length} overdue)` : ''}:\n\n${list}`;
+        message = `${t('skill.bills_open', { amount: fmt(openCents), count: bills.length })}${overdue.length ? ` (${overdue.length} overdue)` : ''}:\n\n${list}`;
       }
       await db.abConversation.create({ data: { tenantId, question: text, answer: message, queryType: 'agent', channel, skillUsed: 'manage-bills' } });
       return { selectedSkill, extractedParams, confidence, skillUsed: 'manage-bills', skillResponse: { data: bills }, responseData: { message, actions: [], chartData: null, skillUsed: 'manage-bills', confidence, latencyMs: Date.now() - startTime } };
@@ -6189,7 +6189,7 @@ Only include chartData if visualization adds value. Keep the answer under 200 wo
       if (data.length === 0) {
         message = "You're all caught up — nothing needs review right now.";
       } else {
-        message = `**${data.length} expense${data.length === 1 ? '' : 's'} need${data.length === 1 ? 's' : ''} review**\n`;
+        message = t('skill.review_queue', { count: data.length });
         for (const e of data.slice(0, 10)) {
           message += `\n• ${fmtCurrency(e.amountCents, e.currency)} — ${e.vendorName || e.description || 'Expense'}${e.categoryName ? ` [${e.categoryName}]` : ' [uncategorized]'}`;
         }
@@ -6223,7 +6223,7 @@ Only include chartData if visualization adds value. Keep the answer under 200 wo
       if (data.length === 0) {
         message = "No recurring patterns detected yet — I'll suggest one once I see a vendor charge you a similar amount a few times.";
       } else {
-        message = `**${data.length} recurring pattern${data.length === 1 ? '' : 's'} detected**\n`;
+        message = t('skill.recurring_detected', { count: data.length });
         for (const s of data.slice(0, 10)) {
           message += `\n• ${s.vendorName} — ~${tenantMoney((s.avgAmountCents || 0))} ${s.frequency}`;
         }
@@ -6321,7 +6321,7 @@ Only include chartData if visualization adds value. Keep the answer under 200 wo
       if (data.candidates.length === 0) {
         message = data.note || "I couldn't find any groundable scholarship matches right now — try broadening your search or checking back later.";
       } else {
-        message = `**${data.candidates.length} scholarship${data.candidates.length === 1 ? '' : 's'} found**\n`;
+        message = t('skill.scholarships_found', { count: data.candidates.length });
         data.candidates.slice(0, 5).forEach((c: any, i: number) => {
           message += `\n${i + 1}. **${c.title}**${c.amountText ? ` — ${c.amountText}` : ''}${c.deadlineText ? ` (due ${c.deadlineText})` : ''}\n   ${c.sourceLabel || c.sourceUrl}`;
         });
@@ -6334,7 +6334,7 @@ Only include chartData if visualization adds value. Keep the answer under 200 wo
       if (data.candidates.length === 0) {
         message = data.note || "I couldn't find any groundable co-op/job matches right now — try broadening your search or checking back later.";
       } else {
-        message = `**${data.candidates.length} opportunit${data.candidates.length === 1 ? 'y' : 'ies'} found**\n`;
+        message = t('skill.opportunities_found', { count: data.candidates.length });
         data.candidates.slice(0, 5).forEach((c: any, i: number) => {
           message += `\n${i + 1}. **${c.title}**${c.employer ? ` at ${c.employer}` : ''}${c.location ? ` (${c.location})` : ''}${c.compText ? ` — ${c.compText}` : ''}${c.deadlineText ? ` (due ${c.deadlineText})` : ''}\n   ${c.sourceLabel || c.sourceUrl}`;
         });

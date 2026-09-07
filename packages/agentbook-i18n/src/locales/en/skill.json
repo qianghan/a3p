@@ -70,5 +70,15 @@
   "hdr_unbilled_time": "**Unbilled Time**",
   "hdr_net_worth_trend": "**Net worth trend:**",
   "expense_split_one": "**Expense split into {count} part**",
-  "expense_split_other": "**Expense split into {count} parts**"
+  "expense_split_other": "**Expense split into {count} parts**",
+  "review_queue_one": "**{count} expense needs review**\n",
+  "review_queue_other": "**{count} expenses need review**\n",
+  "recurring_detected_one": "**{count} recurring pattern detected**\n",
+  "recurring_detected_other": "**{count} recurring patterns detected**\n",
+  "scholarships_found_one": "**{count} scholarship found**\n",
+  "scholarships_found_other": "**{count} scholarships found**\n",
+  "opportunities_found_one": "**{count} opportunity found**\n",
+  "opportunities_found_other": "**{count} opportunities found**\n",
+  "bills_open_one": "You owe **{amount}** across {count} open bill",
+  "bills_open_other": "You owe **{amount}** across {count} open bills"
 }
