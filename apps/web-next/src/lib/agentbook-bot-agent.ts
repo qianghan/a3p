@@ -522,7 +522,22 @@ Respond with ONLY a JSON object — no preamble, no code fences:
   }
 }
 
-function classifyIntentWithRegex(text: string, ctx: BotContext): BotIntent {
+/** Exported for regression tests: the LLM-free classifier that runs on untrusted chat text. */
+export function classifyIntentWithRegex(text: string, ctx: BotContext): BotIntent {
+  // Collapse whitespace runs before any pattern below sees the text. Several
+  // of these patterns lead with `\s+`, or pair a `[\w\s]` character class
+  // with a following `\s+`; both shapes are quadratic on a long run of
+  // whitespace, because the match can start at every position in the run and
+  // consume the rest of it from each. Measured on the unauthenticated chat
+  // path: a 30k-space message burned ~5s of CPU across three patterns
+  // (the per-diem shape, its date-tail strip, and the amount scan).
+  //
+  // Every pattern here treats whitespace as a plain separator -- none counts
+  // it or depends on line structure -- so collapsing runs is semantically
+  // inert, costs one linear pass, and bounds all of them at once, including
+  // any pattern added later. A run containing a newline collapses to a
+  // newline so multi-line messages keep their line breaks.
+  text = text.replace(/\s{2,}/g, (run) => (run.includes('\n') ? '\n' : ' '));
   const lower = text.toLowerCase().trim();
   const slots: IntentSlots = {};
 
