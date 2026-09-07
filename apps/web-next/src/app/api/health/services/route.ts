@@ -1,12 +1,24 @@
 import { NextResponse } from 'next/server';
-import {
-  baseSvcUrl,
-  pluginServerUrl,
-  a3pSvcUrl,
-  pipelineGatewayUrl,
-  storageSvcUrl,
-  infrastructureSvcUrl,
-} from '@/lib/env';
+/**
+ * These are the off-Vercel services inherited from the naap fork. AgentBook
+ * does not deploy any of them, and `@/lib/env` defaults each URL to a
+ * localhost port, so in production all six failed and this route returned a
+ * permanent HTTP 503 -- an uptime monitor pointed here was red from the day
+ * it was wired up, and the response published the internal service names and
+ * ports to unauthenticated callers.
+ *
+ * Read the env vars directly rather than through the `@/lib/env` re-exports,
+ * because those substitute a localhost default and we need to distinguish
+ * "configured" from "defaulted".
+ */
+const OPTIONAL_SERVICES: { name: string; envVar: string }[] = [
+  { name: 'base-svc', envVar: 'BASE_SVC_URL' },
+  { name: 'plugin-server', envVar: 'PLUGIN_SERVER_URL' },
+  { name: 'a3p-svc', envVar: 'A3P_SVC_URL' },
+  { name: 'pipeline-gateway', envVar: 'PIPELINE_GATEWAY_URL' },
+  { name: 'storage-svc', envVar: 'STORAGE_SVC_URL' },
+  { name: 'infrastructure-svc', envVar: 'INFRASTRUCTURE_SVC_URL' },
+];
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 30;
@@ -108,14 +120,13 @@ async function checkService(name: string, baseUrl: string): Promise<ServiceHealt
  * Used by monitoring systems and deployment validation.
  */
 export async function GET(): Promise<NextResponse> {
-  const services = [
-    { name: 'base-svc', url: baseSvcUrl },
-    { name: 'plugin-server', url: pluginServerUrl },
-    { name: 'a3p-svc', url: a3pSvcUrl },
-    { name: 'pipeline-gateway', url: pipelineGatewayUrl },
-    { name: 'storage-svc', url: storageSvcUrl },
-    { name: 'infrastructure-svc', url: infrastructureSvcUrl },
-  ];
+  // Only check a service that someone actually configured. An unconfigured
+  // service is not an unhealthy one, so it is left out of the report rather
+  // than counted as a failure.
+  const services = OPTIONAL_SERVICES.flatMap((svc) => {
+    const url = process.env[svc.envVar];
+    return url ? [{ name: svc.name, url }] : [];
+  });
 
   // Check all services in parallel
   const results = await Promise.all(
@@ -126,6 +137,9 @@ export async function GET(): Promise<NextResponse> {
   const unhealthy = results.filter((r) => r.status === 'unhealthy').length;
 
   // Determine overall status
+  // With no services configured there is nothing failing, so 'ok'. This route
+  // reports on the optional off-Vercel services only; `/api/health` is the
+  // check that speaks for the app itself and its database.
   let status: 'ok' | 'degraded' | 'error';
   if (unhealthy === 0) {
     status = 'ok';
