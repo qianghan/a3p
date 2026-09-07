@@ -96,27 +96,43 @@ export async function ensureChartOfAccounts(
   tenantId: string,
   opts?: { force?: boolean },
 ): Promise<{ seeded: boolean; count: number }> {
-  if (!opts?.force) {
-    // findUnique on the (tenantId, code) compound unique — a direct index hit,
-    // so this guard stays cheap on every write path.
-    const cash = await db.abAccount.findUnique({
-      where: { tenantId_code: { tenantId, code: CASH_CODE } },
-      select: { id: true },
-    });
-    if (cash) return { seeded: false, count: 0 };
+  const accounts = await defaultAccountsFor(tenantId);
+
+  // `force` is an explicit reseed (POST /accounts/seed-jurisdiction): upsert so
+  // it can also CORRECT a wrong name or type on an existing row.
+  if (opts?.force) {
+    const written = await db.$transaction(
+      accounts.map((a) =>
+        db.abAccount.upsert({
+          where: { tenantId_code: { tenantId, code: a.code } },
+          update: { name: a.name, accountType: a.accountType, taxCategory: a.taxCategory },
+          create: { tenantId, ...a },
+        }),
+      ),
+    );
+    return { seeded: true, count: written.length };
   }
 
-  const accounts = await defaultAccountsFor(tenantId);
-  const written = await db.$transaction(
-    accounts.map((a) =>
-      db.abAccount.upsert({
-        where: { tenantId_code: { tenantId, code: a.code } },
-        update: { name: a.name, accountType: a.accountType, taxCategory: a.taxCategory },
-        create: { tenantId, ...a },
-      }),
-    ),
+  // The guard means "every pack account is present", not "this tenant has been
+  // seeded once". It used to be a single findUnique on Cash (1000), which
+  // returned the moment onboarding had ever run — so an account ADDED to a
+  // pack later never reached a tenant seeded before it. Maya's CA ledger had
+  // 2000/2100/2400 but not 2200 (PST/QST Payable), and invoicing failed with
+  // "Tax liability account (2200) not found" on the tenant used in every demo.
+  //
+  // One indexed findMany over (tenantId) returning ~25 codes replaces one
+  // findUnique, so the hot path stays a single round trip.
+  const have = new Set(
+    (await db.abAccount.findMany({ where: { tenantId }, select: { code: true } })).map((a) => a.code),
   );
+  const missing = accounts.filter((a) => !have.has(a.code));
+  if (missing.length === 0) return { seeded: false, count: 0 };
 
+  // create, not upsert: back-filling is ADDITIVE. An update clause here would
+  // rewrite a user's renamed account on every expense and invoice write.
+  const written = await db.$transaction(
+    missing.map((a) => db.abAccount.create({ data: { tenantId, ...a } })),
+  );
   return { seeded: true, count: written.length };
 }
 
