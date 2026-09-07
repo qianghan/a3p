@@ -1,6 +1,19 @@
 /**
  * GET /api/health
- * Database connectivity health check with env var diagnostics.
+ * Liveness + database connectivity. Public and unauthenticated, so it says
+ * only whether the app can reach its database and how long that took.
+ *
+ * It used to also return a diagnostic dump: `substring(0, 40)` of
+ * DATABASE_URL, POSTGRES_PRISMA_URL, POSTGRES_URL and POSTGRES_URL_NON_POOLING,
+ * which env vars were set, and the raw Prisma error message. That published
+ * the Supabase project ref and database username to anyone who curled it, and
+ * the 40-character cut landed exactly one character before the password: for
+ * `postgres://postgres.<20-char-ref>` the prefix is 40 chars, so index 40 —
+ * the first byte of the password — was the next thing the slice would have
+ * taken. A shorter project ref or a differently shaped URL would have leaked
+ * the production credential outright.
+ *
+ * Diagnosing env problems belongs behind admin auth, not here.
  */
 
 import { NextResponse } from 'next/server';
@@ -8,37 +21,27 @@ import { NextResponse } from 'next/server';
 export const dynamic = 'force-dynamic'; // never cache
 
 export async function GET() {
-  const envStatus = {
-    DATABASE_URL: process.env.DATABASE_URL ? `SET (${process.env.DATABASE_URL.substring(0, 40)}...)` : 'EMPTY',
-    DATABASE_URL_UNPOOLED: process.env.DATABASE_URL_UNPOOLED ? 'SET' : 'EMPTY',
-    POSTGRES_PRISMA_URL: process.env.POSTGRES_PRISMA_URL ? `SET (${process.env.POSTGRES_PRISMA_URL.substring(0, 40)}...)` : 'EMPTY',
-    POSTGRES_URL: process.env.POSTGRES_URL ? `SET (${process.env.POSTGRES_URL.substring(0, 40)}...)` : 'EMPTY',
-    POSTGRES_URL_NON_POOLING: process.env.POSTGRES_URL_NON_POOLING ? 'SET' : 'EMPTY',
-    NODE_ENV: process.env.NODE_ENV || 'undefined',
-    VERCEL: process.env.VERCEL || 'undefined',
-    VERCEL_ENV: process.env.VERCEL_ENV || 'undefined',
-  };
-
-  let dbStatus: { connected: boolean; latencyMs?: number; error?: string };
+  let database: { connected: boolean; latencyMs?: number };
 
   try {
     // Dynamic import to avoid module-level init issues
     const { prisma } = await import('@naap/database');
     const start = Date.now();
     await prisma.$queryRaw`SELECT 1`;
-    dbStatus = { connected: true, latencyMs: Date.now() - start };
+    database = { connected: true, latencyMs: Date.now() - start };
   } catch (err) {
-    const e = err as Error & { code?: string };
-    dbStatus = {
-      connected: false,
-      error: `${e.name}: ${e.message} [code=${e.code || 'none'}]`,
-    };
+    // Deliberately not echoed to the caller: a Prisma connection error
+    // carries the host, port and database name.
+    console.error('[health] database check failed', err);
+    database = { connected: false };
   }
 
-  return NextResponse.json({
-    status: dbStatus.connected ? 'healthy' : 'unhealthy',
-    timestamp: new Date().toISOString(),
-    env: envStatus,
-    database: dbStatus,
-  }, { status: dbStatus.connected ? 200 : 503 });
+  return NextResponse.json(
+    {
+      status: database.connected ? 'healthy' : 'unhealthy',
+      timestamp: new Date().toISOString(),
+      database,
+    },
+    { status: database.connected ? 200 : 503 },
+  );
 }
