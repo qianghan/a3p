@@ -1,0 +1,14 @@
+{
+  "expenses_top_vendors_header": "Principaux fournisseurs ({period}) :",
+  "expenses_vendor_row": "{rank}. **{vendor}** : {amount}",
+  "total_label": "Total : {amount}",
+  "expenses_none_for_period": "Aucune dépense trouvée pour {period}.",
+  "expenses_none_business": "Aucune dépense d'entreprise trouvée pour {period}.",
+  "expenses_summary_one": "Vous avez {count} dépense totalisant {amount} pour {period}.",
+  "expenses_summary_other": "Vous avez {count} dépenses totalisant {amount} pour {period}.",
+  "expenses_top_category": "Catégorie principale : **{category}** ({amount})",
+  "here_it_is_one": "La voici :",
+  "here_it_is_other": "Les voici :",
+  "expenses_top_vendor": "Principal fournisseur : **{vendor}** ({amount})",
+  "not_available": "s.o."
+}

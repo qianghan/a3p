@@ -1,0 +1,14 @@
+{
+  "expenses_top_vendors_header": "主要供应商（{period}）：",
+  "expenses_vendor_row": "{rank}. **{vendor}**：{amount}",
+  "total_label": "合计：{amount}",
+  "expenses_none_for_period": "未找到 {period} 的支出记录。",
+  "expenses_none_business": "未找到 {period} 的业务支出记录。",
+  "expenses_summary_one": "{period} 共有 {count} 笔支出，合计 {amount}。",
+  "expenses_summary_other": "{period} 共有 {count} 笔支出，合计 {amount}。",
+  "expenses_top_category": "主要类别：**{category}**（{amount}）",
+  "here_it_is_one": "如下：",
+  "here_it_is_other": "如下：",
+  "expenses_top_vendor": "主要供应商：**{vendor}**（{amount}）",
+  "not_available": "无"
+}

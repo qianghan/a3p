@@ -51,6 +51,7 @@ import enStudentUi from './locales/en/student_ui.json';
 import enCommunityUi from './locales/en/community_ui.json';
 import enProactive from './locales/en/proactive.json';
 import enRate from './locales/en/rate.json';
+import enSkill from './locales/en/skill.json';
 import enTax from './locales/en/tax.json';
 import enTaxUi from './locales/en/tax_ui.json';
 
@@ -82,6 +83,7 @@ import frStudentUi from './locales/fr-CA/student_ui.json';
 import frCommunityUi from './locales/fr-CA/community_ui.json';
 import frProactive from './locales/fr-CA/proactive.json';
 import frRate from './locales/fr-CA/rate.json';
+import frSkill from './locales/fr-CA/skill.json';
 import frTax from './locales/fr-CA/tax.json';
 import frTaxUi from './locales/fr-CA/tax_ui.json';
 
@@ -112,6 +114,7 @@ import zhStudentUi from './locales/zh-CN/student_ui.json';
 import zhCommunityUi from './locales/zh-CN/community_ui.json';
 import zhProactive from './locales/zh-CN/proactive.json';
 import zhRate from './locales/zh-CN/rate.json';
+import zhSkill from './locales/zh-CN/skill.json';
 import zhTax from './locales/zh-CN/tax.json';
 import zhTaxUi from './locales/zh-CN/tax_ui.json';
 
@@ -147,6 +150,7 @@ export const CATALOG: Catalog = Object.freeze({
     community_ui: enCommunityUi,
     proactive: enProactive,
     rate: enRate,
+    skill: enSkill,
     tax: enTax,
     tax_ui: enTaxUi,
   },
@@ -177,6 +181,7 @@ export const CATALOG: Catalog = Object.freeze({
     community_ui: frCommunityUi,
     proactive: frProactive,
     rate: frRate,
+    skill: frSkill,
     tax: frTax,
     tax_ui: frTaxUi,
   },
@@ -207,6 +212,7 @@ export const CATALOG: Catalog = Object.freeze({
     community_ui: zhCommunityUi,
     proactive: zhProactive,
     rate: zhRate,
+    skill: zhSkill,
     tax: zhTax,
     tax_ui: zhTaxUi,
   },

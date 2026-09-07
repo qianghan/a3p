@@ -1,0 +1,14 @@
+{
+  "expenses_top_vendors_header": "Top vendors ({period}):",
+  "expenses_vendor_row": "{rank}. **{vendor}**: {amount}",
+  "total_label": "Total: {amount}",
+  "expenses_none_for_period": "No expenses found for {period}.",
+  "expenses_none_business": "No business expenses found for {period}.",
+  "expenses_summary_one": "You have {count} expense totaling {amount} for {period}.",
+  "expenses_summary_other": "You have {count} expenses totaling {amount} for {period}.",
+  "expenses_top_category": "Top category: **{category}** ({amount})",
+  "here_it_is_one": "Here it is:",
+  "here_it_is_other": "Here they are:",
+  "expenses_top_vendor": "Top vendor: **{vendor}** ({amount})",
+  "not_available": "N/A"
+}

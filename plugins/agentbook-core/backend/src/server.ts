@@ -33,6 +33,7 @@ import { parsePeriodFromQuestion } from './period-parse.js';
 import { cleanClientName } from './client-name.js';
 import { getCashPosition, isCashBalanceQuestion } from './cash-position.js';
 import { formatCurrency, formatMoney } from '@agentbook/i18n';
+import { replyT } from './reply-locale.js';
 
 /**
  * Bracket providers for advisory features that need to know WHERE a threshold
@@ -3550,6 +3551,8 @@ async function _executeClassificationCore(
   // shadow the module-level helper of that name.
   const tenantLocale: string = classification.tenantConfig?.locale || 'en-US';
   const tenantCurrency: string = classification.tenantConfig?.currency || 'USD';
+  /** The tenant's reply translator — same locale as the money above. */
+  const t = replyT({ locale: tenantLocale });
   /** Money in the tenant's own currency and locale. */
   const tenantMoney = (cents: number, currency?: string) =>
     fmtCurrency(cents, currency || tenantCurrency, tenantLocale);
@@ -5547,15 +5550,38 @@ Only include chartData if visualization adds value. Keep the answer under 200 wo
       if (!answer) {
         if (q.match(/vendor|who.*spend|top.*spend|spend.*most|constant|recurring|adobe/)) {
           answer = byVendor.length > 0
-            ? `Top vendors (${periodLabel}):\n\n` +
-              byVendor.slice(0, 8).map(([n, v], i) => `${i + 1}. **${n}**: ${fmt(v)}`).join('\n') +
-              `\n\nTotal: ${fmt(total)}`
-            : `No expenses found for ${periodLabel}.`;
+            ? `${t('skill.expenses_top_vendors_header', { period: periodLabel })}\n\n` +
+              byVendor
+                .slice(0, 8)
+                .map(([n, v], i) =>
+                  t('skill.expenses_vendor_row', { rank: i + 1, vendor: n, amount: fmt(v) }),
+                )
+                .join('\n') +
+              `\n\n${t('skill.total_label', { amount: fmt(total) })}`
+            : t('skill.expenses_none_for_period', { period: periodLabel });
           if (byVendor.length > 0) chartData = { type: 'bar', data: byVendor.slice(0, 8).map(([name, value]) => ({ name, value })) };
         } else {
           answer = expenses.length === 0
-            ? `No business expenses found for ${periodLabel}.`
-            : `You have ${expenses.length} expenses totaling ${fmt(total)} for ${periodLabel}.\n\nTop category: ${byCat[0] ? `**${byCat[0][0]}** (${fmt(byCat[0][1])})` : 'N/A'}\nTop vendor: ${byVendor[0] ? `**${byVendor[0][0]}** (${fmt(byVendor[0][1])})` : 'N/A'}`;
+            ? t('skill.expenses_none_business', { period: periodLabel })
+            : `${t('skill.expenses_summary', {
+                count: expenses.length,
+                amount: fmt(total),
+                period: periodLabel,
+              })}\n\n${
+                byCat[0]
+                  ? t('skill.expenses_top_category', {
+                      category: byCat[0][0],
+                      amount: fmt(byCat[0][1]),
+                    })
+                  : `${t('skill.expenses_top_category', { category: t('skill.not_available'), amount: '' })}`
+              }\n${
+                byVendor[0]
+                  ? t('skill.expenses_top_vendor', {
+                      vendor: byVendor[0][0],
+                      amount: fmt(byVendor[0][1]),
+                    })
+                  : `${t('skill.expenses_top_vendor', { vendor: t('skill.not_available'), amount: '' })}`
+              }`;
         }
       }
 
@@ -5564,7 +5590,7 @@ Only include chartData if visualization adds value. Keep the answer under 200 wo
       // judgment about whether to enumerate (it previously often summarized
       // into an aggregate even when explicitly asked for a list).
       if (wantsList && recentExpenses.length > 0 && !recentExpenses.some((line) => answer.includes(line))) {
-        answer += `\n\nHere ${recentExpenses.length === 1 ? 'it is' : 'they are'}:\n${recentExpenses.join('\n')}`;
+        answer += `\n\n${t('skill.here_it_is', { count: recentExpenses.length })}\n${recentExpenses.join('\n')}`;
       }
 
       // State the window, always — UNCONDITIONALLY.
