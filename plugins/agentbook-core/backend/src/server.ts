@@ -5757,6 +5757,9 @@ Only include chartData if visualization adds value. Keep the answer under 200 wo
 
   // === 4. RESPONSE FORMATTING ===
   let message = '';
+  // Set when this turn created a record with an id and an amount, so a channel
+  // can react to the fact rather than to the wording of the reply.
+  let recordedEntityId: string | undefined;
   let actions: any[] = [];
   let chartData: any = null;
 
@@ -6200,6 +6203,12 @@ Only include chartData if visualization adds value. Keep the answer under 200 wo
     } else if (data?.id && data?.amountCents !== undefined) {
       const catLabel = data.categoryName ? ` [${data.categoryName}]` : '';
       message = `Recorded: ${fmtCurrency(data.amountCents, data.currency)} — ${data.description || data.number || 'Item'}${catLabel}`;
+      // The Telegram adapter used to decide whether to attach the
+      // Category/Personal keyboard by testing `message.includes('Recorded')`,
+      // so the buttons were coupled to one English word in this template.
+      // Translate the reply and a French or Chinese user silently loses them.
+      // Same shape as the existing `taxDraftReady` signal.
+      recordedEntityId = String(data.id);
     } else if (data?.number) {
       message = `Invoice ${data.number} created — ${fmtCurrency(data.amountCents, data.currency)}`;
       if (data.lines?.length > 1) {
@@ -6322,6 +6331,7 @@ Only include chartData if visualization adds value. Keep the answer under 200 wo
       confidence,
       latencyMs,
       ...(citations ? { citations } : {}),
+      ...(recordedEntityId ? { recordedEntityId } : {}),
     },
   };
 }

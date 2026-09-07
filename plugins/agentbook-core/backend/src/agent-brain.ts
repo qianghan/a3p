@@ -325,6 +325,14 @@ interface AgentResponse {
     sessionId?: string;
     /** True only on the exact turn a fast-track questionnaire session transitions to 'completed' — the signal for the caller to trigger generateFilingDraft(sessionId) via after(). */
     taxDraftReady?: boolean;
+    /**
+     * Id of a record this turn created, when the turn created one with an
+     * amount. A channel that wants to react to "an expense was just booked"
+     * reads this; the Telegram adapter used to test the reply for the English
+     * word "Recorded", which coupled its Category/Personal keyboard to the
+     * wording of one template.
+     */
+    recordedEntityId?: string;
     suggestions?: string[];
     undoAvailable?: boolean;
     /**
@@ -1280,6 +1288,7 @@ async function handleAgentMessageCore(
           chartData: responseData.chartData,
           skillUsed: responseData.skillUsed || v1Result?.skillUsed || 'unknown',
           confidence: responseData.confidence ?? v1Result?.confidence ?? 1,
+          recordedEntityId: responseData.recordedEntityId,
           sessionId: activeSession.id,
           latencyMs: Date.now() - startTime,
         });
@@ -1897,6 +1906,7 @@ async function handleAgentMessageCore(
     confidence: responseData.confidence ?? v1Result.confidence,
     sessionId: responseData.sessionId,
     taxDraftReady: responseData.taxDraftReady,
+    recordedEntityId: responseData.recordedEntityId,
     latencyMs: Date.now() - startTime,
     // PR 43: forward citations from the skill response to the chat UI.
     citations: responseData.citations,

@@ -1249,7 +1249,7 @@ async function callAgentBrain(
   sessionAction?: string,
   feedback?: string,
   chatId?: string,
-): Promise<{ success: true; data: { message: string; skillUsed?: string } } | { success: false; error: string }> {
+): Promise<{ success: true; data: { message: string; skillUsed?: string; recordedEntityId?: string } } | { success: false; error: string }> {
   try {
     // ctx.skills feeds plan execution only — the classifier routes against
     // the array agent-brain builds itself. reconcileSkills keeps the two in
@@ -1272,7 +1272,7 @@ async function callAgentBrain(
     }
 
     if (brainResult?.success && brainResult.data?.message) {
-      return brainResult as { success: true; data: { message: string; skillUsed?: string } };
+      return brainResult as { success: true; data: { message: string; skillUsed?: string; recordedEntityId?: string } };
     }
   } catch (err) {
     console.warn('[telegram/agent-brain] failed, falling back to inline agent:', err);
@@ -1286,7 +1286,7 @@ async function callMinimalAgent(
   tenantId: string,
   text: string,
   sessionAction?: string,
-): Promise<{ success: true; data: { message: string; skillUsed?: string } } | { success: false; error: string }> {
+): Promise<{ success: true; data: { message: string; skillUsed?: string; recordedEntityId?: string } } | { success: false; error: string }> {
   if (sessionAction) {
     return { success: true, data: { message: botT('bot.session_is_no_longer_active') } };
   }
@@ -3575,7 +3575,11 @@ function getBot(): Bot {
             { text: botT('bot.proceed'), callback_data: 'session:confirm' },
             { text: botT('bot.cancel'), callback_data: 'session:cancel' },
           ]] };
-        } else if (result.data.skillUsed === 'record-expense' && result.data.message?.includes('Recorded')) {
+        } else if (result.data.skillUsed === 'record-expense' && result.data.recordedEntityId) {
+          // Was `result.data.message?.includes('Recorded')`, which tied these
+          // two buttons to one English word in a reply template in
+          // agentbook-core. The brain now reports the fact structurally, so
+          // the keyboard survives the reply being translated.
           keyboard = { inline_keyboard: [[
             { text: botT('bot.category'), callback_data: 'change_cat:agent' },
             { text: botT('bot.personal'), callback_data: 'personal:agent' },
