@@ -6141,16 +6141,16 @@ Only include chartData if visualization adds value. Keep the answer under 200 wo
     // Balance sheet
     } else if (data?.totalAssetsCents !== undefined && data?.totalLiabilitiesCents !== undefined) {
       message = '**Balance Sheet**\n';
-      message += `\nAssets: ${tenantMoney(data.totalAssetsCents)}`;
-      message += `\nLiabilities: ${tenantMoney(data.totalLiabilitiesCents)}`;
-      message += `\n**Equity: ${tenantMoney((data.totalAssetsCents - data.totalLiabilitiesCents))}**`;
+      message += `\n${t('skill.report_assets', { amount: tenantMoney(data.totalAssetsCents) })}`;
+      message += `\n${t('skill.report_liabilities', { amount: tenantMoney(data.totalLiabilitiesCents) })}`;
+      message += `\n${t('skill.report_equity', { amount: tenantMoney((data.totalAssetsCents - data.totalLiabilitiesCents)) })}`;
 
     // Cashflow projection
     } else if (data?.currentBalanceCents !== undefined && data?.projections) {
       message = '**Cash Flow Projection**\n';
-      message += `\nCurrent Cash: ${tenantMoney(data.currentBalanceCents)}`;
-      if (data.outstandingInvoicesCents) message += `\nOutstanding Invoices: ${tenantMoney(data.outstandingInvoicesCents)}`;
-      if (data.recurringExpensesCents) message += `\nMonthly Recurring: ${tenantMoney(data.recurringExpensesCents)}`;
+      message += `\n${t('skill.report_current_cash', { amount: tenantMoney(data.currentBalanceCents) })}`;
+      if (data.outstandingInvoicesCents) message += `\n${t('skill.report_outstanding_invoices', { amount: tenantMoney(data.outstandingInvoicesCents) })}`;
+      if (data.recurringExpensesCents) message += `\n${t('skill.report_monthly_recurring', { amount: tenantMoney(data.recurringExpensesCents) })}`;
       if (data.projections) {
         message += '\n\nProjections:';
         if (data.projections.days30) message += `\n  30 days: ${tenantMoney(data.projections.days30.balanceCents)}`;
@@ -6162,11 +6162,11 @@ Only include chartData if visualization adds value. Keep the answer under 200 wo
     } else if (data?.snapshot || (data?.cashBalanceCents !== undefined && data?.revenueThisMonthCents !== undefined)) {
       const s = data.snapshot || data;
       message = '**Financial Summary**\n';
-      if (s.cashBalanceCents !== undefined) message += `\nCash: ${tenantMoney(s.cashBalanceCents)}`;
-      if (s.revenueThisMonthCents !== undefined) message += `\nRevenue (this month): ${tenantMoney(s.revenueThisMonthCents)}`;
-      if (s.expensesThisMonthCents !== undefined) message += `\nExpenses (this month): ${tenantMoney(s.expensesThisMonthCents)}`;
-      if (s.profitThisMonthCents !== undefined) message += `\n**Profit: ${tenantMoney(s.profitThisMonthCents)}**`;
-      if (s.outstandingInvoicesCents !== undefined) message += `\nOutstanding Invoices: ${tenantMoney(s.outstandingInvoicesCents)}`;
+      if (s.cashBalanceCents !== undefined) message += `\n${t('skill.report_cash', { amount: tenantMoney(s.cashBalanceCents) })}`;
+      if (s.revenueThisMonthCents !== undefined) message += `\n${t('skill.report_revenue_this_month', { amount: tenantMoney(s.revenueThisMonthCents) })}`;
+      if (s.expensesThisMonthCents !== undefined) message += `\n${t('skill.report_expenses_this_month', { amount: tenantMoney(s.expensesThisMonthCents) })}`;
+      if (s.profitThisMonthCents !== undefined) message += `\n${t('skill.report_profit', { amount: tenantMoney(s.profitThisMonthCents) })}`;
+      if (s.outstandingInvoicesCents !== undefined) message += `\n${t('skill.report_outstanding_invoices', { amount: tenantMoney(s.outstandingInvoicesCents) })}`;
 
     // Money moves / suggestions. The endpoint returns the array as `data`
     // directly (not `{moves: [...]}`), so the `data?.moves` shape this
@@ -6234,8 +6234,8 @@ Only include chartData if visualization adds value. Keep the answer under 200 wo
       message = '**Bank Reconciliation**\n';
       message += `\nMatched: ${data.matched} transactions`;
       message += `\nUnmatched: ${data.unmatched} transactions`;
-      if (data.totalMatchedCents) message += `\nMatched Amount: ${tenantMoney(data.totalMatchedCents)}`;
-      if (data.totalUnmatchedCents) message += `\nUnmatched Amount: ${tenantMoney(data.totalUnmatchedCents)}`;
+      if (data.totalMatchedCents) message += `\n${t('skill.report_matched_amount', { amount: tenantMoney(data.totalMatchedCents) })}`;
+      if (data.totalUnmatchedCents) message += `\n${t('skill.report_unmatched_amount', { amount: tenantMoney(data.totalUnmatchedCents) })}`;
 
     // CPA notes
     } else if (Array.isArray(data) && data.length > 0 && data[0]?.note) {

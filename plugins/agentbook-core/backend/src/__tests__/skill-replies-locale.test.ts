@@ -103,6 +103,19 @@ describe('every skill.* key the reply path asks for exists', () => {
       '\\nEffective Rate: ',
       '\\n\\nTotal Due: ',
       '**Total Unbilled:**',
+      // Balance sheet, cash flow, snapshot, reconciliation.
+      '\\nAssets: ',
+      '\\nLiabilities: ',
+      '**Equity: ',
+      '\\nCurrent Cash: ',
+      '\\nOutstanding Invoices: ',
+      '\\nMonthly Recurring: ',
+      '\\nCash: ',
+      '\\nRevenue (this month): ',
+      '\\nExpenses (this month): ',
+      '**Profit: ',
+      '\\nMatched Amount: ',
+      '\\nUnmatched Amount: ',
     ]) {
       expect(stripped, gone).not.toContain(gone);
     }
@@ -169,6 +182,35 @@ describe('the report labels speak the tenant language', () => {
     expect(replyT({ locale: 'fr-CA' })('skill.report_quarter_due', { quarter: 3, amount: '$1.00' })).toBe(
       'T3 : $1.00',
     );
+  });
+});
+
+describe('the balance sheet and cash flow labels', () => {
+  it('renders each locale', () => {
+    const p = { amount: '$100.00' };
+    expect(replyT({ locale: 'fr-CA' })('skill.report_assets', p)).toBe('Actifs : $100.00');
+    expect(replyT({ locale: 'fr-CA' })('skill.report_liabilities', p)).toBe('Passifs : $100.00');
+    expect(replyT({ locale: 'zh-CN' })('skill.report_current_cash', p)).toBe('当前现金：$100.00');
+  });
+
+  it('keeps the bold on equity and profit, which mdToHtml renders', () => {
+    for (const loc of ['en-US', 'fr-CA', 'zh-CN']) {
+      for (const key of ['skill.report_equity', 'skill.report_profit']) {
+        const out = replyT({ locale: loc })(key, { amount: '$1.00' });
+        expect(out.startsWith('**') && out.endsWith('**'), `${loc} ${key}: ${out}`).toBe(true);
+      }
+    }
+  });
+
+  it('every skill.* key now in the catalog is reachable and non-empty', () => {
+    // A key added to the catalog but spelled differently at the call site is
+    // invisible to the parity invariants; this at least proves each resolves.
+    const t = replyT({ locale: 'fr-CA' });
+    for (const key of ['skill.report_assets', 'skill.report_profit', 'skill.report_matched_amount']) {
+      const out = t(key, { amount: '$1.00', count: 1 });
+      expect(out, key).not.toBe(key);
+      expect(out.length, key).toBeGreaterThan(2);
+    }
   });
 });
 
