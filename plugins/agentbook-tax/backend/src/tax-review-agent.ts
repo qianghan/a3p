@@ -522,12 +522,45 @@ export async function getReviewState(tenantId: string, taxYear: number): Promise
   };
 }
 
+/**
+ * How long a review may sit untouched and still capture the chat.
+ *
+ * The interception in agent-brain runs before classification on every surface,
+ * so an active review answers EVERY inbound message. With no expiry, a user who
+ * started a review and got distracted came back to a product that replied
+ * "I can update a number, answer a question about your filing…" to
+ * "paid AWS $1240" and to "what is my cash balance?", and never said why.
+ * Reproduced on the US tenant; it only ended because I sent "cancel".
+ *
+ * 30 minutes is longer than any real review turn and far shorter than "until
+ * someone guesses the magic word". The submit gate is the safety property and
+ * is untouched — what expires here is open-ended capture, not protection.
+ */
+const REVIEW_IDLE_MS = 30 * 60 * 1000;
+
 export async function getActiveReviewForTenant(tenantId: string): Promise<{ taxYear: number } | null> {
   const review = await db.abTaxFilingReview.findFirst({
     where: { tenantId, status: { in: [...ACTIVE_REVIEW_STATUSES] } },
     orderBy: { updatedAt: 'desc' },
   });
-  return review ? { taxYear: review.taxYear } : null;
+  if (!review) return null;
+
+  // A null updatedAt is treated as fresh: dropping a live review because a
+  // timestamp is missing would be a worse failure than one extra interception.
+  const touched = review.updatedAt ? new Date(review.updatedAt).getTime() : Date.now();
+  if (Date.now() - touched > REVIEW_IDLE_MS) {
+    // Retire it, so the next message does not pay for this check again and the
+    // row stops shadowing any future review for the same year.
+    await db.abTaxFilingReview
+      .updateMany({
+        where: { tenantId, taxYear: review.taxYear, status: { in: [...ACTIVE_REVIEW_STATUSES] } },
+        data: { status: 'abandoned' },
+      })
+      .catch(() => { /* best effort — the caller already treats this as inactive */ });
+    return null;
+  }
+
+  return { taxYear: review.taxYear };
 }
 
 /**

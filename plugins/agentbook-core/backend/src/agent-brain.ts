@@ -24,6 +24,7 @@ import { PlanStep, Evaluation, assessStepQuality, buildFinalEvaluation, formatEv
 import { getActiveTaxQuestionnaireSession, getLatestTaxQuestionnaireSession, isDraftStale } from './tax-questionnaire-session.js';
 import { answerTaxQuestionnaire, cancelTaxQuestionnaire, type CoreResult } from './tax-questionnaire-core.js';
 import { ensureAdvisorPersona, buildAdvisorVoice, buildIntroMessage, adaptAdvisorStyle, personaPublicView, isHumanChannel } from './advisor-persona.js';
+import { isReviewInterceptable } from './review-interception.js';
 
 // Deterministic local engagement fallback when LLM is unreachable.
 // Keeps the user moving forward with a clarifying question or hint
@@ -1085,7 +1086,15 @@ async function handleAgentMessageCore(
   const activeReview = ctx.checkActiveTaxReview
     ? await ctx.checkActiveTaxReview(tenantId)
     : { active: false };
-  if (activeReview.active && activeReview.taxYear && ctx.answerTaxReview) {
+  // A booking instruction is not a review answer — see review-interception.ts.
+  // Without this, an active review captured every message on every surface
+  // until the user guessed "cancel".
+  if (
+    activeReview.active
+    && activeReview.taxYear
+    && ctx.answerTaxReview
+    && isReviewInterceptable(text)
+  ) {
     const { message } = await ctx.answerTaxReview(tenantId, activeReview.taxYear, text);
     return buildResponse({
       message,
