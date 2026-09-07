@@ -14,6 +14,7 @@
 import 'server-only';
 import { prisma } from '@naap/database';
 import { getStripe } from '@/lib/billing/stripe';
+import { PublicError } from '@/lib/api-error';
 
 const JURISDICTION_TO_COUNTRY: Record<string, string> = { us: 'US', ca: 'CA', uk: 'GB', au: 'AU' };
 
@@ -70,7 +71,7 @@ export async function refreshInvoiceConnectStatus(tenantId: string): Promise<Inv
   return { connected: true, payoutsEnabled, accountId: cfg.stripeInvoiceAccountId };
 }
 
-export class InvoicePayLinkError extends Error {}
+export class InvoicePayLinkError extends PublicError {}
 
 /**
  * Create a Stripe Checkout link for a client to pay an invoice by card. The

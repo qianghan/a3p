@@ -33,6 +33,7 @@ import { createTranslator, resolveLocale } from '@agentbook/i18n';
 import { CATALOG, AVAILABLE_LOCALES } from '@agentbook/i18n/catalog';
 import { getAppBaseUrl, getPluginBaseUrls } from '@/lib/agentbook-config';
 import { generateFilingDraft } from '@/lib/tax-fast-track-draft';
+import { publicErrorMessage } from '@/lib/api-error';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -165,7 +166,10 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       {
         success: false,
         error: 'agent brain failed',
-        message: err instanceof Error ? err.message : String(err),
+        // `message` is what the chat clients render. It carried the raw
+        // error, which the #492 codemod walked past because it anchored on
+        // `error:` -- and this is the single production chat endpoint.
+        message: publicErrorMessage(err),
       },
       { status: 500 },
     );

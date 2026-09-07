@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { validateSession } from '@/lib/api/auth';
 import { getAuthToken, getClientIP } from '@/lib/api/response';
 import { PublicError } from '@/lib/api-error';
+import { publicErrorMessage } from '@/lib/api-error';
 
 const DEFAULT_SUBGRAPH_ID = 'FE63YgkzcpVocxdCEyEYbvjYqEf2kb1A6daMYRxmejYC';
 const UPSTREAM_TIMEOUT_MS = 8_000;
@@ -234,7 +235,9 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         {
           error: {
             code: 'BAD_REQUEST',
-            message: validationError instanceof Error ? validationError.message : 'Invalid GraphQL request',
+            // validateGraphqlPayload throws PublicError, so this returns the
+            // guard's own copy; anything unexpected is sanitized.
+            message: publicErrorMessage(validationError),
           },
           meta: { timestamp: new Date().toISOString() },
         },

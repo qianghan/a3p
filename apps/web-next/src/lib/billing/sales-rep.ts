@@ -2,6 +2,7 @@ import 'server-only';
 import { prisma } from '@naap/database';
 import type Stripe from 'stripe';
 import { maskEmail } from './referrals';
+import { PublicError } from '@/lib/api-error';
 
 export type PayoutFrequency = 'monthly' | 'quarterly' | 'annual';
 
@@ -14,7 +15,7 @@ export type PayoutFrequency = 'monthly' | 'quarterly' | 'annual';
 export async function requireActiveSalesRep(tenantId: string) {
   const profile = await prisma.salesRepProfile.findUnique({ where: { tenantId } });
   if (!profile || profile.status !== 'active') {
-    throw new Error('Not an active sales rep.');
+    throw new PublicError('Not an active sales rep.');
   }
   return profile;
 }
@@ -192,14 +193,14 @@ export async function submitSalesRepPayout(tenantId: string): Promise<{ id: stri
     where: { salesRepId: tenantId, periodStart: period.start, periodEnd: period.end },
   });
   if (alreadySubmitted) {
-    throw new Error(`Already submitted an invoice for this ${profile.payoutFrequency} period.`);
+    throw new PublicError(`Already submitted an invoice for this ${profile.payoutFrequency} period.`);
   }
 
   const bundle = await prisma.salesRepCommissionAccrual.findMany({
     where: { salesRepId: tenantId, payoutId: null, reversedAt: null, periodEnd: { lte: period.end } },
   });
   if (bundle.length === 0) {
-    throw new Error('No commission accrued yet for this period.');
+    throw new PublicError('No commission accrued yet for this period.');
   }
   const totalCents = bundle.reduce((s, a) => s + a.commissionCents, 0);
 
@@ -235,7 +236,7 @@ export async function submitSalesRepPayout(tenantId: string): Promise<{ id: stri
   } catch (err) {
     const isDuplicatePeriod = err instanceof Error && 'code' in err && (err as { code?: string }).code === 'P2002';
     if (isDuplicatePeriod) {
-      throw new Error(`Already submitted an invoice for this ${profile.payoutFrequency} period.`);
+      throw new PublicError(`Already submitted an invoice for this ${profile.payoutFrequency} period.`);
     }
     throw err;
   }

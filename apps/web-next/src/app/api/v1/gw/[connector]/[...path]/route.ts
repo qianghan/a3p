@@ -270,6 +270,7 @@ async function handleRequest(
       requestBytes,
       responseBytes: 0,
       cached: false,
+      // api-error-ok: telemetry record, not a response body.
       error: proxyError.message,
       region: process.env.VERCEL_REGION || null,
     });

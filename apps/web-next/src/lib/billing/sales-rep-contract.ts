@@ -2,6 +2,7 @@ import 'server-only';
 import { prisma, Prisma } from '@naap/database';
 import { checkPartnerEligibility, withLockedDraftApplication } from './sales-rep-application';
 import { LIABILITY_SECTION_KEYS, type LiabilitySectionKey } from './sales-rep-contract-templates';
+import { PublicError } from '@/lib/api-error';
 
 /**
  * Platform default commission rate assumed in the self-serve contract a
@@ -64,14 +65,14 @@ export interface LiabilitySectionView {
 export async function getApplicationContractPreview(tenantId: string, applicationId: string) {
   const application = await prisma.salesRepApplication.findUnique({ where: { id: applicationId } });
   if (!application || application.tenantId !== tenantId) {
-    throw new Error('Application not found.');
+    throw new PublicError('Application not found.');
   }
 
   const template = await prisma.salesRepContractTemplate.findUnique({
     where: { jurisdiction: application.jurisdiction },
   });
   if (!template) {
-    throw new Error(
+    throw new PublicError(
       `The Partner Program isn't available yet for jurisdiction "${application.jurisdiction}" — no contract template is on file. Contact support.`,
     );
   }
@@ -128,7 +129,7 @@ export async function setApplicationAcknowledgment(
     const answers = { ...(application.answers as Record<string, unknown>) };
     if (input.sectionKey) {
       if (!LIABILITY_SECTION_KEYS.includes(input.sectionKey)) {
-        throw new Error(`Unknown disclosure section: ${input.sectionKey}`);
+        throw new PublicError(`Unknown disclosure section: ${input.sectionKey}`);
       }
       const current = new Set(
         Array.isArray(answers.acknowledgedSections) ? (answers.acknowledgedSections as string[]) : [],
@@ -158,40 +159,40 @@ export async function signAndSubmitApplication(
 ) {
   const signedByName = input.signedByName.trim();
   if (!signedByName) {
-    throw new Error('Type your full legal name to sign.');
+    throw new PublicError('Type your full legal name to sign.');
   }
 
   const application = await prisma.salesRepApplication.findUnique({ where: { id: applicationId } });
   if (!application || application.tenantId !== tenantId) {
-    throw new Error('Application not found.');
+    throw new PublicError('Application not found.');
   }
   if (application.status !== 'draft') {
-    throw new Error('This application has already been submitted.');
+    throw new PublicError('This application has already been submitted.');
   }
 
   const eligibility = await checkPartnerEligibility(tenantId);
   if (!eligibility.eligible) {
-    throw new Error(eligibility.reason);
+    throw new PublicError(eligibility.reason);
   }
 
   const user = await prisma.user.findUnique({ where: { id: tenantId }, select: { displayName: true } });
   if (user?.displayName) {
     const normalize = (s: string) => s.trim().toLowerCase().replace(/\s+/g, ' ');
     if (normalize(signedByName) !== normalize(user.displayName)) {
-      throw new Error(`The typed name must match the name on your account ("${user.displayName}").`);
+      throw new PublicError(`The typed name must match the name on your account ("${user.displayName}").`);
     }
   }
 
   const preview = await getApplicationContractPreview(tenantId, applicationId);
   if (!preview.readyToSign) {
-    throw new Error('You must acknowledge every disclosure section and the taxpayer notice before signing.');
+    throw new PublicError('You must acknowledge every disclosure section and the taxpayer notice before signing.');
   }
 
   const template = await prisma.salesRepContractTemplate.findUnique({
     where: { jurisdiction: application.jurisdiction },
   });
   if (!template) {
-    throw new Error(
+    throw new PublicError(
       `The Partner Program isn't available yet for jurisdiction "${application.jurisdiction}" — no contract template is on file. Contact support.`,
     );
   }
@@ -247,7 +248,7 @@ export async function signAndSubmitApplication(
     };
   } catch (err) {
     if (err instanceof Prisma.PrismaClientKnownRequestError && (err.code === 'P2025' || err.code === 'P2002')) {
-      throw new Error('This application has already been submitted.');
+      throw new PublicError('This application has already been submitted.');
     }
     throw err;
   }
