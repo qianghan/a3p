@@ -31,6 +31,7 @@ import type { ChartOfAccountsTemplate, TaxBracketProvider } from '@agentbook/jur
 import { bracketProximityMove } from './bracket-proximity.js';
 import { parsePeriodFromQuestion } from './period-parse.js';
 import { cleanClientName } from './client-name.js';
+import { getCashPosition, isCashBalanceQuestion } from './cash-position.js';
 
 /**
  * Bracket providers for advisory features that need to know WHERE a threshold
@@ -5281,6 +5282,40 @@ async function _executeClassificationCore(
   // this, and it is also how they say "this is fine" — so the handler acts
   // only when a vendor with that normalized name really exists, and otherwise
   // returns null to fall through to normal classification.
+  // INTERNAL handler: query-finance's cash-balance case.
+  //
+  // "What is my cash balance?" used to reach the LLM here — query-finance has
+  // no endpoint — and came back "for a specific bank account, or across all
+  // your accounts?" on web and MCP, while Telegram answered it correctly from
+  // its own copy of this computation. Answer the total, then offer the
+  // breakdown; asking which account before giving a number is the product
+  // declining to do its job.
+  if (selectedSkill.name === 'query-finance' && isCashBalanceQuestion(text)) {
+    try {
+      const pos = await getCashPosition(tenantId);
+      // classification carries the tenant snapshot (ClassificationResult.tenantConfig)
+      // so this path does not re-fetch it.
+      const currency = (classification.tenantConfig?.currency as string) || undefined;
+      const lines = pos.accounts.slice(0, 5)
+        .map((a) => `• ${a.name}: ${fmtCurrency(a.balanceCents, currency)}`)
+        .join('\n');
+      const message = pos.accounts.length === 0
+        ? `You have ${fmtCurrency(0, currency)} on hand — no asset account has a balance yet.`
+        : `You have ${fmtCurrency(pos.totalCents, currency)} on hand.\n\n${lines}`;
+      await db.abConversation.create({
+        data: { tenantId, question: text, answer: message, queryType: 'agent', channel, skillUsed: selectedSkill.name },
+      }).catch(() => {});
+      return {
+        selectedSkill, extractedParams, confidence, skillUsed: selectedSkill.name,
+        skillResponse: { success: true, data: { answer: message, totalCents: pos.totalCents } },
+        responseData: { message, actions: [], skillUsed: selectedSkill.name, confidence, latencyMs: Date.now() - startTime },
+      };
+    } catch (err) {
+      console.error('[query-finance] cash position failed:', err);
+      return null; // fall through to the previous behaviour rather than erroring
+    }
+  }
+
   if (selectedSkill.name === 'set-vendor-alias') {
     try {
       const text0 = String(extractedParams.question || text || '');
