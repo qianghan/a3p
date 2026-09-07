@@ -4565,7 +4565,7 @@ async function _executeClassificationCore(
         const priorNet = netWorthAt(monthEndFor(1));
         const deltaCents = currentNet - priorNet;
         const deltaText = deltaCents === 0 ? 'unchanged' : `${deltaCents > 0 ? 'up' : 'down'} ${fmt(Math.abs(deltaCents))}`;
-        const message = `**Net worth trend:** ${fmt(priorNet)} last month → ${fmt(currentNet)} this month (${deltaText}).`;
+        const message = `${t('skill.hdr_net_worth_trend')} ${fmt(priorNet)} last month → ${fmt(currentNet)} this month (${deltaText}).`;
         await db.abConversation.create({ data: { tenantId, question: text, answer: message, queryType: 'agent', channel, skillUsed: 'personal-snapshot' } });
         return {
           selectedSkill, extractedParams, confidence, skillUsed: 'personal-snapshot', skillResponse: { data: { currentNet, priorNet, deltaCents } },
@@ -4847,7 +4847,7 @@ async function _executeClassificationCore(
         if (format === 'pdf' && res.ok) {
           message = 'Tax return PDF generated! Your return is ready for review and printing.';
         } else if (data.success) {
-          message = '**Tax Return Exported** in JSON format.';
+          message = `${t('skill.hdr_tax_return_exported')} in JSON format.`;
           if (data.data?.validation?.warnings?.length > 0) {
             message += `\n\n**Warnings:**\n`;
             data.data.validation.warnings.forEach((w: any) => { message += `- ${w.message}\n`; });
@@ -5970,7 +5970,7 @@ Only include chartData if visualization adds value. Keep the answer under 200 wo
 
     // Aging report
     } else if (data?.buckets) {
-      message = '**Accounts Receivable Aging**\n';
+      message = `${t('skill.hdr_ar_aging')}\n`;
       const buckets = data.buckets;
       for (const [label, invoices] of Object.entries(buckets)) {
         const inv = invoices as any[];
@@ -6005,7 +6005,7 @@ Only include chartData if visualization adds value. Keep the answer under 200 wo
 
     // Unbilled summary
     } else if (Array.isArray(data) && data.length > 0 && data[0]?.unbilledAmountCents !== undefined) {
-      message = '**Unbilled Time**\n';
+      message = `${t('skill.hdr_unbilled_time')}\n`;
       let total = 0;
       for (const item of data) {
         message += `\n\u2022 **${item.clientName || 'Unknown'}**: ${item.totalHours?.toFixed(1) || 0}h \u2014 ${tenantMoney(item.unbilledAmountCents)}`;
@@ -6069,7 +6069,7 @@ Only include chartData if visualization adds value. Keep the answer under 200 wo
 
     // Tax estimate
     } else if (data?.totalTaxCents !== undefined && data?.effectiveRate !== undefined) {
-      message = '**Tax Estimate**\n';
+      message = `${t('skill.hdr_tax_estimate')}\n`;
       if (data.grossRevenueCents) message += `\n${t('skill.report_gross_revenue', { amount: tenantMoney(data.grossRevenueCents) })}`;
       if (data.totalExpensesCents) message += `\n${t('skill.report_expenses', { amount: tenantMoney(data.totalExpensesCents) })}`;
       if (data.netIncomeCents !== undefined) message += `\n${t('skill.report_net_income', { amount: tenantMoney(data.netIncomeCents) })}`;
@@ -6081,7 +6081,7 @@ Only include chartData if visualization adds value. Keep the answer under 200 wo
 
     // Quarterly payments
     } else if (data?.quarters && Array.isArray(data.quarters)) {
-      message = '**Quarterly Tax Payments**\n';
+      message = `${t('skill.hdr_quarterly_tax')}\n`;
       for (const q of data.quarters) {
         const icon = q.status === 'paid' ? '\u2705' : q.status === 'due' ? '\u{1F534}' : '\u{1F7E1}';
         message += `\n${icon} ${t('skill.report_quarter_due', { quarter: q.quarter, amount: tenantMoney(q.amountDueCents) })}`;
@@ -6106,7 +6106,7 @@ Only include chartData if visualization adds value. Keep the answer under 200 wo
 
     // Budget status
     } else if (data?.budgets && Array.isArray(data.budgets) && data.budgets[0]?.amountCents) {
-      message = '**Budget Status**\n';
+      message = `${t('skill.hdr_budget_status')}\n`;
       for (const b of data.budgets) {
         const pct = b.percent || 0;
         const icon = pct > 100 ? '\u{1F534}' : pct > (b.alertPercent || 80) ? '\u{1F7E1}' : '\u{1F7E2}';
@@ -6115,7 +6115,7 @@ Only include chartData if visualization adds value. Keep the answer under 200 wo
 
     // Expense report
     } else if (data?.html && data?.expenseCount !== undefined) {
-      message = `**Expense Report** generated\n\n${data.expenseCount} expenses, total: ${fmtCurrency(data.totalCents, data.currency)}`;
+      message = `${t('skill.hdr_expense_report')} generated\n\n${data.expenseCount} expenses, total: ${fmtCurrency(data.totalCents, data.currency)}`;
       if (data.categories?.length > 0) {
         message += '\n';
         for (const cat of data.categories.slice(0, 8)) {
@@ -6125,7 +6125,7 @@ Only include chartData if visualization adds value. Keep the answer under 200 wo
 
     // P&L report
     } else if (data?.grossRevenueCents !== undefined && data?.totalExpensesCents !== undefined && data?.netIncomeCents !== undefined && !data?.totalTaxCents) {
-      message = '**Profit & Loss**\n';
+      message = `${t('skill.hdr_pnl')}\n`;
       message += `\nRevenue: ${fmtCurrency(data.grossRevenueCents, data.currency)}`;
       message += `\nExpenses: ${fmtCurrency(data.totalExpensesCents, data.currency)}`;
       message += `\n**Net Income: ${fmtCurrency(data.netIncomeCents, data.currency)}**`;
@@ -6140,14 +6140,14 @@ Only include chartData if visualization adds value. Keep the answer under 200 wo
 
     // Balance sheet
     } else if (data?.totalAssetsCents !== undefined && data?.totalLiabilitiesCents !== undefined) {
-      message = '**Balance Sheet**\n';
+      message = `${t('skill.hdr_balance_sheet')}\n`;
       message += `\n${t('skill.report_assets', { amount: tenantMoney(data.totalAssetsCents) })}`;
       message += `\n${t('skill.report_liabilities', { amount: tenantMoney(data.totalLiabilitiesCents) })}`;
       message += `\n${t('skill.report_equity', { amount: tenantMoney((data.totalAssetsCents - data.totalLiabilitiesCents)) })}`;
 
     // Cashflow projection
     } else if (data?.currentBalanceCents !== undefined && data?.projections) {
-      message = '**Cash Flow Projection**\n';
+      message = `${t('skill.hdr_cash_flow')}\n`;
       message += `\n${t('skill.report_current_cash', { amount: tenantMoney(data.currentBalanceCents) })}`;
       if (data.outstandingInvoicesCents) message += `\n${t('skill.report_outstanding_invoices', { amount: tenantMoney(data.outstandingInvoicesCents) })}`;
       if (data.recurringExpensesCents) message += `\n${t('skill.report_monthly_recurring', { amount: tenantMoney(data.recurringExpensesCents) })}`;
@@ -6161,7 +6161,7 @@ Only include chartData if visualization adds value. Keep the answer under 200 wo
     // Financial snapshot
     } else if (data?.snapshot || (data?.cashBalanceCents !== undefined && data?.revenueThisMonthCents !== undefined)) {
       const s = data.snapshot || data;
-      message = '**Financial Summary**\n';
+      message = `${t('skill.hdr_financial_summary')}\n`;
       if (s.cashBalanceCents !== undefined) message += `\n${t('skill.report_cash', { amount: tenantMoney(s.cashBalanceCents) })}`;
       if (s.revenueThisMonthCents !== undefined) message += `\n${t('skill.report_revenue_this_month', { amount: tenantMoney(s.revenueThisMonthCents) })}`;
       if (s.expensesThisMonthCents !== undefined) message += `\n${t('skill.report_expenses_this_month', { amount: tenantMoney(s.expensesThisMonthCents) })}`;
@@ -6231,7 +6231,7 @@ Only include chartData if visualization adds value. Keep the answer under 200 wo
 
     // Reconciliation summary
     } else if (data?.matched !== undefined && data?.unmatched !== undefined) {
-      message = '**Bank Reconciliation**\n';
+      message = `${t('skill.hdr_bank_reconciliation')}\n`;
       message += `\nMatched: ${data.matched} transactions`;
       message += `\nUnmatched: ${data.unmatched} transactions`;
       if (data.totalMatchedCents) message += `\n${t('skill.report_matched_amount', { amount: tenantMoney(data.totalMatchedCents) })}`;
@@ -6239,7 +6239,7 @@ Only include chartData if visualization adds value. Keep the answer under 200 wo
 
     // CPA notes
     } else if (Array.isArray(data) && data.length > 0 && data[0]?.note) {
-      message = '**CPA Notes**\n';
+      message = `${t('skill.hdr_cpa_notes')}\n`;
       for (const n of data.slice(0, 10)) {
         message += `\n\u2022 ${n.note}`;
         if (n.createdAt) message += ` _(${new Date(n.createdAt).toLocaleDateString()})_`;
@@ -6248,11 +6248,11 @@ Only include chartData if visualization adds value. Keep the answer under 200 wo
     // CPA share link
     } else if (data?.token || data?.link || data?.accessUrl) {
       const link = data.accessUrl || data.link || `Access token: ${data.token}`;
-      message = `**CPA Access Link Generated**\n\n${link}\n\nValid for ${data.expiresInDays || 30} days.`;
+      message = `${t('skill.hdr_cpa_link')}\n\n${link}\n\nValid for ${data.expiresInDays || 30} days.`;
 
     // Automations list
     } else if (Array.isArray(data) && data.length > 0 && data[0]?.trigger) {
-      message = '**Active Automations**\n';
+      message = `${t('skill.hdr_active_automations')}\n`;
       for (const a of data.slice(0, 10)) {
         const icon = a.enabled ? '\u2705' : '\u23F8\uFE0F';
         message += `\n${icon} **${a.name || a.description}**\n  When: ${a.trigger} \u2192 Then: ${a.action}`;
@@ -6260,7 +6260,7 @@ Only include chartData if visualization adds value. Keep the answer under 200 wo
 
     // Created automation
     } else if (data?.trigger && data?.action && data?.id) {
-      message = `**Automation Created**\n\nWhen: ${data.trigger}\nThen: ${data.action}`;
+      message = `${t('skill.hdr_automation_created')}\n\nWhen: ${data.trigger}\nThen: ${data.action}`;
       if (data.description) message += `\n\n${data.description}`;
 
     // Tax validation result
@@ -6290,7 +6290,7 @@ Only include chartData if visualization adds value. Keep the answer under 200 wo
 
     // Tax slips list
     } else if (Array.isArray(data) && data.length > 0 && data[0]?.slipType && data[0]?.extractedData !== undefined) {
-      message = '**Tax Slips**\n';
+      message = `${t('skill.hdr_tax_slips')}\n`;
       for (const s of data) {
         const icon = s.status === 'confirmed' ? '\u2705' : '\u{1F7E1}';
         message += `\n${icon} **${s.slipType}**${s.issuer ? ` from ${s.issuer}` : ''} [${s.status}] (${Math.round((s.confidence || 0) * 100)}% confidence)`;
