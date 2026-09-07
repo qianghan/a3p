@@ -5,6 +5,7 @@
  */
 
 import { prisma } from '../db';
+import { PublicError } from '@/lib/api-error';
 
 export type TeamRole = 'owner' | 'admin' | 'member' | 'viewer';
 
@@ -98,7 +99,7 @@ export async function createTeam(
 ): Promise<Team> {
   // Validate slug format
   if (!/^[a-z0-9-]+$/.test(data.slug)) {
-    throw new Error('Slug must contain only lowercase letters, numbers, and hyphens');
+    throw new PublicError('Slug must contain only lowercase letters, numbers, and hyphens');
   }
 
   // Check if slug is taken
@@ -107,7 +108,7 @@ export async function createTeam(
   });
 
   if (existing) {
-    throw new Error('Team slug is already taken');
+    throw new PublicError('Team slug is already taken');
   }
 
   // Create team with owner membership
@@ -235,7 +236,7 @@ export async function updateTeam(
   // Check permission
   const member = await getTeamMember(teamId, userId);
   if (!member || !hasRolePermission(member.role as TeamRole, 'admin')) {
-    throw new Error('Only admins can update team settings');
+    throw new PublicError('Only admins can update team settings');
   }
 
   const team = await prisma.team.update({
@@ -261,11 +262,11 @@ export async function updateTeam(
 export async function deleteTeam(teamId: string, userId: string): Promise<void> {
   const team = await getTeam(teamId);
   if (!team) {
-    throw new Error('Team not found');
+    throw new PublicError('Team not found');
   }
 
   if (team.ownerId !== userId) {
-    throw new Error('Only the owner can delete the team');
+    throw new PublicError('Only the owner can delete the team');
   }
 
   await prisma.team.delete({
@@ -311,12 +312,12 @@ export async function inviteMember(
   // Check permission
   const inviter = await getTeamMember(teamId, invitedBy);
   if (!inviter || !hasRolePermission(inviter.role as TeamRole, 'admin')) {
-    throw new Error('Only admins can invite members');
+    throw new PublicError('Only admins can invite members');
   }
 
   // Cannot invite as owner
   if (data.role === 'owner') {
-    throw new Error('Cannot invite someone as owner');
+    throw new PublicError('Cannot invite someone as owner');
   }
 
   // Find user by email
@@ -325,13 +326,13 @@ export async function inviteMember(
   });
 
   if (!user) {
-    throw new Error('User not found. They must register first.');
+    throw new PublicError('User not found. They must register first.');
   }
 
   // Check if already a member
   const existing = await getTeamMember(teamId, user.id);
   if (existing) {
-    throw new Error('User is already a member of this team');
+    throw new PublicError('User is already a member of this team');
   }
 
   // Create membership
@@ -371,23 +372,23 @@ export async function updateMemberRole(
   });
 
   if (!member) {
-    throw new Error('Member not found');
+    throw new PublicError('Member not found');
   }
 
   // Check permission
   const updater = await getTeamMember(member.teamId, updatedBy);
   if (!updater || !hasRolePermission(updater.role as TeamRole, 'admin')) {
-    throw new Error('Only admins can update member roles');
+    throw new PublicError('Only admins can update member roles');
   }
 
   // Cannot change owner role
   if (member.role === 'owner') {
-    throw new Error('Cannot change owner role. Use transfer ownership instead.');
+    throw new PublicError('Cannot change owner role. Use transfer ownership instead.');
   }
 
   // Cannot promote to owner
   if (newRole === 'owner') {
-    throw new Error('Cannot promote to owner. Use transfer ownership instead.');
+    throw new PublicError('Cannot promote to owner. Use transfer ownership instead.');
   }
 
   const updated = await prisma.teamMember.update({
@@ -420,18 +421,18 @@ export async function removeMember(
   });
 
   if (!member) {
-    throw new Error('Member not found');
+    throw new PublicError('Member not found');
   }
 
   // Check permission
   const remover = await getTeamMember(member.teamId, removedBy);
   if (!remover || !hasRolePermission(remover.role as TeamRole, 'admin')) {
-    throw new Error('Only admins can remove members');
+    throw new PublicError('Only admins can remove members');
   }
 
   // Cannot remove owner
   if (member.role === 'owner') {
-    throw new Error('Cannot remove the owner');
+    throw new PublicError('Cannot remove the owner');
   }
 
   await prisma.teamMember.delete({
@@ -449,17 +450,17 @@ export async function transferOwnership(
 ): Promise<void> {
   const team = await getTeam(teamId);
   if (!team) {
-    throw new Error('Team not found');
+    throw new PublicError('Team not found');
   }
 
   if (team.ownerId !== currentOwnerId) {
-    throw new Error('Only the current owner can transfer ownership');
+    throw new PublicError('Only the current owner can transfer ownership');
   }
 
   // Check if new owner is a member
   const newOwnerMember = await getTeamMember(teamId, newOwnerId);
   if (!newOwnerMember) {
-    throw new Error('New owner must be a team member');
+    throw new PublicError('New owner must be a team member');
   }
 
   // Transfer ownership in a transaction
@@ -496,16 +497,16 @@ export async function validateTeamAccess(
 ): Promise<{ team: Team; member: TeamMember }> {
   const team = await getTeam(teamId);
   if (!team) {
-    throw new Error('Team not found');
+    throw new PublicError('Team not found');
   }
 
   const member = await getTeamMember(teamId, userId);
   if (!member) {
-    throw new Error('Not a member of this team');
+    throw new PublicError('Not a member of this team');
   }
 
   if (!hasRolePermission(member.role as TeamRole, requiredRole)) {
-    throw new Error(`Requires ${requiredRole} role or higher`);
+    throw new PublicError(`Requires ${requiredRole} role or higher`);
   }
 
   return { team, member };

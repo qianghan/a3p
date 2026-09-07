@@ -9,6 +9,7 @@ import { validateSession } from '@/lib/api/auth';
 import { createTeam, getUserTeams } from '@/lib/api/teams';
 import { success, errors, getAuthToken } from '@/lib/api/response';
 import { validateCSRF } from '@/lib/api/csrf';
+import { publicErrorMessage } from '@/lib/api-error';
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
   try {
@@ -73,9 +74,9 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     const message = err instanceof Error ? err.message : 'Failed to create team';
 
     if (message.includes('already taken')) {
-      return errors.conflict(message);
+      return errors.conflict(publicErrorMessage(err));
     }
 
-    return errors.badRequest(message);
+    return errors.badRequest(publicErrorMessage(err));
   }
 }

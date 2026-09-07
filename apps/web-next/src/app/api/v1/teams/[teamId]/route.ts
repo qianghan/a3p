@@ -10,6 +10,7 @@ import { validateSession } from '@/lib/api/auth';
 import { getTeam, getTeamMember, updateTeam, deleteTeam } from '@/lib/api/teams';
 import { success, errors, getAuthToken } from '@/lib/api/response';
 import { validateCSRF } from '@/lib/api/csrf';
+import { publicErrorMessage } from '@/lib/api-error';
 
 interface RouteParams {
   params: Promise<{ teamId: string }>;
@@ -81,8 +82,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams): Promis
 
     return success({ team });
   } catch (err) {
-    const message = err instanceof Error ? err.message : 'Failed to update team';
-    return errors.badRequest(message);
+    return errors.badRequest(publicErrorMessage(err));
   }
 }
 
@@ -110,7 +110,6 @@ export async function DELETE(request: NextRequest, { params }: RouteParams): Pro
 
     return success({ message: 'Team deleted' });
   } catch (err) {
-    const message = err instanceof Error ? err.message : 'Failed to delete team';
-    return errors.badRequest(message);
+    return errors.badRequest(publicErrorMessage(err));
   }
 }
