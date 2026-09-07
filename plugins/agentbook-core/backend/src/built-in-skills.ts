@@ -51,8 +51,17 @@ export const BUILT_IN_SKILLS = [
   },
   {
     name: 'record-expense', description: 'Record a business or personal expense', category: 'bookkeeping',
-    triggerPatterns: ['\\$\\d', 'spent ', 'paid ', 'bought ', 'purchased '],
-    requirePatterns: ['\\$\\s*[\\d,]+\\.?\\d{0,2}|\\d+\\s*(?:dollars|bucks)|(?:spent|paid|bought|purchased|cost)\\s+\\$?[\\d,]+\\.?\\d{0,2}'],
+    triggerPatterns: [
+      // Chinese. Same manifest mechanism English uses — see
+      // chinese-skill-routing.test.ts for why not a translation pre-pass.
+      '^\\s*(?:记录|记一笔)[^。？?]{0,20}?\\d',
+      '(?:花了|花费|付了|支付|买了|消费)[^。？?]{0,12}?\\d[\\d,.]*\\s*(?:元|块钱|块|圆)',
+'\\$\\d', 'spent ', 'paid ', 'bought ', 'purchased '],
+    requirePatterns: [// requirePatterns uses allMatch, so this stays ONE alternation rather than
+      // a second entry (which would require BOTH to match). Widened with the
+      // Chinese verb+number — 记录 42 / 花了 88 — because a Chinese amount
+      // could otherwise never satisfy the guard, no matter the trigger.
+      '\\$\\s*[\\d,]+\\.?\\d{0,2}|\\d+\\s*(?:dollars|bucks)|(?:spent|paid|bought|purchased|cost)\\s+\\$?[\\d,]+\\.?\\d{0,2}|(?:记录|记一笔|花了|花费|付了|支付|买了|消费)[^。？?]{0,12}?[\\d,]+'],
     // F4-03: '^invoice\\s' only caught the word at message start, so
     // "send an invoice to Acme for $500" / "I need to invoice Acme Corp
     // $500" fell through to record-expense's generic failure instead of
@@ -89,6 +98,12 @@ export const BUILT_IN_SKILLS = [
   {
     name: 'query-expenses', description: 'Query, search, list, or ask questions about expenses, spending, or vendors', category: 'bookkeeping',
     triggerPatterns: [
+      // Chinese. Same manifest mechanism English uses — see
+      // chinese-skill-routing.test.ts for why not a translation pre-pass.
+      '(?:我|本月|这个月|上个月|今年|去年|本季度)[^。？?！!]{0,14}(?:花了|花费|支出|开支)',
+      '(?:显示|列出|查一下|给我看)[^。？?！!]{0,10}(?:支出|开支|花费)',
+      '支出(?:是多少|总额|情况)',
+
       'show.*expense', 'list.*expense', 'last \\d+ expense', 'how much.*spen', 'recent expense',
       'summary.*expense', 'expense.*summary', 'expense.*overview', 'spending.*summary',
       'top.*spend', 'spend.*most', 'most.*spend', 'biggest.*spend', 'highest.*spend',
@@ -155,7 +170,12 @@ export const BUILT_IN_SKILLS = [
   },
   {
     name: 'create-invoice', description: 'Create an invoice for a client', category: 'invoicing',
-    triggerPatterns: [CREATE_INVOICE_TRIGGER_PATTERN],
+    triggerPatterns: [
+      // Chinese. Same manifest mechanism English uses — see
+      // chinese-skill-routing.test.ts for why not a translation pre-pass.
+      '(?:开|创建|生成)(?:一张)?[^。？?]{0,24}?(?:发票|账单)',
+      '给[^。？?]{0,20}?开[^。？?]{0,12}?发票',
+CREATE_INVOICE_TRIGGER_PATTERN],
     excludePatterns: INVOICE_PAID_TRIGGER_PATTERNS,
     parameters: { clientName: { type: 'string', required: true }, amountCents: { type: 'number', required: true }, description: { type: 'string', required: false, default: 'Services' } },
     endpoint: { method: 'POST', url: '/api/v1/agentbook-invoice/invoices' },
@@ -177,7 +197,12 @@ export const BUILT_IN_SKILLS = [
   },
   {
     name: 'expense-breakdown', description: 'Show spending breakdown by category as a chart', category: 'insights',
-    triggerPatterns: ['breakdown', 'categor.*chart', 'pie chart', 'bar chart', 'spending chart'],
+    triggerPatterns: [
+      // Chinese. Same manifest mechanism English uses — see
+      // chinese-skill-routing.test.ts for why not a translation pre-pass.
+      '(?:支出|开支|费用)[^。？?]{0,6}(?:分类|明细|构成|breakdown)',
+      '分类明细',
+'breakdown', 'categor.*chart', 'pie chart', 'bar chart', 'spending chart'],
     parameters: { chartType: { type: 'string', required: false, default: 'bar' } },
     endpoint: { method: 'GET', url: '/api/v1/agentbook-expense/advisor/chart', queryParams: ['startDate', 'endDate', 'chartType'] },
   },
@@ -265,7 +290,12 @@ export const BUILT_IN_SKILLS = [
   },
   {
     name: 'aging-report', description: 'Show accounts receivable aging — who owes money and how overdue', category: 'invoicing',
-    triggerPatterns: ['aging', 'who.*owe', 'accounts.*receivable', 'ar report', 'overdue.*client', 'owe.*money'],
+    triggerPatterns: [
+      // Chinese. Same manifest mechanism English uses — see
+      // chinese-skill-routing.test.ts for why not a translation pre-pass.
+      '(?:谁欠我|欠我钱|欠我多少)',
+      '(?:未付|逾期|拖欠)(?:的)?(?:发票|账单|款项)',
+'aging', 'who.*owe', 'accounts.*receivable', 'ar report', 'overdue.*client', 'owe.*money'],
     parameters: {},
     endpoint: { method: 'GET', url: '/api/v1/agentbook-invoice/aging-report' },
   },
@@ -354,7 +384,11 @@ export const BUILT_IN_SKILLS = [
   },
   {
     name: 'tax-estimate', description: 'Show tax estimate — income tax, self-employment tax, effective rate', category: 'tax',
-    triggerPatterns: ['tax.*estimate', 'how much.*tax', 'tax.*owe', 'tax.*situation', 'tax.*liability'],
+    triggerPatterns: [
+      // Chinese. Same manifest mechanism English uses — see
+      // chinese-skill-routing.test.ts for why not a translation pre-pass.
+      '(?:预留|要交|需要交|应缴)[^。？?]{0,10}?(?:多少)?[^。？?]{0,6}?税(?:款|额)?',
+'tax.*estimate', 'how much.*tax', 'tax.*owe', 'tax.*situation', 'tax.*liability'],
     parameters: { period: { type: 'string', required: false, default: 'ytd' } },
     endpoint: { method: 'GET', url: '/api/v1/agentbook-tax/tax/estimate', queryParams: ['startDate', 'endDate'] },
   },
