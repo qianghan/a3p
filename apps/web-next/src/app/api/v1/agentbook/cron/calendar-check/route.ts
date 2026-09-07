@@ -14,6 +14,7 @@ import { reportError } from '@/lib/logger';
 import { createNotification } from '@/lib/notifications';
 import { usPack, caPack, ukPack, auPack, type JurisdictionPack } from '@agentbook/jurisdictions';
 import { ANNUAL_FILING_DEADLINE_KEYS } from '@/lib/tax-fast-track/deadline-keys';
+import { requireCronSecret } from '@/lib/cron-auth';
 
 const PACKS: Record<string, JurisdictionPack> = { us: usPack, ca: caPack, uk: ukPack, au: auPack };
 const SEED_SOURCE = 'calendar-deadlines-seed';
@@ -77,10 +78,8 @@ async function seedDeadlinesForTenant(tenantId: string, jurisdiction: string, re
 }
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
-  const authHeader = request.headers.get('authorization');
-  if (process.env.CRON_SECRET && authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
+  const unauthorized = requireCronSecret(request);
+  if (unauthorized) return unauthorized;
 
   try {
     const now = new Date();

@@ -18,12 +18,12 @@
  */
 
 import 'server-only';
-import { timingSafeEqual } from 'node:crypto';
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma as db } from '@naap/database';
 import { sendToAllChannels } from '@/lib/agentbook-chat-adapter';
 import { sendPush } from '@/lib/web-push-send';
 import { reportError } from '@/lib/logger';
+import { requireCronSecret } from '@/lib/cron-auth';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -42,13 +42,6 @@ interface Alert {
   message: string;
 }
 
-function safeCompareBearer(provided: string | null, expected: string): boolean {
-  if (!provided) return false;
-  const a = Buffer.from(provided);
-  const b = Buffer.from(`Bearer ${expected}`);
-  if (a.length !== b.length) return false;
-  return timingSafeEqual(a, b);
-}
 
 function formatCents(cents: number): string {
   return `$${(cents / 100).toFixed(2)}`;
@@ -230,13 +223,8 @@ function formatAlert(alert: Alert): string {
 }
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
-  const authHeader = request.headers.get('authorization');
-  if (
-    process.env.CRON_SECRET &&
-    !safeCompareBearer(authHeader, process.env.CRON_SECRET)
-  ) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
+  const unauthorized = requireCronSecret(request);
+  if (unauthorized) return unauthorized;
 
   try {
     const tenants = await db.abTenantConfig.findMany({ select: { userId: true, pushSubscription: true } });

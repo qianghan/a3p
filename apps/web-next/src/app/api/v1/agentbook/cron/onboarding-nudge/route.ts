@@ -23,11 +23,11 @@
  */
 
 import 'server-only';
-import { timingSafeEqual } from 'node:crypto';
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma as db } from '@naap/database';
 import { sendToAllChannels } from '@/lib/agentbook-chat-adapter';
 import { reportError } from '@/lib/logger';
+import { requireCronSecret } from '@/lib/cron-auth';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -57,13 +57,6 @@ const STEP_LABELS: Record<string, string> = {
   telegram: 'connecting Telegram for on-the-go control',
 };
 
-function safeCompareBearer(provided: string | null, expected: string): boolean {
-  if (!provided) return false;
-  const a = Buffer.from(provided);
-  const b = Buffer.from(`Bearer ${expected}`);
-  if (a.length !== b.length) return false;
-  return timingSafeEqual(a, b);
-}
 
 function nextStepFor(completedSteps: string[]): { stepId: string; label: string } | null {
   const done = new Set(completedSteps);
@@ -82,12 +75,8 @@ function buildMessage(completed: number, total: number, nextLabel: string): stri
 }
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
-  if (
-    process.env.CRON_SECRET &&
-    !safeCompareBearer(request.headers.get('authorization'), process.env.CRON_SECRET)
-  ) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
+  const unauthorized = requireCronSecret(request);
+  if (unauthorized) return unauthorized;
 
   try {
     const now = new Date();

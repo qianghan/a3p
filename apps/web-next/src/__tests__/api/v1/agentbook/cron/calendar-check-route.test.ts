@@ -31,8 +31,10 @@ vi.mock('@/lib/logger', () => ({ reportError: (...a: unknown[]) => reportError(.
 vi.mock('@/lib/notifications', () => ({ createNotification: (...a: unknown[]) => createNotification(...a) }));
 
 import { GET } from '@/app/api/v1/agentbook/cron/calendar-check/route';
+import { cronRequest, unauthenticatedCronRequest, setCronSecret, clearCronSecret, CRON_TEST_SECRET } from '../../../../helpers/cron-request';
 
 beforeEach(() => {
+    setCronSecret();
   abTenantConfigFindMany.mockReset(); abCalendarEventFindMany.mockReset();
   abCalendarEventCreateMany.mockReset(); abCalendarEventUpdate.mockReset();
   abEventCreate.mockReset(); reportError.mockReset(); createNotification.mockReset();
@@ -49,8 +51,13 @@ beforeEach(() => {
 });
 
 function req() {
-  return new NextRequest('http://x/api/v1/agentbook/cron/calendar-check');
-}
+    return cronRequest('http://x/api/v1/agentbook/cron/calendar-check');
+  }
+
+  /** Unauthenticated — the guard must refuse this. */
+  function reqNoAuth() {
+    return unauthenticatedCronRequest('http://x/api/v1/agentbook/cron/calendar-check');
+  }
 
 describe('GET /api/v1/agentbook/cron/calendar-check', () => {
   it('seeds AbCalendarEvent rows for every jurisdiction (us/ca/uk/au) without a schema-validation crash', async () => {
@@ -124,7 +131,7 @@ describe('GET /api/v1/agentbook/cron/calendar-check', () => {
     const prevSecret = process.env.CRON_SECRET;
     process.env.CRON_SECRET = 'test-secret';
     try {
-      const r = await GET(req());
+      const r = await GET(reqNoAuth());
       expect(r.status).toBe(401);
     } finally {
       if (prevSecret === undefined) delete process.env.CRON_SECRET;

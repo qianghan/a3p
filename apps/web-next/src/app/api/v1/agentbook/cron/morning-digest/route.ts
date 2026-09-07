@@ -26,6 +26,7 @@ import {
 import { reportError } from '@/lib/logger';
 import { sendToAllChannels } from '@/lib/agentbook-chat-adapter';
 import { resolveOutboundLocale, outMoney, OUTBOUND_FALLBACK, type OutboundLocale } from '@/lib/agentbook-outbound-format';
+import { requireCronSecret } from '@/lib/cron-auth';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -885,10 +886,8 @@ async function sendDeductionMessages(
 }
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
-  const auth = request.headers.get('authorization');
-  if (process.env.CRON_SECRET && auth !== `Bearer ${process.env.CRON_SECRET}`) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
+  const unauthorized = requireCronSecret(request);
+  if (unauthorized) return unauthorized;
 
   // Auto-enable digest for tenants who have a Telegram bot connected but
   // haven't explicitly opted in — better default for daily-driver users.

@@ -48,6 +48,7 @@ vi.mock('@/lib/logger', () => ({
 }));
 
 import { GET } from '@/app/api/v1/agentbook/cron/personal-finance-nudge-check/route';
+import { cronRequest, unauthenticatedCronRequest, setCronSecret, clearCronSecret, CRON_TEST_SECRET } from '../../../../helpers/cron-request';
 
 const TENANT = 'tenant-1';
 
@@ -83,6 +84,7 @@ function utcDateForLocalHour(zone: string, localHour: number): Date {
 
 describe('GET /api/v1/agentbook/cron/personal-finance-nudge-check', () => {
   beforeEach(() => {
+    setCronSecret();
     billAddOnSubscriptionFindMany.mockReset();
     abTenantConfigFindUnique.mockReset();
     abPersonalNudgeLogDeleteMany.mockReset();
@@ -100,7 +102,11 @@ describe('GET /api/v1/agentbook/cron/personal-finance-nudge-check', () => {
     createNotification.mockResolvedValue({});
     resolvePreference.mockResolvedValue({ inApp: true, email: true });
 
-    delete process.env.CRON_SECRET;
+    // Was `delete process.env.CRON_SECRET` — which reached the handler only
+    // because the guard was fail-open. The guard is fail-closed now, so the
+    // suite authenticates like a real cron invocation; the tests that assert a
+    // 401 set their own secret and send a wrong or absent bearer.
+    setCronSecret();
     vi.useRealTimers();
   });
 
@@ -119,7 +125,7 @@ describe('GET /api/v1/agentbook/cron/personal-finance-nudge-check', () => {
       },
     ]);
 
-    const r = await GET(req());
+    const r = await GET(reqWithAuth(CRON_TEST_SECRET));
     expect(r.status).toBe(200);
     const j = await r.json();
     expect(j.nudgesFired).toBe(1);
@@ -146,7 +152,7 @@ describe('GET /api/v1/agentbook/cron/personal-finance-nudge-check', () => {
     vi.useFakeTimers();
     vi.setSystemTime(now);
 
-    const r = await GET(req());
+    const r = await GET(reqWithAuth(CRON_TEST_SECRET));
     expect(r.status).toBe(200);
     const j = await r.json();
     expect(j.checked).toBe(0);
@@ -196,7 +202,7 @@ describe('GET /api/v1/agentbook/cron/personal-finance-nudge-check', () => {
       },
     ]);
 
-    const r = await GET(req('?hour=now'));
+    const r = await GET(reqWithAuth(CRON_TEST_SECRET, '?hour=now'));
     expect(r.status).toBe(200);
     const j = await r.json();
     expect(j.checked).toBe(1);
@@ -215,7 +221,7 @@ describe('GET /api/v1/agentbook/cron/personal-finance-nudge-check', () => {
     vi.useFakeTimers();
     vi.setSystemTime(now);
 
-    const r = await GET(req());
+    const r = await GET(reqWithAuth(CRON_TEST_SECRET));
     expect(r.status).toBe(200);
     const j = await r.json();
     expect(j.checked).toBe(1); // reached the check, i.e. fell back correctly and matched local hour 9
@@ -238,7 +244,7 @@ describe('GET /api/v1/agentbook/cron/personal-finance-nudge-check', () => {
       },
     ]);
 
-    const r = await GET(req());
+    const r = await GET(reqWithAuth(CRON_TEST_SECRET));
     const j = await r.json();
     // Both channels succeed (default mocks), so the route should never touch
     // AbPersonalNudgeLog — the compensating delete only fires when delivery
@@ -269,7 +275,7 @@ describe('GET /api/v1/agentbook/cron/personal-finance-nudge-check', () => {
     sendToAllChannels.mockRejectedValue(new Error('telegram down'));
     createNotification.mockRejectedValue(new Error('db write failed'));
 
-    const r = await GET(req());
+    const r = await GET(reqWithAuth(CRON_TEST_SECRET));
     expect(r.status).toBe(200);
     const j = await r.json();
     expect(j.nudgesFired).toBe(0);
@@ -301,7 +307,7 @@ describe('GET /api/v1/agentbook/cron/personal-finance-nudge-check', () => {
     sendToAllChannels.mockRejectedValue(new Error('telegram down'));
     // createNotification still succeeds (default mock).
 
-    const r = await GET(req());
+    const r = await GET(reqWithAuth(CRON_TEST_SECRET));
     expect(r.status).toBe(200);
     const j = await r.json();
     expect(j.nudgesFired).toBe(1);
@@ -328,7 +334,7 @@ describe('GET /api/v1/agentbook/cron/personal-finance-nudge-check', () => {
     ]);
     resolvePreference.mockResolvedValue({ inApp: false, email: false }); // fully opted out
 
-    const r = await GET(req());
+    const r = await GET(reqWithAuth(CRON_TEST_SECRET));
     expect(r.status).toBe(200);
     const j = await r.json();
 
@@ -357,7 +363,7 @@ describe('GET /api/v1/agentbook/cron/personal-finance-nudge-check', () => {
     ]);
     resolvePreference.mockResolvedValue({ inApp: true, email: true });
 
-    const r = await GET(req());
+    const r = await GET(reqWithAuth(CRON_TEST_SECRET));
     expect(r.status).toBe(200);
     expect(sendToAllChannels).toHaveBeenCalledWith(TENANT, "You've spent 80% of your Dining budget this month.");
 
