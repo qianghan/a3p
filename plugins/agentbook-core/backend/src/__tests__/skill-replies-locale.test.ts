@@ -116,6 +116,13 @@ describe('every skill.* key the reply path asks for exists', () => {
       '**Profit: ',
       '\\nMatched Amount: ',
       '\\nUnmatched Amount: ',
+      // Section headers.
+      "message = '**Balance Sheet**",
+      "message = '**Profit & Loss**",
+      "message = '**Tax Estimate**",
+      "message = '**Bank Reconciliation**",
+      "message = '**Cash Flow Projection**",
+      "message = '**Accounts Receivable Aging**",
     ]) {
       expect(stripped, gone).not.toContain(gone);
     }
@@ -210,6 +217,34 @@ describe('the balance sheet and cash flow labels', () => {
       const out = t(key, { amount: '$1.00', count: 1 });
       expect(out, key).not.toBe(key);
       expect(out.length, key).toBeGreaterThan(2);
+    }
+  });
+});
+
+describe('the report headers', () => {
+  it('name the report in each language', () => {
+    expect(replyT({ locale: 'fr-CA' })('skill.hdr_pnl')).toBe('**État des résultats**');
+    expect(replyT({ locale: 'fr-CA' })('skill.hdr_balance_sheet')).toBe('**Bilan**');
+    expect(replyT({ locale: 'zh-CN' })('skill.hdr_cash_flow')).toBe('**现金流预测**');
+  });
+
+  it('uses the accounting term, not a literal gloss', () => {
+    // "Profit & Loss" is "État des résultats" in Québec accounting, not
+    // "Profit et perte"; "Accounts Receivable Aging" is "Âge des comptes
+    // clients". A literal translation reads as machine output to an
+    // accountant.
+    const fr = replyT({ locale: 'fr-CA' });
+    expect(fr('skill.hdr_pnl')).not.toContain('Profit');
+    expect(fr('skill.hdr_ar_aging')).toContain('comptes clients');
+    expect(fr('skill.hdr_quarterly_tax')).toContain('Acomptes provisionnels');
+  });
+
+  it('keeps every header bold', () => {
+    for (const loc of ['en-US', 'fr-CA', 'zh-CN']) {
+      for (const k of ['hdr_pnl', 'hdr_balance_sheet', 'hdr_tax_slips', 'hdr_unbilled_time']) {
+        const out = replyT({ locale: loc })(`skill.${k}`);
+        expect(out.startsWith('**') && out.endsWith('**'), `${loc} ${k}: ${out}`).toBe(true);
+      }
     }
   });
 });
