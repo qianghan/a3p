@@ -31,6 +31,7 @@ function stripComments(src: string): string {
 
 const BRAIN = 'plugins/agentbook-core/backend/src/agent-brain.ts';
 const MCP = 'apps/web-next/src/app/api/v1/mcp/route.ts';
+const CORE = 'plugins/agentbook-core/backend/src/server.ts';
 
 describe('the chat reply never carries a raw error message', () => {
   it('the correction reply does not interpolate the local failure', () => {
@@ -45,6 +46,19 @@ describe('the chat reply never carries a raw error message', () => {
   it('the local failure is still logged, so this is not a loss of diagnosability', () => {
     const src = stripComments(read(BRAIN));
     expect(src).toMatch(/console\.error\('\[agent-brain\] correction execution failed:'[\s\S]{0,80}failure/);
+  });
+
+  it('the skill-failure detail on the main write path is the sanitized HTTP field only', () => {
+    const src = stripComments(read(CORE));
+    // `errorDetail` is rendered to the user as `Error: <detail>` in the
+    // record-expense, create-invoice and record-personal-transaction replies
+    // -- the most-used write paths. It fell back to the local catch's raw
+    // message, so a fetch failure surfaced as
+    // "Error: connect ECONNREFUSED 127.0.0.1:4051".
+    expect(src).toContain("const errorDetail = skillResponse?.error || '';");
+    expect(src).not.toMatch(/errorDetail\s*=\s*skillResponse\?\.error \|\| skillErrorMessage/);
+    // The variable is gone entirely; console.error above logs the full error.
+    expect(src).not.toContain('skillErrorMessage');
   });
 
   it('the undo path stays generic too (it was already correct)', () => {
