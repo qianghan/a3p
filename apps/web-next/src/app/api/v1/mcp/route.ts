@@ -5,7 +5,7 @@ import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/
 import { z } from 'zod';
 import { authenticateMcpRequest } from '@/lib/mcp/authenticate-mcp-request';
 import { isMcpEnabled } from '@/lib/mcp/mcp-flag';
-import { callAgentBrain } from '@/lib/mcp/ask-agentbook-tool';
+import { callAgentBrain, AgentBrainError } from '@/lib/mcp/ask-agentbook-tool';
 import { nodeRequestResponseFromWeb } from '@/lib/mcp/node-web-adapter';
 import { checkRateLimit } from '@/lib/mcp/rate-limit';
 import { type McpSession, resolveSessionForRequest, sessions } from './session-store';
@@ -78,10 +78,21 @@ function registerAskAgentbookTool(server: McpServer, tenantId: string): void {
 
         return { content: [{ type: 'text', text: result.data.message }] };
       } catch (err) {
-        // AgentBrainError's message is already safe to surface (no stack
-        // traces/internal URLs); the correlationId is logged server-side
-        // (Task 7's callAgentBrain), not sent to the client.
-        const errMessage = err instanceof Error ? err.message : 'AgentBook is temporarily unavailable.';
+        // AgentBrainError's message is written for the caller and is safe to
+        // surface; the correlationId is logged server-side (callAgentBrain),
+        // not sent to the client.
+        //
+        // Everything else is not. This used to read `err instanceof Error ?
+        // err.message : ...`, which is any Error, not this one: callAgentBrain
+        // converts its own failures into AgentBrainError, but a TypeError or a
+        // database error thrown elsewhere in this block reached the MCP client
+        // with its raw text. The comment described the intent; the code did not
+        // enforce it.
+        if (!(err instanceof AgentBrainError)) {
+          console.error('[mcp] tool call failed', err);
+        }
+        const errMessage =
+          err instanceof AgentBrainError ? err.message : 'AgentBook is temporarily unavailable.';
         return { content: [{ type: 'text', text: errMessage }], isError: true };
       }
     },
