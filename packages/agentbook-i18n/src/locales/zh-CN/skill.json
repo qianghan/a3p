@@ -33,5 +33,21 @@
   "report_quarter_due": "第 {quarter} 季度：{amount}",
   "report_quarter_paid": "（已付：{amount}）",
   "report_total_due_paid": "应付合计：{due} | 已付：{paid}",
-  "report_total_unbilled": "**未开票合计：**{amount}"
+  "report_total_unbilled": "**未开票合计：**{amount}",
+  "report_assets": "资产：{amount}",
+  "report_liabilities": "负债：{amount}",
+  "report_equity": "**权益：{amount}**",
+  "report_current_cash": "当前现金：{amount}",
+  "report_outstanding_invoices": "未收款发票：{amount}",
+  "report_monthly_recurring": "每月经常性支出：{amount}",
+  "report_projection_days": "  {days} 天后：{amount}",
+  "report_cash": "现金：{amount}",
+  "report_revenue_this_month": "本月收入：{amount}",
+  "report_expenses_this_month": "本月支出：{amount}",
+  "report_profit": "**利润：{amount}**",
+  "report_matched": "已匹配：{count}",
+  "report_unmatched": "未匹配：{count}",
+  "report_matched_amount": "已匹配金额：{amount}",
+  "report_unmatched_amount": "未匹配金额：{amount}",
+  "report_total_outstanding": "**未收款合计：**{amount}"
 }

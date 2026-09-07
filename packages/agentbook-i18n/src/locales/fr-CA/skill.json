@@ -33,5 +33,21 @@
   "report_quarter_due": "T{quarter} : {amount}",
   "report_quarter_paid": " (payé : {amount})",
   "report_total_due_paid": "Total dû : {due} | Payé : {paid}",
-  "report_total_unbilled": "**Total non facturé :** {amount}"
+  "report_total_unbilled": "**Total non facturé :** {amount}",
+  "report_assets": "Actifs : {amount}",
+  "report_liabilities": "Passifs : {amount}",
+  "report_equity": "**Capitaux propres : {amount}**",
+  "report_current_cash": "Encaisse actuelle : {amount}",
+  "report_outstanding_invoices": "Factures impayées : {amount}",
+  "report_monthly_recurring": "Récurrent mensuel : {amount}",
+  "report_projection_days": "  {days} jours : {amount}",
+  "report_cash": "Encaisse : {amount}",
+  "report_revenue_this_month": "Revenus (ce mois-ci) : {amount}",
+  "report_expenses_this_month": "Dépenses (ce mois-ci) : {amount}",
+  "report_profit": "**Bénéfice : {amount}**",
+  "report_matched": "Appariées : {count}",
+  "report_unmatched": "Non appariées : {count}",
+  "report_matched_amount": "Montant apparié : {amount}",
+  "report_unmatched_amount": "Montant non apparié : {amount}",
+  "report_total_outstanding": "**Total impayé :** {amount}"
 }

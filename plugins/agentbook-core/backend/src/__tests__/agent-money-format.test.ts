@@ -186,17 +186,15 @@ describe('the replies the user actually reads', () => {
       'skill.report_net_income',
       'skill.report_total_tax',
       'skill.report_effective_rate',
+      'skill.report_liabilities',
+      'skill.report_current_cash',
+      'skill.report_equity',
+      'skill.report_profit',
     ]) {
       const line = PROD.split('\n').find((l) => l.includes(key));
       expect(line, `no ${key} line found`).toBeTruthy();
       // Effective rate is a percentage, not money; every other one is money.
       if (!key.endsWith('effective_rate')) expect(line, key).toContain('tenantMoney(');
-    }
-    // Labels that have not been translated yet still carry money inline.
-    for (const label of ['Liabilities', 'Current Cash']) {
-      const line = PROD.split('\n').find((l) => l.includes(`${label}:`) && l.includes('message +='));
-      expect(line, `no ${label} line found`).toBeTruthy();
-      expect(line, label).toContain('tenantMoney(');
     }
   });
 });

@@ -33,5 +33,21 @@
   "report_quarter_due": "Q{quarter}: {amount}",
   "report_quarter_paid": " (paid: {amount})",
   "report_total_due_paid": "Total Due: {due} | Paid: {paid}",
-  "report_total_unbilled": "**Total Unbilled:** {amount}"
+  "report_total_unbilled": "**Total Unbilled:** {amount}",
+  "report_assets": "Assets: {amount}",
+  "report_liabilities": "Liabilities: {amount}",
+  "report_equity": "**Equity: {amount}**",
+  "report_current_cash": "Current Cash: {amount}",
+  "report_outstanding_invoices": "Outstanding Invoices: {amount}",
+  "report_monthly_recurring": "Monthly Recurring: {amount}",
+  "report_projection_days": "  {days} days: {amount}",
+  "report_cash": "Cash: {amount}",
+  "report_revenue_this_month": "Revenue (this month): {amount}",
+  "report_expenses_this_month": "Expenses (this month): {amount}",
+  "report_profit": "**Profit: {amount}**",
+  "report_matched": "Matched: {count}",
+  "report_unmatched": "Unmatched: {count}",
+  "report_matched_amount": "Matched Amount: {amount}",
+  "report_unmatched_amount": "Unmatched Amount: {amount}",
+  "report_total_outstanding": "**Total Outstanding:** {amount}"
 }
