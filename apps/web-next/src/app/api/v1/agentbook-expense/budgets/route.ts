@@ -12,6 +12,7 @@ import { safeResolveAgentbookTenant } from '@/lib/agentbook-tenant';
 import { audit } from '@/lib/agentbook-audit';
 import { inferSource, inferActor } from '@/lib/agentbook-audit-context';
 import { withSoftDelete, parseIncludeDeleted } from '@/lib/agentbook-soft-delete';
+import { publicErrorMessage } from '@/lib/api-error';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -31,7 +32,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   } catch (err) {
     console.error('[agentbook-expense/budgets GET] failed:', err);
     return NextResponse.json(
-      { success: false, error: err instanceof Error ? err.message : String(err) },
+      { success: false, error: publicErrorMessage(err) },
       { status: 500 },
     );
   }
@@ -120,7 +121,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   } catch (err) {
     console.error('[agentbook-expense/budgets POST] failed:', err);
     return NextResponse.json(
-      { success: false, error: err instanceof Error ? err.message : String(err) },
+      { success: false, error: publicErrorMessage(err) },
       { status: 500 },
     );
   }

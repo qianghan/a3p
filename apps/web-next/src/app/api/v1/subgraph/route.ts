@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { validateSession } from '@/lib/api/auth';
 import { getAuthToken, getClientIP } from '@/lib/api/response';
+import { PublicError } from '@/lib/api-error';
 
 const DEFAULT_SUBGRAPH_ID = 'FE63YgkzcpVocxdCEyEYbvjYqEf2kb1A6daMYRxmejYC';
 const UPSTREAM_TIMEOUT_MS = 8_000;
@@ -78,11 +79,11 @@ function validateGraphqlPayload(rawBody: string): { query: string; variables?: R
   try {
     parsed = JSON.parse(rawBody);
   } catch {
-    throw new Error('Invalid JSON body');
+    throw new PublicError('Invalid JSON body');
   }
 
   if (!parsed || typeof parsed !== 'object') {
-    throw new Error('GraphQL body must be an object');
+    throw new PublicError('GraphQL body must be an object');
   }
 
   const payload = parsed as {
@@ -92,21 +93,21 @@ function validateGraphqlPayload(rawBody: string): { query: string; variables?: R
   };
 
   if (typeof payload.query !== 'string' || payload.query.trim().length === 0) {
-    throw new Error('GraphQL query is required');
+    throw new PublicError('GraphQL query is required');
   }
 
   const query = payload.query;
   if (query.length > MAX_BODY_BYTES) {
-    throw new Error('GraphQL query is too large');
+    throw new PublicError('GraphQL query is too large');
   }
   if (query.includes('__schema') || query.includes('__type')) {
-    throw new Error('Introspection queries are not allowed');
+    throw new PublicError('Introspection queries are not allowed');
   }
   if (/\bmutation\b/i.test(query) || /\bsubscription\b/i.test(query)) {
-    throw new Error('Only query operations are allowed');
+    throw new PublicError('Only query operations are allowed');
   }
   if (getQueryDepth(query) > MAX_QUERY_DEPTH) {
-    throw new Error('GraphQL query depth exceeds limit');
+    throw new PublicError('GraphQL query depth exceeds limit');
   }
 
   let operationName: string | undefined;
@@ -117,17 +118,17 @@ function validateGraphqlPayload(rawBody: string): { query: string; variables?: R
     if (match) operationName = match[1];
   }
   if (!operationName || !ALLOWED_OPERATION_NAMES.has(operationName)) {
-    throw new Error('Operation is not allowed');
+    throw new PublicError('Operation is not allowed');
   }
 
   let variables: Record<string, unknown> | undefined;
   if (payload.variables != null) {
     if (typeof payload.variables !== 'object' || Array.isArray(payload.variables)) {
-      throw new Error('GraphQL variables must be an object');
+      throw new PublicError('GraphQL variables must be an object');
     }
     const variablesString = JSON.stringify(payload.variables);
     if (variablesString.length > MAX_VARIABLES_BYTES) {
-      throw new Error('GraphQL variables exceed size limit');
+      throw new PublicError('GraphQL variables exceed size limit');
     }
     variables = payload.variables as Record<string, unknown>;
   }

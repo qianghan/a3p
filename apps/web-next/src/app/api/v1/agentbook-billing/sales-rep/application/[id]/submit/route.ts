@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { signAndSubmitApplication } from '@/lib/billing/sales-rep-contract';
 import { safeResolveAgentbookTenant } from '@/lib/agentbook-tenant';
+import { publicErrorMessage } from '@/lib/api-error';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -33,7 +34,7 @@ export async function POST(
     return NextResponse.json({ success: true, data: result });
   } catch (err) {
     return NextResponse.json(
-      { success: false, error: err instanceof Error ? err.message : String(err) },
+      { success: false, error: publicErrorMessage(err) },
       { status: 400 },
     );
   }

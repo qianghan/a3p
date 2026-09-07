@@ -4,6 +4,7 @@
  * is unset (so production-like configs without the secret are inert).
  */
 import { NextRequest, NextResponse } from 'next/server';
+import { publicErrorMessage } from '@/lib/api-error';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -49,7 +50,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   } catch (err) {
     console.error('[reset-e2e-user] failed:', err);
     return NextResponse.json(
-      { ok: false, error: err instanceof Error ? err.message : String(err) },
+      { ok: false, error: publicErrorMessage(err) },
       { status: 500 }
     );
   }

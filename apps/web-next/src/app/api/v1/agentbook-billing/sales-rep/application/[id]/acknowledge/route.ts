@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { setApplicationAcknowledgment } from '@/lib/billing/sales-rep-contract';
 import { safeResolveAgentbookTenant } from '@/lib/agentbook-tenant';
 import type { LiabilitySectionKey } from '@/lib/billing/sales-rep-contract-templates';
+import { publicErrorMessage } from '@/lib/api-error';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -50,7 +51,7 @@ export async function PATCH(
     return NextResponse.json({ success: true, data: { application } });
   } catch (err) {
     return NextResponse.json(
-      { success: false, error: err instanceof Error ? err.message : String(err) },
+      { success: false, error: publicErrorMessage(err) },
       { status: 400 },
     );
   }

@@ -4,6 +4,7 @@ import { prisma } from '@naap/database';
 import { invalidateAll } from '@naap/billing';
 import { getStripe } from '@/lib/billing/stripe';
 import { requireAdmin, HttpError } from '@/lib/billing/admin-auth';
+import { publicErrorMessage } from '@/lib/api-error';
 
 export const runtime = 'nodejs';
 
@@ -38,7 +39,7 @@ export async function PATCH(
     await requireAdmin(request);
   } catch (err) {
     const e = err as HttpError;
-    return NextResponse.json({ error: e.message }, { status: e.status });
+    return NextResponse.json({ error: publicErrorMessage(e) }, { status: e.status });
   }
   const { id } = await params;
   const parsed = PatchBody.safeParse(await request.json().catch(() => ({})));
@@ -55,7 +56,7 @@ export async function DELETE(
     await requireAdmin(request);
   } catch (err) {
     const e = err as HttpError;
-    return NextResponse.json({ error: e.message }, { status: e.status });
+    return NextResponse.json({ error: publicErrorMessage(e) }, { status: e.status });
   }
   const { id } = await params;
   const plan = await prisma.billPlan.findUnique({ where: { id } });

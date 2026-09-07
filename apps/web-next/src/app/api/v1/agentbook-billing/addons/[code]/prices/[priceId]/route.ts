@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { prisma } from '@naap/database';
 import { getStripe } from '@/lib/billing/stripe';
 import { requireAdmin, HttpError } from '@/lib/billing/admin-auth';
+import { publicErrorMessage } from '@/lib/api-error';
 
 export const runtime = 'nodejs';
 
@@ -16,7 +17,7 @@ export async function POST(
     await requireAdmin(request);
   } catch (err) {
     const e = err as HttpError;
-    return NextResponse.json({ error: e.message }, { status: e.status });
+    return NextResponse.json({ error: publicErrorMessage(e) }, { status: e.status });
   }
   Body.parse(await request.json().catch(() => undefined));
   const { priceId } = await params;

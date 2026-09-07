@@ -15,6 +15,7 @@ import { prisma } from '@naap/database';
 import { requireAdmin, type HttpError } from '@/lib/billing/admin-auth';
 import { US_STARTUP_BENEFIT_PROGRAMS } from '@/lib/agentbook-startup/us-programs';
 import { AU_STARTUP_BENEFIT_PROGRAMS } from '@/lib/agentbook-startup/au-programs';
+import { publicErrorMessage } from '@/lib/api-error';
 
 export const runtime = 'nodejs';
 
@@ -54,7 +55,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     await requireAdmin(request);
   } catch (err) {
     const e = err as HttpError;
-    return NextResponse.json({ error: e.message }, { status: e.status });
+    return NextResponse.json({ error: publicErrorMessage(e) }, { status: e.status });
   }
 
   let programsCreated = 0;

@@ -24,6 +24,7 @@ import { prisma as db } from '@naap/database';
 import { buildAndUploadBackup } from '@/lib/agentbook-backup';
 import { sendToAllChannels } from '@/lib/agentbook-chat-adapter';
 import { reportError } from '@/lib/logger';
+import { publicErrorMessage } from '@/lib/api-error';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -102,7 +103,7 @@ async function processOne(tenantId: string): Promise<TenantResult> {
       // Sanitised: never leak the raw stack to the cron response — the
       // outer 500 path only sees the category. Per-tenant failure stays
       // in the per-tenant entry as a short message.
-      error: err instanceof Error ? err.message : 'unknown',
+      error: publicErrorMessage(err),
     };
   }
 }

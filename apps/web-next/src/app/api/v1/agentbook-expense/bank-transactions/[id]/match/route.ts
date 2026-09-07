@@ -26,6 +26,7 @@ import {
 } from '@/lib/agentbook-bank-match';
 import { audit } from '@/lib/agentbook-audit';
 import { inferSource, inferActor } from '@/lib/agentbook-audit-context';
+import { publicErrorMessage } from '@/lib/api-error';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -130,7 +131,7 @@ export async function POST(
           ? 404
           : 422;
       return NextResponse.json(
-        { success: false, error: err.message },
+        { success: false, error: publicErrorMessage(err) },
         { status },
       );
     }

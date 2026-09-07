@@ -17,6 +17,7 @@ import 'server-only';
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@naap/database';
 import { safeResolveAgentbookTenant } from '@/lib/agentbook-tenant';
+import { publicErrorMessage } from '@/lib/api-error';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -102,7 +103,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   } catch (err) {
     console.error('[agent/skills/metrics] failed:', err);
     return NextResponse.json(
-      { error: err instanceof Error ? err.message : String(err) },
+      { error: publicErrorMessage(err) },
       { status: 500 },
     );
   }

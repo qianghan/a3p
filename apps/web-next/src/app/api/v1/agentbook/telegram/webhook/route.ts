@@ -73,6 +73,7 @@ import {
 import { withRetry } from '@/lib/agentbook-webhook-retry';
 import { getAppBaseUrl, getPluginBaseUrls, AGENTBOOK_CANONICAL_URL } from '@/lib/agentbook-config';
 import { checkAndIncrement } from '@/lib/agentbook-rate-limit';
+import { publicErrorMessage } from '@/lib/api-error';
 
 // PR 18: the photo handler awaits BATCH_IDLE_MS (5s) inline so it can
 // group multi-photo forwards. Plus OCR + blob persistence for ~8 images
@@ -1374,7 +1375,7 @@ async function callMinimalAgent(
     };
   } catch (err) {
     console.error('[telegram/agent] failed:', err);
-    return { success: false, error: err instanceof Error ? err.message : String(err) };
+    return { success: false, error: publicErrorMessage(err) };
   }
 }
 

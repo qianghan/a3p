@@ -157,7 +157,14 @@ describe('agentbook-tax review routes — production Next surface', () => {
     const { POST } = await import('@/app/api/v1/agentbook-tax/tax-filing/[year]/review/confirm/route');
     const res = await POST(post('http://localhost/x'), YEAR);
     expect(res.status).toBe(500);
-    expect((await res.json()).error).toContain('no filing found');
+    const body = (await res.json()) as { success: boolean; error: string };
+    expect(body.success).toBe(false);
+    expect(body.error).toBeTruthy();
+    // An untyped error is unexpected, so its message is ours to read, not the
+    // caller's: this one is a plain Error, unlike the typed refusals below
+    // which are written for the caller and keep their text. Asserting the
+    // message came through was asserting the leak.
+    expect(body.error).not.toContain('no filing found');
   });
 
   it('confirming with no active review is a 409, not a 500 — the gate refused it', async () => {

@@ -13,6 +13,7 @@ import { audit } from '@/lib/agentbook-audit';
 import { inferSource, inferActor } from '@/lib/agentbook-audit-context';
 import { withSoftDelete, parseIncludeDeleted } from '@/lib/agentbook-soft-delete';
 import { reverseExpenseJournalEntry } from '@/lib/agentbook-expense-ledger';
+import { publicErrorMessage } from '@/lib/api-error';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -62,7 +63,7 @@ export async function GET(
   } catch (err) {
     console.error('[agentbook-expense/expenses/:id GET] failed:', err);
     return NextResponse.json(
-      { success: false, error: err instanceof Error ? err.message : String(err) },
+      { success: false, error: publicErrorMessage(err) },
       { status: 500 },
     );
   }
@@ -134,7 +135,7 @@ export async function PUT(
   } catch (err) {
     console.error('[agentbook-expense/expenses/:id PUT] failed:', err);
     return NextResponse.json(
-      { success: false, error: err instanceof Error ? err.message : String(err) },
+      { success: false, error: publicErrorMessage(err) },
       { status: 500 },
     );
   }
@@ -196,7 +197,7 @@ export async function DELETE(
   } catch (err) {
     console.error('[agentbook-expense/expenses/:id DELETE] failed:', err);
     return NextResponse.json(
-      { success: false, error: err instanceof Error ? err.message : String(err) },
+      { success: false, error: publicErrorMessage(err) },
       { status: 500 },
     );
   }

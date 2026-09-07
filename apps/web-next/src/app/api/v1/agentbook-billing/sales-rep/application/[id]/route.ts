@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { saveApplicationDraft } from '@/lib/billing/sales-rep-application';
 import { safeResolveAgentbookTenant } from '@/lib/agentbook-tenant';
+import { publicErrorMessage } from '@/lib/api-error';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -31,7 +32,7 @@ export async function PATCH(
     return NextResponse.json({ success: true, data: { application } });
   } catch (err) {
     return NextResponse.json(
-      { success: false, error: err instanceof Error ? err.message : String(err) },
+      { success: false, error: publicErrorMessage(err) },
       { status: 400 },
     );
   }

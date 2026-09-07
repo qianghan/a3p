@@ -9,6 +9,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { safeResolveAgentbookTenant } from '@/lib/agentbook-tenant';
 import { getAppBaseUrl } from '@/lib/agentbook-config';
 import { createInvoicePayLink, InvoicePayLinkError } from '@/lib/invoice-connect';
+import { publicErrorMessage } from '@/lib/api-error';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -26,9 +27,9 @@ export async function POST(
     return NextResponse.json({ success: true, data: { paymentUrl: url } });
   } catch (err) {
     if (err instanceof InvoicePayLinkError) {
-      return NextResponse.json({ success: false, error: err.message }, { status: 422 });
+      return NextResponse.json({ success: false, error: publicErrorMessage(err) }, { status: 422 });
     }
     console.error('[invoice/pay-link] failed:', err);
-    return NextResponse.json({ success: false, error: err instanceof Error ? err.message : String(err) }, { status: 500 });
+    return NextResponse.json({ success: false, error: publicErrorMessage(err) }, { status: 500 });
   }
 }

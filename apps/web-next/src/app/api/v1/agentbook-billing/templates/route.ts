@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { SEED_TEMPLATES } from '@/lib/billing/templates';
 import { requireAdmin, HttpError } from '@/lib/billing/admin-auth';
+import { publicErrorMessage } from '@/lib/api-error';
 
 export const runtime = 'nodejs';
 
@@ -10,7 +11,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ templates: SEED_TEMPLATES });
   } catch (err) {
     if (err instanceof HttpError) {
-      return NextResponse.json({ error: err.message }, { status: err.status });
+      return NextResponse.json({ error: publicErrorMessage(err) }, { status: err.status });
     }
     return NextResponse.json({ error: 'internal error' }, { status: 500 });
   }

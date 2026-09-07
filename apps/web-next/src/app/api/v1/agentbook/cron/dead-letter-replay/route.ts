@@ -16,6 +16,7 @@ import { timingSafeEqual } from 'node:crypto';
 import { NextRequest, NextResponse } from 'next/server';
 import { replayOpenDeadLetters } from '@/lib/agentbook-dead-letter';
 import { reportError } from '@/lib/logger';
+import { publicErrorMessage } from '@/lib/api-error';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -58,7 +59,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     return NextResponse.json(
       {
         success: false,
-        error: err instanceof Error ? err.message : String(err),
+        error: publicErrorMessage(err),
       },
       { status: 500 },
     );
