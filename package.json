@@ -23,7 +23,6 @@
     "db:setup": "./bin/db-setup.sh",
     "seed:e2e": "tsx scripts/seed-e2e-user.ts",
     "e2e:nightly": "playwright test --config=tests/e2e/nightly/playwright.config.ts",
-    "db:migrate": "./bin/db-migrate.sh",
     "db:cleanup-moved-plugins": "npx tsx bin/cleanup-moved-plugins.ts",
     "infra:start": "./bin/start.sh --infra",
     "plugin:list": "./bin/start.sh list",
@@ -155,7 +154,6 @@
   "workspaces": [
     "packages/*",
     "apps/*",
-    "apps/workflows/*",
     "plugins/*/frontend",
     "plugins/*/backend"
   ]
