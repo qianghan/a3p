@@ -81,7 +81,6 @@ done
 # =============================================================================
 #
 # Canonical fallback ports must match:
-#   - services/base-svc/src/config/pluginPorts.ts (CANONICAL_PORTS)
 #   - apps/web-next/src/lib/plugin-ports.ts (PLUGIN_PORTS)
 #   - plugins/*/plugin.json (backend.devPort)
 #

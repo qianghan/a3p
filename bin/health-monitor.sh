@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # NAAP Platform - Health Monitor Daemon
-# Monitors plugin-server and all plugin backends, auto-restarts on failure.
+# Monitors the plugin backends, auto-restarts on failure.
 # Started automatically by start.sh; can also be run standalone.
 #
 # Configuration via environment:
@@ -18,7 +18,6 @@ LOG_DIR="$ROOT_DIR/logs"
 MONITOR_INTERVAL="${MONITOR_INTERVAL:-30}"
 MONITOR_RESTART="${MONITOR_RESTART:-1}"
 MONITOR_ALL_BACKENDS="${MONITOR_ALL_BACKENDS:-0}"
-PLUGIN_SERVER_PORT=3100
 
 hm_log() {
   echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1" >> "$LOG_FILE"
@@ -36,29 +35,6 @@ register_pid_file() {
 get_plugin_backend_port() {
   local pj="$ROOT_DIR/plugins/$1/plugin.json"
   [ -f "$pj" ] && grep -A5 '"backend"' "$pj" | grep -o '"devPort"[[:space:]]*:[[:space:]]*[0-9]*' | head -1 | grep -o '[0-9]*'
-}
-
-restart_plugin_server() {
-  hm_log "Restarting plugin-server..."
-
-  # Graceful kill first, then force
-  lsof -ti:${PLUGIN_SERVER_PORT} 2>/dev/null | xargs kill -TERM 2>/dev/null || true
-  sleep 2
-  lsof -ti:${PLUGIN_SERVER_PORT} 2>/dev/null | xargs kill -9 2>/dev/null || true
-  sleep 1
-
-  cd "$ROOT_DIR/services/plugin-server" || { hm_log "FAILED to cd to services/plugin-server"; return 1; }
-  npm run dev >> "$LOG_DIR/plugin-server.log" 2>&1 &
-  local pid=$!
-  sleep 5
-
-  if curl -sf --max-time 3 "http://localhost:${PLUGIN_SERVER_PORT}/healthz" > /dev/null 2>&1; then
-    register_pid_file "$pid" "plugin-server"
-    hm_log "Plugin-server restarted successfully (PID $pid)"
-  else
-    hm_log "FAILED to restart plugin-server"
-    kill "$pid" 2>/dev/null || true
-  fi
 }
 
 restart_plugin_backend() {
@@ -97,12 +73,8 @@ trap cleanup INT TERM
 hm_log "Health monitor started (interval=${MONITOR_INTERVAL}s, restart=${MONITOR_RESTART}, backends=${MONITOR_ALL_BACKENDS})"
 
 while true; do
-  # Check plugin-server
-  if ! curl -sf --max-time 5 "http://localhost:${PLUGIN_SERVER_PORT}/healthz" > /dev/null 2>&1; then
-    hm_log "Plugin-server health check FAILED"
-    [ "$MONITOR_RESTART" = "1" ] && restart_plugin_server
-  fi
-
+  # plugin-server was deleted with services/ — the plugin backends below are
+  # what is left to watch.
   # Optionally check all plugin backends
   if [ "$MONITOR_ALL_BACKENDS" = "1" ]; then
     for pj in "$ROOT_DIR/plugins"/*/plugin.json; do
