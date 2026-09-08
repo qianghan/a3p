@@ -127,9 +127,24 @@ const QUALITY_GATES: Record<string, QualityGate[]> = {
       required: true,
       check: async () => {
         try {
+          // Was `services/base-svc`, which had its own per-service schema
+          // under the old multi-database layout and was deleted with
+          // services/. There is one schema now.
+          //
+          // The placeholder URLs matter: `prisma validate` resolves env() at
+          // parse time and fails with P1012 when DATABASE_URL_UNPOOLED is
+          // unset, so without them this gate reports the shell's environment
+          // rather than whether the schema is valid — which is what it did
+          // before too, by pointing at a directory that no longer existed.
+          const PLACEHOLDER = 'postgresql://u:p@localhost:5432/db';
           execSync('npx prisma validate', {
-            cwd: path.join(ROOT_DIR, 'services/base-svc'),
+            cwd: path.join(ROOT_DIR, 'packages/database'),
             stdio: 'pipe',
+            env: {
+              ...process.env,
+              DATABASE_URL: process.env.DATABASE_URL || PLACEHOLDER,
+              DATABASE_URL_UNPOOLED: process.env.DATABASE_URL_UNPOOLED || PLACEHOLDER,
+            },
           });
           return true;
         } catch {

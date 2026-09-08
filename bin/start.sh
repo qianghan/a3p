@@ -14,8 +14,6 @@
 #
 # Ports (override via environment variables):
 #   SHELL_PORT=3001 ./bin/start.sh   Shell on custom port (default: 3000)
-#   BASE_SVC_PORT=4001               Base service port   (default: 4000)
-#   PLUGIN_SERVER_PORT=3200          Plugin server port   (default: 3100)
 #
 # Stop:
 #   ./bin/stop.sh                  Stop all services
@@ -38,8 +36,6 @@ GRACEFUL_TIMEOUT="${GRACEFUL_TIMEOUT:-5}"
 MAX_HEALTH_RETRIES=30
 HEALTH_CHECK_INTERVAL=1
 SHELL_PORT="${SHELL_PORT:-3000}"
-BASE_SVC_PORT="${BASE_SVC_PORT:-4000}"
-PLUGIN_SERVER_PORT="${PLUGIN_SERVER_PORT:-3100}"
 ARCHITECTURE_MODE=""
 PARALLEL_START="${PARALLEL_START:-1}"  # 1=parallel (default), 0=sequential
 CLEAN_NEXT="${CLEAN_NEXT:-0}"         # 1=delete .next cache before shell start
@@ -766,14 +762,6 @@ validate_plugin_envs() {
     fi
   done
 
-  # Also check base-svc
-  local base_url
-  base_url=$(grep '^DATABASE_URL=' "$ROOT_DIR/services/base-svc/.env" 2>/dev/null | head -1 | sed 's/^DATABASE_URL=//' | tr -d '"' | tr -d "'")
-  if [ -n "$base_url" ] && ! echo "$base_url" | grep -q "localhost:5432/$UNIFIED_DB_NAME"; then
-    log_error "base-svc .env has wrong DATABASE_URL (should point to unified DB)"
-    ok=false
-  fi
-
   [ "$ok" = true ] && log_success "All DATABASE_URLs point to unified database" || \
     log_warn "Some DATABASE_URLs are misconfigured (see errors above)"
 }
@@ -1019,51 +1007,6 @@ start_shell() {
   return 1
 }
 
-start_base_service() {
-  is_running "base-svc" && { log_success "Base service already running (PID $(get_pid base-svc))"; return 0; }
-  kill_port $BASE_SVC_PORT
-  log_info "Starting base-svc on port $BASE_SVC_PORT..."; cd "$ROOT_DIR/services/base-svc"
-  setsid env DATABASE_URL="$UNIFIED_DB_URL" PORT=$BASE_SVC_PORT npm run dev > "$LOG_DIR/base-svc.log" 2>&1 &
-  local pid=$!
-  register_pid $pid "base-svc"
-  wait_for_health "http://localhost:$BASE_SVC_PORT/healthz" "base-svc" 30 1 "$pid" && {
-    log_success "Base Service: http://localhost:$BASE_SVC_PORT/healthz"
-  } || {
-    log_error "Base-svc failed to start on port $BASE_SVC_PORT."
-    echo -e "  ${DIM}Common fixes:${NC}"
-    echo -e "  ${DIM}  - Port in use? Run: lsof -i :$BASE_SVC_PORT${NC}"
-    echo -e "  ${DIM}  - Database not running? Run: docker ps | grep naap${NC}"
-    echo -e "  ${DIM}  - Check full log: logs/base-svc.log${NC}"
-    show_failure_context "$LOG_DIR/base-svc.log"
-    kill_tree $pid TERM
-    unregister_pid "base-svc"
-    return 1
-  }
-}
-
-start_plugin_server() {
-  is_running "plugin-server" && { log_success "Plugin server already running (PID $(get_pid plugin-server))"; return 0; }
-  kill_port $PLUGIN_SERVER_PORT
-  log_info "Starting plugin-server on port $PLUGIN_SERVER_PORT..."; cd "$ROOT_DIR/services/plugin-server"
-  [ ! -d "node_modules" ] && (npm install --silent 2>/dev/null || npm install)
-  setsid env PLUGIN_SERVER_PORT=$PLUGIN_SERVER_PORT npm run dev > "$LOG_DIR/plugin-server.log" 2>&1 &
-  local pid=$!
-  register_pid $pid "plugin-server"
-  wait_for_health "http://localhost:$PLUGIN_SERVER_PORT/healthz" "plugin-server" 30 1 "$pid" && {
-    log_success "Plugin Server: http://localhost:$PLUGIN_SERVER_PORT/plugins"
-  } || {
-    log_error "Plugin-server failed to start on port $PLUGIN_SERVER_PORT."
-    echo -e "  ${DIM}Common fixes:${NC}"
-    echo -e "  ${DIM}  - Port in use? Run: lsof -i :$PLUGIN_SERVER_PORT${NC}"
-    echo -e "  ${DIM}  - Missing node_modules? Run: cd services/plugin-server && npm install${NC}"
-    echo -e "  ${DIM}  - Check full log: logs/plugin-server.log${NC}"
-    show_failure_context "$LOG_DIR/plugin-server.log"
-    kill_tree $pid TERM
-    unregister_pid "plugin-server"
-    return 1
-  }
-}
-
 start_health_monitor() {
   is_running "health-monitor" && { log_success "Health monitor already running"; return 0; }
   log_info "Starting health monitor..."
@@ -1254,7 +1197,7 @@ stop_all() {
 
   # Clean orphaned processes using discovered ports (not hardcoded ranges)
   log_info "Cleaning orphaned processes..."
-  local all_ports="$SHELL_PORT $PLUGIN_SERVER_PORT $BASE_SVC_PORT"
+  local all_ports="$SHELL_PORT"
   for port in $(get_all_plugin_ports); do
     all_ports="$all_ports $port"
   done
@@ -1267,7 +1210,7 @@ stop_all() {
 
 stop_shell()       { log_section "Stopping Shell"; stop_service "shell-web"; kill_port $SHELL_PORT; log_success "Shell stopped"; }
 stop_all_plugins() { log_section "Stopping All Plugins"; for p in $(get_all_plugins); do stop_plugin "$p"; done; log_success "All plugins stopped"; }
-stop_services()    { log_section "Stopping Core Services"; stop_service "health-monitor"; stop_service "plugin-server"; stop_service "base-svc"; kill_port $BASE_SVC_PORT; kill_port $PLUGIN_SERVER_PORT; log_success "Core services stopped"; }
+stop_services()    { log_section "Stopping Core Services"; stop_service "health-monitor"; log_success "Core services stopped"; }
 stop_infra()       { log_section "Stopping Infrastructure"; check_docker && { cd "$ROOT_DIR" || return 1; _docker_compose down 2>/dev/null || true; log_success "Docker containers stopped"; }; }
 
 ###############################################################################
@@ -1309,8 +1252,6 @@ cmd_status() {
   printf "  ${BOLD}%-25s %-8s %-8s %-10s${NC}\n" "SERVICE" "PORT" "PID" "HEALTH"
   printf "  %-25s %-8s %-8s %-10s\n" "-------------------------" "--------" "--------" "----------"
   print_svc_status "shell-web" "Shell" "$SHELL_PORT" "http://localhost:$SHELL_PORT"
-  print_svc_status "base-svc" "Base Service" "$BASE_SVC_PORT" "http://localhost:$BASE_SVC_PORT/healthz"
-  print_svc_status "plugin-server" "Plugin Server" "$PLUGIN_SERVER_PORT" "http://localhost:$PLUGIN_SERVER_PORT/healthz"
   print_svc_status "health-monitor" "Health Monitor" "-" ""
   echo ""; printf "  ${BOLD}%-25s${NC}\n" "PLUGIN BACKENDS"
   printf "  %-25s %-8s %-8s %-10s\n" "-------------------------" "--------" "--------" "----------"
@@ -1363,8 +1304,6 @@ cmd_validate() {
   }
 
   log_section "Core Services"
-  _vld "Base Service" "http://localhost:$BASE_SVC_PORT/healthz"
-  _vld "Plugin Server" "http://localhost:$PLUGIN_SERVER_PORT/healthz"
   _vld "Shell" "http://localhost:$SHELL_PORT"
 
   log_section "Plugin Backends"
@@ -1441,11 +1380,6 @@ cmd_validate() {
   done
 
   log_section "Core API Endpoints"
-  _vld_multi "Auth API (Legacy)" "http://localhost:$BASE_SVC_PORT/api/v1/base/auth/session" "200|401"
-  _vld "Feature Flags" "http://localhost:$BASE_SVC_PORT/api/v1/base/config/features"
-  _vld "Workflow Plugins" "http://localhost:$BASE_SVC_PORT/api/v1/base/plugins"
-  _vld "Marketplace Registry" "http://localhost:$BASE_SVC_PORT/api/v1/registry/packages"
-  _vld "Health Check" "http://localhost:$BASE_SVC_PORT/healthz"
 
   echo ""; echo "================================================"
   echo -e "${BOLD}Results${NC}: ${GREEN}$passed passed${NC}, ${YELLOW}$skipped skipped${NC}, ${RED}$failed failed${NC}"
@@ -1462,17 +1396,6 @@ cmd_validate() {
 ensure_env_files() {
   log_info "Checking .env files..."
   local created=0
-
-  # base-svc .env
-  local base_env="$ROOT_DIR/services/base-svc/.env"
-  if [ ! -f "$base_env" ]; then
-    cat > "$base_env" <<BEOF
-DATABASE_URL="$UNIFIED_DB_URL"
-PORT=4000
-BEOF
-    ((created++)) || true
-    log_debug "Created $base_env"
-  fi
 
   # Plugin backend .env files
   for pj in "$ROOT_DIR/plugins"/*/plugin.json; do
@@ -1511,8 +1434,6 @@ PEOF
 NEXT_PUBLIC_APP_URL=http://localhost:$SHELL_PORT
 NEXTAUTH_SECRET=dev-secret-change-me-in-production-min-32-chars
 DATABASE_URL=$UNIFIED_DB_URL
-BASE_SVC_URL=http://localhost:$BASE_SVC_PORT
-PLUGIN_SERVER_URL=http://localhost:$PLUGIN_SERVER_PORT
 WEOF
     ((created++)) || true
     log_debug "Created $web_env"
@@ -1532,15 +1453,10 @@ setup_infra()      { log_section "Infrastructure"; ensure_env_files; ensure_data
 setup_infra_full() { setup_infra; sync_unified_database; validate_plugin_envs; check_plugin_db_connectivity; }
 start_core() {
   log_section "Core Services"
-  # Start base-svc and plugin-server in parallel (they are independent)
-  start_base_service &
-  local _base_pid=$!
-  start_plugin_server &
-  local _ps_pid=$!
-  local _core_fail=0
-  wait $_base_pid || { log_error "Base service failed."; _core_fail=1; }
-  wait $_ps_pid   || { log_error "Plugin server failed."; _core_fail=1; }
-  [ $_core_fail -gt 0 ] && exit 1
+  # base-svc and plugin-server were deleted with services/ — they were
+  # livepeer/naap inheritance and were never part of this product. What is
+  # left of "core" is the health monitor; the plugin backends and the Next.js
+  # shell are started below.
   start_health_monitor
 }
 
@@ -1742,8 +1658,7 @@ _summary_shell() {
   echo ""; echo "================================================"
   echo -e "${GREEN}${BOLD}NAAP Platform - Shell Only${NC}"; echo "================================================"
   echo "  Shell:          http://localhost:$SHELL_PORT"
-  echo "  Base Service:   http://localhost:$BASE_SVC_PORT/healthz"
-  echo "  Plugin Server:  http://localhost:$PLUGIN_SERVER_PORT/plugins"; echo ""
+  echo ""
   echo "  Stop: ./bin/stop.sh    Status: ./bin/start.sh status"
   echo "================================================"
 }
@@ -1758,8 +1673,6 @@ _summary_be() {
   fi
   echo "================================================"
   echo "  Shell:          http://localhost:$SHELL_PORT"
-  echo "  Base Service:   http://localhost:$BASE_SVC_PORT/healthz"
-  echo "  Plugin Server:  http://localhost:$PLUGIN_SERVER_PORT/plugins"
   if [ -n "$started_plugins" ]; then
     echo "  Plugin Backends:"
     for p in $started_plugins; do local bp=$(get_plugin_backend_port "$p"); [ -n "$bp" ] && printf "    %-22s http://localhost:%s/healthz\n" "$(get_plugin_display_name "$p"):" "$bp"; done
@@ -1771,8 +1684,7 @@ _summary_full() {
   echo ""; echo "================================================"
   echo -e "${GREEN}${BOLD}NAAP Platform Running${NC}"; echo "================================================"
   echo "  Shell:          http://localhost:$SHELL_PORT"
-  echo "  Base Service:   http://localhost:$BASE_SVC_PORT/healthz"
-  echo "  Plugin Server:  http://localhost:$PLUGIN_SERVER_PORT/plugins"; echo "  Plugin Backends:"
+  echo "  Plugin Backends:"
   for p in $(get_all_plugins); do local bp=$(get_plugin_backend_port "$p"); [ -n "$bp" ] && printf "    %-22s http://localhost:%s\n" "$(get_plugin_display_name "$p"):" "$bp"; done
   echo ""; echo "  Stop: ./bin/stop.sh    Status: ./bin/start.sh status"
   echo "================================================"
@@ -1780,8 +1692,7 @@ _summary_full() {
 _summary_svc() {
   echo ""; echo "================================================"
   echo -e "${GREEN}${BOLD}NAAP Platform - Services Only${NC}"; echo "================================================"
-  echo "  Base Service:   http://localhost:$BASE_SVC_PORT/healthz"
-  echo "  Plugin Server:  http://localhost:$PLUGIN_SERVER_PORT/plugins"; echo "  Plugin Backends:"
+  echo "  Plugin Backends:"
   for p in $(get_all_plugins); do local bp=$(get_plugin_backend_port "$p"); [ -n "$bp" ] && printf "    %-22s http://localhost:%s/healthz\n" "$(get_plugin_display_name "$p"):" "$bp"; done
   echo ""; echo "  Stop: ./bin/stop.sh    Status: ./bin/start.sh status"
   echo "================================================"
@@ -1852,8 +1763,6 @@ show_help() {
   echo ""
   echo -e "${BOLD}Environment Variables:${NC}"
   echo "  SHELL_PORT=N             Next.js shell port (default: 3000)"
-  echo "  BASE_SVC_PORT=N          Base service port (default: 4000)"
-  echo "  PLUGIN_SERVER_PORT=N     Plugin asset server port (default: 3100)"
   echo "  GRACEFUL_TIMEOUT=N       Force-kill timeout in seconds (default: 5)"
   echo "  PARALLEL_START=0         Force sequential backend startup"
   echo ""
