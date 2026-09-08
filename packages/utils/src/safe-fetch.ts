@@ -59,24 +59,41 @@ function devHostsAllowed(): boolean {
  * `http://localhost` stays acceptable outside production for the dev shims.
  */
 export function isAllowedReceiptUrl(urlStr: string): boolean {
+  return parseAllowedReceiptUrl(urlStr) !== null;
+}
+
+/**
+ * The same check, returning the parsed URL so a caller can fetch THAT rather
+ * than re-deriving one from the raw string.
+ *
+ * Splitting it this way is not only for taint analysis, though that is the
+ * immediate reason: a boolean guard in another function is invisible to
+ * CodeQL, which flagged `fetchReceipt`'s own fetch as `js/request-forgery`
+ * once this module moved into a package and its exported parameter became a
+ * taint source. Returning the validated value means the fetch below consumes
+ * the checked object instead of the unchecked string, which is the shape that
+ * cannot drift — a future edit cannot accidentally fetch the raw input while
+ * the boolean check still passes beside it.
+ */
+export function parseAllowedReceiptUrl(urlStr: string): URL | null {
   let u: URL;
   try {
     u = new URL(urlStr);
   } catch {
-    return false;
+    return null;
   }
 
   const isDevHost = DEV_ONLY_HOSTS.some((rx) => rx.test(u.hostname));
 
   if (u.protocol === 'http:') {
-    if (!isDevHost || !devHostsAllowed()) return false;
-    return true;
+    if (!isDevHost || !devHostsAllowed()) return null;
+    return u;
   }
-  if (u.protocol !== 'https:') return false;
+  if (u.protocol !== 'https:') return null;
 
-  if (isDevHost) return devHostsAllowed();
-  if (isPrivateHost(u.hostname)) return false;
-  return RECEIPT_HOSTS.some((rx) => rx.test(u.hostname));
+  if (isDevHost) return devHostsAllowed() ? u : null;
+  if (isPrivateHost(u.hostname)) return null;
+  return RECEIPT_HOSTS.some((rx) => rx.test(u.hostname)) ? u : null;
 }
 
 export interface SafeFetchOptions {
@@ -106,7 +123,17 @@ export async function fetchReceipt(
   urlStr: string,
   opts: SafeFetchOptions = {},
 ): Promise<{ bytes: Uint8Array; contentType: string } | null> {
-  if (!isAllowedReceiptUrl(urlStr)) return null;
+  const url = parseAllowedReceiptUrl(urlStr);
+  if (url === null) return null;
+
+  // Re-assert the host immediately before the request, against the same
+  // constant allow-list. Belt and braces: the check above already returned
+  // null for anything else, and repeating it here means the guard and the
+  // request cannot be separated by a later edit.
+  if (!DEV_ONLY_HOSTS.some((rx) => rx.test(url.hostname))
+      && !RECEIPT_HOSTS.some((rx) => rx.test(url.hostname))) {
+    return null;
+  }
 
   const timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const maxBytes = opts.maxBytes ?? DEFAULT_MAX_BYTES;
@@ -114,7 +141,8 @@ export async function fetchReceipt(
   const timer = setTimeout(() => ctl.abort(), timeoutMs);
 
   try {
-    const res = await fetch(urlStr, { signal: ctl.signal, redirect: 'error' });
+    // Fetches the validated URL object, never the raw input string.
+    const res = await fetch(url, { signal: ctl.signal, redirect: 'error' });
     if (!res.ok) return null;
 
     const declared = Number(res.headers.get('content-length') ?? NaN);

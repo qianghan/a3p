@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { isAllowedReceiptUrl, fetchReceipt } from '../safe-fetch.js';
+import { isAllowedReceiptUrl, parseAllowedReceiptUrl, fetchReceipt } from '../safe-fetch.js';
 import { isPrivateHost } from '../security.js';
 
 /**
@@ -59,6 +59,24 @@ describe('isAllowedReceiptUrl', () => {
   });
 });
 
+describe('parseAllowedReceiptUrl', () => {
+  it('returns the parsed URL for an allowed source and null otherwise', () => {
+    expect(parseAllowedReceiptUrl('https://blob.vercel-storage.com/r/1.jpg')).toBeInstanceOf(URL);
+    expect(parseAllowedReceiptUrl('http://169.254.169.254/latest/meta-data/')).toBeNull();
+  });
+
+  it('agrees with the boolean form', () => {
+    for (const u of [
+      'https://blob.vercel-storage.com/r/1.jpg',
+      'http://169.254.169.254/',
+      'file:///etc/passwd',
+      'nonsense',
+    ]) {
+      expect(parseAllowedReceiptUrl(u) !== null).toBe(isAllowedReceiptUrl(u));
+    }
+  });
+});
+
 describe('fetchReceipt', () => {
   it('never calls fetch for a refused URL', async () => {
     const spy = vi.spyOn(globalThis, 'fetch');
@@ -94,5 +112,18 @@ describe('fetchReceipt', () => {
     const out = await fetchReceipt('https://blob.vercel-storage.com/r/1.png');
     expect(out?.contentType).toBe('image/png');
     expect(out?.bytes.byteLength).toBe(3);
+  });
+});
+
+describe('the guard cannot be separated from the request', () => {
+  it('fetches the parsed URL object, never the raw input string', async () => {
+    const spy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(new Uint8Array([1]), { headers: { 'content-type': 'image/jpeg' } }),
+    );
+    await fetchReceipt('https://blob.vercel-storage.com/r/1.jpg?a=1');
+    // A string argument would mean the validated value was discarded and the
+    // unchecked input re-used — the shape that lets a later edit drift the
+    // guard and the request apart.
+    expect(spy.mock.calls[0][0]).toBeInstanceOf(URL);
   });
 });
