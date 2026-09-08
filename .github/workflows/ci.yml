@@ -36,7 +36,6 @@ jobs:
       shell: ${{ steps.filter.outputs.shell }}
       packages: ${{ steps.filter.outputs.packages }}
       sdk: ${{ steps.filter.outputs.sdk }}
-      backend: ${{ steps.filter.outputs.backend }}
       plugins: ${{ steps.filter.outputs.plugins }}
       plugins_list: ${{ steps.changed-plugins.outputs.plugins_list }}
       docs_only: ${{ steps.check-docs.outputs.docs_only }}
@@ -58,8 +57,6 @@ jobs:
               - 'packages/plugin-sdk/**'
               - 'packages/plugin-utils/**'
               - 'packages/plugin-build/**'
-            backend:
-              - 'services/**'
             plugins:
               - 'plugins/**'
             build_relevant:
@@ -67,7 +64,6 @@ jobs:
               - 'packages/**'
               - 'plugins/**'
               - 'bin/**'
-              - 'services/**'
               - 'next.config.*'
               - 'package.json'
               - 'package-lock.json'
@@ -82,7 +78,6 @@ jobs:
           if [[ "${{ steps.filter.outputs.docs_only }}" == "true" \
              && "${{ steps.filter.outputs.shell }}" == "false" \
              && "${{ steps.filter.outputs.packages }}" == "false" \
-             && "${{ steps.filter.outputs.backend }}" == "false" \
              && "${{ steps.filter.outputs.plugins }}" == "false" ]]; then
             echo "docs_only=true" >> $GITHUB_OUTPUT
           else
@@ -92,11 +87,28 @@ jobs:
       - name: Detect changed plugins
         id: changed-plugins
         run: |
-          ALL_PLUGINS='["capacity-planner","community","marketplace","developer-api","plugin-publisher"]'
+          # This list had named capacity-planner, marketplace, developer-api and
+          # plugin-publisher long after all four were deleted from plugins/, so
+          # the matrix was almost always empty and "Plugin Tests" ran nothing —
+          # the same green-but-empty shape as the backend-tests gate. Derived
+          # from the filesystem now, so it cannot go stale again.
+          # An `if` rather than `[ ... ] && echo`: the && form leaves a non-zero
+          # status when the last entry does not match (plugins/ holds two
+          # template FILES), and Actions runs steps under `bash -e`.
+          #
+          # Plain newline-separated output rather than a JSON array: the only
+          # jq call left is the pre-existing one below, so this whole step can
+          # be run and checked locally. A CI edit that CI itself cannot
+          # exercise — this PR changes no plugin, so the plugin jobs are
+          # filtered out — should not also be one nobody can test.
+          PLUGIN_DIRS=$(ls -1 plugins | while read -r p; do
+            if [ -f "plugins/$p/package.json" ] || [ -d "plugins/$p/frontend" ]; then echo "$p"; fi
+          done)
+          echo "plugins present: $(echo "$PLUGIN_DIRS" | tr '\n' ' ')"
           if [[ "${{ steps.filter.outputs.plugins }}" == "true" ]]; then
             # Build a JSON array of plugins that actually changed
             CHANGED="[]"
-            for plugin in capacity-planner community marketplace developer-api plugin-publisher; do
+            for plugin in $PLUGIN_DIRS; do
               if git diff --name-only ${{ github.event.pull_request.base.sha || 'HEAD~1' }} HEAD -- "plugins/${plugin}/" | grep -q .; then
                 CHANGED=$(echo "$CHANGED" | jq -c ". + [\"${plugin}\"]")
               fi
@@ -593,8 +605,7 @@ jobs:
     needs: [paths-filter, lockfile-sync]
     if: >-
       needs.paths-filter.outputs.sdk == 'true' ||
-      needs.paths-filter.outputs.plugins == 'true' ||
-      needs.paths-filter.outputs.backend == 'true'
+      needs.paths-filter.outputs.plugins == 'true'
     steps:
       - name: Checkout
         uses: actions/checkout@v6

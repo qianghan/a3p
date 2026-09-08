@@ -21,10 +21,8 @@
     "e2e:plugin-publisher": "./bin/e2e-plugin-publisher.sh",
     "e2e:plugin-publisher:cleanup": "npx tsx bin/cleanup-published-examples.ts",
     "db:setup": "./bin/db-setup.sh",
-    "db:seed": "./bin/db-seed.sh",
     "seed:e2e": "tsx scripts/seed-e2e-user.ts",
     "e2e:nightly": "playwright test --config=tests/e2e/nightly/playwright.config.ts",
-    "db:reset": "./bin/db-reset.sh",
     "db:migrate": "./bin/db-migrate.sh",
     "db:cleanup-moved-plugins": "npx tsx bin/cleanup-moved-plugins.ts",
     "infra:start": "./bin/start.sh --infra",
@@ -158,8 +156,6 @@
     "packages/*",
     "apps/*",
     "apps/workflows/*",
-    "services/*",
-    "services/workflows/*",
     "plugins/*/frontend",
     "plugins/*/backend"
   ]
