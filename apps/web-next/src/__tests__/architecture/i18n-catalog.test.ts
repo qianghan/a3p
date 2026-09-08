@@ -78,6 +78,14 @@ const NON_REFERENCE_LOCALES = AVAILABLE_LOCALES.filter((l) => l !== REFERENCE_LO
  * the "no untranslated leakage" check.
  */
 const IDENTICAL_ALLOWED = new Set<string>([
+  // Product names. Telegram, WhatsApp and "webhook" are used unchanged in
+  // French and in Chinese — a Chinese user configuring a Telegram bot looks
+  // for the word "Telegram". Translating a brand is a bug, not a courtesy.
+  'core_ui.telegram',
+  'core_ui.webhook',
+  'core_ui.whatsapp',
+  // "Logo" is borrowed unchanged into French (the zh-CN value IS translated).
+  'core_ui.logo',
   // "Correct" is a valid French word with the same spelling and meaning.
   'common.correct',
   // Table headers in the chart of accounts. "Code" and "Type" are spelled and

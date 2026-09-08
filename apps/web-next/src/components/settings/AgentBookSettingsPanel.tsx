@@ -248,6 +248,7 @@ function ProfilePreview({
 }: {
   companyName: string; logoUrl: string | null; brandColor: string; pendingLogoUrl: string | null;
 }): React.ReactElement {
+  const t = useT();
   const displayLogo = pendingLogoUrl ?? logoUrl;
   return (
     <div className="rounded-lg border border-border bg-card p-4">
@@ -269,7 +270,7 @@ function ProfilePreview({
           <div className="font-semibold" style={{ color: brandColor }}>
             {companyName || 'Your Company'}
           </div>
-          <div className="text-xs text-muted-foreground">Invoice header</div>
+          <div className="text-xs text-muted-foreground">{t('core_ui.invoice_header')}</div>
         </div>
       </div>
     </div>
@@ -394,7 +395,7 @@ function TelegramCard(): React.ReactElement {
       <div className="flex items-center gap-3 border-b border-border px-4 py-3">
         <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10 text-lg">✈️</div>
         <div className="flex-1">
-          <div className="text-sm font-semibold text-foreground">Telegram</div>
+          <div className="text-sm font-semibold text-foreground">{t('core_ui.telegram')}</div>
           <div className="text-xs text-muted-foreground">
             {status?.configured && status.botUsername ? `@${status.botUsername}` : 'Record expenses and manage finances via chat'}
           </div>
@@ -425,7 +426,7 @@ function TelegramCard(): React.ReactElement {
           <div className="space-y-3">
             <div className="grid grid-cols-2 gap-2">
               <div className="rounded-lg bg-background px-3 py-2">
-                <div className="text-xs text-muted-foreground">Webhook</div>
+                <div className="text-xs text-muted-foreground">{t('core_ui.webhook')}</div>
                 <div className={`flex items-center gap-1.5 text-sm font-medium ${
                   status.webhookActive === true ? 'text-primary' :
                   status.webhookActive === false ? 'text-destructive' : 'text-muted-foreground'
@@ -499,7 +500,7 @@ function TelegramCard(): React.ReactElement {
                 <Key className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                 <input
                   type="password"
-                  placeholder="Paste bot token here"
+                  placeholder={t('core_ui.paste_bot_token')}
                   value={botToken}
                   onChange={e => { setBotToken(e.target.value); setError(null); }}
                   onKeyDown={e => e.key === 'Enter' && void handleSetup()}
@@ -574,7 +575,7 @@ function WhatsAppCard(): React.ReactElement {
       <div className="flex items-center gap-3 border-b border-border px-4 py-3">
         <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-green-500/10 text-lg">💬</div>
         <div className="flex-1">
-          <div className="text-sm font-semibold text-foreground">WhatsApp</div>
+          <div className="text-sm font-semibold text-foreground">{t('core_ui.whatsapp')}</div>
           <div className="text-xs text-muted-foreground">
             {connected ? status?.phoneNumbers.join(', ') : 'Record expenses and manage finances via chat'}
           </div>
@@ -827,7 +828,7 @@ function BillingTab(): React.ReactElement {
         <h3 className="text-sm font-semibold text-foreground mb-1">{t('billing.your_plan')}</h3>
         <p className="text-sm text-muted-foreground">
           {current?.name || current?.code
-            ? <>Currently on <span className="font-medium text-foreground capitalize">{current.name || current.code}</span>{current.status ? ` · ${current.status}` : ''}.</>
+            ? <>{t('core_ui.currently_on')}<span className="font-medium text-foreground capitalize">{current.name || current.code}</span>{current.status ? ` · ${current.status}` : ''}.</>
             : 'You are on the Free plan.'}
         </p>
       </div>
@@ -857,7 +858,7 @@ function BillingTab(): React.ReactElement {
       {current?.code && current.code !== 'free' && (
         current.cancelAtPeriodEnd ? (
           <div className="flex items-center gap-2">
-            <p className="text-xs text-muted-foreground">Your plan cancels at the end of the current period.</p>
+            <p className="text-xs text-muted-foreground">{t('core_ui.plan_cancels_at_period_end')}</p>
             <button
               onClick={async () => {
                 setPlanActionPending(true);
@@ -888,7 +889,7 @@ function BillingTab(): React.ReactElement {
       )}
       {addons.length > 0 && (
         <div>
-          <h3 className="text-sm font-semibold text-foreground mb-1 mt-2">Add-ons</h3>
+          <h3 className="text-sm font-semibold text-foreground mb-1 mt-2">{t('core_ui.add_ons')}</h3>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             {addons.map((a) => (
               <div key={a.code} className={`rounded-xl border p-4 ${a.active ? 'border-primary' : 'border-border'} bg-card`}>
@@ -985,6 +986,7 @@ function shareCaption(code: string, shareUrl: string): string {
 }
 
 function ShareCard({ code, shareUrl }: { code: string; shareUrl: string }): React.ReactElement {
+  const t = useT();
   const [copied, setCopied] = useState(false);
   const caption = shareCaption(code, shareUrl);
   const cardUrl = `/api/v1/agentbook-billing/referrals/card/${encodeURIComponent(code)}`;
@@ -1007,11 +1009,11 @@ function ShareCard({ code, shareUrl }: { code: string; shareUrl: string }): Reac
 
   return (
     <div className="rounded-xl border border-border bg-card p-4">
-      <p className="text-xs text-muted-foreground mb-2">Your shareable card</p>
+      <p className="text-xs text-muted-foreground mb-2">{t('core_ui.your_shareable_card')}</p>
       {/* eslint-disable-next-line @next/next/no-img-element -- server-generated PNG, not an optimizable static asset */}
       <img
         src={cardUrl}
-        alt="AgentBook referral card"
+        alt={t('core_ui.referral_card_alt')}
         className="w-full max-w-md rounded-lg border border-border"
       />
       <div className="mt-3 flex flex-wrap items-center gap-2">
@@ -1047,14 +1049,15 @@ function ShareCard({ code, shareUrl }: { code: string; shareUrl: string }): Reac
 }
 
 function QrCard({ code }: { code: string }): React.ReactElement {
+  const t = useT();
   const qrUrl = `/api/v1/agentbook-billing/referrals/qr-card/${encodeURIComponent(code)}`;
   return (
     <div className="rounded-xl border border-border bg-card p-4">
-      <p className="text-xs text-muted-foreground mb-2">Or let them scan</p>
+      <p className="text-xs text-muted-foreground mb-2">{t('core_ui.or_let_them_scan')}</p>
       {/* eslint-disable-next-line @next/next/no-img-element -- server-generated PNG, not an optimizable static asset */}
       <img
         src={qrUrl}
-        alt="Scan to join AgentBook"
+        alt={t('core_ui.scan_to_join_alt')}
         className="w-full max-w-[200px] rounded-lg border border-border"
       />
       <a
@@ -1182,6 +1185,7 @@ function ReferralsTab(): React.ReactElement {
 interface ShareLink { id: string; token: string; label: string | null; expiresAt: string; status: string }
 
 function ParentShareTab(): React.ReactElement {
+  const t = useT();
   const [links, setLinks] = useState<ShareLink[]>([]);
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
@@ -1230,7 +1234,7 @@ function ParentShareTab(): React.ReactElement {
   return (
     <div className="space-y-6">
       <div>
-        <h3 className="text-sm font-semibold text-foreground mb-1">Share a summary with a parent</h3>
+        <h3 className="text-sm font-semibold text-foreground mb-1">{t('core_ui.share_summary_with_parent')}</h3>
         <p className="text-sm text-muted-foreground">
           Create a read-only link showing your income and spending summary — no login required to view it, and
           you can create as many as you like. It never shows your full transaction detail or lets anyone make changes.
@@ -1429,7 +1433,7 @@ function PersonalProfileTab(): React.ReactElement {
   return (
     <div className="space-y-6">
       <div>
-        <h3 className="text-sm font-semibold text-foreground mb-1">Your personal profile</h3>
+        <h3 className="text-sm font-semibold text-foreground mb-1">{t('core_ui.your_personal_profile')}</h3>
         <p className="text-sm text-muted-foreground">
           The more your agent knows about you, the more useful its tax and financial advice can be.
           This stays private to your account.
@@ -1449,61 +1453,61 @@ function PersonalProfileTab(): React.ReactElement {
 
       <div className="grid gap-4 sm:grid-cols-2">
         <div>
-          <label className="block text-sm font-medium text-foreground">First name</label>
+          <label className="block text-sm font-medium text-foreground">{t('core_ui.first_name')}</label>
           <input type="text" value={profile.firstName ?? ''} onChange={(e) => set({ firstName: e.target.value || null })} className={inputCls} />
         </div>
         <div>
-          <label className="block text-sm font-medium text-foreground">Last name</label>
+          <label className="block text-sm font-medium text-foreground">{t('core_ui.last_name')}</label>
           <input type="text" value={profile.lastName ?? ''} onChange={(e) => set({ lastName: e.target.value || null })} className={inputCls} />
         </div>
         <div>
-          <label className="block text-sm font-medium text-foreground">Date of birth</label>
+          <label className="block text-sm font-medium text-foreground">{t('core_ui.date_of_birth')}</label>
           <input type="date" value={profile.dateOfBirth ? profile.dateOfBirth.slice(0, 10) : ''}
             onChange={(e) => set({ dateOfBirth: e.target.value || null })} className={inputCls} />
         </div>
         <div>
-          <label className="block text-sm font-medium text-foreground">Occupation</label>
-          <input type="text" value={profile.occupation ?? ''} onChange={(e) => set({ occupation: e.target.value || null })} className={inputCls} placeholder="Graphic designer" />
+          <label className="block text-sm font-medium text-foreground">{t('core_ui.occupation')}</label>
+          <input type="text" value={profile.occupation ?? ''} onChange={(e) => set({ occupation: e.target.value || null })} className={inputCls} placeholder={t('core_ui.occupation_placeholder')} />
         </div>
       </div>
 
       <div>
-        <label className="block text-sm font-medium text-foreground">Address</label>
+        <label className="block text-sm font-medium text-foreground">{t('core_ui.address')}</label>
         <input type="text" value={profile.addressLine1 ?? ''} onChange={(e) => set({ addressLine1: e.target.value || null })}
-          className={inputCls} placeholder="Street address" />
+          className={inputCls} placeholder={t('core_ui.street_address')} />
         <div className="mt-2 grid gap-2 sm:grid-cols-3">
           <input type="text" value={profile.city ?? ''} onChange={(e) => set({ city: e.target.value || null })}
-            className={inputCls.replace('mt-1 ', '')} placeholder="City" />
+            className={inputCls.replace('mt-1 ', '')} placeholder={t('expenses_ui.city')} />
           <input type="text" value={profile.state ?? ''} onChange={(e) => set({ state: e.target.value || null })}
-            className={inputCls.replace('mt-1 ', '')} placeholder="State / Province" />
+            className={inputCls.replace('mt-1 ', '')} placeholder={t('onboarding.state_province')} />
           <input type="text" value={profile.postalCode ?? ''} onChange={(e) => set({ postalCode: e.target.value || null })}
-            className={inputCls.replace('mt-1 ', '')} placeholder="Postal code" />
+            className={inputCls.replace('mt-1 ', '')} placeholder={t('core_ui.postal_code')} />
         </div>
         <input type="text" value={profile.country ?? ''} onChange={(e) => set({ country: e.target.value || null })}
-          className={`${inputCls} mt-2`} placeholder="Country" />
+          className={`${inputCls} mt-2`} placeholder={t('core_ui.country')} />
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2">
         <div>
-          <label className="block text-sm font-medium text-foreground">Marital status</label>
+          <label className="block text-sm font-medium text-foreground">{t('core_ui.marital_status')}</label>
           <select value={profile.maritalStatus ?? ''} onChange={(e) => set({ maritalStatus: e.target.value || null })} className={inputCls}>
             {MARITAL_STATUS_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
           </select>
         </div>
         <div>
-          <label className="block text-sm font-medium text-foreground">Dependents</label>
+          <label className="block text-sm font-medium text-foreground">{t('core_ui.dependents')}</label>
           <input type="number" min={0} value={profile.dependentsCount ?? ''}
             onChange={(e) => set({ dependentsCount: e.target.value === '' ? null : Math.max(0, parseInt(e.target.value, 10) || 0) })}
             className={inputCls} placeholder="0" />
         </div>
         <div>
-          <label className="block text-sm font-medium text-foreground">Employment</label>
+          <label className="block text-sm font-medium text-foreground">{t('core_ui.employment')}</label>
           <select value={profile.employmentType ?? ''} onChange={(e) => set({ employmentType: e.target.value || null })} className={inputCls}>
             {EMPLOYMENT_TYPE_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
           </select>
         </div>
         <div>
-          <label className="block text-sm font-medium text-foreground">Estimated annual income</label>
+          <label className="block text-sm font-medium text-foreground">{t('core_ui.estimated_annual_income')}</label>
           <div className="relative mt-1">
             <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">$</span>
             <input type="number" min={0} step={1000}
@@ -1521,7 +1525,7 @@ function PersonalProfileTab(): React.ReactElement {
       </button>
 
       <div className="rounded-xl border border-border bg-card p-4">
-        <h4 className="text-sm font-semibold text-foreground mb-1">Upload past tax returns</h4>
+        <h4 className="text-sm font-semibold text-foreground mb-1">{t('core_ui.upload_past_tax_returns')}</h4>
         <p className="text-xs text-muted-foreground mb-3">
           Add your last 1-2 years of returns (PDF) so your agent has real history to work from —
           the same context it already uses to answer tax questions in chat.
@@ -1623,7 +1627,7 @@ function NotificationsPreferencesTab(): React.ReactElement {
           <thead className="bg-muted/50 text-xs text-muted-foreground">
             <tr>
               <th className="text-left px-3 py-2 font-medium">{t('expenses_ui.col_category')}</th>
-              <th className="text-center px-3 py-2 font-medium w-24">In-app</th>
+              <th className="text-center px-3 py-2 font-medium w-24">{t('core_ui.in_app')}</th>
               <th className="text-center px-3 py-2 font-medium w-24">{t('common.email')}</th>
             </tr>
           </thead>
@@ -1716,7 +1720,7 @@ function PaymentsTab(): React.ReactElement {
   return (
     <div className="space-y-4">
       <div>
-        <h3 className="text-sm font-semibold text-foreground mb-1">Accept card payments on invoices</h3>
+        <h3 className="text-sm font-semibold text-foreground mb-1">{t('core_ui.accept_card_payments')}</h3>
         <p className="text-sm text-muted-foreground">
           Connect your own Stripe account so clients can pay your invoices by card. Payments settle
           directly to you — AgentBook never holds your money. Stripe&apos;s standard processing fees apply.
@@ -1729,13 +1733,13 @@ function PaymentsTab(): React.ReactElement {
             <CreditCard className="h-4 w-4" />
           </div>
           <div className="flex-1">
-            <div className="text-sm font-semibold text-foreground">Stripe payouts</div>
-            <div className="text-xs text-muted-foreground">Receive invoice payments to your bank account</div>
+            <div className="text-sm font-semibold text-foreground">{t('core_ui.stripe_payouts')}</div>
+            <div className="text-xs text-muted-foreground">{t('core_ui.stripe_payouts_help')}</div>
           </div>
           {ready ? (
             <span className="rounded-full bg-primary/10 px-2.5 py-0.5 text-xs font-medium text-primary">● Connected</span>
           ) : status?.connected ? (
-            <span className="rounded-full bg-amber-500/10 px-2.5 py-0.5 text-xs font-medium text-amber-500">Incomplete</span>
+            <span className="rounded-full bg-amber-500/10 px-2.5 py-0.5 text-xs font-medium text-amber-500">{t('core_ui.incomplete')}</span>
           ) : status !== null ? (
             <span className="rounded-full bg-muted px-2.5 py-0.5 text-xs text-muted-foreground">{t('core_ui.not_connected')}</span>
           ) : null}
@@ -1887,8 +1891,8 @@ export function AgentBookSettingsPanel({ initialTab }: { initialTab?: string }):
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="text-lg font-semibold text-foreground">AgentBook Settings</h2>
-        <p className="text-sm text-muted-foreground mt-0.5">Business profile, invoice defaults, and chatbot integrations</p>
+        <h2 className="text-lg font-semibold text-foreground">{t('core_ui.agentbook_settings')}</h2>
+        <p className="text-sm text-muted-foreground mt-0.5">{t('core_ui.agentbook_settings_sub')}</p>
       </div>
 
       {/* Tabs */}
@@ -1919,7 +1923,7 @@ export function AgentBookSettingsPanel({ initialTab }: { initialTab?: string }):
             />
           )}
           <div>
-            <label className="block text-sm font-medium text-foreground">Business type</label>
+            <label className="block text-sm font-medium text-foreground">{t('core_ui.business_type')}</label>
             <select
               value={form.businessType ?? 'freelancer'}
               onChange={(e) => {
@@ -1943,7 +1947,7 @@ export function AgentBookSettingsPanel({ initialTab }: { initialTab?: string }):
           </div>
           <div className="rounded-lg border border-border bg-muted/30 p-4 space-y-4">
             <div>
-              <label className="block text-sm font-medium text-foreground">Country</label>
+              <label className="block text-sm font-medium text-foreground">{t('core_ui.country')}</label>
               <select
                 value={form.jurisdiction ?? 'us'}
                 onChange={(e) => {
@@ -1993,7 +1997,7 @@ export function AgentBookSettingsPanel({ initialTab }: { initialTab?: string }):
               update here.
             */}
             <div>
-              <label className="block text-sm font-medium text-foreground">Language</label>
+              <label className="block text-sm font-medium text-foreground">{t('core_ui.language')}</label>
               <select
                 value={matchOfferableLocale(form.locale)}
                 onChange={(e) => set({ locale: e.target.value })}
@@ -2014,14 +2018,14 @@ export function AgentBookSettingsPanel({ initialTab }: { initialTab?: string }):
           {form.businessType === 'student' ? (
             <div className="rounded-lg border border-border bg-muted/30 p-4 space-y-4">
               <div>
-                <label className="block text-sm font-medium text-foreground">Are you an international student?</label>
+                <label className="block text-sm font-medium text-foreground">{t('core_ui.international_student_question')}</label>
                 <select
                   value={form.visaStatus ?? 'domestic'}
                   onChange={(e) => set({ visaStatus: e.target.value })}
                   className={inputCls}
                 >
-                  <option value="domestic">No — domestic student</option>
-                  <option value="international">Yes — studying on a visa (F-1/J-1 or study permit)</option>
+                  <option value="domestic">{t('core_ui.domestic_student')}</option>
+                  <option value="international">{t('core_ui.international_student')}</option>
                 </select>
                 <p className="mt-1 text-xs text-muted-foreground">
                   Lets the agent explain nonresident-alien status, tax treaties, and 1042-S for you.
@@ -2029,7 +2033,7 @@ export function AgentBookSettingsPanel({ initialTab }: { initialTab?: string }):
               </div>
               {form.visaStatus === 'international' && (
                 <div>
-                  <label className="block text-sm font-medium text-foreground">Home country</label>
+                  <label className="block text-sm font-medium text-foreground">{t('core_ui.home_country')}</label>
                   <select
                     value={form.homeCountry ?? ''}
                     onChange={(e) => set({ homeCountry: e.target.value || null })}
@@ -2047,7 +2051,7 @@ export function AgentBookSettingsPanel({ initialTab }: { initialTab?: string }):
                   University <span className="text-destructive">*</span>
                 </label>
                 <input type="text" required value={form.university ?? ''} onChange={(e) => set({ university: e.target.value || null })}
-                  className={inputCls} placeholder="University of Toronto" />
+                  className={inputCls} placeholder={t('core_ui.university_placeholder')} />
                 <p className="mt-1 text-xs text-muted-foreground">
                   Required — used to match scholarship and co-op/internship opportunities to you.
                 </p>
@@ -2057,7 +2061,7 @@ export function AgentBookSettingsPanel({ initialTab }: { initialTab?: string }):
                   Major <span className="text-destructive">*</span>
                 </label>
                 <input type="text" required value={form.major ?? ''} onChange={(e) => set({ major: e.target.value || null })}
-                  className={inputCls} placeholder="Computer Science" />
+                  className={inputCls} placeholder={t('core_ui.major_placeholder')} />
               </div>
               <div>
                 <label className="block text-sm font-medium text-foreground">
@@ -2089,9 +2093,9 @@ export function AgentBookSettingsPanel({ initialTab }: { initialTab?: string }):
           ) : (
             <>
               <div>
-                <label className="block text-sm font-medium text-foreground">Company name</label>
+                <label className="block text-sm font-medium text-foreground">{t('core_ui.company_name')}</label>
                 <input type="text" value={form.companyName ?? ''} onChange={(e) => set({ companyName: e.target.value || null })}
-                  className={inputCls} placeholder="Acme Corp" />
+                  className={inputCls} placeholder={t('core_ui.company_name_placeholder')} />
               </div>
               <div>
                 <label className="block text-sm font-medium text-foreground">{t('common.email')}</label>
@@ -2099,7 +2103,7 @@ export function AgentBookSettingsPanel({ initialTab }: { initialTab?: string }):
                   className={inputCls} placeholder="billing@acme.com" />
               </div>
               <div>
-                <label className="block text-sm font-medium text-foreground">Phone</label>
+                <label className="block text-sm font-medium text-foreground">{t('core_ui.phone')}</label>
                 <input type="tel" value={form.companyPhone ?? ''} onChange={(e) => set({ companyPhone: e.target.value || null })}
                   className={inputCls} placeholder="+1 555 000 0000" />
               </div>
@@ -2111,7 +2115,7 @@ export function AgentBookSettingsPanel({ initialTab }: { initialTab?: string }):
                   className={inputCls} placeholder="12 345 678 901" />
               </div>
               <div>
-                <label className="block text-sm font-medium text-foreground">Address</label>
+                <label className="block text-sm font-medium text-foreground">{t('core_ui.address')}</label>
                 <textarea value={form.companyAddress ?? ''} onChange={(e) => set({ companyAddress: e.target.value || null })}
                   rows={3} className={inputCls} placeholder="123 Main St, Suite 100" />
               </div>
@@ -2148,12 +2152,12 @@ export function AgentBookSettingsPanel({ initialTab }: { initialTab?: string }):
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-foreground">Logo</label>
+                <label className="block text-sm font-medium text-foreground">{t('core_ui.logo')}</label>
                 <div className="mt-1 flex items-center gap-3">
                   {(pendingLogoUrl ?? form.logoUrl) ? (
                     <img src={pendingLogoUrl ?? form.logoUrl ?? ''} alt="logo" className="h-12 w-12 rounded border object-contain" />
                   ) : (
-                    <div className="flex h-12 w-12 items-center justify-center rounded border border-border bg-muted text-xs text-muted-foreground">No logo</div>
+                    <div className="flex h-12 w-12 items-center justify-center rounded border border-border bg-muted text-xs text-muted-foreground">{t('core_ui.no_logo')}</div>
                   )}
                   <input ref={fileRef} type="file" accept="image/png,image/jpeg,image/svg+xml,image/webp" className="hidden" onChange={handleLogoChange} />
                   <button type="button" onClick={() => fileRef.current?.click()} disabled={uploading}
@@ -2164,7 +2168,7 @@ export function AgentBookSettingsPanel({ initialTab }: { initialTab?: string }):
                 </div>
               </div>
               <div>
-                <label className="block text-sm font-medium text-foreground">Accent colour</label>
+                <label className="block text-sm font-medium text-foreground">{t('core_ui.accent_colour')}</label>
                 <div className="mt-1 flex items-center gap-3">
                   <input type="color" value={form.brandColor} onChange={(e) => set({ brandColor: e.target.value })}
                     className="h-9 w-12 cursor-pointer rounded border border-border" />
@@ -2188,11 +2192,11 @@ export function AgentBookSettingsPanel({ initialTab }: { initialTab?: string }):
       {tab === 'invoice' && (
         <div className="space-y-5">
           <div>
-            <label className="block text-sm font-medium text-foreground">Accounting basis</label>
+            <label className="block text-sm font-medium text-foreground">{t('core_ui.accounting_basis')}</label>
             <select value={form.accountingBasis ?? 'accrual'} onChange={(e) => set({ accountingBasis: e.target.value })}
               className={inputCls}>
-              <option value="accrual">Accrual — revenue when invoiced</option>
-              <option value="cash">Cash — revenue when paid</option>
+              <option value="accrual">{t('core_ui.accrual_basis')}</option>
+              <option value="cash">{t('core_ui.cash_basis')}</option>
             </select>
             <p className="mt-1 text-xs text-muted-foreground">
               Changes how your Profit &amp; Loss recognizes income. Accrual counts invoices when issued;
@@ -2200,7 +2204,7 @@ export function AgentBookSettingsPanel({ initialTab }: { initialTab?: string }):
             </p>
           </div>
           <div>
-            <label className="block text-sm font-medium text-foreground">Default payment terms</label>
+            <label className="block text-sm font-medium text-foreground">{t('core_ui.default_payment_terms')}</label>
             <select value={form.defaultPaymentTerms ?? 'net-30'} onChange={(e) => set({ defaultPaymentTerms: e.target.value })}
               className={inputCls}>
               {PAYMENT_TERMS.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
@@ -2212,7 +2216,7 @@ export function AgentBookSettingsPanel({ initialTab }: { initialTab?: string }):
               <span className="font-normal text-muted-foreground">(appears on all invoices)</span>
             </label>
             <textarea value={form.invoiceFooterNote ?? ''} onChange={(e) => set({ invoiceFooterNote: e.target.value || null })}
-              rows={3} maxLength={500} className={inputCls} placeholder="Thank you for your business." />
+              rows={3} maxLength={500} className={inputCls} placeholder={t('core_ui.thank_you_for_business')} />
             <p className="mt-1 text-xs text-muted-foreground">{(form.invoiceFooterNote ?? '').length}/500 characters</p>
           </div>
           <div>
@@ -2221,7 +2225,7 @@ export function AgentBookSettingsPanel({ initialTab }: { initialTab?: string }):
               <span className="font-normal text-muted-foreground">(shown on paid invoices)</span>
             </label>
             <input type="text" value={form.invoiceThankYouMessage ?? ''} onChange={(e) => set({ invoiceThankYouMessage: e.target.value || null })}
-              maxLength={200} className={inputCls} placeholder="Thank you for your payment!" />
+              maxLength={200} className={inputCls} placeholder={t('core_ui.thank_you_for_payment')} />
           </div>
         </div>
       )}
