@@ -671,12 +671,23 @@ jobs:
 
       - name: Vercel build (plugin bundles + Next.js)
         id: vercel-build
-        run: ./bin/vercel-build.sh
+        # tee, so the perf budget step below can read the First Load JS table.
+        # `pipefail` because without it the pipeline reports tee's exit status
+        # and a failed build would look green.
+        run: |
+          set -o pipefail
+          ./bin/vercel-build.sh 2>&1 | tee /tmp/next-build.log
         env:
           DATABASE_URL: postgresql://test:test@localhost:5432/test
           NEXTAUTH_SECRET: test-secret-at-least-32-characters-long
           SKIP_PLUGIN_BUILD: ${{ steps.plugin-cache.outputs.cache-hit == 'true' }}
 
+      # Performance budgets. The build log is the measurement: it carries the
+      # First Load JS table, which is the only place those numbers exist.
+      # Prints the current figures on every build so there is always a
+      # baseline in the log, and fails when one crosses its ceiling.
+      - name: Performance budgets
+        run: node bin/perf-budget.mjs /tmp/next-build.log
       - name: Save plugin build cache
         if: steps.vercel-build.outcome == 'success'
         uses: actions/cache/save@v5
