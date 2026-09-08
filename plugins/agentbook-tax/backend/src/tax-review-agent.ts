@@ -3,7 +3,7 @@ import { getTaxReviewPack, listSupportedJurisdictions } from '@agentbook/jurisdi
 import type { ComputedFilingTotals, CriticalField } from '@agentbook/jurisdictions/interfaces';
 import { updateFilingField } from './tax-filing.js';
 import { submitFiling } from './tax-efiling.js';
-import { createHash } from 'node:crypto';
+import { hashForms, isConfirmedAndFresh } from './review-freshness.js';
 import { formatCurrency } from '@agentbook/i18n';
 
 // Local copy, deliberately not a cross-package import — see this task's
@@ -427,32 +427,11 @@ function classifyReply(
   return { kind: 'unclear' };
 }
 
-function hashForms(forms: Record<string, Record<string, any>>): string {
-  return createHash('sha256').update(JSON.stringify(forms)).digest('hex');
-}
+// hashForms / isConfirmedAndFresh / hasConfirmedFreshReview moved to
+// review-freshness.ts to break an import cycle — see that file. Re-exported so
+// every existing caller and test keeps working.
+export { hasConfirmedFreshReview } from './review-freshness.js';
 
-/**
- * "Confirmed, against these exact numbers." The one definition, shared by
- * hasConfirmedFreshReview() and getReviewState() so the submit gate and the
- * web tab can never disagree about whether a review still counts.
- */
-function isConfirmedAndFresh(
-  review: { status: string; reviewedFormsHash: string | null } | null,
-  forms: Record<string, Record<string, any>> | null,
-): boolean {
-  if (!review || review.status !== 'confirmed' || !review.reviewedFormsHash || !forms) return false;
-  return hashForms(forms) === review.reviewedFormsHash;
-}
-
-export async function hasConfirmedFreshReview(tenantId: string, taxYear: number): Promise<boolean> {
-  const review = await db.abTaxFilingReview.findFirst({ where: { tenantId, taxYear } });
-  if (!review) return false;
-
-  const filing = await db.abTaxFiling.findFirst({ where: { tenantId, taxYear, filingType: 'personal_return' } });
-  if (!filing) return false;
-
-  return isConfirmedAndFresh(review, (filing.forms as Record<string, Record<string, any>>) || {});
-}
 
 /**
  * The statuses that mean "this tenant is mid-review", i.e. the next

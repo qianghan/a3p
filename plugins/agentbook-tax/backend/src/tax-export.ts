@@ -6,7 +6,7 @@ import { formatCurrency } from '@agentbook/i18n';
 import {
   buildWorksheetRows, renderWorksheetCSV, worksheetFilename, jurisdictionFacts,
 } from './filing-worksheet.js';
-import { hasConfirmedFreshReview } from './tax-review-agent.js';
+import { hasConfirmedFreshReview } from './review-freshness.js';
 
 // === Validation ===
 

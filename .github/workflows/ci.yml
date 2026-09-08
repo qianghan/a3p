@@ -548,32 +548,33 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Check if target changed
-        id: check
-        run: |
-          CHANGED=$(git diff --name-only ${{ github.event.pull_request.base.sha || 'HEAD~1' }} HEAD -- "${{ matrix.path }}/")
-          if [ -n "$CHANGED" ]; then
-            echo "changed=true" >> $GITHUB_OUTPUT
-            echo "${{ matrix.target }} has changes:"
-            echo "$CHANGED"
-          else
-            echo "changed=false" >> $GITHUB_OUTPUT
-            echo "${{ matrix.target }} has no changes — skipping"
-          fi
-
+      # The per-target "did MY directory change?" gate that used to sit here was
+      # worse than no gate, because a job whose every step is skipped still
+      # reports SUCCESS — and Quality Gates counts that as a pass. So the check
+      # named "Backend Tests — agentbook-core" went green on PRs where it ran
+      # nothing at all.
+      #
+      # That is not hypothetical. #513 changed only the tax plugin and the
+      # jurisdictions package, so this gate skipped agentbook-core — whose
+      # suite was, at that exact commit, failing: the PR closed an import cycle
+      # through tax-export and the tax review's confirm step silently stopped
+      # calling submitFiling. It merged green.
+      #
+      # These targets import each other's modules (agentbook-core reaches into
+      # @agentbook-tax/*), so "my directory did not change" says nothing about
+      # whether my tests still pass. All six run DB-free in about a minute, so
+      # running them whenever any plugin or package changes costs little and
+      # removes the entire class.
       - name: Setup Node.js
-        if: steps.check.outputs.changed == 'true'
         uses: actions/setup-node@v6
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
 
       - name: Install dependencies
-        if: steps.check.outputs.changed == 'true'
         run: npm ci
 
       - name: Run backend tests
-        if: steps.check.outputs.changed == 'true'
         # No `|| echo` mask: a failing AgentBook backend suite MUST fail CI so a
         # money/tax regression (e.g. the CA payroll bug) can't land green (M6).
         # `--if-present` still no-ops targets with no test script; all six
