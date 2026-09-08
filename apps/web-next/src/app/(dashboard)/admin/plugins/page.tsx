@@ -10,7 +10,7 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
-import * as LucideIcons from 'lucide-react';
+import { PluginIcon } from '@/components/ui/PluginIcon';
 import {
   Blocks,
   Shield,
@@ -26,11 +26,13 @@ import { AdminNav } from '@/components/admin/AdminNav';
 import { Search } from 'lucide-react';
 import { useT } from '@/hooks/use-t';
 
-/** Resolve a Lucide icon name (e.g. "ShoppingBag") to a React component, with fallback. */
+/**
+ * Resolve a Lucide icon name (e.g. "ShoppingBag") to a component, with a
+ * fallback. Was an index into `import * as LucideIcons from 'lucide-react'`,
+ * which cannot be tree-shaken and put the entire icon set in this route.
+ */
 function getPluginIcon(iconName?: string | null): React.ReactNode {
-  if (!iconName) return <Blocks size={18} />;
-  const Icon = (LucideIcons as unknown as Record<string, React.ComponentType<{ size?: number }>>)[iconName];
-  return Icon ? <Icon size={18} /> : <Blocks size={18} />;
+  return <PluginIcon name={iconName} size={18} fallback={<Blocks size={18} />} />;
 }
 
 interface PluginEntry {

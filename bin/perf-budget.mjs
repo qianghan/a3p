@@ -47,14 +47,28 @@ const ROUTE_BUDGET_KB = 250;
  * the work; raising one should need a reason in the PR.
  */
 const ROUTE_EXCEPTIONS = {
-  '/settings': 540, // measured 494 kB — the worst route in the app
-  '/admin/plugins': 445, // measured 405 kB
+  // Was 494 kB — the worst route in the app, and 445 kB of that was the whole
+  // lucide icon library pulled in by a namespace import. Now 308 kB, which is
+  // an ordinary big settings page rather than a bundling bug. Still over the
+  // default because the page itself is 68 kB of tab content.
+  '/settings': 340,
+  // '/admin/plugins' was 405 kB for the same reason and is now 217 kB, under
+  // the default. Its exception is deleted rather than kept at a slack value —
+  // an exception nobody needs is a ceiling nobody notices rising.
 };
 
 /** First Load JS shared by every route. Measured 103 kB. */
 const SHARED_BUDGET_KB = 115;
 
-/** Total woff2/woff in .next/static/media. Measured 1192 kB. */
+/**
+ * Total woff2/woff in .next/static/media. Measured 1156 kB.
+ *
+ * Note this counts every font FILE the build produced, which is not what any
+ * one visitor downloads — the landing page fetches five of them (419 kB) and
+ * app routes fetch a different, smaller subset. It is a payload ceiling for
+ * the repo, not a page weight; the page-level number lives in
+ * docs/performance-baseline.md where it can be compared against the field.
+ */
 const FONT_BUDGET_KB = 1250;
 
 function parseSize(value, unit) {

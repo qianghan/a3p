@@ -3,14 +3,35 @@ import { Inter, JetBrains_Mono } from 'next/font/google';
 import { Providers } from '@/components/providers';
 import './globals.css';
 
+/**
+ * `preload: false` is deliberate, and it is about the landing page.
+ *
+ * These two families are declared in the ROOT layout, so Next lists them in
+ * the preload manifest for EVERY route -- including `/`, which renders none
+ * of their glyphs. The marketing page sets its own display, body and numeric
+ * faces (see app/page.tsx) and never falls through to `font-sans`. Measured
+ * on production: `/` fetched seven woff2 files totalling 501 kB, every one
+ * with initiatorType "link", and 87 kB of that was Inter (47 kB) plus a
+ * second copy of JetBrains Mono (40 kB) that no element on the page uses.
+ *
+ * Dropping the preload does not stop the app pages that DO use these from
+ * getting them -- the @font-face rules still ship in render-blocking CSS in
+ * <head>, so the fetch starts about one parse later instead of alongside the
+ * HTML. next/font generates a metrics-matched `Inter Fallback`, so the swap
+ * costs no layout shift, only a slightly later swap on dashboard routes. That
+ * is the trade: a marginally later font swap behind the login wall, against
+ * 87 kB off the first page every visitor loads.
+ */
 const inter = Inter({
   subsets: ['latin'],
   variable: '--font-inter',
+  preload: false,
 });
 
 const jetbrainsMono = JetBrains_Mono({
   subsets: ['latin'],
   variable: '--font-mono',
+  preload: false,
 });
 
 export const metadata: Metadata = {
