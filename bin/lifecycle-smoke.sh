@@ -72,7 +72,6 @@ REQUIRED_FILES=(
   "packages/plugin-build/package.json"
   "apps/web-next/package.json"
   "apps/web-next/next.config.js"
-  "services/base-svc/package.json"
 )
 
 for f in "${REQUIRED_FILES[@]}"; do
