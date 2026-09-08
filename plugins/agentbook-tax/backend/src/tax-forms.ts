@@ -275,6 +275,51 @@ export const ALL_US_FORMS = [US_SCHEDULE_C_2025, US_1040_2025];
 // income, not modeling the low-income no-levy threshold — the same
 // simplification level as SCHEDULE8_CPP/SE_TAX (Task 2).
 
+/**
+ * The AU business schedule, laid out as the ATO's P8 actually is.
+ *
+ * WHAT THIS REPLACED, AND WHY
+ *
+ * The previous version had advertising, insurance, legal and professional,
+ * office supplies, travel and telephone rows. Those are the US Schedule C /
+ * CA T2125 shape, copied across when the pack was written. The ATO's P8
+ * Expenses section has none of them: an Australian return groups by opening
+ * and closing stock, cost of sales, contractor, superannuation, bad debts,
+ * lease, rent, interest (within Australia and overseas), depreciation, motor
+ * vehicle, repairs and maintenance, home office, and everything else in one
+ * "All other expenses" line. Six of our seven rows had no counterpart at all,
+ * so the worksheet handed an Australian accountant categories that do not
+ * appear on the form they are filling in.
+ *
+ * The chart of accounts already knew this. Every AU account carries a
+ * `taxCategory` like "ITR - Motor vehicle expenses" or "ITR - All other
+ * expenses" — the P8 row names, mapped correctly, and never used by the form.
+ * This wires that mapping up.
+ *
+ * ON THE LABEL LETTERS
+ *
+ * Read off the ATO's own instructions, from complete sentences of the form
+ * "add up ... and write the total at label X" — not inferred from proximity,
+ * which produced two contradictory answers on a first pass.
+ *
+ * Two rows deliberately carry "P8" with no letter. The published 2026
+ * instructions state label K for BOTH opening stock ("add up your primary
+ * production and non-primary production opening stock values and show the
+ * total at label K") and rent ("...rent expenses and write the total at label
+ * K"), which cannot both be right. Rather than pick, those rows name the item
+ * and let the row label carry the rest; a wrong letter on a tax worksheet is
+ * worse than an absent one, and unlike a blank it looks authoritative.
+ * "All other expenses" and "Total expenses" likewise have no letter stated in
+ * a complete sentence anywhere on the page.
+ *
+ * Source: ato.gov.au, Business and professional items schedule 2026
+ * instructions (NAT 2543-06.2026), Expenses P8; and Individual supplementary
+ * tax return 2026 instructions, question 15. Read 2026-09-08.
+ *
+ * `gross_business_income`, `total_expenses` and `net_business_income` keep
+ * their field IDs — the AU tax review pack names them as the critical fields
+ * it checks before a filing may be submitted.
+ */
 const AU_BUSINESS_SCHEDULE_2025 = {
   jurisdiction: 'au', formCode: 'BusinessSchedule', version: '2025',
   formName: 'Business and Professional Items Schedule (Sole Trader)',
@@ -288,23 +333,49 @@ const AU_BUSINESS_SCHEDULE_2025 = {
       ],
     },
     {
-      sectionId: 'income', title: 'Business Income',
+      sectionId: 'income', title: 'P8 Business income',
       fields: [
-        { fieldId: 'gross_business_income', label: 'Gross business income', lineNumber: 'P8', type: 'currency', required: true, source: 'auto', sourceQuery: 'revenue_total' },
+        { fieldId: 'gross_business_income', label: 'Gross payments / business income', lineNumber: 'P8', type: 'currency', required: true, source: 'auto', sourceQuery: 'revenue_total' },
       ],
     },
     {
-      sectionId: 'expenses', title: 'Business Expenses',
+      sectionId: 'expenses', title: 'P8 Business expenses',
       fields: [
-        { fieldId: 'advertising', label: 'Advertising', lineNumber: '', type: 'currency', required: false, source: 'auto', sourceQuery: 'expense_category:5000' },
-        { fieldId: 'insurance', label: 'Insurance', lineNumber: '', type: 'currency', required: false, source: 'auto', sourceQuery: 'expense_category:5400' },
-        { fieldId: 'legal_professional', label: 'Legal and professional expenses', lineNumber: '', type: 'currency', required: false, source: 'auto', sourceQuery: 'expense_category:5700' },
-        { fieldId: 'office_supplies', label: 'Office supplies and consumables', lineNumber: '', type: 'currency', required: false, source: 'auto', sourceQuery: 'expense_category:6100' },
-        { fieldId: 'travel', label: 'Travel expenses', lineNumber: '', type: 'currency', required: false, source: 'auto', sourceQuery: 'expense_category:6300' },
-        { fieldId: 'phone_internet', label: 'Telephone and internet', lineNumber: '', type: 'currency', required: false, source: 'auto', sourceQuery: 'expense_category:6500' },
-        { fieldId: 'other_expenses', label: 'Other business expenses', lineNumber: '', type: 'currency', required: false, source: 'auto', sourceQuery: 'expense_category:6600' },
-        { fieldId: 'total_expenses', label: 'Total business expenses', lineNumber: '', type: 'currency', required: true, source: 'calculated', formula: 'SUM(advertising,insurance,legal_professional,office_supplies,travel,phone_internet,other_expenses)' },
-        { fieldId: 'net_business_income', label: 'Net business income', lineNumber: 'P8 Z', type: 'currency', required: true, source: 'calculated', formula: 'gross_business_income - total_expenses' },
+        // Trading stock. A service sole trader has none, so these stay manual
+        // and simply do not appear on the worksheet when unset.
+        { fieldId: 'opening_stock', label: 'Opening stock', lineNumber: 'P8', type: 'currency', required: false, source: 'manual' },
+        { fieldId: 'purchases_and_other_costs', label: 'Purchases and other costs', lineNumber: 'P8 L', type: 'currency', required: false, source: 'manual' },
+        { fieldId: 'closing_stock', label: 'Closing stock', lineNumber: 'P8 M', type: 'currency', required: false, source: 'manual' },
+        { fieldId: 'cost_of_sales', label: 'Cost of sales', lineNumber: 'P8', type: 'currency', required: false, source: 'auto', sourceQuery: 'expense_category:5000' },
+
+        { fieldId: 'foreign_resident_withholding', label: 'Foreign resident withholding expenses', lineNumber: 'P8', type: 'currency', required: false, source: 'manual' },
+        { fieldId: 'contractor_subcontractor_commission', label: 'Contractor, sub-contractor and commission expenses', lineNumber: 'P8 F', type: 'currency', required: false, source: 'auto', sourceQuery: 'expense_category:6400' },
+        { fieldId: 'superannuation_expenses', label: 'Superannuation expenses', lineNumber: 'P8 G', type: 'currency', required: false, source: 'auto', sourceQuery: 'expense_category:6200' },
+        { fieldId: 'bad_debts', label: 'Bad debts', lineNumber: 'P8 I', type: 'currency', required: false, source: 'manual' },
+        { fieldId: 'lease_expenses', label: 'Lease expenses', lineNumber: 'P8 J', type: 'currency', required: false, source: 'manual' },
+        { fieldId: 'rent_expenses', label: 'Rent expenses', lineNumber: 'P8', type: 'currency', required: false, source: 'auto', sourceQuery: 'expense_category:5400' },
+        { fieldId: 'interest_within_australia', label: 'Interest expenses within Australia', lineNumber: 'P8 Q', type: 'currency', required: false, source: 'auto', sourceQuery: 'expense_category:5800' },
+        { fieldId: 'interest_overseas', label: 'Interest expenses overseas', lineNumber: 'P8 R', type: 'currency', required: false, source: 'manual' },
+        { fieldId: 'depreciation_expenses', label: 'Depreciation expenses', lineNumber: 'P8', type: 'currency', required: false, source: 'auto', sourceQuery: 'expense_category:6100' },
+        { fieldId: 'motor_vehicle_expenses', label: 'Motor vehicle expenses', lineNumber: 'P8 N', type: 'currency', required: false, source: 'auto', sourceQuery: 'expense_category:5200' },
+        { fieldId: 'repairs_and_maintenance', label: 'Repairs and maintenance', lineNumber: 'P8 O', type: 'currency', required: false, source: 'auto', sourceQuery: 'expense_category:5500' },
+        // The nine accounts the ATO folds into one line: advertising, travel,
+        // office supplies, insurance, accounting and legal, telephone and
+        // internet, software, other, and the 6999 suspense account — which is
+        // included deliberately, so an uncategorised expense is still claimed
+        // rather than silently dropped from the return.
+        { fieldId: 'all_other_expenses', label: 'All other expenses', lineNumber: 'P8', type: 'currency', required: false, source: 'auto', sourceQuery: 'expense_categories:5100,5300,5600,5700,5900,6000,6500,6700,6999' },
+        { fieldId: 'home_office_expenses', label: 'Home office expenses', lineNumber: 'P8 P', type: 'currency', required: false, source: 'auto', sourceQuery: 'expense_category:6600' },
+
+        { fieldId: 'total_expenses', label: 'Total expenses', lineNumber: 'P8', type: 'currency', required: true, source: 'calculated', formula: 'SUM(cost_of_sales,foreign_resident_withholding,contractor_subcontractor_commission,superannuation_expenses,bad_debts,lease_expenses,rent_expenses,interest_within_australia,interest_overseas,depreciation_expenses,motor_vehicle_expenses,repairs_and_maintenance,all_other_expenses,home_office_expenses)' },
+        { fieldId: 'net_business_income', label: 'Net income or loss from business (non-primary production)', lineNumber: 'P8 Z', type: 'currency', required: true, source: 'calculated', formula: 'gross_business_income - total_expenses' },
+      ],
+    },
+    {
+      sectionId: 'salary_wages', title: 'P15 Total salary and wage expenses',
+      fields: [
+        // A separate item on the schedule, not part of the P8 expense column.
+        { fieldId: 'total_salary_and_wage_expenses', label: 'Total salary and wage expenses', lineNumber: 'P15', type: 'currency', required: false, source: 'auto', sourceQuery: 'expense_category:6300' },
       ],
     },
   ],
@@ -463,6 +534,20 @@ export async function resolveSourceQuery(
       where: { entry: { tenantId, date: { gte: yearStart, lte: yearEnd } }, account: { code: { startsWith: '4' } } },
     });
     return result._sum.creditCents || 0;
+  }
+
+  // Several chart-of-accounts codes rolling into ONE form row. The ATO's P8
+  // has a single "All other expenses" line that nine of our accounts land on,
+  // so without this the only way to fill it is to expose all nine as separate
+  // fields — which is exactly the US-shaped schedule this replaced.
+  if (query.startsWith('expense_categories:')) {
+    const codes = query.slice('expense_categories:'.length).split(',').map((c) => c.trim()).filter(Boolean);
+    if (codes.length === 0) return 0;
+    const result = await db.abJournalLine.aggregate({
+      _sum: { debitCents: true },
+      where: { entry: { tenantId, date: { gte: yearStart, lte: yearEnd } }, account: { code: { in: codes } } },
+    });
+    return result._sum.debitCents || 0;
   }
 
   if (query.startsWith('expense_category:')) {
