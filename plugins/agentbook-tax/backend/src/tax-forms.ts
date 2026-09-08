@@ -157,7 +157,7 @@ const CA_SCHEDULE1_2025 = {
   ],
 };
 
-const ALL_CA_FORMS = [CA_T2125_2025, CA_T1_2025, CA_GST_HST_2025, CA_SCHEDULE1_2025];
+export const ALL_CA_FORMS = [CA_T2125_2025, CA_T1_2025, CA_GST_HST_2025, CA_SCHEDULE1_2025];
 
 // === US Form Templates (2025) ===
 // A deliberately simplified subset — Schedule C business income/expenses
@@ -266,7 +266,7 @@ const US_1040_2025 = {
   ],
 };
 
-const ALL_US_FORMS = [US_SCHEDULE_C_2025, US_1040_2025];
+export const ALL_US_FORMS = [US_SCHEDULE_C_2025, US_1040_2025];
 
 // === AU Form Templates (2025) ===
 // Income tax only — GST/BAS reporting is a separate, already-existing
@@ -344,7 +344,7 @@ const AU_INDIVIDUAL_RETURN_2025 = {
   ],
 };
 
-const ALL_AU_FORMS = [AU_BUSINESS_SCHEDULE_2025, AU_INDIVIDUAL_RETURN_2025];
+export const ALL_AU_FORMS = [AU_BUSINESS_SCHEDULE_2025, AU_INDIVIDUAL_RETURN_2025];
 
 // === Seed Forms ===
 
