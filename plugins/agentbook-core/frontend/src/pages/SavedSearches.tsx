@@ -234,8 +234,7 @@ export const SavedSearchesPage: React.FC = () => {
     <div style={{ maxWidth: 960, margin: '0 auto', padding: '24px 16px' }}>
       <header style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 24 }}>
         <h1 style={{ display: 'flex', alignItems: 'center', gap: 8, margin: 0 }}>
-          <Search size={24} /> Saved Searches
-        </h1>
+          <Search size={24} /> {t('core_ui.saved_searches')}</h1>
         <button
           type="button"
           onClick={() => setShowCreate((v) => !v)}

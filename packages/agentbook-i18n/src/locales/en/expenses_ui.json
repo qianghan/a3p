@@ -129,5 +129,6 @@
   "agent_insights": "Agent Insights",
   "expense_advisor": "Expense Advisor",
   "ask_placeholder": "Ask about your expenses...",
-  "per_diem_unsupported": "Per-diem isn't a {jurisdiction}-supported method yet — use mileage + meals expenses instead. (Coming in a future release.)"
+  "per_diem_unsupported": "Per-diem isn't a {jurisdiction}-supported method yet — use mileage + meals expenses instead. (Coming in a future release.)",
+  "export_ytd": "Export YTD"
 }

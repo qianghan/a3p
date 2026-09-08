@@ -207,8 +207,7 @@ export const ReportsPage: React.FC = () => {
                 rel="noreferrer"
                 className="px-3 py-1.5 text-xs rounded-lg border border-border hover:bg-muted/50 inline-flex items-center gap-1"
               >
-                <Download className="w-3.5 h-3.5" /> Download T4A
-              </a>
+                <Download className="w-3.5 h-3.5" /> {t('tax_ui.download_t4a')}</a>
             )}
             <span
               className={`text-sm font-medium ${row.amount < 0 ? 'text-red-600' : ''}`}

@@ -141,8 +141,7 @@ export const RoommatesPanel: React.FC = () => {
       {/* Consent / privacy explainer */}
       <div className="rounded-xl border border-border bg-card p-4 mb-6">
         <div className="flex items-center gap-2 text-sm font-medium text-foreground mb-1">
-          <ShieldCheck className="w-4 h-4" /> How roommate matching works
-        </div>
+          <ShieldCheck className="w-4 h-4" /> {tr('student_ui.how_roommate_matching_works')}</div>
         <ul className="text-sm text-muted-foreground list-disc pl-5 space-y-0.5">
           <li>{tr('student_ui.privacy_off_by_default')}</li>
           <li>{tr('student_ui.privacy_no_contact')}</li>
@@ -204,8 +203,7 @@ export const RoommatesPanel: React.FC = () => {
                 {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />} Save &amp; refresh matches
               </button>
               <button onClick={() => void save(false)} disabled={saving} className="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-2 text-sm text-foreground hover:bg-muted disabled:opacity-50">
-                <Power className="w-4 h-4" /> Turn off
-              </button>
+                <Power className="w-4 h-4" /> {tr('student_ui.turn_off')}</button>
               <button onClick={() => void withdraw()} disabled={saving} className="inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm text-destructive hover:bg-destructive/10 disabled:opacity-50">{tr('student_ui.delete_profile')}
               </button>
             </>

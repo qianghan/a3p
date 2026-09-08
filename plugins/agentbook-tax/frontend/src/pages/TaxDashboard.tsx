@@ -411,8 +411,7 @@ function SettingsTab({ onSaved }: { onSaved?: () => void }) {
 
           <div>
             <label className="block text-xs font-medium text-muted-foreground mb-1.5">
-              <Building2 className="inline w-3.5 h-3.5 mr-1" />Tax filing entity type
-            </label>
+              <Building2 className="inline w-3.5 h-3.5 mr-1" />{t('tax_ui.tax_filing_entity_type')}</label>
             <select
               value={settings.taxEntityType}
               onChange={e => handleEntityTypeChange(e.target.value)}

@@ -104,8 +104,7 @@ function DecisionPointCard({
             onClick={() => onRespond(decisionPoint.id, answer)}
             className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-primary text-primary-foreground rounded-lg text-sm font-medium hover:bg-primary/90 transition-colors disabled:opacity-50"
           >
-            <Send className="w-4 h-4" /> Submit
-          </button>
+            <Send className="w-4 h-4" /> {t('startup_ui.submit')}</button>
         </div>
       )}
     </div>
@@ -202,8 +201,7 @@ export function ApplicationDetailPage() {
       {documentChecklist.length > 0 && (
         <div className="mb-6">
           <h2 className="text-sm font-semibold text-foreground mb-2 flex items-center gap-1.5">
-            <Upload className="w-4 h-4" /> Documents
-          </h2>
+            <Upload className="w-4 h-4" /> {t('common.documents')}</h2>
           {documentChecklist.map((req) => {
             const uploaded = uploadedDocTypes.has(req.docType);
             return (
@@ -241,8 +239,7 @@ export function ApplicationDetailPage() {
 
       <div className="mb-6">
         <h2 className="text-sm font-semibold text-foreground mb-2 flex items-center gap-1.5">
-          <BookOpen className="w-4 h-4" /> Draft
-        </h2>
+          <BookOpen className="w-4 h-4" /> {t('startup_ui.draft')}</h2>
         {Object.entries(application.draft.sections ?? {}).map(([sectionName, fields]) => (
           <div key={sectionName} className="bg-card border border-border rounded-xl p-4 mb-3">
             <h3 className="text-sm font-semibold text-foreground mb-2">{sectionName}</h3>

@@ -99,5 +99,9 @@
   "send_all_reminders": "Send all reminders",
   "generate_from_selected": "Generate invoice from selected",
   "working": "Working...",
-  "reminded_on": "Reminded {date}"
+  "reminded_on": "Reminded {date}",
+  "stop": "Stop",
+  "start_timer": "Start Timer",
+  "download_pdf": "Download PDF",
+  "decline": "Decline"
 }

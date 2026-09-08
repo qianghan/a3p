@@ -314,8 +314,7 @@ export function InvoiceDetailPage(): JSX.Element {
             onClick={openPdf}
             className="flex items-center gap-1.5 rounded-lg px-4 py-2 text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-muted/50"
           >
-            <Download className="w-4 h-4" /> Download PDF
-          </button>
+            <Download className="w-4 h-4" /> {t('invoice_ui.download_pdf')}</button>
         )}
 
         {/* Destructive ghost: void */}

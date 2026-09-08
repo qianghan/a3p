@@ -75,5 +75,16 @@
   "save_settings": "Save Settings",
   "calculate_tax_impact": "Calculate Tax Impact",
   "refund": "Refund",
-  "owing": "Owing"
+  "owing": "Owing",
+  "filing_draft": "Filing draft",
+  "client_letter": "Client letter",
+  "download_t4a": "Download T4A",
+  "tax_filing_entity_type": "Tax filing entity type",
+  "category_breakdown_ytd": "Category Breakdown (YTD)",
+  "monthly_spending_trend": "Monthly Spending Trend",
+  "top_vendors": "Top Vendors",
+  "reparse": "Re-parse",
+  "deadline": "Deadline",
+  "amount_due": "Amount Due",
+  "amount_paid": "Amount Paid"
 }

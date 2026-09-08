@@ -184,7 +184,7 @@ export const CareerPage: React.FC = () => {
                 >
                   {STATUS_FLOW.map((s) => <option key={s} value={s}>{s}</option>)}
                 </select>
-                <button onClick={() => void remove(o.id)} aria-label="Remove"
+                <button onClick={() => void remove(o.id)} aria-label={t('core_ui.remove')}
                   className="text-muted-foreground hover:text-destructive p-1 rounded hover:bg-muted">
                   <Trash2 className="w-3.5 h-3.5" />
                 </button>

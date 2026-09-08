@@ -239,8 +239,7 @@ export const PostDetailPage: React.FC = () => {
         onClick={() => navigate('/')}
         className="flex items-center gap-2 text-text-secondary hover:text-text-primary transition-colors text-sm"
       >
-        <ArrowLeft size={18} /> Back to Forum
-      </button>
+        <ArrowLeft size={18} /> {t('community_ui.back_to_forum')}</button>
 
       {/* Post */}
       <Card className="overflow-hidden">
@@ -271,8 +270,7 @@ export const PostDetailPage: React.FC = () => {
               {post.isSolved && (
                 <Badge variant="emerald">
                   <span className="flex items-center gap-1">
-                    <CheckCircle size={12} /> Solved
-                  </span>
+                    <CheckCircle size={12} /> {t('community_ui.solved')}</span>
                 </Badge>
               )}
             </div>
@@ -382,8 +380,7 @@ export const PostDetailPage: React.FC = () => {
                 <div className="flex-1">
                   {comment.isAccepted && (
                     <div className="flex items-center gap-2 text-accent-emerald text-sm font-medium mb-3">
-                      <CheckCircle size={14} /> Accepted Answer
-                    </div>
+                      <CheckCircle size={14} /> {t('community_ui.accepted_answer')}</div>
                   )}
 
                   <div
@@ -409,8 +406,7 @@ export const PostDetailPage: React.FC = () => {
                         onClick={() => handleAcceptAnswer(comment.id)}
                         className="flex items-center gap-1 px-2 py-1 bg-accent-emerald/20 text-accent-emerald rounded-md text-xs font-medium hover:bg-accent-emerald/30 transition-all"
                       >
-                        <CheckCircle size={14} /> Accept Answer
-                      </button>
+                        <CheckCircle size={14} /> {t('community_ui.accept_answer')}</button>
                     )}
                   </div>
                 </div>

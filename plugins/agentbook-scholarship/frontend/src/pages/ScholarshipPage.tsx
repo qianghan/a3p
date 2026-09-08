@@ -77,8 +77,7 @@ export const ScholarshipPage: React.FC = () => {
     <div className="max-w-4xl mx-auto p-4 sm:p-6">
       <div className="mb-5">
         <h1 className="text-xl font-bold text-foreground flex items-center gap-2">
-          <GraduationCap className="w-5 h-5" /> Scholarship Copilot
-        </h1>
+          <GraduationCap className="w-5 h-5" /> {t('student_ui.scholarship_copilot')}</h1>
         <p className="text-sm text-muted-foreground mt-0.5">
           Find scholarships you&apos;re eligible for, then track and prepare each one.
           AgentBook finds, drafts, and reminds — <strong>you review and submit</strong>.
@@ -87,7 +86,7 @@ export const ScholarshipPage: React.FC = () => {
 
       {/* Discover */}
       <div className="rounded-xl border border-border bg-card p-4 mb-6">
-        <label className="block text-sm font-medium text-foreground mb-2">Find scholarships</label>
+        <label className="block text-sm font-medium text-foreground mb-2">{t('student_ui.find_scholarships')}</label>
         <div className="flex gap-2">
           <input
             className={inputCls}
@@ -147,7 +146,7 @@ export const ScholarshipPage: React.FC = () => {
       </div>
 
       {/* Tracker */}
-      <h2 className="text-sm font-semibold text-foreground mb-2">Your scholarships</h2>
+      <h2 className="text-sm font-semibold text-foreground mb-2">{t('student_ui.your_scholarships')}</h2>
       {loading ? (
         <div className="flex justify-center py-10"><Loader2 className="w-5 h-5 animate-spin text-muted-foreground" /></div>
       ) : err ? (
@@ -186,7 +185,7 @@ export const ScholarshipPage: React.FC = () => {
                 >
                   {STATUS_FLOW.map((s) => <option key={s} value={s}>{s}</option>)}
                 </select>
-                <button onClick={() => void remove(o.id)} aria-label="Remove"
+                <button onClick={() => void remove(o.id)} aria-label={t('core_ui.remove')}
                   className="text-muted-foreground hover:text-destructive p-1 rounded hover:bg-muted">
                   <Trash2 className="w-3.5 h-3.5" />
                 </button>

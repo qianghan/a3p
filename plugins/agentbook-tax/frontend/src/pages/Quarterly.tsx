@@ -172,24 +172,21 @@ export const QuarterlyPage: React.FC = () => {
               <div className="space-y-2 mb-4">
                 <div className="flex items-center justify-between">
                   <span className="text-sm flex items-center gap-1.5" style={{ color: 'var(--text-secondary)' }}>
-                    <Calendar className="w-3.5 h-3.5" /> Deadline
-                  </span>
+                    <Calendar className="w-3.5 h-3.5" /> {t('tax_ui.deadline')}</span>
                   <span className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>
                     {formatDate(q.deadline, locale)}
                   </span>
                 </div>
                 <div className="flex items-center justify-between">
                   <span className="text-sm flex items-center gap-1.5" style={{ color: 'var(--text-secondary)' }}>
-                    <DollarSign className="w-3.5 h-3.5" /> Amount Due
-                  </span>
+                    <DollarSign className="w-3.5 h-3.5" /> {t('tax_ui.amount_due')}</span>
                   <span className="text-sm font-bold" style={{ color: 'var(--text-primary)' }}>
                     {formatCurrency(q.amount_due, currency)}
                   </span>
                 </div>
                 <div className="flex items-center justify-between">
                   <span className="text-sm flex items-center gap-1.5" style={{ color: 'var(--text-secondary)' }}>
-                    <CheckCircle className="w-3.5 h-3.5" /> Amount Paid
-                  </span>
+                    <CheckCircle className="w-3.5 h-3.5" /> {t('tax_ui.amount_paid')}</span>
                   <span className="text-sm font-medium text-green-600">
                     {formatCurrency(q.amount_paid, currency)}
                   </span>

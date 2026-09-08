@@ -1,12 +1,14 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
+import { useT } from '@/hooks/use-t';
 import { FileText, Paperclip } from 'lucide-react';
 import { formatCurrencyCents, defaultCurrencyFor } from '@/lib/jurisdiction-currency';
 
 interface Expense { id: string; amountCents: number; vendorName?: string | null; description?: string | null; date?: string; receiptUrl?: string | null; currency?: string | null }
 
 export default function MobileDocs() {
+  const t = useT();
   const [items, setItems] = useState<Expense[]>([]);
   const [loading, setLoading] = useState(true);
   // Tenant currency, resolved from jurisdiction — same source the PWA home
@@ -30,7 +32,7 @@ export default function MobileDocs() {
   return (
     <div style={{ padding: '20px 16px', color: 'var(--foreground,#fff)' }}>
       <h1 style={{ fontSize: 20, fontWeight: 500, marginBottom: 16, display: 'flex', alignItems: 'center', gap: 8 }}>
-        <FileText style={{ width: 20, height: 20 }} /> Documents
+        <FileText style={{ width: 20, height: 20 }} /> {t('common.documents')}
       </h1>
       {loading ? (
         <p style={{ color: 'var(--muted-foreground,#888)' }}>Loading…</p>

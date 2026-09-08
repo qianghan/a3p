@@ -34,5 +34,12 @@
   "career_grounding": "根据您的专业、地区，以及国际学生的工作许可情况进行匹配。每条结果均链接至来源。",
   "privacy_off_by_default": "您的资料在您开启前处于关闭状态，且仅已选择加入的学生会出现在匹配结果中。",
   "privacy_no_contact": "我们不存储任何联系方式或确切地址 — 仅保存昵称、区域、预算和偏好。",
-  "privacy_compat_only": "AgentBook 仅展示匹配度，绝不会主动联系任何人 — 需由您通过学校或住房小组联系对方。"
+  "privacy_compat_only": "AgentBook 仅展示匹配度，绝不会主动联系任何人 — 需由您通过学校或住房小组联系对方。",
+  "housing_copilot": "住房助手",
+  "your_budget": "您的预算",
+  "how_roommate_matching_works": "室友匹配的运作方式",
+  "turn_off": "关闭",
+  "scholarship_copilot": "奖学金助手",
+  "find_scholarships": "查找奖学金",
+  "your_scholarships": "您的奖学金"
 }

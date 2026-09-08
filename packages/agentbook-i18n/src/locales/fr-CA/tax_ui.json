@@ -75,5 +75,16 @@
   "save_settings": "Enregistrer les paramètres",
   "calculate_tax_impact": "Calculer l’incidence fiscale",
   "refund": "Remboursement",
-  "owing": "Solde dû"
+  "owing": "Solde dû",
+  "filing_draft": "Ébauche de déclaration",
+  "client_letter": "Lettre au client",
+  "download_t4a": "Télécharger le T4A",
+  "tax_filing_entity_type": "Type d'entité pour la déclaration",
+  "category_breakdown_ytd": "Répartition par catégorie (cumul annuel)",
+  "monthly_spending_trend": "Tendance des dépenses mensuelles",
+  "top_vendors": "Principaux fournisseurs",
+  "reparse": "Réanalyser",
+  "deadline": "Échéance",
+  "amount_due": "Montant dû",
+  "amount_paid": "Montant payé"
 }

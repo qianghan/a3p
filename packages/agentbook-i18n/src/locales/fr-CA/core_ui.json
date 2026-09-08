@@ -310,5 +310,10 @@
   "team_default": "Valeur par défaut de l'équipe",
   "your_override": "Votre remplacement",
   "member_can_see_in_sidebar": "Le membre voit le module dans sa barre latérale.",
-  "member_can_interact": "Le membre peut interagir avec le module."
+  "member_can_interact": "Le membre peut interagir avec le module.",
+  "add_provider_button": "Ajouter un fournisseur",
+  "saved_searches": "Recherches enregistrées",
+  "filters": "Filtres",
+  "back_to_settings": "Retour aux paramètres",
+  "remove": "Retirer"
 }

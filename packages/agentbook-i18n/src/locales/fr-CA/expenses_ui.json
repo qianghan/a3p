@@ -129,5 +129,6 @@
   "agent_insights": "Analyses de l’assistant",
   "expense_advisor": "Conseiller en dépenses",
   "ask_placeholder": "Posez une question sur vos dépenses…",
-  "per_diem_unsupported": "L’indemnité journalière n’est pas encore une méthode prise en charge pour {jurisdiction} — utilisez plutôt le kilométrage et les dépenses de repas. (À venir dans une prochaine version.)"
+  "per_diem_unsupported": "L’indemnité journalière n’est pas encore une méthode prise en charge pour {jurisdiction} — utilisez plutôt le kilométrage et les dépenses de repas. (À venir dans une prochaine version.)",
+  "export_ytd": "Exporter le cumul annuel"
 }

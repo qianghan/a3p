@@ -75,5 +75,16 @@
   "save_settings": "保存设置",
   "calculate_tax_impact": "计算税务影响",
   "refund": "退税",
-  "owing": "应缴"
+  "owing": "应缴",
+  "filing_draft": "申报草稿",
+  "client_letter": "客户信函",
+  "download_t4a": "下载 T4A",
+  "tax_filing_entity_type": "报税实体类型",
+  "category_breakdown_ytd": "类别明细（年初至今）",
+  "monthly_spending_trend": "每月支出趋势",
+  "top_vendors": "主要供应商",
+  "reparse": "重新解析",
+  "deadline": "截止日期",
+  "amount_due": "应付金额",
+  "amount_paid": "已付金额"
 }
