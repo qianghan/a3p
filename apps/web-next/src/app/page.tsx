@@ -20,9 +20,20 @@ const display = Fraunces({
   display: 'swap',
 });
 
+// Both of these are variable fonts, so `weight` buys nothing in bytes and can
+// cost correctness. Listing ['300','400','500','600'] here emitted four
+// @font-face blocks per style that all pointed at the SAME woff2 file -- one
+// file covers the whole axis. What the list does change is the usable range:
+// discrete `font-weight` descriptors clamp the font to the values named, so a
+// later `font-semibold` on body copy would silently snap back to 500 rather
+// than render at 600. 'variable' emits one block per style declaring
+// `font-weight: 100 900`, which is what the file actually contains.
+//
+// Style is a different matter -- normal and italic ARE separate files, and
+// both are used here (the muted asides are italic), so both stay.
 const body = Newsreader({
   subsets: ['latin'],
-  weight: ['300', '400', '500', '600'],
+  weight: 'variable',
   style: ['normal', 'italic'],
   variable: '--font-body',
   display: 'swap',
@@ -30,7 +41,7 @@ const body = Newsreader({
 
 const mono = JetBrains_Mono({
   subsets: ['latin'],
-  weight: ['400', '500'],
+  weight: 'variable',
   variable: '--font-num',
   display: 'swap',
 });

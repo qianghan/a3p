@@ -13,7 +13,7 @@ import {
   Users, ExternalLink, Loader2, AlertTriangle, Info,
   X, Plus, Pencil, Camera
 } from 'lucide-react';
-import * as Icons from 'lucide-react';
+import { PluginIcon } from '@/components/ui/PluginIcon';
 import { Button, Input, Textarea, Label, Modal } from '@naap/ui';
 import { AgentBookSettingsPanel } from '@/components/settings/AgentBookSettingsPanel';
 import { ConnectedAppsList } from '@/components/settings/ConnectedAppsList';
@@ -596,11 +596,9 @@ export default function SettingsPage() {
     notifications.success('Preferences reset to defaults');
   };
 
-  const getIcon = (iconName?: string) => {
-    if (!iconName) return '📦';
-    const IconComponent = (Icons as unknown as Record<string, React.ComponentType<{ size?: number }>>)[iconName];
-    return IconComponent ? <IconComponent size={20} /> : '📦';
-  };
+  // Was a lookup into `import * as Icons from 'lucide-react'`, which pinned
+  // all ~1,500 icons into this route's bundle to render one of them.
+  const getIcon = (iconName?: string) => <PluginIcon name={iconName} size={20} />;
 
   const handleThemeToggle = () => {
     theme.toggle();

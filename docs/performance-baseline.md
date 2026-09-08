@@ -12,18 +12,39 @@ regions: not because the product is slow, but because nothing was known.
 
 | | measured | budget | guard |
 |---|---:|---:|---|
-| First Load JS shared by all | 103 kB | 115 kB | `bin/perf-budget.mjs` |
-| `/settings` | **494 kB** | 540 kB | exception, see below |
-| `/admin/plugins` | **405 kB** | 445 kB | exception, see below |
-| `/marketplace` | 238 kB | 250 kB | default |
-| `/plugins/[pluginName]` | 231 kB | 250 kB | default |
-| `/[...slug]` | 226 kB | 250 kB | default |
-| Fonts in `.next/static/media` | 1146 kB | 1250 kB | total payload |
+| | baseline | now | budget | guard |
+|---|---:|---:|---:|---|
+| First Load JS shared by all | 103 kB | 103 kB | 115 kB | `bin/perf-budget.mjs` |
+| `/settings` | **494 kB** | **308 kB** | 340 kB | exception, see below |
+| `/admin/plugins` | **405 kB** | **217 kB** | 250 kB | default — exception removed |
+| `/marketplace` | 238 kB | 238 kB | 250 kB | default |
+| `/plugins/[pluginName]` | 231 kB | 231 kB | 250 kB | default |
+| `/[...slug]` | 226 kB | 226 kB | 250 kB | default |
+| Fonts in `.next/static/media` | 1146 kB | 1121 kB | 1250 kB | total payload |
 
-`/settings` is the outlier: nearly **5× the shared baseline**, and 2× the next
-worst route. It is listed as an exception rather than quietly excluded — the
-budget passes on the world as it is, refuses to let it grow, and the debt is
-written where a regression fails rather than in someone's memory.
+The two outliers turned out to be one bug in two places. Both pages resolved a
+plugin's icon from a runtime string by indexing a namespace import of
+lucide-react, which cannot be tree-shaken — so both shipped all ~1,500 icons to
+draw one. Replacing it with a static map of the 26 icons the registry actually
+names took `/settings` to 308 kB and `/admin/plugins` to 217 kB, under the
+default, and its exception was deleted rather than left at a slack value.
+
+`/settings` keeps an exception at 340 kB. What remains is genuinely the page:
+68 kB of tab content, not a bundling mistake.
+
+### The fix that looked right and wasn't
+
+lucide ships `DynamicIcon` for exactly this case, and it made both pages much
+cheaper — `/settings` 330 kB, `/admin/plugins` 260 kB — while making the app
+as a whole worse. Its name map is ~1,500 separate dynamic imports, and webpack
+records every one in the **global runtime manifest that ships on every page**:
+the runtime chunk went from 3 kB with 0 chunk-id entries to 44 kB with 1,659,
+and the shared baseline rose 103 kB → 126 kB. Every one of 598 routes paid
+23 kB to fix two of them. Wrapping it in `next/dynamic` changes nothing — the
+manifest is emitted because the imports exist, not because they are reached.
+
+Worth recording because the intermediate state passes a per-route budget while
+regressing the number that matters most.
 
 ## Field — real browser, production
 
@@ -35,7 +56,7 @@ Landing page (`/`), cold:
 | DOMContentLoaded | 1018 ms |
 | Load | 2559 ms |
 | Requests | 23 |
-| **Fonts** | **~471 kB across 7 woff2 files** |
+| **Fonts** | **501 kB across 7 woff2 files** → **419 kB across 5** |
 | JS | ~255 kB |
 
 `/guides`, warm: TTFB 54 ms, load 454 ms, 19 kB CSS, 87 kB fonts.
@@ -46,13 +67,41 @@ is a cold serverless start rather than a page problem.
 
 ## What the numbers say
 
-**Fonts are the largest single cost on the landing page** — seven woff2 files,
-~471 kB, more than the JS. Two of them are 146 kB and 118 kB. That is a
-subsetting and weight-count problem, and it is the cheapest large win
-available: no architectural change, no risk to behaviour.
+**Fonts were the largest single cost on the landing page** — seven woff2
+files, 501 kB, more than the JS, and every one with `initiatorType: "link"`,
+meaning the browser was told to fetch all seven before it knew whether a glyph
+needed them. Mapping each file to its family showed 87 kB was dead weight:
 
-**`/settings` at 494 kB** is the worst route. Worth a look at what it imports
-before launch; the settings page is not a place users expect to wait.
+| kB | family | verdict |
+|---:|---|---|
+| 146 + 118 | Fraunces italic + normal | used — both `SOFT` and `opsz` axes are set by `.ab-landing .ital` |
+| 63 + 57 | Newsreader italic + normal | used |
+| 31 | JetBrains Mono | used |
+| 47 | **Inter** | **root layout — no element on `/` renders it** |
+| 40 | **JetBrains Mono, second copy** | **root layout — same family, declared twice** |
+
+Both wasted files came from the root layout, which puts its fonts in the
+preload manifest for *every* route including the one marketing page that uses
+neither. `preload: false` on both removes them from `/` without stopping the
+app routes that do use them — the `@font-face` rules still ship in
+render-blocking CSS, so the fetch starts about one parse later, and next/font's
+metrics-matched fallback means no layout shift. The cost is a slightly later
+swap behind the login wall; the gain is 87 kB off the first page every visitor
+loads.
+
+The duplicate was subtler. Newsreader and JetBrains Mono are *variable* fonts:
+one file spans the whole weight axis, so the `weight: ['400','500']` list saved
+no bytes at all — 400 and 500 resolved to identical files. What it did do was
+make the landing page's JetBrains declaration differ from the root layout's, so
+next/font emitted two files for one family. Setting both to `weight: 'variable'`
+collapsed them, and incidentally restored the full weight range: discrete
+descriptors clamp the font to the values named, so a later `font-semibold` on
+body copy would have snapped back to 500 instead of rendering at 600.
+
+Landing page fonts: **501 kB → 419 kB, 7 files → 5**. Guarded by
+`apps/web-next/src/__tests__/font-payload.test.ts`, because both facts are a
+one-line edit away from being undone by someone with no reason to know the
+cost.
 
 **Server latency is fine.** 144–270 ms medians on a serverless deployment are
 unremarkable and not the bottleneck. Cold starts are visible in the tail.
