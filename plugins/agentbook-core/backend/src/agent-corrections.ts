@@ -73,7 +73,7 @@ const AMOUNT_REPLACEMENT = new RegExp(
  * punctuation keeps only the intended target ("Travel").
  */
 const CATEGORY_REPLACEMENT =
-  /(?:should be|should have been|make it|change (?:it|that) to|it'?s|that'?s)\s+(?:the\s+)?([A-Za-z][A-Za-z&' -]*?)\s*(?:\bcategory\b|\bnot\b|\binstead\b|\brather\b|,|\.|!|$)/i;
+  /(?:should be|should have been|make it|change (?:it|that) to|it'?s|that'?s)\s+(?:the\s+)?([A-Za-z][A-Za-z&' -]{0,60}?)\s*(?:\bcategory\b|\bnot\b|\binstead\b|\brather\b|,|\.|!|$)/i;
 
 /**
  * Nouns that mean the message is about a different entity than the expense we

@@ -34,13 +34,13 @@ function localBrainFallback(userText: string): string {
   const t = (userText || '').toLowerCase();
   if (/(mortgage|refinanc|invest|stock|crypto|401k|ira|rrsp|retire)/.test(t))
     return "That's a personal-finance decision I can't make for you — but I can pull cashflow, last-12mo trends, and a tax estimate to inform it. Want me to run any of those?";
-  if (/(incorporat|\bllc\b|s-?corp|c-?corp|sole prop|partnership|business entity|register.*business)/.test(t))
+  if (/(incorporat|\bllc\b|s-?corp|c-?corp|sole prop|partnership|business entity|register.{0,30}business)/.test(t))
     return 'Entity choice depends on liability and tax — a CPA should weigh in. I can prep a P&L and tax estimate to feed that conversation. Want that?';
   if (/(audit|\birs\b|\bcra\b|tax notice|letter from)/.test(t))
     return "If you got something official, save it and don't reply yet. I can package your books into a CPA-ready export — want me to generate that?";
-  if (/(deadline|file by|when .* (tax|file|due)|tax due|due date)/.test(t))
+  if (/(deadline|file by|when .{0,40}(tax|file|due)|tax due|due date)/.test(t))
     return 'Tax deadlines depend on jurisdiction and entity. What country/state are you in, and are you a sole prop, LLC, or corp?';
-  if (/(how.*file.*tax|how.*do.*tax|file my tax|do my tax)/.test(t))
+  if (/(how.{0,30}file.{0,30}tax|how.{0,30}do.{0,30}tax|file my tax|do my tax)/.test(t))
     return 'I can prep your books for filing — P&L, tax summary, and a CPA-ready export. AgentBook also supports US, Canada, and Australia self-serve forms (1040, T2125, myTax/BAS). Which jurisdiction?';
   if (/(travel|trip|mileage|drove|flew|hotel|airbnb|uber|lyft|taxi)/.test(t))
     return 'To log travel, tell me the amount + what it was for — e.g. "spent $145 on a hotel for the Acme meeting" or "drove 45 miles to the client site". Or do you want a travel-spend summary?';
@@ -48,7 +48,7 @@ function localBrainFallback(userText: string): string {
     return 'I can create invoices and estimates. Tell me the client and amount — e.g. "invoice Acme $5000 for consulting".';
   if (/(spent|paid|bought|cost|purchase)/.test(t))
     return 'Sounds like an expense — could you tell me the amount and vendor? e.g. "spent $24 at Starbucks today".';
-  if (/(how much|total .*(spent|earned)|revenue|income|profit|owe)/.test(t))
+  if (/(how much|total .{0,30}(spent|earned)|revenue|income|profit|owe)/.test(t))
     return 'I can pull P&L for this month, expense-by-vendor, or your AR aging report. Which one?';
   if (/^(hi|hey|hello|yo|sup|good (morning|afternoon|evening))\b/.test(t))
     return "Hey — I keep your books in shape: log expenses, draft invoices, run reports, estimate tax. What's on your mind?";

@@ -147,19 +147,19 @@ function localEngagementFallback(opts: {
   if (/(mortgage|refinanc|invest|stock|crypto|401k|ira|rrsp|retire)/.test(t)) {
     return "That's a personal-finance call I can't make for you, but I can pull together the numbers that would inform it — current cashflow, last 12-month revenue/expense trend, and a tax estimate. Want me to run any of those?";
   }
-  if (/(incorporat|\bllc\b|s-?corp|c-?corp|sole prop|partnership|business entity|register.*business)/.test(t)) {
+  if (/(incorporat|\bllc\b|s-?corp|c-?corp|sole prop|partnership|business entity|register.{0,30}business)/.test(t)) {
     return "Entity choice depends on liability, tax bracket, and how you pay yourself — a CPA should make the final call. I can prep a P&L and tax estimate to make that conversation faster. Want me to do that?";
   }
   if (/(audit|\birs\b|\bcra\b|tax notice|letter from)/.test(t)) {
     return "If you got something official, save it and don't reply yet. I can package your books — receipts, journal entries, tax summary — into a CPA-ready export. Want me to generate that?";
   }
-  if (/(deadline|file by|when .* (tax|file|due)|tax due|due date)/.test(t)) {
+  if (/(deadline|file by|when .{0,40}(tax|file|due)|tax due|due date)/.test(t)) {
     return "Tax deadlines depend on your jurisdiction and entity type. What country/state are you in, and are you filing as sole prop, LLC, or corp?";
   }
-  if (/(how.*file.*tax|how.*do.*tax|file my tax|do my tax)/.test(t)) {
+  if (/(how.{0,30}file.{0,30}tax|how.{0,30}do.{0,30}tax|file my tax|do my tax)/.test(t)) {
     return "I can prep your books for filing — P&L, tax summary, and a CPA-ready export. If you want self-serve filing, AgentBook supports US, Canada, and Australia (1040, T2125, myTax/BAS). Which jurisdiction are you in?";
   }
-  if (/(can.*deduct|write[- ]off|is.*deductible)/.test(t)) {
+  if (/(can.{0,40}deduct|write[- ]off|is.{0,40}deductible)/.test(t)) {
     return "Most legitimate business expenses are deductible — what's the expense, and was it for business or personal use?";
   }
   if (/(travel|trip|mileage|drove|flew|hotel|airbnb|uber|lyft|taxi)/.test(t)) {
@@ -171,7 +171,7 @@ function localEngagementFallback(opts: {
   if (/(spent|paid|bought|cost|purchase)/.test(t)) {
     return "Sounds like you're logging an expense — could you tell me the amount and vendor? e.g. \"spent $24 at Starbucks today\".";
   }
-  if (/(how much|total .*(spent|earned)|revenue|income|profit|owe)/.test(t)) {
+  if (/(how much|total .{0,30}(spent|earned)|revenue|income|profit|owe)/.test(t)) {
     return "Want a quick read? I can pull P&L for this month, expense-by-vendor, or your AR aging report. Which one?";
   }
   if (/^(hi|hey|hello|yo|sup|good (morning|afternoon|evening))\b/.test(t)) {
@@ -1221,7 +1221,7 @@ export function pruneContextForQuestion(
   }
 
   // Expense / vendor / category focused.
-  if (/spent|spend|expense|cost|vendor|categor|where.*money|biggest/.test(q)) {
+  if (/spent|spend|expense|cost|vendor|categor|where.{0,30}money|biggest/.test(q)) {
     return {
       ...headline,
       topVendors: context.topVendors,
@@ -3211,9 +3211,9 @@ export async function classifyOnly(
           //   2. "with client/customer X"  → "lunch with client glg" → "glg"
           //   3. fallback: "on|for <short token>" — longer phrases are
           //      descriptions, not vendors, so don't grab them.
-          let vendorMatch = processedText.match(/(?:at|from|@)\s+([A-Z][A-Za-z0-9\s&']+?)(?:\s+today|\s+yesterday|\s*$)/);
+          let vendorMatch = processedText.match(/(?:at|from|@)\s+([A-Z][A-Za-z0-9\s&']{0,60}?)(?:\s+today|\s+yesterday|\s*$)/);
           if (!vendorMatch) {
-            vendorMatch = processedText.match(/with\s+(?:client|customer|vendor)\s+([A-Za-z0-9][A-Za-z0-9\s&']*?)(?:\s+today|\s+yesterday|\s*$)/i);
+            vendorMatch = processedText.match(/with\s+(?:client|customer|vendor)\s+([A-Za-z0-9][A-Za-z0-9\s&']{0,60}?)(?:\s+today|\s+yesterday|\s*$)/i);
           }
           if (!vendorMatch) {
             const candidate = processedText.match(/(?:on|for)\s+([A-Za-z0-9'&]{2,20})(?:\s+today|\s+yesterday|\s*$)/i);
@@ -3233,11 +3233,11 @@ export async function classifyOnly(
           // understates what either of them owes. cleanClientName strips the
           // grammar and returns null rather than storing a junk name — see
           // client-name.ts.
-          const invoiceMatch = text.match(/invoice\s+(.+?)\s+\$/i);
+          const invoiceMatch = text.match(/invoice\s{1,20}(.{1,80}?)\s{1,20}\$/i);
           if (invoiceMatch) extractedParams.clientName = cleanClientName(invoiceMatch[1]) ?? undefined;
           // estimate/quote pattern: "estimate TechCorp $3000 ..."
           if (!extractedParams.clientName) {
-            const estMatch = text.match(/(?:estimate|quote|proposal)\s+(.+?)\s+\$/i);
+            const estMatch = text.match(/(?:estimate|quote|proposal)\s{1,20}(.{1,80}?)\s{1,20}\$/i);
             if (estMatch) extractedParams.clientName = cleanClientName(estMatch[1]) ?? undefined;
           }
           // payment pattern: "got $5000 from Acme"
@@ -3247,7 +3247,7 @@ export async function classifyOnly(
           }
           // timer pattern: "start timer for TechCorp"
           if (!extractedParams.clientName) {
-            const timerMatch = text.match(/timer\s+(?:for\s+)?(.+?)(?:\s+project)?$/i);
+            const timerMatch = text.match(/timer\s{1,20}(?:for\s{1,20})?(.{1,80}?)(?:\s{1,20}project)?$/i);
             if (timerMatch) extractedParams.clientName = cleanClientName(timerMatch[1]) ?? undefined;
           }
         }
@@ -3827,11 +3827,11 @@ async function _executeClassificationCore(
         const lineText = extractedParams.description || text;
 
         // Pattern: match segments like "description $amount" separated by commas
-        const multiLineMatch = lineText.match(/[^,$]*\$[\d,]+\.?\d{0,2}/gi);
+        const multiLineMatch = lineText.match(/[^,$]{0,120}\$[\d,]{1,20}\.?\d{0,2}/gi);
         if (multiLineMatch && multiLineMatch.length > 1) {
           for (const seg of multiLineMatch) {
-            const amtMatch = seg.match(/\$?([\d,]+\.?\d{0,2})\s*$/);
-            const desc = seg.replace(/\$?[\d,]+\.?\d{0,2}\s*$/, '').replace(/[,;]\s*$/, '').trim();
+            const amtMatch = seg.match(/\$?([\d,]{1,20}\.?\d{0,2})\s*$/);
+            const desc = seg.replace(/\$?[\d,]{1,20}\.?\d{0,2}\s*$/, '').replace(/[,;]\s{0,20}$/, '').trim();
             if (amtMatch) {
               lines.push({
                 description: desc || 'Service',
@@ -5424,12 +5424,12 @@ async function _executeClassificationCore(
     try {
       const text0 = String(extractedParams.question || text || '');
       const m =
-        text0.match(/^\s*(?:vendor|merchant)?\s*["']?([\w&'. -]{1,40}?)["']?\s+(?:is|=|means)\s+["']?(.+?)["']?\s*$/i)
-        || text0.match(/^\s*rename\s+["']?([\w&'. -]{1,40}?)["']?\s+to\s+["']?(.+?)["']?\s*$/i);
+        text0.match(/^\s{0,20}(?:vendor|merchant)?\s{0,20}["']?([\w&'. -]{1,40}?)["']?\s{1,20}(?:is|=|means)\s{1,20}["']?(.{1,120}?)["']?\s{0,20}$/i)
+        || text0.match(/^\s{0,20}rename\s{1,20}["']?([\w&'. -]{1,40}?)["']?\s{1,20}to\s{1,20}["']?(.{1,120}?)["']?\s{0,20}$/i);
       if (!m) return null;
 
       const fromRaw = m[1].trim();
-      const toRaw = m[2].trim().replace(/[.!]+$/, '');
+      const toRaw = m[2].trim().replace(/[.!]{1,10}$/, '');
       const norm = (v: string) => v.toLowerCase().replace(/[^a-z0-9]/g, '').trim();
       const fromKey = norm(fromRaw);
       if (!fromKey || !toRaw || toRaw.length > 60) return null;
@@ -5590,7 +5590,7 @@ Only include chartData if visualization adds value. Keep the answer under 200 wo
       }
 
       if (!answer) {
-        if (q.match(/vendor|who.*spend|top.*spend|spend.*most|constant|recurring|adobe/)) {
+        if (q.match(/vendor|who.{0,30}spend|top.{0,30}spend|spend.{0,30}most|constant|recurring|adobe/)) {
           answer = byVendor.length > 0
             ? `${t('skill.expenses_top_vendors_header', { period: periodLabel })}\n\n` +
               byVendor
