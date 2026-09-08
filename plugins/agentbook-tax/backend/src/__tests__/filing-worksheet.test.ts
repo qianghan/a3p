@@ -52,29 +52,32 @@ describe('the worksheet reads real fields, not invented ones', () => {
    * Line-number coverage per jurisdiction, pinned.
    *
    * A worksheet is only worth anything if its rows say WHERE each number goes,
-   * so coverage is the quality measure. Measured today:
+   * so coverage is the quality measure. Measured now:
    *
    *     ca  42/61 fields  (69%)
    *     us  26/37 fields  (70%)
-   *     au   2/23 fields  ( 9%)   <- known gap
+   *     au  23/34 fields  (68%)
    *
-   * AU carries only `P8` (gross payments on the business schedule) and `1`
-   * (salary or wages). The rest are blank, so an Australian accountant gets
-   * labels with nothing to key them against. That is a real product gap and it
-   * is the largest single contributor to AU's tax-depth deficit.
+   * AU was 2/23. Getting it here took two steps, and the first one is why the
+   * second was needed: reading the actual ATO instructions to source the two
+   * quotable mappings showed that the AU expense rows — advertising,
+   * insurance, legal, office supplies, travel, telephone — were the US
+   * Schedule C shape and had NO counterpart on the ATO's P8. No amount of
+   * labelling could have fixed that; the rows themselves had to be replaced by
+   * P8's own. See the header on AU_BUSINESS_SCHEDULE_2025.
    *
-   * It is NOT closed here on purpose. Filling those in means asserting ATO
-   * item references, and guessing at a regulatory reference is worse than
-   * leaving it blank — a wrong item number is a misfiled return, and unlike a
-   * blank it looks authoritative. Raising the AU floor below requires a
-   * published ATO source, not inference.
+   * Eleven AU references carry a label letter read from a complete sentence in
+   * the published instructions. Four rows carry "P8" with no letter, because
+   * the page contradicts itself — label K is stated for both opening stock and
+   * rent — or states none. That is deliberate: a wrong letter on a tax
+   * worksheet looks authoritative in a way a blank does not.
    *
    * The floors stop coverage regressing and make any improvement deliberate.
    */
   it.each([
     ['ca', ALL_CA_FORMS, 40],
     ['us', ALL_US_FORMS, 24],
-    ['au', ALL_AU_FORMS, 4],
+    ['au', ALL_AU_FORMS, 21],
   ])('%s keeps its line-number coverage', (j, templates, floor) => {
     const forms: Record<string, any> = {};
     for (const t of templates as any[]) {
@@ -225,5 +228,75 @@ describe('filename', () => {
   it('says worksheet, not a submission format', () => {
     expect(worksheetFilename('us', 2025)).toBe('agentbook-worksheet-us-2025.csv');
     expect(worksheetFilename('us', 2025)).not.toMatch(/mef|netfile/i);
+  });
+});
+
+describe('the AU schedule matches the ATO form, not Schedule C', () => {
+  /**
+   * The rows below are the P8 Expenses section as published, in order, from
+   * the ATO's "Expenses P8" page. This is the assertion the previous version
+   * of the AU pack would have failed on every single row but one — it carried
+   * advertising, insurance, legal and professional, office supplies, travel
+   * and telephone, none of which exist on an Australian return.
+   *
+   * Source: ato.gov.au, Business and professional items schedule 2026
+   * instructions (NAT 2543-06.2026), Expenses P8. Read 2026-09-08.
+   */
+  const P8_EXPENSE_ROWS = [
+    'Opening stock', 'Purchases and other costs', 'Closing stock', 'Cost of sales',
+    'Foreign resident withholding', 'Contractor, sub-contractor and commission',
+    'Superannuation', 'Bad debts', 'Lease', 'Rent', 'Interest expenses within Australia',
+    'Interest expenses overseas', 'Depreciation', 'Motor vehicle',
+    'Repairs and maintenance', 'All other expenses', 'Home office', 'Total expenses',
+  ];
+
+  const schedule = (ALL_AU_FORMS as any[]).find((f) => f.formCode === 'BusinessSchedule');
+  const expenseSection = schedule.sections.find((s: any) => s.sectionId === 'expenses');
+  const labels: string[] = expenseSection.fields.map((f: any) => f.label);
+
+  it('has a row for every P8 expense line', () => {
+    const missing = P8_EXPENSE_ROWS.filter(
+      (row) => !labels.some((l) => l.toLowerCase().startsWith(row.toLowerCase())),
+    );
+    expect(missing, `P8 rows with no field: ${missing.join(' | ')}`).toEqual([]);
+  });
+
+  it('has no rows the ATO form does not have', () => {
+    // The Schedule C leftovers. Each of these is a real US/CA category and a
+    // fiction on an Australian return, where they all land in "All other
+    // expenses".
+    const NOT_ON_P8 = ['Advertising', 'Insurance', 'Legal and professional', 'Office supplies', 'Travel expenses', 'Telephone and internet'];
+    const strays = NOT_ON_P8.filter((n) => labels.some((l) => l.toLowerCase().startsWith(n.toLowerCase())));
+    expect(strays, `rows that do not exist on P8: ${strays.join(' | ')}`).toEqual([]);
+  });
+
+  it('rolls the nine "all other" accounts into one line, including suspense', () => {
+    const allOther = expenseSection.fields.find((f: any) => f.fieldId === 'all_other_expenses');
+    expect(allOther.sourceQuery).toMatch(/^expense_categories:/);
+    const codes = allOther.sourceQuery.split(':')[1].split(',');
+    // 6999 is the uncategorised-expense suspense account. It belongs here so
+    // an expense nobody categorised is still claimed rather than silently
+    // dropped from the return.
+    expect(codes).toContain('6999');
+    expect(codes.length).toBeGreaterThanOrEqual(8);
+  });
+
+  it('keeps the three field IDs the AU review pack gates submission on', () => {
+    const ids = schedule.sections.flatMap((s: any) => s.fields.map((f: any) => f.fieldId));
+    for (const id of ['gross_business_income', 'total_expenses', 'net_business_income']) {
+      expect(ids, `${id} is named by au/tax-review-pack.ts as a critical field`).toContain(id);
+    }
+  });
+
+  it('totals every expense row, so nothing is computed out of the return', () => {
+    const total = expenseSection.fields.find((f: any) => f.fieldId === 'total_expenses');
+    const summed: string[] = total.formula.replace(/^SUM\(|\)$/g, '').split(',');
+    const expenseIds = expenseSection.fields
+      .map((f: any) => f.fieldId)
+      .filter((id: string) => !['total_expenses', 'net_business_income', 'opening_stock', 'purchases_and_other_costs', 'closing_stock'].includes(id));
+    // Stock rows feed cost_of_sales rather than the total directly, which is
+    // how the ATO form works; everything else must be in the sum.
+    const dropped = expenseIds.filter((id: string) => !summed.includes(id));
+    expect(dropped, `expense rows missing from the total: ${dropped.join(', ')}`).toEqual([]);
   });
 });
