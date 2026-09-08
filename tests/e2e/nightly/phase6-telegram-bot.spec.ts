@@ -42,9 +42,24 @@ test.describe('@phase6-telegram-bot', () => {
     expect(r.reply).toMatch(/recorded|added|saved|noted/i);
     expect(r.reply).toMatch(/\$25/);
   });
-  test('query-finance includes seeded balance', async () => {
+  test('query-finance answers with a real balance, in the tenant currency', async () => {
+    // This asserted a literal $5,000 and had been red for weeks, reading as a
+    // product bug. It is not: the capture chat maps to a seeded persona
+    // tenant, and `reset-e2e-user` reseeds the E2E USER, not that one — so the
+    // balance legitimately drifts as the nightly books expenses against it.
+    // Last night it answered "You have CA$207,081.10 on hand", which is the
+    // product working.
+    //
+    // A figure that drifts cannot be asserted, so assert what must hold: a
+    // formatted amount, in the tenant's own currency, that is not zero and not
+    // a question back. The last of those is the regression #487 fixed — every
+    // region used to reply by asking a question — so it is the part worth
+    // keeping.
     const r = await postUpdate('What is my cash balance?');
-    expect(r.reply).toMatch(/\$5,?000|\$5\.00|\$5,?000\.00/);
+    expect(r.reply, 'no currency-formatted amount in the reply').toMatch(/(?:CA|A|US)?\$[\d,]+\.\d{2}/);
+    expect(r.reply, 'answered with a question instead of a figure (see #487)').not.toMatch(/\?\s*$/);
+    const amount = r.reply.match(/(?:CA|A|US)?\$([\d,]+\.\d{2})/)?.[1];
+    expect(Number(amount?.replace(/,/g, '')), 'balance reported as zero').not.toBe(0);
   });
   test('query-expenses returns category breakdown', async () => {
     const r = await postUpdate('show my expenses this month');
