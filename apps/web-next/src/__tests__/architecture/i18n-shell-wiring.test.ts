@@ -186,3 +186,46 @@ describe('strings that are deliberately NOT translated', () => {
     ).toEqual([]);
   });
 });
+
+describe('no English fragment is spliced into a translated sentence', () => {
+  /**
+   * Found in production, in the nightly log, as a half-French reply:
+   *
+   *   "Quel Acme vouliez-vous dire — to Acme for or Acme Corp?"
+   *
+   * The sentence came from the catalog; the " or " joining the candidates did
+   * not. `.join(' or ')` and a `` ` (and ${n} more)` `` suffix were built in
+   * TypeScript and interpolated into the translated template.
+   *
+   * P1-6's extractor could not have caught these — it reads JSX text and
+   * attributes, and these are neither. They are the residual class: English
+   * assembled in code and handed to a translated string as a parameter.
+   */
+  const BOT_ROUTE = 'app/api/v1/agentbook/telegram/webhook/route.ts';
+
+  it('the candidate joiner comes from the catalog', () => {
+    const src = readFileSync(join(APP, BOT_ROUTE), 'utf8');
+    expect(src).not.toMatch(/\.join\('\s+(or|and|then)\s+'\)/);
+    expect(src).toContain("join(botT('bot.candidate_joiner'))");
+  });
+
+  it('the overflow suffix comes from the catalog', () => {
+    const src = readFileSync(join(APP, BOT_ROUTE), 'utf8');
+    expect(src).not.toMatch(/`\s*\(and \$\{/);
+    expect(src).toContain("botT('bot.and_n_more'");
+  });
+
+  it('both keys resolve, and differ per locale', () => {
+    const en = createTranslator('en', CATALOG);
+    const fr = createTranslator('fr-CA', CATALOG);
+    const zh = createTranslator('zh-CN', CATALOG);
+    for (const k of ['bot.candidate_joiner', 'bot.and_n_more']) {
+      for (const tr of [en, fr, zh]) expect(tr.t(k), k).not.toBe(k);
+      expect(fr.t(k), `${k} is still English in fr-CA`).not.toBe(en.t(k));
+      expect(zh.t(k), `${k} is still English in zh-CN`).not.toBe(en.t(k));
+    }
+    // The joiner is padded on both sides — dropping the spaces would render
+    // "AcmeouAcme Corp", which no assertion above would notice.
+    expect(fr.t('bot.candidate_joiner')).toBe(' ou ');
+  });
+});

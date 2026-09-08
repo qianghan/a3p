@@ -308,5 +308,7 @@
   "yes_book": "✅ Oui, comptabiliser",
   "yes_book_it": "✅ Oui — comptabiliser",
   "you_ve_used_all_receipt_scans_this": "Vous avez utilisé vos {p0} lectures de reçus ce mois-ci. Passez à un forfait supérieur :\n{p1}/billing",
-  "ytd_tax_estimate_revenue_expenses_net_income": "🧾 <b>Estimation fiscale cumulative ({p0})</b>\n\n• Revenus : {p1}\n• Dépenses : {p2}\n• Revenu net : {p3}\n• {p4} : {p5}\n• Impôt sur le revenu : {p6}\n• <b>Total : {p7}</b>"
+  "ytd_tax_estimate_revenue_expenses_net_income": "🧾 <b>Estimation fiscale cumulative ({p0})</b>\n\n• Revenus : {p1}\n• Dépenses : {p2}\n• Revenu net : {p3}\n• {p4} : {p5}\n• Impôt sur le revenu : {p6}\n• <b>Total : {p7}</b>",
+  "candidate_joiner": " ou ",
+  "and_n_more": " (et {count} de plus)"
 }

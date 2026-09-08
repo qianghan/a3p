@@ -1577,9 +1577,9 @@ async function renderInvoiceCreateResult(
     // Truncate to MAX_PICKER_CANDIDATES (6) — long candidate lists blow
     // past Telegram's text-message length when interpolated inline.
     const shown = data.candidates.slice(0, MAX_PICKER_CANDIDATES);
-    const namesText = shown.map((c) => escHtml(c.name)).join(' or ');
+    const namesText = shown.map((c) => escHtml(c.name)).join(botT('bot.candidate_joiner'));
     const overflow = data.candidates.length - shown.length;
-    const suffix = overflow > 0 ? ` (and ${overflow} more)` : '';
+    const suffix = overflow > 0 ? botT('bot.and_n_more', { count: overflow }) : '';
 
     await ctx.reply(
       botT('bot.which_did_you_mean', { p0: escHtml(data.clientNameHint), p1: namesText, p2: suffix }),
@@ -1710,7 +1710,7 @@ async function renderTimerStepResult(
         },
       });
       const cands = data.candidates || [];
-      const namesText = cands.slice(0, MAX_PICKER_CANDIDATES).map((c) => escHtml(c.name)).join(' or ');
+      const namesText = cands.slice(0, MAX_PICKER_CANDIDATES).map((c) => escHtml(c.name)).join(botT('bot.candidate_joiner'));
       await ctx.reply(
         botT('bot.which_did_you_mean_2', { p0: escHtml(data.clientNameHint || 'client'), p1: namesText }),
         { parse_mode: 'HTML', reply_markup: timerPickerKeyboard(token, cands) },
@@ -1840,7 +1840,7 @@ async function renderInvoiceFromTimerResult(
         confidence: 1,
       },
     });
-    const namesText = data.candidates.slice(0, MAX_PICKER_CANDIDATES).map((c) => escHtml(c.name)).join(' or ');
+    const namesText = data.candidates.slice(0, MAX_PICKER_CANDIDATES).map((c) => escHtml(c.name)).join(botT('bot.candidate_joiner'));
     await ctx.reply(
       botT('bot.which_did_you_mean_2', { p0: escHtml(data.clientNameHint), p1: namesText }),
       {
