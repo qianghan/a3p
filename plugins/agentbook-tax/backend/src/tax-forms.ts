@@ -304,7 +304,7 @@ const AU_BUSINESS_SCHEDULE_2025 = {
         { fieldId: 'phone_internet', label: 'Telephone and internet', lineNumber: '', type: 'currency', required: false, source: 'auto', sourceQuery: 'expense_category:6500' },
         { fieldId: 'other_expenses', label: 'Other business expenses', lineNumber: '', type: 'currency', required: false, source: 'auto', sourceQuery: 'expense_category:6600' },
         { fieldId: 'total_expenses', label: 'Total business expenses', lineNumber: '', type: 'currency', required: true, source: 'calculated', formula: 'SUM(advertising,insurance,legal_professional,office_supplies,travel,phone_internet,other_expenses)' },
-        { fieldId: 'net_business_income', label: 'Net business income', lineNumber: '', type: 'currency', required: true, source: 'calculated', formula: 'gross_business_income - total_expenses' },
+        { fieldId: 'net_business_income', label: 'Net business income', lineNumber: 'P8 Z', type: 'currency', required: true, source: 'calculated', formula: 'gross_business_income - total_expenses' },
       ],
     },
   ],
@@ -327,7 +327,7 @@ const AU_INDIVIDUAL_RETURN_2025 = {
       sectionId: 'income', title: 'Income',
       fields: [
         { fieldId: 'salary_wages', label: 'Salary or wages', lineNumber: '1', type: 'currency', required: false, source: 'manual' },
-        { fieldId: 'business_income', label: 'Net business income (from Business Schedule)', lineNumber: '', type: 'currency', required: false, source: 'calculated', formula: 'BusinessSchedule.net_business_income' },
+        { fieldId: 'business_income', label: 'Net business income (from Business Schedule)', lineNumber: '15 C', type: 'currency', required: false, source: 'calculated', formula: 'BusinessSchedule.net_business_income' },
         { fieldId: 'taxable_income', label: 'Taxable income', lineNumber: '', type: 'currency', required: true, source: 'calculated', formula: 'MAX(0, salary_wages + business_income)' },
       ],
     },
@@ -344,6 +344,41 @@ const AU_INDIVIDUAL_RETURN_2025 = {
   ],
 };
 
+/**
+ * AU line-number coverage — read the ATO forms before adding to this.
+ *
+ * Two mappings below are sourced verbatim from the ATO's own instructions
+ * ("15 Net income or loss from business 2026"):
+ *
+ *   "Transfer your net income or loss from a non-primary production business
+ *    you showed at P8 Business income and expenses - label Z ... to
+ *    question 15 - label C in your supplementary tax return."
+ *
+ * A sole trader is non-primary production, so net business income is P8 Z and
+ * it lands at item 15 C. Primary production would be P8 Y -> 15 B.
+ *
+ * THE EXPENSE ROWS CANNOT BE MAPPED, AND NOT FOR WANT OF A REFERENCE.
+ *
+ * The rows in this template — advertising, insurance, legal and professional,
+ * office supplies, travel, telephone and internet — are the US Schedule C /
+ * CA T2125 shape. The ATO's P8 Expenses section has entirely different rows:
+ * opening stock, purchases and other costs, closing stock, cost of sales,
+ * foreign resident withholding, contractor/sub-contractor/commission,
+ * superannuation, bad debts, lease, rent, interest within Australia, interest
+ * overseas, depreciation, motor vehicle, repairs and maintenance, all other
+ * expenses, home office, total expenses.
+ *
+ * None of our six has a counterpart; on an Australian return they all roll
+ * into "All other expenses". So giving them item letters would be inventing a
+ * correspondence that does not exist — the same class of mistake as the
+ * fabricated MeF export removed in #513. Fixing AU properly means restructuring
+ * these rows to match P8, which changes what the engine computes and deserves
+ * its own design plus an Australian accountant's review.
+ *
+ * Source: ato.gov.au, Business and professional items schedule 2026
+ * instructions (NAT 2543-06.2026) and Individual supplementary tax return 2026
+ * instructions, both read 2026-09-08.
+ */
 export const ALL_AU_FORMS = [AU_BUSINESS_SCHEDULE_2025, AU_INDIVIDUAL_RETURN_2025];
 
 // === Seed Forms ===
