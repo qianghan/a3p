@@ -74,7 +74,7 @@ describe('the worksheet reads real fields, not invented ones', () => {
   it.each([
     ['ca', ALL_CA_FORMS, 40],
     ['us', ALL_US_FORMS, 24],
-    ['au', ALL_AU_FORMS, 2],
+    ['au', ALL_AU_FORMS, 4],
   ])('%s keeps its line-number coverage', (j, templates, floor) => {
     const forms: Record<string, any> = {};
     for (const t of templates as any[]) {
