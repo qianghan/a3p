@@ -182,3 +182,63 @@ describe('bounding the gaps did not change classification', () => {
     expect(re.exec(input)?.[1]).toBe(expected);
   });
 });
+
+describe('whitespace runs, the vector the first pass missed', () => {
+  /**
+   * The first version of this file bounded the `.` gaps and built its hostile
+   * inputs out of repeated letters. CodeQL still flagged five patterns, and it
+   * was right: the remaining ambiguity was in the `\s+` next to a lazy `.`
+   * group. Because `.` matches a space too, a run of spaces can be divided
+   * between the two quantifiers in many ways, and repeated letters never
+   * exercise that split at all.
+   *
+   * Bounding the whitespace runs makes the number of divisions a constant.
+   * These cases use spaces, so the gap cannot reopen unnoticed.
+   */
+  const CASES: Array<[string, RegExp, (n: number) => string]> = [
+    [
+      'invoice with a space run',
+      /invoice\s{1,20}(.{1,80}?)\s{1,20}\$/i,
+      (n) => 'invoice a' + ' '.repeat(n) + 'Z',
+    ],
+    [
+      'quote with a space run',
+      /(?:estimate|quote|proposal)\s{1,20}(.{1,80}?)\s{1,20}\$/i,
+      (n) => 'quote a' + ' '.repeat(n) + 'Z',
+    ],
+    [
+      'timer with a space run',
+      /timer\s{1,20}(?:for\s{1,20})?(.{1,80}?)(?:\s{1,20}project)?$/i,
+      (n) => 'timer a' + ' '.repeat(n) + '\n',
+    ],
+    [
+      'vendor alias with a space run',
+      /^\s{0,20}(?:vendor|merchant)?\s{0,20}["']?([\w&'. -]{1,40}?)["']?\s{1,20}(?:is|=|means)\s{1,20}["']?(.{1,120}?)["']?\s{0,20}$/i,
+      (n) => ' '.repeat(n) + '\n',
+    ],
+    [
+      'rename with a space run',
+      /^\s{0,20}rename\s{1,20}["']?([\w&'. -]{1,40}?)["']?\s{1,20}to\s{1,20}["']?(.{1,120}?)["']?\s{0,20}$/i,
+      (n) => 'rename ' + ' '.repeat(n) + '\n',
+    ],
+  ];
+  it.each(CASES)('%s', (name, re, build) => assertLinear(name, re, build));
+
+  it('still parses the real commands', () => {
+    const alias = /^\s{0,20}(?:vendor|merchant)?\s{0,20}["']?([\w&'. -]{1,40}?)["']?\s{1,20}(?:is|=|means)\s{1,20}["']?(.{1,120}?)["']?\s{0,20}$/i;
+    expect(alias.exec('vendor SQ COFFEE is Blue Bottle')?.slice(1, 3)).toEqual(['SQ COFFEE', 'Blue Bottle']);
+    expect(alias.exec('merchant "AMZN Mktp" means Amazon')?.slice(1, 3)).toEqual(['AMZN Mktp', 'Amazon']);
+    // `*` is outside the vendor character class, in the original too — asserted
+    // so the bound is never blamed for a rejection it did not cause.
+    expect(alias.exec('vendor SQ *COFFEE is Blue Bottle')).toBeNull();
+
+    const rename = /^\s{0,20}rename\s{1,20}["']?([\w&'. -]{1,40}?)["']?\s{1,20}to\s{1,20}["']?(.{1,120}?)["']?\s{0,20}$/i;
+    expect(rename.exec('rename AMZN Mktp to Amazon')?.slice(1, 3)).toEqual(['AMZN Mktp', 'Amazon']);
+
+    const invoice = /invoice\s{1,20}(.{1,80}?)\s{1,20}\$/i;
+    expect(invoice.exec('invoice Acme Corp $5000')?.[1]).toBe('Acme Corp');
+
+    const timer = /timer\s{1,20}(?:for\s{1,20})?(.{1,80}?)(?:\s{1,20}project)?$/i;
+    expect(timer.exec('timer for the Acme redesign')?.[1]).toBe('the Acme redesign');
+  });
+});

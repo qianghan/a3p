@@ -3233,11 +3233,11 @@ export async function classifyOnly(
           // understates what either of them owes. cleanClientName strips the
           // grammar and returns null rather than storing a junk name — see
           // client-name.ts.
-          const invoiceMatch = text.match(/invoice\s+(.{1,80}?)\s+\$/i);
+          const invoiceMatch = text.match(/invoice\s{1,20}(.{1,80}?)\s{1,20}\$/i);
           if (invoiceMatch) extractedParams.clientName = cleanClientName(invoiceMatch[1]) ?? undefined;
           // estimate/quote pattern: "estimate TechCorp $3000 ..."
           if (!extractedParams.clientName) {
-            const estMatch = text.match(/(?:estimate|quote|proposal)\s+(.{1,80}?)\s+\$/i);
+            const estMatch = text.match(/(?:estimate|quote|proposal)\s{1,20}(.{1,80}?)\s{1,20}\$/i);
             if (estMatch) extractedParams.clientName = cleanClientName(estMatch[1]) ?? undefined;
           }
           // payment pattern: "got $5000 from Acme"
@@ -3247,7 +3247,7 @@ export async function classifyOnly(
           }
           // timer pattern: "start timer for TechCorp"
           if (!extractedParams.clientName) {
-            const timerMatch = text.match(/timer\s+(?:for\s+)?(.{1,80}?)(?:\s+project)?$/i);
+            const timerMatch = text.match(/timer\s{1,20}(?:for\s{1,20})?(.{1,80}?)(?:\s{1,20}project)?$/i);
             if (timerMatch) extractedParams.clientName = cleanClientName(timerMatch[1]) ?? undefined;
           }
         }
@@ -5424,8 +5424,8 @@ async function _executeClassificationCore(
     try {
       const text0 = String(extractedParams.question || text || '');
       const m =
-        text0.match(/^\s*(?:vendor|merchant)?\s*["']?([\w&'. -]{1,40}?)["']?\s+(?:is|=|means)\s+["']?(.{1,120}?)["']?\s*$/i)
-        || text0.match(/^\s*rename\s+["']?([\w&'. -]{1,40}?)["']?\s+to\s+["']?(.{1,120}?)["']?\s*$/i);
+        text0.match(/^\s{0,20}(?:vendor|merchant)?\s{0,20}["']?([\w&'. -]{1,40}?)["']?\s{1,20}(?:is|=|means)\s{1,20}["']?(.{1,120}?)["']?\s{0,20}$/i)
+        || text0.match(/^\s{0,20}rename\s{1,20}["']?([\w&'. -]{1,40}?)["']?\s{1,20}to\s{1,20}["']?(.{1,120}?)["']?\s{0,20}$/i);
       if (!m) return null;
 
       const fromRaw = m[1].trim();
