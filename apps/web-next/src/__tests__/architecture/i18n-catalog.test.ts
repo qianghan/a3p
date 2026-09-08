@@ -78,20 +78,13 @@ const NON_REFERENCE_LOCALES = AVAILABLE_LOCALES.filter((l) => l !== REFERENCE_LO
  * the "no untranslated leakage" check.
  */
 const IDENTICAL_ALLOWED = new Set<string>([
-  // Product names. Telegram, WhatsApp and "webhook" are used unchanged in
-  // French and in Chinese — a Chinese user configuring a Telegram bot looks
-  // for the word "Telegram". Translating a brand is a bug, not a courtesy.
-  'core_ui.telegram',
-  'core_ui.webhook',
-  'core_ui.whatsapp',
   // "Logo" is borrowed unchanged into French (the zh-CN value IS translated).
   'core_ui.logo',
-  // More product names, from the P1-6 shell tranche. Deel and Finch are payroll
-  // providers, the other two are exactly what the button says.
-  'core_ui.deel',
-  'core_ui.finch',
-  'core_ui.google_gemini',
-  'core_ui.github',
+  // NOTE: Telegram, WhatsApp, webhook, Deel, Finch, Google Gemini and GitHub
+  // deliberately have NO key. Their value is identical in all three locales,
+  // so a key buys nothing — and it actively hurts: it makes every occurrence
+  // of the word anywhere in the repo register as an "unwired key" in
+  // bin/i18n-unwired-key-guard.sh. They stay as literals.
   // French spells these the same way. "Pro" is also the plan's name, which a
   // francophone customer sees on their invoice.
   'core_ui.pro_plan',

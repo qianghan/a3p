@@ -395,7 +395,7 @@ function TelegramCard(): React.ReactElement {
       <div className="flex items-center gap-3 border-b border-border px-4 py-3">
         <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10 text-lg">✈️</div>
         <div className="flex-1">
-          <div className="text-sm font-semibold text-foreground">{t('core_ui.telegram')}</div>
+          <div className="text-sm font-semibold text-foreground">Telegram</div>
           <div className="text-xs text-muted-foreground">
             {status?.configured && status.botUsername ? `@${status.botUsername}` : 'Record expenses and manage finances via chat'}
           </div>
@@ -426,7 +426,7 @@ function TelegramCard(): React.ReactElement {
           <div className="space-y-3">
             <div className="grid grid-cols-2 gap-2">
               <div className="rounded-lg bg-background px-3 py-2">
-                <div className="text-xs text-muted-foreground">{t('core_ui.webhook')}</div>
+                <div className="text-xs text-muted-foreground">Webhook</div>
                 <div className={`flex items-center gap-1.5 text-sm font-medium ${
                   status.webhookActive === true ? 'text-primary' :
                   status.webhookActive === false ? 'text-destructive' : 'text-muted-foreground'
@@ -575,7 +575,7 @@ function WhatsAppCard(): React.ReactElement {
       <div className="flex items-center gap-3 border-b border-border px-4 py-3">
         <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-green-500/10 text-lg">💬</div>
         <div className="flex-1">
-          <div className="text-sm font-semibold text-foreground">{t('core_ui.whatsapp')}</div>
+          <div className="text-sm font-semibold text-foreground">WhatsApp</div>
           <div className="text-xs text-muted-foreground">
             {connected ? status?.phoneNumbers.join(', ') : 'Record expenses and manage finances via chat'}
           </div>

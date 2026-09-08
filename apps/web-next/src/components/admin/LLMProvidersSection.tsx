@@ -99,7 +99,7 @@ export function LLMProvidersSection() {
 
       {adding && (
         <div className="p-4 rounded-lg border border-border bg-card grid sm:grid-cols-4 gap-2 items-end">
-          <div><label className="text-xs text-muted-foreground">{t('accounting.name')}</label><Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder={t('core_ui.google_gemini')} /></div>
+          <div><label className="text-xs text-muted-foreground">{t('accounting.name')}</label><Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Google Gemini" /></div>
           <div><label className="text-xs text-muted-foreground">{t('core_ui.provider')}</label><Select value={form.provider} onChange={(e) => setForm({ ...form, provider: e.target.value })}>{PROVIDERS.map((p) => <option key={p} value={p}>{p}</option>)}</Select></div>
           <div><label className="text-xs text-muted-foreground">{t('core_ui.api_key')}</label><Input type="password" value={form.apiKey} onChange={(e) => setForm({ ...form, apiKey: e.target.value })} placeholder="sk-…" /></div>
           <Button onClick={create} loading={busy === '__new__'}>{t('common.save')}</Button>

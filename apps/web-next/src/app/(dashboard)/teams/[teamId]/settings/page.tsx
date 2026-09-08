@@ -259,7 +259,7 @@ export default function TeamSettingsPage() {
         <div className="bg-card border border-destructive/30 rounded-lg p-4">
           <h2 className="text-sm font-semibold flex items-center gap-2 text-destructive mb-4">
             <AlertTriangle className="w-4 h-4" />
-            Danger Zone
+            {t('core_ui.danger_zone')}
           </h2>
 
           <div className="space-y-3">
@@ -293,7 +293,7 @@ export default function TeamSettingsPage() {
                 size="sm"
                 onClick={() => setShowDeleteConfirm(true)}
               >
-                Delete Team
+                {t('core_ui.delete_team')}
               </Button>
             </div>
           </div>
@@ -343,7 +343,7 @@ export default function TeamSettingsPage() {
             disabled={deleteConfirmText !== team.name}
             loading={deleting}
           >
-            Delete Team
+            {t('core_ui.delete_team')}
           </Button>
         </div>
       </Modal>
@@ -393,7 +393,7 @@ export default function TeamSettingsPage() {
             disabled={!newOwnerId}
             loading={transferring}
           >
-            Transfer Ownership
+            {t('core_ui.transfer_ownership')}
           </Button>
         </div>
       </Modal>

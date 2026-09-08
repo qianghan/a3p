@@ -121,7 +121,7 @@ export default function AdminPayrollPage() {
       {successMsg && <div className="flex items-center gap-2 p-3 rounded-lg bg-emerald-500/10 text-emerald-500 text-sm"><CheckCircle2 size={16} /> {successMsg}</div>}
 
       <div className="p-4 rounded-lg bg-muted/50 border border-border/50 text-sm text-muted-foreground">
-        Recommendation: keep <strong>{t('admin_ui.calculator')}</strong> as the default (free, every country). For real US+CA payroll the best single provider is <strong>{t('core_ui.deel')}</strong>; <strong>{t('core_ui.finch')}</strong> is the cheapest option to read an existing payroll into the books. Selecting a provider before its adapter ships is recorded — pay runs use the calculator until then.
+        Recommendation: keep <strong>{t('admin_ui.calculator')}</strong> as the default (free, every country). For real US+CA payroll the best single provider is <strong>Deel</strong>; <strong>Finch</strong> is the cheapest option to read an existing payroll into the books. Selecting a provider before its adapter ships is recorded — pay runs use the calculator until then.
       </div>
 
       {loading ? (

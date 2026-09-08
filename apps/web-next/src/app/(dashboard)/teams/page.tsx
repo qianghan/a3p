@@ -142,7 +142,7 @@ export default function TeamListPage() {
           icon={<Plus className="w-4 h-4" />}
           onClick={() => setShowCreateModal(true)}
         >
-          Create Team
+          {t('core_ui.create_team_title')}
         </Button>
       </div>
 
@@ -254,7 +254,7 @@ export default function TeamListPage() {
               variant="primary"
               loading={creating}
             >
-              Create Team
+              {t('core_ui.create_team_title')}
             </Button>
           </div>
         </form>

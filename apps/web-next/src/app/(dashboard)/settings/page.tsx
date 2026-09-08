@@ -1136,7 +1136,7 @@ export default function SettingsPage() {
             size="sm"
             onClick={() => logout()}
           >
-            Sign Out
+            {t('core_ui.sign_out')}
           </Button>
         </div>
       </section>

@@ -84,7 +84,7 @@ function DecisionPointCard({
             onClick={() => onRespond(decisionPoint.id, 'reject')}
             className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-background border border-border rounded-lg text-sm font-medium hover:bg-muted/50 transition-colors disabled:opacity-50"
           >
-            <XCircle className="w-4 h-4" /> Reject
+            <XCircle className="w-4 h-4" /> {t('core_ui.reject')}
           </button>
         </div>
       ) : (

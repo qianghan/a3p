@@ -804,7 +804,7 @@ export default function MarketplacePage() {
                       <h3 className="font-semibold truncate">{pkg.displayName}</h3>
                       {pkg.isCore && (
                         <span className="px-1.5 py-0.5 text-xs bg-muted text-muted-foreground rounded">
-                          Core
+                          {t('core_ui.core_badge')}
                         </span>
                       )}
                       {isInstalled && (
