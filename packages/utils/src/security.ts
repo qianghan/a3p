@@ -148,3 +148,30 @@ export function isAllowedHost(
     return normalized === nh || normalized.endsWith(`.${nh}`);
   });
 }
+
+// ── SSRF: one notion of "private" for every guard in the repo ──
+//
+// Lived in apps/web-next/src/lib/gateway/types.ts, which meant the Express
+// plugin backends could not reach it and fetched caller-supplied URLs with no
+// check at all. Moved here so the gateway host check, the receipt fetcher and
+// the plugin backends all agree; gateway/types.ts re-exports it, so every
+// existing import keeps working.
+const PRIVATE_IP_RANGES = [
+  /^127\./,
+  /^10\./,
+  /^172\.(1[6-9]|2\d|3[01])\./,
+  /^192\.168\./,
+  /^0\./,
+  /^169\.254\./,          // cloud instance metadata — the classic SSRF target
+  /^f[cd]00:/i,
+  /^fe80:/i,
+  /^::1$/,
+  /^::ffff:(127\.|10\.|172\.(1[6-9]|2\d|3[01])\.|192\.168\.|0\.|169\.254\.)/i,
+  /^::ffff:0:(127\.|10\.|172\.(1[6-9]|2\d|3[01])\.|192\.168\.)/i,
+  /^0{0,4}(::0{0,4}){0,4}:?0{0,3}1$/i,
+  /^localhost$/i,
+];
+
+export function isPrivateHost(hostname: string): boolean {
+  return PRIVATE_IP_RANGES.some((pattern) => pattern.test(hostname));
+}

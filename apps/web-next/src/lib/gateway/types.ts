@@ -155,26 +155,16 @@ export function matchIPAllowlist(clientIP: string, allowedIPs: string[]): boolea
 }
 
 // ── SSRF ──
-
-const PRIVATE_IP_RANGES = [
-  /^127\./,
-  /^10\./,
-  /^172\.(1[6-9]|2\d|3[01])\./,
-  /^192\.168\./,
-  /^0\./,
-  /^169\.254\./,
-  /^f[cd]00:/i,
-  /^fe80:/i,
-  /^::1$/,
-  /^::ffff:(127\.|10\.|172\.(1[6-9]|2\d|3[01])\.|192\.168\.|0\.|169\.254\.)/i,
-  /^::ffff:0:(127\.|10\.|172\.(1[6-9]|2\d|3[01])\.|192\.168\.)/i,
-  /^0{0,4}(::0{0,4}){0,4}:?0{0,3}1$/i,
-  /^localhost$/i,
-];
-
-export function isPrivateHost(hostname: string): boolean {
-  return PRIVATE_IP_RANGES.some((pattern) => pattern.test(hostname));
-}
+//
+// `isPrivateHost` now lives in @naap/utils so the gateway host check, the
+// receipt fetcher and the Express plugin backends share one notion of
+// "private" — the backends could not import from this app, which is why they
+// fetched caller-supplied URLs with no check at all. Re-exported here so every
+// existing `from '@/lib/gateway/types'` import keeps working.
+// Imported as well as re-exported: `validateHost` below calls it, and a bare
+// re-export does not bind the name in this module's scope.
+import { isPrivateHost } from '@naap/utils/security';
+export { isPrivateHost };
 
 export function validateHost(hostname: string, allowedHosts: string[]): boolean {
   if (isPrivateHost(hostname)) return false;

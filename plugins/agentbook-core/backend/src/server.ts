@@ -406,12 +406,28 @@ app.put('/api/v1/agentbook-core/tenant-config', async (req, res) => {
 // === Telegram Bot Configuration ===
 
 // POST /telegram/setup — Configure Telegram bot for this tenant
+/**
+ * A Telegram bot token: numeric bot id, a colon, then a URL-safe secret.
+ * Anchored, with no unbounded repetition of an ambiguous class, so the pattern
+ * is not itself a ReDoS candidate.
+ */
+export const TELEGRAM_BOT_TOKEN_RE = /^\d{5,16}:[A-Za-z0-9_-]{30,64}$/;
+
 app.post('/api/v1/agentbook-core/telegram/setup', async (req, res) => {
   try {
     const tenantId = (req as any).tenantId;
     const { botToken } = req.body;
 
-    if (!botToken || !botToken.includes(':')) {
+    // `botToken` is interpolated into two api.telegram.org URLs below and
+    // persisted for later use, on the strength of `.includes(':')` alone.
+    // CodeQL flags both fetches as js/request-forgery (critical). The host is
+    // a literal so the destination cannot be moved off Telegram, but the path
+    // was caller-controlled and a token carrying `/`, `?`, `#`, whitespace or
+    // a newline would reshape the request — and then be stored and reused.
+    //
+    // A real token is `<bot id>:<secret>`; pinning that shape removes the
+    // whole class rather than escaping one character at a time.
+    if (typeof botToken !== 'string' || !TELEGRAM_BOT_TOKEN_RE.test(botToken)) {
       return res.status(400).json({ success: false, error: 'Valid Telegram bot token required (format: 123456:ABC...)' });
     }
 

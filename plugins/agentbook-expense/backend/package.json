@@ -21,7 +21,8 @@
     "cors": "^2.8.6",
     "dotenv": "^16.6.1",
     "express": "^4.21.0",
-    "plaid": "^26.0.0"
+    "plaid": "^26.0.0",
+    "@naap/utils": "*"
   },
   "devDependencies": {
     "@types/cors": "^2.8.17",

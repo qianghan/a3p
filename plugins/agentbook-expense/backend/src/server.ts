@@ -10,6 +10,7 @@ import { db } from './db/client.js';
 import { Configuration, PlaidApi, PlaidEnvironments, Products, CountryCode } from 'plaid';
 import { encryptToken, decryptToken } from './plaid-token-crypto.js';
 import { checkQuota, incrementUsage } from '@naap/billing';
+import { fetchReceipt } from '@naap/utils/safe-fetch';
 
 // === Plaid Client Setup ===
 const PLAID_CLIENT_ID = process.env.PLAID_CLIENT_ID || '69d02fa4f1949b000dbfc51e';
@@ -1134,12 +1135,17 @@ app.post('/api/v1/agentbook-expense/receipts/ocr', async (req, res) => {
         // Cap at 4MB (Gemini inline limit). For larger images, resize would be needed.
         let imageParts: any[] = [];
         try {
-          const imgRes = await fetch(imageUrl);
-          if (imgRes.ok) {
-            const imgBuffer = await imgRes.arrayBuffer();
+          // `imageUrl` arrives in the request body. A bare fetch of it is an
+          // SSRF primitive (CodeQL js/request-forgery, critical): the caller
+          // picks the destination and this process has the network position,
+          // including cloud instance metadata at 169.254.169.254. The bytes
+          // then go to Gemini, so it is an exfiltration path too.
+          const fetched = await fetchReceipt(imageUrl);
+          if (fetched) {
+            const imgBuffer = fetched.bytes;
             const sizeKB = imgBuffer.byteLength / 1024;
             const base64 = Buffer.from(imgBuffer).toString('base64');
-            const mimeType = imgRes.headers.get('content-type') || 'image/jpeg';
+            const mimeType = fetched.contentType;
             if (sizeKB < 4096) { // Under 4MB — send directly
               imageParts = [{ inlineData: { mimeType, data: base64 } }];
             } else {
@@ -2360,14 +2366,19 @@ app.post('/api/v1/agentbook-expense/receipts/upload-blob', async (req, res) => {
       // Rehost-from-URL path (existing behavior, e.g. Telegram CDN).
       permanentUrl = sourceUrl;
       try {
-        const imageRes = await fetch(sourceUrl);
-        if (imageRes.ok) {
-          const contentType = imageRes.headers.get('content-type') || 'image/jpeg';
+        // Same SSRF, worse consequence: whatever comes back is re-published to
+        // a PUBLIC Vercel Blob URL, so an internal response would come out
+        // somewhere anyone can read it.
+        const fetched = await fetchReceipt(sourceUrl);
+        if (fetched) {
+          const contentType = fetched.contentType;
           const extension = contentType.includes('pdf') ? 'pdf' : contentType.includes('png') ? 'png' : 'jpg';
           const filename = `receipts/${tenantId}/${Date.now()}.${extension}`;
           if (BLOB_TOKEN) {
             const { put } = await import('@vercel/blob');
-            const blob = await put(filename, imageRes.body as any, {
+            // fetchReceipt buffers rather than streaming, because a size cap
+            // cannot be enforced on a body piped straight through.
+            const blob = await put(filename, Buffer.from(fetched.bytes), {
               access: 'public',
               token: BLOB_TOKEN,
               contentType,
