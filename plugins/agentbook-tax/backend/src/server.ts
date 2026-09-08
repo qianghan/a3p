@@ -1884,55 +1884,33 @@ server.app.delete('/api/v1/agentbook-tax/past-filings/:id', async (req: any, res
 // E-FILING EXPORT
 // ============================================
 
-server.app.get('/api/v1/agentbook-tax/tax/export/netfile-xml', async (req: any, res) => {
+/**
+ * One worksheet route for every jurisdiction.
+ *
+ * Replaces the separate `netfile-xml` and `mef-xml` handlers, which emitted
+ * files named for agency submission formats under invented XML namespaces,
+ * with every monetary value zero — the exporters read field IDs the form
+ * templates do not define — while instructing the user to submit the result to
+ * the CRA or hand it to a CPA for IRS MeF. See filing-worksheet.ts.
+ *
+ * The worksheet is derived from the filing's own form templates, so this
+ * single handler covers AU as well, which never had an export at all.
+ */
+server.app.get('/api/v1/agentbook-tax/tax/export/worksheet', async (req: any, res) => {
   try {
     const tenantId: string = req.tenantId;
     const taxYear = parseInt(req.query.year as string, 10) || new Date().getFullYear() - 1;
 
-    const filing = await db.abTaxFiling.findFirst({
-      where: { tenantId, taxYear, jurisdiction: 'ca' },
-    });
-    if (!filing) return res.status(404).json({ success: false, error: 'No CA filing found for this year' });
+    const result = await exportFiling(tenantId, taxYear, 'csv');
+    if (!result.success) {
+      return res.status(422).json({ success: false, error: result.error, data: result.data });
+    }
 
-    const config = await db.abTaxConfig.findUnique({ where: { tenantId } });
-    const region = config?.region || filing.region || 'ON';
-
-    const { getPastFilingPack } = await import('@agentbook/jurisdictions/past-filing-loader');
-    const pack = getPastFilingPack('ca');
-    if (!pack.generateEFileExport) return res.status(501).json({ success: false, error: 'E-file export not implemented for this pack' });
-
-    const forms = (filing.forms as Record<string, any>) || {};
-    const result = pack.generateEFileExport(forms, taxYear, region);
-
-    res.setHeader('Content-Type', 'application/xml');
-    res.setHeader('Content-Disposition', `attachment; filename="${result.filename}"`);
-    res.send(result.content);
-  } catch (err: any) {
-    res.status(err.status || 500).json({ success: false, error: err.message });
-  }
-});
-
-server.app.get('/api/v1/agentbook-tax/tax/export/mef-xml', async (req: any, res) => {
-  try {
-    const tenantId: string = req.tenantId;
-    const taxYear = parseInt(req.query.year as string, 10) || new Date().getFullYear() - 1;
-
-    const filing = await db.abTaxFiling.findFirst({
-      where: { tenantId, taxYear, jurisdiction: 'us' },
-    });
-    if (!filing) return res.status(404).json({ success: false, error: 'No US filing found for this year' });
-
-    const { getPastFilingPack } = await import('@agentbook/jurisdictions/past-filing-loader');
-    const pack = getPastFilingPack('us');
-    if (!pack.generateEFileExport) return res.status(501).json({ success: false, error: 'E-file export not implemented for this pack' });
-
-    const forms = (filing.forms as Record<string, any>) || {};
-    const region = filing.region || '';
-    const result = pack.generateEFileExport(forms, taxYear, region);
-
-    res.setHeader('Content-Type', 'application/xml');
-    res.setHeader('Content-Disposition', `attachment; filename="${result.filename}"`);
-    res.send(result.content);
+    const { csv, filename } = result.data as { csv: string; filename: string };
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.setHeader('Cache-Control', 'private, no-store');
+    res.send(csv);
   } catch (err: any) {
     res.status(err.status || 500).json({ success: false, error: err.message });
   }

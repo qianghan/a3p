@@ -165,8 +165,15 @@ export interface PreFillSuggestion {
   confidence: number
 }
 
+/**
+ * Retained for the filing-draft packs that still describe an export shape.
+ * NOTE: 'xml' here does not license emitting an agency submission format —
+ * AgentBook is not an authorised transmitter with the IRS, CRA or ATO, and the
+ * two packs that used to emit "MeF" and "NETFILE" XML produced invented
+ * namespaces with all-zero amounts. See filing-worksheet.ts in the tax plugin.
+ */
 export interface EFileExport {
-  format: 'xml' | 'json' | 'pdf'
+  format: 'xml' | 'json' | 'pdf' | 'csv'
   content: string
   filename: string
   instructions: string
@@ -187,7 +194,6 @@ export interface PastFilingPack {
   parseExtraction(raw: any, formType: string, taxYear: number): StandardTaxExtract
   preFillMap(extract: StandardTaxExtract): PreFillSuggestion[]
   summarize(extract: StandardTaxExtract): string
-  generateEFileExport?(forms: Record<string, any>, taxYear: number, region?: string): EFileExport
 }
 
 // ─── Tax Fast-Track Questionnaire ────────────────────────────────────────────

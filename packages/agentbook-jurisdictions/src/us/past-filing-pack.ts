@@ -1,4 +1,4 @@
-import type { PastFilingPack, PastFilingFormDescriptor, StandardTaxExtract, PreFillSuggestion, EFileExport } from '../interfaces.js';
+import type { PastFilingPack, PastFilingFormDescriptor, StandardTaxExtract, PreFillSuggestion } from '../interfaces.js';
 
 export class UsPastFilingPack implements PastFilingPack {
   jurisdiction = 'us';
@@ -123,24 +123,5 @@ Return JSON only: { "formType": "1040", "taxYear": 2024, "jurisdiction": "us", "
     if (rOrB) line += `  ${rOrB}\n`;
     line += `  Source: confirmed ${extract.formType} upload (confidence ${Math.round(extract.confidence * 100)}%)`;
     return line;
-  }
-
-  generateEFileExport(forms: Record<string, any>, taxYear: number, region = ''): EFileExport {
-    const f1040 = forms['1040'] || {};
-    const xml = `<?xml version="1.0" encoding="UTF-8"?>
-<Return xmlns="urn:us:treasury:irs:mef:${taxYear}">
-  <TaxYear>${taxYear}</TaxYear>
-  <State>${region}</State>
-  <AdjustedGrossIncome>${Math.round((f1040['11'] || 0) / 100)}.00</AdjustedGrossIncome>
-  <TaxableIncome>${Math.round((f1040['15'] || 0) / 100)}.00</TaxableIncome>
-  <TotalTax>${Math.round((f1040['22'] || 0) / 100)}.00</TotalTax>
-  <Withholding>${Math.round((f1040['25a'] || 0) / 100)}.00</Withholding>
-</Return>`;
-    return {
-      format: 'xml',
-      content: xml,
-      filename: `1040-${taxYear}-mef.xml`,
-      instructions: `Download this XML file and give it to your CPA for e-filing via IRS MeF, or use IRS Free File Fillable Forms at irs.gov/filing/free-file-fillable-forms.`,
-    };
   }
 }

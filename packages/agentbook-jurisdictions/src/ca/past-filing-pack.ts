@@ -1,4 +1,4 @@
-import type { PastFilingPack, PastFilingFormDescriptor, StandardTaxExtract, PreFillSuggestion, EFileExport } from '../interfaces.js';
+import type { PastFilingPack, PastFilingFormDescriptor, StandardTaxExtract, PreFillSuggestion } from '../interfaces.js';
 
 export class CaPastFilingPack implements PastFilingPack {
   jurisdiction = 'ca';
@@ -166,28 +166,5 @@ Return JSON only: { "formType": "T1", "taxYear": 2024, "jurisdiction": "ca", "re
     }
     line += `  Source: confirmed ${extract.formType} upload (confidence ${Math.round(extract.confidence * 100)}%)`;
     return line;
-  }
-
-  generateEFileExport(forms: Record<string, any>, taxYear: number, region = 'ON'): EFileExport {
-    // Minimal NETFILE XML envelope — CRA schema published annually
-    const t1 = forms['T1'] || {};
-    const t2125 = forms['T2125'] || {};
-    const xml = `<?xml version="1.0" encoding="UTF-8"?>
-<Return xmlns="urn:cra-arc.gc.ca:netfile:t1:${taxYear}">
-  <TaxYear>${taxYear}</TaxYear>
-  <Province>${region}</Province>
-  <TotalIncome>${Math.round((t1['15000'] || 0) / 100)}.00</TotalIncome>
-  <NetIncome>${Math.round((t1['23200'] || 0) / 100)}.00</NetIncome>
-  <TaxableIncome>${Math.round((t1['26000'] || 0) / 100)}.00</TaxableIncome>
-  <TaxPayable>${Math.round((t1['48200'] || 0) / 100)}.00</TaxPayable>
-  <GrossRevenue>${Math.round((t2125['gross_sales_8000'] || 0) / 100)}.00</GrossRevenue>
-  <NetBusinessIncome>${Math.round((t2125['net_income_9369'] || 0) / 100)}.00</NetBusinessIncome>
-</Return>`;
-    return {
-      format: 'xml',
-      content: xml,
-      filename: `T1-${taxYear}-netfile.xml`,
-      instructions: `Download this XML file and submit it at canada.ca/netfile, or import it into StudioTax or CloudTax (both free for simple returns).`,
-    };
   }
 }
