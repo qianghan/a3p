@@ -207,4 +207,36 @@ const nextConfig = {
   },
 };
 
-module.exports = nextConfig;
+/**
+ * Sentry's build plugin is applied only when a DSN is configured.
+ *
+ * Two reasons, both measured. Unconfigured — dev, CI, and any deployment
+ * before the DSN is set — the build stays byte-identical to what it was, so
+ * turning observability on is a config change and not a rebuild of everything.
+ * And `withSentryConfig` exists to upload source maps and rewrite stack
+ * frames; with no DSN and no auth token it has nothing to do.
+ *
+ * The browser SDK's ~35 kB is kept out of the shared chunk separately, by the
+ * dynamic import in instrumentation-client.ts — see the note there.
+ */
+if (process.env.SENTRY_DSN || process.env.NEXT_PUBLIC_SENTRY_DSN) {
+  const { withSentryConfig } = require('@sentry/nextjs');
+  module.exports = withSentryConfig(nextConfig, {
+    org: process.env.SENTRY_ORG,
+    project: process.env.SENTRY_PROJECT,
+    // Uploading source maps needs SENTRY_AUTH_TOKEN; without it the plugin
+    // skips upload rather than failing the build, which is what a preview
+    // deployment without the secret should do.
+    silent: true,
+    // Stack traces are useless against minified output, and source maps served
+    // publicly would hand out the app's source. Upload them, then delete them
+    // from the deployed output.
+    sourcemaps: { deleteSourcemapsAfterUpload: true },
+    // Routes browser events through the app's own origin so ad blockers do not
+    // silently drop the reports that are the entire point of this.
+    tunnelRoute: '/monitoring',
+    disableLogger: true,
+  });
+} else {
+  module.exports = nextConfig;
+}
