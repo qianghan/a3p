@@ -129,7 +129,7 @@ function IosInstallModal({ onClose }: { onClose: () => void }) {
         style={{ paddingBottom: 'max(1.25rem, env(safe-area-inset-bottom))' }}
       >
         <div className="flex items-start justify-between gap-4">
-          <h2 className="text-base font-semibold text-foreground">Add to your Home Screen</h2>
+          <h2 className="text-base font-semibold text-foreground">{t('core_ui.add_to_your_home_screen')}</h2>
           <button onClick={onClose} aria-label={t('common.close')} className="shrink-0 text-muted-foreground hover:text-foreground">
             <X size={18} />
           </button>
@@ -137,9 +137,9 @@ function IosInstallModal({ onClose }: { onClose: () => void }) {
         <p className="mt-1 text-sm text-muted-foreground">iOS needs a few manual taps in Safari — about 10 seconds.</p>
 
         <ol className="mt-5 space-y-5">
-          <Step n={1} icon={<Share size={14} />}>Tap the <strong>Share</strong> icon in Safari&apos;s toolbar.</Step>
-          <Step n={2}>Scroll down and tap <strong>Add to Home Screen</strong>.</Step>
-          <Step n={3}>Tap <strong>{t('common.add')}</strong> in the top-right corner.</Step>
+          <Step n={1} icon={<Share size={14} />}>{t('core_ui.tap_the')} <strong>{t('core_ui.share')}</strong> icon in Safari&apos;s toolbar.</Step>
+          <Step n={2}>{t('core_ui.scroll_down_and_tap')} <strong>{t('core_ui.add_to_home_screen')}</strong>.</Step>
+          <Step n={3}>{t('core_ui.tap')} <strong>{t('common.add')}</strong> in the top-right corner.</Step>
         </ol>
 
         <div className="mt-6 pt-4 border-t border-border flex items-center justify-between gap-3">

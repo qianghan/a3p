@@ -146,7 +146,7 @@ export function LanguageSwitcher() {
         aria-haspopup="menu"
         aria-expanded={open}
         aria-label={t('common.change_language')}
-        title="Change language"
+        title={t('common.change_language')}
         className="flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-sm text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-50"
       >
         <Languages className="w-4 h-4" />

@@ -124,13 +124,12 @@ export function NotificationBell() {
                   disabled={loading}
                   className="flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground disabled:opacity-50"
                 >
-                  <CheckCheck size={12} /> Mark all read
-                </button>
+                  <CheckCheck size={12} /> {t('core_ui.mark_all_read')}</button>
               )}
             </div>
 
             {items.length === 0 ? (
-              <p className="text-[12px] text-muted-foreground px-3 py-6 text-center">No notifications yet.</p>
+              <p className="text-[12px] text-muted-foreground px-3 py-6 text-center">{t('core_ui.no_notifications_yet')}</p>
             ) : (
               items.map((item) => (
                 <button

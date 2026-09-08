@@ -89,8 +89,7 @@ export default function AccountantPage() {
         <div className="flex items-center justify-between mb-3">
           <h2 className="text-sm font-semibold text-foreground">{t('dash.share_with_accountant')}</h2>
           <button onClick={() => void createLink()} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium bg-primary text-primary-foreground hover:opacity-90">
-            <Plus className="w-4 h-4" /> New link
-          </button>
+            <Plus className="w-4 h-4" /> {t('core_ui.new_link')}</button>
         </div>
         {links.filter((l) => l.status === 'active').length === 0 ? (
           <p className="text-sm text-muted-foreground">{t('dash.no_active_links')}</p>
@@ -122,8 +121,7 @@ export default function AccountantPage() {
           <div key={i.id} className="flex items-center justify-between gap-2 text-sm py-1">
             <span className="text-foreground">{i.cpaEmail} <span className="text-xs text-muted-foreground capitalize">· {i.status}</span></span>
             <button onClick={() => navigator.clipboard?.writeText(`${origin}/cpa-portal/${i.token}`)} className="text-primary hover:underline flex items-center gap-1 text-xs">
-              <Copy className="w-3.5 h-3.5" /> Copy link
-            </button>
+              <Copy className="w-3.5 h-3.5" /> {t('core_ui.copy_link')}</button>
           </div>
         ))}
       </div>
@@ -159,8 +157,7 @@ export default function AccountantPage() {
 
         <label className="flex items-center gap-2 text-sm text-muted-foreground mb-3 cursor-pointer">
           <input type="checkbox" checked={autoFix} onChange={(e) => void toggleAutoFix(e.target.checked)} />
-          <ShieldCheck className="w-4 h-4" /> Allow the AI CPA to auto-correct bookkeeping
-        </label>
+          <ShieldCheck className="w-4 h-4" /> {t('core_ui.allow_ai_cpa_autocorrect')}</label>
 
         {report ? (
           <>

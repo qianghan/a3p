@@ -88,10 +88,10 @@ export function LLMProvidersSection() {
           <div className="p-2 rounded-md bg-muted"><Cpu className="w-5 h-5 text-muted-foreground" /></div>
           <div>
             <h2 className="text-base font-semibold">{t('core_ui.llm_providers')}</h2>
-            <p className="text-sm text-muted-foreground">The model providers the agent can use. One is the default.</p>
+            <p className="text-sm text-muted-foreground">{t('core_ui.llm_providers_desc')}</p>
           </div>
         </div>
-        <Button size="sm" variant="secondary" icon={<Plus size={16} />} onClick={() => setAdding((v) => !v)}>Add provider</Button>
+        <Button size="sm" variant="secondary" icon={<Plus size={16} />} onClick={() => setAdding((v) => !v)}>{t('core_ui.add_provider_action')}</Button>
       </div>
 
       {error && <div className="flex items-center gap-2 p-3 rounded-lg bg-destructive/10 text-destructive text-sm"><AlertTriangle size={16} /> {error}</div>}
@@ -99,9 +99,9 @@ export function LLMProvidersSection() {
 
       {adding && (
         <div className="p-4 rounded-lg border border-border bg-card grid sm:grid-cols-4 gap-2 items-end">
-          <div><label className="text-xs text-muted-foreground">{t('accounting.name')}</label><Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Google Gemini" /></div>
-          <div><label className="text-xs text-muted-foreground">Provider</label><Select value={form.provider} onChange={(e) => setForm({ ...form, provider: e.target.value })}>{PROVIDERS.map((p) => <option key={p} value={p}>{p}</option>)}</Select></div>
-          <div><label className="text-xs text-muted-foreground">API key</label><Input type="password" value={form.apiKey} onChange={(e) => setForm({ ...form, apiKey: e.target.value })} placeholder="sk-…" /></div>
+          <div><label className="text-xs text-muted-foreground">{t('accounting.name')}</label><Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder={t('core_ui.google_gemini')} /></div>
+          <div><label className="text-xs text-muted-foreground">{t('core_ui.provider')}</label><Select value={form.provider} onChange={(e) => setForm({ ...form, provider: e.target.value })}>{PROVIDERS.map((p) => <option key={p} value={p}>{p}</option>)}</Select></div>
+          <div><label className="text-xs text-muted-foreground">{t('core_ui.api_key')}</label><Input type="password" value={form.apiKey} onChange={(e) => setForm({ ...form, apiKey: e.target.value })} placeholder="sk-…" /></div>
           <Button onClick={create} loading={busy === '__new__'}>{t('common.save')}</Button>
         </div>
       )}
@@ -109,7 +109,7 @@ export function LLMProvidersSection() {
       {loading ? (
         <div className="py-8 text-center text-sm text-muted-foreground">Loading…</div>
       ) : configs.length === 0 ? (
-        <div className="text-center py-6 text-muted-foreground text-sm">No LLM providers configured</div>
+        <div className="text-center py-6 text-muted-foreground text-sm">{t('core_ui.no_llm_providers')}</div>
       ) : (
         <div className="grid gap-2">
           {configs.map((c) => (
@@ -129,7 +129,7 @@ export function LLMProvidersSection() {
               ) : (
                 <>
                   {!c.isDefault && <Button variant="ghost" size="sm" loading={busy === c.id} onClick={() => setDefault(c.id)} icon={<Star size={14} />}>{t('common.default')}</Button>}
-                  <Button variant="ghost" size="sm" loading={busy === c.id} onClick={() => test(c.id)} icon={<Zap size={14} />}>Test</Button>
+                  <Button variant="ghost" size="sm" loading={busy === c.id} onClick={() => test(c.id)} icon={<Zap size={14} />}>{t('core_ui.test_action')}</Button>
                   <Button variant="ghost" size="sm" onClick={() => remove(c.id)} icon={<Trash2 size={14} />} className="text-destructive hover:bg-destructive/10" />
                 </>
               )}

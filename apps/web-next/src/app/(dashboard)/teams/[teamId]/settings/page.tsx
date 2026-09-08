@@ -227,7 +227,7 @@ export default function TeamSettingsPage() {
 
         <form onSubmit={handleSave} className="space-y-4">
           <div>
-            <Label className="mb-1.5 block">Team Name</Label>
+            <Label className="mb-1.5 block">{t('core_ui.team_name')}</Label>
             <Input
               type="text"
               value={name}
@@ -266,7 +266,7 @@ export default function TeamSettingsPage() {
             {/* Transfer Ownership */}
             <div className="flex items-center justify-between p-3 bg-muted/50 rounded-lg">
               <div>
-                <h3 className="text-sm font-medium">Transfer Ownership</h3>
+                <h3 className="text-sm font-medium">{t('core_ui.transfer_ownership')}</h3>
                 <p className="text-xs text-muted-foreground">
                   Transfer this team to another member
                 </p>
@@ -283,7 +283,7 @@ export default function TeamSettingsPage() {
             {/* Delete Team */}
             <div className="flex items-center justify-between p-3 bg-muted/50 rounded-lg">
               <div>
-                <h3 className="text-sm font-medium">Delete Team</h3>
+                <h3 className="text-sm font-medium">{t('core_ui.delete_team')}</h3>
                 <p className="text-xs text-muted-foreground">
                   Permanently delete this team and all its data
                 </p>
@@ -307,7 +307,7 @@ export default function TeamSettingsPage() {
           setShowDeleteConfirm(false);
           setDeleteConfirmText('');
         }}
-        title="Delete Team"
+        title={t('core_ui.delete_team')}
         size="sm"
       >
         <p className="text-sm text-muted-foreground mb-4">
@@ -355,7 +355,7 @@ export default function TeamSettingsPage() {
           setShowTransferModal(false);
           setNewOwnerId('');
         }}
-        title="Transfer Ownership"
+        title={t('core_ui.transfer_ownership')}
         size="sm"
       >
         <p className="text-sm text-muted-foreground mb-4">
@@ -363,12 +363,12 @@ export default function TeamSettingsPage() {
         </p>
 
         <div className="mb-4">
-          <Label className="mb-1.5 block">New Owner</Label>
+          <Label className="mb-1.5 block">{t('core_ui.new_owner')}</Label>
           <Select
             value={newOwnerId}
             onChange={(e) => setNewOwnerId(e.target.value)}
           >
-            <option value="">Select a member</option>
+            <option value="">{t('core_ui.select_a_member')}</option>
             {members.map(member => (
               <option key={member.id} value={member.userId}>
                 {member.user.displayName || member.user.email}

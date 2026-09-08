@@ -319,7 +319,7 @@ export function PluginLoader({
               </div>
             )}
             {isUMDPluginCached(plugin.bundleUrl) && (
-              <p className="text-text-tertiary text-xs">Loading from cache</p>
+              <p className="text-text-tertiary text-xs">{t('core_ui.loading_from_cache')}</p>
             )}
           </div>
         </div>

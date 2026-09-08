@@ -264,8 +264,8 @@ export default function TeamMembersPage() {
                       className="h-8 text-xs w-auto"
                     >
                       <option value="admin">{t('nav.admin')}</option>
-                      <option value="member">Member</option>
-                      <option value="viewer">Viewer</option>
+                      <option value="member">{t('core_ui.member')}</option>
+                      <option value="viewer">{t('core_ui.viewer')}</option>
                     </Select>
                   ) : (
                     <span className="text-xs">{ROLE_LABELS[member.role]}</span>
@@ -291,7 +291,7 @@ export default function TeamMembersPage() {
       <Modal
         isOpen={showInviteModal}
         onClose={() => setShowInviteModal(false)}
-        title="Invite Team Member"
+        title={t('core_ui.invite_team_member')}
         size="md"
       >
         {inviteError && (
@@ -302,7 +302,7 @@ export default function TeamMembersPage() {
 
         <form onSubmit={handleInvite} className="space-y-4">
           <div>
-            <Label className="mb-1.5 block">Email Address</Label>
+            <Label className="mb-1.5 block">{t('core_ui.email_address')}</Label>
             <Input
               type="email"
               value={inviteEmail}
@@ -313,14 +313,14 @@ export default function TeamMembersPage() {
           </div>
 
           <div>
-            <Label className="mb-1.5 block">Role</Label>
+            <Label className="mb-1.5 block">{t('core_ui.role')}</Label>
             <Select
               value={inviteRole}
               onChange={(e) => setInviteRole(e.target.value as 'admin' | 'member' | 'viewer')}
             >
-              <option value="admin">Admin - Can manage members and configure plugins</option>
-              <option value="member">Member - Can use plugins</option>
-              <option value="viewer">Viewer - Read-only access</option>
+              <option value="admin">{t('core_ui.role_admin_desc')}</option>
+              <option value="member">{t('core_ui.role_member_desc')}</option>
+              <option value="viewer">{t('core_ui.role_viewer_desc')}</option>
             </Select>
           </div>
 

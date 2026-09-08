@@ -129,7 +129,7 @@ function CopyButton({ text, className = '' }: { text: string; className?: string
       {state === 'copied' ? (
         <>
           <Check size={13} className="shrink-0" />
-          <span>Copied!</span>
+          <span>{t('core_ui.copied')}</span>
         </>
       ) : (
         <>

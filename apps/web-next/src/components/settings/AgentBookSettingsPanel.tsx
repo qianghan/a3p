@@ -702,7 +702,7 @@ function ChatHistoryTab(): React.ReactElement {
         <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
         <input
           type="text"
-          placeholder="Search messages…"
+          placeholder={t('core_ui.search_messages')}
           value={query}
           onChange={e => handleSearch(e.target.value)}
           className="w-full rounded-lg border border-border bg-background py-2.5 pl-9 pr-4 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none"
@@ -828,7 +828,7 @@ function BillingTab(): React.ReactElement {
         <h3 className="text-sm font-semibold text-foreground mb-1">{t('billing.your_plan')}</h3>
         <p className="text-sm text-muted-foreground">
           {current?.name || current?.code
-            ? <>{t('core_ui.currently_on')}<span className="font-medium text-foreground capitalize">{current.name || current.code}</span>{current.status ? ` · ${current.status}` : ''}.</>
+            ? <>{t('core_ui.currently_on')} <span className="font-medium text-foreground capitalize">{current.name || current.code}</span>{current.status ? ` · ${current.status}` : ''}.</>
             : 'You are on the Free plan.'}
         </p>
       </div>
@@ -1103,8 +1103,7 @@ function ReferralsTab(): React.ReactElement {
     <div className="space-y-6">
       <div>
         <h3 className="text-sm font-semibold text-foreground mb-1 flex items-center gap-1.5">
-          <Gift size={16} className="text-primary" /> Invite friends, earn free months
-        </h3>
+          <Gift size={16} className="text-primary" /> {t('core_ui.invite_friends_earn_months')}</h3>
         <p className="text-sm text-muted-foreground">
           For every friend who signs up with your link and pays, you get 1 month free — up to a full year.
         </p>
@@ -1133,8 +1132,7 @@ function ReferralsTab(): React.ReactElement {
 
       <div>
         <h4 className="text-sm font-semibold text-foreground mb-2 flex items-center gap-1.5">
-          <Users size={14} /> Your invitees
-        </h4>
+          <Users size={14} /> {t('core_ui.your_invitees')}</h4>
         {invitees.length === 0 ? (
           <p className="text-sm text-muted-foreground py-4 text-center rounded-lg border border-dashed border-border">
             No invites yet — share your link above to get started.
@@ -1766,8 +1764,7 @@ function PaymentsTab(): React.ReactElement {
                 onClick={() => { void refresh(); setError(null); }}
                 className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground"
               >
-                <RefreshCw className="h-3.5 w-3.5" /> Refresh status
-              </button>
+                <RefreshCw className="h-3.5 w-3.5" /> {t('core_ui.refresh_status')}</button>
             </div>
           ) : status?.connected ? (
             <div className="space-y-3">

@@ -149,7 +149,7 @@ export function TeamSwitcher() {
         {switching ? (
           <>
             <Loader2 size={16} className="animate-spin text-muted-foreground" />
-            <span className="text-muted-foreground hidden sm:inline">Switching...</span>
+            <span className="text-muted-foreground hidden sm:inline">{t('core_ui.switching')}</span>
           </>
         ) : currentTeam ? (
           <>
@@ -202,7 +202,7 @@ export function TeamSwitcher() {
                   </div>
                   <div className="text-left">
                     <p className="font-medium text-sm">{t('expenses_ui.personal')}</p>
-                    <p className="text-xs text-muted-foreground">Your workspace</p>
+                    <p className="text-xs text-muted-foreground">{t('core_ui.your_workspace')}</p>
                   </div>
                 </div>
                 {!currentTeam && (
@@ -255,7 +255,7 @@ export function TeamSwitcher() {
               {loading && (
                 <div className="py-6 text-center">
                   <Loader2 size={20} className="animate-spin text-muted-foreground mx-auto" />
-                  <p className="text-xs text-muted-foreground mt-2">Loading teams...</p>
+                  <p className="text-xs text-muted-foreground mt-2">{t('core_ui.loading_teams')}</p>
                 </div>
               )}
             </div>
@@ -270,7 +270,7 @@ export function TeamSwitcher() {
                 className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-muted-foreground hover:text-foreground hover:bg-muted/80 rounded-lg transition-all"
               >
                 <Plus size={16} />
-                <span>Create New Team</span>
+                <span>{t('core_ui.create_new_team')}</span>
               </button>
               <button
                 onClick={() => {
@@ -280,7 +280,7 @@ export function TeamSwitcher() {
                 className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-muted-foreground hover:text-foreground hover:bg-muted/80 rounded-lg transition-all"
               >
                 <Settings size={16} />
-                <span>Manage Teams</span>
+                <span>{t('core_ui.manage_teams')}</span>
               </button>
             </div>
           </div>

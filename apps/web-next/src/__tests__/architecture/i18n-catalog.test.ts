@@ -86,6 +86,20 @@ const IDENTICAL_ALLOWED = new Set<string>([
   'core_ui.whatsapp',
   // "Logo" is borrowed unchanged into French (the zh-CN value IS translated).
   'core_ui.logo',
+  // More product names, from the P1-6 shell tranche. Deel and Finch are payroll
+  // providers, the other two are exactly what the button says.
+  'core_ui.deel',
+  'core_ui.finch',
+  'core_ui.google_gemini',
+  'core_ui.github',
+  // French spells these the same way. "Pro" is also the plan's name, which a
+  // francophone customer sees on their invoice.
+  'core_ui.pro_plan',
+  'core_ui.info',
+  'core_ui.urgent',
+  'core_ui.version',
+  'core_ui.visible',
+  'core_ui.test_action',
   // "Correct" is a valid French word with the same spelling and meaning.
   'common.correct',
   // Table headers in the chart of accounts. "Code" and "Type" are spelled and

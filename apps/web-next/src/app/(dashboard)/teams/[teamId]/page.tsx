@@ -333,7 +333,7 @@ export default function TeamDashboardPage() {
         {plugins.length === 0 ? (
           <div className="text-center py-8 text-muted-foreground">
             <Package className="w-8 h-8 mx-auto mb-2 opacity-40" />
-            <p className="text-sm">No plugins installed yet</p>
+            <p className="text-sm">{t('core_ui.no_plugins_installed')}</p>
             {canInstallPlugins && (
               <button
                 onClick={() => router.push(`/marketplace?teamId=${teamId}&teamName=${encodeURIComponent(team.name)}`)}
@@ -371,7 +371,7 @@ export default function TeamDashboardPage() {
                       variant="ghost"
                       size="sm"
                       onClick={() => openPersonalConfigModal(plugin)}
-                      title="My Settings (personal overrides)"
+                      title={t('core_ui.my_settings_personal_overrides')}
                     >
                       <User2 className="w-3.5 h-3.5" />
                     </Button>
@@ -402,7 +402,7 @@ export default function TeamDashboardPage() {
                           variant="ghost"
                           size="sm"
                           onClick={() => openConfigModal(plugin)}
-                          title="Configure plugin (team settings)"
+                          title={t('core_ui.configure_plugin_team_settings')}
                         >
                           <Settings2 className="w-3.5 h-3.5" />
                         </Button>
@@ -410,7 +410,7 @@ export default function TeamDashboardPage() {
                           variant="ghost"
                           size="sm"
                           onClick={() => openAccessModal(plugin)}
-                          title="Manage member access"
+                          title={t('core_ui.manage_member_access')}
                         >
                           <UserCog className="w-3.5 h-3.5" />
                         </Button>
@@ -419,7 +419,7 @@ export default function TeamDashboardPage() {
                             variant="ghost"
                             size="sm"
                             onClick={() => handleUninstallPlugin(plugin.id)}
-                            title="Uninstall plugin"
+                            title={t('core_ui.uninstall_plugin')}
                             className="text-destructive hover:bg-destructive/10"
                           >
                             <Trash2 className="w-3.5 h-3.5" />

@@ -99,15 +99,14 @@ export default function NotificationsPage() {
             <Bell className="w-5 h-5" />
             {t('agents.notifications')}
           </h1>
-          <p className="text-muted-foreground mt-1 text-sm">Everything AgentBook has sent you, in one place.</p>
+          <p className="text-muted-foreground mt-1 text-sm">{t('core_ui.notifications_subtitle')}</p>
         </div>
         {unreadCount > 0 && (
           <button
             onClick={markAllRead}
             className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground border border-border rounded-md px-3 py-1.5"
           >
-            <CheckCheck className="w-3.5 h-3.5" /> Mark all read
-          </button>
+            <CheckCheck className="w-3.5 h-3.5" /> {t('core_ui.mark_all_read')}</button>
         )}
       </div>
 

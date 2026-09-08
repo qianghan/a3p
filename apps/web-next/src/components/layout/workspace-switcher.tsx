@@ -272,7 +272,7 @@ export function WorkspaceSwitcher({ isOpen }: { isOpen: boolean }) {
                 className="w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-muted-foreground hover:bg-muted/40 hover:text-foreground transition-colors"
               >
                 <Plus size={14} className="shrink-0" />
-                <span className="text-[13px]">Create team</span>
+                <span className="text-[13px]">{t('core_ui.create_team_action')}</span>
               </button>
             </div>
 
@@ -297,7 +297,7 @@ export function WorkspaceSwitcher({ isOpen }: { isOpen: boolean }) {
                 className="w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-muted-foreground hover:bg-destructive/10 hover:text-destructive transition-colors"
               >
                 <LogOut size={14} className="shrink-0" />
-                <span className="text-[13px]">Sign out</span>
+                <span className="text-[13px]">{t('core_ui.sign_out')}</span>
               </button>
             </div>
           </div>

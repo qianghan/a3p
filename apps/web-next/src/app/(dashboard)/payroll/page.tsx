@@ -190,15 +190,13 @@ export default function PayrollPage() {
         <h1 className="text-xl font-bold text-foreground flex items-center gap-2"><Users className="w-5 h-5" /> {t('nav.payroll')}</h1>
         <div className="flex gap-2">
           <button onClick={() => { setTab('employees'); setShowForm((s) => !s); }} className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium border border-border hover:bg-muted">
-            <Plus className="w-4 h-4" /> Employee
-          </button>
+            <Plus className="w-4 h-4" /> {t('core_ui.employee')}</button>
           <button onClick={() => void runPayroll()} disabled={busy || employees.length === 0}
             className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-50">
-            <Play className="w-4 h-4" /> Run payroll
-          </button>
+            <Play className="w-4 h-4" /> {t('core_ui.run_payroll')}</button>
         </div>
       </div>
-      <p className="text-sm text-muted-foreground mb-5">Pay employees and contractors with automatic withholding, deposits, and year-end forms.</p>
+      <p className="text-sm text-muted-foreground mb-5">{t('core_ui.payroll_subtitle')}</p>
 
       {employees.some((e) => e.jurisdiction === 'au') && (
         <div className="mb-5 flex items-start gap-2.5 rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-700 dark:text-amber-400">
@@ -230,8 +228,8 @@ export default function PayrollPage() {
         <>
           {showForm && (
             <div className="rounded-xl border border-border bg-card p-4 mb-4 grid grid-cols-1 sm:grid-cols-6 gap-3 items-end">
-              <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Name" className="rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground" />
-              <input type="number" value={salary} onChange={(e) => setSalary(e.target.value)} placeholder="Annual salary" className="rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground" />
+              <input value={name} onChange={(e) => setName(e.target.value)} placeholder={t('common.name')} className="rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground" />
+              <input type="number" value={salary} onChange={(e) => setSalary(e.target.value)} placeholder={t('core_ui.annual_salary')} className="rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground" />
               <select value={freq} onChange={(e) => setFreq(e.target.value)} className="rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground capitalize">
                 {FREQ.map((f) => <option key={f} value={f}>{f}</option>)}
               </select>
@@ -246,7 +244,7 @@ export default function PayrollPage() {
             </div>
           )}
           {employees.length === 0 ? (
-            <Empty icon={<Users className="w-6 h-6" />} title="No employees yet" hint="Add your first employee to run payroll." />
+            <Empty icon={<Users className="w-6 h-6" />} title={t('core_ui.no_employees_yet')} hint="Add your first employee to run payroll." />
           ) : (
             <div className="rounded-xl border border-border bg-card divide-y divide-border">
               {employees.map((e) => (
@@ -266,7 +264,7 @@ export default function PayrollPage() {
 
       {/* Pay runs */}
       {tab === 'runs' && (
-        runs.length === 0 ? <Empty icon={<Play className="w-6 h-6" />} title="No pay runs yet" hint="Click “Run payroll” to pay your team for the current period." /> : (
+        runs.length === 0 ? <Empty icon={<Play className="w-6 h-6" />} title={t('core_ui.no_pay_runs_yet')} hint="Click “Run payroll” to pay your team for the current period." /> : (
           <div className="space-y-3">
             {runs.map((r) => {
               const gross = r.stubs.reduce((s, st) => s + st.grossCents, 0);
@@ -320,7 +318,7 @@ export default function PayrollPage() {
       {tab === 'deposits' && (
         <>
         <p className="text-sm text-muted-foreground mb-3">AgentBook tracks these remittance obligations — you pay and lodge them with the tax authority (IRS / CRA / ATO). &ldquo;Mark paid&rdquo; only records that you have remitted; it does not send anything.</p>
-        {deposits.length === 0 ? <Empty icon={<Landmark className="w-6 h-6" />} title="No tax deposits yet" hint="Processed pay runs accrue payroll-tax remittance obligations here." /> : (
+        {deposits.length === 0 ? <Empty icon={<Landmark className="w-6 h-6" />} title={t('core_ui.no_tax_deposits_yet')} hint="Processed pay runs accrue payroll-tax remittance obligations here." /> : (
           <div className="rounded-xl border border-border bg-card divide-y divide-border">
             {deposits.map((d) => {
               const overdue = d.status === 'pending' && new Date(d.dueDate) < new Date();
@@ -340,7 +338,7 @@ export default function PayrollPage() {
                     </a>
                     {d.status === 'paid'
                       ? <span className="text-xs text-primary inline-flex items-center gap-1"><Check className="w-3.5 h-3.5" />paid</span>
-                      : <button onClick={() => void markDepositPaid(d.id)} className="text-xs px-2.5 py-1 rounded-md border border-border hover:bg-muted">Mark paid</button>}
+                      : <button onClick={() => void markDepositPaid(d.id)} className="text-xs px-2.5 py-1 rounded-md border border-border hover:bg-muted">{t('core_ui.mark_paid')}</button>}
                   </div>
                 </div>
               );
@@ -354,7 +352,7 @@ export default function PayrollPage() {
       {tab === 'yearend' && (
         <>
           <p className="text-sm text-muted-foreground mb-3">{year} forms, generated from processed pay runs. AgentBook prepares these — you file and remit them yourself with the IRS (W-2), CRA (T4), or ATO. AgentBook does not lodge them on your behalf.</p>
-          {forms.length === 0 ? <Empty icon={<FileText className="w-6 h-6" />} title="No forms yet" hint={`Process payroll in ${year} to generate W-2 / T4 forms.`} /> : (
+          {forms.length === 0 ? <Empty icon={<FileText className="w-6 h-6" />} title={t('core_ui.no_forms_yet')} hint={`Process payroll in ${year} to generate W-2 / T4 forms.`} /> : (
             <div className="rounded-xl border border-border bg-card divide-y divide-border">
               {forms.map((f, i) => (
                 <div key={i} className="flex items-center justify-between px-4 py-3">
@@ -393,16 +391,16 @@ export default function PayrollPage() {
             <div className="flex items-center gap-2 text-muted-foreground"><Loader2 className="w-4 h-4 animate-spin" /> Preparing pay event…</div>
           ) : stpError ? (
             <div className="flex items-start gap-3 rounded-lg border border-destructive/30 bg-destructive/5 p-4 text-sm">
-              <AlertTriangle className="w-5 h-5 shrink-0 text-destructive" /><div><b>Couldn't prepare the pay event.</b> {stpError}</div>
+              <AlertTriangle className="w-5 h-5 shrink-0 text-destructive" /><div><b>{t('core_ui.pay_event_failed')}</b> {stpError}</div>
             </div>
           ) : !stp || stp.payees.length === 0 ? (
-            <Empty icon={<FileText className="w-6 h-6" />} title="No pay event yet" hint="Process a pay run to prepare an STP pay event." />
+            <Empty icon={<FileText className="w-6 h-6" />} title={t('core_ui.no_pay_event_yet')} hint="Process a pay run to prepare an STP pay event." />
           ) : (
             <>
               <div className="rounded-xl border border-border bg-card overflow-hidden">
                 <table className="w-full text-sm">
                   <thead className="bg-muted/40 text-xs text-muted-foreground">
-                    <tr><th className="text-left px-4 py-2">Employee</th><th className="text-right px-4 py-2">YTD gross</th><th className="text-right px-4 py-2">PAYG withheld</th><th className="text-right px-4 py-2">Super</th></tr>
+                    <tr><th className="text-left px-4 py-2"> {t('core_ui.employee')}</th><th className="text-right px-4 py-2">{t('core_ui.ytd_gross')}</th><th className="text-right px-4 py-2">{t('core_ui.payg_withheld')}</th><th className="text-right px-4 py-2">{t('core_ui.super_au')}</th></tr>
                   </thead>
                   <tbody className="divide-y divide-border">
                     {stp.payees.map((p) => (

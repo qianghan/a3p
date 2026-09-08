@@ -550,8 +550,8 @@ export default function AdminUsersPage() {
                   value={promotePlan}
                   onChange={(e) => setPromotePlan(e.target.value as 'pro' | 'business')}
                 >
-                  <option value="pro">Pro</option>
-                  <option value="business">Business</option>
+                  <option value="pro">{t('core_ui.pro_plan')}</option>
+                  <option value="business">{t('core_ui.business_plan')}</option>
                 </Select>
               </div>
               <div>

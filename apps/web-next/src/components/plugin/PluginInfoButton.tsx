@@ -142,7 +142,7 @@ export function PluginInfoButton({ metadata, className = '' }: PluginInfoButtonP
           border border-slate-700/50 dark:border-white/10
           hover:shadow-lg hover:shadow-slate-900/20 dark:hover:shadow-black/20
         `}
-        title="Plugin Info"
+        title={t('core_ui.plugin_info')}
         aria-label={t('common.show_plugin_information')}
         aria-expanded={isOpen}
       >
@@ -209,7 +209,7 @@ export function PluginInfoButton({ metadata, className = '' }: PluginInfoButtonP
                 <div className="p-1.5 rounded-md bg-slate-100 dark:bg-white/5">
                   <Tag className="w-3.5 h-3.5" />
                 </div>
-                <span className="text-xs font-medium">Version</span>
+                <span className="text-xs font-medium">{t('core_ui.version')}</span>
               </div>
               <div className="flex items-center gap-2">
                 <span className="text-sm font-mono font-semibold text-slate-900 dark:text-white">
@@ -229,7 +229,7 @@ export function PluginInfoButton({ metadata, className = '' }: PluginInfoButtonP
                 <div className="p-1.5 rounded-md bg-slate-100 dark:bg-white/5">
                   <User className="w-3.5 h-3.5" />
                 </div>
-                <span className="text-xs font-medium">Publisher</span>
+                <span className="text-xs font-medium">{t('core_ui.publisher')}</span>
               </div>
               <span className="text-sm font-medium text-slate-900 dark:text-white">
                 {metadata.publisher || 'Unknown'}
