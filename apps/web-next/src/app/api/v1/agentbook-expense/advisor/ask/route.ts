@@ -141,7 +141,7 @@ Only include chartData if visualization adds value. Keep the answer under 200 wo
     // Template fallback when Gemini unavailable
     if (!answer) {
       const q = question.toLowerCase();
-      if (q.match(/vendor|who.*spend|top.*spend|spend.*most/)) {
+      if (q.match(/vendor|who.{0,30}spend|top.{0,30}spend|spend.{0,30}most/)) {
         answer = byVendor.length > 0
           ? `Top vendors (${periodLabel}):\n\n` +
             byVendor.slice(0, 8).map(([n, v], i) => `${i + 1}. **${n}**: ${formatCents(v)}`).join('\n') +

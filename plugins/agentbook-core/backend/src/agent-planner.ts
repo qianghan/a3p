@@ -39,7 +39,7 @@ const REPORTING_SKILLS = new Set([
   'manage-recurring',
 ]);
 
-const CONDITIONAL_PATTERN = /if.+then/i;
+const CONDITIONAL_PATTERN = /if.{1,200}then/i;
 
 const DESTRUCTIVE_WORDS = [
   /\bdelete\b/i,
