@@ -308,5 +308,7 @@
   "yes_book": "✅ 是，入账",
   "yes_book_it": "✅ 是 — 入账",
   "you_ve_used_all_receipt_scans_this": "你本月的 {p0} 次收据识别已用完。升级可获得更多：\n{p1}/billing",
-  "ytd_tax_estimate_revenue_expenses_net_income": "🧾 <b>年初至今税额估算（{p0}）</b>\n\n• 收入：{p1}\n• 支出：{p2}\n• 净收入：{p3}\n• {p4}：{p5}\n• 所得税：{p6}\n• <b>合计：{p7}</b>"
+  "ytd_tax_estimate_revenue_expenses_net_income": "🧾 <b>年初至今税额估算（{p0}）</b>\n\n• 收入：{p1}\n• 支出：{p2}\n• 净收入：{p3}\n• {p4}：{p5}\n• 所得税：{p6}\n• <b>合计：{p7}</b>",
+  "candidate_joiner": " 或 ",
+  "and_n_more": "（另有 {count} 个）"
 }
