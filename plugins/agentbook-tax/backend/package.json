@@ -23,7 +23,7 @@
     "cors": "^2.8.6",
     "dotenv": "^16.6.1",
     "express": "^4.21.0",
-    "multer": "^2.2.0"
+    "multer": "^2.3.0"
   },
   "devDependencies": {
     "@types/cors": "^2.8.17",
