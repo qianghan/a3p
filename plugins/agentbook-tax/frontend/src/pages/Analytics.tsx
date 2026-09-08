@@ -81,8 +81,7 @@ export const AnalyticsPage: React.FC = () => {
       {/* Category Breakdown — Visual Bar Chart */}
       <div className="bg-card border border-border rounded-xl p-5 mb-6">
         <h2 className="text-sm font-medium text-muted-foreground mb-4 flex items-center gap-2">
-          <PieChart className="w-4 h-4" /> Category Breakdown (YTD)
-        </h2>
+          <PieChart className="w-4 h-4" /> {t('tax_ui.category_breakdown_ytd')}</h2>
         <div className="space-y-3">
           {categories.map((cat, i) => (
             <div key={cat.categoryName} className="flex items-center gap-3">
@@ -110,8 +109,7 @@ export const AnalyticsPage: React.FC = () => {
       {/* Monthly Spending Trend */}
       <div className="bg-card border border-border rounded-xl p-5 mb-6">
         <h2 className="text-sm font-medium text-muted-foreground mb-4 flex items-center gap-2">
-          <TrendingUp className="w-4 h-4" /> Monthly Spending Trend
-        </h2>
+          <TrendingUp className="w-4 h-4" /> {t('tax_ui.monthly_spending_trend')}</h2>
         <div className="flex items-end gap-2 h-40">
           {trends.map((t, i) => {
             const maxAmount = Math.max(...trends.map(tr => tr.totalCents), 1);
@@ -138,8 +136,7 @@ export const AnalyticsPage: React.FC = () => {
       {/* Top Vendors */}
       <div className="bg-card border border-border rounded-xl p-5">
         <h2 className="text-sm font-medium text-muted-foreground mb-4 flex items-center gap-2">
-          <Zap className="w-4 h-4" /> Top Vendors
-        </h2>
+          <Zap className="w-4 h-4" /> {t('tax_ui.top_vendors')}</h2>
         <div className="space-y-2">
           {vendors.map((v, i) => (
             <div key={v.vendorName} className="flex items-center justify-between py-2 border-b border-border/50 last:border-0">

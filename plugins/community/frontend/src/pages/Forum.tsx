@@ -243,8 +243,7 @@ export const ForumPage: React.FC = () => {
               }}
               className="flex items-center gap-2 px-3 py-1.5 bg-accent-emerald text-white rounded-md text-xs font-medium hover:bg-accent-emerald/90 transition-all"
             >
-              <Plus size={18} /> New Post
-            </button>
+              <Plus size={18} /> {t('community_ui.new_post')}</button>
           </div>
 
           {/* Search and Filters */}
@@ -358,8 +357,7 @@ export const ForumPage: React.FC = () => {
                       {post.isSolved && (
                         <Badge variant="emerald">
                           <span className="flex items-center gap-1">
-                            <CheckCircle size={12} /> Solved
-                          </span>
+                            <CheckCircle size={12} /> {t('community_ui.solved')}</span>
                         </Badge>
                       )}
                       <span className="text-xs text-text-secondary flex items-center gap-1">
@@ -454,8 +452,7 @@ export const ForumPage: React.FC = () => {
         {currentUser && (
           <Card>
             <h3 className="text-xs font-semibold text-text-primary mb-3 flex items-center gap-2">
-              <Trophy size={16} className="text-accent-amber" /> Welcome
-            </h3>
+              <Trophy size={16} className="text-accent-amber" /> {t('community_ui.welcome')}</h3>
             <div className="text-sm text-text-primary">
               <p>{t('community_ui.logged_in_as_named', { name: currentUser.displayName })}</p>
             </div>
@@ -465,8 +462,7 @@ export const ForumPage: React.FC = () => {
         {/* Leaderboard */}
         <Card>
           <h3 className="text-xs font-semibold text-text-primary mb-3 flex items-center gap-2">
-            <Trophy size={16} className="text-accent-amber" /> Top Contributors
-          </h3>
+            <Trophy size={16} className="text-accent-amber" /> {t('community_ui.top_contributors')}</h3>
           <div className="space-y-3">
             {leaderboard.map((user, idx) => (
               <div key={user.id} className="flex items-center gap-3">
@@ -492,8 +488,7 @@ export const ForumPage: React.FC = () => {
         {/* Popular Tags */}
         <Card>
           <h3 className="text-xs font-semibold text-text-primary mb-3 flex items-center gap-2">
-            <Tag size={16} className="text-accent-blue" /> Popular Tags
-          </h3>
+            <Tag size={16} className="text-accent-blue" /> {t('community_ui.popular_tags')}</h3>
           <div className="flex flex-wrap gap-2">
             {tags.map((tag) => (
               <button

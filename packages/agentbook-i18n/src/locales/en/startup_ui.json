@@ -21,5 +21,7 @@
   "override": "Override",
   "override_reason": "Reason for overriding this finding",
   "no_findings": "No findings — this draft looks well-substantiated.",
-  "see_what_i_qualify_for": "See what I qualify for"
+  "see_what_i_qualify_for": "See what I qualify for",
+  "submit": "Submit",
+  "draft": "Draft"
 }

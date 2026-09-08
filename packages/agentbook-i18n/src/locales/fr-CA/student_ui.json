@@ -34,5 +34,12 @@
   "career_grounding": "Sélectionnés selon votre programme, votre région et — pour les étudiants internationaux — votre autorisation de travail. Chaque résultat renvoie à sa source.",
   "privacy_off_by_default": "Votre profil est désactivé jusqu’à ce que vous l’activiez, et seuls les étudiants inscrits apparaissent dans les correspondances.",
   "privacy_no_contact": "Nous ne conservons aucune coordonnée ni adresse exacte — seulement un pseudonyme, un secteur, un budget et des préférences.",
-  "privacy_compat_only": "AgentBook n’affiche que la compatibilité. Il ne contacte jamais personne — c’est vous qui passez par votre établissement ou votre groupe de logement."
+  "privacy_compat_only": "AgentBook n’affiche que la compatibilité. Il ne contacte jamais personne — c’est vous qui passez par votre établissement ou votre groupe de logement.",
+  "housing_copilot": "Copilote logement",
+  "your_budget": "Votre budget",
+  "how_roommate_matching_works": "Comment fonctionne le jumelage de colocataires",
+  "turn_off": "Désactiver",
+  "scholarship_copilot": "Copilote bourses d'études",
+  "find_scholarships": "Trouver des bourses",
+  "your_scholarships": "Vos bourses"
 }

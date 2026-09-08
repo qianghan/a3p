@@ -223,16 +223,14 @@ export const TimerPage: React.FC = () => {
           <div>
             <p className="text-sm text-muted-foreground mb-4">{entry?.description || t('invoice_ui.working')}</p>
             <button onClick={stopTimer} className="px-8 py-3 bg-red-500 text-white rounded-full font-medium flex items-center gap-2 mx-auto active:scale-95">
-              <Square className="w-5 h-5" /> Stop
-            </button>
+              <Square className="w-5 h-5" /> {t('invoice_ui.stop')}</button>
           </div>
         ) : (
           <div>
             <input type="text" value={description} onChange={e => setDescription(e.target.value)}
               placeholder={t('invoice_ui.working_on_placeholder')} className="w-full p-3 border border-border rounded-lg bg-background mb-4 text-center" />
             <button onClick={startTimer} className="px-8 py-3 bg-primary text-primary-foreground rounded-full font-medium flex items-center gap-2 mx-auto active:scale-95">
-              <Play className="w-5 h-5" /> Start Timer
-            </button>
+              <Play className="w-5 h-5" /> {t('invoice_ui.start_timer')}</button>
           </div>
         )}
       </div>

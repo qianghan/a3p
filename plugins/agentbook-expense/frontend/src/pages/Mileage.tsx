@@ -204,8 +204,7 @@ export const MileagePage: React.FC = () => {
             className="px-3 py-2 text-sm rounded-lg border border-border hover:bg-muted/50 inline-flex items-center gap-2"
             title={EXPORT_LABEL[tenantJurisdiction]}
           >
-            <Download className="w-4 h-4" /> Export YTD
-          </button>
+            <Download className="w-4 h-4" /> {t('expenses_ui.export_ytd')}</button>
           <button
             onClick={() => setShowForm((v) => !v)}
             className="px-3 py-2 text-sm rounded-lg bg-primary text-primary-foreground inline-flex items-center gap-2"

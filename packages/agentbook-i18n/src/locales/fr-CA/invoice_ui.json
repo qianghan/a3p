@@ -99,5 +99,9 @@
   "send_all_reminders": "Envoyer tous les rappels",
   "generate_from_selected": "Générer une facture à partir de la sélection",
   "working": "En cours…",
-  "reminded_on": "Rappel envoyé le {date}"
+  "reminded_on": "Rappel envoyé le {date}",
+  "stop": "Arrêter",
+  "start_timer": "Démarrer le chronomètre",
+  "download_pdf": "Télécharger le PDF",
+  "decline": "Refuser"
 }

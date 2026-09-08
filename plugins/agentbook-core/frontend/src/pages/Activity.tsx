@@ -93,8 +93,7 @@ export const ActivityPage: React.FC = () => {
 
       <div className="rounded-lg border bg-card p-4 space-y-3">
         <div className="flex items-center gap-2 text-sm font-medium">
-          <Filter className="w-4 h-4" /> Filters
-        </div>
+          <Filter className="w-4 h-4" /> {t('core_ui.filters')}</div>
         <div className="grid grid-cols-1 md:grid-cols-5 gap-3 text-sm">
           <div>
             <label className="block text-xs text-muted-foreground mb-1">{t('core_ui.actor')}</label>

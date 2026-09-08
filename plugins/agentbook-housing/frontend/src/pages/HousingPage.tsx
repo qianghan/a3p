@@ -79,8 +79,7 @@ export const HousingPage: React.FC = () => {
     <div className="max-w-4xl mx-auto p-4 sm:p-6">
       <div className="mb-5">
         <h1 className="text-xl font-bold text-foreground flex items-center gap-2">
-          <Home className="w-5 h-5" /> Housing Copilot
-        </h1>
+          <Home className="w-5 h-5" /> {t('student_ui.housing_copilot')}</h1>
         <p className="text-sm text-muted-foreground mt-0.5">
           Compare the rentals you&apos;re considering against your real budget, and find compatible roommates.
         </p>
@@ -106,8 +105,7 @@ export const HousingPage: React.FC = () => {
       {/* Affordability summary */}
       <div className="rounded-xl border border-border bg-card p-4 mb-6">
         <div className="flex items-center gap-2 text-sm font-medium text-foreground mb-1">
-          <Wallet className="w-4 h-4" /> Your budget
-        </div>
+          <Wallet className="w-4 h-4" /> {t('student_ui.your_budget')}</div>
         {aff?.hasIncome ? (
           <p className="text-sm text-muted-foreground">
             Based on this month&apos;s income of <strong>{fmtCents(aff.monthlyIncomeCents)}</strong>, a comfortable rent is around{' '}

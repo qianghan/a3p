@@ -34,5 +34,12 @@
   "career_grounding": "Matched to your program, region, and — for international students — work authorization. Every result links to its source.",
   "privacy_off_by_default": "Your profile is off until you turn it on, and only opted-in students appear in matches.",
   "privacy_no_contact": "We store no contact details and no exact address — just a handle, area, budget, and preferences.",
-  "privacy_compat_only": "AgentBook shows compatibility only. It never messages anyone — you reach out through your school or housing group."
+  "privacy_compat_only": "AgentBook shows compatibility only. It never messages anyone — you reach out through your school or housing group.",
+  "housing_copilot": "Housing Copilot",
+  "your_budget": "Your budget",
+  "how_roommate_matching_works": "How roommate matching works",
+  "turn_off": "Turn off",
+  "scholarship_copilot": "Scholarship Copilot",
+  "find_scholarships": "Find scholarships",
+  "your_scholarships": "Your scholarships"
 }

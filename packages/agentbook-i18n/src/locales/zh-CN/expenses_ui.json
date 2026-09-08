@@ -129,5 +129,6 @@
   "agent_insights": "助手洞察",
   "expense_advisor": "支出顾问",
   "ask_placeholder": "询问有关支出的问题…",
-  "per_diem_unsupported": "{jurisdiction} 尚不支持每日津贴方式 — 请改用里程和餐饮支出。（将在后续版本中推出。）"
+  "per_diem_unsupported": "{jurisdiction} 尚不支持每日津贴方式 — 请改用里程和餐饮支出。（将在后续版本中推出。）",
+  "export_ytd": "导出年初至今"
 }

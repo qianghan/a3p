@@ -21,5 +21,7 @@
   "override": "Remplacer",
   "override_reason": "Motif du remplacement de cette constatation",
   "no_findings": "Aucune constatation — ce projet semble bien étayé.",
-  "see_what_i_qualify_for": "Voir à quoi je suis admissible"
+  "see_what_i_qualify_for": "Voir à quoi je suis admissible",
+  "submit": "Soumettre",
+  "draft": "Ébauche"
 }

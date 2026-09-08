@@ -18,5 +18,12 @@
   "no_answers": "No answers yet. Be the first to help!",
   "your_answer": "Your Answer",
   "ph_answer": "Write your answer... You can use Markdown for formatting and code blocks.",
-  "logged_in_as_named": "Logged in as {name}"
+  "logged_in_as_named": "Logged in as {name}",
+  "solved": "Solved",
+  "accepted_answer": "Accepted Answer",
+  "accept_answer": "Accept Answer",
+  "new_post": "New Post",
+  "welcome": "Welcome",
+  "top_contributors": "Top Contributors",
+  "popular_tags": "Popular Tags"
 }

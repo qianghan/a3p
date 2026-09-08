@@ -310,5 +310,10 @@
   "team_default": "团队默认值",
   "your_override": "您的覆盖值",
   "member_can_see_in_sidebar": "成员可在侧边栏中看到该插件。",
-  "member_can_interact": "成员可与该插件交互。"
+  "member_can_interact": "成员可与该插件交互。",
+  "add_provider_button": "添加提供方",
+  "saved_searches": "已保存的搜索",
+  "filters": "筛选",
+  "back_to_settings": "返回设置",
+  "remove": "移除"
 }

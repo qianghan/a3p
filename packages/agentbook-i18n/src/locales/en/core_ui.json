@@ -310,5 +310,10 @@
   "team_default": "Team Default",
   "your_override": "Your Override",
   "member_can_see_in_sidebar": "Member can see the plugin in their sidebar.",
-  "member_can_interact": "Member can interact with the plugin."
+  "member_can_interact": "Member can interact with the plugin.",
+  "add_provider_button": "Add Provider",
+  "saved_searches": "Saved Searches",
+  "filters": "Filters",
+  "back_to_settings": "Back to Settings",
+  "remove": "Remove"
 }

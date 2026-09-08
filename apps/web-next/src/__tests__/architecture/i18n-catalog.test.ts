@@ -80,6 +80,8 @@ const NON_REFERENCE_LOCALES = AVAILABLE_LOCALES.filter((l) => l !== REFERENCE_LO
 const IDENTICAL_ALLOWED = new Set<string>([
   // "Logo" is borrowed unchanged into French (the zh-CN value IS translated).
   'core_ui.logo',
+  // "Documents" is the same word in French; the zh-CN value is translated.
+  'common.documents',
   // NOTE: Telegram, WhatsApp, webhook, Deel, Finch, Google Gemini and GitHub
   // deliberately have NO key. Their value is identical in all three locales,
   // so a key buys nothing — and it actively hurts: it makes every occurrence

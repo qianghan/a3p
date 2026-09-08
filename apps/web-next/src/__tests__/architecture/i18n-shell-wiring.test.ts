@@ -143,3 +143,46 @@ describe('the brand names were left alone', () => {
     expect(read('components/brand/Wordmark.tsx')).toContain('aria-label="AgentBook"');
   });
 });
+
+describe('strings that are deliberately NOT translated', () => {
+  /**
+   * P1-6 finished with seven literals left in the plugin frontends, each left
+   * on purpose. They are recorded here because the obvious "improvement" — give
+   * them keys — is a regression twice over:
+   *
+   *   - the value would be identical in all three locales, so the key buys
+   *     nothing, and
+   *   - bin/i18n-unwired-key-guard.sh flags any literal whose exact English
+   *     value exists as a key, so every plain mention of the word anywhere in
+   *     the repo starts failing a measure that must be zero. That is exactly
+   *     what happened when Telegram/WhatsApp/webhook briefly had keys.
+   *
+   * The assertion is on the CATALOG, not the call sites: it fails the moment
+   * someone adds the key, which is the decision worth catching.
+   */
+  const MUST_HAVE_NO_KEY = [
+    'Telegram',    // product name
+    'WhatsApp',    // product name
+    'Webhook',     // the word is used unchanged in French and Chinese
+    'Deel',        // payroll provider
+    'Finch',       // payroll provider
+    'GitHub',      // product name
+    'Google Gemini',
+    'C-corp',      // US legal entity type, used untranslated in all three
+  ];
+
+  it.each(MUST_HAVE_NO_KEY)('%s has no catalog key', (value) => {
+    const en = (CATALOG as Record<string, Record<string, Record<string, unknown>>>).en;
+    const owners: string[] = [];
+    for (const [ns, entries] of Object.entries(en)) {
+      for (const [k, v] of Object.entries(entries)) {
+        if (typeof v === 'string' && v === value) owners.push(`${ns}.${k}`);
+      }
+    }
+    expect(
+      owners,
+      `${value} is a brand or term of art with the same value in every locale. `
+      + `A key for it makes every mention in the repo an "unwired key". Remove ${owners.join(', ')}.`,
+    ).toEqual([]);
+  });
+});

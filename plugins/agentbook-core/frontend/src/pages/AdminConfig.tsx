@@ -119,8 +119,7 @@ export const AdminConfigPage: React.FC = () => {
           <h2 className="text-lg font-medium flex items-center gap-2"><Cpu className="w-5 h-5" /> {t('core_ui.llm_providers')}</h2>
           <button onClick={() => setShowAddForm(!showAddForm)}
             className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-lg text-sm">
-            <Plus className="w-4 h-4" /> Add Provider
-          </button>
+            <Plus className="w-4 h-4" /> {t('core_ui.add_provider_button')}</button>
         </div>
 
         {/* Add form */}

@@ -18,5 +18,12 @@
   "no_answers": "暂无回答。快来第一个帮忙吧！",
   "your_answer": "您的回答",
   "ph_answer": "撰写您的回答…可使用 Markdown 进行排版和插入代码块。",
-  "logged_in_as_named": "当前登录：{name}"
+  "logged_in_as_named": "当前登录：{name}",
+  "solved": "已解决",
+  "accepted_answer": "已采纳的答案",
+  "accept_answer": "采纳答案",
+  "new_post": "发布新帖",
+  "welcome": "欢迎",
+  "top_contributors": "主要贡献者",
+  "popular_tags": "热门标签"
 }

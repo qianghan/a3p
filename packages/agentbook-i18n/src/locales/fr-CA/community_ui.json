@@ -18,5 +18,12 @@
   "no_answers": "Aucune réponse pour l’instant. Soyez le premier à aider!",
   "your_answer": "Votre réponse",
   "ph_answer": "Rédigez votre réponse… Vous pouvez utiliser Markdown pour la mise en forme et les blocs de code.",
-  "logged_in_as_named": "Connecté en tant que {name}"
+  "logged_in_as_named": "Connecté en tant que {name}",
+  "solved": "Résolu",
+  "accepted_answer": "Réponse acceptée",
+  "accept_answer": "Accepter la réponse",
+  "new_post": "Nouvelle publication",
+  "welcome": "Bienvenue",
+  "top_contributors": "Principaux contributeurs",
+  "popular_tags": "Étiquettes populaires"
 }

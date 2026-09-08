@@ -274,8 +274,7 @@ export const PastFilingsPage: React.FC = () => {
                   {f.status === 'error' && (
                     <button onClick={() => handleReParse(f.id)}
                       className="px-2.5 py-1.5 text-xs rounded-lg border border-border hover:bg-muted/50 inline-flex items-center gap-1">
-                      <RefreshCw className="w-3 h-3" /> Re-parse
-                    </button>
+                      <RefreshCw className="w-3 h-3" /> {t('tax_ui.reparse')}</button>
                   )}
                   {f.status !== 'confirmed' && f.status !== 'parsing' && f.status !== 'uploaded' && (
                     <button onClick={() => handleConfirm(f.id)}

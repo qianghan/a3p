@@ -251,13 +251,11 @@ export const FastTrackTab: React.FC = () => {
           <div className="flex gap-2 pt-2 border-t border-border">
             {draft.draftPdfUrl && (
               <a href={draft.draftPdfUrl} target="_blank" rel="noreferrer" className="px-3 py-1.5 text-xs rounded-lg border border-border hover:bg-muted/50 inline-flex items-center gap-1">
-                <Download className="w-3.5 h-3.5" /> Filing draft
-              </a>
+                <Download className="w-3.5 h-3.5" /> {t('tax_ui.filing_draft')}</a>
             )}
             {draft.letterPdfUrl && (
               <a href={draft.letterPdfUrl} target="_blank" rel="noreferrer" className="px-3 py-1.5 text-xs rounded-lg border border-border hover:bg-muted/50 inline-flex items-center gap-1">
-                <Download className="w-3.5 h-3.5" /> Client letter
-              </a>
+                <Download className="w-3.5 h-3.5" /> {t('tax_ui.client_letter')}</a>
             )}
           </div>
         </div>
