@@ -233,10 +233,10 @@ function AdminNotificationsInner() {
           <div>
             <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">{t('admin_ui.severity')}</label>
             <Select value={severity} onChange={(e) => setSeverity(e.target.value)} className="mt-1">
-              <option value="info">Info</option>
+              <option value="info">{t('core_ui.info')}</option>
               <option value="success">{t('core_ui.success')}</option>
-              <option value="warning">Warning</option>
-              <option value="urgent">Urgent</option>
+              <option value="warning">{t('core_ui.warning')}</option>
+              <option value="urgent">{t('core_ui.urgent')}</option>
             </Select>
           </div>
         </div>

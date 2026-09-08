@@ -642,7 +642,7 @@ export default function SettingsPage() {
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-3">
             <User className="h-5 w-5 text-muted-foreground" />
-            <h2 className="text-sm font-semibold">Profile</h2>
+            <h2 className="text-sm font-semibold">{t('core_ui.profile')}</h2>
           </div>
           {!editingProfile && (
             <Button
@@ -673,7 +673,7 @@ export default function SettingsPage() {
                 </div>
               </div>
               <div className="flex-1">
-                <Label className="mb-1.5 block">Avatar URL</Label>
+                <Label className="mb-1.5 block">{t('core_ui.avatar_url')}</Label>
                 <Input
                   type="url"
                   value={profileAvatarUrl}
@@ -683,26 +683,26 @@ export default function SettingsPage() {
                   }}
                   placeholder="https://example.com/avatar.jpg"
                 />
-                <p className="text-xs text-muted-foreground mt-1">Paste a URL to an image for your profile picture</p>
+                <p className="text-xs text-muted-foreground mt-1">{t('core_ui.avatar_url_help')}</p>
               </div>
             </div>
 
             {/* Display Name */}
             <div>
-              <Label className="mb-1.5 block">Display Name</Label>
+              <Label className="mb-1.5 block">{t('expenses_ui.display_name')}</Label>
               <Input
                 type="text"
                 value={profileName}
                 onChange={(e) => setProfileName(e.target.value)}
                 maxLength={50}
-                placeholder="Your display name"
+                placeholder={t('core_ui.your_display_name')}
               />
               <p className="text-xs text-muted-foreground mt-1">{profileName.length}/50 characters</p>
             </div>
 
             {/* Bio / Description */}
             <div>
-              <Label className="mb-1.5 block">About</Label>
+              <Label className="mb-1.5 block">{t('core_ui.about')}</Label>
               <Textarea
                 value={profileBio}
                 onChange={(e) => {
@@ -710,7 +710,7 @@ export default function SettingsPage() {
                 }}
                 maxLength={150}
                 rows={3}
-                placeholder="Tell us a bit about yourself..."
+                placeholder={t('core_ui.about_placeholder')}
               />
               <p className={`text-xs mt-1 ${profileBio.length >= 140 ? 'text-amber-500' : 'text-muted-foreground'}`}>
                 {profileBio.length}/150 characters
@@ -846,7 +846,7 @@ export default function SettingsPage() {
                   <Users size={18} className="text-blue-500" />
                 </div>
                 <div>
-                  <p className="font-medium text-sm">Team Context Active</p>
+                  <p className="font-medium text-sm">{t('core_ui.team_context_active')}</p>
                   <p className="text-sm text-muted-foreground">{t('dash.showing_team_plugins')}
                   </p>
                 </div>
@@ -873,7 +873,7 @@ export default function SettingsPage() {
 
         {!isAuthenticated ? (
           <div className="p-4 bg-muted/50 rounded-lg text-center">
-            <p className="text-muted-foreground text-sm">Sign in to personalize your plugin experience.</p>
+            <p className="text-muted-foreground text-sm">{t('core_ui.sign_in_to_personalize')}</p>
           </div>
         ) : loadingPrefs ? (
           <div className="flex items-center justify-center p-12">
@@ -884,7 +884,7 @@ export default function SettingsPage() {
             <div className="flex items-start gap-3">
               <AlertTriangle className="w-5 h-5 text-destructive flex-shrink-0 mt-0.5" />
               <div className="flex-1">
-                <p className="font-medium text-sm mb-1">Failed to Load Plugins</p>
+                <p className="font-medium text-sm mb-1">{t('core_ui.failed_to_load_plugins')}</p>
                 <p className="text-sm text-muted-foreground mb-3">{prefsError}</p>
                 <Button
                   variant="primary"
@@ -901,7 +901,7 @@ export default function SettingsPage() {
           </div>
         ) : userPreferences.length === 0 ? (
           <div className="p-4 bg-muted/50 rounded-lg text-center">
-            <p className="text-muted-foreground text-sm">No plugins available.</p>
+            <p className="text-muted-foreground text-sm">{t('core_ui.no_plugins_available')}</p>
             <Button
               variant="primary"
               size="sm"
@@ -977,7 +977,7 @@ export default function SettingsPage() {
                     {plugin.isCore ? (
                       <div
                         className="p-2 rounded-lg bg-muted/50 text-muted-foreground/40 cursor-not-allowed"
-                        title="Core plugin — cannot be uninstalled"
+                        title={t('core_ui.core_plugin_locked')}
                       >
                         <Shield size={16} />
                       </div>
@@ -985,7 +985,7 @@ export default function SettingsPage() {
                       <button
                         onClick={() => handleUninstallClick(plugin)}
                         className="p-2 rounded-lg bg-muted text-muted-foreground hover:bg-destructive/20 hover:text-destructive transition-all"
-                        title="Uninstall plugin"
+                        title={t('core_ui.uninstall_plugin')}
                       >
                         <Trash2 size={16} />
                       </button>
@@ -1008,7 +1008,7 @@ export default function SettingsPage() {
       <section className="bg-card rounded-lg border p-4">
         <div className="flex items-center gap-3 mb-4">
           <Shield className="h-5 w-5 text-muted-foreground" />
-          <h2 className="text-sm font-semibold">Connected Apps</h2>
+          <h2 className="text-sm font-semibold">{t('core_ui.connected_apps')}</h2>
         </div>
         <ConnectedAppsList />
       </section>
@@ -1017,11 +1017,11 @@ export default function SettingsPage() {
       <section className="bg-card rounded-lg border p-4">
         <div className="flex items-center gap-3 mb-4">
           <Palette className="h-5 w-5 text-muted-foreground" />
-          <h2 className="text-sm font-semibold">Appearance</h2>
+          <h2 className="text-sm font-semibold">{t('core_ui.appearance')}</h2>
         </div>
         <div className="flex items-center justify-between">
           <div>
-            <p className="font-medium text-sm">Theme</p>
+            <p className="font-medium text-sm">{t('core_ui.theme')}</p>
             <p className="text-sm text-muted-foreground">
               Currently using {theme.mode} mode
             </p>
@@ -1041,7 +1041,7 @@ export default function SettingsPage() {
         <section className="bg-card rounded-lg border p-4">
           <div className="flex items-center gap-3 mb-4">
             <SettingsIcon className="h-5 w-5 text-muted-foreground" />
-            <h2 className="text-sm font-semibold">My Plugin Configurations</h2>
+            <h2 className="text-sm font-semibold">{t('core_ui.my_plugin_configurations')}</h2>
           </div>
           <p className="text-sm text-muted-foreground mb-3">{t('dash.personal_plugin_settings')}
           </p>
@@ -1056,7 +1056,7 @@ export default function SettingsPage() {
                 <div className="flex items-start gap-3">
                   <Info size={18} className="text-blue-500 flex-shrink-0 mt-0.5" />
                   <div className="text-sm text-muted-foreground">
-                    <p className="font-medium mb-1">Multi-Tenant Plugin Configuration</p>
+                    <p className="font-medium mb-1">{t('core_ui.multi_tenant_plugin_configuration')}</p>
                     <p>Each user has their own isolated configuration for plugins. Changes you make here won&apos;t affect other users.</p>
                   </div>
                 </div>
@@ -1097,7 +1097,7 @@ export default function SettingsPage() {
                         size="sm"
                         icon={<SettingsIcon size={16} />}
                         onClick={() => handleOpenPluginConfig(installation)}
-                        title="Configure plugin"
+                        title={t('core_ui.configure_plugin')}
                       />
                     </div>
                   </div>
@@ -1123,11 +1123,11 @@ export default function SettingsPage() {
       <section className="bg-destructive/5 rounded-lg border border-destructive/20 p-4">
         <div className="flex items-center gap-3 mb-4">
           <LogOut className="h-5 w-5 text-destructive" />
-          <h2 className="text-sm font-semibold text-destructive">Danger Zone</h2>
+          <h2 className="text-sm font-semibold text-destructive">{t('core_ui.danger_zone')}</h2>
         </div>
         <div className="flex items-center justify-between">
           <div>
-            <p className="font-medium text-sm">Sign Out</p>
+            <p className="font-medium text-sm">{t('core_ui.sign_out')}</p>
             <p className="text-sm text-muted-foreground">{t('dash.sign_out_all')}
             </p>
           </div>
@@ -1136,7 +1136,7 @@ export default function SettingsPage() {
             size="sm"
             onClick={() => logout()}
           >
-            Sign Out
+            {t('core_ui.sign_out')}
           </Button>
         </div>
       </section>
@@ -1152,7 +1152,7 @@ export default function SettingsPage() {
           setShowUninstallConfirm(false);
           setUninstallingPlugin(null);
         }}
-        title="Uninstall Plugin"
+        title={t('core_ui.uninstall_plugin_title')}
         size="sm"
       >
         <p className="text-muted-foreground mb-4">
@@ -1202,14 +1202,14 @@ export default function SettingsPage() {
                 type="text"
                 value={entry.key}
                 onChange={(e) => handleUpdateConfigEntry(index, 'key', e.target.value)}
-                placeholder="Key"
+                placeholder={t('admin_ui.key')}
                 className="flex-1"
               />
               <Input
                 type={entry.isSecret ? 'password' : 'text'}
                 value={entry.value}
                 onChange={(e) => handleUpdateConfigEntry(index, 'value', e.target.value)}
-                placeholder="Value"
+                placeholder={t('core_ui.value')}
                 className="flex-1"
               />
               <button

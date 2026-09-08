@@ -413,8 +413,7 @@ export default function AdminSalesRepsPage() {
                           </Button>
                           <Button onClick={() => decideApplication(a, 'request_info')} disabled={busy} variant="ghost">{t('dashboard.ask')}</Button>
                           <Button onClick={() => decideApplication(a, 'reject')} disabled={busy} variant="ghost">
-                            <XCircle className="w-3.5 h-3.5" /> Reject
-                          </Button>
+                            <XCircle className="w-3.5 h-3.5" /> {t('core_ui.reject')}</Button>
                         </span>
                       )}
                     </td>
@@ -539,8 +538,7 @@ export default function AdminSalesRepsPage() {
               <div className="flex justify-end gap-2">
                 <Button variant="secondary" onClick={() => setReviewPayout(null)} disabled={busy}>{t('common.cancel')}</Button>
                 <Button variant="destructive" onClick={reject} disabled={busy}>
-                  <XCircle className="w-4 h-4 mr-1" /> Reject
-                </Button>
+                  <XCircle className="w-4 h-4 mr-1" /> {t('core_ui.reject')}</Button>
                 <Button
                   onClick={() => markPaid('stripe')}
                   disabled={busy || reviewPayoutStatus !== 'active'}
@@ -561,8 +559,7 @@ export default function AdminSalesRepsPage() {
                 <div className="flex justify-end gap-2">
                   <Button variant="secondary" onClick={() => setShowManualFallback(false)} disabled={busy}>{t('common.back')}</Button>
                   <Button onClick={() => markPaid('manual')} disabled={busy}>
-                    <CheckCircle2 className="w-4 h-4 mr-1" /> Confirm marked paid manually
-                  </Button>
+                    <CheckCircle2 className="w-4 h-4 mr-1" /> {t('core_ui.confirm_marked_paid_manually')}</Button>
                 </div>
               </>
             )}

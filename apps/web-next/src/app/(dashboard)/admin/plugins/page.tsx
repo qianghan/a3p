@@ -196,7 +196,7 @@ export default function AdminPluginsPage() {
             <ul className="list-disc list-inside space-y-0.5">
               <li>{t('admin_ui.core_auto_installed')}</li>
               <li>{t('admin_ui.users')} <strong>cannot uninstall</strong> core plugins, but can hide them</li>
-              <li>When you add a new core plugin, it is auto-installed for all existing users</li>
+              <li>{t('core_ui.core_plugin_autoinstall_note')}</li>
               <li>{t('admin_ui.currently')} <strong>{coreCount}</strong> plugin{coreCount !== 1 ? 's' : ''} marked as core</li>
             </ul>
           </div>

@@ -92,7 +92,7 @@ export default function CatchAllPluginPage() {
       <div className="flex min-h-[60vh] flex-col items-center justify-center p-24">
         <div className="text-center">
           <h1 className="text-6xl font-bold text-primary mb-4">404</h1>
-          <h2 className="text-2xl font-semibold mb-4">Page Not Found</h2>
+          <h2 className="text-2xl font-semibold mb-4">{t('core_ui.page_not_found')}</h2>
           <p className="text-muted-foreground mb-8">
             The page you are looking for does not exist or has been moved.
           </p>
@@ -112,7 +112,7 @@ export default function CatchAllPluginPage() {
     return (
       <div className="flex flex-col items-center justify-center min-h-[400px]">
         <AlertCircle className="h-12 w-12 text-destructive" />
-        <h2 className="text-xl font-semibold mt-4">Plugin Error</h2>
+        <h2 className="text-xl font-semibold mt-4">{t('core_ui.plugin_error')}</h2>
         <p className="text-muted-foreground mt-2">{displayError}</p>
         <p className="text-xs text-muted-foreground mt-1 max-w-md text-center">
           Plugin: {plugin.name} (CDN)

@@ -142,7 +142,7 @@ export default function TeamListPage() {
           icon={<Plus className="w-4 h-4" />}
           onClick={() => setShowCreateModal(true)}
         >
-          Create Team
+          {t('core_ui.create_team_title')}
         </Button>
       </div>
 
@@ -155,7 +155,7 @@ export default function TeamListPage() {
       {teams.length === 0 ? (
         <div className="text-center py-8 bg-muted/50 rounded-lg">
           <Users className="w-8 h-8 mx-auto text-muted-foreground mb-3" />
-          <h3 className="text-sm font-medium mb-1">No teams yet</h3>
+          <h3 className="text-sm font-medium mb-1">{t('core_ui.no_teams_yet')}</h3>
           <p className="text-[13px] text-muted-foreground mb-4">
             Create a team to start collaborating with others
           </p>
@@ -215,17 +215,17 @@ export default function TeamListPage() {
       <Modal
         isOpen={showCreateModal}
         onClose={() => setShowCreateModal(false)}
-        title="Create Team"
+        title={t('core_ui.create_team_title')}
         size="md"
       >
         <form onSubmit={handleCreateTeam} className="space-y-4">
           <div>
-            <Label className="mb-1.5 block">Team Name</Label>
+            <Label className="mb-1.5 block">{t('core_ui.team_name')}</Label>
             <Input
               type="text"
               value={newTeamName}
               onChange={(e) => setNewTeamName(e.target.value)}
-              placeholder="My Team"
+              placeholder={t('core_ui.my_team')}
               required
             />
           </div>
@@ -236,7 +236,7 @@ export default function TeamListPage() {
               value={newTeamDescription}
               onChange={(e) => setNewTeamDescription(e.target.value)}
               rows={3}
-              placeholder="A brief description of your team"
+              placeholder={t('core_ui.team_description_placeholder')}
               className="resize-none"
             />
           </div>
@@ -254,7 +254,7 @@ export default function TeamListPage() {
               variant="primary"
               loading={creating}
             >
-              Create Team
+              {t('core_ui.create_team_title')}
             </Button>
           </div>
         </form>

@@ -355,7 +355,7 @@ export function MemberAccessModal({
               {/* Bulk actions */}
               <div className="flex items-center gap-4 mb-4">
                 <div className="flex items-center gap-2">
-                  <span className="text-sm text-muted-foreground">Visible:</span>
+                  <span className="text-sm text-muted-foreground">{t('core_ui.visible_label')}</span>
                   <button
                     onClick={() => selectAll('visible')}
                     className="text-xs px-2 py-1 border border-border rounded hover:bg-muted transition-colors"
@@ -370,7 +370,7 @@ export function MemberAccessModal({
                   </button>
                 </div>
                 <div className="flex items-center gap-2">
-                  <span className="text-sm text-muted-foreground">Can Use:</span>
+                  <span className="text-sm text-muted-foreground">{t('core_ui.can_use_label')}</span>
                   <button
                     onClick={() => selectAll('canUse')}
                     className="text-xs px-2 py-1 border border-border rounded hover:bg-muted transition-colors"
@@ -388,10 +388,10 @@ export function MemberAccessModal({
 
               {/* Table header */}
               <div className="grid grid-cols-[1fr,auto,auto,auto] gap-4 px-4 py-2 bg-muted/50 rounded-t-lg text-sm font-medium text-muted-foreground">
-                <div>Member</div>
-                <div className="text-center w-20">Visible</div>
-                <div className="text-center w-20">Can Use</div>
-                <div className="text-center w-20">Configure</div>
+                <div>{t('core_ui.member')}</div>
+                <div className="text-center w-20">{t('core_ui.visible')}</div>
+                <div className="text-center w-20">{t('core_ui.can_use')}</div>
+                <div className="text-center w-20">{t('core_ui.configure')}</div>
               </div>
 
               {/* Member list */}
@@ -499,10 +499,9 @@ export function MemberAccessModal({
               )}
 
               <p className="mt-4 text-xs text-muted-foreground">
-                <strong>Visible:</strong> Member can see the plugin in their sidebar.{' '}
-                <strong>Can Use:</strong> Member can interact with the plugin.{' '}
-                <strong>Configure:</strong> Member can modify their personal settings.
-              </p>
+                <strong>{t('core_ui.visible_label')}</strong> {t('core_ui.member_can_see_in_sidebar')}{' '}
+                <strong>{t('core_ui.can_use_label')}</strong> {t('core_ui.member_can_interact')}{' '}
+                <strong>{t('core_ui.configure_label')}</strong> {t('core_ui.member_can_modify_personal')}</p>
             </>
           )}
         </div>

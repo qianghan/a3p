@@ -78,6 +78,21 @@ const NON_REFERENCE_LOCALES = AVAILABLE_LOCALES.filter((l) => l !== REFERENCE_LO
  * the "no untranslated leakage" check.
  */
 const IDENTICAL_ALLOWED = new Set<string>([
+  // "Logo" is borrowed unchanged into French (the zh-CN value IS translated).
+  'core_ui.logo',
+  // NOTE: Telegram, WhatsApp, webhook, Deel, Finch, Google Gemini and GitHub
+  // deliberately have NO key. Their value is identical in all three locales,
+  // so a key buys nothing — and it actively hurts: it makes every occurrence
+  // of the word anywhere in the repo register as an "unwired key" in
+  // bin/i18n-unwired-key-guard.sh. They stay as literals.
+  // French spells these the same way. "Pro" is also the plan's name, which a
+  // francophone customer sees on their invoice.
+  'core_ui.pro_plan',
+  'core_ui.info',
+  'core_ui.urgent',
+  'core_ui.version',
+  'core_ui.visible',
+  'core_ui.test_action',
   // "Correct" is a valid French word with the same spelling and meaning.
   'common.correct',
   // Table headers in the chart of accounts. "Code" and "Type" are spelled and

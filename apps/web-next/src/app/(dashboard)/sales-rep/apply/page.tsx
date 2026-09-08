@@ -204,7 +204,7 @@ export default function PartnerApplicationPage() {
     return (
       <div className="p-6 max-w-2xl mx-auto space-y-6">
         <div>
-          <h1 className="text-xl font-semibold">Become an AgentBook Partner</h1>
+          <h1 className="text-xl font-semibold">{t('core_ui.become_a_partner')}</h1>
           <p className="text-sm text-muted-foreground mt-1">
             Earn real commission recommending AgentBook to other freelancers and small businesses — a serious,
             contract-backed program, not a "refer a friend" gimmick.
@@ -240,15 +240,15 @@ export default function PartnerApplicationPage() {
     return (
       <div className="p-6 max-w-2xl mx-auto space-y-4">
         <h1 className="text-xl font-semibold">You&apos;re an approved Partner</h1>
-        <p className="text-sm text-muted-foreground">Head to your Partner dashboard to get your referral link.</p>
-        <Link href="/sales-rep"><Button>Go to your dashboard</Button></Link>
+        <p className="text-sm text-muted-foreground">{t('core_ui.partner_dashboard_hint')}</p>
+        <Link href="/sales-rep"><Button>{t('core_ui.go_to_your_dashboard')}</Button></Link>
       </div>
     );
   }
   if (application.status === 'submitted' || application.status === 'under_review') {
     return (
       <div className="p-6 max-w-2xl mx-auto space-y-4">
-        <h1 className="text-xl font-semibold">Application under review</h1>
+        <h1 className="text-xl font-semibold">{t('core_ui.application_under_review')}</h1>
         <p className="text-sm text-muted-foreground">
           Thanks for applying. We&apos;ll email you once a decision is made — no action needed from you right now.
         </p>
@@ -258,18 +258,18 @@ export default function PartnerApplicationPage() {
   if (application.status === 'more_info_requested') {
     return (
       <div className="p-6 max-w-2xl mx-auto space-y-4">
-        <h1 className="text-xl font-semibold">We need a bit more information</h1>
+        <h1 className="text-xl font-semibold">{t('core_ui.need_more_information')}</h1>
         <div className="rounded-lg border border-border bg-card p-4">
           <p className="text-sm">{application.moreInfoMessage || 'An admin has requested more information about your application.'}</p>
         </div>
-        <p className="text-sm text-muted-foreground">Please contact support to continue your application.</p>
+        <p className="text-sm text-muted-foreground">{t('core_ui.contact_support_to_continue')}</p>
       </div>
     );
   }
   if (application.status === 'rejected') {
     return (
       <div className="p-6 max-w-2xl mx-auto space-y-4">
-        <h1 className="text-xl font-semibold">Application not approved</h1>
+        <h1 className="text-xl font-semibold">{t('core_ui.application_not_approved')}</h1>
         {application.reviewNotes && (
           <div className="rounded-lg border border-border bg-card p-4">
             <p className="text-sm">{application.reviewNotes}</p>
@@ -290,8 +290,8 @@ export default function PartnerApplicationPage() {
   return (
     <div className="p-6 max-w-3xl mx-auto space-y-6">
       <div>
-        <h1 className="text-xl font-semibold">Partner Program application</h1>
-        <p className="text-sm text-muted-foreground mt-1">A draft — nothing is final until you sign in step 5.</p>
+        <h1 className="text-xl font-semibold">{t('core_ui.partner_program_application')}</h1>
+        <p className="text-sm text-muted-foreground mt-1">{t('core_ui.draft_not_final_until_signed')}</p>
       </div>
 
       <div className="flex items-center gap-2 flex-wrap">
@@ -311,11 +311,11 @@ export default function PartnerApplicationPage() {
       {step === 1 && (
         <div className="rounded-lg border border-border bg-card p-4 space-y-4">
           <div>
-            <Label htmlFor="motivation">Why do you want to become a Partner?</Label>
+            <Label htmlFor="motivation">{t('core_ui.why_become_partner')}</Label>
             <Textarea id="motivation" value={motivation} onChange={(e) => setMotivation(e.target.value)} rows={3} />
           </div>
           <div>
-            <Label htmlFor="referralPlan">How do you plan to refer people?</Label>
+            <Label htmlFor="referralPlan">{t('core_ui.how_plan_to_refer')}</Label>
             <Textarea id="referralPlan" value={referralPlan} onChange={(e) => setReferralPlan(e.target.value)} rows={3} />
           </div>
           <div className="flex justify-end">
@@ -336,7 +336,7 @@ export default function PartnerApplicationPage() {
       {step === 2 && (
         <div className="rounded-lg border border-border bg-card p-4 space-y-4">
           <div>
-            <Label htmlFor="jurisdiction">Confirm your jurisdiction</Label>
+            <Label htmlFor="jurisdiction">{t('core_ui.confirm_your_jurisdiction')}</Label>
             <p className="text-xs text-muted-foreground mb-2">
               This determines your contract terms, tax-form obligations, and disclosures in the next step.
             </p>
@@ -408,7 +408,7 @@ export default function PartnerApplicationPage() {
               disabled={busy}
               onChange={(e) => toggleAck({ taxpayerNotice: true }, e.target.checked)}
             />
-            <span className="text-sm">I understand and acknowledge this.</span>
+            <span className="text-sm">{t('core_ui.i_understand_and_acknowledge')}</span>
           </label>
           <div className="flex justify-between">
             <Button variant="secondary" onClick={() => setStep(3)}>{t('common.back')}</Button>
@@ -421,12 +421,12 @@ export default function PartnerApplicationPage() {
 
       {step === 5 && (
         <div className="rounded-lg border border-border bg-card p-4 space-y-4">
-          <p className="text-sm text-muted-foreground">Read the full agreement, then type your full legal name to sign.</p>
+          <p className="text-sm text-muted-foreground">{t('core_ui.read_agreement_then_sign')}</p>
           <pre className="whitespace-pre-wrap text-xs bg-muted rounded-md p-3 max-h-80 overflow-y-auto font-mono">
             {preview?.contractPreviewHtml}
           </pre>
           <div>
-            <Label htmlFor="signedByName">Full legal name (must match the name on your account)</Label>
+            <Label htmlFor="signedByName">{t('core_ui.full_legal_name_must_match')}</Label>
             <input
               id="signedByName"
               className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"

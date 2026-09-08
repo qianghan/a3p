@@ -39,10 +39,10 @@ export function InstallAppButton() {
         onClick={handleClick}
         className="ab-link flex items-center gap-1.5 text-[12px] tracking-[0.06em]"
         aria-label={t('common.install_app')}
-        title="Install app"
+        title={t('core_ui.install_app')}
       >
         <InstallGlyph />
-        <span className="hidden md:inline">Install app</span>
+        <span className="hidden md:inline">{t('core_ui.install_app')}</span>
       </button>
 
       {showIosSteps && <IosInstallModal onClose={() => setShowIosSteps(false)} />}
@@ -120,10 +120,10 @@ function IosInstallModal({ onClose }: { onClose: () => void }) {
 
         <ol className="mt-6 space-y-5">
           <IosStep n={1} icon={<ShareGlyph />}>
-            Tap the <strong>Share</strong> icon in Safari&apos;s toolbar.
+            Tap the <strong>{t('core_ui.share')}</strong> icon in Safari&apos;s toolbar.
           </IosStep>
           <IosStep n={2}>
-            Scroll down and tap <strong>Add to Home Screen</strong>.
+            Scroll down and tap <strong>{t('core_ui.add_to_home_screen')}</strong>.
           </IosStep>
           <IosStep n={3}>
             Tap <strong>{t('common.add')}</strong> in the top-right corner.

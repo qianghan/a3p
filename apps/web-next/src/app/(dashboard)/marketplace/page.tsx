@@ -230,7 +230,7 @@ function PluginDetailModal({
             <div className="flex items-center gap-2 mb-1">
               <h2 className="text-base font-semibold truncate">{plugin.displayName}</h2>
               {plugin.isCore && (
-                <span className="px-2 py-0.5 text-xs bg-muted text-muted-foreground rounded-full">Core</span>
+                <span className="px-2 py-0.5 text-xs bg-muted text-muted-foreground rounded-full">{t('core_ui.core_badge')}</span>
               )}
             </div>
             <p className="text-sm text-muted-foreground">by {plugin.author}</p>
@@ -354,7 +354,7 @@ function PluginDetailModal({
                 <Textarea
                   value={myComment}
                   onChange={(e) => setMyComment(e.target.value)}
-                  placeholder="Share your experience with this plugin (optional)..."
+                  placeholder={t('dash.ph_review')}
                   rows={3}
                   className="resize-none"
                 />
@@ -804,7 +804,7 @@ export default function MarketplacePage() {
                       <h3 className="font-semibold truncate">{pkg.displayName}</h3>
                       {pkg.isCore && (
                         <span className="px-1.5 py-0.5 text-xs bg-muted text-muted-foreground rounded">
-                          Core
+                          {t('core_ui.core_badge')}
                         </span>
                       )}
                       {isInstalled && (

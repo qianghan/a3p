@@ -137,7 +137,7 @@ export default function PluginPage() {
     return (
       <div className="flex flex-col items-center justify-center min-h-[400px]">
         <AlertCircle className="h-8 w-8 text-destructive" />
-        <h2 className="text-base font-semibold mt-3">Plugin Error</h2>
+        <h2 className="text-base font-semibold mt-3">{t('core_ui.plugin_error')}</h2>
         <p className="text-sm text-muted-foreground mt-1">{displayError}</p>
         <p className="text-xs text-muted-foreground mt-1 max-w-md text-center">
           Plugin: {pluginName} (CDN)
@@ -166,7 +166,7 @@ export default function PluginPage() {
     return (
       <div className="flex flex-col items-center justify-center min-h-[400px]">
         <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-        <p className="text-sm text-muted-foreground mt-3">Detecting plugin...</p>
+        <p className="text-sm text-muted-foreground mt-3">{t('core_ui.detecting_plugin')}</p>
       </div>
     );
   }

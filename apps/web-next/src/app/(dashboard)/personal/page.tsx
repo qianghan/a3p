@@ -439,8 +439,7 @@ export default function PersonalFinancePage() {
         <div className="flex items-center gap-2 flex-wrap">
           <button onClick={() => setShowForm((s) => !s)}
             className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium bg-primary text-primary-foreground hover:opacity-90">
-            <Plus className="w-4 h-4" /> Add account
-          </button>
+            <Plus className="w-4 h-4" /> {t('core_ui.add_account')}</button>
           <button onClick={() => setShowTxnForm((s) => !s)}
             className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium bg-primary text-primary-foreground hover:opacity-90">
             <Plus className="w-4 h-4" /> Record transaction
@@ -470,8 +469,7 @@ export default function PersonalFinancePage() {
 
       {/* Net worth trend (Personal Insights add-on) */}
       <h2 className="text-sm font-semibold text-foreground mb-2 flex items-center gap-1.5">
-        <LineChart className="w-4 h-4" /> Net worth trend
-      </h2>
+        <LineChart className="w-4 h-4" /> {t('core_ui.net_worth_trend')}</h2>
       {trend && trend.length > 0 ? (
         <div className="rounded-xl border border-border bg-card p-4 mb-6">
           <NetWorthTrendChart points={trend} fmt$={fmt$} />
@@ -487,8 +485,7 @@ export default function PersonalFinancePage() {
           {addonPrice && (
             <button onClick={() => setShowAddonSubscribe(true)}
               className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-50">
-              <Sparkles className="w-4 h-4" /> Enable Personal Insights
-            </button>
+              <Sparkles className="w-4 h-4" /> {t('core_ui.enable_personal_insights')}</button>
           )}
         </div>
       ) : null}
@@ -600,14 +597,12 @@ export default function PersonalFinancePage() {
                   className={`flex-1 flex items-center justify-center gap-1 px-3 py-2 ${
                     txnDirection === 'income' ? 'bg-primary text-primary-foreground' : 'bg-background text-muted-foreground'
                   }`}>
-                  <ArrowUpCircle className="w-3.5 h-3.5" /> Income
-                </button>
+                  <ArrowUpCircle className="w-3.5 h-3.5" /> {t('core_ui.income')}</button>
                 <button type="button" onClick={() => setTxnDirection('spend')}
                   className={`flex-1 flex items-center justify-center gap-1 px-3 py-2 ${
                     txnDirection === 'spend' ? 'bg-destructive text-destructive-foreground' : 'bg-background text-muted-foreground'
                   }`}>
-                  <ArrowDownCircle className="w-3.5 h-3.5" /> Spend
-                </button>
+                  <ArrowDownCircle className="w-3.5 h-3.5" /> {t('core_ui.spend')}</button>
               </div>
               <input name="amount" type="number" min="0" step="0.01" value={txnAmount}
                 onChange={(e) => setTxnAmount(e.target.value)} placeholder={t('expenses_ui.amount_placeholder')}

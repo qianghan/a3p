@@ -5,8 +5,29 @@
 
 import React from 'react';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
+import { render as rtlRender, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import { MemberAccessModal } from '../../../components/teams/member-access-modal';
+import { ShellContextReact } from '../../../contexts/shell-context';
+import { CATALOG } from '@agentbook/i18n/catalog';
+import { createTranslator } from '@agentbook/i18n';
+
+/**
+ * Render inside a real English translator.
+ *
+ * This modal's copy moved into the i18n catalog (P1-6). Without a provider
+ * `useT` falls back to humanising the key — `core_ui.member_can_modify_personal`
+ * becomes "Member can modify personal" — which is close enough to English to
+ * pass a loose assertion while proving nothing about the catalog. Supplying the
+ * real translator means the assertions below check the string a user actually
+ * reads, and fail if a key is missing.
+ */
+const enT = createTranslator('en', CATALOG);
+const render = (ui: React.ReactElement) =>
+  rtlRender(
+    <ShellContextReact.Provider value={{ i18n: { t: enT.t, locale: 'en', enabled: true } } as never}>
+      {ui}
+    </ShellContextReact.Provider>,
+  );
 
 // Mock fetch
 const mockFetch = vi.fn();

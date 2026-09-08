@@ -220,7 +220,7 @@ export default function FeedbackPage() {
           <div className="w-8 h-8 mx-auto mb-4 rounded-md bg-muted flex items-center justify-center">
             <ThumbsUp size={20} className="text-muted-foreground" />
           </div>
-          <h2 className="text-base font-semibold mb-2">Thank You!</h2>
+          <h2 className="text-base font-semibold mb-2">{t('core_ui.thank_you')}</h2>
           <p className="text-muted-foreground mb-4 max-w-md mx-auto text-sm">
             Your feedback has been submitted. We appreciate you helping us improve.
           </p>
@@ -235,7 +235,7 @@ export default function FeedbackPage() {
         <form onSubmit={handleSubmit} className="bg-card border border-border rounded-lg p-4 space-y-4">
           {/* Feedback Type */}
           <div>
-            <Label className="mb-1.5 block">Feedback Type</Label>
+            <Label className="mb-1.5 block">{t('core_ui.feedback_type')}</Label>
             <div className="grid grid-cols-3 gap-3">
               {feedbackTypeConfig.map((type) => {
                 const Icon = type.icon;
@@ -266,7 +266,7 @@ export default function FeedbackPage() {
               type="text"
               value={title}
               onChange={(e) => setTitle(e.target.value)}
-              placeholder="Brief summary of your feedback"
+              placeholder={t('core_ui.feedback_summary_placeholder')}
               required
             />
           </div>
@@ -320,7 +320,7 @@ export default function FeedbackPage() {
           onClick={() => setShowHistory(!showHistory)}
           className="w-full flex items-center justify-between px-4 py-2.5 hover:bg-muted/30 transition-all"
         >
-          <h2 className="text-sm font-semibold">Your Feedback History</h2>
+          <h2 className="text-sm font-semibold">{t('core_ui.your_feedback_history')}</h2>
           <span className="flex items-center gap-2 text-sm text-muted-foreground">
             {stats.total} item{stats.total !== 1 ? 's' : ''}
             {showHistory ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
@@ -336,7 +336,7 @@ export default function FeedbackPage() {
             ) : feedbacks.length === 0 ? (
               <div className="text-center py-8 text-muted-foreground">
                 <MessageSquare className="w-8 h-8 mx-auto mb-3 opacity-50" />
-                <p className="text-sm">No feedback submitted yet</p>
+                <p className="text-sm">{t('core_ui.no_feedback_yet')}</p>
               </div>
             ) : (
               <div className="divide-y divide-border">

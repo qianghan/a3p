@@ -289,19 +289,19 @@ export function PersonalConfigModal({
           ) : !canConfigure ? (
             <div className="flex items-center gap-3 p-4 bg-yellow-500/10 text-yellow-600 dark:text-yellow-400 rounded-lg">
               <AlertCircle className="w-5 h-5 flex-shrink-0" />
-              <span>You do not have permission to configure this plugin. Contact your team admin.</span>
+              <span>{t('core_ui.no_permission_configure_plugin')}</span>
             </div>
           ) : (
             <>
               {/* Comparison View */}
               {configEntries.length > 0 && (
                 <div className="mb-6">
-                  <h3 className="text-sm font-medium mb-3">Current Configuration</h3>
+                  <h3 className="text-sm font-medium mb-3">{t('core_ui.current_configuration')}</h3>
                   <div className="border border-border rounded-lg overflow-hidden">
                     <div className="grid grid-cols-3 gap-px bg-border text-xs font-medium">
-                      <div className="bg-muted px-3 py-2">Setting</div>
-                      <div className="bg-muted px-3 py-2">Team Default</div>
-                      <div className="bg-muted px-3 py-2">Your Override</div>
+                      <div className="bg-muted px-3 py-2">{t('core_ui.setting')}</div>
+                      <div className="bg-muted px-3 py-2">{t('core_ui.team_default')}</div>
+                      <div className="bg-muted px-3 py-2">{t('core_ui.your_override')}</div>
                     </div>
                     <div className="divide-y divide-border">
                       {configEntries.map((entry) => (

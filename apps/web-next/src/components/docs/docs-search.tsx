@@ -4,6 +4,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { Search, FileText, ArrowRight } from 'lucide-react';
 import { useDocsLocale } from '@/lib/docs/use-docs-locale';
+import { useT } from '@/hooks/use-t';
 
 interface SearchEntry {
   title: string;
@@ -13,6 +14,7 @@ interface SearchEntry {
 }
 
 export function DocsSearch() {
+  const t = useT();
   const { ui } = useDocsLocale();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
@@ -130,7 +132,7 @@ export function DocsSearch() {
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
                 onKeyDown={handleKeyDown}
-                placeholder="Search documentation..."
+                placeholder={t('core_ui.search_documentation')}
                 className="flex-1 py-4 bg-transparent text-foreground placeholder:text-muted-foreground outline-none text-sm"
               />
               <kbd className="px-1.5 py-0.5 rounded bg-muted border border-border text-[10px] font-mono text-muted-foreground">

@@ -180,7 +180,7 @@ export default function SalesRepDashboardPage() {
   return (
     <div className="p-6 max-w-4xl mx-auto space-y-6">
       <div>
-        <h1 className="text-xl font-semibold">Sales Rep Dashboard</h1>
+        <h1 className="text-xl font-semibold">{t('core_ui.sales_rep_dashboard')}</h1>
         <p className="text-sm text-muted-foreground">
           You earn {(summary.profile.commissionBps / 100).toFixed(0)}% commission on revenue from users who sign up
           through your link, paid out {summary.profile.payoutFrequency}.
@@ -193,7 +193,7 @@ export default function SalesRepDashboardPage() {
       {/* Referral link */}
       <div className="grid gap-4 sm:grid-cols-[1fr_auto] sm:items-start">
         <div className="rounded-lg border border-border bg-card p-4">
-          <div className="text-xs font-medium text-muted-foreground mb-2">Your referral link</div>
+          <div className="text-xs font-medium text-muted-foreground mb-2">{t('core_ui.your_referral_link')}</div>
           <div className="flex items-center gap-2">
             <Input readOnly value={shareUrl ?? ''} className="font-mono text-sm" />
             <Button onClick={copyLink} variant="secondary">
@@ -203,11 +203,11 @@ export default function SalesRepDashboardPage() {
         </div>
         {summary.profile.referralCode && (
           <div className="rounded-lg border border-border bg-card p-4">
-            <div className="text-xs font-medium text-muted-foreground mb-2">Or let them scan</div>
+            <div className="text-xs font-medium text-muted-foreground mb-2">{t('core_ui.or_let_them_scan')}</div>
             {/* eslint-disable-next-line @next/next/no-img-element -- server-generated PNG, not an optimizable static asset */}
             <img
               src={`/api/v1/agentbook-billing/referrals/qr-card/${encodeURIComponent(summary.profile.referralCode)}`}
-              alt="Scan to join AgentBook"
+              alt={t('core_ui.scan_to_join_alt')}
               className="w-full max-w-[160px] rounded-lg border border-border"
             />
           </div>
@@ -221,15 +221,15 @@ export default function SalesRepDashboardPage() {
           <div className="text-lg font-semibold">{money(summary.revenue.thisMonthCents)}</div>
         </div>
         <div className="rounded-lg border border-border bg-card p-4">
-          <div className="flex items-center gap-2 text-xs text-muted-foreground mb-1"><DollarSign className="w-3.5 h-3.5" /> This year</div>
+          <div className="flex items-center gap-2 text-xs text-muted-foreground mb-1"><DollarSign className="w-3.5 h-3.5" /> {t('core_ui.this_year')}</div>
           <div className="text-lg font-semibold">{money(summary.revenue.thisYearCents)}</div>
         </div>
         <div className="rounded-lg border border-border bg-card p-4">
-          <div className="flex items-center gap-2 text-xs text-muted-foreground mb-1"><DollarSign className="w-3.5 h-3.5" /> All time</div>
+          <div className="flex items-center gap-2 text-xs text-muted-foreground mb-1"><DollarSign className="w-3.5 h-3.5" /> {t('core_ui.all_time')}</div>
           <div className="text-lg font-semibold">{money(summary.revenue.allTimeCents)}</div>
         </div>
         <div className="rounded-lg border border-border bg-card p-4">
-          <div className="flex items-center gap-2 text-xs text-muted-foreground mb-1"><FileText className="w-3.5 h-3.5" /> Pending invoice</div>
+          <div className="flex items-center gap-2 text-xs text-muted-foreground mb-1"><FileText className="w-3.5 h-3.5" /> {t('core_ui.pending_invoice')}</div>
           <div className="text-lg font-semibold">{money(summary.pendingCommissionCents)}</div>
         </div>
       </div>
@@ -237,7 +237,7 @@ export default function SalesRepDashboardPage() {
       {/* Milestones */}
       {milestones && (milestones.achieved.length > 0 || milestones.next.length > 0) && (
         <div className="rounded-lg border border-border bg-card p-4">
-          <div className="flex items-center gap-2 text-sm font-medium mb-3"><Award className="w-4 h-4" /> Milestones</div>
+          <div className="flex items-center gap-2 text-sm font-medium mb-3"><Award className="w-4 h-4" /> {t('core_ui.milestones')}</div>
           {milestones.next.length > 0 && (
             <div className="space-y-3 mb-4">
               {milestones.next.map((n) => (
@@ -267,9 +267,9 @@ export default function SalesRepDashboardPage() {
 
       {/* Invitees */}
       <div className="rounded-lg border border-border bg-card p-4">
-        <div className="flex items-center gap-2 text-sm font-medium mb-3"><Users className="w-4 h-4" /> Signups via your link</div>
+        <div className="flex items-center gap-2 text-sm font-medium mb-3"><Users className="w-4 h-4" /> {t('core_ui.signups_via_your_link')}</div>
         {summary.invitees.length === 0 ? (
-          <p className="text-sm text-muted-foreground">No signups yet — share your link above to get started.</p>
+          <p className="text-sm text-muted-foreground">{t('core_ui.no_signups_yet')}</p>
         ) : (
           <table className="w-full text-sm">
             <thead>
@@ -297,7 +297,7 @@ export default function SalesRepDashboardPage() {
       {/* Submit invoice */}
       <div className="rounded-lg border border-border bg-card p-4">
         <div className="flex items-center justify-between mb-2">
-          <div className="flex items-center gap-2 text-sm font-medium"><FileText className="w-4 h-4" /> Commission invoice</div>
+          <div className="flex items-center gap-2 text-sm font-medium"><FileText className="w-4 h-4" /> {t('core_ui.commission_invoice')}</div>
           <Button onClick={submitInvoice} disabled={busy || summary.pendingCommissionCents === 0}>
             Submit invoice for this period
           </Button>
