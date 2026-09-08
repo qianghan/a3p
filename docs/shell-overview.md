@@ -325,18 +325,6 @@ apps/web-next/                   # Next.js 15 Shell (migrated from shell-web)
 │   │   └── ...
 │   └── middleware.ts            # Auth & route middleware
 
-services/base-svc/
-├── src/
-│   ├── server.ts               # Express API server
-│   └── services/
-│       ├── auth.ts             # Authentication logic
-│       ├── rbac.ts             # Role-based access control
-│       ├── delegation.ts       # Delegated admin
-│       ├── lifecycle.ts        # Plugin lifecycle + audit
-│       ├── secrets.ts          # Secret vault
-│       ├── encryption.ts       # AES encryption
-│       └── ...
-
 packages/plugin-sdk/
 ├── src/
 │   ├── types/

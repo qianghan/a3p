@@ -268,6 +268,6 @@ Run `./bin/start.sh validate` to check all configs.
 ## Security
 
 - Never commit `.env` files with production credentials
-- Use strong passwords in production (`docker-compose.production.yml` uses env vars)
+- Production Postgres is Supabase, provisioned through the Vercel Marketplace integration; credentials live in Vercel env vars and never in the repo
 - Limit database access to the Docker network
 - PostgreSQL schemas provide logical isolation, not security boundaries

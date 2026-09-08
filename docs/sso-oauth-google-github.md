@@ -117,7 +117,7 @@ Open `/login` and click "Google" or "GitHub". After consent, you should be redir
 ### Deployment modes
 
 1. **Next.js only** (default): OAuth logic and API routes live in `apps/web-next`.
-2. **Hybrid**: `base-svc` (Express) can also handle OAuth via `services/base-svc/src/routes/auth.ts` when `FRONTEND_URL` and credentials are set there.
+2. ~~**Hybrid**: `base-svc` (Express) could also handle OAuth.~~ Removed — `services/` was livepeer/naap inheritance, was never deployed here, and was deleted in #517. The Next.js route handlers are the only OAuth path.
 
 Most production deploys use the Next.js API routes.
 
@@ -184,13 +184,11 @@ User                Browser/Next.js              Google/GitHub
 |------|-----------|
 | `apps/web-next/src/lib/api/auth.ts` | `getOAuthConfig()`, `getOAuthUrl()`, `handleOAuthCallback()`, `generateCSRFToken()` |
 
-### Backend service (base-svc, hybrid mode)
+### Backend service (base-svc, hybrid mode) — removed
 
-| File | Route / Function | Purpose |
-|------|------------------|---------|
-| `services/base-svc/src/routes/auth.ts` | `GET /auth/oauth/:provider` | Return OAuth URL (JSON). |
-| | `POST /auth/callback/:provider` | Handle callback (JSON response with token). |
-| `services/base-svc/src/services/auth.ts` | `getOAuthUrl()`, `handleOAuthCallback()` | Same logic as Next.js `auth.ts`. |
+`services/base-svc` was livepeer/naap inheritance, was never part of this
+product's deployment, and was deleted in #517. The Next.js route handlers above
+are the only OAuth implementation; there is no second copy to keep in sync.
 
 ---
 

@@ -7,8 +7,8 @@ Owns the shell, SDK, shared packages, and infrastructure.
 | Area | Path | Description |
 |------|------|-------------|
 | Shell | `apps/web-next/` | Next.js shell application |
-| Base Service | `services/base-svc/` | Auth, teams, plugin registry |
-| Plugin Server | `services/plugin-server/` | Plugin asset serving |
+| Route handlers | `apps/web-next/src/app/api/` | Auth, teams, plugin registry — this is the backend in production |
+| Plugin bundles | `apps/web-next/public/cdn/plugins/` | Plugin asset serving |
 | Plugin SDK | `packages/plugin-sdk/` | SDK for plugin developers |
 | Plugin Build | `packages/plugin-build/` | Shared Vite build config |
 | Plugin Utils | `packages/plugin-utils/` | Shared auth/API utilities |
