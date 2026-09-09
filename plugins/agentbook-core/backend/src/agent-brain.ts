@@ -17,6 +17,7 @@ import { carryForwardPeriod } from './period-parse.js';
 import { languageDirective } from './language.js';
 import { triageTurn } from './consultation-triage.js';
 import { reviewConsultation, repairBrief, safeFallback, type GroundingContext } from './consultation-review.js';
+import { statutoryFactLines } from '@agentbook/jurisdictions';
 import { BUILT_IN_SKILLS } from './built-in-skills.js';
 import { reconcileSkills, SKILL_QUERY } from './skill-source.js';
 import { assessComplexity, generatePlan, formatPlan, createSession, getActiveSession, updateSession, executeStep, buildUndoAction, resolveStepParams } from './agent-planner.js';
@@ -71,7 +72,7 @@ async function brainAccountantFallback(
   // `jurisdiction` is read by the consultation reviewer to decide which tax
   // authority this answer may name. Callers already pass the whole
   // AbTenantConfig row — the narrower type was simply under-declared.
-  tenantConfig?: { locale?: string | null; jurisdiction?: string | null } | null,
+  tenantConfig?: { locale?: string | null; jurisdiction?: string | null; region?: string | null } | null,
   tenantId?: string,
   groundingFacts?: string[],
   /**
@@ -165,7 +166,16 @@ async function brainAccountantFallback(
   const groundingBlock = (groundingFacts ?? []).length > 0
     ? `What you know about this user (assert nothing beyond it):\n${(groundingFacts ?? []).join('\n')}`
     : '';
-  const extraContext = [groundingBlock, personalProfileContext, pastFilingContext]
+  // The pack's own rates, given to the model AND to the reviewer. Without
+  // this the reviewer flagged every percentage as unverified and the repair
+  // brief deleted correct ones — see statutory-facts.ts.
+  const statutory = statutoryFactLines(
+    tenantConfig?.jurisdiction, tenantConfig?.region, new Date().getFullYear(),
+  );
+  const statutoryBlock = (statutory.lines.length + statutory.amountLines.length) > 0
+    ? `Published rates and thresholds for this jurisdiction (quote these; never state a rate that is not here):\n${[...statutory.lines, ...statutory.amountLines].join('\n')}`
+    : '';
+  const extraContext = [groundingBlock, statutoryBlock, personalProfileContext, pastFilingContext]
     .filter(Boolean).join('\n\n');
   const systemPrompt = extraContext ? `${baseSystemPrompt}\n\n${extraContext}` : baseSystemPrompt;
 
@@ -185,6 +195,10 @@ async function brainAccountantFallback(
       personalProfileContext,
       pastFilingContext,
     ].filter(Boolean) as string[],
+    // Same lines the model was handed. One source, so what it was told to
+    // quote and what the reviewer accepts cannot drift apart.
+    jurisdictionRates: statutory.lines,
+    jurisdictionAmounts: statutory.amountLines,
   };
 
   try {
