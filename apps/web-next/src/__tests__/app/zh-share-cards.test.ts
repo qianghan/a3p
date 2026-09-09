@@ -118,8 +118,13 @@ describe('the pages point at their own set', () => {
     expect(src).not.toContain('/guides/cards/zh/');
   });
 
-  it('each page links to the other set', () => {
-    expect(page('zh')).toContain('/guides/sales-rep/materials');
-    expect(page('.')).toContain('/guides/zh/sales-rep/materials');
+  it('neither page hand-rolls its own language cross-link', () => {
+    // GuidesChrome already renders a 中文 / English toggle on every guide,
+    // resolved through guidesCounterpart. A second, hand-written one on this
+    // page only is an inconsistency — and on the English side it is one more
+    // hardcoded user-facing string for the i18n ratchet to carry, which is
+    // how CI caught it.
+    expect(page('zh')).not.toContain('英文版素材');
+    expect(page('.')).not.toContain('Chinese set');
   });
 });

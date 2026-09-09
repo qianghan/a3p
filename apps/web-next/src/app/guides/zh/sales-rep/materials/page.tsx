@@ -36,7 +36,6 @@ export default function MaterialsPageZh() {
       <p>
         尺寸适配社交平台（1200×630），文字均为中文。点击<strong>下载</strong>，然后配上下面任意一段文案和你的推荐链接发布。
         小提示：想发成 PNG 的话，打开文件后导出——或者直接截图。
-        面向英文受众时，可以改用<Link href="/guides/sales-rep/materials">英文版素材</Link>。
       </p>
 
       <div className="gd-kit">
