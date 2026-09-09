@@ -700,6 +700,19 @@ jobs:
       # baseline in the log, and fails when one crosses its ceiling.
       - name: Performance budgets
         run: node bin/perf-budget.mjs /tmp/next-build.log
+
+      # The server-only translation namespaces must not be in a client chunk.
+      # Runs here because this is the job that has a built .next; the guard
+      # fails loudly if the chunk directory is missing or looks incomplete,
+      # rather than passing on nothing.
+      #
+      # Why it is not enough to check the source: cutting those namespaces out
+      # while leaving one import of a CATALOG-derived value behind (e.g.
+      # AVAILABLE_LOCALES, which is Object.keys(CATALOG)) produces a build
+      # carrying BOTH catalogs, and every route grows. The route table above
+      # would show that only as a diffuse few-kB rise with no cause attached.
+      - name: i18n shell bundle guard
+        run: ./bin/i18n-bundle-guard.sh --shell
       - name: Save plugin build cache
         if: steps.vercel-build.outcome == 'success'
         uses: actions/cache/save@v5

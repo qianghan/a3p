@@ -48,23 +48,19 @@ const ROUTE_BUDGET_KB = 250;
  */
 const ROUTE_EXCEPTIONS = {
   // Was 494 kB — the worst route in the app, and 445 kB of that was the whole
-  // lucide icon library pulled in by a namespace import. Now 308 kB, which is
-  // an ordinary big settings page rather than a bundling bug. Still over the
-  // default because the page itself is 68 kB of tab content.
-  '/settings': 340,
-  // Measured 251 kB. It had no exception because it sat at exactly 250 — the
-  // default, to the kilobyte — which made the default a tripwire for this one
-  // route rather than a budget: any change anywhere that added a byte to a
-  // shared chunk failed here and nowhere else.
-  //
-  // What tipped it was eight translation keys added for a Settings-page
-  // control. `packages/agentbook-i18n/src/catalog.ts` is one static object
-  // imported by every route, so /marketplace now ships Australian GST help
-  // text it will never display. That is the thing to fix; a page-level budget
-  // is the wrong lever for it, and shortening user-facing copy to fit under a
-  // rounding boundary is a worse one. Following this file's own convention —
-  // ~10% above measured — while the catalog split is done separately.
-  '/marketplace': 275,
+  // lucide icon library pulled in by a namespace import. Then 320 kB, and now
+  // 286 kB after the i18n catalog split took 35 kB off every page route (the
+  // server-only namespaces — Telegram and agent-skill copy — no longer ship to
+  // the browser). Still over the default because the page itself is 68 kB of
+  // tab content. Lowered from 340 to keep the ~10% margin over what it
+  // actually measures rather than banking the saving as slack.
+  '/settings': 315,
+  // '/marketplace' had an exception at 275 for exactly one build. It sat at
+  // 250 — the default, to the kilobyte — so eight translation keys added for a
+  // Settings control tipped it over, and the exception bought room while the
+  // catalog was split. The split landed: it measures 216 kB, comfortably under
+  // the default, so the exception is deleted rather than left at a slack value.
+  // An exception nobody needs is a ceiling nobody notices rising.
   // '/admin/plugins' was 405 kB for the same reason and is now 217 kB, under
   // the default. Its exception is deleted rather than kept at a slack value —
   // an exception nobody needs is a ceiling nobody notices rising.
@@ -72,6 +68,25 @@ const ROUTE_EXCEPTIONS = {
 
 /** First Load JS shared by every route. Measured 103 kB. */
 const SHARED_BUDGET_KB = 115;
+
+/**
+ * A NOTE ON WHERE THE i18n CATALOG SHOWS UP, because it is not obvious from
+ * these numbers and it cost a day to work out once.
+ *
+ * The translation catalog is NOT in the shared-by-all figure. It reaches page
+ * routes through the root layout, which renders ShellProvider — so it is in
+ * the First Load JS of all 35 page routes and none of the 530 API routes, and
+ * `shared by all` never moves when it changes. A key added for one page is
+ * therefore carried by every page, which is how /marketplace came to fail on
+ * eight strings written for /settings.
+ *
+ * Nothing tree-shakes it: 97 kB gzipped, measured. Splitting the server-only
+ * namespaces out took 35 kB off each of those 35 routes. The remaining lever
+ * is the locale axis — a browser needs one locale and ships three, worth
+ * another ~42 kB — which needs lazy loading and has not been done.
+ * `bin/i18n-bundle-guard.sh --shell` is what keeps the first half from
+ * regressing; this file would only show it as a diffuse rise.
+ */
 
 /**
  * Total woff2/woff in .next/static/media. Measured 1156 kB.
