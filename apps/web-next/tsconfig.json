@@ -33,6 +33,7 @@
       "@naap/utils": ["../../packages/utils/src/index.ts"],
       "@naap/utils/safe-fetch": ["../../packages/utils/src/safe-fetch.ts"],
       "@naap/utils/security": ["../../packages/utils/src/security.ts"],
+      "@naap/utils/regex-safety": ["../../packages/utils/src/regex-safety.ts"],
       "@naap/config": ["../../packages/config/src/index.ts"],
       "@naap/plugin-sdk": ["../../packages/plugin-sdk/src/index.ts"],
       "@agentbook-core/*": ["../../plugins/agentbook-core/backend/src/*"],
@@ -51,6 +52,7 @@
     "../../packages/agentbook-jurisdictions/src/**/*.ts",
     "../../packages/utils/src/safe-fetch.ts",
     "../../packages/utils/src/security.ts",
+    "../../packages/utils/src/regex-safety.ts",
     "../../packages/plugin-sdk/src/components/*.tsx"
   ],
   "exclude": [

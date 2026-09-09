@@ -169,14 +169,39 @@ class WhatsAppAdapter implements ChatAdapter {
 // an AbEvent with eventType='agent.message_for_user'. The Chat page renders
 // these as incoming messages on the next poll.
 
-/** Strip Telegram-HTML tags and decode entities to clean plain text for web. */
+/**
+ * Strip Telegram-HTML tags and decode entities to PLAIN TEXT for the web chat.
+ *
+ * The output is text. It is stored on an AbEvent and rendered by React as a
+ * text node, which escapes it. Nothing here is a sanitizer and the result
+ * must never be handed to `dangerouslySetInnerHTML` — decoding entities is
+ * the LAST step precisely because a literal `<` the user typed should come
+ * back as a literal `<`, which is right for text and wrong for markup.
+ *
+ * The tag strip runs to a fixed point rather than once. A single pass leaves
+ * `<b<b>>` as `<b>`: the inner match is removed and the outer halves close up
+ * behind it. That does not matter while the output is text, and it is exactly
+ * the shape that stops mattering the day somebody renders this as HTML — so
+ * it is worth not leaving lying around. Bounded, because "repeat until
+ * stable" on hostile input is otherwise quadratic.
+ */
+const TAG = /<\/?(b|strong|i|em|u|code|pre|a)[^>]*>/gi;
+const MAX_STRIP_PASSES = 5;
+
 function htmlToPlainText(s: string): string {
-  return s
-    .replace(/<\/?(b|strong|i|em|u|code|pre|a)[^>]*>/gi, '')
+  let out = s;
+  for (let i = 0; i < MAX_STRIP_PASSES; i++) {
+    const next = out.replace(TAG, '');
+    if (next === out) break;
+    out = next;
+  }
+  return out
     .replace(/&lt;/g, '<')
     .replace(/&gt;/g, '>')
     .replace(/&quot;/g, '"')
     .replace(/&#39;/g, "'")
+    // &amp; last, so `&amp;lt;` decodes to the literal `&lt;` the user typed
+    // and not to a `<` they did not.
     .replace(/&amp;/g, '&');
 }
 

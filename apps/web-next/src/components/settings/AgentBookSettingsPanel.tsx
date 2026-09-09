@@ -6,6 +6,7 @@ import {
   AlertCircle, ExternalLink, Search, ChevronDown, ChevronUp,
   Copy, Check, Gift, Users, CreditCard,
 } from 'lucide-react';
+import { safeImageSrc } from '@/lib/safe-image-src';
 import { JURISDICTION_OPTIONS, defaultCurrencyFor, formatCurrencyCents } from '@/lib/jurisdiction-currency';
 // The client copy. Same result, but the '/catalog' one is built on
 // Object.keys(CATALOG) and so drags all three locale packs — 97 kB
@@ -254,7 +255,11 @@ function ProfilePreview({
   companyName: string; logoUrl: string | null; brandColor: string; pendingLogoUrl: string | null;
 }): React.ReactElement {
   const t = useT();
-  const displayLogo = pendingLogoUrl ?? logoUrl;
+  // Validated where the value ENTERS the component, not at the <img>. One
+  // check per value instead of one per render site, and the render stays a
+  // plain read — which is also what stops the four CodeQL alerts on these
+  // lines being re-raised as new every time the file shifts by a line.
+  const displayLogo = safeImageSrc(pendingLogoUrl ?? logoUrl) ?? null;
   return (
     <div className="rounded-lg border border-border bg-card p-4">
       <p className="mb-2 text-xs font-medium text-muted-foreground uppercase tracking-wide">
@@ -1817,6 +1822,9 @@ export function AgentBookSettingsPanel({ initialTab }: { initialTab?: string }):
   const [saving, setSaving]       = useState(false);
   const [toast, setToast]         = useState<string | null>(null);
   const [err, setErr]             = useState<string | null>(null);
+  // Same boundary check as displayLogo above: validated once, here, rather
+  // than at the <img> that reads it.
+  const logoPreview = safeImageSrc(pendingLogoUrl ?? form?.logoUrl);
   const fileRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -2182,8 +2190,8 @@ export function AgentBookSettingsPanel({ initialTab }: { initialTab?: string }):
               <div>
                 <label className="block text-sm font-medium text-foreground">{t('core_ui.logo')}</label>
                 <div className="mt-1 flex items-center gap-3">
-                  {(pendingLogoUrl ?? form.logoUrl) ? (
-                    <img src={pendingLogoUrl ?? form.logoUrl ?? ''} alt="logo" className="h-12 w-12 rounded border object-contain" />
+                  {logoPreview ? (
+                    <img src={logoPreview ?? ''} alt="logo" className="h-12 w-12 rounded border object-contain" />
                   ) : (
                     <div className="flex h-12 w-12 items-center justify-center rounded border border-border bg-muted text-xs text-muted-foreground">{t('core_ui.no_logo')}</div>
                   )}
