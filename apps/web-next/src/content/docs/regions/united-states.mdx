@@ -8,7 +8,9 @@ order: 2
 
 ### Tax estimate
 
-Your income tax estimate uses the real federal brackets — single or married filing jointly, whichever you've set in **Settings → Tax config**. Self-employment tax (Social Security + Medicare) is calculated on your net self-employment income, with the Social Security wage base cap applied correctly, not approximated. (The Additional Medicare Tax threshold is applied as a flat figure today — it isn't yet adjusted for married-filing-jointly's higher threshold.)
+Your income tax estimate uses the real federal brackets — single or married filing jointly, whichever you've set in **Settings → Tax config**. Self-employment tax (Social Security + Medicare) is calculated on your net self-employment income, with the Social Security wage base cap applied correctly, not approximated.
+
+The 0.9% Additional Medicare Tax follows your filing status — $250,000 filing jointly, $125,000 married filing separately, $200,000 otherwise — and your W-2 income consumes that threshold before your business income is tested against it. If you have a salary as well as a side business, that matters: at $150,000 of wages only $50,000 of the threshold is left, so the surtax can start on business income well under $200,000. It's also excluded from the one-half self-employment tax deduction, which is where it belongs — it's computed on Form 8959, not Schedule SE.
 
 ### Mileage
 
