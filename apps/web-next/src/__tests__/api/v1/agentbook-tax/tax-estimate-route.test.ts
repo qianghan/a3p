@@ -73,7 +73,7 @@ describe('GET /api/v1/agentbook-tax/tax/estimate — CA provincial tax (PARITY-1
     const { calculateStateTax } = await import('@/lib/state-tax');
     const net = 8_000_000;
     const year = new Date().getFullYear();
-    const se = caSelfEmploymentTax.calculate(net, year);
+    const se = caSelfEmploymentTax.calculate(net, year, { region: 'ON' });
     const taxable = Math.max(0, net - se.deductiblePortionCents);
     const federalOnly = caTaxBrackets.calculateTax(taxable, year).taxCents;
     const onProvincial = calculateStateTax(taxable, 'ON', 'CA').taxCents;
@@ -112,7 +112,7 @@ describe('GET /api/v1/agentbook-tax/tax/estimate — CA provincial tax (PARITY-1
     // used to — recomputes the expectation with CPP rates while the route
     // uses QPP + QPIP, so the test reproduced the very bug it sat next to and
     // agreed with itself about the wrong number.
-    const se = caSelfEmploymentTax.calculate(net, year, 'QC');
+    const se = caSelfEmploymentTax.calculate(net, year, { region: 'QC' });
     expect(se.breakdown).toHaveProperty('qpp');
     expect(se.breakdown.qpip).toBeGreaterThan(0);
     const taxable = Math.max(0, net - se.deductiblePortionCents);

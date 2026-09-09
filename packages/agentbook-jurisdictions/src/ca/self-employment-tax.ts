@@ -1,4 +1,4 @@
-import type { SelfEmploymentTaxCalculator, SelfEmploymentTaxResult } from '../interfaces.js';
+import type { SelfEmploymentTaxCalculator, SelfEmploymentTaxContext, SelfEmploymentTaxResult } from '../interfaces.js';
 
 /**
  * Canadian self-employed pension and parental-insurance contributions.
@@ -46,8 +46,8 @@ export function isQuebec(region: string | null | undefined): boolean {
 }
 
 export const caSelfEmploymentTax: SelfEmploymentTaxCalculator = {
-  calculate(netSEIncomeCents: number, taxYear: number, region?: string | null): SelfEmploymentTaxResult {
-    const quebec = isQuebec(region);
+  calculate(netSEIncomeCents: number, taxYear: number, context?: SelfEmploymentTaxContext): SelfEmploymentTaxResult {
+    const quebec = isQuebec(context?.region);
 
     // Base plan — same earnings band either side of the Ottawa River, only
     // the rate differs.

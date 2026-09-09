@@ -18,7 +18,7 @@ import { auCompanyTaxBrackets } from '@agentbook/jurisdictions/au/company-tax';
 import { usSelfEmploymentTax } from '@agentbook/jurisdictions/us/self-employment-tax';
 import { caSelfEmploymentTax } from '@agentbook/jurisdictions/ca/self-employment-tax';
 import { auSelfEmploymentTax } from '@agentbook/jurisdictions/au/self-employment-tax';
-import type { TaxBracketProvider, SelfEmploymentTaxCalculator } from '@agentbook/jurisdictions/interfaces';
+import type { TaxBracketProvider, SelfEmploymentTaxCalculator, SelfEmploymentTaxContext } from '@agentbook/jurisdictions/interfaces';
 import { calculateStateTax } from '@/lib/state-tax';
 import { taxYearDisclosure } from '@agentbook/jurisdictions/tax-year';
 import { publicErrorMessage } from '@/lib/api-error';
@@ -43,14 +43,20 @@ const SE_TAX_CALCULATORS: Record<string, SelfEmploymentTaxCalculator> = {
   au: auSelfEmploymentTax,
 };
 
-function calcSelfEmploymentTax(netIncomeCents: number, jurisdiction: string, taxYear: number, region?: string | null): { amountCents: number; deductiblePortionCents: number; breakdown: Record<string, number> } {
+function calcSelfEmploymentTax(
+  netIncomeCents: number,
+  jurisdiction: string,
+  taxYear: number,
+  context: SelfEmploymentTaxContext,
+): { amountCents: number; deductiblePortionCents: number; breakdown: Record<string, number> } {
   if (netIncomeCents <= 0) return { amountCents: 0, deductiblePortionCents: 0, breakdown: {} };
   const calculator = SE_TAX_CALCULATORS[jurisdiction];
   if (!calculator) return { amountCents: 0, deductiblePortionCents: 0, breakdown: {} };
-  // `region` is load-bearing for Canada: a Quebec filer pays QPP and QPIP,
-  // not CPP. Omitting it silently returns the rest-of-Canada answer, which
-  // for them is wrong and low.
-  const result = calculator.calculate(netIncomeCents, taxYear, region);
+  // Every field of `context` is load-bearing somewhere. `region`: a Quebec
+  // filer pays QPP and QPIP, not CPP. `filingStatus` and `medicareWagesCents`:
+  // both move the US Additional Medicare threshold, and omitting either
+  // silently returns the single-filer, no-wages answer.
+  const result = calculator.calculate(netIncomeCents, taxYear, context);
   return { amountCents: result.amountCents, deductiblePortionCents: result.deductiblePortionCents, breakdown: result.breakdown };
 }
 
@@ -188,7 +194,16 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     // here) — so self-employment tax is $0 for the AU-company branch.
     const seTax = isAuCompany
       ? { amountCents: 0, deductiblePortionCents: 0, breakdown: {} as Record<string, number> }
-      : calcSelfEmploymentTax(netIncomeCents, jurisdiction, taxYear, region);
+      : calcSelfEmploymentTax(netIncomeCents, jurisdiction, taxYear, {
+          region,
+          filingStatus: taxConfig?.filingStatus,
+          // W-2 income is the best proxy we hold for Medicare wages, and it
+          // is already what the federal bracket base uses. It consumes the
+          // Additional Medicare threshold before self-employment income is
+          // tested, so a salaried side-hustler crosses it on far less
+          // business income than the raw threshold suggests.
+          medicareWagesCents: w2IncomeCents,
+        });
     const seTaxCents = seTax.amountCents;
     // Each jurisdiction's calculator already knows its own deductible
     // portion (half of US SE tax, the employer-equivalent CPP portion,
