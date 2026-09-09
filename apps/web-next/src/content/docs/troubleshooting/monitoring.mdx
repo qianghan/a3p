@@ -1,0 +1,54 @@
+---
+title: "Monitoring and status checks"
+description: "What AgentBook checks about itself, what it can't, and how to point an external uptime monitor at it."
+order: 4
+---
+
+## The honest version first
+
+AgentBook checks its own dependencies. It **cannot** monitor its own uptime, and nothing that runs inside a deployment can: if the app is down, so is the thing doing the checking, and the resulting silence looks exactly like everything being fine.
+
+So there are two halves, and only one of them lives here.
+
+## What AgentBook checks about itself
+
+`GET /api/health/deep` runs a probe per dependency and returns them all:
+
+| Probe | Critical? | What it means when it fails |
+|---|---|---|
+| `database` | yes | The app can't reach Postgres at all. |
+| `database_schema` | yes | It can reach Postgres but can't read a real table — a pooler answering `SELECT 1` mid-migration looks healthy to a liveness check while every real query fails. |
+| `llm` | yes | No LLM provider is configured, so the agent can't answer anything. |
+| `blob_storage` | no | Receipt images fall back to their source URLs, which expire. |
+| `error_tracking` | no | Errors are recorded nowhere. Invisible by construction — an unset DSN means every error report succeeds and goes nowhere. |
+| `cron_auth` | no | Scheduled jobs can't authenticate themselves. |
+
+The endpoint is **public and unauthenticated** on purpose — a monitor that needs a credential is a monitor somebody eventually turns off. It returns probe names, a status word, a latency, and a fixed phrase from a closed set. Never a URL, a hostname, a key, or an error message.
+
+**`503` means a critical dependency is down.** A dependency that is merely *unconfigured* stays `200` and says so in the body: a feature nobody turned on is a real finding and a bad reason to wake someone at 3am.
+
+A cron runs the same probes every five minutes and keeps the answers, so a dependency that was down for six hours leaves a trace even though nobody was watching at the time. It alerts through Sentry when a probe **changes** state, not while it stays in one — six hours down is two messages, not seventy-two — and a probe has to fail twice running before it counts, because a single timed-out query on a cold start is not an outage.
+
+## The half you have to set up
+
+Point an external monitor at the deep endpoint. Any of Better Stack, Checkly, Pingdom, UptimeRobot, or a GitHub Actions cron will do:
+
+```
+URL:      https://agentbook.brainliber.com/api/health/deep
+Interval: 1–5 minutes
+Alert on: HTTP status ≠ 200
+```
+
+That gives you the thing in-app checks can't: an alert when the deployment itself is gone.
+
+## Checking by hand
+
+```bash
+curl -s https://agentbook.brainliber.com/api/health/deep | jq
+```
+
+Or run the repo's config doctor, which checks this alongside the other settings that fail silently:
+
+```bash
+./bin/config-doctor.sh
+```

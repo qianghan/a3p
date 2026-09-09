@@ -1681,6 +1681,34 @@ model AbFiscalPeriod {
   @@schema("plugin_agentbook_core")
 }
 
+// Current health of one dependency, updated in place.
+//
+// One row per probe, not a time series. A 5-minute cron writing a row per
+// probe per run is 1,440 rows a day that nobody reads and somebody has to
+// prune; what alerting actually needs is the CURRENT state and how long it
+// has held. Transitions go to AbEvent, which already has retention.
+model AbHealthState {
+  // Probe name — 'database', 'llm', 'blob', …
+  probe             String   @id
+  // 'ok' | 'degraded' | 'down' | 'unconfigured'
+  status            String
+  // When the probe last CHANGED status — the start of the current spell.
+  since             DateTime @default(now())
+  // Every run updates this, so a stale value means the cron itself stopped.
+  lastCheckedAt     DateTime @default(now())
+  lastLatencyMs     Int?
+  // Consecutive failures. A probe has to fail twice running before it alerts:
+  // one timed-out query on a serverless cold start is not an outage, and an
+  // alert channel that cries wolf gets muted, which is worse than no channel.
+  consecutiveFails  Int      @default(0)
+  // Short, non-sensitive reason. Never an error message or a URL.
+  detail            String?
+  updatedAt         DateTime @updatedAt
+
+  @@index([status])
+  @@schema("plugin_agentbook_core")
+}
+
 model AbEvent {
   id                 String   @id @default(uuid())
   tenantId           String
