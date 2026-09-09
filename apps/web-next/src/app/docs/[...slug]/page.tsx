@@ -9,6 +9,8 @@ import { DOCS_UI } from '@/lib/docs/ui-strings';
 import { MobileDocsSidebar } from '@/components/docs/mobile-docs-sidebar';
 import { getMdxComponents } from '@/components/docs/mdx-components';
 import { DocPageClient } from './doc-page-client';
+import { DocsLanding } from '@/components/docs/docs-landing';
+import { DOCS_LANDING } from '@/lib/docs/landing';
 
 export async function generateStaticParams() {
   const slugs = getAllDocSlugs();
@@ -33,6 +35,13 @@ export async function generateMetadata({ params }: { params: Promise<{ slug: str
   const { slug } = await params;
   const doc = getDocBySlug(slug);
   if (!doc) {
+    // A bare locale segment is the translated docs home, and it renders a
+    // landing rather than redirecting — so it needs that locale's title, not
+    // the section-name fallback below, which would title the page "Zh".
+    if (slug.length === 1 && (DOC_LOCALES as readonly string[]).includes(slug[0])) {
+      const l = slug[0] as (typeof DOC_LOCALES)[number];
+      return { title: `${DOCS_UI[l].home} - AgentBook`, description: DOCS_LANDING[l].heroBody };
+    }
     // Section-level slug that resolves to a real section — redirect will
     // fire from the page, so use the section name as the title.
     if (slug.length === 1 && getFirstDocInSection(slug[0])) {
@@ -56,12 +65,14 @@ export default async function DocPage({ params }: { params: Promise<{ slug: stri
     const locale = localeOf(slug);
     const bare = stripLocale(slug);
 
-    // A bare locale segment (/docs/zh) is the translated docs home. Send it to
-    // that locale's first page rather than 404ing on a URL we generate links to.
+    // A bare locale segment (/docs/zh) is the translated docs HOME, so it
+    // renders the landing — the same one /docs renders, in that locale. It
+    // used to redirect straight to the first quickstart page, which sent a
+    // Chinese reader past the only page that says what the docs contain,
+    // even though everything behind it was already translated.
     if (bare.length === 0) {
-      const first = getFirstDocInSection('setup', locale) ?? getFirstDocInSection('configure', locale);
-      if (first) redirect(docHref(first.slug));
-      notFound();
+      if (locale !== 'en') return <DocsLanding locale={locale} />;
+      redirect('/docs');
     }
 
     // A section directory, in whichever locale — redirect to its first page.
