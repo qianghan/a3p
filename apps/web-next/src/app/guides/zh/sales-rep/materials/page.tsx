@@ -34,20 +34,19 @@ export default function MaterialsPageZh() {
 
       <h2 className="gd-h2">分享卡片</h2>
       <p>
-        尺寸适配社交平台（1200×630）。点击<strong>下载</strong>，然后配上下面任意一段文案和你的推荐链接发布。
+        尺寸适配社交平台（1200×630），文字均为中文。点击<strong>下载</strong>，然后配上下面任意一段文案和你的推荐链接发布。
         小提示：想发成 PNG 的话，打开文件后导出——或者直接截图。
       </p>
-      <p className="gd-note">卡片图片本身目前是英文的。如果你面向中文受众发布，建议配上下面的中文文案，或者自己截图后加上中文标题。</p>
 
       <div className="gd-kit">
         {CARDS.map((c) => (
           <div key={c.file} className="gd-kit-card">
             {/* eslint-disable-next-line @next/next/no-img-element -- static SVG share asset, not an optimizable content image */}
-            <img src={`/guides/cards/${c.file}.svg`} alt={c.title} width={1200} height={630} loading="lazy" />
+            <img src={`/guides/cards/zh/${c.file}.svg`} alt={c.title} width={1200} height={630} loading="lazy" />
             <div className="gd-kit-meta">
               <b>{c.title}</b>
               <p>{c.blurb}</p>
-              <a className="gd-dl" href={`/guides/cards/${c.file}.svg`} download>
+              <a className="gd-dl" href={`/guides/cards/zh/${c.file}.svg`} download>
                 ↓ 下载
               </a>
             </div>
