@@ -8,7 +8,7 @@ import { prisma } from '@/lib/db';
 import { validateSession } from '@/lib/api/auth';
 import { success, errors, getAuthToken } from '@/lib/api/response';
 import { validateCSRF } from '@/lib/api/csrf';
-import { isPrivateHost } from '@/lib/gateway/types';
+import { isPrivateHost } from '@naap/utils/security';
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
   try {
