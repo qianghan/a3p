@@ -3,7 +3,7 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-import { isPrivateHost } from '@/lib/gateway/types';
+import { isPrivateHost } from '@naap/utils/security';
 
 /**
  * `dashboardPluginConfig` is upserted by `key` alone — no tenant column — so

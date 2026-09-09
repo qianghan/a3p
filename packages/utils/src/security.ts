@@ -151,11 +151,12 @@ export function isAllowedHost(
 
 // ── SSRF: one notion of "private" for every guard in the repo ──
 //
-// Lived in apps/web-next/src/lib/gateway/types.ts, which meant the Express
+// Lived in the service-gateway's own types file, which meant the Express
 // plugin backends could not reach it and fetched caller-supplied URLs with no
-// check at all. Moved here so the gateway host check, the receipt fetcher and
-// the plugin backends all agree; gateway/types.ts re-exports it, so every
-// existing import keeps working.
+// check at all. Moved here so every caller agrees. The gateway itself has
+// since been deleted along with the rest of the inherited NaaP code; this
+// outlived it because the receipt fetcher, the dashboard connectivity test
+// and the plugin backends all still need it.
 const PRIVATE_IP_RANGES = [
   /^127\./,
   /^10\./,

@@ -173,7 +173,6 @@ Each API route category has its own Serverless Function config:
 | `app/api/v1/livepeer/**` | 60s | default |
 | `app/api/v1/pipelines/**` | 120s | default |
 | `app/api/v1/storage/**` | 60s | 1024 MB |
-| `app/api/v1/gw/**` | 60s | default |
 | `app/api/v1/[plugin]/**` | 30s | default |
 
 ### Summary: Local Dev vs Vercel Production
