@@ -52,6 +52,12 @@ concurrency:
 env:
   HEALTH_URL: https://agentbook.brainliber.com/api/health/deep
   INCIDENT_TITLE: '[Uptime] Production health check is failing'
+  # gh infers the repository from a git remote, and this job deliberately has
+  # no checkout — cloning the repo every five minutes to curl one URL would be
+  # absurd. Without this, every gh call dies on "not a git repository", which
+  # is what the first run did. Tested locally INSIDE a checkout, which is
+  # precisely why it passed there and failed on the runner.
+  GH_REPO: ${{ github.repository }}
 
 jobs:
   probe:
