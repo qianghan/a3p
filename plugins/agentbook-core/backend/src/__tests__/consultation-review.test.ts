@@ -171,3 +171,75 @@ describe('verdict severity ordering', () => {
     expect(verdictFor([])).toBe('pass');
   });
 });
+
+describe('a rate the pack publishes is grounded — and only from the pack', () => {
+  /**
+   * The suppression bug. `facts` held the tenant's ledger and nothing else,
+   * so every percentage the model produced was "unverified" and the repair
+   * brief instructed it to delete the number and say the rate "depends on
+   * their circumstances". A reviewer built to stop invented figures was
+   * deleting the true ones.
+   */
+  const ledger = ['Business expenses year to date: A$12,400.00 across 31 transactions.'];
+
+  it('passes "GST is 10%" once the pack supplies the rate', () => {
+    const draft = 'GST in Australia is 10%, so on that invoice you would add ten per cent.';
+    const before = reviewConsultation(draft, { jurisdiction: 'au', facts: ledger });
+    expect(before.verdict).toBe('repair');
+    expect(before.findings[0].kind).toBe('unverified-rate');
+
+    const after = reviewConsultation(draft, {
+      jurisdiction: 'au', facts: ledger,
+      jurisdictionRates: ['GST rate: 10%.'],
+    });
+    expect(after.verdict).toBe('pass');
+  });
+
+  it('still strips a rate the pack does NOT publish', () => {
+    // The model does not get to supply its own. This is the whole point of
+    // the check surviving the fix.
+    const r = reviewConsultation('You can claim 87% of that.', {
+      jurisdiction: 'au', facts: ledger,
+      jurisdictionRates: ['GST rate: 10%.'],
+    });
+    expect(r.verdict).toBe('repair');
+    expect(r.findings.map((f) => f.span)).toContain('87%');
+  });
+
+  it('lets the agent state a published threshold without blocking', () => {
+    // A$75,000 is money-shaped, so before this it was an ungrounded-amount —
+    // a BLOCK, not a repair. The GST registration advice could not be said.
+    const draft = 'Registering for GST is compulsory once your turnover reaches A$75,000.';
+    const blocked = reviewConsultation(draft, { jurisdiction: 'au', facts: ledger });
+    expect(blocked.verdict).toBe('block');
+
+    const ok = reviewConsultation(draft, {
+      jurisdiction: 'au', facts: ledger,
+      jurisdictionAmounts: ['GST registration becomes compulsory once GST turnover reaches A$75,000 over any 12 months.'],
+    });
+    expect(ok.verdict).toBe('pass');
+  });
+
+  it('does not let a pack RATE ground a money figure', () => {
+    // 10 appears in the rates as "10%". A draft claiming the user has A$10 of
+    // something must still be checked against their books, not against a
+    // coincidence in the rate table.
+    const r = reviewConsultation('You have A$10.00 sitting in that account.', {
+      jurisdiction: 'au', facts: ledger,
+      jurisdictionRates: ['GST rate: 10%.'],
+    });
+    expect(r.verdict).toBe('block');
+    expect(r.findings[0].kind).toBe('ungrounded-amount');
+  });
+
+  it('still blocks an invented amount when the pack is fully supplied', () => {
+    // The original failure: "save ~$800" from a bracket-timing calculation
+    // that corresponded to no real quantity. Nothing here may rescue it.
+    const r = reviewConsultation('Timing that purchase could save you about $800.', {
+      jurisdiction: 'au', facts: ledger,
+      jurisdictionRates: ['GST rate: 10%.', 'AU federal income tax marginal rates for 2025: 0%, 16%, 30%, 37%, 45%.'],
+      jurisdictionAmounts: ['GST registration becomes compulsory once GST turnover reaches A$75,000 over any 12 months.'],
+    });
+    expect(r.verdict).toBe('block');
+  });
+});

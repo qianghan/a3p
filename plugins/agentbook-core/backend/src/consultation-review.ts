@@ -50,11 +50,36 @@ export interface GroundingContext {
   /** 'us' | 'ca' | 'au' | 'uk' — the tenant's own. */
   jurisdiction: string;
   /**
-   * Every fact the answer is allowed to assert, as raw text: the ledger
-   * snapshot, the jurisdiction pack's rates and thresholds, the user's
-   * profile. Numbers are extracted from this, so the format does not matter.
+   * Every fact about THIS USER the answer is allowed to assert, as raw text:
+   * the ledger snapshot, their profile. Numbers are extracted from this, so
+   * the format does not matter.
    */
   facts: string[];
+  /**
+   * Statutory rates the jurisdiction pack publishes — see the pack's
+   * `statutoryFactLines`. Separate from `facts` because they are a different
+   * kind of claim: "GST is 10%" is true of everyone, "you spent CA$1,240" is
+   * true of one person, and only the second one being wrong misstates
+   * somebody's books.
+   *
+   * A rate found here is grounded. Rates in the draft that appear in NEITHER
+   * are still stripped — the model does not get to supply its own.
+   *
+   * Empty is the old behaviour, which flagged every percentage the model ever
+   * produced and instructed it to delete correct ones.
+   */
+  jurisdictionRates?: string[];
+  /**
+   * Statutory money amounts — thresholds and caps the pack publishes, like
+   * Australia's A$75,000 GST registration threshold.
+   *
+   * Money is otherwise checked against `facts` alone, so without this the
+   * agent could not state a threshold without being blocked. Deliberately a
+   * narrow list of published figures, not the whole pack: bracket boundaries
+   * are excluded, because admitting them would let a draft assert a large
+   * round number about the user's own income and pass.
+   */
+  jurisdictionAmounts?: string[];
 }
 
 export interface ReviewResult {
@@ -105,20 +130,32 @@ function toNumber(fragment: string): number | null {
 /**
  * Deterministic pass. Everything here is decidable without a model.
  *
- * `facts` being empty means the answer was produced with no grounding at all,
- * so every figure in it is unverifiable — that is a block, not a pass. An
- * ungrounded advisory answer about someone's tax position is the failure this
- * module exists to prevent, and "we had no context" is the worst case, not an
- * excuse to skip the check.
+ * `facts` being empty means nothing is known about THIS USER, so every figure
+ * about them is unverifiable — that is a block, not a pass. An ungrounded
+ * advisory answer about someone's tax position is the failure this module
+ * exists to prevent, and "we had no context" is the worst case, not an excuse
+ * to skip the check.
+ *
+ * A statutory rate is a different matter: "GST is 10%" is true whether or not
+ * we have the user's books open, and refusing to say it does not make anyone
+ * safer. Those come from `jurisdictionRates`, which the pack supplies.
  */
 export function reviewDeterministic(draft: string, ctx: GroundingContext): ReviewFinding[] {
   const findings: ReviewFinding[] = [];
-  const known = groundedNumbers(ctx.facts);
+  // Two sets, because the two checks answer different questions. Money must
+  // be the user's own or a published threshold; a rate may additionally be
+  // any rate the pack publishes.
+  const knownAmounts = groundedNumbers([...ctx.facts, ...(ctx.jurisdictionAmounts ?? [])]);
+  const knownRates = groundedNumbers([
+    ...ctx.facts,
+    ...(ctx.jurisdictionRates ?? []),
+    ...(ctx.jurisdictionAmounts ?? []),
+  ]);
 
   for (const span of draft.match(MONEY) ?? []) {
     const n = toNumber(span);
     if (n === null) continue;
-    if (!known.has(n) && !known.has(Math.round(n))) {
+    if (!knownAmounts.has(n) && !knownAmounts.has(Math.round(n))) {
       findings.push({
         kind: 'ungrounded-amount',
         span,
@@ -130,7 +167,7 @@ export function reviewDeterministic(draft: string, ctx: GroundingContext): Revie
   for (const span of draft.match(RATE) ?? []) {
     const n = toNumber(span);
     if (n === null) continue;
-    if (!known.has(n)) {
+    if (!knownRates.has(n)) {
       findings.push({
         kind: 'unverified-rate',
         span,
