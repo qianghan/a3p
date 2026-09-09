@@ -24,6 +24,7 @@ import { useEffect, useMemo, useState } from 'react';
 import {
   createTranslator,
   resolveLocale,
+  DEFAULT_LOCALE,
   formatCurrency,
   formatDate,
   formatDateOnly,
@@ -45,7 +46,12 @@ import {
 // '/catalog' is Object.keys(CATALOG), so importing it retains the full catalog
 // and undoes the whole saving; a first attempt at this split kept that one
 // import and every route got BIGGER.
-import { CLIENT_CATALOG as CATALOG, AVAILABLE_LOCALES } from '@agentbook/i18n/catalog-client';
+import {
+  CLIENT_CATALOG as STATIC_CATALOG,
+  AVAILABLE_LOCALES,
+  loadLocalePack,
+} from '@agentbook/i18n/catalog-client';
+import type { Catalog } from '@agentbook/i18n';
 /** Tenant config fields this hook needs. Matches `{ data: ... }` from the API. */
 interface TenantLocaleConfig {
   locale?: string | null;
@@ -77,7 +83,12 @@ export interface ShellI18n {
   parseAmount(raw: string): { ok: boolean; cents: number; ambiguous: boolean; formatted: string };
   /** Tenant's currency, so money formatting doesn't need a second fetch. */
   readonly currency: string;
-  /** False until tenant config has been read (or has failed). */
+  /**
+   * False until translation has settled: tenant config read (or failed) AND,
+   * for a non-English locale, its pack loaded (or failed). Both halves matter
+   * — a consumer that rendered on `ready` when only the config had arrived
+   * would paint English and then swap to French a moment later.
+   */
   readonly ready: boolean;
 }
 
@@ -87,7 +98,24 @@ export function useShellI18n(): ShellI18n {
   // English even for a tenant stored as fr-CA — fail-closed, matching the
   // server-side reader.
   const [translationEnabled, setTranslationEnabled] = useState(false);
-  const [ready, setReady] = useState(false);
+  const [configRead, setConfigRead] = useState(false);
+  /**
+   * The packs in hand. Starts as the static catalog, which is `en` only; a
+   * non-English locale's pack is merged in when it arrives.
+   *
+   * Held as state rather than a module-level cache on purpose. A module global
+   * is what leaked one user's language into another's response before this
+   * rewrite (see core.ts), and on Fluid Compute the same instance serves
+   * concurrent requests. Webpack already caches the CHUNK, so a second
+   * component mounting the same locale costs nothing extra.
+   */
+  const [packs, setPacks] = useState<Catalog>(STATIC_CATALOG);
+  /**
+   * The locale whose pack we tried to load and could not. Recorded so `ready`
+   * can still become true for that user — otherwise a failed chunk request
+   * would read as "translation is still loading" for the rest of the session.
+   */
+  const [packFailed, setPackFailed] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -105,7 +133,7 @@ export function useShellI18n(): ShellI18n {
         // browser locale rather than rendering nothing.
       })
       .finally(() => {
-        if (!cancelled) setReady(true);
+        if (!cancelled) setConfigRead(true);
       });
     return () => {
       cancelled = true;
@@ -128,6 +156,76 @@ export function useShellI18n(): ShellI18n {
 
   const currency = config?.currency || 'USD';
 
+  /**
+   * The locale whose STRINGS are in force. Not the same as `locale`: strings
+   * follow the feature flag, formatting follows the tenant unconditionally.
+   */
+  const wanted = translationEnabled ? locale : DEFAULT_LOCALE;
+
+  /**
+   * Whether `wanted`'s strings are available — in hand, or known unobtainable.
+   * Derived, not state: see the note on the loading effect below for the race
+   * that the state version had.
+   */
+  const packAvailable = Boolean(packs[wanted]) || packFailed === wanted;
+
+  /**
+   * Fetch the resolved locale's pack, if it is not one of the static ones.
+   *
+   * Only reached when the flag is ON and the locale is not `en`, so an English
+   * user — the common case — issues no request and downloads no chunk.
+   *
+   * Timing: this rides the /tenant-config await that already existed. Before
+   * this change a fr-CA tenant saw English on first paint and French after the
+   * config resolved; now the swap happens after the config AND the chunk. It
+   * is one extra round trip on a language nobody has selected yet, against
+   * 43 kB that every user was downloading on every page.
+   *
+   * Every failure is English. A rejected chunk request (offline, a CDN blip, a
+   * deploy that rotated hashes mid-session) and a tenant row holding a tag this
+   * build no longer serves both land here, and neither may take the page down:
+   * `packs` keeps its static `en` and createTranslator's lookup chain drops the
+   * absent locale, so the user reads English rather than dotted keys.
+   *
+   * Readiness is DERIVED above rather than tracked by this effect. It was a
+   * `packSettled` state flag first, and that had a race the existing hook test
+   * caught: `configRead` and `translationEnabled` are set in one batch, so the
+   * render that turned the flag on committed with readiness still true from the
+   * previous locale, and a consumer waiting on `ready` saw English. A value
+   * computed during render cannot lag the state it depends on.
+   */
+  useEffect(() => {
+    // Already static (en), or already merged in from an earlier render.
+    if (packs[wanted]) return;
+    let cancelled = false;
+    // Tracked locally rather than read back off `packs` in the `finally`: that
+    // closure captures the `packs` of THIS render, which by definition does not
+    // contain the pack we are about to add, so it recorded every success as a
+    // failure. Readiness happened not to care, which is what would have kept it
+    // hidden — and it would have made packFailed useless as a signal.
+    let arrived = false;
+    loadLocalePack(wanted)
+      .then((pack) => {
+        if (cancelled || !pack) return;
+        arrived = true;
+        // Return the SAME object when the locale is already present, so this
+        // cannot re-trigger the memo below and loop.
+        setPacks((prev) => (prev[wanted] ? prev : { ...prev, [wanted]: pack }));
+      })
+      .catch(() => {
+        // Deliberately silent to the user: the page reads English, which is
+        // a degradation rather than a fault worth interrupting anyone over.
+      })
+      .finally(() => {
+        // A null pack — a tag this build cannot serve — counts as failed too:
+        // it will never arrive, so readiness must not wait for it.
+        if (!cancelled && !arrived) setPackFailed(wanted);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [wanted, packs]);
+
   // Keep <html lang> in step with the resolved locale. It drives screen-reader
   // pronunciation and CJK font selection — the same codepoint renders with
   // different glyphs under a Simplified vs Traditional font.
@@ -148,12 +246,15 @@ export function useShellI18n(): ShellI18n {
     // tenant may already hold locale='fr-CA' from the old Canada-only
     // selector, so hiding the picker would not stop them seeing partial
     // French.
-    const translationLocale = translationEnabled ? locale : 'en';
-    const { t } = createTranslator(translationLocale, CATALOG);
+    // `packs`, not the static catalog: this is what makes a lazily-loaded
+    // locale take effect once it lands. Until then the chain falls through to
+    // `en`, which is why an in-flight pack shows English and not raw keys.
+    const { t } = createTranslator(wanted, packs);
     return {
       locale,
       currency,
-      ready,
+      // Both halves. See ShellI18n.ready.
+      ready: configRead && packAvailable,
       t,
       // Both money formatters go through formatCurrency with the RESOLVED
       // USER LOCALE. The bare formatMoney() helper infers a display locale
@@ -184,5 +285,5 @@ export function useShellI18n(): ShellI18n {
       // parseFloat(value) * 100 is a money bug on French input.
       parseAmount: (raw: string) => parseAmountToCents(raw, locale),
     };
-  }, [locale, currency, ready, translationEnabled]);
+  }, [locale, currency, configRead, packAvailable, translationEnabled, wanted, packs]);
 }

@@ -48,13 +48,13 @@ const ROUTE_BUDGET_KB = 250;
  */
 const ROUTE_EXCEPTIONS = {
   // Was 494 kB — the worst route in the app, and 445 kB of that was the whole
-  // lucide icon library pulled in by a namespace import. Then 320 kB, and now
-  // 286 kB after the i18n catalog split took 35 kB off every page route (the
-  // server-only namespaces — Telegram and agent-skill copy — no longer ship to
-  // the browser). Still over the default because the page itself is 68 kB of
-  // tab content. Lowered from 340 to keep the ~10% margin over what it
-  // actually measures rather than banking the saving as slack.
-  '/settings': 315,
+  // lucide icon library pulled in by a namespace import. Then 320 kB, then
+  // 286 kB once the server-only translation namespaces stopped shipping to the
+  // browser, and now 243 kB with only one locale in the bundle instead of
+  // three. Still over the default because the page itself is 68 kB of tab
+  // content. Lowered 340 -> 315 -> 270 as each saving landed, keeping the
+  // ~10% margin rather than banking it as slack.
+  '/settings': 270,
   // '/marketplace' had an exception at 275 for exactly one build. It sat at
   // 250 — the default, to the kilobyte — so eight translation keys added for a
   // Settings control tipped it over, and the exception bought room while the
@@ -80,12 +80,20 @@ const SHARED_BUDGET_KB = 115;
  * therefore carried by every page, which is how /marketplace came to fail on
  * eight strings written for /settings.
  *
- * Nothing tree-shakes it: 97 kB gzipped, measured. Splitting the server-only
- * namespaces out took 35 kB off each of those 35 routes. The remaining lever
- * is the locale axis — a browser needs one locale and ships three, worth
- * another ~42 kB — which needs lazy loading and has not been done.
- * `bin/i18n-bundle-guard.sh --shell` is what keeps the first half from
- * regressing; this file would only show it as a diffuse rise.
+ * Nothing tree-shakes it: 97 kB gzipped, measured. Two savings have been taken
+ * out of that, worth -35 and -43 kB on all 35 of those routes:
+ *
+ *   the server-only namespaces (bot, skill, proactive, rate) never reach the
+ *   browser, and only the REFERENCE locale is in the bundle — fr-CA and zh-CN
+ *   arrive as their own chunks when a user actually reads in them.
+ *
+ * What is left is roughly 20 kB of English UI strings, which is the floor for
+ * a product that renders text without a round trip.
+ *
+ * `bin/i18n-bundle-guard.sh --shell` is what keeps both from regressing, and it
+ * is the guard to reach for rather than this file: a regression here shows up
+ * as a diffuse rise across many routes with no cause attached, which is how
+ * this went unnoticed in the first place.
  */
 
 /**

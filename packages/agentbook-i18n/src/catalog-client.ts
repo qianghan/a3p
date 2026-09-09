@@ -37,7 +37,7 @@
  * SERVER_ONLY_NAMESPACES) in locale-meta.ts and add the imports below.
  */
 
-import type { Catalog } from './core.js';
+import type { Catalog, TranslationData } from './core.js';
 import { LOCALE_TAGS } from './locale-meta.js';
 
 
@@ -68,63 +68,18 @@ import enTabs from './locales/en/tabs.json';
 import enTax from './locales/en/tax.json';
 import enTaxUi from './locales/en/tax_ui.json';
 
-// Canadian French. CRA / Revenu Quebec terminology (TPS/TVQ, not TVA).
-import frAccounting from './locales/fr-CA/accounting.json';
-import frAdminUi from './locales/fr-CA/admin_ui.json';
-import frAgent from './locales/fr-CA/agent.json';
-import frAgents from './locales/fr-CA/agents.json';
-import frBilling from './locales/fr-CA/billing.json';
-import frBillingUi from './locales/fr-CA/billing_ui.json';
-import frCalendar from './locales/fr-CA/calendar.json';
-import frChat from './locales/fr-CA/chat.json';
-import frCommon from './locales/fr-CA/common.json';
-import frCommunityUi from './locales/fr-CA/community_ui.json';
-import frCoreUi from './locales/fr-CA/core_ui.json';
-import frDash from './locales/fr-CA/dash.json';
-import frDashboard from './locales/fr-CA/dashboard.json';
-import frExpense from './locales/fr-CA/expense.json';
-import frExpensesUi from './locales/fr-CA/expenses_ui.json';
-import frHomeoffice from './locales/fr-CA/homeoffice.json';
-import frInvoice from './locales/fr-CA/invoice.json';
-import frInvoiceUi from './locales/fr-CA/invoice_ui.json';
-import frNav from './locales/fr-CA/nav.json';
-import frOnboarding from './locales/fr-CA/onboarding.json';
-import frStartupUi from './locales/fr-CA/startup_ui.json';
-import frStudentUi from './locales/fr-CA/student_ui.json';
-import frTabs from './locales/fr-CA/tabs.json';
-import frTax from './locales/fr-CA/tax.json';
-import frTaxUi from './locales/fr-CA/tax_ui.json';
-
-// Simplified Chinese.
-import zhAccounting from './locales/zh-CN/accounting.json';
-import zhAdminUi from './locales/zh-CN/admin_ui.json';
-import zhAgent from './locales/zh-CN/agent.json';
-import zhAgents from './locales/zh-CN/agents.json';
-import zhBilling from './locales/zh-CN/billing.json';
-import zhBillingUi from './locales/zh-CN/billing_ui.json';
-import zhCalendar from './locales/zh-CN/calendar.json';
-import zhChat from './locales/zh-CN/chat.json';
-import zhCommon from './locales/zh-CN/common.json';
-import zhCommunityUi from './locales/zh-CN/community_ui.json';
-import zhCoreUi from './locales/zh-CN/core_ui.json';
-import zhDash from './locales/zh-CN/dash.json';
-import zhDashboard from './locales/zh-CN/dashboard.json';
-import zhExpense from './locales/zh-CN/expense.json';
-import zhExpensesUi from './locales/zh-CN/expenses_ui.json';
-import zhHomeoffice from './locales/zh-CN/homeoffice.json';
-import zhInvoice from './locales/zh-CN/invoice.json';
-import zhInvoiceUi from './locales/zh-CN/invoice_ui.json';
-import zhNav from './locales/zh-CN/nav.json';
-import zhOnboarding from './locales/zh-CN/onboarding.json';
-import zhStartupUi from './locales/zh-CN/startup_ui.json';
-import zhStudentUi from './locales/zh-CN/student_ui.json';
-import zhTabs from './locales/zh-CN/tabs.json';
-import zhTax from './locales/zh-CN/tax.json';
-import zhTaxUi from './locales/zh-CN/tax_ui.json';
 
 /**
- * The client-side catalog. Shape is identical to CATALOG — `{ locale: { namespace: … } }`
- * — so core.ts needs no knowledge that a subset exists.
+ * The client-side catalog: the REFERENCE LOCALE ONLY, statically.
+ *
+ * Shape is identical to CATALOG — `{ locale: { namespace: … } }` — so core.ts
+ * needs no knowledge that this is a subset.
+ *
+ * `en` is here rather than lazy because it is needed synchronously and
+ * unconditionally. `translationEnabled` starts false, so the first paint is
+ * English even for a tenant stored as fr-CA (fail-closed, decision D2), and
+ * `en` is the last link in every lookup chain — so a key missing from a
+ * lazily-loaded pack still resolves to real text instead of a dotted key.
  */
 export const CLIENT_CATALOG: Catalog = Object.freeze({
   'en': {
@@ -154,60 +109,6 @@ export const CLIENT_CATALOG: Catalog = Object.freeze({
     tax: enTax,
     tax_ui: enTaxUi,
   },
-  'fr-CA': {
-    accounting: frAccounting,
-    admin_ui: frAdminUi,
-    agent: frAgent,
-    agents: frAgents,
-    billing: frBilling,
-    billing_ui: frBillingUi,
-    calendar: frCalendar,
-    chat: frChat,
-    common: frCommon,
-    community_ui: frCommunityUi,
-    core_ui: frCoreUi,
-    dash: frDash,
-    dashboard: frDashboard,
-    expense: frExpense,
-    expenses_ui: frExpensesUi,
-    homeoffice: frHomeoffice,
-    invoice: frInvoice,
-    invoice_ui: frInvoiceUi,
-    nav: frNav,
-    onboarding: frOnboarding,
-    startup_ui: frStartupUi,
-    student_ui: frStudentUi,
-    tabs: frTabs,
-    tax: frTax,
-    tax_ui: frTaxUi,
-  },
-  'zh-CN': {
-    accounting: zhAccounting,
-    admin_ui: zhAdminUi,
-    agent: zhAgent,
-    agents: zhAgents,
-    billing: zhBilling,
-    billing_ui: zhBillingUi,
-    calendar: zhCalendar,
-    chat: zhChat,
-    common: zhCommon,
-    community_ui: zhCommunityUi,
-    core_ui: zhCoreUi,
-    dash: zhDash,
-    dashboard: zhDashboard,
-    expense: zhExpense,
-    expenses_ui: zhExpensesUi,
-    homeoffice: zhHomeoffice,
-    invoice: zhInvoice,
-    invoice_ui: zhInvoiceUi,
-    nav: zhNav,
-    onboarding: zhOnboarding,
-    startup_ui: zhStartupUi,
-    student_ui: zhStudentUi,
-    tabs: zhTabs,
-    tax: zhTax,
-    tax_ui: zhTaxUi,
-  },
 });
 
 /**
@@ -227,3 +128,49 @@ export const AVAILABLE_LOCALES: string[] = LOCALE_TAGS;
  * reaches it through CATALOG and carries every string in the product with it.
  */
 export { offerableLocales } from './locale-meta.js';
+
+/**
+ * Load one non-reference locale's pack, on demand.
+ *
+ * WHY THE OTHER LOCALES ARE NOT STATIC
+ *
+ * A browser needs one language and was being sent three: another 43 kB gzipped
+ * on every page route, measured, and dead weight for every user by definition.
+ *
+ * WHY A DYNAMIC IMPORT IS ALLOWED HERE
+ *
+ * catalog.ts's header forbids dynamic loading, and means something specific by
+ * it: runtime `fs`, or `fetch` of an asset at a computed path — the reliable
+ * road to "works locally, 500s in prod". This is neither. Every specifier
+ * below is a literal, so webpack resolves it at BUILD time and emits a chunk
+ * next to all the others; there is no filesystem and no URL anyone can get
+ * wrong. It is also client-only — chunk loading is how the app already works
+ * there — while the server keeps importing the full static CATALOG.
+ *
+ * WHY IT ADDS NO NEW LATENCY CLASS
+ *
+ * A non-`en` pack is only wanted once /tenant-config has resolved and the flag
+ * is on, and that was already an await which already caused a re-render from
+ * English to the tenant's language. This rides that boundary rather than
+ * introducing one.
+ *
+ * FAILURE IS ENGLISH, NOT A BROKEN PAGE
+ *
+ * Returns null for a locale this build cannot serve, and callers are expected
+ * to treat a rejection the same way. An AbTenantConfig row can hold a tag that
+ * no longer ships, and a chunk request can simply fail; neither may take a page
+ * down mid-render, so both degrade to the static `en` pack.
+ */
+export async function loadLocalePack(tag: string): Promise<Record<string, TranslationData> | null> {
+  // A literal switch, not a lookup table of thunks: it is what makes each
+  // specifier statically analysable, and it makes an unhandled locale a
+  // visible gap rather than an undefined call.
+  switch (tag) {
+    case 'fr-CA':
+      return (await import('./pack-fr-CA.js')).default;
+    case 'zh-CN':
+      return (await import('./pack-zh-CN.js')).default;
+    default:
+      return null;
+  }
+}
