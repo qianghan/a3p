@@ -39,6 +39,11 @@ on:
     - cron: '*/5 * * * *'
   # So it can be tested the moment it merges, rather than at the next tick.
   workflow_dispatch:
+    inputs:
+      drill:
+        description: 'Fire a drill — force a failure so the alert path runs for real'
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -68,8 +73,26 @@ jobs:
     steps:
       - name: Check /api/health/deep
         id: probe
+        env:
+          DRILL: ${{ inputs.drill }}
         run: |
           set -uo pipefail
+
+          # A drill skips the request and asserts a failure. curl is already
+          # proven by every scheduled run; what a drill exists to prove is the
+          # part that has never fired — opening an incident and closing it
+          # again. Skipping the request also skips 40 seconds of retries.
+          if [ "${DRILL}" = "true" ]; then
+            echo "DRILL — forcing a failure to exercise the alert path"
+            printf 'This is a drill. No real request was made.\n' > /tmp/health-body-trunc.txt
+            {
+              echo "status=503"
+              echo "healthy=false"
+              echo "drill=true"
+            } >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "drill=false" >> "$GITHUB_OUTPUT"
 
           # Three attempts before calling it down. One timed-out request during
           # a cold start or a deploy is not an outage, and a monitor that
@@ -128,6 +151,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           STATUS: ${{ steps.probe.outputs.status }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          DRILL: ${{ steps.probe.outputs.drill }}
         run: |
           set -euo pipefail
 
@@ -135,7 +159,7 @@ jobs:
           # substituted AFTER the heredoc delimiter scan, so nothing it
           # contains can end the block or run as a command.
           cat > /tmp/incident.md <<'TEMPLATE_END'
-          Production stopped answering `/api/health/deep` with a 200.
+          __DRILL__Production stopped answering `/api/health/deep` with a 200.
 
           | | |
           |---|---|
@@ -182,7 +206,14 @@ jobs:
                  .replace('__URL__', os.environ['HEALTH_URL'])
                  .replace('__RUN__', os.environ['RUN_URL'])
                  .replace('__WHEN__', datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%d %H:%M UTC'))
-                 .replace('__BODY__', body.strip() or '(empty)'))
+                 .replace('__BODY__', body.strip() or '(empty)')
+                 # A drill uses the real title on purpose, so the next scheduled
+                 # run closes it exactly as it would a real incident — that
+                 # round trip is the thing being proven. The banner is what
+                 # tells a reader it is not an outage.
+                 .replace('__DRILL__', '> **This is a drill.** Triggered by hand to prove the alert '
+                                       'path works. The next scheduled run will close it.\n\n'
+                                       if os.environ.get('DRILL') == 'true' else ''))
           pathlib.Path('/tmp/incident.md').write_text(tpl)
           RENDER_END
 
