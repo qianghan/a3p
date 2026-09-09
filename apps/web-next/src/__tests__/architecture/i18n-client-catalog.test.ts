@@ -43,9 +43,11 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
-import { CATALOG, NAMESPACES } from '@agentbook/i18n/catalog';
+import { CATALOG, NAMESPACES, REFERENCE_LOCALE } from '@agentbook/i18n/catalog';
+import { createTranslator } from '@agentbook/i18n';
 import {
   CLIENT_CATALOG,
+  loadLocalePack,
   CLIENT_NAMESPACES,
   SERVER_ONLY_NAMESPACES,
   AVAILABLE_LOCALES,
@@ -125,8 +127,24 @@ describe('i18n client catalog: the subset is exactly what it claims', () => {
     expect(AVAILABLE_LOCALES.slice().sort()).toEqual(Object.keys(CATALOG).sort());
   });
 
-  it('keeps the same locales and key shape as the full catalog', () => {
-    expect(Object.keys(CLIENT_CATALOG).sort()).toEqual(Object.keys(CATALOG).sort());
+  /**
+   * This used to assert that the client catalog held the SAME locales as the
+   * full one. It no longer does — only `en` is static now — so the invariant
+   * moves rather than relaxing: static plus lazily-loadable must still cover
+   * every locale the build claims to serve. Dropping the assertion instead
+   * would let a locale be advertised in the picker with nothing behind it.
+   */
+  it('covers every catalog locale between the static one and the loadable ones', async () => {
+    const covered = new Set(Object.keys(CLIENT_CATALOG));
+    for (const tag of LOCALE_TAGS) {
+      if (covered.has(tag)) continue;
+      expect(await loadLocalePack(tag), `${tag} is served by neither route`).not.toBeNull();
+      covered.add(tag);
+    }
+    expect([...covered].sort()).toEqual(Object.keys(CATALOG).sort());
+  });
+
+  it('keeps the static locale key-shape-identical to the full catalog', () => {
     for (const locale of Object.keys(CLIENT_CATALOG)) {
       expect(Object.keys(CLIENT_CATALOG[locale]).sort(), `namespaces for ${locale}`)
         .toEqual([...CLIENT_NAMESPACES].sort());
@@ -255,5 +273,84 @@ describe('i18n client catalog: the bundle guard uses sound markers', () => {
     for (const marker of markers()) {
       expect(/^[\x20-\x7e]+$/.test(marker), `marker "${marker}" is not ASCII`).toBe(true);
     }
+  });
+});
+
+describe('i18n client catalog: one locale is static, the rest are lazy', () => {
+  /**
+   * A browser needs ONE locale and used to be sent three. That was another
+   * 43 kB gzipped on every page route — most of what was left after the
+   * server-only namespaces came out, and dead weight for every user by
+   * definition, since nobody reads the product in two languages at once.
+   *
+   * `en` stays static because it is needed synchronously and unconditionally:
+   * `translationEnabled` starts false, so the FIRST paint is English even for
+   * a tenant stored as fr-CA (decision D2, fail-closed). The others are only
+   * ever needed after /tenant-config resolves, which is already an await — so
+   * fetching them there adds no new class of asynchrony, it rides one that
+   * exists.
+   *
+   * WHY import() DOES NOT BREAK THE RULE IN catalog.ts's HEADER
+   *
+   * That header forbids dynamic loading because of runtime `fs` and `fetch` of
+   * assets whose paths are computed — the reliable way to get something that
+   * "works locally, 500s in prod". A bare `import('./pack-fr-CA.js')` with a
+   * literal path is neither: webpack resolves it AT BUILD TIME and emits a
+   * chunk alongside every other chunk. There is no filesystem read and no URL
+   * for anyone to get wrong. It is also only reached from the client, where
+   * chunk loading is how the whole app already works; the server keeps
+   * importing the full static CATALOG.
+   */
+  it('ships exactly one locale statically', () => {
+    expect(Object.keys(CLIENT_CATALOG)).toEqual(['en']);
+  });
+
+  it('ships the reference locale, not an arbitrary one', () => {
+    // It must be `en`: it is the fallback every lookup chain ends at, so a
+    // miss in a lazily-loaded pack still resolves to real text.
+    expect(Object.keys(CLIENT_CATALOG)).toEqual([REFERENCE_LOCALE]);
+  });
+
+  it('has a loader for every other locale the build can serve', () => {
+    const lazy = LOCALE_TAGS.filter((l) => l !== REFERENCE_LOCALE);
+    expect(lazy.length, 'no lazy locales — this test would be vacuous').toBeGreaterThan(0);
+    expect(typeof loadLocalePack, 'loadLocalePack must exist').toBe('function');
+  });
+
+  it('loads a pack with the same namespaces and keys as the full catalog', async () => {
+    for (const tag of LOCALE_TAGS.filter((l) => l !== REFERENCE_LOCALE)) {
+      const pack = await loadLocalePack(tag);
+      expect(pack, `no pack came back for ${tag}`).not.toBeNull();
+      expect(Object.keys(pack!).sort(), `namespaces for ${tag}`).toEqual(
+        [...CLIENT_NAMESPACES].sort(),
+      );
+      // Same data as the full catalog, not a re-typed copy.
+      for (const ns of CLIENT_NAMESPACES) {
+        expect(pack![ns], `${tag}.${ns}`).toEqual(
+          (CATALOG[tag] as Record<string, unknown>)[ns],
+        );
+      }
+    }
+  });
+
+  it('returns null for a locale it does not have, rather than throwing', async () => {
+    // A tenant row holding a tag this build cannot serve must degrade to
+    // English, not take the page down mid-render.
+    await expect(loadLocalePack('de')).resolves.toBeNull();
+    await expect(loadLocalePack('')).resolves.toBeNull();
+  });
+
+  it('falls back to English for a locale whose pack has not arrived', () => {
+    // The graceful path the hook depends on: createTranslator drops locales
+    // absent from the catalog it is given, so an in-flight pack renders real
+    // English rather than raw dotted keys.
+    const key = 'nav.account_access';
+    const { t } = createTranslator('fr-CA', CLIENT_CATALOG);
+    expect(t(key)).toBe('Account Access');
+    expect(t(key)).toBe(createTranslator('en', CLIENT_CATALOG).t(key));
+    // And once the pack IS present, the same call gives French — so the test
+    // above is measuring lateness, not a permanently broken locale.
+    const loaded = { ...CLIENT_CATALOG, 'fr-CA': (CATALOG as Record<string, never>)['fr-CA'] };
+    expect(createTranslator('fr-CA', loaded).t(key)).toBe('Accès au compte');
   });
 });

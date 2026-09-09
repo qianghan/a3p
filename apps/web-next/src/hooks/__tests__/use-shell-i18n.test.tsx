@@ -28,6 +28,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { renderHook, waitFor } from '@testing-library/react';
 import { useShellI18n } from '../use-shell-i18n';
+import * as catalogClient from '@agentbook/i18n/catalog-client';
 
 /** Mirrors the real route: `{ success, data, i18nLocalesEnabled }`. */
 function installConfig(opts: {
@@ -52,7 +53,13 @@ function installConfig(opts: {
 async function load(opts: Parameters<typeof installConfig>[0]) {
   installConfig(opts);
   const { result } = renderHook(() => useShellI18n());
-  await waitFor(() => expect(result.current.ready).toBe(true));
+  // Longer than waitFor's 1s default on purpose. `ready` now waits for a
+  // non-English locale's pack, which is a real dynamic import — and the FIRST
+  // one in a run also pays vite's cold module transform. That combination
+  // overran the default once here, giving a failure that looked like the hook
+  // resolving English when it was only slow. A generous ceiling costs a fast
+  // run nothing, because waitFor returns as soon as the condition holds.
+  await waitFor(() => expect(result.current.ready).toBe(true), { timeout: 5000 });
   return result;
 }
 
@@ -147,5 +154,88 @@ describe('locale resolution', () => {
   it('sets <html lang> so screen readers and CJK font selection follow', async () => {
     await load({ locale: 'zh-CN', currency: 'CNY', i18nLocalesEnabled: true });
     await waitFor(() => expect(document.documentElement.lang).toBe('zh-CN'));
+  });
+});
+
+/**
+ * Non-English locales are no longer in the bundle; they arrive as a chunk.
+ * That saved 43 kB on every page route and introduced exactly one new way to
+ * fail — the chunk not arriving — so each branch is pinned here.
+ *
+ * The point of these is the DEGRADATION. A missing pack must read as English,
+ * because the alternative is what useT()'s humanising fallback produces:
+ * `common.cancel` rendered as "Cancel" is fine, but `core_ui.gst_help_unknown`
+ * renders as "Gst help unknown", and a page of that looks like a product bug
+ * rather than a network one.
+ */
+describe('lazily-loaded locale packs', () => {
+  it('an English tenant loads no pack at all', async () => {
+    const spy = vi.spyOn(catalogClient, 'loadLocalePack');
+    const r = await load({ locale: 'en', i18nLocalesEnabled: true });
+    expect(r.current.t('common.cancel')).toBe('Cancel');
+    // The common case must cost nothing: no request, no chunk.
+    expect(spy).not.toHaveBeenCalled();
+  });
+
+  it('loads no pack when the flag is off, whatever the tenant locale', async () => {
+    const spy = vi.spyOn(catalogClient, 'loadLocalePack');
+    const r = await load({ locale: 'fr-CA', i18nLocalesEnabled: false });
+    expect(r.current.locale).toBe('fr-CA'); // resolution is still not gated
+    expect(spy).not.toHaveBeenCalled();
+  });
+
+  it('a pack that fails to load leaves the page in English, not in raw keys', async () => {
+    vi.spyOn(catalogClient, 'loadLocalePack').mockRejectedValue(new Error('chunk load failed'));
+    const r = await load({ locale: 'fr-CA', currency: 'CAD', i18nLocalesEnabled: true });
+    expect(r.current.t('common.cancel')).toBe('Cancel');
+    // Formatting is unaffected — it never depended on the pack.
+    expect(r.current.formatMoney(123456)).toContain('1');
+  });
+
+  it('a failed pack still reports ready, rather than loading forever', async () => {
+    vi.spyOn(catalogClient, 'loadLocalePack').mockRejectedValue(new Error('offline'));
+    const r = await load({ locale: 'fr-CA', i18nLocalesEnabled: true });
+    expect(r.current.ready).toBe(true);
+  });
+
+  it('a locale this build cannot serve degrades to English', async () => {
+    // An AbTenantConfig row can hold a tag that no longer ships. resolveLocale
+    // should normally catch that, so this is the belt to that braces: a null
+    // pack must not leave `ready` false forever either.
+    vi.spyOn(catalogClient, 'loadLocalePack').mockResolvedValue(null);
+    const r = await load({ locale: 'fr-CA', i18nLocalesEnabled: true });
+    expect(r.current.ready).toBe(true);
+    expect(r.current.t('common.cancel')).toBe('Cancel');
+  });
+
+  it('a pack that loads is not also recorded as failed', async () => {
+    // The `finally` used to read `packs[wanted]` out of a closure captured
+    // BEFORE the pack was merged, so every success was booked as a failure.
+    // `ready` was true either way, which is what would have hidden it — so
+    // this asserts the observable consequence instead: French actually renders,
+    // and it keeps rendering across the re-render the merge causes.
+    const r = await load({ locale: 'fr-CA', currency: 'CAD', i18nLocalesEnabled: true });
+    expect(r.current.t('common.cancel')).toBe('Annuler');
+    await waitFor(() => expect(r.current.ready).toBe(true));
+    expect(r.current.t('common.cancel')).toBe('Annuler');
+  });
+
+  it('does not report ready until the pack has actually arrived', async () => {
+    // The race the derived-readiness change fixed: `configRead` and the flag
+    // are set in one batch, so a `ready` computed from a state flag went true
+    // for one render with English still in force.
+    let release: (v: unknown) => void = () => {};
+    vi.spyOn(catalogClient, 'loadLocalePack').mockReturnValue(
+      new Promise((res) => {
+        release = res;
+      }) as never,
+    );
+    installConfig({ locale: 'fr-CA', i18nLocalesEnabled: true });
+    const { result } = renderHook(() => useShellI18n());
+    // Give the config fetch every chance to resolve while the pack is pending.
+    await waitFor(() => expect(result.current.locale).toBe('fr-CA'));
+    expect(result.current.ready, 'ready must wait for the pack, not just the config').toBe(false);
+    release(null);
+    await waitFor(() => expect(result.current.ready).toBe(true));
   });
 });

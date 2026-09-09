@@ -17,6 +17,16 @@
 # the primary assertion is CONTENT: known catalog strings must not appear in any
 # plugin bundle. That fails loudly and specifically.
 #
+# AND THE NON-ENGLISH PACKS MUST BE LAZY, NOT ABSENT
+#
+# `en` ships statically; fr-CA and zh-CN arrive as their own chunks, which took
+# another 43 kB off every page route. "Not in the bundle" is therefore the wrong
+# assertion for them — they ARE in the build, just not in the eager payload. So
+# --shell checks two different things about them: absent from the chunks the
+# root layouts load, and PRESENT somewhere. Only checking absence would pass
+# just as happily if the packs had been dropped altogether and every
+# non-English user had silently been switched to English.
+#
 # THE SHELL HAS THE SAME PROBLEM ONE LEVEL UP
 #
 # The shell legitimately holds a catalog, but not ALL of it. Four namespaces —
@@ -73,6 +83,14 @@ CATALOG_MARKERS=(
   'Reçu enregistré'
 )
 
+# Strings unique to a NON-ENGLISH pack. The French one is ASCII so the grep is
+# unambiguous; the Chinese one cannot be, which is exactly why check (a) below
+# insists on finding it somewhere before concluding anything from its absence.
+LAZY_LOCALE_MARKERS=(
+  "Modifier le budget"   # fr-CA
+  "正在检测插件……"        # zh-CN
+)
+
 MODE="${1:-}"
 FAIL=0
 CHECKED=0
@@ -93,7 +111,8 @@ SERVER_ONLY_MARKERS=(
 )
 
 if [ "$MODE" = '--shell' ]; then
-  CHUNK_DIR="$ROOT_DIR/apps/web-next/.next/static/chunks"
+  NEXT_DIR="$ROOT_DIR/apps/web-next/.next"
+  CHUNK_DIR="$NEXT_DIR/static/chunks"
   if [ ! -d "$CHUNK_DIR" ]; then
     echo "[bundle-guard] FAIL — $CHUNK_DIR not found, so this proved nothing."
     echo "[bundle-guard] Run 'npx next build' in apps/web-next first."
@@ -124,16 +143,68 @@ if [ "$MODE" = '--shell' ]; then
     fi
   done
 
-  if [ "$shell_fail" -ne 0 ]; then
-    echo ""
-    echo "[bundle-guard] A server-only namespace reached the browser. Something"
-    echo "[bundle-guard] client-side imports '@agentbook/i18n/catalog' — directly,"
-    echo "[bundle-guard] or through a value derived from CATALOG such as"
-    echo "[bundle-guard] AVAILABLE_LOCALES or offerableLocales(). Import from"
-    echo "[bundle-guard] '@agentbook/i18n/catalog-client' instead."
+  # ---------------------------------------------------------------------------
+  # The eager payload: every chunk the root layouts pull in. A page route's
+  # First Load JS is these plus its own, so a locale pack landing in here is a
+  # pack every user downloads.
+  #
+  # Read from app-build-manifest.json rather than guessed from filenames,
+  # because the whole question is which chunks are REACHED, and only the
+  # manifest knows. Node, not jq — jq is not installed on this machine.
+  # ---------------------------------------------------------------------------
+  EAGER=$(node -e '
+    const fs = require("fs");
+    const m = JSON.parse(fs.readFileSync(process.argv[1] + "/app-build-manifest.json", "utf8"));
+    const eager = new Set();
+    for (const [route, files] of Object.entries(m.pages)) {
+      if (!/\/layout$/.test(route)) continue;   // layouts are on every page below them
+      for (const f of files) if (f.endsWith(".js")) eager.add(process.argv[1] + "/" + f);
+    }
+    process.stdout.write([...eager].join("\n"));
+  ' "$NEXT_DIR" 2>/dev/null)
+
+  if [ -z "$EAGER" ]; then
+    echo "[bundle-guard] FAIL — could not read the eager chunk list from"
+    echo "[bundle-guard] app-build-manifest.json. Fix the reader rather than"
+    echo "[bundle-guard] trusting a run that checked nothing."
     exit 1
   fi
-  echo "[bundle-guard] PASS — $n_chunks client chunks checked, no server-only packs."
+  n_eager=$(printf '%s\n' "$EAGER" | wc -l | tr -d ' ')
+
+  for marker in "${LAZY_LOCALE_MARKERS[@]}"; do
+    # (a) present SOMEWHERE — otherwise the pack was dropped, not deferred.
+    if ! grep -rqF "$marker" "$CHUNK_DIR" 2>/dev/null; then
+      echo "[bundle-guard] FAIL — a non-English pack is in no chunk at all:"
+      echo "                 marker: $marker"
+      echo "                 Either its lazy chunk was not emitted, or the"
+      echo "                 minifier escaped the text and this marker can no"
+      echo "                 longer be searched for. Both need fixing; neither"
+      echo "                 is safe to read as a pass."
+      shell_fail=1
+      continue
+    fi
+    # (b) absent from the eager payload — that is the saving.
+    hits=$(printf '%s\n' "$EAGER" | xargs grep -lF "$marker" 2>/dev/null | head -3)
+    if [ -n "$hits" ]; then
+      echo "[bundle-guard] FAIL — a non-English pack is in the eager payload,"
+      echo "               so every user downloads it:"
+      echo "                 marker: $marker"
+      printf '                 %s\n' $hits
+      shell_fail=1
+    fi
+  done
+
+  if [ "$shell_fail" -ne 0 ]; then
+    echo ""
+    echo "[bundle-guard] Something client-side imports '@agentbook/i18n/catalog'"
+    echo "[bundle-guard] — directly, or through a value derived from CATALOG such"
+    echo "[bundle-guard] as AVAILABLE_LOCALES or offerableLocales(). Import from"
+    echo "[bundle-guard] '@agentbook/i18n/catalog-client' instead, and reach a"
+    echo "[bundle-guard] non-English locale through loadLocalePack()."
+    exit 1
+  fi
+  echo "[bundle-guard] PASS — $n_chunks chunks checked ($n_eager eager): no server-only"
+  echo "[bundle-guard] packs anywhere, no non-English packs in the eager payload."
   exit 0
 fi
 
