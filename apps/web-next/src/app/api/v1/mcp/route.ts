@@ -8,6 +8,9 @@ import { isMcpEnabled } from '@/lib/mcp/mcp-flag';
 import { callAgentBrain, AgentBrainError } from '@/lib/mcp/ask-agentbook-tool';
 import { nodeRequestResponseFromWeb } from '@/lib/mcp/node-web-adapter';
 import { checkRateLimit } from '@/lib/mcp/rate-limit';
+import {
+  MAX_ROWS, readCashPosition, readExpenseBreakdown, readExpenses, readInvoices,
+} from '@/lib/mcp/read-tools';
 import { type McpSession, resolveSessionForRequest, sessions } from './session-store';
 
 function registerAskAgentbookTool(server: McpServer, tenantId: string): void {
@@ -100,6 +103,106 @@ function registerAskAgentbookTool(server: McpServer, tenantId: string): void {
 }
 
 /**
+ * The read-only tools.
+ *
+ * `ask_agentbook` answers in prose, which is right for advice and wrong for
+ * arithmetic — a model cannot filter or sum a sentence, and a connector with
+ * exactly one opaque tool gives the client nothing to discover. These return
+ * numbers with their currency attached.
+ *
+ * All four are `readOnlyHint: true` and `destructiveHint: false`, which is not
+ * decoration: it is what lets a client call them without the elicitation
+ * round-trip that `ask_agentbook` needs, and what lets a cautious client call
+ * them at all. Nothing here can change the books; writes stay behind
+ * `ask_agentbook`, which asks first.
+ *
+ * Errors are converted the same way as the tool above — a raw message from a
+ * failed query would carry table and column names to the client.
+ */
+function registerReadTools(server: McpServer, tenantId: string): void {
+  const json = (value: unknown) => ({ content: [{ type: 'text' as const, text: JSON.stringify(value, null, 2) }] });
+
+  const safely = async (name: string, run: () => Promise<unknown>) => {
+    try {
+      return json(await run());
+    } catch (err) {
+      // A bad date from the caller is their problem to fix and safe to echo;
+      // anything else is ours and is not.
+      const isInput = err instanceof Error && /^(Dates must be ISO|`from` is after)/.test(err.message);
+      if (!isInput) console.error(`[mcp] ${name} failed`, err);
+      return {
+        content: [{ type: 'text' as const, text: isInput ? (err as Error).message : 'AgentBook is temporarily unavailable.' }],
+        isError: true,
+      };
+    }
+  };
+
+  const period = {
+    from: z.string().optional().describe('ISO date, YYYY-MM-DD. Defaults to 1 January of the current year.'),
+    to: z.string().optional().describe('ISO date, YYYY-MM-DD. Defaults to today.'),
+  };
+  const readOnly = { readOnlyHint: true, destructiveHint: false, openWorldHint: false };
+
+  server.registerTool(
+    'get_cash_position',
+    {
+      description:
+        'Current cash on hand, with the per-account breakdown. Amounts are in minor units '
+        + '(cents) with the currency named, so do not assume dollars.',
+      inputSchema: {},
+      annotations: readOnly,
+    },
+    async () => safely('get_cash_position', () => readCashPosition(tenantId)),
+  );
+
+  server.registerTool(
+    'list_expenses',
+    {
+      description:
+        'Recorded expenses for a period, newest first, optionally filtered by vendor. '
+        + `Returns at most ${MAX_ROWS} rows; the total is over the whole period, not just the rows returned.`,
+      inputSchema: {
+        ...period,
+        vendor: z.string().optional().describe('Case-insensitive substring of the vendor name.'),
+        limit: z.number().int().optional().describe(`1-${MAX_ROWS}, default 25.`),
+      },
+      annotations: readOnly,
+    },
+    async ({ from, to, vendor, limit }) =>
+      safely('list_expenses', () => readExpenses(tenantId, { from, to, vendor, limit })),
+  );
+
+  server.registerTool(
+    'get_expense_breakdown',
+    {
+      description:
+        'Expense totals grouped by category for a period, largest first, with each '
+        + "category's share as a percentage. Expenses with no category are reported as "
+        + '"Uncategorised" rather than omitted.',
+      inputSchema: period,
+      annotations: readOnly,
+    },
+    async ({ from, to }) => safely('get_expense_breakdown', () => readExpenseBreakdown(tenantId, { from, to })),
+  );
+
+  server.registerTool(
+    'list_invoices',
+    {
+      description:
+        'Invoices, soonest due first, with days overdue where applicable. Also returns '
+        + 'the outstanding and overdue totals across every unpaid invoice, not just the '
+        + 'rows returned. Each amount is in the currency that invoice was issued in.',
+      inputSchema: {
+        status: z.string().optional().describe("e.g. 'draft', 'sent', 'paid'. Omit for all."),
+        limit: z.number().int().optional().describe(`1-${MAX_ROWS}, default 25.`),
+      },
+      annotations: readOnly,
+    },
+    async ({ status, limit }) => safely('list_invoices', () => readInvoices(tenantId, { status, limit })),
+  );
+}
+
+/**
  * Builds a brand-new `McpServer` + stateful `StreamableHTTPServerTransport`
  * pair for a fresh session (i.e. this request is the MCP `initialize` call).
  *
@@ -116,6 +219,7 @@ function registerAskAgentbookTool(server: McpServer, tenantId: string): void {
 async function createSession(tenantId: string): Promise<McpSession> {
   const server = new McpServer({ name: 'agentbook', version: '1.0.0' });
   registerAskAgentbookTool(server, tenantId);
+  registerReadTools(server, tenantId);
 
   // `session` is captured by the callbacks below and filled in synchronously
   // right after construction, before `server.connect(transport)` (and
