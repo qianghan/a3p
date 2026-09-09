@@ -38,7 +38,7 @@ import { prisma as db } from '@naap/database';
 // Deep import, like the other @naap/utils consumers here: the barrel pulls
 // the whole package into web-next's project graph, which its tsconfig does
 // not include.
-import { assessUserRegex } from '@naap/utils/regex-safety';
+import { assessRegexSafety } from '@naap/utils/regex-safety';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -91,7 +91,16 @@ function validate(body: SkillRegistrationBody): { ok: true; data: Required<Pick<
     if (!Array.isArray(patterns)) return { ok: false, error: `${group} must be an array of strings` };
     for (const t of patterns) {
       if (typeof t !== 'string') return { ok: false, error: `${group} must be all strings` };
-      const verdict = assessUserRegex(t);
+      // The compile stays here, where the "not a valid regex" message belongs
+      // and where CodeQL already reports it. Moving it into the shared helper
+      // would relocate that alert, not remove it.
+      let re: RegExp;
+      try {
+        re = new RegExp(t);
+      } catch {
+        return { ok: false, error: `${group}: not a valid regular expression — ${t.slice(0, 60)}` };
+      }
+      const verdict = assessRegexSafety(re, t);
       if (!verdict.safe) {
         return { ok: false, error: `${group}: ${verdict.reason} — ${t.slice(0, 60)}` };
       }

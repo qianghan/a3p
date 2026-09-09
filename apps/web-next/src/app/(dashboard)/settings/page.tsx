@@ -662,7 +662,7 @@ export default function SettingsPage() {
             <div className="flex items-start gap-4">
               <div className="relative group">
                 {profileAvatarPreview ? (
-                  <img src={safeImageSrc(profileAvatarPreview)} alt="" className="w-20 h-20 rounded-xl object-cover" />
+                  <img src={profileAvatarPreview} alt="" className="w-20 h-20 rounded-xl object-cover" />
                 ) : (
                   <div className="w-20 h-20 rounded-xl bg-gradient-to-tr from-blue-500 to-primary flex items-center justify-center text-2xl font-bold text-white">
                     {(profileName || user?.email || 'U')[0].toUpperCase()}
@@ -760,7 +760,7 @@ export default function SettingsPage() {
           <div className="space-y-4">
             <div className="flex items-center gap-4">
               {profileAvatarPreview ? (
-                <img src={safeImageSrc(profileAvatarPreview)} alt="" className="w-20 h-20 rounded-xl object-cover" />
+                <img src={profileAvatarPreview} alt="" className="w-20 h-20 rounded-xl object-cover" />
               ) : (
                 <div className="w-20 h-20 rounded-xl bg-gradient-to-tr from-blue-500 to-primary flex items-center justify-center text-2xl font-bold text-white">
                   {(profileName || user?.email || 'U')[0].toUpperCase()}

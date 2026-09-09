@@ -255,7 +255,11 @@ function ProfilePreview({
   companyName: string; logoUrl: string | null; brandColor: string; pendingLogoUrl: string | null;
 }): React.ReactElement {
   const t = useT();
-  const displayLogo = pendingLogoUrl ?? logoUrl;
+  // Validated where the value ENTERS the component, not at the <img>. One
+  // check per value instead of one per render site, and the render stays a
+  // plain read — which is also what stops the four CodeQL alerts on these
+  // lines being re-raised as new every time the file shifts by a line.
+  const displayLogo = safeImageSrc(pendingLogoUrl ?? logoUrl) ?? null;
   return (
     <div className="rounded-lg border border-border bg-card p-4">
       <p className="mb-2 text-xs font-medium text-muted-foreground uppercase tracking-wide">
@@ -263,7 +267,7 @@ function ProfilePreview({
       </p>
       <div className="flex items-center gap-3 rounded p-3" style={{ borderLeft: `4px solid ${brandColor}` }}>
         {displayLogo ? (
-          <img src={safeImageSrc(displayLogo)} alt="logo" className="h-10 w-10 rounded object-contain" />
+          <img src={displayLogo} alt="logo" className="h-10 w-10 rounded object-contain" />
         ) : (
           <div
             className="flex h-10 w-10 items-center justify-center rounded text-white text-xs font-bold"
@@ -1818,6 +1822,9 @@ export function AgentBookSettingsPanel({ initialTab }: { initialTab?: string }):
   const [saving, setSaving]       = useState(false);
   const [toast, setToast]         = useState<string | null>(null);
   const [err, setErr]             = useState<string | null>(null);
+  // Same boundary check as displayLogo above: validated once, here, rather
+  // than at the <img> that reads it.
+  const logoPreview = safeImageSrc(pendingLogoUrl ?? form?.logoUrl);
   const fileRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -2183,8 +2190,8 @@ export function AgentBookSettingsPanel({ initialTab }: { initialTab?: string }):
               <div>
                 <label className="block text-sm font-medium text-foreground">{t('core_ui.logo')}</label>
                 <div className="mt-1 flex items-center gap-3">
-                  {(pendingLogoUrl ?? form.logoUrl) ? (
-                    <img src={safeImageSrc(pendingLogoUrl ?? form.logoUrl)} alt="logo" className="h-12 w-12 rounded border object-contain" />
+                  {logoPreview ? (
+                    <img src={logoPreview ?? ''} alt="logo" className="h-12 w-12 rounded border object-contain" />
                   ) : (
                     <div className="flex h-12 w-12 items-center justify-center rounded border border-border bg-muted text-xs text-muted-foreground">{t('core_ui.no_logo')}</div>
                   )}

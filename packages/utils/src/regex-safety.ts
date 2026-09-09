@@ -63,19 +63,24 @@ function fillerFor(source: string): string {
   return literal ? literal[0] : 'a';
 }
 
-export function assessUserRegex(source: string): RegexSafetyVerdict {
+/**
+ * Assess an already-compiled pattern.
+ *
+ * The COMPILE stays with the caller deliberately. It is the caller that has
+ * the user-facing "this is not a valid regex" message to return, and it is
+ * the caller CodeQL already flags for `js/regex-injection` — a compile in
+ * here would relocate that alert into a shared package rather than remove
+ * it, and relocating an alert is not the same as fixing one.
+ *
+ * @param re     the compiled pattern
+ * @param source its source text, used to pick a plausible probe character
+ */
+export function assessRegexSafety(re: RegExp, source: string): RegexSafetyVerdict {
   if (typeof source !== 'string' || source.length === 0) {
     return { safe: false, reason: 'pattern must be a non-empty string' };
   }
   if (source.length > MAX_PATTERN_LENGTH) {
     return { safe: false, reason: `pattern is longer than ${MAX_PATTERN_LENGTH} characters` };
-  }
-
-  let re: RegExp;
-  try {
-    re = new RegExp(source);
-  } catch {
-    return { safe: false, reason: 'pattern is not a valid regular expression' };
   }
 
   const filler = fillerFor(source);
