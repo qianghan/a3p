@@ -67,17 +67,6 @@ export function buildStpPayEvent(input: StpPayEventInput): StpPayEvent {
   };
 }
 
-/**
- * The AU financial year (starting 1 Jul) that a given date falls in, expressed
- * as the ending calendar year — e.g. 2026-03-15 → FY2025-26 → 2026; a date in
- * Aug 2025 → FY2025-26 → 2026. STP YTD figures roll up within this year.
- */
-export function auFinancialYearOf(date: Date): number {
-  // Jul (month 6) onward belongs to the FY ending the NEXT calendar year.
-  return date.getUTCMonth() >= 6 ? date.getUTCFullYear() + 1 : date.getUTCFullYear();
-}
-
-/** Start date (1 Jul) of the AU financial year ending in `financialYear`. */
-export function auFinancialYearStart(financialYear: number): Date {
-  return new Date(Date.UTC(financialYear - 1, 6, 1)); // 1 Jul of the prior calendar year
-}
+// The income-year helpers live in a leaf module so an expense route can use
+// them without importing this one. Re-exported here for existing callers.
+export { auFinancialYearOf, auFinancialYearStart } from './financial-year.js';

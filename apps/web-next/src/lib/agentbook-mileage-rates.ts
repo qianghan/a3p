@@ -38,7 +38,7 @@
  */
 
 import 'server-only';
-import { auMileageRate } from '@agentbook/jurisdictions';
+import { auMileageRate, auFinancialYearOf, auFinancialYearStart } from '@agentbook/jurisdictions';
 
 export const US_RATE_2025_CENTS_PER_MI = 67;
 export const US_RATE_2024_CENTS_PER_MI = 67;
@@ -55,6 +55,15 @@ export interface RateLookup {
   ratePerUnitCents: number;
   unit: 'mi' | 'km';
   reason: string;
+  /**
+   * Distance claimable under this method for the WHOLE period, or undefined
+   * where the method has no ceiling (US, CA, UK all tier rather than cap).
+   *
+   * A cap is not a tier. Past a tier break the next kilometre is worth less;
+   * past a cap it is worth nothing under this method and the taxpayer has to
+   * switch methods entirely.
+   */
+  maxClaimableUnitsPerYear?: number;
 }
 
 /**
@@ -123,15 +132,18 @@ export function getMileageRate(
   }
 
   if (jurisdiction === 'au') {
-    // ATO cents-per-km method — flat rate, no tiering (the jurisdictions
-    // package's `tierDescription` carries an advisory note past 5,000 km
-    // suggesting the logbook method instead; the rate itself doesn't
-    // change, so we don't surface that distinction here).
+    // ATO cents-per-km method — a flat rate, but CAPPED at 5,000 km per
+    // vehicle per income year. The cap used to be dropped here on the
+    // grounds that "the rate doesn't change", which is true and beside the
+    // point: km past the cap are not claimable under this method at all.
+    // `year` is the AU income year (FY ending), not a calendar year — see
+    // `mileageRateYear`.
     const ato = auMileageRate.getRate(year, milesOrKmThisYear);
     return {
       ratePerUnitCents: Math.round(ato.rate * 100),
       unit: 'km',
-      reason: `ATO cents-per-km rate, ${year} (${Math.round(ato.rate * 100)}¢/km)`,
+      reason: `ATO cents-per-km rate, FY${year - 1}-${String(year).slice(2)} (${Math.round(ato.rate * 100)}¢/km)`,
+      maxClaimableUnitsPerYear: ato.maxClaimableUnitsPerYear,
     };
   }
 
@@ -155,4 +167,93 @@ export function getMileageRate(
   throw new Error(
     `Unknown jurisdiction "${jurisdiction}" — supported: 'us' | 'ca' | 'au' | 'uk'`,
   );
+}
+
+// =============================================================================
+// THE PERIOD, AND THE ONE PLACE A DEDUCTION IS COMPUTED
+// =============================================================================
+// Three write paths book mileage: the POST route, the PATCH service, and the
+// chat/bot executor. Each used to derive the period, look up the rate and do
+// the `distance x rate` multiply itself, which meant an AU sole trader who
+// logged a trip through chat got a different (and wrong) answer from one who
+// used the app. The rule now lives here and all three call it.
+//
+// See `mileage-cap.test.ts`, which asserts no other file does the multiply.
+
+/**
+ * The tax year whose rate table applies to a trip.
+ *
+ * Australia's income year runs 1 Jul – 30 Jun, so a trip on 15 Aug 2024 falls
+ * in FY2024-25 and takes the 88c rate — not the 85c rate keyed to calendar
+ * 2024. Everywhere else the calendar year is the tax year.
+ */
+export function mileageRateYear(jurisdiction: 'us' | 'ca' | 'au' | 'uk', tripDate: Date): number {
+  return jurisdiction === 'au' ? auFinancialYearOf(tripDate) : tripDate.getUTCFullYear();
+}
+
+/**
+ * First day of the period that tiers and caps accumulate over, for a trip on
+ * `tripDate`. AU accumulates over its income year; everyone else over the
+ * calendar year.
+ *
+ * Callers sum distance in `[periodStart, tripDate)` — strictly before the trip,
+ * so backdating an entry cannot let later trips influence its own rate.
+ */
+export function mileagePeriodStart(jurisdiction: 'us' | 'ca' | 'au' | 'uk', tripDate: Date): Date {
+  if (jurisdiction === 'au') return auFinancialYearStart(auFinancialYearOf(tripDate));
+  return new Date(Date.UTC(tripDate.getUTCFullYear(), 0, 1));
+}
+
+export interface MileageDeduction extends RateLookup {
+  /** Distance actually claimable on this trip, after any annual method cap. */
+  claimableUnits: number;
+  /** What goes in the books. `claimableUnits x ratePerUnitCents`, rounded. */
+  deductibleAmountCents: number;
+  /**
+   * Set only when the cap reduced THIS trip's claim — user-facing text naming
+   * the alternative, because "your deduction is smaller than the arithmetic
+   * suggests" is not something to leave the user to discover at lodgment.
+   */
+  capNote: string | null;
+}
+
+/**
+ * Resolve what a single trip is worth.
+ *
+ * @param unitsThisTrip      distance recorded on this trip
+ * @param unitsPriorInPeriod distance already booked in the period BEFORE it
+ * @param entryUnit          the unit the entry is stored in
+ */
+export function resolveMileageDeduction(
+  jurisdiction: 'us' | 'ca' | 'au' | 'uk',
+  tripDate: Date,
+  unitsThisTrip: number,
+  unitsPriorInPeriod: number,
+  entryUnit: 'mi' | 'km',
+): MileageDeduction {
+  const rate = getMileageRate(jurisdiction, mileageRateYear(jurisdiction, tripDate), unitsPriorInPeriod);
+
+  const cap = rate.maxClaimableUnitsPerYear;
+  // The cap is a distance, so it only means anything when the entry is stored
+  // in the same unit the rate is quoted in. A km cap applied to a mileage
+  // figure would be a second wrong answer on top of the unit mismatch that
+  // produced it, so in that case we cap nothing and let the mismatch stand
+  // as the single visible problem.
+  const capApplies = cap !== undefined && entryUnit === rate.unit;
+
+  const claimableUnits = capApplies
+    ? Math.min(unitsThisTrip, Math.max(0, cap - unitsPriorInPeriod))
+    : unitsThisTrip;
+
+  const shortfall = unitsThisTrip - claimableUnits;
+  const capNote = shortfall > 0
+    ? `Only ${claimableUnits.toLocaleString('en-AU')} of ${unitsThisTrip.toLocaleString('en-AU')} ${entryUnit} is deductible: the ATO cents-per-km method is capped at ${cap!.toLocaleString('en-AU')} km per vehicle per income year, and ${unitsPriorInPeriod.toLocaleString('en-AU')} km is already claimed. To claim the rest, switch this vehicle to the logbook method, which needs a 12-week logbook and actual running costs.`
+    : null;
+
+  return {
+    ...rate,
+    claimableUnits,
+    deductibleAmountCents: Math.round(claimableUnits * rate.ratePerUnitCents),
+    capNote,
+  };
 }

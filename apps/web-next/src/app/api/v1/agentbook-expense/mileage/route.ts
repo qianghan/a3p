@@ -15,7 +15,7 @@ import 'server-only';
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma as db } from '@naap/database';
 import { safeResolveAgentbookTenant } from '@/lib/agentbook-tenant';
-import { getMileageRate } from '@/lib/agentbook-mileage-rates';
+import { resolveMileageDeduction, mileagePeriodStart } from '@/lib/agentbook-mileage-rates';
 import { resolveVehicleAccounts } from '@/lib/agentbook-account-resolver';
 import { withSoftDelete, parseIncludeDeleted } from '@/lib/agentbook-soft-delete';
 import { publicErrorMessage } from '@/lib/api-error';
@@ -48,8 +48,10 @@ async function ytdMilesOrKm(
   tenantId: string,
   tripDate: Date,
   unit: 'mi' | 'km',
+  jurisdiction: 'us' | 'ca' | 'au' | 'uk',
 ): Promise<number> {
-  const start = new Date(Date.UTC(tripDate.getUTCFullYear(), 0, 1));
+  // AU accumulates over its income year (1 Jul), not the calendar year.
+  const start = mileagePeriodStart(jurisdiction, tripDate);
   const rows = await db.abMileageEntry.findMany({
     where: {
       tenantId,
@@ -100,7 +102,6 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     }
 
     const date = body.date ? new Date(body.date) : new Date();
-    const year = date.getUTCFullYear();
 
     // Default unit follows jurisdiction. The bot may also pass `unit`
     // explicitly when the user said "23 km" while in a US tenant —
@@ -109,19 +110,17 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       ? body.unit
       : (jurisdiction === 'ca' || jurisdiction === 'au' ? 'km' : 'mi');
 
-    // AU's ATO rate doesn't tier on YTD km (see Task 1), but we still
-    // compute it for AU so the rate lookup's `reason`/tierDescription
-    // stays accurate if a future rate table adds tiering. UK genuinely
-    // tiers on YTD miles (HMRC AMAP: 45p/mi for the first 10,000 miles,
-    // 25p/mi after), so this is load-bearing there, not just cosmetic.
+    // Load-bearing for CA and UK (both tier on the running total) and for AU
+    // (the cents-per-km method is capped at 5,000 km for the income year, so
+    // what came before decides how much of THIS trip is claimable).
     const ytd = jurisdiction === 'ca' || jurisdiction === 'au' || jurisdiction === 'uk'
-      ? await ytdMilesOrKm(tenantId, date, unit)
+      ? await ytdMilesOrKm(tenantId, date, unit, jurisdiction)
       : 0;
-    const rate = getMileageRate(jurisdiction, year, ytd);
     // If the user gave us miles in a CA tenant (or vice-versa), the rate
     // table picked a per-km rate — we still trust the user's recorded
     // unit for the stored entry, but apply the jurisdiction's rate.
-    const deductibleAmountCents = Math.round(miles * rate.ratePerUnitCents);
+    const rate = resolveMileageDeduction(jurisdiction, date, miles, ytd, unit);
+    const { deductibleAmountCents } = rate;
 
     const purpose = body.purpose.trim().slice(0, PURPOSE_MAX);
 
@@ -213,6 +212,11 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         meta: {
           rateReason: rate.reason,
           journalPosted: !!entry.journalEntryId,
+          // The full distance is stored on the entry — it is a distance log —
+          // but only `claimableUnits` of it was booked. Say so, rather than
+          // letting the caller infer the deduction from `miles x rate`.
+          claimableUnits: rate.claimableUnits,
+          capNote: rate.capNote,
         },
       },
       { status: 201 },
