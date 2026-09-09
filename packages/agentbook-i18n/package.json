@@ -15,6 +15,7 @@
   },
   "exports": {
     ".": "./src/index.ts",
-    "./catalog": "./src/catalog-entry.ts"
+    "./catalog": "./src/catalog-entry.ts",
+    "./catalog-client": "./src/catalog-client.ts"
   }
 }

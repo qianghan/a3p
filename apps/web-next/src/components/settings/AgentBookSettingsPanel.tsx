@@ -7,7 +7,11 @@ import {
   Copy, Check, Gift, Users, CreditCard,
 } from 'lucide-react';
 import { JURISDICTION_OPTIONS, defaultCurrencyFor, formatCurrencyCents } from '@/lib/jurisdiction-currency';
-import { offerableLocales } from '@agentbook/i18n/catalog';
+// The client copy. Same result, but the '/catalog' one is built on
+// Object.keys(CATALOG) and so drags all three locale packs — 97 kB
+// gzipped — into this component's chunk for the sake of a list of
+// three language names.
+import { offerableLocales } from '@agentbook/i18n/catalog-client';
 import { SubscribeModal } from './SubscribeModal';
 import { useT } from '@/hooks/use-t';
 

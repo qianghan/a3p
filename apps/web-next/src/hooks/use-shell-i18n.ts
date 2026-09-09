@@ -31,9 +31,21 @@ import {
   formatPercent,
   parseAmountToCents,
 } from '@agentbook/i18n';
-// Catalog comes from the subpath: keeping it out of the main barrel is what
+// Catalog comes from a subpath: keeping it out of the main barrel is what
 // stops all three locale packs being inlined into every plugin UMD bundle.
-import { CATALOG, AVAILABLE_LOCALES } from '@agentbook/i18n/catalog';
+//
+// And specifically the CLIENT subpath. This import is the one that decides the
+// weight of every page in the product: it sits in ShellProvider, which the
+// root layout renders, so whatever it pulls in is in every route's First Load
+// JS. '/catalog' would add the server-only namespaces — 36 kB gzipped of
+// Telegram and agent-skill copy that no browser can render — because nothing
+// tree-shakes a catalog. See catalog-client.ts.
+//
+// AVAILABLE_LOCALES comes from the same place deliberately. The version in
+// '/catalog' is Object.keys(CATALOG), so importing it retains the full catalog
+// and undoes the whole saving; a first attempt at this split kept that one
+// import and every route got BIGGER.
+import { CLIENT_CATALOG as CATALOG, AVAILABLE_LOCALES } from '@agentbook/i18n/catalog-client';
 /** Tenant config fields this hook needs. Matches `{ data: ... }` from the API. */
 interface TenantLocaleConfig {
   locale?: string | null;
