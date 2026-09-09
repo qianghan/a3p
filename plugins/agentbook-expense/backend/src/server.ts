@@ -1539,16 +1539,34 @@ app.post('/api/v1/agentbook-expense/recurring-suggestions/:vendorId/accept', asy
  *
  * Trailing/leading whitespace on each value is trimmed.
  */
+/**
+ * Hard ceilings on one CSV row.
+ *
+ * The parse is linear and advances monotonically, so a long line costs time
+ * proportional to its own length and nothing worse. The ceilings are here
+ * because "proportional to the input" stops being reassuring when the input
+ * is an uploaded file: a single 4 MB line is a 4 MB string built one
+ * character at a time, and no bank export has ever produced one. A real
+ * statement row is a few hundred bytes and a few dozen columns.
+ *
+ * Truncating rather than throwing: a malformed row should not fail an import
+ * of two thousand good ones.
+ */
+const MAX_CSV_LINE_CHARS = 64 * 1024;
+const MAX_CSV_FIELDS_PER_ROW = 512;
+
 export function parseCSVRow(line: string): string[] {
   const out: string[] = [];
   let cur = '';
   let i = 0;
   let inQuotes = false;
-  while (i < line.length) {
+  // Bounded by a constant, not by the caller's string.
+  const end = Math.min(line.length, MAX_CSV_LINE_CHARS);
+  while (i < end && out.length < MAX_CSV_FIELDS_PER_ROW) {
     const ch = line[i];
     if (inQuotes) {
       if (ch === '"') {
-        if (i + 1 < line.length && line[i + 1] === '"') {
+        if (i + 1 < end && line[i + 1] === '"') {
           cur += '"';
           i += 2;
           continue;
@@ -1575,7 +1593,10 @@ export function parseCSVRow(line: string): string[] {
     cur += ch;
     i++;
   }
-  out.push(cur.trim());
+  // The trailing field, unless the cap is already reached — otherwise the
+  // ceiling is off by one, which is the kind of "nearly bounded" that makes
+  // a limit untestable.
+  if (out.length < MAX_CSV_FIELDS_PER_ROW) out.push(cur.trim());
   return out;
 }
 

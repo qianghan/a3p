@@ -105,6 +105,28 @@ export async function resolveAgentbookTenant(request: NextRequest): Promise<stri
 export type ResolveResult = { tenantId: string } | { response: NextResponse };
 
 /**
+ * Turn a thrown `Response` into a `NextResponse`, rebuilt from a known shape.
+ *
+ * The wrapper used to re-emit the thrown body verbatim. That was safe — every
+ * `throw new Response` in this module builds its body from a string literal,
+ * so nothing of the caller's could reach it. CodeQL flagged it as stack-trace
+ * exposure regardless, because it cannot see that, and it has a point about
+ * the pattern rather than the instance: a future throw site that interpolated
+ * an exception into that body would start leaking with no visible change at
+ * the re-wrap.
+ *
+ * Reconstructing costs one parse and removes the question. Exported so the
+ * property can be tested directly, which piping a body through could not be.
+ */
+export async function rewrapAuthResponse(err: Response): Promise<NextResponse> {
+  const parsed = (await err.json().catch(() => null)) as { error?: unknown } | null;
+  // A non-string `error`, or no JSON at all, becomes the generic message: the
+  // only values allowed out are ones this module put in.
+  const message = typeof parsed?.error === 'string' ? parsed.error : 'unauthorized';
+  return NextResponse.json({ error: message }, { status: err.status });
+}
+
+/**
  * Convenience wrapper for route handlers that want graceful 401/400 responses
  * instead of unhandled throws. Returns either { tenantId } or { response } that
  * the handler should immediately return.
@@ -120,14 +142,7 @@ export async function safeResolveAgentbookTenant(
     return { tenantId };
   } catch (err) {
     if (err instanceof Response) {
-      // Re-wrap as NextResponse so the caller's typed return signature accepts it.
-      const body = await err.text();
-      return {
-        response: new NextResponse(body, {
-          status: err.status,
-          headers: err.headers,
-        }),
-      };
+      return { response: await rewrapAuthResponse(err) };
     }
     return {
       response: NextResponse.json(
