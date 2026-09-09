@@ -17,11 +17,20 @@ describe('what it lets through', () => {
     'https://cdn.example.com/logo.png',
     'http://localhost:3000/logo.png',
     '/uploads/logo.png',
-    'blob:https://agentbook.example/9f2c-…',
+    'blob:https://agentbook.example/2f8a1c44-1f0e-4a3b-9d2e-6b0d5c7e9a11',
     'data:image/png;base64,iVBORw0KGgo=',
     'data:image/svg+xml;base64,PHN2Zz48L3N2Zz4=',
   ])('accepts %s', (u) => {
     expect(safeImageSrc(u)).toBe(u);
+  });
+
+  it('normalises rather than echoing — the output is rebuilt, not the input', () => {
+    // The whole reason this rebuilds: a validator that returns its argument
+    // is transparent to taint analysis, and "we looked at it" is a weaker
+    // claim than "we parsed it and emitted only the parts we understood".
+    // The visible consequence is normalisation.
+    expect(safeImageSrc('https://cdn.example.com/a b.png')).toBe('https://cdn.example.com/a%20b.png');
+    expect(safeImageSrc('/uploads/../etc/x.png')).toBe('/etc/x.png');
   });
 
   it('accepts a blob: URL, which the old per-file helper silently dropped', () => {
