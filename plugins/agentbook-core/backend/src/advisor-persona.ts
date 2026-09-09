@@ -360,3 +360,73 @@ export function buildIntroMessage(persona: AdvisorPersona): string {
     `Want to connect your bank to start, or shall I log your first expense?`,
   ].join(' ');
 }
+
+/**
+ * The same introduction, for when it FOLLOWS an answer rather than opening
+ * the conversation.
+ *
+ * Drops the "Hi —" and the closing offer: the user has already been greeted
+ * by the answer, and they already have something to do next, which was their
+ * own question. Keeps the AI disclosure, which is the part that has to be
+ * said on first contact whatever else the turn contained.
+ */
+export function buildTrailingIntroMessage(persona: AdvisorPersona): string {
+  return [
+    `— I'm ${persona.name}, by the way, your accounting agent here at AgentBook. 👋`,
+    `Snap me a receipt and it's booked, forward an invoice and I'll help you get paid, and I'll keep an eye on your tax so nothing sneaks up on you.`,
+    `I'm an AI, so I'll always be straight with you — I'll tell you when I'm not sure and point you to a human for the big calls.`,
+  ].join(' ');
+}
+
+/**
+ * Whether the user's opening message is nothing but a salutation.
+ *
+ * Only a bare greeting: "hi", "hello there", "bonjour", "你好". Anything with
+ * a question or an instruction in it is not one, however politely it starts
+ * — "hi, how much tax do I owe?" is a question, and answering the greeting
+ * and ignoring the question is the behaviour this distinction exists to
+ * prevent.
+ */
+const GREETING_WORDS = [
+  'hi', 'hey', 'hello', 'yo', 'morning', 'good morning', 'good afternoon',
+  'good evening', 'howdy', 'sup', 'hiya', 'greetings',
+  'bonjour', 'salut', 'allo', 'bonsoir',
+  '你好', '您好', '嗨', '哈啰', '哈囉', '早上好', '下午好',
+];
+export function isBareGreeting(text: string | null | undefined): boolean {
+  const t = (text ?? '').trim().toLowerCase();
+  if (!t) return true;
+  // A question mark or a long message means they asked for something.
+  if (/[?？]/.test(t) || t.length > 40) return false;
+  // Keep letters only. A waving emoji is part of a greeting, not a word in
+  // it, and punctuation is noise. Character classes with `g` scan linearly —
+  // no backtracking, on text that reaches here unauthenticated.
+  const stripped = t.replace(/[^\p{L}\p{N}\s]+/gu, ' ').replace(/\s+/g, ' ').trim();
+  if (!stripped) return true;
+  const words = stripped.split(' ');
+  if (words.length > 4) return false;
+  const filler = new Set(['there', 'again', 'agentbook', 'all', 'everyone', 'mate', '啊', '呀']);
+  return words.every((w) => GREETING_WORDS.includes(w) || filler.has(w))
+    || GREETING_WORDS.some((g) => g.length > 1 && stripped === g);
+}
+
+/**
+ * Put the one-time introduction and the turn's answer in the right order.
+ *
+ * The introduction used to be prepended unconditionally, so a user whose very
+ * first message was a real question — "how much tax do I owe?" — got four
+ * sentences of onboarding and found their answer underneath it. On Telegram
+ * that is the whole visible message. Answer first, then say who you are; that
+ * is what a competent person does, and it is only a greeting that inverts it,
+ * because then the greeting IS the turn.
+ */
+export function composeFirstContact(
+  persona: AdvisorPersona,
+  answer: string,
+  userText: string | null | undefined,
+): string {
+  const reply = (answer ?? '').trim();
+  if (!reply) return buildIntroMessage(persona);
+  if (isBareGreeting(userText)) return `${buildIntroMessage(persona)}\n\n${reply}`;
+  return `${reply}\n\n${buildTrailingIntroMessage(persona)}`;
+}

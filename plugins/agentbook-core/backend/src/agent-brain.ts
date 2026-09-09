@@ -24,7 +24,7 @@ import { assessComplexity, generatePlan, formatPlan, createSession, getActiveSes
 import { PlanStep, Evaluation, assessStepQuality, buildFinalEvaluation, formatEvaluation } from './agent-evaluator.js';
 import { getActiveTaxQuestionnaireSession, getLatestTaxQuestionnaireSession, isDraftStale } from './tax-questionnaire-session.js';
 import { answerTaxQuestionnaire, cancelTaxQuestionnaire, type CoreResult } from './tax-questionnaire-core.js';
-import { ensureAdvisorPersona, buildAdvisorVoice, buildIntroMessage, adaptAdvisorStyle, personaPublicView, isHumanChannel } from './advisor-persona.js';
+import { ensureAdvisorPersona, buildAdvisorVoice, composeFirstContact, adaptAdvisorStyle, personaPublicView, isHumanChannel } from './advisor-persona.js';
 import { isReviewInterceptable } from './review-interception.js';
 import { replyT } from './reply-locale.js';
 
@@ -1046,7 +1046,9 @@ export async function handleAgentMessage(
       const tenantConfig = await db.abTenantConfig.findFirst({ where: { userId: req.tenantId } }).catch(() => null);
       const persona = await ensureAdvisorPersona(req.tenantId, { callGemini: ctx.callGemini, tenantConfig });
       if (!persona.introducedAt) {
-        res.data.message = `${buildIntroMessage(persona)}\n\n${res.data.message}`;
+        // Answer first, introduction after — unless the opening message was a
+        // bare greeting, in which case there is no answer to lead with.
+        res.data.message = composeFirstContact(persona, res.data.message, req.text);
         await db.abAdvisorPersona.update({ where: { tenantId: req.tenantId }, data: { introducedAt: new Date() } }).catch(() => {});
       }
       // Learn the user's tone from their recent messages so the voice grows more
