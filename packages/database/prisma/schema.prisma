@@ -2011,7 +2011,11 @@ model AbMileageEntry {
   purpose               String
   clientId              String?
   jurisdiction          String // 'us' | 'ca' — snapshot at booking time
-  ratePerUnitCents      Int // snapshot: 67 for US 2025; varies by CA tier
+  // Float, not Int: the IRS's own 2026 first-half rate is 72.5 cents per
+  // mile. Rounding it to store it would misstate the snapshot against the
+  // amount actually booked, and rounding UP over-claims. The deduction
+  // itself stays whole cents.
+  ratePerUnitCents      Float // snapshot: 70 for US 2025, 76 from 1 Jul 2026; varies by CA tier
   deductibleAmountCents Int // miles × ratePerUnitCents (rounded)
   journalEntryId        String? // linked journal entry for reversal
   deletedAt             DateTime? // PR 26: soft-delete

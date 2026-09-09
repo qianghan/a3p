@@ -23,6 +23,9 @@ export { caPack } from './ca/index.js';
 export { ukPack } from './uk/index.js';
 export { auPack } from './au/index.js';
 export { auMileageRate } from './au/mileage-rate.js';
+export { usMileageRate, usMileageRateForDate, US_MILEAGE_LATEST_PERIOD_FROM } from './us/mileage-rate.js';
+export { AU_MILEAGE_LATEST_YEAR } from './au/mileage-rate.js';
+export { CA_MILEAGE_LATEST_YEAR } from './ca/mileage-rate.js';
 export { auFinancialYearOf, auFinancialYearStart } from './au/financial-year.js';
 export {
   AU_GST_THRESHOLD_CENTS, AU_GST_REGISTRATION_DAYS, checkGstThreshold,

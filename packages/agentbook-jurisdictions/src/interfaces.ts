@@ -157,7 +157,18 @@ export interface MileageRate {
 }
 
 export interface MileageRateProvider {
-  getRate(taxYear: number, totalDistance: number): MileageRate;
+  /**
+   * @param asOf the trip's own date, where the rate can change WITHIN a tax
+   *   year. The IRS moves its standard mileage rate mid-year when fuel costs
+   *   jump — it did in 2022 and again from 1 July 2026 — and a year is not a
+   *   fine enough key to express that. Optional: omitted, a provider uses the
+   *   rate in force at the start of `taxYear`, which is correct for every
+   *   year without a mid-year change.
+   *
+   *   A single optional Date rather than an options object, deliberately:
+   *   there is one thing to pass and no way to pass it positionally wrong.
+   */
+  getRate(taxYear: number, totalDistance: number, asOf?: Date): MileageRate;
 }
 
 export interface DeductionRule {

@@ -2,7 +2,13 @@
  * Regression coverage for the AU mileage-rate bug (roadmap PR AU-2): the
  * POST /mileage route used to coerce any non-'ca' tenant jurisdiction to
  * 'us' before calling getMileageRate(), silently billing AU tenants at
- * the US 67¢/mi rate instead of the real ATO 88¢/km rate.
+ * the US rate instead of the real ATO cents-per-km rate.
+ *
+ * The expected rate is read from the jurisdictions pack for the trip's own
+ * income year rather than written here as a literal. It was `88`, which broke
+ * on 1 July 2026 when the ATO moved to 91c — a date-dependent assertion that
+ * fails annually tells you nothing about jurisdiction routing, which is what
+ * this file is for.
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -53,7 +59,7 @@ beforeEach(() => {
 });
 
 describe('POST /agentbook-expense/mileage — AU jurisdiction', () => {
-  it('an AU tenant (jurisdiction resolved from tenant config) books mileage at the ATO 88¢/km rate, not the US 67¢/mi rate', async () => {
+  it('an AU tenant (jurisdiction resolved from tenant config) books mileage at the ATO cents-per-km rate, not the US per-mile rate', async () => {
     // Arrange: tenant config resolves to AU jurisdiction, no override passed.
     tenantConfigFindUnique.mockResolvedValue({ jurisdiction: 'au' });
     mileageEntryCreate.mockImplementation(({ data }: { data: Record<string, unknown> }) => ({
@@ -72,8 +78,13 @@ describe('POST /agentbook-expense/mileage — AU jurisdiction', () => {
     expect(res.status).toBe(201);
     expect(body.data.jurisdiction).toBe('au');
     expect(body.data.unit).toBe('km');
-    expect(body.data.ratePerUnitCents).toBe(88);
-    expect(body.data.deductibleAmountCents).toBe(8_800); // 100 km × 88¢
+    const { auMileageRate, auFinancialYearOf, usMileageRate } = await import('@agentbook/jurisdictions');
+    const now = new Date();
+    const atoCents = Math.round(auMileageRate.getRate(auFinancialYearOf(now), 0).rate * 100);
+    expect(body.data.ratePerUnitCents).toBe(atoCents);
+    expect(body.data.deductibleAmountCents).toBe(100 * atoCents);
+    // The point of the test: not the US rate.
+    expect(body.data.ratePerUnitCents).not.toBe(usMileageRate.getRate(now.getUTCFullYear(), 0, now).rate * 100);
   });
 
   it('an AU tenant passing jurisdictionOverride is honored the same as us/ca', async () => {
@@ -95,6 +106,9 @@ describe('POST /agentbook-expense/mileage — AU jurisdiction', () => {
 
     expect(res.status).toBe(201);
     expect(body.data.jurisdiction).toBe('au');
-    expect(body.data.ratePerUnitCents).toBe(88);
+    const { auMileageRate, auFinancialYearOf } = await import('@agentbook/jurisdictions');
+    expect(body.data.ratePerUnitCents).toBe(
+      Math.round(auMileageRate.getRate(auFinancialYearOf(new Date()), 0).rate * 100),
+    );
   });
 });

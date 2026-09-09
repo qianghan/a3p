@@ -15,22 +15,35 @@ vi.mock('server-only', () => ({}));
 import {
   getMileageRate,
   CRA_TIER_BREAK_KM,
-  US_RATE_2025_CENTS_PER_MI,
   CRA_LOW_TIER_CENTS_PER_KM,
   CRA_HIGH_TIER_CENTS_PER_KM,
   HMRC_TIER_BREAK_MILES,
   HMRC_LOW_TIER_PENCE_PER_MI,
   HMRC_HIGH_TIER_PENCE_PER_MI,
 } from './agentbook-mileage-rates';
-import { auMileageRate } from '@agentbook/jurisdictions';
+import { auMileageRate, usMileageRate } from '@agentbook/jurisdictions';
 
 describe('getMileageRate', () => {
-  it('US 2025 → flat 67¢/mi (IRS standard rate)', () => {
+  it('US 2025 → flat 70¢/mi (IRS standard rate)', () => {
+    // This asserted 67¢ — the 2024 rate — against a shell constant that also
+    // said 67, so the test and the bug agreed with each other while the
+    // jurisdictions pack next door already held the correct 70. Assert
+    // against the pack, which is now the only table.
     const r = getMileageRate('us', 2025, 0);
     expect(r.unit).toBe('mi');
-    expect(r.ratePerUnitCents).toBe(US_RATE_2025_CENTS_PER_MI);
-    expect(r.ratePerUnitCents).toBe(67);
+    expect(r.ratePerUnitCents).toBe(70);
+    expect(r.ratePerUnitCents).toBe(usMileageRate.getRate(2025, 0).rate * 100);
     expect(r.reason).toMatch(/IRS/i);
+  });
+
+  it('US 2026 splits mid-year: 72.5¢ to 30 June, 76¢ from 1 July', () => {
+    // The IRS made a rare mid-year adjustment for 2026. A year-keyed lookup
+    // cannot express it, so a June trip and a September trip were being
+    // booked at the same rate — one of them wrong by 3.5¢/mi.
+    const june = getMileageRate('us', 2026, 0, new Date(Date.UTC(2026, 5, 15)));
+    const sept = getMileageRate('us', 2026, 0, new Date(Date.UTC(2026, 8, 15)));
+    expect(june.ratePerUnitCents).toBe(72.5);
+    expect(sept.ratePerUnitCents).toBe(76);
   });
 
   it('US flat rate is invariant of accumulated miles (no tiers)', () => {
@@ -39,19 +52,25 @@ describe('getMileageRate', () => {
     expect(a.ratePerUnitCents).toBe(b.ratePerUnitCents);
   });
 
-  it('CA below 5,000 km → low tier (72¢/km)', () => {
+  it('CA 2026 below 5,000 km → low tier (73¢/km)', () => {
+    // The CRA raised both tiers by a cent for 2026. The rate was a bare
+    // constant with no year in it, so there was nowhere for the new figure
+    // to go and the test asserted the 2025 one against a 2026 request.
     const r = getMileageRate('ca', 2026, 1_234);
     expect(r.unit).toBe('km');
-    expect(r.ratePerUnitCents).toBe(CRA_LOW_TIER_CENTS_PER_KM);
-    expect(r.ratePerUnitCents).toBe(72);
+    expect(r.ratePerUnitCents).toBe(73);
     expect(r.reason).toMatch(/CRA/i);
   });
 
-  it('CA above 5,000 km → high-tier (66¢/km)', () => {
+  it('CA 2025 still gets the 2025 tiers, so a prior-year edit is unchanged', () => {
+    expect(getMileageRate('ca', 2025, 1_234).ratePerUnitCents).toBe(72);
+    expect(getMileageRate('ca', 2025, 9_000).ratePerUnitCents).toBe(66);
+  });
+
+  it('CA 2026 above 5,000 km → high tier (67¢/km)', () => {
     const r = getMileageRate('ca', 2026, 7_500);
     expect(r.unit).toBe('km');
-    expect(r.ratePerUnitCents).toBe(CRA_HIGH_TIER_CENTS_PER_KM);
-    expect(r.ratePerUnitCents).toBe(66);
+    expect(r.ratePerUnitCents).toBe(67);
   });
 
   it('CA at the 5,000 km boundary → low tier still applies (≤ 5,000)', () => {
@@ -70,21 +89,23 @@ describe('getMileageRate', () => {
     expect(() => getMileageRate('xx', 2025, 0)).toThrow(/jurisdiction/i);
   });
 
-  it('unknown US year falls back to the latest published US rate', () => {
-    // Future-year requests should not throw — they pin to the most-recent
-    // rate we have, with a `reason` string that reflects the fallback.
+  it('unknown US year falls back to the NEWEST published US rate', () => {
+    // Future-year requests should not throw. They used to pin to 2025's rate,
+    // frozen as a literal — so once the IRS moved, "the latest rate we have"
+    // silently meant a superseded one.
     const r = getMileageRate('us', 2999, 0);
+    const newest = getMileageRate('us', 2026, 0, new Date(Date.UTC(2026, 6, 1)));
     expect(r.unit).toBe('mi');
-    expect(r.ratePerUnitCents).toBe(US_RATE_2025_CENTS_PER_MI);
-    expect(r.reason).toMatch(/fallback|2025/i);
+    expect(r.ratePerUnitCents).toBe(newest.ratePerUnitCents);
   });
 
   it('US 2024 returns the published 2024 rate (not 2025)', () => {
+    // Was `expect([67, 65, 65.5]).toContain(...)` — three acceptable answers
+    // for a published figure with exactly one correct value, which is how a
+    // rate can go stale without any test noticing.
     const r = getMileageRate('us', 2024, 0);
     expect(r.unit).toBe('mi');
-    // IRS published 67¢/mi for 2024 too (December 2023 announcement).
-    // Keep this in lock-step with the table inside the helper.
-    expect([67, 65, 65.5]).toContain(r.ratePerUnitCents);
+    expect(r.ratePerUnitCents).toBe(67);
   });
 });
 

@@ -5,7 +5,7 @@ import { auSalesTax } from '../au/sales-tax.js';
 import { auChartOfAccounts } from '../au/chart-of-accounts.js';
 import { auInstallmentSchedule } from '../au/installment-schedule.js';
 import { auContractorReport } from '../au/contractor-report.js';
-import { auMileageRate } from '../au/mileage-rate.js';
+import { auMileageRate, AU_MILEAGE_LATEST_YEAR } from '../au/mileage-rate.js';
 import { auDeductions } from '../au/deductions.js';
 import { auCalendarDeadlines } from '../au/calendar-deadlines.js';
 
@@ -240,9 +240,13 @@ describe('AU Mileage Rate', () => {
     expect(result.rate).toBe(0.85);
   });
 
-  it('falls back to the current rate for an unmapped future year', () => {
-    const result = auMileageRate.getRate(2030, 1000);
-    expect(result.rate).toBe(0.88);
+  it('falls back to the NEWEST rate we hold for an unmapped future year', () => {
+    // Was asserted as the literal 0.88, so the day the ATO moved to 91c the
+    // test still passed while every future-dated trip took the old rate.
+    // Compare against the table's own latest entry instead.
+    const future = auMileageRate.getRate(2030, 1000);
+    const latest = auMileageRate.getRate(AU_MILEAGE_LATEST_YEAR, 1000);
+    expect(future.rate).toBe(latest.rate);
   });
 
   it('does not flag the cents-per-km cap for distances at or under 5,000 km', () => {

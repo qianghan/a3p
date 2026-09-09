@@ -1,18 +1,28 @@
 import type { MileageRateProvider, MileageRate } from '../interfaces.js';
 
-// ATO cents per kilometre method — flat rate for 2024-25
-// 88 cents per km (no tiering, max 5,000 km for this method)
+// ATO cents per kilometre method, keyed by the INCOME YEAR (the year the
+// financial year ends in): 2027 is FY2026-27, which began 1 July 2026.
+// No tiering, and capped at 5,000 km for this method.
+//   FY2023-24  85c    FY2024-25  88c    FY2025-26  88c    FY2026-27  91c
+// 91c x 5,000 km = A$4,550, the maximum claim the ATO publishes for
+// 2026-27 — which is also a check on the cap below.
 const ATO_RATE_PER_KM: Record<number, number> = {
   2024: 0.85,
   2025: 0.88,
   2026: 0.88,
+  2027: 0.91,
 };
+
+/** Latest income year the table holds — asserted by the staleness test. */
+export const AU_MILEAGE_LATEST_YEAR = 2027;
 
 const MAX_KM_CENTS_METHOD = 5000;
 
 export const auMileageRate: MileageRateProvider = {
   getRate(taxYear: number, totalKm: number): MileageRate {
-    const rate = ATO_RATE_PER_KM[taxYear] ?? 0.88;
+    // Fail forward to the newest rate we hold rather than a frozen literal:
+    // a hardcoded default silently becomes last year's rate every July.
+    const rate = ATO_RATE_PER_KM[taxYear] ?? ATO_RATE_PER_KM[AU_MILEAGE_LATEST_YEAR];
 
     // The cap is returned as a NUMBER, always — not only as prose past the
     // threshold. It used to be carried in `tierDescription` alone, so callers
