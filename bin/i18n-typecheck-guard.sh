@@ -65,10 +65,48 @@ cd "$ROOT_DIR/apps/web-next" || exit 1
 # unrelated to correctness, while real type errors hid in the noise. Widening
 # the tsconfig include to silence them is a separate change with its own
 # blast radius. So: measure the 269 REAL type errors, and let TS6307 be.
-RAW="$(npx tsc --noEmit 2>&1 || true)"
+
+# `set -e` is deliberately not in force, so this captures tsc's status rather
+# than swallowing it with `|| true`. The status matters: see the sanity check
+# immediately below.
+RAW="$(npx tsc --noEmit 2>&1)"
+TSC_STATUS=$?
 ERRORS="$(printf '%s\n' "$RAW" | grep -E 'error TS' | grep -v 'error TS6307' || true)"
 COUNT="$(printf '%s\n' "$ERRORS" | grep -c 'error TS' || true)"
 [ -z "$COUNT" ] && COUNT=0
+
+# ---------------------------------------------------------------------------
+# 0. Sanity: did the compiler actually run?
+# ---------------------------------------------------------------------------
+# A tsc that never ran emits no line matching `error TS`, so COUNT is 0, the
+# owned surface looks clean, and the ratchet reports "count fell by 280 —
+# PASS". That is the worst possible green: the guard announces a large
+# improvement precisely when it measured nothing. Reachable in CI from a
+# missing binary, an OOM kill, or an unreadable tsconfig.
+#
+# tsc exits 0 only when it compiled and found nothing, so a non-zero exit with
+# no diagnostic at all means the run failed rather than the tree being clean.
+# A run reporting only TS6307 still matches `error TS` here and passes through,
+# which is intended — those are filtered from the measures, not from this check.
+#
+# The match is a bash `case`, NOT `printf ... | grep -q`. Under the `pipefail`
+# set at the top of this file that pipeline reports FAILURE when it matches:
+# `grep -q` exits the moment it finds a hit, `printf` is killed by SIGPIPE
+# writing the rest, and pipefail surfaces printf's 141 as the pipeline status.
+# So the guard aborted with "the compiler failed to run" on a perfectly normal
+# 269-error run — a false alarm from the check meant to catch a false pass.
+case "$RAW" in
+  *'error TS'*) TSC_REPORTED_DIAGNOSTIC=1 ;;
+  *)            TSC_REPORTED_DIAGNOSTIC=0 ;;
+esac
+
+if [ "$TSC_STATUS" -ne 0 ] && [ "$TSC_REPORTED_DIAGNOSTIC" -eq 0 ]; then
+  echo "[typecheck-guard] FAIL — tsc exited $TSC_STATUS without reporting a single"
+  echo "[typecheck-guard] diagnostic. The compiler failed to run; this is not a"
+  echo "[typecheck-guard] clean tree. Last lines of its output:"
+  printf '%s\n' "$RAW" | tail -20 | sed 's/^/    /'
+  exit 1
+fi
 
 # ---------------------------------------------------------------------------
 # 1. Hard gate: zero errors on the owned surface.

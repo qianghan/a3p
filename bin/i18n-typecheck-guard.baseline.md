@@ -27,3 +27,30 @@ Also recorded because it cost time: this guard runs `npx tsc --noEmit` from
 the root tsconfig is composite with an empty file list and exits 0 — so a
 root-level reproduction of the number silently reports zero errors and looks
 like the problem vanished.
+
+## 280 -> 269 (guard wired into CI)
+
+Lowered, not raised. The premise for this change was that main had drifted
+6 errors ABOVE the 280 baseline. It has not: on a clean origin/main at
+`5fd07b8c` with a lockfile-faithful install, the guard measures **269** — the
+number is 11 BELOW the baseline, and 269 + 75 TS6307 = 344 raw, the same raw
+total #515 recorded. So the drift was slack, not regression, and 11 errors of
+unearned headroom is exactly the budget a later change could have spent in
+silence.
+
+Where a higher number comes from, since it cost time to chase: this repo has a
+main checkout alongside its worktrees, and that checkout was 140 commits behind
+with 981 dirty files. Running the guard there measures a tree that does not
+exist anywhere — it gives 255. Neither tree reproduces 286. Run the guard in a
+clean worktree at origin/main, or the number describes someone else's work in
+progress.
+
+Checked before re-baselining that the fall is real and not files going missing
+from the program: TS6307 is still 75, unchanged, and the only tsconfig edit
+since 280 was locked (#515) ADDED two files to `include`. A narrowed include
+would have hidden errors rather than fixed them, and would have shown up as a
+TS6307 change.
+
+The 269 above is a macOS measurement. CI runs Linux, whose case-sensitive
+filesystem can resolve imports differently, so the CI run on the PR that wires
+this guard in is the real confirmation of the figure.
