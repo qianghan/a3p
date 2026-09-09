@@ -4844,8 +4844,9 @@ async function _executeClassificationCore(
       message += `${t('skill.completeness_overall', { percent: Math.round((filing.completeness || 0) * 100) })}\n\n`;
 
       for (const form of (filing.forms || [])) {
-        const icon = form.completeness >= 100 ? '\u2705' : form.completeness >= 50 ? '\u{1F7E1}' : '\u{1F534}';
-        message += `${icon} **${form.formCode}**: ${form.completeness}% complete\n`;
+        const formPct = Math.round((form.completeness || 0) * 100);
+        const icon = formPct >= 100 ? '\u2705' : formPct >= 50 ? '\u{1F7E1}' : '\u{1F534}';
+        message += `${icon} **${form.formCode}**: ${formPct}% complete\n`;
       }
 
       if (filing.missingFields?.length > 0) {
@@ -6329,8 +6330,9 @@ Only include chartData if visualization adds value. Keep the answer under 200 wo
       message = `${t('skill.hdr_tax_filing', { year: data.taxYear || '2025' })}\n\n`;
       message += `${t('skill.completeness_short', { percent: Math.round((data.completeness || 0) * 100) })}\n\n`;
       for (const form of (data.forms || [])) {
-        const icon = form.completeness >= 100 ? '\u2705' : form.completeness >= 50 ? '\u{1F7E1}' : '\u{1F534}';
-        message += `${icon} **${form.formCode}**: ${form.completeness}%\n`;
+        const formPct = Math.round((form.completeness || 0) * 100);
+        const icon = formPct >= 100 ? '\u2705' : formPct >= 50 ? '\u{1F7E1}' : '\u{1F534}';
+        message += `${icon} **${form.formCode}**: ${formPct}%\n`;
       }
       if (data.missingFields?.length > 0) {
         message += `\n${data.missingFields.length} fields still needed.`;
