@@ -43,12 +43,15 @@ const SE_TAX_CALCULATORS: Record<string, SelfEmploymentTaxCalculator> = {
   au: auSelfEmploymentTax,
 };
 
-function calcSelfEmploymentTax(netIncomeCents: number, jurisdiction: string, taxYear: number): { amountCents: number; deductiblePortionCents: number } {
-  if (netIncomeCents <= 0) return { amountCents: 0, deductiblePortionCents: 0 };
+function calcSelfEmploymentTax(netIncomeCents: number, jurisdiction: string, taxYear: number, region?: string | null): { amountCents: number; deductiblePortionCents: number; breakdown: Record<string, number> } {
+  if (netIncomeCents <= 0) return { amountCents: 0, deductiblePortionCents: 0, breakdown: {} };
   const calculator = SE_TAX_CALCULATORS[jurisdiction];
-  if (!calculator) return { amountCents: 0, deductiblePortionCents: 0 };
-  const result = calculator.calculate(netIncomeCents, taxYear);
-  return { amountCents: result.amountCents, deductiblePortionCents: result.deductiblePortionCents };
+  if (!calculator) return { amountCents: 0, deductiblePortionCents: 0, breakdown: {} };
+  // `region` is load-bearing for Canada: a Quebec filer pays QPP and QPIP,
+  // not CPP. Omitting it silently returns the rest-of-Canada answer, which
+  // for them is wrong and low.
+  const result = calculator.calculate(netIncomeCents, taxYear, region);
+  return { amountCents: result.amountCents, deductiblePortionCents: result.deductiblePortionCents, breakdown: result.breakdown };
 }
 
 function parseDate(val: string | null, fallback: Date): Date {
@@ -184,8 +187,8 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     // wages/dividends an individual actually draws, which isn't modeled
     // here) — so self-employment tax is $0 for the AU-company branch.
     const seTax = isAuCompany
-      ? { amountCents: 0, deductiblePortionCents: 0 }
-      : calcSelfEmploymentTax(netIncomeCents, jurisdiction, taxYear);
+      ? { amountCents: 0, deductiblePortionCents: 0, breakdown: {} as Record<string, number> }
+      : calcSelfEmploymentTax(netIncomeCents, jurisdiction, taxYear, region);
     const seTaxCents = seTax.amountCents;
     // Each jurisdiction's calculator already knows its own deductible
     // portion (half of US SE tax, the employer-equivalent CPP portion,
@@ -233,6 +236,10 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         expensesCents,
         netIncomeCents,
         seTaxCents,
+        // Named components behind the single number: `cpp`/`cpp2` outside
+        // Quebec, `qpp`/`qpp2`/`qpip` inside it. A Quebec filer seeing a
+        // larger figure than a neighbouring Ontarian is entitled to see why.
+        seTaxBreakdown: seTax.breakdown,
         incomeTaxCents,
         stateTaxCents,
         stateTaxModeled: stateTax.modeled,
