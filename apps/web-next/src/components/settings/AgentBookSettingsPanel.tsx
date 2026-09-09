@@ -50,6 +50,7 @@ interface TenantConfig {
   companyEmail: string | null;
   companyPhone: string | null;
   abn: string | null;
+  gstRegistered: boolean | null;
   logoUrl: string | null;
   brandColor: string;
   defaultPaymentTerms: string | null;
@@ -2110,6 +2111,32 @@ export function AgentBookSettingsPanel({ initialTab }: { initialTab?: string }):
                 </label>
                 <input type="text" value={form.abn ?? ''} onChange={(e) => set({ abn: e.target.value || null })}
                   className={inputCls} placeholder="12 345 678 901" />
+              </div>
+              <div>
+                {/* Tri-state, and the unanswered state is shown as unanswered
+                    rather than defaulted into one of the two answers — an ABN
+                    is not GST registration, and guessing either way charges
+                    the wrong amount to a real client. */}
+                <label className="block text-sm font-medium text-foreground">
+                  {t('core_ui.gst_registered_label')}{' '}
+                  <span className="font-normal text-muted-foreground">{t('core_ui.gst_registered_au_hint')}</span>
+                </label>
+                <select
+                  value={form.gstRegistered === true ? 'yes' : form.gstRegistered === false ? 'no' : ''}
+                  onChange={(e) => set({ gstRegistered: e.target.value === 'yes' ? true : e.target.value === 'no' ? false : null })}
+                  className={inputCls}
+                >
+                  <option value="">{t('core_ui.gst_not_answered')}</option>
+                  <option value="yes">{t('core_ui.gst_registered_yes')}</option>
+                  <option value="no">{t('core_ui.gst_registered_no')}</option>
+                </select>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {form.gstRegistered === false
+                    ? t('core_ui.gst_help_not_registered')
+                    : form.gstRegistered === true
+                      ? t('core_ui.gst_help_registered')
+                      : t('core_ui.gst_help_unknown')}
+                </p>
               </div>
               <div>
                 <label className="block text-sm font-medium text-foreground">{t('core_ui.address')}</label>

@@ -1,7 +1,8 @@
 /**
- * Proactive alerts — five alert types: pending review, missing receipts,
- * unmatched bank transactions, spending spikes vs last 30 days, and
- * piles of uncategorized expenses. Sorted by severity.
+ * Proactive alerts — six alert types: pending review, missing receipts,
+ * unmatched bank transactions, spending spikes vs last 30 days, piles of
+ * uncategorized expenses, and (AU only) the GST registration threshold.
+ * Sorted by severity.
  */
 
 import 'server-only';
@@ -10,6 +11,7 @@ import { prisma as db } from '@naap/database';
 import { safeResolveAgentbookTenant } from '@/lib/agentbook-tenant';
 import { formatCents } from '@/lib/agentbook-advisor';
 import { publicErrorMessage } from '@/lib/api-error';
+import { checkGstThreshold, gstStatusOf } from '@agentbook/jurisdictions';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -148,6 +150,46 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         message: 'Categorize them for accurate tax reporting and spending insights.',
         action: { label: 'Categorize', type: 'navigate', url: '/agentbook/expenses' },
       });
+    }
+
+    // ── AU GST registration threshold ────────────────────────────────
+    // Rolling twelve months, not the financial year: the ATO measures GST
+    // turnover over any twelve-month window, so a June-to-May run over
+    // A$75,000 creates the obligation even though no income year did.
+    const cfg = await db.abTenantConfig.findUnique({
+      where: { userId: tenantId },
+      select: { jurisdiction: true, gstRegistered: true },
+    });
+    if (cfg?.jurisdiction === 'au') {
+      const twelveMonthsAgo = new Date(now.getTime() - 365 * 86_400_000);
+      // Turnover is what was BILLED, so it counts issued invoices rather than
+      // payments received — a business on accruals crosses the threshold when
+      // it invoices, not when the client eventually pays.
+      const turnover = await db.abInvoice.aggregate({
+        where: {
+          tenantId,
+          status: { notIn: ['draft', 'void', 'cancelled'] },
+          issuedDate: { gte: twelveMonthsAgo },
+        },
+        _sum: { amountCents: true, taxCents: true },
+      });
+      // GST turnover EXCLUDES the GST itself, so net it off rather than
+      // counting our own 10% toward the threshold that decides whether we
+      // should have charged it.
+      const turnoverCents = (turnover._sum.amountCents ?? 0) - (turnover._sum.taxCents ?? 0);
+      const check = checkGstThreshold(turnoverCents, gstStatusOf(cfg.gstRegistered));
+      if (check.advice) {
+        alerts.push({
+          id: 'au-gst-threshold',
+          type: 'gst_registration',
+          severity: check.advice.severity === 'action' ? 'critical' : 'important',
+          title: check.overThreshold
+            ? 'GST registration is now compulsory'
+            : 'Are you registered for GST?',
+          message: check.advice.message,
+          action: { label: 'Open Settings', type: 'navigate', url: '/agentbook/settings' },
+        });
+      }
     }
 
     const severityOrder: Record<string, number> = { critical: 0, important: 1, info: 2 };

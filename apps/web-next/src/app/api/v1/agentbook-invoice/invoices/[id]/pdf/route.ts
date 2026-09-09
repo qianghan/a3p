@@ -154,6 +154,7 @@ export async function GET(
       address: config?.companyAddress ?? null,
       phone: config?.companyPhone ?? null,
       abn: config?.abn ?? null,
+      gstRegistered: config?.gstRegistered ?? null,
     },
   };
 

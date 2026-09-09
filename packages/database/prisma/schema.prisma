@@ -1492,7 +1492,17 @@ model AbTenantConfig {
   companyAddress          String?
   companyEmail            String?
   companyPhone            String?
-  abn                     String? // AU business number — rendered on the "Tax Invoice" (M5)
+  abn                     String? // AU business number — rendered on the invoice (M5). An ABN is NOT GST registration; see gstRegistered
+  // AU GST registration. TRI-STATE ON PURPOSE:
+  //   true  — registered: charge 10% GST, head the PDF "TAX INVOICE"
+  //   false — not registered: charge no GST, head it "INVOICE". Only a
+  //           GST-registered business may issue a tax invoice, and charging
+  //           GST you are not registered to collect is money taken from a
+  //           client that you have no BAS on which to remit.
+  //   null  — not asked yet. Keeps today's behaviour (charge GST) rather than
+  //           silently flipping live tenants either way; the threshold check
+  //           surfaces the question instead of guessing at the answer.
+  gstRegistered           Boolean?
   logoUrl                 String?
   brandColor              String   @default("#1a1a2e")
   defaultPaymentTerms     String?

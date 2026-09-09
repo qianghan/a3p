@@ -101,3 +101,27 @@ describe('invoiceTitle (M5 — AU "Tax Invoice" heading)', () => {
     expect(invoiceTitle(undefined)).toBe('INVOICE');
   });
 });
+
+describe('invoiceTitle — only a GST-registered business issues a tax invoice', () => {
+  it('heads an unregistered AU invoice "INVOICE"', () => {
+    // Printing "TAX INVOICE" asserts a legal characterisation of the document.
+    expect(invoiceTitle('au', false)).toBe('INVOICE');
+  });
+
+  it('heads a registered AU invoice "TAX INVOICE"', () => {
+    expect(invoiceTitle('au', true)).toBe('TAX INVOICE');
+  });
+
+  it('keeps the existing heading while the answer is unknown', () => {
+    // Must match what computeInvoiceTax does with the same input: while we
+    // still charge GST, the document has to be a tax invoice or the client
+    // cannot claim the input-tax credit on GST they were charged.
+    expect(invoiceTitle('au', null)).toBe('TAX INVOICE');
+    expect(invoiceTitle('au')).toBe('TAX INVOICE');
+  });
+
+  it('ignores the flag outside Australia', () => {
+    expect(invoiceTitle('us', true)).toBe('INVOICE');
+    expect(invoiceTitle('ca', true)).toBe('INVOICE');
+  });
+});

@@ -315,5 +315,13 @@
   "saved_searches": "已保存的搜索",
   "filters": "筛选",
   "back_to_settings": "返回设置",
-  "remove": "移除"
+  "remove": "移除",
+  "gst_registered_label": "已注册澳大利亚商品服务税（GST）？",
+  "gst_registered_au_hint": "（澳大利亚）",
+  "gst_not_answered": "尚未填写",
+  "gst_registered_yes": "是 — 已注册",
+  "gst_registered_no": "否 — 未注册",
+  "gst_help_registered": "发票将加收 10% GST，抬头为“Tax Invoice”。",
+  "gst_help_not_registered": "发票不含 GST，抬头为“Invoice”。",
+  "gst_help_unknown": "在您填写之前，发票将加收 10% GST，抬头为“Tax Invoice”。只有已注册 GST 的企业才可收取 GST 或开具 tax invoice — 营业额达到 75,000 澳元后，注册即为强制要求。"
 }
