@@ -98,9 +98,17 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       where: { userId: tenantId },
       select: { jurisdiction: true, region: true },
     });
+    //
+    // 'us' is in the override test on purpose. It reads as redundant next to
+    // the 'us' fallback and is not: an explicit US override has to beat a CA
+    // config, and a ternary listing only ca/au/uk lets 'us' fall through to
+    // the config branch, so a caller asking for miles at the IRS rate gets km
+    // at the CRA rate instead. The old code got this right by accident, via
+    // `if (!body.jurisdictionOverride)` around the config read.
+    const override = body.jurisdictionOverride;
     const jurisdiction: 'us' | 'ca' | 'au' | 'uk' =
-      body.jurisdictionOverride === 'ca' || body.jurisdictionOverride === 'au' || body.jurisdictionOverride === 'uk'
-        ? body.jurisdictionOverride
+      override === 'us' || override === 'ca' || override === 'au' || override === 'uk'
+        ? override
         : (cfg?.jurisdiction === 'ca' || cfg?.jurisdiction === 'au' || cfg?.jurisdiction === 'uk' ? cfg.jurisdiction : 'us');
     // Only meaningful when the config's own jurisdiction is the one being
     // billed. An override says "bill this trip as CA" without saying the

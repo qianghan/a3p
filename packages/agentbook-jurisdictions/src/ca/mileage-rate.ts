@@ -24,7 +24,15 @@ export const CA_MILEAGE_LATEST_YEAR = 2026;
  * kilometre. It is a rate, so it belongs in the rate table.
  */
 export const CA_TERRITORIES_SUPPLEMENT_PER_KM = 0.04;
-const CA_TERRITORIES = new Set(['NT', 'YT', 'NU']);
+/**
+ * Codes AND full names — a tenant config row written before region codes were
+ * normalized on write can still hold 'Yukon', and uppercasing it does not make
+ * it 'YT'. Kept in step with the shell's copy in agentbook-mileage-rates.ts.
+ */
+const CA_TERRITORIES = new Set([
+  'NT', 'YT', 'NU',
+  'NORTHWEST TERRITORIES', 'YUKON', 'NUNAVUT',
+]);
 
 /**
  * The supplement due for a region, in dollars per km — 0 for the provinces,
@@ -32,8 +40,9 @@ const CA_TERRITORIES = new Set(['NT', 'YT', 'NU']);
  * fall back to the provincial rate: guessing the supplement over-claims, and
  * over-claiming is the direction the CRA penalises.
  *
- * Trimmed and uppercased because tenant config only started normalizing region
- * codes on write partway through; older rows hold whatever was typed.
+ * Trimmed and uppercased, and matched against full names as well as codes,
+ * because tenant config only started normalizing region codes on write partway
+ * through; older rows hold whatever was typed.
  */
 function territorialSupplement(region?: string): number {
   const code = (region ?? '').trim().toUpperCase();

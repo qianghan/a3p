@@ -201,3 +201,13 @@ function topLevelArgCount(args: string): number {
   // A trailing comma before the close paren is not another argument.
   return args.trimEnd().endsWith(',') ? count - 1 : count;
 }
+
+describe('a region stored before codes were normalized still counts', () => {
+  it.each(['Yukon', 'NUNAVUT', 'northwest territories'])('%o books at 77¢', (region) => {
+    expect(getMileageRate('ca', 2026, 0, undefined, region).ratePerUnitCents).toBe(77);
+  });
+
+  it.each(['Ontario', 'QUEBEC', 'british columbia'])('%o books at 73¢', (region) => {
+    expect(getMileageRate('ca', 2026, 0, undefined, region).ratePerUnitCents).toBe(73);
+  });
+});

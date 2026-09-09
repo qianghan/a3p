@@ -111,3 +111,16 @@ describe('the grounding facts quote the rate the app will book', () => {
     expect(line(au)).toBe(line(auNoRegion));
   });
 });
+
+describe('a region stored before codes were normalized still counts', () => {
+  it.each(['Yukon', 'NUNAVUT', 'northwest territories'])('%o gets the supplement', (region) => {
+    // `normalizeRegionCode` maps these to codes on write, but only on write
+    // and only since it was added. Uppercasing 'Yukon' gives 'YUKON', not
+    // 'YT', so a set of codes alone leaves those rows under-claiming.
+    expect(caMileageRate.getRate(2026, 100, undefined, region).rate).toBeCloseTo(0.77, 5);
+  });
+
+  it.each(['Ontario', 'QUEBEC', 'british columbia'])('%o does not', (region) => {
+    expect(caMileageRate.getRate(2026, 100, undefined, region).rate).toBeCloseTo(0.73, 5);
+  });
+});

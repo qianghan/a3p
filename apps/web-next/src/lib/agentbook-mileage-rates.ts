@@ -81,7 +81,19 @@ export const CRA_HIGH_TIER_CENTS_PER_KM = CRA_RATES_BY_YEAR[CRA_LATEST_YEAR].hig
  * per-trip region on the entry, which is a schema change and a UI field.
  */
 export const CRA_TERRITORIES_SUPPLEMENT_CENTS_PER_KM = 4;
-const CRA_TERRITORIES = new Set(['NT', 'YT', 'NU']);
+/**
+ * Codes AND full names. `normalizeRegionCode` maps YUKON -> YT, but only on
+ * write and only since it was added, and there was no backfill — so a config
+ * row can still hold 'Yukon'. Uppercasing alone does not rescue those rows:
+ * 'YUKON' is not 'YT', and the tenant would keep under-claiming for exactly
+ * the reason this code exists. Names mirror the CA table in `region-codes.ts`,
+ * which this file cannot import (it is the shell's own module graph, and the
+ * jurisdictions pack needs the same list).
+ */
+const CRA_TERRITORIES = new Set([
+  'NT', 'YT', 'NU',
+  'NORTHWEST TERRITORIES', 'YUKON', 'NUNAVUT',
+]);
 
 /**
  * The supplement due, in cents/km. Zero for the ten provinces, for a code we
@@ -89,9 +101,9 @@ const CRA_TERRITORIES = new Set(['NT', 'YT', 'NU']);
  * back to the provincial rate, because guessing the supplement over-claims and
  * an over-claim is the direction that gets penalised at assessment.
  *
- * Trimmed and uppercased because tenant config only started normalizing region
- * codes on write partway through (`normalizeRegionCode`); older rows hold
- * whatever the user typed.
+ * Trimmed and uppercased, and matched against full names as well as codes,
+ * because tenant config only started normalizing region codes on write partway
+ * through (`normalizeRegionCode`) and older rows hold whatever was typed.
  */
 function craTerritorialSupplementCents(region?: string): number {
   const code = (region ?? '').trim().toUpperCase();
