@@ -30,7 +30,15 @@ export interface SelfEmploymentTaxResult {
 }
 
 export interface SelfEmploymentTaxCalculator {
-  calculate(netSelfEmploymentIncomeCents: number, taxYear: number): SelfEmploymentTaxResult;
+  /**
+   * @param region sub-national code (province/state), where the contribution
+   *   regime differs WITHIN the jurisdiction. Quebec is the case that forced
+   *   this: a Quebec resident pays QPP and QPIP, not CPP, at different rates.
+   *   Optional so every existing caller keeps compiling — but a caller that
+   *   omits it for Canada gets the rest-of-Canada answer, which for a Quebec
+   *   filer is wrong and low.
+   */
+  calculate(netSelfEmploymentIncomeCents: number, taxYear: number, region?: string | null): SelfEmploymentTaxResult;
 }
 
 export interface SalesTaxRate {

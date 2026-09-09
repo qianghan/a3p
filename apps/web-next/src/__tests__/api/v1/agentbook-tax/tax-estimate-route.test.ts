@@ -108,13 +108,23 @@ describe('GET /api/v1/agentbook-tax/tax/estimate — CA provincial tax (PARITY-1
     const { calculateStateTax } = await import('@/lib/state-tax');
     const net = 8_000_000;
     const year = new Date().getFullYear();
-    const se = caSelfEmploymentTax.calculate(net, year);
+    // 'QC' is load-bearing here, not decoration. Omitting it — as this test
+    // used to — recomputes the expectation with CPP rates while the route
+    // uses QPP + QPIP, so the test reproduced the very bug it sat next to and
+    // agreed with itself about the wrong number.
+    const se = caSelfEmploymentTax.calculate(net, year, 'QC');
+    expect(se.breakdown).toHaveProperty('qpp');
+    expect(se.breakdown.qpip).toBeGreaterThan(0);
     const taxable = Math.max(0, net - se.deductiblePortionCents);
     const federalOnly = caTaxBrackets.calculateTax(taxable, year).taxCents;
     const qcProvincial = calculateStateTax(taxable, 'QC', 'CA').taxCents;
 
-    expect(federalOnly).toBe(1234604);
-    expect(qcProvincial).toBe(1170465);
+    // Lower than the 1,234,604 this test asserted before: a Quebec filer's
+    // larger QPP+QPIP contribution buys a larger deduction, so less federal
+    // tax on top of a bigger contribution bill.
+    expect(federalOnly).toBe(1222085);
+    // Provincial moves for the same reason — same taxable base, hand-verified.
+    expect(qcProvincial).toBe(1158862);
     expect(body.data.incomeTaxCents).toBe(federalOnly);
     expect(body.data.stateTaxCents).toBe(qcProvincial);
     expect(body.data.totalTaxCents).toBe(se.amountCents + federalOnly + qcProvincial);

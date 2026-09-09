@@ -52,7 +52,11 @@ export function estimateTotalIncomeTax(
     return { seTaxCents: 0, incomeTaxCents: 0, stateTaxCents: 0, totalTaxCents: 0, stateModeled: true };
   }
   const seCalc = SE_TAX_CALCULATORS[jurisdiction];
-  const se = seCalc ? seCalc.calculate(netIncomeCents, taxYear) : { amountCents: 0, deductiblePortionCents: 0 };
+  // `region` reaches the SE calculator, not just the sub-national one: in
+  // Canada the contribution REGIME itself is provincial (QPP + QPIP in
+  // Quebec, CPP elsewhere), which is a different thing from provincial
+  // income tax and has to be settled before `taxable` is computed.
+  const se = seCalc ? seCalc.calculate(netIncomeCents, taxYear, region) : { amountCents: 0, deductiblePortionCents: 0 };
   const taxable = Math.max(0, netIncomeCents - se.deductiblePortionCents);
   // Federal ONLY (no region) — sub-national comes solely from calculateStateTax.
   const incomeTaxCents = (BRACKET_PROVIDERS[jurisdiction] ?? usTaxBrackets).calculateTax(taxable, taxYear).taxCents;
