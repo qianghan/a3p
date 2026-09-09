@@ -321,7 +321,7 @@
   "gst_not_answered": "Pas encore répondu",
   "gst_registered_yes": "Oui — inscrit",
   "gst_registered_no": "Non — non inscrit",
-  "gst_help_registered": "Les factures portent 10 % de GST et sont intitulées « Tax Invoice ».",
-  "gst_help_not_registered": "Les factures ne portent aucune GST et sont intitulées « Invoice ».",
-  "gst_help_unknown": "Tant que vous n’avez pas répondu, les factures portent 10 % de GST et sont intitulées « Tax Invoice ». Seule une entreprise inscrite à la GST peut la facturer ou émettre une « tax invoice » — l’inscription devient obligatoire dès que le chiffre d’affaires atteint 75 000 $ AU."
+  "gst_help_registered": "Factures avec 10 % de GST, intitulées « Tax Invoice ».",
+  "gst_help_not_registered": "Factures sans GST, intitulées « Invoice ».",
+  "gst_help_unknown": "Sans réponse : les factures portent 10 % de GST. Seule une entreprise inscrite peut la facturer. Obligatoire au-delà de 75 000 $ AU."
 }

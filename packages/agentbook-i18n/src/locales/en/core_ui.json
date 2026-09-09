@@ -321,7 +321,7 @@
   "gst_not_answered": "Not answered yet",
   "gst_registered_yes": "Yes — registered",
   "gst_registered_no": "No — not registered",
-  "gst_help_registered": "Invoices carry 10% GST and are headed “Tax Invoice”.",
-  "gst_help_not_registered": "Invoices carry no GST and are headed “Invoice”.",
-  "gst_help_unknown": "Until you answer, invoices carry 10% GST and are headed “Tax Invoice”. Only a GST-registered business may charge GST or issue a tax invoice — registration is compulsory once turnover reaches A$75,000."
+  "gst_help_registered": "Invoices carry 10% GST, headed “Tax Invoice”.",
+  "gst_help_not_registered": "Invoices carry no GST, headed “Invoice”.",
+  "gst_help_unknown": "Unanswered: invoices carry 10% GST. Only a GST-registered business may charge it. Compulsory above A$75,000 turnover."
 }
