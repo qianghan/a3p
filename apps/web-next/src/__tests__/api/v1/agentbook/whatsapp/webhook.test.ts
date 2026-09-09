@@ -53,6 +53,12 @@ vi.mock('@/lib/agentbook-chat-adapter', () => ({
 vi.mock('@/lib/agentbook-config', () => ({
   getAppBaseUrl: () => 'https://x.example',
   getPluginBaseUrls: () => ({}),
+  AGENTBOOK_CANONICAL_URL: 'https://agentbook.example',
+}));
+
+const ingestReceipt = vi.fn();
+vi.mock('@/lib/agentbook-receipt-ocr', () => ({
+  ingestReceipt: (...a: unknown[]) => ingestReceipt(...a),
 }));
 
 import { GET, POST } from '@/app/api/v1/agentbook/whatsapp/webhook/route';
@@ -71,6 +77,31 @@ function postReq(body: string, signature: string | null): NextRequest {
   });
 }
 
+function mediaPayload(from: string, type: 'image' | 'document', id = 'media-1', caption?: string) {
+  const media = type === 'image'
+    ? { image: { id, mime_type: 'image/jpeg', caption } }
+    : { document: { id, mime_type: 'application/pdf', filename: 'receipt.pdf', caption } };
+  return JSON.stringify({
+    entry: [{ changes: [{ field: 'messages', value: { messages: [{ from, type, ...media }] } }] }],
+  });
+}
+
+/** Meta's two-hop media fetch: metadata envelope, then the bytes. */
+function stubMetaMedia(opts: { fileSize?: number; metaOk?: boolean; binOk?: boolean } = {}) {
+  const { fileSize = 12_345, metaOk = true, binOk = true } = opts;
+  const fetchMock = vi.fn(async (url: string | URL) => {
+    const u = String(url);
+    if (u.includes('graph.facebook.com')) {
+      return metaOk
+        ? new Response(JSON.stringify({ url: 'https://lookaside.example/x', mime_type: 'image/jpeg', file_size: fileSize }), { status: 200 })
+        : new Response('nope', { status: 404 });
+    }
+    return binOk ? new Response(Buffer.from('jpegbytes'), { status: 200 }) : new Response('nope', { status: 403 });
+  });
+  vi.stubGlobal('fetch', fetchMock);
+  return fetchMock;
+}
+
 function messagePayload(from: string, body: string) {
   return JSON.stringify({
     entry: [{ changes: [{ field: 'messages', value: { messages: [{ from, type: 'text', text: { body } }] } } ] }],
@@ -84,6 +115,8 @@ beforeEach(() => {
   skillManifestFindMany.mockReset();
   handleAgentMessage.mockReset();
   sendMessage.mockReset();
+  ingestReceipt.mockReset();
+  vi.unstubAllGlobals();
   process.env.WHATSAPP_APP_SECRET = 'app-secret';
   process.env.WHATSAPP_WEBHOOK_VERIFY_TOKEN = 'verify-me';
   process.env.WHATSAPP_ACCESS_TOKEN = 'wa-token';
@@ -270,15 +303,147 @@ describe('WhatsApp webhook POST — link-code matching', () => {
     expect(sendMessage).toHaveBeenCalledWith('+15551234567', expect.stringContaining('something went wrong'));
   });
 
-  it('rejects non-text message types with a text-only notice', async () => {
+  it('rejects a message type it cannot handle, without a tenant lookup', async () => {
+    // An 'image' type with no image payload, or an audio note: nothing to
+    // read either way. The notice used to say "text messages only", which
+    // stopped being true once receipts landed.
     whatsAppLinkFindMany.mockResolvedValueOnce([]);
     const body = JSON.stringify({
-      entry: [{ changes: [{ value: { messages: [{ from: '+15551234567', type: 'image' }] } }] }],
+      entry: [{ changes: [{ value: { messages: [{ from: '+15551234567', type: 'audio' }] } }] }],
     });
     const res = await POST(postReq(body, sign(body, 'app-secret')));
 
     expect(res.status).toBe(200);
-    expect(sendMessage).toHaveBeenCalledWith('+15551234567', expect.stringContaining('text messages only'));
+    expect(sendMessage).toHaveBeenCalledWith('+15551234567', expect.stringContaining('receipt photos'));
     expect(whatsAppLinkFindMany).not.toHaveBeenCalled();
+  });
+});
+
+describe('WhatsApp receipts', () => {
+  const LINKED = [{ tenantId: 't1', phoneNumbers: ['15551234567'] }];
+
+  it('scans a photo from a linked number through the SHARED pipeline', async () => {
+    // The point of this test is the call, not the reply: WhatsApp must go
+    // through `ingestReceipt` — the same path Telegram uses — rather than a
+    // second OCR implementation that would drift from it.
+    whatsAppLinkFindMany.mockResolvedValue(LINKED);
+    stubMetaMedia();
+    ingestReceipt.mockResolvedValue({
+      ok: true,
+      ocr: { amount_cents: 4_599, vendor: 'Starbucks', currency: 'AUD', confidence: 0.95 },
+      expense: { id: 'e1', vendorName: 'Starbucks' },
+      receiptUrl: 'https://blob/x.jpg',
+    });
+
+    const body = mediaPayload('15551234567', 'image');
+    const res = await POST(postReq(body, sign(body, 'app-secret')));
+
+    expect(res.status).toBe(200);
+    expect(ingestReceipt).toHaveBeenCalledTimes(1);
+    const arg = ingestReceipt.mock.calls[0][0] as Record<string, unknown>;
+    expect(arg.tenantId).toBe('t1');
+    expect(arg.source).toBe('whatsapp_photo');
+    expect(String(arg.fileUrl)).toMatch(/^data:image\/jpeg;base64,/);
+    expect(sendMessage.mock.calls[0][1]).toMatch(/45\.99/);
+    expect(sendMessage.mock.calls[0][1]).toMatch(/Starbucks/);
+  });
+
+  it('tags a PDF as whatsapp_pdf, not whatsapp_photo', async () => {
+    whatsAppLinkFindMany.mockResolvedValue(LINKED);
+    vi.stubGlobal('fetch', vi.fn(async (url: string | URL) =>
+      String(url).includes('graph.facebook.com')
+        ? new Response(JSON.stringify({ url: 'https://lookaside.example/x', mime_type: 'application/pdf' }), { status: 200 })
+        : new Response(Buffer.from('%PDF-1.4'), { status: 200 })));
+    ingestReceipt.mockResolvedValue({ ok: true, ocr: { amount_cents: 100, vendor: null, currency: 'AUD', confidence: 1 }, expense: { id: 'e', vendorName: null }, receiptUrl: 'u' });
+
+    const body = mediaPayload('15551234567', 'document');
+    await POST(postReq(body, sign(body, 'app-secret')));
+    expect((ingestReceipt.mock.calls[0][0] as Record<string, unknown>).source).toBe('whatsapp_pdf');
+  });
+
+  it('never scans for an UNLINKED number', async () => {
+    // An unlinked sender has no tenant to book against — and must not be able
+    // to spend somebody's metered OCR quota by messaging a shared number.
+    whatsAppLinkFindMany.mockResolvedValue([]);
+    whatsAppLinkFindUnique.mockResolvedValue(null);
+    stubMetaMedia();
+
+    const body = mediaPayload('19999999999', 'image');
+    await POST(postReq(body, sign(body, 'app-secret')));
+
+    expect(ingestReceipt).not.toHaveBeenCalled();
+    expect(sendMessage.mock.calls[0][1]).toMatch(/linked/i);
+  });
+
+  it('passes the quota refusal through with the limit, and books nothing', async () => {
+    whatsAppLinkFindMany.mockResolvedValue(LINKED);
+    stubMetaMedia();
+    ingestReceipt.mockResolvedValue({ ok: false, reason: 'quota', limit: 20 });
+
+    const body = mediaPayload('15551234567', 'image');
+    await POST(postReq(body, sign(body, 'app-secret')));
+    expect(sendMessage.mock.calls[0][1]).toMatch(/all 20 receipt scans/);
+  });
+
+  it('distinguishes an unreadable receipt from a failure', async () => {
+    // "Something went wrong" sends the user to support; "I couldn't make out
+    // the total" sends them back to their camera, which is where the fix is.
+    whatsAppLinkFindMany.mockResolvedValue(LINKED);
+    stubMetaMedia();
+    ingestReceipt.mockResolvedValue({ ok: false, reason: 'unreadable' });
+
+    const body = mediaPayload('15551234567', 'image');
+    await POST(postReq(body, sign(body, 'app-secret')));
+    expect(sendMessage.mock.calls[0][1]).toMatch(/couldn't make out the total/i);
+  });
+
+  it('says so when the media cannot be downloaded, and does not call OCR', async () => {
+    whatsAppLinkFindMany.mockResolvedValue(LINKED);
+    stubMetaMedia({ metaOk: false });
+
+    const body = mediaPayload('15551234567', 'image');
+    await POST(postReq(body, sign(body, 'app-secret')));
+    expect(ingestReceipt).not.toHaveBeenCalled();
+    expect(sendMessage.mock.calls[0][1]).toMatch(/download/i);
+  });
+
+  it('refuses an oversized file before downloading it', async () => {
+    whatsAppLinkFindMany.mockResolvedValue(LINKED);
+    const fetchMock = stubMetaMedia({ fileSize: 90_000_000 });
+
+    const body = mediaPayload('15551234567', 'image');
+    await POST(postReq(body, sign(body, 'app-secret')));
+
+    // Only the metadata hop happened — the 90 MB body was never pulled.
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(ingestReceipt).not.toHaveBeenCalled();
+  });
+
+  it('surfaces low OCR confidence rather than presenting a guess as certain', async () => {
+    whatsAppLinkFindMany.mockResolvedValue(LINKED);
+    stubMetaMedia();
+    ingestReceipt.mockResolvedValue({
+      ok: true,
+      ocr: { amount_cents: 1_200, vendor: 'Blurry Cafe', currency: 'AUD', confidence: 0.42 },
+      expense: { id: 'e1', vendorName: 'Blurry Cafe' },
+      receiptUrl: 'u',
+    });
+
+    const body = mediaPayload('15551234567', 'image');
+    await POST(postReq(body, sign(body, 'app-secret')));
+    expect(sendMessage.mock.calls[0][1]).toMatch(/42% sure/);
+  });
+
+  it('still routes plain text to the agent brain, unchanged', async () => {
+    whatsAppLinkFindMany.mockResolvedValue(LINKED);
+    skillManifestFindMany.mockResolvedValue([]);
+    handleAgentMessage.mockResolvedValue({ success: true, data: { message: 'sure thing' } });
+
+    const body = messagePayload('15551234567', 'what did I spend on coffee?');
+    await POST(postReq(body, sign(body, 'app-secret')));
+
+    expect(ingestReceipt).not.toHaveBeenCalled();
+    expect(handleAgentMessage).toHaveBeenCalledTimes(1);
+    expect(sendMessage.mock.calls[0][1]).toBe('sure thing');
   });
 });
