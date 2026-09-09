@@ -264,3 +264,78 @@ describe('advisorAge', () => {
     expect(advisorAge(new Date('1998-06-15'), new Date('2026-06-15'))).toBe(28);
   });
 });
+
+describe('first contact — the answer comes first', () => {
+  /**
+   * The introduction used to be prepended unconditionally, so a user whose
+   * very first message was a real question got four sentences of onboarding
+   * and found their answer underneath it. On Telegram that is the whole
+   * visible message: the scorecard recorded AU opening its first consultative
+   * turn with the persona intro instead of the answer.
+   */
+  const ANSWER = 'You have about A$3,240 set aside for tax so far this year.';
+
+  it('puts a real answer above the introduction', async () => {
+    const { composeFirstContact } = await import('../advisor-persona.js');
+    const out = composeFirstContact(persona, ANSWER, 'how much tax have I set aside?');
+    expect(out.indexOf(ANSWER)).toBe(0);
+    expect(out).toMatch(new RegExp(`${persona.name}`));
+    expect(out.indexOf(persona.name)).toBeGreaterThan(out.indexOf(ANSWER));
+  });
+
+  it('leads with the introduction when the opener is only a greeting', async () => {
+    const { composeFirstContact } = await import('../advisor-persona.js');
+    for (const greeting of ['hi', 'Hello there!', 'bonjour', '你好', 'hey 👋', '']) {
+      const out = composeFirstContact(persona, 'Hey! What can I help with?', greeting);
+      expect(out.indexOf(persona.name), `greeting: ${greeting}`).toBeLessThan(out.indexOf('Hey!'));
+    }
+  });
+
+  it('treats a politely-prefixed question as a question, not a greeting', async () => {
+    // "hi, how much tax do I owe?" is the case that matters: answering the
+    // greeting and burying the question is exactly the behaviour being fixed.
+    const { composeFirstContact, isBareGreeting } = await import('../advisor-persona.js');
+    expect(isBareGreeting('hi, how much tax do I owe?')).toBe(false);
+    const out = composeFirstContact(persona, ANSWER, 'hi, how much tax do I owe?');
+    expect(out.indexOf(ANSWER)).toBe(0);
+  });
+
+  it('still discloses the AI, whichever way round it goes', async () => {
+    const { composeFirstContact } = await import('../advisor-persona.js');
+    for (const opener of ['hi', 'what do I owe?']) {
+      expect(composeFirstContact(persona, ANSWER, opener)).toMatch(/I'm an AI/);
+    }
+  });
+
+  it('falls back to the full introduction when there is no answer to lead with', async () => {
+    const { composeFirstContact, buildIntroMessage } = await import('../advisor-persona.js');
+    expect(composeFirstContact(persona, '   ', 'what do I owe?')).toBe(buildIntroMessage(persona));
+  });
+
+  it('does not ask a closing question when it trails an answer', async () => {
+    // "Shall I log your first expense?" after the user already asked
+    // something reads as ignoring them. They have a next step: their question.
+    const { composeFirstContact } = await import('../advisor-persona.js');
+    const out = composeFirstContact(persona, ANSWER, 'what do I owe?');
+    expect(out).not.toMatch(/shall I log your first expense/i);
+  });
+});
+
+describe('isBareGreeting', () => {
+  it.each(['hi', 'Hi!', 'hey there', 'good morning', 'bonjour', 'salut', '你好', '您好'])(
+    'recognises %s', async (t) => {
+      const { isBareGreeting } = await import('../advisor-persona.js');
+      expect(isBareGreeting(t)).toBe(true);
+    });
+
+  it.each([
+    'how much did I spend on meals?',
+    'log a $40 lunch',
+    'hi can you tell me what my quarterly payment is',
+    '你好，我这个月花了多少钱',
+    'what do I owe',
+  ])('does not mistake %s for a greeting', async (t) => {
+    const { isBareGreeting } = await import('../advisor-persona.js');
+    expect(isBareGreeting(t)).toBe(false);
+  });
+});
