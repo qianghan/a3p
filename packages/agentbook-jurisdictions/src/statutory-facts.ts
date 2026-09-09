@@ -121,7 +121,10 @@ export function statutoryFactLines(
     // because the model quoting the wrong cents-per-unit is its own problem,
     // and one line of correct context is cheaper than a repair round.
     try {
-      const m = pack.mileageRate.getRate(taxYear, 0);
+      // `region` is load-bearing: the CRA adds 4c/km in NT, YT and NU, and a
+      // fact line quoting the provincial rate to a Whitehorse tenant
+      // contradicts the amount the app books for the same trip.
+      const m = pack.mileageRate.getRate(taxYear, 0, undefined, region ?? undefined);
       const minor = MINOR_UNIT[j] ?? 'cents';
       lines.push(`Mileage rate: ${Math.round(m.rate * 100)} ${minor} per ${m.unit}${m.tierDescription ? ` (${m.tierDescription})` : ''}.`);
       if (m.maxClaimableUnitsPerYear !== undefined) {

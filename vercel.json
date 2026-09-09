@@ -22,9 +22,6 @@
       "maxDuration": 60,
       "memory": 1024
     },
-    "app/api/v1/gw/**": {
-      "maxDuration": 60
-    },
     "app/api/v1/[plugin]/**": {
       "maxDuration": 30
     },
@@ -108,7 +105,7 @@
   ],
   "redirects": [],
   "crons": [
-    { "path": "/api/v1/gw/admin/health/check", "schedule": "*/5 * * * *" },
+    { "path": "/api/v1/agentbook/cron/uptime-check", "schedule": "*/5 * * * *" },
     { "path": "/api/v1/agentbook/cron/daily-pulse", "schedule": "0 13 * * *" },
     { "path": "/api/v1/agentbook/cron/calendar-check", "schedule": "0 * * * *" },
     { "path": "/api/v1/agentbook/cron/weekly-review", "schedule": "0 14 * * 1" },

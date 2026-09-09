@@ -11,18 +11,38 @@
  *   - it works unchanged in serverless, where dynamic asset loading is a
  *     common source of "works locally, 500s in prod"
  *
+ * THIS IS THE FULL CATALOG — SERVER AND TESTS ONLY
+ *   It includes the namespaces only the server reaches (bot, skill, proactive,
+ *   rate: 36 kB gzipped, `bot` alone being 76.6 kB of raw Telegram copy across
+ *   three locales). Client code must import '@agentbook/i18n/catalog-client',
+ *   which leaves them out. Nothing tree-shakes a catalog — see catalog-client.ts
+ *   for the measurements and why.
+ *
+ *   The same applies to anything DERIVED from CATALOG. `AVAILABLE_LOCALES` is
+ *   Object.keys(CATALOG), so importing it retains all of it; that is why the
+ *   locale list and readiness live in locale-meta.ts, which holds no packs.
+ *
  * ADDING A LOCALE
  *   1. create src/locales/<tag>/ with one JSON file per namespace
- *   2. add the imports and one CATALOG entry below
- *   3. the architecture invariants (apps/web-next/src/__tests__/architecture/)
- *      will fail until the new locale has full key parity with `en`
+ *   2. add the tag to LOCALE_TAGS and LOCALE_STATUS in locale-meta.ts
+ *   3. add the imports and one CATALOG entry below
+ *   4. add the same imports and entry to catalog-client.ts
+ *   5. the architecture invariants (apps/web-next/src/__tests__/architecture/)
+ *      will fail until the new locale has full key parity with `en` and until
+ *      LOCALE_TAGS matches the locales defined here
  *
  * ADDING A KEY
  *   Add it to en/<namespace>.json first — `en` is the reference set that
- *   parity is measured against — then to every other locale.
+ *   parity is measured against — then to every other locale. Nothing to do in
+ *   either catalog module: a key in an existing namespace is picked up by both.
+ *
+ * ADDING A NAMESPACE
+ *   Also add it to CLIENT_NAMESPACES or SERVER_ONLY_NAMESPACES in
+ *   locale-meta.ts. i18n-client-catalog.test.ts fails if it is in neither.
  */
 
 import type { Catalog } from './core.js';
+import { LOCALE_STATUS as STATUS } from './locale-meta.js';
 
 // English — the reference locale. Every key must exist here.
 import enAgent from './locales/en/agent.json';
@@ -225,38 +245,24 @@ export const CATALOG: Catalog = Object.freeze({
 export const AVAILABLE_LOCALES: string[] = Object.keys(CATALOG);
 
 /**
- * Translation readiness, per locale.
+ * Readiness lives in locale-meta.ts, along with the locale list itself.
  *
- *   reference  the source of truth for keys ('en')
- *   ready      fully translated; content invariants apply
- *   scaffold   correct STRUCTURE, but values are still English placeholders
- *
- * Why this exists: a locale is built in two steps — structure first (so every
- * call site can be wired and type-checked), content second. Without an
- * explicit marker, the content invariants would either have to be omitted
- * (and then never added) or would block the structural work that has to land
- * first. Naming the state keeps both honest.
- *
- * A `scaffold` locale MUST NOT be user-selectable. The i18n feature flag is
- * what enforces that, and flipping it on while any locale is still `scaffold`
- * is a release error — asserted in the architecture suite.
+ * Why it is not declared here: anything exported from THIS module carries the
+ * whole catalog to whoever imports it, because the packs above are what this
+ * file is. A component that wants only the list of languages should not pay
+ * 97 kB for it, and two of them were. See locale-meta.ts.
  */
-export type LocaleReadiness = 'reference' | 'ready' | 'scaffold';
-
-export const LOCALE_STATUS: Record<string, LocaleReadiness> = Object.freeze({
-  en: 'reference',
-  'fr-CA': 'ready',
-  'zh-CN': 'ready',
-});
+export { LOCALE_STATUS } from './locale-meta.js';
+export type { LocaleReadiness } from './locale-meta.js';
 
 /** Locales whose content is finished and therefore content-invariant-checked. */
 export const TRANSLATED_LOCALES: string[] = AVAILABLE_LOCALES.filter(
-  (l) => LOCALE_STATUS[l] === 'ready',
+  (l) => STATUS[l] === 'ready',
 );
 
 /** Locales still awaiting translated values. Must be empty before GA. */
 export const SCAFFOLD_LOCALES: string[] = AVAILABLE_LOCALES.filter(
-  (l) => LOCALE_STATUS[l] === 'scaffold',
+  (l) => STATUS[l] === 'scaffold',
 );
 
 /**

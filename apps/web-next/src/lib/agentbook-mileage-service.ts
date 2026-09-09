@@ -75,6 +75,24 @@ export async function updateMileageEntry(
   const jurisdiction = (existing.jurisdiction === 'ca' || existing.jurisdiction === 'au' || existing.jurisdiction === 'uk')
     ? existing.jurisdiction
     : 'us';
+
+  // The CRA's territorial supplement needs the province, and unlike the
+  // jurisdiction it is NOT snapshotted on the entry — there is no column for
+  // it. So an edit re-derives it from current config, which means a tenant who
+  // moves out of Yukon and then edits a Yukon trip gets it re-priced at the
+  // provincial rate. That is a real (small) inaccuracy, called out here rather
+  // than left to be discovered: fixing it properly means a `region` column on
+  // AbMileageEntry alongside `jurisdiction`, which is a migration, not a
+  // parameter. Read only for CA — every other jurisdiction ignores it, and the
+  // codes collide across countries.
+  let region = '';
+  if (jurisdiction === 'ca') {
+    const cfg = await db.abTenantConfig.findUnique({
+      where: { userId: tenantId },
+      select: { jurisdiction: true, region: true },
+    });
+    region = cfg?.jurisdiction === 'ca' ? (cfg.region ?? '') : '';
+  }
   let ytd = 0;
   if (jurisdiction !== 'us') {
     // AU accumulates over its income year (1 Jul); CA/UK over the calendar year.
@@ -95,7 +113,7 @@ export async function updateMileageEntry(
   // book 4,000 km, edit it to 12,000, and get the uncapped amount the create
   // path refuses.
   const deduction = resolveMileageDeduction(
-    jurisdiction, existing.date, newMiles, ytd, existing.unit as 'mi' | 'km',
+    jurisdiction, existing.date, newMiles, ytd, existing.unit as 'mi' | 'km', region,
   );
   const ratePerUnitCents = deduction.ratePerUnitCents;
   const newDeductibleCents = deduction.deductibleAmountCents;

@@ -2,7 +2,11 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { Languages, Check } from 'lucide-react';
-import { offerableLocales } from '@agentbook/i18n/catalog';
+// The client copy. Same result, but the '/catalog' one is built on
+// Object.keys(CATALOG) and so drags all three locale packs — 97 kB
+// gzipped — into this component's chunk for the sake of a list of
+// three language names.
+import { offerableLocales } from '@agentbook/i18n/catalog-client';
 import { useT } from '@/hooks/use-t';
 
 /**

@@ -17,12 +17,28 @@
 # the primary assertion is CONTENT: known catalog strings must not appear in any
 # plugin bundle. That fails loudly and specifically.
 #
+# THE SHELL HAS THE SAME PROBLEM ONE LEVEL UP
+#
+# The shell legitimately holds a catalog, but not ALL of it. Four namespaces —
+# bot, skill, proactive, rate — are reached only from the server: `bot` alone
+# is 76.6 kB of raw Telegram copy across three locales. They are excluded via
+# '@agentbook/i18n/catalog-client', and --shell asserts that exclusion against
+# the built chunks rather than against the source.
+#
+# It is checked here, on the artifact, because the source-level version of this
+# check has already been fooled once. Cutting the namespaces out while leaving
+# a single `AVAILABLE_LOCALES` import behind — a value computed as
+# Object.keys(CATALOG), and therefore retaining all of it — produced a build
+# carrying BOTH catalogs, and every route grew by 3-4 kB. The route table did
+# not say why. Grepping the chunks does.
+#
 # Usage:
 #   ./bin/i18n-bundle-guard.sh            # check committed CDN bundles
 #   ./bin/i18n-bundle-guard.sh --dist     # check freshly built dist/production
+#   ./bin/i18n-bundle-guard.sh --shell    # check apps/web-next/.next client chunks
 #
 # Exit codes:
-#   0 = no catalog content found in any plugin bundle
+#   0 = no catalog content found where it should not be
 #   1 = a catalog leaked into at least one bundle
 # =============================================================================
 
@@ -60,6 +76,67 @@ CATALOG_MARKERS=(
 MODE="${1:-}"
 FAIL=0
 CHECKED=0
+
+# -----------------------------------------------------------------------------
+# --shell: the server-only packs must not be in any client chunk.
+# -----------------------------------------------------------------------------
+# Markers are ASCII on purpose. The minifier escapes non-ASCII in some chunks,
+# so a French or Chinese marker can be absent from the text while present in
+# the bundle — a guard that reports a false PASS is worse than no guard.
+# Each is verified unique to a server-only namespace by
+# apps/web-next/src/__tests__/architecture/i18n-client-catalog.test.ts.
+SERVER_ONLY_MARKERS=(
+  "No recent expense to categorize"                             # bot
+  "No compatible students found yet."                           # skill
+  "bank transactions this week without receipts"                # proactive
+  "You're sending messages very fast. Try again in a minute."   # rate
+)
+
+if [ "$MODE" = '--shell' ]; then
+  CHUNK_DIR="$ROOT_DIR/apps/web-next/.next/static/chunks"
+  if [ ! -d "$CHUNK_DIR" ]; then
+    echo "[bundle-guard] FAIL — $CHUNK_DIR not found, so this proved nothing."
+    echo "[bundle-guard] Run 'npx next build' in apps/web-next first."
+    exit 1
+  fi
+  n_chunks=$(find "$CHUNK_DIR" -name '*.js' | wc -l | tr -d ' ')
+  if [ "$n_chunks" -lt 10 ]; then
+    echo "[bundle-guard] FAIL — only $n_chunks chunks found; the build looks incomplete."
+    exit 1
+  fi
+
+  # Sanity-check the grep itself against a string that MUST be present, so a
+  # broken search cannot masquerade as a clean result.
+  if ! grep -rqF "Expenses" "$CHUNK_DIR" 2>/dev/null; then
+    echo "[bundle-guard] FAIL — could not find a known client string in the"
+    echo "[bundle-guard] chunks. The search is broken, not the bundle."
+    exit 1
+  fi
+
+  shell_fail=0
+  for marker in "${SERVER_ONLY_MARKERS[@]}"; do
+    hits=$(grep -rlF "$marker" "$CHUNK_DIR" 2>/dev/null | head -3)
+    if [ -n "$hits" ]; then
+      echo "[bundle-guard] FAIL — server-only catalog copy is in a client chunk:"
+      echo "                 marker: $marker"
+      printf '                 %s\n' $hits
+      shell_fail=1
+    fi
+  done
+
+  if [ "$shell_fail" -ne 0 ]; then
+    echo ""
+    echo "[bundle-guard] A server-only namespace reached the browser. Something"
+    echo "[bundle-guard] client-side imports '@agentbook/i18n/catalog' — directly,"
+    echo "[bundle-guard] or through a value derived from CATALOG such as"
+    echo "[bundle-guard] AVAILABLE_LOCALES or offerableLocales(). Import from"
+    echo "[bundle-guard] '@agentbook/i18n/catalog-client' instead."
+    exit 1
+  fi
+  echo "[bundle-guard] PASS — $n_chunks client chunks checked, no server-only packs."
+  exit 0
+fi
+
 
 for p in "${PLUGINS[@]}"; do
   if [ "$MODE" = "--dist" ]; then

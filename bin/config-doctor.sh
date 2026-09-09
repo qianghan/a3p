@@ -103,8 +103,38 @@ else
   fi
 fi
 
-# ── 4. i18n locale flag ──────────────────────────────────────────────────────
-head_ "4 · fr-CA / zh-CN locale flag"
+# ── 4. dependency health ─────────────────────────────────────────────────────
+# /api/health/deep is what an EXTERNAL monitor should poll, so the useful
+# question here is not "is it 200" — it is what the body says about the
+# dependencies, including the ones that are simply not configured. Those do
+# not turn the endpoint red on purpose (a feature nobody enabled is not an
+# outage), which means nothing else would ever tell you about them.
+head_ "4 · Dependency health  (/api/health/deep)"
+BODY=$(curl -s --max-time 20 "$BASE_URL/api/health/deep" 2>/dev/null)
+if [ -z "$BODY" ]; then
+  fail "no response from /api/health/deep" "the endpoint ships in this repo — is the deployment current?"
+else
+  OVERALL=$(printf '%s' "$BODY" | sed -n 's/.*"status":"\([a-z]*\)".*/\1/p' | head -1)
+  case "$OVERALL" in
+    healthy)   pass "overall: healthy" ;;
+    degraded)  fail "overall: degraded" "a non-critical dependency is down — see the per-check list below" ;;
+    unhealthy) fail "overall: UNHEALTHY" "a critical dependency is down; the product is broken for users" ;;
+    *)         fail "unrecognised health response" "expected status healthy|degraded|unhealthy" ;;
+  esac
+  # One line per probe, so an unconfigured optional shows up even on a green run.
+  printf '%s' "$BODY" \
+    | tr '{' '\n' \
+    | sed -n 's/.*"name":"\([a-z_]*\)","status":"\([a-z]*\)".*/  \1: \2/p' \
+    | while read -r line; do
+        case "$line" in
+          *": ok") printf "        ${dim}%s${off}\n" "$line" ;;
+          *)       printf "        ${yel}%s${off}\n" "$line" ;;
+        esac
+      done
+fi
+
+# ── 5. i18n locale flag ──────────────────────────────────────────────────────
+head_ "5 · fr-CA / zh-CN locale flag"
 if [ -n "${DATABASE_URL:-}" ]; then
   OUT=$(DATABASE_URL="$DATABASE_URL" npx --yes tsx bin/i18n-flip-flag.ts --status 2>&1 | tail -3)
   if printf '%s' "$OUT" | grep -qiE '\bon\b|enabled.*true'; then
