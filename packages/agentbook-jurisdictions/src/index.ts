@@ -23,6 +23,7 @@ export { caPack } from './ca/index.js';
 export { ukPack } from './uk/index.js';
 export { auPack } from './au/index.js';
 export { auMileageRate } from './au/mileage-rate.js';
+export { auFinancialYearOf, auFinancialYearStart } from './au/financial-year.js';
 export {
   AU_GST_THRESHOLD_CENTS, AU_GST_REGISTRATION_DAYS, checkGstThreshold,
   auGstApplies, gstStatusOf, type GstStatus, type GstThresholdCheck,

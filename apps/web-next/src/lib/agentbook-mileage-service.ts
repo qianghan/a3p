@@ -12,7 +12,7 @@
 
 import 'server-only';
 import { prisma as db } from '@naap/database';
-import { getMileageRate } from './agentbook-mileage-rates';
+import { resolveMileageDeduction, mileagePeriodStart } from './agentbook-mileage-rates';
 import { resolveVehicleAccounts } from './agentbook-account-resolver';
 
 export interface MileagePatch {
@@ -72,10 +72,13 @@ export async function updateMileageEntry(
   // so backdating a trip to (say) Jan 15 doesn't accidentally count
   // December km/miles in this trip's tier calc. Also excludes the entry
   // itself so the edit is idempotent.
-  const tripYear = existing.date.getUTCFullYear();
-  let ratePerUnitCents = existing.ratePerUnitCents;
-  if (existing.jurisdiction === 'ca' || existing.jurisdiction === 'au' || existing.jurisdiction === 'uk') {
-    const start = new Date(Date.UTC(tripYear, 0, 1));
+  const jurisdiction = (existing.jurisdiction === 'ca' || existing.jurisdiction === 'au' || existing.jurisdiction === 'uk')
+    ? existing.jurisdiction
+    : 'us';
+  let ytd = 0;
+  if (jurisdiction !== 'us') {
+    // AU accumulates over its income year (1 Jul); CA/UK over the calendar year.
+    const start = mileagePeriodStart(jurisdiction, existing.date);
     const others = await db.abMileageEntry.findMany({
       where: {
         tenantId,
@@ -86,12 +89,16 @@ export async function updateMileageEntry(
       },
       select: { miles: true },
     });
-    const ytd = others.reduce((s, r) => s + r.miles, 0);
-    ratePerUnitCents = getMileageRate(existing.jurisdiction as 'ca' | 'au' | 'uk', tripYear, ytd).ratePerUnitCents;
-  } else {
-    ratePerUnitCents = getMileageRate('us', tripYear, 0).ratePerUnitCents;
+    ytd = others.reduce((s, r) => s + r.miles, 0);
   }
-  const newDeductibleCents = Math.round(newMiles * ratePerUnitCents);
+  // Editing re-derives the deduction, cap included — otherwise a user could
+  // book 4,000 km, edit it to 12,000, and get the uncapped amount the create
+  // path refuses.
+  const deduction = resolveMileageDeduction(
+    jurisdiction, existing.date, newMiles, ytd, existing.unit as 'mi' | 'km',
+  );
+  const ratePerUnitCents = deduction.ratePerUnitCents;
+  const newDeductibleCents = deduction.deductibleAmountCents;
 
   const updated = await db.$transaction(async (tx) => {
     let nextJeId: string | null = existing.journalEntryId;
