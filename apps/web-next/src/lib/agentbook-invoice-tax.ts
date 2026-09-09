@@ -10,6 +10,7 @@
 import 'server-only';
 import { prisma as db } from '@naap/database';
 import { auSalesTax } from '@agentbook/jurisdictions/au/sales-tax';
+import { auGstApplies, gstStatusOf } from '@agentbook/jurisdictions';
 import { caSalesTax } from '@agentbook/jurisdictions/ca/sales-tax';
 import { usSalesTax } from '@agentbook/jurisdictions/us/sales-tax';
 
@@ -114,11 +115,24 @@ export async function computeInvoiceTax(
 
   const tenantConfig = await db.abTenantConfig.findUnique({
     where: { userId: tenantId },
-    select: { jurisdiction: true, region: true },
+    select: { jurisdiction: true, region: true, gstRegistered: true },
   });
   const jurisdiction = tenantConfig?.jurisdiction || 'us';
 
   if (jurisdiction === 'au') {
+    // A business that is not registered for GST must not charge it. Until
+    // this PR every AU tenant had 10% added by default, registered or not —
+    // money taken from a client with no BAS on which to remit it.
+    if (!auGstApplies(gstStatusOf(tenantConfig?.gstRegistered))) {
+      // An explicit override still wins: the user editing the rate field is
+      // making a per-invoice decision (an export sale, say), and overriding
+      // upward from a not-registered baseline is their call to answer for.
+      if (overrideRate != null && overrideRate > 0) {
+        const amountCents = Math.round(subtotalCents * overrideRate);
+        return { taxRate: overrideRate, taxCents: amountCents, components: amountCents > 0 ? [{ type: 'GST', rate: overrideRate, amountCents, accountCode: '2100' }] : [] };
+      }
+      return ZERO_TAX;
+    }
     const result = auSalesTax.calculateTax(subtotalCents, 'standard');
     if (overrideRate != null) {
       const components = scaleComponentsToOverride(result.components, result.totalRate, overrideRate, subtotalCents, () => '2100');

@@ -90,7 +90,8 @@ interface UpdateConfigBody {
   companyEmail?: string | null;
   companyPhone?: string | null;
   companyAddress?: string | null;
-  abn?: string | null; // AU business number, rendered on the Tax Invoice (M5)
+  abn?: string | null; // AU business number, rendered on the invoice (M5)
+  gstRegistered?: boolean | null; // AU: registered for GST. null = not asked; see the AU pack's auGstApplies
   brandColor?: string;
 }
 
@@ -145,6 +146,9 @@ export async function PUT(request: NextRequest): Promise<NextResponse> {
     if (body.companyPhone !== undefined) update.companyPhone = body.companyPhone;
     if (body.companyAddress !== undefined) update.companyAddress = body.companyAddress;
     if (body.abn !== undefined) update.abn = body.abn;
+    // Tri-state: true / false / null ("not answered"). `null` is a real value
+    // here, not an omission, so it must survive the round trip.
+    if (body.gstRegistered !== undefined) update.gstRegistered = body.gstRegistered;
     if (body.brandColor) update.brandColor = body.brandColor;
     if (body.currency) update.currency = body.currency;
     // `locale` now drives UI translation, not just number/date formatting, so

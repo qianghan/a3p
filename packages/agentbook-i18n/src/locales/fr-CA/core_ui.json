@@ -315,5 +315,13 @@
   "saved_searches": "Recherches enregistrées",
   "filters": "Filtres",
   "back_to_settings": "Retour aux paramètres",
-  "remove": "Retirer"
+  "remove": "Retirer",
+  "gst_registered_label": "Inscrit à la TPS australienne (GST)?",
+  "gst_registered_au_hint": "(Australie)",
+  "gst_not_answered": "Pas encore répondu",
+  "gst_registered_yes": "Oui — inscrit",
+  "gst_registered_no": "Non — non inscrit",
+  "gst_help_registered": "Factures avec 10 % de GST, intitulées « Tax Invoice ».",
+  "gst_help_not_registered": "Factures sans GST, intitulées « Invoice ».",
+  "gst_help_unknown": "Sans réponse : les factures portent 10 % de GST. Seule une entreprise inscrite peut la facturer. Obligatoire au-delà de 75 000 $ AU."
 }

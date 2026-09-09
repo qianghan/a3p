@@ -22,7 +22,19 @@ Employees get PAYG withholding calculated correctly, plus the Superannuation Gua
 
 ### GST
 
-Invoices apply GST at the standard 10% rate by default; you can override the rate per invoice (for example, to 0% if you're not yet registered). AgentBook doesn't automatically detect when your turnover crosses the ATO's $75,000 compulsory GST-registration threshold and switch this for you — that's asked about as part of Tax fast-track so you know where you stand, but you're responsible for registering with the ATO and setting your own invoices correctly once you cross it.
+Set **Registered for GST?** in Settings → Business. It drives two things at once:
+
+| Setting | Invoices | PDF heading |
+|---|---|---|
+| **Yes — registered** | 10% GST added | "Tax Invoice" |
+| **No — not registered** | no GST | "Invoice" |
+| **Not answered yet** | 10% GST added | "Tax Invoice" |
+
+Only a GST-registered business may charge GST or issue a document headed "tax invoice", so if you're not registered, answer **No** — otherwise you're collecting 10% from your clients that you have no BAS on which to remit. Holding an ABN is not the same as being registered for GST; plenty of sole traders have one without the other.
+
+The unanswered state keeps charging GST rather than guessing, because guessing the other way would stop a genuinely registered business collecting GST it still owes at BAS time. AgentBook prompts you to answer instead: it watches your rolling twelve-month turnover and raises an alert when you're near or over the ATO's $75,000 compulsory-registration threshold. Registering with the ATO is still your step — AgentBook won't do it for you, and it won't flip the setting on your behalf once you cross.
+
+You can still override the rate on an individual invoice (an export sale, say).
 
 ### Bank sync
 
