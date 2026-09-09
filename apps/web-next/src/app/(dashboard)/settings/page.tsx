@@ -18,19 +18,19 @@ import { Button, Input, Textarea, Label, Modal } from '@naap/ui';
 import { AgentBookSettingsPanel } from '@/components/settings/AgentBookSettingsPanel';
 import { ConnectedAppsList } from '@/components/settings/ConnectedAppsList';
 import { useT } from '@/hooks/use-t';
+import { safeImageSrc } from '@/lib/safe-image-src';
 
-/** Only allow http/https URLs for image sources to prevent XSS via javascript: URIs */
+/**
+ * Local wrapper over the shared validator, kept only to preserve the `null`
+ * this file's state setters expect.
+ *
+ * This used to be its own implementation accepting http/https and nothing
+ * else — which also rejected `blob:` and `data:image`, so an avatar the user
+ * had just picked from disk was silently dropped rather than previewed. One
+ * validator, in `lib/safe-image-src`, now covers both files.
+ */
 function getSafeImageUrl(url: string | null | undefined): string | null {
-  if (!url) return null;
-  try {
-    const parsed = new URL(url);
-    if (parsed.protocol === 'https:' || parsed.protocol === 'http:') {
-      return url;
-    }
-    return null;
-  } catch {
-    return null;
-  }
+  return safeImageSrc(url) ?? null;
 }
 
 interface PluginPreference {
@@ -662,7 +662,7 @@ export default function SettingsPage() {
             <div className="flex items-start gap-4">
               <div className="relative group">
                 {profileAvatarPreview ? (
-                  <img src={profileAvatarPreview} alt="" className="w-20 h-20 rounded-xl object-cover" />
+                  <img src={safeImageSrc(profileAvatarPreview)} alt="" className="w-20 h-20 rounded-xl object-cover" />
                 ) : (
                   <div className="w-20 h-20 rounded-xl bg-gradient-to-tr from-blue-500 to-primary flex items-center justify-center text-2xl font-bold text-white">
                     {(profileName || user?.email || 'U')[0].toUpperCase()}
@@ -760,7 +760,7 @@ export default function SettingsPage() {
           <div className="space-y-4">
             <div className="flex items-center gap-4">
               {profileAvatarPreview ? (
-                <img src={profileAvatarPreview} alt="" className="w-20 h-20 rounded-xl object-cover" />
+                <img src={safeImageSrc(profileAvatarPreview)} alt="" className="w-20 h-20 rounded-xl object-cover" />
               ) : (
                 <div className="w-20 h-20 rounded-xl bg-gradient-to-tr from-blue-500 to-primary flex items-center justify-center text-2xl font-bold text-white">
                   {(profileName || user?.email || 'U')[0].toUpperCase()}

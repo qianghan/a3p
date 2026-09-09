@@ -7,9 +7,10 @@
  * SDK" gap on Tier 1 #2 (PR 60).
  *
  * Auth: gated by INTERNAL_ADMIN_SECRET via `x-internal-admin` header.
- * The same secret the LLM-configs plugin route uses. In dev when the
- * secret is unset the route is open (matches plugin-server pattern at
- * plugins/agentbook-core/backend/src/server.ts:1827).
+ * The same secret the LLM-configs plugin route uses. Fails CLOSED when the
+ * secret is unset — see isInternalAdmin. (This comment used to say the route
+ * was open in that case, which stopped being true and would have read as
+ * permission to leave it that way.)
  *
  * Request body shape (mirrors the SkillManifest type the agent brain
  * expects):
@@ -34,6 +35,10 @@
 import 'server-only';
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma as db } from '@naap/database';
+// Deep import, like the other @naap/utils consumers here: the barrel pulls
+// the whole package into web-next's project graph, which its tsconfig does
+// not include.
+import { assessUserRegex } from '@naap/utils/regex-safety';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -72,13 +77,24 @@ function validate(body: SkillRegistrationBody): { ok: true; data: Required<Pick<
   if (!body.endpoint || typeof body.endpoint !== 'object') return { ok: false, error: 'endpoint (object) is required' };
   if (!body.endpoint.method || !body.endpoint.url) return { ok: false, error: 'endpoint.method + endpoint.url required' };
 
-  // Validate every trigger pattern compiles as a regex.
-  for (const t of body.triggerPatterns) {
-    if (typeof t !== 'string') return { ok: false, error: 'triggerPatterns must be all strings' };
-    try {
-      new RegExp(t);
-    } catch {
-      return { ok: false, error: `triggerPattern is not a valid regex: ${t.slice(0, 60)}` };
+  // Every pattern must compile AND be safe to run repeatedly.
+  //
+  // Compiling was the whole check. But these patterns are stored and then
+  // matched against every message a user sends, so `(a+)+$` accepted once is
+  // a permanent denial of service on the chat path, set off by ordinary
+  // traffic rather than by an attacker who has to keep trying. Admin-gated
+  // is not the same as harmless: the person registering a skill is not
+  // usually thinking about backtracking.
+  for (const group of ['triggerPatterns', 'requirePatterns', 'excludePatterns'] as const) {
+    const patterns = body[group];
+    if (patterns === undefined) continue;
+    if (!Array.isArray(patterns)) return { ok: false, error: `${group} must be an array of strings` };
+    for (const t of patterns) {
+      if (typeof t !== 'string') return { ok: false, error: `${group} must be all strings` };
+      const verdict = assessUserRegex(t);
+      if (!verdict.safe) {
+        return { ok: false, error: `${group}: ${verdict.reason} — ${t.slice(0, 60)}` };
+      }
     }
   }
 

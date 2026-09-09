@@ -6,6 +6,7 @@ import {
   AlertCircle, ExternalLink, Search, ChevronDown, ChevronUp,
   Copy, Check, Gift, Users, CreditCard,
 } from 'lucide-react';
+import { safeImageSrc } from '@/lib/safe-image-src';
 import { JURISDICTION_OPTIONS, defaultCurrencyFor, formatCurrencyCents } from '@/lib/jurisdiction-currency';
 import { offerableLocales } from '@agentbook/i18n/catalog';
 import { SubscribeModal } from './SubscribeModal';
@@ -258,7 +259,7 @@ function ProfilePreview({
       </p>
       <div className="flex items-center gap-3 rounded p-3" style={{ borderLeft: `4px solid ${brandColor}` }}>
         {displayLogo ? (
-          <img src={displayLogo} alt="logo" className="h-10 w-10 rounded object-contain" />
+          <img src={safeImageSrc(displayLogo)} alt="logo" className="h-10 w-10 rounded object-contain" />
         ) : (
           <div
             className="flex h-10 w-10 items-center justify-center rounded text-white text-xs font-bold"
@@ -2179,7 +2180,7 @@ export function AgentBookSettingsPanel({ initialTab }: { initialTab?: string }):
                 <label className="block text-sm font-medium text-foreground">{t('core_ui.logo')}</label>
                 <div className="mt-1 flex items-center gap-3">
                   {(pendingLogoUrl ?? form.logoUrl) ? (
-                    <img src={pendingLogoUrl ?? form.logoUrl ?? ''} alt="logo" className="h-12 w-12 rounded border object-contain" />
+                    <img src={safeImageSrc(pendingLogoUrl ?? form.logoUrl)} alt="logo" className="h-12 w-12 rounded border object-contain" />
                   ) : (
                     <div className="flex h-12 w-12 items-center justify-center rounded border border-border bg-muted text-xs text-muted-foreground">{t('core_ui.no_logo')}</div>
                   )}

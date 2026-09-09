@@ -17,6 +17,10 @@
     "./security": {
       "types": "./src/security.ts",
       "import": "./src/security.ts"
+    },
+    "./regex-safety": {
+      "types": "./src/regex-safety.ts",
+      "import": "./src/regex-safety.ts"
     }
   },
   "dependencies": {

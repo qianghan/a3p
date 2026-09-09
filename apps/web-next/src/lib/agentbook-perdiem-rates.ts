@@ -289,7 +289,11 @@ export function lookupPerDiem(city: string): PerDiemRate | null {
   }
   for (const [alias, canonical] of Object.entries(ALIASES)) {
     // Word-boundary check on the alias so "lap" doesn't match "la".
-    const re = new RegExp(`\\b${alias.replace(/\./g, '\\.')}\\b`, 'i');
+    // Escapes EVERY regex metacharacter, not just the dot. The aliases are
+    // our own constants today, so this is not injectable — but a partial
+    // escape is a trap for whoever adds an alias with a hyphen or a paren in
+    // it, and the complete one costs nothing.
+    const re = new RegExp(`\\b${alias.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i');
     if (re.test(norm) && alias.length > bestLen && TABLE[canonical]) {
       best = TABLE[canonical];
       bestLen = alias.length;
