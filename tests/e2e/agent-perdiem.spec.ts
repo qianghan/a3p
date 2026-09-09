@@ -12,9 +12,8 @@
  *      $79 M&IE).
  *   2. POST `/per-diem` semantics: tenant-scoped, includes lodging
  *      when `includeLodging=true`, and the row totals match.
- *   3. CA-jurisdiction tenants are short-circuited with a friendly
- *      "use mileage + meals expenses instead" message rather than
- *      booking rows.
+ *   3. CA-jurisdiction tenants are short-circuited rather than booking
+ *      rows, with the explanation the jurisdictions pack owns.
  */
 
 import { test, expect } from '@playwright/test';
@@ -176,16 +175,18 @@ test.describe.serial('Per-diem — entries + ledger semantics', () => {
     });
     expect(cfg?.jurisdiction).toBe('ca');
 
-    const blocked = cfg?.jurisdiction === 'ca';
-    expect(blocked).toBe(true);
-
-    // Production route returns 422 with this body — no DB write.
-    const expectedBody = {
-      success: false,
-      error: "Per-diem isn't a CA-supported method yet — use mileage + meals expenses instead. (Coming in a future release.)",
-      code: 'unsupported_jurisdiction',
-    };
-    expect(expectedBody.code).toBe('unsupported_jurisdiction');
+    // The refusal comes from the jurisdictions pack, which the route and the
+    // chat executor both call. Asserted against that helper rather than a
+    // hardcoded copy: this block used to declare its own `expectedBody` and
+    // assert `expectedBody.code === 'unsupported_jurisdiction'` — a literal
+    // compared with itself, which passes whatever the route actually returns.
+    // The route-level contract now has its own vitest, at
+    // apps/web-next/src/__tests__/api/v1/agentbook-expense/per-diem-jurisdiction-gate.test.ts
+    const { perDiemAvailability } = await import('@agentbook/jurisdictions');
+    const availability = perDiemAvailability(cfg?.jurisdiction);
+    expect(availability.available).toBe(false);
+    expect(availability.message).toMatch(/50%/);
+    expect(availability.message).not.toMatch(/future release/i);
 
     const after = await prisma.abExpense.count({
       where: { tenantId: CA_TENANT, taxCategory: 'per_diem' },
