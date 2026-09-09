@@ -1,0 +1,200 @@
+# =============================================================================
+# Uptime Monitor — probes production from outside the deployment
+# =============================================================================
+# AgentBook checks its own dependencies at /api/health/deep, and it cannot
+# check its own uptime: if the app is gone, so is the thing doing the
+# checking, and that silence looks exactly like everything being fine. This
+# workflow is the outside observer.
+#
+# WHAT IT IS NOT
+#
+# A hosted checker (Better Stack, Checkly, Pingdom) is strictly better and
+# this does not replace one. Two honest limits:
+#
+#   - Scheduled workflows drift. Five minutes is GitHub's floor and the real
+#     interval stretches under load, sometimes past fifteen.
+#   - GitHub DISABLES scheduled workflows on a repository with no commits for
+#     60 days, and the notice is easy to miss. A monitor that switched itself
+#     off is worse than none, because you believe you have one.
+#
+# It is free, versioned with the code, and runs somewhere the app does not.
+# That is enough to be worth having while there is nothing else.
+#
+# ALERTS ON CHANGE, NOT ON STATE
+#
+# A GitHub issue is the incident record. Down with no open incident opens one
+# (which notifies); up with an open incident closes it. Six hours down is two
+# notifications rather than seventy-two — the difference between a channel
+# people read and one they have muted.
+#
+# The job SUCCEEDS whether the site is up or down: the issue is the alert, and
+# a red run on top of it would be a second notification for one event. A red
+# run here means the workflow itself broke.
+# =============================================================================
+
+name: Uptime Monitor
+
+on:
+  schedule:
+    - cron: '*/5 * * * *'
+  # So it can be tested the moment it merges, rather than at the next tick.
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+# Never let a slow run overlap the next tick.
+concurrency:
+  group: uptime-monitor
+  cancel-in-progress: false
+
+env:
+  HEALTH_URL: https://agentbook.brainliber.com/api/health/deep
+  INCIDENT_TITLE: '[Uptime] Production health check is failing'
+
+jobs:
+  probe:
+    name: Probe production
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Check /api/health/deep
+        id: probe
+        run: |
+          set -uo pipefail
+
+          # Three attempts before calling it down. One timed-out request during
+          # a cold start or a deploy is not an outage, and a monitor that
+          # cannot tell the difference teaches people to ignore it.
+          STATUS=000
+          for attempt in 1 2 3; do
+            STATUS=$(curl -s -o /tmp/health-body.txt -w '%{http_code}' --max-time 20 "$HEALTH_URL" || echo 000)
+            echo "attempt ${attempt}: HTTP ${STATUS}"
+            [ "$STATUS" = "200" ] && break
+            [ "$attempt" -lt 3 ] && sleep 20
+          done
+
+          # The body stays on disk and is never passed through GITHUB_OUTPUT.
+          # It is a network response: a line reading exactly like a heredoc
+          # delimiter would end the block early, and the same string in an
+          # output would break the output parser. Steps in one job share a
+          # filesystem, so there is no reason to send it through either.
+          # Truncated because a proxy error page in its place could be huge.
+          head -c 2000 /tmp/health-body.txt > /tmp/health-body-trunc.txt 2>/dev/null || echo '(no body)' > /tmp/health-body-trunc.txt
+
+          echo "status=${STATUS}" >> "$GITHUB_OUTPUT"
+          if [ "$STATUS" = "200" ]; then
+            echo "healthy=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "healthy=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::Production health check returned HTTP ${STATUS}"
+          fi
+
+      - name: Find the open incident, if any
+        id: incident
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          # Matched on the exact title rather than a label: a label that does
+          # not exist makes `gh issue create` fail outright, and search
+          # indexing lags by enough that a fresh incident can be missed and
+          # then duplicated.
+          #
+          # gh's OWN --jq, not the jq binary. Piping to `jq` would add a
+          # dependency the runner happens to satisfy today, and the failure
+          # mode if it ever did not is the worst kind: an empty result reads
+          # exactly like "no open incident", so a down site would open a
+          # duplicate issue every five minutes.
+          #
+          # The title reaches the filter as `env.INCIDENT_TITLE` rather than
+          # being interpolated into the expression, so its brackets stay data.
+          NUMBER=$(gh issue list --state open --limit 100 --json number,title \
+            --jq '[.[] | select(.title == env.INCIDENT_TITLE)] | first | .number // empty')
+          echo "number=${NUMBER}" >> "$GITHUB_OUTPUT"
+          echo "open incident: ${NUMBER:-none}"
+
+      - name: Open an incident
+        if: steps.probe.outputs.healthy == 'false' && steps.incident.outputs.number == ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          STATUS: ${{ steps.probe.outputs.status }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+
+          # Written to a file and passed with --body-file. The response body is
+          # substituted AFTER the heredoc delimiter scan, so nothing it
+          # contains can end the block or run as a command.
+          cat > /tmp/incident.md <<'TEMPLATE_END'
+          Production stopped answering `/api/health/deep` with a 200.
+
+          | | |
+          |---|---|
+          | **Status** | `__STATUS__` (after 3 attempts, 20s apart) |
+          | **URL** | __URL__ |
+          | **First seen** | __WHEN__ |
+          | **Run** | __RUN__ |
+
+          <details><summary>Response body</summary>
+
+          ```
+          __BODY__
+          ```
+
+          </details>
+
+          ### Reading this
+
+          - **503** — a critical dependency is down, and the body names which:
+            `database`, `database_schema` (reachable, but a real table cannot be
+            read — a pooler mid-migration looks healthy to a liveness check while
+            every real query fails), or `llm`.
+          - **502 / 504 / 000** — the deployment itself is not answering. The body
+            will not be JSON.
+          - An `unconfigured` entry is never the cause. Those return 200 on
+            purpose: a feature nobody enabled is a real finding and a bad reason
+            to wake someone.
+
+          This issue closes itself on the next successful probe, with a comment
+          recording how long it was down. Closing it by hand while the site is
+          still failing only means the next probe opens a new one.
+          TEMPLATE_END
+
+          python3 - <<'RENDER_END'
+          import os, pathlib
+          tpl = pathlib.Path('/tmp/incident.md').read_text()
+          body = pathlib.Path('/tmp/health-body-trunc.txt').read_text()
+          # Fenced block: neutralise any backticks the body carries so it cannot
+          # break out of the fence.
+          body = body.replace('```', "'''")
+          import datetime
+          tpl = (tpl
+                 .replace('__STATUS__', os.environ['STATUS'])
+                 .replace('__URL__', os.environ['HEALTH_URL'])
+                 .replace('__RUN__', os.environ['RUN_URL'])
+                 .replace('__WHEN__', datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%d %H:%M UTC'))
+                 .replace('__BODY__', body.strip() or '(empty)'))
+          pathlib.Path('/tmp/incident.md').write_text(tpl)
+          RENDER_END
+
+          gh issue create --title "$INCIDENT_TITLE" --body-file /tmp/incident.md
+
+      - name: Close the incident on recovery
+        if: steps.probe.outputs.healthy == 'true' && steps.incident.outputs.number != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NUMBER: ${{ steps.incident.outputs.number }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          OPENED=$(gh issue view "$NUMBER" --json createdAt --jq .createdAt)
+          gh issue close "$NUMBER" --comment "Recovered — \`/api/health/deep\` returned 200 at $(date -u '+%Y-%m-%d %H:%M UTC').
+
+          Opened ${OPENED}. Verified by ${RUN_URL}.
+
+          This says the endpoint answers again; it does not say what was wrong. The app
+          records per-probe state and writes a \`health.degraded\` / \`health.recovered\`
+          AbEvent on every transition, which is where the shape of the outage is."
