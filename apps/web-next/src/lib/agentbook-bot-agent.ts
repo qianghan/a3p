@@ -34,6 +34,7 @@ import { resolveClientByHint } from './agentbook-client-resolver';
 import { resolveMileageDeduction, mileagePeriodStart } from './agentbook-mileage-rates';
 import { resolveVehicleAccounts } from './agentbook-account-resolver';
 import { lookupPerDiem, CONUS_DEFAULT_MIE_CENTS } from './agentbook-perdiem-rates';
+import { perDiemAvailability } from '@agentbook/jurisdictions';
 import { computeQuarterlyDeductible, computeRatio } from './agentbook-home-office';
 
 // ─── Types ────────────────────────────────────────────────────────────────
@@ -3127,22 +3128,21 @@ export async function executeStep(step: PlanStep, ctx: BotContext): Promise<Exec
         const endDate = step.args.endDate as string | undefined;
         const option = (step.args.option as 'mie_only' | 'lodging_and_mie' | undefined) || 'mie_only';
 
-        // CA/AU/UK short-circuit: per-diem is a US-IRS (GSA) construct.
+        // Non-US short-circuit. Per-diem is a substantiation shortcut, and
+        // whether one exists is a question about who your revenue authority
+        // excuses from receipts — not about whether we have shipped a table.
+        // Same helper the route uses, so chat and API say the same thing.
         const cfg = await db.abTenantConfig.findUnique({
           where: { userId: ctx.tenantId },
           select: { jurisdiction: true },
         });
         const jurisdiction = cfg?.jurisdiction || 'us';
-        if (jurisdiction === 'ca' || jurisdiction === 'au' || jurisdiction === 'uk') {
-          const label = jurisdiction.toUpperCase();
+        const availability = perDiemAvailability(jurisdiction);
+        if (!availability.available) {
           return {
             stepId: step.id,
             success: true,
-            data: {
-              kind: 'unsupported_jurisdiction',
-              message:
-                `Per-diem isn't a ${label}-supported method yet — use mileage + meals expenses instead. (Coming in a future release.)`,
-            },
+            data: { kind: 'unsupported_jurisdiction', message: availability.message },
           };
         }
 

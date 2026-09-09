@@ -28,4 +28,5 @@ export {
   AU_GST_THRESHOLD_CENTS, AU_GST_REGISTRATION_DAYS, checkGstThreshold,
   auGstApplies, gstStatusOf, type GstStatus, type GstThresholdCheck,
 } from './au/gst-registration.js';
+export { perDiemAvailability, type PerDiemAvailability } from './per-diem-availability.js';
 export { AUDIT_REVIEW_MODEL_VERSION } from './us/tax-benefits.js';

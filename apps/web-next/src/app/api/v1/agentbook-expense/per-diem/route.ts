@@ -17,6 +17,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma as db } from '@naap/database';
 import { safeResolveAgentbookTenant } from '@/lib/agentbook-tenant';
 import { lookupPerDiem, CONUS_DEFAULT_MIE_CENTS } from '@/lib/agentbook-perdiem-rates';
+import { perDiemAvailability } from '@agentbook/jurisdictions';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -55,21 +56,18 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       );
     }
 
-    // CA/AU/UK tenants — short-circuit with a friendly message (matches
-    // the bot copy). 422 keeps it distinct from validation errors.
+    // Non-US tenants — short-circuit. 422 keeps it distinct from validation
+    // errors. The reason lives in the jurisdictions pack so this route, the
+    // chat executor and the Telegram reply cannot drift apart.
     const cfg = await db.abTenantConfig.findUnique({
       where: { userId: tenantId },
       select: { jurisdiction: true },
     });
     const jurisdiction = cfg?.jurisdiction || 'us';
-    if (jurisdiction === 'ca' || jurisdiction === 'au' || jurisdiction === 'uk') {
-      const label = jurisdiction.toUpperCase();
+    const availability = perDiemAvailability(jurisdiction);
+    if (!availability.available) {
       return NextResponse.json(
-        {
-          success: false,
-          error: `Per-diem isn't a ${label}-supported method yet — use mileage + meals expenses instead. (Coming in a future release.)`,
-          code: 'unsupported_jurisdiction',
-        },
+        { success: false, error: availability.message, code: 'unsupported_jurisdiction' },
         { status: 422 },
       );
     }
