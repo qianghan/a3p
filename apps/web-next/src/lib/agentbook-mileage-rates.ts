@@ -38,14 +38,30 @@
  */
 
 import 'server-only';
-import { auMileageRate, auFinancialYearOf, auFinancialYearStart } from '@agentbook/jurisdictions';
+import { auMileageRate, auFinancialYearOf, auFinancialYearStart, usMileageRate } from '@agentbook/jurisdictions';
 
-export const US_RATE_2025_CENTS_PER_MI = 67;
-export const US_RATE_2024_CENTS_PER_MI = 67;
+// The US rate is NOT redeclared here. It used to be — 67c, the 2024 figure —
+// while the jurisdictions pack said 70c, and the shell is the copy that books
+// the deduction. Every US user was under-claiming 3c/mile because the newer
+// of two copies was the one nobody read. There is now one table, in the pack.
 
 export const CRA_TIER_BREAK_KM = 5_000;
-export const CRA_LOW_TIER_CENTS_PER_KM = 72;
-export const CRA_HIGH_TIER_CENTS_PER_KM = 66;
+/**
+ * CRA per-km rates, by year. These were bare constants, so the day the CRA
+ * moved to 73c/67c for 2026 there was nowhere for the new numbers to go.
+ */
+const CRA_RATES_BY_YEAR: Record<number, { low: number; high: number }> = {
+  2025: { low: 72, high: 66 },
+  2026: { low: 73, high: 67 },
+};
+/** Latest year the CRA table holds — asserted by the staleness test. */
+export const CRA_LATEST_YEAR = 2026;
+const craRates = (year: number) => CRA_RATES_BY_YEAR[year] ?? CRA_RATES_BY_YEAR[CRA_LATEST_YEAR];
+
+// Kept as exports because tests and callers reference them; they now name the
+// CURRENT year's tiers rather than a frozen pair.
+export const CRA_LOW_TIER_CENTS_PER_KM = CRA_RATES_BY_YEAR[CRA_LATEST_YEAR].low;
+export const CRA_HIGH_TIER_CENTS_PER_KM = CRA_RATES_BY_YEAR[CRA_LATEST_YEAR].high;
 
 export const HMRC_TIER_BREAK_MILES = 10_000;
 export const HMRC_LOW_TIER_PENCE_PER_MI = 45;
@@ -87,29 +103,17 @@ export function getMileageRate(
   jurisdiction: 'us' | 'ca' | 'au' | 'uk',
   year: number,
   milesOrKmThisYear: number,
+  asOf?: Date,
 ): RateLookup {
   if (jurisdiction === 'us') {
-    if (year === 2025) {
-      return {
-        ratePerUnitCents: US_RATE_2025_CENTS_PER_MI,
-        unit: 'mi',
-        reason: 'IRS standard mileage rate, 2025 (67¢/mi)',
-      };
-    }
-    if (year === 2024) {
-      return {
-        ratePerUnitCents: US_RATE_2024_CENTS_PER_MI,
-        unit: 'mi',
-        reason: 'IRS standard mileage rate, 2024 (67¢/mi)',
-      };
-    }
-    // Unknown year — pin to the most-recent rate we publish. Fail
-    // forward, not loud, so a January-1st trip booked before we update
-    // the table doesn't reject the user's entry.
+    // Straight from the pack, including the mid-year change: the IRS moved
+    // from 72.5c to 76c on 1 July 2026, which a year-keyed lookup cannot
+    // express. `asOf` carries the trip's own date when the caller has it.
+    const r = usMileageRate.getRate(year, 0, asOf);
     return {
-      ratePerUnitCents: US_RATE_2025_CENTS_PER_MI,
+      ratePerUnitCents: r.rate * 100,
       unit: 'mi',
-      reason: `IRS standard mileage rate, fallback to 2025 rate (year=${year})`,
+      reason: r.tierDescription ?? `IRS standard mileage rate, ${year}`,
     };
   }
 
@@ -117,17 +121,18 @@ export function getMileageRate(
     // Tier selection uses STRICT-less-than against the break: someone
     // standing at exactly 5,000 km YTD has fully consumed the low-tier
     // bucket and starts the next trip in the high tier.
+    const { low, high } = craRates(year);
     if (milesOrKmThisYear < CRA_TIER_BREAK_KM) {
       return {
-        ratePerUnitCents: CRA_LOW_TIER_CENTS_PER_KM,
+        ratePerUnitCents: low,
         unit: 'km',
-        reason: `CRA reasonable per-km rate, first ${CRA_TIER_BREAK_KM.toLocaleString('en-CA')} km tier (72¢/km)`,
+        reason: `CRA reasonable per-km rate, ${year}, first ${CRA_TIER_BREAK_KM.toLocaleString('en-CA')} km tier (${low}¢/km)`,
       };
     }
     return {
-      ratePerUnitCents: CRA_HIGH_TIER_CENTS_PER_KM,
+      ratePerUnitCents: high,
       unit: 'km',
-      reason: `CRA reasonable per-km rate, after ${CRA_TIER_BREAK_KM.toLocaleString('en-CA')} km (66¢/km)`,
+      reason: `CRA reasonable per-km rate, ${year}, after ${CRA_TIER_BREAK_KM.toLocaleString('en-CA')} km (${high}¢/km)`,
     };
   }
 
@@ -231,7 +236,7 @@ export function resolveMileageDeduction(
   unitsPriorInPeriod: number,
   entryUnit: 'mi' | 'km',
 ): MileageDeduction {
-  const rate = getMileageRate(jurisdiction, mileageRateYear(jurisdiction, tripDate), unitsPriorInPeriod);
+  const rate = getMileageRate(jurisdiction, mileageRateYear(jurisdiction, tripDate), unitsPriorInPeriod, tripDate);
 
   const cap = rate.maxClaimableUnitsPerYear;
   // The cap is a distance, so it only means anything when the entry is stored

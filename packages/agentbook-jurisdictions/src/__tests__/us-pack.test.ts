@@ -292,8 +292,13 @@ describe('US Mileage Rate', () => {
     expect(result.unit).toBe('mile');
   });
 
-  it('returns a rate even for unknown years (defaults to 0.70)', () => {
-    const result = usMileageRate.getRate(2030, 5000);
-    expect(result.rate).toBe(0.70);
+  it('fails forward to the NEWEST rate for a year we do not hold', () => {
+    // Was pinned to 0.70 — the 2025 rate — which meant that as soon as the
+    // IRS moved, every future-dated trip took a rate we knew to be
+    // superseded. Fail forward to the latest period we hold instead, and let
+    // the staleness test be what stops the table falling behind.
+    const future = usMileageRate.getRate(2030, 5000);
+    const latest = usMileageRate.getRate(2026, 0, new Date(Date.UTC(2026, 6, 1)));
+    expect(future.rate).toBe(latest.rate);
   });
 });
