@@ -2259,7 +2259,11 @@ export async function executeStep(step: PlanStep, ctx: BotContext): Promise<Exec
           // trip doesn't see future km. AU's period is its income year.
           const start = mileagePeriodStart(jurisdiction, date);
           const rows = await db.abMileageEntry.findMany({
-            where: { tenantId: ctx.tenantId, unit, date: { gte: start, lt: date } },
+            // `deletedAt: null` matters now that AU has a cap: a soft-deleted
+            // trip is off the books, so it must not consume the allowance.
+            // The route has always filtered it; this path did not, which was
+            // invisible while YTD only picked a CA/UK tier.
+            where: { tenantId: ctx.tenantId, unit, deletedAt: null, date: { gte: start, lt: date } },
             select: { miles: true },
           });
           ytd = rows.reduce((s, r) => s + r.miles, 0);
