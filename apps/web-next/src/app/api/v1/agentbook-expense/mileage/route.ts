@@ -89,17 +89,32 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
     // Jurisdiction snapshot: prefer override (the bot passes it after
     // looking it up), else read from tenant config, else default 'us'.
-    let jurisdiction: 'us' | 'ca' | 'au' | 'uk' =
-      body.jurisdictionOverride === 'ca' || body.jurisdictionOverride === 'au' || body.jurisdictionOverride === 'uk'
-        ? body.jurisdictionOverride
-        : 'us';
-    if (!body.jurisdictionOverride) {
-      const cfg = await db.abTenantConfig.findUnique({
-        where: { userId: tenantId },
-        select: { jurisdiction: true },
-      });
-      jurisdiction = cfg?.jurisdiction === 'ca' || cfg?.jurisdiction === 'au' || cfg?.jurisdiction === 'uk' ? cfg.jurisdiction : 'us';
-    }
+    //
+    // The config is read unconditionally now, because `region` has no override
+    // — the CRA's territorial supplement needs the province, and skipping the
+    // read whenever an override was supplied would have quietly denied the
+    // supplement to exactly the callers that pass one.
+    const cfg = await db.abTenantConfig.findUnique({
+      where: { userId: tenantId },
+      select: { jurisdiction: true, region: true },
+    });
+    //
+    // 'us' is in the override test on purpose. It reads as redundant next to
+    // the 'us' fallback and is not: an explicit US override has to beat a CA
+    // config, and a ternary listing only ca/au/uk lets 'us' fall through to
+    // the config branch, so a caller asking for miles at the IRS rate gets km
+    // at the CRA rate instead. The old code got this right by accident, via
+    // `if (!body.jurisdictionOverride)` around the config read.
+    const override = body.jurisdictionOverride;
+    const jurisdiction: 'us' | 'ca' | 'au' | 'uk' =
+      override === 'us' || override === 'ca' || override === 'au' || override === 'uk'
+        ? override
+        : (cfg?.jurisdiction === 'ca' || cfg?.jurisdiction === 'au' || cfg?.jurisdiction === 'uk' ? cfg.jurisdiction : 'us');
+    // Only meaningful when the config's own jurisdiction is the one being
+    // billed. An override says "bill this trip as CA" without saying the
+    // tenant moved, so pairing a CA rate with a stored AU region would invent
+    // a territory the taxpayer does not live in.
+    const region = cfg?.jurisdiction === jurisdiction ? (cfg?.region ?? '') : '';
 
     const date = body.date ? new Date(body.date) : new Date();
 
@@ -119,7 +134,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     // If the user gave us miles in a CA tenant (or vice-versa), the rate
     // table picked a per-km rate — we still trust the user's recorded
     // unit for the stored entry, but apply the jurisdiction's rate.
-    const rate = resolveMileageDeduction(jurisdiction, date, miles, ytd, unit);
+    const rate = resolveMileageDeduction(jurisdiction, date, miles, ytd, unit, region);
     const { deductibleAmountCents } = rate;
 
     const purpose = body.purpose.trim().slice(0, PURPOSE_MAX);

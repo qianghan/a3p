@@ -165,10 +165,23 @@ export interface MileageRateProvider {
    *   rate in force at the start of `taxYear`, which is correct for every
    *   year without a mid-year change.
    *
-   *   A single optional Date rather than an options object, deliberately:
-   *   there is one thing to pass and no way to pass it positionally wrong.
+   * @param region the taxpayer's state/province code, where the rate varies
+   *   WITHIN a jurisdiction. The CRA allows an extra 4c/km for travel in the
+   *   Northwest Territories, Yukon and Nunavut, which a country-level lookup
+   *   cannot express. Optional: omitted — or holding a code the provider does
+   *   not recognize — a provider returns its base rate, which is the correct
+   *   fallback because it is the one that cannot over-claim.
+   *
+   *   Note that region codes collide across jurisdictions: 'NT' is Canada's
+   *   Northwest Territories and Australia's Northern Territory. A provider
+   *   only ever sees its own jurisdiction's codes, so the collision is safe
+   *   here — but callers dispatching on a code alone would get it wrong.
+   *
+   *   Still two optional positionals rather than an options object: they are
+   *   different types, so passing them in the wrong order is a type error
+   *   rather than a silently wrong rate.
    */
-  getRate(taxYear: number, totalDistance: number, asOf?: Date): MileageRate;
+  getRate(taxYear: number, totalDistance: number, asOf?: Date, region?: string): MileageRate;
 }
 
 export interface DeductionRule {

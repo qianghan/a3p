@@ -2244,12 +2244,21 @@ export async function executeStep(step: PlanStep, ctx: BotContext): Promise<Exec
 
         // Snapshot the tenant's jurisdiction at booking time. CRA/HMRC tier
         // selection rolls forward from the YTD-before-this-trip total.
+        // `region` comes along for the CRA's extra 4c/km in NT, YT and NU.
+        // Booking mileage through chat has to produce the same number as
+        // booking it in the app, so a rate input the route reads and this path
+        // does not is the whole class of bug this executor already exists to
+        // avoid.
         const cfg = await db.abTenantConfig.findUnique({
           where: { userId: ctx.tenantId },
-          select: { jurisdiction: true },
+          select: { jurisdiction: true, region: true },
         });
         const jurisdiction: 'us' | 'ca' | 'au' | 'uk' =
           cfg?.jurisdiction === 'ca' || cfg?.jurisdiction === 'au' || cfg?.jurisdiction === 'uk' ? cfg.jurisdiction : 'us';
+        // Gated on the config's own jurisdiction, matching the route and the
+        // PATCH service: a region only means anything read against the country
+        // it was entered for.
+        const region = cfg?.jurisdiction === jurisdiction ? (cfg?.region ?? '') : '';
         const date = new Date();
         const unit: 'mi' | 'km' = unitArg || (jurisdiction === 'ca' || jurisdiction === 'au' ? 'km' : 'mi');
 
@@ -2272,7 +2281,7 @@ export async function executeStep(step: PlanStep, ctx: BotContext): Promise<Exec
         // Same helper the route and the PATCH service use. Booking mileage
         // through chat has to produce the same number as booking it in the
         // app — including the ATO's 5,000 km cap.
-        const rate = resolveMileageDeduction(jurisdiction, date, miles, ytd, unit);
+        const rate = resolveMileageDeduction(jurisdiction, date, miles, ytd, unit, region);
         const deductibleAmountCents = rate.deductibleAmountCents;
 
         // Bind to a client when the hint resolves to exactly one match;
