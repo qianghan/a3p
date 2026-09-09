@@ -9,8 +9,8 @@
  *   • CA (CRA) — automobile allowance rates. For 2026 (carrying forward
  *     2025's published table until CRA updates), the deductible per-km
  *     rate is 72¢/km for the first 5,000 km driven for business in the
- *     calendar year, and 66¢/km thereafter (extra 4¢/km in NT, NU, YT,
- *     not modelled — that's PR 5+ scope).
+ *     calendar year, and 66¢/km thereafter, plus an extra 4¢/km for travel
+ *     in NT, NU and YT — see `CRA_TERRITORIES_SUPPLEMENT_CENTS_PER_KM`.
  *   • UK (HMRC) — Approved Mileage Allowance Payments (AMAP): 45p/mile for
  *     the first 10,000 business miles in the tax year, 25p/mile thereafter.
  *     Tiered here directly (like CA below) rather than delegated to the
@@ -63,6 +63,41 @@ const craRates = (year: number) => CRA_RATES_BY_YEAR[year] ?? CRA_RATES_BY_YEAR[
 export const CRA_LOW_TIER_CENTS_PER_KM = CRA_RATES_BY_YEAR[CRA_LATEST_YEAR].low;
 export const CRA_HIGH_TIER_CENTS_PER_KM = CRA_RATES_BY_YEAR[CRA_LATEST_YEAR].high;
 
+/**
+ * The CRA allows an additional 4¢/km for travel in the Northwest Territories,
+ * Yukon and Nunavut, on top of whichever tier applies. The tiers above are the
+ * rates for the ten provinces.
+ *
+ * This was a comment in both rate files saying it wasn't modelled, so a
+ * territories-resident sole trader was under-claimed by 4¢ on every business
+ * kilometre — through the app, through chat, and again on every edit.
+ *
+ * APPROXIMATION: the CRA ties the supplement to travel IN the territories, and
+ * what we have is the tenant's recorded region — where they are, not where the
+ * trip was. For a territories resident driving locally those are the same
+ * thing, which is the case this serves. The two come apart for a Whitehorse
+ * resident driving in BC (supplement claimed, not due) and for an Ontario
+ * resident on a trip to Iqaluit (due, not claimed). Closing that needs a
+ * per-trip region on the entry, which is a schema change and a UI field.
+ */
+export const CRA_TERRITORIES_SUPPLEMENT_CENTS_PER_KM = 4;
+const CRA_TERRITORIES = new Set(['NT', 'YT', 'NU']);
+
+/**
+ * The supplement due, in cents/km. Zero for the ten provinces, for a code we
+ * don't recognize, and for no region at all: absent information has to fall
+ * back to the provincial rate, because guessing the supplement over-claims and
+ * an over-claim is the direction that gets penalised at assessment.
+ *
+ * Trimmed and uppercased because tenant config only started normalizing region
+ * codes on write partway through (`normalizeRegionCode`); older rows hold
+ * whatever the user typed.
+ */
+function craTerritorialSupplementCents(region?: string): number {
+  const code = (region ?? '').trim().toUpperCase();
+  return CRA_TERRITORIES.has(code) ? CRA_TERRITORIES_SUPPLEMENT_CENTS_PER_KM : 0;
+}
+
 export const HMRC_TIER_BREAK_MILES = 10_000;
 export const HMRC_LOW_TIER_PENCE_PER_MI = 45;
 export const HMRC_HIGH_TIER_PENCE_PER_MI = 25;
@@ -93,6 +128,15 @@ export interface RateLookup {
  *   total miles (US/UK) or km (CA) the user has already accumulated **this
  *   calendar year** before this trip. Drives CRA/HMRC tier selection;
  *   ignored for US/AU. Pass `0` if this is the first trip of the year.
+ * @param region
+ *   the taxpayer's state/province code, for the one case where the rate varies
+ *   inside a jurisdiction: the CRA's extra 4¢/km in NT, YT and NU. Optional,
+ *   and an unknown or empty code takes the base rate.
+ *
+ *   Read as a Canadian code ONLY when `jurisdiction` is `'ca'`. The codes
+ *   collide — 'NT' is Canada's Northwest Territories and also Australia's
+ *   Northern Territory — so a Darwin sole trader must not pick up a CRA
+ *   top-up by sharing two letters with Yellowknife.
  *
  * @returns rate in cents per unit, the unit (`mi` or `km`), and a short
  *   `reason` string suitable for memo lines / audit logs.
@@ -104,6 +148,7 @@ export function getMileageRate(
   year: number,
   milesOrKmThisYear: number,
   asOf?: Date,
+  region?: string,
 ): RateLookup {
   if (jurisdiction === 'us') {
     // Straight from the pack, including the mid-year change: the IRS moved
@@ -121,18 +166,30 @@ export function getMileageRate(
     // Tier selection uses STRICT-less-than against the break: someone
     // standing at exactly 5,000 km YTD has fully consumed the low-tier
     // bucket and starts the next trip in the high tier.
-    const { low, high } = craRates(year);
+    const base = craRates(year);
+    // The territorial supplement is per-kilometre, so it lands on whichever
+    // tier the trip takes rather than on the first tier alone. Added in whole
+    // cents — this table is already in cents, which is why nothing here has to
+    // round: `67 + 4` is 71, where `0.67 + 0.04` is 0.7100000000000001.
+    const supplement = craTerritorialSupplementCents(region);
+    const low = base.low + supplement;
+    const high = base.high + supplement;
+    // The reason is the memo line and the audit trail, so it has to name the
+    // supplement rather than let a user reconcile 77¢ against a printed 73¢.
+    const supplementNote = supplement > 0
+      ? `, incl. ${supplement}¢/km ${(region ?? '').trim().toUpperCase()} territorial supplement`
+      : '';
     if (milesOrKmThisYear < CRA_TIER_BREAK_KM) {
       return {
         ratePerUnitCents: low,
         unit: 'km',
-        reason: `CRA reasonable per-km rate, ${year}, first ${CRA_TIER_BREAK_KM.toLocaleString('en-CA')} km tier (${low}¢/km)`,
+        reason: `CRA reasonable per-km rate, ${year}, first ${CRA_TIER_BREAK_KM.toLocaleString('en-CA')} km tier (${low}¢/km${supplementNote})`,
       };
     }
     return {
       ratePerUnitCents: high,
       unit: 'km',
-      reason: `CRA reasonable per-km rate, ${year}, after ${CRA_TIER_BREAK_KM.toLocaleString('en-CA')} km (${high}¢/km)`,
+      reason: `CRA reasonable per-km rate, ${year}, after ${CRA_TIER_BREAK_KM.toLocaleString('en-CA')} km (${high}¢/km${supplementNote})`,
     };
   }
 
@@ -228,6 +285,14 @@ export interface MileageDeduction extends RateLookup {
  * @param unitsThisTrip      distance recorded on this trip
  * @param unitsPriorInPeriod distance already booked in the period BEFORE it
  * @param entryUnit          the unit the entry is stored in
+ * @param region
+ *   the tenant's state/province code (`AbTenantConfig.region`), for the CRA's
+ *   extra 4¢/km in NT, YT and NU. Threaded HERE rather than at each call site
+ *   for the same reason the multiply is: the POST route, the PATCH service and
+ *   the chat executor all come through this function, and a region passed in
+ *   only two of the three is a jurisdiction that books two different numbers
+ *   depending on which screen the user reached it from. Optional, and omitting
+ *   it takes the provincial rate.
  */
 export function resolveMileageDeduction(
   jurisdiction: 'us' | 'ca' | 'au' | 'uk',
@@ -235,8 +300,10 @@ export function resolveMileageDeduction(
   unitsThisTrip: number,
   unitsPriorInPeriod: number,
   entryUnit: 'mi' | 'km',
+  region?: string,
 ): MileageDeduction {
-  const rate = getMileageRate(jurisdiction, mileageRateYear(jurisdiction, tripDate), unitsPriorInPeriod, tripDate);
+  const rate = getMileageRate(
+    jurisdiction, mileageRateYear(jurisdiction, tripDate), unitsPriorInPeriod, tripDate, region);
 
   const cap = rate.maxClaimableUnitsPerYear;
   // The cap is a distance, so it only means anything when the entry is stored
