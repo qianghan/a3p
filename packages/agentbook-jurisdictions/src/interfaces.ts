@@ -29,16 +29,44 @@ export interface SelfEmploymentTaxResult {
   breakdown: Record<string, number>;
 }
 
-export interface SelfEmploymentTaxCalculator {
+/**
+ * Everything beyond income and year that changes what a self-employed person
+ * owes. An options bag rather than positional arguments because there are
+ * already three of them and they are jurisdiction-specific: a caller passing
+ * the wrong one positionally would compile and be silently wrong.
+ *
+ * Every field is optional so existing callers keep working — but omitting one
+ * does not mean "not applicable", it means "assume the default", and the
+ * defaults are the single/rest-of-Canada/no-wages cases. Pass what you have.
+ */
+export interface SelfEmploymentTaxContext {
   /**
-   * @param region sub-national code (province/state), where the contribution
-   *   regime differs WITHIN the jurisdiction. Quebec is the case that forced
-   *   this: a Quebec resident pays QPP and QPIP, not CPP, at different rates.
-   *   Optional so every existing caller keeps compiling — but a caller that
-   *   omits it for Canada gets the rest-of-Canada answer, which for a Quebec
-   *   filer is wrong and low.
+   * Sub-national code (province/state) where the contribution REGIME differs
+   * within the jurisdiction — as opposed to merely the income tax rate. A
+   * Quebec resident pays QPP and QPIP, not CPP.
    */
-  calculate(netSelfEmploymentIncomeCents: number, taxYear: number, region?: string | null): SelfEmploymentTaxResult;
+  region?: string | null;
+  /**
+   * Filing status. In the US it sets the Additional Medicare Tax threshold:
+   * $250,000 filing jointly, $125,000 married filing separately, $200,000 for
+   * everyone else. Anything unrecognised takes the $200,000 "all others" line.
+   */
+  filingStatus?: string | null;
+  /**
+   * Employment income already subject to Medicare tax this year. The US
+   * Additional Medicare threshold is reduced by wages before self-employment
+   * income is tested against it, so someone with a salary and a side business
+   * crosses it far sooner than their business income alone suggests.
+   */
+  medicareWagesCents?: number;
+}
+
+export interface SelfEmploymentTaxCalculator {
+  calculate(
+    netSelfEmploymentIncomeCents: number,
+    taxYear: number,
+    context?: SelfEmploymentTaxContext,
+  ): SelfEmploymentTaxResult;
 }
 
 export interface SalesTaxRate {

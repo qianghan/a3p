@@ -130,3 +130,53 @@ describe('computeInvoiceTax', () => {
     expect(result.components).toEqual([{ type: 'state', rate: 0.06625, amountCents: 663, accountCode: '2100' }]);
   });
 });
+
+describe('computeInvoiceTax — AU GST registration', () => {
+  /**
+   * The wiring layer. `auGstApplies` being correct in the jurisdictions pack
+   * proves nothing on its own: the bug was that nothing consulted it, and a
+   * test of the helper alone would have passed throughout.
+   */
+  it('charges NO GST once the tenant says they are not registered', async () => {
+    tenantConfigFindUnique.mockResolvedValue({ jurisdiction: 'au', region: '', gstRegistered: false });
+    const result = await computeInvoiceTax('t1', 10000);
+    expect(result.taxCents).toBe(0);
+    expect(result.taxRate).toBe(0);
+    expect(result.components).toEqual([]);
+  });
+
+  it('charges GST for a registered tenant', async () => {
+    tenantConfigFindUnique.mockResolvedValue({ jurisdiction: 'au', region: '', gstRegistered: true });
+    expect((await computeInvoiceTax('t1', 10000)).taxCents).toBe(1000);
+  });
+
+  it('leaves the unanswered case charging GST, exactly as before', async () => {
+    // The no-silent-change guarantee, asserted rather than assumed: an
+    // existing AU tenant's invoices must not change under them on deploy.
+    for (const cfg of [{ gstRegistered: null }, {}]) {
+      tenantConfigFindUnique.mockResolvedValue({ jurisdiction: 'au', region: '', ...cfg });
+      expect((await computeInvoiceTax('t1', 10000)).taxCents).toBe(1000);
+    }
+  });
+
+  it('reads the registration flag at all', async () => {
+    // A `select` that forgets the column returns undefined for it, which
+    // reads as "unknown" and silently restores the old behaviour for
+    // everyone — a failure mode with no other visible symptom.
+    tenantConfigFindUnique.mockResolvedValue({ jurisdiction: 'au', region: '', gstRegistered: false });
+    await computeInvoiceTax('t1', 10000);
+    expect(tenantConfigFindUnique.mock.calls[0][0].select).toHaveProperty('gstRegistered', true);
+  });
+
+  it('still honours an explicit non-zero override from an unregistered tenant', async () => {
+    // Per-invoice override is the user overriding us, not us overriding them.
+    tenantConfigFindUnique.mockResolvedValue({ jurisdiction: 'au', region: '', gstRegistered: false });
+    const result = await computeInvoiceTax('t1', 10000, 0.10);
+    expect(result.taxCents).toBe(1000);
+  });
+
+  it('does not touch CA or US, which have no registration gate here', async () => {
+    tenantConfigFindUnique.mockResolvedValue({ jurisdiction: 'ca', region: 'ON', gstRegistered: false });
+    expect((await computeInvoiceTax('t1', 10000)).taxCents).toBe(1300);
+  });
+});

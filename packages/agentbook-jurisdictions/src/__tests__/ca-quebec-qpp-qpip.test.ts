@@ -19,8 +19,8 @@ const MID = 5_000_000;            // $50,000
 
 describe('Quebec pays QPP, not CPP', () => {
   it('charges 12.80% where the rest of Canada pays 11.90%', () => {
-    const qc = caSelfEmploymentTax.calculate(AT_MPE, YEAR, 'QC');
-    const on = caSelfEmploymentTax.calculate(AT_MPE, YEAR, 'ON');
+    const qc = caSelfEmploymentTax.calculate(AT_MPE, YEAR, { region: 'QC' });
+    const on = caSelfEmploymentTax.calculate(AT_MPE, YEAR, { region: 'ON' });
     // (71,300 - 3,500) x 12.80% = $8,678.40 — the figure Revenu Québec
     // publishes as the maximum base contribution, which is what makes this
     // a check on the rate rather than a restatement of it.
@@ -30,20 +30,20 @@ describe('Quebec pays QPP, not CPP', () => {
   });
 
   it('names the Quebec plans in the breakdown rather than mislabelling them CPP', () => {
-    const qc = caSelfEmploymentTax.calculate(MID, YEAR, 'QC');
+    const qc = caSelfEmploymentTax.calculate(MID, YEAR, { region: 'QC' });
     expect(Object.keys(qc.breakdown).sort()).toEqual(['ei', 'qpip', 'qpp', 'qpp2']);
     expect(qc.breakdown).not.toHaveProperty('cpp');
   });
 
   it('recognises Quebec however the province is cased or padded', () => {
     for (const r of ['QC', 'qc', ' Qc ']) {
-      expect(caSelfEmploymentTax.calculate(MID, YEAR, r).breakdown.qpp).toBeGreaterThan(0);
+      expect(caSelfEmploymentTax.calculate(MID, YEAR, { region: r }).breakdown.qpp).toBeGreaterThan(0);
     }
   });
 
   it('applies the same second-tier band to both, since only the base rate differs', () => {
-    const qc = caSelfEmploymentTax.calculate(HIGH, YEAR, 'QC');
-    const on = caSelfEmploymentTax.calculate(HIGH, YEAR, 'ON');
+    const qc = caSelfEmploymentTax.calculate(HIGH, YEAR, { region: 'QC' });
+    const on = caSelfEmploymentTax.calculate(HIGH, YEAR, { region: 'ON' });
     // (81,200 - 71,300) x 8% = $792
     expect(qc.breakdown.qpp2).toBe(79_200);
     expect(on.breakdown.cpp2).toBe(79_200);
@@ -53,36 +53,36 @@ describe('Quebec pays QPP, not CPP', () => {
 describe('QPIP is compulsory, and was missing entirely', () => {
   it('charges 0.878% up to the $98,000 ceiling', () => {
     // Max premium $860.44 — the published figure.
-    expect(caSelfEmploymentTax.calculate(HIGH, YEAR, 'QC').breakdown.qpip).toBe(86_044);
+    expect(caSelfEmploymentTax.calculate(HIGH, YEAR, { region: 'QC' }).breakdown.qpip).toBe(86_044);
   });
 
   it('has no basic exemption, unlike the pension plan', () => {
     // 50,000 x 0.878% = $439. A $3,500 exemption would give $407.13.
-    expect(caSelfEmploymentTax.calculate(MID, YEAR, 'QC').breakdown.qpip).toBe(43_900);
+    expect(caSelfEmploymentTax.calculate(MID, YEAR, { region: 'QC' }).breakdown.qpip).toBe(43_900);
   });
 
   it('is not payable below the $2,000 income floor', () => {
-    expect(caSelfEmploymentTax.calculate(199_900, YEAR, 'QC').breakdown.qpip).toBe(0);
-    expect(caSelfEmploymentTax.calculate(200_000, YEAR, 'QC').breakdown.qpip).toBeGreaterThan(0);
+    expect(caSelfEmploymentTax.calculate(199_900, YEAR, { region: 'QC' }).breakdown.qpip).toBe(0);
+    expect(caSelfEmploymentTax.calculate(200_000, YEAR, { region: 'QC' }).breakdown.qpip).toBeGreaterThan(0);
   });
 
   it('uses the 2026 rate cut for a 2026 estimate', () => {
-    const y2026 = caSelfEmploymentTax.calculate(HIGH, 2026, 'QC').breakdown.qpip;
+    const y2026 = caSelfEmploymentTax.calculate(HIGH, 2026, { region: 'QC' }).breakdown.qpip;
     expect(y2026).toBe(Math.round(9_800_000 * 0.00764));
     expect(y2026).toBeLessThan(86_044);
   });
 
   it('is never charged outside Quebec', () => {
     for (const r of ['ON', 'BC', 'AB', '', null, undefined]) {
-      expect(caSelfEmploymentTax.calculate(HIGH, YEAR, r).breakdown.qpip).toBeUndefined();
+      expect(caSelfEmploymentTax.calculate(HIGH, YEAR, { region: r }).breakdown.qpip).toBeUndefined();
     }
   });
 });
 
 describe('what the tenant actually pays', () => {
   it('a Quebec freelancer past the ceilings owes ~$1,470 more than we told them', () => {
-    const qc = caSelfEmploymentTax.calculate(HIGH, YEAR, 'QC').amountCents;
-    const on = caSelfEmploymentTax.calculate(HIGH, YEAR, 'ON').amountCents;
+    const qc = caSelfEmploymentTax.calculate(HIGH, YEAR, { region: 'QC' }).amountCents;
+    const on = caSelfEmploymentTax.calculate(HIGH, YEAR, { region: 'ON' }).amountCents;
     const gap = qc - on;
     // 61,020c rate gap + 86,044c QPIP = 147,064c ≈ CAD 1,470.
     expect(gap).toBe(147_064);
@@ -100,7 +100,7 @@ describe('what the tenant actually pays', () => {
 
   it('leaves the rest of Canada exactly where it was', () => {
     // No silent change for the majority of Canadian tenants.
-    const on = caSelfEmploymentTax.calculate(HIGH, YEAR, 'ON');
+    const on = caSelfEmploymentTax.calculate(HIGH, YEAR, { region: 'ON' });
     expect(on.amountCents).toBe(806_820 + 79_200);
     expect(on.deductiblePortionCents).toBe(Math.round((806_820 + 79_200) / 2));
   });

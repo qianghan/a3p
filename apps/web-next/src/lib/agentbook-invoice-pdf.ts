@@ -19,6 +19,7 @@ import {
   StyleSheet,
   renderToBuffer,
 } from '@react-pdf/renderer';
+import { auGstApplies, gstStatusOf } from '@agentbook/jurisdictions';
 
 const styles = StyleSheet.create({
   page: {
@@ -154,15 +155,29 @@ export interface InvoicePdfData {
     address?: string | null;
     phone?: string | null;
     abn?: string | null;
+    /**
+     * AU GST registration. Governs the document heading: only a registered
+     * business may issue a "tax invoice". `null`/undefined means the tenant
+     * has not told us, which keeps today's heading — see the AU pack's
+     * `auGstApplies` for why the unanswered case is not flipped.
+     */
+    gstRegistered?: boolean | null;
   };
 }
 
 /**
  * Document title. Australia requires a compliant sales document to be headed
  * "Tax Invoice" (and to show the supplier's ABN); elsewhere it's "Invoice" (M5).
+ *
+ * But ONLY a GST-registered business may issue one. A sole trader under the
+ * A$75,000 threshold who has not registered issues a plain invoice, and
+ * heading it "TAX INVOICE" asserts a legal characterisation of the document
+ * that is not true. Same predicate that decides whether GST is charged, so
+ * the heading and the arithmetic can never disagree.
  */
-export function invoiceTitle(jurisdiction?: string): string {
-  return (jurisdiction || '').toLowerCase() === 'au' ? 'TAX INVOICE' : 'INVOICE';
+export function invoiceTitle(jurisdiction?: string, gstRegistered?: boolean | null): string {
+  if ((jurisdiction || '').toLowerCase() !== 'au') return 'INVOICE';
+  return auGstApplies(gstStatusOf(gstRegistered)) ? 'TAX INVOICE' : 'INVOICE';
 }
 
 function fmtMoney(cents: number, currency: string): string {
@@ -203,7 +218,7 @@ const InvoiceDocument: React.FC<{ inv: InvoicePdfData }> = ({ inv }) => {
         React.createElement(
           View,
           null,
-          React.createElement(Text, { style: styles.invoiceLabel }, invoiceTitle(inv.jurisdiction)),
+          React.createElement(Text, { style: styles.invoiceLabel }, invoiceTitle(inv.jurisdiction, inv.company.gstRegistered)),
           React.createElement(Text, { style: styles.invoiceNumber }, inv.number),
         ),
       ),
