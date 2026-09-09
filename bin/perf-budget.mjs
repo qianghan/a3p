@@ -58,7 +58,7 @@ const ROUTE_EXCEPTIONS = {
   // '/marketplace' had an exception at 275 for exactly one build. It sat at
   // 250 — the default, to the kilobyte — so eight translation keys added for a
   // Settings control tipped it over, and the exception bought room while the
-  // catalog was split. The split landed: it measures 215 kB, comfortably under
+  // catalog was split. The split landed: it measures 216 kB, comfortably under
   // the default, so the exception is deleted rather than left at a slack value.
   // An exception nobody needs is a ceiling nobody notices rising.
   // '/admin/plugins' was 405 kB for the same reason and is now 217 kB, under
