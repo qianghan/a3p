@@ -36,6 +36,7 @@ export default function MaterialsPage() {
       <p>
         Sized for social (1200×630). Click <strong>Download</strong>, then post it with one of the captions
         below and your referral link. Tip: to post as PNG, open the file and export — or screenshot it.
+        Posting to a Chinese-speaking audience? There's a <Link href="/guides/zh/sales-rep/materials">Chinese set</Link>.
       </p>
 
       <div className="gd-kit">
