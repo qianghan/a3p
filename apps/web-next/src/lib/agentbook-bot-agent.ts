@@ -31,7 +31,7 @@ import {
 } from './agentbook-estimate-parser';
 import { parseDateHint, aggregateByDay, type TimeEntryRow } from './agentbook-time-aggregator';
 import { resolveClientByHint } from './agentbook-client-resolver';
-import { getMileageRate } from './agentbook-mileage-rates';
+import { resolveMileageDeduction, mileagePeriodStart } from './agentbook-mileage-rates';
 import { resolveVehicleAccounts } from './agentbook-account-resolver';
 import { lookupPerDiem, CONUS_DEFAULT_MIE_CENTS } from './agentbook-perdiem-rates';
 import { computeQuarterlyDeductible, computeRatio } from './agentbook-home-office';
@@ -2250,23 +2250,25 @@ export async function executeStep(step: PlanStep, ctx: BotContext): Promise<Exec
         const jurisdiction: 'us' | 'ca' | 'au' | 'uk' =
           cfg?.jurisdiction === 'ca' || cfg?.jurisdiction === 'au' || cfg?.jurisdiction === 'uk' ? cfg.jurisdiction : 'us';
         const date = new Date();
-        const year = date.getUTCFullYear();
         const unit: 'mi' | 'km' = unitArg || (jurisdiction === 'ca' || jurisdiction === 'au' ? 'km' : 'mi');
 
         let ytd = 0;
         if (jurisdiction === 'ca' || jurisdiction === 'au' || jurisdiction === 'uk') {
-          // YTD-before-this-trip: filter on `date < trip-date` (not the
-          // year-end boundary) so a backdated trip doesn't accidentally
-          // see future km in its tier picker.
-          const start = new Date(Date.UTC(year, 0, 1));
+          // Distance already booked in the period BEFORE this trip: filter on
+          // `date < trip-date` (not the period-end boundary) so a backdated
+          // trip doesn't see future km. AU's period is its income year.
+          const start = mileagePeriodStart(jurisdiction, date);
           const rows = await db.abMileageEntry.findMany({
             where: { tenantId: ctx.tenantId, unit, date: { gte: start, lt: date } },
             select: { miles: true },
           });
           ytd = rows.reduce((s, r) => s + r.miles, 0);
         }
-        const rate = getMileageRate(jurisdiction, year, ytd);
-        const deductibleAmountCents = Math.round(miles * rate.ratePerUnitCents);
+        // Same helper the route and the PATCH service use. Booking mileage
+        // through chat has to produce the same number as booking it in the
+        // app — including the ATO's 5,000 km cap.
+        const rate = resolveMileageDeduction(jurisdiction, date, miles, ytd, unit);
+        const deductibleAmountCents = rate.deductibleAmountCents;
 
         // Bind to a client when the hint resolves to exactly one match;
         // ambiguous picker is out-of-scope for the MVP record path.
@@ -2375,6 +2377,8 @@ export async function executeStep(step: PlanStep, ctx: BotContext): Promise<Exec
             jurisdiction,
             ratePerUnitCents: rate.ratePerUnitCents,
             deductibleAmountCents,
+            claimableUnits: rate.claimableUnits,
+            capNote: rate.capNote,
             rateReason: rate.reason,
             journalPosted: !!created.journalEntryId,
           },

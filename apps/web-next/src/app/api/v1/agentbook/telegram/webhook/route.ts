@@ -1878,6 +1878,10 @@ interface MileageRecordedData {
   jurisdiction: 'us' | 'ca' | 'au' | 'uk';
   ratePerUnitCents: number;
   deductibleAmountCents: number;
+  /** Distance that survived the annual method cap; equals `miles` when uncapped. */
+  claimableUnits?: number;
+  /** Present only when the cap bit — explains why the maths looks short. */
+  capNote?: string | null;
   rateReason: string;
   journalPosted: boolean;
 }
@@ -1907,6 +1911,11 @@ async function renderMileageStepResult(
   const lines: string[] = [
     `📒 ${data.miles} ${data.unit} to ${target} = <b>${dollars}</b> deductible (${rateLabel}). On the books.`,
   ];
+  // Without this the message reads as an arithmetic error: the user sees the
+  // distance they gave us and a figure that isn't distance x rate.
+  if (data.capNote) {
+    lines.push(`⚠️ ${escHtml(data.capNote)}`);
+  }
   if (!data.journalPosted) {
     lines.push(botT('bot.couldn_t_find_a_vehicle_expense_owner'));
   }

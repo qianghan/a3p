@@ -107,6 +107,17 @@ export interface MileageRate {
   rate: number;
   unit: 'mile' | 'km';
   tierDescription?: string;
+  /**
+   * Maximum distance claimable under this method for the whole tax year, or
+   * undefined where the method has no ceiling.
+   *
+   * Distinct from a rate tier on purpose. A tier changes what each unit is
+   * worth past a threshold; a cap means units past the threshold are worth
+   * NOTHING under this method and the taxpayer has to use a different one.
+   * Australia's cents-per-km method is capped at 5,000 km per vehicle per
+   * year, and treating that as "the rate does not change" over-claims.
+   */
+  maxClaimableUnitsPerYear?: number;
 }
 
 export interface MileageRateProvider {
