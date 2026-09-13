@@ -16,8 +16,12 @@ export type DetectedLanguage = 'en' | 'fr' | 'zh';
 
 const CJK = /[぀-ヿ㐀-䶿一-鿿豈-﫿]/;
 const FR_MARK = /[àâçéèêëîïôûùüÿœ]/i;
-const FR_WORDS = /\b(le|la|les|des|du|de|un|une|mes|mon|ma|je|tu|nous|vous|est|sont|pour|avec|sur|dans|que|qui|pas|combien|montre|moi|oui|non|dépens\w*|facture\w*|catégori\w*)\b/i;
-const EN_WORDS = /\b(the|my|me|i|is|are|was|show|what|how|much|did|spend|spent|expenses?|invoices?|categori[sz]e|them|this|last|month|year|please|can|you|give|more|details?|cash|balance|what's|whats)\b/i;
+const FR_WORDS = /\b(le|la|les|des|du|de|un|une|au|aux|mes|mon|ma|je|tu|nous|vous|est|sont|pour|avec|sur|dans|que|qui|pas|combien|montre|moi|oui|non|dépens\w*|facture\w*|catégori\w*)\b/i;
+// Everyday expense-chat vocabulary, so ordinary English is recognised without
+// pronouns ("Lunch at Le Petit Bistro $34"). One flat alternation of literal
+// words and single \w* tails - no nested quantifiers, so matching stays linear.
+const EN_WORDS =
+  /\b(the|my|me|i|is|are|was|show|what|how|much|did|spend|spent|expenses?|invoices?|categori[sz]ed?|them|this|last|month|year|please|can|you|give|more|details?|cash|balance|what's|whats|lunch|dinner|coffee|at|for|on|with|paid|bought|receipt|client|meeting|taxi|uber|flight|hotel|parking|gas|fuel|office|supplies|subscription|invoice|estimate|payment|total|add|record|log|note|thanks|ok(ay)?|today|yesterday|week|tax|deduct\w*)\b/i;
 
 export function detectMessageLanguage(text: string): DetectedLanguage | null {
   const s = (text ?? '').trim();
@@ -30,8 +34,15 @@ export function detectMessageLanguage(text: string): DetectedLanguage | null {
   }
   const fr = (FR_MARK.test(s) ? 1 : 0) + (s.match(new RegExp(FR_WORDS.source, 'gi'))?.length ?? 0);
   const en = s.match(new RegExp(EN_WORDS.source, 'gi'))?.length ?? 0;
-  if (fr === 0 && en === 0) return null;
-  return fr > en ? 'fr' : 'en';
+  // French needs corroboration. A vendor name is not a language: "Lunch at Le
+  // Petit Bistro $34" scores fr=1 on `le` alone, and on the old `fr > en` rule
+  // one proper noun switched an English user's entire reply - templates and
+  // money formatting included - into French. Two independent French signals
+  // (the accent mark counts as one, each stopword hit as one) are required;
+  // a lone unbacked signal falls through to the thread, then the tenant.
+  if (fr >= 2 && fr > en) return 'fr';
+  if (en >= 1) return 'en';
+  return null;
 }
 
 const ENGLISH_REGIONS = new Set(['CA', 'AU', 'GB', 'US', 'NZ', 'IE']);

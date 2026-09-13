@@ -11,6 +11,18 @@ describe('detectMessageLanguage', () => {
     expect(detectMessageLanguage('Categorize them')).toBe('en');
     expect(detectMessageLanguage('show my expenses this month')).toBe('en');
   });
+  it('a single French-looking word does not flip an English message', () => {
+    // A vendor name is not a language signal. "Le Petit Bistro" / "Montre
+    // Bleue" each contribute one FR hit; English needs to survive that.
+    expect(detectMessageLanguage('Lunch at Le Petit Bistro $34')).toBe('en');
+    expect(detectMessageLanguage('Bought a Montre Bleue perfume $89')).toBe('en');
+  });
+  it('one uncorroborated French signal and no English is a continuation, not French', () => {
+    expect(detectMessageLanguage('Le Petit Bistro')).toBeNull();
+  });
+  it('two French signals with no English is French', () => {
+    expect(detectMessageLanguage('Déjeuner au Petit Bistro 34 $')).toBe('fr');
+  });
   it('returns null when too short or ambiguous', () => {
     expect(detectMessageLanguage('yes')).toBeNull();
     expect(detectMessageLanguage('ok')).toBeNull();
@@ -38,6 +50,9 @@ describe('resolveReplyLocale', () => {
     // thread switched en → fr; the newest wins, not the oldest
     expect(resolveReplyLocale({ text: 'ok', previousUserTexts: ['Montre mes dépenses', 'show my expenses'], tenantLocale: 'en-US' })).toBe('fr-CA');
   });
+  it('a vendor name does not switch an English user on a fr-CA tenant into French', () => {
+    expect(resolveReplyLocale({ text: 'Lunch at Le Petit Bistro $34', tenantLocale: 'fr-CA' })).toBe('en-CA');
+  });
   it('falls back to the tenant locale, then en-US', () => {
     expect(resolveReplyLocale({ text: 'yes', tenantLocale: 'fr-CA' })).toBe('fr-CA');
     expect(resolveReplyLocale({ text: 'yes', tenantLocale: null })).toBe('en-US');
@@ -45,5 +60,19 @@ describe('resolveReplyLocale', () => {
   it('English keeps the tenant region for AU/GB/US', () => {
     expect(resolveReplyLocale({ text: 'show my expenses', tenantLocale: 'en-AU' })).toBe('en-AU');
     expect(resolveReplyLocale({ text: 'show my expenses', tenantLocale: 'zh-CN' })).toBe('en-US');
+  });
+});
+
+describe('runs in linear time', () => {
+  /**
+   * This module reads untrusted chat text with several alternations run in
+   * global mode. Time the FAILING match: the trailing characters must be ones
+   * the word classes cannot complete, or a fast successful match proves nothing.
+   */
+  it('does not blow up on a long input', () => {
+    const hostile = 'a '.repeat(8000) + 'zzz';
+    const started = Date.now();
+    detectMessageLanguage(hostile);
+    expect(Date.now() - started).toBeLessThan(50);
   });
 });
