@@ -29,6 +29,15 @@ describe('detectMessageLanguage', () => {
     expect(detectMessageLanguage('$42 Starbucks')).toBeNull();
     expect(detectMessageLanguage('')).toBeNull();
   });
+  it('does not mistake other Romance languages for French', () => {
+    // Pan-Romance words (un, de, mes, accented vowels) used to be enough to
+    // misdetect these as French. A language this detector doesn't know must
+    // fall through to null (-> thread -> tenant locale), never 'fr'.
+    expect(detectMessageLanguage('Registra un gasto de 42 euros')).toBeNull(); // Spanish
+    expect(detectMessageLanguage('Muéstrame mis gastos de este mes')).toBeNull(); // Spanish
+    expect(detectMessageLanguage('Registrar despesa de 42 reais')).toBeNull(); // Portuguese
+    expect(detectMessageLanguage('Registra una spesa di 42 euro')).toBeNull(); // Italian
+  });
 });
 
 describe('resolveReplyLocale', () => {
@@ -60,6 +69,9 @@ describe('resolveReplyLocale', () => {
   it('English keeps the tenant region for AU/GB/US', () => {
     expect(resolveReplyLocale({ text: 'show my expenses', tenantLocale: 'en-AU' })).toBe('en-AU');
     expect(resolveReplyLocale({ text: 'show my expenses', tenantLocale: 'zh-CN' })).toBe('en-US');
+  });
+  it('a Spanish message on an en-US tenant is not detected as French', () => {
+    expect(resolveReplyLocale({ text: 'Registra un gasto de 42 euros', tenantLocale: 'en-US' })).toBe('en-US');
   });
 });
 

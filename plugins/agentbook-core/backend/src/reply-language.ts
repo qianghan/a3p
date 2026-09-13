@@ -15,13 +15,26 @@
 export type DetectedLanguage = 'en' | 'fr' | 'zh';
 
 const CJK = /[぀-ヿ㐀-䶿一-鿿豈-﫿]/;
-const FR_MARK = /[àâçéèêëîïôûùüÿœ]/i;
-const FR_WORDS = /\b(le|la|les|des|du|de|un|une|au|aux|mes|mon|ma|je|tu|nous|vous|est|sont|pour|avec|sur|dans|que|qui|pas|combien|montre|moi|oui|non|dépens\w*|facture\w*|catégori\w*)\b/i;
+// Accents alone are a weak signal: é/è/ê/ë/î/ï/ô/û/ù/ç/œ all also occur in
+// Spanish and/or Portuguese (é) or Italian/Portuguese (à, â, ü, ÿ - dropped
+// from this set for that reason). Never let accents alone cross the fr>=2
+// threshold below; they only corroborate a distinctive word.
+const FR_MARK = /[éèêëîïôûùçœ]/i;
+// DISTINCTIVE French tokens only - i.e. words that are NOT common Spanish,
+// Portuguese, or Italian vocabulary too. Pan-Romance words that used to live
+// here (la, de, un, une, mes, mon, ma, est, sont, sur, non, que) caused
+// Spanish/Portuguese/Italian input to misdetect as French: "Registra un
+// gasto de 42 euros" (Spanish) hit `un` + `de`; "que" is Spanish as well as
+// French, so it was dropped too. `pas`, `au`/`aux`, `qui`, `tu`/`je`/`nous`/
+// `vous` etc. have no everyday Spanish/Portuguese/Italian equivalent spelled
+// the same way, so they stay.
+const FR_WORDS =
+  /\b(le|les|des|du|je|tu|nous|vous|pour|avec|dans|qui|pas|combien|montre|moi|oui|dépens\w*|facture\w*|catégori\w*|déjeuner|au|aux)\b/gi;
 // Everyday expense-chat vocabulary, so ordinary English is recognised without
 // pronouns ("Lunch at Le Petit Bistro $34"). One flat alternation of literal
 // words and single \w* tails - no nested quantifiers, so matching stays linear.
 const EN_WORDS =
-  /\b(the|my|me|i|is|are|was|show|what|how|much|did|spend|spent|expenses?|invoices?|categori[sz]ed?|them|this|last|month|year|please|can|you|give|more|details?|cash|balance|what's|whats|lunch|dinner|coffee|at|for|on|with|paid|bought|receipt|client|meeting|taxi|uber|flight|hotel|parking|gas|fuel|office|supplies|subscription|invoice|estimate|payment|total|add|record|log|note|thanks|ok(ay)?|today|yesterday|week|tax|deduct\w*)\b/i;
+  /\b(the|my|me|i|is|are|was|show|what|how|much|did|spend|spent|expenses?|invoices?|categori[sz]ed?|them|this|last|month|year|please|can|you|give|more|details?|cash|balance|what's|whats|lunch|dinner|coffee|at|for|on|with|paid|bought|receipt|client|meeting|taxi|uber|flight|hotel|parking|gas|fuel|office|supplies|subscription|invoice|estimate|payment|total|add|record|log|note|thanks|ok(ay)?|today|yesterday|week|tax|deduct\w*)\b/gi;
 
 export function detectMessageLanguage(text: string): DetectedLanguage | null {
   const s = (text ?? '').trim();
@@ -32,14 +45,22 @@ export function detectMessageLanguage(text: string): DetectedLanguage | null {
     // One-word turns ("yes", "ok", "oui") are continuation, not a signal.
     return null;
   }
-  const fr = (FR_MARK.test(s) ? 1 : 0) + (s.match(new RegExp(FR_WORDS.source, 'gi'))?.length ?? 0);
-  const en = s.match(new RegExp(EN_WORDS.source, 'gi'))?.length ?? 0;
+  // FR_WORDS/EN_WORDS are module-level `g`-flagged regexes reused across
+  // calls. String.prototype.match resets a global regex's lastIndex to 0
+  // before it walks the string, so reusing the same object here is safe -
+  // no per-call `new RegExp(...)` needed.
+  const fr = (FR_MARK.test(s) ? 1 : 0) + (s.match(FR_WORDS)?.length ?? 0);
+  const en = s.match(EN_WORDS)?.length ?? 0;
   // French needs corroboration. A vendor name is not a language: "Lunch at Le
   // Petit Bistro $34" scores fr=1 on `le` alone, and on the old `fr > en` rule
   // one proper noun switched an English user's entire reply - templates and
   // money formatting included - into French. Two independent French signals
-  // (the accent mark counts as one, each stopword hit as one) are required;
-  // a lone unbacked signal falls through to the thread, then the tenant.
+  // are required (the accent mark counts as one, each stopword hit as one);
+  // since the accent contributes at most 1, `fr >= 2` already guarantees at
+  // least one distinctive French word matched, not just an accented
+  // pan-Romance word. A lone unbacked signal falls through to the thread,
+  // then the tenant - and a language this detector doesn't know (Spanish,
+  // Portuguese, Italian, ...) never scores fr>=2 on borrowed accents alone.
   if (fr >= 2 && fr > en) return 'fr';
   if (en >= 1) return 'en';
   return null;
@@ -59,6 +80,12 @@ function localeFor(lang: DetectedLanguage, tenantLocale: string | null | undefin
   return region && ENGLISH_REGIONS.has(region) ? `en-${region}` : 'en-US';
 }
 
+// Known limitation: adapter-native Telegram replies that never reach the
+// brain (expense-draft confirm/cancel, review-queue walk-through) resolve
+// language from the incoming text only - they have no previousUserTexts to
+// fall back through. A bare typed "yes" there is a one-word continuation
+// (see the words.length < 2 guard above), so it resolves straight to the
+// tenant locale rather than continuing whatever language the thread was in.
 export function resolveReplyLocale(opts: {
   text: string;
   /** Earlier USER messages, most recent first. */
