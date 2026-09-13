@@ -794,10 +794,18 @@ async function tryApplyCorrection(args: {
   attachments: unknown;
   ctx: AgentContext;
   skills: Array<{ name?: string }>;
+  /**
+   * The thread as {question, answer} pairs, NEWEST FIRST (pairTurns'
+   * contract). Handed to the synthesised classification below so the executor
+   * resolves this correction's reply language against the real conversation.
+   */
+  conversation: Array<{ question: string; answer: string }>;
+  /** The tenant's AbTenantConfig row — locale and currency for the reply. */
+  tenantConfig: unknown;
   activeThread: any;
   startTime: number;
 }): Promise<AgentResponse | null> {
-  const { correctionText, userText, threadTurns, tenantId, channel, attachments, ctx, skills, activeThread, startTime } = args;
+  const { correctionText, userText, threadTurns, tenantId, channel, attachments, ctx, skills, conversation, tenantConfig, activeThread, startTime } = args;
 
   const intent = detectCorrection(correctionText);
   if (!intent) return null;
@@ -874,8 +882,15 @@ async function tryApplyCorrection(args: {
     confidence: 1,
     memory: [],
     skills,
-    conversation: [],
-    tenantConfig: {},
+    // Both of these used to be empty literals, and _executeClassificationCore
+    // derives the reply language from exactly these two fields: with `[]` and
+    // `{}` it saw no thread and no tenant, so it resolved en-US and answered a
+    // fr-CA user's "non, c'était 52 $" with English templates and US money
+    // formatting — on the one turn where the user is already telling us we got
+    // something wrong. Pass the real thread (newest first — do not reverse)
+    // and the real tenant row.
+    conversation,
+    tenantConfig,
   };
 
   // A throw here must NOT fall through to normal classification: that is
@@ -1055,8 +1070,33 @@ export async function handleAgentMessage(
     // Every conversational channel (web, Telegram, and any future WhatsApp/MCP
     // adapter) gets the full persona; only the 'api' machine channel opts out.
     // See isHumanChannel — a denylist, so new channels inherit parity for free.
-    if (isHumanChannel(req.channel) && res?.data && typeof res.data.message === 'string') {
-      const tenantConfig = await db.abTenantConfig.findFirst({ where: { userId: req.tenantId } }).catch(() => null);
+    const human = isHumanChannel(req.channel) && !!res?.data && typeof res.data.message === 'string';
+    // One read, shared by both post-processing steps below.
+    const tenantConfig = (human || (!!res?.data && typeof res.data.replyLocale !== 'string'))
+      ? await db.abTenantConfig.findFirst({ where: { userId: req.tenantId } }).catch(() => null)
+      : null;
+
+    // ── Every reply names the language it was written in ────────────────
+    // Channel adapters localise their own chrome (Telegram's inline buttons,
+    // Task 6) from this field, and when it is missing they fall back to the
+    // tenant row — the exact bug this branch exists to fix. Most paths inside
+    // the core set it, but the ones whose reply is built by a shared helper
+    // (the tax questionnaire via translateTaxCoreResult, draft status,
+    // draft regenerate, and tryApplyCorrection) return before they ever see
+    // the resolved value. Backfilling once here fixes all of them at the same
+    // time and keeps future helpers correct by default, instead of adding a
+    // thirteenth call site that can be forgotten.
+    //
+    // `??=`, so a path that DID resolve the locale with the thread in hand
+    // always wins over this history-less fallback.
+    if (res?.data) {
+      res.data.replyLocale ??= resolveReplyLocale({
+        text: req.text,
+        tenantLocale: (tenantConfig as { locale?: string | null } | null)?.locale ?? null,
+      });
+    }
+
+    if (human) {
       const persona = await ensureAdvisorPersona(req.tenantId, { callGemini: ctx.callGemini, tenantConfig });
       if (!persona.introducedAt) {
         // Answer first, introduction after — unless the opening message was a
@@ -1683,6 +1723,8 @@ async function handleAgentMessageCore(
     attachments,
     ctx,
     skills,
+    conversation,
+    tenantConfig,
     activeThread,
     startTime,
   });

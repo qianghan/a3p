@@ -4507,7 +4507,7 @@ async function _executeClassificationCore(
       if (bills.length === 0) {
         message = t('skill.bills_none_open', { page: PAGE_BILLS });
       } else {
-        const list = bills.slice(0, 8).map((b) => `${b.dueDate < now ? '🔴' : '🟡'} **${b.vendorName}** — ${fmt(b.amountCents)} due ${new Date(b.dueDate).toLocaleDateString()}`).join('\n');
+        const list = bills.slice(0, 8).map((b) => `${b.dueDate < now ? '🔴' : '🟡'} **${b.vendorName}** — ${fmt(b.amountCents)} due ${new Date(b.dueDate).toLocaleDateString(replyLocale)}`).join('\n');
         message = `${t('skill.bills_open', { amount: fmt(openCents), count: bills.length })}${overdue.length ? ` (${overdue.length} overdue)` : ''}:\n\n${list}`;
       }
       await db.abConversation.create({ data: { tenantId, question: text, answer: message, queryType: 'agent', channel, skillUsed: 'manage-bills' } });
@@ -4689,7 +4689,7 @@ async function _executeClassificationCore(
         if (lastRun) {
           const gross = lastRun.stubs.reduce((s, st) => s + st.grossCents, 0);
           const net = lastRun.stubs.reduce((s, st) => s + st.netCents, 0);
-          runLine = `Last run ${new Date(lastRun.periodStart).toLocaleDateString()}–${new Date(lastRun.periodEnd).toLocaleDateString()} (${lastRun.status}): gross ${fmt(gross)}, net ${fmt(net)}.`;
+          runLine = `Last run ${new Date(lastRun.periodStart).toLocaleDateString(replyLocale)}–${new Date(lastRun.periodEnd).toLocaleDateString(replyLocale)} (${lastRun.status}): gross ${fmt(gross)}, net ${fmt(net)}.`;
         }
         message = `${t('skill.payroll_on_payroll', { count: employees.length })}\n${names}\n\n${runLine}`;
       }
@@ -5413,11 +5413,11 @@ async function _executeClassificationCore(
       // so this path does not re-fetch it.
       const currency = (classification.tenantConfig?.currency as string) || undefined;
       const lines = pos.accounts.slice(0, 5)
-        .map((a) => `• ${a.name}: ${fmtCurrency(a.balanceCents, currency)}`)
+        .map((a) => `• ${a.name}: ${fmtCurrency(a.balanceCents, currency, replyLocale)}`)
         .join('\n');
       const message = pos.accounts.length === 0
-        ? `You have ${fmtCurrency(0, currency)} on hand — no asset account has a balance yet.`
-        : `You have ${fmtCurrency(pos.totalCents, currency)} on hand.\n\n${lines}`;
+        ? `You have ${fmtCurrency(0, currency, replyLocale)} on hand — no asset account has a balance yet.`
+        : `You have ${fmtCurrency(pos.totalCents, currency, replyLocale)} on hand.\n\n${lines}`;
       await db.abConversation.create({
         data: { tenantId, question: text, answer: message, queryType: 'agent', channel, skillUsed: selectedSkill.name },
       }).catch(() => {});
@@ -5562,14 +5562,20 @@ async function _executeClassificationCore(
       }
       const byMonth = Object.entries(byMonthRaw).reverse();
 
+      // The dates below are the only ones in this function that reach the LLM
+      // rather than the user directly — but the model quotes them back
+      // verbatim into an answer it writes in the user's language, so they get
+      // the reply locale too. Either way they must not keep taking the SERVER
+      // PROCESS locale, which is what a bare toLocaleDateString() does: that
+      // made the rendered date depend on the machine the backend ran on.
       const recentExpenses = expenses.slice(0, 20).map((e) => {
         const vName = (e.vendor as any)?.name || 'Unknown';
         const catName = e.categoryId ? (catNameMap[e.categoryId] || 'Uncategorized') : 'Uncategorized';
-        return `${new Date(e.date).toLocaleDateString()} | ${vName} | ${fmt(e.amountCents)} | ${catName}${e.description ? ' | ' + e.description : ''}`;
+        return `${new Date(e.date).toLocaleDateString(replyLocale)} | ${vName} | ${fmt(e.amountCents)} | ${catName}${e.description ? ' | ' + e.description : ''}`;
       });
 
       const contextStr = [
-        `Period: ${startDate.toLocaleDateString()} to ${endDate.toLocaleDateString()}`,
+        `Period: ${startDate.toLocaleDateString(replyLocale)} to ${endDate.toLocaleDateString(replyLocale)}`,
         `Total expenses: ${fmt(total)} (${expenses.length} transactions)`,
         `Top categories: ${byCat.map(([n, v]) => `${n}: ${fmt(v)}`).join(', ')}`,
         `Top vendors: ${byVendor.map(([n, v]) => `${n}: ${fmt(v)}`).join(', ')}`,
@@ -5988,7 +5994,7 @@ Only include chartData if visualization adds value. Keep the answer under 200 wo
     // Use response template if available
     if (selectedSkill.responseTemplate && data) {
       message = (selectedSkill.responseTemplate as string).replace(/\{\{(\w+)\}\}/g, (_: any, key: string) => {
-        if (key === 'amount' || key === 'amountFormatted') return fmtCurrency(data.amountCents || 0, data.currency);
+        if (key === 'amount' || key === 'amountFormatted') return fmtCurrency(data.amountCents || 0, data.currency, replyLocale);
         return data[key] || '';
       });
       // Clean up empty brackets from optional template fields
@@ -6034,7 +6040,7 @@ Only include chartData if visualization adds value. Keep the answer under 200 wo
     } else if (Array.isArray(data) && data.length > 0 && data[0]?.number && data[0]?.status) {
       message = data.slice(0, 10).map((inv: any) => {
         const icon = inv.status === 'paid' ? '\u2705' : inv.status === 'overdue' ? '\u{1F534}' : '\u{1F7E1}';
-        return `${icon} ${inv.number} \u2014 ${fmtCurrency(inv.amountCents, inv.currency)} (${inv.client?.name || 'Unknown'}) [${inv.status}]`;
+        return `${icon} ${inv.number} \u2014 ${fmtCurrency(inv.amountCents, inv.currency, replyLocale)} (${inv.client?.name || 'Unknown'}) [${inv.status}]`;
       }).join('\n');
       if (data.length > 10) message += `\n...and ${data.length - 10} more.`;
 
@@ -6046,11 +6052,15 @@ Only include chartData if visualization adds value. Keep the answer under 200 wo
         const inv = invoices as any[];
         if (inv.length > 0) {
           const totalCents = inv.reduce((s: number, i: any) => s + (i.balanceDueCents || i.amountCents || 0), 0);
-          message += `\n**${label}**: ${fmtCurrency(totalCents)} (${inv.length} invoices)`;
+          // tenantMoney, not a bare fmtCurrency: these two were the only money
+          // lines in the function called with neither a currency nor a locale,
+          // so an A$ tenant's aging report was rendered in US dollars with
+          // whatever locale the server process happened to have.
+          message += `\n**${label}**: ${tenantMoney(totalCents)} (${inv.length} invoices)`;
         }
       }
       if (data.totalOutstandingCents !== undefined) {
-        message += `\n\n**Total Outstanding:** ${fmtCurrency(data.totalOutstandingCents)}`;
+        message += `\n\n**Total Outstanding:** ${tenantMoney(data.totalOutstandingCents)}`;
       }
 
     // Client list
@@ -6089,7 +6099,7 @@ Only include chartData if visualization adds value. Keep the answer under 200 wo
 
     // Record payment response
     } else if (selectedSkill.name === 'record-payment' && data) {
-      const amt = data.amountCents ? fmtCurrency(data.amountCents, data.currency) : '';
+      const amt = data.amountCents ? fmtCurrency(data.amountCents, data.currency, replyLocale) : '';
       message = t('skill.payment_recorded', { amount: amt ? ': ' + amt : '' });
 
     // Record personal transaction response
@@ -6099,7 +6109,7 @@ Only include chartData if visualization adds value. Keep the answer under 200 wo
       // is always undefined here — use the tenant's configured currency
       // (fetched in the pre-processing block above), falling back to USD
       // only if that lookup genuinely found nothing.
-      const amt = typeof data.amountCents === 'number' ? fmtCurrency(Math.abs(data.amountCents), personalTxnCurrency || 'USD') : '';
+      const amt = typeof data.amountCents === 'number' ? fmtCurrency(Math.abs(data.amountCents), personalTxnCurrency || 'USD', replyLocale) : '';
       message = `${isIncome ? 'Recorded income' : 'Recorded spending'}${amt ? ': ' + amt : ''}${data.description ? ' — ' + data.description : ''}${data.businessFlag ? ' (flagged as business)' : ''}.`;
 
     // Create invoice response.
@@ -6118,7 +6128,7 @@ Only include chartData if visualization adds value. Keep the answer under 200 wo
     // NOT `client`, so data.client?.name is undefined here — fall back to the
     // name we extracted from the utterance.
     } else if (selectedSkill.name === 'create-invoice' && data) {
-      const amt = data.amountCents ? fmtCurrency(data.amountCents, data.currency) : '';
+      const amt = data.amountCents ? fmtCurrency(data.amountCents, data.currency, replyLocale) : '';
       const who = data.client?.name || resolvedInvoiceClientName || extractedParams.clientName || '';
       message = t('skill.invoice_created_full', {
         number: data.number ? ` (${data.number})` : '',
@@ -6128,7 +6138,7 @@ Only include chartData if visualization adds value. Keep the answer under 200 wo
 
     // Create estimate response
     } else if (selectedSkill.name === 'create-estimate' && data) {
-      const amt = data.amountCents ? fmtCurrency(data.amountCents, data.currency) : '';
+      const amt = data.amountCents ? fmtCurrency(data.amountCents, data.currency, replyLocale) : '';
       message = t('skill.estimate_created', {
         amount: amt ? ' ' + amt : '',
         client: data.client?.name ? ' (' + data.client.name + ')' : '',
@@ -6186,32 +6196,32 @@ Only include chartData if visualization adds value. Keep the answer under 200 wo
       for (const b of data.budgets) {
         const pct = b.percent || 0;
         const icon = pct > 100 ? '\u{1F534}' : pct > (b.alertPercent || 80) ? '\u{1F7E1}' : '\u{1F7E2}';
-        message += `\n${icon} **${b.categoryName || 'Total'}**: ${fmtCurrency(b.spentCents, b.currency)} / ${fmtCurrency(b.amountCents, b.currency)} (${pct}%)`;
+        message += `\n${icon} **${b.categoryName || 'Total'}**: ${fmtCurrency(b.spentCents, b.currency, replyLocale)} / ${fmtCurrency(b.amountCents, b.currency, replyLocale)} (${pct}%)`;
       }
 
     // Expense report
     } else if (data?.html && data?.expenseCount !== undefined) {
-      message = `${t('skill.hdr_expense_report')} generated\n\n${data.expenseCount} expenses, total: ${fmtCurrency(data.totalCents, data.currency)}`;
+      message = `${t('skill.hdr_expense_report')} generated\n\n${data.expenseCount} expenses, total: ${fmtCurrency(data.totalCents, data.currency, replyLocale)}`;
       if (data.categories?.length > 0) {
         message += '\n';
         for (const cat of data.categories.slice(0, 8)) {
-          message += `\n\u2022 ${cat.name}: ${fmtCurrency(cat.total, data.currency)} (${cat.count})`;
+          message += `\n\u2022 ${cat.name}: ${fmtCurrency(cat.total, data.currency, replyLocale)} (${cat.count})`;
         }
       }
 
     // P&L report
     } else if (data?.grossRevenueCents !== undefined && data?.totalExpensesCents !== undefined && data?.netIncomeCents !== undefined && !data?.totalTaxCents) {
       message = `${t('skill.hdr_pnl')}\n`;
-      message += `\nRevenue: ${fmtCurrency(data.grossRevenueCents, data.currency)}`;
-      message += `\nExpenses: ${fmtCurrency(data.totalExpensesCents, data.currency)}`;
-      message += `\n**Net Income: ${fmtCurrency(data.netIncomeCents, data.currency)}**`;
+      message += `\nRevenue: ${fmtCurrency(data.grossRevenueCents, data.currency, replyLocale)}`;
+      message += `\nExpenses: ${fmtCurrency(data.totalExpensesCents, data.currency, replyLocale)}`;
+      message += `\n**Net Income: ${fmtCurrency(data.netIncomeCents, data.currency, replyLocale)}**`;
       if (data.revenueLines?.length) {
         message += '\n\nRevenue Breakdown:';
-        data.revenueLines.forEach((l: any) => { message += `\n  \u2022 ${l.name}: ${fmtCurrency(l.amountCents, data.currency)}`; });
+        data.revenueLines.forEach((l: any) => { message += `\n  \u2022 ${l.name}: ${fmtCurrency(l.amountCents, data.currency, replyLocale)}`; });
       }
       if (data.expenseLines?.length) {
         message += '\n\nExpense Breakdown:';
-        data.expenseLines.slice(0, 8).forEach((l: any) => { message += `\n  \u2022 ${l.name}: ${fmtCurrency(l.amountCents, data.currency)}`; });
+        data.expenseLines.slice(0, 8).forEach((l: any) => { message += `\n  \u2022 ${l.name}: ${fmtCurrency(l.amountCents, data.currency, replyLocale)}`; });
       }
 
     // Balance sheet
@@ -6267,7 +6277,7 @@ Only include chartData if visualization adds value. Keep the answer under 200 wo
       } else {
         message = t('skill.review_queue', { count: data.length });
         for (const e of data.slice(0, 10)) {
-          message += `\n• ${fmtCurrency(e.amountCents, e.currency)} — ${e.vendorName || e.description || 'Expense'}${e.categoryName ? ` [${e.categoryName}]` : ' [uncategorized]'}`;
+          message += `\n• ${fmtCurrency(e.amountCents, e.currency, replyLocale)} — ${e.vendorName || e.description || 'Expense'}${e.categoryName ? ` [${e.categoryName}]` : ' [uncategorized]'}`;
         }
         if (data.length > 10) message += `\n…and ${data.length - 10} more. Visit the Expenses page to review them.`;
       }
@@ -6318,7 +6328,7 @@ Only include chartData if visualization adds value. Keep the answer under 200 wo
       message = `${t('skill.hdr_cpa_notes')}\n`;
       for (const n of data.slice(0, 10)) {
         message += `\n\u2022 ${n.note}`;
-        if (n.createdAt) message += ` _(${new Date(n.createdAt).toLocaleDateString()})_`;
+        if (n.createdAt) message += ` _(${new Date(n.createdAt).toLocaleDateString(replyLocale)})_`;
       }
 
     // CPA share link
@@ -6397,7 +6407,7 @@ Only include chartData if visualization adds value. Keep the answer under 200 wo
       if (data.lines?.length > 1) {
         message += '\n\nLine items:';
         data.lines.forEach((l: any) => {
-          message += `\n• ${l.description}: ${fmtCurrency(l.amountCents, data.currency)}`;
+          message += `\n• ${l.description}: ${fmtCurrency(l.amountCents, data.currency, replyLocale)}`;
         });
       }
     // Scholarship search results
