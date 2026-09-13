@@ -81,7 +81,7 @@ describe('carryForwardTopic', () => {
   it('ReDoS: a long non-matching input fails fast', () => {
     // Must test the FAILING match — a pattern that matches returns at the
     // first success and is fast however bad its backtracking is.
-    const input = 'more '.repeat(4000) + 'zzz';
+    const input = 'more ' + 'a'.repeat(200_000);
     const t0 = performance.now();
     expect(carryForwardTopic(input, CASH)).toBe(input);
     expect(performance.now() - t0).toBeLessThan(50);
