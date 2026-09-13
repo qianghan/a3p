@@ -34,6 +34,11 @@ import { cleanClientName } from './client-name.js';
 import { getCashPosition, isCashBalanceQuestion } from './cash-position.js';
 import { formatCurrency, formatMoney } from '@agentbook/i18n';
 import { replyT } from './reply-locale.js';
+import {
+  BATCH_SIZE, TOKENS_PER_ROW, WRITE_CONCURRENCY, buildBatchPrompt, parseBatchDecisions, decide, formatCategorizeReply,
+  hasSignal, mapWithConcurrency,
+  type CategorizeCandidate, type CategorizeOutcome,
+} from './categorize-expenses.js';
 
 /**
  * Bracket providers for advisory features that need to know WHERE a threshold
@@ -4928,147 +4933,135 @@ async function _executeClassificationCore(
   // INTERNAL handler: categorize-expenses — direct DB + Gemini, no HTTP self-call
   if (selectedSkill.name === 'categorize-expenses') {
     try {
-      const HIGH_CONF = 0.85;
-      const MEDIUM_CONF = 0.55;
       const PENDING_KEY = 'telegram:ai_categorize_pending';
       const LAST_RUN_KEY = 'telegram:last_auto_categorize';
-      const apiKey = process.env.GEMINI_API_KEY;
-      const model = process.env.GEMINI_MODEL_FAST || 'gemini-2.5-flash';
+      const expenseBase = baseUrls['/api/v1/agentbook-expense'] || 'http://localhost:4051';
 
-      // Idempotent: skip if already ran in last 20h (bypass for chat invocations)
-      const last = await db.abUserMemory.findUnique({
-        where: { tenantId_key: { tenantId, key: LAST_RUN_KEY } },
-      });
-      // Chat invocations always run (force=true equivalent)
-
-      const uncategorized = await db.abExpense.findMany({
-        where: { tenantId, categoryId: null, isPersonal: false, deletedAt: null, status: { in: ['pending_review', 'confirmed'] } },
+      // "Uncategorized" means EITHER no category OR a categoryId that IS the
+      // 6999 suspense account. Such rows really exist: the UI category picker
+      // offers 6999 and older code could assign it. (The create route leaves
+      // categoryId null and posts only the JOURNAL LINE to 6999.) The category
+      // breakdown shows both buckets as "Uncategorized"; so must this skill.
+      const suspense = await db.abAccount.findFirst({ where: { tenantId, code: '6999' }, select: { id: true } });
+      const uncategorizedWhere = {
+        tenantId, isPersonal: false, deletedAt: null, status: { in: ['pending_review', 'confirmed'] },
+        OR: [{ categoryId: null }, ...(suspense ? [{ categoryId: suspense.id }] : [])],
+      };
+      const rows = await db.abExpense.findMany({
+        where: uncategorizedWhere,
         include: { vendor: { select: { id: true, name: true, normalizedName: true } } },
         orderBy: { date: 'desc' },
         take: 50,
       });
-
-      const categories = await db.abAccount.findMany({
-        where: { tenantId, accountType: 'expense', isActive: true },
+      // COUNT, not rows.length: the take cap above is a page, and reporting the
+      // page size as the total let the reply say "all done" while rows past the
+      // cap were still uncategorized.
+      const totalUncategorized = await db.abExpense.count({ where: uncategorizedWhere });
+      const categories = (await db.abAccount.findMany({
+        where: { tenantId, accountType: 'expense', isActive: true, NOT: { code: '6999' } },
         select: { id: true, name: true, code: true, taxCategory: true },
+      }));
+      const cands: CategorizeCandidate[] = rows.map((e) => ({
+        id: e.id, vendorName: e.vendor?.name ?? null, description: e.description ?? null,
+        amountCents: e.amountCents, currency: e.currency, date: e.date,
+        // Decides the write path below. `include` returns every scalar, so
+        // this comes back without a select — naming it here keeps the
+        // dependency visible if the query is ever narrowed to a select.
+        journalEntryId: e.journalEntryId ?? null,
+      }));
+      const asLine = (c: CategorizeCandidate) => ({ expenseId: c.id, vendorName: c.vendorName, description: c.description, amountCents: c.amountCents, currency: c.currency, date: c.date });
+
+      const outcome: CategorizeOutcome = { total: totalUncategorized, applied: [], pending: [], skipped: [] };
+      const withSignal = cands.filter((c) => {
+        if (hasSignal(c)) return true;
+        outcome.skipped.push({ ...asLine(c), reason: 'no_signal' });
+        return false;
       });
 
-      let applied = 0;
-      let skipped = 0;
-      const pending: Array<{ expenseId: string; vendorName: string | null; amountCents: number; suggestedCategoryId: string; suggestedCategoryName: string; confidence: number; reason: string }> = [];
-
-      if (uncategorized.length > 0 && categories.length > 0 && apiKey) {
-        const catList = categories.map((c) => `   • ${c.name}${c.taxCategory ? ` (${c.taxCategory})` : ''}`).join('\n');
-        const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
-
-        for (const exp of uncategorized) {
-          try {
-            const systemPrompt = `You are a senior freelance bookkeeper. Classify the expense below into ONE of the available categories. Be conservative with confidence.\n\nAvailable categories:\n${catList}\n\nOutput rules:\n• categoryName MUST be exactly one of the names above.\n• If ambiguous, set categoryName=null with low confidence.\n• confidence is 0.0-1.0.\n• reason: one short sentence.\n\nReturn ONLY JSON: {"categoryName": "Meals", "confidence": 0.92, "reason": "Restaurant name."}`;
-            const userMsg = `Expense:\n   Vendor: ${exp.vendor?.name || '(no vendor)'}\n   Amount: $${(exp.amountCents / 100).toFixed(2)}\n   Date: ${exp.date.toISOString().slice(0, 10)}\n   Description: ${exp.description || '(none)'}`;
-
-            const gRes = await fetch(geminiUrl, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                systemInstruction: { parts: [{ text: systemPrompt }] },
-                contents: [{ role: 'user', parts: [{ text: userMsg }] }],
-                generationConfig: { maxOutputTokens: 200, temperature: 0.1 },
-              }),
-            });
-            if (!gRes.ok) { skipped++; continue; }
-            const gData = await gRes.json() as any;
-            const raw = gData.candidates?.[0]?.content?.parts?.[0]?.text || '';
-            const cleaned = raw.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
-            const json = cleaned.match(/\{[\s\S]*\}/)?.[0] || cleaned;
-            const llm = JSON.parse(json) as { categoryName: string | null; confidence: number; reason: string };
-            if (!llm.categoryName || typeof llm.confidence !== 'number') { skipped++; continue; }
-
-            const matched = categories.find((c) => c.name.toLowerCase() === llm.categoryName!.toLowerCase());
-            if (!matched) { skipped++; continue; }
-
-            if (llm.confidence >= HIGH_CONF) {
-              await db.abExpense.update({ where: { id: exp.id }, data: { categoryId: matched.id, confidence: llm.confidence } });
-              // Learn vendor pattern
-              const normName = exp.vendor?.normalizedName || exp.vendor?.name?.toLowerCase().replace(/[^a-z0-9]/g, '') || null;
-              if (normName) {
-                await db.abPattern.upsert({
-                  where: { tenantId_vendorPattern: { tenantId, vendorPattern: normName } },
-                  update: { categoryId: matched.id, confidence: Math.min(0.92, llm.confidence), source: 'auto_categorize', usageCount: { increment: 1 }, lastUsed: new Date() },
-                  create: { tenantId, vendorPattern: normName, categoryId: matched.id, confidence: Math.min(0.9, llm.confidence), source: 'auto_categorize' },
-                }).catch(() => {});
-              }
-              applied++;
-            } else if (llm.confidence >= MEDIUM_CONF) {
-              pending.push({ expenseId: exp.id, vendorName: exp.vendor?.name ?? null, amountCents: exp.amountCents, suggestedCategoryId: matched.id, suggestedCategoryName: matched.name, confidence: llm.confidence, reason: llm.reason });
-            } else {
-              skipped++;
-            }
-          } catch { skipped++; }
-        }
-      } else if (!apiKey) {
-        skipped = uncategorized.length;
+      for (let i = 0; i < withSignal.length && categories.length > 0; i += BATCH_SIZE) {
+        const chunk = withSignal.slice(i, i + BATCH_SIZE);
+        const { system, user } = buildBatchPrompt(chunk, categories);
+        const raw = await callGemini(system, user, TOKENS_PER_ROW * chunk.length + 200);
+        const { apply, pending, skipped } = decide(chunk, parseBatchDecisions(raw, chunk), categories);
+        outcome.pending.push(...pending);
+        outcome.skipped.push(...skipped);
+        // Bounded fan-out: the write phase was up to 50 sequential HTTP
+        // self-calls of ~6 DB round-trips each, against a 90 s route budget.
+        // The Gemini batches above stay sequential.
+        const written = await mapWithConcurrency(apply, WRITE_CONCURRENCY, async (a) => {
+          if (a.cand.journalEntryId) {
+            // ALREADY on the books — its debit sits on the 6999 suspense
+            // account when nothing resolved a category, and a row whose
+            // categoryId IS 6999 is uncategorized too. True for confirmed
+            // rows AND for drafts created through the expense route, which
+            // posts every non-personal expense at creation. The categorize
+            // route owns ledger posting: it moves that debit to the chosen
+            // account (it never touches `status`) and learns the vendor
+            // pattern. Setting categoryId inline left the P&L on
+            // "Uncategorized" while the reply claimed the row was done.
+            const res = await fetch(`${expenseBase}/api/v1/agentbook-expense/expenses/${a.cand.id}/categorize`, {
+              method: 'POST', headers: brainHeaders(tenantId),
+              body: JSON.stringify({ categoryId: a.category.id, source: 'auto_categorize', confidence: a.confidence }),
+            }).catch((err) => { console.error('[categorize-expenses] write failed:', a.cand.id, err); return null; });
+            if (res && !res.ok) console.error('[categorize-expenses] write failed:', a.cand.id, res.status);
+            return Boolean(res?.ok);
+          }
+          // NOT on the books: a draft from receipt OCR / statement import /
+          // Telegram capture, which post nothing until confirm. The
+          // categorize route backfills a journal entry for any categorized
+          // non-personal expense regardless of status, so sending these
+          // through it would BOOK an unconfirmed expense. Record the category
+          // only; the confirm route posts it with that category later.
+          return db.abExpense.update({ where: { id: a.cand.id }, data: { categoryId: a.category.id, confidence: a.confidence } })
+            .then(() => true)
+            .catch((err) => { console.error('[categorize-expenses] write failed:', a.cand.id, err); return false; });
+        });
+        // Appended by index, not as they land: concurrent writes finish out of
+        // order and the reply lists these rows to the user.
+        apply.forEach((a, i) => {
+          if (written[i]) outcome.applied.push({ ...asLine(a.cand), categoryId: a.category.id, categoryName: a.category.name, confidence: a.confidence });
+          // The model was confident and the DB/route refused — not an LLM
+          // error. Naming it 'llm_error' told the user to rephrase a request
+          // that only needed a retry, and nothing was logged either way.
+          else outcome.skipped.push({ ...asLine(a.cand), reason: 'write_failed' });
+        });
+      }
+      if (categories.length === 0) {
+        for (const c of withSignal) outcome.skipped.push({ ...asLine(c), reason: 'unknown_category' });
       }
 
-      // Save pending batch for the Expenses page review UI
-      if (pending.length > 0) {
+      // Pending batch feeds the Telegram "review" walk-through and the web review UI (same key as before).
+      if (outcome.pending.length > 0) {
         await db.abUserMemory.upsert({
           where: { tenantId_key: { tenantId, key: PENDING_KEY } },
-          update: { value: JSON.stringify({ items: pending, builtAt: Date.now() }), lastUsed: new Date() },
-          create: { tenantId, key: PENDING_KEY, value: JSON.stringify({ items: pending, builtAt: Date.now() }), type: 'pending_action', confidence: 1 },
+          update: { value: JSON.stringify({ items: outcome.pending, builtAt: Date.now() }), lastUsed: new Date() },
+          create: { tenantId, key: PENDING_KEY, value: JSON.stringify({ items: outcome.pending, builtAt: Date.now() }), type: 'pending_action', confidence: 1 },
         }).catch(() => {});
-      } else if (uncategorized.length > 0) {
+      } else if (cands.length > 0) {
         await db.abUserMemory.deleteMany({ where: { tenantId, key: PENDING_KEY } }).catch(() => {});
       }
-      // Mark last run
       await db.abUserMemory.upsert({
         where: { tenantId_key: { tenantId, key: LAST_RUN_KEY } },
         update: { value: JSON.stringify({ at: new Date().toISOString() }), lastUsed: new Date() },
         create: { tenantId, key: LAST_RUN_KEY, value: JSON.stringify({ at: new Date().toISOString() }), type: 'audit', confidence: 1 },
       }).catch(() => {});
 
-      // Concrete list of what still needs a category — used whenever the run
-      // didn't resolve everything, so the user has actual data to act on
-      // instead of a bare "check the Expenses page" pointer.
-      const uncategorizedList = uncategorized
-        .slice(0, 10)
-        .map((e) => `• ${new Date(e.date).toLocaleDateString()} — ${tenantMoney(e.amountCents)} ${e.vendor?.name || '(no vendor)'}`)
-        .join('\n');
-      const uncategorizedListSuffix =
-        uncategorized.length > 10 ? `\n...and ${uncategorized.length - 10} more.` : '';
-
-      let message: string;
-      if (uncategorized.length === 0) {
-        message = t('skill.all_categorized');
-      } else if (applied === 0 && pending.length === 0) {
-        message = `${t('skill.categorize_unsure', { count: uncategorized.length })}\n\n${uncategorizedList}${uncategorizedListSuffix}\n\nReply with a category for one (e.g. "the Staples one is Office Supplies"), or open the Expenses page to assign them there.`;
-      } else if (pending.length === 0) {
-        message = t('skill.categorized_all', { count: applied });
-      } else {
-        // Two counts in one sentence: the plural mechanism keys on a single
-        // `count`, so the second is composed from its own plural key. Each
-        // half is a complete phrase in its own language, not a fragment.
-        message = t('skill.categorized_partial', {
-          count: applied,
-          pending: t('skill.pending_review_phrase', { count: pending.length }),
-        });
-        const preview = pending.slice(0, 5).map((i) => `• ${tenantMoney(i.amountCents)} ${i.vendorName || 'expense'} → ${i.suggestedCategoryName} (${Math.round(i.confidence * 100)}%)`).join('\n');
-        message += '\n\n' + preview;
-        if (pending.length > 5) message += `\n...and ${pending.length - 5} more — check the Expenses page.`;
-      }
+      const message = formatCategorizeReply(outcome, { t, money: tenantMoney, channel });
 
       await db.abConversation.create({
         data: { tenantId, question: text || '[categorize]', answer: message, queryType: 'agent', channel, skillUsed: 'categorize-expenses' },
       }).catch(() => {});
 
       return {
-        selectedSkill, extractedParams, confidence, skillUsed: 'categorize-expenses', skillResponse: null,
+        selectedSkill, extractedParams, confidence, skillUsed: 'categorize-expenses',
+        skillResponse: { success: true, data: outcome },
         responseData: { message, skillUsed: 'categorize-expenses', confidence, latencyMs: Date.now() - startTime },
       };
     } catch (err) {
       console.error('[categorize-expenses] error:', err);
       return {
         selectedSkill, extractedParams, confidence: 0, skillUsed: 'categorize-expenses', skillResponse: null,
-        responseData: { message: "I couldn't categorize the expenses. Please try again.", skillUsed: 'categorize-expenses', confidence: 0, latencyMs: Date.now() - startTime },
+        responseData: { message: t('skill.categorize_failed'), skillUsed: 'categorize-expenses', confidence: 0, latencyMs: Date.now() - startTime },
       };
     }
   }
@@ -5496,13 +5489,19 @@ async function _executeClassificationCore(
       // about rather than the full period (previously only the LLM's own
       // reading of the question did this filtering, non-deterministically).
       const wantsUncategorizedOnly = /uncategoriz|non[\s-]?categoriz|not\s+categoriz/.test(q);
+      // Same two-bucket definition as the categorize skill: no category at all,
+      // OR parked in the 6999 suspense account. Narrowing on `categoryId: null`
+      // alone hid every confirmed row #426 posted to suspense.
+      const suspenseQe = wantsUncategorizedOnly
+        ? await db.abAccount.findFirst({ where: { tenantId, code: '6999' }, select: { id: true } })
+        : null;
       const expenses = await db.abExpense.findMany({
         where: {
           tenantId,
           isPersonal: false,
           deletedAt: null,
           date: { gte: startDate, lte: endDate },
-          ...(wantsUncategorizedOnly ? { categoryId: null } : {}),
+          ...(wantsUncategorizedOnly ? { OR: [{ categoryId: null }, ...(suspenseQe ? [{ categoryId: suspenseQe.id }] : [])] } : {}),
         },
         include: { vendor: true },
         orderBy: { date: 'desc' },

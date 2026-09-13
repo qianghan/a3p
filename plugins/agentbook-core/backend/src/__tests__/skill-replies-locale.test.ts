@@ -393,10 +393,14 @@ describe('the gated-feature messages', () => {
     expect(ft).toContain('module payant');
   });
 
-  it('agrees in number when reporting how many categories were applied', () => {
+  it('reports how many categories were applied, in French, with both counts', () => {
     const fr = replyT({ locale: 'fr-CA' });
-    expect(fr('skill.categorized_all', { count: 1 })).toContain('catégorie appliquée');
-    expect(fr('skill.categorized_all', { count: 6 })).toContain('catégories appliquées');
+    const line = fr('skill.categorize_headline', { applied: 1, total: 6 });
+    expect(line).toContain('catégorisées');
+    // Both interpolated values survive — a localised placeholder would drop
+    // one silently and still read like a sentence.
+    expect(line).toContain('1');
+    expect(line).toContain('6');
   });
 });
 

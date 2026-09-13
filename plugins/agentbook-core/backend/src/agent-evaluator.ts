@@ -39,15 +39,16 @@ export function assessStepQuality(step: PlanStep): StepQuality {
     const confidence = step.result?.confidence ?? 1;
     if (confidence < 0.7) { score -= 0.2; issues.push(`Low confidence score: ${confidence}`); }
   } else if (step.action === 'categorize-expenses') {
-    const msg: string = step.result?.message ?? '';
-    const match = msg.match(/Categorized\s+\*{0,2}(\d+)\*{0,2}\s+of\s+(\d+)/i);
-    if (match) {
-      const n = parseInt(match[1], 10);
-      const m = parseInt(match[2], 10);
-      score = m > 0 ? n / m : 1;
-      if (score < 0.5) issues.push(`Only ${n} of ${m} expenses categorized`);
-      const skippedMatch = msg.match(/(\d+)\s+skipped/i);
-      if (skippedMatch) issues.push(`${skippedMatch[1]} expenses skipped during categorization`);
+    // Read the structured outcome, not the reply text: the prose is localized
+    // (fr-CA/zh-CN never matched /Categorized \d+ of \d+/i, so quality was a
+    // silent 1.0) and it caps its lists at ten rows.
+    const d = step.result?.data as { total?: number; applied?: unknown[]; skipped?: unknown[]; pending?: unknown[] } | undefined;
+    if (d && typeof d.total === 'number') {
+      const applied = d.applied?.length ?? 0;
+      const skipped = d.skipped?.length ?? 0;
+      score = d.total > 0 ? applied / d.total : 1;
+      if (d.total > 0 && score < 0.5) issues.push(`Only ${applied} of ${d.total} expenses categorized`);
+      if (skipped > 0) issues.push(`${skipped} expenses skipped during categorization`);
     }
   }
 

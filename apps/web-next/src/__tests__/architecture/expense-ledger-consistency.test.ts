@@ -62,4 +62,16 @@ describe('every business expense reaches the books', () => {
     // the category breakdown and every Schedule C / T2125 / BAS line stay wrong.
     expect(src).toContain('backfillExpenseJournalEntry');
   });
+
+  it("the Telegram 'accept the AI suggestion' button posts the ledger too", () => {
+    // Presence of the helper ANYWHERE in the file is not enough — the cat:<code>
+    // picker had it and the aiok:<id> accept path did not, so tapping
+    // "Yes, book it" moved the category and left the debit on 6999 while the
+    // bot replied "booked under <category>".
+    const src = read(TELEGRAM);
+    const start = src.indexOf("if (action === 'aiok') {");
+    expect(start, 'the aiok handler moved or was renamed').toBeGreaterThan(-1);
+    const block = src.slice(start, src.indexOf("if (action === 'aichg') {", start));
+    expect(block).toContain('backfillExpenseJournalEntry(');
+  });
 });
