@@ -1,5 +1,5 @@
 import 'server-only';
-import Provider from 'oidc-provider';
+import Provider, { errors } from 'oidc-provider';
 import { PrismaOidcAdapter } from '@naap/database';
 
 let instance: Provider | undefined;
@@ -77,6 +77,52 @@ export function mcpIssuer(): string {
   return process.env.AGENTBOOK_MCP_ISSUER || 'https://agentbook.brainliber.com';
 }
 
+export const MCP_SCOPE = 'agentbook:full';
+
+/**
+ * RFC 8707 Resource Indicators — what an MCP client names as the API it wants
+ * a token for.
+ *
+ * This is not optional plumbing. oidc-provider enables `resourceIndicators` by
+ * default, and its default `getResourceServerInfo` does nothing but throw
+ * (helpers/defaults.js:246 — `mustChange(...)`, then
+ * `throw new errors.InvalidTarget()`). The MCP authorization spec REQUIRES
+ * clients to send `resource` on the authorization and token requests, so every
+ * spec-compliant client walked the user through login and consent and then
+ * failed at the exchange with
+ *
+ *     invalid_target: resource indicator is missing, or unknown
+ *
+ * which is exactly the text of `errors.InvalidTarget` (helpers/errors.js:138).
+ * The authorization request itself still 303s to consent, so the failure lands
+ * AFTER the user has signed in and pressed Allow — the point at which it looks
+ * like the sign-in was rejected.
+ *
+ * Exported so it can be tested directly; the fix is what this function returns
+ * rather than what it is wired into.
+ */
+export async function resourceServerInfoFor(resourceIndicator: string): Promise<{
+  scope: string;
+  accessTokenFormat: 'opaque';
+}> {
+  // One resource exists. Anything else is genuinely unknown, and saying so is
+  // the point of the indicator — a client asking for a token scoped to some
+  // other API must not be handed one for this one.
+  if (resourceIndicator !== mcpResourceUrl()) {
+    throw new errors.InvalidTarget();
+  }
+
+  return {
+    scope: MCP_SCOPE,
+    // MUST stay opaque. `authenticateMcpRequest` validates a bearer token with
+    // `provider.AccessToken.find(token)`, which resolves an opaque token
+    // through the storage adapter. Switching this to 'jwt' would issue tokens
+    // that `find()` cannot resolve, and every MCP call would 401 while the
+    // OAuth flow still looked perfectly healthy.
+    accessTokenFormat: 'opaque',
+  };
+}
+
 export function mcpResourceUrl(): string {
   return `${mcpIssuer()}${MCP_RESOURCE_PATH}`;
 }
@@ -107,6 +153,18 @@ export function getOAuthProvider(): Provider {
       registration: { enabled: true, initialAccessToken: false }, // open DCR, per MCP convention
       revocation: { enabled: true },
       devInteractions: { enabled: false }, // we render our own login/consent (Task 5)
+      resourceIndicators: {
+        enabled: true,
+        // When a client omits `resource`, resolve to the only one we have
+        // rather than failing. Older clients predate the requirement.
+        defaultResource: async () => mcpResourceUrl(),
+        // Let a client skip `resource` at the token endpoint once it has been
+        // granted — oidc-provider's own recommendation when, as here, there is
+        // nothing else it could mean.
+        useGrantedResource: async () => true,
+        getResourceServerInfo: async (_ctx: unknown, resourceIndicator: string) =>
+          resourceServerInfoFor(resourceIndicator),
+      },
     },
     interactions: {
       // Every interaction (login + consent) is rendered by our own page —
@@ -139,7 +197,7 @@ export function getOAuthProvider(): Provider {
       short: { path: '/' },
     },
     pkce: { required: () => true }, // OAuth 2.1: PKCE mandatory for every client
-    scopes: ['agentbook:full'],
+    scopes: [MCP_SCOPE],
     // WHY THIS OVERRIDE EXISTS — it is not a policy tweak, it is what makes
     // the refresh_token grant EXIST at all.
     //
