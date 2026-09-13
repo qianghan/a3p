@@ -131,5 +131,11 @@
   "categorize_more_remaining": "{count} autres que je n'ai pas encore examinées — redites « categorize » pour continuer.",
   "invoice_created_full": "Facture créée{number}{client}{amount}.",
   "roommates_found_one": "**{count} étudiant compatible**",
-  "roommates_found_other": "**{count} étudiants compatibles**"
+  "roommates_found_other": "**{count} étudiants compatibles**",
+  "scenario_monthly_net": "Net mensuel : {before} → {after} ({change}/mois)",
+  "scenario_runway": "Autonomie de trésorerie : {before} → {after} mois",
+  "scenario_tax": "Variation estimée de l'impôt annuel : {change}",
+  "scenario_cash_negative": "La trésorerie deviendrait négative au mois {month}.",
+  "scenario_client_not_found": "Je n'ai trouvé aucun client nommé « {client} » dans vos livres, donc je n'ai pas modélisé ce scénario.",
+  "scenario_failed": "Je n'ai pas pu simuler ce scénario. Essayez « et si j'embauchais quelqu'un à 5000 $/mois ? »"
 }

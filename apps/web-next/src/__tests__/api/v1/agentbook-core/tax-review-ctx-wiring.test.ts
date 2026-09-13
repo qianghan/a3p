@@ -150,6 +150,42 @@ function callSiteOffsets(src: string): number[] {
   return offsets;
 }
 
+/**
+ * The same guard for `buildGroundingFacts`, for the same reason.
+ *
+ * It is the ledger-facts supplier for the GROUNDED ADVISOR — which answers
+ * both consultative turns and (since general-question stopped being an HTTP
+ * skill) every general question. Without it on a channel, the review pass has
+ * nothing to verify a figure against and strips every one, so that channel
+ * silently serves the hedged version of an answer the web chat gives in full.
+ * It was wired on the web chat route only.
+ *
+ * The dev Express route is deliberately NOT in this list: it lives in
+ * plugins/agentbook-core, which must not import from apps/web-next, so it
+ * cannot supply this at all. Only the Next-hosted channels can.
+ */
+const GROUNDING_SITES = CTX_SITES.filter((s) => !s.file.includes('plugins/agentbook-core'));
+
+describe('every Next-hosted channel supplies the advisor its ledger facts', () => {
+  it('covers the three real channels', () => {
+    expect(GROUNDING_SITES.map((s) => s.label)).toHaveLength(3);
+  });
+
+  for (const site of GROUNDING_SITES) {
+    it(`${site.label} passes buildGroundingFacts into every ctx it builds`, () => {
+      const src = codeLinesOnly(readFileSync(site.file, 'utf-8'));
+      expect(src, `${site.label} must import buildGroundingFacts`).toContain(
+        "from '@/lib/agentbook-grounding'",
+      );
+      const offsets = callSiteOffsets(src);
+      expect(offsets.length, 'expected this file to construct an agent-brain ctx').toBeGreaterThan(0);
+      for (const offset of offsets) {
+        expect(src.slice(offset, offset + 2500)).toContain('buildGroundingFacts');
+      }
+    });
+  }
+});
+
 describe('every agent-brain ctx site wires the tax-review functions', () => {
   for (const site of CTX_SITES) {
     it(`${site.label} passes buildTaxReviewCtx into every ctx it builds`, () => {

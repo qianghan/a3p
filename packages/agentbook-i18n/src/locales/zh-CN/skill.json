@@ -131,5 +131,11 @@
   "categorize_more_remaining": "还有 {count} 笔尚未查看，再说一次「categorize」继续。",
   "invoice_created_full": "发票已创建{number}{client}{amount}。",
   "roommates_found_one": "**{count} 位合适的室友人选**",
-  "roommates_found_other": "**{count} 位合适的室友人选**"
+  "roommates_found_other": "**{count} 位合适的室友人选**",
+  "scenario_monthly_net": "月度净额：{before} → {after}（{change}/月）",
+  "scenario_runway": "现金可支撑时长：{before} → {after} 个月",
+  "scenario_tax": "预计年度税额变化：{change}",
+  "scenario_cash_negative": "现金将在第 {month} 个月转为负数。",
+  "scenario_client_not_found": "我在您的账簿中找不到名为「{client}」的客户，因此没有模拟该情景。",
+  "scenario_failed": "我无法模拟该情景。可以试试「如果我以每月 5000 美元雇一个人会怎样？」"
 }

@@ -65,18 +65,49 @@ describe('every skill.* key the reply path asks for exists', () => {
   // "skill.expenses_summry". Parity tests compare catalogs to each other and
   // cannot see a code-to-catalog miss.
   const SRC = readFileSync(join(__dirname, '../server.ts'), 'utf8');
+
+  // Reply text is no longer only in server.ts. Modules extracted out of it
+  // build their own replies through an injected `t`, which the module's own
+  // tests stub — so a key typo'd there resolves happily in unit tests and
+  // ships to the user as the raw string "skill.scenario_runway". Every file
+  // that composes user-visible reply text belongs in this scan.
+  const REPLY_SOURCES = ['../server.ts', '../scenario-simulation.ts', '../categorize-expenses.ts'];
+  const REPLY_SRC = REPLY_SOURCES
+    .map((f) => readFileSync(join(__dirname, f), 'utf8'))
+    .join('\n');
+
   const en = load('en');
-  const used = [...SRC.matchAll(/\bt\('skill\.([a-z0-9_]+)'/g)].map((m) => m[1]);
+  const used = [...REPLY_SRC.matchAll(/\bt\('skill\.([a-z0-9_]+)'/g)].map((m) => m[1]);
 
   it('finds the call sites (not vacuous)', () => {
     expect(new Set(used).size).toBeGreaterThanOrEqual(6);
+  });
+
+  it('scans every reply-composing module, not just server.ts', () => {
+    // Guards the scan itself: dropping a file from REPLY_SOURCES would make
+    // the check below pass vacuously for that module.
+    expect(used).toContain('scenario_runway');
+    expect(used).toContain('categorize_headline');
   });
 
   it('resolves every key, counting plural variants', () => {
     const missing = used.filter(
       (k) => !(k in en) && !(`${k}_one` in en && `${k}_other` in en),
     );
-    expect(missing, 'skill.* keys used in server.ts but absent from en/skill.json').toEqual([]);
+    expect(missing, 'skill.* keys used in reply code but absent from en/skill.json').toEqual([]);
+  });
+
+  it('resolves every key in fr-CA and zh-CN too', () => {
+    // A key present only in en renders as English to a French or Chinese
+    // tenant — the exact leak the catalog was built to stop, and one the
+    // en-only check above cannot see.
+    for (const loc of ['fr-CA', 'zh-CN']) {
+      const cat = load(loc);
+      const missing = used.filter(
+        (k) => !(k in cat) && !(`${k}_one` in cat && `${k}_other` in cat),
+      );
+      expect(missing, `skill.* keys used in reply code but absent from ${loc}/skill.json`).toEqual([]);
+    }
   });
 
   it('leaves no English literal behind in the branch it replaced', () => {

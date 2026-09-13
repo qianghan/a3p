@@ -139,7 +139,21 @@ export function buildTestContext(opts: TestContextOptions = {}) {
     },
   );
 
-  const ctx = {
+  const ctx: {
+    skills: TestSkill[];
+    callGemini: (system: string, user: string, max?: number) => Promise<string | null>;
+    baseUrls: Record<string, string>;
+    classifyAndExecuteV1: typeof classifyAndExecuteV1;
+    classifyOnly: typeof classifyOnly;
+    executeClassification: typeof executeClassification;
+    /**
+     * The ledger facts a grounded answer may assert. Left undefined by
+     * default — that is the real shape for a caller that does not supply it —
+     * but DECLARED, so a test that wants the grounded advisor path can assign
+     * one without casting the whole ctx to `any` and losing every other check.
+     */
+    buildGroundingFacts?: (tenantId: string) => Promise<string[]>;
+  } = {
     skills: opts.skills ?? [],
     callGemini,
     baseUrls: {
