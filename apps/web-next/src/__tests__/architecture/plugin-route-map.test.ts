@@ -18,13 +18,14 @@
  * `/agentbook/sales-tax-return`. The user sees the wrong plugin's UI instead
  * of a broken link, which is why the report was "wrong page", not "404".
  *
- * The `[...slug]` catch-all page (`app/(dashboard)/[...slug]/page.tsx`) reads
- * the SAME manifests from the database and would have resolved this path
- * correctly — but middleware's rewrite happens first, so that page is
- * effectively dead code for every `/agentbook/*` URL. This test compares
- * middleware's map against the manifests directly, so a route added to a
- * plugin without the matching middleware entry fails CI instead of shipping
- * silently, the way this one did.
+ * There used to be a `[...slug]` catch-all page that would have resolved this
+ * path correctly — but middleware's rewrite happens first, so that page was
+ * dead code for every `/agentbook/*` URL. It has since been deleted (it made
+ * every unmatched path in the app return `200 text/html`), so this map is the
+ * only thing standing between a plugin route and a 404. This test compares it
+ * against the manifests directly, so a route added to a plugin without the
+ * matching middleware entry fails CI instead of shipping silently, the way
+ * this one did.
  */
 import { describe, it, expect } from 'vitest';
 import * as fs from 'fs';
@@ -68,6 +69,26 @@ function declaredAgentbookRoutes(): ManifestRoute[] {
   return out;
 }
 
+/**
+ * Every base route any plugin manifest declares, with the plugin that owns it.
+ * Unlike `declaredAgentbookRoutes` this does not filter by prefix — the point
+ * is to account for ALL of them.
+ */
+function allDeclaredRoutes(): ManifestRoute[] {
+  const out: ManifestRoute[] = [];
+  for (const dir of fs.readdirSync(PLUGINS_DIR)) {
+    const manifestPath = path.join(PLUGINS_DIR, dir, 'plugin.json');
+    if (!fs.existsSync(manifestPath)) continue;
+    const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf-8'));
+    const routes: string[] = manifest.frontend?.routes ?? [];
+    const bases = new Set(routes.map((r) => r.replace(/\/?\*$/, '')).filter(Boolean));
+    for (const base of bases) {
+      out.push({ plugin: manifest.name, expectedName: toCamelCase(manifest.name), base });
+    }
+  }
+  return out;
+}
+
 describe('PLUGIN_ROUTE_MAP vs plugin manifests', () => {
   it('has an entry for every /agentbook/* route a manifest declares', () => {
     const declared = declaredAgentbookRoutes();
@@ -99,5 +120,56 @@ describe('PLUGIN_ROUTE_MAP vs plugin manifests', () => {
         .join('\n');
       throw new Error(`${wrong.length} route(s) point at the wrong plugin:\n${detail}`);
     }
+  });
+});
+
+/**
+ * Nothing catches an unrecognised path any more.
+ *
+ * `app/(dashboard)/[...slug]/page.tsx` used to match every path Next.js had no
+ * route for. It was a client component, so it answered `200 text/html` and
+ * drew a 404 screen only once JavaScript ran. That is what broke MCP OAuth
+ * discovery (PR #556): the SDK falls back to the root metadata URL only on a
+ * 4xx, so a 200 meant "found it" and it threw parsing an HTML page as JSON.
+ *
+ * Deleting that page is what lets Next.js return a genuine 404 — it does so at
+ * the routing layer, before any rendering, which is the only point where the
+ * status can still be set. (Calling `notFound()` from a page does NOT work
+ * here: an ancestor `loading.tsx` and the `(dashboard)` client layout both put
+ * the route into streaming mode, and a streamed response has already committed
+ * `200` by the time the page renders. Measured, not assumed.)
+ *
+ * The consequence is that a plugin route this map does not know about is now a
+ * hard 404 instead of a slow success. So every base route a manifest declares
+ * has to be accounted for by one of the two things that can still serve it.
+ * This test is that accounting.
+ */
+describe('every declared plugin route has something that serves it', () => {
+  it('is served by /plugins/[pluginName] or by PLUGIN_ROUTE_MAP', () => {
+    const declared = allDeclaredRoutes();
+
+    const unserved = declared.filter(
+      (r) =>
+        // `/plugins/<name>` and its sub-paths have their own page.
+        !r.base.startsWith('/plugins/') &&
+        // Everything else needs a middleware rewrite to reach its plugin.
+        !(r.base in PLUGIN_ROUTE_MAP),
+    );
+
+    if (unserved.length > 0) {
+      const detail = unserved
+        .map((r) => `  ${r.base}  (declared by ${r.plugin}, needs '${r.base}': '${r.expectedName}')`)
+        .join('\n');
+      throw new Error(
+        `${unserved.length} route(s) declared in plugin.json that nothing serves. ` +
+        `There is no [...slug] catch-all any more, so these return a genuine 404 ` +
+        `in production instead of rendering. Add each to PLUGIN_ROUTE_MAP in ` +
+        `middleware.ts:\n${detail}`,
+      );
+    }
+
+    // Not a vacuous pass: fail loudly if manifests changed shape and this
+    // measure stopped seeing anything at all.
+    expect(declared.length).toBeGreaterThan(0);
   });
 });

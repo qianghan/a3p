@@ -19,13 +19,18 @@ import { isMcpEnabled } from '@/lib/mcp/mcp-flag';
  * WHY THIS FILE EXISTS RATHER THAN A REDIRECT OR NOTHING AT ALL
  *
  * Nothing served this path, so it fell through to the client-side catch-all
- * at app/(dashboard)/[...slug]/page.tsx, which renders for ANY unmatched
- * path. That returns `200 text/html`. The MCP SDK falls back to the root
+ * at app/(dashboard)/[...slug]/page.tsx, which rendered for ANY unmatched
+ * path and returned `200 text/html`. The MCP SDK falls back to the root
  * metadata URL only when the path-aware request 4xxs
  * (`shouldAttemptFallback`: `status >= 400 && status < 500`), so a 200 is
  * worse than a 404 here — it ends discovery with "found it", then throws
  * parsing an HTML page as JSON. The visible symptom was a client that could
  * not register and asked for a hand-entered OAuth client id instead.
+ *
+ * That catch-all has since been deleted, so an unmatched path now 404s on its
+ * own. This route still earns its place: it is what serves the metadata for
+ * the resource that DOES exist, and the 404 below is a deliberate, specific
+ * answer rather than a fallthrough.
  *
  * Anything that is not our resource must therefore answer 404, deliberately,
  * so a client can fall back instead of being handed a page.

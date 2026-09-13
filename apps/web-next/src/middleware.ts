@@ -9,8 +9,30 @@ import type { NextRequest } from 'next/server';
 // /plugins/* paths are handled by the dynamic [pluginName] route automatically.
 // Exported so the architecture test can compare this map against the plugin
 // manifests directly, rather than a hand-copied list that could itself drift.
+//
+// This map is now load-bearing in a way it was not before. There used to be a
+// `(dashboard)/[...slug]` catch-all page that matched EVERY unrouted path and
+// rendered a plugin if one had claimed it — so a plugin route missing from
+// this map still worked, just later and via React. That page also meant every
+// unmatched path in the app answered `200 text/html` with a 404 screen drawn
+// after hydration, which broke MCP OAuth discovery (PR #556): the SDK only
+// falls back to the root metadata URL on a 4xx, so a 200 ended discovery on an
+// HTML body it then failed to parse as JSON.
+//
+// Deleting that page is what lets Next.js answer an unmatched path with a real
+// 404 — it does that at the routing layer, before any render, which is the only
+// place the status can still be set (a rendered response streams, and a
+// streamed response has already committed its status). The cost is that a
+// plugin route missing from this map is now a hard 404 rather than a slow
+// success. `src/__tests__/architecture/plugin-route-map.test.ts` fails CI on
+// exactly that.
 export const PLUGIN_ROUTE_MAP: Record<string, string> = {
   '/forum': 'community',
+  // agentbook-billing. These two were the last routes served by the
+  // `(dashboard)/[...slug]` catch-all; that page is gone, so an entry here is
+  // now the ONLY thing that makes them resolve. See the note below.
+  '/billing': 'agentbookBilling',
+  '/admin/billing': 'agentbookBilling',
   // AgentBook — specific sub-paths BEFORE the catch-all
   '/agentbook/expenses': 'agentbookExpense',
   '/agentbook/receipts': 'agentbookExpense',
