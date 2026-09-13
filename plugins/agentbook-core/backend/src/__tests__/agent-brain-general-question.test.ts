@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { buildTestContext } from './helpers/test-context';
@@ -311,5 +311,113 @@ describe('general-question is answered with the thread in view', () => {
     expect(res.success).toBe(true);
     expect(res.data.message).toContain('61 unmatched');
     expect(executeClassification).not.toHaveBeenCalled();
+  });
+});
+
+describe('a follow-up may repeat a figure the assistant already stated', () => {
+  /**
+   * Production, 2026-09-13, minutes after the greeting fix above.
+   *
+   *   user: What is my cash balance?
+   *   bot:  You have CA$233,786.10 on hand. • Accounts Receivable:
+   *         CA$216,860.00 • Cash: CA$16,926.10      (query-finance, off the ledger)
+   *   user: Give me more details
+   *   bot:  I can look this up against your books, but I don't want to quote
+   *         you a number I can't stand behind…       (safeFallback)
+   *
+   *   [brainAccountantFallback] draft failed review:
+   *     ungrounded-amount(CA$16,926.10), ungrounded-amount(CA$216,860.00)
+   *   [brainAccountantFallback] repair still failed: ungrounded-amount
+   *
+   * The advisor's draft was right. The grounding context just did not contain
+   * the conversation, so the numbers the assistant had produced ITSELF one
+   * turn earlier read as invented. Note what the user sees: the bot quotes a
+   * cash balance and then, asked to elaborate, says it cannot stand behind a
+   * number — which reads as the first answer being retracted.
+   */
+  const CASH_ANSWER =
+    'You have CA$233,786.10 on hand. • Accounts Receivable: CA$216,860.00 • Cash: CA$16,926.10';
+  const DRAFT =
+    'Your cash is CA$16,926.10 and receivables are CA$216,860.00; together CA$233,786.10.';
+
+  const CASH_THREAD = {
+    id: 'thread-1',
+    lastActiveAt: new Date(),
+    activeEntities: [],
+    parkedFills: [],
+    turns: [
+      { role: 'user', text: 'What is my cash balance?', at: '2026-09-13T15:20:00.000Z' },
+      { role: 'bot', text: CASH_ANSWER, at: '2026-09-13T15:20:04.000Z', intent: 'query-finance' },
+    ],
+  };
+
+  // Swap the thread for this block only, then put the file's default back —
+  // the tests above read the briefing thread and run in the same registry.
+  let restoreThread: (() => void) | null = null;
+  beforeEach(async () => {
+    const { db } = await import('../db/client.js');
+    const fn = db.abConvThread.findFirst as any;
+    const original = fn.getMockImplementation();
+    restoreThread = () => { fn.mockReset(); fn.mockImplementation(original); };
+    fn.mockImplementation(async () => CASH_THREAD);
+  });
+  afterEach(() => { restoreThread?.(); restoreThread = null; });
+
+  function cashSetup() {
+    const built = setup({ text: 'Give me more details', fixtures: [{ userMatch: 'more details', response: DRAFT }] });
+    // Deliberately NOT the cash figures. The ledger snapshot is what the
+    // advisor normally grounds on; stripping it is what makes the previous
+    // ASSISTANT TURN the only possible source for those three numbers, so a
+    // pass here can only mean the conversation reached the reviewer.
+    built.ctx.buildGroundingFacts = vi.fn(async () => ['Business: consulting, sole proprietor.']);
+    return built;
+  }
+
+  it('returns the draft verbatim instead of the safe fallback', async () => {
+    const { req, ctx } = cashSetup();
+    const { handleAgentMessage } = await import('../agent-brain');
+    const res = await handleAgentMessage(req as any, ctx as any);
+
+    expect(res.success).toBe(true);
+    expect(res.data.message).toContain(DRAFT);
+    expect(res.data.message).not.toContain("can't stand behind");
+    expect(res.data.message).not.toMatch(SAFE_FALLBACK_FRAGMENT);
+  });
+
+  it('does not spend a repair round-trip on figures we produced ourselves', async () => {
+    const { req, ctx, llmCalls } = cashSetup();
+    const { handleAgentMessage } = await import('../agent-brain');
+    await handleAgentMessage(req as any, ctx as any);
+
+    expect(
+      llmCalls.history.some((h: any) => h.system.includes(REPAIR_MARKER)),
+      'a repair ran on a draft that only restated the previous answer',
+    ).toBe(false);
+  });
+
+  it('does not ground on the USER\'s own numbers', async () => {
+    // Only the assistant side of the thread goes in. A figure the USER typed
+    // is a claim, not evidence — echoing it back as if the books supported it
+    // is how an unverified number acquires our authority. So the same
+    // mechanism, with the number on the other side of the thread, must still
+    // block.
+    const { db } = await import('../db/client.js');
+    (db.abConvThread.findFirst as any).mockImplementation(async () => ({
+      ...CASH_THREAD,
+      turns: [
+        { role: 'user', text: 'I made CA$400,000 last year.', at: '2026-09-13T15:20:00.000Z' },
+        { role: 'bot', text: 'Noted — let me pull your books up.', at: '2026-09-13T15:20:04.000Z' },
+      ],
+    }));
+
+    const { req, ctx } = setup({
+      fixtures: [{ userMatch: 'more details', response: 'On CA$400,000 of revenue your instalments would step up.' }],
+    });
+    ctx.buildGroundingFacts = vi.fn(async () => ['Business: consulting, sole proprietor.']);
+
+    const { handleAgentMessage } = await import('../agent-brain');
+    const res = await handleAgentMessage(req as any, ctx as any);
+
+    expect(res.data.message).not.toContain('CA$400,000');
   });
 });

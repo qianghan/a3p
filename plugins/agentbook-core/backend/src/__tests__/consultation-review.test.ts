@@ -284,3 +284,63 @@ describe('the catch-all bucket is allowed to answer with a question', () => {
     expect(r.findings.map((f) => f.kind)).toContain('foreign-authority');
   });
 });
+
+describe('a figure the assistant already stated in this thread is grounded', () => {
+  /**
+   * Production, 2026-09-13. Turn 1, "What is my cash balance?", was answered
+   * by the query-finance skill straight off the ledger:
+   *
+   *   You have CA$233,786.10 on hand.
+   *   • Accounts Receivable: CA$216,860.00
+   *   • Cash: CA$16,926.10
+   *
+   * Turn 2, "Give me more details", routes to the advisor instead. Its draft
+   * restated those three figures — and the reviewer blocked two of them as
+   * `ungrounded-amount`, because the grounding context was built from the
+   * ledger snapshot and the profile and did NOT include the conversation. The
+   * repair failed identically and the user got safeFallback().
+   *
+   * A number the assistant itself produced one turn ago is not the risk this
+   * module exists for: it came out of the books by the same door the facts
+   * do. The fix is to hand the recent ASSISTANT answers in as facts — which
+   * only works if the extractor reads them, so that is what these two pin.
+   * The first proves the extraction path by failing without the fact.
+   */
+  const ASSISTANT_TURN =
+    'You have CA$233,786.10 on hand. • Accounts Receivable: CA$216,860.00 • Cash: CA$16,926.10';
+  const FOLLOW_UP_DRAFT =
+    'Your cash is CA$16,926.10 and receivables are CA$216,860.00; together CA$233,786.10.';
+  const PROFILE = 'Business: consulting, sole proprietor in Ontario.';
+
+  it('blocks the repeat when the thread is not among the facts', () => {
+    const r = reviewConsultation(FOLLOW_UP_DRAFT, { jurisdiction: 'ca', facts: [PROFILE] });
+    expect(r.verdict).toBe('block');
+    expect(r.findings.map((f) => f.span)).toContain('CA$16,926.10');
+    expect(r.findings.map((f) => f.span)).toContain('CA$216,860.00');
+  });
+
+  it('passes the repeat when the assistant turn is one of the facts', () => {
+    // The answer text goes in RAW — no re-formatting on the way. If the
+    // extractor ever stopped reading "Cash: CA$16,926.10" out of a fact
+    // string, the caller's normalisation would be the thing to change, and
+    // this is the test that would say so.
+    const r = reviewConsultation(FOLLOW_UP_DRAFT, {
+      jurisdiction: 'ca',
+      facts: [PROFILE, ASSISTANT_TURN],
+    });
+    expect(r.verdict).toBe('pass');
+    expect(r.findings).toHaveLength(0);
+  });
+
+  it('still blocks a figure the thread never contained', () => {
+    // Grounding on our own past answers widens what may be repeated. It must
+    // not widen into "any number is fine now" — a total the assistant never
+    // stated is still invented.
+    const r = reviewConsultation(
+      'Your cash is CA$16,926.10, so you could set aside CA$41,000 for tax.',
+      { jurisdiction: 'ca', facts: [PROFILE, ASSISTANT_TURN] },
+    );
+    expect(r.verdict).toBe('block');
+    expect(r.findings.map((f) => f.span)).toContain('CA$41,000');
+  });
+});

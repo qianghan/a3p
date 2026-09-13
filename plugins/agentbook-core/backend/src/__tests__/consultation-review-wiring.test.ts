@@ -84,6 +84,23 @@ describe('the advisory path verifies before it answers', () => {
     expect(fallbackBody).toMatch(/pastFilingContext/);
   });
 
+  it('grounds on the assistant\'s own recent answers, not only the ledger', () => {
+    // Prod 2026-09-13: "Give me more details" after a cash-balance answer was
+    // blocked as `ungrounded-amount(CA$16,926.10)` — the figure the assistant
+    // had just stated itself. The conversation was in the PROMPT and not in
+    // the reviewer's facts, so the two disagreed about what was known.
+    //
+    // Tied to the real expression: only the ANSWER side is admitted, and it
+    // comes from the same slice the prompt snippet was built from, so what
+    // the model can see and what it may repeat cannot drift apart.
+    expect(fallbackBody).toMatch(/\.map\(\(c\)\s*=>\s*c\.answer\)/);
+    expect(fallbackBody).toMatch(/facts:\s*\[[\s\S]{0,240}\.map\(\(c\)\s*=>\s*c\.answer\)/);
+    expect(
+      fallbackBody,
+      'the questions the USER typed are not evidence and must stay out of the facts',
+    ).not.toMatch(/facts:\s*\[[\s\S]{0,240}c\.question/);
+  });
+
   it('feeds the model the SAME lines the reviewer checks against', () => {
     // If the prompt context and the verifier's fact list can diverge, the
     // model gets told things the reviewer will then block — the worst of both.

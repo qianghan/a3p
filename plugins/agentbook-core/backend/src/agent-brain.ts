@@ -103,8 +103,11 @@ async function brainAccountantFallback(
    */
   opts?: { allowQuestionOnly?: boolean },
 ): Promise<string> {
-  const convoSnippet = (conversation || [])
-    .slice(0, 3)
+  // Newest first — pairTurns' contract. One array feeds BOTH the prompt
+  // snippet below and the grounding facts further down, so what the model can
+  // see and what it is allowed to repeat cannot drift apart.
+  const recentTurns = (conversation || []).slice(0, 3);
+  const convoSnippet = recentTurns
     .map((c) => `User: ${c.question}\nAssistant: ${c.answer}`)
     .join('\n');
 
@@ -200,10 +203,32 @@ async function brainAccountantFallback(
 
   // Everything this answer is allowed to assert. Anything the model states
   // beyond it was invented — see consultation-review.ts.
+  //
+  // The recent ASSISTANT answers are part of that, and their absence was a
+  // prod bug (2026-09-13). "What is my cash balance?" was answered off the
+  // ledger by query-finance — "You have CA$233,786.10 on hand. • Accounts
+  // Receivable: CA$216,860.00 • Cash: CA$16,926.10" — and the follow-up "Give
+  // me more details" landed here, where the draft restated those figures and
+  // was blocked as `ungrounded-amount(CA$16,926.10)`. Repair failed the same
+  // way and the user got safeFallback(): the bot quoted a balance and then,
+  // asked to elaborate, said it could not stand behind a number, which reads
+  // as retracting its own answer. A figure we already stated in this thread
+  // came out of the books by the same door these facts did — it is grounded
+  // by definition, and the risk this reviewer exists for (an INVENTED number)
+  // does not apply to one we produced ourselves.
+  //
+  // The user's questions are deliberately NOT included. A figure the user
+  // typed is a claim, not evidence; admitting it would let "I made CA$400,000
+  // last year" license the advisor to assert CA$400,000 about their books.
+  //
+  // Raw answer text, no reformatting: the extractor pulls every number out of
+  // a fact string, so "Cash: CA$16,926.10" grounds CA$16,926.10 as it stands
+  // — pinned in consultation-review.test.ts.
   const grounding: GroundingContext = {
     jurisdiction: tenantConfig?.jurisdiction || 'us',
     facts: [
       ...(groundingFacts ?? []),
+      ...recentTurns.map((c) => c.answer),
       personalProfileContext,
       pastFilingContext,
     ].filter(Boolean) as string[],
