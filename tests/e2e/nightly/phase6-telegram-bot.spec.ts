@@ -77,9 +77,14 @@ test.describe('@phase6-telegram-bot', () => {
     const r = await postUpdate('send invoice Acme $500 for consulting');
     expect(r.reply).toMatch(/invoice|created|draft|facture|créé|ébauche|brouillon|vouliez-vous dire/i);
   });
-  test('simulate-scenario', async () => {
+  test('simulate-scenario answers with a projection, not a clarifying question', async () => {
     const r = await postUpdate('what if I hire someone at $5K/mo?');
-    expect(r.reply).toBeTruthy();
+    expect(r.status).toBe(200);
+    // A projection carries money AND the runway/net lines; the dead-endpoint
+    // fallback carried neither. (Do not assert "no trailing ?" — a narrative
+    // may legitimately end with an offer.)
+    expect(r.reply, 'no currency amount in the scenario reply').toMatch(/(?:CA|A|US)?\$\s?[\d,]+(?:\.\d{2})?|[\d\s]+,\d{2}\s?\$/);
+    expect(r.reply, 'no projection lines (F6: /simulate endpoint was dead)').toMatch(/runway|monthly net|net mensuel|piste|跑道|每月净|月度净额/i);
   });
   test('proactive-alerts', async () => {
     const r = await postUpdate('what should I focus on?');
