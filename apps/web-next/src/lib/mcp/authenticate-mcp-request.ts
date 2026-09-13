@@ -1,13 +1,31 @@
 import 'server-only';
 import { NextRequest, NextResponse } from 'next/server';
-import { getOAuthProvider } from './oauth-provider';
+import { getOAuthProvider, mcpResourceMetadataUrl } from './oauth-provider';
 
+/**
+ * A 401 from an MCP endpoint is not a dead end — it is the first step of the
+ * handshake. RFC 9728 §5.3 (and the MCP authorization spec, which cites it)
+ * require the challenge to carry `resource_metadata`, naming where the client
+ * can read who is allowed to issue tokens for this resource.
+ *
+ * Without it a client has to GUESS the metadata URL, and the guess is not
+ * forgiving: the MCP SDK asks for the path-inserted URL and only falls back to
+ * the root one on a 4xx (`shouldAttemptFallback` in client/auth.js). This app
+ * answers unmatched paths with 200 and an HTML shell — see the catch-all at
+ * app/(dashboard)/[...slug] — so the guess "succeeded", `response.json()` was
+ * handed a page of HTML, and discovery died. The client cannot then learn the
+ * authorization server, cannot register, and offers to take a hand-entered
+ * client id instead. Naming the URL here removes the guess entirely.
+ */
 function unauthorized(message: string): { error: NextResponse } {
   const response = NextResponse.json(
     { error: { code: 'invalid_token', message } },
     { status: 401 },
   );
-  response.headers.set('WWW-Authenticate', `Bearer error="invalid_token", error_description="${message}"`);
+  response.headers.set(
+    'WWW-Authenticate',
+    `Bearer error="invalid_token", error_description="${message}", resource_metadata="${mcpResourceMetadataUrl()}"`,
+  );
   return { error: response };
 }
 

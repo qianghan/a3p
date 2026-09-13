@@ -8,6 +8,8 @@ vi.mock('./oauth-provider', () => ({
   getOAuthProvider: () => ({
     AccessToken: { find: findAccessToken },
   }),
+  mcpResourceMetadataUrl: () =>
+    'https://agentbook.example.test/.well-known/oauth-protected-resource/api/v1/mcp',
 }));
 
 import { authenticateMcpRequest } from './authenticate-mcp-request';
@@ -22,6 +24,38 @@ describe('authenticateMcpRequest', () => {
     if ('error' in result) {
       expect(result.error.status).toBe(401);
       expect(result.error.headers.get('WWW-Authenticate')).toContain('invalid_token');
+    }
+  });
+
+  // RFC 9728 §5.3, required by the MCP authorization spec. Without it the
+  // client has to guess where the metadata lives, and its guess — the
+  // path-inserted URL — used to hit this app's catch-all page and come back
+  // as 200 text/html, which ends discovery in a parse error rather than a
+  // retry. The connector then could not be registered at all.
+  it('names the protected-resource metadata URL in the challenge', async () => {
+    const request = new NextRequest('http://localhost/api/v1/mcp');
+    const result = await authenticateMcpRequest(request);
+    expect('error' in result).toBe(true);
+    if ('error' in result) {
+      const challenge = result.error.headers.get('WWW-Authenticate') ?? '';
+      expect(challenge).toContain(
+        'resource_metadata="https://agentbook.example.test/.well-known/oauth-protected-resource/api/v1/mcp"',
+      );
+      // The path is INSERTED after the host, not appended to it — a resource
+      // at /api/v1/mcp is described at
+      // /.well-known/oauth-protected-resource/api/v1/mcp.
+      expect(challenge).not.toContain('/api/v1/mcp/.well-known');
+    }
+  });
+
+  it('names it on an expired token too, not only on a missing one', async () => {
+    findAccessToken.mockResolvedValue(undefined);
+    const request = new NextRequest('http://localhost/api/v1/mcp', {
+      headers: { authorization: 'Bearer stale' },
+    });
+    const result = await authenticateMcpRequest(request);
+    if ('error' in result) {
+      expect(result.error.headers.get('WWW-Authenticate')).toContain('resource_metadata=');
     }
   });
 

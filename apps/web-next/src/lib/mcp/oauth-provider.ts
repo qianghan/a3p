@@ -63,10 +63,40 @@ export function resolveJwks(): JwkSet | undefined {
   return parsed as JwkSet;
 }
 
+/**
+ * The MCP endpoint is the OAuth *protected resource*, and three separate
+ * places have to agree on its identity: the 401's `WWW-Authenticate` header,
+ * the Protected Resource Metadata document, and the route that serves that
+ * document. They are derived here rather than written out three times —
+ * when they disagreed, discovery failed in a way that looked like a client
+ * bug.
+ */
+export const MCP_RESOURCE_PATH = '/api/v1/mcp';
+
+export function mcpIssuer(): string {
+  return process.env.AGENTBOOK_MCP_ISSUER || 'https://agentbook.brainliber.com';
+}
+
+export function mcpResourceUrl(): string {
+  return `${mcpIssuer()}${MCP_RESOURCE_PATH}`;
+}
+
+/**
+ * RFC 9728 §3.1: the metadata URL is formed by INSERTING
+ * `/.well-known/oauth-protected-resource` between the resource's host and its
+ * path — not by appending the well-known name to the host. For a resource at
+ * `https://host/api/v1/mcp` that is
+ * `https://host/.well-known/oauth-protected-resource/api/v1/mcp`, which is
+ * the URL every MCP client requests first.
+ */
+export function mcpResourceMetadataUrl(): string {
+  return `${mcpIssuer()}/.well-known/oauth-protected-resource${MCP_RESOURCE_PATH}`;
+}
+
 export function getOAuthProvider(): Provider {
   if (instance) return instance;
 
-  const issuer = process.env.AGENTBOOK_MCP_ISSUER || 'https://agentbook.brainliber.com';
+  const issuer = mcpIssuer();
   const jwks = resolveJwks();
 
   instance = new Provider(issuer, {

@@ -7,6 +7,9 @@ vi.mock('@/lib/mcp/mcp-flag', () => ({
 
 vi.mock('@/lib/mcp/oauth-provider', () => ({
   getOAuthProvider: () => ({ issuer: 'https://agentbook.example.test' }),
+  mcpIssuer: () => 'https://agentbook.example.test',
+  mcpResourceUrl: () => 'https://agentbook.example.test/api/v1/mcp',
+  MCP_RESOURCE_PATH: '/api/v1/mcp',
 }));
 
 const { GET } = await import('./route');
