@@ -58,7 +58,10 @@ describe('categorize-expenses is not re-planned after it has already run', () =>
   const PLANNER = readFileSync(join(__dirname, '..', 'agent-planner.ts'), 'utf8');
   const set = (name: string) => {
     const i = PLANNER.indexOf(`const ${name} = new Set(`);
-    return i < 0 ? '' : PLANNER.slice(i, PLANNER.indexOf(']);', i));
+    // Returning '' on a rename would make the `not.toContain` below vacuous:
+    // a renamed DESTRUCTIVE_SKILLS would "pass" by not existing.
+    expect(i, `${name} not found`).toBeGreaterThan(-1);
+    return PLANNER.slice(i, PLANNER.indexOf(']);', i));
   };
   it('is in DIRECT_SKILLS', () => { expect(set('DIRECT_SKILLS')).toContain("'categorize-expenses'"); });
   it('is NOT in DESTRUCTIVE_SKILLS', () => { expect(set('DESTRUCTIVE_SKILLS')).not.toContain("'categorize-expenses'"); });
@@ -67,7 +70,10 @@ describe('categorize-expenses is not re-planned after it has already run', () =>
 describe('the handler names and logs a failed write, and never trusts the page size', () => {
   it("reports a refused write as 'write_failed', not as an LLM error", () => {
     expect(BLOCK).toContain("'write_failed'");
-    expect(BLOCK).toContain('console.error(');
+    // Not `toContain('console.error(')` — the handler's outer catch already
+    // had one, so that assertion passed on the unfixed code. Each of the
+    // three write paths (route error, non-ok status, draft update) must log.
+    expect((BLOCK.match(/console\.error\('\[categorize-expenses\] write failed:/g) || []).length).toBe(3);
   });
   it('takes the total from a COUNT, not from the capped page', () => {
     // `take: 50` + `total = rows.length` let the reply claim completeness
