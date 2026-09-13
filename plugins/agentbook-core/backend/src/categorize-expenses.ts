@@ -62,20 +62,46 @@ export function buildBatchPrompt(cands: CategorizeCandidate[], categories: Categ
 
 /**
  * Parse the model's array. Tolerates a code fence and a TRUNCATED array (the
- * output cap hit mid-object): everything up to the last complete `}` is kept,
- * so one long reason costs one row, not the whole batch.
+ * output cap hit mid-object): everything up to the last `}` that CLOSES a
+ * top-level element is kept, so one long reason costs one row, not the whole
+ * batch. The scan tracks string state — a `}` inside a truncated `reason` is
+ * not a closing brace, and treating it as one dropped every row.
  */
+function lastCompleteElementEnd(body: string): number {
+  let inString = false;
+  let escaped = false;
+  let depth = 0;
+  let last = -1;
+  for (let i = 0; i < body.length; i++) {
+    const ch = body[i];
+    if (inString) {
+      if (escaped) escaped = false;
+      else if (ch === '\\') escaped = true;
+      else if (ch === '"') inString = false;
+      continue;
+    }
+    if (ch === '"') inString = true;
+    else if (ch === '{' || ch === '[') depth++;
+    else if (ch === '}' || ch === ']') {
+      depth--;
+      // depth 1 == inside the outer array, so this `}` closed a whole element.
+      if (ch === '}' && depth === 1) last = i;
+    }
+  }
+  return last;
+}
+
 export function parseBatchDecisions(raw: string | null, cands: CategorizeCandidate[]): BatchDecision[] {
   if (!raw) return [];
   const cleaned = raw.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
   const start = cleaned.indexOf('[');
   if (start < 0) return [];
-  let body = cleaned.slice(start);
+  const body = cleaned.slice(start);
   let parsed: unknown;
   try {
     parsed = JSON.parse(body);
   } catch {
-    const lastObj = body.lastIndexOf('}');
+    const lastObj = lastCompleteElementEnd(body);
     if (lastObj < 0) return [];
     try { parsed = JSON.parse(body.slice(0, lastObj + 1) + ']'); } catch { return []; }
   }

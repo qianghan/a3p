@@ -48,6 +48,18 @@ describe('parseBatchDecisions', () => {
     const out = parseBatchDecisions(raw, cands);
     expect(out.map((d) => d.id)).toEqual(['e1']);
   });
+  it('salvages a truncation whose cut-off reason text contains a brace', () => {
+    // The old `lastIndexOf('}')` salvage found the `}` INSIDE the unterminated
+    // reason string, reconstructed malformed JSON and dropped the WHOLE batch.
+    const raw = '[{"n":1,"categoryName":"Rent","confidence":0.93,"reason":"co-working"},{"n":2,"categoryName":"Meals","confidence":0.9,"reason":"lunch } at the ca';
+    const out = parseBatchDecisions(raw, cands);
+    expect(out.map((d) => d.id)).toEqual(['e1']);
+  });
+  it('keeps a complete object whose reason contains ] or }', () => {
+    const raw = '[{"n":1,"categoryName":"Rent","confidence":0.93,"reason":"co-working } ] \\" ok"},{"n":2,"categoryName":"Meals","confidence":0.9,"reason":"lunch"}]';
+    const out = parseBatchDecisions(raw, cands);
+    expect(out.map((d) => d.id)).toEqual(['e1', 'e2']);
+  });
   it('returns [] on garbage or null', () => {
     expect(parseBatchDecisions(null, cands)).toEqual([]);
     expect(parseBatchDecisions('not json', cands)).toEqual([]);
