@@ -45,6 +45,16 @@ export async function nodeRequestResponseFromWeb(request: NextRequest): Promise<
   // Web `Headers` iterates entries with already-lower-cased names, matching
   // Node's `IncomingMessage.headers` semantics.
   nodeReq.headers = Object.fromEntries(request.headers.entries());
+  // The provider trusts `x-forwarded-proto` (see oauth-provider.ts's
+  // `instance.proxy = true`), and the socket underneath this synthetic
+  // IncomingMessage is a bare `new Socket()` — never TLS — so without a value
+  // here Koa would call every request insecure and go back to minting `http://`
+  // URLs and cookies with no `Secure`. Vercel always sets the header; this fill
+  // covers a direct local run, and it derives the scheme from the URL Next
+  // resolved rather than from anything a caller can set.
+  if (!nodeReq.headers['x-forwarded-proto']) {
+    nodeReq.headers['x-forwarded-proto'] = url.protocol.replace(':', '');
+  }
   // `IncomingMessage.rawHeaders` is a *separate* field from `.headers` — a
   // freshly constructed `IncomingMessage` initializes it to `[]` and nothing
   // derives it from `.headers` automatically. Libraries built on
