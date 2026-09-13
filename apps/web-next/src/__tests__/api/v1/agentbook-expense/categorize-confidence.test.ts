@@ -139,4 +139,25 @@ describe('POST …/categorize — `source` is whitelisted, not echoed', () => {
     expect(expenseConfidence()).toBe(0.7);
     expect(patternSource().create.source).toBe('auto_categorize');
   });
+
+  it("stores the UI's 'user' source verbatim and ignores its confidence", async () => {
+    await call({ categoryId: 'c-rent', source: 'user', confidence: 0.3 });
+    expect(expenseConfidence()).toBe(1.0);
+    expect(patternConfidence().update.confidence).toBe(0.95);
+    expect(patternSource().update.source).toBe('user');
+    expect(patternSource().create.source).toBe('user');
+  });
+
+  it("stores the banner's 'agent_confirmed' source verbatim and ignores its confidence", async () => {
+    await call({ categoryId: 'c-rent', source: 'agent_confirmed', confidence: 0.3 });
+    expect(expenseConfidence()).toBe(1.0);
+    expect(patternConfidence().update.confidence).toBe(0.95);
+    expect(patternSource().update.source).toBe('agent_confirmed');
+    expect(patternSource().create.source).toBe('agent_confirmed');
+  });
+
+  it('an unknown source still normalizes to user_corrected', async () => {
+    await call({ categoryId: 'c-rent', source: 'zzz' });
+    expect(patternSource().create.source).toBe('user_corrected');
+  });
 });

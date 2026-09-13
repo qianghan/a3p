@@ -30,20 +30,23 @@ interface CategorizeBody {
 const clamp01 = (n: number) => Math.min(1, Math.max(0, n));
 
 /**
- * `source` now SELECTS POLICY (whose certainty this is), so it cannot stay an
+ * `source` SELECTS POLICY (whose certainty this is), so it cannot stay an
  * unvalidated free string off the request body. Anything not on this list —
- * including a missing source, which is the UI — is treated as a human
- * correction: the strict default, since `auto_categorize` is the one that
- * lets the caller name its own confidence. The whitelisted value is also what
- * gets persisted to AbPattern.source, so a typo can't create a third source
- * kind that later policy has to guess about. The live UI callers send 'user'
- * and 'agent_confirmed' (a human approving a suggestion); both are human
- * actions and already took the 1.0 / 0.95 path, so they now STORE
- * 'user_corrected' too. Nothing reads those two strings back.
+ * including a missing source — is treated as a human correction: the strict
+ * default, since `auto_categorize` is the one that lets the caller name its
+ * own confidence. The whitelisted value is also what gets persisted to
+ * AbPattern.source, so a typo can't create a fifth source kind that later
+ * policy has to guess about. The live UI callers send 'user' (inline row
+ * picker) and 'agent_confirmed' (approving a suggested category); both are
+ * human actions and already take the 1.0 / 0.95 path, and existing rows
+ * already carry these two strings verbatim in AbPattern.source — collapsing
+ * them into 'user_corrected' would lose that provenance, so they are kept
+ * on the whitelist and stored as sent.
  */
-type CategorizeSource = 'auto_categorize' | 'user_corrected';
+const CATEGORIZE_SOURCES = ['auto_categorize', 'user_corrected', 'user', 'agent_confirmed'] as const;
+type CategorizeSource = (typeof CATEGORIZE_SOURCES)[number];
 const normalizeSource = (s: unknown): CategorizeSource =>
-  s === 'auto_categorize' ? 'auto_categorize' : 'user_corrected';
+  (CATEGORIZE_SOURCES as readonly unknown[]).includes(s) ? (s as CategorizeSource) : 'user_corrected';
 
 /**
  * Cap for a pattern learned from an automatic categorization. 0.92 is the
