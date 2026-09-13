@@ -243,3 +243,44 @@ describe('a rate the pack publishes is grounded — and only from the pack', () 
     expect(r.verdict).toBe('block');
   });
 });
+
+describe('the catch-all bucket is allowed to answer with a question', () => {
+  /**
+   * The no-answer rule was written for the consultative-triage path: the user
+   * asked an advisory question and must not be interrogated back. It was then
+   * applied to the classifier's CATCH-ALL bucket too, where the correct reply
+   * to "hello" IS a short question — so the reviewer repaired greetings into
+   * safeFallback(), and production answered "hello" with "I can look this up
+   * against your books, but I don't want to quote you a number I can't stand
+   * behind…". The option lets the CALLER say which of the two jobs this is.
+   */
+  const GREETING = 'Hello! How can I help you with your accounting today?';
+
+  it('flags the greeting by default — the consultative path is unchanged', () => {
+    expect(reviewDeterministic(GREETING, CA_CTX).map((f) => f.kind)).toContain('no-answer');
+    expect(reviewConsultation(GREETING, CA_CTX).verdict).toBe('repair');
+  });
+
+  it('passes the greeting when the caller allows a question-only reply', () => {
+    expect(
+      reviewDeterministic(GREETING, CA_CTX, { allowQuestionOnly: true }).map((f) => f.kind),
+    ).not.toContain('no-answer');
+    expect(reviewConsultation(GREETING, CA_CTX, { allowQuestionOnly: true }).verdict).toBe('pass');
+  });
+
+  it('still blocks an invented figure with the option on', () => {
+    // Only the no-answer finding is waived. Every grounding check — the ones
+    // that stop a wrong number reaching a user — stays on.
+    const draft = 'That would save you about $800 — want me to check the dates?';
+    const r = reviewConsultation(draft, CA_CTX, { allowQuestionOnly: true });
+    expect(r.verdict).toBe('block');
+    expect(r.findings.map((f) => f.kind)).toContain('ungrounded-amount');
+    expect(r.findings.map((f) => f.kind)).not.toContain('no-answer');
+  });
+
+  it('still catches the wrong tax authority with the option on', () => {
+    const r = reviewConsultation('Should I look at your Schedule C?', CA_CTX, { allowQuestionOnly: true });
+    expect(r.verdict).toBe('block');
+    expect(r.findings.map((f) => f.kind)).toContain('foreign-authority');
+  });
+});

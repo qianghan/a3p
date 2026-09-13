@@ -2,6 +2,8 @@ import { describe, it, expect, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { buildTestContext } from './helpers/test-context';
+import type { LLMFixture } from './helpers/mock-llm';
+import { repairBrief } from '../consultation-review';
 
 /**
  * One line out of each of the two prompts in `brainAccountantFallback`, so a
@@ -11,6 +13,16 @@ import { buildTestContext } from './helpers/test-context';
  */
 const CONSULTATION_MARKER = 'asking you to explain something about tax';
 const UNCLEAR_MARKER = 'could not confidently understand';
+
+/**
+ * The first line of the repair brief, taken from the reviewer itself rather
+ * than retyped — so a test can assert that NO repair round-trip happened
+ * without pinning wording that lives in another file.
+ */
+const REPAIR_MARKER = repairBrief([]).split('\n')[0];
+
+/** The exact string production answered "hello" with. */
+const SAFE_FALLBACK_FRAGMENT = /can't stand behind/i;
 
 /**
  * `general-question` is a conversation, not an HTTP call.
@@ -87,7 +99,9 @@ const GENERAL_QUESTION = {
   parameters: { question: 'string' },
 };
 
-function setup(overrides: { text?: string; confidence?: number } = {}) {
+function setup(
+  overrides: { text?: string; confidence?: number; fixtures?: LLMFixture[] } = {},
+) {
   const text = overrides.text ?? 'Give me more details';
   const built = buildTestContext({
     text,
@@ -101,6 +115,9 @@ function setup(overrides: { text?: string; confidence?: number } = {}) {
     },
     skills: [GENERAL_QUESTION],
     llmFixtures: [
+      // Caller fixtures first: `buildMockGemini` takes the first match, so a
+      // test can pin the advisor's reply without restating the defaults.
+      ...(overrides.fixtures ?? []),
       {
         userMatch: 'more details',
         response: 'Those 61 unmatched transactions are bank lines with no expense or invoice attached yet.',
@@ -221,6 +238,65 @@ describe('general-question is answered with the thread in view', () => {
     const creates = block.match(/(await\s+)?db\.abConversation\.create\(/g) ?? [];
     expect(creates.length, 'the block writes a conversation row').toBeGreaterThan(0);
     for (const c of creates) expect(c).toContain('await');
+  });
+
+  it('answers a greeting with the greeting, not the safe fallback', async () => {
+    // The prod regression (2026-09-13): "hello" came back as "I can look this
+    // up against your books, but I don't want to quote you a number I can't
+    // stand behind…". Choosing the 'unclear' PROMPT was not enough — the
+    // reviewer still ran with the consultative default, and its "a reply that
+    // is only a question is the clarify-loop failure" rule repaired the
+    // model's perfectly good greeting into safeFallback().
+    const GREETING = 'Hello! How can I help you with your accounting today?';
+    const { req, ctx, llmCalls } = setup({
+      text: 'hello',
+      confidence: 0.3,
+      fixtures: [{ userMatch: 'hello', response: GREETING }],
+    });
+
+    const { handleAgentMessage } = await import('../agent-brain');
+    const res = await handleAgentMessage(req as any, ctx as any);
+
+    expect(res.success).toBe(true);
+    // The model's own greeting, verbatim. (First contact on a human channel
+    // also prepends the one-time persona introduction ahead of a bare
+    // greeting — composeFirstContact — so the advisor's reply is the tail.)
+    expect(res.data.message.endsWith(GREETING), res.data.message).toBe(true);
+    expect(res.data.message).not.toMatch(SAFE_FALLBACK_FRAGMENT);
+
+    // Exactly one call reached the advisor, and none of them was a repair —
+    // the draft passed review first time. (The persona voice makes its own
+    // call, so count the advisor's prompt specifically.)
+    const advisorCalls = llmCalls.history.filter((h) => h.system.includes(UNCLEAR_MARKER));
+    expect(advisorCalls, 'the advisor was asked more than once').toHaveLength(1);
+    expect(
+      llmCalls.history.some((h) => h.system.includes(REPAIR_MARKER)),
+      'a repair round-trip ran on a valid greeting',
+    ).toBe(false);
+  });
+
+  it('returns a follow-up answer that ends in a question verbatim', async () => {
+    // "Give me more details" is under-specified by design. An answer plus one
+    // narrowing question is the right reply to it, and must not be repaired
+    // away either — same bucket, the consultative mode of it.
+    const ANSWER =
+      'Those 61 unmatched transactions are bank lines with nothing attached yet. '
+      + 'Want me to start with the largest ones?';
+    const { req, ctx, llmCalls } = setup({
+      fixtures: [{ userMatch: 'more details', response: ANSWER }],
+    });
+
+    const { handleAgentMessage } = await import('../agent-brain');
+    const res = await handleAgentMessage(req as any, ctx as any);
+
+    // Verbatim, and leading — the one-time persona introduction trails an
+    // answer rather than replacing it.
+    expect(res.data.message.startsWith(ANSWER), res.data.message).toBe(true);
+    expect(res.data.message).not.toMatch(SAFE_FALLBACK_FRAGMENT);
+    expect(
+      llmCalls.history.some((h) => h.system.includes(REPAIR_MARKER)),
+      'a repair round-trip ran on a valid follow-up answer',
+    ).toBe(false);
   });
 
   it('survives a grounding lookup that throws, rather than failing the turn', async () => {

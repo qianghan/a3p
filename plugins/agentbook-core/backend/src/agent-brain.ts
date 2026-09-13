@@ -91,6 +91,17 @@ async function brainAccountantFallback(
    * different framing.
    */
   mode: 'unclear' | 'consultation' = 'unclear',
+  /**
+   * Review options for this call, passed straight to the reviewer.
+   *
+   * Deliberately NOT derived from `mode`: the two answer different questions.
+   * `mode` picks the prompt (explain a rule vs. say you didn't follow), while
+   * `allowQuestionOnly` says whether a reply that is only a question is a
+   * legitimate outcome for THIS route. The catch-all route needs the waiver
+   * in both modes — see Step 3a' — and the consultative-triage route needs it
+   * in neither. Tying it to the mode would silently re-couple them.
+   */
+  opts?: { allowQuestionOnly?: boolean },
 ): Promise<string> {
   const convoSnippet = (conversation || [])
     .slice(0, 3)
@@ -209,7 +220,7 @@ async function brainAccountantFallback(
       // Verify before the user sees it. This path is free-text out of an LLM
       // straight into a financial conversation, and it is where the invented
       // "save ~$800" and the IRS-quoted-to-a-Canadian both reached production.
-      const first = reviewConsultation(draft, grounding);
+      const first = reviewConsultation(draft, grounding, opts);
       if (first.verdict === 'pass') return draft;
 
       console.warn(
@@ -226,7 +237,7 @@ async function brainAccountantFallback(
           await callGemini(`${systemPrompt}\n\n${repairBrief(first.findings)}`, userMessage, 220)
         )?.trim();
         if (repaired) {
-          const second = reviewConsultation(repaired, grounding);
+          const second = reviewConsultation(repaired, grounding, opts);
           if (second.verdict === 'pass') return repaired;
           console.warn(
             '[brainAccountantFallback] repair still failed:',
@@ -1972,10 +1983,26 @@ async function handleAgentMessageCore(
     // is the classifier's CATCH-ALL, and the ultimate fallback returns it at
     // confidence ≈ 0.3. Hard-coding 'consultation' therefore handed "hello",
     // "thanks" and "ok" a prompt that instructs the model to explain a tax
-    // rule, and then ran the consultation reviewer over the result — whose
-    // "a reply that is only a question is the clarify-loop failure" rule
-    // REPAIRS a greeting into "I can look this up against your books, but…",
-    // three LLM calls to make "hello" worse.
+    // rule.
+    //
+    // Choosing the prompt was only half of it, and shipping that half alone
+    // fixed nothing the user could see. The REVIEWER still ran with its
+    // consultative default, whose "a reply that is only a question is the
+    // clarify-loop failure" rule fires on exactly the right answer here: the
+    // model's reply to "hello" IS a short question. So the greeting was
+    // flagged `no-answer`, repaired (into another short question), flagged
+    // again, and replaced with safeFallback() — three LLM calls to answer
+    // "hello" with "I can look this up against your books, but I don't want
+    // to quote you a number I can't stand behind…". Verified in prod on
+    // 2026-09-13 for "hello", "cancel" and "Give me more details".
+    //
+    // Hence `allowQuestionOnly` below, for BOTH modes. This is the bucket
+    // where a question back is a legitimate reply — a bare greeting has
+    // nothing to answer, and an under-specified follow-up has to be narrowed
+    // before it can be. The consultative-triage call at Step 2.6 keeps the
+    // strict default: there the user did ask something answerable, and asking
+    // them back is the failure. Every other check — invented amounts,
+    // unverified rates, another country's tax authority — still runs here.
     //
     // Positive evidence only, the same way triage decides. The evidence here
     // is the classifier's own score: a turn triage had already called
@@ -1993,7 +2020,7 @@ async function handleAgentMessageCore(
     const answer = await brainAccountantFallback(
       ctx.callGemini, resolvedText, conversation, pastFilingContext,
       personalProfileContext, tenantConfig, tenantId, groundingFacts,
-      mode,
+      mode, { allowQuestionOnly: true },
     );
     // Awaited: a fire-and-forget write immediately before `return` can be
     // dropped when a serverless runtime freezes the function on response, and
