@@ -1,5 +1,16 @@
 import { describe, it, expect, vi } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { buildTestContext } from './helpers/test-context';
+
+/**
+ * One line out of each of the two prompts in `brainAccountantFallback`, so a
+ * test can say WHICH job the advisor was asked to do. Asserting on the mode
+ * argument would pin the call shape; asserting on the prompt pins what the
+ * model was actually told.
+ */
+const CONSULTATION_MARKER = 'asking you to explain something about tax';
+const UNCLEAR_MARKER = 'could not confidently understand';
 
 /**
  * `general-question` is a conversation, not an HTTP call.
@@ -76,14 +87,17 @@ const GENERAL_QUESTION = {
   parameters: { question: 'string' },
 };
 
-function setup() {
+function setup(overrides: { text?: string; confidence?: number } = {}) {
+  const text = overrides.text ?? 'Give me more details';
   const built = buildTestContext({
-    text: 'Give me more details',
+    text,
     tenantId: 'tenant-gq',
     classification: {
       selectedSkill: GENERAL_QUESTION,
-      extractedParams: { question: 'Give me more details' },
-      confidence: 0.4,
+      extractedParams: { question: text },
+      // Comfortably above the small-talk floor: this is a real follow-up
+      // question, so it must keep the consultation framing.
+      confidence: overrides.confidence ?? 0.5,
     },
     skills: [GENERAL_QUESTION],
     llmFixtures: [
@@ -142,6 +156,71 @@ describe('general-question is answered with the thread in view', () => {
     expect(convoWrite, 'no AbConversation row for the answer').toBeTruthy();
     expect(convoWrite.question).toBe('Give me more details');
     expect(convoWrite.answer).toContain('61 unmatched');
+  });
+
+  it('frames a real question as a consultation', async () => {
+    const { req, ctx, llmCalls } = setup();
+    const { handleAgentMessage } = await import('../agent-brain');
+    await handleAgentMessage(req as any, ctx as any);
+
+    expect(
+      llmCalls.history.some((h) => h.system.includes(CONSULTATION_MARKER)),
+      'the advisory prompt was never used',
+    ).toBe(true);
+  });
+
+  it('does not put small talk through the consultation prompt', async () => {
+    // `general-question` is the classifier's catch-all — it is also the
+    // ultimate fallback at confidence ≈ 0.3. Hard-coding 'consultation' sent
+    // "hello" to a prompt that instructs the model to explain a tax rule, and
+    // then through the consultation reviewer, whose "a reply that is only a
+    // question is the clarify-loop failure" rule REPAIRS a greeting into
+    // "I can look this up against your books, but…" — three LLM calls to
+    // make "hello" worse.
+    const { req, ctx, llmCalls } = setup({ text: 'hello', confidence: 0.3 });
+    const { handleAgentMessage } = await import('../agent-brain');
+    const res = await handleAgentMessage(req as any, ctx as any);
+
+    expect(res.success).toBe(true);
+    expect(
+      llmCalls.history.some((h) => h.system.includes(UNCLEAR_MARKER)),
+      'small talk did not get the didn\'t-understand prompt',
+    ).toBe(true);
+    expect(
+      llmCalls.history.some((h) => h.system.includes(CONSULTATION_MARKER)),
+      'small talk was framed as a tax consultation',
+    ).toBe(false);
+  });
+
+  it('keeps the thread and the ledger facts in the unclear mode too', async () => {
+    // F6: the bug this file was opened for was an answerer that got no
+    // conversation. Choosing the mode must not quietly re-introduce it on the
+    // branch that now takes the other one.
+    const { req, ctx, llmCalls } = setup({ text: 'hello', confidence: 0.3 });
+    const { handleAgentMessage } = await import('../agent-brain');
+    await handleAgentMessage(req as any, ctx as any);
+
+    expect(
+      llmCalls.history.some((h) => h.user.includes('61 bank transactions')),
+      'previous turn missing from the unclear prompt',
+    ).toBe(true);
+    expect(
+      llmCalls.history.some((h) => (h.user + h.system).includes('16,926.10')),
+      'grounding facts missing from the unclear prompt',
+    ).toBe(true);
+  });
+
+  it('awaits the conversation row it writes', () => {
+    // Fire-and-forget immediately before a `return`: a serverless runtime can
+    // freeze the function the moment the response is sent, and the answer the
+    // next turn refers back to is never persisted.
+    const SRC = readFileSync(join(__dirname, '../agent-brain.ts'), 'utf8');
+    const start = SRC.indexOf("classification?.selectedSkill?.name === 'general-question'");
+    expect(start, 'the Step 3a′ block must exist').toBeGreaterThan(0);
+    const block = SRC.slice(start, SRC.indexOf('Fallback for legacy callers', start));
+    const creates = block.match(/(await\s+)?db\.abConversation\.create\(/g) ?? [];
+    expect(creates.length, 'the block writes a conversation row').toBeGreaterThan(0);
+    for (const c of creates) expect(c).toContain('await');
   });
 
   it('survives a grounding lookup that throws, rather than failing the turn', async () => {

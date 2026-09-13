@@ -135,6 +135,45 @@ describe('projectScenario', () => {
     }
   });
 
+  it('refuses to project a type it does not model, instead of reporting the baseline', () => {
+    // The interpreter hands the projection whatever `type` string the model
+    // produced. A plausible-but-unknown one ("increase_rates", or `undefined`
+    // from `{"params":{}}`) fell through to `default:`, which set a
+    // description and nothing else — so the reply read
+    // "Monthly net: $6,000.00 → $6,000.00 ($0.00/mo)": a confident answer to
+    // a question no branch computed.
+    for (const type of ['increase_rates', 'raise_prices', undefined as unknown as string]) {
+      const r = projectScenario(base, { type, params: {} }, flatTax, 2026);
+      expect(r.notModelled, `type ${String(type)}`).toBe('unsupported_type');
+      expect(r.impact.monthlyNetChangeCents, `type ${String(type)} impact`).toBe(0);
+    }
+  });
+
+  it('flags a matched client whose revenue nobody recorded', () => {
+    // `lose_client` found the client, so neither `client_not_found` nor the
+    // no-name branch fires — but `billedCents ?? 0` then subtracts $0 and the
+    // reply says losing them costs nothing. `monthlyRevenueCents` was
+    // declared on the base type and never read, so a caller that held the
+    // monthly figure was ignored too.
+    const noFigure = projectScenario(
+      { ...base, clients: [{ name: 'Acme Corp' }] },
+      { type: 'lose_client', params: { clientName: 'acme' } },
+      flatTax,
+      2026,
+    );
+    expect(noFigure.notModelled).toBe('missing_parameters');
+    expect(noFigure.impact.monthlyNetChangeCents).toBe(0);
+
+    const monthly = projectScenario(
+      { ...base, clients: [{ name: 'Acme Corp', monthlyRevenueCents: 200_000 }] },
+      { type: 'lose_client', params: { clientName: 'acme' } },
+      flatTax,
+      2026,
+    );
+    expect(monthly.notModelled).toBeUndefined();
+    expect(monthly.impact.monthlyNetChangeCents).toBe(-200_000);
+  });
+
   it('leaves notModelled unset when the client did match', () => {
     const r = projectScenario(
       { ...base, clients: [{ name: 'Acme Corp', billedCents: 2_400_000 }] },
@@ -181,6 +220,28 @@ describe('interpretScenario', () => {
       type: 'custom',
       description: 'what if?',
     });
+  });
+
+  it('normalises a type outside the five it can project down to custom', async () => {
+    // The prompt lists five types; the model is free to invent a sixth that
+    // reads perfectly reasonably. Well-formed JSON with an unknown `type` was
+    // cast straight to `ScenarioInput` and projected, and the handler — which
+    // declines on `custom` — never saw a reason to stop.
+    const llm = vi.fn(async () => '{"type":"increase_rates","params":{}}');
+    expect(await interpretScenario('what if I raise my rates 10%?', llm)).toEqual({
+      type: 'custom',
+      description: 'what if I raise my rates 10%?',
+    });
+
+    const noType = vi.fn(async () => '{"params":{}}');
+    expect(await interpretScenario('what if?', noType)).toEqual({ type: 'custom', description: 'what if?' });
+  });
+
+  it('keeps every type it CAN project', async () => {
+    for (const type of ['add_expense', 'add_revenue', 'lose_client', 'hire', 'buy_equipment', 'custom']) {
+      const llm = vi.fn(async () => JSON.stringify({ type, params: { monthlyCostCents: 1000 } }));
+      expect((await interpretScenario('x', llm)).type, type).toBe(type);
+    }
   });
 });
 
@@ -298,6 +359,25 @@ describe('scenario-wiring: what the chat handler does with a scenario it could n
       HANDLER.indexOf('scenarioNarrative('),
     );
     expect(notModelledDecline).toContain('declineScenario(');
+  });
+
+  it('declines an unparseable scenario before it pays for the financial context', () => {
+    // `buildFinancialContext` is a multi-table read. On the decline path none
+    // of it is used, so running it first is a database round-trip spent to
+    // produce nothing.
+    expect(HANDLER.indexOf("input.type === 'custom'")).toBeLessThan(
+      HANDLER.indexOf('buildFinancialContext('),
+    );
+  });
+
+  it('awaits every conversation row it writes', () => {
+    // `db.abConversation.create(...).catch(() => {})` immediately before a
+    // `return` is fire-and-forget: on a serverless runtime the function can
+    // be frozen the moment the response is sent, and the row — the decline or
+    // the answer the next turn refers back to — is simply lost.
+    const creates = HANDLER.match(/(await\s+)?db\.abConversation\.create\(/g) ?? [];
+    expect(creates.length, 'the handler writes conversation rows').toBeGreaterThan(0);
+    for (const c of creates) expect(c).toContain('await');
   });
 
   it('emits a chart on exactly one path — the one that actually projected', () => {

@@ -661,6 +661,9 @@ const CONFIDENCE_ESCALATION_THRESHOLD = 0.55;
  * paths where asking the user "are you sure?" would feel obtuse.
  */
 const ESCALATION_EXEMPT_SKILLS = new Set([
+  // Kept for the legacy classifyAndExecuteV1 path and as a belt-and-braces
+  // entry: Step 3a′ answers general-question and returns before this gate is
+  // reached, so on the primary path this membership is no longer load-bearing.
   'general-question',
   // Idempotent and non-destructive: the medium bucket only SUGGESTS, the low
   // bucket does nothing. A sub-0.55 classifier score used to turn "categorize
@@ -1834,12 +1837,39 @@ async function handleAgentMessageCore(
         console.warn('[brain] grounding unavailable:', e);
       }
     }
+    // Which job this actually is.
+    //
+    // `general-question` is not only "the user asked something advisory" — it
+    // is the classifier's CATCH-ALL, and the ultimate fallback returns it at
+    // confidence ≈ 0.3. Hard-coding 'consultation' therefore handed "hello",
+    // "thanks" and "ok" a prompt that instructs the model to explain a tax
+    // rule, and then ran the consultation reviewer over the result — whose
+    // "a reply that is only a question is the clarify-loop failure" rule
+    // REPAIRS a greeting into "I can look this up against your books, but…",
+    // three LLM calls to make "hello" worse.
+    //
+    // Positive evidence only, the same way triage decides. The evidence here
+    // is the classifier's own score: a turn triage had already called
+    // consultative returned at Step 2.6 and never reaches this line — so
+    // re-testing `triage.kind` here is provably dead (tsc says so: after that
+    // block the type is narrowed to 'transactional'). What arrives here is
+    // everything triage sent to the skill layer, which the classifier then
+    // could not place anywhere better than the catch-all. A score above the
+    // 0.3 ultimate-fallback floor means it really did read as a question.
+    //
+    // Everything else gets the didn't-understand framing this function was
+    // built for — which still receives the thread and the grounding facts
+    // (F6); only the instructions differ.
+    const mode = (classification.confidence ?? 0) > 0.35 ? 'consultation' : 'unclear';
     const answer = await brainAccountantFallback(
       ctx.callGemini, resolvedText, conversation, pastFilingContext,
       personalProfileContext, tenantConfig, tenantId, groundingFacts,
-      'consultation',
+      mode,
     );
-    db.abConversation.create({
+    // Awaited: a fire-and-forget write immediately before `return` can be
+    // dropped when a serverless runtime freezes the function on response, and
+    // this row is the answer the next turn refers back to.
+    await db.abConversation.create({
       data: {
         tenantId, question: text, answer, queryType: 'agent', channel,
         skillUsed: 'general-question', latencyMs: Date.now() - startTime,

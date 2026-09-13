@@ -93,9 +93,22 @@ export interface ScenarioResult {
    * as a projection. Callers must branch on the FIELD, not on one of its
    * values — a new reason a caller does not know about is a lie it prints by
    * default.
+   *
+   * `'unsupported_type'`: the scenario has a type this module has no branch
+   * for. `ScenarioInput.type` is a union WITH `| string`, because the value
+   * arrives as free JSON from the model — the prompt names five types and the
+   * model is perfectly capable of returning a sixth that reads entirely
+   * reasonably ("increase_rates"), or of omitting `type` altogether. Those
+   * fell to `default:`, which set a description and changed no figure, so the
+   * baseline was printed as a projection once more.
    */
-  notModelled?: 'client_not_found' | 'missing_parameters';
+  notModelled?: 'client_not_found' | 'missing_parameters' | 'unsupported_type';
 }
+
+/** The types `projectScenario` has a branch for. Everything else is custom. */
+const KNOWN_TYPES = new Set([
+  'add_expense', 'add_revenue', 'lose_client', 'hire', 'buy_equipment', 'custom',
+]);
 
 /** The narrow LLM contract this module needs: prompt in, text or nothing out. */
 export type CallGemini = (systemPrompt: string, userMessage: string, maxTokens?: number) => Promise<string | null>;
@@ -130,6 +143,13 @@ export async function interpretScenario(text: string, callGemini: CallGemini): P
     }
   }
   if (!scenarioObj) scenarioObj = { type: 'custom', description: text };
+  // Normalise an unrecognised type to `custom`, the one value every caller
+  // already knows means "I did not understand this". Without this the raw
+  // string went straight through to the projection's `default:` branch, and a
+  // handler that declines on `custom` had nothing to decline on.
+  if (!KNOWN_TYPES.has(String(scenarioObj.type))) {
+    scenarioObj = { type: 'custom', description: text };
+  }
   return scenarioObj;
 }
 
@@ -208,7 +228,19 @@ export function projectScenario(
       const clientName = named;
       const client = (base.clients || []).find((c: any) => c.name.toLowerCase().includes(String(clientName).toLowerCase()));
       if (client) {
-        const monthlyFromClient = Math.round((client.billedCents ?? 0) / 12);
+        // `monthlyRevenueCents` was declared on FinancialBase and never read,
+        // so a caller holding the monthly figure directly was ignored. And a
+        // client row with NEITHER figure fell to `?? 0` — the client matched,
+        // so no other branch fired, and "what if I lose Acme?" answered that
+        // losing them costs $0.00/month.
+        const monthly = client.monthlyRevenueCents
+          ?? (client.billedCents != null ? client.billedCents / 12 : undefined);
+        if (monthly === undefined) {
+          scenarioDescription = `Lose client ${client.name} (no revenue recorded for them — no impact calculated)`;
+          notModelled = 'missing_parameters';
+          break;
+        }
+        const monthlyFromClient = Math.round(monthly);
         newMonthlyRevenue -= monthlyFromClient;
         scenarioDescription = `Lose client ${client.name} ($${(monthlyFromClient / 100).toLocaleString()}/month)`;
       } else {
@@ -240,7 +272,12 @@ export function projectScenario(
       break;
     }
     default:
+      // No branch ran, so every figure below is the untouched baseline. Say
+      // so structurally: `default:` used to set a description and stop, and
+      // the caller — which has no other way to tell a projection from a
+      // pass-through — printed "$6,000.00 → $6,000.00 ($0.00/mo)".
       scenarioDescription = scenarioObj.description || 'Custom scenario';
+      notModelled = 'unsupported_type';
   }
 
   const newNetMonthly = newMonthlyRevenue - newMonthlyExpenses;
