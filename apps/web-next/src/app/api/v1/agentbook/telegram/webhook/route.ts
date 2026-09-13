@@ -31,6 +31,7 @@ import { autoCategorizeForTenant, getPendingSuggestions, dropPendingSuggestion }
 import { updateMileageEntry } from '@/lib/agentbook-mileage-service';
 import { backfillExpenseJournalEntry } from '@/lib/agentbook-expense-ledger';
 import { formatCurrencyCents } from '@/lib/jurisdiction-currency';
+import { mdToTelegramHtml, shouldAppendBreakdown } from '@/lib/agentbook-telegram-markdown';
 import { estimateTotalIncomeTax } from '@agentbook/jurisdictions/total-tax';
 import {
   getDigestPrefs,
@@ -1139,26 +1140,16 @@ function escHtml(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
-/** Convert markdown to Telegram-safe HTML. */
-function mdToHtml(md: string): string {
-  // Escape HTML entities first, then apply formatting
-  let html = escHtml(md);
-  html = html.replace(/\*\*(.+?)\*\*/g, '<b>$1</b>');
-  html = html.replace(/\*(.+?)\*/g, '<i>$1</i>');
-  html = html.replace(/`(.+?)`/g, '<code>$1</code>');
-  return html;
-}
-
 /** Format agent response for Telegram. */
 function formatResponse(data: any): string {
-  let reply = mdToHtml(data.message || 'Done.');
-  if (data.chartData?.data?.length) {
+  let reply = mdToTelegramHtml(data.message || 'Done.');
+  if (shouldAppendBreakdown(data.message || '', data.chartData)) {
     reply += '\n\n📊 <b>Breakdown:</b>';
     for (const item of data.chartData.data.slice(0, 8)) {
       const val = typeof item.value === 'number' && item.value > 100
         ? fmtAmount(item.value)
         : item.value;
-      reply += `\n• ${item.name}: ${val}`;
+      reply += `\n• ${escHtml(String(item.name))}: ${val}`;
     }
   }
   return reply;
@@ -4553,7 +4544,7 @@ function getBot(): Bot {
         await ctx.answerCallbackQuery({ text: sessionAction === 'confirm' ? 'Executing…' : 'Cancelled' });
         if (result.success && result.data?.message) {
           try {
-            await ctx.editMessageText(mdToHtml(result.data.message), { parse_mode: 'HTML' });
+            await ctx.editMessageText(mdToTelegramHtml(result.data.message), { parse_mode: 'HTML' });
           } catch {
             await ctx.reply(result.data.message);
           }

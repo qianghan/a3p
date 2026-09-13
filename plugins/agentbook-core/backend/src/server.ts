@@ -5758,24 +5758,27 @@ Only include chartData if visualization adds value. Keep the answer under 200 wo
   // INTERNAL handler: daily-briefing — financial snapshot + proactive alerts narrated by Gemini
   if (selectedSkill.name === 'daily-briefing') {
     try {
-      const coreBase = baseUrls['/api/v1/agentbook-core'] || 'http://localhost:4050';
       const expenseBase = baseUrls['/api/v1/agentbook-expense'] || 'http://localhost:4051';
       const taxBase = baseUrls['/api/v1/agentbook-tax'] || 'http://localhost:4053';
       const H = brainHeaders(tenantId);
+      // The snapshot is read straight from the ledger, not self-called over
+      // HTTP: the core plugin's financial-snapshot endpoint only ever existed
+      // as an Express route and was never ported to Next, so in production
+      // that fetch always failed and every briefing told the user their own
+      // numbers were missing. buildFinancialContext reads the same figures.
       const [snapSettled, alertsSettled, quarterlySettled] = await Promise.allSettled([
-        fetch(`${coreBase}/api/v1/agentbook-core/financial-snapshot`, { headers: H }),
-        fetch(`${expenseBase}/api/v1/agentbook-expense/advisor/proactive-alerts`, { headers: H }),
-        fetch(`${taxBase}/api/v1/agentbook-tax/tax/quarterly`, { headers: H }),
+        buildFinancialContext(tenantId),
+        fetch(`${expenseBase}/api/v1/agentbook-expense/advisor/proactive-alerts`, { headers: H }).then((r) => r.json()),
+        fetch(`${taxBase}/api/v1/agentbook-tax/tax/quarterly`, { headers: H }).then((r) => r.json()),
       ]);
-      const snapData = snapSettled.status === 'fulfilled'
-        ? await snapSettled.value.json().catch(() => null)
-        : null;
-      const alertData = alertsSettled.status === 'fulfilled'
-        ? await alertsSettled.value.json().catch(() => null)
-        : null;
-      const quarterlyData = quarterlySettled.status === 'fulfilled'
-        ? await quarterlySettled.value.json().catch(() => null)
-        : null;
+      const settled = <T,>(r: PromiseSettledResult<T>, what: string): T | null => {
+        if (r.status === 'fulfilled') return r.value;
+        console.warn(`[daily-briefing] ${what} unavailable:`, r.reason);
+        return null;
+      };
+      const snap = settled(snapSettled, 'financial snapshot');
+      const alertData = settled(alertsSettled, 'proactive alerts');
+      const quarterlyData = settled(quarterlySettled, 'quarterly tax');
 
       // Nearest deadline whose amountDueCents hasn't been fully paid yet,
       // or null if all quarters are settled/data unavailable — daily-briefing
@@ -5797,27 +5800,34 @@ Only include chartData if visualization adds value. Keep the answer under 200 wo
         (await resolveAdvisorIdentity(tenantId)) + ' You are giving a morning briefing.',
         'Summarize in 3–5 short sentences. Be specific with dollar amounts.',
         'End with exactly one concrete action item the user can take today.',
-        'If any data is missing, briefly note it and focus on what you have.',
+        'Do not mention missing, unavailable or unloaded data — say only what the facts below support.',
         'Plain text only — no markdown, no bullet points.',
       ].join('\n');
 
-      const briefingUser = [
-        snapData?.success
-          ? `Financial snapshot: ${JSON.stringify(snapData.data)}`
-          : 'Financial snapshot: unavailable.',
-        alertData?.success
-          ? `Alerts: ${JSON.stringify(alertData.data)}`
-          : 'Alerts: unavailable.',
-        nextDeadline
-          // money-format-ok: machine-stable on purpose. `briefingUser` is a
-          // Gemini prompt, not
-          // a reply. Locale-formatting its amounts changes what the model
-          // parses — the same exclusion the bot locale module makes for
-          // prompts. A codemod converted this line and daily-briefing's tests
-          // caught it.
-          ? `Next quarterly tax deadline: $${(nextDeadline.amountDueCents / 100).toFixed(2)} due ${nextDeadline.deadline.toISOString().slice(0, 10)}.`
-          : 'Next quarterly tax deadline: none upcoming or unavailable.',
-      ].join('\n');
+      // Only sections that actually loaded go in. A section we couldn't build
+      // is omitted, never narrated: a briefing that spends a sentence on what
+      // the system failed to fetch is worse than a shorter briefing.
+      const sections: string[] = [];
+      if (snap) {
+        // money-format-ok: machine-stable on purpose. This is a Gemini prompt,
+        // not a reply. Locale-formatting its amounts changes what the model
+        // parses — the same exclusion the bot locale module makes for prompts.
+        sections.push(`Financial snapshot: ${JSON.stringify({
+          cashBalanceCents: snap.cashBalanceCents,
+          totalRevenueCents: snap.totalRevenueCents,
+          totalExpenseCents: snap.totalExpenseCents,
+          netIncomeCents: snap.netIncomeCents,
+          monthlyBurnCents: snap.monthlyBurnCents,
+          currency: snap.currency,
+        })}`);
+      }
+      if (alertData?.success) sections.push(`Alerts: ${JSON.stringify(alertData.data)}`);
+      if (nextDeadline) {
+        // money-format-ok: machine-stable on purpose — see the note above. A
+        // codemod converted this line once and daily-briefing's tests caught it.
+        sections.push(`Next quarterly tax deadline: $${(nextDeadline.amountDueCents / 100).toFixed(2)} due ${nextDeadline.deadline.toISOString().slice(0, 10)}.`);
+      }
+      const briefingUser = sections.length ? sections.join('\n') : 'No new facts today.';
 
       const reply = await callGemini(briefingSystem, briefingUser, 350)
         ?? "Here's a quick check: your books look normal but I couldn't load the full picture right now. Try again in a moment.";
