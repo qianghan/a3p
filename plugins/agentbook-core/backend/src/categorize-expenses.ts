@@ -13,7 +13,13 @@ export interface CategorizeCandidate {
 }
 export interface CategoryOption { id: string; name: string; taxCategory?: string | null }
 export interface BatchDecision { id: string; categoryName: string | null; confidence: number; reason: string }
-export type SkipReason = 'no_signal' | 'low_confidence' | 'unknown_category' | 'llm_error';
+/**
+ * `write_failed` is deliberately distinct from `llm_error`: the model DID
+ * classify the row confidently and we then failed to persist it. Reporting
+ * that as an LLM error told the user to rephrase when the fix is to retry —
+ * and it was the only outcome the handler produced without logging anything.
+ */
+export type SkipReason = 'no_signal' | 'low_confidence' | 'unknown_category' | 'llm_error' | 'write_failed';
 
 /** `date` is required: the Telegram review walk-through does `new Date(it.date)` on pending items. */
 interface Line { expenseId: string; vendorName: string | null; description: string | null; amountCents: number; currency: string; date: Date }
@@ -168,6 +174,12 @@ export function formatCategorizeReply(
         .map((s) => `• ${f.money(s.amountCents, s.currency)} ${label(s) || f.t('skill.categorize_no_vendor')} — ${f.t(`skill.categorize_reason_${s.reason}`)}`).join('\n')
       + more(o.skipped.length));
   }
-  if (!o.pending.length && !o.skipped.length) parts.push(f.t('skill.categorize_done_all'));
+  // `o.total` counts every uncategorized row, not just the page we fetched.
+  // "All done" with rows beyond the take cap still waiting is the exact false
+  // claim this skill was rewritten to stop making.
+  const seen = o.applied.length + o.pending.length + o.skipped.length;
+  const remaining = Math.max(0, o.total - seen);
+  if (!o.pending.length && !o.skipped.length && remaining === 0) parts.push(f.t('skill.categorize_done_all'));
+  if (remaining > 0) parts.push(f.t('skill.categorize_more_remaining', { count: remaining }));
   return parts.join('\n\n');
 }

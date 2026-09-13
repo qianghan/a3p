@@ -57,10 +57,21 @@ const DESTRUCTIVE_WORDS = [
 const DESTRUCTIVE_SKILLS = new Set([
   'edit-expense',
   'split-expense',
-  'categorize-expenses',
   'record-expense',
   'create-invoice',
 ]);
+
+/**
+ * Skills the brain has ALREADY executed inline by the time assessComplexity
+ * runs, and which must never be turned into a plan afterwards.
+ *
+ * categorize-expenses is idempotent, runs inline, and applies only its
+ * >= HIGH_CONF bucket; it never needs a plan — and a plan could not execute it
+ * anyway, because executeStep refuses INTERNAL skills (no HTTP endpoint). Left
+ * out of this set, a sub-0.6 classifier score threw the completed work away and
+ * showed a "Proceed?" preview AFTER the writes had already landed.
+ */
+const DIRECT_SKILLS = new Set(['categorize-expenses']);
 
 // ─── assessComplexity ────────────────────────────────────────────────────────
 
@@ -71,7 +82,7 @@ export function assessComplexity(
 ): 'simple' | 'complex' {
   // Read-only reporting skills never need multi-step planning — always execute directly.
   // Multi-intent phrases ("March AND also Jan") are valid single-call queries here.
-  if (selectedSkill && REPORTING_SKILLS.has(selectedSkill.name)) return 'simple';
+  if (selectedSkill && (REPORTING_SKILLS.has(selectedSkill.name) || DIRECT_SKILLS.has(selectedSkill.name))) return 'simple';
 
   // Multi-intent keywords (only relevant for write/action skills)
   if (MULTI_INTENT_PATTERNS.some((p) => p.test(text))) return 'complex';

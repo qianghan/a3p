@@ -48,6 +48,43 @@ describe('categorize-expenses is not confidence-escalated', () => {
   it('is in ESCALATION_EXEMPT_SKILLS', () => { expect(set).toContain("'categorize-expenses'"); });
 });
 
+describe('categorize-expenses is not re-planned after it has already run', () => {
+  /**
+   * The escalation exemption in agent-brain only covers Step 3b. Step 4 calls
+   * assessComplexity on the ALREADY-EXECUTED result, and 'complex' there
+   * discards it and shows a plan preview — a "Proceed?" for writes that have
+   * landed, whose step then fails because executeStep refuses INTERNAL skills.
+   */
+  const PLANNER = readFileSync(join(__dirname, '..', 'agent-planner.ts'), 'utf8');
+  const set = (name: string) => {
+    const i = PLANNER.indexOf(`const ${name} = new Set(`);
+    return i < 0 ? '' : PLANNER.slice(i, PLANNER.indexOf(']);', i));
+  };
+  it('is in DIRECT_SKILLS', () => { expect(set('DIRECT_SKILLS')).toContain("'categorize-expenses'"); });
+  it('is NOT in DESTRUCTIVE_SKILLS', () => { expect(set('DESTRUCTIVE_SKILLS')).not.toContain("'categorize-expenses'"); });
+});
+
+describe('the handler names and logs a failed write, and never trusts the page size', () => {
+  it("reports a refused write as 'write_failed', not as an LLM error", () => {
+    expect(BLOCK).toContain("'write_failed'");
+    expect(BLOCK).toContain('console.error(');
+  });
+  it('takes the total from a COUNT, not from the capped page', () => {
+    // `take: 50` + `total = rows.length` let the reply claim completeness
+    // while row 51 was still uncategorized.
+    expect(BLOCK).toContain('db.abExpense.count(');
+    expect(BLOCK).not.toMatch(/total:\s*cands\.length/);
+  });
+  it('sends its own confidence in the categorize-route BODY', () => {
+    // The route defaults to 1.0 — user certainty. A model guess must not be
+    // recorded as that. Asserted on the request body specifically: the draft
+    // branch below already wrote `confidence: a.confidence`, so a file-wide
+    // match would have passed while the HTTP call still sent none.
+    const body = BLOCK.slice(BLOCK.indexOf("source: 'auto_categorize'"));
+    expect(body.slice(0, body.indexOf('}'))).toMatch(/confidence:\s*a\.confidence/);
+  });
+});
+
 describe('telegram adapter has no private categorize path', () => {
   const ROUTE = readFileSync(join(__dirname, '..', '..', '..', '..', '..', 'apps/web-next/src/app/api/v1/agentbook/telegram/webhook/route.ts'), 'utf8');
   it('routes every categorize phrasing through the brain', () => {

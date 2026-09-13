@@ -60,6 +60,15 @@ describe('parseBatchDecisions', () => {
     const out = parseBatchDecisions(raw, cands);
     expect(out.map((d) => d.id)).toEqual(['e1', 'e2']);
   });
+  it('a nested object inside a COMPLETE element does not shift the depth bookkeeping', () => {
+    // The scan records the `}` that returns depth to 1. A nested object closes
+    // at depth 2, and a `}` inside its string value is not a brace at all — a
+    // scanner that counted either would salvage at the wrong index and lose
+    // the complete first element along with the truncated second.
+    const raw = '[{"n":1,"categoryName":"Rent","confidence":0.9,"reason":"x","meta":{"k":"}"}},{"n":2,"cat';
+    const out = parseBatchDecisions(raw, cands);
+    expect(out.map((d) => d.id)).toEqual(['e1']);
+  });
   it('returns [] on garbage or null', () => {
     expect(parseBatchDecisions(null, cands)).toEqual([]);
     expect(parseBatchDecisions('not json', cands)).toEqual([]);
@@ -123,6 +132,29 @@ describe('formatCategorizeReply', () => {
     expect(s).toContain('skill.categorize_pending_hint_telegram');
     expect(s).toContain('买了台电脑');
     expect(s).toContain('skill.categorize_reason_no_signal');
+  });
+  it("names a failed write as its own reason, not as the model's fault", () => {
+    // The row WAS classified confidently; the ledger write refused. Telling the
+    // user the AI was unsure sends them to rephrase a request that only needs
+    // a retry.
+    const s = formatCategorizeReply(
+      { total: 1, applied: [], pending: [], skipped: [{ ...skipped, reason: 'write_failed' as const }] }, f,
+    );
+    expect(s).toContain('skill.categorize_reason_write_failed');
+    expect(s).not.toContain('skill.categorize_reason_llm_error');
+  });
+  it('does NOT claim all done when rows beyond the page cap are still uncategorized', () => {
+    // 80 uncategorized, one page of 50 applied. The old reply said "all done".
+    const fifty = Array.from({ length: 50 }, (_, i) => ({ ...applied, expenseId: `a${i}` }));
+    const s = formatCategorizeReply({ total: 80, applied: fifty, pending: [], skipped: [] }, f);
+    expect(s).not.toContain('skill.categorize_done_all');
+    expect(s).toContain('skill.categorize_more_remaining {"count":30}');
+  });
+  it('DOES say all done when the count and the page agree', () => {
+    const three = Array.from({ length: 3 }, (_, i) => ({ ...applied, expenseId: `a${i}` }));
+    const s = formatCategorizeReply({ total: 3, applied: three, pending: [], skipped: [] }, f);
+    expect(s).toContain('skill.categorize_done_all');
+    expect(s).not.toContain('skill.categorize_more_remaining');
   });
   it('uses the web hint on the web channel and caps each list at 10', () => {
     const many = Array.from({ length: 12 }, (_, i) => ({ ...applied, expenseId: `a${i}`, vendorName: `V${i}` }));

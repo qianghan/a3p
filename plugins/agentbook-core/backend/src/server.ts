@@ -4936,19 +4936,26 @@ async function _executeClassificationCore(
       const LAST_RUN_KEY = 'telegram:last_auto_categorize';
       const expenseBase = baseUrls['/api/v1/agentbook-expense'] || 'http://localhost:4051';
 
-      // "Uncategorized" means EITHER no category OR parked in the 6999 suspense
-      // account (where #426 posts confirmed expenses that have none). The
-      // breakdown shows both as "Uncategorized"; so must this skill.
+      // "Uncategorized" means EITHER no category OR a categoryId that IS the
+      // 6999 suspense account. Such rows really exist: the UI category picker
+      // offers 6999 and older code could assign it. (The create route leaves
+      // categoryId null and posts only the JOURNAL LINE to 6999.) The category
+      // breakdown shows both buckets as "Uncategorized"; so must this skill.
       const suspense = await db.abAccount.findFirst({ where: { tenantId, code: '6999' }, select: { id: true } });
+      const uncategorizedWhere = {
+        tenantId, isPersonal: false, deletedAt: null, status: { in: ['pending_review', 'confirmed'] },
+        OR: [{ categoryId: null }, ...(suspense ? [{ categoryId: suspense.id }] : [])],
+      };
       const rows = await db.abExpense.findMany({
-        where: {
-          tenantId, isPersonal: false, deletedAt: null, status: { in: ['pending_review', 'confirmed'] },
-          OR: [{ categoryId: null }, ...(suspense ? [{ categoryId: suspense.id }] : [])],
-        },
+        where: uncategorizedWhere,
         include: { vendor: { select: { id: true, name: true, normalizedName: true } } },
         orderBy: { date: 'desc' },
         take: 50,
       });
+      // COUNT, not rows.length: the take cap above is a page, and reporting the
+      // page size as the total let the reply say "all done" while rows past the
+      // cap were still uncategorized.
+      const totalUncategorized = await db.abExpense.count({ where: uncategorizedWhere });
       const categories = (await db.abAccount.findMany({
         where: { tenantId, accountType: 'expense', isActive: true, NOT: { code: '6999' } },
         select: { id: true, name: true, code: true, taxCategory: true },
@@ -4960,7 +4967,7 @@ async function _executeClassificationCore(
       }));
       const asLine = (c: CategorizeCandidate) => ({ expenseId: c.id, vendorName: c.vendorName, description: c.description, amountCents: c.amountCents, currency: c.currency, date: c.date });
 
-      const outcome: CategorizeOutcome = { total: cands.length, applied: [], pending: [], skipped: [] };
+      const outcome: CategorizeOutcome = { total: totalUncategorized, applied: [], pending: [], skipped: [] };
       const withSignal = cands.filter((c) => {
         if (hasSignal(c)) return true;
         outcome.skipped.push({ ...asLine(c), reason: 'no_signal' });
@@ -4977,25 +4984,31 @@ async function _executeClassificationCore(
         for (const a of apply) {
           let ok = false;
           if (a.cand.status === 'confirmed') {
-            // A confirmed row is on the books (against 6999 if it had no
-            // category). The categorize route owns ledger posting: it moves
-            // that debit to the chosen account and learns the vendor pattern.
-            // Setting categoryId inline (the old code) left the P&L on
-            // "Uncategorized".
+            // A confirmed row is already on the books — its journal line sits
+            // on the 6999 suspense account when it has no category, and a row
+            // whose categoryId IS 6999 is uncategorized too. The categorize
+            // route owns ledger posting: it moves that debit to the chosen
+            // account and learns the vendor pattern. Setting categoryId inline
+            // (the old code) left the P&L on "Uncategorized".
             const res = await fetch(`${expenseBase}/api/v1/agentbook-expense/expenses/${a.cand.id}/categorize`, {
               method: 'POST', headers: brainHeaders(tenantId),
-              body: JSON.stringify({ categoryId: a.category.id, source: 'auto_categorize' }),
-            }).catch(() => null);
+              body: JSON.stringify({ categoryId: a.category.id, source: 'auto_categorize', confidence: a.confidence }),
+            }).catch((err) => { console.error('[categorize-expenses] write failed:', a.cand.id, err); return null; });
             ok = Boolean(res?.ok);
+            if (res && !res.ok) console.error('[categorize-expenses] write failed:', a.cand.id, res.status);
           } else {
             // A draft is NOT on the books yet; the confirm route posts it with
             // whatever category it has then. Going through the categorize
             // route here would book an unconfirmed expense.
             ok = await db.abExpense.update({ where: { id: a.cand.id }, data: { categoryId: a.category.id, confidence: a.confidence } })
-              .then(() => true).catch(() => false);
+              .then(() => true)
+              .catch((err) => { console.error('[categorize-expenses] write failed:', a.cand.id, err); return false; });
           }
           if (ok) outcome.applied.push({ ...asLine(a.cand), categoryId: a.category.id, categoryName: a.category.name, confidence: a.confidence });
-          else outcome.skipped.push({ ...asLine(a.cand), reason: 'llm_error' });
+          // The model was confident and the DB/route refused — not an LLM
+          // error. Naming it 'llm_error' told the user to rephrase a request
+          // that only needed a retry, and nothing was logged either way.
+          else outcome.skipped.push({ ...asLine(a.cand), reason: 'write_failed' });
         }
       }
       if (categories.length === 0) {

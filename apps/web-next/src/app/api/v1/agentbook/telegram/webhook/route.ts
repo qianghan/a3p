@@ -4678,6 +4678,11 @@ function getBot(): Bot {
           where: { id: expenseId },
           data: { categoryId: suggestion.suggestedCategoryId, confidence: 0.95 },
         });
+        // Same reason as the cat:<code> picker above: accepting the suggestion
+        // moved the category but left the debit parked on the 6999 suspense
+        // account, so the P&L and every tax line kept showing "Uncategorized"
+        // for an expense Telegram had just told the user was booked.
+        await backfillExpenseJournalEntry(tenantId, expenseId);
         if (expense.vendorId) {
           const vendor = await db.abVendor.findUnique({ where: { id: expense.vendorId } });
           if (vendor) {

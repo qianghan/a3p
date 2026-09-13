@@ -2,7 +2,11 @@
  * Categorize / re-categorize an expense + update / create the
  * vendor → category pattern so future expenses auto-categorize.
  *
- * Treats this as a high-confidence (0.95) user correction.
+ * A human picking a category IS certainty: the expense gets confidence 1.0 and
+ * the learned pattern 0.95. A machine caller (the categorize-expenses skill)
+ * must send its own `confidence`, because recording a model's guess as user
+ * certainty made every auto-applied row indistinguishable from a correction
+ * the user actually made — and taught the vendor pattern at 0.95 off it.
  */
 
 import 'server-only';
@@ -19,7 +23,18 @@ export const maxDuration = 30;
 interface CategorizeBody {
   categoryId?: string;
   source?: string;
+  /** The caller's own certainty, 0–1. Omitted by the UI, which means 1.0. */
+  confidence?: number;
 }
+
+const clamp01 = (n: number) => Math.min(1, Math.max(0, n));
+
+/**
+ * Cap for a pattern learned from an automatic categorization. 0.92 is the
+ * old inline auto-categorizer's cap: below the 0.95 a user correction earns,
+ * so a human's choice still outranks the machine's on the same vendor.
+ */
+const AUTO_PATTERN_CAP = 0.92;
 
 export async function POST(
   request: NextRequest,
@@ -32,6 +47,12 @@ export async function POST(
     const { id } = await params;
     const body = (await request.json().catch(() => ({}))) as CategorizeBody;
     const { categoryId, source } = body;
+    const expenseConfidence =
+      typeof body.confidence === 'number' && Number.isFinite(body.confidence)
+        ? clamp01(body.confidence)
+        : 1.0;
+    const patternConfidence =
+      source === 'auto_categorize' ? Math.min(AUTO_PATTERN_CAP, expenseConfidence) : 0.95;
 
     if (!categoryId) {
       return NextResponse.json({ success: false, error: 'categoryId is required' }, { status: 400 });
@@ -44,7 +65,7 @@ export async function POST(
 
     const updated = await db.abExpense.update({
       where: { id },
-      data: { categoryId, confidence: 1.0 },
+      data: { categoryId, confidence: expenseConfidence },
     });
 
     // Now that the expense has a category, post its ledger entry if it never
@@ -59,7 +80,7 @@ export async function POST(
           where: { tenantId_vendorPattern: { tenantId, vendorPattern: vendor.normalizedName } },
           update: {
             categoryId,
-            confidence: 0.95,
+            confidence: patternConfidence,
             source: source || 'user_corrected',
             usageCount: { increment: 1 },
             lastUsed: new Date(),
@@ -68,7 +89,7 @@ export async function POST(
             tenantId,
             vendorPattern: vendor.normalizedName,
             categoryId,
-            confidence: 0.95,
+            confidence: patternConfidence,
             source: source || 'user_corrected',
           },
         });
