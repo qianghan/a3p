@@ -118,7 +118,14 @@ export async function generatePlan(
   relevantMemories: string,
   callGemini: (sys: string, user: string, max?: number) => Promise<string | null>,
 ): Promise<PlanStep[]> {
+  // general-question is a conversational answer, not an action — it has no
+  // dedicated INTERNAL handler in _executeClassificationCore (its real
+  // handling lives in the brain's Step 3a′), so a plan step naming it falls
+  // through to the generic HTTP dispatch and fails. An answer is not a plan
+  // step; keep it out of what the LLM is offered. simulate-scenario stays in
+  // the list — it has an inline handler now.
   const skillList = skills
+    .filter((s) => s.name !== 'general-question')
     .map(
       (s) =>
         `- ${s.name}: ${s.description ?? '(no description)'}${s.endpoint ? ` [${s.method ?? 'GET'} ${s.endpoint}]` : ''}`,
@@ -383,10 +390,20 @@ export async function executeStep(
   tenantId: string,
   skills: Array<{
     name: string;
-    endpoint?: string;
+    endpoint?: string | { method?: string; url?: string };
     method?: string;
   }>,
   baseUrls: Record<string, string>,
+  /**
+   * Runs a skill whose manifest endpoint is `{ method: 'INTERNAL' }` — there
+   * is no HTTP route for those, the handler lives inline in the brain's
+   * executor. Supplied by the caller (agent-brain.ts) rather than imported,
+   * so the planner keeps knowing nothing about how skills execute.
+   */
+  runInternal?: (
+    skillName: string,
+    params: Record<string, any>,
+  ) => Promise<{ success: boolean; data?: any; message?: string; error?: string }>,
 ): Promise<any> {
   // Internal evaluate-results step — handled by caller
   if (step.action === 'evaluate-results') {
@@ -411,12 +428,25 @@ export async function executeStep(
     step = { ...step, params: {} };
   }
 
-  if (!endpoint || !endpoint.url) {
-    return { success: false, error: `Skill "${step.action}" has no endpoint` };
+  // INTERNAL skills (categorize-expenses, daily-briefing, personal-snapshot,
+  // …) have no HTTP route — their handler is inline in the brain's executor.
+  // This used to return a hard failure, so every multi-step plan containing
+  // one died at that step; only the single-step confirm path worked, because
+  // it bypasses the planner.
+  //
+  // Checked BEFORE the `!endpoint.url` guard on purpose: every INTERNAL
+  // manifest stores `{ method: 'INTERNAL', url: '' }`, so that guard would
+  // otherwise claim the skill "has no endpoint" and this branch would be
+  // unreachable.
+  if (endpoint && endpoint.method === 'INTERNAL') {
+    if (!runInternal) {
+      return { success: false, error: `Skill "${step.action}" is internal and no runner was supplied` };
+    }
+    return runInternal(step.action, step.params ?? {});
   }
 
-  if (endpoint.method === 'INTERNAL') {
-    return { success: false, error: `Skill "${step.action}" is internal and cannot be executed via HTTP` };
+  if (!endpoint || !endpoint.url) {
+    return { success: false, error: `Skill "${step.action}" has no endpoint` };
   }
 
   // Resolve base URL: find the base URL key whose prefix matches the skill endpoint URL

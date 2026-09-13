@@ -425,6 +425,38 @@ function resolveSessionAction(
 }
 
 /**
+ * Map an `executeClassification` / `_executeClassificationCore` return into the
+ * `{ success, data, message, error }` shape the planner's step loop expects.
+ *
+ * The naive `success: Boolean(r.responseData || r.skillResponse?.success)` was
+ * true for every return the core makes. Its failure paths are shaped
+ * `{ skillResponse: null, confidence: 0, responseData: { message: "I couldn't …",
+ * confidence: 0 } }` — they carry a responseData like everything else — so a
+ * failed step was recorded as 'done', the evaluator never saw `success: false`,
+ * and a dependent step resolved `{{steps[N].output}}` against `undefined`.
+ * Conversely many genuine successes put no `success` field on skillResponse at
+ * all, so the second half of that OR could not have rescued it.
+ *
+ * Failure is therefore positively identified: an explicit status/flag, or the
+ * core's own failure signature (no skillResponse AND confidence pinned to 0).
+ */
+export function mapInternalRunResult(
+  r: any,
+): { success: boolean; data?: any; message?: string; error?: string } {
+  const failed =
+    r == null
+    || r?.status === 'error'
+    || r?.success === false
+    || (r?.skillResponse == null && (r?.responseData?.confidence ?? 1) === 0);
+  return {
+    success: !failed,
+    data: r?.skillResponse?.data,
+    message: failed ? undefined : r?.responseData?.message,
+    error: failed ? (r?.responseData?.message ?? 'step failed') : undefined,
+  };
+}
+
+/**
  * Pair a thread's turns into {question, answer}, NEWEST FIRST.
  *
  * The order is a contract, not an implementation detail. The other producer of
@@ -476,7 +508,19 @@ async function updateThreadTurns(
   const newTurns = [
     ...existing,
     { role: 'user', text: userText.slice(0, 300), at: new Date().toISOString() },
-    { role: 'bot',  text: agentText.slice(0, 300),  at: new Date().toISOString(), intent, entityId },
+    {
+      role: 'bot',
+      text: agentText.slice(0, 300),
+      at: new Date().toISOString(),
+      intent,
+      entityId,
+      // Computed on the FULL reply, before the 300-char truncation above.
+      // Step 2a decides whether a bare "yes" ANSWERS the bot or has nothing
+      // to attach to, and its only evidence is this turn: a long reply that
+      // ends in a clarifying question loses its "?" to the slice, so the
+      // answer was met with "Nothing is waiting for a yes."
+      askedQuestion: /\?\s*$/.test(String(agentText ?? '').trim()),
+    },
   ].slice(-KEEP);
   await db.abConvThread.update({
     where: { id: thread.id },
@@ -1432,6 +1476,15 @@ async function handleAgentMessageCore(
         },
       }).catch(() => {});
 
+      // executeClassification -> _executeClassificationCore does NOT re-fetch
+      // AbTenantConfig when `tenantConfig === undefined` (only classifyOnly
+      // does), so leaving it out would format every amount in an INTERNAL
+      // step's reply as en-US/USD. Read once per plan: the row cannot change
+      // mid-plan, and the closure below runs on every step.
+      const planTenantConfig = await db.abTenantConfig
+        .findFirst({ where: { userId: tenantId } })
+        .catch(() => null);
+
       for (let i = startStep; i < plan.length; i++) {
         const step = plan[i];
         step.status = 'running';
@@ -1468,7 +1521,35 @@ async function handleAgentMessageCore(
 
         const result = unresolved.length > 0
           ? { success: false, error: `Couldn't resolve prior step output: ${unresolved.join(', ')}` }
-          : await executeStep(step, tenantId, ctx.skills, ctx.baseUrls);
+          : await executeStep(step, tenantId, ctx.skills, ctx.baseUrls, async (skillName, params) => {
+              // INTERNAL skills have no HTTP route; the brain's executor owns
+              // their handlers. Without this the planner failed the step, so
+              // any plan containing categorize-expenses / daily-briefing /
+              // personal-snapshot died mid-way.
+              if (!ctx.executeClassification) return { success: false, error: 'no executor' };
+              const sk = (ctx.skills as any[]).find((s) => s.name === skillName);
+              if (!sk) return { success: false, error: `unknown skill ${skillName}` };
+              const r = await ctx.executeClassification(
+                {
+                  selectedSkill: sk,
+                  extractedParams: params,
+                  confidence: 1,
+                  confirmBefore: false,
+                  memory: [],
+                  skills: ctx.skills,
+                  conversation: [],
+                  tenantConfig: planTenantConfig,
+                },
+                // The session's ORIGINAL request ("Categorize them"), not the
+                // bare "yes" that confirmed it — the executor derives the
+                // reply language from this text.
+                String(activeSession.trigger || text),
+                tenantId,
+                channel,
+                [],
+              );
+              return mapInternalRunResult(r);
+            });
         step.result = result;
         step.quality = assessStepQuality(step);
         step.status = result?.success ? 'done' : 'failed';
@@ -1672,6 +1753,54 @@ async function handleAgentMessageCore(
     tenantLocale: replyConfig?.locale ?? null,
   });
   t = replyT({ locale: replyLocale });
+
+  // ── Step 2a: a session action with no session ─────────────────────────
+  // The Telegram adapter maps bare "yes/cancel/undo/skip/status" to
+  // sessionAction. With no AbAgentSession the old code classified the word as
+  // a new request, and the fallback improvised ("Are you trying to cancel a
+  // subscription, an invoice, or something else?"). Two cases:
+  //   • the bot just asked a question → "yes" is the answer; keep going.
+  //   • nothing is open → say so in one line.
+  // Resolve from the flag OR the bare text (resolveSessionAction, as Step 1
+  // does): only the Telegram adapter sets req.sessionAction, so keying on the
+  // flag alone would leave a typed "cancel" on web/MCP/WhatsApp improvising.
+  //
+  // Placed after the thread is loaded (it needs the last bot turn) and after
+  // replyLocale is re-resolved from it, so the one-line answer is in the
+  // user's language rather than the tenant default.
+  const bareAction = !activeSession ? resolveSessionAction(req.sessionAction, text) : null;
+  if (bareAction) {
+    const lastBot = [...threadTurns].reverse().find((tt: any) => tt?.role === 'bot');
+    // `askedQuestion` is recorded by updateThreadTurns on the untruncated
+    // reply; the `?` scan is the fallback for turns written before that field
+    // existed, and is deliberately unanchored — the stored text of an older
+    // turn may have been cut mid-sentence.
+    const botAskedSomething =
+      (lastBot as any)?.askedQuestion ?? /\?/.test(String(lastBot?.text ?? ''));
+    // Only an affirmative, or an explicit "no", answers a question. Replies
+    // routinely end with a suggestion ("Want me to categorize the rest?"), so
+    // counting "cancel" as an answer sent it back into classification — and
+    // the improvised "Are you trying to cancel a subscription, an invoice, or
+    // something else?" this whole step exists to stop came straight back.
+    const isAnswer =
+      botAskedSomething
+      && (bareAction === 'confirm' || /^(no|non|nope|不)$/i.test(text.trim()));
+    if (!isAnswer) {
+      const message = bareAction === 'confirm'
+        ? t('agent.nothing_to_confirm')
+        : bareAction === 'cancel'
+          ? t('agent.nothing_to_cancel')
+          : t('agent.nothing_pending');
+      updateThreadTurns(activeThread, text, message, 'session').catch(() => {});
+      return buildResponse({
+        message,
+        skillUsed: 'session',
+        confidence: 1,
+        replyLocale,
+        latencyMs: Date.now() - startTime,
+      });
+    }
+  }
 
   const [tenantConfig, memory, skillRows, personalProfileContext] = await Promise.all([
     db.abTenantConfig.findFirst({ where: { userId: tenantId } }),

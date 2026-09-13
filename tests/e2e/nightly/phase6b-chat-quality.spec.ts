@@ -54,6 +54,6 @@ test.describe('@phase6b-chat-quality', () => {
   test('what-if returns a projection', async () => {
     const r = await postUpdate('what if I hire someone at $5K/mo?');
     expect(r.reply).toMatch(/(?:CA|A|US)?\$\s?[\d,]+|[\d\s]+,\d{2}\s?\$/);
-    expect(r.reply).toMatch(/runway|monthly net|net mensuel|piste|跑道|每月净/i);
+    expect(r.reply).toMatch(/runway|monthly net|net mensuel|piste|跑道|每月净|月度净额/i);
   });
 });

@@ -3,5 +3,8 @@
   "low_confidence_lead": "我不太确定我理解对了 — 这样可以吗？",
   "undo_success": "已撤销：{description}",
   "undo_failed": "无法撤销\"{description}\" — 反向操作失败。请重试，如果问题持续存在请联系支持。",
-  "unknown_intent": "我不太确定您的意思。试试 \"午餐花了 $45\" 或者 \"差旅花了多少？\""
+  "unknown_intent": "我不太确定您的意思。试试 \"午餐花了 $45\" 或者 \"差旅花了多少？\"",
+  "nothing_to_confirm": "目前没有待确认的操作。请告诉我您想做什么。",
+  "nothing_to_cancel": "没有可取消的操作——当前没有进行中的操作。",
+  "nothing_pending": "目前没有进行中的操作。"
 }

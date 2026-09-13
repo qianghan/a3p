@@ -3,5 +3,8 @@
   "low_confidence_lead": "I'm not entirely sure I understood — does this look right?",
   "undo_success": "Undone: {description}",
   "undo_failed": "I couldn't undo \"{description}\" — the reverse step failed. Try again, or contact support if it keeps happening.",
-  "unknown_intent": "I'm not sure what you mean. Try \"Spent $45 on lunch\" or \"How much on travel?\""
+  "unknown_intent": "I'm not sure what you mean. Try \"Spent $45 on lunch\" or \"How much on travel?\"",
+  "nothing_to_confirm": "Nothing is waiting for your confirmation right now. Tell me what you'd like to do.",
+  "nothing_to_cancel": "Nothing to cancel — there's no action in progress.",
+  "nothing_pending": "There's no action in progress right now."
 }
