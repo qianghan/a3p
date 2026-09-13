@@ -3055,8 +3055,17 @@ function getBot(): Bot {
     }
 
     // Detect session actions (only exact single-word/phrase matches)
+    //
+    // Skipped entirely while a slot-fill question is outstanding
+    // (`convCtx.pendingSlots`). runAgentLoop's clarifying question —
+    // "How much was it?" — lives in agentbook-conversation-context, NOT in
+    // AbConvThread.turns, so the brain cannot see that anything was asked.
+    // Mapping the reply to a sessionAction skipped the loop (it is gated on
+    // `!sessionAction`) and the brain then answered "Nothing is waiting for a
+    // yes" to a question it had just been asked. Leaving the flag undefined
+    // re-enters the loop, which owns the pending slot and can fill it.
     let sessionAction: string | undefined;
-    if (!feedback) {
+    if (!feedback && !convCtx.pendingSlots) {
       if (/^(yes|confirm|go|ok|proceed|do it|y)$/i.test(lower)) sessionAction = 'confirm';
       else if (/^(no|cancel|stop|abort|nevermind|n)$/i.test(lower)) sessionAction = 'cancel';
       else if (/^(undo|revert|undo that)$/i.test(lower)) sessionAction = 'undo';

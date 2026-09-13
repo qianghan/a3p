@@ -105,11 +105,26 @@ describe('agent-brain hands the planner an INTERNAL runner', () => {
     expect(CALL_SLICE).toMatch(/activeSession\.trigger/);
   });
 
-  it('supplies the tenant config itself', () => {
+  it('supplies the tenant config itself, read once per plan', () => {
     // executeClassification -> _executeClassificationCore does NOT re-fetch
     // AbTenantConfig when `tenantConfig === undefined` (only classifyOnly
     // does); leaving it undefined silently defaults every amount to en-US/USD.
-    expect(CALL_SLICE).toMatch(/abTenantConfig\s*\.\s*findFirst/);
+    // The read belongs ABOVE the step loop — inside the runner it repeated the
+    // same query once per step for a row that cannot change mid-plan.
+    expect(CALL_SLICE).toMatch(/tenantConfig: planTenantConfig/);
     expect(CALL_SLICE).not.toMatch(/tenantConfig: undefined/);
+    expect(CALL_SLICE).not.toMatch(/abTenantConfig\s*\.\s*findFirst/);
+    const hoist = BRAIN.indexOf('const planTenantConfig = await db.abTenantConfig');
+    const loop = BRAIN.indexOf('for (let i = startStep; i < plan.length; i++)');
+    expect(hoist).toBeGreaterThan(-1);
+    expect(hoist).toBeLessThan(loop);
+  });
+
+  it('maps the executor result through mapInternalRunResult', () => {
+    // The inline `success: Boolean(r.responseData || r.skillResponse?.success)`
+    // was true for every core return, failures included. See
+    // agent-brain-no-session-action.test.ts for the mapping's own cases.
+    expect(CALL_SLICE).toMatch(/return mapInternalRunResult\(r\)/);
+    expect(CALL_SLICE).not.toMatch(/Boolean\(r\?\.responseData/);
   });
 });

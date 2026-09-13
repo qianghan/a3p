@@ -425,6 +425,38 @@ function resolveSessionAction(
 }
 
 /**
+ * Map an `executeClassification` / `_executeClassificationCore` return into the
+ * `{ success, data, message, error }` shape the planner's step loop expects.
+ *
+ * The naive `success: Boolean(r.responseData || r.skillResponse?.success)` was
+ * true for every return the core makes. Its failure paths are shaped
+ * `{ skillResponse: null, confidence: 0, responseData: { message: "I couldn't …",
+ * confidence: 0 } }` — they carry a responseData like everything else — so a
+ * failed step was recorded as 'done', the evaluator never saw `success: false`,
+ * and a dependent step resolved `{{steps[N].output}}` against `undefined`.
+ * Conversely many genuine successes put no `success` field on skillResponse at
+ * all, so the second half of that OR could not have rescued it.
+ *
+ * Failure is therefore positively identified: an explicit status/flag, or the
+ * core's own failure signature (no skillResponse AND confidence pinned to 0).
+ */
+export function mapInternalRunResult(
+  r: any,
+): { success: boolean; data?: any; message?: string; error?: string } {
+  const failed =
+    r == null
+    || r?.status === 'error'
+    || r?.success === false
+    || (r?.skillResponse == null && (r?.responseData?.confidence ?? 1) === 0);
+  return {
+    success: !failed,
+    data: r?.skillResponse?.data,
+    message: failed ? undefined : r?.responseData?.message,
+    error: failed ? (r?.responseData?.message ?? 'step failed') : undefined,
+  };
+}
+
+/**
  * Pair a thread's turns into {question, answer}, NEWEST FIRST.
  *
  * The order is a contract, not an implementation detail. The other producer of
@@ -476,7 +508,19 @@ async function updateThreadTurns(
   const newTurns = [
     ...existing,
     { role: 'user', text: userText.slice(0, 300), at: new Date().toISOString() },
-    { role: 'bot',  text: agentText.slice(0, 300),  at: new Date().toISOString(), intent, entityId },
+    {
+      role: 'bot',
+      text: agentText.slice(0, 300),
+      at: new Date().toISOString(),
+      intent,
+      entityId,
+      // Computed on the FULL reply, before the 300-char truncation above.
+      // Step 2a decides whether a bare "yes" ANSWERS the bot or has nothing
+      // to attach to, and its only evidence is this turn: a long reply that
+      // ends in a clarifying question loses its "?" to the slice, so the
+      // answer was met with "Nothing is waiting for a yes."
+      askedQuestion: /\?\s*$/.test(String(agentText ?? '').trim()),
+    },
   ].slice(-KEEP);
   await db.abConvThread.update({
     where: { id: thread.id },
@@ -1432,6 +1476,15 @@ async function handleAgentMessageCore(
         },
       }).catch(() => {});
 
+      // executeClassification -> _executeClassificationCore does NOT re-fetch
+      // AbTenantConfig when `tenantConfig === undefined` (only classifyOnly
+      // does), so leaving it out would format every amount in an INTERNAL
+      // step's reply as en-US/USD. Read once per plan: the row cannot change
+      // mid-plan, and the closure below runs on every step.
+      const planTenantConfig = await db.abTenantConfig
+        .findFirst({ where: { userId: tenantId } })
+        .catch(() => null);
+
       for (let i = startStep; i < plan.length; i++) {
         const step = plan[i];
         step.status = 'running';
@@ -1476,13 +1529,6 @@ async function handleAgentMessageCore(
               if (!ctx.executeClassification) return { success: false, error: 'no executor' };
               const sk = (ctx.skills as any[]).find((s) => s.name === skillName);
               if (!sk) return { success: false, error: `unknown skill ${skillName}` };
-              // executeClassification -> _executeClassificationCore does NOT
-              // re-fetch AbTenantConfig when `tenantConfig === undefined`
-              // (only classifyOnly does), so leaving it out would format every
-              // amount in this step's reply as en-US/USD.
-              const tenantConfig = await db.abTenantConfig
-                .findFirst({ where: { userId: tenantId } })
-                .catch(() => null);
               const r = await ctx.executeClassification(
                 {
                   selectedSkill: sk,
@@ -1492,7 +1538,7 @@ async function handleAgentMessageCore(
                   memory: [],
                   skills: ctx.skills,
                   conversation: [],
-                  tenantConfig,
+                  tenantConfig: planTenantConfig,
                 },
                 // The session's ORIGINAL request ("Categorize them"), not the
                 // bare "yes" that confirmed it — the executor derives the
@@ -1502,11 +1548,7 @@ async function handleAgentMessageCore(
                 channel,
                 [],
               );
-              return {
-                success: Boolean(r?.responseData || r?.skillResponse?.success),
-                data: r?.skillResponse?.data,
-                message: r?.responseData?.message,
-              };
+              return mapInternalRunResult(r);
             });
         step.result = result;
         step.quality = assessStepQuality(step);
@@ -1729,8 +1771,20 @@ async function handleAgentMessageCore(
   const bareAction = !activeSession ? resolveSessionAction(req.sessionAction, text) : null;
   if (bareAction) {
     const lastBot = [...threadTurns].reverse().find((tt: any) => tt?.role === 'bot');
-    const botAskedSomething = /\?\s*$/.test(String(lastBot?.text ?? '').trim());
-    const isAnswer = (bareAction === 'confirm' || bareAction === 'cancel') && botAskedSomething;
+    // `askedQuestion` is recorded by updateThreadTurns on the untruncated
+    // reply; the `?` scan is the fallback for turns written before that field
+    // existed, and is deliberately unanchored — the stored text of an older
+    // turn may have been cut mid-sentence.
+    const botAskedSomething =
+      (lastBot as any)?.askedQuestion ?? /\?/.test(String(lastBot?.text ?? ''));
+    // Only an affirmative, or an explicit "no", answers a question. Replies
+    // routinely end with a suggestion ("Want me to categorize the rest?"), so
+    // counting "cancel" as an answer sent it back into classification — and
+    // the improvised "Are you trying to cancel a subscription, an invoice, or
+    // something else?" this whole step exists to stop came straight back.
+    const isAnswer =
+      botAskedSomething
+      && (bareAction === 'confirm' || /^(no|non|nope|不)$/i.test(text.trim()));
     if (!isAnswer) {
       const message = bareAction === 'confirm'
         ? t('agent.nothing_to_confirm')
