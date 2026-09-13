@@ -5562,12 +5562,18 @@ async function _executeClassificationCore(
       }
       const byMonth = Object.entries(byMonthRaw).reverse();
 
-      // The dates below are the only ones in this function that reach the LLM
-      // rather than the user directly — but the model quotes them back
-      // verbatim into an answer it writes in the user's language, so they get
-      // the reply locale too. Either way they must not keep taking the SERVER
-      // PROCESS locale, which is what a bare toLocaleDateString() does: that
-      // made the rendered date depend on the machine the backend ran on.
+      // Two different audiences, two different rules.
+      //
+      // These `recentExpenses` lines are BOTH prompt input AND user-facing:
+      // when the question asked for a list they are spliced VERBATIM into the
+      // answer below (see the `wantsList` block), so they take the reply
+      // locale — the date in the list has to match the language of the
+      // sentence above it. The `Period:` line further down is the other case:
+      // it only ever reaches the model, so it stays machine-stable ISO.
+      //
+      // Neither may take the SERVER PROCESS locale, which is what a bare
+      // toLocaleDateString() does: that made the rendered date depend on the
+      // machine the backend happened to run on.
       const recentExpenses = expenses.slice(0, 20).map((e) => {
         const vName = (e.vendor as any)?.name || 'Unknown';
         const catName = e.categoryId ? (catNameMap[e.categoryId] || 'Uncategorized') : 'Uncategorized';
@@ -5575,7 +5581,7 @@ async function _executeClassificationCore(
       });
 
       const contextStr = [
-        `Period: ${startDate.toLocaleDateString(replyLocale)} to ${endDate.toLocaleDateString(replyLocale)}`,
+        `Period: ${startDate.toISOString().slice(0, 10)} to ${endDate.toISOString().slice(0, 10)}`, // money-format-ok: prompt input, machine-stable
         `Total expenses: ${fmt(total)} (${expenses.length} transactions)`,
         `Top categories: ${byCat.map(([n, v]) => `${n}: ${fmt(v)}`).join(', ')}`,
         `Top vendors: ${byVendor.map(([n, v]) => `${n}: ${fmt(v)}`).join(', ')}`,
