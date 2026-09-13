@@ -14,6 +14,7 @@ import { buildPersonalProfileContext } from './personal-profile-context.js';
 import { retrieveRelevantMemories, learnFromInteraction, learnVendorCategoryCorrection } from './agent-memory.js';
 import { detectCorrection } from './agent-corrections.js';
 import { carryForwardPeriod } from './period-parse.js';
+import { carryForwardTopic } from './followup-topic.js';
 import { languageDirective } from './language.js';
 import { triageTurn } from './consultation-triage.js';
 import { reviewConsultation, repairBrief, safeFallback, type GroundingContext } from './consultation-review.js';
@@ -1930,8 +1931,20 @@ async function handleAgentMessageCore(
   // numbers the user was comparing covered different periods. Rewriting the
   // text here (rather than in a channel adapter) keeps it true for web,
   // Telegram, WhatsApp and MCP alike.
-  const resolvedText = carryForwardPeriod(
-    resolveReferents(text, conversation, threadTurns),
+  //
+  // And once more for the TOPIC. Observed in production: "What is my cash
+  // balance?" was answered, then "Give me more details" was routed (correctly)
+  // to query-finance, whose HTTP route builds its own LLM answer from the
+  // question string alone and replied "More details about what?". The
+  // classifier sees the thread; the skill layer never does. On another run the
+  // classifier picked general-question, which does get the thread and answered
+  // well — so the outcome hung on classifier variance. carryForwardTopic
+  // appends the previous question so the topic rides in the same string.
+  const resolvedText = carryForwardTopic(
+    carryForwardPeriod(
+      resolveReferents(text, conversation, threadTurns),
+      conversation,
+    ),
     conversation,
   );
 
