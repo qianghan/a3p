@@ -1673,6 +1673,42 @@ async function handleAgentMessageCore(
   });
   t = replyT({ locale: replyLocale });
 
+  // ── Step 2a: a session action with no session ─────────────────────────
+  // The Telegram adapter maps bare "yes/cancel/undo/skip/status" to
+  // sessionAction. With no AbAgentSession the old code classified the word as
+  // a new request, and the fallback improvised ("Are you trying to cancel a
+  // subscription, an invoice, or something else?"). Two cases:
+  //   • the bot just asked a question → "yes" is the answer; keep going.
+  //   • nothing is open → say so in one line.
+  // Resolve from the flag OR the bare text (resolveSessionAction, as Step 1
+  // does): only the Telegram adapter sets req.sessionAction, so keying on the
+  // flag alone would leave a typed "cancel" on web/MCP/WhatsApp improvising.
+  //
+  // Placed after the thread is loaded (it needs the last bot turn) and after
+  // replyLocale is re-resolved from it, so the one-line answer is in the
+  // user's language rather than the tenant default.
+  const bareAction = !activeSession ? resolveSessionAction(req.sessionAction, text) : null;
+  if (bareAction) {
+    const lastBot = [...threadTurns].reverse().find((tt: any) => tt?.role === 'bot');
+    const botAskedSomething = /\?\s*$/.test(String(lastBot?.text ?? '').trim());
+    const isAnswer = (bareAction === 'confirm' || bareAction === 'cancel') && botAskedSomething;
+    if (!isAnswer) {
+      const message = bareAction === 'confirm'
+        ? t('agent.nothing_to_confirm')
+        : bareAction === 'cancel'
+          ? t('agent.nothing_to_cancel')
+          : t('agent.nothing_pending');
+      updateThreadTurns(activeThread, text, message, 'session').catch(() => {});
+      return buildResponse({
+        message,
+        skillUsed: 'session',
+        confidence: 1,
+        replyLocale,
+        latencyMs: Date.now() - startTime,
+      });
+    }
+  }
+
   const [tenantConfig, memory, skillRows, personalProfileContext] = await Promise.all([
     db.abTenantConfig.findFirst({ where: { userId: tenantId } }),
     retrieveRelevantMemories(tenantId, text),

@@ -3,5 +3,8 @@
   "low_confidence_lead": "Je ne suis pas entièrement sûr d'avoir compris — est-ce que cela vous semble correct ?",
   "undo_success": "Annulé : {description}",
   "undo_failed": "Impossible d'annuler « {description} » — l'étape inverse a échoué. Réessayez, ou contactez le support si cela persiste.",
-  "unknown_intent": "Je ne suis pas sûr de comprendre. Essayez « Dépensé 45 $ pour le déjeuner » ou « Combien en voyages ? »"
+  "unknown_intent": "Je ne suis pas sûr de comprendre. Essayez « Dépensé 45 $ pour le déjeuner » ou « Combien en voyages ? »",
+  "nothing_to_confirm": "Rien n'attend votre confirmation pour le moment. Dites-moi ce que vous voulez faire.",
+  "nothing_to_cancel": "Rien à annuler — aucune action n'est en cours.",
+  "nothing_pending": "Aucune action n'est en cours pour le moment."
 }
