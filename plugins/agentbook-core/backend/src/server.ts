@@ -20,6 +20,7 @@ import { handleDashboardAgentSummary } from './dashboard/agent-summary.js';
 import { listPastFilingsForTenant, buildPastFilingContext } from './past-filing-context.js';
 import { resolveOrdinalOrFuzzyCandidate } from './candidate-resolution.js';
 import { startTaxQuestionnaire } from './tax-questionnaire-core.js';
+import { interpretScenario, projectScenario, scenarioNarrative, formatScenarioReply } from './scenario-simulation.js';
 import { usChartOfAccounts } from '@agentbook/jurisdictions/us/chart-of-accounts';
 import { caChartOfAccounts } from '@agentbook/jurisdictions/ca/chart-of-accounts';
 import { auChartOfAccounts } from '@agentbook/jurisdictions/au/chart-of-accounts';
@@ -2540,140 +2541,14 @@ app.post('/api/v1/agentbook-core/simulate', async (req, res) => {
     // Get current financial state
     const context = await buildFinancialContext(tenantId);
 
-    // If scenario is a string, try LLM interpretation
-    let scenarioObj = typeof scenario === 'string' ? null : scenario;
-
-    if (typeof scenario === 'string') {
-      const llmResult = await callGemini(
-        'Convert a financial scenario description to JSON. Types: add_expense (monthly recurring), add_revenue (monthly), lose_client (clientName), hire (monthlyCostCents), buy_equipment (amountCents, depreciationYears). Respond with ONLY valid JSON: {"type": "...", "params": {...}}',
-        scenario,
-        200,
-      );
-      if (llmResult) {
-        try {
-          const cleaned = llmResult.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
-          scenarioObj = JSON.parse(cleaned);
-        } catch { scenarioObj = null; }
-      }
-      if (!scenarioObj) {
-        scenarioObj = { type: 'custom', description: scenario };
-      }
-    }
-
-    // Base state
-    const monthlyRevenue = context.totalRevenueCents / 12;
-    const monthlyExpenses = context.monthlyBurnCents;
-    const currentCash = context.cashBalanceCents;
-    const currentNetMonthly = monthlyRevenue - monthlyExpenses;
-
-    // Apply scenario
-    let newMonthlyExpenses = monthlyExpenses;
-    let newMonthlyRevenue = monthlyRevenue;
-    let oneTimeCost = 0;
-    let scenarioDescription = '';
-
-    switch (scenarioObj.type) {
-      case 'add_expense':
-        newMonthlyExpenses += (scenarioObj.params?.monthlyCostCents || 0);
-        scenarioDescription = `Add recurring expense of $${((scenarioObj.params?.monthlyCostCents || 0) / 100).toLocaleString()}/month`;
-        break;
-      case 'add_revenue':
-        newMonthlyRevenue += (scenarioObj.params?.monthlyCostCents || scenarioObj.params?.monthlyRevenueCents || 0);
-        scenarioDescription = `Add revenue of $${((scenarioObj.params?.monthlyRevenueCents || scenarioObj.params?.monthlyCostCents || 0) / 100).toLocaleString()}/month`;
-        break;
-      case 'lose_client': {
-        const clientName = scenarioObj.params?.clientName || 'Unknown';
-        const client = context.clients.find((c: any) => c.name.toLowerCase().includes(clientName.toLowerCase()));
-        if (client) {
-          const monthlyFromClient = Math.round(client.billedCents / 12);
-          newMonthlyRevenue -= monthlyFromClient;
-          scenarioDescription = `Lose client ${client.name} ($${(monthlyFromClient / 100).toLocaleString()}/month)`;
-        } else {
-          scenarioDescription = `Lose client ${clientName} (not found — no revenue impact calculated)`;
-        }
-        break;
-      }
-      case 'hire':
-        newMonthlyExpenses += (scenarioObj.params?.monthlyCostCents || 0);
-        scenarioDescription = `Hire at $${((scenarioObj.params?.monthlyCostCents || 0) / 100).toLocaleString()}/month`;
-        break;
-      case 'buy_equipment':
-        oneTimeCost = scenarioObj.params?.amountCents || 0;
-        const depYears = scenarioObj.params?.depreciationYears || 5;
-        const monthlyDep = Math.round(oneTimeCost / (depYears * 12));
-        newMonthlyExpenses += monthlyDep;
-        scenarioDescription = `Buy equipment $${(oneTimeCost / 100).toLocaleString()} (depreciated over ${depYears} years: $${(monthlyDep / 100).toLocaleString()}/month)`;
-        break;
-      default:
-        scenarioDescription = scenarioObj.description || 'Custom scenario';
-    }
-
-    const newNetMonthly = newMonthlyRevenue - newMonthlyExpenses;
-    const newCash = currentCash - oneTimeCost;
-    const newRunway = newMonthlyExpenses > 0 ? newCash / newMonthlyExpenses : Infinity;
-
-    // 12-month cash projection
-    const projection = [];
-    let runningCash = newCash;
-    for (let m = 1; m <= 12; m++) {
-      runningCash += newNetMonthly;
-      projection.push({ month: m, cashCents: runningCash, positiveFlow: newNetMonthly > 0 });
-    }
-
-    // Tax impact estimate — real jurisdiction-aware calculation (PARITY-2),
-    // matching the web What-If simulator instead of a flat 25% guess.
-    const currentAnnualNet = currentNetMonthly * 12;
-    const newAnnualNet = newNetMonthly * 12;
-    const scenarioTaxYear = new Date().getFullYear();
-    const currentTax = calcScenarioTax(Math.round(currentAnnualNet), context.jurisdiction, context.region, scenarioTaxYear);
-    const newTax = calcScenarioTax(Math.round(newAnnualNet), context.jurisdiction, context.region, scenarioTaxYear);
-
-    // Cash danger month (when cash goes negative)
-    const dangerMonth = projection.find(p => p.cashCents < 0)?.month || null;
-
-    const result = {
-      scenario: scenarioDescription,
-      scenarioInput: scenarioObj,
-      current: {
-        monthlyRevenueCents: Math.round(monthlyRevenue),
-        monthlyExpensesCents: monthlyExpenses,
-        monthlyNetCents: Math.round(currentNetMonthly),
-        cashCents: currentCash,
-        annualTaxCents: currentTax,
-        runwayMonths: monthlyExpenses > 0 ? parseFloat((currentCash / monthlyExpenses).toFixed(1)) : Infinity,
-      },
-      projected: {
-        monthlyRevenueCents: Math.round(newMonthlyRevenue),
-        monthlyExpensesCents: newMonthlyExpenses,
-        monthlyNetCents: Math.round(newNetMonthly),
-        cashCents: newCash,
-        annualTaxCents: newTax,
-        runwayMonths: parseFloat(newRunway.toFixed(1)),
-        oneTimeCostCents: oneTimeCost,
-      },
-      impact: {
-        monthlyNetChangeCents: Math.round(newNetMonthly - currentNetMonthly),
-        annualTaxChangeCents: newTax - currentTax,
-        runwayChangemonths: parseFloat((newRunway - (monthlyExpenses > 0 ? currentCash / monthlyExpenses : 0)).toFixed(1)),
-        cashDangerMonth: dangerMonth,
-      },
-      cashProjection12Months: projection,
-    };
-
-    // Use LLM for narrative summary if available
-    let narrative = '';
-    const llmNarrative = await callGemini(
-      `${await resolveAdvisorIdentity(tenantId)} Given a what-if scenario simulation result, provide a 2-3 sentence assessment in the first person. Be direct about risks and opportunities. Use dollar amounts.`,
-      `Scenario: ${scenarioDescription}\nCurrent monthly net: $${(currentNetMonthly / 100).toFixed(2)}\nProjected monthly net: $${(newNetMonthly / 100).toFixed(2)}\nCash now: $${(currentCash / 100).toFixed(2)}\nProjected cash: $${(newCash / 100).toFixed(2)}\nRunway change: ${(newRunway - (currentCash / monthlyExpenses || 0)).toFixed(1)} months\nTax change: $${((newTax - currentTax) / 100).toFixed(2)}/year`,
-      200,
-    );
-    if (llmNarrative) narrative = llmNarrative;
-    else {
-      narrative = newNetMonthly > currentNetMonthly
-        ? `This scenario improves your monthly net by $${(Math.abs(newNetMonthly - currentNetMonthly) / 100).toLocaleString()}.`
-        : `This scenario reduces your monthly net by $${(Math.abs(newNetMonthly - currentNetMonthly) / 100).toLocaleString()}.`;
-      if (dangerMonth) narrative += ` Warning: cash goes negative in month ${dangerMonth}.`;
-    }
+    // The projection itself lives in scenario-simulation.ts so the agent
+    // brain's INTERNAL handler runs the SAME arithmetic. This route is
+    // development-only (production serves the Next handlers); before the
+    // extraction the simulator existed nowhere else, which is why chat could
+    // never answer a what-if.
+    const input = typeof scenario === 'string' ? await interpretScenario(scenario, callGemini) : scenario;
+    const result = projectScenario(context, input, calcScenarioTax, new Date().getFullYear());
+    const narrative = await scenarioNarrative(result, tenantId, callGemini, resolveAdvisorIdentity);
 
     res.json({ success: true, data: { ...result, narrative } });
   } catch (err) { res.status(500).json({ success: false, error: String(err) }); }
@@ -5780,6 +5655,47 @@ Only include chartData if visualization adds value. Keep the answer under 200 wo
       return {
         selectedSkill, extractedParams, confidence: 0, skillUsed: 'cashflow-report', skillResponse: null,
         responseData: { message: "I couldn't load the cash flow projection right now. Please try again.", actions: [], chartData: null, skillUsed: 'cashflow-report', confidence: 0, latencyMs: Date.now() - startTime },
+      };
+    }
+  }
+
+  // INTERNAL handler: simulate-scenario — the what-if projection, run in-process.
+  //
+  // The manifest used to point at POST /api/v1/agentbook-core/simulate, an
+  // Express route that production never mounts. Every "what if I hire someone
+  // at $5K/month?" therefore came back NOT_IMPLEMENTED and degraded into a
+  // clarifying question. The projection is the same module the Express route
+  // now calls, so dev and prod cannot drift.
+  if (selectedSkill.name === 'simulate-scenario') {
+    try {
+      const scenarioText = String(extractedParams.scenario || text || '');
+      const context = await buildFinancialContext(tenantId);
+      const input = await interpretScenario(scenarioText, callGemini);
+      const result = projectScenario(context, input, calcScenarioTax, new Date().getFullYear());
+      const narrative = await scenarioNarrative(result, tenantId, callGemini, resolveAdvisorIdentity);
+      const message = formatScenarioReply(result, narrative, (c: number) => tenantMoney(c, context.currency), t);
+
+      await db.abConversation.create({
+        data: { tenantId, question: text, answer: message, queryType: 'agent', channel, skillUsed: 'simulate-scenario' },
+      }).catch(() => {});
+
+      return {
+        selectedSkill, extractedParams, confidence, skillUsed: 'simulate-scenario',
+        skillResponse: { success: true, data: result },
+        responseData: {
+          message,
+          chartData: {
+            type: 'line',
+            data: result.cashProjection12Months.map((pt) => ({ name: `M${pt.month}`, value: pt.cashCents })),
+          },
+          skillUsed: 'simulate-scenario', confidence, latencyMs: Date.now() - startTime,
+        },
+      };
+    } catch (err) {
+      console.error('[simulate-scenario] error:', err);
+      return {
+        selectedSkill, extractedParams, confidence: 0, skillUsed: 'simulate-scenario', skillResponse: null,
+        responseData: { message: t('skill.scenario_failed'), skillUsed: 'simulate-scenario', confidence: 0, latencyMs: Date.now() - startTime },
       };
     }
   }

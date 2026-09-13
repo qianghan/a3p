@@ -131,5 +131,10 @@
   "categorize_more_remaining": "{count} more I haven't looked at yet — say \"categorize\" again to continue.",
   "invoice_created_full": "Invoice created{number}{client}{amount}.",
   "roommates_found_one": "**{count} compatible student**",
-  "roommates_found_other": "**{count} compatible students**"
+  "roommates_found_other": "**{count} compatible students**",
+  "scenario_monthly_net": "Monthly net: {before} → {after} ({change}/mo)",
+  "scenario_runway": "Runway: {before} → {after} months",
+  "scenario_tax": "Estimated annual tax change: {change}",
+  "scenario_cash_negative": "Cash would go negative in month {month}.",
+  "scenario_failed": "I couldn't run that scenario. Try \"what if I hire someone at $5K/month?\""
 }

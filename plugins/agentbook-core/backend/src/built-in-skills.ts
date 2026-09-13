@@ -184,7 +184,11 @@ CREATE_INVOICE_TRIGGER_PATTERN],
     name: 'simulate-scenario', description: 'Run a what-if financial simulation', category: 'planning',
     triggerPatterns: ['what if', 'what.?if', 'simulate', 'scenario', 'hire.*\\$', 'lose.*client'],
     parameters: { scenario: { type: 'string', required: true, extractHint: 'the full user message' } },
-    endpoint: { method: 'POST', url: '/api/v1/agentbook-core/simulate' },
+    // INTERNAL: the projection runs in-process (see the simulate-scenario
+    // handler in server.ts). It used to point at the Express /simulate route,
+    // which production does not mount — so every what-if answered
+    // NOT_IMPLEMENTED.
+    endpoint: { method: 'INTERNAL', url: '' },
   },
   {
     name: 'proactive-alerts', description: 'Check for alerts, notifications, or things needing attention', category: 'insights',
