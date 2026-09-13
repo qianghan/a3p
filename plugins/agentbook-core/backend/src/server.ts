@@ -34,6 +34,7 @@ import { cleanClientName } from './client-name.js';
 import { getCashPosition, isCashBalanceQuestion } from './cash-position.js';
 import { formatCurrency, formatMoney } from '@agentbook/i18n';
 import { replyT } from './reply-locale.js';
+import { resolveReplyLocale } from './reply-language.js';
 import {
   BATCH_SIZE, TOKENS_PER_ROW, WRITE_CONCURRENCY, buildBatchPrompt, parseBatchDecisions, decide, formatCategorizeReply,
   hasSignal, mapWithConcurrency,
@@ -3585,11 +3586,28 @@ async function _executeClassificationCore(
   // shadow the module-level helper of that name.
   const tenantLocale: string = classification.tenantConfig?.locale || 'en-US';
   const tenantCurrency: string = classification.tenantConfig?.currency || 'USD';
-  /** The tenant's reply translator — same locale as the money above. */
-  const t = replyT({ locale: tenantLocale });
-  /** Money in the tenant's own currency and locale. */
+  /**
+   * The language of THIS reply: the user's, then the thread's, then the
+   * tenant's (see reply-language.ts). The tenant row alone is the wrong
+   * answer — an English question on a fr-CA tenant came back as English
+   * prose with `42 014,79 CA$` inside it and a French template line after.
+   *
+   * `classification.conversation` is NEWEST FIRST — the contract of both
+   * producers (pairTurns reverses; the fallback fetch orders createdAt desc;
+   * see conversation-order.test.ts) — and the resolver wants most-recent
+   * first, so it is passed through as is. Reversing it here would make a
+   * stale first turn outrank the turn the user just wrote.
+   */
+  const replyLocale: string = resolveReplyLocale({
+    text,
+    previousUserTexts: (classification.conversation ?? []).map((c: any) => String(c?.question ?? '')),
+    tenantLocale,
+  });
+  /** The reply translator — same locale as the money below. */
+  const t = replyT({ locale: replyLocale });
+  /** Money in the tenant's currency, formatted the way this reply reads. */
   const tenantMoney = (cents: number, currency?: string) =>
-    fmtCurrency(cents, currency || tenantCurrency, tenantLocale);
+    fmtCurrency(cents, currency || tenantCurrency, replyLocale);
   /**
    * The same, with the cents dropped when there are none — for the terse
    * summary lines (net-worth trend, payroll totals, bill lists) that read
@@ -3602,7 +3620,7 @@ async function _executeClassificationCore(
    */
   const tenantMoneyCompact = (cents: number, currency?: string) =>
     cents % 100 === 0
-      ? fmtCurrency(cents, currency || tenantCurrency, tenantLocale).replace(/[.,]00\b/, '')
+      ? fmtCurrency(cents, currency || tenantCurrency, replyLocale).replace(/[.,]00\b/, '')
       : tenantMoney(cents, currency);
   // The create-invoice pre-processing below REPLACES extractedParams wholesale
   // with the API payload { clientId, dates, status, lines } — so clientName is
@@ -4476,7 +4494,7 @@ async function _executeClassificationCore(
         const message = t('skill.bill_recorded', {
           vendor: bill.vendorName,
           amount: fmt(bill.amountCents),
-          date: new Date(bill.dueDate).toLocaleDateString(tenantLocale),
+          date: new Date(bill.dueDate).toLocaleDateString(replyLocale),
         });
         await db.abConversation.create({ data: { tenantId, question: text, answer: message, queryType: 'agent', channel, skillUsed: 'manage-bills' } });
         return { selectedSkill, extractedParams, confidence, skillUsed: 'manage-bills', skillResponse: { data: bill }, responseData: { message, actions: [], chartData: null, skillUsed: 'manage-bills', confidence, latencyMs: Date.now() - startTime } };
@@ -5055,13 +5073,13 @@ async function _executeClassificationCore(
       return {
         selectedSkill, extractedParams, confidence, skillUsed: 'categorize-expenses',
         skillResponse: { success: true, data: outcome },
-        responseData: { message, skillUsed: 'categorize-expenses', confidence, latencyMs: Date.now() - startTime },
+        responseData: { message, skillUsed: 'categorize-expenses', confidence, replyLocale, latencyMs: Date.now() - startTime },
       };
     } catch (err) {
       console.error('[categorize-expenses] error:', err);
       return {
         selectedSkill, extractedParams, confidence: 0, skillUsed: 'categorize-expenses', skillResponse: null,
-        responseData: { message: t('skill.categorize_failed'), skillUsed: 'categorize-expenses', confidence: 0, latencyMs: Date.now() - startTime },
+        responseData: { message: t('skill.categorize_failed'), skillUsed: 'categorize-expenses', confidence: 0, replyLocale, latencyMs: Date.now() - startTime },
       };
     }
   }
@@ -5658,13 +5676,13 @@ Only include chartData if visualization adds value. Keep the answer under 200 wo
       return {
         selectedSkill, extractedParams, confidence, skillUsed: selectedSkill.name,
         skillResponse: { success: true, data: { answer, chartData, actions: qeActions } },
-        responseData: { message: answer, actions: qeActions, chartData, skillUsed: selectedSkill.name, confidence, latencyMs: Date.now() - startTime },
+        responseData: { message: answer, actions: qeActions, chartData, skillUsed: selectedSkill.name, confidence, replyLocale, latencyMs: Date.now() - startTime },
       };
     } catch (err) {
       console.error('[query-expenses] inline handler error:', err);
       return {
         selectedSkill, extractedParams, confidence: 0, skillUsed: selectedSkill.name, skillResponse: null,
-        responseData: { message: "I couldn't retrieve expense data right now. Please try again.", actions: [], chartData: null, skillUsed: selectedSkill.name, confidence: 0, latencyMs: Date.now() - startTime },
+        responseData: { message: "I couldn't retrieve expense data right now. Please try again.", actions: [], chartData: null, skillUsed: selectedSkill.name, confidence: 0, replyLocale, latencyMs: Date.now() - startTime },
       };
     }
   }
@@ -5837,13 +5855,13 @@ Only include chartData if visualization adds value. Keep the answer under 200 wo
 
       return {
         selectedSkill, extractedParams, confidence, skillUsed: 'daily-briefing', skillResponse: null,
-        responseData: { message: reply, skillUsed: 'daily-briefing', confidence, latencyMs: Date.now() - startTime },
+        responseData: { message: reply, skillUsed: 'daily-briefing', confidence, replyLocale, latencyMs: Date.now() - startTime },
       };
     } catch (err) {
       console.error('Daily-briefing error:', err);
       return {
         selectedSkill, extractedParams, confidence: 0, skillUsed: 'daily-briefing', skillResponse: null,
-        responseData: { message: "I couldn't load your daily briefing right now. Please try again in a moment.", skillUsed: 'daily-briefing', confidence: 0, latencyMs: Date.now() - startTime },
+        responseData: { message: "I couldn't load your daily briefing right now. Please try again in a moment.", skillUsed: 'daily-briefing', confidence: 0, replyLocale, latencyMs: Date.now() - startTime },
       };
     }
   }
@@ -6361,7 +6379,7 @@ Only include chartData if visualization adds value. Keep the answer under 200 wo
     } else if (data?.id && data?.amountCents !== undefined) {
       const catLabel = data.categoryName ? ` [${data.categoryName}]` : '';
       message = t('skill.recorded_item', {
-        amount: fmtCurrency(data.amountCents, data.currency, tenantLocale),
+        amount: fmtCurrency(data.amountCents, data.currency, replyLocale),
         description: data.description || data.number || t('skill.not_available'),
         category: catLabel,
       });
@@ -6374,7 +6392,7 @@ Only include chartData if visualization adds value. Keep the answer under 200 wo
     } else if (data?.number) {
       message = t('skill.invoice_created', {
         number: data.number,
-        amount: fmtCurrency(data.amountCents, data.currency, tenantLocale),
+        amount: fmtCurrency(data.amountCents, data.currency, replyLocale),
       });
       if (data.lines?.length > 1) {
         message += '\n\nLine items:';
@@ -6494,6 +6512,10 @@ Only include chartData if visualization adds value. Keep the answer under 200 wo
       chartData,
       skillUsed: selectedSkill.name,
       confidence,
+      // The language this reply was written in, so a channel that renders its
+      // own chrome (Telegram's keyboards and confirm prompts) matches it
+      // instead of falling back to the tenant row.
+      replyLocale,
       latencyMs,
       ...(citations ? { citations } : {}),
       ...(recordedEntityId ? { recordedEntityId } : {}),
