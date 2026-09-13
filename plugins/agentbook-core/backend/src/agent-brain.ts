@@ -27,6 +27,7 @@ import { answerTaxQuestionnaire, cancelTaxQuestionnaire, type CoreResult } from 
 import { ensureAdvisorPersona, buildAdvisorVoice, composeFirstContact, adaptAdvisorStyle, personaPublicView, isHumanChannel } from './advisor-persona.js';
 import { isReviewInterceptable } from './review-interception.js';
 import { replyT } from './reply-locale.js';
+import { resolveReplyLocale } from './reply-language.js';
 
 // Deterministic local engagement fallback when LLM is unreachable.
 // Keeps the user moving forward with a clarifying question or hint
@@ -363,6 +364,14 @@ interface AgentResponse {
     /** The advisor's identity for the chat UI to render (name + avatar + age).
      * Attached on human channels; absent on the 'api' channel. */
     persona?: { name: string; avatarUrl: string; age: number; bio: string | null };
+    /**
+     * The locale this reply was actually written in — the user's language,
+     * then the thread's, then the tenant's (see reply-language.ts). A channel
+     * that renders chrome of its own (Telegram's inline keyboards and confirm
+     * prompts) reads this instead of the tenant row, which is how an English
+     * turn on a fr-CA tenant ended up with French buttons under English text.
+     */
+    replyLocale?: string;
   };
 }
 
@@ -785,10 +794,18 @@ async function tryApplyCorrection(args: {
   attachments: unknown;
   ctx: AgentContext;
   skills: Array<{ name?: string }>;
+  /**
+   * The thread as {question, answer} pairs, NEWEST FIRST (pairTurns'
+   * contract). Handed to the synthesised classification below so the executor
+   * resolves this correction's reply language against the real conversation.
+   */
+  conversation: Array<{ question: string; answer: string }>;
+  /** The tenant's AbTenantConfig row — locale and currency for the reply. */
+  tenantConfig: unknown;
   activeThread: any;
   startTime: number;
 }): Promise<AgentResponse | null> {
-  const { correctionText, userText, threadTurns, tenantId, channel, attachments, ctx, skills, activeThread, startTime } = args;
+  const { correctionText, userText, threadTurns, tenantId, channel, attachments, ctx, skills, conversation, tenantConfig, activeThread, startTime } = args;
 
   const intent = detectCorrection(correctionText);
   if (!intent) return null;
@@ -865,8 +882,15 @@ async function tryApplyCorrection(args: {
     confidence: 1,
     memory: [],
     skills,
-    conversation: [],
-    tenantConfig: {},
+    // Both of these used to be empty literals, and _executeClassificationCore
+    // derives the reply language from exactly these two fields: with `[]` and
+    // `{}` it saw no thread and no tenant, so it resolved en-US and answered a
+    // fr-CA user's "non, c'était 52 $" with English templates and US money
+    // formatting — on the one turn where the user is already telling us we got
+    // something wrong. Pass the real thread (newest first — do not reverse)
+    // and the real tenant row.
+    conversation,
+    tenantConfig,
   };
 
   // A throw here must NOT fall through to normal classification: that is
@@ -1046,8 +1070,33 @@ export async function handleAgentMessage(
     // Every conversational channel (web, Telegram, and any future WhatsApp/MCP
     // adapter) gets the full persona; only the 'api' machine channel opts out.
     // See isHumanChannel — a denylist, so new channels inherit parity for free.
-    if (isHumanChannel(req.channel) && res?.data && typeof res.data.message === 'string') {
-      const tenantConfig = await db.abTenantConfig.findFirst({ where: { userId: req.tenantId } }).catch(() => null);
+    const human = isHumanChannel(req.channel) && !!res?.data && typeof res.data.message === 'string';
+    // One read, shared by both post-processing steps below.
+    const tenantConfig = (human || (!!res?.data && typeof res.data.replyLocale !== 'string'))
+      ? await db.abTenantConfig.findFirst({ where: { userId: req.tenantId } }).catch(() => null)
+      : null;
+
+    // ── Every reply names the language it was written in ────────────────
+    // Channel adapters localise their own chrome (Telegram's inline buttons,
+    // Task 6) from this field, and when it is missing they fall back to the
+    // tenant row — the exact bug this branch exists to fix. Most paths inside
+    // the core set it, but the ones whose reply is built by a shared helper
+    // (the tax questionnaire via translateTaxCoreResult, draft status,
+    // draft regenerate, and tryApplyCorrection) return before they ever see
+    // the resolved value. Backfilling once here fixes all of them at the same
+    // time and keeps future helpers correct by default, instead of adding a
+    // thirteenth call site that can be forgotten.
+    //
+    // `??=`, so a path that DID resolve the locale with the thread in hand
+    // always wins over this history-less fallback.
+    if (res?.data) {
+      res.data.replyLocale ??= resolveReplyLocale({
+        text: req.text,
+        tenantLocale: (tenantConfig as { locale?: string | null } | null)?.locale ?? null,
+      });
+    }
+
+    if (human) {
       const persona = await ensureAdvisorPersona(req.tenantId, { callGemini: ctx.callGemini, tenantConfig });
       if (!persona.introducedAt) {
         // Answer first, introduction after — unless the opening message was a
@@ -1094,7 +1143,13 @@ async function handleAgentMessageCore(
   const replyConfig = await db.abTenantConfig
     .findFirst({ where: { userId: tenantId }, select: { locale: true } })
     .catch(() => null);
-  const t = replyT(replyConfig);
+  // Same rule as server.ts: this reply's language follows the user's text,
+  // then the thread, then the tenant. History is not loaded yet here (Step 2),
+  // so a short turn ("yes", "oui") falls back to the tenant locale for now;
+  // it is re-resolved with the thread the moment Step 2 has it, and the skill
+  // handlers, which always have the thread, resolve it the same way.
+  let replyLocale = resolveReplyLocale({ text, tenantLocale: replyConfig?.locale ?? null });
+  let t = replyT({ locale: replyLocale });
 
   // ── Corrections: see Step 2b (tryApplyCorrection) ──────────────────────
   // Correction handling used to live here, gated on `if (feedback)` — a flag
@@ -1146,6 +1201,7 @@ async function handleAgentMessageCore(
   ) {
     const { message } = await ctx.answerTaxReview(tenantId, activeReview.taxYear, text);
     return buildResponse({
+      replyLocale,
       message,
       skillUsed: 'tax-review-agent',
       confidence: 1,
@@ -1162,6 +1218,7 @@ async function handleAgentMessageCore(
     if (action === 'cancel') {
       await updateSession(activeSession.id, activeSession.version, { status: 'expired' });
       return buildResponse({
+        replyLocale,
         message: 'Plan cancelled.',
         skillUsed: 'session',
         confidence: 1,
@@ -1175,6 +1232,7 @@ async function handleAgentMessageCore(
       const total = plan.length;
       const pending = activeSession.pendingConfirmation ? ' (awaiting confirmation)' : '';
       return buildResponse({
+        replyLocale,
         message: `Session active: step ${current + 1} of ${total}${pending}. Trigger: "${activeSession.trigger}"`,
         skillUsed: 'session',
         confidence: 1,
@@ -1194,6 +1252,7 @@ async function handleAgentMessageCore(
           pendingConfirmation: null,
         });
         return buildResponse({
+          replyLocale,
           message: `Skipped step ${current + 1}: ${plan[current].description}`,
           skillUsed: 'session',
           confidence: 1,
@@ -1202,6 +1261,7 @@ async function handleAgentMessageCore(
         });
       }
       return buildResponse({
+        replyLocale,
         message: 'No more steps to skip.',
         skillUsed: 'session',
         confidence: 1,
@@ -1213,6 +1273,7 @@ async function handleAgentMessageCore(
       const undoStack = (activeSession.undoStack as any[]) || [];
       if (undoStack.length === 0) {
         return buildResponse({
+          replyLocale,
           message: 'Nothing to undo.',
           skillUsed: 'session',
           confidence: 1,
@@ -1248,6 +1309,7 @@ async function handleAgentMessageCore(
           reverseError,
         });
         return buildResponse({
+          replyLocale,
           message: t('agent.undo_failed', { description: lastUndo.description }),
           skillUsed: 'session',
           confidence: 1,
@@ -1261,6 +1323,7 @@ async function handleAgentMessageCore(
       undoStack.pop();
       await updateSession(activeSession.id, activeSession.version, { undoStack });
       return buildResponse({
+        replyLocale,
         message: t('agent.undo_success', { description: lastUndo.description }),
         skillUsed: 'session',
         confidence: 1,
@@ -1279,6 +1342,7 @@ async function handleAgentMessageCore(
         const cleared = await updateSession(activeSession.id, activeSession.version, { pendingConfirmation: null });
         if (!cleared) {
           return buildResponse({
+            replyLocale,
             message: 'Session was modified by another process. Please try again.',
             skillUsed: 'session',
             confidence: 1,
@@ -1315,6 +1379,8 @@ async function handleAgentMessageCore(
         }).catch(() => {});
 
         return buildResponse({
+          // The handler resolved this with the full thread; prefer its answer.
+          replyLocale: responseData.replyLocale ?? replyLocale,
           message: responseData.message,
           actions: responseData.actions,
           chartData: responseData.chartData,
@@ -1337,6 +1403,7 @@ async function handleAgentMessageCore(
       const cleared = await updateSession(activeSession.id, baseVersion, { pendingConfirmation: null });
       if (!cleared) {
         return buildResponse({
+          replyLocale,
           message: 'Session was modified by another process. Please try again.',
           skillUsed: 'session',
           confidence: 1,
@@ -1457,6 +1524,7 @@ async function handleAgentMessageCore(
 
       const evalMessage = formatEvaluation(evaluation, plan);
       return buildResponse({
+        replyLocale,
         message: evalMessage,
         skillUsed: 'session',
         confidence: 1,
@@ -1545,6 +1613,7 @@ async function handleAgentMessageCore(
   // either provider's hosted consent UI regardless of jurisdiction.
   if (PLAID_CONNECT_BANK_RE.test(text.trim())) {
     return buildResponse({
+      replyLocale,
       message: "I can't connect a bank account directly in chat — that needs an interactive widget. Open Personal Finance (/personal) in the app and tap \"Connect bank\".",
       skillUsed: 'bank-connect-redirect',
       confidence: 1,
@@ -1588,6 +1657,19 @@ async function handleAgentMessageCore(
     (activeThread?.turns as Array<{ role: string; text: string; intent?: string; entityId?: string }>) ?? [];
   const conversation = pairTurns(threadTurns);
 
+  // Now that the thread is here, re-resolve the reply language with it. A bare
+  // "oui" or "yes" carries no language signal of its own, so without history
+  // the pre-Step-2 resolve above fell back to the tenant locale and a
+  // continuation could flip language mid-thread. `conversation` is NEWEST
+  // FIRST (pairTurns' contract), which is the order the resolver wants —
+  // do not reverse it. Everything built from here on uses this value.
+  replyLocale = resolveReplyLocale({
+    text,
+    previousUserTexts: conversation.map((c: any) => String(c?.question ?? '')),
+    tenantLocale: replyConfig?.locale ?? null,
+  });
+  t = replyT({ locale: replyLocale });
+
   const [tenantConfig, memory, skillRows, personalProfileContext] = await Promise.all([
     db.abTenantConfig.findFirst({ where: { userId: tenantId } }),
     retrieveRelevantMemories(tenantId, text),
@@ -1619,6 +1701,7 @@ async function handleAgentMessageCore(
   const chatJuris = (tenantConfig?.jurisdiction || 'us').toString().toLowerCase();
   if (chatJuris !== 'us' && chatJuris !== 'ca' && chatJuris !== 'au') {
     return buildResponse({
+      replyLocale,
       message: `AgentBook's AI chat currently supports the United States, Canada, and Australia. Your account is set to ${chatJuris.toUpperCase()}, so please use the AgentBook web app — it fully supports your region. Chat for your region is coming soon.`,
       skillUsed: 'jurisdiction-gate',
       confidence: 1,
@@ -1640,6 +1723,8 @@ async function handleAgentMessageCore(
     attachments,
     ctx,
     skills,
+    conversation,
+    tenantConfig,
     activeThread,
     startTime,
   });
@@ -1699,6 +1784,7 @@ async function handleAgentMessageCore(
     );
     await updateThreadTurns(activeThread, text, answer, 'consultation');
     return buildResponse({
+      replyLocale,
       message: answer,
       skillUsed: 'consultation',
       confidence: 1,
@@ -1732,6 +1818,7 @@ async function handleAgentMessageCore(
     if (!v1Result) {
       const engaged = await brainAccountantFallback(ctx.callGemini, resolvedText, conversation, pastFilingContext, personalProfileContext, tenantConfig, tenantId);
       return buildResponse({
+        replyLocale,
         message: engaged,
         skillUsed: 'none',
         confidence: 0,
@@ -1807,6 +1894,7 @@ async function handleAgentMessageCore(
       updateThreadTurns(activeThread, text, planMessage, 'planner').catch(() => {});
 
       return buildResponse({
+        replyLocale,
         message: planMessage,
         skillUsed: classification.selectedSkill?.name || 'planner',
         confidence: classification.confidence ?? 0.8,
@@ -1829,6 +1917,7 @@ async function handleAgentMessageCore(
     if (!v1Result) {
       const engaged = await brainAccountantFallback(ctx.callGemini, text, conversation, pastFilingContext, personalProfileContext, tenantConfig, tenantId);
       return buildResponse({
+        replyLocale,
         message: engaged,
         skillUsed: 'none',
         confidence: 0,
@@ -1880,6 +1969,7 @@ async function handleAgentMessageCore(
       updateThreadTurns(activeThread, text, planMessage, 'planner').catch(() => {});
 
       return buildResponse({
+        replyLocale,
         message: planMessage,
         skillUsed: 'planner',
         confidence: v1Result.confidence,
@@ -1939,6 +2029,7 @@ async function handleAgentMessageCore(
     sessionId: responseData.sessionId,
     taxDraftReady: responseData.taxDraftReady,
     recordedEntityId: responseData.recordedEntityId,
+    replyLocale: responseData.replyLocale ?? replyLocale,
     latencyMs: Date.now() - startTime,
     // PR 43: forward citations from the skill response to the chat UI.
     citations: responseData.citations,

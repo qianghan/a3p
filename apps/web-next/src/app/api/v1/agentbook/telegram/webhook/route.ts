@@ -23,6 +23,7 @@ import { botLoc, botT, runWithBotLocale } from '@/lib/agentbook-bot-locale';
 import { handleAgentMessage } from '@agentbook-core/agent-brain';
 import { buildTaxReviewCtx, callGemini, classifyAndExecuteV1, classifyOnly, executeClassification } from '@agentbook-core/server';
 import { reconcileSkills, SKILL_QUERY } from '@agentbook-core/skill-source';
+import { resolveReplyLocale } from '@agentbook-core/reply-language';
 import { getCashPosition } from '@agentbook-core/cash-position';
 import { generateFilingDraft } from '@/lib/tax-fast-track-draft';
 import { runAgentLoop, type BotContext, type ActiveExpense as BotActive } from '@/lib/agentbook-bot-agent';
@@ -1012,7 +1013,7 @@ async function callAgentBrain(
   sessionAction?: string,
   feedback?: string,
   chatId?: string,
-): Promise<{ success: true; data: { message: string; skillUsed?: string; recordedEntityId?: string } } | { success: false; error: string }> {
+): Promise<{ success: true; data: { message: string; skillUsed?: string; recordedEntityId?: string; replyLocale?: string } } | { success: false; error: string }> {
   try {
     // ctx.skills feeds plan execution only — the classifier routes against
     // the array agent-brain builds itself. reconcileSkills keeps the two in
@@ -1035,7 +1036,7 @@ async function callAgentBrain(
     }
 
     if (brainResult?.success && brainResult.data?.message) {
-      return brainResult as { success: true; data: { message: string; skillUsed?: string; recordedEntityId?: string } };
+      return brainResult as { success: true; data: { message: string; skillUsed?: string; recordedEntityId?: string; replyLocale?: string } };
     }
   } catch (err) {
     console.warn('[telegram/agent-brain] failed, falling back to inline agent:', err);
@@ -1049,7 +1050,7 @@ async function callMinimalAgent(
   tenantId: string,
   text: string,
   sessionAction?: string,
-): Promise<{ success: true; data: { message: string; skillUsed?: string; recordedEntityId?: string } } | { success: false; error: string }> {
+): Promise<{ success: true; data: { message: string; skillUsed?: string; recordedEntityId?: string; replyLocale?: string } } | { success: false; error: string }> {
   if (sessionAction) {
     return { success: true, data: { message: botT('bot.session_is_no_longer_active') } };
   }
@@ -1148,6 +1149,20 @@ function escHtml(s: string): string {
 }
 
 /** Format agent response for Telegram. */
+/**
+ * The locale row the CURRENT update was scoped with, minus its language.
+ *
+ * Re-entering the scope for a brain reply must change the LANGUAGE only:
+ * currency and timezone are properties of the tenant's books, not of the
+ * sentence. A user writing English to a fr-CA/CAD tenant gets English words
+ * and Canadian dollars in the tenant's timezone — swapping the whole row for
+ * a bare locale string would have quietly restated their money in USD.
+ */
+function botLocaleRowFor(): { locale: string; currency: string; timezone: string } {
+  const loc = botLoc();
+  return { locale: loc.locale, currency: loc.currency, timezone: loc.timezone };
+}
+
 function formatResponse(data: any): string {
   let reply = mdToTelegramHtml(data.message || 'Done.');
   if (shouldAppendBreakdown(data.message || '', data.chartData)) {
@@ -3305,33 +3320,40 @@ function getBot(): Bot {
     try {
       const result = await callAgentBrain(tenantId, agentText, undefined, sessionAction, feedback, String(ctx.chat.id));
       if (result.success && result.data) {
-        const reply: string = formatResponse(result.data);
+        // Render the brain's answer in the language the BRAIN chose, not the
+        // tenant's. Everything below composes chrome around that answer — the
+        // Proceed/Cancel labels, the "📊 Breakdown:" block and its amounts —
+        // and chrome in a different language from the sentence it wraps is
+        // how a fr-CA tenant's English reply arrived under French buttons.
+        await runWithBotLocale({ ...botLocaleRowFor(), locale: result.data.replyLocale ?? botLoc().locale }, async () => {
+          const reply: string = formatResponse(result.data);
 
-        // Build inline keyboard based on context
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        let keyboard: any = undefined;
-        const planMaybe = (result.data as { plan?: { requiresConfirmation?: boolean } }).plan;
-        if (planMaybe?.requiresConfirmation) {
-          keyboard = { inline_keyboard: [[
-            { text: botT('bot.proceed'), callback_data: 'session:confirm' },
-            { text: botT('bot.cancel'), callback_data: 'session:cancel' },
-          ]] };
-        } else if (result.data.skillUsed === 'record-expense' && result.data.recordedEntityId) {
-          // Was `result.data.message?.includes('Recorded')`, which tied these
-          // two buttons to one English word in a reply template in
-          // agentbook-core. The brain now reports the fact structurally, so
-          // the keyboard survives the reply being translated.
-          keyboard = { inline_keyboard: [[
-            { text: botT('bot.category'), callback_data: 'change_cat:agent' },
-            { text: botT('bot.personal'), callback_data: 'personal:agent' },
-          ]] };
-        }
+          // Build inline keyboard based on context
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          let keyboard: any = undefined;
+          const planMaybe = (result.data as { plan?: { requiresConfirmation?: boolean } }).plan;
+          if (planMaybe?.requiresConfirmation) {
+            keyboard = { inline_keyboard: [[
+              { text: botT('bot.proceed'), callback_data: 'session:confirm' },
+              { text: botT('bot.cancel'), callback_data: 'session:cancel' },
+            ]] };
+          } else if (result.data.skillUsed === 'record-expense' && result.data.recordedEntityId) {
+            // Was `result.data.message?.includes('Recorded')`, which tied these
+            // two buttons to one English word in a reply template in
+            // agentbook-core. The brain now reports the fact structurally, so
+            // the keyboard survives the reply being translated.
+            keyboard = { inline_keyboard: [[
+              { text: botT('bot.category'), callback_data: 'change_cat:agent' },
+              { text: botT('bot.personal'), callback_data: 'personal:agent' },
+            ]] };
+          }
 
-        try {
-          await ctx.reply(reply, { reply_markup: keyboard, parse_mode: 'HTML' });
-        } catch {
-          await ctx.reply(result.data.message || reply, { reply_markup: keyboard });
-        }
+          try {
+            await ctx.reply(reply, { reply_markup: keyboard, parse_mode: 'HTML' });
+          } catch {
+            await ctx.reply(result.data.message || reply, { reply_markup: keyboard });
+          }
+        });
       } else {
         await ctx.reply(botT('bot.i_m_not_sure_what_you_mean'));
       }
@@ -3406,12 +3428,16 @@ function getBot(): Bot {
       // Delegated → agent brain
       const result = await callAgentBrain(tenantId, text, undefined, undefined, undefined, String(ctx.chat.id));
       if (result.success && result.data) {
-        const reply: string = formatResponse(result.data);
-        try {
-          await ctx.reply(reply, { parse_mode: 'HTML' });
-        } catch {
-          await ctx.reply(result.data.message || reply);
-        }
+        // Same re-scope as the text path: formatResponse's Breakdown block
+        // and its amounts have to match the language of the answer above them.
+        await runWithBotLocale({ ...botLocaleRowFor(), locale: result.data.replyLocale ?? botLoc().locale }, async () => {
+          const reply: string = formatResponse(result.data);
+          try {
+            await ctx.reply(reply, { parse_mode: 'HTML' });
+          } catch {
+            await ctx.reply(result.data.message || reply);
+          }
+        });
       } else {
         await ctx.reply(botT('bot.got_the_note_but_i_m_not'));
       }
@@ -4529,11 +4555,18 @@ function getBot(): Bot {
         const result = await callAgentBrain(tenantId, sessionAction || 'status', undefined, sessionAction, undefined, String(ctx.chat?.id ?? ctx.callbackQuery?.message?.chat?.id ?? ''));
         await ctx.answerCallbackQuery({ text: sessionAction === 'confirm' ? 'Executing…' : 'Cancelled' });
         if (result.success && result.data?.message) {
-          try {
-            await ctx.editMessageText(mdToTelegramHtml(result.data.message), { parse_mode: 'HTML' });
-          } catch {
-            await ctx.reply(result.data.message);
-          }
+          // The Proceed button carries no words of the user's, so the locale
+          // for THIS turn can only come from the brain — it resolved it from
+          // the session's original request. Without the re-scope the plan's
+          // execution summary landed under tenant-language chrome (turn 3 of
+          // the prod transcript that started this work).
+          await runWithBotLocale({ ...botLocaleRowFor(), locale: result.data.replyLocale ?? botLoc().locale }, async () => {
+            try {
+              await ctx.editMessageText(mdToTelegramHtml(result.data.message), { parse_mode: 'HTML' });
+            } catch {
+              await ctx.reply(result.data.message);
+            }
+          });
         }
         return;
       }
@@ -6278,7 +6311,30 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
           if (fakeFailMode === 'once' && attemptsTried === 1) {
             throw new Error('connect ECONNREFUSED (e2e fake first-attempt)');
           }
-          await runWithBotLocale(botLocaleRow, () => b.handleUpdate(update));
+          // Scope the update with the language of what the user just WROTE,
+          // falling back to the tenant row. Handlers that reply without ever
+          // consulting the brain — the review prompts, the setup wizard, the
+          // throttle and error messages — have no other source of language,
+          // and were answering a fr-CA tenant's English user in French.
+          //
+          // A brain reply overrides this again at its own render site; see
+          // botLocaleRowFor(). On a callback the "incoming text" is the
+          // message the button is attached to, which is our own previous
+          // reply — already in the right language, so it holds the thread.
+          const textual = update as {
+            message?: { text?: string };
+            edited_message?: { text?: string };
+            callback_query?: { message?: { text?: string } };
+          };
+          const incomingText =
+            textual?.message?.text
+            ?? textual?.edited_message?.text
+            ?? textual?.callback_query?.message?.text
+            ?? '';
+          const scopedRow = botLocaleRow
+            ? { ...botLocaleRow, locale: resolveReplyLocale({ text: String(incomingText), tenantLocale: botLocaleRow.locale }) }
+            : botLocaleRow;
+          await runWithBotLocale(scopedRow, () => b.handleUpdate(update));
         },
         { maxAttempts: 3, backoffMs: [50, 100, 200] },
       );
