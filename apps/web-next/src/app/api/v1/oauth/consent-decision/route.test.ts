@@ -1,5 +1,5 @@
 import { NextRequest } from 'next/server';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mockIsMcpEnabled = vi.fn(async () => true);
 vi.mock('@/lib/mcp/mcp-flag', () => ({
@@ -17,16 +17,25 @@ const mockGrantFind = vi.fn();
 
 class MockGrant {
   addOIDCScope = vi.fn();
+  addResourceScope = vi.fn();
   save = vi.fn(async () => 'grant-new-id');
   constructor(public opts: unknown) {}
+}
+// The instance the route actually used, so assertions read the real calls
+// rather than a fresh mock.
+let lastGrant: MockGrant | undefined;
+class TrackedGrant extends MockGrant {
+  constructor(opts: unknown) { super(opts); lastGrant = this; }
 }
 
 vi.mock('@/lib/mcp/oauth-provider', () => ({
   getOAuthProvider: () => ({
     interactionDetails: mockInteractionDetails,
     interactionResult: mockInteractionResult,
-    Grant: Object.assign(MockGrant, { find: mockGrantFind }),
+    Grant: Object.assign(TrackedGrant, { find: mockGrantFind }),
   }),
+  MCP_SCOPE: 'agentbook:full',
+  mcpResourceUrl: () => 'https://agentbook.test/api/v1/mcp',
 }));
 
 vi.mock('@/lib/mcp/node-web-adapter', () => ({
@@ -104,5 +113,81 @@ describe('POST /api/v1/oauth/consent-decision (Finding 1: flag) + (Finding 4: CS
     expect(mockUpsert).toHaveBeenCalledWith(
       expect.objectContaining({ where: { userId_clientId: { userId: 'user-1', clientId: 'client-a' } } }),
     );
+  });
+
+  // The consent loop.
+  //
+  // A grant tracks OIDC scopes and RESOURCE-SERVER scopes separately
+  // (oidc-provider models/grant.js), and the consent policy's
+  // `rs_scopes_missing` check only looks at the latter. Granting the OIDC
+  // scope alone satisfied nothing once the client sent an RFC 8707 `resource`,
+  // which the MCP spec requires: pressing Allow resumed the authorization, the
+  // policy found the resource scope still missing, and a brand-new interaction
+  // put the same consent screen back on screen. Approving could never end it.
+  describe('resource-server scopes', () => {
+    beforeEach(() => {
+      lastGrant = undefined;
+      mockValidateSession.mockResolvedValue({ id: 'user-1' });
+      mockInteractionResult.mockResolvedValue('/api/v1/oauth/authorize?resume=xyz');
+    });
+
+    const allow = () =>
+      POST(makeRequest({ uid: 'u1', allow: true }, { cookie: 'tok', csrf: 'a-well-formed-csrf-token' }));
+
+    it('grants the scope FOR THE RESOURCE, not only as an OIDC scope', async () => {
+      mockInteractionDetails.mockResolvedValue({ params: { client_id: 'client-a' } });
+
+      await allow();
+
+      expect(lastGrant?.addResourceScope).toHaveBeenCalledWith(
+        'https://agentbook.test/api/v1/mcp',
+        'agentbook:full',
+      );
+      expect(lastGrant?.addOIDCScope).toHaveBeenCalledWith('agentbook:full');
+    });
+
+    it('does so even when the interaction lists nothing missing', async () => {
+      // Resources are resolved when the authorization RESUMES, so the first
+      // interaction can carry an empty prompt. Waiting for the prompt to name
+      // the resource would just cost the user one more lap of the loop.
+      mockInteractionDetails.mockResolvedValue({
+        params: { client_id: 'client-a' },
+        prompt: { name: 'consent', details: {} },
+      });
+
+      await allow();
+
+      expect(lastGrant?.addResourceScope).toHaveBeenCalledWith(
+        'https://agentbook.test/api/v1/mcp',
+        'agentbook:full',
+      );
+    });
+
+    it('also honours whatever the prompt does report as missing', async () => {
+      mockInteractionDetails.mockResolvedValue({
+        params: { client_id: 'client-a' },
+        prompt: {
+          name: 'consent',
+          details: {
+            missingResourceScopes: { 'https://other.example/api': ['read', 'write'] },
+            missingOIDCScope: ['openid'],
+          },
+        },
+      });
+
+      await allow();
+
+      expect(lastGrant?.addResourceScope).toHaveBeenCalledWith('https://other.example/api', 'read write');
+      expect(lastGrant?.addOIDCScope).toHaveBeenCalledWith('openid');
+    });
+
+    it('grants nothing at all when the user denies', async () => {
+      mockInteractionDetails.mockResolvedValue({ params: { client_id: 'client-a' } });
+
+      await POST(makeRequest({ uid: 'u1', allow: false }, { cookie: 'tok', csrf: 'a-well-formed-csrf-token' }));
+
+      expect(lastGrant).toBeUndefined();
+      expect(mockUpsert).not.toHaveBeenCalled();
+    });
   });
 });

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { validateSession } from '@/lib/api/auth';
 import { validateCSRF } from '@/lib/api/csrf';
-import { getOAuthProvider } from '@/lib/mcp/oauth-provider';
+import { getOAuthProvider, MCP_SCOPE, mcpResourceUrl } from '@/lib/mcp/oauth-provider';
 import { nodeRequestResponseFromWeb } from '@/lib/mcp/node-web-adapter';
 import { isMcpEnabled } from '@/lib/mcp/mcp-flag';
 import { prisma } from '@naap/database';
@@ -69,7 +69,42 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     // rather than throwing on `.addOIDCScope()` of an undefined value.
     const grant = (details.grantId && await provider.Grant.find(details.grantId))
       || new provider.Grant({ accountId: user.id, clientId });
-    grant.addOIDCScope('agentbook:full');
+
+    // A grant records OIDC scopes and RESOURCE-SERVER scopes in two separate
+    // places (models/grant.js), and oidc-provider's consent policy checks them
+    // separately. `rs_scopes_missing`
+    // (helpers/interaction_policy/prompts/consent.js) walks every resolved
+    // resource server and asks whether each requested scope has been
+    // encountered FOR THAT RESOURCE.
+    //
+    // Granting only the OIDC scope therefore satisfied nothing once the client
+    // sent an RFC 8707 `resource` — which the MCP spec requires. The user
+    // pressed Allow, the browser resumed the authorization, the policy found
+    // the resource scope still missing, oidc-provider created a fresh
+    // interaction, and the consent screen appeared again. Forever. Approving
+    // was the one thing that could not end it.
+    grant.addOIDCScope(MCP_SCOPE);
+
+    // Grant it for the resource we serve, unconditionally rather than only
+    // when the prompt reports it missing: resources are resolved when the
+    // authorization RESUMES, so the first interaction's details can arrive
+    // with nothing listed and the loop would simply take one extra lap.
+    grant.addResourceScope(mcpResourceUrl(), MCP_SCOPE);
+
+    // Then honour whatever else the prompt names — a second resource server,
+    // or a scope added later — so this does not have to be revisited the next
+    // time the request shape changes.
+    const missing = details.prompt?.details?.missingResourceScopes;
+    if (missing) {
+      for (const [indicator, scopes] of Object.entries(missing)) {
+        grant.addResourceScope(indicator, scopes.join(' '));
+      }
+    }
+    const missingOIDCScope = details.prompt?.details?.missingOIDCScope;
+    if (missingOIDCScope?.length) {
+      grant.addOIDCScope(missingOIDCScope.join(' '));
+    }
+
     const grantId = await grant.save();
 
     redirectTo = await provider.interactionResult(nodeReq, nodeRes, {
