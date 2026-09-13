@@ -6480,6 +6480,16 @@ Only include chartData if visualization adds value. Keep the answer under 200 wo
     if (data?.actions) actions = data.actions;
   }
 
+  // The catch-all branch above (accountantEngagement) is the only failure
+  // path in this generic dispatch that doesn't already return early with its
+  // own confidence: 0 — it falls through to the shared return below, which
+  // otherwise still carries whatever confidence the classifier (or the plan
+  // runner's synthetic single-step classification, always 1) assigned. A
+  // failed step reporting confidence 1 reads as a successful, high-confidence
+  // step to callers like mapInternalRunResult, so a fetch failure or missing
+  // endpoint was silently scored as "done."
+  const replyConfidence = (skillError || !skillResponse?.success) ? 0 : confidence;
+
   const latencyMs = Date.now() - startTime;
 
   // === 5. LEARNING ===
@@ -6504,7 +6514,7 @@ Only include chartData if visualization adds value. Keep the answer under 200 wo
   return {
     selectedSkill,
     extractedParams,
-    confidence,
+    confidence: replyConfidence,
     skillUsed: selectedSkill.name,
     skillResponse,
     responseData: {
@@ -6512,7 +6522,7 @@ Only include chartData if visualization adds value. Keep the answer under 200 wo
       actions,
       chartData,
       skillUsed: selectedSkill.name,
-      confidence,
+      confidence: replyConfidence,
       // The language this reply was written in, so a channel that renders its
       // own chrome (Telegram's keyboards and confirm prompts) matches it
       // instead of falling back to the tenant row.

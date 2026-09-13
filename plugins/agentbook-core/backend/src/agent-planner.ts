@@ -118,7 +118,14 @@ export async function generatePlan(
   relevantMemories: string,
   callGemini: (sys: string, user: string, max?: number) => Promise<string | null>,
 ): Promise<PlanStep[]> {
+  // general-question is a conversational answer, not an action — it has no
+  // dedicated INTERNAL handler in _executeClassificationCore (its real
+  // handling lives in the brain's Step 3a′), so a plan step naming it falls
+  // through to the generic HTTP dispatch and fails. An answer is not a plan
+  // step; keep it out of what the LLM is offered. simulate-scenario stays in
+  // the list — it has an inline handler now.
   const skillList = skills
+    .filter((s) => s.name !== 'general-question')
     .map(
       (s) =>
         `- ${s.name}: ${s.description ?? '(no description)'}${s.endpoint ? ` [${s.method ?? 'GET'} ${s.endpoint}]` : ''}`,

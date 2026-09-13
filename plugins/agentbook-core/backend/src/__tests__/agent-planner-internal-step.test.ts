@@ -128,3 +128,37 @@ describe('agent-brain hands the planner an INTERNAL runner', () => {
     expect(CALL_SLICE).not.toMatch(/Boolean\(r\?\.responseData/);
   });
 });
+
+/**
+ * A skill with no dedicated INTERNAL branch (e.g. general-question, before it
+ * was excluded from the planner's skill list) falls through to the generic
+ * HTTP dispatch in `_executeClassificationCore`. That dispatch's catch-all
+ * failure branch (`accountantEngagement`) was the one failure path of the 20
+ * in that `if (skillError || !skillResponse?.success)` block that did NOT
+ * pin confidence to 0 — the plan runner's synthetic single-step
+ * classification passes confidence 1, which then flowed untouched into the
+ * shared final return, so `mapInternalRunResult`'s failure signature
+ * (`skillResponse == null && confidence === 0`) never matched and a failed
+ * step was scored as done.
+ *
+ * Source-level on purpose: constructing a real failing HTTP dispatch would
+ * mean faking fetch, tenant config, and the full formatting cascade between
+ * the failure block and the return — the exact expression matters more than
+ * exercising the whole function.
+ */
+const SERVER = readFileSync(join(__dirname, '..', 'server.ts'), 'utf8');
+
+describe('_executeClassificationCore zeroes confidence on any dispatch failure', () => {
+  it('derives replyConfidence from the same failure test as the message branch', () => {
+    expect(SERVER).toContain(
+      "const replyConfidence = (skillError || !skillResponse?.success) ? 0 : confidence;",
+    );
+  });
+
+  it('uses replyConfidence, not the raw confidence, in the final return', () => {
+    const returnStart = SERVER.indexOf('  return {\n    selectedSkill,\n    extractedParams,\n    confidence: replyConfidence,');
+    expect(returnStart).toBeGreaterThan(-1);
+    const returnSlice = SERVER.slice(returnStart, returnStart + 400);
+    expect(returnSlice).toMatch(/confidence:\s*replyConfidence,[\s\S]*confidence:\s*replyConfidence,/);
+  });
+});
