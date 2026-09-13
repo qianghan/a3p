@@ -154,7 +154,17 @@ export const BUILT_IN_SKILLS = [
     // array order wins). Verified live in production after PR-3's deploy.
     excludePatterns: [...TAX_FAST_TRACK_TRIGGER_PATTERNS, 'tax.*estimate|how much.*tax|tax.*owe|tax.*situation|tax.*liability|quarterly.*tax|quarterly.*payment|estimated.*payment|deduction|write.*off|tax.*saving|tax.*break|p.?&?.?l|profit.*loss|income.*statement|net.*income|how.*much.*profit|balance.*sheet|net.*worth|equity|cash.*flow|cash.*projection|runway|burn.*rate|how long.*cash.*last|financial.*summary|financial.*snapshot|how.*doing.*financially|financial.*health|money.*move|action.*item|what.*should.*do|advice.*money|reconcil|unmatched.*transaction|bank.*match|bank.*status|tax.*fil|start.*fil|file.*tax|review.*t[12]|t2125|schedule.*1|gst.*return|tax.*slip|validate.*tax|check.*tax.*error|verify.*return|tax.*ready|export.*tax|generate.*tax.*form|download.*return|create.*tax.*file|print.*tax|pdf.*tax|submit.*cra|efile|netfile|filing.*status.*cra|scholarship|fellowship|grant.*taxable|is.*grant.*tax|t2202|1098-?t|aotc|american opportunity|lifetime learning|tuition.*credit|education.*credit|\\bresp\\b|\\b529\\b|nonresident alien|non-resident alien|1040-?nr|sprintax|glacier tax|1042-?s|fica exempt|international student.*tax|tax treaty'],
     parameters: { question: { type: 'string', required: true, extractHint: 'the full user message' } },
-    endpoint: { method: 'POST', url: '/api/v1/agentbook-core/ask' },
+    // INTERNAL, like general-question. This used to name
+    // POST /api/v1/agentbook-core/ask — an Express route only `tsx
+    // src/server.ts` mounts, which production (Next route handlers) never
+    // carried a port of. So exactly ONE query-finance case worked in prod: the
+    // inline cash-balance shortcut in _executeClassificationCore. Every other
+    // finance question failed with NOT_IMPLEMENTED and was answered by the
+    // failure branch's clarifying question — by a model that had not read the
+    // ledger. The cash shortcut still answers inline; everything else is
+    // answered by the brain's grounded advisor (agent-brain Step 3a′), which
+    // gets the thread AND the ledger snapshot.
+    endpoint: { method: 'INTERNAL', url: '' },
   },
   {
     name: 'scan-receipt', description: 'Scan and process a receipt photo', category: 'bookkeeping',

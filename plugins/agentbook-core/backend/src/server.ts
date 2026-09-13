@@ -5964,7 +5964,18 @@ Only include chartData if visualization adds value. Keep the answer under 200 wo
       // accountantEngagement is now infallible — falls back to a local heuristic
       // when Gemini is unreachable.
       message = await accountantEngagement({
-        userText: text,
+        // The RESOLVED question, not the raw turn.
+        //
+        // Step 2.5 of the brain rewrites the turn before classification —
+        // pronouns, the time window, and the previous question's topic — and
+        // the classifier extracts `question` from that rewritten string. `text`
+        // is still the bare thing the user typed. Handing `text` to the one
+        // function whose whole job is to ask a sensible follow-up is why
+        // "Give me more details" came back "More details about what?" even
+        // after the topic-carrying fix: the self-contained string existed and
+        // never got here. Falls back to `text` for skills whose parameter set
+        // has no `question`.
+        userText: extractedParams.question || text,
         selectedSkillName: selectedSkill.name,
         attemptedAction: `${endpoint.method || 'POST'} ${endpoint.url}`,
         errorDetail: errorDetail || (skillError ? 'request failed' : 'no response'),

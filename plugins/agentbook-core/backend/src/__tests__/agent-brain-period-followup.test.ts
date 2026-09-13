@@ -1,4 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { buildTestContext } from './helpers/test-context';
 
 /**
@@ -133,5 +135,36 @@ describe('a follow-up inherits the period of the question it follows', () => {
   it('does not fire when the prior turn had no period', async () => {
     withPriorTurn('show me my expenses');
     expect(await classifiedText('and meals?')).toBe('and meals?');
+  });
+});
+
+/**
+ * Same defect one layer over: the follow-up has no TOPIC rather than no period.
+ *
+ *     "What is my cash balance?" -> query-finance, answered
+ *     "Give me more details"     -> query-finance, "More details about what?"
+ *
+ * The LLM classifier sees the thread and routes correctly; the skill's own
+ * HTTP route builds its answer from `question` alone and never sees it. So the
+ * topic has to travel in the text, exactly as the period does above.
+ */
+describe('a bare elaboration request inherits the previous question topic', () => {
+  it('"Give me more details" after a cash-balance question carries the topic', async () => {
+    withPriorTurn('What is my cash balance?');
+    const text = await classifiedText('Give me more details');
+    expect(text).toContain('regarding: "What is my cash balance?"');
+    expect(text).toContain('Give me more details');
+  });
+
+  it('a question with its own topic is left alone', async () => {
+    withPriorTurn('What is my cash balance?');
+    const text = 'What is my revenue this quarter?';
+    expect(await classifiedText(text)).toBe(text);
+  });
+
+  it('WIRING: Step 2.5 in agent-brain.ts calls carryForwardTopic', () => {
+    const src = readFileSync(join(__dirname, '..', 'agent-brain.ts'), 'utf8');
+    const step = src.slice(src.indexOf('── Step 2.5'), src.indexOf('── Step 2.6'));
+    expect(step).toContain('carryForwardTopic(');
   });
 });
