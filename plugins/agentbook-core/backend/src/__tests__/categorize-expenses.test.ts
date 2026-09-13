@@ -7,7 +7,7 @@ import {
 const cat = (id: string, name: string): CategoryOption => ({ id, name });
 const CATS = [cat('c-rent', 'Rent'), cat('c-meals', 'Meals'), cat('c-tel', 'Telephone & Internet')];
 const cand = (id: string, vendorName: string | null, description: string | null, amountCents = 4500): CategorizeCandidate =>
-  ({ id, vendorName, description, amountCents, currency: 'CAD', date: new Date('2026-01-01T12:00:00Z'), status: 'confirmed', journalEntryId: 'je-1' });
+  ({ id, vendorName, description, amountCents, currency: 'CAD', date: new Date('2026-01-01T12:00:00Z'), journalEntryId: 'je-1' });
 const D = new Date('2026-01-01T12:00:00Z');
 
 // English identity translator: returns the key + params so assertions can see what was chosen.

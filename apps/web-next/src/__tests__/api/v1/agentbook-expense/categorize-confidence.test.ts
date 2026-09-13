@@ -161,3 +161,37 @@ describe('POST …/categorize — `source` is whitelisted, not echoed', () => {
     expect(patternSource().create.source).toBe('user_corrected');
   });
 });
+
+/**
+ * The category + ledger writes commit BEFORE vendor-pattern learning runs.
+ * When two concurrent requests for the same vendor race on the
+ * tenantId_vendorPattern upsert — which the chat categorize skill now
+ * triggers by issuing several writes in parallel — Prisma throws a P2002
+ * unique-violation on the loser. That used to bubble up as a 500 even though
+ * the category and ledger were already applied, so the caller reported the
+ * row as failed. Learning is best-effort: the route must still return
+ * success.
+ */
+describe('POST …/categorize — vendor-pattern learning is best-effort', () => {
+  it('still returns success when abPattern.upsert rejects with a P2002 unique-violation', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      patternUpsert.mockImplementationOnce(async () => {
+        const err = new Error('Unique constraint failed on the fields: (`tenantId`,`vendorPattern`)');
+        (err as { code?: string }).code = 'P2002';
+        throw err;
+      });
+
+      const res = await call({ categoryId: 'c-rent' });
+      const json = (await res.json()) as { success: boolean; data: unknown };
+
+      expect(res.status).toBe(200);
+      expect(json.success).toBe(true);
+      expect(json.data).toBeTruthy();
+      expect(expenseUpdate).toHaveBeenCalled();
+      expect(warnSpy).toHaveBeenCalled();
+    } finally {
+      warnSpy.mockRestore();
+    }
+  });
+});

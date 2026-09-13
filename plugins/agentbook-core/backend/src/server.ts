@@ -4964,7 +4964,6 @@ async function _executeClassificationCore(
       const cands: CategorizeCandidate[] = rows.map((e) => ({
         id: e.id, vendorName: e.vendor?.name ?? null, description: e.description ?? null,
         amountCents: e.amountCents, currency: e.currency, date: e.date,
-        status: e.status === 'confirmed' ? 'confirmed' : 'pending_review',
         // Decides the write path below. `include` returns every scalar, so
         // this comes back without a select — naming it here keeps the
         // dependency visible if the query is ever narrowed to a select.

@@ -9,7 +9,7 @@
  */
 export interface CategorizeCandidate {
   id: string; vendorName: string | null; description: string | null;
-  amountCents: number; currency: string; date: Date; status: 'pending_review' | 'confirmed';
+  amountCents: number; currency: string; date: Date;
   /**
    * Whether the row is ALREADY on the books, which is what decides how a
    * category gets written — not `status`. The expense CREATE route posts a
@@ -55,6 +55,10 @@ export const WRITE_CONCURRENCY = 4;
  * INPUT order regardless of completion order — the reply lists what was
  * applied, and a nondeterministic order there is a nondeterministic message.
  * Results are collected by index and never pushed as they land.
+ *
+ * `fn` must not reject — a rejection aborts the caller's await while other
+ * workers keep running; wrap failures into the result type instead (the
+ * categorize handler does).
  */
 export async function mapWithConcurrency<T, R>(
   items: T[], limit: number, fn: (item: T, index: number) => Promise<R>,

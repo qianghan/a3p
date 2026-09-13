@@ -96,31 +96,42 @@ export async function POST(
     // Without this the categorized expense stays invisible to the books + tax.
     await backfillExpenseJournalEntry(tenantId, id);
 
-    if (expense.vendorId) {
-      const vendor = await db.abVendor.findUnique({ where: { id: expense.vendorId } });
-      if (vendor) {
-        await db.abPattern.upsert({
-          where: { tenantId_vendorPattern: { tenantId, vendorPattern: vendor.normalizedName } },
-          update: {
-            categoryId,
-            confidence: patternConfidence,
-            source,
-            usageCount: { increment: 1 },
-            lastUsed: new Date(),
-          },
-          create: {
-            tenantId,
-            vendorPattern: vendor.normalizedName,
-            categoryId,
-            confidence: patternConfidence,
-            source,
-          },
-        });
-        await db.abVendor.update({
-          where: { id: vendor.id },
-          data: { defaultCategoryId: categoryId },
-        });
+    // Best-effort: the category + ledger writes above have already committed,
+    // so a failure here (e.g. a P2002 unique-violation on
+    // tenantId_vendorPattern when two concurrent requests for the same vendor
+    // race on this upsert — the chat categorize skill now issues
+    // WRITE_CONCURRENCY writes in parallel) must not turn a successful
+    // categorization into a reported 500. Vendor-pattern learning is a nice-to-have;
+    // it can simply be retried on the next categorization of that vendor.
+    try {
+      if (expense.vendorId) {
+        const vendor = await db.abVendor.findUnique({ where: { id: expense.vendorId } });
+        if (vendor) {
+          await db.abPattern.upsert({
+            where: { tenantId_vendorPattern: { tenantId, vendorPattern: vendor.normalizedName } },
+            update: {
+              categoryId,
+              confidence: patternConfidence,
+              source,
+              usageCount: { increment: 1 },
+              lastUsed: new Date(),
+            },
+            create: {
+              tenantId,
+              vendorPattern: vendor.normalizedName,
+              categoryId,
+              confidence: patternConfidence,
+              source,
+            },
+          });
+          await db.abVendor.update({
+            where: { id: vendor.id },
+            data: { defaultCategoryId: categoryId },
+          });
+        }
       }
+    } catch (err) {
+      console.warn('[agentbook-expense/expenses/:id/categorize] pattern learning skipped:', err);
     }
 
     return NextResponse.json({ success: true, data: updated });
