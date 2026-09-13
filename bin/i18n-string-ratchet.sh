@@ -79,8 +79,27 @@ count_literals() {
     [ -d "$dir" ] || continue
 
     local files
+    # `app/guides` is excluded on purpose, and the exclusion is not a loophole
+    # — it is a different localization strategy, enforced by
+    # check_guide_zh_parity() below.
+    #
+    # The product shell is localized by EXTRACTION: one catalog key per string,
+    # so one page can render in three languages. The guides are localized by
+    # MIRRORING: /guides/<x> is English prose and /guides/zh/<x> is a
+    # hand-written Chinese page saying the same thing in its own voice. Running
+    # marketing prose through catalog keys would produce a key per sentence and
+    # translations nobody would want to read.
+    #
+    # Counting mirrored pages made the number mean two things at once, and the
+    # cost fell on the wrong side: adding a guide raised "untranslated strings"
+    # by ~35 even when its Chinese twin shipped in the same commit, so the only
+    # way to keep the ratchet green was to raise the baseline — i.e. to loosen
+    # the bar on the shell in order to publish a page that was fully
+    # translated. Excluding these pages cut the baseline from 357 to 190 and
+    # made every remaining literal one that extraction actually applies to.
     files=$(find "$dir" -name '*.tsx' \
               -not -path '*/__tests__/*' \
+              -not -path '*/app/guides/*' \
               -not -name '*.test.tsx' 2>/dev/null)
     [ -n "$files" ] || continue
 
@@ -111,6 +130,42 @@ count_literals() {
 # The fix is formatDateOnly() (or useI18n().formatDateOnly). This count must
 # only ever fall.
 # -----------------------------------------------------------------------------
+# -----------------------------------------------------------------------------
+# The check that pays for the guides exclusion above.
+#
+# Guides are exempt from the literal count BECAUSE each one has a hand-written
+# Chinese twin. An exemption resting on a habit is an exemption that expires
+# quietly the first time someone is in a hurry, so the habit is enforced here:
+# every /guides/<x>/page.tsx must have a /guides/zh/<x>/page.tsx. Without this,
+# `app/guides/**` would simply be a place where English text costs nothing.
+# -----------------------------------------------------------------------------
+check_guide_zh_parity() {
+  local guides_dir="$ROOT_DIR/apps/web-next/src/app/guides"
+  [ -d "$guides_dir" ] || return 0
+  local missing=0
+
+  while IFS= read -r page; do
+    local rel="${page#"$guides_dir"/}"
+    case "$rel" in zh/*) continue ;; esac
+    local twin="$guides_dir/zh/$rel"
+    if [ ! -f "$twin" ]; then
+      echo "[guides] MISSING Chinese twin: guides/zh/${rel%/page.tsx}"
+      missing=$((missing + 1))
+    fi
+  done < <(find "$guides_dir" -name 'page.tsx' | sort)
+
+  if [ "$missing" -gt 0 ]; then
+    echo ""
+    echo "[guides] $missing English guide(s) have no Chinese counterpart."
+    echo "[guides] Guides are excluded from the literal ratchet because they are"
+    echo "[guides] mirrored page-for-page instead of extracted. Add the mirror, or"
+    echo "[guides] the exclusion is unearned."
+    return 1
+  fi
+  echo "[guides] every English guide has a Chinese twin"
+  return 0
+}
+
 DATE_BASELINE_FILE="$ROOT_DIR/bin/i18n-date-ratchet.baseline"
 
 count_direct_dates() {
@@ -202,4 +257,12 @@ if [ "$DATE_COUNT" -lt "$DATE_BASELINE" ]; then
 else
   echo "[ratchet] dates PASS — unchanged."
 fi
+
+# ---------------------------------------------------------------------------
+# Guides mirror parity — the condition the guides exclusion rests on.
+# Runs last so its output is the final word, but its exit code still decides
+# the run: a missing mirror fails the script exactly like a ratchet regression.
+# ---------------------------------------------------------------------------
+check_guide_zh_parity || exit 1
+
 exit 0

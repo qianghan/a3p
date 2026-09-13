@@ -12,6 +12,8 @@ const GUIDES = [
   { n: '03', href: '/guides/zh/students', title: '学生生活', blurb: '为学生打造的记账、住房与奖学金助手。' },
   { n: '04', href: '/guides/zh/sales-rep', title: '成为合作伙伴', blurb: '推荐 AgentBook，赚取 20% 分成——把它变成持续收入。' },
   { n: '05', href: '/guides/zh/startup-founders', title: '写给创业者', blurb: '从第一天就把账做干净：现金消耗、可用月数、开票与创业税务。' },
+  { n: '06', href: '/guides/zh/connect-ai', title: '连接你的 AI 助理', blurb: '在 Claude、Codex、ChatGPT 或 Gemini 里使用 AgentBook——并验证它真的连上了。' },
+  { n: '07', href: '/guides/zh/mcp-admin', title: '开启 AI 连接器', blurb: '写给管理员：两项一次性设置，让其他所有人都能连上。' },
 ];
 
 export default function GuidesIndexZh() {
