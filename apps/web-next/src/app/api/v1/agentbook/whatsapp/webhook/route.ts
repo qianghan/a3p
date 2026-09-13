@@ -32,6 +32,7 @@ import { WhatsAppAdapter } from '@/lib/agentbook-chat-adapter';
 import { getAppBaseUrl, getPluginBaseUrls, AGENTBOOK_CANONICAL_URL } from '@/lib/agentbook-config';
 import { generateFilingDraft } from '@/lib/tax-fast-track-draft';
 import { ingestReceipt, type ReceiptSource } from '@/lib/agentbook-receipt-ocr';
+import { buildGroundingFacts } from '@/lib/agentbook-grounding';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -172,7 +173,15 @@ async function callAgentBrain(tenantId: string, phoneNumber: string, text: strin
       // Shared factory rather than an inline copy — this ctx is built in four
       // places (here, web chat, Telegram, the dev Express route) and the
       // feature was originally wired only in the last of those.
-      { skills, callGemini, baseUrls, classifyAndExecuteV1, classifyOnly, executeClassification, ...buildTaxReviewCtx(baseUrls) },
+      {
+        skills, callGemini, baseUrls, classifyAndExecuteV1, classifyOnly, executeClassification,
+        ...buildTaxReviewCtx(baseUrls),
+        // Ledger facts for the grounded advisor (consultative turns and
+        // general-question). Same reason as the web chat route: it reads the
+        // database, so agentbook-core cannot supply it. Without it the
+        // reviewer can verify no figure and blocks every one.
+        buildGroundingFacts,
+      },
     );
     if (result?.data?.taxDraftReady && result.data?.sessionId) {
       const completedSessionId = result.data.sessionId;

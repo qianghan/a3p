@@ -119,29 +119,39 @@ describe('confidence-scored escalation (PR 42 / Tier 1 #3)', () => {
     expect(skillCalls.some((c) => c.path === '/expenses' && c.method === 'POST')).toBe(true);
   });
 
-  it('LOW-confidence read-only skill (general-question) is EXEMPT from escalation', async () => {
-    const { req, ctx, executeClassification } = buildTestContext({
+  it('LOW-confidence general-question is answered, not escalated and not executed', async () => {
+    // This asserted `executeClassification` HAD been called, because
+    // general-question used to be an HTTP skill (POST /ask). That endpoint
+    // only ever existed on the dev Express app, so in production the call it
+    // pinned always failed. The skill is INTERNAL now: agent-brain answers it
+    // in-process with the grounded advisor. The invariant this test exists
+    // for is unchanged and still checked — a low-confidence question must not
+    // be met with "I'm not entirely sure, proceed?" — it is simply satisfied
+    // by answering rather than by executing.
+    const { req, ctx, executeClassification, skillCalls } = buildTestContext({
       text: 'something vague',
       tenantId: 'tenant-readonly',
       classification: {
         selectedSkill: {
           name: 'general-question',
-          endpoint: { method: 'POST', path: '/ask' },
+          endpoint: { method: 'INTERNAL', url: '' },
           confirmBefore: false,
         },
         extractedParams: { question: 'something vague' },
         confidence: 0.3,
       },
-      skillResponses: {
-        'POST /ask': { data: { answer: 'Here is an answer.' } },
-      },
+      llmFixtures: [{ response: 'Here is an answer.' }],
     });
 
     const { handleAgentMessage } = await import('../agent-brain');
-    await handleAgentMessage(req as any, ctx as any);
+    const response = await handleAgentMessage(req as any, ctx as any);
 
-    // general-question is in the exempt set — proceeds without escalation.
-    expect(executeClassification).toHaveBeenCalled();
+    expect(response.success).toBe(true);
+    expect(response.data.skillUsed).toBe('general-question');
+    expect(response.data.plan?.requiresConfirmation).toBeUndefined();
+    expect(response.data.message.toLowerCase()).not.toContain('not entirely sure');
+    expect(executeClassification).not.toHaveBeenCalled();
+    expect(skillCalls).toHaveLength(0);
   });
 
   it('LOW-confidence query-expenses (read-only) is EXEMPT from escalation', async () => {

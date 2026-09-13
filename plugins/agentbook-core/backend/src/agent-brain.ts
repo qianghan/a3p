@@ -1802,6 +1802,59 @@ async function handleAgentMessageCore(
     );
   }
 
+  // ── Step 3a': general-question is a conversation, not an HTTP skill ────
+  //
+  // Its manifest pointed at POST /api/v1/agentbook-core/ask, an Express route
+  // that production never mounts (prod serves the Next handlers, which never
+  // carried a port of it). So in prod EVERY general question failed with
+  // NOT_IMPLEMENTED and was answered by the engagement fallback — which is
+  // handed no conversation:
+  //
+  //   bot:  Good morning. 61 bank transactions need matching...
+  //   user: Give me more details
+  //   bot:  More details about what?
+  //
+  // The grounded advisor is the right answerer and already exists: thread
+  // history, the tenant's ledger facts, the published rates for their
+  // jurisdiction, and a review pass before the user sees the draft. It is
+  // what the consultative triage above uses; this is the same turn arriving
+  // by the other door (the classifier picked the fallback skill rather than
+  // triage calling it advisory), so it gets the same treatment.
+  //
+  // Placed before the confirm/escalation gate below deliberately: the gate
+  // exists to stop side effects, and answering a question has none.
+  if (classification?.selectedSkill?.name === 'general-question') {
+    let groundingFacts: string[] = [];
+    if (ctx.buildGroundingFacts) {
+      try {
+        groundingFacts = await ctx.buildGroundingFacts(tenantId);
+      } catch (e) {
+        // Partial grounding beats none — the reviewer blocks whatever cannot
+        // be supported, so this degrades the answer rather than the request.
+        console.warn('[brain] grounding unavailable:', e);
+      }
+    }
+    const answer = await brainAccountantFallback(
+      ctx.callGemini, resolvedText, conversation, pastFilingContext,
+      personalProfileContext, tenantConfig, tenantId, groundingFacts,
+      'consultation',
+    );
+    db.abConversation.create({
+      data: {
+        tenantId, question: text, answer, queryType: 'agent', channel,
+        skillUsed: 'general-question', latencyMs: Date.now() - startTime,
+      },
+    }).catch(() => {});
+    await updateThreadTurns(activeThread, text, answer, 'general-question');
+    return buildResponse({
+      replyLocale,
+      message: answer,
+      skillUsed: 'general-question',
+      confidence: classification.confidence ?? 0.5,
+      latencyMs: Date.now() - startTime,
+    });
+  }
+
   // Fallback for legacy callers that only provide classifyAndExecuteV1.
   // We still need a classification to evaluate confirmBefore; if the legacy
   // function returned a result, treat it as already-executed.

@@ -5963,6 +5963,14 @@ Only include chartData if visualization adds value. Keep the answer under 200 wo
         errorDetail: errorDetail || (skillError ? 'request failed' : 'no response'),
         lowConfidence: typeof confidence === 'number' && confidence < 0.6,
         tenantId,
+        // The engagement prompt accepts history and was never given any, so
+        // every clarifying question was asked as if the thread had just
+        // started: "Give me more details" came back "More details about
+        // what?" while the answer sat in the turn above. general-question no
+        // longer reaches here (the brain answers it in-process), but every
+        // OTHER skill's failure still does, and they ask the same question.
+        // NEWEST FIRST, as accountantEngagement's .slice(0, 3) expects.
+        recentConvo: classification.conversation ?? [],
       });
     }
   } else {

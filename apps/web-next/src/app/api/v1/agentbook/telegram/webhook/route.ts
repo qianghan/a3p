@@ -26,6 +26,7 @@ import { reconcileSkills, SKILL_QUERY } from '@agentbook-core/skill-source';
 import { resolveReplyLocale } from '@agentbook-core/reply-language';
 import { getCashPosition } from '@agentbook-core/cash-position';
 import { generateFilingDraft } from '@/lib/tax-fast-track-draft';
+import { buildGroundingFacts } from '@/lib/agentbook-grounding';
 import { runAgentLoop, type BotContext, type ActiveExpense as BotActive } from '@/lib/agentbook-bot-agent';
 import { parseDateHint } from '@/lib/agentbook-time-aggregator';
 import { getPendingSuggestions, dropPendingSuggestion } from '@/lib/agentbook-auto-categorize';
@@ -1026,7 +1027,17 @@ async function callAgentBrain(
       // Shared factory rather than an inline copy — this ctx is built in four
       // places (here, web chat, WhatsApp, the dev Express route) and the
       // feature was originally wired only in the last of those.
-      { skills, callGemini, baseUrls, classifyAndExecuteV1, classifyOnly, executeClassification, ...buildTaxReviewCtx(baseUrls) },
+      {
+        skills, callGemini, baseUrls, classifyAndExecuteV1, classifyOnly, executeClassification,
+        ...buildTaxReviewCtx(baseUrls),
+        // Ledger facts for the grounded advisor — the answerer for both
+        // consultative turns and general-question. Without it the reviewer has
+        // nothing to verify a figure against and blocks every one, so Telegram
+        // was getting the hedged version of answers the web chat gave in full.
+        // Supplied here (not inside agentbook-core) because it reads the
+        // database, and the plugin must not depend on apps/web-next.
+        buildGroundingFacts,
+      },
     );
     if (brainResult?.data?.taxDraftReady && brainResult.data?.sessionId) {
       const completedSessionId = brainResult.data.sessionId;

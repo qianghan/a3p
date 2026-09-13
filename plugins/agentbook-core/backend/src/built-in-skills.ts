@@ -902,6 +902,12 @@ CREATE_INVOICE_TRIGGER_PATTERN],
     name: 'general-question', description: 'Answer any general financial or accounting question', category: 'finance',
     triggerPatterns: [],
     parameters: { question: { type: 'string', required: true, extractHint: 'the full user message' } },
-    endpoint: { method: 'POST', url: '/api/v1/agentbook-core/ask' },
+    // INTERNAL: answered in-process by the grounded advisor (agent-brain's
+    // Step 3a'), with the thread, the tenant's ledger facts and a review pass.
+    // This used to be POST /api/v1/agentbook-core/ask — an Express route that
+    // production never mounts, so every general question came back
+    // NOT_IMPLEMENTED and fell to the engagement fallback, which sees no
+    // conversation: "Give me more details" -> "More details about what?".
+    endpoint: { method: 'INTERNAL', url: '' },
   },
 ];
