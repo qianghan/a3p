@@ -727,6 +727,16 @@ const PLUGIN_ROUTE_MAP: Record<string, string> = {
 
 The key is the vanity URL prefix (e.g., `/gateway`). The value is the camelCase plugin name matching the DB record (e.g., `serviceGateway`).
 
+This entry is **required**, not an optimisation. There used to be a
+`(dashboard)/[...slug]` catch-all page that resolved any unrouted path against
+the plugin manifests, so a missing entry still worked. That page is gone — it
+made every unmatched path in the app answer `200 text/html` — so a vanity
+prefix with no entry here is a 404. A plugin whose routes all live under
+`/plugins/{name}` needs no entry; those are served by
+`(dashboard)/plugins/[pluginName]`.
+`apps/web-next/src/__tests__/architecture/plugin-route-map.test.ts` fails CI if
+a manifest declares a route that neither mechanism serves.
+
 **Clean removal:** Remove the single line from `PLUGIN_ROUTE_MAP`.
 
 ---
