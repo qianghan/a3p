@@ -1468,7 +1468,46 @@ async function handleAgentMessageCore(
 
         const result = unresolved.length > 0
           ? { success: false, error: `Couldn't resolve prior step output: ${unresolved.join(', ')}` }
-          : await executeStep(step, tenantId, ctx.skills, ctx.baseUrls);
+          : await executeStep(step, tenantId, ctx.skills, ctx.baseUrls, async (skillName, params) => {
+              // INTERNAL skills have no HTTP route; the brain's executor owns
+              // their handlers. Without this the planner failed the step, so
+              // any plan containing categorize-expenses / daily-briefing /
+              // personal-snapshot died mid-way.
+              if (!ctx.executeClassification) return { success: false, error: 'no executor' };
+              const sk = (ctx.skills as any[]).find((s) => s.name === skillName);
+              if (!sk) return { success: false, error: `unknown skill ${skillName}` };
+              // executeClassification -> _executeClassificationCore does NOT
+              // re-fetch AbTenantConfig when `tenantConfig === undefined`
+              // (only classifyOnly does), so leaving it out would format every
+              // amount in this step's reply as en-US/USD.
+              const tenantConfig = await db.abTenantConfig
+                .findFirst({ where: { userId: tenantId } })
+                .catch(() => null);
+              const r = await ctx.executeClassification(
+                {
+                  selectedSkill: sk,
+                  extractedParams: params,
+                  confidence: 1,
+                  confirmBefore: false,
+                  memory: [],
+                  skills: ctx.skills,
+                  conversation: [],
+                  tenantConfig,
+                },
+                // The session's ORIGINAL request ("Categorize them"), not the
+                // bare "yes" that confirmed it — the executor derives the
+                // reply language from this text.
+                String(activeSession.trigger || text),
+                tenantId,
+                channel,
+                [],
+              );
+              return {
+                success: Boolean(r?.responseData || r?.skillResponse?.success),
+                data: r?.skillResponse?.data,
+                message: r?.responseData?.message,
+              };
+            });
         step.result = result;
         step.quality = assessStepQuality(step);
         step.status = result?.success ? 'done' : 'failed';
