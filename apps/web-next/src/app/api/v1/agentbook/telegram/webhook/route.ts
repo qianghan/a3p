@@ -126,6 +126,13 @@ let currentCapture: CaptureEntry[] | null = null;
 async function resolveTenantId(chatId: number, botToken?: string): Promise<string> {
   const chatStr = String(chatId);
 
+  // The nightly e2e drives the bot through one synthetic chat id. The
+  // bot-token lookup below binds ANY chat to that bot's tenant, so the e2e
+  // chat was landing on a real user's books every night (Maya's, in prod:
+  // "Spent $25 at Uber…" ×3 and an Acme invoice attempt per run). Resolve the
+  // capture chat to its own tenant first.
+  if (isE2eCaptureChat(chatId) && CHAT_TO_TENANT_FALLBACK[chatStr]) return CHAT_TO_TENANT_FALLBACK[chatStr];
+
   try {
     let bot: { id: string; tenantId: string; chatIds: unknown } | null = null;
     if (botToken) {
