@@ -39,7 +39,14 @@ test.describe('@phase6-telegram-bot', () => {
   test('record-expense via NL', async () => {
     const r = await postUpdate('Spent $25 at Uber for client meeting');
     expect(r.status).toBe(200);
-    // Same reason as create-invoice below: this tenant replies in French.
+    // Since #561 the capture chat resolves to the e2e tenant, which
+    // resetE2eUser seeds as en-US (see the abTenantConfig upsert in
+    // scripts/seed-e2e-user.ts) — not the fr-CA persona tenant this
+    // assertion originally targeted. The French alternation is kept
+    // defensively: chat localization is deliberately ungated (the feature
+    // flag covers the web shell only) and the tenant's locale is
+    // config-driven, so a future reseed could still legitimately reply in
+    // French.
     expect(r.reply).toMatch(/recorded|added|saved|noted|enregistr|ajout|not[ée]/i);
     expect(r.reply).toMatch(/\$25/);
   });
@@ -67,13 +74,19 @@ test.describe('@phase6-telegram-bot', () => {
     expect(r.reply).toBeTruthy();
   });
   test('create-invoice via NL', async () => {
-    // The capture tenant is fr-CA and chat localization is deliberately
-    // ungated (the feature flag covers the web shell only), so this reply
-    // arrives in French. Asserting English words made a correctly-localized
-    // product look broken — the log read
-    // "Quel Acme vouliez-vous dire — to Acme for ou Acme Corp?", which is the
-    // disambiguation prompt working, in the right language, against two
-    // similarly-named client records on that tenant.
+    // Since #561 the capture chat resolves to the e2e tenant (en-US per
+    // resetE2eUser's abTenantConfig upsert), not the fr-CA persona tenant
+    // this assertion originally targeted — see the identical note on
+    // record-expense above. The bilingual match is kept defensively: chat
+    // localization is deliberately ungated (the feature flag covers the web
+    // shell only) and the tenant's locale is config-driven, and the French
+    // alternatives (incl. "vouliez-vous dire", the client-disambiguation
+    // prompt) cover a future reseed that changes it back. Asserting English
+    // words only once made a correctly-localized product look broken — the
+    // log read "Quel Acme vouliez-vous dire — to Acme for ou Acme Corp?",
+    // which was the disambiguation prompt working, in the right language,
+    // against two similarly-named client records on that (then fr-CA)
+    // tenant.
     const r = await postUpdate('send invoice Acme $500 for consulting');
     expect(r.reply).toMatch(/invoice|created|draft|facture|créé|ébauche|brouillon|vouliez-vous dire/i);
   });

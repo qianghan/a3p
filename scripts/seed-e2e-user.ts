@@ -17,9 +17,12 @@
  */
 
 import { prisma as db } from '@naap/database';
+import { CORE_PLANS } from '@agentbook/pricing';
+import { invalidateAccount } from '@naap/billing';
 
 const E2E_USER_ID = 'b9a80acd-fa14-4209-83a9-03231513fa8f';
 const E2E_USER_EMAIL = 'e2e@agentbook.test';
+const E2E_BILLING_REGION = 'us';
 
 interface ResetResult {
   userId: string;
@@ -66,6 +69,17 @@ export async function resetE2eUser(opts?: { password?: string }): Promise<ResetR
     },
     update: { dailyDigestEnabled: true },
   });
+
+  // Since #561 the Telegram e2e capture chat (555555555) resolves to this
+  // e2e tenant instead of a real persona tenant's books. This tenant has no
+  // BillSubscription row, so canUseFeature(tenantId, 'telegram_bot') (the
+  // gate in apps/web-next/.../telegram/webhook/route.ts) correctly puts it
+  // on the Free tier and replies "the Telegram bot is a Pro feature" to
+  // every synthetic message — that gate is real product behaviour and must
+  // stay as-is. The test tenant needs the entitlement, not a bypass of the
+  // gate, so give it the same manual Pro subscription
+  // agentbook/upgrade-maya-pro.ts grants Maya's persona tenant.
+  await ensureE2eProSubscription(E2E_USER_ID);
 
   const tenantId = E2E_USER_ID;
 
@@ -318,6 +332,102 @@ export async function resetE2eUser(opts?: { password?: string }): Promise<ResetR
     clientsCreated: 4,
     regionalTenants: regional,
   };
+}
+
+/**
+ * Grants the e2e tenant a manual (non-Stripe) Pro subscription so the
+ * Telegram billing gate lets the nightly capture chat through — see the
+ * comment at the call site in resetE2eUser for why this exists.
+ *
+ * Mirrors agentbook/upgrade-maya-pro.ts, which does the identical thing for
+ * Maya's persona tenant.
+ *
+ * accountId === tenantId here: packages/billing/src/account-resolver.ts
+ * resolveAccountId() is the identity function in v1 ("every AgentBook user
+ * owns their own account"; team billing would add a BillSeat indirection
+ * that does not exist yet), so E2E_USER_ID is usable directly as the
+ * billing accountId.
+ */
+async function ensureE2eProSubscription(accountId: string): Promise<void> {
+  // BillPlan.code is NOT globally unique on its own — the schema declares
+  // `@@unique([code, region])` — so a bare `findUnique({ where: { code:
+  // 'pro' } })` does not typecheck against the real Prisma client. Two
+  // existing scripts (agentbook/upgrade-maya-pro.ts, casting to `any`, and
+  // bin/create-pro-yearly-plan.ts, uncast) only get away with that shape
+  // because neither lives under apps/web-next's tsconfig `include` and
+  // neither is ever typechecked. This script is different: the webhook
+  // route imports it, so `npx tsc --noEmit` from apps/web-next DOES check
+  // it. findFirst with an explicit region sidesteps the unique-key shape
+  // entirely and matches the lookup packages/billing/src/plans.ts itself
+  // uses (`findFirst({ where: { code: 'free', region, isActive: true } })`).
+  let proPlan = await db.billPlan.findFirst({
+    where: { code: 'pro', region: E2E_BILLING_REGION, isActive: true },
+  });
+
+  if (!proPlan) {
+    // Price/name/region/interval come from @agentbook/pricing's CORE_PLANS —
+    // the same canonical source agentbook/seed-billing-plans.ts reads from.
+    // That script's feature/quota matrix (PLAN_DETAILS) is a local,
+    // unexported const, so it is NOT importable from here. The
+    // features/quotas below are therefore a deliberate, hand-kept duplicate
+    // of its 'pro' entry, not a fresh decision — if seed-billing-plans.ts
+    // ever changes what Pro grants, update this to match.
+    const corePro = CORE_PLANS.find((p) => p.code === 'pro' && p.region === E2E_BILLING_REGION);
+    if (!corePro) {
+      throw new Error(`ensureE2eProSubscription: no CORE_PLANS entry for pro/${E2E_BILLING_REGION}`);
+    }
+    proPlan = await db.billPlan.upsert({
+      where: { code_region: { code: 'pro', region: E2E_BILLING_REGION } },
+      create: {
+        code: 'pro',
+        region: E2E_BILLING_REGION,
+        name: corePro.name,
+        description: 'Telegram bot, tax exports, generous quotas for active solo users.',
+        priceCents: corePro.priceCents,
+        currency: corePro.currency,
+        interval: corePro.interval,
+        features: { telegram_bot: true, tax_package_generation: true, multi_user_teams: false },
+        quotas: { expenses_created: 1000, ocr_scans: 200, ai_messages: 5000, invoices_sent: 200, bank_connections: 3 },
+        sortOrder: corePro.sortOrder,
+        isActive: true,
+      },
+      update: {},
+    });
+  }
+
+  const now = new Date();
+  const oneYearOut = new Date(now);
+  oneYearOut.setFullYear(oneYearOut.getFullYear() + 1);
+
+  await db.billSubscription.upsert({
+    where: { accountId },
+    create: {
+      accountId,
+      planId: proPlan.id,
+      status: 'active',
+      billingSource: 'manual',
+      currentPeriodStart: now,
+      currentPeriodEnd: oneYearOut,
+      cancelAtPeriodEnd: false,
+    },
+    update: {
+      planId: proPlan.id,
+      status: 'active',
+      billingSource: 'manual',
+      currentPeriodEnd: oneYearOut,
+      cancelAtPeriodEnd: false,
+    },
+  });
+
+  // packages/billing/src/cache.ts caches getCurrentPlan results per
+  // accountId for up to 24h, per warm server instance. invalidateAccount is
+  // the exact hook the Stripe webhook and the admin plan routes call after
+  // a subscription mutation for this reason — without it, a nightly run on
+  // an instance that had already resolved this tenant to Free (e.g. a
+  // request earlier in the same run, or a previous night before this fix
+  // existed) would keep serving the stale Free entry for up to 24h despite
+  // the new row just written above.
+  invalidateAccount(accountId);
 }
 
 /**

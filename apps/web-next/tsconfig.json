@@ -53,7 +53,8 @@
     "../../packages/utils/src/safe-fetch.ts",
     "../../packages/utils/src/security.ts",
     "../../packages/utils/src/regex-safety.ts",
-    "../../packages/plugin-sdk/src/components/*.tsx"
+    "../../packages/plugin-sdk/src/components/*.tsx",
+    "../../scripts/seed-e2e-user.ts"
   ],
   "exclude": [
     "node_modules",
