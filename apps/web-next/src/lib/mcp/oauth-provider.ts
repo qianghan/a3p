@@ -183,5 +183,34 @@ export function getOAuthProvider(): Provider {
     },
   });
 
+  // Trust Vercel's TLS terminator.
+  //
+  // `Provider extends Koa`, so this is Koa's own `app.proxy`: with it unset,
+  // Koa ignores `x-forwarded-proto` and reads the scheme off the socket. Every
+  // request reaching a Vercel function is plaintext at that point, so the
+  // provider concluded the whole deployment was served over HTTP. Two things
+  // followed, both observable in production before this line existed:
+  //
+  //   - `ctx.origin` was `http://agentbook.brainliber.com`, so every URL the
+  //     provider generated used it. Dynamic Client Registration answered an
+  //     HTTPS issuer with `"registration_client_uri":
+  //     "http://agentbook.brainliber.com/api/v1/oauth/register/..."` — an
+  //     insecure URL handed to a client as the place to manage its own
+  //     credentials.
+  //   - `ctx.secure` was false, and the provider only adds `Secure` to its
+  //     cookies when it is (models/session.js, helpers/oidc_context.js). The
+  //     `_interaction` and `_interaction_resume` cookies — the state that
+  //     carries an in-flight authorization — went out without it. Browsers
+  //     still accept a non-Secure cookie over HTTPS, which is exactly why this
+  //     never announced itself: the flow worked, and the cookie was one
+  //     plaintext request to this host away from leaking.
+  //
+  // Safe here because these routes only ever run behind Vercel's proxy, which
+  // overwrites `x-forwarded-proto` on the way in rather than passing a
+  // client-supplied one through. `nodeRequestResponseFromWeb` fills the header
+  // in from the request URL when it is absent, so a direct local run is
+  // described accurately too instead of inheriting whatever the socket says.
+  instance.proxy = true;
+
   return instance;
 }
