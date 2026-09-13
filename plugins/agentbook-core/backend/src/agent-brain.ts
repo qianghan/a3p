@@ -1799,6 +1799,7 @@ async function handleAgentMessageCore(
   replyLocale = resolveReplyLocale({
     text,
     previousUserTexts: conversation.map((c: any) => String(c?.question ?? '')),
+    previousAssistantTexts: conversation.map((c: any) => String(c?.answer ?? '')),
     tenantLocale: replyConfig?.locale ?? null,
   });
   t = replyT({ locale: replyLocale });

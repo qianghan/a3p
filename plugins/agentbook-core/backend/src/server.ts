@@ -3476,6 +3476,7 @@ async function _executeClassificationCore(
   const replyLocale: string = resolveReplyLocale({
     text,
     previousUserTexts: (classification.conversation ?? []).map((c: any) => String(c?.question ?? '')),
+    previousAssistantTexts: (classification.conversation ?? []).map((c: any) => String(c?.answer ?? '')),
     tenantLocale,
   });
   /** The reply translator — same locale as the money below. */

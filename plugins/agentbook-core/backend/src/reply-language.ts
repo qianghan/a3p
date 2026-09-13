@@ -8,9 +8,18 @@
  * after it. One resolver, used by both halves, ends that.
  *
  * Rule: language of THIS message → language of the most recent earlier user
- * message that is detectable → tenant locale → en-US. English keeps the
+ * message that is detectable → language of the most recent earlier assistant
+ * reply that is detectable → tenant locale → en-US. English keeps the
  * tenant's region (en-CA on a Canadian tenant) so currency formats the way
  * that country writes it.
+ *
+ * The assistant fallback exists because a run of bare user turns ("cancel",
+ * "yes", "undo") carries no language signal at all, so before it existed the
+ * resolver fell straight through to the tenant locale mid-thread — an
+ * English user on a fr-CA tenant would suddenly get a French reply. The
+ * assistant's own last reply is written in whatever language this same
+ * resolver already picked, so it is a reliable stand-in for "what language is
+ * this conversation in" when the user side has nothing detectable.
  */
 export type DetectedLanguage = 'en' | 'fr' | 'zh';
 
@@ -90,12 +99,21 @@ export function resolveReplyLocale(opts: {
   text: string;
   /** Earlier USER messages, most recent first. */
   previousUserTexts?: string[];
+  /** Earlier ASSISTANT replies, most recent first. Consulted only after
+   *  `previousUserTexts` is exhausted with nothing detectable. */
+  previousAssistantTexts?: string[];
   tenantLocale?: string | null;
 }): string {
   const tenant = opts.tenantLocale && opts.tenantLocale.trim() ? opts.tenantLocale.trim() : null;
   let lang = detectMessageLanguage(opts.text);
   if (!lang) {
     for (const prev of opts.previousUserTexts ?? []) {
+      lang = detectMessageLanguage(prev);
+      if (lang) break;
+    }
+  }
+  if (!lang) {
+    for (const prev of opts.previousAssistantTexts ?? []) {
       lang = detectMessageLanguage(prev);
       if (lang) break;
     }

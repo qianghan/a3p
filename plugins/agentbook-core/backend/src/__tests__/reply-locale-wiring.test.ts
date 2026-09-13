@@ -52,6 +52,10 @@ describe('reply locale wiring', () => {
     expect(SERVER).not.toMatch(/previousUserTexts:[\s\S]{0,160}\.reverse\(\)/);
   });
 
+  it('server.ts also feeds the assistant\'s own replies, for when every recent user turn is a bare word', () => {
+    expect(SERVER).toMatch(/previousAssistantTexts:\s*\(classification\.conversation[\s\S]{0,80}c\?\.answer/);
+  });
+
   it('server.ts formats no reply-facing value with the tenant locale any more', () => {
     expect(SERVER).not.toMatch(/fmtCurrency\([^)]*tenantLocale\)/);
     expect(SERVER).not.toMatch(/toLocaleDateString\(tenantLocale/);
@@ -72,6 +76,10 @@ describe('reply locale wiring', () => {
     // The first resolve happens before Step 2, so it has no history: a bare
     // "oui" after a French turn would fall back to the tenant locale there.
     expect(BRAIN).toMatch(/previousUserTexts:/);
+  });
+
+  it('agent-brain.ts also feeds the assistant\'s own replies, for when every recent user turn is a bare word', () => {
+    expect(BRAIN).toMatch(/previousAssistantTexts:\s*conversation\.map\([\s\S]{0,80}c\?\.answer/);
   });
 
   it('buildResponse carries replyLocale through to the caller', () => {
