@@ -5771,9 +5771,14 @@ Only include chartData if visualization adds value. Keep the answer under 200 wo
         fetch(`${expenseBase}/api/v1/agentbook-expense/advisor/proactive-alerts`, { headers: H }).then((r) => r.json()),
         fetch(`${taxBase}/api/v1/agentbook-tax/tax/quarterly`, { headers: H }).then((r) => r.json()),
       ]);
-      const snap = snapSettled.status === 'fulfilled' ? snapSettled.value : null;
-      const alertData = alertsSettled.status === 'fulfilled' ? alertsSettled.value : null;
-      const quarterlyData = quarterlySettled.status === 'fulfilled' ? quarterlySettled.value : null;
+      const settled = <T,>(r: PromiseSettledResult<T>, what: string): T | null => {
+        if (r.status === 'fulfilled') return r.value;
+        console.warn(`[daily-briefing] ${what} unavailable:`, r.reason);
+        return null;
+      };
+      const snap = settled(snapSettled, 'financial snapshot');
+      const alertData = settled(alertsSettled, 'proactive alerts');
+      const quarterlyData = settled(quarterlySettled, 'quarterly tax');
 
       // Nearest deadline whose amountDueCents hasn't been fully paid yet,
       // or null if all quarters are settled/data unavailable — daily-briefing

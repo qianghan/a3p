@@ -235,15 +235,25 @@ describe('daily-briefing — tax-deadline countdown', () => {
 
   it('a failing tax-quarterly fetch (best-effort Promise.allSettled) does not break the rest of the briefing', async () => {
     setupFetch({ quarterlyThrows: true });
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
 
-    const result = await executeClassification(classification(), 'catch me up', 'tenant-1', 'api');
+    try {
+      const result = await executeClassification(classification(), 'catch me up', 'tenant-1', 'api');
 
-    expect(result.responseData.message).toBe('Briefing text.');
-    const prompt = capturedUserPrompt();
-    expect(prompt).not.toContain('Next quarterly tax deadline');
-    // The other two data sources still made it into the prompt.
-    expect(prompt).toContain('Financial snapshot:');
-    expect(prompt).toContain('Alerts:');
+      expect(result.responseData.message).toBe('Briefing text.');
+      const prompt = capturedUserPrompt();
+      expect(prompt).not.toContain('Next quarterly tax deadline');
+      // The other two data sources still made it into the prompt.
+      expect(prompt).toContain('Financial snapshot:');
+      expect(prompt).toContain('Alerts:');
+
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringMatching(/\[daily-briefing\] quarterly tax unavailable/),
+        expect.anything(),
+      );
+    } finally {
+      warnSpy.mockRestore();
+    }
   });
 });
 
@@ -260,18 +270,31 @@ describe('daily-briefing — real data, no narrated gaps (Task 13)', () => {
 
   it('never puts the word "unavailable" in front of the model, and tells it not to mention gaps', async () => {
     setupFetch({ alertsThrows: true, quarterlyPayments: [] });
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
 
-    await executeClassification(classification(), 'catch me up', 'tenant-1', 'api');
+    try {
+      await executeClassification(classification(), 'catch me up', 'tenant-1', 'api');
 
-    // The FACTS handed to the model carry no gap-talk at all. (The check is
-    // scoped to the user prompt because the system prompt's instruction
-    // necessarily contains the word it is forbidding the model to use.)
-    const facts = capturedUserPrompt();
-    expect(facts).not.toMatch(/unavailable/i);
-    expect(facts).not.toMatch(/missing|couldn't load|not available/i);
-    expect(facts).not.toContain('Alerts:'); // the failed section is omitted, not narrated
-    expect(facts).not.toContain('Next quarterly tax deadline');
-    expect(capturedSystemPrompt()).toMatch(/Do not mention missing/);
+      // The FACTS handed to the model carry no gap-talk at all. (The check is
+      // scoped to the user prompt because the system prompt's instruction
+      // necessarily contains the word it is forbidding the model to use.)
+      const facts = capturedUserPrompt();
+      expect(facts).not.toMatch(/unavailable/i);
+      expect(facts).not.toMatch(/missing|couldn't load|not available/i);
+      expect(facts).not.toContain('Alerts:'); // the failed section is omitted, not narrated
+      expect(facts).not.toContain('Next quarterly tax deadline');
+      expect(capturedSystemPrompt()).toMatch(/Do not mention missing/);
+
+      // The failure is still logged server-side (naming which leg failed),
+      // it just never reaches the model — see the reviewer note in Task 13's
+      // report: a permanently failing leg must not become invisible.
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringMatching(/\[daily-briefing\] proactive alerts unavailable/),
+        expect.anything(),
+      );
+    } finally {
+      warnSpy.mockRestore();
+    }
   });
 
   it('puts the ledger’s own numbers in the prompt, scoped to this tenant', async () => {
