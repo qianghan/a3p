@@ -20,6 +20,20 @@ declare module 'oidc-provider' {
     grantId?: string;
     lastSubmission?: Record<string, unknown>;
     session?: { accountId?: string; uid?: string };
+    // What the interaction is actually asking for. `details.missingResourceScopes`
+    // maps a resource indicator to the scopes still ungranted for it — the
+    // payload of the `rs_scopes_missing` check
+    // (helpers/interaction_policy/prompts/consent.js).
+    prompt?: {
+      name?: string;
+      reasons?: string[];
+      details?: {
+        missingOIDCScope?: string[];
+        missingOIDCClaims?: string[];
+        missingResourceScopes?: Record<string, string[]>;
+        [key: string]: unknown;
+      };
+    };
     [key: string]: unknown;
   }
 
@@ -37,6 +51,11 @@ declare module 'oidc-provider' {
   // `consent.grantId` — oidc-provider does not create/persist one for you.
   export interface GrantInstance {
     addOIDCScope(scope: string): void;
+    // Resource-server scopes are tracked SEPARATELY from OIDC scopes
+    // (models/grant.js:143). oidc-provider's consent policy has its own
+    // `rs_scopes_missing` check against these, so a grant carrying only OIDC
+    // scopes never satisfies a request that names a `resource`.
+    addResourceScope(resource: string, scope: string): void;
     save(...args: unknown[]): Promise<string>;
     [key: string]: unknown;
   }
