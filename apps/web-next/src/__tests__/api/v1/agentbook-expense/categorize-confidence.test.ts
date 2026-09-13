@@ -103,3 +103,40 @@ describe('POST /agentbook-expense/expenses/:id/categorize — whose certainty is
     expect(patternConfidence().update.confidence).toBe(0.95);
   });
 });
+
+/**
+ * `source` now SELECTS POLICY — it decides whether the caller is allowed to
+ * name its own confidence — so it can no longer be an unvalidated string off
+ * the request body. An unknown value used to fall through to the 1.0 / 0.95
+ * user-correction path on the pattern while STILL honouring the body's
+ * confidence on the expense, and was persisted verbatim to AbPattern.source.
+ */
+describe('POST …/categorize — `source` is whitelisted, not echoed', () => {
+  const patternSource = () =>
+    (patternUpsert.mock.calls[0][0] as { update: { source: string }; create: { source: string } });
+
+  it('treats an unknown source as a user correction and ignores its confidence', async () => {
+    await call({ categoryId: 'c-rent', source: 'totally_made_up', confidence: 0.3 });
+    expect(expenseConfidence()).toBe(1.0);
+    expect(patternConfidence().update.confidence).toBe(0.95);
+    expect(patternSource().update.source).toBe('user_corrected');
+    expect(patternSource().create.source).toBe('user_corrected');
+  });
+
+  it('stores the whitelisted value, never the raw body string', async () => {
+    await call({ categoryId: 'c-rent', source: 'AUTO_CATEGORIZE' });
+    expect(patternSource().create.source).toBe('user_corrected');
+  });
+
+  it('a missing source is a user correction and its confidence is ignored too', async () => {
+    await call({ categoryId: 'c-rent', confidence: 0.2 });
+    expect(expenseConfidence()).toBe(1.0);
+    expect(patternSource().create.source).toBe('user_corrected');
+  });
+
+  it('auto_categorize is the one source that may name its own confidence', async () => {
+    await call({ categoryId: 'c-rent', source: 'auto_categorize', confidence: 0.7 });
+    expect(expenseConfidence()).toBe(0.7);
+    expect(patternSource().create.source).toBe('auto_categorize');
+  });
+});

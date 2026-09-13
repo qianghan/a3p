@@ -10,6 +10,16 @@
 export interface CategorizeCandidate {
   id: string; vendorName: string | null; description: string | null;
   amountCents: number; currency: string; date: Date; status: 'pending_review' | 'confirmed';
+  /**
+   * Whether the row is ALREADY on the books, which is what decides how a
+   * category gets written — not `status`. The expense CREATE route posts a
+   * journal entry for every non-personal expense, drafts included, debiting
+   * the 6999 suspense account when no category resolved; other creators
+   * (receipt OCR, statement import, Telegram capture) post nothing until the
+   * expense is confirmed. So `pending_review` covers both cases and branching
+   * on it either strands a posted draft on 6999 or books an unconfirmed one.
+   */
+  journalEntryId: string | null;
 }
 export interface CategoryOption { id: string; name: string; taxCategory?: string | null }
 export interface BatchDecision { id: string; categoryName: string | null; confidence: number; reason: string }
@@ -36,6 +46,32 @@ export const BATCH_SIZE = 20;
 /** Output budget per row: `{"n":12,"categoryName":"Software & Subscriptions","confidence":0.9,"reason":"…"}` is ~60–80 tokens; leave headroom. */
 export const TOKENS_PER_ROW = 120;
 const LIST_CAP = 10;
+
+/** Write-phase fan-out. 50 rows × one HTTP self-call (~6 DB round-trips each) ran sequentially against a 90 s route budget. */
+export const WRITE_CONCURRENCY = 4;
+
+/**
+ * Run `fn` over `items` with at most `limit` in flight, returning results in
+ * INPUT order regardless of completion order — the reply lists what was
+ * applied, and a nondeterministic order there is a nondeterministic message.
+ * Results are collected by index and never pushed as they land.
+ */
+export async function mapWithConcurrency<T, R>(
+  items: T[], limit: number, fn: (item: T, index: number) => Promise<R>,
+): Promise<R[]> {
+  const results = new Array<R>(items.length);
+  const width = Math.max(1, Math.min(limit, items.length));
+  let next = 0;
+  const worker = async () => {
+    for (;;) {
+      const i = next++;
+      if (i >= items.length) return;
+      results[i] = await fn(items[i], i);
+    }
+  };
+  await Promise.all(Array.from({ length: width }, worker));
+  return results;
+}
 
 const line = (c: CategorizeCandidate): Line =>
   ({ expenseId: c.id, vendorName: c.vendorName, description: c.description, amountCents: c.amountCents, currency: c.currency, date: c.date });

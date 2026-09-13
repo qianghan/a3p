@@ -1,13 +1,13 @@
 import { describe, it, expect } from 'vitest';
 import {
-  hasSignal, buildBatchPrompt, parseBatchDecisions, decide, formatCategorizeReply,
+  hasSignal, buildBatchPrompt, parseBatchDecisions, decide, formatCategorizeReply, mapWithConcurrency,
   type CategorizeCandidate, type CategoryOption, type CategorizeOutcome,
 } from '../categorize-expenses';
 
 const cat = (id: string, name: string): CategoryOption => ({ id, name });
 const CATS = [cat('c-rent', 'Rent'), cat('c-meals', 'Meals'), cat('c-tel', 'Telephone & Internet')];
 const cand = (id: string, vendorName: string | null, description: string | null, amountCents = 4500): CategorizeCandidate =>
-  ({ id, vendorName, description, amountCents, currency: 'CAD', date: new Date('2026-01-01T12:00:00Z'), status: 'confirmed' });
+  ({ id, vendorName, description, amountCents, currency: 'CAD', date: new Date('2026-01-01T12:00:00Z'), status: 'confirmed', journalEntryId: 'je-1' });
 const D = new Date('2026-01-01T12:00:00Z');
 
 // English identity translator: returns the key + params so assertions can see what was chosen.
@@ -163,5 +163,41 @@ describe('formatCategorizeReply', () => {
     expect(s).toContain('V9');
     expect(s).not.toContain('V10');
     expect(s).toContain('skill.categorize_and_more {"count":2}');
+  });
+});
+
+describe('mapWithConcurrency', () => {
+  /** 50 rows × one HTTP self-call each, sequentially, against a 90 s route budget. */
+  it('never exceeds the limit and still runs everything', async () => {
+    let inFlight = 0;
+    let peak = 0;
+    const items = Array.from({ length: 17 }, (_, i) => i);
+    const seen: number[] = [];
+    await mapWithConcurrency(items, 4, async (n) => {
+      inFlight++;
+      peak = Math.max(peak, inFlight);
+      await new Promise((r) => setTimeout(r, (n % 3) * 2));
+      seen.push(n);
+      inFlight--;
+      return n;
+    });
+    expect(peak).toBeLessThanOrEqual(4);
+    expect(peak).toBeGreaterThan(1); // it IS running in parallel, not a sequential loop wearing a helper's name
+    expect(seen.sort((a, b) => a - b)).toEqual(items);
+  });
+
+  it('returns results in INPUT order even when later items finish first', async () => {
+    // The reply lists the applied rows; completion order would make the
+    // message the user reads nondeterministic.
+    const out = await mapWithConcurrency([30, 20, 10, 0], 4, async (ms) => {
+      await new Promise((r) => setTimeout(r, ms));
+      return ms;
+    });
+    expect(out).toEqual([30, 20, 10, 0]);
+  });
+
+  it('handles an empty list and a limit larger than the list', async () => {
+    expect(await mapWithConcurrency([], 4, async () => 1)).toEqual([]);
+    expect(await mapWithConcurrency([1, 2], 99, async (n) => n * 2)).toEqual([2, 4]);
   });
 });

@@ -35,7 +35,8 @@ import { getCashPosition, isCashBalanceQuestion } from './cash-position.js';
 import { formatCurrency, formatMoney } from '@agentbook/i18n';
 import { replyT } from './reply-locale.js';
 import {
-  BATCH_SIZE, TOKENS_PER_ROW, buildBatchPrompt, parseBatchDecisions, decide, formatCategorizeReply, hasSignal,
+  BATCH_SIZE, TOKENS_PER_ROW, WRITE_CONCURRENCY, buildBatchPrompt, parseBatchDecisions, decide, formatCategorizeReply,
+  hasSignal, mapWithConcurrency,
   type CategorizeCandidate, type CategorizeOutcome,
 } from './categorize-expenses.js';
 
@@ -4964,6 +4965,10 @@ async function _executeClassificationCore(
         id: e.id, vendorName: e.vendor?.name ?? null, description: e.description ?? null,
         amountCents: e.amountCents, currency: e.currency, date: e.date,
         status: e.status === 'confirmed' ? 'confirmed' : 'pending_review',
+        // Decides the write path below. `include` returns every scalar, so
+        // this comes back without a select — naming it here keeps the
+        // dependency visible if the query is ever narrowed to a select.
+        journalEntryId: e.journalEntryId ?? null,
       }));
       const asLine = (c: CategorizeCandidate) => ({ expenseId: c.id, vendorName: c.vendorName, description: c.description, amountCents: c.amountCents, currency: c.currency, date: c.date });
 
@@ -4981,35 +4986,46 @@ async function _executeClassificationCore(
         const { apply, pending, skipped } = decide(chunk, parseBatchDecisions(raw, chunk), categories);
         outcome.pending.push(...pending);
         outcome.skipped.push(...skipped);
-        for (const a of apply) {
-          let ok = false;
-          if (a.cand.status === 'confirmed') {
-            // A confirmed row is already on the books — its journal line sits
-            // on the 6999 suspense account when it has no category, and a row
-            // whose categoryId IS 6999 is uncategorized too. The categorize
+        // Bounded fan-out: the write phase was up to 50 sequential HTTP
+        // self-calls of ~6 DB round-trips each, against a 90 s route budget.
+        // The Gemini batches above stay sequential.
+        const written = await mapWithConcurrency(apply, WRITE_CONCURRENCY, async (a) => {
+          if (a.cand.journalEntryId) {
+            // ALREADY on the books — its debit sits on the 6999 suspense
+            // account when nothing resolved a category, and a row whose
+            // categoryId IS 6999 is uncategorized too. True for confirmed
+            // rows AND for drafts created through the expense route, which
+            // posts every non-personal expense at creation. The categorize
             // route owns ledger posting: it moves that debit to the chosen
-            // account and learns the vendor pattern. Setting categoryId inline
-            // (the old code) left the P&L on "Uncategorized".
+            // account (it never touches `status`) and learns the vendor
+            // pattern. Setting categoryId inline left the P&L on
+            // "Uncategorized" while the reply claimed the row was done.
             const res = await fetch(`${expenseBase}/api/v1/agentbook-expense/expenses/${a.cand.id}/categorize`, {
               method: 'POST', headers: brainHeaders(tenantId),
               body: JSON.stringify({ categoryId: a.category.id, source: 'auto_categorize', confidence: a.confidence }),
             }).catch((err) => { console.error('[categorize-expenses] write failed:', a.cand.id, err); return null; });
-            ok = Boolean(res?.ok);
             if (res && !res.ok) console.error('[categorize-expenses] write failed:', a.cand.id, res.status);
-          } else {
-            // A draft is NOT on the books yet; the confirm route posts it with
-            // whatever category it has then. Going through the categorize
-            // route here would book an unconfirmed expense.
-            ok = await db.abExpense.update({ where: { id: a.cand.id }, data: { categoryId: a.category.id, confidence: a.confidence } })
-              .then(() => true)
-              .catch((err) => { console.error('[categorize-expenses] write failed:', a.cand.id, err); return false; });
+            return Boolean(res?.ok);
           }
-          if (ok) outcome.applied.push({ ...asLine(a.cand), categoryId: a.category.id, categoryName: a.category.name, confidence: a.confidence });
+          // NOT on the books: a draft from receipt OCR / statement import /
+          // Telegram capture, which post nothing until confirm. The
+          // categorize route backfills a journal entry for any categorized
+          // non-personal expense regardless of status, so sending these
+          // through it would BOOK an unconfirmed expense. Record the category
+          // only; the confirm route posts it with that category later.
+          return db.abExpense.update({ where: { id: a.cand.id }, data: { categoryId: a.category.id, confidence: a.confidence } })
+            .then(() => true)
+            .catch((err) => { console.error('[categorize-expenses] write failed:', a.cand.id, err); return false; });
+        });
+        // Appended by index, not as they land: concurrent writes finish out of
+        // order and the reply lists these rows to the user.
+        apply.forEach((a, i) => {
+          if (written[i]) outcome.applied.push({ ...asLine(a.cand), categoryId: a.category.id, categoryName: a.category.name, confidence: a.confidence });
           // The model was confident and the DB/route refused — not an LLM
           // error. Naming it 'llm_error' told the user to rephrase a request
           // that only needed a retry, and nothing was logged either way.
           else outcome.skipped.push({ ...asLine(a.cand), reason: 'write_failed' });
-        }
+        });
       }
       if (categories.length === 0) {
         for (const c of withSignal) outcome.skipped.push({ ...asLine(c), reason: 'unknown_category' });

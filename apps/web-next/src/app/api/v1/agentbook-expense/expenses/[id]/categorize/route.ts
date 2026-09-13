@@ -30,6 +30,22 @@ interface CategorizeBody {
 const clamp01 = (n: number) => Math.min(1, Math.max(0, n));
 
 /**
+ * `source` now SELECTS POLICY (whose certainty this is), so it cannot stay an
+ * unvalidated free string off the request body. Anything not on this list —
+ * including a missing source, which is the UI — is treated as a human
+ * correction: the strict default, since `auto_categorize` is the one that
+ * lets the caller name its own confidence. The whitelisted value is also what
+ * gets persisted to AbPattern.source, so a typo can't create a third source
+ * kind that later policy has to guess about. The live UI callers send 'user'
+ * and 'agent_confirmed' (a human approving a suggestion); both are human
+ * actions and already took the 1.0 / 0.95 path, so they now STORE
+ * 'user_corrected' too. Nothing reads those two strings back.
+ */
+type CategorizeSource = 'auto_categorize' | 'user_corrected';
+const normalizeSource = (s: unknown): CategorizeSource =>
+  s === 'auto_categorize' ? 'auto_categorize' : 'user_corrected';
+
+/**
  * Cap for a pattern learned from an automatic categorization. 0.92 is the
  * old inline auto-categorizer's cap: below the 0.95 a user correction earns,
  * so a human's choice still outranks the machine's on the same vendor.
@@ -46,9 +62,13 @@ export async function POST(
     const { tenantId } = __resolved;
     const { id } = await params;
     const body = (await request.json().catch(() => ({}))) as CategorizeBody;
-    const { categoryId, source } = body;
+    const { categoryId } = body;
+    const source = normalizeSource(body.source);
+    // Only a machine caller names its own certainty. A user correction IS
+    // certainty, so a confidence riding along with any other source is
+    // ignored rather than allowed to weaken the row.
     const expenseConfidence =
-      typeof body.confidence === 'number' && Number.isFinite(body.confidence)
+      source === 'auto_categorize' && typeof body.confidence === 'number' && Number.isFinite(body.confidence)
         ? clamp01(body.confidence)
         : 1.0;
     const patternConfidence =
@@ -81,7 +101,7 @@ export async function POST(
           update: {
             categoryId,
             confidence: patternConfidence,
-            source: source || 'user_corrected',
+            source,
             usageCount: { increment: 1 },
             lastUsed: new Date(),
           },
@@ -90,7 +110,7 @@ export async function POST(
             vendorPattern: vendor.normalizedName,
             categoryId,
             confidence: patternConfidence,
-            source: source || 'user_corrected',
+            source,
           },
         });
         await db.abVendor.update({

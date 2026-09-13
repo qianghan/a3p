@@ -26,11 +26,37 @@ describe('categorize-expenses handler wiring', () => {
     const qe = SRC.slice(SRC.indexOf('const wantsUncategorizedOnly'), SRC.indexOf('const wantsUncategorizedOnly') + 1200);
     expect(qe).toMatch(/OR:\s*\[\s*\{\s*categoryId:\s*null\s*\}/);
   });
-  it('books confirmed rows through the ledger-owning route; drafts get only a categoryId (the confirm route posts them later)', () => {
+  it('picks the write path by whether the row is ALREADY POSTED, not by status', () => {
+    // The expense CREATE route posts a journal entry for every non-personal
+    // expense, drafts included (6999 when no category resolved). So a
+    // `pending_review` row may or may not be on the books, and `status` cannot
+    // tell the two apart: branching on it left create-route drafts stranded on
+    // 6999 while the reply said "Categorized N of M".
     expect(BLOCK).toContain('/categorize`');
-    expect(BLOCK).toContain("status === 'confirmed'");
-    // exactly one bare update, and it is the draft branch
+    expect(BLOCK).toMatch(/if \(a\.cand\.journalEntryId\)/);
+    expect(BLOCK).toContain('journalEntryId: e.journalEntryId');
+    // exactly one bare update, and it is the not-yet-posted branch
     expect((BLOCK.match(/db\.abExpense\.update\(/g) || []).length).toBe(1);
+  });
+  it('does NOT branch the write on status — that would book an unconfirmed expense', () => {
+    // backfillExpenseJournalEntry posts whenever categoryId is set and the
+    // expense is not personal, regardless of status. Sending a draft that has
+    // NO journal entry through the categorize route would book it.
+    // Scoped to the write phase on purpose: `status` is still READ when the
+    // candidates are built (the reply may use it), and a BLOCK-wide match
+    // would fail on that harmless line instead of on the branch.
+    const WRITE = BLOCK.slice(BLOCK.indexOf('const written = await mapWithConcurrency'), BLOCK.indexOf('if (categories.length === 0)'));
+    expect(WRITE.length).toBeGreaterThan(200);
+    expect(WRITE).not.toMatch(/status\s*===\s*'confirmed'/);
+    expect(WRITE).not.toMatch(/cand\.status/);
+    expect(BLOCK).not.toMatch(/a\.cand\.status/);
+  });
+  it('writes the applied rows with bounded concurrency, appended in input order', () => {
+    expect(BLOCK).toContain('mapWithConcurrency(apply, WRITE_CONCURRENCY');
+    // Collected by index, not pushed as each write lands: concurrent writes
+    // finish out of order and these rows are listed to the user.
+    expect(BLOCK).toMatch(/apply\.forEach\(\(a, i\)/);
+    expect(BLOCK).toContain('written[i]');
   });
   it('does not talk to Gemini directly or once per expense', () => {
     expect(BLOCK).not.toContain('generativelanguage.googleapis.com');
