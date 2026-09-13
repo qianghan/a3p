@@ -33,6 +33,7 @@ export default function ChatbotMcpGuide() {
 
       <h2 className="gd-h2">Power move: connect Claude (MCP)</h2>
       <p>Use AgentBook as a tool inside Claude Desktop or Claude Code — ask about your finances or take actions without leaving Claude.</p>
+      <p className="gd-note">Using Codex, ChatGPT or Gemini instead? They connect the same way — <Link href="/guides/connect-ai">Guide 06</Link> has the exact command for each, plus a two-minute test that catches an assistant pretending to be connected.</p>
       <ol className="gd-steps">
         <li><b>Add a custom connector</b><span>In Claude, add a remote MCP connector with this URL:</span></li>
         <li><b>Sign in when Claude opens the browser</b><span>It’s a normal AgentBook login — no API key or token to copy. Claude registers itself automatically.</span></li>

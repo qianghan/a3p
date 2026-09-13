@@ -3,7 +3,7 @@ import type { Metadata } from 'next';
 
 export const metadata: Metadata = {
   title: 'Guides — AgentBook',
-  description: 'Short, do-it-now guides: chat & Claude, everyday workflows, student life, and earning as a partner.',
+  description: 'Short, do-it-now guides: chat & AI assistants, everyday workflows, student life, and earning as a partner.',
 };
 
 const GUIDES = [
@@ -12,6 +12,8 @@ const GUIDES = [
   { n: '03', href: '/guides/students', title: 'Student life', blurb: 'Money, housing, and scholarships — built for students.' },
   { n: '04', href: '/guides/sales-rep', title: 'Earn as a partner', blurb: 'Refer AgentBook and earn 20% — turn it into passive income.' },
   { n: '05', href: '/guides/startup-founders', title: 'For startup founders', blurb: 'Clean books from day one: burn, runway, invoicing, and startup tax.' },
+  { n: '06', href: '/guides/connect-ai', title: 'Connect your AI assistant', blurb: 'Use AgentBook from Claude, Codex, ChatGPT or Gemini — and check it really works.' },
+  { n: '07', href: '/guides/mcp-admin', title: 'Switch on the AI connector', blurb: 'For admins: the two one-time settings that let everyone else connect.' },
 ];
 
 export default function GuidesIndex() {
