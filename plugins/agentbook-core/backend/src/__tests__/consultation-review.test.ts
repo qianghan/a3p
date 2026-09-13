@@ -319,14 +319,15 @@ describe('a figure the assistant already stated in this thread is grounded', () 
     expect(r.findings.map((f) => f.span)).toContain('CA$216,860.00');
   });
 
-  it('passes the repeat when the assistant turn is one of the facts', () => {
+  it('passes the repeat when the assistant turn is one of the conversationFacts', () => {
     // The answer text goes in RAW — no re-formatting on the way. If the
     // extractor ever stopped reading "Cash: CA$16,926.10" out of a fact
     // string, the caller's normalisation would be the thing to change, and
     // this is the test that would say so.
     const r = reviewConsultation(FOLLOW_UP_DRAFT, {
       jurisdiction: 'ca',
-      facts: [PROFILE, ASSISTANT_TURN],
+      facts: [PROFILE],
+      conversationFacts: [ASSISTANT_TURN],
     });
     expect(r.verdict).toBe('pass');
     expect(r.findings).toHaveLength(0);
@@ -338,9 +339,35 @@ describe('a figure the assistant already stated in this thread is grounded', () 
     // stated is still invented.
     const r = reviewConsultation(
       'Your cash is CA$16,926.10, so you could set aside CA$41,000 for tax.',
-      { jurisdiction: 'ca', facts: [PROFILE, ASSISTANT_TURN] },
+      { jurisdiction: 'ca', facts: [PROFILE], conversationFacts: [ASSISTANT_TURN] },
     );
     expect(r.verdict).toBe('block');
     expect(r.findings.map((f) => f.span)).toContain('CA$41,000');
+  });
+
+  it('never widens knownRates — a prior answer cannot license an invented rate', () => {
+    // I1 / #404 again, wearing a different hat: `groundedNumbers` is
+    // unit-blind, so if a prior answer's numbers were mixed into `facts`
+    // wholesale, "due April 30, 2026" would license a later "your rate is
+    // 30%". `conversationFacts` must widen `knownAmounts` only.
+    const r = reviewConsultation('Your rate is 30%.', {
+      jurisdiction: 'ca',
+      facts: [PROFILE],
+      conversationFacts: ['Your 2025 return is due April 30, 2026.'],
+    });
+    // unverified-rate alone downgrades to 'repair', not 'block' (see
+    // verdictFor) — the point here is that it is NOT 'pass': the April 30
+    // date in conversationFacts must not have licensed the 30% rate.
+    expect(r.verdict).not.toBe('pass');
+    expect(r.findings.map((f) => f.kind)).toContain('unverified-rate');
+  });
+
+  it('still grounds an amount the assistant stated, via conversationFacts', () => {
+    const r = reviewConsultation('Cash: CA$16,926.10', {
+      jurisdiction: 'ca',
+      facts: [PROFILE],
+      conversationFacts: ['Cash: CA$16,926.10'],
+    });
+    expect(r.findings.map((f) => f.kind)).not.toContain('ungrounded-amount');
   });
 });

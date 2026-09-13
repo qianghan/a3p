@@ -80,6 +80,24 @@ export interface GroundingContext {
    * round number about the user's own income and pass.
    */
   jurisdictionAmounts?: string[];
+  /**
+   * Prior ASSISTANT turns in this thread, raw text, as separate evidence from
+   * `facts`.
+   *
+   * A figure the assistant already stated is safe to repeat — it came out of
+   * the ledger by the same door `facts` did. But `groundedNumbers` is
+   * unit-blind: it cannot tell "the deadline is April 30" from "your rate is
+   * 30%", so a fact string that merely mentions a date or a count would, if
+   * mixed into `facts`, license ANY draft rate matching one of its numbers.
+   * That is the #404 failure class again, wearing a different hat: an
+   * assistant answer widening `knownRates` instead of the model inventing the
+   * rate outright.
+   *
+   * So this feeds `knownAmounts` only, never `knownRates`. A rate must still
+   * come from `jurisdictionRates` — prior conversation, ours or the user's,
+   * is never a source of truth for what a tax rate is.
+   */
+  conversationFacts?: string[];
 }
 
 export interface ReviewResult {
@@ -174,7 +192,11 @@ export function reviewDeterministic(
   // Two sets, because the two checks answer different questions. Money must
   // be the user's own or a published threshold; a rate may additionally be
   // any rate the pack publishes.
-  const knownAmounts = groundedNumbers([...ctx.facts, ...(ctx.jurisdictionAmounts ?? [])]);
+  const knownAmounts = groundedNumbers([
+    ...ctx.facts,
+    ...(ctx.jurisdictionAmounts ?? []),
+    ...(ctx.conversationFacts ?? []),
+  ]);
   const knownRates = groundedNumbers([
     ...ctx.facts,
     ...(ctx.jurisdictionRates ?? []),

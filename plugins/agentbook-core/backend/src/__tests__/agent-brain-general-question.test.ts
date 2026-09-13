@@ -418,6 +418,11 @@ describe('a follow-up may repeat a figure the assistant already stated', () => {
     const { handleAgentMessage } = await import('../agent-brain');
     const res = await handleAgentMessage(req as any, ctx as any);
 
+    expect(res.success).toBe(true);
     expect(res.data.message).not.toContain('CA$400,000');
+    // Blocked with nothing to repair to (the only grounded fact is the
+    // profile line, which contains no figures at all) — the turn must land on
+    // the safe fallback, not silently mangle or drop the reply.
+    expect(res.data.message).toMatch(SAFE_FALLBACK_FRAGMENT);
   });
 });

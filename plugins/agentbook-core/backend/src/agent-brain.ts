@@ -204,7 +204,7 @@ async function brainAccountantFallback(
   // Everything this answer is allowed to assert. Anything the model states
   // beyond it was invented — see consultation-review.ts.
   //
-  // The recent ASSISTANT answers are part of that, and their absence was a
+  // The recent ASSISTANT answers are grounding too, and their absence was a
   // prod bug (2026-09-13). "What is my cash balance?" was answered off the
   // ledger by query-finance — "You have CA$233,786.10 on hand. • Accounts
   // Receivable: CA$216,860.00 • Cash: CA$16,926.10" — and the follow-up "Give
@@ -217,9 +217,22 @@ async function brainAccountantFallback(
   // by definition, and the risk this reviewer exists for (an INVENTED number)
   // does not apply to one we produced ourselves.
   //
-  // The user's questions are deliberately NOT included. A figure the user
-  // typed is a claim, not evidence; admitting it would let "I made CA$400,000
-  // last year" license the advisor to assert CA$400,000 about their books.
+  // They go into `conversationFacts`, a SEPARATE list from `facts` — not
+  // folded in. `groundedNumbers` cannot tell a rate from an amount inside a
+  // fact string, so a past answer that merely mentions "50% of transactions"
+  // would, mixed into `facts`, license a later invented "your rate is 50%".
+  // `conversationFacts` only ever widens `knownAmounts`; a rate still has to
+  // come from the jurisdiction pack. See consultation-review.ts.
+  //
+  // The user's questions are deliberately NOT included — a figure the user
+  // typed is a claim, not evidence, and admitting it here would let "I made
+  // CA$400,000 last year" license the advisor to assert CA$400,000 about
+  // their books. It can still reach the reviewer one hop later if a DATA
+  // skill's own answer echoes a number the user supplied — e.g. a what-if
+  // scenario answering "$5,000/mo" back to whoever typed "$5,000/mo" — and
+  // that is accepted: the figure originated with the user, was never stated
+  // by the model, and this reviewer exists to stop the model inventing tax
+  // figures, not to erase numbers the user handed it.
   //
   // Raw answer text, no reformatting: the extractor pulls every number out of
   // a fact string, so "Cash: CA$16,926.10" grounds CA$16,926.10 as it stands
@@ -228,10 +241,10 @@ async function brainAccountantFallback(
     jurisdiction: tenantConfig?.jurisdiction || 'us',
     facts: [
       ...(groundingFacts ?? []),
-      ...recentTurns.map((c) => c.answer),
       personalProfileContext,
       pastFilingContext,
     ].filter(Boolean) as string[],
+    conversationFacts: recentTurns.map((c) => c.answer),
     // Same lines the model was handed. One source, so what it was told to
     // quote and what the reviewer accepts cannot drift apart.
     jurisdictionRates: statutory.lines,

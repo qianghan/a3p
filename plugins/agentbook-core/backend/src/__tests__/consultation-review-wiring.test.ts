@@ -90,15 +90,29 @@ describe('the advisory path verifies before it answers', () => {
     // had just stated itself. The conversation was in the PROMPT and not in
     // the reviewer's facts, so the two disagreed about what was known.
     //
-    // Tied to the real expression: only the ANSWER side is admitted, and it
-    // comes from the same slice the prompt snippet was built from, so what
-    // the model can see and what it may repeat cannot drift apart.
-    expect(fallbackBody).toMatch(/\.map\(\(c\)\s*=>\s*c\.answer\)/);
-    expect(fallbackBody).toMatch(/facts:\s*\[[\s\S]{0,240}\.map\(\(c\)\s*=>\s*c\.answer\)/);
+    // Pinned to the exact expression, in its OWN field: `conversationFacts`,
+    // not folded into `facts`. `groundedNumbers` cannot tell a rate from an
+    // amount inside a fact string — mixing a past answer into `facts` would
+    // let it widen `knownRates` too, and "due April 30" would then license an
+    // invented "your rate is 30%" (I1 / #404, wearing a different hat). This
+    // guard would catch that regression, not just a missing extraction.
+    expect(fallbackBody).toMatch(/conversationFacts:\s*recentTurns\.map\(\(c\)\s*=>\s*c\.answer\)/);
+    // Scoped to the `facts:` ARRAY itself (up to its closing bracket), not
+    // just "somewhere within N characters of the token" — `conversationFacts:`
+    // sits right after `facts: [...]` and would falsely satisfy a window-based
+    // check just by being nearby.
+    const factsArrayMatch = fallbackBody.match(/facts:\s*\[[^\]]*\]/);
+    expect(factsArrayMatch, 'the `facts:` array must exist').not.toBeNull();
+    const factsArray = factsArrayMatch![0];
     expect(
-      fallbackBody,
+      factsArray,
+      'the assistant\'s answers must widen knownAmounts only, via conversationFacts — ' +
+      'never folded into facts, which also widens knownRates',
+    ).not.toMatch(/\.map\(\(c\)\s*=>\s*c\.answer\)/);
+    expect(
+      factsArray,
       'the questions the USER typed are not evidence and must stay out of the facts',
-    ).not.toMatch(/facts:\s*\[[\s\S]{0,240}c\.question/);
+    ).not.toMatch(/c\.question/);
   });
 
   it('feeds the model the SAME lines the reviewer checks against', () => {
