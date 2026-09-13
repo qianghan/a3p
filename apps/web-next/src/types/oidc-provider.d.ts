@@ -96,5 +96,19 @@ declare module 'oidc-provider' {
     [key: string]: unknown;
   }
 
+  // oidc-provider's own error classes
+  // (node_modules/oidc-provider/lib/helpers/errors.js, re-exported from
+  // lib/index.js as `export { errors, interactionPolicy, Provider }`).
+  //
+  // These matter in configuration helpers: the provider recognises them and
+  // renders the matching OAuth error response, so `throw new
+  // errors.InvalidTarget()` produces
+  // `invalid_target: resource indicator is missing, or unknown`. A plain
+  // `Error` thrown from the same place becomes a 500 instead, which tells the
+  // client nothing it can act on.
+  export const errors: {
+    InvalidTarget: new (detail?: string) => Error;
+  };
+
   export default Provider;
 }
