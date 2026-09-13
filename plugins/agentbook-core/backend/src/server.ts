@@ -5671,7 +5671,42 @@ Only include chartData if visualization adds value. Keep the answer under 200 wo
       const scenarioText = String(extractedParams.scenario || text || '');
       const context = await buildFinancialContext(tenantId);
       const input = await interpretScenario(scenarioText, callGemini);
+
+      // `interpretScenario` NEVER fails loudly: an LLM that is down, rate
+      // limited or simply babbling yields `{ type: 'custom' }`. The projection
+      // handles that type by changing nothing, so the reply used to read
+      // "Monthly net: $6000.00 → $6000.00 ($0.00/mo) / Runway: 5 → 5 months"
+      // — a precise, sourced-looking answer to a question nothing modelled.
+      // Decline BEFORE projecting, so there are no numbers and no chart to
+      // leak.
+      if (input.type === 'custom') {
+        return {
+          selectedSkill, extractedParams, confidence: 0, skillUsed: 'simulate-scenario', skillResponse: null,
+          responseData: { message: t('skill.scenario_failed'), skillUsed: 'simulate-scenario', confidence: 0, latencyMs: Date.now() - startTime },
+        };
+      }
+
       const result = projectScenario(context, input, calcScenarioTax, new Date().getFullYear());
+
+      // Same failure one layer down: "what if I lose Globex?" when Globex is
+      // not in the books projects the untouched baseline. Say so instead of
+      // showing a $0.00 impact.
+      if (result.notModelled === 'client_not_found') {
+        // With no name to quote back there is nothing to say beyond "I could
+        // not run that" — `I couldn't find a client named ""` is worse than
+        // the generic decline.
+        const missing = String(input.params?.clientName ?? '').trim();
+        return {
+          selectedSkill, extractedParams, confidence: 0, skillUsed: 'simulate-scenario', skillResponse: null,
+          responseData: {
+            message: missing
+              ? t('skill.scenario_client_not_found', { client: missing })
+              : t('skill.scenario_failed'),
+            skillUsed: 'simulate-scenario', confidence: 0, latencyMs: Date.now() - startTime,
+          },
+        };
+      }
+
       const narrative = await scenarioNarrative(result, tenantId, callGemini, resolveAdvisorIdentity);
       const message = formatScenarioReply(result, narrative, (c: number) => tenantMoney(c, context.currency), t);
 

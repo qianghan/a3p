@@ -136,5 +136,6 @@
   "scenario_runway": "现金可支撑时长：{before} → {after} 个月",
   "scenario_tax": "预计年度税额变化：{change}",
   "scenario_cash_negative": "现金将在第 {month} 个月转为负数。",
+  "scenario_client_not_found": "我在您的账簿中找不到名为「{client}」的客户，因此没有模拟该情景。",
   "scenario_failed": "我无法模拟该情景。可以试试「如果我以每月 5000 美元雇一个人会怎样？」"
 }

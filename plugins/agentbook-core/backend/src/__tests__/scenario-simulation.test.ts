@@ -8,6 +8,8 @@
  * route so the extraction cannot change a number; these tests pin it.
  */
 import { describe, it, expect, vi } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import {
   projectScenario,
   formatScenarioReply,
@@ -76,6 +78,46 @@ describe('projectScenario', () => {
     expect(r.scenario).toContain('Acme Corp');
   });
 
+  it('marks a client it could not find, instead of silently reporting no impact', () => {
+    // The old shape put "(not found — no revenue impact calculated)" into a
+    // free-text `scenario` string the chat reply never printed, so the user
+    // was told their net changes by $0.00 — a confident answer to a question
+    // the code did not model. The signal has to be structural for a caller to
+    // branch on it.
+    const r = projectScenario(
+      { ...base, clients: [{ name: 'Acme Corp', billedCents: 2_400_000 }] },
+      { type: 'lose_client', params: { clientName: 'Globex' } },
+      flatTax,
+      2026,
+    );
+    expect(r.notModelled).toBe('client_not_found');
+    expect(r.impact.monthlyNetChangeCents).toBe(0);
+  });
+
+  it('leaves notModelled unset when the client did match', () => {
+    const r = projectScenario(
+      { ...base, clients: [{ name: 'Acme Corp', billedCents: 2_400_000 }] },
+      { type: 'lose_client', params: { clientName: 'acme' } },
+      flatTax,
+      2026,
+    );
+    expect(r.notModelled).toBeUndefined();
+  });
+
+  it('applies the revenue figure it describes when both fields are present', () => {
+    // The apply read `monthlyCostCents || monthlyRevenueCents` while the
+    // description read the reverse, so a scenario carrying both described
+    // one number and projected another.
+    const r = projectScenario(
+      base,
+      { type: 'add_revenue', params: { monthlyRevenueCents: 300_000, monthlyCostCents: 100_000 } },
+      flatTax,
+      2026,
+    );
+    expect(r.impact.monthlyNetChangeCents).toBe(300_000);
+    expect(r.scenario).toContain('3,000');
+  });
+
   it('passes the jurisdiction, region and year straight to the tax function', () => {
     const calcTax = vi.fn(() => 0);
     projectScenario(base, { type: 'hire', params: { monthlyCostCents: 500_000 } }, calcTax, 2026);
@@ -134,5 +176,47 @@ describe('formatScenarioReply', () => {
     const s = formatScenarioReply(danger, null, money, t);
     expect(s).toContain('skill.scenario_cash_negative');
     expect(s).toContain('"month":1');
+  });
+});
+
+/**
+ * The inline handler in `server.ts` is not importable here — `server.ts` opens
+ * a Prisma client and an Express app at module load. These read its source, in
+ * the same style as the architecture suite, because the defects they pin live
+ * in the WIRING, not in this module: a correct projection handed to a handler
+ * that prints it anyway is still a confident wrong answer.
+ */
+describe('scenario-wiring: what the chat handler does with a scenario it could not model', () => {
+  const SRC = readFileSync(join(__dirname, '../server.ts'), 'utf8');
+  const HANDLER = (() => {
+    const start = SRC.indexOf("if (selectedSkill.name === 'simulate-scenario')");
+    expect(start, 'the simulate-scenario inline handler must exist').toBeGreaterThan(0);
+    const end = SRC.indexOf("if (selectedSkill.name === 'daily-briefing')", start);
+    expect(end, 'the daily-briefing handler follows it').toBeGreaterThan(start);
+    return SRC.slice(start, end);
+  })();
+
+  it('declines a scenario the model could not turn into a typed one', () => {
+    // `interpretScenario` returns `{ type: 'custom' }` when the LLM is down or
+    // babbles. The default branch of the projection then changes nothing, and
+    // the reply read "Monthly net: $6000.00 → $6000.00 ($0.00/mo)" — a
+    // precise, sourced-looking, entirely fictional answer.
+    expect(HANDLER).toMatch(/input\.type === 'custom'/);
+    expect(HANDLER).toContain("t('skill.scenario_failed')");
+    // The decline must come BEFORE the projection runs.
+    expect(HANDLER.indexOf("input.type === 'custom'")).toBeLessThan(
+      HANDLER.indexOf('projectScenario('),
+    );
+  });
+
+  it('tells the user which client it could not find, rather than showing $0', () => {
+    expect(HANDLER).toMatch(/notModelled === 'client_not_found'/);
+    expect(HANDLER).toContain("t('skill.scenario_client_not_found'");
+  });
+
+  it('emits a chart on exactly one path — the one that actually projected', () => {
+    // A 12-point cash line under "I could not model that" is the same lie in
+    // picture form, so neither decline may carry one.
+    expect(HANDLER.match(/chartData/g) ?? []).toHaveLength(1);
   });
 });

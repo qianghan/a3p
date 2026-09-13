@@ -73,6 +73,18 @@ export interface ScenarioResult {
     cashDangerMonth: number | null;
   };
   cashProjection12Months: CashProjectionPoint[];
+  /**
+   * Set when the projection ran but did NOT model what was asked.
+   *
+   * `'client_not_found'`: a `lose_client` scenario naming somebody who is not
+   * in the books. Every figure below is then the untouched baseline, which
+   * renders as "Monthly net: $6,000.00 → $6,000.00 ($0.00/mo)" — a confident
+   * answer to a question nothing computed. The old code recorded this only in
+   * the free-text `scenario` string, which the chat reply never printed, so a
+   * caller had no way to tell the two apart. Callers MUST check this before
+   * showing any number.
+   */
+  notModelled?: 'client_not_found';
 }
 
 /** The narrow LLM contract this module needs: prompt in, text or nothing out. */
@@ -132,6 +144,7 @@ export function projectScenario(
   let newMonthlyRevenue = monthlyRevenue;
   let oneTimeCost = 0;
   let scenarioDescription = '';
+  let notModelled: ScenarioResult['notModelled'];
 
   switch (scenarioObj.type) {
     case 'add_expense':
@@ -139,7 +152,10 @@ export function projectScenario(
       scenarioDescription = `Add recurring expense of $${((scenarioObj.params?.monthlyCostCents || 0) / 100).toLocaleString()}/month`;
       break;
     case 'add_revenue':
-      newMonthlyRevenue += (scenarioObj.params?.monthlyCostCents || scenarioObj.params?.monthlyRevenueCents || 0);
+      // `monthlyRevenueCents` first, matching the description below: the two
+      // read the fields in opposite orders, so a scenario carrying both
+      // described one figure and projected another.
+      newMonthlyRevenue += (scenarioObj.params?.monthlyRevenueCents || scenarioObj.params?.monthlyCostCents || 0);
       scenarioDescription = `Add revenue of $${((scenarioObj.params?.monthlyRevenueCents || scenarioObj.params?.monthlyCostCents || 0) / 100).toLocaleString()}/month`;
       break;
     case 'lose_client': {
@@ -151,6 +167,7 @@ export function projectScenario(
         scenarioDescription = `Lose client ${client.name} ($${(monthlyFromClient / 100).toLocaleString()}/month)`;
       } else {
         scenarioDescription = `Lose client ${clientName} (not found — no revenue impact calculated)`;
+        notModelled = 'client_not_found';
       }
       break;
     }
@@ -219,6 +236,7 @@ export function projectScenario(
       cashDangerMonth: dangerMonth,
     },
     cashProjection12Months: projection,
+    ...(notModelled ? { notModelled } : {}),
   };
 }
 

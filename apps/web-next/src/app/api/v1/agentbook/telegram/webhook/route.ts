@@ -1168,7 +1168,10 @@ function formatResponse(data: any): string {
   if (shouldAppendBreakdown(data.message || '', data.chartData)) {
     reply += '\n\n📊 <b>Breakdown:</b>';
     for (const item of data.chartData.data.slice(0, 8)) {
-      const val = typeof item.value === 'number' && item.value > 100
+      // Magnitude, not sign: the first signed series to reach here is
+      // simulate-scenario's twelve-month cash projection, and `> 100` sent a
+      // negative month to the user as raw cents ("• M5: -1200000").
+      const val = typeof item.value === 'number' && Math.abs(item.value) > 100
         ? fmtAmount(item.value)
         : item.value;
       reply += `\n• ${escHtml(String(item.name))}: ${val}`;

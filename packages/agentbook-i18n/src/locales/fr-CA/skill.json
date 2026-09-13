@@ -136,5 +136,6 @@
   "scenario_runway": "Autonomie de trésorerie : {before} → {after} mois",
   "scenario_tax": "Variation estimée de l'impôt annuel : {change}",
   "scenario_cash_negative": "La trésorerie deviendrait négative au mois {month}.",
+  "scenario_client_not_found": "Je n'ai trouvé aucun client nommé « {client} » dans vos livres, donc je n'ai pas modélisé ce scénario.",
   "scenario_failed": "Je n'ai pas pu simuler ce scénario. Essayez « et si j'embauchais quelqu'un à 5000 $/mois ? »"
 }
