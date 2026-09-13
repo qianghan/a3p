@@ -91,9 +91,23 @@ async function brainAccountantFallback(
    * different framing.
    */
   mode: 'unclear' | 'consultation' = 'unclear',
+  /**
+   * Review options for this call, passed straight to the reviewer.
+   *
+   * Deliberately NOT derived from `mode`: the two answer different questions.
+   * `mode` picks the prompt (explain a rule vs. say you didn't follow), while
+   * `allowQuestionOnly` says whether a reply that is only a question is a
+   * legitimate outcome for THIS route. The catch-all route needs the waiver
+   * in both modes — see Step 3a' — and the consultative-triage route needs it
+   * in neither. Tying it to the mode would silently re-couple them.
+   */
+  opts?: { allowQuestionOnly?: boolean },
 ): Promise<string> {
-  const convoSnippet = (conversation || [])
-    .slice(0, 3)
+  // Newest first — pairTurns' contract. One array feeds BOTH the prompt
+  // snippet below and the grounding facts further down, so what the model can
+  // see and what it is allowed to repeat cannot drift apart.
+  const recentTurns = (conversation || []).slice(0, 3);
+  const convoSnippet = recentTurns
     .map((c) => `User: ${c.question}\nAssistant: ${c.answer}`)
     .join('\n');
 
@@ -189,6 +203,40 @@ async function brainAccountantFallback(
 
   // Everything this answer is allowed to assert. Anything the model states
   // beyond it was invented — see consultation-review.ts.
+  //
+  // The recent ASSISTANT answers are grounding too, and their absence was a
+  // prod bug (2026-09-13). "What is my cash balance?" was answered off the
+  // ledger by query-finance — "You have CA$233,786.10 on hand. • Accounts
+  // Receivable: CA$216,860.00 • Cash: CA$16,926.10" — and the follow-up "Give
+  // me more details" landed here, where the draft restated those figures and
+  // was blocked as `ungrounded-amount(CA$16,926.10)`. Repair failed the same
+  // way and the user got safeFallback(): the bot quoted a balance and then,
+  // asked to elaborate, said it could not stand behind a number, which reads
+  // as retracting its own answer. A figure we already stated in this thread
+  // came out of the books by the same door these facts did — it is grounded
+  // by definition, and the risk this reviewer exists for (an INVENTED number)
+  // does not apply to one we produced ourselves.
+  //
+  // They go into `conversationFacts`, a SEPARATE list from `facts` — not
+  // folded in. `groundedNumbers` cannot tell a rate from an amount inside a
+  // fact string, so a past answer that merely mentions "50% of transactions"
+  // would, mixed into `facts`, license a later invented "your rate is 50%".
+  // `conversationFacts` only ever widens `knownAmounts`; a rate still has to
+  // come from the jurisdiction pack. See consultation-review.ts.
+  //
+  // The user's questions are deliberately NOT included — a figure the user
+  // typed is a claim, not evidence, and admitting it here would let "I made
+  // CA$400,000 last year" license the advisor to assert CA$400,000 about
+  // their books. It can still reach the reviewer one hop later if a DATA
+  // skill's own answer echoes a number the user supplied — e.g. a what-if
+  // scenario answering "$5,000/mo" back to whoever typed "$5,000/mo" — and
+  // that is accepted: the figure originated with the user, was never stated
+  // by the model, and this reviewer exists to stop the model inventing tax
+  // figures, not to erase numbers the user handed it.
+  //
+  // Raw answer text, no reformatting: the extractor pulls every number out of
+  // a fact string, so "Cash: CA$16,926.10" grounds CA$16,926.10 as it stands
+  // — pinned in consultation-review.test.ts.
   const grounding: GroundingContext = {
     jurisdiction: tenantConfig?.jurisdiction || 'us',
     facts: [
@@ -196,6 +244,7 @@ async function brainAccountantFallback(
       personalProfileContext,
       pastFilingContext,
     ].filter(Boolean) as string[],
+    conversationFacts: recentTurns.map((c) => c.answer),
     // Same lines the model was handed. One source, so what it was told to
     // quote and what the reviewer accepts cannot drift apart.
     jurisdictionRates: statutory.lines,
@@ -209,7 +258,7 @@ async function brainAccountantFallback(
       // Verify before the user sees it. This path is free-text out of an LLM
       // straight into a financial conversation, and it is where the invented
       // "save ~$800" and the IRS-quoted-to-a-Canadian both reached production.
-      const first = reviewConsultation(draft, grounding);
+      const first = reviewConsultation(draft, grounding, opts);
       if (first.verdict === 'pass') return draft;
 
       console.warn(
@@ -226,7 +275,7 @@ async function brainAccountantFallback(
           await callGemini(`${systemPrompt}\n\n${repairBrief(first.findings)}`, userMessage, 220)
         )?.trim();
         if (repaired) {
-          const second = reviewConsultation(repaired, grounding);
+          const second = reviewConsultation(repaired, grounding, opts);
           if (second.verdict === 'pass') return repaired;
           console.warn(
             '[brainAccountantFallback] repair still failed:',
@@ -1750,6 +1799,7 @@ async function handleAgentMessageCore(
   replyLocale = resolveReplyLocale({
     text,
     previousUserTexts: conversation.map((c: any) => String(c?.question ?? '')),
+    previousAssistantTexts: conversation.map((c: any) => String(c?.answer ?? '')),
     tenantLocale: replyConfig?.locale ?? null,
   });
   t = replyT({ locale: replyLocale });
@@ -1972,10 +2022,26 @@ async function handleAgentMessageCore(
     // is the classifier's CATCH-ALL, and the ultimate fallback returns it at
     // confidence ≈ 0.3. Hard-coding 'consultation' therefore handed "hello",
     // "thanks" and "ok" a prompt that instructs the model to explain a tax
-    // rule, and then ran the consultation reviewer over the result — whose
-    // "a reply that is only a question is the clarify-loop failure" rule
-    // REPAIRS a greeting into "I can look this up against your books, but…",
-    // three LLM calls to make "hello" worse.
+    // rule.
+    //
+    // Choosing the prompt was only half of it, and shipping that half alone
+    // fixed nothing the user could see. The REVIEWER still ran with its
+    // consultative default, whose "a reply that is only a question is the
+    // clarify-loop failure" rule fires on exactly the right answer here: the
+    // model's reply to "hello" IS a short question. So the greeting was
+    // flagged `no-answer`, repaired (into another short question), flagged
+    // again, and replaced with safeFallback() — three LLM calls to answer
+    // "hello" with "I can look this up against your books, but I don't want
+    // to quote you a number I can't stand behind…". Verified in prod on
+    // 2026-09-13 for "hello", "cancel" and "Give me more details".
+    //
+    // Hence `allowQuestionOnly` below, for BOTH modes. This is the bucket
+    // where a question back is a legitimate reply — a bare greeting has
+    // nothing to answer, and an under-specified follow-up has to be narrowed
+    // before it can be. The consultative-triage call at Step 2.6 keeps the
+    // strict default: there the user did ask something answerable, and asking
+    // them back is the failure. Every other check — invented amounts,
+    // unverified rates, another country's tax authority — still runs here.
     //
     // Positive evidence only, the same way triage decides. The evidence here
     // is the classifier's own score: a turn triage had already called
@@ -1993,7 +2059,7 @@ async function handleAgentMessageCore(
     const answer = await brainAccountantFallback(
       ctx.callGemini, resolvedText, conversation, pastFilingContext,
       personalProfileContext, tenantConfig, tenantId, groundingFacts,
-      mode,
+      mode, { allowQuestionOnly: true },
     );
     // Awaited: a fire-and-forget write immediately before `return` can be
     // dropped when a serverless runtime freezes the function on response, and

@@ -1,7 +1,9 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { buildTestContext } from './helpers/test-context';
+import type { LLMFixture } from './helpers/mock-llm';
+import { repairBrief } from '../consultation-review';
 
 /**
  * One line out of each of the two prompts in `brainAccountantFallback`, so a
@@ -11,6 +13,16 @@ import { buildTestContext } from './helpers/test-context';
  */
 const CONSULTATION_MARKER = 'asking you to explain something about tax';
 const UNCLEAR_MARKER = 'could not confidently understand';
+
+/**
+ * The first line of the repair brief, taken from the reviewer itself rather
+ * than retyped — so a test can assert that NO repair round-trip happened
+ * without pinning wording that lives in another file.
+ */
+const REPAIR_MARKER = repairBrief([]).split('\n')[0];
+
+/** The exact string production answered "hello" with. */
+const SAFE_FALLBACK_FRAGMENT = /can't stand behind/i;
 
 /**
  * `general-question` is a conversation, not an HTTP call.
@@ -87,7 +99,9 @@ const GENERAL_QUESTION = {
   parameters: { question: 'string' },
 };
 
-function setup(overrides: { text?: string; confidence?: number } = {}) {
+function setup(
+  overrides: { text?: string; confidence?: number; fixtures?: LLMFixture[] } = {},
+) {
   const text = overrides.text ?? 'Give me more details';
   const built = buildTestContext({
     text,
@@ -101,6 +115,9 @@ function setup(overrides: { text?: string; confidence?: number } = {}) {
     },
     skills: [GENERAL_QUESTION],
     llmFixtures: [
+      // Caller fixtures first: `buildMockGemini` takes the first match, so a
+      // test can pin the advisor's reply without restating the defaults.
+      ...(overrides.fixtures ?? []),
       {
         userMatch: 'more details',
         response: 'Those 61 unmatched transactions are bank lines with no expense or invoice attached yet.',
@@ -223,6 +240,65 @@ describe('general-question is answered with the thread in view', () => {
     for (const c of creates) expect(c).toContain('await');
   });
 
+  it('answers a greeting with the greeting, not the safe fallback', async () => {
+    // The prod regression (2026-09-13): "hello" came back as "I can look this
+    // up against your books, but I don't want to quote you a number I can't
+    // stand behind…". Choosing the 'unclear' PROMPT was not enough — the
+    // reviewer still ran with the consultative default, and its "a reply that
+    // is only a question is the clarify-loop failure" rule repaired the
+    // model's perfectly good greeting into safeFallback().
+    const GREETING = 'Hello! How can I help you with your accounting today?';
+    const { req, ctx, llmCalls } = setup({
+      text: 'hello',
+      confidence: 0.3,
+      fixtures: [{ userMatch: 'hello', response: GREETING }],
+    });
+
+    const { handleAgentMessage } = await import('../agent-brain');
+    const res = await handleAgentMessage(req as any, ctx as any);
+
+    expect(res.success).toBe(true);
+    // The model's own greeting, verbatim. (First contact on a human channel
+    // also prepends the one-time persona introduction ahead of a bare
+    // greeting — composeFirstContact — so the advisor's reply is the tail.)
+    expect(res.data.message.endsWith(GREETING), res.data.message).toBe(true);
+    expect(res.data.message).not.toMatch(SAFE_FALLBACK_FRAGMENT);
+
+    // Exactly one call reached the advisor, and none of them was a repair —
+    // the draft passed review first time. (The persona voice makes its own
+    // call, so count the advisor's prompt specifically.)
+    const advisorCalls = llmCalls.history.filter((h) => h.system.includes(UNCLEAR_MARKER));
+    expect(advisorCalls, 'the advisor was asked more than once').toHaveLength(1);
+    expect(
+      llmCalls.history.some((h) => h.system.includes(REPAIR_MARKER)),
+      'a repair round-trip ran on a valid greeting',
+    ).toBe(false);
+  });
+
+  it('returns a follow-up answer that ends in a question verbatim', async () => {
+    // "Give me more details" is under-specified by design. An answer plus one
+    // narrowing question is the right reply to it, and must not be repaired
+    // away either — same bucket, the consultative mode of it.
+    const ANSWER =
+      'Those 61 unmatched transactions are bank lines with nothing attached yet. '
+      + 'Want me to start with the largest ones?';
+    const { req, ctx, llmCalls } = setup({
+      fixtures: [{ userMatch: 'more details', response: ANSWER }],
+    });
+
+    const { handleAgentMessage } = await import('../agent-brain');
+    const res = await handleAgentMessage(req as any, ctx as any);
+
+    // Verbatim, and leading — the one-time persona introduction trails an
+    // answer rather than replacing it.
+    expect(res.data.message.startsWith(ANSWER), res.data.message).toBe(true);
+    expect(res.data.message).not.toMatch(SAFE_FALLBACK_FRAGMENT);
+    expect(
+      llmCalls.history.some((h) => h.system.includes(REPAIR_MARKER)),
+      'a repair round-trip ran on a valid follow-up answer',
+    ).toBe(false);
+  });
+
   it('survives a grounding lookup that throws, rather than failing the turn', async () => {
     const { req, ctx, executeClassification } = setup();
     ctx.buildGroundingFacts = vi.fn(async () => {
@@ -235,5 +311,118 @@ describe('general-question is answered with the thread in view', () => {
     expect(res.success).toBe(true);
     expect(res.data.message).toContain('61 unmatched');
     expect(executeClassification).not.toHaveBeenCalled();
+  });
+});
+
+describe('a follow-up may repeat a figure the assistant already stated', () => {
+  /**
+   * Production, 2026-09-13, minutes after the greeting fix above.
+   *
+   *   user: What is my cash balance?
+   *   bot:  You have CA$233,786.10 on hand. • Accounts Receivable:
+   *         CA$216,860.00 • Cash: CA$16,926.10      (query-finance, off the ledger)
+   *   user: Give me more details
+   *   bot:  I can look this up against your books, but I don't want to quote
+   *         you a number I can't stand behind…       (safeFallback)
+   *
+   *   [brainAccountantFallback] draft failed review:
+   *     ungrounded-amount(CA$16,926.10), ungrounded-amount(CA$216,860.00)
+   *   [brainAccountantFallback] repair still failed: ungrounded-amount
+   *
+   * The advisor's draft was right. The grounding context just did not contain
+   * the conversation, so the numbers the assistant had produced ITSELF one
+   * turn earlier read as invented. Note what the user sees: the bot quotes a
+   * cash balance and then, asked to elaborate, says it cannot stand behind a
+   * number — which reads as the first answer being retracted.
+   */
+  const CASH_ANSWER =
+    'You have CA$233,786.10 on hand. • Accounts Receivable: CA$216,860.00 • Cash: CA$16,926.10';
+  const DRAFT =
+    'Your cash is CA$16,926.10 and receivables are CA$216,860.00; together CA$233,786.10.';
+
+  const CASH_THREAD = {
+    id: 'thread-1',
+    lastActiveAt: new Date(),
+    activeEntities: [],
+    parkedFills: [],
+    turns: [
+      { role: 'user', text: 'What is my cash balance?', at: '2026-09-13T15:20:00.000Z' },
+      { role: 'bot', text: CASH_ANSWER, at: '2026-09-13T15:20:04.000Z', intent: 'query-finance' },
+    ],
+  };
+
+  // Swap the thread for this block only, then put the file's default back —
+  // the tests above read the briefing thread and run in the same registry.
+  let restoreThread: (() => void) | null = null;
+  beforeEach(async () => {
+    const { db } = await import('../db/client.js');
+    const fn = db.abConvThread.findFirst as any;
+    const original = fn.getMockImplementation();
+    restoreThread = () => { fn.mockReset(); fn.mockImplementation(original); };
+    fn.mockImplementation(async () => CASH_THREAD);
+  });
+  afterEach(() => { restoreThread?.(); restoreThread = null; });
+
+  function cashSetup() {
+    const built = setup({ text: 'Give me more details', fixtures: [{ userMatch: 'more details', response: DRAFT }] });
+    // Deliberately NOT the cash figures. The ledger snapshot is what the
+    // advisor normally grounds on; stripping it is what makes the previous
+    // ASSISTANT TURN the only possible source for those three numbers, so a
+    // pass here can only mean the conversation reached the reviewer.
+    built.ctx.buildGroundingFacts = vi.fn(async () => ['Business: consulting, sole proprietor.']);
+    return built;
+  }
+
+  it('returns the draft verbatim instead of the safe fallback', async () => {
+    const { req, ctx } = cashSetup();
+    const { handleAgentMessage } = await import('../agent-brain');
+    const res = await handleAgentMessage(req as any, ctx as any);
+
+    expect(res.success).toBe(true);
+    expect(res.data.message).toContain(DRAFT);
+    expect(res.data.message).not.toContain("can't stand behind");
+    expect(res.data.message).not.toMatch(SAFE_FALLBACK_FRAGMENT);
+  });
+
+  it('does not spend a repair round-trip on figures we produced ourselves', async () => {
+    const { req, ctx, llmCalls } = cashSetup();
+    const { handleAgentMessage } = await import('../agent-brain');
+    await handleAgentMessage(req as any, ctx as any);
+
+    expect(
+      llmCalls.history.some((h: any) => h.system.includes(REPAIR_MARKER)),
+      'a repair ran on a draft that only restated the previous answer',
+    ).toBe(false);
+  });
+
+  it('does not ground on the USER\'s own numbers', async () => {
+    // Only the assistant side of the thread goes in. A figure the USER typed
+    // is a claim, not evidence — echoing it back as if the books supported it
+    // is how an unverified number acquires our authority. So the same
+    // mechanism, with the number on the other side of the thread, must still
+    // block.
+    const { db } = await import('../db/client.js');
+    (db.abConvThread.findFirst as any).mockImplementation(async () => ({
+      ...CASH_THREAD,
+      turns: [
+        { role: 'user', text: 'I made CA$400,000 last year.', at: '2026-09-13T15:20:00.000Z' },
+        { role: 'bot', text: 'Noted — let me pull your books up.', at: '2026-09-13T15:20:04.000Z' },
+      ],
+    }));
+
+    const { req, ctx } = setup({
+      fixtures: [{ userMatch: 'more details', response: 'On CA$400,000 of revenue your instalments would step up.' }],
+    });
+    ctx.buildGroundingFacts = vi.fn(async () => ['Business: consulting, sole proprietor.']);
+
+    const { handleAgentMessage } = await import('../agent-brain');
+    const res = await handleAgentMessage(req as any, ctx as any);
+
+    expect(res.success).toBe(true);
+    expect(res.data.message).not.toContain('CA$400,000');
+    // Blocked with nothing to repair to (the only grounded fact is the
+    // profile line, which contains no figures at all) — the turn must land on
+    // the safe fallback, not silently mangle or drop the reply.
+    expect(res.data.message).toMatch(SAFE_FALLBACK_FRAGMENT);
   });
 });

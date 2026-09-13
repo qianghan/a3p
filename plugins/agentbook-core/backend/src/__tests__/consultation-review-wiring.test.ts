@@ -84,6 +84,37 @@ describe('the advisory path verifies before it answers', () => {
     expect(fallbackBody).toMatch(/pastFilingContext/);
   });
 
+  it('grounds on the assistant\'s own recent answers, not only the ledger', () => {
+    // Prod 2026-09-13: "Give me more details" after a cash-balance answer was
+    // blocked as `ungrounded-amount(CA$16,926.10)` — the figure the assistant
+    // had just stated itself. The conversation was in the PROMPT and not in
+    // the reviewer's facts, so the two disagreed about what was known.
+    //
+    // Pinned to the exact expression, in its OWN field: `conversationFacts`,
+    // not folded into `facts`. `groundedNumbers` cannot tell a rate from an
+    // amount inside a fact string — mixing a past answer into `facts` would
+    // let it widen `knownRates` too, and "due April 30" would then license an
+    // invented "your rate is 30%" (I1 / #404, wearing a different hat). This
+    // guard would catch that regression, not just a missing extraction.
+    expect(fallbackBody).toMatch(/conversationFacts:\s*recentTurns\.map\(\(c\)\s*=>\s*c\.answer\)/);
+    // Scoped to the `facts:` ARRAY itself (up to its closing bracket), not
+    // just "somewhere within N characters of the token" — `conversationFacts:`
+    // sits right after `facts: [...]` and would falsely satisfy a window-based
+    // check just by being nearby.
+    const factsArrayMatch = fallbackBody.match(/facts:\s*\[[^\]]*\]/);
+    expect(factsArrayMatch, 'the `facts:` array must exist').not.toBeNull();
+    const factsArray = factsArrayMatch![0];
+    expect(
+      factsArray,
+      'the assistant\'s answers must widen knownAmounts only, via conversationFacts — ' +
+      'never folded into facts, which also widens knownRates',
+    ).not.toMatch(/\.map\(\(c\)\s*=>\s*c\.answer\)/);
+    expect(
+      factsArray,
+      'the questions the USER typed are not evidence and must stay out of the facts',
+    ).not.toMatch(/c\.question/);
+  });
+
   it('feeds the model the SAME lines the reviewer checks against', () => {
     // If the prompt context and the verifier's fact list can diverge, the
     // model gets told things the reviewer will then block — the worst of both.

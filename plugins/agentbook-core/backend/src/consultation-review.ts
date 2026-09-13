@@ -80,12 +80,55 @@ export interface GroundingContext {
    * round number about the user's own income and pass.
    */
   jurisdictionAmounts?: string[];
+  /**
+   * Prior ASSISTANT turns in this thread, raw text, as separate evidence from
+   * `facts`.
+   *
+   * A figure the assistant already stated is safe to repeat — it came out of
+   * the ledger by the same door `facts` did. But `groundedNumbers` is
+   * unit-blind: it cannot tell "the deadline is April 30" from "your rate is
+   * 30%", so a fact string that merely mentions a date or a count would, if
+   * mixed into `facts`, license ANY draft rate matching one of its numbers.
+   * That is the #404 failure class again, wearing a different hat: an
+   * assistant answer widening `knownRates` instead of the model inventing the
+   * rate outright.
+   *
+   * So this feeds `knownAmounts` only, never `knownRates`. A rate must still
+   * come from `jurisdictionRates` — prior conversation, ours or the user's,
+   * is never a source of truth for what a tax rate is.
+   */
+  conversationFacts?: string[];
 }
 
 export interface ReviewResult {
   /** pass: send it. repair: fix the findings and re-review. block: do not send. */
   verdict: 'pass' | 'repair' | 'block';
   findings: ReviewFinding[];
+}
+
+export interface ReviewOptions {
+  /**
+   * Whether a reply that is ONLY a question is acceptable here.
+   *
+   * Default false, which is the consultative-triage contract: the user asked
+   * an advisory question, and answering it with another question is the
+   * clarify loop this module exists to stop.
+   *
+   * True belongs to the classifier's CATCH-ALL bucket, where a question back
+   * IS the answer. "hello" should get "Hello! How can I help you with your
+   * accounting today?", and "Give me more details" with nothing to attach it
+   * to should get a narrowing question. Reviewed strictly, both were found to
+   * be `no-answer`, repaired into another short question, and then replaced
+   * with `safeFallback()` — so production answered "hello" with "I can look
+   * this up against your books, but I don't want to quote you a number I
+   * can't stand behind…" (2026-09-13).
+   *
+   * It waives EXACTLY that one finding. Every grounding check — invented
+   * amounts, unverified rates, the wrong country's tax authority — is
+   * untouched, because a greeting that quotes a made-up figure is still the
+   * failure this file was written for.
+   */
+  allowQuestionOnly?: boolean;
 }
 
 /**
@@ -140,12 +183,20 @@ function toNumber(fragment: string): number | null {
  * we have the user's books open, and refusing to say it does not make anyone
  * safer. Those come from `jurisdictionRates`, which the pack supplies.
  */
-export function reviewDeterministic(draft: string, ctx: GroundingContext): ReviewFinding[] {
+export function reviewDeterministic(
+  draft: string,
+  ctx: GroundingContext,
+  opts: ReviewOptions = {},
+): ReviewFinding[] {
   const findings: ReviewFinding[] = [];
   // Two sets, because the two checks answer different questions. Money must
   // be the user's own or a published threshold; a rate may additionally be
   // any rate the pack publishes.
-  const knownAmounts = groundedNumbers([...ctx.facts, ...(ctx.jurisdictionAmounts ?? [])]);
+  const knownAmounts = groundedNumbers([
+    ...ctx.facts,
+    ...(ctx.jurisdictionAmounts ?? []),
+    ...(ctx.conversationFacts ?? []),
+  ]);
   const knownRates = groundedNumbers([
     ...ctx.facts,
     ...(ctx.jurisdictionRates ?? []),
@@ -192,13 +243,17 @@ export function reviewDeterministic(draft: string, ctx: GroundingContext): Revie
   // An advisory turn that only asks a question is the clarify-loop failure:
   // the user asked twice and got interrogated twice. A question is fine AFTER
   // an answer, not instead of one.
+  //
+  // Only on an ADVISORY turn, though — see ReviewOptions.allowQuestionOnly.
+  // The caller that routes greetings and under-specified follow-ups waives
+  // this one finding, because there the question is the correct reply.
   const trimmed = draft.trim();
   const sentences = trimmed.split(/[.!?。！？]\s*/).filter((s) => s.trim().length > 0);
   const onlyQuestions =
     sentences.length > 0 &&
     /[?？]\s*$/.test(trimmed) &&
     sentences.length <= 2;
-  if (onlyQuestions) {
+  if (onlyQuestions && !opts.allowQuestionOnly) {
     findings.push({
       kind: 'no-answer',
       span: trimmed.slice(0, 80),
@@ -226,8 +281,12 @@ export function verdictFor(findings: ReviewFinding[]): ReviewResult['verdict'] {
   return 'pass';
 }
 
-export function reviewConsultation(draft: string, ctx: GroundingContext): ReviewResult {
-  const findings = reviewDeterministic(draft, ctx);
+export function reviewConsultation(
+  draft: string,
+  ctx: GroundingContext,
+  opts: ReviewOptions = {},
+): ReviewResult {
+  const findings = reviewDeterministic(draft, ctx, opts);
   return { verdict: verdictFor(findings), findings };
 }
 

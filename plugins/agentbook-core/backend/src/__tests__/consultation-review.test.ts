@@ -243,3 +243,131 @@ describe('a rate the pack publishes is grounded — and only from the pack', () 
     expect(r.verdict).toBe('block');
   });
 });
+
+describe('the catch-all bucket is allowed to answer with a question', () => {
+  /**
+   * The no-answer rule was written for the consultative-triage path: the user
+   * asked an advisory question and must not be interrogated back. It was then
+   * applied to the classifier's CATCH-ALL bucket too, where the correct reply
+   * to "hello" IS a short question — so the reviewer repaired greetings into
+   * safeFallback(), and production answered "hello" with "I can look this up
+   * against your books, but I don't want to quote you a number I can't stand
+   * behind…". The option lets the CALLER say which of the two jobs this is.
+   */
+  const GREETING = 'Hello! How can I help you with your accounting today?';
+
+  it('flags the greeting by default — the consultative path is unchanged', () => {
+    expect(reviewDeterministic(GREETING, CA_CTX).map((f) => f.kind)).toContain('no-answer');
+    expect(reviewConsultation(GREETING, CA_CTX).verdict).toBe('repair');
+  });
+
+  it('passes the greeting when the caller allows a question-only reply', () => {
+    expect(
+      reviewDeterministic(GREETING, CA_CTX, { allowQuestionOnly: true }).map((f) => f.kind),
+    ).not.toContain('no-answer');
+    expect(reviewConsultation(GREETING, CA_CTX, { allowQuestionOnly: true }).verdict).toBe('pass');
+  });
+
+  it('still blocks an invented figure with the option on', () => {
+    // Only the no-answer finding is waived. Every grounding check — the ones
+    // that stop a wrong number reaching a user — stays on.
+    const draft = 'That would save you about $800 — want me to check the dates?';
+    const r = reviewConsultation(draft, CA_CTX, { allowQuestionOnly: true });
+    expect(r.verdict).toBe('block');
+    expect(r.findings.map((f) => f.kind)).toContain('ungrounded-amount');
+    expect(r.findings.map((f) => f.kind)).not.toContain('no-answer');
+  });
+
+  it('still catches the wrong tax authority with the option on', () => {
+    const r = reviewConsultation('Should I look at your Schedule C?', CA_CTX, { allowQuestionOnly: true });
+    expect(r.verdict).toBe('block');
+    expect(r.findings.map((f) => f.kind)).toContain('foreign-authority');
+  });
+});
+
+describe('a figure the assistant already stated in this thread is grounded', () => {
+  /**
+   * Production, 2026-09-13. Turn 1, "What is my cash balance?", was answered
+   * by the query-finance skill straight off the ledger:
+   *
+   *   You have CA$233,786.10 on hand.
+   *   • Accounts Receivable: CA$216,860.00
+   *   • Cash: CA$16,926.10
+   *
+   * Turn 2, "Give me more details", routes to the advisor instead. Its draft
+   * restated those three figures — and the reviewer blocked two of them as
+   * `ungrounded-amount`, because the grounding context was built from the
+   * ledger snapshot and the profile and did NOT include the conversation. The
+   * repair failed identically and the user got safeFallback().
+   *
+   * A number the assistant itself produced one turn ago is not the risk this
+   * module exists for: it came out of the books by the same door the facts
+   * do. The fix is to hand the recent ASSISTANT answers in as facts — which
+   * only works if the extractor reads them, so that is what these two pin.
+   * The first proves the extraction path by failing without the fact.
+   */
+  const ASSISTANT_TURN =
+    'You have CA$233,786.10 on hand. • Accounts Receivable: CA$216,860.00 • Cash: CA$16,926.10';
+  const FOLLOW_UP_DRAFT =
+    'Your cash is CA$16,926.10 and receivables are CA$216,860.00; together CA$233,786.10.';
+  const PROFILE = 'Business: consulting, sole proprietor in Ontario.';
+
+  it('blocks the repeat when the thread is not among the facts', () => {
+    const r = reviewConsultation(FOLLOW_UP_DRAFT, { jurisdiction: 'ca', facts: [PROFILE] });
+    expect(r.verdict).toBe('block');
+    expect(r.findings.map((f) => f.span)).toContain('CA$16,926.10');
+    expect(r.findings.map((f) => f.span)).toContain('CA$216,860.00');
+  });
+
+  it('passes the repeat when the assistant turn is one of the conversationFacts', () => {
+    // The answer text goes in RAW — no re-formatting on the way. If the
+    // extractor ever stopped reading "Cash: CA$16,926.10" out of a fact
+    // string, the caller's normalisation would be the thing to change, and
+    // this is the test that would say so.
+    const r = reviewConsultation(FOLLOW_UP_DRAFT, {
+      jurisdiction: 'ca',
+      facts: [PROFILE],
+      conversationFacts: [ASSISTANT_TURN],
+    });
+    expect(r.verdict).toBe('pass');
+    expect(r.findings).toHaveLength(0);
+  });
+
+  it('still blocks a figure the thread never contained', () => {
+    // Grounding on our own past answers widens what may be repeated. It must
+    // not widen into "any number is fine now" — a total the assistant never
+    // stated is still invented.
+    const r = reviewConsultation(
+      'Your cash is CA$16,926.10, so you could set aside CA$41,000 for tax.',
+      { jurisdiction: 'ca', facts: [PROFILE], conversationFacts: [ASSISTANT_TURN] },
+    );
+    expect(r.verdict).toBe('block');
+    expect(r.findings.map((f) => f.span)).toContain('CA$41,000');
+  });
+
+  it('never widens knownRates — a prior answer cannot license an invented rate', () => {
+    // I1 / #404 again, wearing a different hat: `groundedNumbers` is
+    // unit-blind, so if a prior answer's numbers were mixed into `facts`
+    // wholesale, "due April 30, 2026" would license a later "your rate is
+    // 30%". `conversationFacts` must widen `knownAmounts` only.
+    const r = reviewConsultation('Your rate is 30%.', {
+      jurisdiction: 'ca',
+      facts: [PROFILE],
+      conversationFacts: ['Your 2025 return is due April 30, 2026.'],
+    });
+    // unverified-rate alone downgrades to 'repair', not 'block' (see
+    // verdictFor) — the point here is that it is NOT 'pass': the April 30
+    // date in conversationFacts must not have licensed the 30% rate.
+    expect(r.verdict).not.toBe('pass');
+    expect(r.findings.map((f) => f.kind)).toContain('unverified-rate');
+  });
+
+  it('still grounds an amount the assistant stated, via conversationFacts', () => {
+    const r = reviewConsultation('Cash: CA$16,926.10', {
+      jurisdiction: 'ca',
+      facts: [PROFILE],
+      conversationFacts: ['Cash: CA$16,926.10'],
+    });
+    expect(r.findings.map((f) => f.kind)).not.toContain('ungrounded-amount');
+  });
+});

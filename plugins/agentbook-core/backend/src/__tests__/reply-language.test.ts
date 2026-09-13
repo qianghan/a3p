@@ -73,6 +73,56 @@ describe('resolveReplyLocale', () => {
   it('a Spanish message on an en-US tenant is not detected as French', () => {
     expect(resolveReplyLocale({ text: 'Registra un gasto de 42 euros', tenantLocale: 'en-US' })).toBe('en-US');
   });
+
+  describe('falls back to the assistant\'s last reply when every recent user turn is a bare word', () => {
+    it('an English assistant reply pulls an English user off a fr-CA tenant', () => {
+      expect(
+        resolveReplyLocale({
+          text: 'undo',
+          previousUserTexts: ['yes', 'cancel', 'hello'],
+          previousAssistantTexts: [
+            "Nothing is waiting for your confirmation right now. Tell me what you'd like to do.",
+          ],
+          tenantLocale: 'fr-CA',
+        }),
+      ).toBe('en-CA');
+    });
+
+    it('a French assistant reply pulls an English-tenant user into French', () => {
+      expect(
+        resolveReplyLocale({
+          text: 'undo',
+          previousUserTexts: ['yes', 'cancel', 'hello'],
+          previousAssistantTexts: [
+            "Rien n'attend votre confirmation pour le moment. Dites-moi ce que vous voulez faire.",
+          ],
+          tenantLocale: 'en-US',
+        }),
+      ).toBe('fr-CA');
+    });
+
+    it('a detectable USER turn still outranks a newer assistant turn in the other language', () => {
+      expect(
+        resolveReplyLocale({
+          text: 'undo',
+          previousUserTexts: ['yes', 'Categorize them', 'cancel'],
+          previousAssistantTexts: ['Voici vos dépenses du mois pour ce client'],
+          tenantLocale: 'fr-CA',
+        }),
+      ).toBe('en-CA');
+    });
+
+    it('falls through to the tenant locale when nothing anywhere is detectable', () => {
+      expect(
+        resolveReplyLocale({
+          text: 'undo',
+          previousUserTexts: ['yes', 'cancel', 'hello'],
+          previousAssistantTexts: ['ok', 'done'],
+          tenantLocale: 'fr-CA',
+        }),
+      ).toBe('fr-CA');
+    });
+  });
 });
 
 describe('runs in linear time', () => {

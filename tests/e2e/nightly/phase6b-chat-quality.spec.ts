@@ -42,12 +42,21 @@ test.describe('@phase6b-chat-quality', () => {
     await postUpdate('What is my cash balance?');
     const r = await postUpdate('Give me more details');
     expect(r.reply, 'lost the thread (F6)').not.toMatch(/more details about what/i);
+    // The 2026-09-13 regression, exactly: the reviewer's safeFallback() text.
+    // An under-specified follow-up routes to the catch-all bucket, where a
+    // short reply that narrows the question is correct — repairing it into
+    // "I can look this up against your books, but…" is not.
+    expect(r.reply, 'repaired into the safe fallback').not.toMatch(/can't stand behind/i);
     expect(r.reply).toMatch(/cash|balance|receivable|\$/i);
   });
 
   test('"cancel" with nothing pending is answered plainly', async () => {
     const r = await postUpdate('cancel');
     expect(r.reply, 'improvised a question (F7)').not.toMatch(/subscription|invoice, or something else/i);
+    // Even once "cancel" is intercepted before the advisor, the fallback
+    // behind it must stay sane: on 2026-09-13 this turn came back as the
+    // reviewer's safeFallback() text.
+    expect(r.reply, 'repaired into the safe fallback').not.toMatch(/can't stand behind/i);
     expect(r.reply).toMatch(/nothing/i);
   });
 
