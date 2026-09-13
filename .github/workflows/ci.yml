@@ -198,6 +198,26 @@ jobs:
         run: cd apps/web-next && npm run typecheck
         continue-on-error: true   # Pre-existing TS errors — tracked for separate cleanup
 
+      - name: i18n typecheck guard
+        # The enforcing half of the step above. `npm run typecheck` carries
+        # continue-on-error because ~269 errors predate any of this work, so it
+        # can never fail anything — it is there to PRINT the errors. This guard
+        # is what actually blocks, and deliberately has no continue-on-error:
+        #
+        #   * hard zero on the i18n-owned files (see OWNED_PATTERNS)
+        #   * repo-wide ratchet — the count may fall or hold, never grow
+        #
+        # It lives here rather than in the `invariants` job because it runs tsc
+        # over the whole web-next program and belongs with this job's budget;
+        # that job's own comment says the same. Until now nothing in
+        # .github/workflows referenced it at all, so it ran only when someone
+        # remembered to, and main drifted underneath the baseline unnoticed.
+        #
+        # Every step in this job is unconditional, so this one cannot be
+        # silently skipped into a green — an all-steps-skipped job still
+        # reports success, which is how #513 shipped past `Backend Tests`.
+        run: ./bin/i18n-typecheck-guard.sh
+
   # ===========================================================================
   # Shell Tests — Only when apps/web-next/** changed
   # ===========================================================================
