@@ -653,6 +653,10 @@ const CONFIDENCE_ESCALATION_THRESHOLD = 0.55;
  */
 const ESCALATION_EXEMPT_SKILLS = new Set([
   'general-question',
+  // Idempotent and non-destructive: the medium bucket only SUGGESTS, the low
+  // bucket does nothing. A sub-0.55 classifier score used to turn "categorize
+  // my expenses" into a "Proceed?" round-trip for no benefit.
+  'categorize-expenses',
   'query-expenses',
   'query-finance',
   'expense-breakdown',

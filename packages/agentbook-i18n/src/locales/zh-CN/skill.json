@@ -119,6 +119,7 @@
   "pending_review_phrase_other": "**{count}** 笔支出需要您审核：",
   "net_worth_full": "**净资产：{net}**（资产 {assets} − 负债 {liabilities}）。\n本月：收入 {income}，支出 {spending}，储蓄率 {rate}%。",
   "hdr_tax_filing_jurisdiction": "**{year} 年度报税 — {jurisdiction}**",
+  "categorize_failed": "我无法对这些支出进行分类，请重试。",
   "categorize_unsure_one": "我查看了 {count} 笔支出，但无法确定其类别：",
   "categorize_unsure_other": "我查看了 {count} 笔支出，但无法确定它们的类别：",
   "invoice_created_full": "发票已创建{number}{client}{amount}。",

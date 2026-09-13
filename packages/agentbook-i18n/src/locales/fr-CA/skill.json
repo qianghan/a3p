@@ -119,6 +119,7 @@
   "pending_review_phrase_other": "**{count}** dépenses nécessitent votre révision :",
   "net_worth_full": "**Valeur nette : {net}** ({assets} d'actifs − {liabilities} de passifs).\nCe mois-ci : revenus {income}, dépenses {spending}, taux d'épargne {rate} %.",
   "hdr_tax_filing_jurisdiction": "**Déclaration de revenus {year} — {jurisdiction}**",
+  "categorize_failed": "Je n'ai pas pu catégoriser les dépenses. Veuillez réessayer.",
   "categorize_unsure_one": "J'ai examiné {count} dépense mais je n'ai pas pu la catégoriser avec certitude :",
   "categorize_unsure_other": "J'ai examiné {count} dépenses mais je n'ai pas pu les catégoriser avec certitude :",
   "invoice_created_full": "Facture créée{number}{client}{amount}.",

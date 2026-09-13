@@ -119,6 +119,7 @@
   "pending_review_phrase_other": "**{count}** expenses need your review:",
   "net_worth_full": "**Net worth: {net}** ({assets} assets − {liabilities} liabilities).\nThis month: income {income}, spending {spending}, savings rate {rate}%.",
   "hdr_tax_filing_jurisdiction": "**Tax Filing {year} — {jurisdiction}**",
+  "categorize_failed": "I couldn't categorize the expenses. Please try again.",
   "categorize_unsure_one": "I reviewed {count} expense but couldn't categorize it confidently:",
   "categorize_unsure_other": "I reviewed {count} expenses but couldn't categorize them confidently:",
   "invoice_created_full": "Invoice created{number}{client}{amount}.",

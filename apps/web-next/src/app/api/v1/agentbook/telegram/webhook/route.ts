@@ -27,7 +27,7 @@ import { getCashPosition } from '@agentbook-core/cash-position';
 import { generateFilingDraft } from '@/lib/tax-fast-track-draft';
 import { runAgentLoop, type BotContext, type ActiveExpense as BotActive } from '@/lib/agentbook-bot-agent';
 import { parseDateHint } from '@/lib/agentbook-time-aggregator';
-import { autoCategorizeForTenant, getPendingSuggestions, dropPendingSuggestion } from '@/lib/agentbook-auto-categorize';
+import { getPendingSuggestions, dropPendingSuggestion } from '@/lib/agentbook-auto-categorize';
 import { updateMileageEntry } from '@/lib/agentbook-mileage-service';
 import { backfillExpenseJournalEntry } from '@/lib/agentbook-expense-ledger';
 import { formatCurrencyCents } from '@/lib/jurisdiction-currency';
@@ -3018,27 +3018,6 @@ function getBot(): Bot {
       || (startsLikeReview && mentionsPending)
     ) {
       await sendPendingReviewBatch(tenantId, ctx);
-      return;
-    }
-
-    // "categorize" / "auto-categorize now" → run the auto-categorizer
-    // on demand instead of waiting for the morning cron.
-    if (/^(auto[\- ]?)?categori[sz]e( now| my expenses)?$/i.test(lower)) {
-      const result = await autoCategorizeForTenant(tenantId, { force: true });
-      const lines: string[] = [];
-      if (result.appliedCount > 0) {
-        lines.push(botT('bot.auto_categorized_expense', { count: result.appliedCount }));
-      }
-      if (result.pending.length > 0) {
-        lines.push(botT('bot.need_a_quick_check_type_review_to', { count: result.pending.length }));
-      }
-      if (result.skippedCount > 0 && result.appliedCount === 0 && result.pending.length === 0) {
-        lines.push(botT('bot.nothing_i_can_categorize_automatically_expense_need', { count: result.skippedCount }));
-      }
-      if (lines.length === 0) {
-        lines.push(botT('bot.all_expenses_already_categorized_nothing_to_do'));
-      }
-      await ctx.reply(lines.join('\n'), { parse_mode: 'HTML' });
       return;
     }
 
