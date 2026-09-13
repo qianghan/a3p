@@ -94,6 +94,47 @@ describe('projectScenario', () => {
     expect(r.impact.monthlyNetChangeCents).toBe(0);
   });
 
+  it('flags a typed scenario whose parameters never arrived, per type', () => {
+    // A typed scenario with no figure in it is the same lie as `custom`, one
+    // branch further in: `monthlyCostCents || 0` adds nothing, the projection
+    // reports the untouched baseline, and "what if I hire someone?" (no salary
+    // named) answered "Monthly net: $6,000.00 -> $6,000.00 ($0.00/mo)". The
+    // model drops the params whenever the user did not state a number, so this
+    // is the COMMON shape, not an edge case.
+    const cases: Array<[string, Record<string, any>]> = [
+      ['add_expense', {}],
+      ['hire', {}],
+      ['add_revenue', {}],
+      ['buy_equipment', { depreciationYears: 5 }],
+      ['lose_client', {}],
+    ];
+    for (const [type, params] of cases) {
+      const r = projectScenario({ ...base, clients: [{ name: 'Acme Corp', billedCents: 2_400_000 }] }, { type, params }, flatTax, 2026);
+      expect(r.notModelled, `${type} with no parameters`).toBe('missing_parameters');
+      expect(r.impact.monthlyNetChangeCents, `${type} impact`).toBe(0);
+    }
+  });
+
+  it('treats a zero figure as no figure', () => {
+    // `{"type":"hire","params":{"monthlyCostCents":0}}` is what the model
+    // emits when it invents a shape for a sentence with no number in it.
+    const r = projectScenario(base, { type: 'hire', params: { monthlyCostCents: 0 } }, flatTax, 2026);
+    expect(r.notModelled).toBe('missing_parameters');
+  });
+
+  it('leaves notModelled unset when the figures are there', () => {
+    for (const [type, params] of [
+      ['add_expense', { monthlyCostCents: 100_000 }],
+      ['hire', { monthlyCostCents: 500_000 }],
+      ['add_revenue', { monthlyRevenueCents: 100_000 }],
+      ['add_revenue', { monthlyCostCents: 100_000 }],
+      ['buy_equipment', { amountCents: 1_200_000 }],
+    ] as Array<[string, Record<string, any>]>) {
+      const r = projectScenario(base, { type, params }, flatTax, 2026);
+      expect(r.notModelled, `${type} ${JSON.stringify(params)}`).toBeUndefined();
+    }
+  });
+
   it('leaves notModelled unset when the client did match', () => {
     const r = projectScenario(
       { ...base, clients: [{ name: 'Acme Corp', billedCents: 2_400_000 }] },
@@ -212,6 +253,51 @@ describe('scenario-wiring: what the chat handler does with a scenario it could n
   it('tells the user which client it could not find, rather than showing $0', () => {
     expect(HANDLER).toMatch(/notModelled === 'client_not_found'/);
     expect(HANDLER).toContain("t('skill.scenario_client_not_found'");
+  });
+
+  it('declines on ANY notModelled reason, not just the client one', () => {
+    // `client_not_found` was the only value the union had when this handler
+    // was written. A second reason (`missing_parameters`) that the handler
+    // does not branch on prints the baseline as a real projection again, so
+    // the check has to be on the field, not on one of its values.
+    expect(HANDLER).toMatch(/if \(result\.notModelled\)/);
+  });
+
+  it('checks notModelled BEFORE it formats any number', () => {
+    const guard = HANDLER.search(/if \(result\.notModelled\)/);
+    expect(guard).toBeGreaterThan(0);
+    expect(guard).toBeLessThan(HANDLER.indexOf('formatScenarioReply('));
+    expect(guard).toBeLessThan(HANDLER.indexOf('scenarioNarrative('));
+  });
+
+  it('records both declines in the conversation, like the answers they replace', () => {
+    // A decline the thread never saw is a turn the next message cannot refer
+    // back to ("ok, $5K/month" after "I could not model that" lands with no
+    // question attached), and it is invisible in the chat-quality logs — the
+    // only place a rising decline rate would ever show up.
+    //
+    // Both declines route through one helper, so this checks the helper does
+    // the write AND that each branch reaches it: asserting only the helper
+    // would still pass on a branch that returned its own bare object.
+    const decliner = HANDLER.slice(
+      HANDLER.indexOf('const declineScenario ='),
+      HANDLER.indexOf('const scenarioText ='),
+    );
+    expect(decliner).toContain('abConversation.create');
+    expect(decliner).toContain('[simulate-scenario] declined:');
+    expect(decliner).toContain("skillUsed: 'simulate-scenario'");
+
+    const customDecline = HANDLER.slice(
+      HANDLER.indexOf("input.type === 'custom'"),
+      HANDLER.indexOf('const result = projectScenario('),
+    );
+    expect(customDecline).toContain('declineScenario(');
+
+    const notModelledDecline = HANDLER.slice(
+      HANDLER.search(/if \(result\.notModelled\)/),
+      HANDLER.indexOf('scenarioNarrative('),
+    );
+    expect(notModelledDecline).toContain('declineScenario(');
   });
 
   it('emits a chart on exactly one path — the one that actually projected', () => {

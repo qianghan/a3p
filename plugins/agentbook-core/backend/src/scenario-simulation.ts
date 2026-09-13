@@ -83,8 +83,18 @@ export interface ScenarioResult {
    * the free-text `scenario` string, which the chat reply never printed, so a
    * caller had no way to tell the two apart. Callers MUST check this before
    * showing any number.
+   *
+   * `'missing_parameters'`: the scenario has a TYPE but no figure — `hire`
+   * with no salary, `add_expense`/`add_revenue` with no amount,
+   * `buy_equipment` with no price, `lose_client` with no client. The
+   * interpreter emits exactly this whenever the user did not state a number
+   * ("what if I hired someone?"), and `params?.monthlyCostCents || 0` then
+   * adds nothing: the same untouched baseline, the same $0.00 impact printed
+   * as a projection. Callers must branch on the FIELD, not on one of its
+   * values — a new reason a caller does not know about is a lie it prints by
+   * default.
    */
-  notModelled?: 'client_not_found';
+  notModelled?: 'client_not_found' | 'missing_parameters';
 }
 
 /** The narrow LLM contract this module needs: prompt in, text or nothing out. */
@@ -124,6 +134,20 @@ export async function interpretScenario(text: string, callGemini: CallGemini): P
 }
 
 /**
+ * A scenario figure the projection can actually apply, or `null`.
+ *
+ * `null` covers absent, non-numeric, non-finite AND zero. Zero is on that list
+ * because `{"type":"hire","params":{"monthlyCostCents":0}}` is what the model
+ * emits for a sentence with no number in it — and a $0 hire projects the
+ * untouched baseline exactly like a missing one does.
+ */
+function amountCents(raw: unknown): number | null {
+  const n = typeof raw === 'string' ? Number(raw) : raw;
+  if (typeof n !== 'number' || !Number.isFinite(n) || n === 0) return null;
+  return n;
+}
+
+/**
  * Project a scenario twelve months forward. Pure: no database, no clock, no
  * LLM — the caller supplies the base state, the tax function and the year.
  */
@@ -148,6 +172,11 @@ export function projectScenario(
 
   switch (scenarioObj.type) {
     case 'add_expense':
+      if (amountCents(scenarioObj.params?.monthlyCostCents) === null) {
+        scenarioDescription = 'Add recurring expense (amount not given — no impact calculated)';
+        notModelled = 'missing_parameters';
+        break;
+      }
       newMonthlyExpenses += (scenarioObj.params?.monthlyCostCents || 0);
       scenarioDescription = `Add recurring expense of $${((scenarioObj.params?.monthlyCostCents || 0) / 100).toLocaleString()}/month`;
       break;
@@ -155,11 +184,28 @@ export function projectScenario(
       // `monthlyRevenueCents` first, matching the description below: the two
       // read the fields in opposite orders, so a scenario carrying both
       // described one figure and projected another.
+      if (
+        amountCents(scenarioObj.params?.monthlyRevenueCents) === null
+        && amountCents(scenarioObj.params?.monthlyCostCents) === null
+      ) {
+        scenarioDescription = 'Add revenue (amount not given — no impact calculated)';
+        notModelled = 'missing_parameters';
+        break;
+      }
       newMonthlyRevenue += (scenarioObj.params?.monthlyRevenueCents || scenarioObj.params?.monthlyCostCents || 0);
       scenarioDescription = `Add revenue of $${((scenarioObj.params?.monthlyRevenueCents || scenarioObj.params?.monthlyCostCents || 0) / 100).toLocaleString()}/month`;
       break;
     case 'lose_client': {
-      const clientName = scenarioObj.params?.clientName || 'Unknown';
+      const named = String(scenarioObj.params?.clientName ?? '').trim();
+      if (!named) {
+        // No name at all is a different failure from a name nobody matches:
+        // there is nothing to quote back, so the caller must not reach for
+        // `I couldn't find a client named ""`.
+        scenarioDescription = 'Lose a client (none named — no revenue impact calculated)';
+        notModelled = 'missing_parameters';
+        break;
+      }
+      const clientName = named;
       const client = (base.clients || []).find((c: any) => c.name.toLowerCase().includes(String(clientName).toLowerCase()));
       if (client) {
         const monthlyFromClient = Math.round((client.billedCents ?? 0) / 12);
@@ -172,10 +218,20 @@ export function projectScenario(
       break;
     }
     case 'hire':
+      if (amountCents(scenarioObj.params?.monthlyCostCents) === null) {
+        scenarioDescription = 'Hire (salary not given — no impact calculated)';
+        notModelled = 'missing_parameters';
+        break;
+      }
       newMonthlyExpenses += (scenarioObj.params?.monthlyCostCents || 0);
       scenarioDescription = `Hire at $${((scenarioObj.params?.monthlyCostCents || 0) / 100).toLocaleString()}/month`;
       break;
     case 'buy_equipment': {
+      if (amountCents(scenarioObj.params?.amountCents) === null) {
+        scenarioDescription = 'Buy equipment (price not given — no impact calculated)';
+        notModelled = 'missing_parameters';
+        break;
+      }
       oneTimeCost = scenarioObj.params?.amountCents || 0;
       const depYears = scenarioObj.params?.depreciationYears || 5;
       const monthlyDep = Math.round(oneTimeCost / (depYears * 12));

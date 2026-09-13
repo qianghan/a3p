@@ -5668,6 +5668,27 @@ Only include chartData if visualization adds value. Keep the answer under 200 wo
   // now calls, so dev and prod cannot drift.
   if (selectedSkill.name === 'simulate-scenario') {
     try {
+      /**
+       * A what-if we will not answer.
+       *
+       * Both decline paths write the same AbConversation row the success path
+       * writes and log the reason. A decline the thread never saw is a turn
+       * the next message cannot refer back to ("ok, $5K/month" arrives with no
+       * question attached), and it is invisible in the chat-quality logs —
+       * which is the only place a rising decline rate would ever show up.
+       */
+      const declineScenario = (reason: string, message?: string) => {
+        const answer = message ?? t('skill.scenario_failed');
+        console.warn('[simulate-scenario] declined:', reason);
+        db.abConversation.create({
+          data: { tenantId, question: text, answer, queryType: 'agent', channel, skillUsed: 'simulate-scenario' },
+        }).catch(() => {});
+        return {
+          selectedSkill, extractedParams, confidence: 0, skillUsed: 'simulate-scenario', skillResponse: null,
+          responseData: { message: answer, skillUsed: 'simulate-scenario', confidence: 0, latencyMs: Date.now() - startTime },
+        };
+      };
+
       const scenarioText = String(extractedParams.scenario || text || '');
       const context = await buildFinancialContext(tenantId);
       const input = await interpretScenario(scenarioText, callGemini);
@@ -5680,10 +5701,7 @@ Only include chartData if visualization adds value. Keep the answer under 200 wo
       // Decline BEFORE projecting, so there are no numbers and no chart to
       // leak.
       if (input.type === 'custom') {
-        return {
-          selectedSkill, extractedParams, confidence: 0, skillUsed: 'simulate-scenario', skillResponse: null,
-          responseData: { message: t('skill.scenario_failed'), skillUsed: 'simulate-scenario', confidence: 0, latencyMs: Date.now() - startTime },
-        };
+        return declineScenario('unparseable');
       }
 
       const result = projectScenario(context, input, calcScenarioTax, new Date().getFullYear());
@@ -5691,20 +5709,22 @@ Only include chartData if visualization adds value. Keep the answer under 200 wo
       // Same failure one layer down: "what if I lose Globex?" when Globex is
       // not in the books projects the untouched baseline. Say so instead of
       // showing a $0.00 impact.
-      if (result.notModelled === 'client_not_found') {
+      // Branch on the FIELD, not on one of its values: `missing_parameters`
+      // (a typed scenario the model emitted with no figure in it — "what if I
+      // hired someone?") projects the same untouched baseline, and a handler
+      // that only knew about `client_not_found` printed it as a real
+      // projection. Any future reason declines by default.
+      if (result.notModelled) {
         // With no name to quote back there is nothing to say beyond "I could
         // not run that" — `I couldn't find a client named ""` is worse than
         // the generic decline.
         const missing = String(input.params?.clientName ?? '').trim();
-        return {
-          selectedSkill, extractedParams, confidence: 0, skillUsed: 'simulate-scenario', skillResponse: null,
-          responseData: {
-            message: missing
-              ? t('skill.scenario_client_not_found', { client: missing })
-              : t('skill.scenario_failed'),
-            skillUsed: 'simulate-scenario', confidence: 0, latencyMs: Date.now() - startTime,
-          },
-        };
+        return declineScenario(
+          result.notModelled,
+          result.notModelled === 'client_not_found' && missing
+            ? t('skill.scenario_client_not_found', { client: missing })
+            : undefined,
+        );
       }
 
       const narrative = await scenarioNarrative(result, tenantId, callGemini, resolveAdvisorIdentity);
