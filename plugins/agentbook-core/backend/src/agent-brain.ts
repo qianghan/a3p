@@ -16,6 +16,7 @@ import { detectCorrection } from './agent-corrections.js';
 import { carryForwardPeriod } from './period-parse.js';
 import { carryForwardTopic } from './followup-topic.js';
 import { languageDirective } from './language.js';
+import { isCashBalanceQuestion } from './cash-position.js';
 import { triageTurn } from './consultation-triage.js';
 import { reviewConsultation, repairBrief, safeFallback, type GroundingContext } from './consultation-review.js';
 import { statutoryFactLines } from '@agentbook/jurisdictions';
@@ -1998,6 +1999,7 @@ async function handleAgentMessageCore(
   }
 
   // ── Step 3a': general-question is a conversation, not an HTTP skill ────
+  // ── and so is every query-finance case except the cash shortcut ────────
   //
   // Its manifest pointed at POST /api/v1/agentbook-core/ask, an Express route
   // that production never mounts (prod serves the Next handlers, which never
@@ -2018,7 +2020,32 @@ async function handleAgentMessageCore(
   //
   // Placed before the confirm/escalation gate below deliberately: the gate
   // exists to stop side effects, and answering a question has none.
-  if (classification?.selectedSkill?.name === 'general-question') {
+  //
+  // `query-finance` had the SAME dead manifest, and the same consequence one
+  // door further along. Its only working case in prod is the cash-balance
+  // shortcut that _executeClassificationCore answers inline off the ledger;
+  // every other finance question ("how is my revenue trending", or the
+  // reported "Give me more details" carrying the cash topic) hit the dead
+  // route and landed in the failure branch's clarifying question. The advisor
+  // is the working answerer for those: it is given the thread AND
+  // groundingFacts — the tenant's cash, AR, revenue and expense snapshot —
+  // which is precisely the material a finance question needs.
+  //
+  // The guard reads `text`, NOT `resolvedText`, and the distinction is the
+  // whole fix. `text` is what Step 3c hands executeClassification, so it is
+  // also the string the server-side shortcut tests. The resolved form of the
+  // reported turn is:
+  //
+  //   Give me more details — regarding: "What is my cash balance?"
+  //
+  // which contains "cash balance" and would send this turn to the executor on
+  // the strength of a substring the executor never sees — back down the dead
+  // route, bug intact. Keep these two in step if Step 3c's argument changes.
+  const finalSkillName = classification?.selectedSkill?.name;
+  const answerConversationally =
+    finalSkillName === 'general-question'
+    || (finalSkillName === 'query-finance' && !isCashBalanceQuestion(text));
+  if (answerConversationally) {
     let groundingFacts: string[] = [];
     if (ctx.buildGroundingFacts) {
       try {
@@ -2068,7 +2095,17 @@ async function handleAgentMessageCore(
     // Everything else gets the didn't-understand framing this function was
     // built for — which still receives the thread and the grounding facts
     // (F6); only the instructions differ.
-    const mode = (classification.confidence ?? 0) > 0.35 ? 'consultation' : 'unclear';
+    //
+    // query-finance skips that test. It is not the catch-all — the classifier
+    // reached it on finance vocabulary, so the turn is a real question about
+    // money and the consultative framing is right regardless of score. (The
+    // confidence dial exists to keep "hello" out of the tax-explainer prompt;
+    // "hello" does not route to query-finance.) `allowQuestionOnly` still
+    // applies: an under-specified finance follow-up has to be narrowed before
+    // it can be answered, and a question back is the honest reply.
+    const mode = finalSkillName === 'query-finance'
+      ? 'consultation'
+      : (classification.confidence ?? 0) > 0.35 ? 'consultation' : 'unclear';
     const answer = await brainAccountantFallback(
       ctx.callGemini, resolvedText, conversation, pastFilingContext,
       personalProfileContext, tenantConfig, tenantId, groundingFacts,
@@ -2080,14 +2117,18 @@ async function handleAgentMessageCore(
     await db.abConversation.create({
       data: {
         tenantId, question: text, answer, queryType: 'agent', channel,
-        skillUsed: 'general-question', latencyMs: Date.now() - startTime,
+        // The skill the classifier actually picked, not the door the answer
+        // came out of. Chat-quality analytics group by skillUsed, and
+        // relabelling every finance follow-up 'general-question' would make
+        // query-finance look unused while the catch-all looked busy.
+        skillUsed: finalSkillName, latencyMs: Date.now() - startTime,
       },
     }).catch(() => {});
-    await updateThreadTurns(activeThread, text, answer, 'general-question');
+    await updateThreadTurns(activeThread, text, answer, finalSkillName);
     return buildResponse({
       replyLocale,
       message: answer,
-      skillUsed: 'general-question',
+      skillUsed: finalSkillName,
       confidence: classification.confidence ?? 0.5,
       latencyMs: Date.now() - startTime,
     });

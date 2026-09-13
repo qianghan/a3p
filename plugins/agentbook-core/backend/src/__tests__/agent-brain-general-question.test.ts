@@ -232,7 +232,10 @@ describe('general-question is answered with the thread in view', () => {
     // freeze the function the moment the response is sent, and the answer the
     // next turn refers back to is never persisted.
     const SRC = readFileSync(join(__dirname, '../agent-brain.ts'), 'utf8');
-    const start = SRC.indexOf("classification?.selectedSkill?.name === 'general-question'");
+    // Anchored on the guard's own declaration rather than a skill-name
+    // literal: the block now also answers non-shortcut query-finance turns, so
+    // the condition is a named boolean and the old literal moved inside it.
+    const start = SRC.indexOf('const answerConversationally =');
     expect(start, 'the Step 3a′ block must exist').toBeGreaterThan(0);
     const block = SRC.slice(start, SRC.indexOf('Fallback for legacy callers', start));
     const creates = block.match(/(await\s+)?db\.abConversation\.create\(/g) ?? [];
