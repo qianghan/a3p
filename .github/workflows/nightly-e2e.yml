@@ -163,13 +163,14 @@ jobs:
           - phase3-expenses
           - phase4-invoicing
           - phase5-tax-reports
+          # phase6b-chat-quality (the replay of the 2026-09-13 prod transcript)
+          # is NOT a matrix entry of its own: it shares the synthetic capture
+          # chat with phase6, and the webhook's capture buffer is one
+          # module-level array per warm instance, so two jobs posting updates
+          # at once read each other's replies (run 34790916572: phase6b's
+          # "Expenses" received phase6's "hello" greeting). It runs inside the
+          # phase6 job below, one spec file at a time — see the run step.
           - phase6-telegram-bot
-          # Replay of the 2026-09-13 prod transcript. Separate tag from
-          # phase6 so a chat-QUALITY regression (raw markdown, a French
-          # template on an English question, a lost follow-up) is reported
-          # as its own failure rather than buried in the phase that only
-          # proves the webhook answers at all.
-          - phase6b-chat-quality
           - phase7-cron-and-cache
           # CA and AU tenants. The launch assessment held AU at "no go" for one
           # stated reason — no e2e coverage of the AU path — and every regional
@@ -197,7 +198,16 @@ jobs:
       - run: npm ci --prefer-offline --no-audit
       - run: npx playwright install --with-deps chromium
       # No reset here — the `seed` job did it once, before any phase started.
-      - run: npx playwright test --config=tests/e2e/nightly/playwright.config.ts --grep "@${{ matrix.phase }}"
+      - run: |
+          GREP="@${{ matrix.phase }}"
+          WORKERS=""
+          if [ "${{ matrix.phase }}" = "phase6-telegram-bot" ]; then
+            # Both Telegram specs, strictly one at a time: the capture buffer
+            # cannot tell two in-flight updates apart (see the matrix comment).
+            GREP="@phase6-telegram-bot|@phase6b-chat-quality"
+            WORKERS="--workers=1"
+          fi
+          npx playwright test --config=tests/e2e/nightly/playwright.config.ts --grep "$GREP" $WORKERS
       # A phase where every test skipped exits 0, so the job goes green having
       # verified nothing. That is the same "no signal reads as good news" failure
       # that let a dead suite look healthy for three months — a phase silently
