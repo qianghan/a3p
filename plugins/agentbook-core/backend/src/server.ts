@@ -3142,6 +3142,96 @@ function isGreetingOnly(text: string): boolean {
   return GREETING_ONLY_RE.test(trimmed);
 }
 
+/**
+ * A message that is nothing but a topic word — "Expenses", "balance", "tax".
+ *
+ * One-word turns are how people poke a bot, and on Telegram they are common
+ * (the owner's own prod transcript opens "hi" / "Expenses"). Almost none of
+ * them are claimed by a skill trigger: query-expenses' patterns all want a
+ * verb or an object ("show expenses", "how much did I spend"), so the bare
+ * noun "Expenses" matched NOTHING and fell through to the Stage-3 LLM
+ * classifier — whose score on a single word is noisy. In nightly run
+ * 34793265788 the literal message "Expenses" came back under the 0.55
+ * confidence-escalation threshold, so agent-brain's Step 3b answered a
+ * read-only question with "Here's my plan: ..." and a Proceed?/Cancel
+ * preview; the retry scored the same word fine. Same input, two behaviours —
+ * and the abandoned session then swallowed the next "cancel" ("Plan
+ * cancelled." where the user expected "Nothing to cancel").
+ *
+ * Every target below is read-only, so pinning them at 0.85 cannot arm any
+ * gate: 0.85 is above CONFIDENCE_ESCALATION_THRESHOLD (0.55, agent-brain.ts)
+ * and above assessComplexity's 0.6 floor (agent-planner.ts), and none of them
+ * sets confirmBefore. The bare word is executed and answered, every time.
+ *
+ * The mapping mirrors the Telegram slash-command map in
+ * apps/web-next/.../telegram/webhook/route.ts: /balance and /revenue expand
+ * to sentences that classify to query-finance, /clients to aging-report.
+ * ("tax" is the one word left with its existing routing — query-finance's
+ * trigger list already claims the bare word today, and changing that is a
+ * behaviour change, not a determinism fix.)
+ */
+const BARE_TOPIC_SKILLS: ReadonlyMap<string, string> = new Map([
+  ['expenses', 'query-expenses'], ['expense', 'query-expenses'],
+  ['spending', 'query-expenses'],
+  ['dépenses', 'query-expenses'], ['depenses', 'query-expenses'],
+  ['dépense', 'query-expenses'], ['depense', 'query-expenses'],
+  ['支出', 'query-expenses'], ['费用', 'query-expenses'],
+
+  ['balance', 'query-finance'], ['cash', 'query-finance'],
+  ['cash balance', 'query-finance'], ['solde', 'query-finance'],
+  ['余额', 'query-finance'], ['现金', 'query-finance'],
+
+  ['revenue', 'query-finance'], ['income', 'query-finance'],
+  ['revenu', 'query-finance'], ['revenus', 'query-finance'],
+  ['收入', 'query-finance'],
+
+  ['tax', 'query-finance'], ['taxes', 'query-finance'],
+  ['impôts', 'query-finance'], ['impots', 'query-finance'],
+  ['税', 'query-finance'],
+
+  ['invoices', 'query-invoices'], ['invoice', 'query-invoices'],
+  ['factures', 'query-invoices'], ['facture', 'query-invoices'],
+  ['发票', 'query-invoices'],
+
+  ['receivables', 'aging-report'],
+
+  ['receipts', 'review-queue'], ['receipt', 'review-queue'],
+  ['reçus', 'review-queue'], ['recus', 'review-queue'],
+  ['收据', 'review-queue'],
+]);
+
+/**
+ * Longest key above is "cash balance"; the cap is generous slack on that, and
+ * it is what makes the two regexes below safe to run at all — neither ever
+ * sees more than this many characters, so neither can be made to backtrack.
+ */
+const BARE_TOPIC_MAX_CHARS = 40;
+
+/** Flat and anchored: one alternation of literals, one optional literal, no
+ *  nesting and no quantifier inside a quantifier. */
+const BARE_TOPIC_LEAD_RE = /^(?:show me|show|my)\s+(?:my\s+)?/i;
+/** Trailing punctuation / emoji, same class the greeting matcher uses. */
+const BARE_TOPIC_TRAIL_RE = /[\s\p{P}\p{S}\p{M}\p{Cf}]+$/u;
+
+/**
+ * The skill a bare topic word names, or null if the message is anything else.
+ * Exported for bare-topic-routing.test.ts.
+ */
+export function bareTopicSkillName(text: string): string | null {
+  const trimmed = (text || '').trim();
+  // Size gates FIRST — they bound what the regexes ever see. A message long
+  // enough to have four words is long enough to carry a real request
+  // ("Expenses for March" keeps its period and its normal routing).
+  if (!trimmed || trimmed.length > BARE_TOPIC_MAX_CHARS) return null;
+  if (trimmed.split(/\s+/).length > 3) return null;
+  const core = trimmed
+    .replace(BARE_TOPIC_TRAIL_RE, '')
+    .replace(BARE_TOPIC_LEAD_RE, '')
+    .trim()
+    .toLowerCase();
+  return BARE_TOPIC_SKILLS.get(core) ?? null;
+}
+
 export async function classifyOnly(
   text: string, tenantId: string, channel: string,
   attachments?: any[], memory?: any[], skills?: any[],
@@ -3225,6 +3315,24 @@ export async function classifyOnly(
           selectedSkill = catchAll;
           extractedParams = { question: text };
           confidence = 0.3;
+        }
+      }
+
+      // Stage 2b: a message that is nothing but a topic word ("Expenses",
+      // "balance", "receipts") is a read-only question, and which question it
+      // is must not depend on how the LLM classifier scored a single word on
+      // that particular call. See BARE_TOPIC_SKILLS above for the incident.
+      if (!selectedSkill) {
+        const bareTopic = bareTopicSkillName(text);
+        if (bareTopic) {
+          // If the skill is not on this tenant's manifest, fall through to
+          // normal routing rather than returning nothing.
+          const topicSkill = skills.find((s: any) => s.name === bareTopic);
+          if (topicSkill) {
+            selectedSkill = topicSkill;
+            extractedParams = { question: text };
+            confidence = 0.85;
+          }
         }
       }
 
