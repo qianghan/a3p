@@ -3012,6 +3012,33 @@ export interface ClassificationResult {
   reasoning?: string;
 }
 
+/**
+ * A message that is a greeting or a thank-you and nothing else.
+ *
+ * Flat and anchored at both ends on purpose: one alternation of literals
+ * followed by one character class, no nesting and no quantifier inside a
+ * quantifier, so a long non-greeting is rejected in linear time (the failing
+ * match is the expensive one, and it is the one greeting-routing.test.ts
+ * measures). The trailing class absorbs punctuation and emoji — \p{M} and
+ * \p{Cf} are there for the variation selectors and zero-width joiners that
+ * ride along with them, so "hello 👋" and "hi ☺️" match as readily as "hi".
+ *
+ * Exported for that test. Not a general "is this small talk" check: it
+ * matches ONLY when the whole message is the greeting, because "hi, log $40
+ * lunch" is an expense.
+ */
+export const GREETING_ONLY_RE =
+  /^(?:hi|hello|hey|yo|good (?:morning|afternoon|evening)|thanks|thank you|thx|cheers|bye|goodbye|bonjour|salut|merci|au revoir|你好|您好|谢谢|再见|嗨)[\s\p{P}\p{S}\p{M}\p{Cf}]*$/iu;
+
+function isGreetingOnly(text: string): boolean {
+  const trimmed = (text || '').trim();
+  if (!trimmed) return false;
+  // Word-count gate first: bounds what the regex ever sees, and a message
+  // long enough to have five words is long enough to carry a request.
+  if (trimmed.split(/\s+/).length > 4) return false;
+  return GREETING_ONLY_RE.test(trimmed);
+}
+
 export async function classifyOnly(
   text: string, tenantId: string, channel: string,
   attachments?: any[], memory?: any[], skills?: any[],
@@ -3076,6 +3103,28 @@ export async function classifyOnly(
 
     // Stage 2: Regex fast path
     if (!selectedSkill) {
+      // Stage 2a: a message that is nothing but a greeting or a thank-you is
+      // not a request for anything, so it must not reach a skill.
+      //
+      // No skill claims "hello" by trigger pattern, so it fell to the Stage-3
+      // LLM classifier, which may pick any skill on the manifest. In
+      // production, minutes apart on one account, "hello" was answered once
+      // with "Hello! How can I help?" and once with a full morning briefing.
+      // The next roll could just as easily land on a skill that writes.
+      // Pinned here to the catch-all at the same low confidence the ultimate
+      // fallback uses, which agent-brain answers conversationally (Step 3a',
+      // 'unclear' mode with allowQuestionOnly) without executing anything.
+      if (isGreetingOnly(text)) {
+        const catchAll = skills.find((s: any) => s.name === 'general-question');
+        // If the catch-all is not on this tenant's manifest, fall through to
+        // normal routing rather than returning nothing.
+        if (catchAll) {
+          selectedSkill = catchAll;
+          extractedParams = { question: text };
+          confidence = 0.3;
+        }
+      }
+
       // Apply vendor aliases from memory
       let processedText = text;
       const aliases = memory.filter((m: any) => m.type === 'vendor_alias');
@@ -3089,11 +3138,13 @@ export async function classifyOnly(
       // Manifest-driven routing (G-011): trigger + require + exclude patterns
       // live on each AbSkillManifest entry; selectSkillByPatterns applies them
       // uniformly. Skills are tried in array order — first match wins.
-      for (const skill of skills) {
-        if (!selectSkillByPatterns(skill, text, lower)) continue;
-        selectedSkill = skill;
-        confidence = 0.85;
-        break;
+      if (!selectedSkill) {
+        for (const skill of skills) {
+          if (!selectSkillByPatterns(skill, text, lower)) continue;
+          selectedSkill = skill;
+          confidence = 0.85;
+          break;
+        }
       }
 
       // Extract params for regex-matched skills
