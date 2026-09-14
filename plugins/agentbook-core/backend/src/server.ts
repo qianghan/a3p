@@ -1211,6 +1211,101 @@ export async function buildFinancialContext(tenantId: string, opts?: { since?: D
 }
 
 /**
+ * The four headline figures — revenue, expenses, net income, cash — plus the
+ * burn rate, over a named window.
+ *
+ * This exists because the grounded advisor's fact pack is built on EVERY
+ * consultative turn and needs exactly these numbers. It used to get them from
+ * `buildFinancialContext`, which reads nine tables to answer them: every
+ * non-personal expense ever with its vendor joined, every journal line on the
+ * cash account, all clients, twenty invoices, the recurring rules — then
+ * filters by date in JS. That is a reasonable price for a once-a-day briefing
+ * and an unreasonable one for a chat turn.
+ *
+ * Three aggregates and two indexed account lookups instead, with every filter
+ * pushed into the database. The derivations are deliberately identical to
+ * `buildFinancialContext`'s, clause for clause: revenue is credits on accounts
+ * whose `accountType` is 'revenue'; expenses are non-personal, non-deleted
+ * rows; cash is debits-less-credits on account 1000 with NO date filter,
+ * because a balance is not a period total; burn is the trailing-90-day expense
+ * sum over three. Two derivations of "revenue" that disagree is how the
+ * advisor ends up quoting a figure the briefing contradicts.
+ *
+ * `opts.currency` lets a caller that has already loaded `abTenantConfig` (the
+ * grounding pack loads it one line earlier, for the profile fact) skip the
+ * second read.
+ */
+export async function buildLedgerHeadline(
+  tenantId: string,
+  since: Date,
+  opts?: { currency?: string },
+): Promise<{
+  revenueCents: number;
+  expenseCents: number;
+  netIncomeCents: number;
+  cashBalanceCents: number;
+  monthlyBurnCents: number;
+  currency: string;
+}> {
+  let currency = opts?.currency;
+  if (!currency) {
+    const config = await db.abTenantConfig.findFirst({ where: { userId: tenantId } });
+    currency = config?.currency || 'USD';
+  }
+
+  const revenueAccounts = await db.abAccount.findMany({
+    where: { tenantId, accountType: 'revenue' },
+    select: { id: true },
+  });
+  const revenueAgg = await db.abJournalLine.aggregate({
+    _sum: { creditCents: true },
+    where: {
+      accountId: { in: revenueAccounts.map((a: any) => a.id) },
+      entry: { tenantId, date: { gte: since } },
+    },
+  });
+  const revenueCents = revenueAgg._sum.creditCents ?? 0;
+
+  const expenseWhere = { tenantId, isPersonal: false, deletedAt: null };
+  const expenseAgg = await db.abExpense.aggregate({
+    _sum: { amountCents: true },
+    where: { ...expenseWhere, date: { gte: since } },
+  });
+  const expenseCents = expenseAgg._sum.amountCents ?? 0;
+
+  // Cash: the balance of account 1000, all time. Clipping this at `since`
+  // would report every business as broke each January.
+  const cashAccount = await db.abAccount.findFirst({
+    where: { tenantId, code: '1000' },
+    select: { id: true },
+  });
+  let cashBalanceCents = 0;
+  if (cashAccount) {
+    const cashAgg = await db.abJournalLine.aggregate({
+      _sum: { debitCents: true, creditCents: true },
+      where: { accountId: cashAccount.id, entry: { tenantId } },
+    });
+    cashBalanceCents = (cashAgg._sum.debitCents ?? 0) - (cashAgg._sum.creditCents ?? 0);
+  }
+
+  // Burn: a rate, always the trailing 90 days, never clipped by `since`.
+  const burnAgg = await db.abExpense.aggregate({
+    _sum: { amountCents: true },
+    where: { ...expenseWhere, date: { gte: burnWindowStart() } },
+  });
+  const monthlyBurnCents = Math.round((burnAgg._sum.amountCents ?? 0) / 3);
+
+  return {
+    revenueCents,
+    expenseCents,
+    netIncomeCents: revenueCents - expenseCents,
+    cashBalanceCents,
+    monthlyBurnCents,
+    currency,
+  };
+}
+
+/**
  * Prune a financial-context object down to just the slices a specific
  * question needs. The full context can be 5-10K tokens when serialized
  * (G-038 / PR 33); for a "how much tax do I owe" question, 90% of that
@@ -1314,8 +1409,16 @@ export function pruneContextForQuestion(
  * Months with no activity contribute 0, so the average correctly reflects
  * a slowdown. Returns 0 if no expenses in the window.
  */
+/**
+ * Start of the trailing burn window. Shared with `buildLedgerHeadline` so the
+ * two derivations of burn cannot drift to different window lengths.
+ */
+function burnWindowStart(): Date {
+  return new Date(Date.now() - 90 * 24 * 60 * 60 * 1000);
+}
+
 function computeMonthlyBurnCents(expenses: Array<{ date: Date | string; amountCents: number }>): number {
-  const cutoff = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000);
+  const cutoff = burnWindowStart();
   let trailingTotal = 0;
   for (const e of expenses) {
     const d = e.date instanceof Date ? e.date : new Date(e.date);

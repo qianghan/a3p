@@ -91,7 +91,7 @@ async function classify(text: string) {
 
 describe('greetings and thanks route to the catch-all, deterministically', () => {
   it.each([
-    ['hello'], ['Hello!'], ['hi'], ['Hey there'.slice(0, 3)], ['yo'],
+    ['hello'], ['Hello!'], ['hi'], ['Hey'], ['yo'],
     ['good morning'], ['Good Morning!'],
     ['thanks'], ['thank you'], ['thx'], ['cheers'], ['Thanks!!'],
     ['bye'], ['goodbye'],
