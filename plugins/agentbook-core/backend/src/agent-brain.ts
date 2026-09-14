@@ -2259,7 +2259,10 @@ async function handleAgentMessageCore(
   }
 
   // ── Step 4: Complexity assessment ──────────────────────────────────────
-  const complexity = assessComplexity(text, v1Result.selectedSkill, v1Result.confidence);
+  // afterExecution: the skill above has already run. Confidence was judged at
+  // Step 3b, before any side effects; re-judging it here could only throw a
+  // finished answer away in favour of a plan to redo it.
+  const complexity = assessComplexity(text, v1Result.selectedSkill, v1Result.confidence, { afterExecution: true });
 
   if (complexity === 'complex') {
     const recentConvo = conversation

@@ -55,3 +55,44 @@ describe('the planner source states the exemption structurally', () => {
     expect(slice('DESTRUCTIVE_SKILLS')).not.toContain("'categorize-expenses'");
   });
 });
+
+/**
+ * A low classifier score is a PRE-execution signal. agent-brain Step 3b
+ * (shouldEscalateOnConfidence, threshold 0.55) is the deliberate gate for it.
+ * Step 4 calls assessComplexity again on the ALREADY-EXECUTED result, and any
+ * score in [0.55, 0.6) fell through 3b and then tripped the 0.6 rule here —
+ * so a read-only one-word question ("Expenses") came back as "Here's my plan:
+ * 1. Retrieve a list of all expenses / Proceed? (yes/no)", a preview offering
+ * to redo work the user had already paid for.
+ */
+describe('assessComplexity — afterExecution disables the confidence rule only', () => {
+  it('a [0.55, 0.6) score does not turn an executed answer into a plan', () => {
+    expect(assessComplexity('Expenses', { name: 'some-skill' }, 0.58, { afterExecution: true })).toBe('simple');
+  });
+
+  it('the same score still escalates BEFORE execution (Step 3b behaviour preserved)', () => {
+    expect(assessComplexity('Expenses', { name: 'some-skill' }, 0.58)).toBe('complex');
+  });
+
+  it('the text-based rules stay live after execution', () => {
+    // The planner may legitimately add steps for what the TEXT asks; only the
+    // score-based rule is about a judgement that 3b already made.
+    expect(assessComplexity('delete the $50 lunch', { name: 'edit-expense' }, 0.95, { afterExecution: true })).toBe('complex');
+    expect(assessComplexity('log it and then email my accountant', { name: 'record-expense' }, 0.95, { afterExecution: true })).toBe('complex');
+    expect(assessComplexity('if it is over $50 then split it', { name: 'some-skill' }, 0.95, { afterExecution: true })).toBe('complex');
+    expect(assessComplexity('Expenses', { name: 'some-skill', confirmBefore: true }, 0.95, { afterExecution: true })).toBe('complex');
+  });
+});
+
+describe('read-only invoicing lookups are never plan-gated', () => {
+  // GET /api/v1/agentbook-invoice/invoices and GET .../aging-report are both
+  // findMany + arithmetic — no writes on either the Express or the Next route.
+  // The bare-topic shortcut routes "invoices"/"receivables" to them, so a
+  // one-word question must not be answered with a plan preview.
+  it.each([
+    ['Invoices', 'query-invoices'],
+    ['receivables', 'aging-report'],
+  ])('%s → %s stays simple at a low score', (text, skill) => {
+    expect(assessComplexity(text, { name: skill }, 0.4)).toBe('simple');
+  });
+});

@@ -37,6 +37,12 @@ const REPORTING_SKILLS = new Set([
   'simulate-scenario',
   'review-queue',
   'manage-recurring',
+  // Read-only invoicing lookups (GET /invoices, GET /aging-report — both are
+  // findMany + arithmetic, no writes). The bare-topic shortcut now routes
+  // "invoices"/"发票"/"receivables" straight here, so a sub-0.6 score on a
+  // one-word question would otherwise have offered to "plan" a list lookup.
+  'query-invoices',
+  'aging-report',
 ]);
 
 const CONDITIONAL_PATTERN = /if.{1,200}then/i;
@@ -75,10 +81,19 @@ const DIRECT_SKILLS = new Set(['categorize-expenses']);
 
 // ─── assessComplexity ────────────────────────────────────────────────────────
 
+/**
+ * Decide whether a request needs the multi-step planner.
+ *
+ * `opts.afterExecution` marks the Step 4 call site, where the brain has
+ * already run the skill. It disables the confidence rule ONLY — see the
+ * comment on that rule. Everything else is a property of the text and is
+ * evaluated identically on both call sites.
+ */
 export function assessComplexity(
   text: string,
   selectedSkill: { name: string; confirmBefore?: boolean } | null,
   confidence: number,
+  opts?: { afterExecution?: boolean },
 ): 'simple' | 'complex' {
   // Read-only reporting skills never need multi-step planning — always execute directly.
   // Multi-intent phrases ("March AND also Jan") are valid single-call queries here.
@@ -90,8 +105,24 @@ export function assessComplexity(
   // Skill requires confirmation before execution
   if (selectedSkill?.confirmBefore) return 'complex';
 
-  // Low confidence
-  if (confidence < 0.6) return 'complex';
+  // Low confidence.
+  //
+  // This rule only makes sense BEFORE the skill runs. The pre-execution gate
+  // (agent-brain Step 3b, shouldEscalateOnConfidence /
+  // CONFIDENCE_ESCALATION_THRESHOLD) owns confidence: it is the deliberate,
+  // tuned place where an unsure classification is turned into "I'm not
+  // entirely sure — proceed?". By the time the brain calls us again at Step 4
+  // the skill has ALREADY executed, and a low score can no longer justify a
+  // preview — it would discard a result the user already paid for (latency,
+  // LLM spend, and any writes) and then offer to redo the very same work.
+  //
+  // That is exactly what a score in [0.55, 0.6) did: Step 3b let it through
+  // (>= 0.55) and Step 4 threw the answer away for a "Here's my plan: 1.
+  // Retrieve a list of all expenses / Proceed?" preview, for a read-only
+  // one-word question. Every other rule below is about the TEXT, not the
+  // score, and stays live after execution — the planner may legitimately add
+  // steps for a multi-intent or conditional request.
+  if (!opts?.afterExecution && confidence < 0.6) return 'complex';
 
   // Destructive word + destructive skill
   if (
