@@ -85,9 +85,13 @@ const DIRECT_SKILLS = new Set(['categorize-expenses']);
  * Decide whether a request needs the multi-step planner.
  *
  * `opts.afterExecution` marks the Step 4 call site, where the brain has
- * already run the skill. It disables the confidence rule ONLY — see the
- * comment on that rule. Everything else is a property of the text and is
- * evaluated identically on both call sites.
+ * already run the skill. It changes two things, and nothing else:
+ *   1. the confidence rule is off — 3b already judged the score, before any
+ *      side effects (see the comment on that rule);
+ *   2. a skill that WRITES returns 'simple' outright — the write has landed,
+ *      and a plan would offer to repeat it (see the comment on that rule).
+ * The remaining rules are properties of the text and are evaluated
+ * identically on both call sites.
  */
 export function assessComplexity(
   text: string,
@@ -98,6 +102,30 @@ export function assessComplexity(
   // Read-only reporting skills never need multi-step planning — always execute directly.
   // Multi-intent phrases ("March AND also Jan") are valid single-call queries here.
   if (selectedSkill && (REPORTING_SKILLS.has(selectedSkill.name) || DIRECT_SKILLS.has(selectedSkill.name))) return 'simple';
+
+  // A write that has ALREADY executed is never re-planned.
+  //
+  // record-expense and create-invoice are destructive but ship with
+  // confirmBefore: false, so agent-brain Step 3c runs them inline — the POST
+  // has landed by the time Step 4 calls us with afterExecution. Every rule
+  // below is about the TEXT, and the text that caused the write is exactly the
+  // text that trips them: "add a $40 lunch" matches /\badd\b/ on a skill in
+  // DESTRUCTIVE_SKILLS, so the brain discarded a booked expense for a "Here's
+  // my plan ... Proceed?" preview — and confirming it re-runs the same POST.
+  // Two expenses for one sentence. Same for multi-intent text whose first
+  // intent already ran ("log it and then email my accountant").
+  //
+  // A plan preview after a write is always wrong, so this returns before the
+  // multi-intent / destructive-word / conditional rules rather than alongside
+  // them. Read-only skills are untouched: planning them after execution costs
+  // an extra call at worst, never a duplicate side effect.
+  if (
+    opts?.afterExecution &&
+    selectedSkill &&
+    (DESTRUCTIVE_SKILLS.has(selectedSkill.name) || selectedSkill.confirmBefore)
+  ) {
+    return 'simple';
+  }
 
   // Multi-intent keywords (only relevant for write/action skills)
   if (MULTI_INTENT_PATTERNS.some((p) => p.test(text))) return 'complex';

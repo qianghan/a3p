@@ -164,12 +164,17 @@ describe('a bare topic word routes to its read-only skill, deterministically', (
   });
 
   it.each([
-    ['how much did I spend on travel'],
-    ['show me my invoices'],
-    ['record $40 lunch'],
-  ])('%j still reaches normal routing', async (text) => {
+    // Trigger-pattern routing (Stage 2b) still owns these...
+    ['how much did I spend on travel', 'query-expenses'],
+    ['show me my invoices', 'query-invoices'],
+    // ...and anything it does not claim still reaches the Stage-3 classifier,
+    // which is stubbed to daily-briefing. Asserting the SKILL, not a
+    // confidence value: "not 0.3" was satisfied by almost any outcome,
+    // including the wrong skill.
+    ['record $40 lunch', 'daily-briefing'],
+  ])('%j still reaches normal routing → %s', async (text, skill) => {
     const res: any = await classify(text);
-    expect(res?.confidence).not.toBe(0.3);
+    expect(res?.selectedSkill?.name).toBe(skill);
   });
 
   it('the greeting shortcut still wins for "hello"', async () => {
@@ -192,6 +197,21 @@ describe('the bare-topic matcher is linear on input it rejects', () => {
     const t0 = performance.now();
     expect(bareTopicSkillName(evil)).toBeNull();
     expect(performance.now() - t0).toBeLessThan(100);
+  });
+
+  it('...and on a failing match SHORT enough to clear the length gate', async () => {
+    // The 50 kB case only proves BARE_TOPIC_MAX_CHARS (40) rejects it before a
+    // regex ever runs — it says nothing about the patterns themselves. This
+    // one is 39 chars and one word, so it passes both size gates and actually
+    // reaches BARE_TOPIC_TRAIL_RE: a run the trailing class matches, ended by
+    // a char it cannot.
+    const { bareTopicSkillName } = await import('../server');
+    const evil = '!'.repeat(38) + 'z';
+    expect(evil.length).toBeLessThanOrEqual(40);
+    expect(evil.split(/\s+/).length).toBeLessThanOrEqual(3);
+    const t0 = performance.now();
+    expect(bareTopicSkillName(evil)).toBeNull();
+    expect(performance.now() - t0).toBeLessThan(50);
   });
 
   it('rejects a topic word embedded in a sentence', async () => {
