@@ -51,7 +51,13 @@ test.describe('@phase6b-chat-quality', () => {
   });
 
   test('"cancel" with nothing pending is answered plainly', async () => {
-    const r = await postUpdate('cancel');
+    // The phase6 spec runs first on this tenant and can leave a plan awaiting
+    // approval (run 34795918547: its correction turn with nothing to correct
+    // produced an edit-expense "Proceed?" preview). Cancelling THAT is the
+    // correct reply ("Plan cancelled."), so it is not what this test measures.
+    // Clear any leftover session first, then assert the nothing-pending line.
+    let r = await postUpdate('cancel');
+    if (/cancelled|annul|已取消/i.test(r.reply ?? '')) r = await postUpdate('cancel');
     expect(r.reply, 'improvised a question (F7)').not.toMatch(/subscription|invoice, or something else/i);
     // Even once "cancel" is intercepted before the advisor, the fallback
     // behind it must stay sane: on 2026-09-13 this turn came back as the
