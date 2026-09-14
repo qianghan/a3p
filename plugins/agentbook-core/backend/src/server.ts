@@ -1105,18 +1105,39 @@ app.get('/api/v1/agentbook-core/agents/:agentId/learning', async (req, res) => {
 // ============================================
 
 // Helper: build comprehensive financial context for LLM
-async function buildFinancialContext(tenantId: string) {
+//
+// Exported (PR: grounding facts) because the grounded advisor's fact pack
+// needs the same headline numbers the briefing shows. Two derivations of
+// "revenue" is how the advisor ends up disclaiming a figure the briefing
+// prints one screen away.
+//
+// `opts.since` bounds the period. Omitted (every pre-existing caller) the
+// figures are all-time, exactly as before. Passed, revenue and expenses cover
+// only entries on or after that date, so a caller labelling the result "year
+// to date" is telling the truth. `monthlyBurnCents` deliberately ignores it —
+// burn is a trailing-90-day rate, and clipping it at Jan 1 would understate
+// every January.
+export async function buildFinancialContext(tenantId: string, opts?: { since?: Date }) {
+  const since = opts?.since;
   const config = await db.abTenantConfig.findFirst({ where: { userId: tenantId } });
 
-  // Revenue
+  // Revenue — credits posted to revenue accounts in the ledger, NOT invoices
+  // issued. Money a client has been billed but has not paid sits in
+  // receivables, so this and "outstanding receivables" are different numbers.
   const revenueAccounts = await db.abAccount.findMany({ where: { tenantId, accountType: 'revenue' } });
   const revLines = await db.abJournalLine.findMany({
-    where: { accountId: { in: revenueAccounts.map((a: any) => a.id) }, entry: { tenantId } },
+    where: {
+      accountId: { in: revenueAccounts.map((a: any) => a.id) },
+      entry: since ? { tenantId, date: { gte: since } } : { tenantId },
+    },
   });
   const totalRevenue = revLines.reduce((s: number, l: any) => s + l.creditCents, 0);
 
   // Expenses
-  const expenses = await db.abExpense.findMany({ where: { tenantId, isPersonal: false, deletedAt: null }, include: { vendor: true } });
+  const allExpenses = await db.abExpense.findMany({ where: { tenantId, isPersonal: false, deletedAt: null }, include: { vendor: true } });
+  const expenses = since
+    ? allExpenses.filter((e: any) => new Date(e.date) >= since)
+    : allExpenses;
   const totalExpenses = expenses.reduce((s: number, e: any) => s + e.amountCents, 0);
 
   // Expenses by category
@@ -1183,7 +1204,9 @@ async function buildFinancialContext(tenantId: string) {
       netIncomeCents: taxEstimate.netIncomeCents,
     } : null,
     recurringExpenses: recurring.length,
-    monthlyBurnCents: computeMonthlyBurnCents(expenses),
+    // Rate, not a period total: always the trailing 90 days, never clipped
+    // by `since`.
+    monthlyBurnCents: computeMonthlyBurnCents(allExpenses),
   };
 }
 
