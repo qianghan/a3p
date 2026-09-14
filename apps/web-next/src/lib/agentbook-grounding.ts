@@ -17,8 +17,17 @@
 
 import 'server-only';
 import { prisma as db } from '@naap/database';
+import { buildLedgerHeadline } from '@agentbook-core/server';
 
-/** Cheap, bounded, and safe to call on any consultative turn. */
+/**
+ * Cheap, bounded, and safe to call on any consultative turn — a contract, not
+ * an aspiration. Every read below is either a single-row lookup or a query
+ * whose filter is pushed into the database: the headline figures come from
+ * `buildLedgerHeadline`'s three aggregates rather than from
+ * `buildFinancialContext`, which reads nine tables (several unbounded, with a
+ * vendor join) to answer the same four numbers. That cost is fine once a day
+ * in the briefing and not fine on every turn of a conversation.
+ */
 const MAX_CATEGORY_LINES = 8;
 
 function money(cents: number, currency: string): string {
@@ -55,16 +64,64 @@ export async function buildGroundingFacts(tenantId: string): Promise<string[]> {
       );
     }
 
-    // Expenses year to date, and the top categories. This is what turns
-    // "meals are 50% deductible" into "your CA$1,240 of meals".
     const yearStart = new Date(new Date().getFullYear(), 0, 1);
+    // Name the window instead of implying it. "Year to date" means 1 July to
+    // 30 June to an Australian sole trader, and this figure is neither — it is
+    // a calendar-year running total. A fact the reviewer will let the advisor
+    // quote has to say which months it covers.
+    const windowLabel = `since 1 January ${yearStart.getFullYear()}`;
+
+    // The headline numbers, derived exactly as the daily briefing derives
+    // them. Without these the advisor had no revenue, cash, net income or
+    // burn in the pack, so "how is my revenue trending?" was answered "I
+    // can't see your revenue directly, I only track expenses and
+    // receivables" — while the briefing was printing all four. The advisor
+    // was not wrong to disclaim: it is told to assert nothing beyond these
+    // facts, and this was not one of them.
+    //
+    // `currency` is passed in so the helper does not re-read the tenant config
+    // loaded three lines above.
+    //
+    // Its own try/catch: a multi-table ledger read is the most likely thing
+    // here to fail, and it must not take the profile/expense/receivable facts
+    // down with it.
+    try {
+      const ledger = await buildLedgerHeadline(tenantId, yearStart, { currency });
+      facts.push(
+        // "posted to the ledger" is load-bearing: this counts credits to
+        // revenue accounts, not invoices issued. Billed-but-unpaid work is
+        // the receivables line below, and a user reading one figure as the
+        // other would think they had been paid twice or not at all.
+        `Revenue ${windowLabel} (posted to the ledger): ${money(ledger.revenueCents, currency)}.`,
+        // No window on cash: it is a balance, not a period total.
+        `Cash on hand: ${money(ledger.cashBalanceCents, currency)}.`,
+        `Net income ${windowLabel}: ${money(ledger.netIncomeCents, currency)}.`,
+      );
+      if (ledger.monthlyBurnCents > 0) {
+        // Only when there is one. "Average monthly burn: CA$0.00" reads as a
+        // claim about the tenant's spending rather than as an absence of
+        // data — and the reviewer would then wave that zero through.
+        facts.push(
+          `Average monthly burn (trailing 90 days): ${money(ledger.monthlyBurnCents, currency)}.`,
+        );
+      }
+    } catch (err) {
+      console.warn('[grounding] ledger headline figures unavailable for', tenantId, err);
+    }
+
+    // Expenses over the same window, and the top categories. This is what turns
+    // "meals are 50% deductible" into "your CA$1,240 of meals". Kept as its
+    // own query rather than taken from the context above: the category lines
+    // need the rows anyway, and deriving the total from the same rows the
+    // categories come from means the breakdown always adds up to the total
+    // printed beside it. Both apply the same filter, so the two agree.
     const expenses = await db.abExpense.findMany({
       where: { tenantId, isPersonal: false, deletedAt: null, date: { gte: yearStart } },
       select: { amountCents: true, categoryId: true },
     });
     const total = expenses.reduce((s, e) => s + e.amountCents, 0);
     facts.push(
-      `Business expenses year to date: ${money(total, currency)} across ${expenses.length} transactions.`,
+      `Business expenses ${windowLabel}: ${money(total, currency)} across ${expenses.length} transactions.`,
     );
 
     if (expenses.length > 0) {
@@ -84,7 +141,7 @@ export async function buildGroundingFacts(tenantId: string): Promise<string[]> {
           .sort((a, b) => b[1] - a[1])
           .slice(0, MAX_CATEGORY_LINES);
         for (const [id, cents] of top) {
-          facts.push(`Category ${names.get(id) ?? 'Uncategorized'}: ${money(cents, currency)} year to date.`);
+          facts.push(`Category ${names.get(id) ?? 'Uncategorized'}: ${money(cents, currency)} ${windowLabel}.`);
         }
       }
     }

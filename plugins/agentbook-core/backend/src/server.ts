@@ -1105,18 +1105,39 @@ app.get('/api/v1/agentbook-core/agents/:agentId/learning', async (req, res) => {
 // ============================================
 
 // Helper: build comprehensive financial context for LLM
-async function buildFinancialContext(tenantId: string) {
+//
+// Exported (PR: grounding facts) because the grounded advisor's fact pack
+// needs the same headline numbers the briefing shows. Two derivations of
+// "revenue" is how the advisor ends up disclaiming a figure the briefing
+// prints one screen away.
+//
+// `opts.since` bounds the period. Omitted (every pre-existing caller) the
+// figures are all-time, exactly as before. Passed, revenue and expenses cover
+// only entries on or after that date, so a caller labelling the result "year
+// to date" is telling the truth. `monthlyBurnCents` deliberately ignores it —
+// burn is a trailing-90-day rate, and clipping it at Jan 1 would understate
+// every January.
+export async function buildFinancialContext(tenantId: string, opts?: { since?: Date }) {
+  const since = opts?.since;
   const config = await db.abTenantConfig.findFirst({ where: { userId: tenantId } });
 
-  // Revenue
+  // Revenue — credits posted to revenue accounts in the ledger, NOT invoices
+  // issued. Money a client has been billed but has not paid sits in
+  // receivables, so this and "outstanding receivables" are different numbers.
   const revenueAccounts = await db.abAccount.findMany({ where: { tenantId, accountType: 'revenue' } });
   const revLines = await db.abJournalLine.findMany({
-    where: { accountId: { in: revenueAccounts.map((a: any) => a.id) }, entry: { tenantId } },
+    where: {
+      accountId: { in: revenueAccounts.map((a: any) => a.id) },
+      entry: since ? { tenantId, date: { gte: since } } : { tenantId },
+    },
   });
   const totalRevenue = revLines.reduce((s: number, l: any) => s + l.creditCents, 0);
 
   // Expenses
-  const expenses = await db.abExpense.findMany({ where: { tenantId, isPersonal: false, deletedAt: null }, include: { vendor: true } });
+  const allExpenses = await db.abExpense.findMany({ where: { tenantId, isPersonal: false, deletedAt: null }, include: { vendor: true } });
+  const expenses = since
+    ? allExpenses.filter((e: any) => new Date(e.date) >= since)
+    : allExpenses;
   const totalExpenses = expenses.reduce((s: number, e: any) => s + e.amountCents, 0);
 
   // Expenses by category
@@ -1183,7 +1204,104 @@ async function buildFinancialContext(tenantId: string) {
       netIncomeCents: taxEstimate.netIncomeCents,
     } : null,
     recurringExpenses: recurring.length,
-    monthlyBurnCents: computeMonthlyBurnCents(expenses),
+    // Rate, not a period total: always the trailing 90 days, never clipped
+    // by `since`.
+    monthlyBurnCents: computeMonthlyBurnCents(allExpenses),
+  };
+}
+
+/**
+ * The four headline figures — revenue, expenses, net income, cash — plus the
+ * burn rate, over a named window.
+ *
+ * This exists because the grounded advisor's fact pack is built on EVERY
+ * consultative turn and needs exactly these numbers. It used to get them from
+ * `buildFinancialContext`, which reads nine tables to answer them: every
+ * non-personal expense ever with its vendor joined, every journal line on the
+ * cash account, all clients, twenty invoices, the recurring rules — then
+ * filters by date in JS. That is a reasonable price for a once-a-day briefing
+ * and an unreasonable one for a chat turn.
+ *
+ * Three aggregates and two indexed account lookups instead, with every filter
+ * pushed into the database. The derivations are deliberately identical to
+ * `buildFinancialContext`'s, clause for clause: revenue is credits on accounts
+ * whose `accountType` is 'revenue'; expenses are non-personal, non-deleted
+ * rows; cash is debits-less-credits on account 1000 with NO date filter,
+ * because a balance is not a period total; burn is the trailing-90-day expense
+ * sum over three. Two derivations of "revenue" that disagree is how the
+ * advisor ends up quoting a figure the briefing contradicts.
+ *
+ * `opts.currency` lets a caller that has already loaded `abTenantConfig` (the
+ * grounding pack loads it one line earlier, for the profile fact) skip the
+ * second read.
+ */
+export async function buildLedgerHeadline(
+  tenantId: string,
+  since: Date,
+  opts?: { currency?: string },
+): Promise<{
+  revenueCents: number;
+  expenseCents: number;
+  netIncomeCents: number;
+  cashBalanceCents: number;
+  monthlyBurnCents: number;
+  currency: string;
+}> {
+  let currency = opts?.currency;
+  if (!currency) {
+    const config = await db.abTenantConfig.findFirst({ where: { userId: tenantId } });
+    currency = config?.currency || 'USD';
+  }
+
+  const revenueAccounts = await db.abAccount.findMany({
+    where: { tenantId, accountType: 'revenue' },
+    select: { id: true },
+  });
+  const revenueAgg = await db.abJournalLine.aggregate({
+    _sum: { creditCents: true },
+    where: {
+      accountId: { in: revenueAccounts.map((a: any) => a.id) },
+      entry: { tenantId, date: { gte: since } },
+    },
+  });
+  const revenueCents = revenueAgg._sum.creditCents ?? 0;
+
+  const expenseWhere = { tenantId, isPersonal: false, deletedAt: null };
+  const expenseAgg = await db.abExpense.aggregate({
+    _sum: { amountCents: true },
+    where: { ...expenseWhere, date: { gte: since } },
+  });
+  const expenseCents = expenseAgg._sum.amountCents ?? 0;
+
+  // Cash: the balance of account 1000, all time. Clipping this at `since`
+  // would report every business as broke each January.
+  const cashAccount = await db.abAccount.findFirst({
+    where: { tenantId, code: '1000' },
+    select: { id: true },
+  });
+  let cashBalanceCents = 0;
+  if (cashAccount) {
+    const cashAgg = await db.abJournalLine.aggregate({
+      _sum: { debitCents: true, creditCents: true },
+      where: { accountId: cashAccount.id, entry: { tenantId } },
+    });
+    cashBalanceCents = (cashAgg._sum.debitCents ?? 0) - (cashAgg._sum.creditCents ?? 0);
+  }
+
+  // Burn: a rate, always the trailing 90 days, never clipped by `since`.
+  const burnAgg = await db.abExpense.aggregate({
+    _sum: { amountCents: true },
+    where: { ...expenseWhere, date: { gte: burnWindowStart() } },
+  });
+  const monthlyBurnCents = Math.round((burnAgg._sum.amountCents ?? 0) / 3);
+
+  return {
+    revenueCents,
+    expenseCents,
+    netIncomeCents: revenueCents - expenseCents,
+    cashBalanceCents,
+    monthlyBurnCents,
+    currency,
   };
 }
 
@@ -1291,8 +1409,16 @@ export function pruneContextForQuestion(
  * Months with no activity contribute 0, so the average correctly reflects
  * a slowdown. Returns 0 if no expenses in the window.
  */
+/**
+ * Start of the trailing burn window. Shared with `buildLedgerHeadline` so the
+ * two derivations of burn cannot drift to different window lengths.
+ */
+function burnWindowStart(): Date {
+  return new Date(Date.now() - 90 * 24 * 60 * 60 * 1000);
+}
+
 function computeMonthlyBurnCents(expenses: Array<{ date: Date | string; amountCents: number }>): number {
-  const cutoff = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000);
+  const cutoff = burnWindowStart();
   let trailingTotal = 0;
   for (const e of expenses) {
     const d = e.date instanceof Date ? e.date : new Date(e.date);
@@ -2989,6 +3115,33 @@ export interface ClassificationResult {
   reasoning?: string;
 }
 
+/**
+ * A message that is a greeting or a thank-you and nothing else.
+ *
+ * Flat and anchored at both ends on purpose: one alternation of literals
+ * followed by one character class, no nesting and no quantifier inside a
+ * quantifier, so a long non-greeting is rejected in linear time (the failing
+ * match is the expensive one, and it is the one greeting-routing.test.ts
+ * measures). The trailing class absorbs punctuation and emoji — \p{M} and
+ * \p{Cf} are there for the variation selectors and zero-width joiners that
+ * ride along with them, so "hello 👋" and "hi ☺️" match as readily as "hi".
+ *
+ * Exported for that test. Not a general "is this small talk" check: it
+ * matches ONLY when the whole message is the greeting, because "hi, log $40
+ * lunch" is an expense.
+ */
+export const GREETING_ONLY_RE =
+  /^(?:hi|hello|hey|yo|good (?:morning|afternoon|evening)|thanks|thank you|thx|cheers|bye|goodbye|bonjour|salut|merci|au revoir|你好|您好|谢谢|再见|嗨)[\s\p{P}\p{S}\p{M}\p{Cf}]*$/iu;
+
+function isGreetingOnly(text: string): boolean {
+  const trimmed = (text || '').trim();
+  if (!trimmed) return false;
+  // Word-count gate first: bounds what the regex ever sees, and a message
+  // long enough to have five words is long enough to carry a request.
+  if (trimmed.split(/\s+/).length > 4) return false;
+  return GREETING_ONLY_RE.test(trimmed);
+}
+
 export async function classifyOnly(
   text: string, tenantId: string, channel: string,
   attachments?: any[], memory?: any[], skills?: any[],
@@ -3053,6 +3206,28 @@ export async function classifyOnly(
 
     // Stage 2: Regex fast path
     if (!selectedSkill) {
+      // Stage 2a: a message that is nothing but a greeting or a thank-you is
+      // not a request for anything, so it must not reach a skill.
+      //
+      // No skill claims "hello" by trigger pattern, so it fell to the Stage-3
+      // LLM classifier, which may pick any skill on the manifest. In
+      // production, minutes apart on one account, "hello" was answered once
+      // with "Hello! How can I help?" and once with a full morning briefing.
+      // The next roll could just as easily land on a skill that writes.
+      // Pinned here to the catch-all at the same low confidence the ultimate
+      // fallback uses, which agent-brain answers conversationally (Step 3a',
+      // 'unclear' mode with allowQuestionOnly) without executing anything.
+      if (isGreetingOnly(text)) {
+        const catchAll = skills.find((s: any) => s.name === 'general-question');
+        // If the catch-all is not on this tenant's manifest, fall through to
+        // normal routing rather than returning nothing.
+        if (catchAll) {
+          selectedSkill = catchAll;
+          extractedParams = { question: text };
+          confidence = 0.3;
+        }
+      }
+
       // Apply vendor aliases from memory
       let processedText = text;
       const aliases = memory.filter((m: any) => m.type === 'vendor_alias');
@@ -3066,11 +3241,13 @@ export async function classifyOnly(
       // Manifest-driven routing (G-011): trigger + require + exclude patterns
       // live on each AbSkillManifest entry; selectSkillByPatterns applies them
       // uniformly. Skills are tried in array order — first match wins.
-      for (const skill of skills) {
-        if (!selectSkillByPatterns(skill, text, lower)) continue;
-        selectedSkill = skill;
-        confidence = 0.85;
-        break;
+      if (!selectedSkill) {
+        for (const skill of skills) {
+          if (!selectSkillByPatterns(skill, text, lower)) continue;
+          selectedSkill = skill;
+          confidence = 0.85;
+          break;
+        }
       }
 
       // Extract params for regex-matched skills
