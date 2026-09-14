@@ -204,3 +204,55 @@ describe('confidence-scored escalation (PR 42 / Tier 1 #3)', () => {
     expect(response.data.message.toLowerCase()).not.toContain('not entirely sure');
   });
 });
+
+/**
+ * The gap between the two confidence rules.
+ *
+ * Step 3b escalates below 0.55. Step 4's assessComplexity used to plan below
+ * 0.6. A score in [0.55, 0.6) therefore passed the gate, EXECUTED the skill,
+ * and was then thrown away for a "Here's my plan / Proceed?" preview whose
+ * single step redoes the finished work. Seen in nightly run 34793265788 on a
+ * one-word read-only question.
+ *
+ * query-estimates is used deliberately: it is in none of
+ * ESCALATION_EXEMPT_SKILLS / REPORTING_SKILLS / DIRECT_SKILLS, so nothing but
+ * the afterExecution flag can keep this green.
+ */
+describe('a low score never converts an already-executed answer into a plan', () => {
+  it('confidence 0.58 executes and answers — no plan preview', async () => {
+    const { req, ctx, executeClassification, llmCalls } = buildTestContext({
+      text: 'Estimates',
+      tenantId: 'tenant-gap',
+      classification: {
+        selectedSkill: {
+          name: 'query-estimates',
+          endpoint: { method: 'GET', path: '/estimates' },
+          confirmBefore: false,
+        },
+        extractedParams: {},
+        confidence: 0.58, // >= 0.55 (3b lets it through), < 0.6 (Step 4 planned it)
+      },
+      skillResponses: {
+        'GET /estimates': { data: { estimates: [], count: 0 } },
+      },
+      // If the planner IS reached it will produce a real plan, so the failure
+      // mode is the observed one rather than an empty-plan fall-through.
+      llmFixtures: [
+        {
+          systemMatch: 'decompose a user request',
+          response: '[{"action":"query-estimates","description":"Retrieve a list of all estimates","params":{},"dependsOn":[],"canUndo":false}]',
+        },
+      ],
+    });
+
+    const { handleAgentMessage } = await import('../agent-brain');
+    const response = await handleAgentMessage(req as any, ctx as any);
+
+    expect(executeClassification).toHaveBeenCalled();
+    expect(response.data.skillUsed).toBe('query-estimates');
+    expect(response.data.plan).toBeUndefined();
+    expect(response.data.message).not.toContain("Here's my plan");
+    // The planner LLM must not even be consulted.
+    expect(llmCalls.history.some((c) => c.system.toLowerCase().includes('decompose a user request'))).toBe(false);
+  });
+});
