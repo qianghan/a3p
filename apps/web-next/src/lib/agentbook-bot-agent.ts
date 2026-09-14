@@ -468,6 +468,11 @@ RULES
      "I can't book this without a category".
    • If the message contains a \$ amount + a verb (spent / paid / bought) = record_expense regardless of active expense.
    • For categorize, slots.categoryName MUST be one of the available list above. If no exact-or-close match, use clarify with the candidate options in the question.
+   • categorize sets a category on THE ACTIVE EXPENSE. If there is no active
+     expense and the user asks to categorize / review / list / report on
+     things in bulk ("categorize them", "categorize my expenses", "review my
+     drafts", "sort out my uncategorized ones"), that is NOT categorize —
+     use unrelated so the agent brain handles it with its bulk skills.
    • Confidence below 0.7 = clarify (better to ask than to guess wrong on the user's books).
    • A great accountant ASKS when uncertain. Don't be afraid to clarify.
 
@@ -3761,6 +3766,29 @@ export function evaluate(
 
   if (intent.intent === 'clarify') {
     const result = results[0];
+    const kind = (result?.data as { kind?: string } | undefined)?.kind;
+    // A deliberate slot fill of an adapter-owned intent ("which client?",
+    // "how much?") must keep asking — the adapter owns that thread and the
+    // brain has no idea what half-built draft we're filling in.
+    const isDeliberateSlotFill =
+      kind === 'needs_clarify'
+      || kind === 'needs_clarify_partial'
+      || !!ctx.conversation?.pendingSlots;
+    // Otherwise, with no active expense the adapter has nothing to clarify:
+    // its intents are micro-flows around the ACTIVE draft. Hand the turn to
+    // the agent brain, which has the thread and the full skill set. This is
+    // the "Categorize them" → "🤔 What would you like to categorize?" case,
+    // where the adapter's own guess swallowed the bulk categorize-expenses
+    // skill instead of letting the brain classify it.
+    if (!ctx.active && !isDeliberateSlotFill) {
+      return {
+        reply: '',
+        parseMode: undefined,
+        learned,
+        delegatedToBrain: true,
+        needsKeyboard: false,
+      };
+    }
     const question = (result?.data as { question?: string } | undefined)?.question
       || intent.slots.clarifyingQuestion
       || 'Could you say that another way?';
