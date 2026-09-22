@@ -306,6 +306,12 @@ export const ExpenseListPage: React.FC = () => {
   const { lastChange } = useAgentEvents({ kinds: ['expense', 'receipt'] });
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [categorySummary, setCategorySummary] = useState<CategorySummary[]>([]);
+  // Full expense chart of accounts, for the inline "categorize" picker below
+  // (categorySummary only lists categories a tenant's EXISTING expenses
+  // already use — a tenant with zero categorized expenses would otherwise
+  // get an empty, permanently-disabled picker with no way to categorize
+  // their first expense at all).
+  const [expenseAccounts, setExpenseAccounts] = useState<{ id: string; name: string }[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<'all' | 'business' | 'personal'>('all');
   const [period, setPeriod] = useState<Period>('this_year');
@@ -368,9 +374,11 @@ export const ExpenseListPage: React.FC = () => {
     Promise.all([
       fetch(`${API}/expenses?${qs}`).then(r => r.json()).catch(() => ({ success: false })),
       fetch(`${API}/category-summary?${catQs}`).then(r => r.json()).catch(() => ({ success: false })),
-    ]).then(([expData, catData]) => {
+      fetch(`/api/v1/agentbook-core/accounts?type=expense`).then(r => r.json()).catch(() => ({ success: false })),
+    ]).then(([expData, catData, acctData]) => {
       if (expData.success) setExpenses(expData.data);
       if (catData.success) setCategorySummary(catData.data.categories);
+      if (acctData.success) setExpenseAccounts(acctData.data.map((a: any) => ({ id: a.id, name: a.name })));
     }).finally(() => setLoading(false));
 
     // Load auto-categorization pending suggestions
@@ -510,13 +518,9 @@ export const ExpenseListPage: React.FC = () => {
   const total = filtered.reduce((s, e) => s + e.amountCents, 0);
 
   // Category options for the inline "categorize" picker on uncategorized rows.
-  const categoryOptions = useMemo(
-    () =>
-      categorySummary
-        .filter(c => c.categoryId !== null)
-        .map(c => ({ id: c.categoryId as string, name: c.categoryName })),
-    [categorySummary],
-  );
+  // Sourced from the tenant's real chart of accounts (expenseAccounts), not
+  // categorySummary — see the expenseAccounts state declaration above for why.
+  const categoryOptions = expenseAccounts;
   const [categorizingId, setCategorizingId] = useState<string | null>(null);
 
   // Assign a category to an expense from the inline row picker, then update the
@@ -772,9 +776,7 @@ export const ExpenseListPage: React.FC = () => {
           authHeaders={{}}
           uncategorizedPct={catPending.uncategorizedPct}
           uncategorizedCount={catPending.uncategorizedCount ?? 0}
-          categories={categorySummary
-            .filter(c => c.categoryId !== null)
-            .map(c => ({ id: c.categoryId!, name: c.categoryName }))}
+          categories={expenseAccounts}
           onApproved={(expenseId) => {
             setCatPending(prev =>
               prev ? { ...prev, items: prev.items.filter(i => i.expenseId !== expenseId) } : prev
