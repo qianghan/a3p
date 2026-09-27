@@ -15,8 +15,8 @@
 // keeps trying to fetch/hydrate against chunks that 404). Bumping the
 // version here forces `activate` to purge every old cache below.
 const CACHE_NAME = 'agentbook-v3';
-const STATIC_CACHE = 'agentbook-static-v4';
-const API_CACHE = 'agentbook-api-v4';
+const STATIC_CACHE = 'agentbook-static-v5';
+const API_CACHE = 'agentbook-api-v5';
 
 // Static assets to pre-cache. Deliberately does NOT include '/agentbook' —
 // precaching a navigable HTML document is exactly the risky part, since its
