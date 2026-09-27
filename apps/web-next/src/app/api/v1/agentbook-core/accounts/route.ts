@@ -17,8 +17,9 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     const __resolved = await safeResolveAgentbookTenant(request);
     if ('response' in __resolved) return __resolved.response;
     const { tenantId } = __resolved;
+    const type = request.nextUrl.searchParams.get('type') ?? undefined;
     const accounts = await db.abAccount.findMany({
-      where: { tenantId, isActive: true },
+      where: { tenantId, isActive: true, ...(type ? { accountType: type } : {}) },
       orderBy: { code: 'asc' },
     });
     return NextResponse.json({ success: true, data: accounts });
