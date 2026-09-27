@@ -597,18 +597,22 @@ app.delete('/api/v1/agentbook-core/telegram/disconnect', async (req, res) => {
 });
 
 // === Chart of Accounts ===
-app.get('/api/v1/agentbook-core/accounts', async (req, res) => {
+// Extracted (not an inline app.get callback) so it can be unit-tested
+// directly, mirroring this file's own seedJurisdictionHandler precedent.
+export async function getAccountsHandler(req: any, res: any) {
   try {
     const tenantId = (req as any).tenantId;
+    const type = typeof req.query.type === 'string' ? req.query.type : undefined;
     const accounts = await db.abAccount.findMany({
-      where: { tenantId, isActive: true },
+      where: { tenantId, isActive: true, ...(type ? { accountType: type } : {}) },
       orderBy: { code: 'asc' },
     });
     res.json({ success: true, data: accounts });
   } catch (err) {
     res.status(500).json({ success: false, error: String(err) });
   }
-});
+}
+app.get('/api/v1/agentbook-core/accounts', getAccountsHandler);
 
 app.post('/api/v1/agentbook-core/accounts', async (req, res) => {
   try {

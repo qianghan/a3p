@@ -18,6 +18,38 @@ import { withSoftDelete, parseIncludeDeleted } from '@/lib/agentbook-soft-delete
 import { withHttpIdempotency } from '@/lib/agentbook-idempotency';
 import { ensureChartOfAccounts, ensureUncategorizedAccount } from '@/lib/agentbook-chart-of-accounts';
 import { publicErrorMessage } from '@/lib/api-error';
+import { autoCategorizeForTenant } from '@/lib/agentbook-auto-categorize';
+
+/**
+ * Mirrors the legacy Express handler's `checkAndAutoCategorize` — which
+ * never actually ran in production. `/api/v1/agentbook-expense` resolves to
+ * this Next.js route in prod (AGENTBOOK_EXPENSE_URL is unset), not the
+ * Express plugin backend, so that function was dead code: every expense
+ * created there never triggered a proactive categorization run. A tenant
+ * whose only expense landed uncategorized had no automatic path to get it
+ * categorized — only the 6-hourly watchdog cron
+ * (auto-categorize-watchdog/route.ts) could eventually reach it.
+ *
+ * Calls autoCategorizeForTenant directly rather than the Express version's
+ * self-HTTP-fetch (which existed only because Express and Next.js are
+ * separate processes there) — we're already inside the Next.js process, so
+ * a direct call avoids the fetch, the x-internal-cron header, and the
+ * CRON_SECRET round-trip entirely.
+ */
+export async function checkAndAutoCategorize(tenantId: string): Promise<void> {
+  try {
+    const [total, uncategorized] = await Promise.all([
+      db.abExpense.count({ where: { tenantId, isPersonal: false } }),
+      db.abExpense.count({
+        where: { tenantId, isPersonal: false, categoryId: null, status: { in: ['pending_review', 'confirmed'] } },
+      }),
+    ]);
+    if (total === 0 || uncategorized / total <= 0.10) return;
+    await autoCategorizeForTenant(tenantId);
+  } catch (err) {
+    console.warn('[agentbook-expense/expenses] checkAndAutoCategorize failed (best-effort):', err instanceof Error ? err.message : err);
+  }
+}
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -261,6 +293,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
             hasReceipt: !!receiptUrl,
           },
         });
+
+        await checkAndAutoCategorize(tenantId);
 
         return {
           status: 201,
