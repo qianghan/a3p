@@ -27,16 +27,15 @@ import { backfillExpenseJournalEntry } from '@/lib/agentbook-expense-ledger';
 import { isIsoCalendarDate } from '@/lib/iso-calendar-date';
 import { toMobileDoc } from './doc-mapper';
 import type { FromReceiptResult, MobileDoc } from './types';
+import { MAX_AMOUNT_CENTS } from './receipt-limits';
 
-/** Just under Vercel's 4.5 MB request-body limit; larger photos are compressed client-side. */
-export const RECEIPT_MAX_BYTES = 4_400_000;
+// The size / key / amount limits live in the pure receipt-limits module so the
+// /app client pre-flights with the same values; re-exported for existing importers.
+export { RECEIPT_MAX_BYTES, IDEMPOTENCY_KEY_RE, MAX_AMOUNT_CENTS } from './receipt-limits';
 export const RECEIPT_ALLOWED_MIME = ['image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif', 'application/pdf'] as const;
 export type ReceiptMime = (typeof RECEIPT_ALLOWED_MIME)[number];
 export const AUTO_CONFIRM_MIN_OCR_CONFIDENCE = 0.8;
-export const IDEMPOTENCY_KEY_RE = /^[A-Za-z0-9_-]{8,128}$/;
 export const RECEIPT_SOURCE = 'mobile_capture';
-/** AbExpense amount columns are 32-bit Int; anything above this is not a real receipt. */
-export const MAX_AMOUNT_CENTS = 2_000_000_000;
 /** A claim with no response this old was left by a killed function (maxDuration 60 s), not one in flight. */
 export const STALE_CLAIM_MS = 5 * 60_000;
 

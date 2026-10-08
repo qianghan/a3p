@@ -94,6 +94,7 @@ export const CLIENT_NAMESPACES: string[] = [
   'homeoffice',
   'invoice',
   'invoice_ui',
+  'mobile',
   'nav',
   'onboarding',
   'startup_ui',

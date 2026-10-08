@@ -105,6 +105,9 @@ apps/workflows/*/tsconfig.tsbuildinfo
 .vercel/
 tests/e2e/nightly/junit*.xml
 tests/e2e/nightly/playwright-report/
+tests/e2e/mobile-app/junit*.xml
+tests/e2e/mobile-app/playwright-report/
+tests/e2e/mobile-app/test-results/
 
 # macOS Finder / iCloud duplicates
 * 2.ts

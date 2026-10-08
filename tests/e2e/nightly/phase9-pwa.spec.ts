@@ -75,11 +75,17 @@ test.describe('@phase9-pwa', () => {
     await page.setViewportSize(PHONE);
     await loginAsE2eUser(page);
     await page.goto('/app');
-    for (const label of ['Home', 'Capture', 'Docs', 'Chat']) {
-      await expect(
-        page.getByText(label, { exact: true }),
-        `bottom-nav tab "${label}"`,
-      ).toBeVisible();
+    // Home · Docs · Capture (raised centre) · Chat — the redesign's order.
+    const tabs = page.locator('nav a[data-tab]');
+    await expect(tabs).toHaveCount(4);
+    expect(await tabs.evaluateAll((els) => els.map((e) => e.getAttribute('data-tab')))).toEqual([
+      '/app',
+      '/app/docs',
+      '/app/capture',
+      '/app/chat',
+    ]);
+    for (const [i, label] of ['Home', 'Docs', 'Capture', 'Chat'].entries()) {
+      await expect(tabs.nth(i), `bottom-nav tab "${label}"`).toContainText(label);
     }
   });
 

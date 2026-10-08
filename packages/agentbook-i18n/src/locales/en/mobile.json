@@ -1,0 +1,31 @@
+{
+  "tabs": {
+    "nav_label": "Main navigation",
+    "home": "Home",
+    "docs": "Docs",
+    "capture": "Capture",
+    "chat": "Chat",
+    "home_attention": "Home, needs attention",
+    "docs_review_one": "Docs, {count} item needs review",
+    "docs_review_other": "Docs, {count} items need review"
+  },
+  "kit": {
+    "close": "Close",
+    "not_available": "Not available",
+    "notifications": "Notifications",
+    "retry": "Retry",
+    "loading": "Loading",
+    "no_receipt": "No receipt image",
+    "pdf_receipt": "PDF receipt",
+    "offline_as_of": "Offline · showing data as of {time}",
+    "stale_as_of": "Couldn’t refresh · showing data as of {time}",
+    "error_title": "Couldn’t load this",
+    "error_body": "Check your connection and try again — your data is safe.",
+    "offline_title": "You’re offline",
+    "offline_body": "Reconnect and try again — nothing was lost.",
+    "severity_critical": "Critical:",
+    "severity_warn": "Warning:",
+    "severity_info": "Notice:",
+    "alerts": "Alerts"
+  }
+}

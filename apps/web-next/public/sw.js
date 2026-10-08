@@ -14,9 +14,9 @@
 // new deploy, which is what causes an infinite loading loop (the client
 // keeps trying to fetch/hydrate against chunks that 404). Bumping the
 // version here forces `activate` to purge every old cache below.
-const CACHE_NAME = 'agentbook-v3';
-const STATIC_CACHE = 'agentbook-static-v5';
-const API_CACHE = 'agentbook-api-v5';
+const CACHE_NAME = 'agentbook-v6';
+const STATIC_CACHE = 'agentbook-static-v6';
+const API_CACHE = 'agentbook-api-v6';
 
 // Static assets to pre-cache. Deliberately does NOT include '/agentbook' —
 // precaching a navigable HTML document is exactly the risky part, since its
@@ -62,6 +62,8 @@ self.addEventListener('activate', (event) => {
 // same-origin prefix match below and don't need listing here.)
 const NEVER_CACHE_PATHS = [
   '/api/v1/agentbook-tax/tax/estimate', // live tax estimate, recomputed every call
+  '/api/v1/agentbook-core/mobile/home', // PWA Home: KPIs + alerts composed live from the ledger
+  '/api/v1/agentbook-core/calendar/upcoming', // PWA "Next up": deadlines and bills, recomputed every call
 ];
 
 const BINARY_DOWNLOAD_PATTERNS = [
@@ -268,6 +270,8 @@ self.addEventListener('push', (event) => {
 
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
-  const url = event.notification.data?.url || '/agentbook';
+  // A phone user tapping a notification belongs in the installed app, not on
+  // a desktop page (spec principle 4: mobile destinations only).
+  const url = event.notification.data?.url || '/app';
   event.waitUntil(self.clients.openWindow(url));
 });

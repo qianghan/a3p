@@ -1,0 +1,152 @@
+'use client';
+
+import React, { useEffect } from 'react';
+import { initOfflineQueueReplay } from '@/lib/offline-queue';
+import { LanguageSwitcher } from '@/components/layout/language-switcher';
+import { tokens } from '../_kit/tokens';
+import { ToastHost } from '../_kit/Toast';
+import { TabBar } from './TabBar';
+import type { BadgeGate } from './badges';
+
+/** base64url VAPID public key → Uint8Array for pushManager.subscribe. */
+function urlBase64ToUint8Array(base64: string): Uint8Array {
+  const padding = '='.repeat((4 - (base64.length % 4)) % 4);
+  const b64 = (base64 + padding).replace(/-/g, '+').replace(/_/g, '/');
+  const raw = atob(b64);
+  const out = new Uint8Array(raw.length);
+  for (let i = 0; i < raw.length; i++) out[i] = raw.charCodeAt(i);
+  return out;
+}
+
+/** Register the service worker — needed for offline caching and the
+ * background-sync queue regardless of whether push is configured, so this
+ * runs unconditionally rather than bailing early when push isn't set up.
+ *
+ * Also guards against the infinite-loading-loop failure mode: this worker
+ * registers at the root scope ('/'), so it takes over every page under it —
+ * not just /app/* — including /agentbook. When a new worker activates after
+ * a deploy (skipWaiting + clients.claim in sw.js), a tab that's already open
+ * keeps running its old JS against the new worker's caching rules with no
+ * way to reconcile. Reloading once on `controllerchange` lets it pick up
+ * the deploy that just landed instead of getting stuck. */
+let swReloadedOnce = false;
+async function registerServiceWorker(): Promise<ServiceWorkerRegistration | null> {
+  try {
+    if (typeof window === 'undefined' || !('serviceWorker' in navigator)) return null;
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (swReloadedOnce) return;
+      swReloadedOnce = true;
+      window.location.reload();
+    });
+    return await navigator.serviceWorker.register('/sw.js');
+  } catch {
+    return null;
+  }
+}
+
+/** Subscribe to Web Push, if configured (best-effort, once). */
+async function ensurePushSubscription(reg: ServiceWorkerRegistration | null): Promise<void> {
+  try {
+    if (!reg || typeof window === 'undefined' || !('PushManager' in window)) return;
+    const vapid = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
+    if (!vapid) return; // push not configured — skip silently
+    if (Notification.permission === 'denied') return;
+    if (Notification.permission === 'default') {
+      const perm = await Notification.requestPermission();
+      if (perm !== 'granted') return;
+    }
+    const existing = await reg.pushManager.getSubscription();
+    const sub = existing ?? (await reg.pushManager.subscribe({
+      userVisibleOnly: true,
+      // Type-only: TS 5.7+ types a plain `new Uint8Array(n)` as Uint8Array<ArrayBufferLike>,
+      // which BufferSource no longer accepts. The value is unchanged.
+      applicationServerKey: urlBase64ToUint8Array(vapid) as BufferSource,
+    }));
+    await fetch('/api/v1/push/subscribe', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ subscription: sub }),
+    });
+  } catch {
+    /* push is optional — never block the app */
+  }
+}
+
+/**
+ * A BOUNDED column: exactly one viewport tall, header at its natural height,
+ * and <main> taking the rest (minHeight 0 lets a flex child shrink below its
+ * content, so it scrolls instead of growing the page). A screen can therefore
+ * size itself with `height: 100%` and land above the tab bar whatever the
+ * safe-area insets are — `calc(100dvh - 64px)` cannot, because with
+ * viewportFit 'cover' an installed iOS PWA adds ~59px on top (header) and
+ * ~34px at the bottom (tab bar).
+ */
+export const SHELL_STYLE: React.CSSProperties = {
+  height: '100dvh',
+  minHeight: 0,
+  overflow: 'hidden',
+  display: 'flex',
+  flexDirection: 'column',
+  background: tokens.color.bg,
+  color: tokens.color.fg,
+};
+
+/**
+ * The tab bar is position: fixed over the bottom of <main>, so main reserves
+ * its height + the bottom inset, plus space.xl because the raised Capture
+ * button stands ~16px above the bar's top edge.
+ */
+export const TAB_BAR_CLEARANCE = `calc(${tokens.tabBarHeight + tokens.space.xl}px + env(safe-area-inset-bottom))`;
+
+export const MAIN_STYLE: React.CSSProperties = {
+  flex: '1 1 0%',
+  minHeight: 0,
+  overflowY: 'auto',
+  paddingBottom: TAB_BAR_CLEARANCE,
+  paddingLeft: 'env(safe-area-inset-left)',
+  paddingRight: 'env(safe-area-inset-right)',
+};
+
+/** `badges` defaults (in TabBar) to BADGES_ENABLED; only tests pass it. */
+export function MobileShell({ children, badges }: { children: React.ReactNode; badges?: BadgeGate }) {
+  useEffect(() => {
+    void registerServiceWorker().then((reg) => { void ensurePushSubscription(reg); });
+    initOfflineQueueReplay();
+  }, []);
+
+  return (
+    <ToastHost>
+      <div
+        data-mobile-shell
+        style={SHELL_STYLE}
+      >
+        {/*
+          Slim header carrying ONLY the language switcher.
+
+          The mobile shell is deliberately spare — four tabs, no chrome — so this
+          adds the minimum that makes language reachable on a phone. Without it a
+          PWA user had no way to switch at all: this layout has no top bar, and
+          the tab row has no room for a fifth item.
+
+          The switcher renders nothing when only one language is offerable, so
+          this row collapses to an empty 0-height strip in that case rather than
+          adding permanent furniture.
+        */}
+        <header
+          style={{
+            flex: 'none',
+            display: 'flex', justifyContent: 'flex-end', alignItems: 'center',
+            padding: '4px 8px', paddingTop: 'max(4px, env(safe-area-inset-top))',
+            paddingLeft: 'max(8px, env(safe-area-inset-left))', paddingRight: 'max(8px, env(safe-area-inset-right))',
+          }}
+        >
+          <LanguageSwitcher />
+        </header>
+        <main id="mobile-main" style={MAIN_STYLE}>
+          {children}
+        </main>
+        <TabBar badges={badges} />
+      </div>
+    </ToastHost>
+  );
+}

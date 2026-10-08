@@ -41,15 +41,37 @@ ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 cd "$ROOT_DIR" || exit 1
 
 OUT=$(python3 - <<'PY'
-import json, re
+import json, os, re
 from pathlib import Path
 
 # English is the reference set: a key's `en` value is the literal to look for.
-en = {}
-for f in sorted(Path('packages/agentbook-i18n/src/locales/en').glob('*.json')):
-    for k, v in json.load(f.open(encoding='utf-8')).items():
+#
+# Namespaces are NOT all flat. `mobile` is nested (mobile.tabs.home), because
+# its keys are named mobile.<screen>.<name>. A loop over only the top-level
+# string values saw nothing inside it, so the guard "passed" vacuously for the
+# whole namespace and could never have caught a literal "Home" or "Retry" in
+# app/app/**. Recurse, and name each key by its full dotted path — the same way
+# useT() resolves it.
+def walk(node, prefix):
+    for k, v in node.items():
         if isinstance(v, str):
-            en.setdefault(v, f'{f.stem}.{k}')
+            yield f'{prefix}.{k}', v
+        elif isinstance(v, dict):
+            yield from walk(v, f'{prefix}.{k}')
+
+# GUARD_LOCALES_EN / GUARD_ROOTS exist only so the guard's own test can point it
+# at a fixture. Unset (CI, local runs), they change nothing.
+EN_DIR = Path(os.environ.get('GUARD_LOCALES_EN', 'packages/agentbook-i18n/src/locales/en'))
+
+entries = []
+for f in sorted(EN_DIR.glob('*.json')):
+    entries.extend((key, v) for key, v in walk(json.load(f.open(encoding='utf-8')), f.stem))
+# When two keys share a value, the hint names the shallower one (nav.docs, not
+# mobile.tabs.docs) so the pre-existing flat namespaces keep the suggestion they
+# always had; sorted() is stable, so ties still go to the earlier file.
+en = {}
+for key, v in sorted(entries, key=lambda e: e[0].count('.')):
+    en.setdefault(v, key)
 
 # Only literals with NO placeholder: a key like 'Total outstanding: {amount}'
 # cannot be swapped for a bare literal without also supplying the parameter,
@@ -83,6 +105,8 @@ found = []
 # directories is what let 883 shell literals — the sidebar, the tab bars, every
 # settings page — sit outside every measure while the numbers looked finished.
 ROOTS = [Path('apps/web-next/src')] + sorted(Path('plugins').glob('*/frontend/src'))
+if os.environ.get('GUARD_ROOTS'):
+    ROOTS = [Path(r) for r in os.environ['GUARD_ROOTS'].split(os.pathsep) if r]
 
 def all_tsx():
     for root in ROOTS:
