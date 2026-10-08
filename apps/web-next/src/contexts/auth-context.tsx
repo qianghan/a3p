@@ -82,9 +82,16 @@ async function fetchAndStoreCsrfToken() {
 function clearAllAuthStorage() {
   if (typeof window === 'undefined') return;
 
-  // Clear localStorage tokens
-  localStorage.removeItem(STORAGE_KEYS.AUTH_TOKEN);
-  localStorage.removeItem(STORAGE_KEYS.CSRF_TOKEN);
+  // Clear localStorage tokens. Each removal is guarded on its own so a storage
+  // accessor that throws can neither abort the rest of the cleanup nor skip
+  // the snapshot clear below.
+  for (const tokenKey of [STORAGE_KEYS.AUTH_TOKEN, STORAGE_KEYS.CSRF_TOKEN]) {
+    try {
+      localStorage.removeItem(tokenKey);
+    } catch {
+      // Ignore errors
+    }
+  }
 
   // The /app PWA's offline snapshots hold this user's figures — never let
   // them survive into the next session on a shared device.

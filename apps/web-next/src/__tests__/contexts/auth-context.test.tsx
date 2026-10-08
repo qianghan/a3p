@@ -174,4 +174,16 @@ describe('/app snapshots never outlive the session that saved them', () => {
     await waitFor(() => expect(window.localStorage.getItem(SNAP)).toBeNull());
     expect(window.localStorage.getItem(SNAPSHOT_OWNER_KEY)).toBe('u2');
   });
+
+  it('still clears them when removing the auth tokens throws', async () => {
+    const realRemove = Storage.prototype.removeItem;
+    vi.spyOn(Storage.prototype, 'removeItem').mockImplementation(function (this: Storage, key: string) {
+      if (key.startsWith('naap_')) throw new Error('denied');
+      return realRemove.call(this, key);
+    });
+    mockMe(401);
+    render(<AuthProvider><AuthState /></AuthProvider>);
+    await waitFor(() => expect(screen.getByText(/err:401/)).toBeTruthy());
+    expect(window.localStorage.getItem(SNAP)).toBeNull();
+  });
 });

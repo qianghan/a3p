@@ -2,9 +2,12 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ApiError } from './api';
-import { SNAPSHOT_PREFIX } from '@/lib/mobile/snapshot-keys';
+import { SNAPSHOT_PREFIX, SNAPSHOT_CLEARED_EVENT, clearMobileSnapshots } from '@/lib/mobile/snapshot-keys';
 
-export { SNAPSHOT_PREFIX };
+export { SNAPSHOT_PREFIX, SNAPSHOT_CLEARED_EVENT };
+
+/** At most this many snapshots are kept per key family (`docs:` for `docs:<query>`). */
+export const SNAPSHOT_FAMILY_CAP = 8;
 
 /** Fired on window after every snapshot write; detail = { key }. */
 export const SNAPSHOT_EVENT = 'ab:mobile:snapshot';
@@ -28,9 +31,41 @@ export function readSnapshot<T>(key: string): Snapshot<T> | null {
   }
 }
 
+/**
+ * Keys that embed free text (`docs:<search>`) would otherwise leave one
+ * snapshot per keystroke. Keep the most recently written few per family.
+ */
+function evictOldestInFamily(key: string): void {
+  const colon = key.indexOf(':');
+  if (colon < 0) return;
+  const familyPrefix = SNAPSHOT_PREFIX + key.slice(0, colon + 1);
+  const own = SNAPSHOT_PREFIX + key;
+  const store = window.localStorage;
+  const members: { storageKey: string; at: number }[] = [];
+  for (let i = 0; i < store.length; i++) {
+    const storageKey = store.key(i);
+    if (!storageKey || !storageKey.startsWith(familyPrefix)) continue;
+    let at = 0;
+    try {
+      const t = Date.parse((JSON.parse(store.getItem(storageKey) ?? 'null') as { savedAt?: string } | null)?.savedAt ?? '');
+      at = Number.isNaN(t) ? 0 : t;
+    } catch {
+      at = 0;
+    }
+    members.push({ storageKey, at });
+  }
+  if (members.length <= SNAPSHOT_FAMILY_CAP) return;
+  members
+    .filter((m) => m.storageKey !== own)
+    .sort((a, b) => a.at - b.at)
+    .slice(0, members.length - SNAPSHOT_FAMILY_CAP)
+    .forEach((m) => store.removeItem(m.storageKey));
+}
+
 export function writeSnapshot<T>(key: string, data: T, savedAt: string = new Date().toISOString()): void {
   try {
     window.localStorage.setItem(SNAPSHOT_PREFIX + key, JSON.stringify({ data, savedAt }));
+    evictOldestInFamily(key);
   } catch {
     // Private mode / quota: the screen still works, it just can't fall back offline.
   }
@@ -52,6 +87,15 @@ function browserOnline(): boolean {
 function isConnectivityError(err: unknown): boolean {
   if (err instanceof ApiError) return err.status === 0;
   return err instanceof TypeError;
+}
+
+interface KeyedState<T> extends MobileDataState<T> {
+  /** The key this state was produced for. */
+  key: string;
+}
+
+function initialState<T>(key: string): KeyedState<T> {
+  return { key, data: null, error: null, loading: true, refreshing: false, offline: false, staleAt: null };
 }
 
 export interface MobileDataState<T> {
@@ -78,14 +122,10 @@ export function useMobileData<T>(key: string, fetcher: () => Promise<T>): Mobile
   const fetcherRef = useRef(fetcher);
   const lastGood = useRef<{ key: string; snap: Snapshot<T> } | null>(null);
   const [nonce, setNonce] = useState(0);
-  const [state, setState] = useState<MobileDataState<T>>({
-    data: null,
-    error: null,
-    loading: true,
-    refreshing: false,
-    offline: false,
-    staleAt: null,
-  });
+  const [state, setState] = useState<KeyedState<T>>(() => initialState<T>(key));
+  // State that belongs to a different key (a Docs filter chip just changed) is
+  // never shown under the new one: render the reset state straight away.
+  const view = state.key === key ? state : initialState<T>(key);
 
   useEffect(() => {
     fetcherRef.current = fetcher;
@@ -94,7 +134,10 @@ export function useMobileData<T>(key: string, fetcher: () => Promise<T>): Mobile
   useEffect(() => {
     let cancelled = false;
     const good = lastGood.current?.key === key ? lastGood.current.snap : null;
-    setState((s) => ({ ...s, loading: good === null && s.data === null, refreshing: good !== null || s.data !== null, error: null }));
+    setState((s) => {
+      const base = s.key === key ? s : initialState<T>(key);
+      return { ...base, loading: good === null && base.data === null, refreshing: good !== null || base.data !== null, error: null };
+    });
 
     fetcherRef.current().then(
       (data) => {
@@ -102,15 +145,23 @@ export function useMobileData<T>(key: string, fetcher: () => Promise<T>): Mobile
         const savedAt = new Date().toISOString();
         lastGood.current = { key, snap: { data, savedAt } };
         writeSnapshot(key, data, savedAt);
-        setState({ data, error: null, loading: false, refreshing: false, offline: false, staleAt: null });
+        setState({ key, data, error: null, loading: false, refreshing: false, offline: false, staleAt: null });
       },
       (err: unknown) => {
         if (cancelled) return;
         const error = err instanceof Error ? err : new Error(String(err));
+        if (err instanceof ApiError && (err.status === 401 || err.code === 'unauthorized')) {
+          // The session is gone: whatever is stored belongs to whoever held it.
+          lastGood.current = null;
+          clearMobileSnapshots();
+          setState({ key, data: null, error, loading: false, refreshing: false, offline: false, staleAt: null });
+          return;
+        }
         const offline = !browserOnline() || isConnectivityError(err);
         const fallback = (lastGood.current?.key === key ? lastGood.current.snap : null) ?? readSnapshot<T>(key);
         if (fallback) lastGood.current = { key, snap: fallback };
         setState({
+          key,
           data: fallback ? fallback.data : null,
           error,
           loading: false,
@@ -135,14 +186,28 @@ export function useMobileData<T>(key: string, fetcher: () => Promise<T>): Mobile
       setState((s) => ({ ...s, offline: false }));
       setNonce((n) => n + 1);
     };
+    // Snapshots were wiped (sign-out, another user): forget the in-memory copy,
+    // and drop what is on screen only if it IS a snapshot — live data stays.
+    const onCleared = () => {
+      lastGood.current = null;
+      setState((s) =>
+        s.staleAt === null
+          ? s
+          : { ...s, data: null, staleAt: null, error: s.error ?? new Error('Saved data was cleared') },
+      );
+    };
     window.addEventListener('offline', onOffline);
     window.addEventListener('online', onOnline);
+    window.addEventListener(SNAPSHOT_CLEARED_EVENT, onCleared);
     return () => {
       window.removeEventListener('offline', onOffline);
       window.removeEventListener('online', onOnline);
+      window.removeEventListener(SNAPSHOT_CLEARED_EVENT, onCleared);
     };
   }, [key]);
 
   const reload = useCallback(() => setNonce((n) => n + 1), []);
-  return { ...state, reload };
+  const { key: _stateKey, ...publicState } = view;
+  void _stateKey;
+  return { ...publicState, reload };
 }

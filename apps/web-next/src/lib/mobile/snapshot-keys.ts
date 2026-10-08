@@ -13,6 +13,12 @@ export const SNAPSHOT_PREFIX = 'ab:mobile:';
 export const SNAPSHOT_OWNER_KEY = 'ab:mobile-owner';
 
 /**
+ * Fired on window after the stored snapshots are cleared, so a screen that is
+ * already mounted can drop the snapshot it is showing from memory too.
+ */
+export const SNAPSHOT_CLEARED_EVENT = 'ab:mobile:cleared';
+
+/**
  * Remove every /app snapshot. Called on logout, on an invalid session, and at
  * the start of a login: a snapshot holds the previous user's figures (client
  * names, balances), and an offline screen would otherwise show them to the
@@ -30,6 +36,12 @@ export function clearMobileSnapshots(): void {
     for (const key of doomed) store.removeItem(key);
   } catch {
     // Storage unavailable (private mode, blocked) — there is nothing to clear.
+  }
+  // Mounted screens hold copies in memory; tell them, even if the disk part failed.
+  try {
+    if (typeof window !== 'undefined') window.dispatchEvent(new Event(SNAPSHOT_CLEARED_EVENT));
+  } catch {
+    // Nobody to tell.
   }
 }
 
