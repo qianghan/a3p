@@ -40,6 +40,7 @@
     "slide_role": "幻灯片",
     "pull_to_refresh": "下拉刷新",
     "refreshing": "正在刷新",
+    "refresh": "刷新",
     "alert": {
       "invoice_overdue_one": "{client} · {amount} 已逾期 {count} 天",
       "invoice_overdue_other": "{client} · {amount} 已逾期 {count} 天",

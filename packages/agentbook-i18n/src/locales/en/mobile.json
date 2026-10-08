@@ -40,6 +40,7 @@
     "slide_role": "slide",
     "pull_to_refresh": "Pull to refresh",
     "refreshing": "Refreshing",
+    "refresh": "Refresh",
     "alert": {
       "invoice_overdue_one": "{client} · {amount} is {count} day overdue",
       "invoice_overdue_other": "{client} · {amount} is {count} days overdue",

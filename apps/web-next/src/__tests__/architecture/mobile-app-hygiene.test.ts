@@ -32,7 +32,6 @@ const LOCALES = ['en', 'fr-CA', 'zh-CN'];
 const MAX_SUPPRESSIONS = 3;
 
 const LEGACY: Record<string, string> = {
-  'page.tsx': 'Home — converted in PR 3',
   'docs/page.tsx': 'Docs — converted in PR 4',
   'capture/page.tsx': 'Capture — converted in PR 5',
   'chat/page.tsx': 'Chat — converted in PR 6',
@@ -65,7 +64,7 @@ const run = (src: string, path = 'x.tsx') => analyzeSource(path, src).findings.m
 describe('/app hygiene — the real tree', () => {
   it('scanned a real tree', () => {
     // A floor, so a broken walk can't make every assertion below vacuous.
-    expect(files.length).toBeGreaterThanOrEqual(20);
+    expect(files.length).toBeGreaterThanOrEqual(30);
     expect(files.map(rel)).toEqual(expect.arrayContaining(['layout.tsx', '_kit/tokens.ts', '_lib/api.ts', '_shell/TabBar.tsx']));
   });
 

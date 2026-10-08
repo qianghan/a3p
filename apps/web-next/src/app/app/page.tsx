@@ -1,125 +1,133 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
-import { formatCurrencyCents, defaultCurrencyFor } from '@/lib/jurisdiction-currency';
+import React, { useCallback, useEffect, useRef } from 'react';
+import { RefreshCw } from 'lucide-react';
+import type { MobileHome } from '@/lib/mobile/types';
+import { useT } from '@/hooks/use-t';
+import { ApiError, getHome } from './_lib/api';
+import { useMobileData } from './_lib/useMobileData';
+import { HOME_KEY } from './_lib/useShellBadges';
+import { usePullToRefresh } from './_lib/usePullToRefresh';
+import { tokens } from './_kit/tokens';
+import { iconButtonStyle } from './_kit/styles';
+import { useFormatters } from './_kit/format';
+import { AlertCarousel } from './_home/AlertCarousel';
+import { KpiStrip } from './_home/KpiStrip';
+import { NextUp } from './_home/NextUp';
+import { RecentActivity } from './_home/RecentActivity';
+import { QuickActions } from './_home/QuickActions';
+import { BrandNewHome } from './_home/BrandNewHome';
+import { HomeSkeleton, HomeError, StaleNotice, PullIndicator } from './_home/HomeStates';
+import { useAlertAction } from './_home/useAlertAction';
 
-interface Estimate {
-  total_revenue: number;
-  total_expenses: number;
-  total_estimated_tax: number;
-  jurisdiction?: string;
-}
-
-export default function MobileHome() {
-  const [est, setEst] = useState<Estimate | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [failed, setFailed] = useState(false);
+/**
+ * `reload()` only bumps a counter, so it settles before the request has even
+ * started. This returns a promise that resolves when the load it starts has
+ * finished (the data hook went busy and came back), so the pull gesture's
+ * "Refreshing" spans the whole request instead of flickering off at once.
+ */
+function useSettledReload(reload: () => void, busy: boolean): () => Promise<void> {
+  const waiters = useRef<Array<() => void>>([]);
+  const sawBusy = useRef(false);
 
   useEffect(() => {
-    fetch('/api/v1/agentbook-tax/tax/estimate')
-      .then((r) => r.json())
-      .then((j) => {
-        if (j?.success) setEst({ ...j, jurisdiction: j?.data?.jurisdiction });
-        else setFailed(true);
-      })
-      .catch(() => setFailed(true))
-      .finally(() => setLoading(false));
-  }, []);
+    if (busy) {
+      sawBusy.current = true;
+      return;
+    }
+    if (!sawBusy.current) return;
+    sawBusy.current = false;
+    const done = waiters.current;
+    waiters.current = [];
+    done.forEach((resolve) => resolve());
+  }, [busy]);
 
-  const currency = defaultCurrencyFor(est?.jurisdiction);
-  const fmt$ = (n: number) => formatCurrencyCents(Math.round(n * 100), currency);
+  useEffect(
+    () => () => {
+      // Unmounted mid-request: nobody will report the end, so release the callers.
+      const done = waiters.current;
+      waiters.current = [];
+      done.forEach((resolve) => resolve());
+    },
+    [],
+  );
 
-  // A brand-new account has nothing to summarize. Three $0 tiles read as
-  // "broken" and offer no way forward, so surface the first useful actions
-  // instead — and keep that distinct from "we couldn't load your numbers".
-  const isEmpty =
-    !!est
-    && (est.total_revenue ?? 0) === 0
-    && (est.total_expenses ?? 0) === 0
-    && (est.total_estimated_tax ?? 0) === 0;
+  return useCallback(
+    () =>
+      new Promise<void>((resolve) => {
+        waiters.current.push(resolve);
+        reload();
+      }),
+    [reload],
+  );
+}
+
+/**
+ * PWA Home — "what needs me?" at a glance, one tap to act (spec §4.2).
+ *
+ * States are distinct and labelled, never a blank or a silent zero:
+ *   loading (no data, no error)  → skeleton
+ *   401                          → signed-out card with a sign-in link (no auto-retry)
+ *   failed, nothing cached       → error card with Retry (offline / rate-limited / server copy)
+ *   failed/offline, cache exists → cached screen + "as of HH:MM" notice (offline vs couldn't refresh)
+ *   brand-new account            → welcome + the three next-step cards
+ *   populated                    → banner, KPIs, next up, recent, quick actions
+ *
+ * Copy is chosen from ApiError.code only; ApiError.message is never shown.
+ * The data key is the shell badges' HOME_KEY and getHome() shares its
+ * in-flight request, so opening Home costs one /mobile/home round trip and a
+ * successful load refreshes the badges' snapshot.
+ */
+export default function MobileHomePage() {
+  const t = useT();
+  const fmt = useFormatters();
+  const { data, error, loading, refreshing, offline, staleAt, reload } = useMobileData<MobileHome>(HOME_KEY, getHome);
+  const settledReload = useSettledReload(reload, loading || refreshing);
+  const pull = usePullToRefresh(settledReload);
+  // One instance for the banner AND the KPI sheet: one POST per alert, one "Reminded" state.
+  const actions = useAlertAction(reload);
+
+  const busy = refreshing || pull.refreshing;
+  const code = error instanceof ApiError ? error.code : undefined;
+  const refresh = () => {
+    if (!busy) reload();
+  };
 
   return (
-    <div style={{ padding: '20px 16px', color: 'var(--foreground, #fff)' }}>
-      <h1 style={{ fontSize: 22, fontWeight: 500, marginBottom: 2 }}>AgentBook</h1>
-      <p style={{ color: 'var(--muted-foreground, #888)', fontSize: 14, marginBottom: 20 }}>
-        {isEmpty ? 'Welcome — let’s get your books started' : 'Year to date'}
-      </p>
-
-      {loading && <p style={{ color: 'var(--muted-foreground, #888)' }}>Loading…</p>}
-
-      {!loading && failed && (
-        <div style={{ padding: 16, borderRadius: 12, border: '1px solid var(--border,#262626)' }}>
-          <p style={{ fontSize: 14, fontWeight: 500, marginBottom: 4 }}>Couldn’t load your numbers</p>
-          <p style={{ fontSize: 13, color: 'var(--muted-foreground,#888)' }}>
-            Check your connection and pull to refresh — your data is safe.
-          </p>
+    <div {...pull.bind} style={{ padding: `${tokens.space.md}px ${tokens.space.lg}px ${tokens.space.xl}px`, color: tokens.color.fg }}>
+      <PullIndicator distance={pull.distance} busy={busy} />
+      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: tokens.space.sm, marginBottom: tokens.space.lg }}>
+        <div style={{ minWidth: 0 }}>
+          <h1 style={{ fontSize: tokens.font.xl, fontWeight: 600, margin: 0 }}>AgentBook</h1>
+          <p style={{ fontSize: tokens.font.sm, color: tokens.color.muted, margin: '2px 0 0' }}>{t('mobile.home.subtitle')}</p>
         </div>
-      )}
-
-      {!loading && !failed && !isEmpty && (
-        <div style={{ display: 'grid', gap: 12 }}>
-          <Tile label="Revenue" value={fmt$(est?.total_revenue ?? 0)} accent="#10b981" />
-          <Tile label="Expenses" value={fmt$(est?.total_expenses ?? 0)} accent="#ef4444" />
-          <Tile label="Estimated tax" value={fmt$(est?.total_estimated_tax ?? 0)} accent="#f59e0b" />
-        </div>
-      )}
-
-      {!loading && !failed && isEmpty && (
-        <p style={{ fontSize: 14, color: 'var(--muted-foreground,#888)', lineHeight: 1.5, marginBottom: 16 }}>
-          Add one expense and your revenue, expenses and tax estimate start filling in
-          automatically. Pick whichever is easiest:
-        </p>
-      )}
-
-      {/* Real next steps — always tappable, never a dead hint. */}
-      <div style={{ display: 'grid', gap: 10, marginTop: isEmpty ? 0 : 24 }}>
-        <ActionCard
-          href="/app/capture"
-          title="Snap a receipt"
-          body="Photograph it and the amount, vendor and date are read for you."
-        />
-        <ActionCard
-          href="/app/chat"
-          title="Just tell your advisor"
-          body="Say “spent $24 on coffee” and it’s logged and categorized."
-        />
-        <ActionCard
-          href="/app/docs"
-          title="See what else it can do"
-          body="Invoices, bank sync, tax estimates and reports."
-        />
+        {data && (
+          <button
+            type="button"
+            onClick={refresh}
+            aria-label={t('mobile.home.refresh')}
+            aria-busy={busy}
+            aria-disabled={busy}
+            style={{ ...iconButtonStyle(), flexShrink: 0, opacity: busy ? 0.6 : 1 }}
+          >
+            <RefreshCw aria-hidden="true" width={20} height={20} />
+          </button>
+        )}
       </div>
-    </div>
-  );
-}
 
-function Tile({ label, value, accent }: { label: string; value: string; accent: string }) {
-  return (
-    <div style={{ padding: 16, borderRadius: 12, background: 'var(--card,#111)', border: '1px solid var(--border,#262626)' }}>
-      <p style={{ fontSize: 13, color: 'var(--muted-foreground,#888)' }}>{label}</p>
-      <p style={{ fontSize: 28, fontWeight: 600, color: accent }}>{value}</p>
+      {data && staleAt && <StaleNotice offline={offline} time={fmt.time(staleAt)} onRetry={refresh} busy={busy} />}
+      {!data && !error && <HomeSkeleton />}
+      {!data && error && <HomeError offline={offline} code={code} onRetry={reload} />}
+      {data && data.isBrandNew && <BrandNewHome />}
+      {data && !data.isBrandNew && (
+        <>
+          <AlertCarousel alerts={data.alerts} currency={data.currency} actions={actions} />
+          <KpiStrip data={data} actions={actions} />
+          <NextUp items={data.nextUp} currency={data.currency} />
+          <RecentActivity items={data.recent} currency={data.currency} />
+          <QuickActions />
+        </>
+      )}
     </div>
-  );
-}
-
-function ActionCard({ href, title, body }: { href: string; title: string; body: string }) {
-  return (
-    <a
-      href={href}
-      style={{
-        display: 'block',
-        padding: 16,
-        borderRadius: 12,
-        background: 'var(--card,#111)',
-        border: '1px solid var(--border,#262626)',
-        color: 'inherit',
-        textDecoration: 'none',
-      }}
-    >
-      <p style={{ fontSize: 14, fontWeight: 500, marginBottom: 4 }}>
-        {title} <span aria-hidden="true" style={{ color: 'var(--muted-foreground,#888)' }}>›</span>
-      </p>
-      <p style={{ fontSize: 13, color: 'var(--muted-foreground,#888)' }}>{body}</p>
-    </a>
   );
 }

@@ -40,6 +40,7 @@
     "slide_role": "diapositive",
     "pull_to_refresh": "Tirez pour actualiser",
     "refreshing": "Actualisation",
+    "refresh": "Actualiser",
     "alert": {
       "invoice_overdue_one": "{client} · {amount} en retard de {count} jour",
       "invoice_overdue_other": "{client} · {amount} en retard de {count} jours",
