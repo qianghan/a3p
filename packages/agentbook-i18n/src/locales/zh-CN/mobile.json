@@ -113,7 +113,9 @@
       "overdue_one": "已逾期 {count} 天",
       "overdue_other": "已逾期 {count} 天",
       "in_days_one": "{count} 天后",
-      "in_days_other": "{count} 天后"
+      "in_days_other": "{count} 天后",
+      "fallback_tax": "税务截止日期",
+      "fallback_other": "即将到来的日期"
     },
     "recent": {
       "title": "最近动态",
@@ -134,6 +136,13 @@
       "chat_body": "说「咖啡花了 24 元」，就会自动记录并分类。",
       "docs_title": "看看它还能做什么",
       "docs_body": "发票、银行同步、税款预估和报表。"
+    },
+    "error": {
+      "signed_out_title": "您已退出登录",
+      "signed_out_body": "请重新登录以查看您的数据。",
+      "sign_in": "登录",
+      "rate_limited_title": "请求过于频繁",
+      "rate_limited_body": "请稍等片刻后重试。"
     }
   },
   "alerts": {

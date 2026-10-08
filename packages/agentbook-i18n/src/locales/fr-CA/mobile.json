@@ -113,7 +113,9 @@
       "overdue_one": "{count} jour de retard",
       "overdue_other": "{count} jours de retard",
       "in_days_one": "Dans {count} jour",
-      "in_days_other": "Dans {count} jours"
+      "in_days_other": "Dans {count} jours",
+      "fallback_tax": "Échéance fiscale",
+      "fallback_other": "Date à venir"
     },
     "recent": {
       "title": "Activité récente",
@@ -134,6 +136,13 @@
       "chat_body": "Dites « 24 $ en café » et c’est enregistré et catégorisé.",
       "docs_title": "Découvrir les autres fonctions",
       "docs_body": "Factures, synchronisation bancaire, estimations d’impôt et rapports."
+    },
+    "error": {
+      "signed_out_title": "Vous avez été déconnecté",
+      "signed_out_body": "Reconnectez-vous pour voir vos chiffres.",
+      "sign_in": "Se connecter",
+      "rate_limited_title": "Trop de requêtes",
+      "rate_limited_body": "Patientez un instant, puis réessayez."
     }
   },
   "alerts": {

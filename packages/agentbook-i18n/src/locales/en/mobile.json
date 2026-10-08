@@ -113,7 +113,9 @@
       "overdue_one": "{count} day late",
       "overdue_other": "{count} days late",
       "in_days_one": "In {count} day",
-      "in_days_other": "In {count} days"
+      "in_days_other": "In {count} days",
+      "fallback_tax": "Tax deadline",
+      "fallback_other": "Upcoming date"
     },
     "recent": {
       "title": "Recent activity",
@@ -134,6 +136,13 @@
       "chat_body": "Say “spent $24 on coffee” and it’s logged and categorized.",
       "docs_title": "See what else it can do",
       "docs_body": "Invoices, bank sync, tax estimates and reports."
+    },
+    "error": {
+      "signed_out_title": "You’ve been signed out",
+      "signed_out_body": "Sign in again to see your numbers.",
+      "sign_in": "Sign in",
+      "rate_limited_title": "Too many requests",
+      "rate_limited_body": "Wait a moment, then try again."
     }
   },
   "alerts": {
