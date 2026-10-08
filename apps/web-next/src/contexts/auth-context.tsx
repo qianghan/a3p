@@ -12,6 +12,7 @@ import {
 import { useRouter, usePathname } from 'next/navigation';
 import type { User } from '@naap/types';
 import { isStandaloneDisplay } from '@/lib/standalone';
+import { claimMobileSnapshots, clearMobileSnapshots } from '@/lib/mobile/snapshot-keys';
 
 // Re-export for consumers that import User from here
 export type { User };
@@ -84,6 +85,10 @@ function clearAllAuthStorage() {
   // Clear localStorage tokens
   localStorage.removeItem(STORAGE_KEYS.AUTH_TOKEN);
   localStorage.removeItem(STORAGE_KEYS.CSRF_TOKEN);
+
+  // The /app PWA's offline snapshots hold this user's figures — never let
+  // them survive into the next session on a shared device.
+  clearMobileSnapshots();
 
   // Clear session storage (may contain cached user data)
   try {
@@ -200,7 +205,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => { mounted = false; };
   }, [fetchUser]);
 
+  // Whoever is signed in owns the /app snapshots. Anyone else's are dropped,
+  // whichever sign-in path got them here (register, OAuth, hand-off, …).
+  const signedInUserId = state.user?.id;
+  useEffect(() => {
+    if (signedInUserId) claimMobileSnapshots(signedInUserId);
+  }, [signedInUserId]);
+
   const login = useCallback(async (email: string, password: string) => {
+    clearMobileSnapshots();
     setState(prev => ({ ...prev, isLoading: true }));
     try {
       const response = await fetch(`${API_BASE}/v1/auth/login`, {
