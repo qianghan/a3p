@@ -32,10 +32,33 @@ export function clearReasonOf(e: Event): SnapshotClearReason {
 }
 
 /**
- * Remove every /app snapshot. Called on logout, on an invalid session, and at
- * the start of a login: a snapshot holds the previous user's figures (client
- * names, balances), and an offline screen would otherwise show them to the
- * next person who signs in on the same phone.
+ * public/sw.js stores every successful /api/v1/agentbook* GET in a Cache
+ * Storage cache named `agentbook-api-vN` and serves it offline by URL alone —
+ * it cannot tell whose data it is. Every one of them goes when the snapshots do.
+ */
+export const API_CACHE_PREFIX = 'agentbook-api-';
+
+/** Fire-and-forget: delete the service worker's API caches. Never throws or rejects. */
+function dropApiCaches(): void {
+  try {
+    if (typeof caches === 'undefined') return;
+    const store = caches;
+    void store
+      .keys()
+      .then((names) => Promise.all(names.filter((n) => n.startsWith(API_CACHE_PREFIX)).map((n) => store.delete(n))))
+      .catch(() => {
+        // Cache Storage unavailable or denied — nothing we can delete.
+      });
+  } catch {
+    // `caches` accessor threw (insecure origin, blocked storage).
+  }
+}
+
+/**
+ * Remove every /app snapshot, and the service worker's API cache. Called on
+ * logout, on an invalid session, and at the start of a login: a snapshot holds
+ * the previous user's figures (client names, balances), and an offline screen
+ * would otherwise show them to the next person who signs in on the same phone.
  */
 export function clearMobileSnapshots(reason: SnapshotClearReason = 'session'): void {
   try {
@@ -50,6 +73,7 @@ export function clearMobileSnapshots(reason: SnapshotClearReason = 'session'): v
   } catch {
     // Storage unavailable (private mode, blocked) — there is nothing to clear.
   }
+  dropApiCaches();
   // Mounted screens hold copies in memory; tell them, even if the disk part failed.
   try {
     if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent(SNAPSHOT_CLEARED_EVENT, { detail: { reason } }));
