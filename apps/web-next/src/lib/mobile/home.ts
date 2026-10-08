@@ -162,7 +162,10 @@ export async function buildMobileHome(tenantId: string, now: Date = new Date()):
     candidates.push({
       id: `tax_deadline:${tax.id}`,
       kind: 'tax_deadline',
-      severity: tax.daysAway <= 3 ? 'critical' : 'warn',
+      // Critical only when the sum is known (an instalment row exists). Without
+      // one the app has no amount to put to the user, so it is a reminder of a
+      // date, not a firm obligation — and it must not light the tab's red dot.
+      severity: tax.amountCents !== null && tax.daysAway <= 3 ? 'critical' : 'warn',
       params: {
         days: tax.daysAway,
         quarter: tax.params.quarter,

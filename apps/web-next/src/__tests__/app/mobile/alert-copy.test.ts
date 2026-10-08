@@ -28,10 +28,20 @@ describe('alertCopy — sentences', () => {
     );
   });
 
-  it('tax deadline: with amount, without amount, and today (quarter/year params are ignored)', () => {
-    expect(alertCopy(alert({ kind: 'tax_deadline', params: { days: 9, quarter: 2, year: 2026, amountCents: 300_000 } }), en, cad).title).toBe('Tax payment of CA$3,000 due in 9 days');
-    expect(alertCopy(alert({ kind: 'tax_deadline', params: { days: 9, quarter: 2, year: 2026 } }), en, cad).title).toBe('Tax payment due in 9 days');
-    expect(alertCopy(alert({ kind: 'tax_deadline', params: { days: 0, amountCents: 300_000 } }), en, cad).title).toBe('Tax payment due today');
+  it('tax deadline: says ESTIMATED — with amount, without amount, and today (quarter/year params are ignored)', () => {
+    expect(alertCopy(alert({ kind: 'tax_deadline', params: { days: 9, quarter: 2, year: 2026, amountCents: 300_000 } }), en, cad).title).toBe('Estimated tax payment of CA$3,000 due in 9 days');
+    expect(alertCopy(alert({ kind: 'tax_deadline', params: { days: 1, amountCents: 300_000 } }), en, cad).title).toBe('Estimated tax payment of CA$3,000 due in 1 day');
+    expect(alertCopy(alert({ kind: 'tax_deadline', params: { days: 9, quarter: 2, year: 2026 } }), en, cad).title).toBe('Estimated tax payment due in 9 days');
+    expect(alertCopy(alert({ kind: 'tax_deadline', params: { days: 0, amountCents: 300_000 } }), en, cad).title).toBe('Estimated tax payment due today');
+  });
+
+  it('tax deadline in French and Chinese says estimated too, with plural forms', () => {
+    expect(alertCopy(alert({ kind: 'tax_deadline', params: { days: 9, amountCents: 300_000 } }), fr, cad).title).toBe('Versement d’impôt estimé de CA$3,000 à échéance dans 9 jours');
+    expect(alertCopy(alert({ kind: 'tax_deadline', params: { days: 1 } }), fr, cad).title).toBe('Versement d’impôt estimé à échéance dans 1 jour');
+    expect(alertCopy(alert({ kind: 'tax_deadline', params: { days: 0 } }), fr, cad).title).toBe('Versement d’impôt estimé à échéance aujourd’hui');
+    expect(alertCopy(alert({ kind: 'tax_deadline', params: { days: 9, amountCents: 300_000 } }), zh, cad).title).toBe('预估税款 CA$3,000 将在 9 天后到期');
+    expect(alertCopy(alert({ kind: 'tax_deadline', params: { days: 9 } }), zh, cad).title).toBe('预估税款将在 9 天后到期');
+    expect(alertCopy(alert({ kind: 'tax_deadline', params: { days: 0 } }), zh, cad).title).toBe('预估税款今天到期');
   });
 
   it('bill due, including today, a missing vendor and an overdue bill (negative days)', () => {

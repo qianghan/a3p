@@ -180,7 +180,7 @@ describe('AlertCarousel — target links', () => {
 
   it('a tax-deadline alert opens chat with its topic (prefill only)', () => {
     renderCarousel([{ id: 't1', kind: 'tax_deadline', severity: 'warn', params: { days: 5, amountCents: 300_000 }, target: { route: '/app/chat', query: { topic: 'tax_deadline' } } }]);
-    expect(carousel()).toHaveTextContent('Tax payment of CA$3,000 due in 5 days');
+    expect(carousel()).toHaveTextContent('Estimated tax payment of CA$3,000 due in 5 days');
     expect(screen.getByRole('link', { name: 'Details' })).toHaveAttribute('href', '/app/chat?topic=tax_deadline');
   });
 });
