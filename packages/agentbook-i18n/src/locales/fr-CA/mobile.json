@@ -99,7 +99,12 @@
       "next_tax_on": "Prochaine échéance fiscale : {date}",
       "see_expenses": "Voir les dépenses",
       "ask_cash": "Questions sur la trésorerie",
-      "ask_tax": "Questions sur l’impôt"
+      "ask_tax": "Questions sur l’impôt",
+      "month_net_unavailable": "Aucune activité ce mois-ci pour l’instant : il n’y a pas de net à afficher.",
+      "net_loss": "perte nette",
+      "showing_of_one": "{shown} sur {count} facture en retard affichée",
+      "showing_of_other": "{shown} sur {count} factures en retard affichées",
+      "ask_overdue": "Poser une question sur les autres"
     },
     "next_up": {
       "title": "À venir",

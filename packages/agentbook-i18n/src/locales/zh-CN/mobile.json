@@ -99,7 +99,12 @@
       "next_tax_on": "下一个缴税日期：{date}",
       "see_expenses": "查看支出",
       "ask_cash": "咨询现金流",
-      "ask_tax": "咨询税务"
+      "ask_tax": "咨询税务",
+      "month_net_unavailable": "本月暂无交易记录，因此没有净额可显示。",
+      "net_loss": "净亏损",
+      "showing_of_one": "显示 {count} 张逾期发票中的 {shown} 张",
+      "showing_of_other": "显示 {count} 张逾期发票中的 {shown} 张",
+      "ask_overdue": "咨询其余发票"
     },
     "next_up": {
       "title": "即将到期",

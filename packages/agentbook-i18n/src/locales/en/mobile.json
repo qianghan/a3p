@@ -99,7 +99,12 @@
       "next_tax_on": "Next tax date: {date}",
       "see_expenses": "See expenses",
       "ask_cash": "Ask about cash flow",
-      "ask_tax": "Ask about tax"
+      "ask_tax": "Ask about tax",
+      "month_net_unavailable": "No activity yet this month, so there is no net figure to show.",
+      "net_loss": "net loss",
+      "showing_of_one": "Showing {shown} of {count} overdue invoice",
+      "showing_of_other": "Showing {shown} of {count} overdue invoices",
+      "ask_overdue": "Ask about the rest"
     },
     "next_up": {
       "title": "Next up",

@@ -7,6 +7,7 @@ import { useAlertAction } from '@/app/app/_home/useAlertAction';
 import { ToastHost } from '@/app/app/_kit/Toast';
 import { renderWithI18n, routeFetch, jsonResponse, expectTouchTarget } from './test-utils';
 import { homeFixture } from './fixtures';
+import { formatCurrencyCents } from '@/lib/jurisdiction-currency';
 
 function Harness({ data, onDone = () => {} }: { data: MobileHome; onDone?: () => void }) {
   const actions = useAlertAction(onDone);
@@ -113,33 +114,127 @@ describe('KpiStrip', () => {
     expect(document.body.textContent).not.toMatch(/self-employment|Schedule C|Schedule SE|1040/i);
   });
 
-  it('USD tenant: dollar amounts; a negative month shows its sign, and a null month is a dash', () => {
-    renderStrip(homeFixture({ currency: 'USD', kpis: { ...homeFixture().kpis, monthNetCents: -123_400 } }));
-    expect(tile('month_net')).toHaveTextContent(/[-−]\$1,234/);
-    expect(tile('cash')).toHaveTextContent('$12,500');
-    expect(tile('month_net')).toHaveAttribute('aria-label', expect.stringMatching(/^Net this month, [-−]\$1,234$/));
+  const NEG = { ...homeFixture().kpis, monthNetCents: -123_400 };
+
+  it.each([
+    ['USD', 'en', '-$1,234', '$12,500'],
+    ['CAD', 'en', '-CA$1,234', 'CA$12,500'],
+    ['AUD', 'en', '-A$1,234', 'A$12,500'],
+  ])('%s tenant (%s): exact negative net and cash strings; the name carries label, sign and "net loss"', (currency, locale, net, cash) => {
+    renderStrip(homeFixture({ currency, kpis: NEG }), locale);
+    expect(tile('month_net')).toHaveTextContent(net);
+    expect(tile('month_net')).toHaveAttribute('aria-label', `Net this month, ${net}, net loss`);
+    expect(tile('cash')).toHaveAttribute('aria-label', `Cash today, ${cash}`);
+    expect(net).toBe(formatCurrencyCents(-123_400, currency, locale));
+    expect(cash).toBe(formatCurrencyCents(1_250_000, currency, locale));
   });
 
-  it('null month net renders the labelled dash and its sheet says it is not a zero', () => {
-    renderStrip(homeFixture({ kpis: { ...homeFixture().kpis, monthNetCents: null } }));
-    expect(within(tile('month_net')).getByLabelText('Not available')).toHaveTextContent('—');
-    expect(tile('month_net')).not.toHaveTextContent('$0');
-    fireEvent.click(tile('month_net'));
-    expect(within(screen.getByRole('dialog', { name: 'Net this month' })).getByLabelText('Not available')).toBeInTheDocument();
-  });
-
-  it('tile accessible names carry label and value; labels and sheet copy are localized (fr-CA, zh-CN)', () => {
-    const { unmount } = renderStrip(homeFixture(), 'fr-CA');
-    expect(tile('month_net')).toHaveTextContent('Net ce mois-ci');
+  it('fr-CA: exact tile names (NBSP / narrow-NBSP grouping, trailing $) and the French loss marker', () => {
+    renderStrip(homeFixture({ kpis: NEG }), 'fr-CA');
+    const net = formatCurrencyCents(-123_400, 'CAD', 'fr-CA');
+    const cash = formatCurrencyCents(1_250_000, 'CAD', 'fr-CA');
+    expect(net).toMatch(/^-1[  ]234[  ]\$$/);
+    expect(cash).toMatch(/^12[  ]500[  ]\$$/);
+    expect(tile('month_net')).toHaveAttribute('aria-label', `Net ce mois-ci, ${net}, perte nette`);
+    expect(tile('cash')).toHaveAttribute('aria-label', `Encaisse aujourd’hui, ${cash}`);
     expect(tile('outstanding')).toHaveTextContent('2 en retard');
-    expect(tile('cash')).toHaveAttribute('aria-label', expect.stringMatching(/^Encaisse aujourd’hui, .*12/));
     fireEvent.click(tile('tax'));
     expect(screen.getByRole('dialog', { name: 'Impôt estimé' })).toHaveTextContent('Prochaine échéance fiscale');
-    unmount();
-    renderStrip(homeFixture(), 'zh-CN');
+  });
+
+  it('zh-CN: exact tile names and the Chinese loss marker', () => {
+    renderStrip(homeFixture({ kpis: NEG }), 'zh-CN');
+    expect(tile('month_net')).toHaveAttribute('aria-label', '本月净额, -CA$1,234, 净亏损');
+    expect(tile('cash')).toHaveAttribute('aria-label', '今日现金, CA$12,500');
     expect(tile('tax')).toHaveTextContent('预估税款');
     expect(tile('outstanding')).toHaveTextContent('2 张逾期');
   });
+
+  it('a positive month carries no loss marker', () => {
+    renderStrip(homeFixture());
+    expect(tile('month_net')).toHaveAttribute('aria-label', 'Net this month, CA$4,123');
+  });
+
+  it('null month net: labelled dash on the tile, and the sheet explains it is not a zero', () => {
+    renderStrip(homeFixture({ kpis: { ...homeFixture().kpis, monthNetCents: null } }));
+    expect(within(tile('month_net')).getByLabelText('Not available')).toHaveTextContent('—');
+    expect(tile('month_net')).toHaveAttribute('aria-label', 'Net this month, Not available');
+    expect(tile('month_net')).not.toHaveTextContent('$0');
+    fireEvent.click(tile('month_net'));
+    const dialog = screen.getByRole('dialog', { name: 'Net this month' });
+    expect(within(dialog).getByLabelText('Not available')).toBeInTheDocument();
+    expect(dialog).toHaveTextContent('No activity yet this month, so there is no net figure to show.');
+    expect(dialog).not.toHaveTextContent('$0');
+    expect(dialog).not.toHaveTextContent('Money in minus money out');
+  });
+
+  const overdueAlert = (n: number) => ({
+    id: `od${n}`,
+    kind: 'invoice_overdue' as const,
+    severity: 'critical' as const,
+    params: { client: `Client ${n}`, days: 10 + n, amountCents: 100_000 * n },
+    action: { type: 'post' as const, endpoint: `/api/v1/agentbook-invoice/invoices/inv-${n}/remind`, labelKey: 'mobile.alerts.action_remind' },
+  });
+  const overdueData = (count: number, alerts: number) =>
+    homeFixture({ kpis: { ...homeFixture().kpis, overdueCount: count, overdueCents: 700_000 }, alerts: Array.from({ length: alerts }, (_, i) => overdueAlert(i + 1)) });
+  const openOutstanding = () => {
+    fireEvent.click(tile('outstanding'));
+    return screen.getByRole('dialog', { name: 'Outstanding' });
+  };
+
+  it('Outstanding sheet discloses a partial list: 7 overdue, 3 listed -> "Showing 3 of 7" + a chat link', () => {
+    renderStrip(overdueData(7, 3));
+    const dialog = openOutstanding();
+    expect(dialog.querySelector('[data-overdue-partial]')).toHaveTextContent('Showing 3 of 7 overdue invoices');
+    expect(within(dialog).getAllByRole('listitem')).toHaveLength(3);
+    expect(within(dialog).getByRole('link', { name: 'Ask about the rest' })).toHaveAttribute('href', '/app/chat');
+  });
+
+  it('Outstanding sheet: a complete list (3 of 3) has no "Showing" line and no ask link', () => {
+    renderStrip(overdueData(3, 3));
+    const dialog = openOutstanding();
+    expect(dialog.querySelector('[data-overdue-partial]')).toBeNull();
+    expect(dialog).not.toHaveTextContent('Showing');
+    expect(within(dialog).queryByRole('link', { name: 'Ask about the rest' })).toBeNull();
+  });
+
+  it('singular wording: 1 overdue, 0 listed -> "Showing 0 of 1 overdue invoice"', () => {
+    renderStrip(overdueData(1, 0));
+    const dialog = openOutstanding();
+    const line = dialog.querySelector('[data-overdue-partial]') as HTMLElement;
+    expect(line.textContent).toBe('Showing 0 of 1 overdue invoice');
+  });
+
+  it('partial-list line is localized (fr-CA, zh-CN)', () => {
+    const { unmount } = renderStrip(overdueData(7, 3), 'fr-CA');
+    fireEvent.click(tile('outstanding'));
+    expect(document.querySelector('[data-overdue-partial]')?.textContent).toBe('3 sur 7 factures en retard affichées');
+    unmount();
+    renderStrip(overdueData(7, 3), 'zh-CN');
+    fireEvent.click(tile('outstanding'));
+    expect(document.querySelector('[data-overdue-partial]')?.textContent).toBe('显示 7 张逾期发票中的 3 张');
+  });
+
+  it('an overdue row with a missing amount shows the dash, never $0; a missing days figure is omitted', () => {
+    const a = overdueAlert(1);
+    renderStrip(homeFixture({ kpis: { ...homeFixture().kpis, overdueCount: 3 }, alerts: [
+      { ...a, id: 'x1', params: { client: 'NoAmount', days: 5 } },
+      { ...a, id: 'x2', params: { client: 'NoDays', amountCents: 250_000 } },
+      { ...a, id: 'x3', params: { client: 'Garbage', days: 'soon', amountCents: Number.NaN } },
+    ] }));
+    const rows = within(openOutstanding()).getAllByRole('listitem');
+    expect(rows[0]).toHaveTextContent('NoAmount');
+    expect(rows[0]).toHaveTextContent('5 days overdue');
+    expect(within(rows[0]).getByLabelText('Not available')).toHaveTextContent('—');
+    expect(rows[0]).not.toHaveTextContent('$0');
+    expect(rows[1]).toHaveTextContent('CA$2,500');
+    expect(rows[1]).not.toHaveTextContent('overdue');
+    expect(rows[1]).not.toHaveTextContent('0 days');
+    expect(within(rows[2]).getByLabelText('Not available')).toBeInTheDocument();
+    expect(rows[2]).not.toHaveTextContent('days');
+    expect(rows[2]).not.toHaveTextContent('$0');
+  });
+
 
   it('kpiCents maps each tile to its field', () => {
     const d = homeFixture();

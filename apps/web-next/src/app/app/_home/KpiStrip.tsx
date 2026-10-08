@@ -61,7 +61,8 @@ export function KpiStrip({ data, actions }: { data: MobileHome; actions: AlertAc
   const accessibleName = (id: KpiId): string => {
     const cents = kpiCents(data, id);
     const value = cents === null || !Number.isFinite(cents) ? t('mobile.kit.not_available') : moneyText(cents, data.currency, locale);
-    return [kpiLabel(t, id), value, id === 'outstanding' ? overdue : null].filter(Boolean).join(', ');
+    const loss = id === 'month_net' && cents !== null && cents < 0 ? t('mobile.home.kpi.net_loss') : null;
+    return [kpiLabel(t, id), value, loss, id === 'outstanding' ? overdue : null].filter(Boolean).join(', ');
   };
 
   return (
@@ -125,7 +126,7 @@ function KpiDetail({ id, data, actions }: { id: KpiId; data: MobileHome; actions
     return (
       <div style={column}>
         {figure}
-        <p style={help}>{t('mobile.home.kpi.month_net_help')}</p>
+        <p style={help}>{cents === null ? t('mobile.home.kpi.month_net_unavailable') : t('mobile.home.kpi.month_net_help')}</p>
         <Link href={DOCS_HREF} style={buttonStyle('secondary')}>{t('mobile.home.kpi.see_expenses')}</Link>
       </div>
     );
@@ -156,10 +157,18 @@ function KpiDetail({ id, data, actions }: { id: KpiId; data: MobileHome; actions
   return <OutstandingDetail data={data} actions={actions} />;
 }
 
+/** A finite number from a loosely-typed alert param, or null when absent/garbage (never a silent 0). */
+function finiteParam(v: unknown): number | null {
+  if (v === null || v === undefined || v === '' || typeof v === 'boolean') return null;
+  const n = typeof v === 'number' ? v : Number(v);
+  return Number.isFinite(n) ? n : null;
+}
+
 function OutstandingDetail({ data, actions }: { data: MobileHome; actions: AlertActions }) {
   const t = useT();
   const locale = useShellLocale();
   const overdue = data.alerts.filter((a) => a.kind === 'invoice_overdue');
+  const partial = overdue.length < data.kpis.overdueCount;
   return (
     <div style={column}>
       <p style={big}>
@@ -174,14 +183,18 @@ function OutstandingDetail({ data, actions }: { data: MobileHome; actions: Alert
           <Money cents={data.kpis.overdueCents} currency={data.currency} />
         </dd>
       </dl>
+      {partial && (
+        <p data-overdue-partial style={help}>
+          {t('mobile.home.kpi.showing_of', { shown: overdue.length, count: data.kpis.overdueCount })}
+        </p>
+      )}
       {overdue.length > 0 && (
         <ul aria-label={t('mobile.home.kpi.overdue_list')} style={{ listStyle: 'none', padding: 0, margin: 0, display: 'grid', gap: tokens.space.sm }}>
           {overdue.map((a) => {
             const client = typeof a.params.client === 'string' && a.params.client.trim() ? a.params.client : t('mobile.home.alert.a_client');
-            const rawDays = Math.round(Number(a.params.days));
-            const days = Number.isFinite(rawDays) ? Math.max(0, rawDays) : 0;
-            const rawCents = Number(a.params.amountCents);
-            const amount = moneyText(Number.isFinite(rawCents) ? rawCents : 0, data.currency, locale);
+            const rawDays = finiteParam(a.params.days);
+            const days = rawDays === null ? null : Math.max(0, Math.round(rawDays));
+            const amountCents = finiteParam(a.params.amountCents);
             const actionLabel = alertCopy(a, t, (cents) => moneyText(cents, data.currency, locale)).actionLabel;
             const sent = actions.isDone(a.id);
             return (
@@ -192,7 +205,8 @@ function OutstandingDetail({ data, actions }: { data: MobileHome; actions: Alert
                 <span style={{ minWidth: 0 }}>
                   <span style={{ display: 'block', fontWeight: 500 }}>{client}</span>
                   <span style={{ display: 'block', fontSize: tokens.font.sm, color: tokens.color.muted }}>
-                    {t('mobile.home.kpi.overdue_days', { count: days })} · {amount}
+                    {days !== null && <>{t('mobile.home.kpi.overdue_days', { count: days })} · </>}
+                    <Money cents={amountCents} currency={data.currency} />
                   </span>
                 </span>
                 {a.action && (
@@ -205,6 +219,7 @@ function OutstandingDetail({ data, actions }: { data: MobileHome; actions: Alert
           })}
         </ul>
       )}
+      {partial && <Link href={CHAT_HREF} style={buttonStyle('secondary')}>{t('mobile.home.kpi.ask_overdue')}</Link>}
     </div>
   );
 }
