@@ -25,3 +25,11 @@ export interface BadgeGate {
 }
 
 export const BADGES_ENABLED: Readonly<BadgeGate> = Object.freeze({ home: true, docs: false });
+
+/**
+ * How old the Home data may get before a resume (visibilitychange → visible)
+ * refetches it. Shared by the shell's badge revalidation (useShellBadges) and
+ * the Home screen itself, so the dot and the screen go stale — and refresh —
+ * together; getHome() shares the in-flight request, so that costs one fetch.
+ */
+export const BADGE_MAX_AGE_MS = 2 * 60 * 1000;

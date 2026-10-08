@@ -37,6 +37,7 @@ import { MobileShell, MAIN_STYLE, SHELL_STYLE, TAB_BAR_CLEARANCE } from '@/app/a
 import { isTabActive, TAB_CSS, COUNT_BADGE_COLOURS } from '@/app/app/_shell/TabBar';
 import { badgesFrom, BADGE_MAX_AGE_MS, isBadgeSnapshotStale } from '@/app/app/_lib/useShellBadges';
 import MobileChat from '@/app/app/chat/page';
+import MobileHomePage from '@/app/app/page';
 import { BADGES_ENABLED, type BadgeGate } from '@/app/app/_shell/badges';
 
 // The badge behaviour below is tested with both badges switched ON (the state
@@ -720,5 +721,41 @@ describe('Docs count badge contrast', () => {
     expect(badge.style.color).toBe('');
     expect(badge.style.background).toBe('');
     expect(badge.style.backgroundColor).toBe('');
+  });
+});
+
+// ── I4: Home and the shell dot revalidate together on resume ────────────────
+describe('resume on Home: the screen and the dot refresh with ONE request', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  it('a stale Home + stale badge snapshot becoming visible costs exactly one /mobile/home request', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-10-07T14:00:00.000Z'));
+    let visibility: DocumentVisibilityState = 'visible';
+    vi.spyOn(document, 'visibilityState', 'get').mockImplementation(() => visibility);
+    let gen = 0;
+    const fetchMock = routeFetch({
+      [HOME_URL]: () => {
+        gen += 1;
+        return jsonResponse(200, { success: true, data: homeFixture({ generatedAt: `2026-10-07T14:00:0${gen}.000Z` }) });
+      },
+    });
+    renderWithI18n(<MobileShell badges={{ home: true, docs: false }}><MobileHomePage /></MobileShell>);
+    await screen.findByRole('region', { name: 'Key numbers' });
+    await settle();
+    expect(homeCalls(fetchMock)).toBe(1);
+
+    visibility = 'hidden';
+    act(() => { document.dispatchEvent(new Event('visibilitychange')); });
+    vi.setSystemTime(new Date(Date.now() + BADGE_MAX_AGE_MS + 60_000));
+    visibility = 'visible';
+    act(() => { document.dispatchEvent(new Event('visibilitychange')); });
+    await settle();
+    await waitFor(() => expect(homeCalls(fetchMock)).toBe(2));
+    await settle();
+    expect(homeCalls(fetchMock)).toBe(2);
   });
 });

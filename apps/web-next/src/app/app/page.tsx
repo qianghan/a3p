@@ -9,6 +9,8 @@ import { useMobileData } from './_lib/useMobileData';
 import { HOME_KEY } from './_lib/useShellBadges';
 import { usePullToRefresh } from './_lib/usePullToRefresh';
 import { useSettledReload } from './_lib/useSettledReload';
+import { useRevalidateOnVisible } from './_lib/useRevalidateOnVisible';
+import { BADGE_MAX_AGE_MS } from './_shell/badges';
 import { tokens } from './_kit/tokens';
 import { iconButtonStyle } from './_kit/styles';
 import { useFormatters } from './_kit/format';
@@ -43,6 +45,9 @@ export default function MobileHomePage() {
   const { data, error, loading, refreshing, offline, staleAt, reload } = useMobileData<MobileHome>(HOME_KEY, getHome);
   const settledReload = useSettledReload(reload, { busy: loading || refreshing, data, error, staleAt });
   const pull = usePullToRefresh(settledReload);
+  // Resumed in place after BADGE_MAX_AGE_MS: refetch, like the tab bar's dot does on the same
+  // trigger (getHome() shares the request, so the two cost one fetch).
+  useRevalidateOnVisible(reload, { hasData: data !== null, live: data !== null && staleAt === null && !error, busy: loading || refreshing }, BADGE_MAX_AGE_MS);
   // One instance for the banner AND the KPI sheet: one POST per alert, one "Reminded" state.
   const actions = useAlertAction(reload);
 

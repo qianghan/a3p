@@ -1,11 +1,12 @@
 import React from 'react';
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { screen, waitFor, fireEvent, act, within } from '@testing-library/react';
 import MobileHomePage from '@/app/app/page';
 import { ToastHost } from '@/app/app/_kit/Toast';
 import { writeSnapshot } from '@/app/app/_lib/useMobileData';
 import { makeFormatters } from '@/app/app/_kit/format';
 import { SNAPSHOT_PREFIX } from '@/lib/mobile/snapshot-keys';
+import { BADGE_MAX_AGE_MS } from '@/app/app/_shell/badges';
 import { renderWithI18n, routeFetch, jsonResponse, touch, expectTouchTarget } from './test-utils';
 import { homeFixture } from './fixtures';
 
@@ -317,5 +318,82 @@ describe('Home page — populated', () => {
     expect(region).toHaveTextContent('本月净额');
     expect(screen.getByRole('heading', { name: '即将到期' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '刷新' })).toBeInTheDocument();
+  });
+});
+
+/**
+ * A PWA resumed in place on Home must not show hours-old numbers as live: the
+ * shell's dot revalidates on visibilitychange after BADGE_MAX_AGE_MS, and so
+ * must the screen (one shared getHome() request when both fire).
+ */
+describe('Home page — revalidates when the app becomes visible again', () => {
+  let visibility: DocumentVisibilityState = 'visible';
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-10-07T14:00:00.000Z'));
+    visibility = 'visible';
+    vi.spyOn(document, 'visibilityState', 'get').mockImplementation(() => visibility);
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  const becomeVisible = async (state: DocumentVisibilityState = 'visible') => {
+    visibility = state;
+    await act(async () => { document.dispatchEvent(new Event('visibilitychange')); });
+    await settle();
+  };
+
+  async function loaded() {
+    const mock = routeFetch({ [HOME_URL]: () => jsonResponse(200, { success: true, data: homeFixture() }) });
+    const view = renderHome();
+    await screen.findByRole('region', { name: 'Key numbers' });
+    expect(homeCalls(mock)).toBe(1);
+    return { mock, view };
+  }
+
+  it('older than BADGE_MAX_AGE_MS → exactly one reload', async () => {
+    const { mock } = await loaded();
+    vi.setSystemTime(new Date(Date.now() + BADGE_MAX_AGE_MS + 1_000));
+    await becomeVisible();
+    expect(homeCalls(mock)).toBe(2);
+    expect(screen.getByRole('region', { name: 'Key numbers' })).toBeInTheDocument();
+    // The reload just landed, so the next resume is fresh again.
+    await becomeVisible();
+    expect(homeCalls(mock)).toBe(2);
+  });
+
+  it('fresh (within BADGE_MAX_AGE_MS) → no reload', async () => {
+    const { mock } = await loaded();
+    vi.setSystemTime(new Date(Date.now() + BADGE_MAX_AGE_MS - 1_000));
+    await becomeVisible();
+    expect(homeCalls(mock)).toBe(1);
+  });
+
+  it('becoming hidden → no reload, however old', async () => {
+    const { mock } = await loaded();
+    vi.setSystemTime(new Date(Date.now() + BADGE_MAX_AGE_MS * 10));
+    await becomeVisible('hidden');
+    expect(homeCalls(mock)).toBe(1);
+  });
+
+  it('the listener is removed on unmount', async () => {
+    const remove = vi.spyOn(document, 'removeEventListener');
+    const { mock, view } = await loaded();
+    view.unmount();
+    expect(remove.mock.calls.map((c) => c[0])).toContain('visibilitychange');
+    vi.setSystemTime(new Date(Date.now() + BADGE_MAX_AGE_MS * 10));
+    await becomeVisible();
+    expect(homeCalls(mock)).toBe(1);
+  });
+
+  it('the signed-out state does not refetch on every resume', async () => {
+    const mock = routeFetch({ [HOME_URL]: () => jsonResponse(401, { success: false, error: 'unauthorized' }) });
+    renderHome();
+    await screen.findByRole('link', { name: 'Sign in again' });
+    vi.setSystemTime(new Date(Date.now() + BADGE_MAX_AGE_MS * 10));
+    await becomeVisible();
+    expect(homeCalls(mock)).toBe(1);
   });
 });
