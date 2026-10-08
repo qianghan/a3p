@@ -215,7 +215,7 @@ function OutstandingDetail({ data, actions }: { data: MobileHome; actions: Alert
                       if (!sent && !pending) void actions.run(a);
                     }}
                   >
-                    {sent ? t('mobile.home.action.reminded') : actionLabel}
+                    {sent ? t('mobile.home.action.logged') : actionLabel}
                   </Button>
                 )}
               </li>

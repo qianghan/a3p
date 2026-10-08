@@ -72,7 +72,7 @@
       "a_vendor": "Un fournisseur"
     },
     "action": {
-      "reminded": "Relancé",
+      "logged": "Consigné",
       "review": "Vérifier",
       "categorize": "Catégoriser",
       "add_receipts": "Ajouter des reçus",

@@ -186,7 +186,7 @@ describe('AlertCarousel — target links', () => {
 });
 
 describe('useAlertAction — Remind in place', () => {
-  it('Remind posts in place: "Reminded" before the server answers, "Reminder logged" once it does, then reloads', async () => {
+  it('Remind posts in place: "Logged" (nothing is delivered yet) before the server answers, "Reminder logged" once it does, then reloads', async () => {
     let answer!: (r: Response) => void;
     const fetchMock = routeFetch({ [REMIND_URL]: () => new Promise<Response>((r) => { answer = r; }) });
     const onDone = vi.fn();
@@ -194,7 +194,7 @@ describe('useAlertAction — Remind in place', () => {
     const btn = screen.getByRole('button', { name: 'Remind' });
     expectTouchTarget(btn);
     fireEvent.click(btn);
-    expect(screen.getByRole('button', { name: 'Reminded' })).toHaveAttribute('aria-disabled', 'true');
+    expect(screen.getByRole('button', { name: 'Logged' })).toHaveAttribute('aria-disabled', 'true');
     // The server has not answered: nothing claims the reminder was logged yet.
     expect(politeToasts().textContent).toBe('');
     expect(onDone).not.toHaveBeenCalled();
@@ -203,7 +203,7 @@ describe('useAlertAction — Remind in place', () => {
     expect(politeToasts()).toHaveTextContent('Reminder logged');
     // Email delivery is deferred server-side: the UI must never claim it went out.
     expect(document.body).not.toHaveTextContent(/sent/i);
-    expect(screen.getByRole('button', { name: 'Reminded' })).toHaveAttribute('aria-disabled', 'true');
+    expect(screen.getByRole('button', { name: 'Logged' })).toHaveAttribute('aria-disabled', 'true');
     const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
     expect(url).toBe(REMIND_URL);
     expect(init.method).toBe('POST');

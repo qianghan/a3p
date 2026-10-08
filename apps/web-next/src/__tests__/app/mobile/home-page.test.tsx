@@ -295,7 +295,7 @@ describe('Home page — populated', () => {
     expect(screen.getByRole('status', { name: 'Notifications' })).toHaveTextContent('Reminder logged');
   });
 
-  it('the banner and the Outstanding sheet share one action state: one POST, "Reminded" in both', async () => {
+  it('the banner and the Outstanding sheet share one action state: one POST, "Logged" in both', async () => {
     const mock = routeFetch({
       [HOME_URL]: () => jsonResponse(200, { success: true, data: homeFixture() }),
       [REMIND_URL]: () => jsonResponse(200, { success: true, data: { tone: 'firm' } }),
@@ -306,10 +306,17 @@ describe('Home page — populated', () => {
     await waitFor(() => expect(homeCalls(mock)).toBe(2));
     fireEvent.click(within(region).getByRole('button', { name: /^Outstanding/ }));
     const list = await screen.findByRole('list', { name: 'Overdue invoice list' });
-    const reminded = within(list).getByRole('button', { name: 'Reminded' });
+    const reminded = within(list).getByRole('button', { name: 'Logged' });
     expect(reminded).toHaveAttribute('aria-disabled', 'true');
     fireEvent.click(reminded);
     expect(callsTo(mock, REMIND_URL)).toBe(1);
+  });
+
+  it('the post-tap state never claims the client was contacted (en / fr-CA / zh-CN)', async () => {
+    const { i18nT } = await import('./test-utils');
+    expect(i18nT('en')('mobile.home.action.logged')).toBe('Logged');
+    expect(i18nT('fr-CA')('mobile.home.action.logged')).toBe('Consigné');
+    expect(i18nT('zh-CN')('mobile.home.action.logged')).toBe('已记录');
   });
 
   it('renders in Chinese with CAD figures', async () => {

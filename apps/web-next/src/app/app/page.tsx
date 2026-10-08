@@ -48,7 +48,7 @@ export default function MobileHomePage() {
   // Resumed in place after BADGE_MAX_AGE_MS: refetch, like the tab bar's dot does on the same
   // trigger (getHome() shares the request, so the two cost one fetch).
   useRevalidateOnVisible(reload, { hasData: data !== null, live: data !== null && staleAt === null && !error, busy: loading || refreshing }, BADGE_MAX_AGE_MS);
-  // One instance for the banner AND the KPI sheet: one POST per alert, one "Reminded" state.
+  // One instance for the banner AND the KPI sheet: one POST per alert, one "Logged" state.
   const actions = useAlertAction(reload);
 
   const busy = refreshing || pull.refreshing;

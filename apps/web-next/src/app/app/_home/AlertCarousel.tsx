@@ -97,7 +97,7 @@ export function AlertCarousel({ alerts, currency, actions }: { alerts: MobileAle
           if (!reminded && !busy) void actions.run(current);
         }}
       >
-        {reminded ? t('mobile.home.action.reminded') : copy.actionLabel}
+        {reminded ? t('mobile.home.action.logged') : copy.actionLabel}
       </Button>
     );
   } else if (copy.href && copy.actionLabel) {

@@ -72,7 +72,7 @@
       "a_vendor": "A vendor"
     },
     "action": {
-      "reminded": "Reminded",
+      "logged": "Logged",
       "review": "Review",
       "categorize": "Categorize",
       "add_receipts": "Add receipts",

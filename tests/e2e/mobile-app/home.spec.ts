@@ -364,7 +364,7 @@ test.describe('@mobile-home', () => {
   test.describe('remind', () => {
     test.describe.configure({ retries: 0 });
 
-    test('Remind on ONE overdue invoice: "Reminded" at once, the toast only after the POST resolves', async ({ page }) => {
+    test('Remind on ONE overdue invoice: "Logged" at once, the toast only after the POST resolves', async ({ page }) => {
       // The remind route only LOGS the reminder (delivered:false, email deferred) and bumps lastRemindedAt,
       // so it is harmless to repeat; still, exactly one click on one alert per run, and none at all when no
       // seeded persona has an overdue invoice (the collective gate test then fails the run instead).
@@ -419,8 +419,8 @@ test.describe('@mobile-home', () => {
       const logged = t('mobile.home.toast.reminder_logged');
 
       await button.click();
-      // Optimistic: the button is already the "Reminded" state, and inert, while the POST is still held.
-      await expect(button).toHaveText(t('mobile.home.action.reminded'));
+      // Optimistic: the button is already the "Logged" state (nothing is delivered, so never "Reminded"), and inert, while the POST is still held.
+      await expect(button).toHaveText(t('mobile.home.action.logged'));
       await expect(button).toHaveAttribute('aria-disabled', 'true');
       await expect.poll(() => held, { message: 'the remind POST reached the network layer', timeout: 10_000 }).toBe(true);
       // Sampled, not `expect(...).not.toContainText`: that matcher RETRIES until the text is gone, and a toast
@@ -437,7 +437,7 @@ test.describe('@mobile-home', () => {
       // Only now — the server has answered — the toast says so, and says exactly the true thing in the page's locale
       // (not "sent": an equality on the real localized string, which holds in French and Chinese too).
       await expect(toast).toHaveText(logged);
-      await expect(button).toHaveText(t('mobile.home.action.reminded'));
+      await expect(button).toHaveText(t('mobile.home.action.logged'));
 
       // A second tap on the settled button does nothing (force: Playwright will not click an aria-disabled control).
       await button.click({ force: true });

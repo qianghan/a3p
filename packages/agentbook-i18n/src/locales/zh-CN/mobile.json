@@ -72,7 +72,7 @@
       "a_vendor": "某供应商"
     },
     "action": {
-      "reminded": "已催款",
+      "logged": "已记录",
       "review": "审核",
       "categorize": "分类",
       "add_receipts": "补充收据",

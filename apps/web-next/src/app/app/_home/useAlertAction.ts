@@ -36,7 +36,7 @@ function failureCopy(err: unknown, t: TFn): string {
  * invoice → POST the alert's endpoint (remindInvoice refuses any other path
  * before fetching).
  *
- * The button flips to "Reminded" at once (optimistic), but the toast waits for
+ * The button flips to "Logged" at once (optimistic — never "Reminded": nothing is delivered), but the toast waits for
  * the server: the remind route only LOGS the reminder (delivered:false — email
  * sending is deferred), so "Reminder logged" is said only once it is true, and
  * nothing ever says it was sent. A failure rolls the button back and says why
