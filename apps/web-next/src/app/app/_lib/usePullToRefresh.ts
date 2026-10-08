@@ -83,7 +83,11 @@ export function usePullToRefresh(
   const onTouchStart = useCallback((e: React.TouchEvent) => {
     const t = e.touches[0];
     pulled.current = 0;
-    if (!t || scrollTopRef.current() > 0) {
+    // Synthetic touch events bubble through React portals: a touch inside a portalled
+    // Sheet reaches these handlers although the sheet is not inside this element in
+    // the DOM. A pull there must not refresh the screen behind it.
+    const inside = e.target instanceof Node && e.currentTarget instanceof Node && e.currentTarget.contains(e.target);
+    if (!t || !inside || scrollTopRef.current() > 0) {
       mode.current = 'ignore';
       return;
     }

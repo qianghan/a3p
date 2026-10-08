@@ -1,4 +1,5 @@
 import React from 'react';
+import { createPortal } from 'react-dom';
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, act } from '@testing-library/react';
 import { usePullToRefresh } from '@/app/app/_lib/usePullToRefresh';
@@ -212,5 +213,49 @@ describe('usePullToRefresh — scroll container', () => {
     await act(async () => { finish(); });
     expect(err).not.toHaveBeenCalled();
     err.mockRestore();
+  });
+});
+
+/**
+ * React synthetic events bubble through portals along the REACT tree: a touch
+ * inside a portalled Sheet (the KPI detail sheet renders into document.body)
+ * reaches the page root's handlers even though the sheet is not inside it in
+ * the DOM. Pulling down inside the sheet must not refresh Home behind it.
+ */
+describe('usePullToRefresh — portals', () => {
+  function PortalHarness({ onRefresh }: { onRefresh: () => void }) {
+    const p = usePullToRefresh(onRefresh, { getScrollTop: () => 0 });
+    return (
+      <div data-testid="area" {...p.bind}>
+        <span data-testid="distance">{p.distance}</span>
+        {createPortal(<div data-testid="sheet">sheet</div>, document.body)}
+      </div>
+    );
+  }
+
+  it('a pull that starts inside a portalled sheet does not arm', async () => {
+    const onRefresh = vi.fn();
+    render(<PortalHarness onRefresh={onRefresh} />);
+    const sheet = screen.getByTestId('sheet');
+    expect(screen.getByTestId('area').contains(sheet)).toBe(false);
+    await act(async () => {
+      touch(sheet, 'touchstart', 100, 100);
+      touch(sheet, 'touchmove', 100, 400);
+      touch(sheet, 'touchend', 100, 400);
+    });
+    expect(screen.getByTestId('distance').textContent).toBe('0');
+    expect(onRefresh).not.toHaveBeenCalled();
+  });
+
+  it('the same pull on the page itself still refreshes', async () => {
+    const onRefresh = vi.fn();
+    render(<PortalHarness onRefresh={onRefresh} />);
+    const area = screen.getByTestId('area');
+    await act(async () => {
+      touch(area, 'touchstart', 100, 100);
+      touch(area, 'touchmove', 100, 400);
+      touch(area, 'touchend', 100, 400);
+    });
+    expect(onRefresh).toHaveBeenCalledTimes(1);
   });
 });
