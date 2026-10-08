@@ -13,6 +13,7 @@ import {
   IPHONE_INSETS,
   MOBILE_VIEWPORT,
   neverCachePaths,
+  waitForHomeSnapshot,
   type ScreenRoute,
 } from './helpers';
 import { BADGES_ENABLED } from '../../../apps/web-next/src/app/app/_shell/badges';
@@ -94,8 +95,7 @@ test.describe('@mobile-shell', () => {
       // snapshot, then re-reads it to set the badges; wait for the snapshot, then two
       // frames for React to commit — only then is "no badge" a meaningful observation
       // (an absence assertion on a not-yet-updated tab bar passes trivially).
-      await page.waitForFunction(() => window.localStorage.getItem('ab:mobile:home') !== null, undefined, { timeout: 15_000 });
-      await page.evaluate(() => new Promise<void>((res) => requestAnimationFrame(() => requestAnimationFrame(() => res()))));
+      await waitForHomeSnapshot(page);
       await settle(page);
       const t = catalogT((await pageLocales(page)).stringLocale);
 
@@ -145,7 +145,17 @@ test.describe('@mobile-shell', () => {
 
     test('fresh account: the shell renders with no badges', async ({ page }) => {
       await loginAs(page, 'fresh');
+      // Home is live: the tab bar's badges come from the same /mobile/home response the screen
+      // reads. Wait for the app to have USED THIS response (its snapshot + two frames) before
+      // asserting absence — otherwise "no badge" is read off a tab bar that has not updated
+      // yet and passes whatever the data says.
+      const homeResponse = page.waitForResponse(
+        (r) => new URL(r.url()).pathname === '/api/v1/agentbook-core/mobile/home' && r.request().method() === 'GET',
+        { timeout: 30_000 },
+      );
       await page.goto('/app');
+      const generatedAt = ((await (await homeResponse).json()).data as { generatedAt: string }).generatedAt;
+      await waitForHomeSnapshot(page, generatedAt);
       await settle(page);
       const t = catalogT((await pageLocales(page)).stringLocale);
       await expect(tabNav(page, t).locator('a[data-tab]')).toHaveCount(4);

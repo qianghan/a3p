@@ -3,6 +3,9 @@ import { readdirSync, readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { randomBytes } from 'node:crypto';
 import { formatCurrencyCents } from '../../../apps/web-next/src/lib/jurisdiction-currency';
+// Dependency-free source: the SAME date functions the app's _kit/format.ts wraps.
+import { SNAPSHOT_PREFIX } from '../../../apps/web-next/src/lib/mobile/snapshot-keys';
+import { formatDate, formatDateOnly } from '../../../packages/agentbook-i18n/src/formatters';
 
 export const MOBILE_VIEWPORT = { width: 390, height: 844 };
 
@@ -177,6 +180,51 @@ export function money(cents: number, currency: string, locale: string): string {
   return formatCurrencyCents(Math.round(cents), currency, locale);
 }
 
+/** The app's "as of HH:MM" clock text for an instant (_kit/format.ts `time`): the viewer's zone, shell formatting locale. */
+export function clockTime(iso: string, locale: string): string {
+  return formatDate(iso, locale, { hour: 'numeric', minute: '2-digit' });
+}
+
+/** The app's calendar-day text for a LOGICAL date such as "2026-10-15" (_kit/format.ts `dateOnly`): never zone-shifted. */
+export function calendarDay(iso: string, locale: string): string {
+  return formatDateOnly(iso.slice(0, 10), locale, { month: 'short', day: 'numeric' });
+}
+
+/** Where the Home screen's last-good copy lives: the app's SNAPSHOT_PREFIX + its HOME_KEY ('home', _lib/useShellBadges.ts). */
+export const HOME_SNAPSHOT_STORAGE_KEY = `${SNAPSHOT_PREFIX}home`;
+
+/**
+ * Wait until the app has USED a /mobile/home response: its snapshot is stored,
+ * and two animation frames have passed so React has committed what it derived
+ * from it (the tab-bar badges). Only then is an ABSENCE assertion ("no badge",
+ * "no dot") a real observation — on a not-yet-updated tab bar it passes trivially.
+ *
+ * Pass the response's `generatedAt` when a snapshot from an earlier visit may
+ * already be in localStorage: the wait then ends only once a snapshot NOT OLDER
+ * than that response is stored. (Not strictly equal: the shell and the screen
+ * can each request /mobile/home, and the later response is the one that is
+ * stored.)
+ */
+export async function waitForHomeSnapshot(page: Page, generatedAt?: string): Promise<void> {
+  await page.waitForFunction(
+    ({ key, at }) => {
+      try {
+        const raw = window.localStorage.getItem(key);
+        if (!raw) return false;
+        if (!at) return true;
+        const stored = (JSON.parse(raw) as { data?: { generatedAt?: string } } | null)?.data?.generatedAt;
+        // ISO-8601 instants compare chronologically as strings.
+        return typeof stored === 'string' && stored >= at;
+      } catch {
+        return false;
+      }
+    },
+    { key: HOME_SNAPSHOT_STORAGE_KEY, at: generatedAt ?? null },
+    { timeout: 15_000 },
+  );
+  await page.evaluate(() => new Promise<void>((res) => requestAnimationFrame(() => requestAnimationFrame(() => res()))));
+}
+
 export type ScreenRoute = '/app' | '/app/docs' | '/app/capture' | '/app/chat';
 
 /**
@@ -186,7 +234,11 @@ export type ScreenRoute = '/app' | '/app/docs' | '/app/capture' | '/app/chat';
 export async function expectScreen(page: Page, route: string, t: CatalogT): Promise<void> {
   const main = page.locator('main');
   if (route === '/app') {
-    await expect(main.getByRole('heading', { level: 1, name: 'AgentBook' })).toBeVisible();
+    // New Home (PR 3): the KPI strip for a tenant with books, the welcome card for a brand-new one.
+    // (The h1 "AgentBook" is also there, but it renders while the data is still loading — it proves nothing.)
+    await expect(
+      main.getByRole('region', { name: t('mobile.home.kpi.region') }).or(main.getByRole('heading', { name: t('mobile.home.new.title') })),
+    ).toBeVisible();
   } else if (route === '/app/docs' || route.startsWith('/app/docs?')) {
     await expect(main.getByRole('heading', { name: t('common.documents') })).toBeVisible();
   } else if (route.startsWith('/app/capture')) {
