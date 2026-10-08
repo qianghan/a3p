@@ -183,3 +183,144 @@ export async function reverseExpenseJournalEntry(
     throw err;
   }
 }
+
+/** Thrown when an edit would rewrite a month that has been closed. */
+export class ExpenseLedgerPeriodClosedError extends Error {
+  constructor(public readonly year: number, public readonly month: number) {
+    super(`Fiscal period ${year}-${String(month).padStart(2, '0')} is closed`);
+    this.name = 'ExpenseLedgerPeriodClosedError';
+  }
+}
+
+/** Thrown when the booked entry's shape can't be re-priced without guessing. */
+export class ExpenseLedgerShapeError extends Error {
+  constructor() {
+    super('This expense is booked as a split or multi-line entry; its amount cannot be edited automatically');
+    this.name = 'ExpenseLedgerShapeError';
+  }
+}
+
+type RepostClient = Pick<typeof db, 'abExpense' | 'abJournalEntry' | 'abFiscalPeriod'>;
+
+const sameUtcDay = (a: Date, b: Date) =>
+  a.getUTCFullYear() === b.getUTCFullYear() &&
+  a.getUTCMonth() === b.getUTCMonth() &&
+  a.getUTCDate() === b.getUTCDate();
+
+async function assertPeriodOpen(client: RepostClient, tenantId: string, date: Date): Promise<void> {
+  const year = date.getFullYear();
+  const month = date.getMonth() + 1;
+  const period = await client.abFiscalPeriod.findUnique({
+    where: { tenantId_year_month: { tenantId, year, month } },
+  });
+  if (period && period.status === 'closed') throw new ExpenseLedgerPeriodClosedError(year, month);
+}
+
+/**
+ * Bring an expense's ledger entry back in line after its amount or date was
+ * edited. Call it INSIDE the transaction that saved the edit, passing the tx.
+ *
+ * Without this, editing a booked expense changed the row the user sees while
+ * P&L, the trial balance and the tax estimate kept the old figure — the third
+ * member of the family with "categorized but never booked" (#386) and "deleted
+ * but never reversed" (#397).
+ *
+ * Journal entries are immutable, so this appends two entries rather than
+ * touching the original:
+ *   1. a mirror reversal of the CURRENT entry, dated at that entry's own date
+ *      (so the old month nets to zero — the delete path dates its reversal
+ *      "today", which is right for a deletion but would leave an edited
+ *      expense counted twice in its original month);
+ *   2. a replacement entry at the expense's new amount and date.
+ * Both are keyed by the id of the entry being superseded, so
+ * @@unique([tenantId, sourceType, sourceId]) (G-021) gives each edit a fresh
+ * key (a chain of edits never collides) and rejects two concurrent edits of the
+ * same entry — the loser gets P2002 and rolls back rather than double-posting.
+ * The replacement debits whatever the original debited, so a category change
+ * and a suspense posting behave exactly as they did before.
+ *
+ * Self-healing and idempotent: it compares the ledger to the expense and does
+ * nothing when they already agree.
+ */
+export async function repostExpenseJournalEntry(
+  tenantId: string,
+  expenseId: string,
+  tx: RepostClient,
+): Promise<{ reposted: boolean; journalEntryId: string | null; reason?: string }> {
+  const expense = await tx.abExpense.findFirst({ where: { id: expenseId, tenantId } });
+  if (!expense?.journalEntryId) return { reposted: false, journalEntryId: null, reason: 'not booked' };
+
+  const original = await tx.abJournalEntry.findFirst({
+    where: { id: expense.journalEntryId, tenantId },
+    include: { lines: true },
+  });
+  if (!original || original.lines.length === 0) {
+    return { reposted: false, journalEntryId: expense.journalEntryId, reason: 'original entry has no lines' };
+  }
+
+  const originalTotal = original.lines.reduce((s, l) => s + l.debitCents, 0);
+  const amountChanged = originalTotal !== expense.amountCents;
+  const dateChanged = !sameUtcDay(original.date, expense.date);
+  if (!amountChanged && !dateChanged) {
+    return { reposted: false, journalEntryId: original.id, reason: 'ledger already matches' };
+  }
+
+  let newLines = original.lines.map((l) => ({
+    accountId: l.accountId,
+    debitCents: l.debitCents,
+    creditCents: l.creditCents,
+    description: l.description,
+  }));
+  if (amountChanged) {
+    // Only the plain DR one-account / CR one-account entry can be re-priced
+    // without inventing an allocation. Splits and tax-line entries would need
+    // a policy for how the delta is shared; refuse instead of guessing.
+    const debits = original.lines.filter((l) => l.debitCents > 0);
+    const credits = original.lines.filter((l) => l.creditCents > 0);
+    if (original.lines.length !== 2 || debits.length !== 1 || credits.length !== 1) {
+      throw new ExpenseLedgerShapeError();
+    }
+    newLines = newLines.map((l) => ({
+      ...l,
+      debitCents: l.debitCents > 0 ? expense.amountCents : 0,
+      creditCents: l.creditCents > 0 ? expense.amountCents : 0,
+    }));
+  }
+
+  await assertPeriodOpen(tx, tenantId, original.date);
+  if (dateChanged) await assertPeriodOpen(tx, tenantId, expense.date);
+
+  const desc = expense.description || 'Expense';
+  await tx.abJournalEntry.create({
+    data: {
+      tenantId,
+      date: original.date,
+      memo: `AMENDED - Reverse expense: ${desc}`,
+      sourceType: 'expense_amend_reversal',
+      sourceId: original.id,
+      verified: true,
+      lines: {
+        create: original.lines.map((l) => ({
+          tenantId, // G-009
+          accountId: l.accountId,
+          debitCents: l.creditCents,
+          creditCents: l.debitCents,
+          description: `Reverse: ${l.description || 'Expense'}`,
+        })),
+      },
+    },
+  });
+  const replacement = await tx.abJournalEntry.create({
+    data: {
+      tenantId,
+      date: expense.date,
+      memo: `Expense (amended): ${desc}`,
+      sourceType: 'expense_amend',
+      sourceId: original.id,
+      verified: true,
+      lines: { create: newLines.map((l) => ({ tenantId, ...l })) }, // G-009
+    },
+  });
+  await tx.abExpense.update({ where: { id: expense.id }, data: { journalEntryId: replacement.id } });
+  return { reposted: true, journalEntryId: replacement.id };
+}

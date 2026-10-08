@@ -2,7 +2,9 @@
  * Expense detail + edit.
  *
  * GET — full row + resolved vendor name + category name/code + splits.
- * PUT — patch amountCents, categoryId, description, isPersonal, date.
+ * PUT — patch amountCents, categoryId, description, isPersonal, date. Editing
+ *       the amount or date of a BOOKED expense also reverses and re-posts its
+ *       journal entry, atomically, so P&L and the tax estimate follow the edit.
  */
 
 import 'server-only';
@@ -12,7 +14,12 @@ import { safeResolveAgentbookTenant } from '@/lib/agentbook-tenant';
 import { audit } from '@/lib/agentbook-audit';
 import { inferSource, inferActor } from '@/lib/agentbook-audit-context';
 import { withSoftDelete, parseIncludeDeleted } from '@/lib/agentbook-soft-delete';
-import { reverseExpenseJournalEntry } from '@/lib/agentbook-expense-ledger';
+import {
+  reverseExpenseJournalEntry,
+  repostExpenseJournalEntry,
+  ExpenseLedgerPeriodClosedError,
+  ExpenseLedgerShapeError,
+} from '@/lib/agentbook-expense-ledger';
 import { publicErrorMessage } from '@/lib/api-error';
 
 export const runtime = 'nodejs';
@@ -93,6 +100,21 @@ export async function PUT(
       return NextResponse.json({ success: false, error: 'Expense not found' }, { status: 404 });
     }
 
+    // The ledger columns are Int cents and a Date; reject what can't be posted
+    // as a 400 instead of letting Prisma throw a 500 mid-transaction.
+    if (
+      body.amountCents !== undefined &&
+      (typeof body.amountCents !== 'number' || !Number.isInteger(body.amountCents) || body.amountCents <= 0)
+    ) {
+      return NextResponse.json(
+        { success: false, error: 'amountCents must be a positive integer' },
+        { status: 400 },
+      );
+    }
+    if (body.date !== undefined && Number.isNaN(new Date(body.date).getTime())) {
+      return NextResponse.json({ success: false, error: 'date is not a valid date' }, { status: 400 });
+    }
+
     const data: Record<string, unknown> = {};
     if (body.amountCents !== undefined) data.amountCents = body.amountCents;
     if (body.categoryId !== undefined) data.categoryId = body.categoryId;
@@ -100,7 +122,53 @@ export async function PUT(
     if (body.isPersonal !== undefined) data.isPersonal = body.isPersonal;
     if (body.date !== undefined) data.date = new Date(body.date);
 
-    const updated = await db.abExpense.update({ where: { id }, data });
+    // A booked expense (journal entry exists) whose amount or date moved must
+    // have its ledger entry reversed and re-posted in the SAME transaction —
+    // otherwise the expense and the books disagree, silently. A rejected
+    // expense was already reversed by undo; re-posting would resurrect it.
+    const ledgerAffected =
+      !!existing.journalEntryId &&
+      existing.status !== 'rejected' &&
+      ((body.amountCents !== undefined && body.amountCents !== existing.amountCents) ||
+        body.date !== undefined);
+
+    let updated;
+    try {
+      updated = await db.$transaction(async (tx) => {
+        const row = await tx.abExpense.update({ where: { id }, data });
+        if (!ledgerAffected) return row;
+        const { journalEntryId } = await repostExpenseJournalEntry(tenantId, id, tx);
+        return journalEntryId ? { ...row, journalEntryId } : row;
+      });
+    } catch (err) {
+      if (err instanceof ExpenseLedgerPeriodClosedError) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: 'Period gate violated',
+            details: { constraint: 'period_gate', year: err.year, month: err.month, status: 'closed' },
+          },
+          { status: 422 },
+        );
+      }
+      if (err instanceof ExpenseLedgerShapeError) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: 'This expense is booked as a split or multi-line entry, so its amount cannot be edited automatically',
+          },
+          { status: 422 },
+        );
+      }
+      if ((err as { code?: string })?.code === 'P2002') {
+        // Another edit already superseded this journal entry (G-021 unique key).
+        return NextResponse.json(
+          { success: false, error: 'This expense was just changed by another request; reload and try again' },
+          { status: 409 },
+        );
+      }
+      throw err;
+    }
 
     // PR 10 — audit only the fields the caller actually touched.
     const before: Record<string, unknown> = {};
