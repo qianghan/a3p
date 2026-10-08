@@ -1,7 +1,8 @@
 /**
  * Mobile alert helpers. `missingReceiptWhere` is the ONE server definition of
  * a "missing receipt", used by GET /agentbook-core/mobile/home AND
- * GET /agentbook-expense/advisor/proactive-alerts so both surfaces agree.
+ * GET /agentbook-expense/advisor/proactive-alerts AND the cron/proactive-alerts
+ * Telegram/push nag, so every surface agrees.
  *
  * Type-only Prisma import: safe for client bundles that import rankAlerts.
  */
