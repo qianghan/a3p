@@ -46,6 +46,33 @@ describe('Sheet', () => {
     document.body.style.overflow = '';
   });
 
+  // In /app the page does not scroll: the MobileShell's <main id="mobile-main">
+  // does. Locking only <body> left the screen behind an open sheet scrollable.
+  it('also locks the /app scroller (#mobile-main) and restores its own overflow exactly', () => {
+    const main = document.createElement('main');
+    main.id = 'mobile-main';
+    main.style.overflowY = 'auto';
+    document.body.appendChild(main);
+    try {
+      const { rerender } = renderWithI18n(<Sheet open onClose={() => {}} title="T">x</Sheet>);
+      expect(main.style.overflowY).toBe('hidden');
+      expect(document.body.style.overflow).toBe('hidden');
+      rerender(<Sheet open={false} onClose={() => {}} title="T">x</Sheet>);
+      expect(main.style.overflowY).toBe('auto');
+      expect(document.body.style.overflow).toBe('');
+    } finally {
+      main.remove();
+    }
+  });
+
+  it('without #mobile-main (outside the /app shell) it still locks the body and does not throw', () => {
+    expect(document.getElementById('mobile-main')).toBeNull();
+    const { rerender } = renderWithI18n(<Sheet open onClose={() => {}} title="T">x</Sheet>);
+    expect(document.body.style.overflow).toBe('hidden');
+    rerender(<Sheet open={false} onClose={() => {}} title="T">x</Sheet>);
+    expect(document.body.style.overflow).toBe('');
+  });
+
   it('puts focus back on the trigger when it closes', () => {
     const trigger = document.createElement('button');
     document.body.appendChild(trigger);
@@ -266,6 +293,25 @@ describe('Sheet stacking, portal and focus order', () => {
     rerender(<Two outer={false} inner={false} onOuter={noop} onInner={noop} />);
     expect(document.body.style.overflow).toBe('scroll');
     document.body.style.overflow = '';
+  });
+
+  it('stacked sheets lock #mobile-main once and restore it once, in any close order', () => {
+    const main = document.createElement('main');
+    main.id = 'mobile-main';
+    main.style.overflowY = 'scroll';
+    document.body.appendChild(main);
+    try {
+      const noop = () => {};
+      const { rerender } = renderWithI18n(<Two outer inner onOuter={noop} onInner={noop} />);
+      expect(main.style.overflowY).toBe('hidden');
+      rerender(<Two outer={false} inner onOuter={noop} onInner={noop} />);
+      expect(main.style.overflowY).toBe('hidden');
+      rerender(<Two outer={false} inner={false} onOuter={noop} onInner={noop} />);
+      // Restored to the value from BEFORE the first lock, not to 'hidden'.
+      expect(main.style.overflowY).toBe('scroll');
+    } finally {
+      main.remove();
+    }
   });
 
   it('after the inner sheet closes the outer one handles Escape again', () => {

@@ -39,18 +39,32 @@ interface Layer {
 const layers: Layer[] = [];
 let lockCount = 0;
 let savedOverflow = '';
+// In /app the page itself does not scroll — MobileShell's <main id="mobile-main">
+// does — so that is locked too. The element is remembered so the same one is
+// restored even if the DOM changed while the sheet was open.
+let lockedMain: HTMLElement | null = null;
+let savedMainOverflowY = '';
 
 function lockScroll(): void {
   if (lockCount === 0) {
     savedOverflow = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
+    lockedMain = document.getElementById('mobile-main');
+    if (lockedMain) {
+      savedMainOverflowY = lockedMain.style.overflowY;
+      lockedMain.style.overflowY = 'hidden';
+    }
   }
   lockCount += 1;
 }
 
 function unlockScroll(): void {
   lockCount -= 1;
-  if (lockCount === 0) document.body.style.overflow = savedOverflow;
+  if (lockCount === 0) {
+    document.body.style.overflow = savedOverflow;
+    if (lockedMain) lockedMain.style.overflowY = savedMainOverflowY;
+    lockedMain = null;
+  }
 }
 
 function onDocumentKeyDown(e: KeyboardEvent): void {
