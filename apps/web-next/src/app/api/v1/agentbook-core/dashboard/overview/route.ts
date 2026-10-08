@@ -10,6 +10,9 @@
  *   • this-month metrics (Rev/Exp/Net + prior month)
  *   • isBrandNew flag
  *
+ * Cash, month totals and the brand-new flag come from
+ * lib/agentbook-dashboard-metrics.ts, shared with GET /mobile/home.
+ *
  * Intentionally omitted (returns null/empty for the dashboard to handle):
  *   • cashflow projection (30-day forecasting math) — V2
  *   • quarterly tax estimate calc — V2
@@ -28,6 +31,12 @@ import {
   type NextMoment,
   type RecurringOutflow,
 } from '../_helpers';
+import {
+  getCashTodayCents,
+  getMonthTotals,
+  nonEmptyMonth,
+  isBrandNewTenant,
+} from '@/lib/agentbook-dashboard-metrics';
 import { publicErrorMessage } from '@/lib/api-error';
 
 export const runtime = 'nodejs';
@@ -42,26 +51,15 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     const today = new Date();
 
     const [
-      assetAccounts,
+      cashToday,
       overdueInvoices,
       upcomingInvoices,
       missingReceiptsCount,
-      mtdExpenses,
-      mtdRevenue,
-      prevExpenses,
-      prevRevenue,
-      expenseCount,
-      invoiceCount,
+      months,
+      isBrandNew,
       ninetyDayExpenses,
     ] = await Promise.all([
-      // Cash today: sum of (debit − credit) on journal lines of active asset accounts
-      db.abAccount.findMany({
-        where: { tenantId, accountType: 'asset', isActive: true },
-        select: {
-          id: true,
-          journalLines: { select: { debitCents: true, creditCents: true } },
-        },
-      }),
+      getCashTodayCents(tenantId),
 
       // Overdue invoices
       db.abInvoice.findMany({
@@ -93,40 +91,9 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         },
       }),
 
-      // MTD expense aggregate
-      db.abExpense.aggregate({
-        where: { tenantId, isPersonal: false, date: { gte: startOfMonth(today) } },
-        _sum: { amountCents: true },
-      }),
+      getMonthTotals(tenantId, today),
 
-      // MTD revenue aggregate (paid invoices this month)
-      db.abPayment.aggregate({
-        where: { tenantId, date: { gte: startOfMonth(today) } },
-        _sum: { amountCents: true },
-      }),
-
-      // Prior-month expense
-      db.abExpense.aggregate({
-        where: {
-          tenantId,
-          isPersonal: false,
-          date: { gte: startOfPrevMonth(today), lt: startOfMonth(today) },
-        },
-        _sum: { amountCents: true },
-      }),
-
-      // Prior-month revenue
-      db.abPayment.aggregate({
-        where: {
-          tenantId,
-          date: { gte: startOfPrevMonth(today), lt: startOfMonth(today) },
-        },
-        _sum: { amountCents: true },
-      }),
-
-      // Brand-new flag
-      db.abExpense.count({ where: { tenantId } }),
-      db.abInvoice.count({ where: { tenantId } }),
+      isBrandNewTenant(tenantId),
 
       // 90-day expense window for recurring-outflow detection
       db.abExpense.findMany({
@@ -140,14 +107,6 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         },
       }),
     ]);
-
-    const cashToday = assetAccounts.reduce((sum, account) => {
-      const accountBalance = account.journalLines.reduce(
-        (acc, line) => acc + line.debitCents - line.creditCents,
-        0,
-      );
-      return sum + accountBalance;
-    }, 0);
 
     const overdueForRanking = overdueInvoices.map((i) => ({
       id: i.id,
@@ -191,17 +150,6 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       recurring: recurringWithDays.filter((r) => r.daysOut <= 30),
     });
 
-    const monthMtd = {
-      revenueCents: mtdRevenue._sum.amountCents || 0,
-      expenseCents: mtdExpenses._sum.amountCents || 0,
-      netCents: (mtdRevenue._sum.amountCents || 0) - (mtdExpenses._sum.amountCents || 0),
-    };
-    const monthPrev = {
-      revenueCents: prevRevenue._sum.amountCents || 0,
-      expenseCents: prevExpenses._sum.amountCents || 0,
-      netCents: (prevRevenue._sum.amountCents || 0) - (prevExpenses._sum.amountCents || 0),
-    };
-
     return NextResponse.json({
       success: true,
       data: {
@@ -210,9 +158,9 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         nextMoments,
         attention,
         recurringOutflows: recurring as RecurringOutflow[],
-        monthMtd: monthMtd.revenueCents > 0 || monthMtd.expenseCents > 0 ? monthMtd : null,
-        monthPrev: monthPrev.revenueCents > 0 || monthPrev.expenseCents > 0 ? monthPrev : null,
-        isBrandNew: expenseCount === 0 && invoiceCount === 0,
+        monthMtd: nonEmptyMonth(months.monthMtd),
+        monthPrev: nonEmptyMonth(months.monthPrev),
+        isBrandNew,
       },
     });
   } catch (err) {
@@ -224,12 +172,6 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   }
 }
 
-function startOfMonth(d: Date): Date {
-  return new Date(d.getFullYear(), d.getMonth(), 1);
-}
-function startOfPrevMonth(d: Date): Date {
-  return new Date(d.getFullYear(), d.getMonth() - 1, 1);
-}
 function daysAgo(n: number): Date {
   const d = new Date();
   d.setDate(d.getDate() - n);
