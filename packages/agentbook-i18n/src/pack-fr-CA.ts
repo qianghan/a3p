@@ -39,6 +39,7 @@ import frExpensesUi from './locales/fr-CA/expenses_ui.json';
 import frHomeoffice from './locales/fr-CA/homeoffice.json';
 import frInvoice from './locales/fr-CA/invoice.json';
 import frInvoiceUi from './locales/fr-CA/invoice_ui.json';
+import frMobile from './locales/fr-CA/mobile.json';
 import frNav from './locales/fr-CA/nav.json';
 import frOnboarding from './locales/fr-CA/onboarding.json';
 import frStartupUi from './locales/fr-CA/startup_ui.json';
@@ -66,6 +67,7 @@ const pack: Record<string, TranslationData> = Object.freeze({
   homeoffice: frHomeoffice,
   invoice: frInvoice,
   invoice_ui: frInvoiceUi,
+  mobile: frMobile,
   nav: frNav,
   onboarding: frOnboarding,
   startup_ui: frStartupUi,

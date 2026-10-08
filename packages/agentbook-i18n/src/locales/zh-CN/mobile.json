@@ -1,0 +1,27 @@
+{
+  "tabs": {
+    "nav_label": "主导航",
+    "home": "首页",
+    "docs": "单据",
+    "capture": "记账",
+    "chat": "对话",
+    "home_attention": "首页，有待处理事项",
+    "docs_review_one": "单据，{count} 项待审核",
+    "docs_review_other": "单据，{count} 项待审核"
+  },
+  "kit": {
+    "close": "关闭",
+    "not_available": "暂无数据",
+    "notifications": "通知",
+    "retry": "重试",
+    "loading": "加载中",
+    "no_receipt": "没有收据图片",
+    "pdf_receipt": "PDF 收据",
+    "offline_as_of": "离线 · 显示截至 {time} 的数据",
+    "stale_as_of": "无法刷新 · 显示截至 {time} 的数据",
+    "error_title": "无法加载",
+    "error_body": "请检查网络连接后重试——您的数据是安全的。",
+    "offline_title": "您已离线",
+    "offline_body": "重新连接后再试——没有丢失任何内容。"
+  }
+}
