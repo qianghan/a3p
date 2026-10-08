@@ -59,6 +59,30 @@ describe('useInfiniteScroll', () => {
     rerender(<Harness hasMore loading={false} onLoadMore={onLoadMore} />);
     expect(io.observeCalls).toBeGreaterThan(before);
   });
+  it('a still-visible sentinel keeps paging: each landed page gets a fresh initial notification (needs unobserve+observe)', () => {
+    const onLoadMore = vi.fn();
+    const { rerender } = render(<Harness hasMore loading={false} onLoadMore={onLoadMore} />);
+    const io = MockIntersectionObserver.latest();
+    io.visible = true; // short page / tall phone: the sentinel never leaves the viewport
+    act(() => io.flush());
+    expect(onLoadMore).toHaveBeenCalledTimes(1);
+    rerender(<Harness hasMore loading onLoadMore={onLoadMore} />);
+    act(() => io.flush());
+    expect(onLoadMore).toHaveBeenCalledTimes(1); // in flight: nothing to deliver
+    rerender(<Harness hasMore loading={false} onLoadMore={onLoadMore} />); // page landed
+    act(() => io.flush());
+    expect(onLoadMore).toHaveBeenCalledTimes(2); // a bare observe() on an observed target would deliver nothing
+  });
+  it('the mock ignores observe() on an already-observed target (matches the real API)', () => {
+    const io = new MockIntersectionObserver(vi.fn());
+    const el = document.createElement('div');
+    io.observe(el);
+    io.observe(el);
+    expect(io.observeCalls).toBe(1);
+    io.unobserve(el);
+    io.observe(el);
+    expect(io.observeCalls).toBe(2);
+  });
   it('does not re-observe when the list is exhausted or loading (no needless re-fire)', () => {
     const onLoadMore = vi.fn();
     const { rerender } = render(<Harness hasMore loading={false} onLoadMore={onLoadMore} />);
@@ -108,6 +132,14 @@ describe('useInfiniteScroll', () => {
   });
   it('falls back to the viewport (no root) when there is no shell container', () => {
     render(<Harness hasMore loading={false} onLoadMore={vi.fn()} />);
+    expect(MockIntersectionObserver.latest().options?.root).toBeUndefined();
+  });
+  it('falls back to the viewport when the sentinel is outside #mobile-main (a non-ancestor root would never intersect)', () => {
+    const main = document.createElement('main');
+    main.id = 'mobile-main';
+    document.body.appendChild(main);
+    render(<Harness hasMore loading={false} onLoadMore={vi.fn()} />); // rendered in a sibling container, not inside main
+    expect(document.getElementById('mobile-main')).toBe(main);
     expect(MockIntersectionObserver.latest().options?.root).toBeUndefined();
   });
   it('disabled stops observer-driven loads and the post-load re-observe (no retry loop after an error)', () => {

@@ -22,9 +22,9 @@ const getSnapshot = (): boolean => typeof IntersectionObserver === 'function';
 const getServerSnapshot = (): boolean => true;
 
 /** The shell's scroll container: <main id="mobile-main"> scrolls, not the window. */
-function shellRoot(): Element | null {
+function shellRoot(el: Element): Element | null {
   try {
-    return document.getElementById('mobile-main');
+    return el.closest('#mobile-main');
   } catch {
     return null;
   }
@@ -38,7 +38,7 @@ function shellRoot(): Element | null {
  *    deliver the current state once more.
  *  - /app scrolls inside <main id="mobile-main">. rootMargin only reaches past
  *    a scroll container's edge when that container IS the observer root, so the
- *    shell main is used as the root when present (else the viewport).
+ *    shell main is used as the root when the sentinel is inside it (else the viewport).
  *  - Callers read `supported` and render a "Load more" button (wired to
  *    `loadMore`) when false.
  */
@@ -54,7 +54,7 @@ export function useInfiniteScroll({ hasMore, loading, onLoadMore, rootMargin = '
     observer.current = null;
     element.current = el;
     if (!el || typeof IntersectionObserver !== 'function') return;
-    const root = shellRoot();
+    const root = shellRoot(el);
     observer.current = new IntersectionObserver((entries) => {
       const s = latest.current;
       if (entries.some((e) => e.isIntersecting) && s.hasMore && !s.loading && !s.disabled) s.onLoadMore();
