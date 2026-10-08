@@ -13,6 +13,8 @@ import { audit } from '@/lib/agentbook-audit';
 import { inferSource, inferActor } from '@/lib/agentbook-audit-context';
 import { withSoftDelete, parseIncludeDeleted } from '@/lib/agentbook-soft-delete';
 import { reverseExpenseJournalEntry } from '@/lib/agentbook-expense-ledger';
+import { getPendingSuggestions } from '@/lib/agentbook-auto-categorize';
+import { deriveCategorySource, suggestionFromPending } from '@/lib/mobile/doc-mapper';
 import { publicErrorMessage } from '@/lib/api-error';
 
 export const runtime = 'nodejs';
@@ -41,7 +43,7 @@ export async function GET(
     let categoryName: string | null = null;
     let categoryCode: string | null = null;
     if (expense.categoryId) {
-      const cat = await db.abAccount.findFirst({ where: { id: expense.categoryId } });
+      const cat = await db.abAccount.findFirst({ where: { id: expense.categoryId, tenantId } });
       if (cat) {
         categoryName = cat.name;
         categoryCode = cat.code;
@@ -49,6 +51,7 @@ export async function GET(
     }
 
     const splits = await db.abExpenseSplit.findMany({ where: { expenseId: expense.id } });
+    const pending = expense.categoryId ? [] : await getPendingSuggestions(tenantId);
 
     return NextResponse.json({
       success: true,
@@ -58,6 +61,8 @@ export async function GET(
         categoryName,
         categoryCode,
         splits,
+        categorySource: deriveCategorySource(expense),
+        suggestion: suggestionFromPending(pending.find((p) => p.expenseId === expense.id)),
       },
     });
   } catch (err) {
