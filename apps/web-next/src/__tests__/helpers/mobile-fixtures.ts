@@ -96,7 +96,11 @@ export const EXPENSES: Row[] = [
   exp({ id: 'e4', tenantId: 't1', ymd: '2026-05-10', amountCents: 8000, ...shell, description: 'Gas', categoryId: 'acc-fuel', confidence: 1, receiptStatus: null, journalEntryId: 'je-e4' }),
   exp({ id: 'e5', tenantId: 't1', ymd: '2026-06-18', amountCents: 3500, vendorId: 'v-cafe', vendor: { id: 'v-cafe', name: 'Cafe' }, description: 'Coffee', status: 'pending_review', receiptUrl: 'https://blob.test/r5.jpg', receiptStatus: 'attached', source: 'telegram_photo' }),
   exp({ id: 'e6', tenantId: 't1', ymd: '2026-06-15', amountCents: 6000, description: 'Bank transfer', receiptStatus: 'skipped', journalEntryId: 'je-e6' }),
-  exp({ id: 'e7', tenantId: 't1', ymd: '2026-06-02', amountCents: 9900, ...bistro, description: 'Team dinner', categoryId: 'acc-meals', confidence: 1, journalEntryId: 'je-e7', archivedAt: D('2026-06-19T09:00:00.000Z') }),
+  exp({ id: 'e7', tenantId: 't1', ymd: '2026-06-02', amountCents: 9900, ...bistro, description: 'Team dinner', categoryId: 'acc-meals', confidence: 1, journalEntryId: 'je-e7', archivedAt: D('2026-06-19T09:00:00.000Z'), createdAt: D('2026-06-19T08:00:00.000Z') }),
+  // SOFT-DELETED June expense: must move no number and never appear in a list.
+  // Newest createdAt of t1, so a `recent` that forgot deletedAt would show it.
+  // Has a receipt so it is not a "missing receipt" under any definition.
+  exp({ id: 'e8', tenantId: 't1', ymd: '2026-06-08', amountCents: 20000, description: 'Deleted laptop', categoryId: 'acc-meals', confidence: 1, receiptUrl: 'https://blob.test/r8.jpg', receiptStatus: 'attached', deletedAt: D('2026-06-19T10:00:00.000Z'), createdAt: D('2026-06-19T10:00:00.000Z') }),
   exp({ id: 'x1', tenantId: 't2', ymd: '2026-06-06', amountCents: 777777, description: 'Other tenant', categoryId: 'b-meals', confidence: 1, currency: 'USD' }),
 ];
 
@@ -110,6 +114,8 @@ export const INVOICES: Row[] = [
   { id: 'inv1', tenantId: 't1', clientId: 'c1', client: { id: 'c1', name: 'Acme' }, number: 'INV-1', amountCents: 180000, currency: 'CAD', status: 'sent', issuedDate: day('2026-05-01'), dueDate: day('2026-06-01'), payments: [{ id: 'pay1', amountCents: 30000 }], deletedAt: null, createdAt: day('2026-05-01') },
   { id: 'inv2', tenantId: 't1', clientId: 'c2', client: { id: 'c2', name: 'Beta' }, number: 'INV-2', amountCents: 50000, currency: 'CAD', status: 'sent', issuedDate: day('2026-06-05'), dueDate: day('2026-07-05'), payments: [], deletedAt: null, createdAt: D('2026-06-05T10:00:00.000Z') },
   { id: 'inv3', tenantId: 't1', clientId: 'c3', client: { id: 'c3', name: 'Gamma' }, number: 'INV-3', amountCents: 70000, currency: 'CAD', status: 'paid', issuedDate: day('2026-04-01'), dueDate: day('2026-05-01'), payments: [{ id: 'pay2', amountCents: 70000 }], deletedAt: null, createdAt: day('2026-04-01') },
+  // SOFT-DELETED overdue sent invoice (delete keeps status): not outstanding, not overdue, no alert, not recent.
+  { id: 'inv4', tenantId: 't1', clientId: 'c4', client: { id: 'c4', name: 'Delta' }, number: 'INV-4', amountCents: 400000, currency: 'CAD', status: 'sent', issuedDate: day('2026-04-15'), dueDate: day('2026-05-15'), payments: [], deletedAt: D('2026-06-19T11:00:00.000Z'), createdAt: D('2026-06-19T11:00:00.000Z') },
   { id: 'inv-x', tenantId: 't2', clientId: 'cx', client: { id: 'cx', name: 'Other Co' }, number: 'INV-X', amountCents: 999000, currency: 'USD', status: 'overdue', issuedDate: day('2026-04-01'), dueDate: day('2026-05-01'), payments: [], deletedAt: null, createdAt: day('2026-04-01') },
 ];
 

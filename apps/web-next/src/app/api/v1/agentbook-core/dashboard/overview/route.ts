@@ -61,9 +61,9 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     ] = await Promise.all([
       getCashTodayCents(tenantId),
 
-      // Overdue invoices
+      // Overdue invoices (soft-deleted ones keep their status — skip them)
       db.abInvoice.findMany({
-        where: { tenantId, status: { in: ['sent', 'overdue', 'viewed'] }, dueDate: { lt: today } },
+        where: { tenantId, deletedAt: null, status: { in: ['sent', 'overdue', 'viewed'] }, dueDate: { lt: today } },
         select: { id: true, dueDate: true, amountCents: true, client: { select: { name: true } } },
         orderBy: { dueDate: 'asc' },
         take: 10,
@@ -73,6 +73,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       db.abInvoice.findMany({
         where: {
           tenantId,
+          deletedAt: null,
           status: { in: ['sent', 'viewed'] },
           dueDate: { gte: today, lte: daysFromNow(30) },
         },

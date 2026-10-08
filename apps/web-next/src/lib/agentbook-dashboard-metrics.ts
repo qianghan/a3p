@@ -2,11 +2,11 @@
  * Dashboard metrics shared by GET /agentbook-core/dashboard/overview and
  * GET /agentbook-core/mobile/home — one definition per number.
  *
- * Moved verbatim from dashboard/overview/route.ts (same queries, same
- * where-clauses, same local-time month boundaries). NOTE: like the original,
- * the month aggregates do not filter soft-deleted or archived expenses — the
- * extraction is deliberately behaviour-preserving; archive must not move
- * totals.
+ * Moved from dashboard/overview/route.ts (same local-time month boundaries).
+ * The month aggregates exclude SOFT-DELETED expenses (a deleted expense is
+ * not spending) but deliberately keep ARCHIVED ones: archive files a doc
+ * away, it must not move totals. Expense status is not filtered (pending /
+ * rejected rows stay in the month net — a separate product decision).
  */
 import 'server-only';
 import { prisma as db } from '@naap/database';
@@ -50,7 +50,7 @@ export async function getMonthTotals(
 ): Promise<{ monthMtd: MonthTotals; monthPrev: MonthTotals }> {
   const [mtdExpenses, mtdRevenue, prevExpenses, prevRevenue] = await Promise.all([
     db.abExpense.aggregate({
-      where: { tenantId, isPersonal: false, date: { gte: startOfMonth(today) } },
+      where: { tenantId, isPersonal: false, deletedAt: null, date: { gte: startOfMonth(today) } },
       _sum: { amountCents: true },
     }),
     db.abPayment.aggregate({
@@ -61,6 +61,7 @@ export async function getMonthTotals(
       where: {
         tenantId,
         isPersonal: false,
+        deletedAt: null,
         date: { gte: startOfPrevMonth(today), lt: startOfMonth(today) },
       },
       _sum: { amountCents: true },

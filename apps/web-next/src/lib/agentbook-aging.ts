@@ -29,7 +29,8 @@ export interface AgingReport {
 
 export async function computeAgingReport(tenantId: string, now: Date = new Date()): Promise<AgingReport> {
   const invoices = await db.abInvoice.findMany({
-    where: { tenantId, status: { in: ['sent', 'viewed', 'overdue'] } },
+    // Invoice delete is a pure soft delete (status unchanged): skip deleted rows.
+    where: { tenantId, deletedAt: null, status: { in: ['sent', 'viewed', 'overdue'] } },
     include: { payments: true, client: true },
   });
 

@@ -73,3 +73,73 @@ describe('mobile/home KPIs equal the existing endpoints (one definition per numb
     }
   });
 });
+
+/**
+ * Soft-deleted rows (expense e8, June 20000; invoice inv4, 400000 sent and 36
+ * days overdue) move no number on the desktop endpoints OR on mobile/home.
+ * Each test also revives the row to prove the fixture WOULD move the number
+ * if live, so the exclusion is down to `deletedAt`, not a dead fixture.
+ * Archived rows (e7, June 9900) still count.
+ */
+describe('soft-deleted rows move no number; archived rows still do', () => {
+  const getHome = async () =>
+    (await json<{ data: MobileHome }>(await HOME(tenantReq('/api/v1/agentbook-core/mobile/home', 't1')))).data;
+  const getOverview = async () =>
+    json<{ data: { monthMtd: { revenueCents: number; expenseCents: number; netCents: number } | null } }>(
+      await OVERVIEW(tenantReq('/api/v1/agentbook-core/dashboard/overview', 't1')),
+    );
+  const getAging = async () => json<Aging>(await AGING(tenantReq('/api/v1/agentbook-invoice/aging-report', 't1')));
+  const row = (model: string, id: string) => {
+    const r = memDb.table(model).rows.find((x) => x.id === id);
+    if (!r) throw new Error(`fixture ${model}:${id} missing`);
+    return r;
+  };
+
+  beforeEach(() => vi.setSystemTime(NOW));
+
+  it('(a) month net excludes the soft-deleted expense on overview AND mobile/home', async () => {
+    expect(row('abExpense', 'e8').deletedAt).toBeInstanceOf(Date);
+    expect((await getOverview()).data.monthMtd).toEqual({ revenueCents: 30000, expenseCents: 35400, netCents: -5400 });
+    expect((await getHome()).kpis.monthNetCents).toBe(-5400);
+
+    row('abExpense', 'e8').deletedAt = null; // live again → it counts
+    expect((await getOverview()).data.monthMtd?.netCents).toBe(-25400);
+    expect((await getHome()).kpis.monthNetCents).toBe(-25400);
+  });
+
+  it('(b) outstanding / overdue exclude the soft-deleted invoice on aging AND mobile/home, with no alert for it', async () => {
+    expect(row('abInvoice', 'inv4').deletedAt).toBeInstanceOf(Date);
+    const aging = (await getAging()).data;
+    expect(aging.totalOutstandingCents).toBe(200000);
+    expect(Object.values(aging.buckets).flat().map((e) => (e as { invoiceId: string }).invoiceId)).not.toContain('inv4');
+    const home = await getHome();
+    expect(home.kpis).toMatchObject({ outstandingCents: 200000, overdueCount: 1, overdueCents: 150000 });
+    expect(home.alerts.filter((a) => a.kind === 'invoice_overdue').map((a) => a.id)).toEqual(['invoice_overdue:inv1']);
+    expect(home.recent.map((r) => r.id)).not.toContain('invoice:inv4');
+
+    row('abInvoice', 'inv4').deletedAt = null; // live again → it counts and leads the alerts
+    expect((await getAging()).data.totalOutstandingCents).toBe(600000);
+    const revived = await getHome();
+    expect(revived.kpis).toMatchObject({ outstandingCents: 600000, overdueCount: 2, overdueCents: 550000 });
+    expect(revived.alerts[0].id).toBe('invoice_overdue:inv4');
+  });
+
+  it('(c) archived expenses still count in month net on overview AND mobile/home', async () => {
+    expect(row('abExpense', 'e7').archivedAt).toBeInstanceOf(Date);
+    const before = { overview: (await getOverview()).data.monthMtd?.netCents, home: (await getHome()).kpis.monthNetCents };
+    row('abExpense', 'e7').deletedAt = new Date('2026-06-19T12:00:00.000Z'); // deleting it (not archiving) removes 9900
+    expect((await getOverview()).data.monthMtd?.netCents).toBe((before.overview as number) + 9900);
+    expect((await getHome()).kpis.monthNetCents).toBe((before.home as number) + 9900);
+  });
+
+  it('recent never lists archived or soft-deleted rows, even when they are the newest', async () => {
+    const ids = (await getHome()).recent.map((r) => r.id);
+    expect(ids).not.toContain('expense:e7');
+    expect(ids).not.toContain('expense:e8');
+    expect(ids).not.toContain('invoice:inv4');
+    row('abExpense', 'e7').archivedAt = null;
+    row('abExpense', 'e8').deletedAt = null;
+    row('abInvoice', 'inv4').deletedAt = null;
+    expect((await getHome()).recent.slice(0, 3).map((r) => r.id)).toEqual(['invoice:inv4', 'expense:e8', 'expense:e7']);
+  });
+});
