@@ -377,3 +377,108 @@ export async function remindInvoice(endpoint: string): Promise<void> {
   }
   await call(endpoint, { method: 'POST' });
 }
+
+// ── Chat ─────────────────────────────────────────────────────────────────────
+
+export interface ChatPlanStep {
+  id: string;
+  description: string;
+  status?: string;
+}
+
+export interface ChatReply {
+  message: string;
+  plan?: { steps: ChatPlanStep[]; requiresConfirmation: boolean };
+  suggestions?: string[];
+  undoAvailable?: boolean;
+  sessionId?: string;
+}
+
+export interface ChatTurn {
+  role: 'user' | 'bot';
+  text: string;
+  at: string;
+  /** Brain intent of a bot turn (e.g. 'planner'); lets Chat rebuild a pending-plan card after a reload. */
+  intent?: string;
+}
+
+interface RawBrainData {
+  message?: unknown;
+  plan?: { steps?: Array<{ id?: unknown; description?: unknown; status?: unknown }>; requiresConfirmation?: unknown } | null;
+  suggestions?: unknown;
+  undoAvailable?: unknown;
+  sessionId?: unknown;
+}
+
+function toChatReply(d: RawBrainData | undefined | null): ChatReply {
+  const reply: ChatReply = { message: typeof d?.message === 'string' ? d.message : '' };
+  if (d?.plan && Array.isArray(d.plan.steps)) {
+    reply.plan = {
+      requiresConfirmation: d.plan.requiresConfirmation === true,
+      steps: d.plan.steps.map((s, i) => ({
+        id: typeof s.id === 'string' ? s.id : String(i),
+        description: typeof s.description === 'string' ? s.description : '',
+        ...(typeof s.status === 'string' ? { status: s.status } : {}),
+      })),
+    };
+  }
+  if (Array.isArray(d?.suggestions)) reply.suggestions = d.suggestions.filter((x): x is string => typeof x === 'string' && x.trim() !== '');
+  if (typeof d?.undoAvailable === 'boolean') reply.undoAvailable = d.undoAvailable;
+  if (typeof d?.sessionId === 'string') reply.sessionId = d.sessionId;
+  return reply;
+}
+
+/**
+ * POST agent/message (channel 'web'). Session actions are exempt from the
+ * server's rate limit, so Proceed/Cancel still work at the ceiling. A 429
+ * rejects with ApiError{ status:429, retryAfterMs, message } — `message` is
+ * already localized by the server from Accept-Language.
+ */
+export async function sendChat(p: {
+  text?: string;
+  sessionAction?: 'confirm' | 'cancel' | 'skip' | 'undo' | 'status';
+  attachments?: { type: 'photo'; url: string }[];
+}): Promise<ChatReply> {
+  const text = p.text?.trim();
+  if (!text && !p.sessionAction) throw new ApiError('invalid_request', 400, 'invalid_request');
+  const body: Record<string, unknown> = {};
+  if (text) body.text = text;
+  if (p.sessionAction) body.sessionAction = p.sessionAction;
+  if (p.attachments && p.attachments.length > 0) body.attachments = p.attachments;
+  const data = await dataOf<RawBrainData>(`${CORE}/agent/message`, postJson(body));
+  return toChatReply(data);
+}
+
+interface RawThread {
+  id?: unknown;
+  lastActiveAt?: unknown;
+}
+
+interface RawTurn {
+  role?: unknown;
+  text?: unknown;
+  at?: unknown;
+  intent?: unknown;
+}
+
+const time = (v: unknown): number => (typeof v === 'string' ? Date.parse(v) : Number.NaN);
+
+/**
+ * The active web thread's turns, OLDEST-FIRST BY TIMESTAMP.
+ *
+ * Never by index: `conversation[]` ordering differs by producer in this
+ * codebase (oldest-first from pairTurns, newest-first from the fallback
+ * fetch), so the only stable order is the `at` field. Likewise the thread is
+ * chosen by the newest `lastActiveAt`, not by being first in the list.
+ */
+export async function loadChatHistory(): Promise<ChatTurn[]> {
+  const threads = await dataOf<RawThread[]>(`${CORE}/threads?channel=web&status=active`);
+  const candidates = (Array.isArray(threads) ? threads : []).filter((t) => typeof t.id === 'string' && !Number.isNaN(time(t.lastActiveAt)));
+  if (candidates.length === 0) return [];
+  const latest = candidates.reduce((a, b) => (time(b.lastActiveAt) > time(a.lastActiveAt) ? b : a));
+  const turns = await dataOf<RawTurn[]>(`${CORE}/threads/${enc(latest.id as string)}/turns`);
+  return (Array.isArray(turns) ? turns : [])
+    .filter((t) => typeof t.text === 'string' && t.text.trim() !== '' && !Number.isNaN(time(t.at)))
+    .map((t): ChatTurn => ({ role: t.role === 'user' ? 'user' : 'bot', text: t.text as string, at: t.at as string, ...(typeof t.intent === 'string' ? { intent: t.intent } : {}) }))
+    .sort((a, b) => time(a.at) - time(b.at));
+}
