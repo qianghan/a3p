@@ -16,7 +16,7 @@ export interface MobileAlert {
 }
 export interface MobileKpis {
   monthNetCents: number | null;       // month-to-date revenue - expenses
-  cashTodayCents: number | null;
+  cashTodayCents: number | null;     // cash + bank accounts only (A/R excluded); null = no cash account
   outstandingCents: number;           // open invoice balance
   overdueCount: number;
   overdueCents: number;

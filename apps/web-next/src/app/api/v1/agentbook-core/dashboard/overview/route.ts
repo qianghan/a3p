@@ -2,7 +2,7 @@
  * Dashboard /overview — minimal native Next.js route.
  *
  * Computes only the slices the new dashboard actually consumes:
- *   • cashToday from asset accounts
+ *   • cashToday from cash/bank accounts only (A/R excluded; null = no cash account)
  *   • attention queue (overdue invoices, tax window, missing receipts,
  *     books-out-of-balance)
  *   • next-moments (overdue invoice payments + auto-detected recurring)

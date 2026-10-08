@@ -102,9 +102,10 @@ describe('GET /mobile/home — KPIs, next up, recent', () => {
 
   it('a brand-new tenant gets a truthful empty home', async () => {
     const { body } = await home('t3');
+    // No cash/bank account at all → no cash figure (null, "Connect a bank account…"), not $0.
     expect(body.data).toMatchObject({
       currency: 'USD', isBrandNew: true, alerts: [], nextUp: [], recent: [],
-      kpis: { monthNetCents: null, cashTodayCents: 0, outstandingCents: 0, overdueCount: 0, overdueCents: 0, estTaxOwedCents: 0 },
+      kpis: { monthNetCents: null, cashTodayCents: null, outstandingCents: 0, overdueCount: 0, overdueCents: 0, estTaxOwedCents: 0 },
     });
   });
 

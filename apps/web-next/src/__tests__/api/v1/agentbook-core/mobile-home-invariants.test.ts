@@ -14,7 +14,7 @@ import { GET as OVERVIEW } from '@/app/api/v1/agentbook-core/dashboard/overview/
 import { GET as AGING } from '@/app/api/v1/agentbook-invoice/aging-report/route';
 import { GET as ESTIMATE } from '@/app/api/v1/agentbook-tax/tax/estimate/route';
 
-interface Overview { data: { cashToday: number; monthMtd: { netCents: number } | null; isBrandNew: boolean } }
+interface Overview { data: { cashToday: number | null; monthMtd: { netCents: number } | null; isBrandNew: boolean } }
 interface Aging { data: { buckets: Record<string, unknown[]>; totals: Record<string, number>; totalOutstandingCents: number } }
 interface Estimate { data: { amountOwedCents: number } }
 
