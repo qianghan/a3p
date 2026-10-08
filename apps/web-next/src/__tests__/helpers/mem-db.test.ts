@@ -39,6 +39,22 @@ describe('mem-db applies where clauses like Postgres', () => {
     expect(matchesWhere(r, { date: D('2026-06-10'), id: { lt: 'y' } })).toBe(true);
   });
 
+  it('contains / startsWith / endsWith follow SQL LIKE: % and _ are wildcards unless backslash-escaped', () => {
+    const r = { s: '100% off', t: 'a_b', u: 'axb' };
+    expect(matchesWhere(r, { s: { contains: '%' } })).toBe(true);
+    expect(matchesWhere(r, { u: { contains: '%' } })).toBe(true); // unescaped % matches anything, as in Postgres
+    expect(matchesWhere(r, { u: { contains: 'a_b' } })).toBe(true);
+    expect(matchesWhere(r, { u: { contains: 'a\\_b' } })).toBe(false);
+    expect(matchesWhere(r, { t: { contains: 'a\\_b' } })).toBe(true);
+    expect(matchesWhere(r, { u: { contains: '\\%' } })).toBe(false);
+    expect(matchesWhere(r, { s: { contains: '100\\%' } })).toBe(true);
+    expect(matchesWhere(r, { s: { startsWith: '100\\%' } })).toBe(true);
+    expect(matchesWhere(r, { t: { endsWith: '\\_b' } })).toBe(true);
+    expect(matchesWhere({ s: 'a\\b' }, { s: { contains: 'a\\\\b' } })).toBe(true);
+    expect(matchesWhere({ s: 'A.B' }, { s: { contains: 'a.b', mode: 'insensitive' } })).toBe(true);
+    expect(matchesWhere({ s: 'aXb' }, { s: { contains: 'a.b', mode: 'insensitive' } })).toBe(false); // regex dot is not a wildcard
+  });
+
   it('follows embedded relations and `some`', () => {
     expect(matchesWhere({ vendor: { name: 'Shell' } }, { vendor: { name: { contains: 'she', mode: 'insensitive' } } })).toBe(true);
     expect(matchesWhere({ vendor: null }, { vendor: { name: { contains: 'x' } } })).toBe(false);

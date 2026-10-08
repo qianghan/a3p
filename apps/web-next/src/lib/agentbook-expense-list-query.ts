@@ -52,6 +52,15 @@ export function noReceiptWhere(): Prisma.AbExpenseWhereInput {
   return { receiptUrl: null, OR: [{ receiptStatus: null }, { receiptStatus: { not: 'skipped' } }] };
 }
 
+/**
+ * Prisma passes `contains` text to Postgres ILIKE unescaped, so a search for
+ * "100%" or "file_name" would treat % and _ as wildcards (a bare "%" matches
+ * every row). Backslash is ILIKE's default escape character.
+ */
+function escapeLike(text: string): string {
+  return text.replace(/[\\%_]/g, '\\$&');
+}
+
 export type ParsedListQuery =
   | {
       ok: true;
@@ -103,7 +112,7 @@ export function parseExpenseListQuery(params: URLSearchParams, tenantId: string)
   else if (archived === 'true') where.archivedAt = { not: null };
   else if (archived !== 'all') return { ok: false, error: 'archived must be true, false or all' };
 
-  const q = (params.get('q') ?? '').trim().slice(0, Q_MAX);
+  const q = escapeLike((params.get('q') ?? '').trim().slice(0, Q_MAX));
   if (q) {
     and.push({
       OR: [

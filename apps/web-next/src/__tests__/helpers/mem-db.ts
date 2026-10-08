@@ -88,6 +88,24 @@ const or3 = (vals: Tri[]): Tri => {
 };
 const not3 = (v: Tri): Tri => (v === null ? null : !v);
 
+/**
+ * Postgres LIKE, as Prisma's `contains` / `startsWith` / `endsWith` emit it:
+ * Prisma does NOT escape the caller's text, so `%` and `_` are wildcards and a
+ * backslash escapes the next character. A plain `includes()` would hide a
+ * route that forgets to escape user input, so this reproduces the real thing.
+ */
+function likeMatch(value: string, pattern: string, anyBefore: boolean, anyAfter: boolean): boolean {
+  let re = '';
+  for (let i = 0; i < pattern.length; i++) {
+    const c = pattern[i];
+    if (c === '\\' && i + 1 < pattern.length) re += pattern[++i].replace(/[.*+?^${}()|[\]\\/]/g, '\\$&');
+    else if (c === '%') re += '[\\s\\S]*';
+    else if (c === '_') re += '[\\s\\S]';
+    else re += c.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&');
+  }
+  return new RegExp(`^${anyBefore ? '[\\s\\S]*' : ''}${re}${anyAfter ? '[\\s\\S]*' : ''}$`).test(value);
+}
+
 function matchesField(value: unknown, cond: unknown): Tri {
   if (cond === undefined) return true;
   const present = value !== null && value !== undefined;
@@ -136,13 +154,13 @@ function matchesField(value: unknown, cond: unknown): Tri {
         results.push(present ? compare(value, arg) >= 0 : null);
         break;
       case 'contains':
-        results.push(present ? typeof value === 'string' && text(value).includes(text(arg)) : null);
+        results.push(present ? typeof value === 'string' && likeMatch(text(value), text(arg), true, true) : null);
         break;
       case 'startsWith':
-        results.push(present ? typeof value === 'string' && text(value).startsWith(text(arg)) : null);
+        results.push(present ? typeof value === 'string' && likeMatch(text(value), text(arg), false, true) : null);
         break;
       case 'endsWith':
-        results.push(present ? typeof value === 'string' && text(value).endsWith(text(arg)) : null);
+        results.push(present ? typeof value === 'string' && likeMatch(text(value), text(arg), true, false) : null);
         break;
       case 'some':
         results.push(Array.isArray(value) && value.some((r) => matchesWhere(r as Row, arg as Where)));

@@ -149,6 +149,46 @@ describe('GET /expenses — cursor pagination and limit cap', () => {
   });
 });
 
+describe('GET /expenses — coverage gaps (carried-forward F3)', () => {
+  it('a soft-deleted row is excluded from meta.counts', async () => {
+    const before = (await list('?withCounts=1')).body.meta.counts;
+    const template = memDb.table('abExpense').rows.find((r) => r.id === 'e5') as Record<string, unknown>;
+    // One soft-deleted twin per chip: needs-review / no-category / no-receipt, plus a soft-deleted archived row.
+    memDb.table('abExpense').rows.push(
+      { ...template, id: 'del-open', receiptUrl: null, receiptStatus: null, deletedAt: NOW },
+      { ...template, id: 'del-arch', archivedAt: NOW, deletedAt: NOW },
+    );
+    const after = (await list('?withCounts=1')).body.meta.counts;
+    expect(after).toEqual(before);
+    expect(after).toEqual({ needsReview: 1, noCategory: 2, noReceipt: 2, archived: 1 });
+  });
+
+  it('offset is ignored when a cursor is passed', async () => {
+    const page1 = (await list('?archived=all&limit=2')).body;
+    const cursor = encodeURIComponent(page1.meta.nextCursor as string);
+    const plain = (await list(`?archived=all&limit=2&cursor=${cursor}`)).body;
+    const withOffset = (await list(`?archived=all&limit=2&cursor=${cursor}&offset=3`)).body;
+    expect(ids(withOffset)).toEqual(ids(plain));
+    expect(withOffset.meta.offset).toBe(0);
+    // Without a cursor the legacy offset still applies.
+    expect(ids((await list('?archived=all&limit=2&offset=3')).body)).toEqual(['e1', 'e3']);
+  });
+
+  it('q treats % and _ literally — they are not wildcards', async () => {
+    const template = memDb.table('abExpense').rows.find((r) => r.id === 'e1') as Record<string, unknown>;
+    const mk = (id: string, description: string) =>
+      memDb.table('abExpense').rows.push({ ...template, id, description, vendor: null, vendorId: null, notes: null });
+    mk('pct', '100% off sale'); mk('under', 'file_name draft'); mk('alt', 'fileXname draft'); mk('bslash', 'path a\\b');
+    expect(ids((await list('?q=%25')).body)).toEqual(['pct']);          // "%"
+    expect(ids((await list('?q=100%25')).body)).toEqual(['pct']);       // "100%"
+    expect(ids((await list('?q=_')).body)).toEqual(['under']);          // "_"
+    expect(ids((await list('?q=file_name')).body)).toEqual(['under']);  // not "fileXname"
+    expect(ids((await list('?q=a%5Cb')).body)).toEqual(['bslash']);     // "a\b"
+    // Plain text still behaves as before.
+    expect(ids((await list('?q=draft')).body).sort()).toEqual(['alt', 'under']);
+  });
+});
+
 describe('GET /expenses?withCounts=1 — chip counts agree with the filtered lists', () => {
   it('returns DocCounts that equal the total of each filter list', async () => {
     const { body } = await list('?withCounts=1');
