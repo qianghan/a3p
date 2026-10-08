@@ -197,6 +197,7 @@ function OutstandingDetail({ data, actions }: { data: MobileHome; actions: Alert
             const amountCents = finiteParam(a.params.amountCents);
             const actionLabel = alertCopy(a, t, (cents) => moneyText(cents, data.currency, locale)).actionLabel;
             const sent = actions.isDone(a.id);
+            const pending = actions.isPending(a.id);
             return (
               <li
                 key={a.id}
@@ -210,7 +211,17 @@ function OutstandingDetail({ data, actions }: { data: MobileHome; actions: Alert
                   </span>
                 </span>
                 {a.action && (
-                  <Button variant="secondary" disabled={sent || actions.isPending(a.id)} onClick={() => void actions.run(a)}>
+                  <Button
+                    variant="secondary"
+                    aria-busy={pending || undefined}
+                    // aria-disabled, not disabled: a disabled button drops keyboard focus to <body>
+                    // in the middle of the modal sheet (same as the banner's action).
+                    aria-disabled={sent || pending || undefined}
+                    style={sent || pending ? { opacity: 0.6, cursor: 'default' } : undefined}
+                    onClick={() => {
+                      if (!sent && !pending) void actions.run(a);
+                    }}
+                  >
                     {sent ? t('mobile.home.action.reminded') : actionLabel}
                   </Button>
                 )}

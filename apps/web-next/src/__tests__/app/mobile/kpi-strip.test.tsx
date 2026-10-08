@@ -78,6 +78,32 @@ describe('KpiStrip', () => {
     expect(screen.getByRole('status', { name: 'Notifications' })).toHaveTextContent('Reminder logged');
   });
 
+  it('Outstanding sheet Remind keeps keyboard focus inside the modal: aria-disabled + aria-busy, never disabled', async () => {
+    let answer!: (r: Response) => void;
+    const fetchMock = routeFetch({
+      '/api/v1/agentbook-invoice/invoices/inv-1/remind': () => new Promise<Response>((r) => { answer = r; }),
+    });
+    renderStrip(homeFixture());
+    fireEvent.click(tile('outstanding'));
+    const dialog = screen.getByRole('dialog', { name: 'Outstanding' });
+    const button = within(dialog).getByRole('button', { name: 'Remind' });
+    button.focus();
+    fireEvent.click(button);
+    await waitFor(() => expect(button).toHaveAttribute('aria-busy', 'true'));
+    expect(button).toHaveAttribute('aria-disabled', 'true');
+    expect(button).not.toBeDisabled();
+    expect(document.activeElement).toBe(button);
+    fireEvent.click(button); // a second tap while pending does nothing
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    answer(jsonResponse(200, { success: true, data: {} }));
+    await waitFor(() => expect(button).not.toHaveAttribute('aria-busy'));
+    expect(button).toHaveAttribute('aria-disabled', 'true'); // done: stays inert
+    expect(button).not.toBeDisabled();
+    expect(document.activeElement).toBe(button);
+    fireEvent.click(button);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
   it('Estimated tax sheet: amount, definition, next tax date from nextUp, and a chat link', () => {
     renderStrip(homeFixture());
     fireEvent.click(tile('tax'));

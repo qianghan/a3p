@@ -307,7 +307,8 @@ describe('Home page — populated', () => {
     fireEvent.click(within(region).getByRole('button', { name: /^Outstanding/ }));
     const list = await screen.findByRole('list', { name: 'Overdue invoice list' });
     const reminded = within(list).getByRole('button', { name: 'Reminded' });
-    expect(reminded).toBeDisabled();
+    expect(reminded).toHaveAttribute('aria-disabled', 'true');
+    fireEvent.click(reminded);
     expect(callsTo(mock, REMIND_URL)).toBe(1);
   });
 
