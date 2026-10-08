@@ -142,7 +142,7 @@
     "error": {
       "signed_out_title": "You’ve been signed out",
       "signed_out_body": "Sign in again to see your numbers.",
-      "sign_in": "Sign in",
+      "sign_in": "Sign in again",
       "rate_limited_title": "Too many requests",
       "rate_limited_body": "Wait a moment, then try again."
     }

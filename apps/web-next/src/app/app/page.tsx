@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useCallback, useEffect, useRef } from 'react';
+import React from 'react';
 import { RefreshCw } from 'lucide-react';
 import type { MobileHome } from '@/lib/mobile/types';
 import { useT } from '@/hooks/use-t';
@@ -8,6 +8,7 @@ import { ApiError, getHome } from './_lib/api';
 import { useMobileData } from './_lib/useMobileData';
 import { HOME_KEY } from './_lib/useShellBadges';
 import { usePullToRefresh } from './_lib/usePullToRefresh';
+import { useSettledReload } from './_lib/useSettledReload';
 import { tokens } from './_kit/tokens';
 import { iconButtonStyle } from './_kit/styles';
 import { useFormatters } from './_kit/format';
@@ -19,48 +20,6 @@ import { QuickActions } from './_home/QuickActions';
 import { BrandNewHome } from './_home/BrandNewHome';
 import { HomeSkeleton, HomeError, StaleNotice, PullIndicator } from './_home/HomeStates';
 import { useAlertAction } from './_home/useAlertAction';
-
-/**
- * `reload()` only bumps a counter, so it settles before the request has even
- * started. This returns a promise that resolves when the load it starts has
- * finished (the data hook went busy and came back), so the pull gesture's
- * "Refreshing" spans the whole request instead of flickering off at once.
- */
-function useSettledReload(reload: () => void, busy: boolean): () => Promise<void> {
-  const waiters = useRef<Array<() => void>>([]);
-  const sawBusy = useRef(false);
-
-  useEffect(() => {
-    if (busy) {
-      sawBusy.current = true;
-      return;
-    }
-    if (!sawBusy.current) return;
-    sawBusy.current = false;
-    const done = waiters.current;
-    waiters.current = [];
-    done.forEach((resolve) => resolve());
-  }, [busy]);
-
-  useEffect(
-    () => () => {
-      // Unmounted mid-request: nobody will report the end, so release the callers.
-      const done = waiters.current;
-      waiters.current = [];
-      done.forEach((resolve) => resolve());
-    },
-    [],
-  );
-
-  return useCallback(
-    () =>
-      new Promise<void>((resolve) => {
-        waiters.current.push(resolve);
-        reload();
-      }),
-    [reload],
-  );
-}
 
 /**
  * PWA Home — "what needs me?" at a glance, one tap to act (spec §4.2).
@@ -82,7 +41,7 @@ export default function MobileHomePage() {
   const t = useT();
   const fmt = useFormatters();
   const { data, error, loading, refreshing, offline, staleAt, reload } = useMobileData<MobileHome>(HOME_KEY, getHome);
-  const settledReload = useSettledReload(reload, loading || refreshing);
+  const settledReload = useSettledReload(reload, { busy: loading || refreshing, data, error, staleAt });
   const pull = usePullToRefresh(settledReload);
   // One instance for the banner AND the KPI sheet: one POST per alert, one "Reminded" state.
   const actions = useAlertAction(reload);
@@ -95,7 +54,8 @@ export default function MobileHomePage() {
 
   return (
     <div {...pull.bind} style={{ padding: `${tokens.space.md}px ${tokens.space.lg}px ${tokens.space.xl}px`, color: tokens.color.fg }}>
-      <PullIndicator distance={pull.distance} busy={busy} />
+      {/* Gesture feedback only: a Refresh tap or a background reload must not insert this row (layout jump) or announce twice. */}
+      <PullIndicator distance={pull.distance} busy={pull.refreshing} />
       <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: tokens.space.sm, marginBottom: tokens.space.lg }}>
         <div style={{ minWidth: 0 }}>
           <h1 style={{ fontSize: tokens.font.xl, fontWeight: 600, margin: 0 }}>AgentBook</h1>

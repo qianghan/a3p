@@ -214,7 +214,7 @@ describe('Home states', () => {
     const alert = screen.getByRole('alert');
     expect(alert).toHaveTextContent('You’ve been signed out');
     expect(alert).not.toHaveTextContent('Couldn’t load this');
-    const link = screen.getByRole('link', { name: 'Sign in' });
+    const link = screen.getByRole('link', { name: 'Sign in again' });
     expect(link).toHaveAttribute('href', '/login?redirect=%2Fapp');
     expectTouchTarget(link);
     expect(screen.queryByRole('button', { name: 'Retry' })).toBeNull();

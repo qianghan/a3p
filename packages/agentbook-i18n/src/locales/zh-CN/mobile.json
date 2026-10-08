@@ -142,7 +142,7 @@
     "error": {
       "signed_out_title": "您已退出登录",
       "signed_out_body": "请重新登录以查看您的数据。",
-      "sign_in": "登录",
+      "sign_in": "重新登录",
       "rate_limited_title": "请求过于频繁",
       "rate_limited_body": "请稍等片刻后重试。"
     }

@@ -142,7 +142,7 @@
     "error": {
       "signed_out_title": "Vous avez été déconnecté",
       "signed_out_body": "Reconnectez-vous pour voir vos chiffres.",
-      "sign_in": "Se connecter",
+      "sign_in": "Se reconnecter",
       "rate_limited_title": "Trop de requêtes",
       "rate_limited_body": "Patientez un instant, puis réessayez."
     }

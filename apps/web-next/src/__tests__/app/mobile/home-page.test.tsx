@@ -120,7 +120,7 @@ describe('Home page states', () => {
   it('a 401 shows the signed-out state with a sign-in link, and does not refetch in a loop', async () => {
     const mock = routeFetch({ [HOME_URL]: () => jsonResponse(401, { success: false, error: 'unauthorized' }) });
     renderHome();
-    const link = await screen.findByRole('link', { name: 'Sign in' });
+    const link = await screen.findByRole('link', { name: 'Sign in again' });
     expect(link).toHaveAttribute('href', '/login?redirect=%2Fapp');
     expect(errorCard()).toHaveTextContent('You’ve been signed out');
     expect(screen.queryByRole('button', { name: 'Retry' })).toBeNull();
@@ -139,7 +139,7 @@ describe('Home page states', () => {
     await screen.findByRole('region', { name: 'Key numbers' });
     status = 401;
     fireEvent.click(screen.getByRole('button', { name: 'Remind' }));
-    expect(await screen.findByRole('link', { name: 'Sign in' })).toBeInTheDocument();
+    expect(await screen.findByRole('link', { name: 'Sign in again' })).toBeInTheDocument();
     expect(screen.queryByRole('region', { name: 'Key numbers' })).toBeNull();
     await settle();
     expect(homeCalls(mock)).toBe(2);
@@ -239,6 +239,21 @@ describe('Home page — populated', () => {
     await act(async () => { home.answer(); });
     await waitFor(() => expect(screen.getByRole('button', { name: 'Refresh' })).toHaveAttribute('aria-busy', 'false'));
     expect(screen.getByRole('region', { name: 'Key numbers' })).toBeInTheDocument();
+  });
+
+  it('Refresh (not a pull) shows no pull-indicator row: no layout jump, no second "Refreshing" announcement', async () => {
+    const home = deferredHome();
+    routeFetch({ [HOME_URL]: home.handler });
+    renderHome();
+    await act(async () => { home.answer(); });
+    await screen.findByRole('region', { name: 'Key numbers' });
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh' }));
+    await settle();
+    expect(screen.getByRole('button', { name: 'Refresh' })).toHaveAttribute('aria-busy', 'true');
+    expect(screen.queryByTestId('pull-indicator')).toBeNull();
+    await act(async () => { home.answer(); });
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Refresh' })).toHaveAttribute('aria-busy', 'false'));
+    expect(screen.queryByTestId('pull-indicator')).toBeNull();
   });
 
   it('a Remind from the banner reloads Home after the server confirms', async () => {
