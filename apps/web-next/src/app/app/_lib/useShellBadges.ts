@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import type { MobileHome } from '@/lib/mobile/types';
-import type { BadgeGate } from '../_shell/badges';
+import { BADGE_MAX_AGE_MS, type BadgeGate } from '../_shell/badges';
 import { clearMobileSnapshots, clearReasonOf } from '@/lib/mobile/snapshot-keys';
 import { ApiError, getHome } from './api';
 import {
@@ -18,11 +18,12 @@ import {
 export const HOME_KEY = 'home';
 
 /**
- * A home snapshot older than this is shown at once AND revalidated. Without a
- * TTL the badges froze: the shell only fetched when no snapshot existed, so a
- * reviewed document or a paid invoice kept its badge until sign-out.
+ * A home snapshot older than BADGE_MAX_AGE_MS is shown at once AND revalidated.
+ * Without a TTL the badges froze: the shell only fetched when no snapshot
+ * existed, so a reviewed document or a paid invoice kept its badge until
+ * sign-out. Defined in _shell/badges.ts (shared with the Home screen).
  */
-export const BADGE_MAX_AGE_MS = 2 * 60 * 1000;
+export { BADGE_MAX_AGE_MS };
 
 export interface ShellBadges {
   homeCritical: boolean;

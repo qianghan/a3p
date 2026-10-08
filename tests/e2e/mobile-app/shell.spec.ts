@@ -13,6 +13,7 @@ import {
   IPHONE_INSETS,
   MOBILE_VIEWPORT,
   neverCachePaths,
+  waitForHomeSnapshot,
   type ScreenRoute,
 } from './helpers';
 import { BADGES_ENABLED } from '../../../apps/web-next/src/app/app/_shell/badges';
@@ -60,13 +61,16 @@ test.describe('@mobile-shell', () => {
     test('maya: badges match the live home data (or stay off and cost nothing while gated)', async ({ page }) => {
       await loginAs(page, 'maya');
       if (!BADGES_ENABLED.home && !BADGES_ENABLED.docs) {
-        // Gated until PR 3 (home) / PR 4 (docs) — apps/web-next/src/app/app/_shell/badges.ts.
-        // The shell must show no badge AND not pay for a /mobile/home request it would not use.
+        // Both gates off (apps/web-next/src/app/app/_shell/badges.ts). Home has been ON since
+        // PR 3, so this branch only runs if both are switched off again; it stays so the spec
+        // keeps describing that configuration honestly: no badge, and no /mobile/home request
+        // the shell would not use. Opened on Chat, not Home: the Home SCREEN reads
+        // /mobile/home itself, and that request is not the shell's.
         const homeRequests: string[] = [];
         page.on('request', (r) => {
           if (new URL(r.url()).pathname === '/api/v1/agentbook-core/mobile/home') homeRequests.push(r.method());
         });
-        await page.goto('/app');
+        await page.goto('/app/chat');
         await settle(page);
         const gatedT = catalogT((await pageLocales(page)).stringLocale);
         // The shell really rendered (so "no badge" is not an observation of an empty page).
@@ -75,9 +79,10 @@ test.describe('@mobile-shell', () => {
         expect(homeRequests, 'gated shell made a /mobile/home request').toEqual([]);
         return;
       }
-      // Registered BEFORE navigating: the shell's own /mobile/home request is the one
-      // whose data the badges must reflect, so the expectation is computed from IT
-      // (not from a second fetch that could see different ledger state).
+      // Registered BEFORE navigating: the shell's own /mobile/home request (on /app it is
+      // shared with the Home screen — getHome() dedupes in-flight calls) is the one whose
+      // data the badges must reflect, so the expectation is computed from IT (not from a
+      // second fetch that could see different ledger state).
       const homeResponse = page.waitForResponse(
         (r) => new URL(r.url()).pathname === '/api/v1/agentbook-core/mobile/home' && r.request().method() === 'GET',
         { timeout: 30_000 },
@@ -90,8 +95,7 @@ test.describe('@mobile-shell', () => {
       // snapshot, then re-reads it to set the badges; wait for the snapshot, then two
       // frames for React to commit — only then is "no badge" a meaningful observation
       // (an absence assertion on a not-yet-updated tab bar passes trivially).
-      await page.waitForFunction(() => window.localStorage.getItem('ab:mobile:home') !== null, undefined, { timeout: 15_000 });
-      await page.evaluate(() => new Promise<void>((res) => requestAnimationFrame(() => requestAnimationFrame(() => res()))));
+      await waitForHomeSnapshot(page);
       await settle(page);
       const t = catalogT((await pageLocales(page)).stringLocale);
 
@@ -139,13 +143,27 @@ test.describe('@mobile-shell', () => {
       await expectScreen(page, '/app/chat', t);
     });
 
-    test('fresh account: the shell renders with no badges', async ({ page }) => {
+    test('fresh account: the shell renders; the Home dot only for a critical alert in the consumed response', async ({ page }) => {
       await loginAs(page, 'fresh');
+      // Home is live: the tab bar's badges come from the same /mobile/home response the screen
+      // reads. Wait for the app to have USED THIS response (its snapshot + two frames) before
+      // asserting absence — otherwise "no badge" is read off a tab bar that has not updated
+      // yet and passes whatever the data says.
+      const homeResponse = page.waitForResponse(
+        (r) => new URL(r.url()).pathname === '/api/v1/agentbook-core/mobile/home' && r.request().method() === 'GET',
+        { timeout: 30_000 },
+      );
       await page.goto('/app');
+      const home = (await (await homeResponse).json()).data as { generatedAt: string; alerts: Array<{ severity: string }> };
+      await waitForHomeSnapshot(page, home.generatedAt);
       await settle(page);
       const t = catalogT((await pageLocales(page)).stringLocale);
       await expect(tabNav(page, t).locator('a[data-tab]')).toHaveCount(4);
-      await expect(page.locator('[data-badge]')).toHaveCount(0);
+      // A new account can have a critical alert near a quarterly deadline (a known instalment
+      // amount ≤3 days out, an overdue bill); the dot follows the response, not the calendar.
+      const critical = BADGES_ENABLED.home && home.alerts.some((a) => a.severity === 'critical');
+      await expect(page.locator('[data-badge="home-dot"]')).toHaveCount(critical ? 1 : 0);
+      await expect(page.locator('[data-badge="docs-count"]')).toHaveCount(0);
     });
   });
 

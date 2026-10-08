@@ -37,11 +37,13 @@ import { MobileShell, MAIN_STYLE, SHELL_STYLE, TAB_BAR_CLEARANCE } from '@/app/a
 import { isTabActive, TAB_CSS, COUNT_BADGE_COLOURS } from '@/app/app/_shell/TabBar';
 import { badgesFrom, BADGE_MAX_AGE_MS, isBadgeSnapshotStale } from '@/app/app/_lib/useShellBadges';
 import MobileChat from '@/app/app/chat/page';
+import MobileHomePage from '@/app/app/page';
 import { BADGES_ENABLED, type BadgeGate } from '@/app/app/_shell/badges';
 
 // The badge behaviour below is tested with both badges switched ON (the state
 // after PR 3 + PR 4). What ships today is gated — see 'Badge gate' at the end.
 const ALL: BadgeGate = { home: true, docs: true };
+const OFF: BadgeGate = { home: false, docs: false };
 
 const HOME_URL = '/api/v1/agentbook-core/mobile/home';
 const realFetch = global.fetch;
@@ -489,6 +491,10 @@ describe('Shell layout', () => {
     expect(main.style.overflowY).toBe('auto');
     expect(SHELL_STYLE).toMatchObject({ height: '100dvh', minHeight: 0, overflow: 'hidden' });
     expect(MAIN_STYLE).toMatchObject({ flex: '1 1 0%', minHeight: 0, overflowY: 'auto', paddingBottom: TAB_BAR_CLEARANCE });
+    // Home's pull-to-refresh owns the downward overscroll; without this Android Chrome
+    // also runs its own pull-to-refresh and reloads the whole page under the gesture.
+    expect(MAIN_STYLE.overscrollBehaviorY).toBe('contain');
+    expect(main.style.overscrollBehaviorY).toBe('contain');
     // Tab bar height + the raised button's overhang + the bottom inset.
     expect(TAB_BAR_CLEARANCE).toBe('calc(88px + env(safe-area-inset-bottom))');
   });
@@ -516,17 +522,27 @@ describe('badgesFrom', () => {
 });
 
 // ── Badge gate (I1) ─────────────────────────────────────────────────────────
-// The legacy Home/Docs screens cannot show or clear what a badge points at, so
-// badges ship switched off until PR 3 (home) and PR 4 (docs).
+// A badge is live only once its screen can show and clear what it points at:
+// home since PR 3 (the Home rewrite), docs from PR 4 (the Docs rewrite).
 describe('Badge gate', () => {
-  it('ships with both badges OFF (PR 3 flips home, PR 4 flips docs — update this test then)', () => {
-    expect(BADGES_ENABLED).toEqual({ home: false, docs: false });
+  it('ships with home ON and docs OFF (PR 4 flips docs — update this test then)', () => {
+    expect(BADGES_ENABLED).toEqual({ home: true, docs: false });
   });
 
-  it('gated (the default): zero /mobile/home requests, no dot, no count, plain labels — even with data cached', async () => {
-    writeSnapshot('home', homeFixture(), new Date(Date.now() - BADGE_MAX_AGE_MS - 60_000).toISOString());
+  it('the default gate (no prop): Home is fetched once and shows the dot; the Docs count stays off', async () => {
     const fetchMock = routeFetch({ [HOME_URL]: () => jsonResponse(200, { success: true, data: homeFixture() }) });
     renderWithI18n(<MobileShell><p /></MobileShell>);
+    const homeTab = await screen.findByRole('link', { name: 'Home, needs attention' });
+    expect(homeTab.querySelector('[data-badge="home-dot"]')).not.toBeNull();
+    expect(homeCalls(fetchMock)).toBe(1);
+    expect(document.querySelector('[data-badge="docs-count"]')).toBeNull();
+    expect(screen.getByRole('link', { name: 'Docs' })).toBeInTheDocument();
+  });
+
+  it('both gated: zero /mobile/home requests, no dot, no count, plain labels — even with data cached', async () => {
+    writeSnapshot('home', homeFixture(), new Date(Date.now() - BADGE_MAX_AGE_MS - 60_000).toISOString());
+    const fetchMock = routeFetch({ [HOME_URL]: () => jsonResponse(200, { success: true, data: homeFixture() }) });
+    renderWithI18n(<MobileShell badges={OFF}><p /></MobileShell>);
     await settle();
     expect(homeCalls(fetchMock)).toBe(0);
     expect(document.querySelector('[data-badge]')).toBeNull();
@@ -538,18 +554,18 @@ describe('Badge gate', () => {
     expect(document.querySelector('[data-badge]')).toBeNull();
   });
 
-  it('gated with NO snapshot: still no request (nothing to revalidate for)', async () => {
+  it('both gated, NO snapshot: still no request (nothing to revalidate for)', async () => {
     const fetchMock = routeFetch({ [HOME_URL]: () => jsonResponse(200, { success: true, data: homeFixture() }) });
-    renderWithI18n(<MobileShell><p /></MobileShell>);
+    renderWithI18n(<MobileShell badges={OFF}><p /></MobileShell>);
     await settle();
     expect(homeCalls(fetchMock)).toBe(0);
   });
 
-  it('gated: registers no snapshot, clear, storage or visibility listeners at all', async () => {
+  it('both gated: registers no snapshot, clear, storage or visibility listeners at all', async () => {
     const wAdd = vi.spyOn(window, 'addEventListener');
     const dAdd = vi.spyOn(document, 'addEventListener');
     routeFetch({});
-    renderWithI18n(<MobileShell><p /></MobileShell>);
+    renderWithI18n(<MobileShell badges={OFF}><p /></MobileShell>);
     await settle();
     const types = [...wAdd.mock.calls, ...dAdd.mock.calls].map((c) => c[0]);
     for (const type of [SNAPSHOT_EVENT, SNAPSHOT_CLEARED_EVENT, 'storage', 'visibilitychange']) {
@@ -557,10 +573,10 @@ describe('Badge gate', () => {
     }
   });
 
-  it('gated: becoming visible with a stale snapshot makes no request', async () => {
+  it('both gated: becoming visible with a stale snapshot makes no request', async () => {
     writeSnapshot('home', homeFixture(), new Date(Date.now() - BADGE_MAX_AGE_MS - 60_000).toISOString());
     const fetchMock = routeFetch({ [HOME_URL]: () => jsonResponse(200, { success: true, data: homeFixture() }) });
-    renderWithI18n(<MobileShell><p /></MobileShell>);
+    renderWithI18n(<MobileShell badges={OFF}><p /></MobileShell>);
     vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('visible');
     act(() => { document.dispatchEvent(new Event('visibilitychange')); });
     await settle();
@@ -705,5 +721,41 @@ describe('Docs count badge contrast', () => {
     expect(badge.style.color).toBe('');
     expect(badge.style.background).toBe('');
     expect(badge.style.backgroundColor).toBe('');
+  });
+});
+
+// ── I4: Home and the shell dot revalidate together on resume ────────────────
+describe('resume on Home: the screen and the dot refresh with ONE request', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  it('a stale Home + stale badge snapshot becoming visible costs exactly one /mobile/home request', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-10-07T14:00:00.000Z'));
+    let visibility: DocumentVisibilityState = 'visible';
+    vi.spyOn(document, 'visibilityState', 'get').mockImplementation(() => visibility);
+    let gen = 0;
+    const fetchMock = routeFetch({
+      [HOME_URL]: () => {
+        gen += 1;
+        return jsonResponse(200, { success: true, data: homeFixture({ generatedAt: `2026-10-07T14:00:0${gen}.000Z` }) });
+      },
+    });
+    renderWithI18n(<MobileShell badges={{ home: true, docs: false }}><MobileHomePage /></MobileShell>);
+    await screen.findByRole('region', { name: 'Key numbers' });
+    await settle();
+    expect(homeCalls(fetchMock)).toBe(1);
+
+    visibility = 'hidden';
+    act(() => { document.dispatchEvent(new Event('visibilitychange')); });
+    vi.setSystemTime(new Date(Date.now() + BADGE_MAX_AGE_MS + 60_000));
+    visibility = 'visible';
+    act(() => { document.dispatchEvent(new Event('visibilitychange')); });
+    await settle();
+    await waitFor(() => expect(homeCalls(fetchMock)).toBe(2));
+    await settle();
+    expect(homeCalls(fetchMock)).toBe(2);
   });
 });

@@ -1,89 +1,107 @@
 /**
- * Mobile/PWA home — first-run experience.
+ * Mobile/PWA Home — first-run, populated, and failed-load states.
  *
- * A brand-new account previously landed on three $0 tiles plus a non-tappable
- * "Snap a receipt" hint, which reads as broken and offers no way forward. The
- * page now distinguishes three states — no data yet, real data, and a failed
- * load — and always offers real, tappable next steps.
+ * Kept from the original file's intent: a brand-new account must not land on
+ * zero tiles (reads as broken) and must always get real, tappable next steps;
+ * a failed load must never be mistaken for an empty account. The page now
+ * reads /mobile/home through the typed client, so fetch is mocked at the
+ * network boundary, not the module.
  */
-
 import React from 'react';
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
-import MobileHome from '@/app/app/page';
+import { describe, it, expect, beforeEach } from 'vitest';
+import { screen, waitFor, fireEvent } from '@testing-library/react';
+import MobileHomePage from '@/app/app/page';
+import { ToastHost } from '@/app/app/_kit/Toast';
+import { renderWithI18n, routeFetch, jsonResponse } from './mobile/test-utils';
+import { homeFixture } from './mobile/fixtures';
 
-const mockFetch = vi.fn();
-global.fetch = mockFetch as unknown as typeof fetch;
+const HOME_URL = '/api/v1/agentbook-core/mobile/home';
 
-function ok(body: unknown) {
-  return Promise.resolve({ ok: true, json: () => Promise.resolve(body) } as Response);
+function renderHome() {
+  return renderWithI18n(<ToastHost><MobileHomePage /></ToastHost>);
+}
+
+/**
+ * The error card (role="alert"). Found by test id: the ToastHost keeps its own
+ * empty role="alert" live region mounted, and a critical banner is an alert too.
+ */
+function errorCard() {
+  const el = screen.getByTestId('home-error');
+  expect(el).toHaveAttribute('role', 'alert');
+  return el;
 }
 
 beforeEach(() => {
-  vi.clearAllMocks();
+  window.localStorage.clear();
 });
 
-const ZERO = { success: true, total_revenue: 0, total_expenses: 0, total_estimated_tax: 0, data: { jurisdiction: 'us' } };
-const WITH_DATA = { success: true, total_revenue: 5000, total_expenses: 1200, total_estimated_tax: 800, data: { jurisdiction: 'us' } };
+const BRAND_NEW = homeFixture({
+  isBrandNew: true,
+  alerts: [],
+  nextUp: [],
+  recent: [],
+  kpis: { monthNetCents: 0, cashTodayCents: null, outstandingCents: 0, overdueCount: 0, overdueCents: 0, estTaxOwedCents: 0 },
+});
 
 describe('MobileHome — empty state (new account)', () => {
-  it('welcomes the user and explains what to do instead of showing $0 tiles', async () => {
-    mockFetch.mockReturnValue(ok(ZERO));
-    render(<MobileHome />);
-
-    await waitFor(() => expect(screen.getByText(/let’s get your books started/i)).toBeTruthy());
-    expect(screen.getByText(/start filling in/i)).toBeTruthy();
-    // the misleading zero tiles are gone
-    expect(screen.queryByText('Revenue')).toBeNull();
-    expect(screen.queryByText('Estimated tax')).toBeNull();
+  it('welcomes the user and explains what to do instead of showing zero tiles', async () => {
+    routeFetch({ [HOME_URL]: () => jsonResponse(200, { success: true, data: BRAND_NEW }) });
+    renderHome();
+    await waitFor(() => expect(screen.getByText(/let’s get your books started/i)).toBeInTheDocument());
+    expect(screen.getByText(/start filling in/i)).toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: 'Key numbers' })).toBeNull();
+    expect(screen.queryByTestId('alert-carousel')).toBeNull();
   });
 
   it('offers tappable next steps that link to real destinations', async () => {
-    mockFetch.mockReturnValue(ok(ZERO));
-    render(<MobileHome />);
-
-    await waitFor(() => expect(screen.getByText(/Snap a receipt/i)).toBeTruthy());
+    routeFetch({ [HOME_URL]: () => jsonResponse(200, { success: true, data: BRAND_NEW }) });
+    renderHome();
+    await waitFor(() => expect(screen.getByText(/Snap a receipt/i)).toBeInTheDocument());
     const hrefs = Array.from(document.querySelectorAll('a')).map((a) => a.getAttribute('href'));
-    expect(hrefs).toContain('/app/capture');
-    expect(hrefs).toContain('/app/chat');
-    expect(hrefs).toContain('/app/docs');
+    expect(hrefs).toEqual(expect.arrayContaining(['/app/capture', '/app/chat', '/app/docs']));
   });
 });
 
 describe('MobileHome — with data', () => {
-  it('shows the year-to-date tiles', async () => {
-    mockFetch.mockReturnValue(ok(WITH_DATA));
-    render(<MobileHome />);
-
-    await waitFor(() => expect(screen.getByText('Revenue')).toBeTruthy());
-    expect(screen.getByText('Expenses')).toBeTruthy();
-    expect(screen.getByText('Estimated tax')).toBeTruthy();
-    expect(screen.getByText('Year to date')).toBeTruthy();
-  });
-
-  it('still offers the next-step actions alongside real numbers', async () => {
-    mockFetch.mockReturnValue(ok(WITH_DATA));
-    render(<MobileHome />);
-    await waitFor(() => expect(screen.getByText('Revenue')).toBeTruthy());
-    const hrefs = Array.from(document.querySelectorAll('a')).map((a) => a.getAttribute('href'));
-    expect(hrefs).toContain('/app/capture');
+  it('shows the banner, the four KPIs, next up, recent activity and quick actions', async () => {
+    routeFetch({ [HOME_URL]: () => jsonResponse(200, { success: true, data: homeFixture() }) });
+    renderHome();
+    const region = await screen.findByRole('region', { name: 'Key numbers' });
+    expect(region.querySelectorAll('[data-kpi]')).toHaveLength(4);
+    expect(screen.getByTestId('alert-carousel')).toHaveTextContent('Acme · CA$1,800 is 12 days overdue');
+    expect(screen.getByRole('heading', { name: 'Next up' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Recent activity' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Snap receipt' })).toHaveAttribute('href', '/app/capture');
+    expect(screen.queryByText(/let’s get your books started/i)).toBeNull();
   });
 });
 
 describe('MobileHome — failed load', () => {
-  it('says it could not load rather than silently implying the books are empty', async () => {
-    mockFetch.mockReturnValue(Promise.reject(new Error('offline')));
-    render(<MobileHome />);
-
-    await waitFor(() => expect(screen.getByText(/couldn’t load your numbers/i)).toBeTruthy());
-    // must NOT be mistaken for a new/empty account
+  it('says it could not load rather than implying the books are empty, and Retry recovers', async () => {
+    let calls = 0;
+    routeFetch({
+      [HOME_URL]: () => {
+        calls += 1;
+        return calls === 1 ? jsonResponse(500, { success: false, error: 'Internal error' }) : jsonResponse(200, { success: true, data: homeFixture() });
+      },
+    });
+    renderHome();
+    await waitFor(() => expect(errorCard()).toHaveTextContent('Couldn’t load this'));
     expect(screen.queryByText(/let’s get your books started/i)).toBeNull();
-    expect(screen.queryByText('Revenue')).toBeNull();
+    expect(screen.queryByRole('region', { name: 'Key numbers' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+    expect(await screen.findByRole('region', { name: 'Key numbers' })).toBeInTheDocument();
   });
 
   it('treats an unsuccessful payload as a failure too', async () => {
-    mockFetch.mockReturnValue(ok({ success: false, error: 'boom' }));
-    render(<MobileHome />);
-    await waitFor(() => expect(screen.getByText(/couldn’t load your numbers/i)).toBeTruthy());
+    routeFetch({ [HOME_URL]: () => jsonResponse(200, { success: false, error: 'boom' }) });
+    renderHome();
+    await waitFor(() => expect(errorCard()).toHaveTextContent('Couldn’t load this'));
+  });
+
+  it('a dropped connection with nothing cached says offline, not "failed"', async () => {
+    routeFetch({ [HOME_URL]: () => new TypeError('Failed to fetch') });
+    renderHome();
+    await waitFor(() => expect(errorCard()).toHaveTextContent('You’re offline'));
   });
 });

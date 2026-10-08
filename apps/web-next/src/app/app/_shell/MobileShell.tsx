@@ -102,6 +102,9 @@ export const MAIN_STYLE: React.CSSProperties = {
   flex: '1 1 0%',
   minHeight: 0,
   overflowY: 'auto',
+  // Home's own pull-to-refresh handles the downward overscroll; without this,
+  // Android Chrome also runs its native pull-to-refresh and reloads the page.
+  overscrollBehaviorY: 'contain',
   paddingBottom: TAB_BAR_CLEARANCE,
   paddingLeft: 'env(safe-area-inset-left)',
   paddingRight: 'env(safe-area-inset-right)',

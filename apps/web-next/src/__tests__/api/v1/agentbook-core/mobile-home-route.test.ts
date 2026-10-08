@@ -51,6 +51,23 @@ describe('GET /mobile/home — alerts', () => {
     });
   });
 
+  it('≤3 days with NO known amount (no instalment row) stays warn: an unknown sum is not a firm critical obligation', async () => {
+    vi.setSystemTime(new Date('2026-09-13T12:00:00.000Z'));
+    const tax = (await home()).body.data.alerts.find((a) => a.kind === 'tax_deadline');
+    expect(tax).toMatchObject({ severity: 'warn', params: { days: 2, quarter: 3, year: 2026 } });
+    expect(tax?.params).not.toHaveProperty('amountCents');
+  });
+
+  it('≤3 days WITH a known amount is critical; 4+ days with an amount is warn', async () => {
+    memDb.table('abQuarterlyPayment').rows.push({
+      id: 'q-ca-3', tenantId: 't1', year: 2026, quarter: 3, jurisdiction: 'ca', amountDueCents: 300000, amountPaidCents: 0, deadline: new Date('2026-09-15T00:00:00.000Z'),
+    });
+    vi.setSystemTime(new Date('2026-09-13T12:00:00.000Z'));
+    expect((await home()).body.data.alerts.find((a) => a.kind === 'tax_deadline')).toMatchObject({ severity: 'critical', params: { days: 2, amountCents: 300000 } });
+    vi.setSystemTime(new Date('2026-09-10T12:00:00.000Z'));
+    expect((await home()).body.data.alerts.find((a) => a.kind === 'tax_deadline')).toMatchObject({ severity: 'warn', params: { days: 5, amountCents: 300000 } });
+  });
+
   it('a jurisdiction without an instalment schedule (uk) gets no tax_deadline alert and no instalment in nextUp', async () => {
     vi.setSystemTime(new Date('2026-09-05T12:00:00.000Z'));
     memDb.table('abTenantConfig').rows[0].jurisdiction = 'uk';
@@ -102,9 +119,10 @@ describe('GET /mobile/home — KPIs, next up, recent', () => {
 
   it('a brand-new tenant gets a truthful empty home', async () => {
     const { body } = await home('t3');
+    // No cash/bank account at all → no cash figure (null, "Connect a bank account…"), not $0.
     expect(body.data).toMatchObject({
       currency: 'USD', isBrandNew: true, alerts: [], nextUp: [], recent: [],
-      kpis: { monthNetCents: null, cashTodayCents: 0, outstandingCents: 0, overdueCount: 0, overdueCents: 0, estTaxOwedCents: 0 },
+      kpis: { monthNetCents: null, cashTodayCents: null, outstandingCents: 0, overdueCount: 0, overdueCents: 0, estTaxOwedCents: 0 },
     });
   });
 

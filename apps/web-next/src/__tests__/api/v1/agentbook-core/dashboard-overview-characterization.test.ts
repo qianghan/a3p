@@ -71,6 +71,8 @@ describe('GET /dashboard/overview — characterization', () => {
 
   it('a tenant with no data is brand new with empty slices', async () => {
     const b = await call('t3');
+    // Desktop contract unchanged: cashToday stays a NUMBER (0 with no cash account) — the
+    // desktop bundle renders it as money. Only mobile/home passes the null through.
     expect(b.data).toMatchObject({ cashToday: 0, monthMtd: null, monthPrev: null, isBrandNew: true, attention: [], nextMoments: [] });
   });
 

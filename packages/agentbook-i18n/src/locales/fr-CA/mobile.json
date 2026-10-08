@@ -26,6 +26,139 @@
     "severity_critical": "Critique :",
     "severity_warn": "Avertissement :",
     "severity_info": "Avis :",
-    "alerts": "Alertes"
+    "alerts": "Alertes",
+    "retrying": "Nouvelle tentative…"
+  },
+  "home": {
+    "subtitle": "Voici ce qui vous attend aujourd’hui",
+    "alerts_label": "Points qui demandent votre attention",
+    "alert_dot": "Afficher l’alerte {index} sur {total}",
+    "alert_position": "Alerte {index} sur {total}",
+    "alert_prev": "Alerte précédente",
+    "alert_next": "Alerte suivante",
+    "carousel_role": "carrousel",
+    "slide_role": "diapositive",
+    "pull_to_refresh": "Tirez pour actualiser",
+    "refreshing": "Actualisation",
+    "refresh": "Actualiser",
+    "alert": {
+      "invoice_overdue_one": "{client} · {amount} en retard de {count} jour",
+      "invoice_overdue_other": "{client} · {amount} en retard de {count} jours",
+      "invoice_overdue_no_amount_one": "{client} en retard de {count} jour",
+      "invoice_overdue_no_amount_other": "{client} en retard de {count} jours",
+      "tax_deadline_one": "Versement d’impôt estimé de {amount} à échéance dans {count} jour",
+      "tax_deadline_other": "Versement d’impôt estimé de {amount} à échéance dans {count} jours",
+      "tax_deadline_no_amount_one": "Versement d’impôt estimé à échéance dans {count} jour",
+      "tax_deadline_no_amount_other": "Versement d’impôt estimé à échéance dans {count} jours",
+      "tax_deadline_today": "Versement d’impôt estimé à échéance aujourd’hui",
+      "bill_due_one": "Facture {vendor} de {amount} due dans {count} jour",
+      "bill_due_other": "Facture {vendor} de {amount} due dans {count} jours",
+      "bill_due_today": "Facture {vendor} de {amount} due aujourd’hui",
+      "bill_overdue_one": "Facture {vendor} de {amount} en retard de {count} jour",
+      "bill_overdue_other": "Facture {vendor} de {amount} en retard de {count} jours",
+      "bill_due_no_amount_one": "Facture {vendor} due dans {count} jour",
+      "bill_due_no_amount_other": "Facture {vendor} due dans {count} jours",
+      "bill_due_today_no_amount": "Facture {vendor} due aujourd’hui",
+      "bill_overdue_no_amount_one": "Facture {vendor} en retard de {count} jour",
+      "bill_overdue_no_amount_other": "Facture {vendor} en retard de {count} jours",
+      "receipts_missing_one": "{count} dépense sans reçu",
+      "receipts_missing_other": "{count} dépenses sans reçu",
+      "uncategorized_one": "{count} dépense à catégoriser",
+      "uncategorized_other": "{count} dépenses à catégoriser",
+      "review_needed_one": "{count} élément attend votre vérification",
+      "review_needed_other": "{count} éléments attendent votre vérification",
+      "generic": "Un point demande votre attention",
+      "a_client": "Un client",
+      "a_vendor": "Un fournisseur"
+    },
+    "action": {
+      "logged": "Consigné",
+      "review": "Vérifier",
+      "categorize": "Catégoriser",
+      "add_receipts": "Ajouter des reçus",
+      "details": "Détails"
+    },
+    "toast": {
+      "reminder_logged": "Relance consignée",
+      "action_done": "Terminé",
+      "action_failed": "L’action a échoué — réessayez",
+      "action_rate_limited": "Trop de demandes — patientez un instant, puis réessayez",
+      "action_offline": "Vous êtes hors ligne — reconnectez-vous, puis réessayez",
+      "action_signed_out": "Vous avez été déconnecté — connectez-vous, puis réessayez"
+    },
+    "kpi": {
+      "region": "Chiffres clés",
+      "month_net": "Net ce mois-ci",
+      "cash": "Encaisse aujourd’hui",
+      "outstanding": "À recevoir",
+      "tax": "Impôt estimé",
+      "overdue_sub_one": "{count} en retard · {amount}",
+      "overdue_sub_other": "{count} en retard · {amount}",
+      "month_net_help": "Entrées moins sorties depuis le 1er du mois.",
+      "cash_help": "Votre solde de trésorerie en date d’aujourd’hui.",
+      "cash_unavailable": "Connectez un compte bancaire pour voir votre encaisse.",
+      "outstanding_help": "Factures envoyées qui ne sont pas encore payées.",
+      "overdue_count": "Factures en retard",
+      "overdue_amount": "Montant en retard",
+      "overdue_list": "Liste des factures en retard",
+      "overdue_days_one": "{count} jour de retard",
+      "overdue_days_other": "{count} jours de retard",
+      "tax_help": "Ce que vous devriez si l’année se terminait aujourd’hui.",
+      "tax_unavailable": "Aucune estimation d’impôt n’est encore offerte pour votre région.",
+      "next_tax_on": "Prochaine échéance fiscale : {date}",
+      "see_expenses": "Voir les dépenses",
+      "ask_cash": "Questions sur la trésorerie",
+      "ask_tax": "Questions sur l’impôt",
+      "month_net_unavailable": "Aucune activité ce mois-ci pour l’instant : il n’y a pas de net à afficher.",
+      "net_loss": "perte nette",
+      "showing_of_one": "{shown} sur {count} facture en retard affichée",
+      "showing_of_other": "{shown} sur {count} factures en retard affichées",
+      "ask_overdue": "Poser une question sur les autres"
+    },
+    "next_up": {
+      "title": "À venir",
+      "empty": "Rien à payer dans les 30 prochains jours.",
+      "today": "Aujourd’hui",
+      "overdue_one": "{count} jour de retard",
+      "overdue_other": "{count} jours de retard",
+      "in_days_one": "Dans {count} jour",
+      "in_days_other": "Dans {count} jours",
+      "fallback_tax": "Échéance fiscale",
+      "fallback_other": "Date à venir"
+    },
+    "recent": {
+      "title": "Activité récente",
+      "empty": "Aucune activité pour l’instant."
+    },
+    "quick": {
+      "title": "Actions rapides",
+      "snap": "Photographier un reçu",
+      "add_expense": "Ajouter une dépense",
+      "ask": "Demander au conseiller"
+    },
+    "new": {
+      "title": "Bienvenue — commençons votre comptabilité",
+      "body": "Ajoutez une dépense et vos revenus, dépenses et estimation d’impôt se rempliront automatiquement. Choisissez l’option la plus simple :",
+      "snap_title": "Photographier un reçu",
+      "snap_body": "Prenez-le en photo et le montant, le fournisseur et la date sont lus pour vous.",
+      "chat_title": "Dites-le à votre conseiller",
+      "chat_body": "Dites « 24 $ en café » et c’est enregistré et catégorisé.",
+      "docs_title": "Découvrir les autres fonctions",
+      "docs_body": "Factures, synchronisation bancaire, estimations d’impôt et rapports."
+    },
+    "error": {
+      "signed_out_title": "Vous avez été déconnecté",
+      "signed_out_body": "Reconnectez-vous pour voir vos chiffres.",
+      "sign_in": "Se reconnecter",
+      "rate_limited_title": "Trop de requêtes",
+      "rate_limited_body": "Patientez un instant, puis réessayez."
+    }
+  },
+  "alerts": {
+    "action_remind": "Relancer"
+  },
+  "upcoming": {
+    "tax_instalment": "Versement d’impôt estimé · T{quarter} {year}",
+    "bill_due": "Facture {vendor}"
   }
 }

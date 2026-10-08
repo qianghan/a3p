@@ -26,6 +26,139 @@
     "severity_critical": "Critical:",
     "severity_warn": "Warning:",
     "severity_info": "Notice:",
-    "alerts": "Alerts"
+    "alerts": "Alerts",
+    "retrying": "Retrying…"
+  },
+  "home": {
+    "subtitle": "Here’s what needs you today",
+    "alerts_label": "Things that need attention",
+    "alert_dot": "Show alert {index} of {total}",
+    "alert_position": "Alert {index} of {total}",
+    "alert_prev": "Previous alert",
+    "alert_next": "Next alert",
+    "carousel_role": "carousel",
+    "slide_role": "slide",
+    "pull_to_refresh": "Pull to refresh",
+    "refreshing": "Refreshing",
+    "refresh": "Refresh",
+    "alert": {
+      "invoice_overdue_one": "{client} · {amount} is {count} day overdue",
+      "invoice_overdue_other": "{client} · {amount} is {count} days overdue",
+      "invoice_overdue_no_amount_one": "{client} is {count} day overdue",
+      "invoice_overdue_no_amount_other": "{client} is {count} days overdue",
+      "tax_deadline_one": "Estimated tax payment of {amount} due in {count} day",
+      "tax_deadline_other": "Estimated tax payment of {amount} due in {count} days",
+      "tax_deadline_no_amount_one": "Estimated tax payment due in {count} day",
+      "tax_deadline_no_amount_other": "Estimated tax payment due in {count} days",
+      "tax_deadline_today": "Estimated tax payment due today",
+      "bill_due_one": "{vendor} bill of {amount} due in {count} day",
+      "bill_due_other": "{vendor} bill of {amount} due in {count} days",
+      "bill_due_today": "{vendor} bill of {amount} due today",
+      "bill_overdue_one": "{vendor} bill of {amount} is {count} day overdue",
+      "bill_overdue_other": "{vendor} bill of {amount} is {count} days overdue",
+      "bill_due_no_amount_one": "{vendor} bill due in {count} day",
+      "bill_due_no_amount_other": "{vendor} bill due in {count} days",
+      "bill_due_today_no_amount": "{vendor} bill due today",
+      "bill_overdue_no_amount_one": "{vendor} bill is {count} day overdue",
+      "bill_overdue_no_amount_other": "{vendor} bill is {count} days overdue",
+      "receipts_missing_one": "{count} expense is missing a receipt",
+      "receipts_missing_other": "{count} expenses are missing a receipt",
+      "uncategorized_one": "{count} expense needs a category",
+      "uncategorized_other": "{count} expenses need a category",
+      "review_needed_one": "{count} item is waiting for your review",
+      "review_needed_other": "{count} items are waiting for your review",
+      "generic": "Something needs your attention",
+      "a_client": "A client",
+      "a_vendor": "A vendor"
+    },
+    "action": {
+      "logged": "Logged",
+      "review": "Review",
+      "categorize": "Categorize",
+      "add_receipts": "Add receipts",
+      "details": "Details"
+    },
+    "toast": {
+      "reminder_logged": "Reminder logged",
+      "action_done": "Done",
+      "action_failed": "That didn’t go through — try again",
+      "action_rate_limited": "Too many requests — wait a moment and try again",
+      "action_offline": "You’re offline — reconnect and try again",
+      "action_signed_out": "You’ve been signed out — sign in and try again"
+    },
+    "kpi": {
+      "region": "Key numbers",
+      "month_net": "Net this month",
+      "cash": "Cash today",
+      "outstanding": "Outstanding",
+      "tax": "Estimated tax",
+      "overdue_sub_one": "{count} overdue · {amount}",
+      "overdue_sub_other": "{count} overdue · {amount}",
+      "month_net_help": "Money in minus money out since the 1st of this month.",
+      "cash_help": "Your cash balance as of today.",
+      "cash_unavailable": "Connect a bank account to see your cash.",
+      "outstanding_help": "Invoices you’ve sent that aren’t paid yet.",
+      "overdue_count": "Overdue invoices",
+      "overdue_amount": "Overdue amount",
+      "overdue_list": "Overdue invoice list",
+      "overdue_days_one": "{count} day overdue",
+      "overdue_days_other": "{count} days overdue",
+      "tax_help": "What you’d owe if the year ended today.",
+      "tax_unavailable": "No tax estimate is available for your region yet.",
+      "next_tax_on": "Next tax date: {date}",
+      "see_expenses": "See expenses",
+      "ask_cash": "Ask about cash flow",
+      "ask_tax": "Ask about tax",
+      "month_net_unavailable": "No activity yet this month, so there is no net figure to show.",
+      "net_loss": "net loss",
+      "showing_of_one": "Showing {shown} of {count} overdue invoice",
+      "showing_of_other": "Showing {shown} of {count} overdue invoices",
+      "ask_overdue": "Ask about the rest"
+    },
+    "next_up": {
+      "title": "Next up",
+      "empty": "Nothing due in the next 30 days.",
+      "today": "Today",
+      "overdue_one": "{count} day late",
+      "overdue_other": "{count} days late",
+      "in_days_one": "In {count} day",
+      "in_days_other": "In {count} days",
+      "fallback_tax": "Tax deadline",
+      "fallback_other": "Upcoming date"
+    },
+    "recent": {
+      "title": "Recent activity",
+      "empty": "No activity yet."
+    },
+    "quick": {
+      "title": "Quick actions",
+      "snap": "Snap receipt",
+      "add_expense": "Add expense",
+      "ask": "Ask advisor"
+    },
+    "new": {
+      "title": "Welcome — let’s get your books started",
+      "body": "Add one expense and your revenue, expenses and tax estimate start filling in automatically. Pick whichever is easiest:",
+      "snap_title": "Snap a receipt",
+      "snap_body": "Photograph it and the amount, vendor and date are read for you.",
+      "chat_title": "Just tell your advisor",
+      "chat_body": "Say “spent $24 on coffee” and it’s logged and categorized.",
+      "docs_title": "See what else it can do",
+      "docs_body": "Invoices, bank sync, tax estimates and reports."
+    },
+    "error": {
+      "signed_out_title": "You’ve been signed out",
+      "signed_out_body": "Sign in again to see your numbers.",
+      "sign_in": "Sign in again",
+      "rate_limited_title": "Too many requests",
+      "rate_limited_body": "Wait a moment, then try again."
+    }
+  },
+  "alerts": {
+    "action_remind": "Remind"
+  },
+  "upcoming": {
+    "tax_instalment": "Estimated tax payment · Q{quarter} {year}",
+    "bill_due": "{vendor} bill"
   }
 }

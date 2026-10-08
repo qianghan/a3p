@@ -26,6 +26,139 @@
     "severity_critical": "严重：",
     "severity_warn": "警告：",
     "severity_info": "提示：",
-    "alerts": "警报"
+    "alerts": "警报",
+    "retrying": "正在重试…"
+  },
+  "home": {
+    "subtitle": "今天需要您处理的事项",
+    "alerts_label": "需要关注的事项",
+    "alert_dot": "显示第 {index} 条提醒（共 {total} 条）",
+    "alert_position": "第 {index} 条提醒，共 {total} 条",
+    "alert_prev": "上一条提醒",
+    "alert_next": "下一条提醒",
+    "carousel_role": "轮播",
+    "slide_role": "幻灯片",
+    "pull_to_refresh": "下拉刷新",
+    "refreshing": "正在刷新",
+    "refresh": "刷新",
+    "alert": {
+      "invoice_overdue_one": "{client} · {amount} 已逾期 {count} 天",
+      "invoice_overdue_other": "{client} · {amount} 已逾期 {count} 天",
+      "invoice_overdue_no_amount_one": "{client} 已逾期 {count} 天",
+      "invoice_overdue_no_amount_other": "{client} 已逾期 {count} 天",
+      "tax_deadline_one": "预估税款 {amount} 将在 {count} 天后到期",
+      "tax_deadline_other": "预估税款 {amount} 将在 {count} 天后到期",
+      "tax_deadline_no_amount_one": "预估税款将在 {count} 天后到期",
+      "tax_deadline_no_amount_other": "预估税款将在 {count} 天后到期",
+      "tax_deadline_today": "预估税款今天到期",
+      "bill_due_one": "{vendor} 账单 {amount} 将在 {count} 天后到期",
+      "bill_due_other": "{vendor} 账单 {amount} 将在 {count} 天后到期",
+      "bill_due_today": "{vendor} 账单 {amount} 今天到期",
+      "bill_overdue_one": "{vendor} 账单 {amount} 已逾期 {count} 天",
+      "bill_overdue_other": "{vendor} 账单 {amount} 已逾期 {count} 天",
+      "bill_due_no_amount_one": "{vendor} 账单将在 {count} 天后到期",
+      "bill_due_no_amount_other": "{vendor} 账单将在 {count} 天后到期",
+      "bill_due_today_no_amount": "{vendor} 账单今天到期",
+      "bill_overdue_no_amount_one": "{vendor} 账单已逾期 {count} 天",
+      "bill_overdue_no_amount_other": "{vendor} 账单已逾期 {count} 天",
+      "receipts_missing_one": "{count} 笔支出缺少收据",
+      "receipts_missing_other": "{count} 笔支出缺少收据",
+      "uncategorized_one": "{count} 笔支出需要分类",
+      "uncategorized_other": "{count} 笔支出需要分类",
+      "review_needed_one": "{count} 项等待您审核",
+      "review_needed_other": "{count} 项等待您审核",
+      "generic": "有事项需要您关注",
+      "a_client": "某客户",
+      "a_vendor": "某供应商"
+    },
+    "action": {
+      "logged": "已记录",
+      "review": "审核",
+      "categorize": "分类",
+      "add_receipts": "补充收据",
+      "details": "详情"
+    },
+    "toast": {
+      "reminder_logged": "催款已记录",
+      "action_done": "已完成",
+      "action_failed": "操作未成功——请重试",
+      "action_rate_limited": "请求过于频繁——请稍候再试",
+      "action_offline": "您已离线——请重新连接后再试",
+      "action_signed_out": "您已退出登录——请登录后再试"
+    },
+    "kpi": {
+      "region": "关键数据",
+      "month_net": "本月净额",
+      "cash": "今日现金",
+      "outstanding": "应收款",
+      "tax": "预估税款",
+      "overdue_sub_one": "{count} 张逾期 · {amount}",
+      "overdue_sub_other": "{count} 张逾期 · {amount}",
+      "month_net_help": "本月 1 日以来的收入减去支出。",
+      "cash_help": "截至今天的现金余额。",
+      "cash_unavailable": "连接银行账户即可查看现金。",
+      "outstanding_help": "已开出但尚未收款的发票。",
+      "overdue_count": "逾期发票",
+      "overdue_amount": "逾期金额",
+      "overdue_list": "逾期发票列表",
+      "overdue_days_one": "逾期 {count} 天",
+      "overdue_days_other": "逾期 {count} 天",
+      "tax_help": "如果今年在今天结束，您需要缴纳的税款。",
+      "tax_unavailable": "您所在地区暂不支持税款预估。",
+      "next_tax_on": "下一个缴税日期：{date}",
+      "see_expenses": "查看支出",
+      "ask_cash": "咨询现金流",
+      "ask_tax": "咨询税务",
+      "month_net_unavailable": "本月暂无交易记录，因此没有净额可显示。",
+      "net_loss": "净亏损",
+      "showing_of_one": "显示 {count} 张逾期发票中的 {shown} 张",
+      "showing_of_other": "显示 {count} 张逾期发票中的 {shown} 张",
+      "ask_overdue": "咨询其余发票"
+    },
+    "next_up": {
+      "title": "即将到期",
+      "empty": "未来 30 天没有到期事项。",
+      "today": "今天",
+      "overdue_one": "已逾期 {count} 天",
+      "overdue_other": "已逾期 {count} 天",
+      "in_days_one": "{count} 天后",
+      "in_days_other": "{count} 天后",
+      "fallback_tax": "税务截止日期",
+      "fallback_other": "即将到来的日期"
+    },
+    "recent": {
+      "title": "最近动态",
+      "empty": "暂无动态。"
+    },
+    "quick": {
+      "title": "快捷操作",
+      "snap": "拍收据",
+      "add_expense": "添加支出",
+      "ask": "咨询顾问"
+    },
+    "new": {
+      "title": "欢迎——让我们开始记账吧",
+      "body": "添加一笔支出，您的收入、支出和税款预估就会自动开始填充。选择最方便的方式：",
+      "snap_title": "拍一张收据",
+      "snap_body": "拍下照片，金额、商家和日期会自动识别。",
+      "chat_title": "直接告诉您的顾问",
+      "chat_body": "说「咖啡花了 24 元」，就会自动记录并分类。",
+      "docs_title": "看看它还能做什么",
+      "docs_body": "发票、银行同步、税款预估和报表。"
+    },
+    "error": {
+      "signed_out_title": "您已退出登录",
+      "signed_out_body": "请重新登录以查看您的数据。",
+      "sign_in": "重新登录",
+      "rate_limited_title": "请求过于频繁",
+      "rate_limited_body": "请稍等片刻后重试。"
+    }
+  },
+  "alerts": {
+    "action_remind": "催款"
+  },
+  "upcoming": {
+    "tax_instalment": "预估税款缴纳 · {year} 年第 {quarter} 季度",
+    "bill_due": "{vendor} 账单"
   }
 }

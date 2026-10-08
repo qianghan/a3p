@@ -9,6 +9,9 @@ import {
   randomPassword,
   freshEmail,
   neverCachePaths,
+  clockTime,
+  calendarDay,
+  HOME_SNAPSHOT_STORAGE_KEY,
 } from './helpers';
 
 // Pure helpers — no browser, no network. They run in every invocation so a broken
@@ -42,6 +45,20 @@ test.describe('@mobile-helpers', () => {
     expect(money(123456, 'AUD', 'en-AU')).toBe('$1,235');
     // fr-CA groups with U+00A0 (NBSP) and puts the symbol after a U+00A0 — exact characters, not \s.
     expect(money(123456, 'CAD', 'fr-CA')).toBe('1\u00A0235\u00A0$');
+  });
+
+  test('clockTime and calendarDay are the app date formatters (instant in the viewer zone, logical date in UTC)', () => {
+    const noon = '2026-10-07T12:30:00.000Z';
+    expect(clockTime(noon, 'en-US')).toBe(
+      new Intl.DateTimeFormat('en-US', { hour: 'numeric', minute: '2-digit' }).format(new Date(noon)),
+    );
+    expect(clockTime(noon, 'en-US')).toMatch(/^\d{1,2}:\d{2}\s?(AM|PM)$/);
+    // A logical date never shifts with the zone, even when the ISO string is a UTC-midnight timestamp.
+    expect(calendarDay('2026-10-15', 'en-US')).toBe('Oct 15');
+    expect(calendarDay('2026-10-15T00:00:00.000Z', 'en-US')).toBe('Oct 15');
+    expect(calendarDay('2026-10-15', 'fr-CA')).toMatch(/15/);
+    // The Home snapshot key is the app's SNAPSHOT_PREFIX + HOME_KEY.
+    expect(HOME_SNAPSHOT_STORAGE_KEY).toBe('ab:mobile:home');
   });
 
   test('persona table and the local-host login gate', () => {

@@ -10,6 +10,7 @@
  */
 import 'server-only';
 import { prisma as db } from '@naap/database';
+import { isCashAccount } from '@/lib/agentbook-cash-accounts';
 
 export interface MonthTotals {
   revenueCents: number;
@@ -25,16 +26,30 @@ export function startOfPrevMonth(d: Date): Date {
   return new Date(d.getFullYear(), d.getMonth() - 1, 1);
 }
 
-/** Cash today: sum of (debit − credit) on journal lines of active asset accounts. */
-export async function getCashTodayCents(tenantId: string): Promise<number> {
+/**
+ * Cash today: sum of (debit − credit) on the journal lines of the tenant's
+ * active CASH and BANK accounts (isCashAccount — 1000 cash, 1200 bank, 1300
+ * savings in every chart). Receivables are excluded: an unpaid invoice posts
+ * Dr 1100 A/R and is already "Outstanding"; it used to be counted here too.
+ *
+ * null = the tenant has no cash or bank account at all (chart never seeded),
+ * so there is no cash figure to show — not "$0". mobile/home passes it through
+ * (kpis.cashTodayCents → "Connect a bank account…"); the desktop overview keeps
+ * its number contract and reports 0 (the pre-built desktop bundle renders money).
+ */
+export async function getCashTodayCents(tenantId: string): Promise<number | null> {
   const assetAccounts = await db.abAccount.findMany({
     where: { tenantId, accountType: 'asset', isActive: true },
     select: {
       id: true,
+      code: true,
+      accountType: true,
       journalLines: { select: { debitCents: true, creditCents: true } },
     },
   });
-  return assetAccounts.reduce((sum, account) => {
+  const cashAccounts = assetAccounts.filter(isCashAccount);
+  if (cashAccounts.length === 0) return null;
+  return cashAccounts.reduce((sum, account) => {
     const accountBalance = account.journalLines.reduce(
       (acc, line) => acc + line.debitCents - line.creditCents,
       0,

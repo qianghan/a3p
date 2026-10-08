@@ -37,7 +37,8 @@ describe('mobile/home KPIs equal the existing endpoints (one definition per numb
     const aging = await json<Aging>(await AGING(tenantReq('/api/v1/agentbook-invoice/aging-report', tenant)));
     const estimate = await json<Estimate>(await ESTIMATE(tenantReq('/api/v1/agentbook-tax/tax/estimate', tenant)));
 
-    expect(home.kpis.cashTodayCents).toBe(overview.data.cashToday);
+    // Same helper; the overview maps "no cash account" (null) to its desktop number contract, 0.
+    expect(home.kpis.cashTodayCents ?? 0).toBe(overview.data.cashToday);
     expect(home.kpis.monthNetCents).toBe(overview.data.monthMtd ? overview.data.monthMtd.netCents : null);
     expect(home.isBrandNew).toBe(overview.data.isBrandNew);
     expect(home.kpis.outstandingCents).toBe(aging.data.totalOutstandingCents);
