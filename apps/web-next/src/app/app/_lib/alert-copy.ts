@@ -25,6 +25,17 @@ export interface AlertCopy {
   href: string | null;
 }
 
+/**
+ * A finite number from a loosely-typed alert param, or null when absent or
+ * garbage — never a silent 0 (a "$0.00" overdue invoice is a lie). Shared
+ * with the KPI sheet's overdue list.
+ */
+export function finiteParam(v: unknown): number | null {
+  if (v === null || v === undefined || v === '' || typeof v === 'boolean') return null;
+  const n = typeof v === 'number' ? v : Number(v);
+  return Number.isFinite(n) ? n : null;
+}
+
 function num(v: unknown): number {
   const n = typeof v === 'number' ? v : Number(v);
   return Number.isFinite(n) ? n : 0;
@@ -58,7 +69,9 @@ function targetLabel(kind: MobileAlert['kind'], t: Translate): string {
 
 export function alertCopy(alert: MobileAlert, t: Translate, money: FormatCents): AlertCopy {
   const p = alert.params ?? {};
-  const amount = p.amountCents === undefined || p.amountCents === null ? '' : money(num(p.amountCents));
+  const cents = finiteParam(p.amountCents);
+  // '' = no usable amount: every sentence below then uses its _no_amount form.
+  const amount = cents === null ? '' : money(cents);
   // `days` is signed: home.ts emits a negative value for an already-overdue bill.
   const signedDays = Math.round(num(p.days));
   const days = Math.max(0, signedDays);
@@ -66,9 +79,16 @@ export function alertCopy(alert: MobileAlert, t: Translate, money: FormatCents):
 
   let title: string;
   switch (alert.kind) {
-    case 'invoice_overdue':
-      title = t('mobile.home.alert.invoice_overdue', { count: days, client: text(p.client) || t('mobile.home.alert.a_client'), amount });
+    case 'invoice_overdue': {
+      // The invoice number tells apart two invoices from one client for the same sum.
+      const name = text(p.client) || t('mobile.home.alert.a_client');
+      const number = text(p.number);
+      const client = number ? `${name} · ${number}` : name;
+      title = amount
+        ? t('mobile.home.alert.invoice_overdue', { count: days, client, amount })
+        : t('mobile.home.alert.invoice_overdue_no_amount', { count: days, client });
       break;
+    }
     case 'tax_deadline':
       if (days === 0) title = t('mobile.home.alert.tax_deadline_today');
       else if (amount) title = t('mobile.home.alert.tax_deadline', { count: days, amount });
@@ -76,9 +96,17 @@ export function alertCopy(alert: MobileAlert, t: Translate, money: FormatCents):
       break;
     case 'bill_due': {
       const vendor = text(p.vendor) || t('mobile.home.alert.a_vendor');
-      if (signedDays < 0) title = t('mobile.home.alert.bill_overdue', { count: -signedDays, vendor, amount });
-      else if (days === 0) title = t('mobile.home.alert.bill_due_today', { vendor, amount });
-      else title = t('mobile.home.alert.bill_due', { count: days, vendor, amount });
+      if (signedDays < 0) {
+        title = amount
+          ? t('mobile.home.alert.bill_overdue', { count: -signedDays, vendor, amount })
+          : t('mobile.home.alert.bill_overdue_no_amount', { count: -signedDays, vendor });
+      } else if (days === 0) {
+        title = amount ? t('mobile.home.alert.bill_due_today', { vendor, amount }) : t('mobile.home.alert.bill_due_today_no_amount', { vendor });
+      } else {
+        title = amount
+          ? t('mobile.home.alert.bill_due', { count: days, vendor, amount })
+          : t('mobile.home.alert.bill_due_no_amount', { count: days, vendor });
+      }
       break;
     }
     case 'receipts_missing':

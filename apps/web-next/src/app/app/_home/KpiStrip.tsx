@@ -10,7 +10,7 @@ import { Button } from '../_kit/Button';
 import { buttonStyle } from '../_kit/styles';
 import { tokens, TOUCH } from '../_kit/tokens';
 import { useFormatters } from '../_kit/format';
-import { alertCopy, mobileHref } from '../_lib/alert-copy';
+import { alertCopy, mobileHref, finiteParam } from '../_lib/alert-copy';
 import type { AlertActions } from './useAlertAction';
 
 export type KpiId = 'month_net' | 'cash' | 'outstanding' | 'tax';
@@ -155,13 +155,6 @@ function KpiDetail({ id, data, actions }: { id: KpiId; data: MobileHome; actions
   }
 
   return <OutstandingDetail data={data} actions={actions} />;
-}
-
-/** A finite number from a loosely-typed alert param, or null when absent/garbage (never a silent 0). */
-function finiteParam(v: unknown): number | null {
-  if (v === null || v === undefined || v === '' || typeof v === 'boolean') return null;
-  const n = typeof v === 'number' ? v : Number(v);
-  return Number.isFinite(n) ? n : null;
 }
 
 function OutstandingDetail({ data, actions }: { data: MobileHome; actions: AlertActions }) {

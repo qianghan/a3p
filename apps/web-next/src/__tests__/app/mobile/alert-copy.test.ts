@@ -19,7 +19,53 @@ const REMIND = { type: 'post' as const, endpoint: '/api/v1/agentbook-invoice/inv
 describe('alertCopy — sentences', () => {
   it('overdue invoice: client, amount and days, with the Remind action', () => {
     const c = alertCopy(alert({ kind: 'invoice_overdue', severity: 'critical', params: { client: 'Acme', days: 12, amountCents: 180_000, number: 'INV-7' }, action: REMIND }), en, cad);
-    expect(c).toEqual({ title: 'Acme · CA$1,800 is 12 days overdue', actionLabel: 'Remind', href: null });
+    // The invoice number tells two same-client, same-amount invoices apart.
+    expect(c).toEqual({ title: 'Acme · INV-7 · CA$1,800 is 12 days overdue', actionLabel: 'Remind', href: null });
+    expect(alertCopy(alert({ kind: 'invoice_overdue', params: { client: 'Acme', days: 12, amountCents: 180_000 }, action: REMIND }), en, cad).title).toBe(
+      'Acme · CA$1,800 is 12 days overdue',
+    );
+  });
+
+  it('two overdue invoices from the same client for the same amount read differently', () => {
+    const a = alertCopy(alert({ kind: 'invoice_overdue', params: { client: 'Acme', days: 12, amountCents: 180_000, number: 'INV-7' }, action: REMIND }), en, cad).title;
+    const b = alertCopy(alert({ kind: 'invoice_overdue', params: { client: 'Acme', days: 12, amountCents: 180_000, number: 'INV-9' }, action: REMIND }), en, cad).title;
+    expect(a).not.toBe(b);
+    expect(alertCopy(alert({ kind: 'invoice_overdue', params: { client: 'Acme', days: 3, amountCents: 5_000, number: 'F-12' }, action: REMIND }), fr, cad).title).toBe('Acme · F-12 · CA$50 en retard de 3 jours');
+    expect(alertCopy(alert({ kind: 'invoice_overdue', params: { client: 'Acme', days: 3, amountCents: 5_000, number: 'F-12' }, action: REMIND }), zh, cad).title).toBe('Acme · F-12 · CA$50 已逾期 3 天');
+    // A blank number is ignored.
+    expect(alertCopy(alert({ kind: 'invoice_overdue', params: { client: 'Acme', days: 3, amountCents: 5_000, number: '  ' }, action: REMIND }), en, cad).title).toBe('Acme · CA$50 is 3 days overdue');
+  });
+
+  it.each([
+    ['missing', undefined],
+    ['garbage text', 'lots'],
+    ['NaN', Number.NaN],
+    ['empty string', ''],
+    ['a boolean', true],
+  ])('an invoice/bill amount that is %s is OMITTED — never "$0.00"', (_label, amountCents) => {
+    const p = (extra: Record<string, unknown>) => ({ ...extra, ...(amountCents === undefined ? {} : { amountCents }) }) as MobileAlert['params'];
+    const inv = alertCopy(alert({ kind: 'invoice_overdue', params: p({ client: 'Acme', days: 12 }), action: REMIND }), en, cad).title;
+    expect(inv).toBe('Acme is 12 days overdue');
+    expect(alertCopy(alert({ kind: 'bill_due', params: p({ vendor: 'Rogers', days: 3 }) }), en, cad).title).toBe('Rogers bill due in 3 days');
+    expect(alertCopy(alert({ kind: 'bill_due', params: p({ vendor: 'Rogers', days: 0 }) }), en, cad).title).toBe('Rogers bill due today');
+    expect(alertCopy(alert({ kind: 'bill_due', params: p({ vendor: 'Rogers', days: -1 }) }), en, cad).title).toBe('Rogers bill is 1 day overdue');
+    for (const title of [inv]) expect(title).not.toMatch(/\$0/);
+  });
+
+  it('no-amount invoice/bill copy in French and Chinese', () => {
+    expect(alertCopy(alert({ kind: 'invoice_overdue', params: { client: 'Acme', days: 1 }, action: REMIND }), fr, cad).title).toBe('Acme en retard de 1 jour');
+    expect(alertCopy(alert({ kind: 'bill_due', params: { vendor: 'Rogers', days: 4 } }), fr, cad).title).toBe('Facture Rogers due dans 4 jours');
+    expect(alertCopy(alert({ kind: 'bill_due', params: { vendor: 'Rogers', days: 0 } }), fr, cad).title).toBe('Facture Rogers due aujourd’hui');
+    expect(alertCopy(alert({ kind: 'bill_due', params: { vendor: 'Rogers', days: -2 } }), fr, cad).title).toBe('Facture Rogers en retard de 2 jours');
+    expect(alertCopy(alert({ kind: 'invoice_overdue', params: { client: 'Acme', days: 5 }, action: REMIND }), zh, cad).title).toBe('Acme 已逾期 5 天');
+    expect(alertCopy(alert({ kind: 'bill_due', params: { vendor: 'Rogers', days: 4 } }), zh, cad).title).toBe('Rogers 账单将在 4 天后到期');
+    expect(alertCopy(alert({ kind: 'bill_due', params: { vendor: 'Rogers', days: 0 } }), zh, cad).title).toBe('Rogers 账单今天到期');
+    expect(alertCopy(alert({ kind: 'bill_due', params: { vendor: 'Rogers', days: -2 } }), zh, cad).title).toBe('Rogers 账单已逾期 2 天');
+  });
+
+  it('a zero amount is a real amount (shown), only garbage is omitted', () => {
+    expect(alertCopy(alert({ kind: 'bill_due', params: { vendor: 'Rogers', days: 3, amountCents: 0 } }), en, cad).title).toBe('Rogers bill of CA$0 due in 3 days');
+    expect(alertCopy(alert({ kind: 'bill_due', params: { vendor: 'Rogers', days: 3, amountCents: '9000' } }), en, cad).title).toBe('Rogers bill of CA$90 due in 3 days');
   });
 
   it('singular day, and a missing client name reads as "A client"', () => {
