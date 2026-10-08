@@ -45,6 +45,7 @@ const EXPENSE = {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  journalFindMany.mockResolvedValue([]);
   accountFindFirst.mockResolvedValue({ id: 'acct-cash-1000' });
   journalCreate.mockResolvedValue({ id: 'je-new' });
   expenseUpdate.mockResolvedValue({});
@@ -192,7 +193,9 @@ describe('reverseExpenseJournalEntry — deleting an expense must not leave it i
     await reverseExpenseJournalEntry('t1', 'exp-1');
     const data = journalCreate.mock.calls[0][0].data;
     expect(data.sourceType).toBe('expense_delete'); // NOT 'expense' — unique(tenantId,sourceType,sourceId)
-    expect(data.sourceId).toBe('exp-1');
+    // Keyed by the entry being reversed, not the expense: an expense that is
+    // restored and re-booked gets a NEW entry, so its next delete is a new key.
+    expect(data.sourceId).toBe('je-orig');
     expect(data.memo).toMatch(/reverse/i);
   });
 
@@ -217,6 +220,40 @@ describe('reverseExpenseJournalEntry — deleting an expense must not leave it i
     const r = await reverseExpenseJournalEntry('t1', 'exp-1');
     expect(r.reversed).toBe(false);
     expect(journalCreate).not.toHaveBeenCalled();
+  });
+
+  it('does not insert at all when the entry already has a reversal (no P2002 to abort the caller\'s transaction)', async () => {
+    expenseFindFirst.mockResolvedValue({ journalEntryId: 'je-orig', description: 'Coffee' });
+    journalLineFindMany.mockResolvedValue(ORIGINAL_LINES);
+    journalFindMany.mockResolvedValue([{ id: 'je-rev', sourceType: 'expense_delete', sourceId: 'je-orig', memo: 'DELETED' }]);
+
+    const r = await reverseExpenseJournalEntry('t1', 'exp-1');
+
+    expect(r).toMatchObject({ reversed: false, reason: 'already reversed' });
+    expect(journalCreate).not.toHaveBeenCalled();
+  });
+
+  it('recognises a reversal written under the OLD key (sourceId = expense id) too', async () => {
+    expenseFindFirst.mockResolvedValue({ journalEntryId: 'je-orig', description: 'Coffee' });
+    journalLineFindMany.mockResolvedValue(ORIGINAL_LINES);
+    journalFindMany.mockResolvedValue([{ id: 'je-rev', sourceType: 'expense_delete', sourceId: 'exp-1', memo: 'DELETED' }]);
+
+    const r = await reverseExpenseJournalEntry('t1', 'exp-1');
+
+    expect(r.reversed).toBe(false);
+    expect(journalCreate).not.toHaveBeenCalled();
+  });
+
+  it('inside a caller transaction a P2002 is RETHROWN — Postgres has already aborted that transaction, so "success" would be a lie', async () => {
+    expenseFindFirst.mockResolvedValue({ journalEntryId: 'je-orig', description: 'Coffee' });
+    journalLineFindMany.mockResolvedValue(ORIGINAL_LINES);
+    const p2002 = Object.assign(new Error('unique'), { code: 'P2002' });
+    const tx = {
+      abJournalLine: { findMany: journalLineFindMany },
+      abJournalEntry: { findMany: journalFindMany, create: vi.fn().mockRejectedValue(p2002) },
+    } as any;
+
+    await expect(reverseExpenseJournalEntry('t1', 'exp-1', tx)).rejects.toMatchObject({ code: 'P2002' });
   });
 
   it('is idempotent — a double delete does not double-reverse (P2002 treated as done)', async () => {

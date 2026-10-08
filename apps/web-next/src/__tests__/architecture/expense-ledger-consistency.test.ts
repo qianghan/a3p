@@ -31,6 +31,8 @@ const CHART = 'apps/web-next/src/lib/agentbook-chart-of-accounts.ts';
 const CREATE_ROUTE = 'apps/web-next/src/app/api/v1/agentbook-expense/expenses/route.ts';
 const DETAIL_ROUTE = 'apps/web-next/src/app/api/v1/agentbook-expense/expenses/[id]/route.ts';
 const TELEGRAM = 'apps/web-next/src/app/api/v1/agentbook/telegram/webhook/route.ts';
+const RESTORE_ROUTE = 'apps/web-next/src/app/api/v1/agentbook-core/restore/[entityType]/[id]/route.ts';
+const BOT_AGENT = 'apps/web-next/src/lib/agentbook-bot-agent.ts';
 const PACKS = ['us', 'ca', 'au'].map(
   (j) => `packages/agentbook-jurisdictions/src/${j}/chart-of-accounts.ts`,
 );
@@ -84,5 +86,41 @@ describe('every business expense reaches the books', () => {
     expect(start, 'the aiok handler moved or was renamed').toBeGreaterThan(-1);
     const block = src.slice(start, src.indexOf("if (action === 'aichg') {", start));
     expect(block).toContain('backfillExpenseJournalEntry(');
+  });
+});
+
+describe('restoring, undoing and correcting an expense all go through the shared ledger helpers', () => {
+  it('Restore re-books the expense in the same transaction that clears deletedAt', () => {
+    const src = read(RESTORE_ROUTE);
+    // Restore used to be `updateMany({ deletedAt: null })` and nothing else: the
+    // expense reappeared in the list while DELETE's reversal kept it at $0.
+    expect(src).toContain('rebookReversedExpenseEntry(');
+    const block = src.slice(src.indexOf("entityType === 'expense'"), src.indexOf('clearDeletedAt(entityType'));
+    expect(block).toContain('db.$transaction');
+    expect(block.indexOf('deletedAt: null')).toBeGreaterThan(-1);
+    expect(block.indexOf('deletedAt: null')).toBeLessThan(block.indexOf('rebookReversedExpenseEntry('));
+  });
+
+  it("the delete reversal is keyed by the ENTRY being reversed, not by the expense", () => {
+    const src = read(LEDGER);
+    const fn = src.slice(src.indexOf('export async function reverseExpenseJournalEntry'), src.indexOf('/** Thrown when an edit would rewrite'));
+    // Keyed by the expense, a restored-and-re-booked expense collides with its
+    // own first delete (P2002 inside the transaction → 500).
+    expect(fn).toContain('sourceId: expense.journalEntryId');
+    expect(fn).not.toMatch(/sourceId:\s*expenseId/);
+  });
+
+  it("the bot's undo and amount fix call the helpers and never hand-write a reversal under ('expense', expenseId)", () => {
+    const src = read(BOT_AGENT);
+    const from = src.indexOf("case 'expense.undo_last'");
+    const to = src.indexOf("await db.abEvent.create", src.indexOf("case 'expense.update_amount'"));
+    expect(from).toBeGreaterThan(-1);
+    const block = src.slice(from, to);
+    expect(block).toContain('unbookExpenseJournalEntry(');
+    expect(block).toContain('repostExpenseJournalEntry(');
+    // Both used to write a reversal + replacement by hand under one unique key,
+    // with no transaction — the replacement then failed and left the expense at $0.
+    expect(block).not.toMatch(/abJournalEntry\.create/);
+    expect(block).not.toMatch(/sourceType:\s*'expense'/);
   });
 });
