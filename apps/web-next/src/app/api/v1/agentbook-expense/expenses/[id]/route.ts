@@ -2,7 +2,8 @@
  * Expense detail + edit.
  *
  * GET — full row + resolved vendor name + category name/code + splits.
- * PUT — patch amountCents, categoryId, description, isPersonal, date.
+ * PUT/PATCH — patch amountCents, categoryId, description, isPersonal, date,
+ * vendor (name; '' clears it). An invalid date is a 400 before any write.
  */
 
 import 'server-only';
@@ -20,6 +21,10 @@ import { publicErrorMessage } from '@/lib/api-error';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 export const maxDuration = 30;
+
+function normalizeVendorName(name: string): string {
+  return name.toLowerCase().replace(/[^a-z0-9]/g, '').trim();
+}
 
 export async function GET(
   request: NextRequest,
@@ -80,6 +85,7 @@ interface UpdateExpenseBody {
   description?: string;
   isPersonal?: boolean;
   date?: string;
+  vendor?: string;
 }
 
 export async function PUT(
@@ -103,9 +109,39 @@ export async function PUT(
     if (body.categoryId !== undefined) data.categoryId = body.categoryId;
     if (body.description !== undefined) data.description = body.description;
     if (body.isPersonal !== undefined) data.isPersonal = body.isPersonal;
-    if (body.date !== undefined) data.date = new Date(body.date);
+    if (body.date !== undefined) {
+      const parsedDate = typeof body.date === 'string' ? new Date(body.date) : new Date(NaN);
+      if (isNaN(parsedDate.getTime())) {
+        return NextResponse.json({ success: false, error: 'date must be an ISO date' }, { status: 400 });
+      }
+      data.date = parsedDate;
+    }
+    if (body.vendor !== undefined) {
+      if (typeof body.vendor !== 'string' || body.vendor.length > 200) {
+        return NextResponse.json(
+          { success: false, error: 'vendor must be a string of at most 200 characters' },
+          { status: 400 },
+        );
+      }
+      const vendorName = body.vendor.trim();
+      const normalized = normalizeVendorName(vendorName);
+      if (!normalized) {
+        data.vendorId = null;
+      } else {
+        const vendorRow = await db.abVendor.upsert({
+          where: { tenantId_normalizedName: { tenantId, normalizedName: normalized } },
+          update: { lastSeen: new Date() },
+          create: { tenantId, name: vendorName, normalizedName: normalized },
+          select: { id: true },
+        });
+        data.vendorId = vendorRow.id;
+      }
+    }
 
     const updated = await db.abExpense.update({ where: { id }, data });
+    const linkedVendor = updated.vendorId
+      ? await db.abVendor.findFirst({ where: { id: updated.vendorId, tenantId }, select: { name: true } })
+      : null;
 
     // PR 10 — audit only the fields the caller actually touched.
     const before: Record<string, unknown> = {};
@@ -125,6 +161,9 @@ export async function PUT(
     if (body.date !== undefined) {
       before.date = existing.date; after.date = updated.date;
     }
+    if (body.vendor !== undefined) {
+      before.vendorId = existing.vendorId; after.vendorId = updated.vendorId;
+    }
     await audit({
       tenantId,
       source: inferSource(request),
@@ -136,7 +175,7 @@ export async function PUT(
       after,
     });
 
-    return NextResponse.json({ success: true, data: updated });
+    return NextResponse.json({ success: true, data: { ...updated, vendorName: linkedVendor?.name ?? null } });
   } catch (err) {
     console.error('[agentbook-expense/expenses/:id PUT] failed:', err);
     return NextResponse.json(
