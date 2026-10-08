@@ -120,8 +120,12 @@ export async function computeTaxEstimate(tenantId: string, opts: TaxEstimateOpti
 
   if (accountingBasis === 'cash') {
     // Cash basis: revenue = customer payments received in the period; expenses =
-    // expense-account debits whose journal entry also credits the cash account
-    // (1000) — i.e. cash that actually left. Unpaid invoices/bills are excluded.
+    // expense-account movements in journal entries that also move the cash
+    // account (1000) — i.e. cash that actually left (or came back). Unpaid
+    // invoices/bills are excluded. "Moves", not "credits": a reversing entry
+    // (expense deleted, edited or marked personal) DEBITS cash, and matching
+    // only cash credits dropped every reversal — a $42 expense edited to $52
+    // counted $94. Must match buildCashExpenses in reports/pnl.
     const cashAccount = await db.abAccount.findFirst({
       where: { tenantId, code: '1000' },
       select: { id: true },
@@ -139,7 +143,7 @@ export async function computeTaxEstimate(tenantId: string, opts: TaxEstimateOpti
           entry: {
             tenantId,
             date: { gte: startDate, lte: endDate },
-            lines: { some: { accountId: cashAccount.id, creditCents: { gt: 0 } } },
+            lines: { some: { accountId: cashAccount.id } },
           },
         },
         select: { debitCents: true, creditCents: true },

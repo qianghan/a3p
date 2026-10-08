@@ -31,7 +31,8 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       const lines = await db.abJournalLine.findMany({
         where: { accountId: acct.id, entry: { tenantId, date: { gte: yearStart, lte: yearEnd } } },
       });
-      const total = lines.reduce((s, l) => s + l.debitCents, 0);
+      // Net of credits, so reversing entries (deleted / edited / personal) cancel.
+      const total = lines.reduce((s, l) => s + l.debitCents - l.creditCents, 0);
       if (total > 0) {
         result.push({
           taxCategory: acct.taxCategory || 'Other',
