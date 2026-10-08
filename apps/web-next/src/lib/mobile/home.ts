@@ -35,9 +35,16 @@ async function estimateOwed(tenantId: string, jurisdiction: string): Promise<num
   }
 }
 
-/** AI suggestions whose expense is still live and uncategorized (same freshness rule as /auto-categorize/pending). */
+/**
+ * AI suggestions whose expense is still live and uncategorized (same freshness
+ * rule as /auto-categorize/pending). Decoration: a failing lookup counts 0
+ * rather than 500ing Home.
+ */
 async function freshSuggestionCount(tenantId: string): Promise<number> {
-  const pending = await getPendingSuggestions(tenantId);
+  const pending = await getPendingSuggestions(tenantId).catch((err) => {
+    console.warn('[mobile/home] pending suggestions unavailable:', err instanceof Error ? err.message : err);
+    return [];
+  });
   if (pending.length === 0) return 0;
   return db.abExpense.count({
     where: { tenantId, id: { in: pending.map((p) => p.expenseId) }, categoryId: null, deletedAt: null },

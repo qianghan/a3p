@@ -70,7 +70,13 @@ export async function GET(
     }
 
     const splits = await db.abExpenseSplit.findMany({ where: { expenseId: expense.id } });
-    const pending = expense.categoryId ? [] : await getPendingSuggestions(tenantId);
+    // The suggestion is decoration: its failure must never 500 the detail view.
+    const pending = expense.categoryId
+      ? []
+      : await getPendingSuggestions(tenantId).catch((err) => {
+          console.warn('[agentbook-expense/expenses/:id GET] pending suggestions unavailable:', err instanceof Error ? err.message : err);
+          return [];
+        });
 
     return NextResponse.json({
       success: true,

@@ -298,6 +298,16 @@ describe('GET /expenses/[id] — mobile fields', () => {
     expect(toMobileDoc((await one('e5')).body.data as unknown as ExpenseRowLike).booked).toBe(false);
   });
 
+  it('a rejecting suggestion lookup (abUserMemory) still returns 200 with suggestion: null', async () => {
+    vi.spyOn(memDb.table('abUserMemory'), 'findUnique').mockRejectedValue(new Error('db down'));
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const { status, body } = await one('e6');
+    expect(status).toBe(200);
+    expect(body.data).toMatchObject({ id: 'e6', suggestion: null });
+    expect(warn).toHaveBeenCalled();
+    vi.restoreAllMocks();
+  });
+
   it('archived rows stay readable by id; foreign ids are 404', async () => {
     expect((await one('e7')).body.data.archivedAt).toBe('2026-06-19T09:00:00.000Z');
     expect((await one('e1', 't2')).status).toBe(404);

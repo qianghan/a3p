@@ -60,6 +60,16 @@ describe('GET /mobile/home — alerts', () => {
     expect(body.data.nextUp.filter((u) => u.kind === 'tax')).toEqual([]);
   });
 
+  it('a rejecting suggestion lookup (abUserMemory) still returns 200 with a suggestion count of 0', async () => {
+    vi.spyOn(memDb.table('abUserMemory'), 'findUnique').mockRejectedValue(new Error('db down'));
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const { status, body } = await home();
+    expect(status).toBe(200);
+    expect(body.data.alerts.find((a) => a.kind === 'review_needed')?.params).toEqual({ count: 1, suggestions: 0 });
+    expect(warn).toHaveBeenCalled();
+    vi.restoreAllMocks();
+  });
+
   it('receipts_missing uses the same definition as proactive-alerts', async () => {
     const receipts = (await home()).body.data.alerts.find((a) => a.kind === 'receipts_missing');
     const proactive = await json<{ data: { alerts: Array<{ id: string; title: string }> } }>(
