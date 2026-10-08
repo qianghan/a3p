@@ -143,6 +143,15 @@ describe('snapshot helpers', () => {
     expect(window.localStorage.getItem(`${SNAPSHOT_PREFIX}docs`)).toBeNull();
     expect(window.localStorage.getItem('theme')).toBe('dark');
   });
+
+  it('clearMobileSnapshots also removes ab:mobile: keys from sessionStorage (Docs nav)', () => {
+    window.sessionStorage.setItem(`${SNAPSHOT_PREFIX}docs:nav`, '{"ids":["a"],"q":"secret"}');
+    window.sessionStorage.setItem('other', 'x');
+    clearMobileSnapshots();
+    expect(window.sessionStorage.getItem(`${SNAPSHOT_PREFIX}docs:nav`)).toBeNull();
+    expect(window.sessionStorage.getItem('other')).toBe('x');
+    window.sessionStorage.clear();
+  });
 });
 
 describe('useMobileData: session expiry', () => {

@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { saveDocNav, readDocNav } from '@/app/app/_lib/doc-nav';
 import {
   SNAPSHOT_PREFIX,
   SNAPSHOT_OWNER_KEY,
@@ -9,6 +10,54 @@ import {
 
 beforeEach(() => {
   window.localStorage.clear();
+  window.sessionStorage.clear();
+});
+
+// The Docs prev/next list (ids + search text) lives in sessionStorage under the
+// same prefix. One tab, two accounts: it must not survive the switch.
+describe('per-tab (sessionStorage) state is purged with the snapshots', () => {
+  it('user A\'s doc navigation is gone after sign-out', () => {
+    saveDocNav({ ids: ['a1', 'a2'], filter: 'no-category', q: 'dr smith clinic' });
+    expect(readDocNav()).not.toBeNull();
+    clearMobileSnapshots();
+    expect(readDocNav()).toBeNull();
+    expect(window.sessionStorage.length).toBe(0);
+  });
+
+  it('is gone when a different user claims the device', () => {
+    claimMobileSnapshots('userA');
+    saveDocNav({ ids: ['a1', 'a2'], filter: 'all', q: 'dr smith clinic' });
+    claimMobileSnapshots('userB');
+    expect(readDocNav()).toBeNull();
+    expect(window.localStorage.getItem(SNAPSHOT_OWNER_KEY)).toBe('userB');
+  });
+
+  it('survives a repeat claim by the same user', () => {
+    claimMobileSnapshots('userA');
+    saveDocNav({ ids: ['a1'], filter: 'all', q: '' });
+    claimMobileSnapshots('userA');
+    expect(readDocNav()?.ids).toEqual(['a1']);
+  });
+
+  it('removes only ab:mobile: keys', () => {
+    window.sessionStorage.setItem(`${SNAPSHOT_PREFIX}docs:nav`, '{}');
+    window.sessionStorage.setItem('unrelated', 'keep');
+    clearMobileSnapshots();
+    expect(window.sessionStorage.getItem(`${SNAPSHOT_PREFIX}docs:nav`)).toBeNull();
+    expect(window.sessionStorage.getItem('unrelated')).toBe('keep');
+  });
+
+  it('still purges sessionStorage when localStorage is blocked, and never throws', () => {
+    saveDocNav({ ids: ['a1'], filter: 'all', q: 'x' });
+    const original = Object.getOwnPropertyDescriptor(window, 'localStorage')!;
+    Object.defineProperty(window, 'localStorage', { configurable: true, get() { throw new Error('denied'); } });
+    try {
+      expect(() => clearMobileSnapshots()).not.toThrow();
+    } finally {
+      Object.defineProperty(window, 'localStorage', original);
+    }
+    expect(readDocNav()).toBeNull();
+  });
 });
 
 describe('claimMobileSnapshots', () => {
