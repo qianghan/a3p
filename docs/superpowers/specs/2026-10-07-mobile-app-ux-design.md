@@ -60,7 +60,7 @@ needs-review count; Home shows the critical-alert dot. Header keeps `LanguageSwi
 - Header banner: "AI categorized N · M need you" with **Review AI picks** and **Auto-categorize** actions.
 - Filter chips: Needs review · No category · No receipt · All · Archived. Search box. Grid/list toggle. Infinite scroll (cursor).
 - Thumbnails via the Next image optimizer.
-- **Viewer** (full-screen route `/app/docs/[id]`): pinch-zoom receipt image (or a "No receipt — add photo" tile); editable amount, vendor, date, category, personal/business, description (notes); AI suggestion chip with confidence and **Accept**; category picker sheet (expense accounts, recents first); **Archive / Restore**; **Delete** (existing soft-delete + reversing entry, confirm sheet); prev/next navigation.
+- **Viewer** (full-screen route `/app/docs/[id]`): pinch-zoom receipt image (or a "No receipt — add photo" tile); editable vendor, category, personal/business, description (notes), and amount/date **only while the expense is pending review** (a confirmed expense is already booked and the shared PUT route does not re-post its journal entry, so amount/date are read-only with an explanation); AI suggestion chip with confidence and **Accept**; category picker sheet (expense accounts, recents first); **Archive / Restore**; **Delete** (existing soft-delete + reversing entry, confirm sheet); prev/next navigation.
 - Rules: AI-categorized items show an "AI" pill and are one tap to change; items AI cannot categorize land in "No category" with the picker pre-opened on tap.
 
 ### 4.4 Capture
@@ -73,13 +73,13 @@ Loads the active web thread (`/threads`, `/threads/:id/turns`) on open. Bubbles 
 
 All new routes are Next.js route handlers under `apps/web-next/src/app/api/v1/...` (prod does not run the Express plugin backends), tenant-resolved with `safeResolveAgentbookTenant`, returning `{success, data}`.
 
-**Schema (PR 1, own PR, merged first):** `AbExpense.archivedAt DateTime?` + `@@index([tenantId, archivedAt])`. Additive only.
+**Schema (PR 1, own PR, merged first):** `AbExpense.archivedAt DateTime?` + `@@index([tenantId, archivedAt])`, and a nullable `AbExpense.idempotencyKey` (plain index, no unique constraint) for `from-receipt` dedupe. Additive only.
 
 | Route | Behavior |
 |---|---|
 | `GET /agentbook-core/mobile/home` | Composes `kpis`, `alerts[]`, `nextUp[]`, `recent[]`, `currency`, `generatedAt` from shared helpers (extract from `dashboard/overview`, tax estimate, aging, quarterly) — never HTTP self-calls. |
 | `GET /agentbook-core/calendar/upcoming?days=` | Merges `AbCalendarEvent`, quarterly tax payments and open bills; sorted by date. |
-| `GET /agentbook-expense/expenses` (extend) | Add `status`, `hasReceipt`, `categoryId`, `archived` (default excludes archived), `q`, `cursor`; cap `limit` at 100; response adds `categorySource`, `confidence`. Existing params/shape unchanged. |
+| `GET /agentbook-expense/expenses` (extend) | Add `status`, `hasReceipt`, `categoryId`, `archived` (default excludes archived), `q`, `cursor`; cap `limit` at 100 when any new mobile param is present (legacy desktop calls keep `limit=200`); response adds `categorySource`, `confidence`. Existing params/shape unchanged. |
 | `PATCH /agentbook-expense/expenses/[id]` (extend) | Also accepts `vendor`, `date`. Existing fields unchanged. |
 | `POST /expenses/[id]/archive`, `/unarchive` | Set/clear `archivedAt`; no journal entry, no total changes; idempotent. |
 | `POST /agentbook-core/auto-categorize/review` | `{items:[{expenseId, action:'accept'|'reject', categoryId?}]}`; accept applies the suggestion via the existing categorize path (journal + vendor learning); max 50 items. |
@@ -142,3 +142,6 @@ Launch ("production-ready") requires all of: all CI green on main; the 8.1(7) jo
 - Thumbnails via the Next image optimizer require the Blob host in `remotePatterns`; if that proves unusable, fall back to client-generated thumbnails at capture time and `loading="lazy"` full images for legacy receipts.
 - Deploy-race risk on the schema change is mitigated by landing PR 1 first and merging immediately.
 - Desktop surfaces that list expenses will hide archived items; documented, and `includeArchived` exists if needed.
+
+## 10. Plan
+Implementation plan: `docs/superpowers/plans/2026-10-07-mobile-app-ux.md` (7 PRs, 76 tasks).
