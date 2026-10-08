@@ -10,9 +10,20 @@
  *   2. it is currently soft-deleted (deletedAt IS NOT NULL),
  *   3. the soft-delete is within the 90-day restore window.
  *
+ * An EXPENSE is also put back on the books: DELETE posts a mirror reversal of
+ * its journal entry, so clearing deletedAt alone left a restored expense in the
+ * list while the ledger (P&L, trial balance, tax estimate) still netted it to
+ * $0. The row update and the re-booking commit together; the response says
+ * which happened in `data.ledger`:
+ *   rebooked | not_booked | already_on_books | needs_review
+ * (needs_review: the entry was edited after the delete, so a bookkeeper must
+ * decide — the row is restored, the books are not touched.)
+ *
  * Returns:
  *   200 — restored
  *   404 — entity not found / wrong tenant / not deleted
+ *   409 — the books can't take the re-booking right now (month closed, or a
+ *         concurrent change); nothing was changed
  *   422 — past the 90-day window (housekeeping cron will purge)
  */
 
@@ -24,6 +35,7 @@ import { audit } from '@/lib/agentbook-audit';
 import { inferSource, inferActor } from '@/lib/agentbook-audit-context';
 import { canRestore, RESTORE_WINDOW_DAYS } from '@/lib/agentbook-soft-delete';
 import { publicErrorMessage } from '@/lib/api-error';
+import { ExpenseLedgerPeriodClosedError, rebookReversedExpenseEntry } from '@/lib/agentbook-expense-ledger';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -144,7 +156,37 @@ export async function POST(
       );
     }
 
-    await clearDeletedAt(entityType, id, tenantId);
+    let ledger: string | undefined;
+    if (entityType === 'expense') {
+      try {
+        // Clear deletedAt and re-book in ONE transaction: a restored expense
+        // is never visible without its books, nor booked while still deleted.
+        ledger = await db.$transaction(async (tx) => {
+          await tx.abExpense.updateMany({ where: { id, tenantId }, data: { deletedAt: null } });
+          return (await rebookReversedExpenseEntry(tenantId, id, tx)).outcome;
+        });
+      } catch (err) {
+        if (err instanceof ExpenseLedgerPeriodClosedError) {
+          return NextResponse.json(
+            {
+              success: false,
+              error: `Can't restore this expense: its books can only be re-posted into an open period, and ${err.year}-${String(err.month).padStart(2, '0')} is closed`,
+              details: { constraint: 'period_gate', year: err.year, month: err.month, status: 'closed' },
+            },
+            { status: 409 },
+          );
+        }
+        if ((err as { code?: string })?.code === 'P2002') {
+          return NextResponse.json(
+            { success: false, error: 'This expense was just changed by another request; reload and try again' },
+            { status: 409 },
+          );
+        }
+        throw err;
+      }
+    } else {
+      await clearDeletedAt(entityType, id, tenantId);
+    }
 
     await audit({
       tenantId,
@@ -154,10 +196,10 @@ export async function POST(
       entityType: ENTITIES[entityType].auditType,
       entityId: id,
       before: { deletedAt: row.deletedAt },
-      after: { deletedAt: null },
+      after: ledger ? { deletedAt: null, ledger } : { deletedAt: null },
     });
 
-    return NextResponse.json({ success: true, data: { id, entityType } });
+    return NextResponse.json({ success: true, data: { id, entityType, ...(ledger ? { ledger } : {}) } });
   } catch (err) {
     console.error('[agentbook-core/restore POST] failed:', err);
     return NextResponse.json(
