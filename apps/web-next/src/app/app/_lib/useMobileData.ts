@@ -193,7 +193,7 @@ export function useMobileData<T>(key: string, fetcher: () => Promise<T>): Mobile
       setState((s) =>
         s.staleAt === null
           ? s
-          : { ...s, data: null, staleAt: null, error: s.error ?? new Error('Saved data was cleared') },
+          : { ...s, data: null, staleAt: null, error: s.error ?? new ApiError('snapshot_cleared', 0, 'snapshot_cleared') },
       );
     };
     window.addEventListener('offline', onOffline);
