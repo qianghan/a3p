@@ -62,7 +62,7 @@
 6. **Behaviour-preserving extractions:** `dashboard/overview` → `lib/agentbook-dashboard-metrics.ts`, `aging-report` → `lib/agentbook-aging.ts`, `tax/estimate` → `lib/agentbook-tax-estimate.ts`, quarterly deadlines → `lib/agentbook-quarterly-deadlines.ts`, `expenses/[id]/categorize` → `lib/agentbook-categorize-expense.ts`, receipt OCR bytes + quota → existing `lib/agentbook-receipt-ocr.ts`. Characterization tests are written **first, against the old code**. `tax-consistency.test.ts` is re-pointed at the new engine file, and its assertions are unchanged.
 
 **Test conventions used throughout (C5):**
-- Route tests live under `apps/web-next/src/__tests__/api/v1/<plugin>/` (the repo's real convention) and lib tests under `apps/web-next/src/lib/__tests__/` or `apps/web-next/src/lib/mobile/__tests__/`. Every route test starts with `// @vitest-environment node` (undici `File`/`FormData` and `NextRequest` behave correctly there).
+- Route tests live under `apps/web-next/src/__tests__/api/v1/<plugin>/` (the repo's real convention) and lib tests that import `@/__tests__/helpers/*` (mem-db etc.) under `apps/web-next/src/__tests__/lib/` (tsconfig excludes `src/__tests__/**`, so a test outside it importing the helpers adds TS6307 errors); pure lib tests may live in `apps/web-next/src/lib/__tests__/` or `apps/web-next/src/lib/mobile/__tests__/`. Every route test starts with `// @vitest-environment node` (undici `File`/`FormData` and `NextRequest` behave correctly there).
 - DB mocks apply the `where` clause through the in-memory double built in Task 1.2 (`memDb`). Tenants are chosen by the `x-test-tenant` header through `tenantModuleMock` (`'none'` → 401).
 - Run a test: `cd apps/web-next && npx vitest run <path>`.
 - Commit trailer: `Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>`.
@@ -1880,7 +1880,7 @@ Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>"
 ### Task 1.5: Behaviour-preserving extraction — tax estimate engine
 
 **Files**
-- Create (test first): `apps/web-next/src/lib/__tests__/agentbook-tax-estimate.test.ts`
+- Create (test first): `apps/web-next/src/__tests__/lib/agentbook-tax-estimate.test.ts`
 - Create: `apps/web-next/src/lib/agentbook-tax-estimate.ts`
 - Modify: `apps/web-next/src/app/api/v1/agentbook-tax/tax/estimate/route.ts`
 - Modify: `apps/web-next/src/__tests__/architecture/tax-consistency.test.ts`
@@ -1889,7 +1889,7 @@ Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>"
 - Consumes: `memDb`, fixture.
 - Produces: `computeTaxEstimate(tenantId: string, opts?: TaxEstimateOptions): Promise<TaxEstimateData>` (the exact `data` object the route returned before), `TaxEstimateOptions {startDate?, endDate?, basis?, period?: string | null}`, `type TaxEstimateData`, `TAX_ESTIMATE_JURISDICTIONS: readonly string[]` (`['us','ca','au']`).
 
-- [ ] **Step 1: Write the failing parity test.** Create `apps/web-next/src/lib/__tests__/agentbook-tax-estimate.test.ts`:
+- [ ] **Step 1: Write the failing parity test.** Create `apps/web-next/src/__tests__/lib/agentbook-tax-estimate.test.ts`:
 ```ts
 // @vitest-environment node
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -1948,7 +1948,7 @@ describe('computeTaxEstimate — one engine for the route and mobile home', () =
 
 - [ ] **Step 2: Run it. It fails.**
 ```bash
-cd apps/web-next && npx vitest run src/lib/__tests__/agentbook-tax-estimate.test.ts
+cd apps/web-next && npx vitest run src/__tests__/lib/agentbook-tax-estimate.test.ts
 ```
 Expected: `Failed to resolve import "@/lib/agentbook-tax-estimate"`.
 
@@ -2308,7 +2308,7 @@ with
 - [ ] **Step 6: Run the new test, both existing estimate suites and the architecture guard. All pass.**
 ```bash
 cd apps/web-next && npx vitest run \
-  src/lib/__tests__/agentbook-tax-estimate.test.ts \
+  src/__tests__/lib/agentbook-tax-estimate.test.ts \
   src/app/api/v1/agentbook-tax/tax/estimate/__tests__/route.test.ts \
   src/__tests__/api/v1/agentbook-tax/tax-estimate-route.test.ts \
   src/__tests__/architecture/tax-consistency.test.ts
@@ -2318,7 +2318,7 @@ Expected: `4 passed` for the new file. The two existing estimate suites pass wit
 
 - [ ] **Step 7: Commit.**
 ```bash
-git add apps/web-next/src/lib/agentbook-tax-estimate.ts apps/web-next/src/lib/__tests__/agentbook-tax-estimate.test.ts \
+git add apps/web-next/src/lib/agentbook-tax-estimate.ts apps/web-next/src/__tests__/lib/agentbook-tax-estimate.test.ts \
   apps/web-next/src/app/api/v1/agentbook-tax/tax/estimate/route.ts apps/web-next/src/__tests__/architecture/tax-consistency.test.ts
 git commit -m "refactor(tax): move the estimate computation into lib/agentbook-tax-estimate
 
@@ -2333,7 +2333,7 @@ Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>"
 ### Task 1.6: Behaviour-preserving extraction — categorize path
 
 **Files**
-- Create (test first): `apps/web-next/src/lib/__tests__/agentbook-categorize-expense.test.ts`
+- Create (test first): `apps/web-next/src/__tests__/lib/agentbook-categorize-expense.test.ts`
 - Create: `apps/web-next/src/lib/agentbook-categorize-expense.ts`
 - Modify: `apps/web-next/src/app/api/v1/agentbook-expense/expenses/[id]/categorize/route.ts`
 
@@ -2341,7 +2341,7 @@ Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>"
 - Consumes: `memDb`, fixture.
 - Produces: `categorizeExpense(tenantId, expenseId, input: CategorizeInput): Promise<CategorizeOutcome>` where `CategorizeInput = { categoryId?: string; source?: unknown; confidence?: unknown }` and `CategorizeOutcome = { ok: true; expense } | { ok: false; status: 400 | 404; error: string }`; `CATEGORIZE_SOURCES`, `normalizeCategorizeSource`, `AUTO_PATTERN_CAP`. Same writes as before: expense category + confidence, `backfillExpenseJournalEntry`, best-effort vendor pattern + vendor default.
 
-- [ ] **Step 1: Write the failing lib test.** Create `apps/web-next/src/lib/__tests__/agentbook-categorize-expense.test.ts`:
+- [ ] **Step 1: Write the failing lib test.** Create `apps/web-next/src/__tests__/lib/agentbook-categorize-expense.test.ts`:
 ```ts
 // @vitest-environment node
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -2395,7 +2395,7 @@ describe('categorizeExpense — the one categorize path (route + mobile review)'
 
 - [ ] **Step 2: Run it. It fails.**
 ```bash
-cd apps/web-next && npx vitest run src/lib/__tests__/agentbook-categorize-expense.test.ts
+cd apps/web-next && npx vitest run src/__tests__/lib/agentbook-categorize-expense.test.ts
 ```
 Expected: `Failed to resolve import "@/lib/agentbook-categorize-expense"`.
 
@@ -2572,7 +2572,7 @@ export async function POST(
 - [ ] **Step 5: Run the new test and the two existing route suites. All pass, unedited.**
 ```bash
 cd apps/web-next && npx vitest run \
-  src/lib/__tests__/agentbook-categorize-expense.test.ts \
+  src/__tests__/lib/agentbook-categorize-expense.test.ts \
   src/__tests__/api/v1/agentbook-expense/categorize-confidence.test.ts \
   src/__tests__/api/v1/agentbook-expense/ledger-wiring.test.ts
 npm run typecheck
@@ -2581,7 +2581,7 @@ Expected: `4 passed` for the new file. categorize-confidence (15 tests) and ledg
 
 - [ ] **Step 6: Commit.**
 ```bash
-git add apps/web-next/src/lib/agentbook-categorize-expense.ts apps/web-next/src/lib/__tests__/agentbook-categorize-expense.test.ts \
+git add apps/web-next/src/lib/agentbook-categorize-expense.ts apps/web-next/src/__tests__/lib/agentbook-categorize-expense.test.ts \
   "apps/web-next/src/app/api/v1/agentbook-expense/expenses/[id]/categorize/route.ts"
 git commit -m "refactor(expense): extract the categorize path into lib/agentbook-categorize-expense
 
@@ -5888,8 +5888,8 @@ Expected: all files pass. Only `tax-consistency.test.ts` was edited (Task 1.5, r
 ```bash
 cd apps/web-next && npx vitest run \
   src/__tests__/helpers/mem-db.test.ts src/__tests__/architecture/mobile-expense-schema.test.ts \
-  src/lib/mobile src/lib/__tests__/agentbook-quarterly-deadlines.test.ts src/lib/__tests__/agentbook-tax-estimate.test.ts \
-  src/lib/__tests__/agentbook-categorize-expense.test.ts src/lib/__tests__/agentbook-receipt-ocr-bytes.test.ts \
+  src/lib/mobile src/lib/__tests__/agentbook-quarterly-deadlines.test.ts src/__tests__/lib/agentbook-tax-estimate.test.ts \
+  src/__tests__/lib/agentbook-categorize-expense.test.ts src/lib/__tests__/agentbook-receipt-ocr-bytes.test.ts \
   src/__tests__/api/v1/agentbook-core src/__tests__/api/v1/agentbook-expense src/__tests__/api/v1/agentbook-invoice/aging-report-characterization.test.ts
 ```
 Expected: all pass.
