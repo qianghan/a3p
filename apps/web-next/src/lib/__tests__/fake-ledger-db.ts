@@ -68,6 +68,7 @@ export function createFakeLedgerDb() {
         entryWithLines(state.entries.find((e) => matches(e, where)), include),
       findUnique: async ({ where, include }: Row = {}) =>
         entryWithLines(state.entries.find((e) => matches(e, where)), include),
+      findMany: async ({ where }: Row = {}) => state.entries.filter((e) => matches(e, where)).map((e) => ({ ...e })),
       create: async ({ data }: Row) => {
         const { lines, ...rest } = data;
         if (
@@ -179,6 +180,16 @@ export function createFakeLedgerDb() {
     return { entryId: entry.id };
   }
 
+  /**
+   * What POST /agentbook-core/restore/expense/:id does today: clear deletedAt
+   * and nothing else — it does NOT re-book, so journalEntryId still points at
+   * the entry DELETE reversed.
+   */
+  function restoreExpense(id = 'exp-1') {
+    const r = state.expenses.find((e) => e.id === id);
+    if (r) r.deletedAt = null;
+  }
+
   /** Net debit per account across EVERY entry — what P&L / trial balance sum. */
   function netByAccount(): Record<string, number> {
     const out: Record<string, number> = {};
@@ -199,5 +210,5 @@ export function createFakeLedgerDb() {
     return out;
   }
 
-  return { db: api, state, seedBookedExpense, netByAccount, netByAccountInRange };
+  return { db: api, state, seedBookedExpense, restoreExpense, netByAccount, netByAccountInRange };
 }

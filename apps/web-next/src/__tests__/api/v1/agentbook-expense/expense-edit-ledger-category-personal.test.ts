@@ -370,6 +370,105 @@ describe('races', () => {
   });
 });
 
+describe('an entry that was ALREADY reversed (delete → restore, bot orphan) is never reversed again', () => {
+  /** Snapshot of everything an edit could write. */
+  const snap = () => JSON.parse(JSON.stringify({
+    expenses: h.fake.state.expenses, entries: h.fake.state.entries, lines: h.fake.state.lines, vendors: h.fake.state.vendors,
+  }));
+
+  async function deleteAndRestore() {
+    expect((await del()).status).toBe(200);
+    h.fake.restoreExpense(); // Restore clears deletedAt only — it does not re-book
+    // Pre-existing restore bug, made visible: the restored expense nets to $0.
+    expect(h.fake.netByAccount()).toEqual({});
+  }
+
+  it('delete → restore → edit amount: 422 already_reversed, books AND expense row unchanged', async () => {
+    h.fake.seedBookedExpense({ amountCents: 10000, date: JAN });
+    await deleteAndRestore();
+    const before = snap();
+
+    const { status, json } = await send({ amountCents: 4000, vendor: 'Blue Bottle', description: 'x' });
+
+    expect(status).toBe(422);
+    expect(json).toMatchObject({ success: false, code: 'already_reversed' });
+    expect(json.error).toMatch(/already reversed/i);
+    expect(snap()).toEqual(before); // nothing written: no row update, no vendor, no entry
+    expect(h.fake.netByAccount()).toEqual({}); // not −$60
+  });
+
+  it('delete → restore → flip to personal: 422 already_reversed (would have booked −$100)', async () => {
+    h.fake.seedBookedExpense({ amountCents: 10000, date: JAN });
+    await deleteAndRestore();
+    const before = snap();
+    const { status, json } = await send({ isPersonal: true });
+    expect(status).toBe(422);
+    expect(json.code).toBe('already_reversed');
+    expect(snap()).toEqual(before);
+  });
+
+  it.each([
+    ['category', { categoryId: 'acct-travel' }],
+    ['date', { date: '2026-03-10' }],
+  ])('delete → restore → %s edit: 422 already_reversed', async (_n, body) => {
+    h.fake.seedBookedExpense({ amountCents: 10000, date: JAN });
+    await deleteAndRestore();
+    const before = snap();
+    expect((await send(body)).status).toBe(422);
+    expect(snap()).toEqual(before);
+  });
+
+  it('delete → restore after an edit chain: the delete reversal of the CURRENT entry is still detected', async () => {
+    h.fake.seedBookedExpense({ amountCents: 10000, date: JAN });
+    expect((await send({ amountCents: 7000 })).status).toBe(200);
+    await deleteAndRestore();
+    expect((await send({ amountCents: 4000 })).status).toBe(422);
+    expect(h.fake.netByAccount()).toEqual({});
+  });
+
+  it('a bot-style orphaned reversal (REVERSAL: entry committed, replacement failed, pointer still E) refuses the edit', async () => {
+    const { entryId } = h.fake.seedBookedExpense({ amountCents: 10000, date: JAN });
+    // What agentbook-bot-agent expense.update_amount leaves when its replacement
+    // hits P2002: a mirror under ('expense', expenseId), memo "REVERSAL: …".
+    h.fake.state.entries.push({ id: 'je-bot-rev', tenantId: 't1', date: new Date(), memo: 'REVERSAL: Expense: Coffee (amount fix)', sourceType: 'expense', sourceId: 'exp-1', verified: true });
+    for (const l of h.fake.state.lines.filter((x: any) => x.entryId === entryId)) {
+      h.fake.state.lines.push({ id: `${l.id}-rev`, tenantId: 't1', entryId: 'je-bot-rev', accountId: l.accountId, debitCents: l.creditCents, creditCents: l.debitCents, description: `Reversal: ${l.description}` });
+    }
+    const before = snap();
+    const { status, json } = await send({ amountCents: 5200 });
+    expect(status).toBe(422);
+    expect(json.code).toBe('already_reversed');
+    expect(snap()).toEqual(before);
+  });
+
+  it('an unrelated entry under the same expense id that does NOT mirror E does not block the edit', async () => {
+    const { entryId } = h.fake.seedBookedExpense({ amountCents: 10000, date: JAN });
+    // e.g. the confirm route's ('expense', expenseId) booking of the same direction.
+    h.fake.state.entries.push({ id: 'je-other', tenantId: 't1', date: JAN, memo: 'Expense: x', sourceType: 'expense', sourceId: 'exp-1', verified: true });
+    h.fake.state.lines.push(
+      { id: 'o1', tenantId: 't1', entryId: 'je-other', accountId: 'acct-meals', debitCents: 10000, creditCents: 0 },
+      { id: 'o2', tenantId: 't1', entryId: 'je-other', accountId: 'acct-cash', debitCents: 0, creditCents: 10000 },
+    );
+    expect(entryId).not.toBe('je-other');
+    expect((await send({ amountCents: 4000 })).status).toBe(200);
+  });
+
+  it('positive control: a normal booked expense (never deleted) still edits', async () => {
+    h.fake.seedBookedExpense({ amountCents: 10000, date: JAN });
+    expect((await send({ amountCents: 4000 })).status).toBe(200);
+    expect((await send({ isPersonal: true })).status).toBe(200);
+    expect(h.fake.netByAccount()).toEqual({});
+    expect((await send({ isPersonal: false })).status).toBe(200);
+    expect(h.fake.netByAccount()).toEqual({ 'acct-meals': 4000, 'acct-cash': -4000 });
+  });
+
+  it('a restored expense can still take edits that do not touch the books', async () => {
+    h.fake.seedBookedExpense({ amountCents: 10000, date: JAN });
+    await deleteAndRestore();
+    expect((await send({ description: 'Latte', vendor: 'Blue Bottle' })).status).toBe(200);
+  });
+});
+
 describe('races (flips)', () => {
   it('two personal → business flips racing: the second waits, sees the first booking, and books nothing', async () => {
     seedUnbooked({ isPersonal: true });

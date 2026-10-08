@@ -28,6 +28,8 @@ import {
   ensureExpenseBookingAccounts,
   ExpenseLedgerPeriodClosedError,
   ExpenseLedgerShapeError,
+  ExpenseLedgerAlreadyReversedError,
+  ALREADY_REVERSED_MESSAGE,
 } from '@/lib/agentbook-expense-ledger';
 import { INVALID_CATEGORY_ERROR } from '@/lib/agentbook-categorize-expense';
 import { getPendingSuggestions } from '@/lib/agentbook-auto-categorize';
@@ -313,6 +315,13 @@ export async function PUT(
             error: 'Period gate violated',
             details: { constraint: 'period_gate', year: err.year, month: err.month, status: 'closed' },
           },
+          { status: 422 },
+        );
+      }
+      if (err instanceof ExpenseLedgerAlreadyReversedError) {
+        // The whole transaction (row, vendor, ledger) rolled back: nothing written.
+        return NextResponse.json(
+          { success: false, code: 'already_reversed', error: ALREADY_REVERSED_MESSAGE },
           { status: 422 },
         );
       }

@@ -205,6 +205,27 @@ export class ExpenseLedgerShapeError extends Error {
   }
 }
 
+/**
+ * Thrown when the expense's current entry has ALREADY been mirror-reversed by
+ * another path, so reversing it again would drive the books negative.
+ *
+ * How it happens today: DELETE posts an `expense_delete` reversal of the entry
+ * but keeps journalEntryId pointing at it, and Restore only clears deletedAt
+ * (it never re-books); the bot's "actually it was $52" amount fix can commit
+ * its reversal and then fail the replacement, leaving the same state. An edit
+ * that reversed the entry again would book −$100 for a $100 expense.
+ */
+export const ALREADY_REVERSED_MESSAGE =
+  "This expense's books were already reversed (it was deleted/undone and restored). Re-book it before editing.";
+
+export class ExpenseLedgerAlreadyReversedError extends Error {
+  readonly code = 'already_reversed';
+  constructor() {
+    super(ALREADY_REVERSED_MESSAGE);
+    this.name = 'ExpenseLedgerAlreadyReversedError';
+  }
+}
+
 /** The delegates the edit helpers touch — satisfied by `db` and by an interactive-transaction client. */
 type LedgerClient = Pick<typeof db, 'abExpense' | 'abJournalEntry' | 'abJournalLine' | 'abFiscalPeriod' | 'abAccount'>;
 
@@ -266,6 +287,36 @@ async function appendBalancedEntry(
     await client.abJournalLine.create({ data: { tenantId, entryId: entry.id, ...l } }); // G-009
   }
   return entry.id;
+}
+
+/**
+ * Refuse to reverse `entry` when an entry pointing at this expense already
+ * mirrors it exactly. Covers the DELETE reversal ('expense_delete', expenseId)
+ * and the bot's undo / amount-fix reversals ('expense', expenseId, memo
+ * "REVERSAL: …"), detected by content — every line swapped, same accounts and
+ * amounts — rather than by memo, so a renamed memo can't hide one. (A later
+ * entry of ours that mirrors E is keyed by E's id under
+ * 'expense_amend_reversal' and is caught by the G-021 unique key instead.)
+ */
+async function assertNotAlreadyReversed(
+  client: LedgerClient,
+  tenantId: string,
+  expenseId: string,
+  entryId: string,
+  lines: LedgerLine[],
+): Promise<void> {
+  const key = (l: Pick<LedgerLine, 'accountId' | 'debitCents' | 'creditCents'>) =>
+    `${l.accountId}|${l.debitCents}|${l.creditCents}`;
+  const mirrored = lines.map((l) => key({ accountId: l.accountId, debitCents: l.creditCents, creditCents: l.debitCents })).sort();
+  const candidates = (await client.abJournalEntry.findMany({ where: { tenantId, sourceId: expenseId } })) || [];
+  for (const c of candidates) {
+    if (c.id === entryId || (c.sourceType !== 'expense_delete' && c.sourceType !== 'expense')) continue;
+    const cLines: LedgerLine[] = (await client.abJournalLine.findMany({ where: { entryId: c.id } })) || [];
+    const cKeys = cLines.map(key).sort();
+    if (cKeys.length === mirrored.length && cKeys.every((k, i) => k === mirrored[i])) {
+      throw new ExpenseLedgerAlreadyReversedError();
+    }
+  }
 }
 
 const mirror = (lines: LedgerLine[]): LedgerLine[] =>
@@ -381,6 +432,7 @@ export async function repostExpenseJournalEntry(
     return { reposted: false, journalEntryId: original.id, reason: 'ledger already matches' };
   }
 
+  await assertNotAlreadyReversed(tx, tenantId, expense.id, original.id, lines);
   await assertPeriodOpen(tx, tenantId, original.date);
   if (dateChanged) await assertPeriodOpen(tx, tenantId, expense.date);
 
@@ -433,6 +485,7 @@ export async function unbookExpenseJournalEntry(
   const { entry: original, lines } = loaded;
   if (sumDebits(lines) !== sumCredits(lines)) throw new ExpenseLedgerShapeError();
 
+  await assertNotAlreadyReversed(tx, tenantId, expense.id, original.id, lines);
   await assertPeriodOpen(tx, tenantId, original.date);
   await appendBalancedEntry(
     tx,
