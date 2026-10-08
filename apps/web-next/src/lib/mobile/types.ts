@@ -73,7 +73,8 @@ export interface MobileDoc {
   booked: boolean;
 }
 export interface DocCounts { needsReview: number; noCategory: number; noReceipt: number; archived: number }
-export interface DocList { items: MobileDoc[]; nextCursor: string | null; counts: DocCounts | null }
+/** `total` is the whole filtered list (the server's meta.total, not the loaded rows), or null when the server did not say. */
+export interface DocList { items: MobileDoc[]; nextCursor: string | null; counts: DocCounts | null; total: number | null }
 export interface ExpenseCategory { id: string; name: string; code: string }
 export interface ReviewItem { expenseId: string; action: 'accept' | 'reject'; categoryId?: string }
 export type ReviewError = 'not_found' | 'no_suggestion' | 'invalid_category' | 'failed';

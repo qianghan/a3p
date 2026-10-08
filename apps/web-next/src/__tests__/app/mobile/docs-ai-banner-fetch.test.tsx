@@ -71,7 +71,7 @@ describe('AiBanner over real requests', () => {
     const dialog = await screen.findByRole('dialog', { name: 'Review AI picks' });
     fireEvent.click(within(dialog).getByRole('button', { name: 'Accept Office for Staples' }));
     expect(await within(dialog).findByText('No AI picks waiting.')).toBeInTheDocument();
-    expect(screen.queryByText(/already categorized|Couldn't save/)).toBeNull();
+    expect(screen.queryByText(/already categorized|Couldn’t save/)).toBeNull();
   });
 
   it('a 404 on the whole review request (route missing) saves nothing: the row comes back with the failure shown', async () => {
@@ -83,7 +83,7 @@ describe('AiBanner over real requests', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Review AI picks' }));
     const dialog = await screen.findByRole('dialog', { name: 'Review AI picks' });
     fireEvent.click(within(dialog).getByRole('button', { name: 'Accept Office for Staples' }));
-    expect(await within(dialog).findByText("Couldn't save that choice. Try again.")).toBeInTheDocument();
+    expect(await within(dialog).findByText("Couldn’t save that choice. Try again.")).toBeInTheDocument();
     expect(within(dialog).getAllByTestId('review-row')).toHaveLength(1);
     expect(onChanged).not.toHaveBeenCalled();
   });
@@ -99,7 +99,7 @@ describe('AiBanner over real requests', () => {
     fireEvent.click(within(dialog).getByRole('button', { name: 'Accept Office for Staples' }));
     await waitFor(() => expect(within(dialog).getAllByTestId('review-row')).toHaveLength(1));
     expect(within(dialog).getByText('Uber')).toBeInTheDocument();
-    expect(screen.queryByText(/Couldn't save|Not saved/)).toBeNull();
+    expect(screen.queryByText(/Couldn’t save|Not saved/)).toBeNull();
     expect(onChanged).toHaveBeenCalled();
   });
 
@@ -114,10 +114,10 @@ describe('AiBanner over real requests', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Review AI picks' }));
     const dialog = await screen.findByRole('dialog', { name: 'Review AI picks' });
     fireEvent.click(within(dialog).getByRole('button', { name: 'Accept Office for Staples' }));
-    expect(await within(dialog).findByText("Couldn't save that choice. Try again.")).toBeInTheDocument();
+    expect(await within(dialog).findByText("Couldn’t save that choice. Try again.")).toBeInTheDocument();
     fireEvent.click(within(dialog).getByRole('button', { name: 'Accept Office for Staples' }));
     expect(await within(dialog).findByText('No AI picks waiting.')).toBeInTheDocument();
-    expect(within(dialog).queryByText("Couldn't save that choice. Try again.")).toBeNull();
+    expect(within(dialog).queryByText("Couldn’t save that choice. Try again.")).toBeNull();
     const bodies = f.mock.calls.filter(([u]) => String(u) === REVIEW).map(([, init]) => JSON.parse(String(init?.body)));
     expect(bodies).toEqual([
       { items: [{ expenseId: 'e1', action: 'accept' }] },
@@ -135,7 +135,7 @@ describe('AiBanner over real requests', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Review AI picks' }));
     const dialog = await screen.findByRole('dialog', { name: 'Review AI picks' });
     fireEvent.click(within(dialog).getByRole('button', { name: 'Accept Office for Staples' }));
-    expect(await screen.findByText("Couldn't save that choice. Try again.")).toBeInTheDocument();
+    expect(await screen.findByText("Couldn’t save that choice. Try again.")).toBeInTheDocument();
     expect(within(dialog).getAllByTestId('review-row')).toHaveLength(1);
   });
 

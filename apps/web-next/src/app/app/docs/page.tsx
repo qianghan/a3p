@@ -2,7 +2,7 @@
 
 import React, { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useSearchParams } from 'next/navigation';
 import { LayoutGrid, List as ListIcon, Search } from 'lucide-react';
 import { useT, useShellLocale } from '@/hooks/use-t';
 import type { DocCounts, DocFilter, DocList, MobileDoc } from '@/lib/mobile/types';
@@ -14,7 +14,7 @@ import { useInfiniteScroll } from '../_lib/useInfiniteScroll';
 import { readJson, writeJson } from '../_lib/safe-storage';
 import { parseDocFilter, saveDocNav } from '../_lib/doc-nav';
 import { formatTime } from '../_lib/format';
-import { Skeleton, EmptyState, buttonStyle, iconButtonStyle, tokens, TOUCH } from '../_kit';
+import { Skeleton, EmptyState, buttonStyle, iconButtonStyle, tokens, TOUCH, visuallyHidden } from '../_kit';
 import { FilterChips } from './_components/FilterChips';
 import { DocItem } from './_components/DocItem';
 import { AiBanner } from './_components/AiBanner';
@@ -22,6 +22,10 @@ import { AiBanner } from './_components/AiBanner';
 const VIEW_KEY = 'ab:mobile:docs:view';
 const PAGE_SIZE = 30;
 const SEARCH_DEBOUNCE_MS = 300;
+const SEARCH_MAX_LENGTH = 100; // the list route cuts `q` at 100 characters
+const DOCS_PATH = '/app/docs';
+// How long a param set we wrote ourselves is still recognised as ours when it shows up in useSearchParams.
+const OWN_WRITE_TTL_MS = 2000;
 type ViewMode = 'list' | 'grid';
 
 const viewToggle: React.CSSProperties = {
@@ -74,9 +78,6 @@ function urlFor(filter: DocFilter, q: string): string {
 
 function DocsScreen() {
   const t = useT();
-  const router = useRouter();
-  const routerRef = useRef(router);
-  routerRef.current = router;
   const params = useSearchParams();
   const paramsRef = useRef(params);
   paramsRef.current = params;
@@ -89,6 +90,8 @@ function DocsScreen() {
   const [view, setView] = useState<ViewMode>('list');
   const [counts, setCounts] = useState<DocCounts | null>(null);
   const [refreshToken, setRefreshToken] = useState(0);
+  // How many documents the current list has (null until its first page lands): announced by the status region below.
+  const [resultCount, setResultCount] = useState<number | null>(null);
   const online = useOnlineStatus();
   const currency = useTenantCurrency();
 
@@ -105,26 +108,28 @@ function DocsScreen() {
     return () => clearTimeout(h);
   }, [query, q]);
 
-  // URL <-> state. Our own router.replace calls are queued here so that when their params arrive
-  // they are recognised as ours; anything else (the Docs tab tapped again, a deep link while the
-  // screen is already mounted) is an outside navigation and resets the filter and search.
-  const ownWrites = useRef<string[]>([]);
-  const currentKey = useRef(paramKey);
+  // URL <-> state. The page's own state is the source of truth and the URL is written from it with
+  // history.replaceState: a router.replace to the same path is a real server navigation in Next 15, which
+  // offline falls back to a full browser navigation that the service worker cannot serve. Next syncs
+  // useSearchParams with replaceState without a request. `urlKey` is the query the URL holds as far as
+  // this screen knows; `recentWrites` lets the params of our own writes be told apart from an outside
+  // navigation (the Docs tab tapped again, a link to /app/docs?filter=x while mounted) when they arrive.
+  const urlKey = useRef(paramKey);
+  const recentWrites = useRef<{ key: string; at: number }[]>([]);
   useEffect(() => {
     const s = urlFor(filter, q);
-    if (s === currentKey.current) return;
-    ownWrites.current.push(s);
-    routerRef.current.replace(s ? `/app/docs?${s}` : '/app/docs', { scroll: false });
+    if (s === urlKey.current) return;
+    urlKey.current = s;
+    const now = Date.now();
+    recentWrites.current = [...recentWrites.current.filter((w) => now - w.at < OWN_WRITE_TTL_MS), { key: s, at: now }];
+    window.history.replaceState(null, '', s ? `${DOCS_PATH}?${s}` : DOCS_PATH);
   }, [filter, q]);
   useEffect(() => {
-    if (paramKey === currentKey.current) return;
-    currentKey.current = paramKey;
-    const mine = ownWrites.current.indexOf(paramKey);
-    if (mine >= 0) {
-      ownWrites.current.splice(0, mine + 1);
-      return;
-    }
-    ownWrites.current = [];
+    if (paramKey === urlKey.current) return;
+    const now = Date.now();
+    if (recentWrites.current.some((w) => w.key === paramKey && now - w.at < OWN_WRITE_TTL_MS)) return;
+    urlKey.current = paramKey;
+    recentWrites.current = [];
     const p = paramsRef.current;
     const nextQ = p?.get('q') ?? '';
     setFilter(parseDocFilter(p?.get('filter')));
@@ -168,13 +173,19 @@ function DocsScreen() {
           type="search"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
+          maxLength={SEARCH_MAX_LENGTH}
           aria-label={t('mobile.docs.search_label')}
           placeholder={t('mobile.docs.search_placeholder')}
           style={{ flex: 1, minWidth: 0, minHeight: TOUCH - 2, border: 'none', outline: 'none', background: 'transparent', color: tokens.color.fg, fontSize: 16 }}
         />
       </label>
 
-      <DocsList key={`${filter}|${q}`} filter={filter} q={q} view={view} currency={currency} online={online} refreshToken={refreshToken} onCounts={setCounts} />
+      {/* Always mounted and outside the keyed list: a live region that is created together with its text is often not announced. */}
+      <div role="status" aria-live="polite" data-testid="docs-results" style={visuallyHidden}>
+        {resultCount === null ? '' : resultCount === 0 ? t('mobile.docs.results_none') : t('mobile.docs.results', { count: resultCount })}
+      </div>
+
+      <DocsList key={`${filter}|${q}`} filter={filter} q={q} view={view} currency={currency} online={online} refreshToken={refreshToken} onCounts={setCounts} onResultCount={setResultCount} />
     </div>
   );
 }
@@ -200,7 +211,7 @@ function EmptyForFilter({ filter, searching }: { filter: DocFilter; searching: b
   );
 }
 
-function DocsList({ filter, q, view, currency, online, refreshToken, onCounts }: {
+function DocsList({ filter, q, view, currency, online, refreshToken, onCounts, onResultCount }: {
   filter: DocFilter;
   q: string;
   view: ViewMode;
@@ -208,6 +219,7 @@ function DocsList({ filter, q, view, currency, online, refreshToken, onCounts }:
   online: boolean;
   refreshToken: number;
   onCounts: (c: DocCounts) => void;
+  onResultCount: (n: number | null) => void;
 }) {
   const t = useT();
   const locale = useShellLocale();
@@ -240,7 +252,11 @@ function DocsList({ filter, q, view, currency, online, refreshToken, onCounts }:
     setMore([]);
     setCursor(data.nextCursor);
     if (data.counts) onCounts(data.counts);
-  }, [data, onCounts]);
+    // A snapshot saved before `total` existed has none: the rows of its first page are what it can honestly say.
+    onResultCount(data.total ?? data.items.length);
+  }, [data, onCounts, onResultCount]);
+  // This list is replaced when the filter or search changes (its key): until the new one answers, announce nothing.
+  useEffect(() => () => onResultCount(null), [onResultCount]);
 
   const items = useMemo(() => {
     const seen = new Set<string>();
@@ -329,8 +345,9 @@ function DocsList({ filter, q, view, currency, online, refreshToken, onCounts }:
         {staleAt && offlineNow ? (
           <p role="status" data-testid="docs-offline" style={notice}>{t('mobile.docs.offline_snapshot', { time })}</p>
         ) : staleAt ? (
-          <div role="status" data-testid="docs-stale" style={notice}>
-            <span>{t('mobile.kit.stale_as_of', { time })}</span>
+          <div data-testid="docs-stale" style={notice}>
+            {/* Only the message is the live region: the Retry button must not be read out as part of the status. */}
+            <span role="status">{t('mobile.kit.stale_as_of', { time })}</span>
             <button type="button" style={buttonStyle('ghost', refreshing)} aria-disabled={refreshing || undefined} aria-busy={refreshing || undefined} onClick={() => { if (!refreshing) reload(); }}>
               {t('mobile.docs.retry')}
             </button>
@@ -347,7 +364,7 @@ function DocsList({ filter, q, view, currency, online, refreshToken, onCounts }:
             data-view={view}
             style={{
               listStyle: 'none', margin: 0, padding: `${tokens.space.md}px ${tokens.space.lg}px`, display: 'grid', gap: tokens.space.sm,
-              ...(view === 'grid' ? { gridTemplateColumns: 'repeat(auto-fill, minmax(104px, 1fr))' } : null),
+              ...(view === 'grid' ? { gridTemplateColumns: 'repeat(auto-fill, minmax(114px, 1fr))' } : null),
             }}
           >
             {items.map((d) => <li key={d.id} style={{ minWidth: 0 }}><DocItem doc={d} view={view} currency={currency} /></li>)}

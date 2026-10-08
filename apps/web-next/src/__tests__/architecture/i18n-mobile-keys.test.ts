@@ -15,11 +15,11 @@ const APP_DIR = join(__dirname, '..', '..', 'app', 'app');
 const LOCALES = ['en', 'fr-CA', 'zh-CN'] as const;
 // PR 5 (Task 5.5) appends 'capture'.
 const SCREENS_OWNED_HERE = ['docs'] as const;
-// Measured after Task 4.7 (PR 2/3 code + the Docs list screens, 3+ segments, all quote
-// styles): 173 distinct keys; a ratchet: keys only get added, so a drop means the
+// Measured after Task 4.7 fix round 1 (PR 2/3 code + the Docs list screens, 3+ segments, all quote
+// styles): 175 distinct keys; a ratchet: keys only get added, so a drop means the
 // scanner broke. (The plan said 50; the tree already exceeded that, so it is raised to
 // the measured count instead of being lowered.)
-const MIN_KEYS_IN_CODE = 173;
+const MIN_KEYS_IN_CODE = 175;
 // Keys that are deliberately single-form (`_other` only, no `_one`) in every locale.
 const SINGLE_FORM_PLURALS = new Set(['mobile.home.next_up.fallback']);
 // Counts every plural base must resolve at: zero, singular, dual, general plural.

@@ -35,8 +35,8 @@ const raw = (o: Raw = {}): Raw => ({
   receiptUrl: null, receiptStatus: 'pending', archivedAt: null, journalEntryId: 'j1', ...o,
 });
 const COUNTS = { needsReview: 3, noCategory: 2, noReceipt: 5, archived: 1 };
-const listOf = (rows: Raw[], meta: { nextCursor?: string | null; counts?: unknown } = {}) =>
-  ok(rows, { nextCursor: meta.nextCursor ?? null, counts: 'counts' in meta ? meta.counts : COUNTS });
+const listOf = (rows: Raw[], meta: { nextCursor?: string | null; counts?: unknown; total?: number } = {}) =>
+  ok(rows, { nextCursor: meta.nextCursor ?? null, counts: 'counts' in meta ? meta.counts : COUNTS, ...(meta.total !== undefined ? { total: meta.total } : null) });
 
 type ListHandler = (qs: URLSearchParams) => Response | Error | Promise<Response>;
 type RouteHandler = Parameters<typeof routeFetch>[0][string];
@@ -55,6 +55,11 @@ const listCalls = (f: ReturnType<typeof routeFetch>) =>
 const renderPage = () => render(<ToastHost><MobileDocsPage /></ToastHost>);
 const setOnline = (v: boolean) => Object.defineProperty(window.navigator, 'onLine', { configurable: true, get: () => v });
 const rowsOf = () => screen.findAllByTestId('doc-item');
+// The page writes the URL with history.replaceState (never router.replace): these read what it wrote.
+let replaceSpy: ReturnType<typeof vi.spyOn>;
+const written = () => replaceSpy.mock.calls.map((c) => String(c[2]));
+const urlNow = () => `${window.location.pathname}${window.location.search}`;
+const results = () => screen.getByTestId('docs-results');
 
 beforeEach(() => {
   localStorage.clear();
@@ -62,6 +67,9 @@ beforeEach(() => {
   setOnline(true);
   nav.params = new URLSearchParams();
   nav.replace.mockReset();
+  nav.push.mockReset();
+  window.history.replaceState(null, '', '/app/docs');
+  replaceSpy = vi.spyOn(window.history, 'replaceState');
   MockIntersectionObserver.reset();
   vi.stubGlobal('IntersectionObserver', MockIntersectionObserver);
 });
@@ -188,8 +196,8 @@ describe('Docs list — states', () => {
     let n = 0;
     const f = mockApi(() => (++n === 1 ? jsonResponse(500, { success: false, error: 'boom' }) : listOf([raw()])));
     renderPage();
-    expect(await screen.findByText("Couldn't load your documents")).toBeInTheDocument();
-    expect(screen.getByText("Couldn't load your documents").closest('[role="alert"]')).not.toHaveTextContent(/boom/);
+    expect(await screen.findByText("Couldn’t load your documents")).toBeInTheDocument();
+    expect(screen.getByText("Couldn’t load your documents").closest('[role="alert"]')).not.toHaveTextContent(/boom/);
     const retry = screen.getByRole('button', { name: 'Retry' });
     retry.focus();
     fireEvent.click(retry);
@@ -201,7 +209,7 @@ describe('Docs list — states', () => {
   it('a signed-out session shows the sign-in state, not a retry that cannot work', async () => {
     mockApi(() => jsonResponse(401, { success: false, error: 'invalid session' }));
     renderPage();
-    expect(await screen.findByRole('heading', { name: "You've been signed out" })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: "You’ve been signed out" })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Sign in again' })).toHaveAttribute('href', '/login?redirect=%2Fapp%2Fdocs');
     expect(screen.queryByRole('button', { name: 'Retry' })).toBeNull();
   });
@@ -274,7 +282,8 @@ describe('Docs list — filters, deep link, search, view', () => {
     renderPage();
     await rowsOf();
     expect(listCalls(f)).toHaveLength(1);
-    expect(nav.replace).not.toHaveBeenCalled(); // the URL already says so
+    expect(replaceSpy).not.toHaveBeenCalled(); // the URL already says so
+    expect(nav.replace).not.toHaveBeenCalled();
   });
 
   it('falls back to All for an unknown filter and cleans the URL', async () => {
@@ -286,7 +295,8 @@ describe('Docs list — filters, deep link, search, view', () => {
     expect(first.has('status')).toBe(false);
     expect(first.has('categoryId')).toBe(false);
     expect(screen.getByRole('button', { name: 'All' })).toHaveAttribute('aria-pressed', 'true');
-    await waitFor(() => expect(nav.replace).toHaveBeenCalledWith('/app/docs', { scroll: false }));
+    await waitFor(() => expect(replaceSpy).toHaveBeenCalledWith(null, '', '/app/docs'));
+    expect(nav.replace).not.toHaveBeenCalled();
   });
 
   it('?q= seeds the search box and the first request', async () => {
@@ -304,7 +314,8 @@ describe('Docs list — filters, deep link, search, view', () => {
     await rowsOf();
     fireEvent.click(screen.getByRole('button', { name: /No category/ }));
     await waitFor(() => expect(listCalls(f).some((p) => p.get('categoryId') === 'none')).toBe(true));
-    await waitFor(() => expect(nav.replace).toHaveBeenCalledWith('/app/docs?filter=no-category', { scroll: false }));
+    expect(replaceSpy).toHaveBeenCalledWith(null, '', '/app/docs?filter=no-category');
+    expect(urlNow()).toBe('/app/docs?filter=no-category');
     expect(screen.getByRole('button', { name: /No category/ })).toHaveAttribute('aria-pressed', 'true');
     expect(screen.getByRole('button', { name: /Needs review.*3/ })).toBeInTheDocument();
   });
@@ -315,7 +326,7 @@ describe('Docs list — filters, deep link, search, view', () => {
     await rowsOf();
     fireEvent.click(screen.getByRole('button', { name: /No category/ }));
     fireEvent.click(screen.getByRole('button', { name: /No receipt/ }));
-    await waitFor(() => expect(nav.replace).toHaveBeenLastCalledWith('/app/docs?filter=no-receipt', { scroll: false }));
+    await waitFor(() => expect(urlNow()).toBe('/app/docs?filter=no-receipt'));
     // Next applies the first replace's params, then the second's. The first arriving must not be
     // mistaken for an outside navigation that moves the screen back to it.
     nav.params = new URLSearchParams('filter=no-category');
@@ -354,7 +365,7 @@ describe('Docs list — filters, deep link, search, view', () => {
     expect(listCalls(f).filter((p) => p.has('q'))).toHaveLength(0); // nothing sent while still typing
     await waitFor(() => expect(listCalls(f).some((p) => p.get('q') === 'cafe')).toBe(true));
     expect(listCalls(f).filter((p) => p.has('q')).map((p) => p.get('q'))).toEqual(['cafe']);
-    await waitFor(() => expect(nav.replace).toHaveBeenCalledWith('/app/docs?q=cafe', { scroll: false }));
+    await waitFor(() => expect(urlNow()).toBe('/app/docs?q=cafe'));
   });
 
   it('search combines with the active filter', async () => {
@@ -445,7 +456,7 @@ describe('Docs list — paging and viewer handoff', () => {
     // Two deliveries before React re-renders (one act): the hook's own `loading` flag is still stale here.
     act(() => { MockIntersectionObserver.latest().fire(true); MockIntersectionObserver.latest().fire(true); });
     expect(listCalls(f).filter((p) => p.get('cursor') === 'c2')).toHaveLength(1);
-    expect(screen.getByRole('status', { name: '' })).toHaveTextContent('Loading more…');
+    expect(screen.getByText('Loading more…').closest('[role="status"]')).not.toBeNull();
     await act(async () => release(listOf([raw({ id: 'e9' })], { nextCursor: null, counts: null })));
   });
 
@@ -473,7 +484,7 @@ describe('Docs list — paging and viewer handoff', () => {
     await rowsOf();
     await waitFor(() => expect(MockIntersectionObserver.instances.length).toBeGreaterThan(0));
     act(() => MockIntersectionObserver.latest().fire(true));
-    expect(await screen.findByText("Couldn't load more documents.")).toBeInTheDocument();
+    expect(await screen.findByText("Couldn’t load more documents.")).toBeInTheDocument();
     const failedCalls = listCalls(f).filter((p) => p.get('cursor') === 'c2').length;
     act(() => MockIntersectionObserver.latest().fire(true)); // still in view: must not loop
     expect(listCalls(f).filter((p) => p.get('cursor') === 'c2')).toHaveLength(failedCalls);
@@ -482,7 +493,7 @@ describe('Docs list — paging and viewer handoff', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
     expect(await screen.findByText('Page Two')).toBeInTheDocument();
     expect(listCalls(f).filter((p) => p.get('cursor') === 'c2').length).toBe(failedCalls + 1);
-    expect(screen.queryByText("Couldn't load more documents.")).toBeNull();
+    expect(screen.queryByText("Couldn’t load more documents.")).toBeNull();
   });
 
   it('a page that was still in flight when the list was reloaded is dropped, not appended to the new list', async () => {
@@ -593,5 +604,270 @@ describe('Docs list — AI banner refresh', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Auto-categorize' }));
     await waitFor(() => expect(screen.getByRole('button', { name: /No category.*0/ })).toBeInTheDocument());
     expect(listCalls(f)).toHaveLength(2);
+  });
+});
+
+describe('Docs list — the URL follows the screen without a router navigation', () => {
+  const rerender = (view: ReturnType<typeof renderPage>) => view.rerender(<ToastHost><MobileDocsPage /></ToastHost>);
+
+  it('chip taps and search commits never call router.replace or router.push; they write history.replaceState', async () => {
+    mockApi(() => listOf([raw()]));
+    renderPage();
+    await rowsOf();
+    fireEvent.click(screen.getByRole('button', { name: /No receipt/ }));
+    fireEvent.change(screen.getByRole('searchbox', { name: 'Search documents' }), { target: { value: 'uber' } });
+    await waitFor(() => expect(urlNow()).toBe('/app/docs?filter=no-receipt&q=uber'));
+    fireEvent.click(screen.getByRole('button', { name: 'All' }));
+    expect(nav.replace).not.toHaveBeenCalled();
+    expect(nav.push).not.toHaveBeenCalled();
+    expect(written()).toEqual(['/app/docs?filter=no-receipt', '/app/docs?filter=no-receipt&q=uber', '/app/docs?q=uber']);
+    // The state change, not a navigation, is what refetches.
+    expect(replaceSpy.mock.calls.every((c) => c[0] === null)).toBe(true);
+  });
+
+  it('A → B → A in quick succession leaves the URL equal to the screen, even when the params of B arrive late', async () => {
+    mockApi(() => listOf([raw()]));
+    const view = renderPage();
+    await rowsOf();
+    fireEvent.click(screen.getByRole('button', { name: /No category/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'All' }));
+    expect(screen.getByRole('button', { name: 'All' })).toHaveAttribute('aria-pressed', 'true');
+    expect(urlNow()).toBe('/app/docs');
+    // Next now applies the first write's params, and then the last one's.
+    nav.params = new URLSearchParams('filter=no-category');
+    rerender(view);
+    expect(screen.getByRole('button', { name: 'All' })).toHaveAttribute('aria-pressed', 'true');
+    nav.params = new URLSearchParams('');
+    rerender(view);
+    expect(screen.getByRole('button', { name: 'All' })).toHaveAttribute('aria-pressed', 'true');
+    expect(urlNow()).toBe('/app/docs');
+  });
+
+  it('clearing the search box right after a commit leaves the URL without ?q=', async () => {
+    mockApi(() => listOf([raw()]));
+    renderPage();
+    await rowsOf();
+    const box = screen.getByRole('searchbox', { name: 'Search documents' });
+    fireEvent.change(box, { target: { value: 'taxi' } });
+    await waitFor(() => expect(urlNow()).toBe('/app/docs?q=taxi'));
+    fireEvent.change(box, { target: { value: '' } });
+    await waitFor(() => expect(urlNow()).toBe('/app/docs'));
+    expect(box).toHaveValue('');
+    expect(nav.replace).not.toHaveBeenCalled();
+  });
+
+  it('a link to /app/docs?filter=x while the screen is mounted applies that filter', async () => {
+    const f = mockApi(() => listOf([raw()]));
+    const view = renderPage();
+    await rowsOf();
+    nav.params = new URLSearchParams('filter=no-receipt');
+    rerender(view);
+    await waitFor(() => expect(screen.getByRole('button', { name: /No receipt/ })).toHaveAttribute('aria-pressed', 'true'));
+    await waitFor(() => expect(listCalls(f).at(-1)!.get('hasReceipt')).toBe('false'));
+    expect(written()).toEqual([]); // the URL already said so: nothing to write back
+  });
+
+  it('a stale write of ours does not swallow a later outside navigation to the same query', async () => {
+    mockApi(() => listOf([raw()]));
+    const view = renderPage();
+    await rowsOf();
+    fireEvent.click(screen.getByRole('button', { name: /No category/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'All' }));
+    // Our writes never showed up as params (Next coalesced them); much later a link points at the first one.
+    const later = Date.now() + 60_000;
+    vi.spyOn(Date, 'now').mockReturnValue(later);
+    nav.params = new URLSearchParams('filter=no-category');
+    rerender(view);
+    await waitFor(() => expect(screen.getByRole('button', { name: /No category/ })).toHaveAttribute('aria-pressed', 'true'));
+  });
+
+  it('offline, a chip tap still changes the list from the saved copy: no router navigation (the service worker cannot serve one)', async () => {
+    mockApi((p) => (p.get('categoryId') === 'none'
+      ? listOf([raw({ id: 'n1', vendorName: 'Uncat One', categoryId: null, categoryName: null })])
+      : listOf([raw()])));
+    renderPage();
+    await rowsOf();
+    fireEvent.click(screen.getByRole('button', { name: /No category/ }));
+    await screen.findByText('Uncat One'); // saved for next time
+    fireEvent.click(screen.getByRole('button', { name: 'All' }));
+    await screen.findByText('Blue Bottle');
+    // The network goes away: every list request now fails.
+    setOnline(false);
+    (global.fetch as unknown as ReturnType<typeof vi.fn>).mockImplementation(async () => { throw new TypeError('Failed to fetch'); });
+    act(() => { window.dispatchEvent(new Event('offline')); });
+    nav.replace.mockClear();
+    replaceSpy.mockClear();
+    fireEvent.click(screen.getByRole('button', { name: /No category/ }));
+    expect(await screen.findByText('Uncat One')).toBeInTheDocument();
+    expect(screen.queryByText('Blue Bottle')).toBeNull();
+    expect(screen.getByTestId('docs-offline')).toBeInTheDocument();
+    expect(nav.replace).not.toHaveBeenCalled();
+    expect(nav.push).not.toHaveBeenCalled();
+    expect(written()).toEqual(['/app/docs?filter=no-category']);
+  });
+});
+
+describe('Docs list — results are announced', () => {
+  it('says how many documents the list has (the server total, not the rows loaded so far)', async () => {
+    mockApi(() => listOf([raw()], { nextCursor: 'c2', total: 57 }));
+    renderPage();
+    await rowsOf();
+    await waitFor(() => expect(results()).toHaveTextContent('57 documents'));
+    expect(results()).toHaveAttribute('role', 'status');
+    expect(results()).toHaveAttribute('aria-live', 'polite');
+  });
+
+  it('uses the singular for one document, and falls back to the rows shown when the server sent no total', async () => {
+    mockApi(() => listOf([raw()], { total: 1 }));
+    const first = renderPage();
+    await rowsOf();
+    await waitFor(() => expect(results()).toHaveTextContent(/^1 document$/));
+    first.unmount();
+    sessionStorage.clear();
+    localStorage.clear();
+    mockApi(() => listOf([raw(), raw({ id: 'e2' })]));
+    renderPage();
+    await rowsOf();
+    await waitFor(() => expect(results()).toHaveTextContent(/^2 documents$/));
+  });
+
+  it('announces the new list after a filter change and after a search, from the same region (it is never remounted)', async () => {
+    mockApi((p) => {
+      if (p.get('q') === 'zzz') return listOf([], { total: 0 });
+      if (p.get('categoryId') === 'none') return listOf([raw({ id: 'n1' }), raw({ id: 'n2' })], { total: 2 });
+      return listOf([raw()], { total: 9 });
+    });
+    renderPage();
+    await rowsOf();
+    await waitFor(() => expect(results()).toHaveTextContent('9 documents'));
+    const region = results();
+    fireEvent.click(screen.getByRole('button', { name: /No category/ }));
+    await waitFor(() => expect(results()).toHaveTextContent('2 documents'));
+    fireEvent.change(screen.getByRole('searchbox', { name: 'Search documents' }), { target: { value: 'zzz' } });
+    await waitFor(() => expect(results()).toHaveTextContent('No matches'));
+    expect(results()).toBe(region);
+  });
+
+  it('says nothing while the next list is loading, then announces it', async () => {
+    let release!: (r: Response) => void;
+    mockApi((p) => (p.get('categoryId') === 'none' ? new Promise<Response>((res) => { release = res; }) : listOf([raw()], { total: 9 })));
+    renderPage();
+    await rowsOf();
+    await waitFor(() => expect(results()).toHaveTextContent('9 documents'));
+    fireEvent.click(screen.getByRole('button', { name: /No category/ }));
+    await waitFor(() => expect(results()).toHaveTextContent(/^$/));
+    await act(async () => release(listOf([raw({ id: 'n1' })], { total: 1 })));
+    await waitFor(() => expect(results()).toHaveTextContent(/^1 document$/));
+  });
+
+  it('an empty result is announced as No matches', async () => {
+    mockApi(() => listOf([], { total: 0 }));
+    renderPage();
+    await screen.findByRole('heading', { name: 'No documents yet' });
+    await waitFor(() => expect(results()).toHaveTextContent('No matches'));
+  });
+
+  it('the stale notice announces its message only: the Retry button is not part of the live region', async () => {
+    const f = mockApi(() => listOf([raw()]));
+    const first = renderPage();
+    await rowsOf();
+    first.unmount();
+    f.mockImplementation(async (input: RequestInfo | URL) => (String(input).startsWith(EXPENSES)
+      ? jsonResponse(500, { success: false })
+      : jsonResponse(200, { success: true, data: { currency: 'CAD' } })));
+    renderPage();
+    const note = await screen.findByTestId('docs-stale');
+    const retry = within(note).getByRole('button', { name: 'Retry' });
+    expect(retry.closest('[role="status"]')).toBeNull();
+    expect(within(note).getByRole('status')).toHaveTextContent(/Couldn’t refresh/);
+  });
+
+  it('going offline is announced once: the list notice is the only live region, the AI banner’s copy is not', async () => {
+    mockApi(() => listOf([raw()]));
+    renderPage();
+    await rowsOf();
+    setOnline(false);
+    act(() => { window.dispatchEvent(new Event('offline')); });
+    const note = await screen.findByTestId('docs-offline');
+    expect(note).toHaveAttribute('role', 'status');
+    // The banner states the read-only fact on screen too, but as a plain group, not a second live region.
+    const banner = screen.getAllByText(/Changes are disabled until you reconnect/);
+    expect(banner.length).toBeGreaterThanOrEqual(1);
+    for (const n of banner) expect(n.closest('[role="status"], [role="alert"], [aria-live]')).toBeNull();
+    // Every live region that mentions being offline: exactly one.
+    const live = screen.getAllByRole('status').filter((n) => /offline|Offline/i.test(n.textContent ?? ''));
+    expect(live).toHaveLength(1);
+  });
+});
+
+describe('Docs list — filter switch while page 2 of the old filter is in flight', () => {
+  function setup(holdNewFirst: boolean) {
+    let releaseOld!: (r: Response) => void;
+    let releaseNew!: () => void;
+    mockApi((p) => {
+      if (p.get('cursor') === 'c2') return new Promise<Response>((res) => { releaseOld = res; });
+      if (p.get('categoryId') === 'none') {
+        const r = listOf([raw({ id: 'n1', vendorName: 'Uncat One', categoryId: null, categoryName: null })]);
+        return holdNewFirst ? new Promise<Response>((res) => { releaseNew = () => res(r); }) : r;
+      }
+      return listOf([raw()], { nextCursor: 'c2' });
+    });
+    return { relOld: (r: Response) => releaseOld(r), relNew: () => releaseNew() };
+  }
+  const stale = () => listOf([raw({ id: 'stale', vendorName: 'Stale Row' })], { nextCursor: 'c3', counts: null });
+
+  it('the old page arriving AFTER the new filter rendered is dropped', async () => {
+    const h = setup(false);
+    renderPage();
+    await screen.findByText('Blue Bottle');
+    await waitFor(() => expect(MockIntersectionObserver.instances.length).toBeGreaterThan(0));
+    act(() => MockIntersectionObserver.latest().fire(true));
+    fireEvent.click(screen.getByRole('button', { name: /No category/ }));
+    await screen.findByText('Uncat One');
+    await act(async () => h.relOld(stale()));
+    expect(screen.queryByText('Stale Row')).toBeNull();
+    expect(JSON.parse(sessionStorage.getItem('ab:mobile:docs:nav')!).ids).toEqual(['n1']);
+    expect(screen.queryByRole('button', { name: 'Load more' })).toBeNull();
+  });
+
+  it('the old page arriving BEFORE the new filter’s first page is dropped too', async () => {
+    const h = setup(true);
+    renderPage();
+    await screen.findByText('Blue Bottle');
+    await waitFor(() => expect(MockIntersectionObserver.instances.length).toBeGreaterThan(0));
+    act(() => MockIntersectionObserver.latest().fire(true));
+    fireEvent.click(screen.getByRole('button', { name: /No category/ }));
+    await act(async () => h.relOld(stale()));
+    await act(async () => h.relNew());
+    await screen.findByText('Uncat One');
+    expect(screen.queryByText('Stale Row')).toBeNull();
+    expect(JSON.parse(sessionStorage.getItem('ab:mobile:docs:nav')!).ids).toEqual(['n1']);
+  });
+});
+
+describe('Docs list — limits the server enforces', () => {
+  it('the search box is capped at the 100 characters the server keeps', async () => {
+    mockApi(() => listOf([raw()]));
+    renderPage();
+    await rowsOf();
+    expect(screen.getByRole('searchbox', { name: 'Search documents' })).toHaveAttribute('maxlength', '100');
+  });
+
+  it('asks for 30 rows per page, on the first page and on the next', async () => {
+    const f = mockApi((p) => (p.get('cursor') === 'c2' ? listOf([raw({ id: 'e9' })], { counts: null }) : listOf([raw()], { nextCursor: 'c2' })));
+    renderPage();
+    await rowsOf();
+    await waitFor(() => expect(MockIntersectionObserver.instances.length).toBeGreaterThan(0));
+    act(() => MockIntersectionObserver.latest().fire(true));
+    await waitFor(() => expect(listCalls(f)).toHaveLength(2));
+    expect(listCalls(f).map((p) => p.get('limit'))).toEqual(['30', '30']);
+  });
+
+  it('a grid tile is never narrower than the 114px it needs (96px thumbnail + padding + border), so it fits three across at 360px', async () => {
+    localStorage.setItem('ab:mobile:docs:view', JSON.stringify('grid'));
+    mockApi(() => listOf([raw()]));
+    renderPage();
+    await rowsOf();
+    expect(screen.getByTestId('doc-list').getAttribute('style')).toContain('minmax(114px, 1fr)');
   });
 });

@@ -114,7 +114,7 @@ describe('Auto-categorize', () => {
     expect(btn).not.toBeDisabled();
     fireEvent.click(btn);
     expect(api.runAutoCategorize).not.toHaveBeenCalled();
-    expect(screen.getByText("You're offline. Changes are disabled until you reconnect.")).toBeInTheDocument();
+    expect(screen.getByText("You’re offline. Changes are disabled until you reconnect.")).toBeInTheDocument();
   });
   it('keeps keyboard focus on the button while a run is in flight, and a second tap sends nothing', async () => {
     let finish!: (v: { appliedCount: number; pendingCount: number; skippedCount: number }) => void;
@@ -194,7 +194,7 @@ describe('Review AI picks sheet', () => {
     const accept = within(dialog).getByRole('button', { name: 'Accept Office for Staples' });
     accept.focus();
     fireEvent.click(accept);
-    const status = await within(dialog).findByText("Couldn't save that choice. Try again.");
+    const status = await within(dialog).findByText("Couldn’t save that choice. Try again.");
     expect(status).toHaveAttribute('role', 'status');
     expect(dialog.contains(status)).toBe(true);
     expect(document.activeElement).toBe(status);
@@ -259,7 +259,7 @@ describe('Review AI picks sheet', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Review AI picks' }));
     const dialog = await screen.findByRole('dialog', { name: 'Review AI picks' });
     fireEvent.click(within(dialog).getByRole('button', { name: 'Accept Office for Staples' }));
-    expect(await screen.findByText("Couldn't save that choice. Try again.")).toBeInTheDocument();
+    expect(await screen.findByText("Couldn’t save that choice. Try again.")).toBeInTheDocument();
     expect(within(dialog).getAllByTestId('review-row')).toHaveLength(2);
   });
   it('keeps every action touch-sized', async () => {
@@ -284,7 +284,7 @@ describe('already-resolved rows (stale offline cache / a second device)', () => 
     fireEvent.click(within(dialog).getByRole('button', { name: 'Accept Office for Staples' }));
     await waitFor(() => expect(within(dialog).getAllByTestId('review-row')).toHaveLength(1));
     expect(within(dialog).getByText('Uber')).toBeInTheDocument();
-    expect(screen.queryByText("Couldn't save that choice. Try again.")).toBeNull();
+    expect(screen.queryByText("Couldn’t save that choice. Try again.")).toBeNull();
     expect(onChanged).toHaveBeenCalled();
   });
   it('drops the row when the request itself answers HTTP 409, instead of a raw error', async () => {
@@ -295,7 +295,7 @@ describe('already-resolved rows (stale offline cache / a second device)', () => 
     fireEvent.click(within(dialog).getByRole('button', { name: 'Reject Travel for Uber' }));
     await waitFor(() => expect(within(dialog).getAllByTestId('review-row')).toHaveLength(1));
     expect(within(dialog).getByText('Staples')).toBeInTheDocument();
-    expect(screen.queryByText("Couldn't save that choice. Try again.")).toBeNull();
+    expect(screen.queryByText("Couldn’t save that choice. Try again.")).toBeNull();
     expect(screen.queryByText('HTTP error')).toBeNull();
   });
   it.each([404, 500])('HTTP %i on the whole request is a real failure (nothing was saved): row restored, failure shown', async (status) => {
@@ -304,7 +304,7 @@ describe('already-resolved rows (stale offline cache / a second device)', () => 
     fireEvent.click(await screen.findByRole('button', { name: 'Review AI picks' }));
     const dialog = await screen.findByRole('dialog', { name: 'Review AI picks' });
     fireEvent.click(within(dialog).getByRole('button', { name: 'Reject Travel for Uber' }));
-    expect(await screen.findByText("Couldn't save that choice. Try again.")).toBeInTheDocument();
+    expect(await screen.findByText("Couldn’t save that choice. Try again.")).toBeInTheDocument();
     expect(within(dialog).getAllByTestId('review-row')).toHaveLength(2);
   });
 });
@@ -372,7 +372,7 @@ describe('offline', () => {
       expect(b).toHaveAttribute('aria-disabled', 'true');
       expect(b).not.toBeDisabled(); // focus must stay on it, not fall to <body>
     }
-    expect(within(dialog).getByText("You're offline. Changes are disabled until you reconnect.")).toBeInTheDocument();
+    expect(within(dialog).getByText("You’re offline. Changes are disabled until you reconnect.")).toBeInTheDocument();
     expect(api.reviewSuggestions).not.toHaveBeenCalled();
   });
 });
