@@ -57,7 +57,9 @@ async function ensurePushSubscription(reg: ServiceWorkerRegistration | null): Pr
     const existing = await reg.pushManager.getSubscription();
     const sub = existing ?? (await reg.pushManager.subscribe({
       userVisibleOnly: true,
-      applicationServerKey: urlBase64ToUint8Array(vapid),
+      // Type-only: TS 5.7+ types a plain `new Uint8Array(n)` as Uint8Array<ArrayBufferLike>,
+      // which BufferSource no longer accepts. The value is unchanged.
+      applicationServerKey: urlBase64ToUint8Array(vapid) as BufferSource,
     }));
     await fetch('/api/v1/push/subscribe', {
       method: 'POST',
