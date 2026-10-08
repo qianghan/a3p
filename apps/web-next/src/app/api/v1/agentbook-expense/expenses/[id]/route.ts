@@ -26,6 +26,20 @@ function normalizeVendorName(name: string): string {
   return name.toLowerCase().replace(/[^a-z0-9]/g, '').trim();
 }
 
+/**
+ * Upsert key for a vendor name the ASCII normalizer reduces to '' (e.g. '星巴克',
+ * Cyrillic, Arabic). Without it those names would take the "clear vendor"
+ * branch and silently drop the existing link. Only names with no ASCII letter
+ * or digit reach this key. The one overlap with ASCII keys is NFKC folding
+ * (full-width '１２３' → '123'), which links to the same vendor as '123', as intended.
+ */
+function unicodeVendorKey(name: string): string {
+  return name.normalize('NFKC').toLowerCase().replace(/[^\p{L}\p{N}]/gu, '');
+}
+
+/** YYYY-MM-DD, optionally followed by a time part. Rejects '1', 'June 1', etc. */
+const ISO_DATE_PREFIX = /^\d{4}-\d{2}-\d{2}(T.*)?$/;
+
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
@@ -110,7 +124,8 @@ export async function PUT(
     if (body.description !== undefined) data.description = body.description;
     if (body.isPersonal !== undefined) data.isPersonal = body.isPersonal;
     if (body.date !== undefined) {
-      const parsedDate = typeof body.date === 'string' ? new Date(body.date) : new Date(NaN);
+      const parsedDate =
+        typeof body.date === 'string' && ISO_DATE_PREFIX.test(body.date) ? new Date(body.date) : new Date(NaN);
       if (isNaN(parsedDate.getTime())) {
         return NextResponse.json({ success: false, error: 'date must be an ISO date' }, { status: 400 });
       }
@@ -124,9 +139,15 @@ export async function PUT(
         );
       }
       const vendorName = body.vendor.trim();
-      const normalized = normalizeVendorName(vendorName);
-      if (!normalized) {
+      // Only an empty (or whitespace-only) name clears the vendor.
+      const normalized = vendorName ? normalizeVendorName(vendorName) || unicodeVendorKey(vendorName) : '';
+      if (!vendorName) {
         data.vendorId = null;
+      } else if (!normalized) {
+        return NextResponse.json(
+          { success: false, error: 'vendor must contain at least one letter or digit' },
+          { status: 400 },
+        );
       } else {
         const vendorRow = await db.abVendor.upsert({
           where: { tenantId_normalizedName: { tenantId, normalizedName: normalized } },

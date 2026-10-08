@@ -27,6 +27,9 @@ const snapshot = async () => ({
   journalLines: clone(memDb.table('abJournalLine').rows),
 });
 
+/** Reads e2's archivedAt straight from the mem-db store (not via a route). */
+const archivedAt = () => memDb.table('abExpense').rows.find((r) => r.id === 'e2')!.archivedAt;
+
 beforeEach(() => {
   vi.useFakeTimers({ toFake: ['Date'] });
   vi.setSystemTime(NOW);
@@ -39,9 +42,12 @@ describe('archive is a view preference, never a bookkeeping event (spec §7)', (
     const before = await snapshot();
     const ctx = { params: Promise.resolve({ id: 'e2' }) };
     expect((await ARCHIVE(tenantReq('/api/v1/agentbook-expense/expenses/e2/archive', 't1', { method: 'POST' }), ctx)).status).toBe(200);
+    expect(archivedAt()).not.toBeNull();
     const archived = await snapshot();
     expect((await UNARCHIVE(tenantReq('/api/v1/agentbook-expense/expenses/e2/unarchive', 't1', { method: 'POST' }), ctx)).status).toBe(200);
+    expect(archivedAt()).toBeNull();
     expect((await ARCHIVE(tenantReq('/api/v1/agentbook-expense/expenses/e2/archive', 't1', { method: 'POST' }), ctx)).status).toBe(200);
+    expect(archivedAt()).not.toBeNull();
     const after = await snapshot();
     expect(archived).toEqual(before);
     expect(after).toEqual(before);

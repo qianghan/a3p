@@ -72,6 +72,48 @@ describe('PATCH /expenses/[id] — vendor and date', () => {
     expect(audit).toHaveBeenCalledTimes(1);
   });
 
+  it('a vendor name with no ASCII letters/digits is linked under a Unicode key, not cleared', async () => {
+    const { status, body } = await patch('e1', { vendor: '星巴克' });
+    expect(status).toBe(200);
+    expect(body.data.vendorName).toBe('星巴克');
+    const vendorId = (await row('e1'))?.vendorId;
+    expect(vendorId).not.toBeNull();
+    expect(vendorId).not.toBe('v-shell');
+    const v = await memDb.table('abVendor').findFirst({ where: { id: vendorId as string } });
+    expect(v).toMatchObject({ tenantId: 't1', name: '星巴克', normalizedName: '星巴克' });
+    // Same name again reuses the row instead of creating a second one.
+    await patch('e2', { vendor: ' 星巴克 ' });
+    expect((await row('e2'))?.vendorId).toBe(vendorId);
+  });
+
+  it('whitespace-only or empty vendor still clears the link', async () => {
+    await patch('e1', { vendor: '   ' });
+    expect((await row('e1'))?.vendorId).toBeNull();
+    await patch('e2', { vendor: '' });
+    expect((await row('e2'))?.vendorId).toBeNull();
+  });
+
+  it('a punctuation-only vendor is a 400 and leaves the existing vendor untouched', async () => {
+    memDb.table('abExpense').writes = [];
+    const { status, body } = await patch('e1', { vendor: '!!!' });
+    expect(status).toBe(400);
+    expect(body.success).toBe(false);
+    expect((await row('e1'))?.vendorId).toBe('v-shell');
+    expect(memDb.table('abExpense').writes).toEqual([]);
+    expect(memDb.table('abVendor').writes).toEqual([]);
+  });
+
+  it.each(['1', 'June 1', '2026-6-1', 'x2026-06-01'])('rejects the non-ISO date %j with 400 and writes nothing', async (date) => {
+    memDb.table('abExpense').writes = [];
+    expect((await patch('e1', { date })).status).toBe(400);
+    expect(memDb.table('abExpense').writes).toEqual([]);
+  });
+
+  it('accepts a full ISO timestamp', async () => {
+    expect((await patch('e1', { date: '2026-06-01T10:30:00.000Z' })).status).toBe(200);
+    expect((await row('e1'))?.date).toEqual(new Date('2026-06-01T10:30:00.000Z'));
+  });
+
   it("cannot touch another tenant's expense", async () => {
     expect((await patch('e1', { vendor: 'Hijack' }, 't2')).status).toBe(404);
     expect((await row('e1'))?.vendorId).toBe('v-shell');
@@ -94,6 +136,21 @@ describe('POST /expenses/[id]/archive and /unarchive', () => {
     expect(again.body.data.archivedAt).toBe(NOW.toISOString());
     expect(memDb.table('abExpense').writes.filter((w) => w.op === 'updateMany')).toHaveLength(1);
     expect(audit).toHaveBeenCalledTimes(1);
+  });
+
+  it('a lost concurrent race (conditional write matched 0 rows) reports no change and writes no audit entry', async () => {
+    const winner = new Date('2026-06-20T11:59:00.000Z');
+    const table = memDb.table('abExpense');
+    const original = table.updateMany;
+    // Another request archives e1 between our read and our conditional write.
+    vi.spyOn(table, 'updateMany').mockImplementationOnce(async (args) => {
+      table.rows.find((r) => r.id === 'e1')!.archivedAt = winner;
+      return original(args);
+    });
+    const { status, body } = await archive('e1');
+    expect(status).toBe(200);
+    expect(body.data.archivedAt).toBe(winner.toISOString());
+    expect(audit).not.toHaveBeenCalled();
   });
 
   it('unarchive restores it; a second unarchive is a no-op', async () => {

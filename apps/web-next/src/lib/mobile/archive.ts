@@ -26,10 +26,11 @@ export async function setExpenseArchived(
   if (alreadyThere) return { ok: true, id, archivedAt: existing.archivedAt, changed: false };
 
   // Conditional write: a concurrent archive/unarchive cannot be overwritten.
-  await db.abExpense.updateMany({
+  // A lost race (count 0) is reported as no change, so the caller writes no audit entry.
+  const { count } = await db.abExpense.updateMany({
     where: { id, tenantId, deletedAt: null, archivedAt: archived ? null : { not: null } },
     data: { archivedAt: archived ? now : null },
   });
   const after = await db.abExpense.findFirst({ where: { id, tenantId }, select: { archivedAt: true } });
-  return { ok: true, id, archivedAt: after?.archivedAt ?? null, changed: true };
+  return { ok: true, id, archivedAt: after?.archivedAt ?? null, changed: count > 0 };
 }
