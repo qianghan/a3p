@@ -56,7 +56,10 @@ beforeEach(() => {
   ocrReceiptBytes.mockReset().mockResolvedValue(OCR_GOOD);
   backfill.mockReset().mockResolvedValue('je-new');
 });
-afterEach(() => vi.useRealTimers());
+afterEach(() => {
+  vi.useRealTimers();
+  vi.restoreAllMocks();
+});
 
 describe('POST /expenses/from-receipt — creating the expense', () => {
   it('a confident read with a known vendor category is confirmed and booked', async () => {
@@ -137,6 +140,99 @@ describe('POST /expenses/from-receipt — creating the expense', () => {
   });
 });
 
+describe('POST /expenses/from-receipt — booking order (never confirmed without a journal)', () => {
+  it('the row is still pending_review while the ledger books it, and is promoted only after', async () => {
+    let statusDuringBackfill: unknown;
+    backfill.mockImplementation(async (_t: string, id: string) => {
+      statusDuringBackfill = (await memDb.table('abExpense').findFirst({ where: { id } }))?.status;
+      return 'je-new';
+    });
+    const { body } = await send(receiptForm({ idempotencyKey: 'key-order-001' }));
+    expect(statusDuringBackfill).toBe('pending_review');
+    expect(body.data.doc.status).toBe('confirmed');
+    expect((await byKey('key-order-001'))[0].status).toBe('confirmed');
+  });
+
+  it('a ledger that throws leaves the row in review', async () => {
+    backfill.mockRejectedValue(new Error('ledger down'));
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const { status, body } = await send(receiptForm({ idempotencyKey: 'key-ledgerx-01' }));
+    expect(status).toBe(201);
+    expect(body.data.doc.status).toBe('pending_review');
+    expect((await byKey('key-ledgerx-01'))[0].status).toBe('pending_review');
+  });
+
+  it('a failed promotion leaves the row in review and never reports a false confirmed', async () => {
+    const table = memDb.table('abExpense');
+    const update = vi.spyOn(table, 'update').mockRejectedValueOnce(new Error('db blip'));
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const { status, body } = await send(receiptForm({ idempotencyKey: 'key-promote-01' }));
+    expect(update).toHaveBeenCalled();
+    expect(backfill).toHaveBeenCalledTimes(1);
+    expect(status).toBe(201);
+    expect(body.data.doc.status).toBe('pending_review');
+    expect((await byKey('key-promote-01'))[0].status).toBe('pending_review');
+  });
+
+  it('a confirmable personal expense is confirmed without touching the ledger', async () => {
+    const { body } = await send(receiptForm({ idempotencyKey: 'key-personal-1', isPersonal: 'true' }));
+    expect(body.data.doc).toMatchObject({ status: 'confirmed', isPersonal: true, categoryId: null });
+    expect(backfill).not.toHaveBeenCalled();
+  });
+});
+
+describe('POST /expenses/from-receipt — OCR output is untrusted', () => {
+  it.each([
+    ['fractional', 45.99],
+    ['string', '4599'],
+    ['over the Int column', 2_000_000_001],
+    ['negative', -5],
+    ['zero', 0],
+  ])('a %s amount is treated as unknown, not stored', async (_label, amount) => {
+    ocrReceiptBytes.mockResolvedValue({ ...OCR_GOOD, amount_cents: amount });
+    const { status, body } = await send(receiptForm({ idempotencyKey: `key-amt-${String(_label).replace(/\W/g, '')}` }));
+    expect(status).toBe(201);
+    expect(body.data.ocr.amountCents).toBeNull();
+    expect(body.data.doc).toMatchObject({ amountCents: 0, status: 'pending_review' });
+    expect(backfill).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['fractional', 45.5],
+    ['string', '12'],
+    ['over the Int column', 3_000_000_000],
+    ['negative', -1],
+  ])('a %s tax or tip is stored as 0', async (_label, bad) => {
+    ocrReceiptBytes.mockResolvedValue({ ...OCR_GOOD, tax_cents: bad, tip_cents: bad });
+    const key = `key-taxtip-${String(_label).replace(/\W/g, '')}`;
+    expect((await send(receiptForm({ idempotencyKey: key }))).status).toBe(201);
+    expect((await byKey(key))[0]).toMatchObject({ taxAmountCents: 0, tipAmountCents: 0 });
+  });
+
+  it('valid tax and tip are kept', async () => {
+    ocrReceiptBytes.mockResolvedValue({ ...OCR_GOOD, tax_cents: 529, tip_cents: 100 });
+    await send(receiptForm({ idempotencyKey: 'key-taxtip-ok1' }));
+    expect((await byKey('key-taxtip-ok1'))[0]).toMatchObject({ taxAmountCents: 529, tipAmountCents: 100 });
+  });
+
+  it('non-string vendor/items and a string confidence cannot confirm or crash the row', async () => {
+    ocrReceiptBytes.mockResolvedValue({ ...OCR_GOOD, vendor: 42, items: { a: 1 }, confidence: '0.99' });
+    const { status, body } = await send(receiptForm({ idempotencyKey: 'key-shape-0001' }));
+    expect(status).toBe(201);
+    expect(body.data.doc).toMatchObject({ vendorName: null, status: 'pending_review', description: 'Receipt' });
+  });
+
+  it('an OCR call that times out degrades to a stored draft', async () => {
+    ocrReceiptBytes.mockRejectedValue(Object.assign(new Error('The operation was aborted due to timeout'), { name: 'TimeoutError' }));
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const { status, body } = await send(receiptForm({ idempotencyKey: 'key-ocrtime-01' }));
+    expect(status).toBe(201);
+    expect(body.data.ocr).toEqual({ amountCents: null, vendor: null, date: null });
+    expect(body.data.doc).toMatchObject({ amountCents: 0, status: 'pending_review', receiptStatus: 'attached' });
+    expect(body.data.doc.receiptUrl).toMatch(/^https:\/\/blob\.test\/receipts\/t1\//);
+  });
+});
+
 describe('POST /expenses/from-receipt — idempotency', () => {
   it('replaying the same key returns the original expense and creates nothing new', async () => {
     const first = await send(receiptForm({ idempotencyKey: 'key-replay-1' }));
@@ -178,6 +274,91 @@ describe('POST /expenses/from-receipt — idempotency', () => {
     expect(body.code).toBe('in_progress');
     expect(put).not.toHaveBeenCalled();
     expect(await byKey('key-inflight-1')).toHaveLength(0);
+  });
+
+  it('a stale claim (no response, older than STALE_CLAIM_MS) is taken over: exactly one expense', async () => {
+    const stale = new Date(NOW.getTime() - 10 * 60_000);
+    memDb.table('abIdempotencyKey').rows.push({ id: 'claim-s', key: 'mobile_receipt:t1:key-stale-001', tenantId: 't1', response: null, createdAt: stale });
+    const first = await send(receiptForm({ idempotencyKey: 'key-stale-001' }));
+    expect(first.status).toBe(201);
+    const again = await send(receiptForm({ idempotencyKey: 'key-stale-001' }));
+    expect(again.status).toBe(200);
+    expect(await byKey('key-stale-001')).toHaveLength(1);
+    const claims = await memDb.table('abIdempotencyKey').findMany({ where: { key: 'mobile_receipt:t1:key-stale-001' } });
+    expect(claims).toHaveLength(1);
+    expect(claims[0].response).toEqual({ expenseId: first.body.data.doc.id });
+  });
+
+  it('two concurrent replays of a stale claim still create exactly one expense', async () => {
+    memDb.table('abIdempotencyKey').rows.push({ id: 'claim-s2', key: 'mobile_receipt:t1:key-stale-002', tenantId: 't1', response: null, createdAt: new Date(NOW.getTime() - 10 * 60_000) });
+    const results = await Promise.all([
+      send(receiptForm({ idempotencyKey: 'key-stale-002' })),
+      send(receiptForm({ idempotencyKey: 'key-stale-002' })),
+    ]);
+    expect(results.map((r) => r.status)).toContain(201);
+    expect(await byKey('key-stale-002')).toHaveLength(1);
+  });
+
+  it('the takeover delete is conditional: a claim re-taken after the stale read is not deleted', async () => {
+    const claims = memDb.table('abIdempotencyKey');
+    const key = 'mobile_receipt:t1:key-stale-003';
+    // The row is fresh (another replay just re-claimed it), but this request read it while still stale.
+    claims.rows.push({ id: 'claim-fresh', key, tenantId: 't1', response: null, createdAt: NOW });
+    vi.spyOn(claims, 'findFirst').mockResolvedValueOnce({ id: 'claim-old', key, tenantId: 't1', response: null, createdAt: new Date(NOW.getTime() - 10 * 60_000) });
+    const { status } = await send(receiptForm({ idempotencyKey: 'key-stale-003' }));
+    expect(status).toBe(409);
+    expect(await claims.findFirst({ where: { key } })).toMatchObject({ id: 'claim-fresh' });
+    expect(put).not.toHaveBeenCalled();
+  });
+
+  it('a recent claim (1 minute) is still in flight: 409, not taken over', async () => {
+    memDb.table('abIdempotencyKey').rows.push({ id: 'claim-r', key: 'mobile_receipt:t1:key-recent-01', tenantId: 't1', response: null, createdAt: new Date(NOW.getTime() - 60_000) });
+    const { status, body } = await send(receiptForm({ idempotencyKey: 'key-recent-01' }));
+    expect(status).toBe(409);
+    expect(body.code).toBe('in_progress');
+    expect(put).not.toHaveBeenCalled();
+  });
+
+  it('a stale claim that already recorded a response is not taken over', async () => {
+    memDb.table('abIdempotencyKey').rows.push({ id: 'claim-d', key: 'mobile_receipt:t1:key-done-0001', tenantId: 't1', response: { expenseId: 'gone' }, createdAt: new Date(NOW.getTime() - 10 * 60_000) });
+    expect((await send(receiptForm({ idempotencyKey: 'key-done-0001' }))).status).toBe(409);
+    expect(put).not.toHaveBeenCalled();
+  });
+
+  it('takeover is tenant-scoped: another tenant never touches a stale claim it does not own', async () => {
+    const stale = new Date(NOW.getTime() - 10 * 60_000);
+    memDb.table('abIdempotencyKey').rows.push({ id: 'claim-t', key: 'mobile_receipt:t1:key-stale-ten', tenantId: 't1', response: null, createdAt: stale });
+    const other = await send(receiptForm({ idempotencyKey: 'key-stale-ten' }), 't2');
+    expect(other.status).toBe(201);
+    const t1Claim = await memDb.table('abIdempotencyKey').findFirst({ where: { key: 'mobile_receipt:t1:key-stale-ten' } });
+    expect(t1Claim).toMatchObject({ id: 'claim-t', response: null });
+    expect((await byKey('key-stale-ten')).map((r) => r.tenantId)).toEqual(['t2']);
+  });
+
+  it('replaying the key of a soft-deleted expense returns it flagged deleted and creates nothing', async () => {
+    const first = await send(receiptForm({ idempotencyKey: 'key-deleted-01' }));
+    expect(first.body.data.deleted).toBeUndefined();
+    const row = memDb.table('abExpense').rows.find((r) => r.id === first.body.data.doc.id)!;
+    row.deletedAt = new Date(NOW.getTime() - 1000);
+    const replay = await send(receiptForm({ idempotencyKey: 'key-deleted-01' }));
+    expect(replay.status).toBe(200);
+    expect(replay.body.data).toMatchObject({ duplicate: true, deleted: true });
+    expect(replay.body.data.doc.id).toBe(first.body.data.doc.id);
+    expect(await byKey('key-deleted-01')).toHaveLength(1);
+    const live = await send(receiptForm({ idempotencyKey: 'key-replay-live' }));
+    expect((await send(receiptForm({ idempotencyKey: 'key-replay-live' }))).body.data.deleted).toBeUndefined();
+    expect(live.status).toBe(201);
+  });
+
+  it('a retried attempt counts the vendor once, not once per attempt', async () => {
+    const table = memDb.table('abExpense');
+    vi.spyOn(table, 'create').mockRejectedValueOnce(new Error('db blip'));
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const failed = await send(receiptForm({ idempotencyKey: 'key-vcount-01' }));
+    expect(failed.status).toBe(500);
+    expect((await send(receiptForm({ idempotencyKey: 'key-vcount-01' }))).status).toBe(201);
+    const shell = await memDb.table('abVendor').findFirst({ where: { id: 'v-shell' } });
+    expect(shell?.transactionCount).toBe(3); // seeded 2, one expense created
   });
 
   it('a foreign category is rejected before upload, and the key can be retried', async () => {

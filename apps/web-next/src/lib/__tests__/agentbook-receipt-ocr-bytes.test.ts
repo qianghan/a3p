@@ -12,7 +12,7 @@ vi.mock('@naap/database', () => ({
   prisma: { abLLMProviderConfig: { findFirst: vi.fn().mockResolvedValue(null) } },
 }));
 
-import { ocrReceiptBytes, ocrReceipt, checkOcrQuota } from '../agentbook-receipt-ocr';
+import { ocrReceiptBytes, ocrReceipt, checkOcrQuota, OCR_TIMEOUT_MS } from '../agentbook-receipt-ocr';
 
 const geminiReply = (text: string) =>
   new Response(JSON.stringify({ candidates: [{ content: { parts: [{ text }] } }] }), { status: 200 });
@@ -52,6 +52,28 @@ describe('ocrReceiptBytes', () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch');
     expect(await ocrReceiptBytes(BYTES, 'image/jpeg')).toBeNull();
     expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it('bounds the model call with a timeout signal (default OCR_TIMEOUT_MS)', async () => {
+    expect(OCR_TIMEOUT_MS).toBe(25_000);
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(geminiReply('{"amount_cents": 1, "confidence": 0.5}'));
+    await ocrReceiptBytes(BYTES, 'image/jpeg');
+    expect((fetchSpy.mock.calls[0][1] as RequestInit).signal).toBeInstanceOf(AbortSignal);
+  });
+
+  it('a model call that outlives the timeout returns null (handled like OCR unavailable)', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    vi.spyOn(globalThis, 'fetch').mockImplementationOnce(
+      (_url, init) =>
+        new Promise<Response>((resolve, reject) => {
+          const signal = (init as RequestInit).signal;
+          // Without a signal the call would hang forever in production; here it
+          // "eventually" answers, so a missing timeout fails this test.
+          if (!signal) return resolve(geminiReply('{"amount_cents": 1, "confidence": 0.5}'));
+          signal.addEventListener('abort', () => reject(signal.reason));
+        }),
+    );
+    expect(await ocrReceiptBytes(BYTES, 'image/jpeg', 'upload', { timeoutMs: 10 })).toBeNull();
   });
 
   it('ocrReceipt (URL) keeps its exact old return shape — no dateFound leaks out', async () => {

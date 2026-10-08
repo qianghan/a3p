@@ -73,4 +73,9 @@ export interface ExpenseCategory { id: string; name: string; code: string }
 export interface ReviewItem { expenseId: string; action: 'accept' | 'reject'; categoryId?: string }
 export type ReviewError = 'not_found' | 'no_suggestion' | 'invalid_category' | 'failed';
 export interface ReviewResult { expenseId: string; ok: boolean; error?: ReviewError }
-export interface FromReceiptResult { doc: MobileDoc; duplicate: boolean; ocr: { amountCents: number | null; vendor: string | null; date: string | null } }
+export interface FromReceiptResult {
+  doc: MobileDoc;
+  duplicate: boolean;
+  ocr: { amountCents: number | null; vendor: string | null; date: string | null };
+  deleted?: true;                      // replay of a key whose expense was since deleted (nothing is re-created)
+}

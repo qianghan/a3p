@@ -7,18 +7,22 @@
  *      mobile-expense-schema.test.ts for why it is not UNIQUE);
  *   2. an AbIdempotencyKey claim (`mobile_receipt:<tenant>:<key>`), whose
  *      primary key makes concurrent first attempts race-safe. The claim is
- *      released on any failure so the client can retry.
+ *      released on any failure so the client can retry. A claim left behind
+ *      by a killed function (no response recorded, older than STALE_CLAIM_MS)
+ *      is taken over once, so a replay is never stranded on 409.
  *
  * Status rule: CONFIRMED only when amount, date and vendor are known AND
  * (the user typed the amount OR OCR confidence ≥ 0.8) AND (personal OR a
- * category resolved). Otherwise pending_review with no journal. A confirmed
- * business expense is booked with backfillExpenseJournalEntry; if that books
- * nothing, the row is sent to review rather than left "confirmed" off the books.
+ * category resolved). Otherwise pending_review with no journal. A business
+ * row is CREATED pending_review, booked with backfillExpenseJournalEntry, and
+ * promoted to confirmed only once that returns an entry — so no failure or
+ * crash at any point can leave a confirmed business expense off the books.
+ * (A confirmable personal row has nothing to book and is created confirmed.)
  */
 import 'server-only';
 import { prisma as db } from '@naap/database';
 import { claimKey, recordResponse } from '@/lib/agentbook-idempotency';
-import { checkOcrQuota, ocrReceiptBytes } from '@/lib/agentbook-receipt-ocr';
+import { checkOcrQuota, ocrReceiptBytes, type ReceiptOcrBytesResult } from '@/lib/agentbook-receipt-ocr';
 import { backfillExpenseJournalEntry } from '@/lib/agentbook-expense-ledger';
 import { toMobileDoc } from './doc-mapper';
 import type { FromReceiptResult, MobileDoc } from './types';
@@ -30,6 +34,10 @@ export type ReceiptMime = (typeof RECEIPT_ALLOWED_MIME)[number];
 export const AUTO_CONFIRM_MIN_OCR_CONFIDENCE = 0.8;
 export const IDEMPOTENCY_KEY_RE = /^[A-Za-z0-9_-]{8,128}$/;
 export const RECEIPT_SOURCE = 'mobile_capture';
+/** AbExpense amount columns are 32-bit Int; anything above this is not a real receipt. */
+export const MAX_AMOUNT_CENTS = 2_000_000_000;
+/** A claim with no response this old was left by a killed function (maxDuration 60 s), not one in flight. */
+export const STALE_CLAIM_MS = 5 * 60_000;
 
 /** A real YYYY-MM-DD calendar date. new Date('2026-02-31') would silently roll over to 3 March. */
 export function isIsoCalendarDate(s: string): boolean {
@@ -66,6 +74,40 @@ export interface ReceiptOverrides {
   isPersonal?: boolean;
 }
 
+/** OCR output is model text: only a positive integer within the Int column is an amount. */
+function ocrCents(n: unknown, allowZero: boolean): number | null {
+  if (typeof n !== 'number' || !Number.isInteger(n) || n > MAX_AMOUNT_CENTS) return null;
+  return n > 0 || (allowZero && n === 0) ? n : null;
+}
+
+const ocrText = (v: unknown): string | null => (typeof v === 'string' && v.trim() !== '' ? v.trim() : null);
+
+interface OcrRead {
+  amountCents: number | null;
+  taxCents: number;
+  tipCents: number;
+  vendor: string | null;
+  date: string | null;
+  items: string | null;
+  currency: string | null;
+  confidence: number;
+}
+
+function readOcr(ocr: ReceiptOcrBytesResult | null): OcrRead | null {
+  if (!ocr) return null;
+  const confidence = typeof ocr.confidence === 'number' && ocr.confidence >= 0 && ocr.confidence <= 1 ? ocr.confidence : 0;
+  return {
+    amountCents: ocrCents(ocr.amount_cents, false),
+    taxCents: ocrCents(ocr.tax_cents, true) ?? 0,
+    tipCents: ocrCents(ocr.tip_cents, true) ?? 0,
+    vendor: ocrText(ocr.vendor),
+    date: ocr.dateFound && typeof ocr.date === 'string' && isIsoCalendarDate(ocr.date) ? ocr.date : null,
+    items: ocrText(ocr.items),
+    currency: ocrText(ocr.currency),
+    confidence,
+  };
+}
+
 export type FromReceiptOutcome =
   | { ok: true; status: 200 | 201; expenseId: string; result: FromReceiptResult }
   | { ok: false; status: 400 | 409 | 503; code: 'invalid_category' | 'in_progress' | 'storage_unavailable'; error: string };
@@ -83,14 +125,18 @@ function vendorKey(name: string): string {
   return normalizeVendorName(name) || name.normalize('NFKC').toLowerCase().replace(/[^\p{L}\p{N}]/gu, '');
 }
 
-async function loadDoc(tenantId: string, expenseId: string): Promise<MobileDoc | null> {
+/** Deleted rows are loaded on purpose: a replay must find them so nothing is re-created. */
+async function loadDoc(tenantId: string, expenseId: string): Promise<{ doc: MobileDoc; deleted: boolean } | null> {
   const row = await db.abExpense.findFirst({ where: { id: expenseId, tenantId } });
   if (!row) return null;
   const [vendor, category] = await Promise.all([
     row.vendorId ? db.abVendor.findFirst({ where: { id: row.vendorId, tenantId }, select: { name: true } }) : null,
     row.categoryId ? db.abAccount.findFirst({ where: { id: row.categoryId, tenantId }, select: { name: true } }) : null,
   ]);
-  return toMobileDoc({ ...row, vendorName: vendor?.name ?? null, categoryName: category?.name ?? null });
+  return {
+    doc: toMobileDoc({ ...row, vendorName: vendor?.name ?? null, categoryName: category?.name ?? null }),
+    deleted: row.deletedAt != null,
+  };
 }
 
 async function findByKey(tenantId: string, idempotencyKey: string): Promise<{ id: string } | null> {
@@ -98,19 +144,37 @@ async function findByKey(tenantId: string, idempotencyKey: string): Promise<{ id
 }
 
 async function duplicateOf(tenantId: string, expenseId: string): Promise<FromReceiptOutcome | null> {
-  const doc = await loadDoc(tenantId, expenseId);
-  if (!doc) return null;
+  const loaded = await loadDoc(tenantId, expenseId);
+  if (!loaded) return null;
+  const { doc, deleted } = loaded;
   // The original OCR read is not stored; a replay reports what was booked.
-  return {
-    ok: true,
-    status: 200,
-    expenseId,
-    result: { doc, duplicate: true, ocr: { amountCents: doc.amountCents > 0 ? doc.amountCents : null, vendor: doc.vendorName, date: doc.date } },
+  const result: FromReceiptResult = {
+    doc,
+    duplicate: true,
+    ocr: { amountCents: doc.amountCents > 0 ? doc.amountCents : null, vendor: doc.vendorName, date: doc.date },
   };
+  if (deleted) result.deleted = true;
+  return { ok: true, status: 200, expenseId, result };
 }
 
 async function releaseClaim(key: string): Promise<void> {
   await db.abIdempotencyKey.delete({ where: { key } }).catch(() => {});
+}
+
+/**
+ * The claim is taken but no expense exists. If the holder recorded no response
+ * and is older than STALE_CLAIM_MS, its function was killed: delete it — only
+ * if it is STILL that old, so two replays cannot both win — and claim ONCE more.
+ * A recent claim is a request in flight; the caller answers 409.
+ */
+async function takeOverStaleClaim(claim: string, tenantId: string): Promise<boolean> {
+  const held = await db.abIdempotencyKey.findFirst({ where: { key: claim, tenantId } });
+  if (!held || held.response != null) return false;
+  const cutoff = new Date(Date.now() - STALE_CLAIM_MS);
+  if (!(held.createdAt < cutoff)) return false;
+  const { count } = await db.abIdempotencyKey.deleteMany({ where: { key: claim, tenantId, createdAt: { lt: cutoff } } });
+  if (count !== 1) return false;
+  return claimKey(claim, tenantId);
 }
 
 export async function createExpenseFromReceipt(input: {
@@ -136,7 +200,9 @@ export async function createExpenseFromReceipt(input: {
       const dup = await duplicateOf(tenantId, winner.id);
       if (dup) return dup;
     }
-    return { ok: false, status: 409, code: 'in_progress', error: 'This receipt is still being processed; retry shortly' };
+    if (!(await takeOverStaleClaim(claim, tenantId))) {
+      return { ok: false, status: 409, code: 'in_progress', error: 'This receipt is still being processed; retry shortly' };
+    }
   }
 
   try {
@@ -177,10 +243,17 @@ export async function createExpenseFromReceipt(input: {
 
     // 3. OCR (metered; over quota means no OCR, not no expense).
     const quota = await checkOcrQuota(tenantId);
-    const ocr = quota.allowed ? await ocrReceiptBytes(bytes, mimeType, receiptUrl) : null;
-    const ocrAmount = ocr && ocr.amount_cents > 0 ? ocr.amount_cents : null;
-    const ocrDate = ocr && ocr.dateFound && isIsoCalendarDate(ocr.date) ? ocr.date : null;
-    const ocrVendor = ocr?.vendor?.trim() || null;
+    //    A timed-out or failed model call is the same as no OCR: a draft.
+    const rawOcr = quota.allowed
+      ? await ocrReceiptBytes(bytes, mimeType, receiptUrl).catch((err) => {
+          console.warn('[expenses/from-receipt] OCR failed; saving a draft:', err);
+          return null;
+        })
+      : null;
+    const ocr = readOcr(rawOcr);
+    const ocrAmount = ocr?.amountCents ?? null;
+    const ocrDate = ocr?.date ?? null;
+    const ocrVendor = ocr?.vendor ?? null;
 
     const amountCents = overrides.amountCents ?? ocrAmount;
     const dateStr = overrides.date ?? ocrDate;
@@ -188,13 +261,18 @@ export async function createExpenseFromReceipt(input: {
     const isPersonal = overrides.isPersonal ?? false;
 
     // 4. Vendor + remembered category (vendor default → learned pattern), verified live.
+    //    The transaction count is bumped with the expense create (step 5), not
+    //    here, so a failed attempt that is retried counts once. As elsewhere, a
+    //    vendor's first sighting creates it at 0 and later ones increment.
     let vendor: { id: string; defaultCategoryId: string | null; normalizedName: string } | null = null;
+    let vendorExisted = false;
     if (vendorName) {
       const normalized = vendorKey(vendorName);
       if (normalized) {
+        vendorExisted = !!(await db.abVendor.findFirst({ where: { tenantId, normalizedName: normalized }, select: { id: true } }));
         vendor = await db.abVendor.upsert({
           where: { tenantId_normalizedName: { tenantId, normalizedName: normalized } },
-          update: { transactionCount: { increment: 1 }, lastSeen: new Date() },
+          update: { lastSeen: new Date() },
           create: { tenantId, name: vendorName, normalizedName: normalized },
           select: { id: true, defaultCategoryId: true, normalizedName: true },
         });
@@ -235,13 +313,16 @@ export async function createExpenseFromReceipt(input: {
     const parsedDate = dateStr ? new Date(dateStr) : new Date();
     const date = isNaN(parsedDate.getTime()) ? new Date() : parsedDate;
 
+    // A personal row has nothing to book, so it can be confirmed at birth. A
+    // business row is born pending_review and promoted only after booking.
+    const confirmedAtCreate = confirmable && isPersonal;
     const created = await db.$transaction(async (tx) => {
       const exp = await tx.abExpense.create({
         data: {
           tenantId,
           amountCents: amountCents ?? 0,
-          taxAmountCents: ocr?.tax_cents ?? 0,
-          tipAmountCents: ocr?.tip_cents ?? 0,
+          taxAmountCents: ocr?.taxCents ?? 0,
+          tipAmountCents: ocr?.tipCents ?? 0,
           vendorId: vendor?.id,
           categoryId,
           date,
@@ -251,16 +332,19 @@ export async function createExpenseFromReceipt(input: {
           currency: tenantCfg?.currency || ocr?.currency || 'USD',
           confidence: categoryConfidence,
           isPersonal,
-          status: confirmable ? 'confirmed' : 'pending_review',
+          status: confirmedAtCreate ? 'confirmed' : 'pending_review',
           source: RECEIPT_SOURCE,
           idempotencyKey,
           journalEntryId: null,
         },
       });
+      if (vendor && vendorExisted) {
+        await tx.abVendor.update({ where: { id: vendor.id }, data: { transactionCount: { increment: 1 } } });
+      }
       await tx.abEvent.create({
         data: {
           tenantId,
-          eventType: confirmable ? 'expense.recorded' : 'expense.draft_recorded',
+          eventType: confirmedAtCreate ? 'expense.recorded' : 'expense.draft_recorded',
           actor: 'user',
           action: {
             expense_id: exp.id,
@@ -276,25 +360,42 @@ export async function createExpenseFromReceipt(input: {
       return exp;
     });
 
-    // 6. Book a confirmed business expense, or send it to review.
+    // 6. Book a confirmable business expense, THEN promote it. Any failure here
+    //    (ledger throws or books nothing, promotion write fails, process dies)
+    //    leaves a pending_review row for the review flow, never a confirmed one
+    //    off the books. backfillExpenseJournalEntry does not gate on status.
     if (confirmable && !isPersonal) {
       const journalEntryId = await backfillExpenseJournalEntry(tenantId, created.id).catch((err) => {
         console.warn('[expenses/from-receipt] journal posting failed:', err);
         return null;
       });
-      if (!journalEntryId) {
-        await db.abExpense.update({ where: { id: created.id }, data: { status: 'pending_review' } });
+      if (journalEntryId) {
+        await db
+          .$transaction([
+            db.abExpense.update({ where: { id: created.id }, data: { status: 'confirmed' } }),
+            db.abEvent.create({
+              data: {
+                tenantId,
+                eventType: 'expense.recorded',
+                actor: 'user',
+                action: { expense_id: created.id, journalEntryId, source: RECEIPT_SOURCE },
+              },
+            }),
+          ])
+          .catch((err) => {
+            console.warn('[expenses/from-receipt] promotion to confirmed failed; left in review:', err);
+          });
       }
     }
 
     await recordResponse(claim, { expenseId: created.id });
-    const doc = await loadDoc(tenantId, created.id);
-    if (!doc) throw new Error('created expense could not be read back');
+    const loaded = await loadDoc(tenantId, created.id);
+    if (!loaded) throw new Error('created expense could not be read back');
     return {
       ok: true,
       status: 201,
       expenseId: created.id,
-      result: { doc, duplicate: false, ocr: { amountCents: ocrAmount, vendor: ocrVendor, date: ocrDate } },
+      result: { doc: loaded.doc, duplicate: false, ocr: { amountCents: ocrAmount, vendor: ocrVendor, date: ocrDate } },
     };
   } catch (err) {
     await releaseClaim(claim);

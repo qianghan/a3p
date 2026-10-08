@@ -70,6 +70,13 @@ export interface ReceiptOcrResult {
   confidence: number;
 }
 
+/**
+ * Upper bound on one Gemini call from the mobile upload path. The route's
+ * maxDuration is 60 s; a model that hangs past it gets the function killed and
+ * strands the idempotency claim. Aborting earlier degrades to "no OCR" instead.
+ */
+export const OCR_TIMEOUT_MS = 25_000;
+
 /** OCR output plus whether the model actually returned a date (otherwise `date` is today). */
 export type ReceiptOcrBytesResult = ReceiptOcrResult & { dateFound: boolean };
 
@@ -118,10 +125,11 @@ export async function ocrReceiptBytes(
   bytes: Buffer,
   mimeType: string,
   label = 'upload',
+  opts: { timeoutMs?: number } = {},
 ): Promise<ReceiptOcrBytesResult | null> {
   const cfg = await getGeminiKey();
   if (!cfg) return null;
-  return runGeminiOcr(cfg, bytes, mimeType, label);
+  return runGeminiOcr(cfg, bytes, mimeType, label, opts.timeoutMs ?? OCR_TIMEOUT_MS);
 }
 
 async function runGeminiOcr(
@@ -129,7 +137,10 @@ async function runGeminiOcr(
   bytes: Buffer,
   mimeType: string,
   label: string,
+  /** Abort the model call (request AND body read) after this long; undefined = no bound (ocrReceipt's old behaviour). */
+  timeoutMs?: number,
 ): Promise<ReceiptOcrBytesResult | null> {
+  const signal = timeoutMs === undefined ? undefined : AbortSignal.timeout(timeoutMs);
   // Gemini accepts inline PDFs up to ~20 MB; images are typically capped
   // around 4 MB before performance/quality drops noticeably. Use a single
   // 18 MB budget for both — anything larger falls back to a URL hint.
@@ -162,6 +173,7 @@ Return ONLY valid JSON:
         contents: [{ role: 'user', parts: [imagePart, { text: 'Extract the receipt data.' }] }],
         generationConfig: { maxOutputTokens: 2048, temperature: 0.1 },
       }),
+      signal,
     });
   } catch (err) {
     console.warn('[receipt/ocr] Gemini fetch failed:', err);

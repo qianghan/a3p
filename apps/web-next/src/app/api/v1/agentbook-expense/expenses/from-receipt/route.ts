@@ -19,6 +19,7 @@ import {
   RECEIPT_MAX_BYTES,
   IDEMPOTENCY_KEY_RE,
   isIsoCalendarDate,
+  MAX_AMOUNT_CENTS,
   RECEIPT_SOURCE,
   type ReceiptOverrides,
 } from '@/lib/mobile/from-receipt';
@@ -26,8 +27,6 @@ import {
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
-
-const MAX_AMOUNT_CENTS = 2_000_000_000; // AbExpense.amountCents is a 32-bit Int
 
 function fail(status: number, code: string, error: string): NextResponse {
   return NextResponse.json({ success: false, code, error }, { status });
