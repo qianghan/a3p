@@ -23,13 +23,31 @@ export function isTabActive(href: string, pathname: string | null): boolean {
  * keyboard focus on the invisible 44px link box instead of on the circle the
  * user sees. Token colours only.
  */
-export const TAB_CLASS = { tab: 'ab-tab', raised: 'ab-tab-raised', circle: 'ab-tab-circle' } as const;
+export const TAB_CLASS = { tab: 'ab-tab', raised: 'ab-tab-raised', circle: 'ab-tab-circle', count: 'ab-tab-count' } as const;
+
+/**
+ * Docs count colours, per theme. 11px bold needs 4.5:1 (WCAG AA). White on
+ * --error is ~3.7:1, and no single text token clears 4.5:1 on --error in both
+ * themes, so the text token flips with `.dark` (on <html>): --foreground in
+ * light (~4.9:1), --background in dark (~5.1:1). shell.test.tsx computes these
+ * ratios from the real values in packages/theme/src/shell-variables.css.
+ */
+const BADGE_TOKEN = { error: tokens.color.critical, foreground: tokens.color.fg, background: tokens.color.bg } as const;
+type BadgeVar = keyof typeof BADGE_TOKEN;
+export const COUNT_BADGE_COLOURS: Readonly<Record<'light' | 'dark', { bg: BadgeVar; fg: BadgeVar }>> = {
+  light: { bg: 'error', fg: 'foreground' },
+  dark: { bg: 'error', fg: 'background' },
+};
+const countRule = (sel: string, c: { bg: BadgeVar; fg: BadgeVar }) =>
+  `${sel}{background:${BADGE_TOKEN[c.bg]};color:${BADGE_TOKEN[c.fg]}}`;
 export const TAB_CSS = [
   `.${TAB_CLASS.tab}:focus-visible{outline:2px solid ${tokens.color.fg};outline-offset:-4px;border-radius:${tokens.radius.md}px}`,
   `.${TAB_CLASS.raised}:focus-visible{outline:none}`,
   `.${TAB_CLASS.circle}{box-shadow:0 4px 12px ${tokens.color.primaryGlow}}`,
   `.${TAB_CLASS.raised}:focus-visible .${TAB_CLASS.circle}{outline:3px solid ${tokens.color.fg};outline-offset:3px}`,
   `.${TAB_CLASS.raised}[aria-current="page"] .${TAB_CLASS.circle}{box-shadow:0 0 0 3px ${tokens.color.card},0 0 0 6px ${tokens.color.primary},0 4px 12px ${tokens.color.primaryGlow}}`,
+  countRule(`.${TAB_CLASS.count}`, COUNT_BADGE_COLOURS.light),
+  countRule(`.dark .${TAB_CLASS.count}`, COUNT_BADGE_COLOURS.dark),
 ].join('\n');
 
 interface TabDef {
@@ -152,6 +170,7 @@ export function TabBar({ badges = BADGES_ENABLED }: { badges?: BadgeGate } = {})
                 {typeof tab.count === 'number' && tab.count > 0 && (
                   <span
                     data-badge="docs-count"
+                    className={TAB_CLASS.count}
                     style={{
                       position: 'absolute',
                       top: -6,
@@ -160,8 +179,7 @@ export function TabBar({ badges = BADGES_ENABLED }: { badges?: BadgeGate } = {})
                       height: 18,
                       padding: '0 5px',
                       borderRadius: tokens.radius.pill,
-                      background: tokens.color.critical,
-                      color: tokens.color.primaryFg,
+                      // Colours come from TAB_CSS (theme-dependent); inline would override it.
                       fontSize: tokens.font.xs,
                       fontWeight: 700,
                       lineHeight: '18px',

@@ -1,4 +1,6 @@
 import React from 'react';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { screen, waitFor, act, within, cleanup } from '@testing-library/react';
 import { renderWithI18n, expectTouchTarget, routeFetch, jsonResponse } from './test-utils';
@@ -32,7 +34,7 @@ vi.mock('@/lib/offline-queue', () => ({ initOfflineQueueReplay: replay.init }));
 vi.mock('@/components/layout/language-switcher', () => ({ LanguageSwitcher: () => <div data-testid="language-switcher" /> }));
 
 import { MobileShell, MAIN_STYLE, SHELL_STYLE, TAB_BAR_CLEARANCE } from '@/app/app/_shell/MobileShell';
-import { isTabActive, TAB_CSS } from '@/app/app/_shell/TabBar';
+import { isTabActive, TAB_CSS, COUNT_BADGE_COLOURS } from '@/app/app/_shell/TabBar';
 import { badgesFrom, BADGE_MAX_AGE_MS, isBadgeSnapshotStale } from '@/app/app/_lib/useShellBadges';
 import MobileChat from '@/app/app/chat/page';
 import { BADGES_ENABLED, type BadgeGate } from '@/app/app/_shell/badges';
@@ -634,5 +636,74 @@ describe('a session clear that leaves no home snapshot', () => {
     act(() => { window.dispatchEvent(new CustomEvent(SNAPSHOT_CLEARED_EVENT, { detail: { reason: 'session' } })); });
     await settle();
     expect(homeCalls(fetchMock)).toBe(0);
+  });
+});
+
+// ── M5: the Docs count must be readable ─────────────────────────────────────
+// 11px bold text needs WCAG AA 4.5:1. White on --error is ~3.7:1, so the pair
+// is chosen per theme from the REAL token values in shell-variables.css.
+describe('Docs count badge contrast', () => {
+  type Hsl = [number, number, number];
+
+  function themeVars(): { light: Record<string, Hsl>; dark: Record<string, Hsl> } {
+    const css = readFileSync(join(process.cwd(), '../../packages/theme/src/shell-variables.css'), 'utf8');
+    const rootAt = css.search(/^:root\s*\{/m);
+    const darkAt = css.search(/^\.dark\s*\{/m);
+    expect(rootAt, ':root block').toBeGreaterThan(-1);
+    expect(darkAt, '.dark block').toBeGreaterThan(rootAt);
+    const parse = (block: string) => {
+      const out: Record<string, Hsl> = {};
+      for (const m of block.matchAll(/--([a-z-]+):\s*([\d.]+) ([\d.]+)% ([\d.]+)%;/g)) {
+        out[m[1]] = [Number(m[2]), Number(m[3]), Number(m[4])];
+      }
+      return out;
+    };
+    return { light: parse(css.slice(rootAt, darkAt)), dark: parse(css.slice(darkAt)) };
+  }
+
+  /** WCAG relative luminance of an HSL triplet. */
+  function luminance([h, s, l]: Hsl): number {
+    const S = s / 100;
+    const L = l / 100;
+    const k = (n: number) => (n + h / 30) % 12;
+    const a = S * Math.min(L, 1 - L);
+    const f = (n: number) => L - a * Math.max(-1, Math.min(k(n) - 3, Math.min(9 - k(n), 1)));
+    const lin = (c: number) => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);
+    return 0.2126 * lin(f(0)) + 0.7152 * lin(f(8)) + 0.0722 * lin(f(4));
+  }
+
+  function contrast(a: Hsl, b: Hsl): number {
+    const [hi, lo] = [luminance(a), luminance(b)].sort((x, y) => y - x);
+    return (hi + 0.05) / (lo + 0.05);
+  }
+
+  it('the helper agrees with known values (white/black 21:1, white on --error is the failing ~3.7:1)', () => {
+    expect(contrast([0, 0, 100], [0, 0, 0])).toBeCloseTo(21, 5);
+    const { light } = themeVars();
+    expect(contrast(light.error, light['primary-foreground'])).toBeLessThan(4.5);
+  });
+
+  it.each(['light', 'dark'] as const)('%s theme: the count pair is at least 4.5:1', (theme) => {
+    const vars = themeVars()[theme];
+    const { bg, fg } = COUNT_BADGE_COLOURS[theme];
+    expect(vars[bg], `--${bg} in ${theme}`).toBeDefined();
+    expect(vars[fg], `--${fg} in ${theme}`).toBeDefined();
+    expect(contrast(vars[bg], vars[fg])).toBeGreaterThanOrEqual(4.5);
+  });
+
+  it('the CSS paints the badge with exactly those tokens, and nothing inline overrides them', async () => {
+    const { light, dark } = COUNT_BADGE_COLOURS;
+    expect(TAB_CSS).toContain(`.ab-tab-count{background:hsl(var(--${light.bg}));color:hsl(var(--${light.fg}))}`);
+    expect(TAB_CSS).toContain(`.dark .ab-tab-count{background:hsl(var(--${dark.bg}));color:hsl(var(--${dark.fg}))}`);
+    routeFetch({});
+    writeSnapshot('home', homeFixture());
+    renderWithI18n(<MobileShell badges={ALL}><p /></MobileShell>);
+    const docs = await screen.findByRole('link', { name: 'Docs, 3 items need review' });
+    const badge = docs.querySelector('[data-badge="docs-count"]') as HTMLElement;
+    expect(badge.classList.contains('ab-tab-count')).toBe(true);
+    // An inline colour would beat the class rule and bring the failing pair back.
+    expect(badge.style.color).toBe('');
+    expect(badge.style.background).toBe('');
+    expect(badge.style.backgroundColor).toBe('');
   });
 });
