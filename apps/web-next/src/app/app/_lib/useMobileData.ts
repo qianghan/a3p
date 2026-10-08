@@ -153,7 +153,7 @@ export function useMobileData<T>(key: string, fetcher: () => Promise<T>): Mobile
         if (err instanceof ApiError && (err.status === 401 || err.code === 'unauthorized')) {
           // The session is gone: whatever is stored belongs to whoever held it.
           lastGood.current = null;
-          clearMobileSnapshots();
+          clearMobileSnapshots('unauthorized');
           setState({ key, data: null, error, loading: false, refreshing: false, offline: false, staleAt: null });
           return;
         }

@@ -15,8 +15,21 @@ export const SNAPSHOT_OWNER_KEY = 'ab:mobile-owner';
 /**
  * Fired on window after the stored snapshots are cleared, so a screen that is
  * already mounted can drop the snapshot it is showing from memory too.
+ * A CustomEvent whose detail is `{ reason }` (see SnapshotClearReason).
  */
 export const SNAPSHOT_CLEARED_EVENT = 'ab:mobile:cleared';
+
+/**
+ * Why the snapshots were cleared. 'unauthorized' means a request just got a
+ * 401: the session is gone, so nobody should immediately refetch on its back.
+ */
+export type SnapshotClearReason = 'unauthorized' | 'session';
+
+/** The reason carried by a SNAPSHOT_CLEARED_EVENT ('session' when absent). */
+export function clearReasonOf(e: Event): SnapshotClearReason {
+  const reason = (e as CustomEvent<{ reason?: unknown } | null>).detail?.reason;
+  return reason === 'unauthorized' ? 'unauthorized' : 'session';
+}
 
 /**
  * Remove every /app snapshot. Called on logout, on an invalid session, and at
@@ -24,7 +37,7 @@ export const SNAPSHOT_CLEARED_EVENT = 'ab:mobile:cleared';
  * names, balances), and an offline screen would otherwise show them to the
  * next person who signs in on the same phone.
  */
-export function clearMobileSnapshots(): void {
+export function clearMobileSnapshots(reason: SnapshotClearReason = 'session'): void {
   try {
     if (typeof window === 'undefined') return;
     const store = window.localStorage;
@@ -39,7 +52,7 @@ export function clearMobileSnapshots(): void {
   }
   // Mounted screens hold copies in memory; tell them, even if the disk part failed.
   try {
-    if (typeof window !== 'undefined') window.dispatchEvent(new Event(SNAPSHOT_CLEARED_EVENT));
+    if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent(SNAPSHOT_CLEARED_EVENT, { detail: { reason } }));
   } catch {
     // Nobody to tell.
   }

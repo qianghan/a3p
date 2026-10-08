@@ -16,6 +16,21 @@ export function isTabActive(href: string, pathname: string | null): boolean {
   return p === href || p.startsWith(`${href}/`);
 }
 
+/**
+ * State styling inline styles cannot express. Inline `style` has no
+ * :focus-visible, so the raised Capture button would otherwise show its
+ * keyboard focus on the invisible 44px link box instead of on the circle the
+ * user sees. Token colours only.
+ */
+export const TAB_CLASS = { tab: 'ab-tab', raised: 'ab-tab-raised', circle: 'ab-tab-circle' } as const;
+export const TAB_CSS = [
+  `.${TAB_CLASS.tab}:focus-visible{outline:2px solid ${tokens.color.fg};outline-offset:-4px;border-radius:${tokens.radius.md}px}`,
+  `.${TAB_CLASS.raised}:focus-visible{outline:none}`,
+  `.${TAB_CLASS.circle}{box-shadow:0 4px 12px ${tokens.color.primaryGlow}}`,
+  `.${TAB_CLASS.raised}:focus-visible .${TAB_CLASS.circle}{outline:3px solid ${tokens.color.fg};outline-offset:3px}`,
+  `.${TAB_CLASS.raised}[aria-current="page"] .${TAB_CLASS.circle}{box-shadow:0 0 0 3px ${tokens.color.card},0 0 0 6px ${tokens.color.primary},0 4px 12px ${tokens.color.primaryGlow}}`,
+].join('\n');
+
 interface TabDef {
   href: (typeof TAB_ORDER)[number];
   label: string;
@@ -68,6 +83,7 @@ export function TabBar() {
         background: tokens.color.card,
       }}
     >
+      <style>{TAB_CSS}</style>
       {tabs.map((tab) => {
         const active = isTabActive(tab.href, pathname);
         const colour = tab.raised ? tokens.color.fg : active ? tokens.color.primary : tokens.color.muted;
@@ -76,6 +92,7 @@ export function TabBar() {
             key={tab.href}
             href={tab.href}
             data-tab={tab.href}
+            className={tab.raised ? `${TAB_CLASS.tab} ${TAB_CLASS.raised}` : TAB_CLASS.tab}
             aria-current={active ? 'page' : undefined}
             aria-label={tab.ariaLabel}
             style={{
@@ -95,6 +112,8 @@ export function TabBar() {
             {tab.raised ? (
               <span
                 aria-hidden="true"
+                className={TAB_CLASS.circle}
+                data-active={active ? 'true' : undefined}
                 style={{
                   width: 56,
                   height: 56,
@@ -105,7 +124,6 @@ export function TabBar() {
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
-                  boxShadow: `0 4px 12px ${tokens.color.primaryGlow}`,
                   border: `3px solid ${tokens.color.card}`,
                 }}
               >

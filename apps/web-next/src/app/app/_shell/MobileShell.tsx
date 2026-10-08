@@ -69,6 +69,41 @@ async function ensurePushSubscription(reg: ServiceWorkerRegistration | null): Pr
   }
 }
 
+/**
+ * A BOUNDED column: exactly one viewport tall, header at its natural height,
+ * and <main> taking the rest (minHeight 0 lets a flex child shrink below its
+ * content, so it scrolls instead of growing the page). A screen can therefore
+ * size itself with `height: 100%` and land above the tab bar whatever the
+ * safe-area insets are — `calc(100dvh - 64px)` cannot, because with
+ * viewportFit 'cover' an installed iOS PWA adds ~59px on top (header) and
+ * ~34px at the bottom (tab bar).
+ */
+export const SHELL_STYLE: React.CSSProperties = {
+  height: '100dvh',
+  minHeight: 0,
+  overflow: 'hidden',
+  display: 'flex',
+  flexDirection: 'column',
+  background: tokens.color.bg,
+  color: tokens.color.fg,
+};
+
+/**
+ * The tab bar is position: fixed over the bottom of <main>, so main reserves
+ * its height + the bottom inset, plus space.xl because the raised Capture
+ * button stands ~16px above the bar's top edge.
+ */
+export const TAB_BAR_CLEARANCE = `calc(${tokens.tabBarHeight + tokens.space.xl}px + env(safe-area-inset-bottom))`;
+
+export const MAIN_STYLE: React.CSSProperties = {
+  flex: '1 1 0%',
+  minHeight: 0,
+  overflowY: 'auto',
+  paddingBottom: TAB_BAR_CLEARANCE,
+  paddingLeft: 'env(safe-area-inset-left)',
+  paddingRight: 'env(safe-area-inset-right)',
+};
+
 export function MobileShell({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     void registerServiceWorker().then((reg) => { void ensurePushSubscription(reg); });
@@ -79,7 +114,7 @@ export function MobileShell({ children }: { children: React.ReactNode }) {
     <ToastHost>
       <div
         data-mobile-shell
-        style={{ minHeight: '100dvh', display: 'flex', flexDirection: 'column', background: tokens.color.bg, color: tokens.color.fg }}
+        style={SHELL_STYLE}
       >
         {/*
           Slim header carrying ONLY the language switcher.
@@ -95,6 +130,7 @@ export function MobileShell({ children }: { children: React.ReactNode }) {
         */}
         <header
           style={{
+            flex: 'none',
             display: 'flex', justifyContent: 'flex-end', alignItems: 'center',
             padding: '4px 8px', paddingTop: 'max(4px, env(safe-area-inset-top))',
             paddingLeft: 'max(8px, env(safe-area-inset-left))', paddingRight: 'max(8px, env(safe-area-inset-right))',
@@ -102,16 +138,7 @@ export function MobileShell({ children }: { children: React.ReactNode }) {
         >
           <LanguageSwitcher />
         </header>
-        <main
-          id="mobile-main"
-          style={{
-            flex: 1,
-            overflowY: 'auto',
-            paddingBottom: `calc(${tokens.tabBarHeight + tokens.space.xl}px + env(safe-area-inset-bottom))`,
-            paddingLeft: 'env(safe-area-inset-left)',
-            paddingRight: 'env(safe-area-inset-right)',
-          }}
-        >
+        <main id="mobile-main" style={MAIN_STYLE}>
           {children}
         </main>
         <TabBar />
