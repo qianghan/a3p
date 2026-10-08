@@ -53,18 +53,30 @@ async function reviewOne(
 ): Promise<ReviewResult> {
   const expense = await db.abExpense.findFirst({
     where: { id: item.expenseId, tenantId, deletedAt: null },
-    select: { id: true },
+    select: { id: true, categoryId: true },
   });
   if (!expense) return { expenseId: item.expenseId, ok: false, error: 'not_found' };
 
   const suggestion = pending.get(item.expenseId);
+  const drop = async () => {
+    if (!suggestion) return;
+    await dropPendingSuggestion(tenantId, item.expenseId);
+    pending.delete(item.expenseId);
+  };
 
   if (item.action === 'reject') {
-    if (suggestion) {
-      await dropPendingSuggestion(tenantId, item.expenseId);
-      pending.delete(item.expenseId);
-    }
+    await drop();
     return { expenseId: item.expenseId, ok: true };
+  }
+
+  // A suggestion is live only while its expense is uncategorized (same rule as
+  // auto-categorize/pending). A stale or retried bare accept must not overwrite
+  // a category the user already chose elsewhere, re-post the ledger, or train
+  // the vendor pattern against them. An explicit categoryId is a deliberate
+  // choice and still applies below.
+  if (expense.categoryId && !item.categoryId) {
+    await drop();
+    return { expenseId: item.expenseId, ok: false, error: 'no_suggestion' };
   }
 
   const categoryId = item.categoryId ?? suggestion?.suggestedCategoryId;
@@ -83,10 +95,7 @@ async function reviewOne(
   if (!outcome.ok) {
     return { expenseId: item.expenseId, ok: false, error: outcome.status === 404 ? 'not_found' : 'failed' };
   }
-  if (suggestion) {
-    await dropPendingSuggestion(tenantId, item.expenseId);
-    pending.delete(item.expenseId);
-  }
+  await drop();
   return { expenseId: item.expenseId, ok: true };
 }
 

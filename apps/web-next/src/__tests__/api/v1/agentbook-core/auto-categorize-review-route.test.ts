@@ -88,6 +88,25 @@ describe('POST /auto-categorize/review — mixed batch and tenant isolation', ()
     ]);
     expect((await row('x1'))?.categoryId).toBe('b-meals');
     expect((await row('e5'))?.categoryId).toBeNull();
+    // Write nothing for the refused items: one ledger backfill (the valid item),
+    // the invalid item's suggestion survives, no vendor pattern learned anywhere
+    // (e6 has no vendor; e5/x1/e1 were refused).
+    expect(backfill).toHaveBeenCalledTimes(1);
+    expect(backfill).toHaveBeenCalledWith('t1', 'e6');
+    expect(await pendingIds()).toEqual(['e5']);
+    expect(memDb.table('abPattern').rows).toEqual([]);
+    expect((await memDb.table('abVendor').findFirst({ where: { id: 'v-cafe' } }))?.defaultCategoryId).toBeNull();
+  });
+
+  it('duplicate expenseIds are not deduped: results stay 1:1 in order (accept, accept → ok, no_suggestion)', async () => {
+    const { body } = await review({
+      items: [{ expenseId: 'e6', action: 'accept' }, { expenseId: 'e6', action: 'accept' }],
+    });
+    expect(body.data.results).toEqual([
+      { expenseId: 'e6', ok: true },
+      { expenseId: 'e6', ok: false, error: 'no_suggestion' },
+    ]);
+    expect(backfill).toHaveBeenCalledTimes(1);
   });
 
   it("another tenant cannot accept t1's suggestions", async () => {
@@ -99,6 +118,60 @@ describe('POST /auto-categorize/review — mixed batch and tenant isolation', ()
   it('a deleted expense is not_found', async () => {
     memDb.table('abExpense').rows.find((r) => r.id === 'e6')!.deletedAt = NOW;
     expect((await review({ items: [{ expenseId: 'e6', action: 'accept' }] })).body.data.results[0]).toEqual({ expenseId: 'e6', ok: false, error: 'not_found' });
+  });
+});
+
+describe('POST /auto-categorize/review — stale suggestions', () => {
+  it('a bare accept on an expense the user already categorized is no_suggestion: nothing overwritten, stale suggestion dropped', async () => {
+    memDb.table('abExpense').rows.find((r) => r.id === 'e5')!.categoryId = 'acc-fuel';
+    const { body } = await review({ items: [{ expenseId: 'e5', action: 'accept' }] });
+    expect(body.data.results).toEqual([{ expenseId: 'e5', ok: false, error: 'no_suggestion' }]);
+    expect((await row('e5'))?.categoryId).toBe('acc-fuel');
+    expect(backfill).not.toHaveBeenCalled();
+    expect(memDb.table('abPattern').rows).toEqual([]);
+    expect((await memDb.table('abVendor').findFirst({ where: { id: 'v-cafe' } }))?.defaultCategoryId).toBeNull();
+    expect(await pendingIds()).toEqual(['e6']);
+  });
+
+  it('an explicit categoryId on an already-categorized expense is a deliberate re-pick and applies', async () => {
+    memDb.table('abExpense').rows.find((r) => r.id === 'e6')!.categoryId = 'acc-fuel';
+    const { body } = await review({ items: [{ expenseId: 'e6', action: 'accept', categoryId: 'acc-meals' }] });
+    expect(body.data.results).toEqual([{ expenseId: 'e6', ok: true }]);
+    expect((await row('e6'))?.categoryId).toBe('acc-meals');
+    expect(backfill).toHaveBeenCalledWith('t1', 'e6');
+    expect(await pendingIds()).toEqual(['e5']);
+  });
+});
+
+describe('POST /auto-categorize/review — invalid_category', () => {
+  it('refuses a non-expense account (revenue, asset)', async () => {
+    const { body } = await review({
+      items: [
+        { expenseId: 'e5', action: 'accept', categoryId: 'acc-rev' },
+        { expenseId: 'e6', action: 'accept', categoryId: 'acc-cash' },
+      ],
+    });
+    expect(body.data.results).toEqual([
+      { expenseId: 'e5', ok: false, error: 'invalid_category' },
+      { expenseId: 'e6', ok: false, error: 'invalid_category' },
+    ]);
+    expect(backfill).not.toHaveBeenCalled();
+  });
+
+  it('refuses an inactive expense account', async () => {
+    memDb.table('abAccount').rows.push({ id: 'acc-old', tenantId: 't1', code: '5400', name: 'Old', accountType: 'expense', isActive: false });
+    const { body } = await review({ items: [{ expenseId: 'e5', action: 'accept', categoryId: 'acc-old' }] });
+    expect(body.data.results).toEqual([{ expenseId: 'e5', ok: false, error: 'invalid_category' }]);
+    expect((await row('e5'))?.categoryId).toBeNull();
+  });
+
+  it('refuses a stored suggestion whose account has since been deactivated; the suggestion is kept', async () => {
+    memDb.table('abAccount').rows.find((r) => r.id === 'acc-meals')!.isActive = false;
+    const { body } = await review({ items: [{ expenseId: 'e6', action: 'accept' }] });
+    expect(body.data.results).toEqual([{ expenseId: 'e6', ok: false, error: 'invalid_category' }]);
+    expect((await row('e6'))?.categoryId).toBeNull();
+    expect(backfill).not.toHaveBeenCalled();
+    expect(await pendingIds()).toEqual(['e6', 'e5']);
   });
 });
 
