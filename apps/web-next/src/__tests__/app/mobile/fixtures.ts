@@ -26,7 +26,7 @@ export function homeFixture(overrides: Partial<MobileHome> = {}): MobileHome {
       { id: 'a3', kind: 'receipts_missing', severity: 'info', params: { count: 4 }, target: { route: '/app/docs', query: { filter: 'no-receipt' } } },
     ],
     nextUp: [
-      { id: 'u1', kind: 'tax', titleKey: 'mobile.upcoming.tax_payment', params: {}, date: '2026-10-15', daysAway: 8, amountCents: 300_000 },
+      { id: 'u1', kind: 'tax', titleKey: 'mobile.upcoming.tax_instalment', params: { quarter: 3, year: 2026 }, date: '2026-10-15', daysAway: 8, amountCents: 300_000 },
     ],
     recent: [
       { id: 'r1', kind: 'expense', label: 'Staples', amountCents: 4_250, at: '2026-10-06T18:00:00.000Z', docId: 'exp-1' },
