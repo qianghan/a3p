@@ -41,6 +41,19 @@ describe('DocThumb', () => {
     expect(fb).toHaveAttribute('loading', 'lazy');
     expect(fb).toHaveAttribute('width', '48');
   });
+  it('does not send an http: Blob URL through the optimizer (it rejects non-https): plain lazy <img>', () => {
+    const HTTP = 'http://abcd.public.blob.vercel-storage.com/receipts/t/1-r.jpg';
+    render(<DocThumb src={HTTP} size={48} alt="" />);
+    expect(screen.queryByTestId('doc-thumb')).toBeNull();
+    const fb = screen.getByTestId('doc-thumb-fallback');
+    expect(fb).toHaveAttribute('src', HTTP);
+    expect(fb).toHaveAttribute('loading', 'lazy');
+  });
+  it('does not send a data: URL through the optimizer', () => {
+    render(<DocThumb src="data:image/png;base64,AAAA" size={48} alt="" />);
+    expect(screen.queryByTestId('doc-thumb')).toBeNull();
+    expect(screen.getByTestId('doc-thumb-fallback')).toBeInTheDocument();
+  });
   it('passes the caller-supplied alt text through on both the optimizer and fallback image', () => {
     render(<DocThumb src={BLOB} size={32} alt="receipt preview" />);
     expect(screen.getByTestId('doc-thumb')).toHaveAttribute('alt', 'receipt preview');

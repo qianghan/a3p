@@ -6,10 +6,15 @@ import { FileText, ImageOff } from 'lucide-react';
 import { useT } from '@/hooks/use-t';
 import { tokens } from './tokens';
 
-/** next.config.js remotePatterns allows **.vercel-storage.com; anything else bypasses the optimizer. */
+/**
+ * next.config.js remotePatterns allows https://**.vercel-storage.com only; anything else
+ * (other hosts, http:, data:, relative or garbage input) bypasses the optimizer, which
+ * would throw in `next dev` and 400 in production.
+ */
 export function isOptimizableHost(url: string): boolean {
   try {
-    return new URL(url).hostname.endsWith('.vercel-storage.com');
+    const u = new URL(url);
+    return u.protocol === 'https:' && u.hostname.endsWith('.vercel-storage.com');
   } catch {
     return false;
   }

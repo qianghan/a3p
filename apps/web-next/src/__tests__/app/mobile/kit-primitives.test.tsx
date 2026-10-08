@@ -116,6 +116,22 @@ describe('Thumb', () => {
     expect(isOptimizableHost('https://abc.public.blob.vercel-storage.com/r.jpg')).toBe(true);
     expect(isOptimizableHost('https://evil.example.com/r.jpg')).toBe(false);
     expect(isOptimizableHost('not a url')).toBe(false);
+  });
+
+  it('isOptimizableHost requires https and the exact vercel-storage.com suffix, and never throws', () => {
+    // http would pass the suffix test but the optimizer rejects it (throws in dev, 400 in prod).
+    expect(isOptimizableHost('http://x.public.blob.vercel-storage.com/r.jpg')).toBe(false);
+    expect(isOptimizableHost('//x.public.blob.vercel-storage.com/r.jpg')).toBe(false);
+    expect(isOptimizableHost('https://x.public.blob.vercel-storage.com/receipts/t/1-r.jpg?download=1')).toBe(true);
+    expect(isOptimizableHost('https://evil.com/x.vercel-storage.com')).toBe(false);
+    expect(isOptimizableHost('https://x.vercel-storage.com.evil.com')).toBe(false);
+    expect(isOptimizableHost('data:image/png;base64,AAAA')).toBe(false);
+    expect(isOptimizableHost('/relative/r.jpg')).toBe(false);
+    expect(isOptimizableHost('')).toBe(false);
+    expect(isOptimizableHost('not a url')).toBe(false);
+  });
+
+  it('classifies PDF urls', () => {
     expect(isPdfUrl('https://x/y.PDF?sig=1')).toBe(true);
     expect(isPdfUrl('https://x/y.jpg')).toBe(false);
   });
