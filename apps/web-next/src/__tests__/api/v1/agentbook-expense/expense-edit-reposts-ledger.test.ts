@@ -37,6 +37,7 @@ vi.mock('@/lib/agentbook-soft-delete', () => ({
 }));
 vi.mock('@/lib/agentbook-chart-of-accounts', () => ({
   ensureChartOfAccounts: vi.fn(async () => ({ seeded: false, count: 0 })),
+  ensureUncategorizedAccount: vi.fn(async () => ({ id: 'acct-suspense' })),
   CASH_CODE: '1000',
   UNCATEGORIZED_CODE: '6999',
 }));
@@ -191,8 +192,9 @@ describe('amount + date together', () => {
 describe('edits that must NOT touch the ledger', () => {
   it.each([
     ['description only', { description: 'Latte' }],
-    ['isPersonal toggle only', { isPersonal: true }],
-    ['category only (behaviour unchanged by this fix)', { categoryId: 'acct-travel' }],
+    ['isPersonal sent but unchanged', { isPersonal: false }],
+    ['category sent but unchanged', { categoryId: 'acct-meals' }],
+    ['vendor only', { vendor: 'Blue Bottle' }],
     ['amount sent but unchanged', { amountCents: 4200 }],
     ['date sent but on the same day', { date: '2026-01-15T12:00:00.000Z' }],
   ])('%s', async (_name, body) => {

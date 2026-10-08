@@ -16,7 +16,12 @@
  */
 import 'server-only';
 import { prisma as db } from '@naap/database';
-import { ensureChartOfAccounts, CASH_CODE, UNCATEGORIZED_CODE } from '@/lib/agentbook-chart-of-accounts';
+import {
+  ensureChartOfAccounts,
+  ensureUncategorizedAccount,
+  CASH_CODE,
+  UNCATEGORIZED_CODE,
+} from '@/lib/agentbook-chart-of-accounts';
 
 /**
  * Move an expense's debit off the suspense account onto its real category.
@@ -192,22 +197,35 @@ export class ExpenseLedgerPeriodClosedError extends Error {
   }
 }
 
-/** Thrown when the booked entry's shape can't be re-priced without guessing. */
+/** Thrown when the booked entry's shape can't be re-priced or re-accounted without guessing. */
 export class ExpenseLedgerShapeError extends Error {
   constructor() {
-    super('This expense is booked as a split or multi-line entry; its amount cannot be edited automatically');
+    super('This expense is booked as a split or multi-line entry; its amount or category cannot be edited automatically');
     this.name = 'ExpenseLedgerShapeError';
   }
 }
 
-type RepostClient = Pick<typeof db, 'abExpense' | 'abJournalEntry' | 'abFiscalPeriod'>;
+/** The delegates the edit helpers touch — satisfied by `db` and by an interactive-transaction client. */
+type LedgerClient = Pick<typeof db, 'abExpense' | 'abJournalEntry' | 'abJournalLine' | 'abFiscalPeriod' | 'abAccount'>;
+
+interface LedgerLine {
+  accountId: string;
+  debitCents: number;
+  creditCents: number;
+  description: string | null;
+}
 
 const sameUtcDay = (a: Date, b: Date) =>
   a.getUTCFullYear() === b.getUTCFullYear() &&
   a.getUTCMonth() === b.getUTCMonth() &&
   a.getUTCDate() === b.getUTCDate();
 
-async function assertPeriodOpen(client: RepostClient, tenantId: string, date: Date): Promise<void> {
+const sumDebits = (lines: LedgerLine[]) => lines.reduce((s, l) => s + l.debitCents, 0);
+const sumCredits = (lines: LedgerLine[]) => lines.reduce((s, l) => s + l.creditCents, 0);
+
+async function assertPeriodOpen(client: LedgerClient, tenantId: string, date: Date): Promise<void> {
+  // Same year/month derivation as the manual journal-entry period gate
+  // (agentbook-core/journal-entries), so both gates agree on which month a date is in.
   const year = date.getFullYear();
   const month = date.getMonth() + 1;
   const period = await client.abFiscalPeriod.findUnique({
@@ -217,8 +235,75 @@ async function assertPeriodOpen(client: RepostClient, tenantId: string, date: Da
 }
 
 /**
- * Bring an expense's ledger entry back in line after its amount or date was
- * edited. Call it INSIDE the transaction that saved the edit, passing the tx.
+ * The expense's current entry and its lines. Lines are read by entryId rather
+ * than via `include` so the same code runs against every Prisma double the
+ * route tests use; the entry itself is tenant-scoped, so its lines are too.
+ */
+async function loadEntry(client: LedgerClient, tenantId: string, entryId: string) {
+  const entry = await client.abJournalEntry.findFirst({ where: { id: entryId, tenantId } });
+  if (!entry) return null;
+  const lines: LedgerLine[] = (await client.abJournalLine.findMany({ where: { entryId: entry.id } })) || [];
+  return { entry, lines };
+}
+
+/**
+ * Append one entry and its lines. Refuses anything that does not balance, so a
+ * bug upstream can never put a lopsided entry on the books. Must be called with
+ * the transaction client: the header and lines commit (or roll back) together.
+ */
+async function appendBalancedEntry(
+  client: LedgerClient,
+  tenantId: string,
+  header: { date: Date; memo: string; sourceType: string; sourceId: string | null },
+  lines: LedgerLine[],
+): Promise<string> {
+  const debits = sumDebits(lines);
+  if (lines.length < 2 || debits <= 0 || debits !== sumCredits(lines)) {
+    throw new ExpenseLedgerShapeError();
+  }
+  const entry = await client.abJournalEntry.create({ data: { tenantId, ...header, verified: true } });
+  for (const l of lines) {
+    await client.abJournalLine.create({ data: { tenantId, entryId: entry.id, ...l } }); // G-009
+  }
+  return entry.id;
+}
+
+const mirror = (lines: LedgerLine[]): LedgerLine[] =>
+  lines.map((l) => ({
+    accountId: l.accountId,
+    debitCents: l.creditCents,
+    creditCents: l.debitCents,
+    description: `Reverse: ${l.description || 'Expense'}`,
+  }));
+
+/** A tenant's ACTIVE EXPENSE account, or null — the same rule the categorize path enforces. */
+async function validExpenseAccount(client: LedgerClient, tenantId: string, id: string): Promise<string | null> {
+  const acct = await client.abAccount.findFirst({
+    where: { id, tenantId, accountType: 'expense', isActive: true },
+    select: { id: true },
+  });
+  return acct?.id ?? null;
+}
+
+export interface RepostOptions {
+  /**
+   * The caller changed categoryId in this request. A multi-line entry can't
+   * follow a category change without inventing an allocation, so it is refused
+   * (422) instead of silently leaving the books on the old account.
+   */
+  categoryChanged?: boolean;
+}
+
+/** The tenant's 6999 suspense account (seeded by ensureExpenseBookingAccounts / the create route). */
+async function suspenseAccountId(client: LedgerClient, tenantId: string): Promise<string | null> {
+  const acct = await client.abAccount.findFirst({ where: { tenantId, code: UNCATEGORIZED_CODE }, select: { id: true } });
+  return acct?.id ?? null;
+}
+
+/**
+ * Bring an expense's ledger entry back in line after its amount, date or
+ * category was edited. Call it INSIDE the transaction that saved the edit,
+ * passing the tx.
  *
  * Without this, editing a booked expense changed the row the user sees while
  * P&L, the trial balance and the tax estimate kept the old figure — the third
@@ -231,13 +316,17 @@ async function assertPeriodOpen(client: RepostClient, tenantId: string, date: Da
  *      (so the old month nets to zero — the delete path dates its reversal
  *      "today", which is right for a deletion but would leave an edited
  *      expense counted twice in its original month);
- *   2. a replacement entry at the expense's new amount and date.
+ *   2. a replacement entry at the expense's new amount, date and category.
  * Both are keyed by the id of the entry being superseded, so
  * @@unique([tenantId, sourceType, sourceId]) (G-021) gives each edit a fresh
- * key (a chain of edits never collides) and rejects two concurrent edits of the
- * same entry — the loser gets P2002 and rolls back rather than double-posting.
- * The replacement debits whatever the original debited, so a category change
- * and a suspense posting behave exactly as they did before.
+ * key (a chain of edits never collides) and rejects two edits that both try to
+ * supersede the same entry — the loser gets P2002 and rolls back rather than
+ * double-posting.
+ *
+ * The replacement debits the expense's category when it is a valid active
+ * expense account of this tenant and the entry is the plain DR one-account /
+ * CR one-account shape; otherwise it debits whatever the original debited (so a
+ * suspense posting stays on suspense until the expense gets a category).
  *
  * Self-healing and idempotent: it compares the ledger to the expense and does
  * nothing when they already agree.
@@ -245,82 +334,180 @@ async function assertPeriodOpen(client: RepostClient, tenantId: string, date: Da
 export async function repostExpenseJournalEntry(
   tenantId: string,
   expenseId: string,
-  tx: RepostClient,
+  tx: LedgerClient,
+  opts: RepostOptions = {},
 ): Promise<{ reposted: boolean; journalEntryId: string | null; reason?: string }> {
   const expense = await tx.abExpense.findFirst({ where: { id: expenseId, tenantId } });
   if (!expense?.journalEntryId) return { reposted: false, journalEntryId: null, reason: 'not booked' };
+  // A deleted expense was already reversed by DELETE; a rejected one by undo.
+  // Re-posting either would resurrect money the user removed.
+  if (expense.deletedAt) return { reposted: false, journalEntryId: expense.journalEntryId, reason: 'deleted' };
+  if (expense.status === 'rejected') return { reposted: false, journalEntryId: expense.journalEntryId, reason: 'rejected' };
 
-  const original = await tx.abJournalEntry.findFirst({
-    where: { id: expense.journalEntryId, tenantId },
-    include: { lines: true },
-  });
-  if (!original || original.lines.length === 0) {
+  const loaded = await loadEntry(tx, tenantId, expense.journalEntryId);
+  if (!loaded || loaded.lines.length === 0) {
     return { reposted: false, journalEntryId: expense.journalEntryId, reason: 'original entry has no lines' };
   }
+  const { entry: original, lines } = loaded;
+  if (sumDebits(lines) !== sumCredits(lines)) throw new ExpenseLedgerShapeError(); // corrupt original
 
-  const originalTotal = original.lines.reduce((s, l) => s + l.debitCents, 0);
-  const amountChanged = originalTotal !== expense.amountCents;
+  const debits = lines.filter((l) => l.debitCents > 0);
+  const credits = lines.filter((l) => l.creditCents > 0);
+  // Only the plain DR one-account / CR one-account entry can be re-priced or
+  // moved to another account without inventing an allocation.
+  const simple = lines.length === 2 && debits.length === 1 && credits.length === 1 && debits[0] !== credits[0];
+
+  const amountChanged = sumDebits(lines) !== expense.amountCents;
   const dateChanged = !sameUtcDay(original.date, expense.date);
-  if (!amountChanged && !dateChanged) {
-    return { reposted: false, journalEntryId: original.id, reason: 'ledger already matches' };
-  }
 
-  let newLines = original.lines.map((l) => ({
-    accountId: l.accountId,
-    debitCents: l.debitCents,
-    creditCents: l.creditCents,
-    description: l.description,
-  }));
-  if (amountChanged) {
-    // Only the plain DR one-account / CR one-account entry can be re-priced
-    // without inventing an allocation. Splits and tax-line entries would need
-    // a policy for how the delta is shared; refuse instead of guessing.
-    const debits = original.lines.filter((l) => l.debitCents > 0);
-    const credits = original.lines.filter((l) => l.creditCents > 0);
-    if (original.lines.length !== 2 || debits.length !== 1 || credits.length !== 1) {
-      throw new ExpenseLedgerShapeError();
+  let targetDebitAccountId = simple ? debits[0].accountId : null;
+  if (simple) {
+    if (expense.categoryId) {
+      if (expense.categoryId !== debits[0].accountId) {
+        // Never post to an account the tenant doesn't own or that isn't an
+        // active expense account — keep the original account instead.
+        targetDebitAccountId = (await validExpenseAccount(tx, tenantId, expense.categoryId)) ?? debits[0].accountId;
+      }
+    } else if (opts.categoryChanged) {
+      // Category cleared on a booked business expense: back to suspense, the
+      // same place the create route books an uncategorized expense.
+      targetDebitAccountId = (await suspenseAccountId(tx, tenantId)) ?? debits[0].accountId;
     }
-    newLines = newLines.map((l) => ({
-      ...l,
-      debitCents: l.debitCents > 0 ? expense.amountCents : 0,
-      creditCents: l.creditCents > 0 ? expense.amountCents : 0,
-    }));
+  }
+  const accountChanged = simple && targetDebitAccountId !== debits[0].accountId;
+
+  if (!simple && (amountChanged || opts.categoryChanged)) throw new ExpenseLedgerShapeError();
+  if (!amountChanged && !dateChanged && !accountChanged) {
+    return { reposted: false, journalEntryId: original.id, reason: 'ledger already matches' };
   }
 
   await assertPeriodOpen(tx, tenantId, original.date);
   if (dateChanged) await assertPeriodOpen(tx, tenantId, expense.date);
 
+  const newLines: LedgerLine[] = lines.map((l) => ({
+    accountId: accountChanged && l.debitCents > 0 ? (targetDebitAccountId as string) : l.accountId,
+    debitCents: amountChanged && l.debitCents > 0 ? expense.amountCents : l.debitCents,
+    creditCents: amountChanged && l.creditCents > 0 ? expense.amountCents : l.creditCents,
+    description: l.description,
+  }));
+
   const desc = expense.description || 'Expense';
-  await tx.abJournalEntry.create({
-    data: {
-      tenantId,
+  await appendBalancedEntry(
+    tx,
+    tenantId,
+    { date: original.date, memo: `AMENDED - Reverse expense: ${desc}`, sourceType: 'expense_amend_reversal', sourceId: original.id },
+    mirror(lines),
+  );
+  const replacementId = await appendBalancedEntry(
+    tx,
+    tenantId,
+    { date: expense.date, memo: `Expense (amended): ${desc}`, sourceType: 'expense_amend', sourceId: original.id },
+    newLines,
+  );
+  await tx.abExpense.update({ where: { id: expense.id }, data: { journalEntryId: replacementId } });
+  return { reposted: true, journalEntryId: replacementId };
+}
+
+/**
+ * A booked business expense was marked PERSONAL: take it off the books.
+ *
+ * Appends a mirror reversal of the current entry dated at that entry's own date
+ * (so the original month nets to zero, exactly as if it had never been
+ * business) and clears expense.journalEntryId. The reversal uses the same
+ * G-021 key a repost of that entry would use, so an un-book racing a repost of
+ * the same entry is a P2002 for the loser, never a double reversal.
+ * Call inside the edit transaction.
+ */
+export async function unbookExpenseJournalEntry(
+  tenantId: string,
+  expenseId: string,
+  tx: LedgerClient,
+): Promise<{ unbooked: boolean; reason?: string }> {
+  const expense = await tx.abExpense.findFirst({ where: { id: expenseId, tenantId } });
+  if (!expense?.journalEntryId) return { unbooked: false, reason: 'not booked' };
+  if (expense.deletedAt) return { unbooked: false, reason: 'deleted' };
+  if (expense.status === 'rejected') return { unbooked: false, reason: 'rejected' };
+
+  const loaded = await loadEntry(tx, tenantId, expense.journalEntryId);
+  if (!loaded || loaded.lines.length === 0) return { unbooked: false, reason: 'original entry has no lines' };
+  const { entry: original, lines } = loaded;
+  if (sumDebits(lines) !== sumCredits(lines)) throw new ExpenseLedgerShapeError();
+
+  await assertPeriodOpen(tx, tenantId, original.date);
+  await appendBalancedEntry(
+    tx,
+    tenantId,
+    {
       date: original.date,
-      memo: `AMENDED - Reverse expense: ${desc}`,
+      memo: `PERSONAL - Reverse expense: ${expense.description || 'Expense'}`,
       sourceType: 'expense_amend_reversal',
       sourceId: original.id,
-      verified: true,
-      lines: {
-        create: original.lines.map((l) => ({
-          tenantId, // G-009
-          accountId: l.accountId,
-          debitCents: l.creditCents,
-          creditCents: l.debitCents,
-          description: `Reverse: ${l.description || 'Expense'}`,
-        })),
-      },
     },
-  });
-  const replacement = await tx.abJournalEntry.create({
-    data: {
-      tenantId,
-      date: expense.date,
-      memo: `Expense (amended): ${desc}`,
-      sourceType: 'expense_amend',
-      sourceId: original.id,
-      verified: true,
-      lines: { create: newLines.map((l) => ({ tenantId, ...l })) }, // G-009
-    },
-  });
-  await tx.abExpense.update({ where: { id: expense.id }, data: { journalEntryId: replacement.id } });
-  return { reposted: true, journalEntryId: replacement.id };
+    mirror(lines),
+  );
+  await tx.abExpense.update({ where: { id: expense.id }, data: { journalEntryId: null } });
+  return { unbooked: true };
+}
+
+/**
+ * A CONFIRMED personal expense was marked BUSINESS: put it on the books, the
+ * way the create route would have — DR its category (a valid active expense
+ * account of this tenant) or 6999 suspense when it has none, CR cash, at the
+ * expense's amount and date.
+ *
+ * A pending_review row is left alone: unbooked drafts (receipt capture) are
+ * booked by confirm / categorize, which run their own rules.
+ *
+ * No unique source key guards this insert (the create route posts with
+ * sourceId null too). Double-posting is prevented by the caller: it UPDATEs the
+ * expense row first in the same transaction, which row-locks it, and this
+ * function re-reads journalEntryId after that lock — so a second concurrent
+ * flip waits, then sees the first one's entry and does nothing.
+ * Call inside the edit transaction.
+ */
+export async function bookExpenseJournalEntry(
+  tenantId: string,
+  expenseId: string,
+  tx: LedgerClient,
+): Promise<{ booked: boolean; journalEntryId: string | null; reason?: string }> {
+  const expense = await tx.abExpense.findFirst({ where: { id: expenseId, tenantId } });
+  if (!expense) return { booked: false, journalEntryId: null, reason: 'not found' };
+  if (expense.journalEntryId) return { booked: false, journalEntryId: expense.journalEntryId, reason: 'already booked' };
+  if (expense.deletedAt || expense.isPersonal) return { booked: false, journalEntryId: null, reason: 'not bookable' };
+  if (expense.status !== 'confirmed') return { booked: false, journalEntryId: null, reason: 'pending review' };
+
+  const debitAccountId =
+    (expense.categoryId ? await validExpenseAccount(tx, tenantId, expense.categoryId) : null) ??
+    (await suspenseAccountId(tx, tenantId));
+  const cash = await tx.abAccount.findFirst({ where: { tenantId, code: CASH_CODE }, select: { id: true } });
+  if (!debitAccountId || !cash) {
+    // The caller seeds both before the transaction; reaching here means seeding
+    // failed. Fail the edit rather than mark it business while leaving it off the books.
+    throw new Error('Cannot book this expense: the chart of accounts is missing its cash or suspense account');
+  }
+
+  await assertPeriodOpen(tx, tenantId, expense.date);
+  const desc = expense.description || 'Expense';
+  const journalEntryId = await appendBalancedEntry(
+    tx,
+    tenantId,
+    { date: expense.date, memo: `Expense: ${desc}`, sourceType: 'expense', sourceId: null },
+    [
+      { accountId: debitAccountId, debitCents: expense.amountCents, creditCents: 0, description: desc },
+      { accountId: cash.id, debitCents: 0, creditCents: expense.amountCents, description: 'Payment' },
+    ],
+  );
+  await tx.abExpense.update({ where: { id: expense.id }, data: { journalEntryId } });
+  return { booked: true, journalEntryId };
+}
+
+/**
+ * Seed what bookExpenseJournalEntry / a cleared category may need (cash 1000 and
+ * suspense 6999), OUTSIDE the edit transaction — both seeders run their own
+ * upserts, as in the create route. Idempotent.
+ */
+export async function ensureExpenseBookingAccounts(tenantId: string): Promise<void> {
+  const cash = await db.abAccount.findFirst({ where: { tenantId, code: CASH_CODE }, select: { id: true } });
+  if (!cash) await ensureChartOfAccounts(tenantId);
+  await ensureUncategorizedAccount(tenantId);
 }

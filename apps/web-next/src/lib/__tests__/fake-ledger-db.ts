@@ -13,6 +13,9 @@ function matches(row: Row, where: Row = {}): boolean {
   return Object.entries(where).every(([k, v]) => {
     if (v === undefined) return true;
     if (v instanceof Date) return row[k] instanceof Date && row[k].getTime() === v.getTime();
+    // Operators / relation filters are not modelled: fail loudly rather than
+    // silently evaluate `row[k] === { in: [...] }` as false.
+    if (v !== null && typeof v === 'object') throw new Error(`fake-ledger-db: unsupported filter on ${k}`);
     return row[k] === v;
   });
 }
@@ -23,6 +26,18 @@ export function createFakeLedgerDb() {
     entries: [] as Row[],
     lines: [] as Row[],
     periods: [] as Row[],
+    vendors: [] as Row[],
+    // Chart of accounts the helpers validate against (tenant, type, active).
+    accounts: [
+      { id: 'acct-cash', tenantId: 't1', code: '1000', accountType: 'asset', isActive: true },
+      { id: 'acct-meals', tenantId: 't1', code: '5200', accountType: 'expense', isActive: true },
+      { id: 'acct-travel', tenantId: 't1', code: '5300', accountType: 'expense', isActive: true },
+      { id: 'acct-tax', tenantId: 't1', code: '2200', accountType: 'liability', isActive: true },
+      { id: 'acct-old', tenantId: 't1', code: '5400', accountType: 'expense', isActive: false },
+      { id: 'acct-revenue', tenantId: 't1', code: '4000', accountType: 'revenue', isActive: true },
+      { id: 'acct-suspense', tenantId: 't1', code: '6999', accountType: 'expense', isActive: true },
+      { id: 'acct-t2-meals', tenantId: 't2', code: '5200', accountType: 'expense', isActive: true },
+    ] as Row[],
     seq: 0,
   };
   const nextId = (p: string) => `${p}-${++state.seq}`;
@@ -41,6 +56,11 @@ export function createFakeLedgerDb() {
         if (!r) throw Object.assign(new Error('not found'), { code: 'P2025' });
         Object.assign(r, data);
         return { ...r };
+      },
+      updateMany: async ({ where, data }: Row) => {
+        const rows = state.expenses.filter((e) => matches(e, where));
+        for (const r of rows) Object.assign(r, data);
+        return { count: rows.length };
       },
     },
     abJournalEntry: {
@@ -68,6 +88,12 @@ export function createFakeLedgerDb() {
     },
     abJournalLine: {
       findMany: async ({ where }: Row = {}) => state.lines.filter((l) => matches(l, where)).map((l) => ({ ...l })),
+      create: async ({ data }: Row) => {
+        if (!state.entries.some((e) => e.id === data.entryId)) throw new Error('FK: entry not found');
+        const line = { id: nextId('jl'), ...data };
+        state.lines.push(line);
+        return { ...line };
+      },
       update: async ({ where, data }: Row) => {
         const l = state.lines.find((x) => matches(x, where));
         if (!l) throw new Error('line not found');
@@ -82,7 +108,27 @@ export function createFakeLedgerDb() {
       },
     },
     abAccount: {
-      findFirst: async () => ({ id: 'acct-cash' }),
+      findFirst: async ({ where }: Row = {}) => {
+        const r = state.accounts.find((a) => matches(a, where));
+        return r ? { ...r } : null;
+      },
+    },
+    abVendor: {
+      findFirst: async ({ where }: Row = {}) => {
+        const r = state.vendors.find((v) => matches(v, where));
+        return r ? { ...r } : null;
+      },
+      upsert: async ({ where, create, update }: Row) => {
+        const k = where.tenantId_normalizedName;
+        const r = state.vendors.find((v) => v.tenantId === k.tenantId && v.normalizedName === k.normalizedName);
+        if (r) {
+          Object.assign(r, update);
+          return { ...r };
+        }
+        const row = { id: nextId('v'), ...create };
+        state.vendors.push(row);
+        return { ...row };
+      },
     },
     $transaction: async (fn: (tx: Row) => Promise<unknown>) => {
       const copy = (rows: Row[]) => rows.map((r) => ({ ...r }));
@@ -90,6 +136,7 @@ export function createFakeLedgerDb() {
         expenses: copy(state.expenses),
         entries: copy(state.entries),
         lines: copy(state.lines),
+        vendors: copy(state.vendors),
         seq: state.seq,
       };
       try {
@@ -98,6 +145,7 @@ export function createFakeLedgerDb() {
         state.expenses = saved.expenses;
         state.entries = saved.entries;
         state.lines = saved.lines;
+        state.vendors = saved.vendors;
         state.seq = saved.seq;
         throw err;
       }
