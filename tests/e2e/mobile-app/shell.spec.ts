@@ -12,6 +12,7 @@ import {
   measureShell,
   IPHONE_INSETS,
   MOBILE_VIEWPORT,
+  neverCachePaths,
   type ScreenRoute,
 } from './helpers';
 
@@ -57,18 +58,44 @@ test.describe('@mobile-shell', () => {
 
     test('maya: badges match the live home data', async ({ page }) => {
       await loginAs(page, 'maya');
+      // Registered BEFORE navigating: the shell's own /mobile/home request is the one
+      // whose data the badges must reflect, so the expectation is computed from IT
+      // (not from a second fetch that could see different ledger state).
+      const homeResponse = page.waitForResponse(
+        (r) => new URL(r.url()).pathname === '/api/v1/agentbook-core/mobile/home' && r.request().method() === 'GET',
+        { timeout: 30_000 },
+      );
       await page.goto('/app');
+      const home = (await (await homeResponse).json()).data as {
+        alerts: Array<{ severity: string; kind: string; params?: { count?: number } }>;
+      };
+      // The response arriving is not the shell having USED it. The shell writes the
+      // snapshot, then re-reads it to set the badges; wait for the snapshot, then two
+      // frames for React to commit — only then is "no badge" a meaningful observation
+      // (an absence assertion on a not-yet-updated tab bar passes trivially).
+      await page.waitForFunction(() => window.localStorage.getItem('ab:mobile:home') !== null, undefined, { timeout: 15_000 });
+      await page.evaluate(() => new Promise<void>((res) => requestAnimationFrame(() => requestAnimationFrame(() => res()))));
       await settle(page);
       const t = catalogT((await pageLocales(page)).stringLocale);
-      const home = await page.evaluate(async () => (await (await fetch('/api/v1/agentbook-core/mobile/home')).json()).data);
-      const critical = (home.alerts as Array<{ severity: string }>).some((a) => a.severity === 'critical');
-      const review = (home.alerts as Array<{ kind: string; params: { count?: number } }>).find((a) => a.kind === 'review_needed');
+
+      const critical = home.alerts.some((a) => a.severity === 'critical');
+      const reviewCount = Number(home.alerts.find((a) => a.kind === 'review_needed')?.params?.count ?? 0);
+      // Say which branch ran. The seeded persona's data decides it; we never skip the zero
+      // branch. The POSITIVE branches (a critical alert, a review count) are covered by the
+      // PR 3 e2e (Home alerts) and the badge unit tests, which control the data.
+      test.info().annotations.push(
+        { type: 'home-dot', description: critical ? 'positive: a critical alert exists, dot expected' : 'zero: no critical alert, no dot expected' },
+        { type: 'docs-count', description: reviewCount > 0 ? `positive: ${reviewCount} to review, badge expected` : 'zero: nothing to review, no badge expected' },
+      );
+
       const nav = tabNav(page, t);
-      await expect(nav.locator('a[data-tab="/app"] [data-badge="home-dot"]')).toHaveCount(critical ? 1 : 0);
-      if (review && Number(review.params.count) > 0) {
-        await expect(nav.locator('a[data-tab="/app/docs"] [data-badge="docs-count"]')).toHaveText(String(review.params.count));
+      const dot = nav.locator('a[data-tab="/app"] [data-badge="home-dot"]');
+      const count = nav.locator('a[data-tab="/app/docs"] [data-badge="docs-count"]');
+      await expect(dot).toHaveCount(critical ? 1 : 0, { timeout: 10_000 });
+      if (reviewCount > 0) {
+        await expect(count).toHaveText(reviewCount > 99 ? '99+' : String(reviewCount), { timeout: 10_000 });
       } else {
-        await expect(nav.locator('a[data-tab="/app/docs"] [data-badge="docs-count"]')).toHaveCount(0);
+        await expect(count).toHaveCount(0, { timeout: 10_000 });
       }
     });
 
@@ -160,8 +187,14 @@ test.describe('@mobile-shell', () => {
     const sizes = (m.icons ?? []).map((i: { sizes: string }) => i.sizes);
     expect(sizes).toEqual(expect.arrayContaining(['192x192', '512x512']));
     const sw = await (await page.request.get('/sw.js')).text();
-    expect(sw).toContain("'/api/v1/agentbook-core/mobile/home'");
-    expect(sw).toContain("'/api/v1/agentbook-core/calendar/upcoming'");
+    // Inside the NEVER_CACHE_PATHS array itself: a path that is only mentioned in a comment
+    // or in some other rule would not keep the live endpoints out of the cache.
+    const never = neverCachePaths(sw);
+    expect(never, 'sw.js declares NEVER_CACHE_PATHS').not.toBeNull();
+    expect(never).toEqual(expect.arrayContaining([
+      '/api/v1/agentbook-core/mobile/home',
+      '/api/v1/agentbook-core/calendar/upcoming',
+    ]));
     expect(sw).toContain("agentbook-static-v6");
     expect(sw).toMatch(/data\?\.url \|\| '\/app'/);
   });

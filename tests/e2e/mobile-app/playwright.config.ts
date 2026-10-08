@@ -29,7 +29,15 @@ export default defineConfig({
     deviceScaleFactor: 3,
     userAgent: devices['iPhone 13'].userAgent,
     serviceWorkers: 'block',
-    trace: 'retain-on-failure',
+    // NEVER enable trace, video or HAR for this suite. These journeys type a
+    // password (page.fill) and POST it (the fresh-account register body and the
+    // login form); a Playwright trace records fill values and request bodies,
+    // the html reporter embeds traces, and so a failing run would persist real
+    // credentials into trace.zip / playwright-report. Screenshots are safe: the
+    // password input is masked. Diagnose failures from the error message, the
+    // screenshot and the console, not from a trace.
+    trace: 'off',
+    video: 'off',
     screenshot: 'only-on-failure',
     actionTimeout: 15_000,
     navigationTimeout: 30_000,

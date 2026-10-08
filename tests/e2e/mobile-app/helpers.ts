@@ -1,6 +1,7 @@
 import { expect, type BrowserContext, type Locator, type Page } from '@playwright/test';
 import { readdirSync, readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
+import { randomBytes } from 'node:crypto';
 import { formatCurrencyCents } from '../../../apps/web-next/src/lib/jurisdiction-currency';
 
 export const MOBILE_VIEWPORT = { width: 390, height: 844 };
@@ -16,8 +17,19 @@ export const PERSONAS: Record<Exclude<Persona, 'fresh'>, { email: string; curren
 /** The seeded personas' shared password (seed-users.ts); override for another environment. */
 const PERSONA_PASSWORD = process.env.E2E_PERSONA_PASSWORD || 'agentbook123';
 
-function randomTag(): string {
-  return Math.random().toString(36).slice(2, 10);
+/** CSPRNG-backed, lowercase-hex tag for throwaway addresses (never Math.random). */
+export function randomTag(bytes = 5): string {
+  return randomBytes(bytes).toString('hex');
+}
+
+/** A throwaway account's password: 12 CSPRNG bytes, base64url (16 chars, URL-safe), plus a policy-satisfying suffix. */
+export function randomPassword(): string {
+  return `${randomBytes(12).toString('base64url')}-Aa1!`;
+}
+
+/** The throwaway address for a 'fresh' persona. */
+export function freshEmail(now: number = Date.now()): string {
+  return `e2e-mobile-fresh-${now}-${randomTag()}@agentbook.test`;
 }
 
 /** Hosts that are a developer's own machine — they have no seeded personas. */
@@ -49,8 +61,8 @@ export async function loginAs(page: Page, persona: Persona): Promise<{ email: st
   let email: string;
   let password: string;
   if (persona === 'fresh') {
-    email = `e2e-mobile-fresh-${Date.now()}-${randomTag()}@agentbook.test`;
-    password = `E2e-${randomTag()}-${randomTag()}!`;
+    email = freshEmail();
+    password = randomPassword();
     await page.goto('/login');
     const reg = await page.evaluate(
       async ({ email: e, password: p }) => {
@@ -59,11 +71,12 @@ export async function loginAs(page: Page, persona: Persona): Promise<{ email: st
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify({ email: e, password: p, displayName: 'E2E Mobile Fresh', ageConfirmed: true }),
         });
-        return { status: r.status, body: await r.text() };
+        return { status: r.status };
       },
       { email, password },
     );
-    expect(reg.status, `register fresh account: ${reg.body}`).toBeLessThan(300);
+    // Status only: a response body is never logged, so nothing credential-adjacent reaches a report.
+    expect(reg.status, 'register fresh account').toBeLessThan(300);
   } else {
     email = PERSONAS[persona].email;
     password = PERSONA_PASSWORD;
@@ -261,4 +274,20 @@ export async function measureShell(page: Page): Promise<ShellGeometry> {
       docOverflow: (document.scrollingElement?.scrollHeight ?? 0) - window.innerHeight,
     };
   });
+}
+
+/**
+ * The string literals inside `const NEVER_CACHE_PATHS = [ ... ]` of a service-worker
+ * source, with comments removed first — so a path that is only MENTIONED in a comment
+ * (or elsewhere in the file) is not counted. Returns null when the array is absent.
+ */
+export function neverCachePaths(swSource: string): string[] | null {
+  const m = /NEVER_CACHE_PATHS\s*=\s*\[([^\]]*)\]/.exec(stripJsComments(swSource));
+  if (!m) return null;
+  return Array.from(m[1].matchAll(/(['"`])((?:(?!\1).)*)\1/g), (x) => x[2]);
+}
+
+/** Remove block comments and whole-line / trailing `//` comments (a `//` glued to a token, as in a URL, is kept). */
+export function stripJsComments(src: string): string {
+  return src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|\s)\/\/.*$/gm, '$1');
 }
