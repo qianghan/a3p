@@ -77,6 +77,15 @@ async function showAlert(page: Page, t: ReturnType<typeof catalogT>, total: numb
   return page.getByTestId('alert-carousel');
 }
 
+/** "invoice_overdue+action, review_needed→/app/docs" — what a persona's banner could exercise. */
+function describeKinds(alerts: MobileAlert[]): string {
+  if (alerts.length === 0) return 'none';
+  return alerts
+    .slice(0, MAX_ALERTS)
+    .map((a) => `${a.kind}${a.action ? '+action' : a.target ? `→${a.target.route}` : ''}`)
+    .join(', ');
+}
+
 const KPIS = [
   ['month_net', 'monthNetCents'],
   ['cash', 'cashTodayCents'],
@@ -194,10 +203,14 @@ test.describe('@mobile-home', () => {
       });
 
       test('every banner action is present and every banner link lands on a working /app screen', async ({ page }) => {
+        // Up to 5 × (goto + settle's 2 s + screen render + the 1.5 s no-auto-send window) against production.
+        test.setTimeout(180_000);
         await loginAs(page, persona);
         const first = await openHome(page);
         const count = first.home.alerts.slice(0, MAX_ALERTS).length;
-        test.skip(count === 0, `${persona} has no Home alerts on this deployment (the matrix test at the end requires at least one persona to have them)`);
+        // Which branches this persona really had, so a green run says what it covered.
+        test.info().annotations.push({ type: 'alert-kinds', description: describeKinds(first.home.alerts) });
+        test.skip(count === 0, `${persona} has no Home alerts on this deployment (the collective gate test at the end FAILS if no persona has an overdue-invoice-with-action alert or a target-link alert)`);
 
         for (let i = 0; i < count; i++) {
           // A fresh load per alert: nothing carries over from the previous screen, and the expectation is
@@ -238,9 +251,27 @@ test.describe('@mobile-home', () => {
               expect(new URL(page.url()).searchParams.get(k), `query ${k}`).toBe(v);
             }
             await expectScreen(page, alert.target!.route, t);
+            let composerValue: string | null = null;
+            if (alert.target!.route === '/app/chat') {
+              const composer = page.locator('#mobile-main').locator('textarea, input[type="text"], input:not([type]), [role="textbox"]').first();
+              await expect(composer, 'chat has a text input').toBeVisible();
+              composerValue = await composer.inputValue();
+            }
             await page.waitForTimeout(1_500); // an auto-send would fire shortly after the screen mounts
             page.off('request', onRequest);
             expect(sent, `${alert.kind}: landing on ${alert.target!.route} must not send a chat message`).toEqual([]);
+            if (alert.target!.route === '/app/chat') {
+              // The topic is a PREFILL: whatever the composer was given is still sitting there, unsent.
+              // The chat does not read ?topic= yet (PR 6 Task 6.9 builds the prefill, and there is no catalog
+              // string for it to compare with), so today the composer is empty; when 6.9 lands it must replace
+              // this annotation with an exact assertion of the topic's catalog question.
+              const composer = page.locator('#mobile-main').locator('textarea, input[type="text"], input:not([type]), [role="textbox"]').first();
+              expect(await composer.inputValue(), `${alert.kind}: a prefill must still be in the composer, not consumed by a send`).toBe(composerValue);
+              test.info().annotations.push({
+                type: 'chat-prefill',
+                description: composerValue ? `${alert.kind}: composer prefilled (${composerValue.length} chars), unsent` : `${alert.kind}: composer empty (prefill is PR 6 Task 6.9), nothing sent`,
+              });
+            }
           }
         }
       });
@@ -327,61 +358,92 @@ test.describe('@mobile-home', () => {
     await expect(page.getByTestId('home-error')).toHaveCount(0);
   });
 
-  test('Remind on ONE overdue invoice: "Reminded" at once, the toast only after the POST, never "sent"', async ({ page }) => {
-    // The remind route only LOGS the reminder (delivered:false, email deferred) and bumps lastRemindedAt,
-    // so it is harmless to repeat; still, exactly one click on one alert per run, and none at all when no
-    // seeded persona has an overdue invoice.
-    let chosen: { persona: 'maya' | 'alex' | 'sydney'; ctx: Awaited<ReturnType<typeof openHome>>; index: number } | null = null;
-    for (const persona of ['maya', 'alex', 'sydney'] as const) {
-      await page.context().clearCookies();
-      await loginAs(page, persona);
-      const ctx = await openHome(page);
-      const shown = ctx.home.alerts.slice(0, MAX_ALERTS);
-      const index = shown.findIndex((a) => a.kind === 'invoice_overdue' && a.action);
-      if (index !== -1) {
-        chosen = { persona, ctx, index };
-        break;
+  // Its own describe so retries can be switched off for it alone: the config's `retries: 1` would otherwise
+  // re-run a failure that happened AFTER the click and send a second real POST (a second logged reminder on
+  // a seeded invoice). One click per run means one attempt.
+  test.describe('remind', () => {
+    test.describe.configure({ retries: 0 });
+
+    test('Remind on ONE overdue invoice: "Reminded" at once, the toast only after the POST resolves', async ({ page }) => {
+      // The remind route only LOGS the reminder (delivered:false, email deferred) and bumps lastRemindedAt,
+      // so it is harmless to repeat; still, exactly one click on one alert per run, and none at all when no
+      // seeded persona has an overdue invoice (the collective gate test then fails the run instead).
+      let chosen: { persona: 'maya' | 'alex' | 'sydney'; ctx: Awaited<ReturnType<typeof openHome>>; index: number } | null = null;
+      for (const persona of ['maya', 'alex', 'sydney'] as const) {
+        await page.context().clearCookies();
+        await loginAs(page, persona);
+        const ctx = await openHome(page);
+        const shown = ctx.home.alerts.slice(0, MAX_ALERTS);
+        const index = shown.findIndex((a) => a.kind === 'invoice_overdue' && a.action);
+        if (index !== -1) {
+          chosen = { persona, ctx, index };
+          break;
+        }
       }
-    }
-    test.skip(chosen === null, 'no seeded persona has an overdue-invoice alert on this deployment: nothing to remind (and nothing is invented)');
-    const { persona, ctx, index } = chosen!;
-    const { t, home, fmt } = ctx;
-    const shown = home.alerts.slice(0, MAX_ALERTS);
-    const alert = shown[index];
-    test.info().annotations.push({ type: 'remind-persona', description: persona });
+      test.skip(chosen === null, 'no seeded persona has an overdue-invoice alert on this deployment: nothing to remind (the collective gate test fails this run)');
+      const { persona, ctx, index } = chosen!;
+      const { t, home, fmt } = ctx;
+      const shown = home.alerts.slice(0, MAX_ALERTS);
+      const alert = shown[index];
+      const endpoint = alert.action!.endpoint;
+      test.info().annotations.push({ type: 'remind-persona', description: persona });
 
-    await expect(page.getByRole('region', { name: t('mobile.home.kpi.region') })).toBeVisible();
-    const carousel = await showAlert(page, t, shown.length, index);
-    await expect(carousel).toContainText(alertCopy(alert, t, fmt).title);
-    const button = carousel.locator('[data-alert-action="post"]');
-    expect(alert.action!.labelKey).toBe('mobile.alerts.action_remind');
-    await expect(button).toHaveText(t(alert.action!.labelKey));
+      await expect(page.getByRole('region', { name: t('mobile.home.kpi.region') })).toBeVisible();
+      const carousel = await showAlert(page, t, shown.length, index);
+      await expect(carousel).toContainText(alertCopy(alert, t, fmt).title);
+      const button = carousel.locator('[data-alert-action="post"]');
+      expect(alert.action!.labelKey).toBe('mobile.alerts.action_remind');
+      await expect(button).toHaveText(t(alert.action!.labelKey));
 
-    const posts: string[] = [];
-    page.on('request', (r) => {
-      if (r.method() === 'POST' && new URL(r.url()).pathname === alert.action!.endpoint) posts.push(r.url());
+      const isRemind = (r: { method(): string; url(): string }) => r.method() === 'POST' && new URL(r.url()).pathname === endpoint;
+      const posts: string[] = [];
+      page.on('request', (r) => {
+        if (isRemind(r)) posts.push(r.url());
+      });
+      // Hold the POST in flight: this is the window in which the toast must NOT exist yet. (route.continue
+      // sends the real request once released: it is the run's one reminder.)
+      let release!: () => void;
+      const gate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      let held = false;
+      await page.route((u) => u.pathname === endpoint, async (route) => {
+        if (route.request().method() !== 'POST') return route.continue();
+        held = true;
+        await gate;
+        await route.continue();
+      });
+      // Registered BEFORE the click so a fast response cannot be missed.
+      const posted = page.waitForResponse((r) => isRemind(r.request()), { timeout: 60_000 });
+      const toast = page.getByRole('status', { name: t('mobile.kit.notifications') });
+      const logged = t('mobile.home.toast.reminder_logged');
+
+      await button.click();
+      // Optimistic: the button is already the "Reminded" state, and inert, while the POST is still held.
+      await expect(button).toHaveText(t('mobile.home.action.reminded'));
+      await expect(button).toHaveAttribute('aria-disabled', 'true');
+      await expect.poll(() => held, { message: 'the remind POST reached the network layer', timeout: 10_000 }).toBe(true);
+      // Sampled, not `expect(...).not.toContainText`: that matcher RETRIES until the text is gone, and a toast
+      // that fired early disappears after 3.5 s, so it would pass against exactly the bug it guards.
+      for (let i = 0; i < 6; i++) {
+        expect(await toast.textContent(), `no toast of any kind while the POST is pending (sample ${i})`).toBe('');
+        await page.waitForTimeout(200);
+      }
+
+      release();
+      const res = await posted;
+      expect(res.status(), 'remind POST').toBe(200);
+      expect(((await res.json()) as { data?: { delivered?: boolean } }).data?.delivered, 'the reminder is logged, not emailed').toBe(false);
+      // Only now — the server has answered — the toast says so, and says exactly the true thing in the page's locale
+      // (not "sent": an equality on the real localized string, which holds in French and Chinese too).
+      await expect(toast).toHaveText(logged);
+      await expect(button).toHaveText(t('mobile.home.action.reminded'));
+
+      // A second tap on the settled button does nothing (force: Playwright will not click an aria-disabled control).
+      await button.click({ force: true });
+      await page.waitForTimeout(500);
+      expect(posts, 'one tap = one POST').toHaveLength(1);
     });
-    // Registered BEFORE the click so a fast response cannot be missed.
-    const posted = page.waitForResponse((r) => r.request().method() === 'POST' && new URL(r.url()).pathname === alert.action!.endpoint, { timeout: 30_000 });
-    const toast = page.getByRole('status', { name: t('mobile.kit.notifications') });
-
-    await button.click();
-    // Optimistic: the button is already the "Reminded" state, and inert.
-    await expect(button).toHaveText(t('mobile.home.action.reminded'));
-    await expect(button).toHaveAttribute('aria-disabled', 'true');
-
-    const res = await posted;
-    expect(res.status(), 'remind POST').toBe(200);
-    expect(((await res.json()) as { data?: { delivered?: boolean } }).data?.delivered, 'the reminder is logged, not emailed').toBe(false);
-    // Only now — the server has answered — the toast may say it is done, in the words that are true.
-    await expect(toast).toContainText(t('mobile.home.toast.reminder_logged'));
-    await expect(toast).not.toContainText(/sent/i);
-    await expect(button).toHaveText(t('mobile.home.action.reminded'));
-
-    // A second tap on the settled button does nothing (force: Playwright will not click an aria-disabled control).
-    await button.click({ force: true });
-    await page.waitForTimeout(500);
-    expect(posts, 'one tap = one POST').toHaveLength(1);
   });
 
   test('maya offline: keeps the last numbers and says how old they are', async ({ page, context }) => {
@@ -480,19 +542,35 @@ test.describe('@mobile-home', () => {
     }
   });
 
-  test('the persona matrix exercised at least one banner', async ({ page }) => {
-    // The per-persona action test skips a persona with no alerts. This makes sure the matrix as a
-    // whole verified something: an all-skipped run is not a pass.
-    let total = 0;
+  // The per-persona journeys skip cleanly when a persona lacks an alert kind (alerts are live data). This
+  // test is the collective gate: across maya/alex/sydney the two branches those journeys exist to exercise
+  // must each have been available, or the run FAILS naming the missing branch — the seeds create overdue
+  // invoices and open work, so a missing one is a data/seed regression, not a reason to go green having
+  // verified nothing. (It sits last in the file; workers: 1 runs files' tests in order, but it does not
+  // depend on the others — it reads each persona's /mobile/home itself.)
+  test('collective gate: the persona matrix has an overdue-invoice Remind alert and a target-link alert to exercise', async ({ page }) => {
     const per: string[] = [];
+    let remind = 0;
+    let link = 0;
+    let chatLink = 0;
     for (const persona of ['maya', 'alex', 'sydney'] as const) {
       await page.context().clearCookies();
       await loginAs(page, persona);
-      const n = (await openHome(page)).home.alerts.length;
-      per.push(`${persona}=${n}`);
-      total += n;
+      const { home } = await openHome(page);
+      const shown = home.alerts.slice(0, MAX_ALERTS); // only these render, so only these can be exercised
+      per.push(`${persona}: ${describeKinds(shown)}`);
+      remind += shown.filter((a) => a.kind === 'invoice_overdue' && a.action).length;
+      link += shown.filter((a) => !a.action && a.target && /^\/app(\/|$)/.test(a.target.route)).length;
+      chatLink += shown.filter((a) => !a.action && a.target?.route === '/app/chat').length;
     }
-    test.info().annotations.push({ type: 'alerts-per-persona', description: per.join(' ') });
-    expect(total, `no seeded persona has a Home alert (${per.join(', ')}): the banner journeys verified nothing`).toBeGreaterThan(0);
+    test.info().annotations.push(
+      { type: 'alert-kinds-per-persona', description: per.join(' | ') },
+      { type: 'remind-alerts', description: String(remind) },
+      { type: 'link-alerts', description: `${link} (of which chat: ${chatLink}${chatLink === 0 ? ' — the chat no-auto-send branch was NOT exercised' : ''})` },
+    );
+    const missing: string[] = [];
+    if (remind === 0) missing.push('no persona has an invoice_overdue alert WITH an action: the Remind journey (optimistic state, held POST, toast after the answer) was never exercised');
+    if (link === 0) missing.push('no persona has an alert with a mobile target link: the banner-link landing / chat-no-auto-send journey was never exercised');
+    expect(missing, `uncovered branches (${per.join(' | ')})`).toEqual([]);
   });
 });
