@@ -72,7 +72,9 @@ export async function categorizeExpense(
     return { ok: false, status: 400, error: 'categoryId is required' };
   }
 
-  const expense = await db.abExpense.findFirst({ where: { id: expenseId, tenantId } });
+  // Soft-deleted rows are 404: categorizing one would re-book / reclassify an
+  // expense DELETE already took off the books.
+  const expense = await db.abExpense.findFirst({ where: { id: expenseId, tenantId, deletedAt: null } });
   if (!expense) {
     return { ok: false, status: 404, error: 'Expense not found' };
   }
