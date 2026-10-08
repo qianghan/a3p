@@ -3,16 +3,15 @@
  * blocked site data and full quotas all throw from the accessor itself; every
  * caller here stores a convenience (view mode, recents, nav list), so the
  * right failure is "behave as if nothing was stored".
+ *
+ * Every access goes through the try blocks in readJson / writeJson / removeJson
+ * (including the window.localStorage accessor), so there is no separate guard.
  */
 type Area = 'local' | 'session';
 
 function area(a: Area): Storage | null {
-  try {
-    if (typeof window === 'undefined') return null;
-    return a === 'local' ? window.localStorage : window.sessionStorage;
-  } catch {
-    return null;
-  }
+  if (typeof window === 'undefined') return null;
+  return a === 'local' ? window.localStorage : window.sessionStorage;
 }
 
 export function readJson<T>(a: Area, key: string, fallback: T): T {
@@ -24,10 +23,22 @@ export function readJson<T>(a: Area, key: string, fallback: T): T {
   }
 }
 
-export function writeJson(a: Area, key: string, value: unknown): void {
+/** Returns false when the value could not be stored (storage unavailable or full). */
+export function writeJson(a: Area, key: string, value: unknown): boolean {
   try {
-    area(a)?.setItem(key, JSON.stringify(value));
+    const store = area(a);
+    if (!store) return false;
+    store.setItem(key, JSON.stringify(value));
+    return true;
   } catch {
-    /* storage unavailable or full — the value is a convenience only */
+    return false; // storage unavailable or full — the value is a convenience only
+  }
+}
+
+export function removeJson(a: Area, key: string): void {
+  try {
+    area(a)?.removeItem(key);
+  } catch {
+    /* nothing to remove */
   }
 }

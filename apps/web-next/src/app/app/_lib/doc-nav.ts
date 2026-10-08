@@ -1,5 +1,5 @@
 import type { DocFilter } from '@/lib/mobile/types';
-import { readJson, writeJson } from './safe-storage';
+import { readJson, removeJson, writeJson } from './safe-storage';
 
 export const DOC_FILTERS: readonly DocFilter[] = ['needs-review', 'no-category', 'no-receipt', 'all', 'archived'];
 const NAV_KEY = 'ab:mobile:docs:nav';
@@ -12,7 +12,9 @@ export function parseDocFilter(raw: string | null | undefined): DocFilter {
 
 /** The ids the list showed, in order — so the viewer's prev/next walks the SAME filtered list. */
 export function saveDocNav(nav: DocNav): void {
-  writeJson('session', NAV_KEY, nav);
+  // If the write fails (quota, blocked storage) the previous entry would survive
+  // and prev/next would walk a stale filter's list — so drop it instead.
+  if (!writeJson('session', NAV_KEY, nav)) removeJson('session', NAV_KEY);
 }
 
 export function readDocNav(): DocNav | null {

@@ -37,6 +37,8 @@ export function isPdfUrl(url: string | null | undefined): boolean {
 
 /** The value an amount <input> starts with: locale decimal separator, never grouping (so it re-parses). */
 export function formatAmountInput(cents: number, locale: string): string {
+  // NaN / Infinity / undefined would render as "NaN" / "∞" in the input.
+  if (typeof cents !== 'number' || !Number.isFinite(cents)) return '';
   try {
     return new Intl.NumberFormat(locale, { minimumFractionDigits: 2, maximumFractionDigits: 2, useGrouping: false }).format(cents / 100);
   } catch {

@@ -1,4 +1,6 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { createElement } from 'react';
+import { renderToString } from 'react-dom/server';
 import { renderHook, act } from '@testing-library/react';
 import { readJson, writeJson } from '@/app/app/_lib/safe-storage';
 import { useDebouncedValue } from '@/app/app/_lib/useDebouncedValue';
@@ -41,19 +43,71 @@ describe('useDebouncedValue', () => {
   });
 });
 
+describe('useDebouncedValue cleanup', () => {
+  afterEach(() => { vi.useRealTimers(); });
+
+  it('a superseded value never publishes (stale timer is cleared on replace)', () => {
+    vi.useFakeTimers();
+    const seen: string[] = [];
+    const { rerender } = renderHook(({ v }) => { const d = useDebouncedValue(v, 300); seen.push(d); return d; }, { initialProps: { v: 'a' } });
+    rerender({ v: 'ab' });
+    act(() => { vi.advanceTimersByTime(200); });
+    rerender({ v: 'abc' });
+    // 'ab' would have fired at t=300 had its timer not been cleared; at t=400 only 'abc' (due t=500) is pending.
+    act(() => { vi.advanceTimersByTime(200); });
+    expect(seen).not.toContain('ab');
+    act(() => { vi.advanceTimersByTime(100); });
+    expect(seen[seen.length - 1]).toBe('abc');
+  });
+
+  it('clears the pending timer on unmount', () => {
+    vi.useFakeTimers();
+    const { rerender, unmount } = renderHook(({ v }) => useDebouncedValue(v, 300), { initialProps: { v: 'a' } });
+    rerender({ v: 'ab' });
+    expect(vi.getTimerCount()).toBe(1);
+    unmount();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+});
+
 describe('useOnlineStatus', () => {
+  function setOnLine(v: boolean) {
+    Object.defineProperty(navigator, 'onLine', { configurable: true, get: () => v });
+  }
+  afterEach(() => { delete (navigator as { onLine?: boolean }).onLine; });
+
   it('tracks online/offline events', () => {
     const { result } = renderHook(() => useOnlineStatus());
     expect(result.current).toBe(true);
-    act(() => { window.dispatchEvent(new Event('offline')); });
+    act(() => { setOnLine(false); window.dispatchEvent(new Event('offline')); });
     expect(result.current).toBe(false);
-    act(() => { window.dispatchEvent(new Event('online')); });
+    act(() => { setOnLine(true); window.dispatchEvent(new Event('online')); });
     expect(result.current).toBe(true);
+  });
+
+  it('removes both listeners on unmount', () => {
+    const add = vi.spyOn(window, 'addEventListener');
+    const remove = vi.spyOn(window, 'removeEventListener');
+    const { unmount } = renderHook(() => useOnlineStatus());
+    const added = add.mock.calls.filter(([t]) => t === 'online' || t === 'offline');
+    expect(added.map(([t]) => t).sort()).toEqual(['offline', 'online']);
+    unmount();
+    for (const [type, handler] of added) {
+      expect(remove).toHaveBeenCalledWith(type, handler);
+    }
+  });
+
+  it('server snapshot is online, so a client that hydrates offline re-renders', () => {
+    setOnLine(false);
+    const html = renderToString(createElement(() => String(useOnlineStatus())));
+    expect(html).toBe('true');
+    const { result } = renderHook(() => useOnlineStatus());
+    expect(result.current).toBe(false);
   });
 });
 
 describe('format', () => {
-  it('formats a date-only ISO without shifting the day in negative time zones', () => {
+  it('formats a date-only ISO as that calendar day (zone-pinned variant: docs-helpers-tz.test.ts)', () => {
     expect(formatDocDate('2026-10-01', 'en')).toBe('Oct 1, 2026');
     expect(formatDocDate('2026-10-01T00:00:00.000Z', 'en')).toBe('Oct 1, 2026');
   });
@@ -68,6 +122,18 @@ describe('format', () => {
   it('formats an editable amount with the locale decimal separator and no grouping', () => {
     expect(formatAmountInput(123456, 'en')).toBe('1234.56');
     expect(formatAmountInput(4700, 'fr-CA')).toBe('47,00');
+  });
+  it('formatAmountInput never emits NaN or Infinity text for non-finite input', () => {
+    expect(formatAmountInput(NaN, 'en')).toBe('');
+    expect(formatAmountInput(Infinity, 'en')).toBe('');
+    expect(formatAmountInput(-Infinity, 'en')).toBe('');
+    expect(formatAmountInput(undefined as unknown as number, 'en')).toBe('');
+    expect(formatAmountInput(null as unknown as number, 'en')).toBe('');
+  });
+  it('formatAmountInput still formats zero and negative amounts', () => {
+    expect(formatAmountInput(0, 'en')).toBe('0.00');
+    expect(formatAmountInput(-4700, 'en')).toBe('-47.00');
+    expect(formatAmountInput(-4700, 'fr-CA')).toBe('-47,00');
   });
   it('todayIso is a local YYYY-MM-DD', () => {
     expect(todayIso()).toMatch(/^\d{4}-\d{2}-\d{2}$/);
@@ -116,6 +182,14 @@ describe('doc-nav', () => {
     removeFromDocNav('a');
     expect(readDocNav()?.ids).toEqual(['b']);
     expect(docsHref(readDocNav())).toBe('/app/docs');
+  });
+  it('drops the previous list when saving fails, so prev/next never walks a stale list', () => {
+    saveDocNav({ ids: ['a', 'b', 'c'], filter: 'all', q: '' });
+    expect(readDocNav()?.ids).toEqual(['a', 'b', 'c']);
+    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw new Error('QuotaExceeded'); });
+    saveDocNav({ ids: ['x', 'y'], filter: 'no-receipt', q: 'new' });
+    expect(readDocNav()).toBeNull();
+    expect(neighbors(readDocNav(), 'b')).toEqual({ prev: null, next: null });
   });
   it('survives sessionStorage being unavailable', () => {
     vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => { throw new Error('blocked'); });
