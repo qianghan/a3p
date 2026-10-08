@@ -339,6 +339,9 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     const { limit, offset, withCounts } = parsed;
     const includeDeleted = parseIncludeDeleted(params);
     const where = withSoftDelete(parsed.where as Record<string, unknown>, includeDeleted) as Prisma.AbExpenseWhereInput;
+    // `total` is the whole filtered list, so it must not include the cursor's
+    // keyset clause (that would shrink it on every page after the first).
+    const countWhere = withSoftDelete(parsed.countWhere as Record<string, unknown>, includeDeleted) as Prisma.AbExpenseWhereInput;
 
     const [rows, total, counts, pending] = await Promise.all([
       db.abExpense.findMany({
@@ -350,7 +353,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         take: limit + 1,
         skip: offset,
       }),
-      db.abExpense.count({ where }),
+      db.abExpense.count({ where: countWhere }),
       withCounts ? countDocFilters(tenantId) : Promise.resolve(null),
       getPendingSuggestions(tenantId),
     ]);

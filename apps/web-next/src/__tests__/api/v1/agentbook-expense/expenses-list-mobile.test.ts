@@ -149,6 +149,33 @@ describe('GET /expenses — cursor pagination and limit cap', () => {
   });
 });
 
+describe('GET /expenses — meta.total means the whole filtered list (carried-forward F1)', () => {
+  it('page 2 (with a cursor) reports the same total as page 1', async () => {
+    const page1 = (await list('?archived=all&limit=2')).body;
+    expect(page1.meta.total).toBe(7);
+    expect(page1.meta.nextCursor).not.toBeNull();
+    const page2 = (await list(`?archived=all&limit=2&cursor=${encodeURIComponent(page1.meta.nextCursor as string)}`)).body;
+    expect(ids(page2)).toEqual(['e2', 'e1']);
+    expect(page2.meta.total).toBe(page1.meta.total);
+    // …and the last page too, where only one row remains after the cursor.
+    let cursor = page2.meta.nextCursor;
+    let last = page2;
+    while (cursor) {
+      last = (await list(`?archived=all&limit=2&cursor=${encodeURIComponent(cursor)}`)).body;
+      cursor = last.meta.nextCursor;
+    }
+    expect(ids(last)).toEqual(['e4']);
+    expect(last.meta.total).toBe(7);
+  });
+
+  it('a cursor never changes the total of a filtered list either', async () => {
+    const page1 = (await list('?status=confirmed&limit=1')).body;
+    const page2 = (await list(`?status=confirmed&limit=1&cursor=${encodeURIComponent(page1.meta.nextCursor as string)}`)).body;
+    expect(page1.meta.total).toBe(5);
+    expect(page2.meta.total).toBe(5);
+  });
+});
+
 describe('GET /expenses — coverage gaps (carried-forward F3)', () => {
   it('a soft-deleted row is excluded from meta.counts', async () => {
     const before = (await list('?withCounts=1')).body.meta.counts;

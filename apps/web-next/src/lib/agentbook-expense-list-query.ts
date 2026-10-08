@@ -64,7 +64,13 @@ function escapeLike(text: string): string {
 export type ParsedListQuery =
   | {
       ok: true;
+      /** Everything the list is filtered by, including the keyset clause when a cursor is passed. */
       where: Prisma.AbExpenseWhereInput;
+      /**
+       * `where` WITHOUT the keyset clause: the whole filtered list. `meta.total`
+       * counts this, so it means the same thing on page 1 and on page 7.
+       */
+      countWhere: Prisma.AbExpenseWhereInput;
       limit: number;
       offset: number;
       cursor: ExpenseCursor | null;
@@ -123,6 +129,10 @@ export function parseExpenseListQuery(params: URLSearchParams, tenantId: string)
     });
   }
 
+  // Everything above narrows the list; the keyset clause below only positions
+  // a page inside it, so the total is counted before it is added.
+  const countWhere: Prisma.AbExpenseWhereInput = and.length > 0 ? { ...where, AND: [...and] } : { ...where };
+
   let cursor: ExpenseCursor | null = null;
   const rawCursor = params.get('cursor');
   if (rawCursor) {
@@ -140,7 +150,7 @@ export function parseExpenseListQuery(params: URLSearchParams, tenantId: string)
   const requestedOffset = parseInt(params.get('offset') || '0', 10);
   const offset = cursor ? 0 : Number.isFinite(requestedOffset) && requestedOffset > 0 ? requestedOffset : 0;
 
-  return { ok: true, where, limit, offset, cursor, withCounts: params.get('withCounts') === '1' };
+  return { ok: true, where, countWhere, limit, offset, cursor, withCounts: params.get('withCounts') === '1' };
 }
 
 /** The where-clause behind a Docs chip (live rows only). Used by counts AND home alerts. */
