@@ -60,13 +60,16 @@ test.describe('@mobile-shell', () => {
     test('maya: badges match the live home data (or stay off and cost nothing while gated)', async ({ page }) => {
       await loginAs(page, 'maya');
       if (!BADGES_ENABLED.home && !BADGES_ENABLED.docs) {
-        // Gated until PR 3 (home) / PR 4 (docs) — apps/web-next/src/app/app/_shell/badges.ts.
-        // The shell must show no badge AND not pay for a /mobile/home request it would not use.
+        // Both gates off (apps/web-next/src/app/app/_shell/badges.ts). Home has been ON since
+        // PR 3, so this branch only runs if both are switched off again; it stays so the spec
+        // keeps describing that configuration honestly: no badge, and no /mobile/home request
+        // the shell would not use. Opened on Chat, not Home: the Home SCREEN reads
+        // /mobile/home itself, and that request is not the shell's.
         const homeRequests: string[] = [];
         page.on('request', (r) => {
           if (new URL(r.url()).pathname === '/api/v1/agentbook-core/mobile/home') homeRequests.push(r.method());
         });
-        await page.goto('/app');
+        await page.goto('/app/chat');
         await settle(page);
         const gatedT = catalogT((await pageLocales(page)).stringLocale);
         // The shell really rendered (so "no badge" is not an observation of an empty page).
@@ -75,9 +78,10 @@ test.describe('@mobile-shell', () => {
         expect(homeRequests, 'gated shell made a /mobile/home request').toEqual([]);
         return;
       }
-      // Registered BEFORE navigating: the shell's own /mobile/home request is the one
-      // whose data the badges must reflect, so the expectation is computed from IT
-      // (not from a second fetch that could see different ledger state).
+      // Registered BEFORE navigating: the shell's own /mobile/home request (on /app it is
+      // shared with the Home screen — getHome() dedupes in-flight calls) is the one whose
+      // data the badges must reflect, so the expectation is computed from IT (not from a
+      // second fetch that could see different ledger state).
       const homeResponse = page.waitForResponse(
         (r) => new URL(r.url()).pathname === '/api/v1/agentbook-core/mobile/home' && r.request().method() === 'GET',
         { timeout: 30_000 },

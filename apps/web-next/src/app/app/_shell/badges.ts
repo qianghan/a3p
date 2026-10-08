@@ -4,7 +4,7 @@
  *
  * ┌──────────────────────────────────────────────────────────────────────────┐
  * │ FLIP POINTS                                                              │
- * │   home → true in PR 3, with the Home screen rewrite (shows the alerts    │
+ * │   home → true since PR 3, with the Home screen rewrite (shows the alerts │
  * │          behind the critical dot and lets the user act on them).         │
  * │   docs → true in PR 4, with the Docs screen rewrite (has the             │
  * │          needs-review filter the count points at).                       │
@@ -12,15 +12,16 @@
  * │ that pins these values (shell.test.tsx) and the e2e badge journey.       │
  * └──────────────────────────────────────────────────────────────────────────┘
  *
- * Until then the legacy Home/Docs screens can neither show nor clear what a
- * badge would point at, and the badges would cost a /mobile/home request on
- * every open and resume. A disabled badge renders nothing and leaves the tab's
- * plain label as its accessible name; with BOTH disabled the shell makes no
- * /mobile/home request and registers no revalidation listeners at all.
+ * Until its flip a legacy screen can neither show nor clear what its badge
+ * would point at (Docs, until PR 4). With home on, the shell's /mobile/home
+ * request on the Home tab IS the screen's own (getHome() shares it). A
+ * disabled badge renders nothing and leaves the tab's plain label as its
+ * accessible name; with BOTH disabled the shell makes no /mobile/home request
+ * and registers no revalidation listeners at all.
  */
 export interface BadgeGate {
   home: boolean;
   docs: boolean;
 }
 
-export const BADGES_ENABLED: Readonly<BadgeGate> = Object.freeze({ home: false, docs: false });
+export const BADGES_ENABLED: Readonly<BadgeGate> = Object.freeze({ home: true, docs: false });
