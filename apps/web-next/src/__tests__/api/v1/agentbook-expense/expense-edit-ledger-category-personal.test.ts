@@ -426,14 +426,24 @@ describe('an entry that was ALREADY reversed (delete → restore, bot orphan) is
     expect(h.fake.netByAccount()).toEqual({});
   });
 
-  it('a bot-style orphaned reversal (REVERSAL: entry committed, replacement failed, pointer still E) refuses the edit', async () => {
+  /**
+   * What agentbook-bot-agent expense.update_amount leaves when its replacement
+   * hits P2002: a mirror of E under ('expense', expenseId). That reversal can
+   * only commit when E itself is NOT keyed ('expense', expenseId) — i.e. E came
+   * from the create route (sourceId null) — otherwise G-021 rejects it too.
+   */
+  function seedBotOrphan(memo: string) {
     const { entryId } = h.fake.seedBookedExpense({ amountCents: 10000, date: JAN });
-    // What agentbook-bot-agent expense.update_amount leaves when its replacement
-    // hits P2002: a mirror under ('expense', expenseId), memo "REVERSAL: …".
-    h.fake.state.entries.push({ id: 'je-bot-rev', tenantId: 't1', date: new Date(), memo: 'REVERSAL: Expense: Coffee (amount fix)', sourceType: 'expense', sourceId: 'exp-1', verified: true });
+    h.fake.state.entries.find((e: any) => e.id === entryId).sourceId = null; // create-route shape
+    h.fake.state.entries.push({ id: 'je-bot-rev', tenantId: 't1', date: new Date(), memo, sourceType: 'expense', sourceId: 'exp-1', verified: true, createdAt: new Date() });
     for (const l of h.fake.state.lines.filter((x: any) => x.entryId === entryId)) {
       h.fake.state.lines.push({ id: `${l.id}-rev`, tenantId: 't1', entryId: 'je-bot-rev', accountId: l.accountId, debitCents: l.creditCents, creditCents: l.debitCents, description: `Reversal: ${l.description}` });
     }
+    return entryId;
+  }
+
+  it('a bot-style orphaned reversal (REVERSAL: entry committed, replacement failed, pointer still E) refuses the edit', async () => {
+    seedBotOrphan('REVERSAL: Expense: Coffee (amount fix)');
     const before = snap();
     const { status, json } = await send({ amountCents: 5200 });
     expect(status).toBe(422);
@@ -441,16 +451,24 @@ describe('an entry that was ALREADY reversed (delete → restore, bot orphan) is
     expect(snap()).toEqual(before);
   });
 
-  it('an unrelated entry under the same expense id that does NOT mirror E does not block the edit', async () => {
-    const { entryId } = h.fake.seedBookedExpense({ amountCents: 10000, date: JAN });
-    // e.g. the confirm route's ('expense', expenseId) booking of the same direction.
-    h.fake.state.entries.push({ id: 'je-other', tenantId: 't1', date: JAN, memo: 'Expense: x', sourceType: 'expense', sourceId: 'exp-1', verified: true });
-    h.fake.state.lines.push(
-      { id: 'o1', tenantId: 't1', entryId: 'je-other', accountId: 'acct-meals', debitCents: 10000, creditCents: 0 },
-      { id: 'o2', tenantId: 't1', entryId: 'je-other', accountId: 'acct-cash', debitCents: 0, creditCents: 10000 },
-    );
-    expect(entryId).not.toBe('je-other');
-    expect((await send({ amountCents: 4000 })).status).toBe(200);
+  it('a bot orphan is caught even after its lines no longer mirror E (memo marker)', async () => {
+    const entryId = seedBotOrphan('REVERSAL: Expense: Coffee (amount fix)');
+    // E's debit moved in place (as reclassifyFromSuspense does) — content no longer mirrors.
+    h.fake.state.lines.find((l: any) => l.entryId === entryId && l.debitCents > 0).accountId = 'acct-travel';
+    expect((await send({ amountCents: 5200 })).status).toBe(422);
+  });
+
+  it('a mirror under ("expense", expenseId) is caught even without the REVERSAL: memo (content)', async () => {
+    seedBotOrphan('Expense correction');
+    expect((await send({ isPersonal: true })).status).toBe(422);
+  });
+
+  it("the confirm route's own ('expense', expenseId) booking, once superseded, does NOT block later edits", async () => {
+    // seedBookedExpense keys E0 as ('expense', 'exp-1') — the confirm-route shape.
+    h.fake.seedBookedExpense({ amountCents: 10000, date: JAN });
+    expect((await send({ amountCents: 4000 })).status).toBe(200); // E0 superseded by E1
+    expect((await send({ amountCents: 6000 })).status).toBe(200); // E0 is now a candidate, same direction
+    expect(h.fake.netByAccount()).toEqual({ 'acct-meals': 6000, 'acct-cash': -6000 });
   });
 
   it('positive control: a normal booked expense (never deleted) still edits', async () => {
@@ -462,10 +480,97 @@ describe('an entry that was ALREADY reversed (delete → restore, bot orphan) is
     expect(h.fake.netByAccount()).toEqual({ 'acct-meals': 4000, 'acct-cash': -4000 });
   });
 
+  it('delete → restore → categorize from suspense (debit moved in place) → edit amount: 422, books and P&L unchanged', async () => {
+    // Reviewer's reproduction. The content-only guard let this through and booked −$60.
+    h.fake.seedBookedExpense({ amountCents: 10000, date: JAN, debitAccountId: 'acct-suspense', categoryId: null });
+    await deleteAndRestore();
+    const { categorizeExpense } = await import('@/lib/agentbook-categorize-expense');
+    const cat = await categorizeExpense('t1', 'exp-1', { categoryId: 'acct-meals', source: 'user' });
+    expect(cat.ok).toBe(true);
+    // The already-reversed entry is NOT reclassified (that would book +meals / −suspense).
+    expect(h.fake.netByAccount()).toEqual({});
+    const before = snap();
+
+    const { status, json } = await send({ amountCents: 4000 });
+    expect(status).toBe(422);
+    expect(json.code).toBe('already_reversed');
+    expect(snap()).toEqual(before);
+    expect(h.fake.netByAccount()).toEqual({});
+  });
+
+  it('even if the debit WAS moved in place (data from before this fix), the edit is still refused', async () => {
+    const { entryId } = h.fake.seedBookedExpense({ amountCents: 10000, date: JAN, debitAccountId: 'acct-suspense', categoryId: null });
+    await deleteAndRestore();
+    h.fake.state.lines.find((l: any) => l.entryId === entryId && l.debitCents > 0).accountId = 'acct-meals';
+    h.fake.state.expenses[0].categoryId = 'acct-meals';
+    const before = snap();
+    expect((await send({ amountCents: 4000 })).status).toBe(422);
+    expect((await send({ isPersonal: true })).status).toBe(422);
+    expect(snap()).toEqual(before);
+  });
+
+  it('delete → categorize: 404 / no-op, the books are not touched', async () => {
+    h.fake.seedBookedExpense({ amountCents: 10000, date: JAN, debitAccountId: 'acct-suspense', categoryId: null });
+    expect((await del()).status).toBe(200);
+    const before = snap();
+    const { categorizeExpense } = await import('@/lib/agentbook-categorize-expense');
+    const cat = await categorizeExpense('t1', 'exp-1', { categoryId: 'acct-meals', source: 'user' });
+    expect(cat).toMatchObject({ ok: false, status: 404 });
+    const { backfillExpenseJournalEntry } = await import('@/lib/agentbook-expense-ledger');
+    expect(await backfillExpenseJournalEntry('t1', 'exp-1')).toBeNull();
+    expect(snap()).toEqual(before);
+  });
+
+  it('delete → restore → date edit on a MULTI-LINE entry: 422 already_reversed (no shape guess, no write)', async () => {
+    const { entryId } = h.fake.seedBookedExpense({ amountCents: 10000, date: JAN });
+    h.fake.state.lines.find((l: any) => l.entryId === entryId && l.debitCents > 0).debitCents = 9500;
+    h.fake.state.lines.push({ id: 'jl-tax', tenantId: 't1', entryId, accountId: 'acct-tax', debitCents: 500, creditCents: 0 });
+    expect((await del()).status).toBe(200);
+    h.fake.restoreExpense();
+    const before = snap();
+    const { status, json } = await send({ date: '2026-03-10' });
+    expect(status).toBe(422);
+    expect(json.code).toBe('already_reversed');
+    expect(snap()).toEqual(before);
+  });
+
+  it('the message does not promise a re-book action that does not exist', async () => {
+    h.fake.seedBookedExpense({ amountCents: 10000, date: JAN });
+    await deleteAndRestore();
+    const { json } = await send({ amountCents: 4000 });
+    expect(json.error).toMatch(/can't be edited until a bookkeeper re-books it/);
+    expect(json.error).not.toMatch(/Re-book it before editing/);
+  });
+
   it('a restored expense can still take edits that do not touch the books', async () => {
     h.fake.seedBookedExpense({ amountCents: 10000, date: JAN });
     await deleteAndRestore();
     expect((await send({ description: 'Latte', vendor: 'Blue Bottle' })).status).toBe(200);
+  });
+});
+
+describe('normal chains are never mistaken for "already reversed"', () => {
+  it('category A → B → A, personal ↔ business, amount and date: every step 200, books follow', async () => {
+    h.fake.seedBookedExpense({ amountCents: 10000, date: JAN });
+    const steps: Array<[Record<string, unknown>, Record<string, number>]> = [
+      [{ categoryId: 'acct-travel' }, { 'acct-travel': 10000, 'acct-cash': -10000 }],
+      [{ categoryId: 'acct-meals' }, { 'acct-meals': 10000, 'acct-cash': -10000 }],
+      [{ categoryId: 'acct-travel', amountCents: 4000 }, { 'acct-travel': 4000, 'acct-cash': -4000 }],
+      [{ isPersonal: true }, {}],
+      [{ isPersonal: false }, { 'acct-travel': 4000, 'acct-cash': -4000 }],
+      [{ categoryId: 'acct-meals' }, { 'acct-meals': 4000, 'acct-cash': -4000 }],
+      [{ isPersonal: true }, {}],
+      [{ isPersonal: false, date: '2026-02-01' }, { 'acct-meals': 4000, 'acct-cash': -4000 }],
+      [{ amountCents: 7000 }, { 'acct-meals': 7000, 'acct-cash': -7000 }],
+    ];
+    for (const [body, books] of steps) {
+      const { status, json } = await send(body);
+      expect(status, `${JSON.stringify(body)} → ${JSON.stringify(json)}`).toBe(200);
+      expect(h.fake.netByAccount()).toEqual(books);
+    }
+    expectEveryEntryBalanced();
+    expect((await del()).status).toBe(200);
+    expect(h.fake.netByAccount()).toEqual({});
   });
 });
 

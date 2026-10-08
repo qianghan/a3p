@@ -8,6 +8,8 @@ const accountFindFirst = vi.fn();
 const journalCreate = vi.fn();
 const expenseUpdate = vi.fn();
 const journalLineUpdate = vi.fn();
+// Prior reversals of the expense (backfill won't reclassify an already-reversed entry).
+const journalFindMany = vi.fn(async () => [] as unknown[]);
 
 vi.mock('@naap/database', () => ({
   prisma: {
@@ -16,7 +18,10 @@ vi.mock('@naap/database', () => ({
       update: (...a: unknown[]) => expenseUpdate(...a),
     },
     abAccount: { findFirst: (...a: unknown[]) => accountFindFirst(...a) },
-    abJournalEntry: { create: (...a: unknown[]) => journalCreate(...a) },
+    abJournalEntry: {
+      create: (...a: unknown[]) => journalCreate(...a),
+      findMany: (...a: unknown[]) => journalFindMany(...(a as [])),
+    },
     abJournalLine: {
       findMany: (...a: unknown[]) => journalLineFindMany(...a),
       update: (...a: unknown[]) => journalLineUpdate(...a),

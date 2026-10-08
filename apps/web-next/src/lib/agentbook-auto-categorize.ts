@@ -233,6 +233,7 @@ export async function autoCategorizeForTenant(
       tenantId,
       categoryId: null,
       isPersonal: false,
+      deletedAt: null, // a deleted expense must not be re-booked by the background run
       status: { in: ['pending_review', 'confirmed'] },
     },
     include: { vendor: { select: { id: true, name: true } } },

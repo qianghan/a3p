@@ -73,14 +73,22 @@ export async function backfillExpenseJournalEntry(
   tenantId: string,
   expenseId: string,
 ): Promise<string | null> {
-  const expense = await db.abExpense.findFirst({ where: { id: expenseId, tenantId } });
+  // A soft-deleted expense is off the books (DELETE reversed it): background
+  // categorization must neither re-book nor reclassify it.
+  const expense = await db.abExpense.findFirst({ where: { id: expenseId, tenantId, deletedAt: null } });
   if (!expense) return null;
   if (expense.journalEntryId) {
     // Already on the books — but possibly to the SUSPENSE account, because an
     // expense with no category still posts (see UNCATEGORIZED_CODE). Gaining a
     // category means that debit has to move.
     if (expense.categoryId && !expense.isPersonal) {
-      await reclassifyFromSuspense(tenantId, expense.journalEntryId, expense.categoryId);
+      // A restored (never re-booked) or bot-orphaned expense's entry was
+      // already reversed: moving its debit would split the reversal across
+      // two accounts (+category / −suspense). Leave it for a bookkeeper.
+      const lines = (await db.abJournalLine.findMany({ where: { entryId: expense.journalEntryId } })) || [];
+      if (!(await isExpenseEntryAlreadyReversed(db, tenantId, expense.id, expense.journalEntryId, lines))) {
+        await reclassifyFromSuspense(tenantId, expense.journalEntryId, expense.categoryId);
+      }
     }
     return expense.journalEntryId;
   }
@@ -216,7 +224,7 @@ export class ExpenseLedgerShapeError extends Error {
  * that reversed the entry again would book −$100 for a $100 expense.
  */
 export const ALREADY_REVERSED_MESSAGE =
-  "This expense's books were already reversed (it was deleted/undone and restored). Re-book it before editing.";
+  "This expense's books were already reversed (it was deleted and restored). Its amount, date, category and personal/business status can't be edited until a bookkeeper re-books it.";
 
 export class ExpenseLedgerAlreadyReversedError extends Error {
   readonly code = 'already_reversed';
@@ -290,14 +298,56 @@ async function appendBalancedEntry(
 }
 
 /**
- * Refuse to reverse `entry` when an entry pointing at this expense already
- * mirrors it exactly. Covers the DELETE reversal ('expense_delete', expenseId)
- * and the bot's undo / amount-fix reversals ('expense', expenseId, memo
- * "REVERSAL: …"), detected by content — every line swapped, same accounts and
- * amounts — rather than by memo, so a renamed memo can't hide one. (A later
- * entry of ours that mirrors E is keyed by E's id under
- * 'expense_amend_reversal' and is caught by the G-021 unique key instead.)
+ * Has the expense's current entry ALREADY been reversed by another path?
+ *
+ * Detected by the EXISTENCE of a reversal keyed to this expense, not by
+ * comparing line contents: backfillExpenseJournalEntry → reclassifyFromSuspense
+ * rewrites the entry's debit line in place (6999 → category), after which the
+ * delete reversal (CR 6999 / DR cash) no longer mirrors it — a content test
+ * then let the edit through and booked −$60 for a $100 → $40 edit.
+ *
+ * Why existence is sufficient (and stricter than ordering by createdAt):
+ *   - 'expense_delete' (sourceId = expenseId) is written by DELETE against the
+ *     pointer current at that moment. Afterwards nothing can move the pointer:
+ *     edits of a deleted row are refused, Restore only clears deletedAt, the
+ *     confirm / backfill / Telegram posting paths only act on a NULL pointer,
+ *     and every pointer-moving path of ours runs through this guard. So if one
+ *     exists, the current pointer IS the entry it reversed. (createdAt was not
+ *     used: Prisma/Postgres stamp it per transaction, and a DELETE whose
+ *     transaction began before a concurrent edit's could carry an EARLIER
+ *     createdAt than the entry it reversed.)
+ *   - The bot's undo / "actually it was $52" amount fix writes its reversal as
+ *     ('expense', expenseId) with memo "REVERSAL: …"; its replacement uses the
+ *     same G-021 key and fails, so the pointer is left on the reversed entry.
+ *   - Belt and braces: any other ('expense', expenseId) entry that exactly
+ *     mirrors the current lines is a reversal whatever its memo says.
+ * Only entries keyed to THIS expense (sourceId = expenseId) are considered, so
+ * manual journal entries can never match; our own amend entries are keyed by
+ * the superseded ENTRY id and are never candidates.
+ * A future "Restore re-books" fix must re-key or retire the delete reversal.
  */
+export async function isExpenseEntryAlreadyReversed(
+  client: Pick<LedgerClient, 'abJournalEntry' | 'abJournalLine'>,
+  tenantId: string,
+  expenseId: string,
+  entryId: string,
+  lines: LedgerLine[],
+): Promise<boolean> {
+  const candidates = (await client.abJournalEntry.findMany({ where: { tenantId, sourceId: expenseId } })) || [];
+  const key = (l: Pick<LedgerLine, 'accountId' | 'debitCents' | 'creditCents'>) =>
+    `${l.accountId}|${l.debitCents}|${l.creditCents}`;
+  const mirrored = lines.map((l) => key({ accountId: l.accountId, debitCents: l.creditCents, creditCents: l.debitCents })).sort();
+  for (const c of candidates) {
+    if (c.id === entryId) continue;
+    if (c.sourceType === 'expense_delete') return true;
+    if (c.sourceType !== 'expense') continue;
+    if (typeof c.memo === 'string' && c.memo.startsWith('REVERSAL:')) return true;
+    const cKeys = ((await client.abJournalLine.findMany({ where: { entryId: c.id } })) || []).map(key).sort();
+    if (cKeys.length === mirrored.length && cKeys.every((k, i) => k === mirrored[i])) return true;
+  }
+  return false;
+}
+
 async function assertNotAlreadyReversed(
   client: LedgerClient,
   tenantId: string,
@@ -305,17 +355,8 @@ async function assertNotAlreadyReversed(
   entryId: string,
   lines: LedgerLine[],
 ): Promise<void> {
-  const key = (l: Pick<LedgerLine, 'accountId' | 'debitCents' | 'creditCents'>) =>
-    `${l.accountId}|${l.debitCents}|${l.creditCents}`;
-  const mirrored = lines.map((l) => key({ accountId: l.accountId, debitCents: l.creditCents, creditCents: l.debitCents })).sort();
-  const candidates = (await client.abJournalEntry.findMany({ where: { tenantId, sourceId: expenseId } })) || [];
-  for (const c of candidates) {
-    if (c.id === entryId || (c.sourceType !== 'expense_delete' && c.sourceType !== 'expense')) continue;
-    const cLines: LedgerLine[] = (await client.abJournalLine.findMany({ where: { entryId: c.id } })) || [];
-    const cKeys = cLines.map(key).sort();
-    if (cKeys.length === mirrored.length && cKeys.every((k, i) => k === mirrored[i])) {
-      throw new ExpenseLedgerAlreadyReversedError();
-    }
+  if (await isExpenseEntryAlreadyReversed(client, tenantId, expenseId, entryId, lines)) {
+    throw new ExpenseLedgerAlreadyReversedError();
   }
 }
 
