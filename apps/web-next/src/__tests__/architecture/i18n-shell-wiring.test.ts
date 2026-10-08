@@ -174,11 +174,14 @@ describe('strings that are deliberately NOT translated', () => {
   it.each(MUST_HAVE_NO_KEY)('%s has no catalog key', (value) => {
     const en = (CATALOG as Record<string, Record<string, Record<string, unknown>>>).en;
     const owners: string[] = [];
-    for (const [ns, entries] of Object.entries(en)) {
-      for (const [k, v] of Object.entries(entries)) {
-        if (typeof v === 'string' && v === value) owners.push(`${ns}.${k}`);
+    // Recurse: nested namespaces (mobile.tabs.home) must not hide a brand key.
+    const walk = (node: Record<string, unknown>, path: string) => {
+      for (const [k, v] of Object.entries(node)) {
+        if (typeof v === 'string') { if (v === value) owners.push(`${path}.${k}`); }
+        else if (v && typeof v === 'object') walk(v as Record<string, unknown>, `${path}.${k}`);
       }
-    }
+    };
+    for (const [ns, entries] of Object.entries(en)) walk(entries, ns);
     expect(
       owners,
       `${value} is a brand or term of art with the same value in every locale. `

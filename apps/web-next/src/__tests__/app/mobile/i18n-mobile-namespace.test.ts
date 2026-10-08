@@ -18,6 +18,8 @@ const SHELL_KEYS = [
   'mobile.tabs.capture',
   'mobile.tabs.chat',
   'mobile.tabs.home_attention',
+  'mobile.tabs.docs_review_one',
+  'mobile.tabs.docs_review_other',
   'mobile.kit.close',
   'mobile.kit.not_available',
   'mobile.kit.notifications',
