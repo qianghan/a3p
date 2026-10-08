@@ -47,7 +47,8 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       const lines = await db.abJournalLine.findMany({
         where: { accountId: a.id, entry: { tenantId, date: { gte: yearStart, lte: yearEnd } } },
       });
-      totalExpenses += lines.reduce((s, l) => s + l.debitCents, 0);
+      // Net of credits, so reversing entries (deleted / edited / personal) cancel.
+      totalExpenses += lines.reduce((s, l) => s + l.debitCents - l.creditCents, 0);
     }
 
     return NextResponse.json({

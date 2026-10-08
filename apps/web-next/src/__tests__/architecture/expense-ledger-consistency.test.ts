@@ -29,6 +29,7 @@ const read = (p: string) => readFileSync(join(ROOT, p), 'utf8');
 const LEDGER = 'apps/web-next/src/lib/agentbook-expense-ledger.ts';
 const CHART = 'apps/web-next/src/lib/agentbook-chart-of-accounts.ts';
 const CREATE_ROUTE = 'apps/web-next/src/app/api/v1/agentbook-expense/expenses/route.ts';
+const DETAIL_ROUTE = 'apps/web-next/src/app/api/v1/agentbook-expense/expenses/[id]/route.ts';
 const TELEGRAM = 'apps/web-next/src/app/api/v1/agentbook/telegram/webhook/route.ts';
 const PACKS = ['us', 'ca', 'au'].map(
   (j) => `packages/agentbook-jurisdictions/src/${j}/chart-of-accounts.ts`,
@@ -47,6 +48,16 @@ describe('every business expense reaches the books', () => {
     // post — to the suspense account — because the cash left the bank.
     expect(src).not.toMatch(/if\s*\(\s*resolvedCategoryId\s*&&\s*!isPersonal\s*\)/);
     expect(src).toContain('ensureUncategorizedAccount');
+  });
+
+  it('editing a booked expense (PUT/PATCH) re-posts its journal entry inside the edit transaction', () => {
+    const src = read(DETAIL_ROUTE);
+    // PUT used to be a bare abExpense.update, so a changed amount or date left
+    // P&L and the tax estimate on the old figure.
+    const put = src.slice(src.indexOf('export async function PUT'), src.indexOf('export async function PATCH'));
+    expect(put).toContain('repostExpenseJournalEntry(');
+    expect(put).toContain('db.$transaction');
+    expect(read(LEDGER)).toContain("sourceType: 'expense_amend_reversal'");
   });
 
   it('every jurisdiction chart pack defines the suspense account', () => {

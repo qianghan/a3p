@@ -4,6 +4,13 @@
  * GET — full row + resolved vendor name + category name/code + splits.
  * PUT/PATCH — patch amountCents, categoryId, description, isPersonal, date,
  * vendor (name; '' clears it). An invalid date is a 400 before any write.
+ * A new categoryId must be one of the tenant's active expense accounts (400).
+ *
+ * Ledger (one transaction with the row update, so P&L and the tax estimate
+ * always follow the edit):
+ *   - amount / date / category of a BOOKED expense → reverse + re-post its entry;
+ *   - booked business → personal → reverse it and unlink it;
+ *   - confirmed, unbooked personal → business → book it (category or suspense).
  */
 
 import 'server-only';
@@ -13,7 +20,18 @@ import { safeResolveAgentbookTenant } from '@/lib/agentbook-tenant';
 import { audit } from '@/lib/agentbook-audit';
 import { inferSource, inferActor } from '@/lib/agentbook-audit-context';
 import { withSoftDelete, parseIncludeDeleted } from '@/lib/agentbook-soft-delete';
-import { reverseExpenseJournalEntry } from '@/lib/agentbook-expense-ledger';
+import {
+  reverseExpenseJournalEntry,
+  repostExpenseJournalEntry,
+  unbookExpenseJournalEntry,
+  bookExpenseJournalEntry,
+  ensureExpenseBookingAccounts,
+  ExpenseLedgerPeriodClosedError,
+  ExpenseLedgerShapeError,
+  ExpenseLedgerAlreadyReversedError,
+  ALREADY_REVERSED_MESSAGE,
+} from '@/lib/agentbook-expense-ledger';
+import { INVALID_CATEGORY_ERROR } from '@/lib/agentbook-categorize-expense';
 import { getPendingSuggestions } from '@/lib/agentbook-auto-categorize';
 import { deriveCategorySource, suggestionFromPending } from '@/lib/mobile/doc-mapper';
 import { publicErrorMessage } from '@/lib/api-error';
@@ -113,12 +131,15 @@ export async function GET(
 
 interface UpdateExpenseBody {
   amountCents?: number;
-  categoryId?: string;
+  categoryId?: string | null;
   description?: string;
   isPersonal?: boolean;
   date?: string;
   vendor?: string;
 }
+
+/** The row vanished (soft-deleted) between the read and the write. */
+class ExpenseGoneError extends Error {}
 
 export async function PUT(
   request: NextRequest,
@@ -136,9 +157,52 @@ export async function PUT(
       return NextResponse.json({ success: false, error: 'Expense not found' }, { status: 404 });
     }
 
+    // The ledger columns are Int cents and a Date; reject what can't be posted
+    // as a 400 instead of letting Prisma throw a 500 mid-transaction.
+    if (
+      body.amountCents !== undefined &&
+      (typeof body.amountCents !== 'number' || !Number.isInteger(body.amountCents) || body.amountCents <= 0)
+    ) {
+      return NextResponse.json(
+        { success: false, error: 'amountCents must be a positive integer' },
+        { status: 400 },
+      );
+    }
+    if (body.isPersonal !== undefined && typeof body.isPersonal !== 'boolean') {
+      return NextResponse.json({ success: false, error: 'isPersonal must be a boolean' }, { status: 400 });
+    }
+
     const data: Record<string, unknown> = {};
     if (body.amountCents !== undefined) data.amountCents = body.amountCents;
-    if (body.categoryId !== undefined) data.categoryId = body.categoryId;
+
+    // A NEW category must be one of this tenant's active expense accounts — the
+    // same rule the categorize path enforces — because on a booked expense the
+    // ledger debit follows it. An unchanged id is not re-validated, so a form
+    // that re-sends the current category keeps working. null / '' clears it.
+    if (body.categoryId !== undefined) {
+      if (body.categoryId === null || body.categoryId === '') {
+        data.categoryId = null;
+      } else if (typeof body.categoryId !== 'string') {
+        return NextResponse.json(
+          { success: false, code: 'invalid_category', error: INVALID_CATEGORY_ERROR },
+          { status: 400 },
+        );
+      } else {
+        if (body.categoryId !== existing.categoryId) {
+          const category = await db.abAccount.findFirst({
+            where: { id: body.categoryId, tenantId, accountType: 'expense', isActive: true },
+            select: { id: true },
+          });
+          if (!category) {
+            return NextResponse.json(
+              { success: false, code: 'invalid_category', error: INVALID_CATEGORY_ERROR },
+              { status: 400 },
+            );
+          }
+        }
+        data.categoryId = body.categoryId;
+      }
+    }
     if (body.description !== undefined) data.description = body.description;
     if (body.isPersonal !== undefined) data.isPersonal = body.isPersonal;
     if (body.date !== undefined) {
@@ -148,6 +212,9 @@ export async function PUT(
       }
       data.date = parsedDate;
     }
+    // Validated here; the upsert runs inside the edit transaction so a rejected
+    // edit (closed period, split entry, lost race) doesn't leave a vendor behind.
+    let vendorUpsert: { name: string; normalizedName: string } | null = null;
     if (body.vendor !== undefined) {
       if (typeof body.vendor !== 'string' || body.vendor.length > 200) {
         return NextResponse.json(
@@ -166,17 +233,116 @@ export async function PUT(
           { status: 400 },
         );
       } else {
-        const vendorRow = await db.abVendor.upsert({
-          where: { tenantId_normalizedName: { tenantId, normalizedName: normalized } },
-          update: { lastSeen: new Date() },
-          create: { tenantId, name: vendorName, normalizedName: normalized },
-          select: { id: true },
-        });
-        data.vendorId = vendorRow.id;
+        vendorUpsert = { name: vendorName, normalizedName: normalized };
       }
     }
 
-    const updated = await db.abExpense.update({ where: { id }, data });
+    // Booking a personal → business flip, or moving a cleared category to
+    // suspense, needs the cash and 6999 accounts. Their seeders run their own
+    // upserts, so (as in the create route) they run before the transaction;
+    // the ledger helpers then look the accounts up inside it.
+    if (
+      (body.isPersonal === false && existing.isPersonal) ||
+      (data.categoryId === null && existing.categoryId !== null)
+    ) {
+      await ensureExpenseBookingAccounts(tenantId);
+    }
+
+    let updated;
+    try {
+      updated = await db.$transaction(async (tx) => {
+        // Take the row lock FIRST, then read the row as committed by anyone
+        // before us, and decide every ledger action from THAT — not from the
+        // `existing` snapshot. Concurrent edits (and a DELETE) of this expense
+        // serialize on the lock, so two flips can't both book, and an edit
+        // can't re-post an entry a DELETE just reversed. Guarded on deletedAt.
+        const { count } = await tx.abExpense.updateMany({
+          where: { id, tenantId, deletedAt: null },
+          data: { updatedAt: new Date() },
+        });
+        if (count === 0) throw new ExpenseGoneError();
+        const prev = await tx.abExpense.findFirst({ where: { id, tenantId } });
+        if (!prev) throw new ExpenseGoneError();
+
+        // Upserted inside the transaction so a rejected edit (closed period,
+        // split entry, lost race) doesn't leave a vendor behind.
+        if (vendorUpsert) {
+          const vendorRow = await tx.abVendor.upsert({
+            where: { tenantId_normalizedName: { tenantId, normalizedName: vendorUpsert.normalizedName } },
+            update: { lastSeen: new Date() },
+            create: { tenantId, name: vendorUpsert.name, normalizedName: vendorUpsert.normalizedName },
+            select: { id: true },
+          });
+          data.vendorId = vendorRow.id;
+        }
+        const row = Object.keys(data).length > 0 ? await tx.abExpense.update({ where: { id }, data }) : prev;
+
+        // Edits that can move money on the books. Description / vendor / an
+        // unchanged value never touch the ledger. (A sent date is compared to
+        // the entry's own date by the helper.)
+        const amountChanged = data.amountCents !== undefined && data.amountCents !== prev.amountCents;
+        const categoryChanged = data.categoryId !== undefined && data.categoryId !== prev.categoryId;
+        const personalChanged = data.isPersonal !== undefined && data.isPersonal !== prev.isPersonal;
+        const touchesLedger = amountChanged || data.date !== undefined || categoryChanged || personalChanged;
+        // A rejected expense was already reversed by undo; re-posting would
+        // resurrect it.
+        if (!touchesLedger || row.status === 'rejected') return row;
+
+        if (row.isPersonal) {
+          // Business → personal takes a booked expense off the books. An edit
+          // that leaves an already-personal-but-booked expense personal keeps
+          // the books matching its amount/date (it was booked by another path).
+          if (personalChanged) await unbookExpenseJournalEntry(tenantId, id, tx);
+          else if (row.journalEntryId) await repostExpenseJournalEntry(tenantId, id, tx, { categoryChanged });
+        } else if (row.journalEntryId) {
+          await repostExpenseJournalEntry(tenantId, id, tx, { categoryChanged });
+        } else if (personalChanged) {
+          // Personal → business on a confirmed, unbooked expense books it.
+          await bookExpenseJournalEntry(tenantId, id, tx);
+        }
+        // An amount/date/category edit of a never-booked row books nothing:
+        // pending drafts are booked by confirm / categorize.
+        return (await tx.abExpense.findFirst({ where: { id, tenantId } })) ?? row;
+      });
+    } catch (err) {
+      if (err instanceof ExpenseGoneError) {
+        return NextResponse.json({ success: false, error: 'Expense not found' }, { status: 404 });
+      }
+      if (err instanceof ExpenseLedgerPeriodClosedError) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: 'Period gate violated',
+            details: { constraint: 'period_gate', year: err.year, month: err.month, status: 'closed' },
+          },
+          { status: 422 },
+        );
+      }
+      if (err instanceof ExpenseLedgerAlreadyReversedError) {
+        // The whole transaction (row, vendor, ledger) rolled back: nothing written.
+        return NextResponse.json(
+          { success: false, code: 'already_reversed', error: ALREADY_REVERSED_MESSAGE },
+          { status: 422 },
+        );
+      }
+      if (err instanceof ExpenseLedgerShapeError) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: 'This expense is booked as a split or multi-line entry, so its amount or category cannot be edited automatically',
+          },
+          { status: 422 },
+        );
+      }
+      if ((err as { code?: string })?.code === 'P2002') {
+        // Another edit already superseded this journal entry (G-021 unique key).
+        return NextResponse.json(
+          { success: false, error: 'This expense was just changed by another request; reload and try again' },
+          { status: 409 },
+        );
+      }
+      throw err;
+    }
     const linkedVendor = updated.vendorId
       ? await db.abVendor.findFirst({ where: { id: updated.vendorId, tenantId }, select: { name: true } })
       : null;

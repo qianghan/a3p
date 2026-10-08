@@ -45,7 +45,10 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       const lines = await db.abJournalLine.findMany({
         where: { accountId: a.id, entry: { tenantId, date: { gte: yearStart, lte: yearEnd } } },
       });
-      const amount = lines.reduce((s, l) => s + l.debitCents, 0);
+      // Net of credits: a reversing entry (expense deleted, edited or marked
+      // personal) credits the account; summing debits alone counted the
+      // original AND its replacement.
+      const amount = lines.reduce((s, l) => s + l.debitCents - l.creditCents, 0);
       if (amount > 0) {
         categories.push({ category: a.taxCategory || a.name, amountCents: amount });
         totalExp += amount;

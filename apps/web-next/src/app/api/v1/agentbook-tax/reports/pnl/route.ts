@@ -86,9 +86,14 @@ async function buildCashRevenue(
 }
 
 /**
- * Cash-basis expenses: expense-account debits whose journal entry also has a
- * credit to the cash account (1000) — i.e. cash that actually left in the
- * period. Excludes accrued bills (Cr Accounts Payable) until they're paid.
+ * Cash-basis expenses: expense-account movements in journal entries that also
+ * move the cash account (1000) — i.e. cash that actually left (or came back) in
+ * the period. Excludes accrued bills (Cr Accounts Payable) until they're paid.
+ *
+ * "Moves cash", not "credits cash": a reversing entry (an expense deleted,
+ * edited or marked personal) DEBITS cash and credits the expense account.
+ * Matching only cash credits dropped every reversal, so a $42 expense edited to
+ * $52 counted $94 on cash basis.
  */
 async function buildCashExpenses(
   accounts: AccountRow[],
@@ -109,7 +114,7 @@ async function buildCashExpenses(
         entry: {
           tenantId,
           date: { gte: startDate, lte: endDate },
-          lines: { some: { accountId: cashAccountId, creditCents: { gt: 0 } } },
+          lines: { some: { accountId: cashAccountId } },
         },
       },
       select: { debitCents: true, creditCents: true },
