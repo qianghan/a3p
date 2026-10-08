@@ -19,6 +19,9 @@ export interface ToastApi {
 const ToastContext = createContext<ToastApi | null>(null);
 const NOOP: ToastApi = { show: () => {} };
 const MAX_VISIBLE = 3;
+/** Ordinary toasts disappear quickly; a critical one stays long enough to read (WCAG 2.2.1). */
+export const DEFAULT_TOAST_MS = 3500;
+export const CRITICAL_TOAST_MS = 8000;
 
 /** Outside a ToastHost this is a no-op: a missing host must never crash a screen. */
 export function useToast(): ToastApi {
@@ -51,22 +54,28 @@ export function ToastHost({ children }: { children: React.ReactNode }) {
   const t = useT();
   const [items, setItems] = useState<ToastItem[]>([]);
   const nextId = useRef(0);
+  // Initialised true: a child's mount effect runs before this component's own.
+  const mounted = useRef(true);
   const timers = useRef(new Map<number, ReturnType<typeof setTimeout>>());
 
   const show = useCallback<ToastApi['show']>((message, opts) => {
+    if (!mounted.current) return;
     nextId.current += 1;
     const id = nextId.current;
-    setItems((list) => [...list, { id, message, tone: opts?.tone ?? 'neutral' }].slice(-MAX_VISIBLE));
+    const tone = opts?.tone ?? 'neutral';
+    setItems((list) => [...list, { id, message, tone }].slice(-MAX_VISIBLE));
     const timer = setTimeout(() => {
       setItems((list) => list.filter((i) => i.id !== id));
       timers.current.delete(id);
-    }, opts?.durationMs ?? 3500);
+    }, opts?.durationMs ?? (tone === 'critical' ? CRITICAL_TOAST_MS : DEFAULT_TOAST_MS));
     timers.current.set(id, timer);
   }, []);
 
   useEffect(() => {
     const pending = timers.current;
+    mounted.current = true;
     return () => {
+      mounted.current = false;
       pending.forEach((timer) => clearTimeout(timer));
       pending.clear();
     };
@@ -78,9 +87,6 @@ export function ToastHost({ children }: { children: React.ReactNode }) {
     <ToastContext.Provider value={api}>
       {children}
       <div
-        role="status"
-        aria-live="polite"
-        aria-label={t('mobile.kit.notifications')}
         style={{
           position: 'fixed',
           left: tokens.space.lg,
@@ -92,9 +98,21 @@ export function ToastHost({ children }: { children: React.ReactNode }) {
           pointerEvents: 'none',
         }}
       >
-        {items.map((i) => (
-          <Toast key={i.id} message={i.message} tone={i.tone} />
-        ))}
+        {/* Both regions are always mounted: a live region added together with its content is often not announced. */}
+        <div role="status" aria-live="polite" aria-label={t('mobile.kit.notifications')} style={{ display: 'grid', gap: tokens.space.sm }}>
+          {items
+            .filter((i) => i.tone !== 'critical')
+            .map((i) => (
+              <Toast key={i.id} message={i.message} tone={i.tone} />
+            ))}
+        </div>
+        <div role="alert" aria-live="assertive" aria-label={t('mobile.kit.alerts')} style={{ display: 'grid', gap: tokens.space.sm }}>
+          {items
+            .filter((i) => i.tone === 'critical')
+            .map((i) => (
+              <Toast key={i.id} message={i.message} tone={i.tone} />
+            ))}
+        </div>
       </div>
     </ToastContext.Provider>
   );

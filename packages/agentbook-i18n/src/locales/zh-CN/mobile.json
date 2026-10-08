@@ -22,6 +22,10 @@
     "error_title": "无法加载",
     "error_body": "请检查网络连接后重试——您的数据是安全的。",
     "offline_title": "您已离线",
-    "offline_body": "重新连接后再试——没有丢失任何内容。"
+    "offline_body": "重新连接后再试——没有丢失任何内容。",
+    "severity_critical": "严重：",
+    "severity_warn": "警告：",
+    "severity_info": "提示：",
+    "alerts": "警报"
   }
 }

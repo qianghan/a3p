@@ -22,6 +22,10 @@
     "error_title": "Chargement impossible",
     "error_body": "Vérifiez votre connexion et réessayez — vos données sont en sécurité.",
     "offline_title": "Vous êtes hors ligne",
-    "offline_body": "Reconnectez-vous et réessayez — rien n’a été perdu."
+    "offline_body": "Reconnectez-vous et réessayez — rien n’a été perdu.",
+    "severity_critical": "Critique :",
+    "severity_warn": "Avertissement :",
+    "severity_info": "Avis :",
+    "alerts": "Alertes"
   }
 }

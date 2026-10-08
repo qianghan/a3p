@@ -33,6 +33,10 @@ const SHELL_KEYS = [
   'mobile.kit.error_body',
   'mobile.kit.offline_title',
   'mobile.kit.offline_body',
+  'mobile.kit.severity_critical',
+  'mobile.kit.severity_warn',
+  'mobile.kit.severity_info',
+  'mobile.kit.alerts',
 ];
 
 describe('the mobile namespace', () => {

@@ -22,6 +22,10 @@
     "error_title": "Couldn’t load this",
     "error_body": "Check your connection and try again — your data is safe.",
     "offline_title": "You’re offline",
-    "offline_body": "Reconnect and try again — nothing was lost."
+    "offline_body": "Reconnect and try again — nothing was lost.",
+    "severity_critical": "Critical:",
+    "severity_warn": "Warning:",
+    "severity_info": "Notice:",
+    "alerts": "Alerts"
   }
 }

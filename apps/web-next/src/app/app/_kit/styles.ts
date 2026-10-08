@@ -42,3 +42,20 @@ export function iconButtonStyle(): CSSProperties {
     cursor: 'pointer',
   };
 }
+
+/**
+ * Standard visually-hidden text: still in the accessibility tree and still read
+ * by screen readers, unlike display:none / visibility:hidden.
+ */
+export const visuallyHidden: CSSProperties = {
+  position: 'absolute',
+  width: 1,
+  height: 1,
+  margin: -1,
+  padding: 0,
+  border: 0,
+  overflow: 'hidden',
+  clip: 'rect(0 0 0 0)',
+  clipPath: 'inset(50%)',
+  whiteSpace: 'nowrap',
+};
