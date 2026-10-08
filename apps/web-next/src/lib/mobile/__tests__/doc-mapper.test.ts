@@ -16,6 +16,7 @@ const base = {
   receiptUrl: null,
   receiptStatus: 'pending',
   archivedAt: null,
+  journalEntryId: 'je-e1',
 };
 
 describe('deriveCategorySource', () => {
@@ -46,7 +47,16 @@ describe('toMobileDoc', () => {
       receiptStatus: 'pending',
       archivedAt: null,
       suggestion: null,
+      booked: true,
     });
+  });
+
+  it('booked follows journalEntryId, not status (a pending_review row can already be on the books)', () => {
+    expect(toMobileDoc({ ...base, journalEntryId: 'je-1' }).booked).toBe(true);
+    expect(toMobileDoc({ ...base, status: 'pending_review', journalEntryId: 'je-1' }).booked).toBe(true);
+    expect(toMobileDoc({ ...base, journalEntryId: null }).booked).toBe(false);
+    const { journalEntryId: _omit, ...noJournal } = base;
+    expect(toMobileDoc(noJournal).booked).toBe(false);
   });
 
   it('prefers an explicit vendorName, serialises archivedAt, accepts ISO strings', () => {

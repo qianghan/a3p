@@ -153,6 +153,19 @@ describe('POST /expenses/from-receipt — booking order (never confirmed without
     expect((await byKey('key-order-001'))[0].status).toBe('confirmed');
   });
 
+  it('booked reflects the journal: a confirmed row the ledger booked is booked; an unbooked draft is not', async () => {
+    backfill.mockImplementation(async (_t: string, id: string) => {
+      await memDb.table('abExpense').update({ where: { id }, data: { journalEntryId: 'je-new' } });
+      return 'je-new';
+    });
+    const booked = await send(receiptForm({ idempotencyKey: 'key-booked-001' }));
+    expect(booked.body.data.doc).toMatchObject({ status: 'confirmed', booked: true });
+
+    ocrReceiptBytes.mockResolvedValue(null);
+    const draft = await send(receiptForm({ idempotencyKey: 'key-booked-002' }));
+    expect(draft.body.data.doc).toMatchObject({ status: 'pending_review', amountCents: 0, booked: false });
+  });
+
   it('a ledger that throws leaves the row in review', async () => {
     backfill.mockRejectedValue(new Error('ledger down'));
     vi.spyOn(console, 'warn').mockImplementation(() => {});

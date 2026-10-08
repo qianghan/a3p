@@ -66,6 +66,11 @@ export interface MobileDoc {
   receiptStatus: 'pending' | 'attached' | 'skipped' | null;
   archivedAt: string | null;
   suggestion: { categoryId: string; categoryName: string; confidence: number } | null;  // pending AI suggestion
+  // On the books (journalEntryId != null). Independent of status: pending_review
+  // rows can be booked (auto-categorize, review, a failed from-receipt
+  // promotion — even $0 drafts). Edits do not repost the journal, so the viewer
+  // locks amount/date/isPersonal on `booked`, not on status === 'confirmed'.
+  booked: boolean;
 }
 export interface DocCounts { needsReview: number; noCategory: number; noReceipt: number; archived: number }
 export interface DocList { items: MobileDoc[]; nextCursor: string | null; counts: DocCounts | null }

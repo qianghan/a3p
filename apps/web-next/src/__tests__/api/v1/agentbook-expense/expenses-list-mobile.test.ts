@@ -11,6 +11,7 @@ import { memDb } from '@/__tests__/helpers/mem-db';
 import { tenantReq, json } from '@/__tests__/helpers/route-request';
 import { NOW, fullSeed } from '@/__tests__/helpers/mobile-fixtures';
 import { DOC_FILTER_PARAMS } from '@/lib/mobile/doc-filters';
+import { toMobileDoc, type ExpenseRowLike } from '@/lib/mobile/doc-mapper';
 import type { DocCounts, DocFilter } from '@/lib/mobile/types';
 import { GET } from '@/app/api/v1/agentbook-expense/expenses/route';
 import { GET as GET_ONE } from '@/app/api/v1/agentbook-expense/expenses/[id]/route';
@@ -287,6 +288,14 @@ describe('GET /expenses/[id] — mobile fields', () => {
     expect(status).toBe(200);
     expect(body.data).toMatchObject({ categorySource: null, suggestion: { categoryId: 'acc-meals', confidence: 0.7 } });
     expect((await one('e2')).body.data).toMatchObject({ categorySource: 'ai', categoryName: 'Meals', suggestion: null });
+  });
+
+  it('list and detail rows carry journalEntryId, so the client mapper derives booked', async () => {
+    const rows = (await list()).body.data as unknown as ExpenseRowLike[];
+    const booked = Object.fromEntries(rows.map((r) => [r.id, toMobileDoc(r).booked]));
+    expect(booked).toEqual({ e5: false, e6: true, e2: true, e1: true, e3: false, e4: true });
+    expect(toMobileDoc((await one('e1')).body.data as unknown as ExpenseRowLike).booked).toBe(true);
+    expect(toMobileDoc((await one('e5')).body.data as unknown as ExpenseRowLike).booked).toBe(false);
   });
 
   it('archived rows stay readable by id; foreign ids are 404', async () => {

@@ -19,6 +19,7 @@ export interface ExpenseRowLike {
   receiptUrl?: string | null;
   receiptStatus?: string | null;
   archivedAt?: Date | string | null;
+  journalEntryId?: string | null;
 }
 
 export interface PendingSuggestionLike {
@@ -28,11 +29,15 @@ export interface PendingSuggestionLike {
 }
 
 /**
- * At or above this, a categorization is a human's: the categorize route writes
- * 1.0, Telegram's accept writes 0.95, a learned user pattern carries 0.95.
- * The auto-categorizer is capped below it (AUTO_PATTERN_CAP 0.92 / its own
- * model confidence < 0.95 in practice), so anything lower is labelled 'ai'.
- * There is no categorySource column; 'rule' is never derived.
+ * At or above this, a categorization is labelled a human's: the categorize
+ * route writes 1.0, Telegram's accept writes 0.95, a learned user pattern
+ * carries 0.95. Anything lower is labelled 'ai'. There is no categorySource
+ * column; 'rule' is never derived.
+ *
+ * Known limitation: this is a heuristic, not provenance. The auto-categorizer's
+ * applyCategoryAndLearn (lib/agentbook-auto-categorize.ts) stores the raw LLM
+ * confidence (0.85–1.0 when it auto-applies) on the expense — only the learned
+ * PATTERN is capped (0.90/0.92). So an AI pick at >= 0.95 is labelled 'user'.
  */
 export const HUMAN_CATEGORY_CONFIDENCE = 0.95;
 
@@ -77,5 +82,6 @@ export function toMobileDoc(row: ExpenseRowLike, suggestion: MobileDoc['suggesti
     receiptStatus: normalizeReceiptStatus(row.receiptStatus),
     archivedAt: row.archivedAt ? toDate(row.archivedAt).toISOString() : null,
     suggestion: categoryId ? null : suggestion,
+    booked: row.journalEntryId != null,
   };
 }
