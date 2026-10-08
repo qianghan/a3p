@@ -24,6 +24,7 @@ import { prisma as db } from '@naap/database';
 import { claimKey, recordResponse } from '@/lib/agentbook-idempotency';
 import { checkOcrQuota, ocrReceiptBytes, type ReceiptOcrBytesResult } from '@/lib/agentbook-receipt-ocr';
 import { backfillExpenseJournalEntry } from '@/lib/agentbook-expense-ledger';
+import { isIsoCalendarDate } from '@/lib/iso-calendar-date';
 import { toMobileDoc } from './doc-mapper';
 import type { FromReceiptResult, MobileDoc } from './types';
 
@@ -39,12 +40,8 @@ export const MAX_AMOUNT_CENTS = 2_000_000_000;
 /** A claim with no response this old was left by a killed function (maxDuration 60 s), not one in flight. */
 export const STALE_CLAIM_MS = 5 * 60_000;
 
-/** A real YYYY-MM-DD calendar date. new Date('2026-02-31') would silently roll over to 3 March. */
-export function isIsoCalendarDate(s: string): boolean {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return false;
-  const d = new Date(`${s}T00:00:00.000Z`);
-  return !isNaN(d.getTime()) && d.toISOString().slice(0, 10) === s;
-}
+export { isIsoCalendarDate };
+
 
 export function claimKeyFor(tenantId: string, idempotencyKey: string): string {
   return `mobile_receipt:${tenantId}:${idempotencyKey}`;

@@ -17,6 +17,7 @@ import { reverseExpenseJournalEntry } from '@/lib/agentbook-expense-ledger';
 import { getPendingSuggestions } from '@/lib/agentbook-auto-categorize';
 import { deriveCategorySource, suggestionFromPending } from '@/lib/mobile/doc-mapper';
 import { publicErrorMessage } from '@/lib/api-error';
+import { isIsoCalendarDate } from '@/lib/iso-calendar-date';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -39,6 +40,17 @@ function unicodeVendorKey(name: string): string {
 
 /** YYYY-MM-DD, optionally followed by a time part. Rejects '1', 'June 1', etc. */
 const ISO_DATE_PREFIX = /^\d{4}-\d{2}-\d{2}(T.*)?$/;
+
+/**
+ * A date-only string must be a real calendar day ('2026-02-30' is a 400, not
+ * 2 March); a full ISO timestamp keeps the prefix check + Date parse.
+ */
+function parseExpenseDate(v: unknown): Date | null {
+  if (typeof v !== 'string' || !ISO_DATE_PREFIX.test(v)) return null;
+  if (!v.includes('T') && !isIsoCalendarDate(v)) return null;
+  const d = new Date(v);
+  return isNaN(d.getTime()) ? null : d;
+}
 
 export async function GET(
   request: NextRequest,
@@ -130,9 +142,8 @@ export async function PUT(
     if (body.description !== undefined) data.description = body.description;
     if (body.isPersonal !== undefined) data.isPersonal = body.isPersonal;
     if (body.date !== undefined) {
-      const parsedDate =
-        typeof body.date === 'string' && ISO_DATE_PREFIX.test(body.date) ? new Date(body.date) : new Date(NaN);
-      if (isNaN(parsedDate.getTime())) {
+      const parsedDate = parseExpenseDate(body.date);
+      if (!parsedDate) {
         return NextResponse.json({ success: false, error: 'date must be an ISO date' }, { status: 400 });
       }
       data.date = parsedDate;

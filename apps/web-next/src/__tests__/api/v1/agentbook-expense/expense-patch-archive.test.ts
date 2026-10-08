@@ -109,6 +109,21 @@ describe('PATCH /expenses/[id] — vendor and date', () => {
     expect(memDb.table('abExpense').writes).toEqual([]);
   });
 
+  it.each(['2026-02-30', '2026-02-29', '2026-13-01', '2026-04-31', '2026-00-10'])(
+    'rejects the impossible calendar date %j with 400 instead of rolling it over, and writes nothing',
+    async (date) => {
+      memDb.table('abExpense').writes = [];
+      expect((await patch('e1', { date })).status).toBe(400);
+      expect(memDb.table('abExpense').writes).toEqual([]);
+      expect((await row('e1'))?.date).toEqual(new Date('2026-06-05T00:00:00.000Z'));
+    },
+  );
+
+  it('a real leap day is accepted', async () => {
+    expect((await patch('e1', { date: '2028-02-29' })).status).toBe(200);
+    expect((await row('e1'))?.date).toEqual(new Date('2028-02-29'));
+  });
+
   it('accepts a full ISO timestamp', async () => {
     expect((await patch('e1', { date: '2026-06-01T10:30:00.000Z' })).status).toBe(200);
     expect((await row('e1'))?.date).toEqual(new Date('2026-06-01T10:30:00.000Z'));
