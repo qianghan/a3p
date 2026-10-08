@@ -20,7 +20,7 @@ export function homeFixture(overrides: Partial<MobileHome> = {}): MobileHome {
         kind: 'invoice_overdue',
         severity: 'critical',
         params: { client: 'Acme', days: 12, amountCents: 180_000 },
-        action: { type: 'post', endpoint: '/api/v1/agentbook-invoice/invoices/inv-1/remind', labelKey: 'mobile.home.action.remind' },
+        action: { type: 'post', endpoint: '/api/v1/agentbook-invoice/invoices/inv-1/remind', labelKey: 'mobile.alerts.action_remind' },
       },
       { id: 'a2', kind: 'review_needed', severity: 'warn', params: { count: 3 }, target: { route: '/app/docs', query: { filter: 'needs-review' } } },
       { id: 'a3', kind: 'receipts_missing', severity: 'info', params: { count: 4 }, target: { route: '/app/docs', query: { filter: 'no-receipt' } } },

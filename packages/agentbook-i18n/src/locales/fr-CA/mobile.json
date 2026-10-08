@@ -32,6 +32,11 @@
     "subtitle": "Voici ce qui vous attend aujourd’hui",
     "alerts_label": "Points qui demandent votre attention",
     "alert_dot": "Afficher l’alerte {index} sur {total}",
+    "alert_position": "Alerte {index} sur {total}",
+    "alert_prev": "Alerte précédente",
+    "alert_next": "Alerte suivante",
+    "carousel_role": "carrousel",
+    "slide_role": "diapositive",
     "pull_to_refresh": "Tirez pour actualiser",
     "refreshing": "Actualisation",
     "alert": {
@@ -67,7 +72,10 @@
     "toast": {
       "reminder_logged": "Relance consignée",
       "action_done": "Terminé",
-      "action_failed": "L’action a échoué — réessayez"
+      "action_failed": "L’action a échoué — réessayez",
+      "action_rate_limited": "Trop de demandes — patientez un instant, puis réessayez",
+      "action_offline": "Vous êtes hors ligne — reconnectez-vous, puis réessayez",
+      "action_signed_out": "Vous avez été déconnecté — connectez-vous, puis réessayez"
     },
     "kpi": {
       "region": "Chiffres clés",
