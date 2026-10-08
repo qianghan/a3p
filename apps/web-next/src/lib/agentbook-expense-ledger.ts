@@ -28,7 +28,7 @@ import { ensureChartOfAccounts, CASH_CODE, UNCATEGORIZED_CODE } from '@/lib/agen
  * This MUTATES a posted line, against the usual "journal entries are immutable,
  * write a reversing entry instead" rule. That rule doesn't work here: the
  * cash-basis branch of the tax estimate counts expense debits whose entry ALSO
- * credits the cash account (agentbook-tax/tax/estimate/route.ts). A separate
+ * credits the cash account (lib/agentbook-tax-estimate.ts). A separate
  * `DR category / CR suspense` reclassification entry credits suspense, not cash,
  * so under cash basis the money would stay attributed to Uncategorized forever
  * while a second, uncounted entry claimed otherwise. Moving the line keeps every

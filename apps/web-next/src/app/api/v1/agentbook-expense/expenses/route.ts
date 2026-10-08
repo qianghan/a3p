@@ -18,7 +18,10 @@ import { withSoftDelete, parseIncludeDeleted } from '@/lib/agentbook-soft-delete
 import { withHttpIdempotency } from '@/lib/agentbook-idempotency';
 import { ensureChartOfAccounts, ensureUncategorizedAccount } from '@/lib/agentbook-chart-of-accounts';
 import { publicErrorMessage } from '@/lib/api-error';
-import { autoCategorizeForTenant } from '@/lib/agentbook-auto-categorize';
+import { autoCategorizeForTenant, getPendingSuggestions } from '@/lib/agentbook-auto-categorize';
+import { parseExpenseListQuery, encodeCursor, countDocFilters } from '@/lib/agentbook-expense-list-query';
+import { deriveCategorySource, suggestionFromPending } from '@/lib/mobile/doc-mapper';
+import type { Prisma } from '@naap/database';
 
 /**
  * Mirrors the legacy Express handler's `checkAndAutoCategorize` — which
@@ -325,56 +328,70 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     if ('response' in __resolved) return __resolved.response;
     const { tenantId } = __resolved;
     const params = request.nextUrl.searchParams;
-    const startDate = params.get('startDate');
-    const endDate = params.get('endDate');
-    const isPersonal = params.get('isPersonal');
-    const vendorId = params.get('vendorId');
-    const limit = parseInt(params.get('limit') || '50', 10);
-    const offset = parseInt(params.get('offset') || '0', 10);
 
-    const includeDeleted = parseIncludeDeleted(params);
-    const baseWhere: Record<string, unknown> = { tenantId };
-    if (startDate || endDate) {
-      const date: Record<string, Date> = {};
-      if (startDate) date.gte = new Date(startDate);
-      if (endDate) date.lte = new Date(endDate);
-      baseWhere.date = date;
+    // Legacy params keep their meaning; mobile PR 1 adds status, hasReceipt,
+    // categoryId, archived (archived rows hidden by default), q, cursor and
+    // withCounts — see lib/agentbook-expense-list-query.ts.
+    const parsed = parseExpenseListQuery(params, tenantId);
+    if (!parsed.ok) {
+      return NextResponse.json({ success: false, error: parsed.error }, { status: 400 });
     }
-    if (isPersonal !== null) baseWhere.isPersonal = isPersonal === 'true';
-    if (vendorId) baseWhere.vendorId = vendorId;
-    const where = withSoftDelete(baseWhere, includeDeleted);
+    const { limit, offset, withCounts } = parsed;
+    const includeDeleted = parseIncludeDeleted(params);
+    const where = withSoftDelete(parsed.where as Record<string, unknown>, includeDeleted) as Prisma.AbExpenseWhereInput;
+    // `total` is the whole filtered list, so it must not include the cursor's
+    // keyset clause (that would shrink it on every page after the first).
+    const countWhere = withSoftDelete(parsed.countWhere as Record<string, unknown>, includeDeleted) as Prisma.AbExpenseWhereInput;
 
-    const [expenses, total] = await Promise.all([
+    const [rows, total, counts] = await Promise.all([
       db.abExpense.findMany({
         where,
         include: { vendor: { select: { id: true, name: true, normalizedName: true } } },
-        orderBy: { date: 'desc' },
-        take: limit,
+        // `id` breaks date ties so cursor pages never skip or repeat a row.
+        orderBy: [{ date: 'desc' }, { id: 'desc' }],
+        // One extra row tells us whether another page exists; it is not returned.
+        take: limit + 1,
         skip: offset,
       }),
-      db.abExpense.count({ where }),
+      db.abExpense.count({ where: countWhere }),
+      withCounts ? countDocFilters(tenantId) : Promise.resolve(null),
     ]);
+    const hasMore = rows.length > limit;
+    const expenses = hasMore ? rows.slice(0, limit) : rows;
+    const nextCursor = hasMore ? encodeCursor(expenses[expenses.length - 1]) : null;
+
+    // The suggestion is decoration on an uncategorized row: read the pending
+    // batch only when this page has one, and never let its failure 500 the list.
+    const pending = expenses.some((e) => !e.categoryId)
+      ? await getPendingSuggestions(tenantId).catch((err) => {
+          console.warn('[agentbook-expense/expenses GET] pending suggestions unavailable:', err instanceof Error ? err.message : err);
+          return [];
+        })
+      : [];
 
     const categoryIds = [...new Set(expenses.map((e) => e.categoryId).filter((id): id is string => Boolean(id)))];
     const categories = categoryIds.length > 0
       ? await db.abAccount.findMany({
-          where: { id: { in: categoryIds } },
+          where: { id: { in: categoryIds }, tenantId },
           select: { id: true, name: true, code: true },
         })
       : [];
     const categoryMap = Object.fromEntries(categories.map((c) => [c.id, { name: c.name, code: c.code }]));
+    const suggestionByExpense = new Map(pending.map((p) => [p.expenseId, p]));
 
     const enriched = expenses.map((e) => ({
       ...e,
       vendorName: e.vendor?.name || null,
       categoryName: e.categoryId ? categoryMap[e.categoryId]?.name || null : null,
       categoryCode: e.categoryId ? categoryMap[e.categoryId]?.code || null : null,
+      categorySource: deriveCategorySource(e),
+      suggestion: e.categoryId ? null : suggestionFromPending(suggestionByExpense.get(e.id)),
     }));
 
     return NextResponse.json({
       success: true,
       data: enriched,
-      meta: { total, limit, offset },
+      meta: { total, limit, offset, nextCursor, ...(counts ? { counts } : {}) },
     });
   } catch (err) {
     console.error('[agentbook-expense/expenses GET] failed:', err);

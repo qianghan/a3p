@@ -70,35 +70,84 @@ export interface ReceiptOcrResult {
   confidence: number;
 }
 
+/**
+ * Upper bound on one Gemini call from the mobile upload path. The route's
+ * maxDuration is 60 s; a model that hangs past it gets the function killed and
+ * strands the idempotency claim. Aborting earlier degrades to "no OCR" instead.
+ */
+export const OCR_TIMEOUT_MS = 25_000;
+
+/** OCR output plus whether the model actually returned a date (otherwise `date` is today). */
+export type ReceiptOcrBytesResult = ReceiptOcrResult & { dateFound: boolean };
+
 /** Run Gemini Vision OCR on a receipt image or PDF URL. Returns null on failure. */
 export async function ocrReceipt(fileUrl: string, hintMime?: string): Promise<ReceiptOcrResult | null> {
   const cfg = await getGeminiKey();
   if (!cfg) return null;
 
-  let imagePart: { inlineData: { mimeType: string; data: string } } | { text: string };
+  let bytes: Buffer;
+  let mimeType: string;
   try {
     const fileRes = await fetch(fileUrl);
     if (!fileRes.ok) throw new Error(`fetch ${fileRes.status}`);
-    const buf = await fileRes.arrayBuffer();
+    bytes = Buffer.from(await fileRes.arrayBuffer());
     const headerMime = fileRes.headers.get('content-type') || '';
     // Trust the explicit hint over a generic header (Telegram serves PDFs as
     // application/octet-stream, which Gemini rejects).
-    let mimeType = (hintMime && hintMime !== 'application/octet-stream' ? hintMime : headerMime) || '';
+    mimeType = (hintMime && hintMime !== 'application/octet-stream' ? hintMime : headerMime) || '';
     if (!mimeType || mimeType === 'application/octet-stream') {
       mimeType = fileUrl.toLowerCase().endsWith('.pdf') ? 'application/pdf' : 'image/jpeg';
-    }
-    // Gemini accepts inline PDFs up to ~20 MB; images are typically capped
-    // around 4 MB before performance/quality drops noticeably. Use a single
-    // 18 MB budget for both — anything larger falls back to a URL hint.
-    if (buf.byteLength > 18_000_000) {
-      imagePart = { text: `[File too large for inline OCR — ${(buf.byteLength / 1_000_000).toFixed(1)} MB. URL: ${fileUrl}]` };
-    } else {
-      imagePart = { inlineData: { mimeType, data: Buffer.from(buf).toString('base64') } };
     }
   } catch (err) {
     console.warn('[receipt/ocr] file download failed:', err);
     return null;
   }
+
+  const result = await runGeminiOcr(cfg, bytes, mimeType, fileUrl);
+  if (!result) return null;
+  return {
+    amount_cents: result.amount_cents,
+    vendor: result.vendor,
+    date: result.date,
+    currency: result.currency,
+    items: result.items,
+    tax_cents: result.tax_cents,
+    tip_cents: result.tip_cents,
+    confidence: result.confidence,
+  };
+}
+
+/**
+ * OCR bytes already in memory (the mobile from-receipt upload) — no second
+ * download. Same prompt, model and parsing as ocrReceipt.
+ */
+export async function ocrReceiptBytes(
+  bytes: Buffer,
+  mimeType: string,
+  label = 'upload',
+  opts: { timeoutMs?: number } = {},
+): Promise<ReceiptOcrBytesResult | null> {
+  const cfg = await getGeminiKey();
+  if (!cfg) return null;
+  return runGeminiOcr(cfg, bytes, mimeType, label, opts.timeoutMs ?? OCR_TIMEOUT_MS);
+}
+
+async function runGeminiOcr(
+  cfg: { apiKey: string; modelVision: string },
+  bytes: Buffer,
+  mimeType: string,
+  label: string,
+  /** Abort the model call (request AND body read) after this long; undefined = no bound (ocrReceipt's old behaviour). */
+  timeoutMs?: number,
+): Promise<ReceiptOcrBytesResult | null> {
+  const signal = timeoutMs === undefined ? undefined : AbortSignal.timeout(timeoutMs);
+  // Gemini accepts inline PDFs up to ~20 MB; images are typically capped
+  // around 4 MB before performance/quality drops noticeably. Use a single
+  // 18 MB budget for both — anything larger falls back to a URL hint.
+  const imagePart: { inlineData: { mimeType: string; data: string } } | { text: string } =
+    bytes.byteLength > 18_000_000
+      ? { text: `[File too large for inline OCR — ${(bytes.byteLength / 1_000_000).toFixed(1)} MB. URL: ${label}]` }
+      : { inlineData: { mimeType, data: bytes.toString('base64') } };
 
   const systemPrompt = `You are an expert receipt and invoice scanner. The input may be a photo OR a PDF (single- or multi-page).
 
@@ -124,6 +173,7 @@ Return ONLY valid JSON:
         contents: [{ role: 'user', parts: [imagePart, { text: 'Extract the receipt data.' }] }],
         generationConfig: { maxOutputTokens: 2048, temperature: 0.1 },
       }),
+      signal,
     });
   } catch (err) {
     console.warn('[receipt/ocr] Gemini fetch failed:', err);
@@ -148,6 +198,7 @@ Return ONLY valid JSON:
     const cleaned = raw.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
     const json = cleaned.match(/\{[\s\S]*\}/)?.[0] || cleaned;
     const parsed = JSON.parse(json);
+    const dateFound = typeof parsed.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(parsed.date);
     return {
       amount_cents: parsed.amount_cents || 0,
       vendor: parsed.vendor || null,
@@ -157,6 +208,7 @@ Return ONLY valid JSON:
       tax_cents: parsed.tax_cents || 0,
       tip_cents: parsed.tip_cents || 0,
       confidence: parsed.confidence ?? 0,
+      dateFound,
     };
   } catch (err) {
     console.warn('[receipt/ocr] Gemini parse failed:', err, raw.slice(0, 200));
@@ -286,6 +338,23 @@ export async function persistReceiptBlob(sourceUrl: string, tenantId: string, co
 
 
 /**
+ * The metered `ocr_scans` quota, in one place for every channel. Fail OPEN on
+ * a billing outage (a quota service that is down should not stop someone
+ * filing their expenses); fail CLOSED on an actual over-limit answer.
+ */
+export async function checkOcrQuota(tenantId: string): Promise<{ allowed: true } | { allowed: false; limit: number }> {
+  try {
+    const { checkQuota, incrementUsage } = await import('@naap/billing');
+    const q = await checkQuota(tenantId, 'ocr_scans');
+    if (!q.allowed) return { allowed: false, limit: q.limit };
+    void incrementUsage(tenantId, 'ocr_scans', 1).catch(() => {});
+  } catch (err) {
+    console.warn('[receipt/billing] quota check failed open:', err);
+  }
+  return { allowed: true };
+}
+
+/**
  * Everything that has to happen when a receipt arrives, in one call.
  *
  * Quota FIRST, and refused before any work is done: OCR costs a model call
@@ -313,17 +382,8 @@ export async function ingestReceipt(opts: {
 }): Promise<IngestReceiptResult> {
   const { tenantId, fileUrl, mimeType, source } = opts;
 
-  // Fail OPEN on a billing outage, matching the Telegram path: a quota
-  // service that is down should not stop someone filing their expenses.
-  // Fail CLOSED on an actual over-limit answer.
-  try {
-    const { checkQuota, incrementUsage } = await import('@naap/billing');
-    const q = await checkQuota(tenantId, 'ocr_scans');
-    if (!q.allowed) return { ok: false, reason: 'quota', limit: q.limit };
-    void incrementUsage(tenantId, 'ocr_scans', 1).catch(() => {});
-  } catch (err) {
-    console.warn('[receipt/billing] quota check failed open:', err);
-  }
+  const quota = await checkOcrQuota(tenantId);
+  if (!quota.allowed) return { ok: false, reason: 'quota', limit: quota.limit };
 
   const ocr = await ocrReceipt(fileUrl, mimeType);
   if (!ocr) return { ok: false, reason: 'ocr_failed' };

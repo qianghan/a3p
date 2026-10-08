@@ -26,8 +26,9 @@ export async function POST(
     const { tenantId } = __resolved;
     const { id } = await params;
 
+    // A soft-deleted invoice is gone for the user: 404, no reminder, no write.
     const invoice = await db.abInvoice.findFirst({
-      where: { id, tenantId },
+      where: { id, tenantId, deletedAt: null },
       include: { client: true, payments: true },
     });
     if (!invoice) {

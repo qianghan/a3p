@@ -30,6 +30,9 @@ vi.mock('@naap/database', () => ({
       update: (...a: unknown[]) => vendorUpdate(...(a as [])),
     },
     abPattern: { upsert: (...a: unknown[]) => patternUpsert(...(a as [])) },
+    // categorizeExpense validates the category (this tenant's active expense
+    // account) before writing; 'c-rent' is one.
+    abAccount: { findFirst: async () => ({ id: 'c-rent' }) },
   },
 }));
 vi.mock('@/lib/agentbook-tenant', () => ({

@@ -25,7 +25,11 @@ import { join } from 'node:path';
 const ROOT = join(__dirname, '..', '..', '..', '..', '..');
 const read = (p: string) => readFileSync(join(ROOT, p), 'utf8');
 
-const ESTIMATE = 'apps/web-next/src/app/api/v1/agentbook-tax/tax/estimate/route.ts';
+// The estimate engine moved out of the route so the mobile home KPI reads the
+// same function (mobile PR 1). Every assertion below now reads the engine, and
+// the route is checked to delegate to it.
+const ESTIMATE = 'apps/web-next/src/lib/agentbook-tax-estimate.ts';
+const ESTIMATE_ROUTE = 'apps/web-next/src/app/api/v1/agentbook-tax/tax/estimate/route.ts';
 const CASHFLOW = 'apps/web-next/src/app/api/v1/agentbook-tax/cashflow/scenario/route.ts';
 const CHAT = 'plugins/agentbook-core/backend/src/server.ts';
 const TELEGRAM = 'apps/web-next/src/app/api/v1/agentbook/telegram/webhook/route.ts';
@@ -46,6 +50,12 @@ describe('one canonical tax engine', () => {
     expect(src).not.toMatch(/\.calculateTax\([^)]*,\s*region/);
     // …and it must still apply sub-national tax from that one source.
     expect(src).toMatch(/calculateStateTax\(/);
+  });
+
+  it('the estimate route delegates to the one shared engine instead of computing tax itself', () => {
+    const src = read(ESTIMATE_ROUTE);
+    expect(src).toMatch(/computeTaxEstimate\(/);
+    expect(src).not.toMatch(/calculateTax\(|calculateStateTax\(/);
   });
 
   it('every scenario surface uses the shared composer rather than its own maths', () => {

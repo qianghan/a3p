@@ -9,39 +9,11 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma as db } from '@naap/database';
 import { safeResolveAgentbookTenant } from '@/lib/agentbook-tenant';
 import { publicErrorMessage } from '@/lib/api-error';
+import { getQuarterlyDeadlines } from '@/lib/agentbook-quarterly-deadlines';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 export const maxDuration = 30;
-
-function getQuarterlyDeadlines(year: number, jurisdiction: string): { quarter: number; deadline: Date }[] {
-  if (jurisdiction === 'ca') {
-    return [
-      { quarter: 1, deadline: new Date(`${year}-03-15`) },
-      { quarter: 2, deadline: new Date(`${year}-06-15`) },
-      { quarter: 3, deadline: new Date(`${year}-09-15`) },
-      { quarter: 4, deadline: new Date(`${year}-12-15`) },
-    ];
-  }
-  if (jurisdiction === 'au') {
-    // Australian financial year runs July-June; these are the ATO PAYG
-    // instalment dates (same dates as packages/agentbook-jurisdictions's
-    // au/calendar-deadlines.ts's payg_qN_instalment entries, reused here
-    // as literals matching this file's existing us/ca convention).
-    return [
-      { quarter: 1, deadline: new Date(`${year}-10-28`) },
-      { quarter: 2, deadline: new Date(`${year + 1}-02-28`) },
-      { quarter: 3, deadline: new Date(`${year + 1}-04-28`) },
-      { quarter: 4, deadline: new Date(`${year + 1}-07-28`) },
-    ];
-  }
-  return [
-    { quarter: 1, deadline: new Date(`${year}-04-15`) },
-    { quarter: 2, deadline: new Date(`${year}-06-15`) },
-    { quarter: 3, deadline: new Date(`${year}-09-15`) },
-    { quarter: 4, deadline: new Date(`${year + 1}-01-15`) },
-  ];
-}
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
   try {
