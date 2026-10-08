@@ -46,9 +46,12 @@ export interface CategorizeInput {
 
 type UpdatedExpense = Awaited<ReturnType<typeof db.abExpense.update>>;
 
+export const INVALID_CATEGORY_ERROR = 'categoryId is not one of your expense categories';
+
 export type CategorizeOutcome =
   | { ok: true; expense: UpdatedExpense }
-  | { ok: false; status: 400 | 404; error: string };
+  | { ok: false; status: 400 | 404; error: string }
+  | { ok: false; status: 400; code: 'invalid_category'; error: string };
 
 export async function categorizeExpense(
   tenantId: string,
@@ -72,6 +75,17 @@ export async function categorizeExpense(
   const expense = await db.abExpense.findFirst({ where: { id: expenseId, tenantId } });
   if (!expense) {
     return { ok: false, status: 404, error: 'Expense not found' };
+  }
+
+  // Never trust the caller's categoryId: only this tenant's ACTIVE EXPENSE
+  // accounts are accepted, before any write. One message for foreign, unknown,
+  // non-expense and inactive ids, so it reveals nothing about other tenants.
+  const category = await db.abAccount.findFirst({
+    where: { id: categoryId, tenantId, accountType: 'expense', isActive: true },
+    select: { id: true },
+  });
+  if (!category) {
+    return { ok: false, status: 400, code: 'invalid_category', error: INVALID_CATEGORY_ERROR };
   }
 
   const updated = await db.abExpense.update({

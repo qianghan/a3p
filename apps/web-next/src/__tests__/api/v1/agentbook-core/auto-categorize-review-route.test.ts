@@ -175,6 +175,16 @@ describe('POST /auto-categorize/review — invalid_category', () => {
   });
 });
 
+describe('POST /auto-categorize/review — category validated once', () => {
+  it('an accepted item reads its account exactly once (the categorize lib validates; the route does not repeat it)', async () => {
+    const find = vi.spyOn(memDb.table('abAccount'), 'findFirst');
+    const { body } = await review({ items: [{ expenseId: 'e6', action: 'accept' }] });
+    expect(body.data.results).toEqual([{ expenseId: 'e6', ok: true }]);
+    expect(find).toHaveBeenCalledTimes(1);
+    find.mockRestore();
+  });
+});
+
 describe('POST /auto-categorize/review — failure isolation and repeats', () => {
   it('one failing item reports a code and does not abort the rest; its suggestion stays for a retry', async () => {
     backfill.mockRejectedValueOnce(new Error('ledger down'));

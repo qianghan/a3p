@@ -139,3 +139,27 @@ describe('POST /expenses/:id/categorize — characterization', () => {
     }
   });
 });
+
+describe('POST /expenses/:id/categorize — the category is validated (final review M4)', () => {
+  it.each([
+    ['another tenant\'s account', 'b-meals'],
+    ['a revenue account', 'acc-rev'],
+    ['an unknown id', 'nope'],
+  ])('400 invalid_category for %s, writing nothing', async (_label, categoryId) => {
+    expect(await call('e5', { categoryId })).toEqual({
+      status: 400,
+      body: { success: false, code: 'invalid_category', error: 'categoryId is not one of your expense categories' },
+    });
+    expect(writes('abExpense')).toEqual([]);
+    expect(writes('abPattern')).toEqual([]);
+    expect(writes('abVendor')).toEqual([]);
+    expect(backfill).not.toHaveBeenCalled();
+  });
+
+  it('400 invalid_category for an inactive expense account', async () => {
+    memDb.table('abAccount').rows.push({ id: 'acc-old', tenantId: 't1', code: '5400', name: 'Old', accountType: 'expense', isActive: false });
+    expect((await call('e5', { categoryId: 'acc-old' })).status).toBe(400);
+    expect(writes('abExpense')).toEqual([]);
+    expect(backfill).not.toHaveBeenCalled();
+  });
+});

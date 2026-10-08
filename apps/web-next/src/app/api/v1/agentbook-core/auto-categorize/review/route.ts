@@ -82,18 +82,13 @@ async function reviewOne(
   const categoryId = item.categoryId ?? suggestion?.suggestedCategoryId;
   if (!categoryId) return { expenseId: item.expenseId, ok: false, error: 'no_suggestion' };
 
-  // The categorize route trusts its caller's categoryId; this bulk path does
-  // not: only this tenant's active expense accounts are accepted.
-  const category = await db.abAccount.findFirst({
-    where: { id: categoryId, tenantId, accountType: 'expense', isActive: true },
-    select: { id: true },
-  });
-  if (!category) return { expenseId: item.expenseId, ok: false, error: 'invalid_category' };
-
+  // categorizeExpense validates the account (this tenant's, active, expense)
+  // before any write and reports invalid_category otherwise.
   const source = suggestion && categoryId === suggestion.suggestedCategoryId ? 'agent_confirmed' : 'user_corrected';
   const outcome = await categorizeExpense(tenantId, item.expenseId, { categoryId, source });
   if (!outcome.ok) {
-    return { expenseId: item.expenseId, ok: false, error: outcome.status === 404 ? 'not_found' : 'failed' };
+    const error = 'code' in outcome ? outcome.code : outcome.status === 404 ? 'not_found' : 'failed';
+    return { expenseId: item.expenseId, ok: false, error };
   }
   await drop();
   return { expenseId: item.expenseId, ok: true };

@@ -40,6 +40,47 @@ describe('categorizeExpense — the one categorize path (route + mobile review)'
     expect((await memDb.table('abVendor').findFirst({ where: { id: 'v-cafe' } }))?.defaultCategoryId).toBe('acc-meals');
   });
 
+  describe('validates the category itself (callers no longer have to)', () => {
+    const INVALID = { ok: false, status: 400, code: 'invalid_category', error: 'categoryId is not one of your expense categories' };
+    const nothingWritten = () => {
+      expect(memDb.table('abExpense').writes).toEqual([]);
+      expect(memDb.table('abPattern').writes).toEqual([]);
+      expect(memDb.table('abVendor').writes).toEqual([]);
+      expect(backfill).not.toHaveBeenCalled();
+    };
+
+    it("another tenant's expense account is invalid_category: no write, no backfill", async () => {
+      expect(await categorizeExpense('t1', 'e5', { categoryId: 'b-meals' })).toEqual(INVALID);
+      nothingWritten();
+    });
+
+    it('a non-expense account (revenue, asset) is invalid_category', async () => {
+      expect(await categorizeExpense('t1', 'e5', { categoryId: 'acc-rev' })).toEqual(INVALID);
+      expect(await categorizeExpense('t1', 'e5', { categoryId: 'acc-cash' })).toEqual(INVALID);
+      nothingWritten();
+    });
+
+    it('an inactive expense account is invalid_category', async () => {
+      memDb.table('abAccount').rows.push({ id: 'acc-old', tenantId: 't1', code: '5400', name: 'Old', accountType: 'expense', isActive: false });
+      expect(await categorizeExpense('t1', 'e5', { categoryId: 'acc-old' })).toEqual(INVALID);
+      nothingWritten();
+    });
+
+    it('an id that is no account at all is invalid_category', async () => {
+      expect(await categorizeExpense('t1', 'e5', { categoryId: 'nope' })).toEqual(INVALID);
+      nothingWritten();
+    });
+
+    it('a valid active expense account of the tenant is unchanged', async () => {
+      const out = await categorizeExpense('t1', 'e5', { categoryId: 'acc-fuel' });
+      expect(out.ok).toBe(true);
+      expect(memDb.table('abExpense').writes).toEqual([
+        { op: 'update', args: { where: { id: 'e5' }, data: { categoryId: 'acc-fuel', confidence: 1 } } },
+      ]);
+      expect(backfill).toHaveBeenCalledWith('t1', 'e5');
+    });
+  });
+
   it('an auto_categorize caller keeps its own confidence and a capped pattern', async () => {
     await categorizeExpense('t1', 'e5', { categoryId: 'acc-meals', source: 'auto_categorize', confidence: 0.99 });
     expect((await memDb.table('abExpense').findFirst({ where: { id: 'e5' } }))?.confidence).toBe(0.99);

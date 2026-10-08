@@ -27,7 +27,9 @@ export async function POST(
 
     const outcome = await categorizeExpense(tenantId, id, body);
     if (!outcome.ok) {
-      return NextResponse.json({ success: false, error: outcome.error }, { status: outcome.status });
+      // invalid_category carries a machine code (like from-receipt) so a client can localize it.
+      const code = 'code' in outcome ? { code: outcome.code } : {};
+      return NextResponse.json({ success: false, ...code, error: outcome.error }, { status: outcome.status });
     }
     return NextResponse.json({ success: true, data: outcome.expense });
   } catch (err) {
