@@ -26,7 +26,8 @@
     "severity_critical": "Critical:",
     "severity_warn": "Warning:",
     "severity_info": "Notice:",
-    "alerts": "Alerts"
+    "alerts": "Alerts",
+    "retrying": "Retrying…"
   },
   "home": {
     "subtitle": "Here’s what needs you today",

@@ -29,15 +29,16 @@ export function HomeSkeleton() {
  * `code` is ApiError.code. It chooses the copy; ApiError.message is never
  * rendered (it is a developer string and may carry a server sentence).
  */
-export function HomeError({ offline, onRetry, code }: { offline: boolean; onRetry: () => void; code?: string }) {
+export function HomeError({ offline: offlineProp, onRetry, code, busy = false }: { offline: boolean; onRetry: () => void; code?: string; busy?: boolean }) {
   const t = useT();
+  const offline = offlineProp || code === 'offline';
   if (code === 'unauthorized') {
     return (
       <Card role="alert" data-testid="home-error" style={{ display: 'grid', gap: tokens.space.sm }}>
         <p style={{ fontSize: tokens.font.md, fontWeight: 600, margin: 0 }}>{t('mobile.home.error.signed_out_title')}</p>
         <p style={{ fontSize: tokens.font.sm, color: tokens.color.muted, margin: 0 }}>{t('mobile.home.error.signed_out_body')}</p>
         <div>
-          <Link href="/login" style={buttonStyle('primary')}>
+          <Link href="/login?redirect=%2Fapp" style={buttonStyle('primary')}>
             {t('mobile.home.error.sign_in')}
           </Link>
         </div>
@@ -52,13 +53,13 @@ export function HomeError({ offline, onRetry, code }: { offline: boolean; onRetr
       <p style={{ fontSize: tokens.font.md, fontWeight: 600, margin: 0 }}>{title}</p>
       <p style={{ fontSize: tokens.font.sm, color: tokens.color.muted, margin: 0 }}>{body}</p>
       <div>
-        <Button onClick={onRetry}>{t('mobile.kit.retry')}</Button>
+        <Button onClick={onRetry} disabled={busy} aria-busy={busy}>{busy ? t('mobile.kit.retrying') : t('mobile.kit.retry')}</Button>
       </div>
     </Card>
   );
 }
 
-export function StaleNotice({ offline, time, onRetry }: { offline: boolean; time: string; onRetry: () => void }) {
+export function StaleNotice({ offline, time, onRetry, busy = false }: { offline: boolean; time: string; onRetry: () => void; busy?: boolean }) {
   const t = useT();
   return (
     <div
@@ -80,7 +81,7 @@ export function StaleNotice({ offline, time, onRetry }: { offline: boolean; time
       <span style={{ fontSize: tokens.font.sm }}>
         {offline ? t('mobile.kit.offline_as_of', { time }) : t('mobile.kit.stale_as_of', { time })}
       </span>
-      <Button variant="ghost" onClick={onRetry}>{t('mobile.kit.retry')}</Button>
+      <Button variant="ghost" onClick={onRetry} disabled={busy} aria-busy={busy}>{busy ? t('mobile.kit.retrying') : t('mobile.kit.retry')}</Button>
     </div>
   );
 }
@@ -88,10 +89,14 @@ export function StaleNotice({ offline, time, onRetry }: { offline: boolean; time
 export function PullIndicator({ distance, busy }: { distance: number; busy: boolean }) {
   const t = useT();
   if (distance <= 0 && !busy) return null;
+  // While pulling, the gesture is purely visual (a screen-reader user has the
+  // Retry buttons); only "Refreshing" is worth announcing, politely.
   return (
     <div
       data-testid="pull-indicator"
-      role="status"
+      role={busy ? 'status' : undefined}
+      aria-live={busy ? 'polite' : undefined}
+      aria-hidden={busy ? undefined : true}
       style={{
         height: busy ? 32 : distance,
         display: 'flex',

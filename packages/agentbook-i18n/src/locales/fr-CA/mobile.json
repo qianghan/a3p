@@ -26,7 +26,8 @@
     "severity_critical": "Critique :",
     "severity_warn": "Avertissement :",
     "severity_info": "Avis :",
-    "alerts": "Alertes"
+    "alerts": "Alertes",
+    "retrying": "Nouvelle tentative…"
   },
   "home": {
     "subtitle": "Voici ce qui vous attend aujourd’hui",

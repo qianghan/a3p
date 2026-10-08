@@ -1,7 +1,8 @@
 import React from 'react';
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { screen, fireEvent, within } from '@testing-library/react';
 import type { UpcomingItem, RecentItem } from '@/lib/mobile/types';
+import { makeFormatters } from '@/app/app/_kit/format';
 import { NextUp, dueLabel, upcomingTitle } from '@/app/app/_home/NextUp';
 import { RecentActivity, recentHref, DOC_VIEWER_ROUTE_SHIPPED } from '@/app/app/_home/RecentActivity';
 import { QuickActions } from '@/app/app/_home/QuickActions';
@@ -36,9 +37,26 @@ describe('NextUp', () => {
     expect(within(rows[2] as HTMLElement).queryByLabelText('Not available')).toBeNull();
   });
 
-  it('renders a logical date without zone shifting (UTC-midnight date in a western zone)', () => {
-    renderWithI18n(<NextUp items={[up({ date: '2026-01-01', daysAway: 1 })]} currency="CAD" />);
-    expect(document.querySelector('[data-next-up]')).toHaveTextContent('Jan 1 · In 1 day');
+  describe('logical dates under a western zone', () => {
+    let tz: string | undefined;
+    beforeEach(() => {
+      tz = process.env.TZ;
+      process.env.TZ = 'America/Vancouver';
+    });
+    afterEach(() => {
+      if (tz === undefined) delete process.env.TZ;
+      else process.env.TZ = tz;
+    });
+
+    it('renders the stored day, not the viewer-zone day', () => {
+      // Mutation check: the zone is really in effect — a naive local-zone render of the
+      // same stored day shifts to Dec 31 — so a row that stopped using dateOnly would fail below.
+      expect(new Date('2026-01-01').toLocaleDateString('en', { month: 'short', day: 'numeric' })).toBe('Dec 31');
+      expect(makeFormatters('en').date('2026-01-01T00:00:00.000Z')).toBe('Dec 31');
+      expect(makeFormatters('en').dateOnly('2026-01-01')).toBe('Jan 1');
+      renderWithI18n(<NextUp items={[up({ date: '2026-01-01', daysAway: 1 })]} currency="CAD" />);
+      expect(document.querySelector('[data-next-up]')).toHaveTextContent('Jan 1 · In 1 day');
+    });
   });
 
   it('says so when nothing is due', () => {
@@ -86,6 +104,16 @@ describe('upcomingTitle — seeded calendar keys that may not be in the catalog'
   it('a key whose placeholders the server did not supply is treated as unresolved', () => {
     // calendar.invoice_due is "Invoice #{number} due — {client} ({amount})".
     expect(upcomingTitle(i18nT('en'), cal('calendar.invoice_due'))).toBe('Upcoming date');
+  });
+
+  it('a vendor name containing braces keeps its bill title (placeholders are judged on the template)', () => {
+    const bill = up({ kind: 'bill', titleKey: 'mobile.upcoming.bill_due', params: { vendor: 'Acme {CA}' }, amountCents: 100 });
+    expect(upcomingTitle(i18nT('en'), bill)).toBe('Acme {CA} bill');
+    expect(upcomingTitle(i18nT('fr-CA'), bill)).toBe('Facture Acme {CA}');
+  });
+
+  it('a template that needs a param the server did not send is still unresolved', () => {
+    expect(upcomingTitle(i18nT('en'), up({ kind: 'bill', titleKey: 'mobile.upcoming.bill_due', params: {} }))).toBe('Upcoming date');
   });
 
   it('rejects a key outside the dotted-identifier shape', () => {
@@ -187,7 +215,7 @@ describe('Home states', () => {
     expect(alert).toHaveTextContent('You’ve been signed out');
     expect(alert).not.toHaveTextContent('Couldn’t load this');
     const link = screen.getByRole('link', { name: 'Sign in' });
-    expect(link).toHaveAttribute('href', '/login');
+    expect(link).toHaveAttribute('href', '/login?redirect=%2Fapp');
     expectTouchTarget(link);
     expect(screen.queryByRole('button', { name: 'Retry' })).toBeNull();
   });
@@ -204,6 +232,28 @@ describe('Home states', () => {
     expect(screen.getByRole('alert')).not.toHaveTextContent('boom_internal_stack');
   });
 
+  it('error: code "offline" shows the offline copy even if the caller left offline=false', () => {
+    renderWithI18n(<HomeError offline={false} code="offline" onRetry={vi.fn()} />);
+    expect(screen.getByRole('alert')).toHaveTextContent('You’re offline');
+  });
+
+  it('error: a retry in flight disables Retry and says so', () => {
+    const onRetry = vi.fn();
+    renderWithI18n(<HomeError offline={false} onRetry={onRetry} busy />);
+    const btn = screen.getByRole('button', { name: 'Retrying…' });
+    expect(btn).toBeDisabled();
+    expect(btn).toHaveAttribute('aria-busy', 'true');
+    fireEvent.click(btn);
+    expect(onRetry).not.toHaveBeenCalled();
+  });
+
+  it('stale notice: a retry in flight disables Retry and says so', () => {
+    renderWithI18n(<StaleNotice offline={false} time="3:04 PM" onRetry={vi.fn()} busy />);
+    const btn = screen.getByRole('button', { name: 'Retrying…' });
+    expect(btn).toBeDisabled();
+    expect(btn).toHaveAttribute('aria-busy', 'true');
+  });
+
   it('stale notice names the time and differs offline vs failed refresh', () => {
     const onRetry = vi.fn();
     const { rerender } = renderWithI18n(<StaleNotice offline time="3:04 PM" onRetry={onRetry} />);
@@ -214,12 +264,19 @@ describe('Home states', () => {
     expect(onRetry).toHaveBeenCalledTimes(1);
   });
 
-  it('pull indicator is absent at rest and labelled while pulling or refreshing', () => {
+  it('pull indicator is absent at rest, silent to screen readers while pulling, a polite status while refreshing', () => {
     const { rerender } = renderWithI18n(<PullIndicator distance={0} busy={false} />);
     expect(screen.queryByTestId('pull-indicator')).toBeNull();
     rerender(<PullIndicator distance={40} busy={false} />);
-    expect(screen.getByTestId('pull-indicator')).toHaveTextContent('Pull to refresh');
+    const pulling = screen.getByTestId('pull-indicator');
+    expect(pulling).toHaveTextContent('Pull to refresh');
+    expect(pulling).toHaveAttribute('aria-hidden', 'true');
+    expect(pulling).not.toHaveAttribute('role');
+    expect(screen.queryByRole('status')).toBeNull();
     rerender(<PullIndicator distance={0} busy />);
-    expect(screen.getByTestId('pull-indicator')).toHaveTextContent('Refreshing');
+    const busy = screen.getByTestId('pull-indicator');
+    expect(busy).toHaveTextContent('Refreshing');
+    expect(busy).not.toHaveAttribute('aria-hidden');
+    expect(screen.getByRole('status')).toHaveAttribute('aria-live', 'polite');
   });
 });

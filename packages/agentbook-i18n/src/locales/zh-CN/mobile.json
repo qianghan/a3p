@@ -26,7 +26,8 @@
     "severity_critical": "严重：",
     "severity_warn": "警告：",
     "severity_info": "提示：",
-    "alerts": "警报"
+    "alerts": "警报",
+    "retrying": "正在重试…"
   },
   "home": {
     "subtitle": "今天需要您处理的事项",
