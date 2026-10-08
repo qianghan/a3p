@@ -13,7 +13,7 @@ import { GET } from '@/app/api/v1/agentbook-core/dashboard/overview/route';
 interface Overview {
   success: boolean;
   data: {
-    cashToday: number | null;
+    cashToday: number;
     monthMtd: unknown;
     monthPrev: unknown;
     isBrandNew: boolean;
@@ -71,9 +71,9 @@ describe('GET /dashboard/overview — characterization', () => {
 
   it('a tenant with no data is brand new with empty slices', async () => {
     const b = await call('t3');
-    // cashToday was 0 here until cash became "cash and bank accounts only": a tenant
-    // with no cash account has no cash figure (null), not a silent $0.
-    expect(b.data).toMatchObject({ cashToday: null, monthMtd: null, monthPrev: null, isBrandNew: true, attention: [], nextMoments: [] });
+    // Desktop contract unchanged: cashToday stays a NUMBER (0 with no cash account) — the
+    // desktop bundle renders it as money. Only mobile/home passes the null through.
+    expect(b.data).toMatchObject({ cashToday: 0, monthMtd: null, monthPrev: null, isBrandNew: true, attention: [], nextMoments: [] });
   });
 
   it('401 without a session', async () => {

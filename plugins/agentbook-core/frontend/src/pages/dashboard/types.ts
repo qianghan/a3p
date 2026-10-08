@@ -22,8 +22,7 @@ export interface RecurringOutflow {
 }
 
 export interface OverviewPayload {
-  /** Cash and bank accounts only (receivables excluded); null = no cash account at all. */
-  cashToday: number | null;
+  cashToday: number;
   projection: { days: { date: string; cents: number }[]; moodLabel: 'healthy' | 'tight' | 'critical' } | null;
   nextMoments: NextMoment[];
   attention: AttentionItem[];

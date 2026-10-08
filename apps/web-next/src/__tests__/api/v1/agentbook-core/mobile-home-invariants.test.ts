@@ -14,7 +14,7 @@ import { GET as OVERVIEW } from '@/app/api/v1/agentbook-core/dashboard/overview/
 import { GET as AGING } from '@/app/api/v1/agentbook-invoice/aging-report/route';
 import { GET as ESTIMATE } from '@/app/api/v1/agentbook-tax/tax/estimate/route';
 
-interface Overview { data: { cashToday: number | null; monthMtd: { netCents: number } | null; isBrandNew: boolean } }
+interface Overview { data: { cashToday: number; monthMtd: { netCents: number } | null; isBrandNew: boolean } }
 interface Aging { data: { buckets: Record<string, unknown[]>; totals: Record<string, number>; totalOutstandingCents: number } }
 interface Estimate { data: { amountOwedCents: number } }
 
@@ -37,7 +37,8 @@ describe('mobile/home KPIs equal the existing endpoints (one definition per numb
     const aging = await json<Aging>(await AGING(tenantReq('/api/v1/agentbook-invoice/aging-report', tenant)));
     const estimate = await json<Estimate>(await ESTIMATE(tenantReq('/api/v1/agentbook-tax/tax/estimate', tenant)));
 
-    expect(home.kpis.cashTodayCents).toBe(overview.data.cashToday);
+    // Same helper; the overview maps "no cash account" (null) to its desktop number contract, 0.
+    expect(home.kpis.cashTodayCents ?? 0).toBe(overview.data.cashToday);
     expect(home.kpis.monthNetCents).toBe(overview.data.monthMtd ? overview.data.monthMtd.netCents : null);
     expect(home.isBrandNew).toBe(overview.data.isBrandNew);
     expect(home.kpis.outstandingCents).toBe(aging.data.totalOutstandingCents);

@@ -2,7 +2,7 @@
  * Dashboard /overview — minimal native Next.js route.
  *
  * Computes only the slices the new dashboard actually consumes:
- *   • cashToday from cash/bank accounts only (A/R excluded; null = no cash account)
+ *   • cashToday from cash/bank accounts only (A/R excluded); 0 when there is no cash account
  *   • attention queue (overdue invoices, tax window, missing receipts,
  *     books-out-of-balance)
  *   • next-moments (overdue invoice payments + auto-detected recurring)
@@ -154,7 +154,9 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     return NextResponse.json({
       success: true,
       data: {
-        cashToday,
+        // Desktop contract: a NUMBER. The helper's null ("no cash or bank account") is 0
+        // here, as before; only mobile/home passes the null through (cash_unavailable).
+        cashToday: cashToday ?? 0,
         projection: null,             // V2: cashflow forecast
         nextMoments,
         attention,

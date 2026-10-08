@@ -33,7 +33,9 @@ export function startOfPrevMonth(d: Date): Date {
  * Dr 1100 A/R and is already "Outstanding"; it used to be counted here too.
  *
  * null = the tenant has no cash or bank account at all (chart never seeded),
- * so there is no cash figure to show — not "$0".
+ * so there is no cash figure to show — not "$0". mobile/home passes it through
+ * (kpis.cashTodayCents → "Connect a bank account…"); the desktop overview keeps
+ * its number contract and reports 0 (the pre-built desktop bundle renders money).
  */
 export async function getCashTodayCents(tenantId: string): Promise<number | null> {
   const assetAccounts = await db.abAccount.findMany({

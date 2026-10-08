@@ -7,8 +7,7 @@ import { useTenantCurrency } from '../../hooks/useTenantCurrency';
 import { useI18n } from '@naap/plugin-sdk';
 
 interface Props {
-  /** null = the tenant has no cash or bank account, so there is no cash figure (not $0). */
-  cashTodayCents: number | null;
+  cashTodayCents: number;
   projection: { days: { date: string; cents: number }[]; moodLabel: 'healthy' | 'tight' | 'critical' } | null;
   moments: NextMoment[];
 }
@@ -24,7 +23,7 @@ export const ForwardView: React.FC<Props> = ({ cashTodayCents, projection, momen
   // does not shift with the viewer's timezone.
   const { formatDateOnly, t } = useI18n();
   const currency = useTenantCurrency();
-  const fmt = (cents: number | null) => (cents === null ? '—' : formatMoney(cents, currency));
+  const fmt = (cents: number) => formatMoney(cents, currency);
   const projectedEnd = projection?.days[projection.days.length - 1]?.cents ?? cashTodayCents;
   const endDate = projection?.days[projection.days.length - 1]?.date;
 

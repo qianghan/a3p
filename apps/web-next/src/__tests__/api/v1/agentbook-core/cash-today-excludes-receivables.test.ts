@@ -21,7 +21,7 @@ import { GET as OVERVIEW } from '@/app/api/v1/agentbook-core/dashboard/overview/
 const homeCash = async (tenant: string) =>
   (await json<{ data: MobileHome }>(await HOME(tenantReq('/api/v1/agentbook-core/mobile/home', tenant)))).data.kpis.cashTodayCents;
 const overviewCash = async (tenant: string) =>
-  (await json<{ data: { cashToday: number | null } }>(await OVERVIEW(tenantReq('/api/v1/agentbook-core/dashboard/overview', tenant)))).data.cashToday;
+  (await json<{ data: { cashToday: number } }>(await OVERVIEW(tenantReq('/api/v1/agentbook-core/dashboard/overview', tenant)))).data.cashToday;
 
 /** Accounts carry their journal lines embedded (mem-db ignores include/select). */
 function account(id: string, tenantId: string, code: string, accountType: string, lines: Array<[number, number]> = []): Row {
@@ -78,12 +78,14 @@ describe('cash today excludes accounts receivable', () => {
     expect(await homeCash('t8')).toBe(321000);
   });
 
-  it('a tenant with no cash or bank account has NO cash figure (null), not a silent $0', async () => {
+  it('no cash or bank account: mobile/home has NO cash figure (null); the desktop overview keeps its number contract (0)', async () => {
     withAccounts([account('t7-ar', 't7', '1100', 'asset', [[90000, 0]])]);
-    expect(await overviewCash('t7')).toBeNull();
+    // The A/R balance is NOT reported as cash on either surface.
+    expect(await overviewCash('t7')).toBe(0);
     expect(await homeCash('t7')).toBeNull();
     // An inactive cash account is not a cash account either.
     withAccounts([{ ...account('t6-cash', 't6', '1000', 'asset', [[500, 0]]), isActive: false }]);
     expect(await homeCash('t6')).toBeNull();
+    expect(await overviewCash('t6')).toBe(0);
   });
 });
