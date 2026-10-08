@@ -7,6 +7,7 @@ import { Home, FileText, Camera, MessageCircle, type LucideIcon } from 'lucide-r
 import { useT } from '@/hooks/use-t';
 import { tokens, TOUCH } from '../_kit/tokens';
 import { useShellBadges } from '../_lib/useShellBadges';
+import { BADGES_ENABLED, type BadgeGate } from './badges';
 
 export const TAB_ORDER = ['/app', '/app/docs', '/app/capture', '/app/chat'] as const;
 
@@ -41,10 +42,11 @@ interface TabDef {
   raised?: boolean;
 }
 
-export function TabBar() {
+/** `badges` defaults to the shipped gate; tests pass a different one. */
+export function TabBar({ badges = BADGES_ENABLED }: { badges?: BadgeGate } = {}) {
   const t = useT();
   const pathname = usePathname();
-  const { homeCritical, docsNeedsReview } = useShellBadges();
+  const { homeCritical, docsNeedsReview } = useShellBadges(badges);
 
   const tabs: TabDef[] = [
     {

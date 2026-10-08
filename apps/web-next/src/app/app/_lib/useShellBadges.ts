@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import type { MobileHome } from '@/lib/mobile/types';
+import type { BadgeGate } from '../_shell/badges';
 import { clearMobileSnapshots, clearReasonOf } from '@/lib/mobile/snapshot-keys';
 import { ApiError, getHome } from './api';
 import {
@@ -68,10 +69,16 @@ function online(): boolean {
  * away rather than written back under the next session — then asked for once
  * more under the current one, unless the clear came from a 401.
  */
-export function useShellBadges(): ShellBadges {
+export function useShellBadges(gate: BadgeGate): ShellBadges {
   const [badges, setBadges] = useState<ShellBadges>(NONE);
+  // Both off: no request, no listeners — the hook is inert (see _shell/badges.ts).
+  const anyEnabled = gate.home || gate.docs;
 
   useEffect(() => {
+    if (!anyEnabled) {
+      setBadges(NONE);
+      return;
+    }
     let cancelled = false;
     // Bumped on every clear; a fetch started under an older generation is stale.
     let generation = 0;
@@ -119,8 +126,14 @@ export function useShellBadges(): ShellBadges {
     };
     const onCleared = (e: Event) => {
       generation += 1;
-      if (clearReasonOf(e) === 'unauthorized') unauthorized = true;
-      refresh();
+      const reason = clearReasonOf(e);
+      // 'session' = a sign-in/out or owner change, i.e. possibly a NEW session.
+      unauthorized = reason === 'unauthorized';
+      const left = refresh();
+      // First load after deploy: no owner key yet, so if /mobile/home answered
+      // before /auth/me, claimMobileSnapshots() just deleted what was written.
+      // Ask once for whoever is signed in now (a 401 ends it there).
+      if (reason === 'session' && !left) revalidate(false);
     };
     const onStorage = (e: StorageEvent) => {
       // key === null: another tab called localStorage.clear().
@@ -144,7 +157,10 @@ export function useShellBadges(): ShellBadges {
       window.removeEventListener('storage', onStorage);
       document.removeEventListener('visibilitychange', onVisibility);
     };
-  }, []);
+  }, [anyEnabled]);
 
-  return badges;
+  return {
+    homeCritical: gate.home && badges.homeCritical,
+    docsNeedsReview: gate.docs ? badges.docsNeedsReview : 0,
+  };
 }

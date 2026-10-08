@@ -15,6 +15,7 @@ import {
   neverCachePaths,
   type ScreenRoute,
 } from './helpers';
+import { BADGES_ENABLED } from '../../../apps/web-next/src/app/app/_shell/badges';
 
 const ORDER = ['/app', '/app/docs', '/app/capture', '/app/chat'] as const;
 const LABEL_KEY: Record<(typeof ORDER)[number], string> = {
@@ -56,8 +57,24 @@ test.describe('@mobile-shell', () => {
       });
     }
 
-    test('maya: badges match the live home data', async ({ page }) => {
+    test('maya: badges match the live home data (or stay off and cost nothing while gated)', async ({ page }) => {
       await loginAs(page, 'maya');
+      if (!BADGES_ENABLED.home && !BADGES_ENABLED.docs) {
+        // Gated until PR 3 (home) / PR 4 (docs) — apps/web-next/src/app/app/_shell/badges.ts.
+        // The shell must show no badge AND not pay for a /mobile/home request it would not use.
+        const homeRequests: string[] = [];
+        page.on('request', (r) => {
+          if (new URL(r.url()).pathname === '/api/v1/agentbook-core/mobile/home') homeRequests.push(r.method());
+        });
+        await page.goto('/app');
+        await settle(page);
+        const gatedT = catalogT((await pageLocales(page)).stringLocale);
+        // The shell really rendered (so "no badge" is not an observation of an empty page).
+        await expect(tabNav(page, gatedT).locator('a[data-tab]')).toHaveCount(4);
+        await expect(page.locator('[data-badge]')).toHaveCount(0);
+        expect(homeRequests, 'gated shell made a /mobile/home request').toEqual([]);
+        return;
+      }
       // Registered BEFORE navigating: the shell's own /mobile/home request is the one
       // whose data the badges must reflect, so the expectation is computed from IT
       // (not from a second fetch that could see different ledger state).
@@ -78,8 +95,9 @@ test.describe('@mobile-shell', () => {
       await settle(page);
       const t = catalogT((await pageLocales(page)).stringLocale);
 
-      const critical = home.alerts.some((a) => a.severity === 'critical');
-      const reviewCount = Number(home.alerts.find((a) => a.kind === 'review_needed')?.params?.count ?? 0);
+      // A tab whose badge is still gated shows nothing whatever the data says.
+      const critical = BADGES_ENABLED.home && home.alerts.some((a) => a.severity === 'critical');
+      const reviewCount = BADGES_ENABLED.docs ? Number(home.alerts.find((a) => a.kind === 'review_needed')?.params?.count ?? 0) : 0;
       // Say which branch ran. The seeded persona's data decides it; we never skip the zero
       // branch. The POSITIVE branches (a critical alert, a review count) are covered by the
       // PR 3 e2e (Home alerts) and the badge unit tests, which control the data.

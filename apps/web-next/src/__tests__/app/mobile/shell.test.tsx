@@ -35,6 +35,11 @@ import { MobileShell, MAIN_STYLE, SHELL_STYLE, TAB_BAR_CLEARANCE } from '@/app/a
 import { isTabActive, TAB_CSS } from '@/app/app/_shell/TabBar';
 import { badgesFrom, BADGE_MAX_AGE_MS, isBadgeSnapshotStale } from '@/app/app/_lib/useShellBadges';
 import MobileChat from '@/app/app/chat/page';
+import { BADGES_ENABLED, type BadgeGate } from '@/app/app/_shell/badges';
+
+// The badge behaviour below is tested with both badges switched ON (the state
+// after PR 3 + PR 4). What ships today is gated — see 'Badge gate' at the end.
+const ALL: BadgeGate = { home: true, docs: true };
 
 const HOME_URL = '/api/v1/agentbook-core/mobile/home';
 const realFetch = global.fetch;
@@ -97,7 +102,7 @@ function tabs() {
 describe('MobileShell', () => {
   it('renders four tabs in the order Home · Docs · Capture · Chat, as client-side links', async () => {
     routeFetch({ [HOME_URL]: () => jsonResponse(200, { success: true, data: homeFixture({ alerts: [] }) }) });
-    renderWithI18n(<MobileShell><p>child</p></MobileShell>);
+    renderWithI18n(<MobileShell badges={ALL}><p>child</p></MobileShell>);
     expect(tabs().map((a) => a.getAttribute('href'))).toEqual(['/app', '/app/docs', '/app/capture', '/app/chat']);
     expect(tabs().map((a) => a.textContent)).toEqual(['Home', 'Docs', 'Capture', 'Chat']);
     expect(screen.getByText('child')).toBeInTheDocument();
@@ -109,21 +114,21 @@ describe('MobileShell', () => {
 
   it('labels come from the catalog (zh-CN)', () => {
     routeFetch({ [HOME_URL]: () => jsonResponse(200, { success: true, data: homeFixture({ alerts: [] }) }) });
-    renderWithI18n(<MobileShell><p /></MobileShell>, 'zh-CN');
+    renderWithI18n(<MobileShell badges={ALL}><p /></MobileShell>, 'zh-CN');
     const navEl = screen.getByRole('navigation', { name: '主导航' });
     expect(Array.from(navEl.querySelectorAll('a[data-tab]')).map((a) => a.textContent)).toEqual(['首页', '单据', '记账', '对话']);
   });
 
   it('every tab is at least 44×44', () => {
     routeFetch({ [HOME_URL]: () => jsonResponse(200, { success: true, data: homeFixture({ alerts: [] }) }) });
-    renderWithI18n(<MobileShell><p /></MobileShell>);
+    renderWithI18n(<MobileShell badges={ALL}><p /></MobileShell>);
     for (const a of tabs()) expectTouchTarget(a);
   });
 
   it('marks exactly the active tab with aria-current="page", including nested routes', () => {
     routeFetch({ [HOME_URL]: () => jsonResponse(200, { success: true, data: homeFixture({ alerts: [] }) }) });
     nav.pathname = '/app/docs/exp-1';
-    renderWithI18n(<MobileShell><p /></MobileShell>);
+    renderWithI18n(<MobileShell badges={ALL}><p /></MobileShell>);
     const current = tabs().filter((a) => a.getAttribute('aria-current') === 'page');
     expect(current.map((a) => a.getAttribute('href'))).toEqual(['/app/docs']);
   });
@@ -140,7 +145,7 @@ describe('MobileShell', () => {
   it('badges come from the cached home snapshot with NO network request', async () => {
     const fetchMock = routeFetch({});
     writeSnapshot('home', homeFixture());
-    renderWithI18n(<MobileShell><p /></MobileShell>);
+    renderWithI18n(<MobileShell badges={ALL}><p /></MobileShell>);
     const docs = await screen.findByRole('link', { name: 'Docs, 3 items need review' });
     expect(within(docs).getByText('3')).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Home, needs attention' }).querySelector('[data-badge="home-dot"]')).not.toBeNull();
@@ -149,7 +154,7 @@ describe('MobileShell', () => {
 
   it('without a snapshot it fetches home ONCE, stores the snapshot, and shows the badges', async () => {
     const fetchMock = routeFetch({ [HOME_URL]: () => jsonResponse(200, { success: true, data: homeFixture() }) });
-    renderWithI18n(<MobileShell><p /></MobileShell>);
+    renderWithI18n(<MobileShell badges={ALL}><p /></MobileShell>);
     await screen.findByRole('link', { name: 'Docs, 3 items need review' });
     expect(fetchMock.mock.calls.filter((c) => String(c[0]) === HOME_URL)).toHaveLength(1);
     expect(window.localStorage.getItem(`${SNAPSHOT_PREFIX}home`)).not.toBeNull();
@@ -158,7 +163,7 @@ describe('MobileShell', () => {
   it('offline with no snapshot: no request, no badges', () => {
     vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(false);
     const fetchMock = routeFetch({});
-    renderWithI18n(<MobileShell><p /></MobileShell>);
+    renderWithI18n(<MobileShell badges={ALL}><p /></MobileShell>);
     expect(fetchMock.mock.calls.filter((c) => String(c[0]) === HOME_URL)).toHaveLength(0);
     expect(document.querySelector('[data-badge]')).toBeNull();
   });
@@ -166,7 +171,7 @@ describe('MobileShell', () => {
   it('badges follow a fresh snapshot written by the Home screen', async () => {
     writeSnapshot('home', homeFixture({ alerts: [] }));
     routeFetch({});
-    renderWithI18n(<MobileShell><p /></MobileShell>);
+    renderWithI18n(<MobileShell badges={ALL}><p /></MobileShell>);
     expect(document.querySelector('[data-badge]')).toBeNull();
     act(() => writeSnapshot('home', homeFixture()));
     await screen.findByRole('link', { name: 'Docs, 3 items need review' });
@@ -174,14 +179,14 @@ describe('MobileShell', () => {
 
   it('keeps the language switcher and starts the offline-queue replay once', () => {
     routeFetch({ [HOME_URL]: () => jsonResponse(200, { success: true, data: homeFixture({ alerts: [] }) }) });
-    renderWithI18n(<MobileShell><p /></MobileShell>);
+    renderWithI18n(<MobileShell badges={ALL}><p /></MobileShell>);
     expect(screen.getByTestId('language-switcher')).toBeInTheDocument();
     expect(replay.init).toHaveBeenCalledTimes(1);
   });
 
   it('provides a toast host to every screen', () => {
     routeFetch({ [HOME_URL]: () => jsonResponse(200, { success: true, data: homeFixture({ alerts: [] }) }) });
-    renderWithI18n(<MobileShell><p /></MobileShell>);
+    renderWithI18n(<MobileShell badges={ALL}><p /></MobileShell>);
     expect(screen.getByRole('status', { name: 'Notifications' })).toBeInTheDocument();
   });
 });
@@ -192,7 +197,7 @@ describe('MobileShell badges after sign-out / an invalid session', () => {
   it('disappear when the snapshots are cleared (sign-out, another user signing in)', async () => {
     routeFetch({});
     writeSnapshot('home', homeFixture());
-    renderWithI18n(<MobileShell><p /></MobileShell>);
+    renderWithI18n(<MobileShell badges={ALL}><p /></MobileShell>);
     await screen.findByRole('link', { name: 'Docs, 3 items need review' });
     act(() => clearMobileSnapshots());
     await waitFor(() => expect(document.querySelector('[data-badge]')).toBeNull());
@@ -203,7 +208,7 @@ describe('MobileShell badges after sign-out / an invalid session', () => {
   it('disappear when another tab removes the home snapshot (cross-tab storage event)', async () => {
     routeFetch({});
     writeSnapshot('home', homeFixture());
-    renderWithI18n(<MobileShell><p /></MobileShell>);
+    renderWithI18n(<MobileShell badges={ALL}><p /></MobileShell>);
     await screen.findByRole('link', { name: 'Docs, 3 items need review' });
     window.localStorage.removeItem(`${SNAPSHOT_PREFIX}home`);
     act(() => {
@@ -215,7 +220,7 @@ describe('MobileShell badges after sign-out / an invalid session', () => {
   it('disappear when another tab calls localStorage.clear() (storage event with key null)', async () => {
     routeFetch({});
     writeSnapshot('home', homeFixture());
-    renderWithI18n(<MobileShell><p /></MobileShell>);
+    renderWithI18n(<MobileShell badges={ALL}><p /></MobileShell>);
     await screen.findByRole('link', { name: 'Docs, 3 items need review' });
     window.localStorage.clear();
     act(() => {
@@ -227,7 +232,7 @@ describe('MobileShell badges after sign-out / an invalid session', () => {
   it('a 401 from its own home fetch shows no badges and clears every stored snapshot', async () => {
     window.localStorage.setItem(`${SNAPSHOT_PREFIX}docs:needs-review`, JSON.stringify({ data: [1], savedAt: '2026-10-07T00:00:00.000Z' }));
     const fetchMock = routeFetch({ [HOME_URL]: () => jsonResponse(401, { success: false, error: 'unauthorized' }) });
-    renderWithI18n(<MobileShell><p /></MobileShell>);
+    renderWithI18n(<MobileShell badges={ALL}><p /></MobileShell>);
     await waitFor(() => expect(fetchMock.mock.calls.filter((c) => String(c[0]) === HOME_URL)).toHaveLength(1));
     await waitFor(() => expect(window.localStorage.getItem(`${SNAPSHOT_PREFIX}docs:needs-review`)).toBeNull());
     expect(window.localStorage.getItem(`${SNAPSHOT_PREFIX}home`)).toBeNull();
@@ -236,7 +241,7 @@ describe('MobileShell badges after sign-out / an invalid session', () => {
 
   it('a home response that lands AFTER a clear is discarded, then asked for ONCE more under the current session', async () => {
     const { mock, pending } = deferredHome();
-    renderWithI18n(<MobileShell><p /></MobileShell>);
+    renderWithI18n(<MobileShell badges={ALL}><p /></MobileShell>);
     await waitFor(() => expect(pending).toHaveLength(1));
     act(() => clearMobileSnapshots());
     await answer(pending[0], homeFixture()); // the previous user's figures
@@ -252,7 +257,7 @@ describe('MobileShell badges after sign-out / an invalid session', () => {
 
   it('the retry happens at most once', async () => {
     const { mock, pending } = deferredHome();
-    renderWithI18n(<MobileShell><p /></MobileShell>);
+    renderWithI18n(<MobileShell badges={ALL}><p /></MobileShell>);
     await waitFor(() => expect(pending).toHaveLength(1));
     act(() => clearMobileSnapshots());
     await answer(pending[0], homeFixture());
@@ -266,7 +271,7 @@ describe('MobileShell badges after sign-out / an invalid session', () => {
 
   it('no retry when the clear came from a 401', async () => {
     const { mock, pending } = deferredHome();
-    renderWithI18n(<MobileShell><p /></MobileShell>);
+    renderWithI18n(<MobileShell badges={ALL}><p /></MobileShell>);
     await waitFor(() => expect(pending).toHaveLength(1));
     act(() => clearMobileSnapshots('unauthorized'));
     await answer(pending[0], homeFixture());
@@ -278,7 +283,7 @@ describe('MobileShell badges after sign-out / an invalid session', () => {
 
   it('a 401 on its own fetch is never retried', async () => {
     const fetchMock = routeFetch({ [HOME_URL]: () => jsonResponse(401, { success: false, error: 'unauthorized' }) });
-    renderWithI18n(<MobileShell><p /></MobileShell>);
+    renderWithI18n(<MobileShell badges={ALL}><p /></MobileShell>);
     await waitFor(() => expect(homeCalls(fetchMock)).toBe(1));
     await settle();
     expect(homeCalls(fetchMock)).toBe(1);
@@ -286,7 +291,7 @@ describe('MobileShell badges after sign-out / an invalid session', () => {
 
   it('another tab removing the home snapshot mid-request: the old response is not written back', async () => {
     const { mock, pending } = deferredHome();
-    renderWithI18n(<MobileShell><p /></MobileShell>);
+    renderWithI18n(<MobileShell badges={ALL}><p /></MobileShell>);
     await waitFor(() => expect(pending).toHaveLength(1));
     act(() => {
       window.dispatchEvent(new StorageEvent('storage', { key: `${SNAPSHOT_PREFIX}home`, newValue: null }));
@@ -302,7 +307,7 @@ describe('MobileShell badges after sign-out / an invalid session', () => {
 
   it('another tab WRITING a fresh home snapshot does not discard the request in flight', async () => {
     const { mock, pending } = deferredHome();
-    renderWithI18n(<MobileShell><p /></MobileShell>);
+    renderWithI18n(<MobileShell badges={ALL}><p /></MobileShell>);
     await waitFor(() => expect(pending).toHaveLength(1));
     act(() => {
       window.dispatchEvent(new StorageEvent('storage', { key: `${SNAPSHOT_PREFIX}home`, newValue: '{}' }));
@@ -324,7 +329,7 @@ describe('MobileShell badges stay current (stale-while-revalidate)', () => {
   it('a stale snapshot is shown at once AND revalidated with exactly one request', async () => {
     writeSnapshot('home', homeFixture(), OLD());
     const { mock, pending } = deferredHome();
-    renderWithI18n(<MobileShell><p /></MobileShell>);
+    renderWithI18n(<MobileShell badges={ALL}><p /></MobileShell>);
     // Shown immediately, before the request answers.
     expect(await screen.findByRole('link', { name: 'Docs, 3 items need review' })).toBeInTheDocument();
     await waitFor(() => expect(pending).toHaveLength(1));
@@ -337,7 +342,7 @@ describe('MobileShell badges stay current (stale-while-revalidate)', () => {
   it('a fresh snapshot makes no request', async () => {
     writeSnapshot('home', homeFixture());
     const fetchMock = routeFetch({});
-    renderWithI18n(<MobileShell><p /></MobileShell>);
+    renderWithI18n(<MobileShell badges={ALL}><p /></MobileShell>);
     await screen.findByRole('link', { name: 'Docs, 3 items need review' });
     await settle();
     expect(homeCalls(fetchMock)).toBe(0);
@@ -346,7 +351,7 @@ describe('MobileShell badges stay current (stale-while-revalidate)', () => {
   it('a failed revalidation keeps the old snapshot and its badges', async () => {
     writeSnapshot('home', homeFixture(), OLD());
     const fetchMock = routeFetch({ [HOME_URL]: () => jsonResponse(500, { success: false, error: 'boom' }) });
-    renderWithI18n(<MobileShell><p /></MobileShell>);
+    renderWithI18n(<MobileShell badges={ALL}><p /></MobileShell>);
     await waitFor(() => expect(homeCalls(fetchMock)).toBe(1));
     await settle();
     expect(screen.getByRole('link', { name: 'Docs, 3 items need review' })).toBeInTheDocument();
@@ -356,7 +361,7 @@ describe('MobileShell badges stay current (stale-while-revalidate)', () => {
   it('becoming visible revalidates ONLY when the snapshot has gone stale', async () => {
     writeSnapshot('home', homeFixture());
     const fetchMock = routeFetch({ [HOME_URL]: () => jsonResponse(200, { success: true, data: homeFixture({ alerts: [] }) }) });
-    renderWithI18n(<MobileShell><p /></MobileShell>);
+    renderWithI18n(<MobileShell badges={ALL}><p /></MobileShell>);
     await screen.findByRole('link', { name: 'Docs, 3 items need review' });
 
     setVisibility('visible');
@@ -384,7 +389,7 @@ describe('MobileShell badges stay current (stale-while-revalidate)', () => {
     const dRemove = vi.spyOn(document, 'removeEventListener');
     writeSnapshot('home', homeFixture());
     const fetchMock = routeFetch({ [HOME_URL]: () => jsonResponse(200, { success: true, data: homeFixture() }) });
-    const { unmount } = renderWithI18n(<MobileShell><p /></MobileShell>);
+    const { unmount } = renderWithI18n(<MobileShell badges={ALL}><p /></MobileShell>);
     unmount();
     const count = (spy: typeof wAdd | typeof dAdd, type: string) => spy.mock.calls.filter((c) => c[0] === type).length;
     for (const type of [SNAPSHOT_EVENT, SNAPSHOT_CLEARED_EVENT, 'storage']) {
@@ -414,7 +419,7 @@ describe('Docs badge text', () => {
   it('caps the visible count at 99+ but says the real number to assistive tech', async () => {
     routeFetch({});
     writeSnapshot('home', homeFixture({ alerts: [{ id: 'r', kind: 'review_needed', severity: 'warn', params: { count: 150 } }] }));
-    renderWithI18n(<MobileShell><p /></MobileShell>);
+    renderWithI18n(<MobileShell badges={ALL}><p /></MobileShell>);
     const docs = await screen.findByRole('link', { name: 'Docs, 150 items need review' });
     expect(within(docs).getByText('99+')).toBeInTheDocument();
   });
@@ -422,7 +427,7 @@ describe('Docs badge text', () => {
   it('uses the singular form for one item', async () => {
     routeFetch({});
     writeSnapshot('home', homeFixture({ alerts: [{ id: 'r', kind: 'review_needed', severity: 'warn', params: { count: 1 } }] }));
-    renderWithI18n(<MobileShell><p /></MobileShell>);
+    renderWithI18n(<MobileShell badges={ALL}><p /></MobileShell>);
     const docs = await screen.findByRole('link', { name: 'Docs, 1 item needs review' });
     expect(within(docs).getByText('1')).toBeInTheDocument();
     // No critical alert in this snapshot: Home has no dot and its plain name.
@@ -433,7 +438,7 @@ describe('Docs badge text', () => {
 describe('Capture button states', () => {
   it('draws the keyboard focus ring ON the circle, in token colours', () => {
     routeFetch({ [HOME_URL]: () => jsonResponse(200, { success: true, data: homeFixture({ alerts: [] }) }) });
-    renderWithI18n(<MobileShell><p /></MobileShell>);
+    renderWithI18n(<MobileShell badges={ALL}><p /></MobileShell>);
     const capture = tabs().find((a) => a.getAttribute('href') === '/app/capture')!;
     const circle = capture.querySelector('.ab-tab-circle') as HTMLElement;
     expect(capture.classList.contains('ab-tab-raised')).toBe(true);
@@ -450,7 +455,7 @@ describe('Capture button states', () => {
   it('shows the active state as a ring around the circle, not only bolder text', () => {
     routeFetch({ [HOME_URL]: () => jsonResponse(200, { success: true, data: homeFixture({ alerts: [] }) }) });
     nav.pathname = '/app/capture';
-    renderWithI18n(<MobileShell><p /></MobileShell>);
+    renderWithI18n(<MobileShell badges={ALL}><p /></MobileShell>);
     const capture = tabs().find((a) => a.getAttribute('href') === '/app/capture')!;
     const circle = capture.querySelector('.ab-tab-circle') as HTMLElement;
     expect(capture.getAttribute('aria-current')).toBe('page');
@@ -472,7 +477,7 @@ describe('Capture button states', () => {
 describe('Shell layout', () => {
   it('is exactly one viewport tall, with <main> as the only scroller', () => {
     routeFetch({ [HOME_URL]: () => jsonResponse(200, { success: true, data: homeFixture({ alerts: [] }) }) });
-    renderWithI18n(<MobileShell><p /></MobileShell>);
+    renderWithI18n(<MobileShell badges={ALL}><p /></MobileShell>);
     const shell = document.querySelector('[data-mobile-shell]') as HTMLElement;
     expect(shell.style.height).toBe('100dvh');
     expect(shell.style.overflow).toBe('hidden');
@@ -488,7 +493,7 @@ describe('Shell layout', () => {
 
   it('the legacy chat screen fills the space the shell gives it instead of assuming calc(100dvh - 64px)', () => {
     routeFetch({ [HOME_URL]: () => jsonResponse(200, { success: true, data: homeFixture({ alerts: [] }) }) });
-    renderWithI18n(<MobileShell><MobileChat /></MobileShell>);
+    renderWithI18n(<MobileShell badges={ALL}><MobileChat /></MobileShell>);
     const main = document.getElementById('mobile-main') as HTMLElement;
     const root = main.firstElementChild as HTMLElement;
     expect(root.style.height).toBe('100%');
@@ -505,5 +510,129 @@ describe('badgesFrom', () => {
     expect(
       badgesFrom(homeFixture({ alerts: [{ id: 'x', kind: 'review_needed', severity: 'info', params: { count: 'many' } }] })),
     ).toEqual({ homeCritical: false, docsNeedsReview: 0 });
+  });
+});
+
+// ── Badge gate (I1) ─────────────────────────────────────────────────────────
+// The legacy Home/Docs screens cannot show or clear what a badge points at, so
+// badges ship switched off until PR 3 (home) and PR 4 (docs).
+describe('Badge gate', () => {
+  it('ships with both badges OFF (PR 3 flips home, PR 4 flips docs — update this test then)', () => {
+    expect(BADGES_ENABLED).toEqual({ home: false, docs: false });
+  });
+
+  it('gated (the default): zero /mobile/home requests, no dot, no count, plain labels — even with data cached', async () => {
+    writeSnapshot('home', homeFixture(), new Date(Date.now() - BADGE_MAX_AGE_MS - 60_000).toISOString());
+    const fetchMock = routeFetch({ [HOME_URL]: () => jsonResponse(200, { success: true, data: homeFixture() }) });
+    renderWithI18n(<MobileShell><p /></MobileShell>);
+    await settle();
+    expect(homeCalls(fetchMock)).toBe(0);
+    expect(document.querySelector('[data-badge]')).toBeNull();
+    expect(screen.getByRole('link', { name: 'Home' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Docs' })).toBeInTheDocument();
+    // A fresh snapshot written by someone else does not light them up either.
+    act(() => writeSnapshot('home', homeFixture()));
+    await settle();
+    expect(document.querySelector('[data-badge]')).toBeNull();
+  });
+
+  it('gated with NO snapshot: still no request (nothing to revalidate for)', async () => {
+    const fetchMock = routeFetch({ [HOME_URL]: () => jsonResponse(200, { success: true, data: homeFixture() }) });
+    renderWithI18n(<MobileShell><p /></MobileShell>);
+    await settle();
+    expect(homeCalls(fetchMock)).toBe(0);
+  });
+
+  it('gated: registers no snapshot, clear, storage or visibility listeners at all', async () => {
+    const wAdd = vi.spyOn(window, 'addEventListener');
+    const dAdd = vi.spyOn(document, 'addEventListener');
+    routeFetch({});
+    renderWithI18n(<MobileShell><p /></MobileShell>);
+    await settle();
+    const types = [...wAdd.mock.calls, ...dAdd.mock.calls].map((c) => c[0]);
+    for (const type of [SNAPSHOT_EVENT, SNAPSHOT_CLEARED_EVENT, 'storage', 'visibilitychange']) {
+      expect(types, type).not.toContain(type);
+    }
+  });
+
+  it('gated: becoming visible with a stale snapshot makes no request', async () => {
+    writeSnapshot('home', homeFixture(), new Date(Date.now() - BADGE_MAX_AGE_MS - 60_000).toISOString());
+    const fetchMock = routeFetch({ [HOME_URL]: () => jsonResponse(200, { success: true, data: homeFixture() }) });
+    renderWithI18n(<MobileShell><p /></MobileShell>);
+    vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('visible');
+    act(() => { document.dispatchEvent(new Event('visibilitychange')); });
+    await settle();
+    expect(homeCalls(fetchMock)).toBe(0);
+  });
+
+  it('home only: home is fetched, the dot appears, the docs count does not', async () => {
+    const fetchMock = routeFetch({ [HOME_URL]: () => jsonResponse(200, { success: true, data: homeFixture() }) });
+    renderWithI18n(<MobileShell badges={{ home: true, docs: false }}><p /></MobileShell>);
+    const homeTab = await screen.findByRole('link', { name: 'Home, needs attention' });
+    expect(homeTab.querySelector('[data-badge="home-dot"]')).not.toBeNull();
+    expect(homeCalls(fetchMock)).toBe(1);
+    expect(document.querySelector('[data-badge="docs-count"]')).toBeNull();
+    expect(screen.getByRole('link', { name: 'Docs' })).toBeInTheDocument();
+  });
+
+  it('docs only: the count appears, the dot does not', async () => {
+    routeFetch({ [HOME_URL]: () => jsonResponse(200, { success: true, data: homeFixture() }) });
+    renderWithI18n(<MobileShell badges={{ home: false, docs: true }}><p /></MobileShell>);
+    await screen.findByRole('link', { name: 'Docs, 3 items need review' });
+    expect(document.querySelector('[data-badge="home-dot"]')).toBeNull();
+    expect(screen.getByRole('link', { name: 'Home' })).toBeInTheDocument();
+  });
+});
+
+// ── M2: a 'session' clear that removes a just-written snapshot ──────────────
+// First load after deploy: nobody owns the snapshots yet, so if /mobile/home
+// answers before /auth/me, claimMobileSnapshots() deletes what was just written.
+describe('a session clear that leaves no home snapshot', () => {
+  it('asks for home once more and shows the badges again', async () => {
+    const fetchMock = routeFetch({ [HOME_URL]: () => jsonResponse(200, { success: true, data: homeFixture() }) });
+    renderWithI18n(<MobileShell badges={ALL}><p /></MobileShell>);
+    await screen.findByRole('link', { name: 'Docs, 3 items need review' });
+    expect(homeCalls(fetchMock)).toBe(1);
+    act(() => clearMobileSnapshots()); // claimMobileSnapshots -> clear('session')
+    await waitFor(() => expect(homeCalls(fetchMock)).toBe(2));
+    await screen.findByRole('link', { name: 'Docs, 3 items need review' });
+    expect(storedHome()).not.toBeNull();
+  });
+
+  it('never after an unauthorized clear', async () => {
+    const fetchMock = routeFetch({ [HOME_URL]: () => jsonResponse(200, { success: true, data: homeFixture() }) });
+    renderWithI18n(<MobileShell badges={ALL}><p /></MobileShell>);
+    await screen.findByRole('link', { name: 'Docs, 3 items need review' });
+    act(() => clearMobileSnapshots('unauthorized'));
+    await settle();
+    expect(homeCalls(fetchMock)).toBe(1);
+    expect(document.querySelector('[data-badge]')).toBeNull();
+  });
+
+  it('is bounded: a session clear answered by a 401 stops there', async () => {
+    let status = 200;
+    const fetchMock = routeFetch({
+      [HOME_URL]: () => (status === 200 ? jsonResponse(200, { success: true, data: homeFixture() }) : jsonResponse(401, { success: false, error: 'unauthorized' })),
+    });
+    renderWithI18n(<MobileShell badges={ALL}><p /></MobileShell>);
+    await screen.findByRole('link', { name: 'Docs, 3 items need review' });
+    status = 401; // signed out
+    act(() => clearMobileSnapshots());
+    await waitFor(() => expect(homeCalls(fetchMock)).toBe(2));
+    await settle();
+    await settle();
+    expect(homeCalls(fetchMock)).toBe(2);
+    expect(document.querySelector('[data-badge]')).toBeNull();
+  });
+
+  it('a session clear that leaves a snapshot (another writer) makes no request', async () => {
+    writeSnapshot('home', homeFixture());
+    const fetchMock = routeFetch({ [HOME_URL]: () => jsonResponse(200, { success: true, data: homeFixture() }) });
+    renderWithI18n(<MobileShell badges={ALL}><p /></MobileShell>);
+    await screen.findByRole('link', { name: 'Docs, 3 items need review' });
+    // The event without the disk part: the snapshot is still there.
+    act(() => { window.dispatchEvent(new CustomEvent(SNAPSHOT_CLEARED_EVENT, { detail: { reason: 'session' } })); });
+    await settle();
+    expect(homeCalls(fetchMock)).toBe(0);
   });
 });

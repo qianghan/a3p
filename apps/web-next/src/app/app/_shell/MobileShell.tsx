@@ -6,6 +6,7 @@ import { LanguageSwitcher } from '@/components/layout/language-switcher';
 import { tokens } from '../_kit/tokens';
 import { ToastHost } from '../_kit/Toast';
 import { TabBar } from './TabBar';
+import type { BadgeGate } from './badges';
 
 /** base64url VAPID public key → Uint8Array for pushManager.subscribe. */
 function urlBase64ToUint8Array(base64: string): Uint8Array {
@@ -106,7 +107,8 @@ export const MAIN_STYLE: React.CSSProperties = {
   paddingRight: 'env(safe-area-inset-right)',
 };
 
-export function MobileShell({ children }: { children: React.ReactNode }) {
+/** `badges` defaults (in TabBar) to BADGES_ENABLED; only tests pass it. */
+export function MobileShell({ children, badges }: { children: React.ReactNode; badges?: BadgeGate }) {
   useEffect(() => {
     void registerServiceWorker().then((reg) => { void ensurePushSubscription(reg); });
     initOfflineQueueReplay();
@@ -143,7 +145,7 @@ export function MobileShell({ children }: { children: React.ReactNode }) {
         <main id="mobile-main" style={MAIN_STYLE}>
           {children}
         </main>
-        <TabBar />
+        <TabBar badges={badges} />
       </div>
     </ToastHost>
   );
