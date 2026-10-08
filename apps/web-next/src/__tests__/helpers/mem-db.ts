@@ -10,7 +10,8 @@
  * Relations are modelled by EMBEDDING: seed an expense with `vendor: { name }`,
  * a journal line with `entry: { tenantId, date, lines: [...] }`, an account
  * with `journalLines: [...]`. `include`/`select` are ignored (full rows come
- * back), and nested writes (`lines: { create }`) are not stored.
+ * back). Nested writes (`lines: { create }`) and unsupported operators (read or
+ * write) THROW rather than being silently ignored.
  */
 import { randomUUID } from 'node:crypto';
 
@@ -28,9 +29,21 @@ function isPlainObject(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !(v instanceof Date) && !Array.isArray(v);
 }
 
+/**
+ * Prisma scalar/list operators this double does NOT implement. Naming them lets
+ * an unsupported filter fail loudly instead of being mistaken for a relation
+ * filter (which would silently evaluate false, and true under NOT).
+ */
+const UNSUPPORTED_READ_OPS = new Set([
+  'has', 'hasSome', 'hasEvery', 'hasNone', 'isEmpty', 'search', 'path',
+  'array_contains', 'array_starts_with', 'array_ends_with',
+  'string_contains', 'string_starts_with', 'string_ends_with',
+  'multiply', 'divide', 'push', 'unset',
+]);
+
+/** An object is a field-operator object when it carries at least one real operator key. */
 function isOperatorObject(cond: Record<string, unknown>): boolean {
-  const keys = Object.keys(cond);
-  return keys.length > 0 && keys.every((k) => OPS.has(k));
+  return Object.keys(cond).some((k) => k !== 'mode' && OPS.has(k));
 }
 
 export function clone<T>(v: T): T {
@@ -57,109 +70,136 @@ function compare(a: unknown, b: unknown): number {
 
 const equal = (a: unknown, b: unknown): boolean => scalar(a) === scalar(b);
 
-function matchesField(value: unknown, cond: unknown): boolean {
+/**
+ * SQL three-valued logic. `null` is UNKNOWN: `col = 'x'` / `col <> 'x'` / `col > 1`
+ * on a NULL column are UNKNOWN, NOT(UNKNOWN) is UNKNOWN, and a row is returned
+ * only when the whole predicate is TRUE. `col IS NULL` (`field: null`) and
+ * `{ not: null }` are two-valued.
+ */
+type Tri = boolean | null;
+
+const and3 = (vals: Tri[]): Tri => {
+  if (vals.some((v) => v === false)) return false;
+  return vals.some((v) => v === null) ? null : true;
+};
+const or3 = (vals: Tri[]): Tri => {
+  if (vals.some((v) => v === true)) return true;
+  return vals.some((v) => v === null) ? null : false;
+};
+const not3 = (v: Tri): Tri => (v === null ? null : !v);
+
+function matchesField(value: unknown, cond: unknown): Tri {
   if (cond === undefined) return true;
-  if (cond === null) return value === null || value === undefined;
-  if (!isPlainObject(cond)) return value !== null && value !== undefined && equal(value, cond);
+  const present = value !== null && value !== undefined;
+  if (cond === null) return !present;
+  if (!isPlainObject(cond)) return present ? equal(value, cond) : null;
   if (!isOperatorObject(cond)) {
     // Relation filter: a nested where evaluated against the embedded object.
-    return isPlainObject(value) && matchesWhere(value, cond);
+    const bad = Object.keys(cond).find((k) => UNSUPPORTED_READ_OPS.has(k));
+    if (bad) throw new Error(`mem-db: unsupported operator ${bad}`);
+    if (present && !isPlainObject(value)) {
+      throw new Error(`mem-db: unsupported operator ${Object.keys(cond).join(',')} (not a relation filter on a scalar column)`);
+    }
+    return present && evalWhere(value as Row, cond) === true;
   }
   const insensitive = cond.mode === 'insensitive';
   const text = (v: unknown) => (insensitive ? String(v).toLowerCase() : String(v));
-  const present = value !== null && value !== undefined;
+  const results: Tri[] = [];
   for (const [op, arg] of Object.entries(cond)) {
     if (arg === undefined) continue;
     switch (op) {
       case 'mode':
         break;
       case 'equals':
-        if (!matchesField(value, arg)) return false;
+        results.push(matchesField(value, arg));
         break;
       case 'in':
-        if (!present || !(arg as unknown[]).some((x) => equal(value, x))) return false;
+        results.push(present ? (arg as unknown[]).some((x) => equal(value, x)) : null);
         break;
       case 'notIn':
-        if (!present || (arg as unknown[]).some((x) => equal(value, x))) return false;
+        results.push(present ? !(arg as unknown[]).some((x) => equal(value, x)) : null);
         break;
       case 'not':
-        // Postgres: `col <> x` is never true when col IS NULL.
-        if (arg === null) {
-          if (!present) return false;
-          break;
-        }
-        if (!present) return false;
-        if (matchesField(value, arg)) return false;
+        // Postgres: `col <> x` is UNKNOWN when col IS NULL; `not: null` is IS NOT NULL.
+        results.push(arg === null ? present : not3(matchesField(value, arg)));
         break;
       case 'lt':
-        if (!present || compare(value, arg) >= 0) return false;
+        results.push(present ? compare(value, arg) < 0 : null);
         break;
       case 'lte':
-        if (!present || compare(value, arg) > 0) return false;
+        results.push(present ? compare(value, arg) <= 0 : null);
         break;
       case 'gt':
-        if (!present || compare(value, arg) <= 0) return false;
+        results.push(present ? compare(value, arg) > 0 : null);
         break;
       case 'gte':
-        if (!present || compare(value, arg) < 0) return false;
+        results.push(present ? compare(value, arg) >= 0 : null);
         break;
       case 'contains':
-        if (typeof value !== 'string' || !text(value).includes(text(arg))) return false;
+        results.push(present ? typeof value === 'string' && text(value).includes(text(arg)) : null);
         break;
       case 'startsWith':
-        if (typeof value !== 'string' || !text(value).startsWith(text(arg))) return false;
+        results.push(present ? typeof value === 'string' && text(value).startsWith(text(arg)) : null);
         break;
       case 'endsWith':
-        if (typeof value !== 'string' || !text(value).endsWith(text(arg))) return false;
+        results.push(present ? typeof value === 'string' && text(value).endsWith(text(arg)) : null);
         break;
       case 'some':
-        if (!Array.isArray(value) || !value.some((r) => matchesWhere(r as Row, arg as Where))) return false;
+        results.push(Array.isArray(value) && value.some((r) => matchesWhere(r as Row, arg as Where)));
         break;
       case 'every':
-        if (!Array.isArray(value) || !value.every((r) => matchesWhere(r as Row, arg as Where))) return false;
+        results.push(Array.isArray(value) && value.every((r) => matchesWhere(r as Row, arg as Where)));
         break;
       case 'none':
-        if (Array.isArray(value) && value.some((r) => matchesWhere(r as Row, arg as Where))) return false;
+        results.push(!(Array.isArray(value) && value.some((r) => matchesWhere(r as Row, arg as Where))));
         break;
       case 'is':
-        if (arg === null ? present : !(isPlainObject(value) && matchesWhere(value, arg as Where))) return false;
+        results.push(arg === null ? !present : isPlainObject(value) && matchesWhere(value, arg as Where));
         break;
       case 'isNot':
-        if (arg === null ? !present : isPlainObject(value) && matchesWhere(value, arg as Where)) return false;
+        results.push(arg === null ? present : !(isPlainObject(value) && matchesWhere(value, arg as Where)));
         break;
       default:
         throw new Error(`mem-db: unsupported operator ${op}`);
     }
   }
-  return true;
+  return and3(results);
 }
 
-export function matchesWhere(row: Row, where: Where): boolean {
+/**
+ * Evaluates a where clause in three-valued logic. AND/OR follow SQL rules;
+ * `NOT: x` is NOT(x) (so `NOT: { col: 'a' }` excludes NULL-col rows, as Postgres
+ * does); an array `NOT: [a, b]` means none of them is true, i.e. NOT a AND NOT b.
+ * A relation filter that cannot resolve (embedded relation missing/null) is FALSE.
+ * Known limit: an unknown operator on a missing/null column that is not in
+ * UNSUPPORTED_READ_OPS is indistinguishable from a relation filter and yields FALSE.
+ */
+function evalWhere(row: Row, where: Where): Tri {
   if (!where) return true;
+  const parts: Tri[] = [];
   for (const [key, cond] of Object.entries(where)) {
     if (cond === undefined) continue;
     if (key === 'AND') {
       const list = (Array.isArray(cond) ? cond : [cond]) as Where[];
-      if (!list.every((w) => matchesWhere(row, w))) return false;
-      continue;
-    }
-    if (key === 'OR') {
-      if (!(cond as Where[]).some((w) => matchesWhere(row, w))) return false;
-      continue;
-    }
-    if (key === 'NOT') {
+      parts.push(and3(list.map((w) => evalWhere(row, w))));
+    } else if (key === 'OR') {
+      parts.push(or3((cond as Where[]).map((w) => evalWhere(row, w))));
+    } else if (key === 'NOT') {
       const list = (Array.isArray(cond) ? cond : [cond]) as Where[];
-      if (list.some((w) => matchesWhere(row, w))) return false;
-      continue;
-    }
-    if (!(key in row) && isPlainObject(cond) && !isOperatorObject(cond) && key.includes('_')) {
+      parts.push(and3(list.map((w) => not3(evalWhere(row, w)))));
+    } else if (!(key in row) && isPlainObject(cond) && !isOperatorObject(cond) && key.includes('_')) {
       // Compound unique selector, e.g. { tenantId_key: { tenantId, key } }.
-      if (!matchesWhere(row, cond)) return false;
-      continue;
+      parts.push(evalWhere(row, cond));
+    } else {
+      parts.push(matchesField(row[key], cond));
     }
-    if (!matchesField(row[key], cond)) return false;
   }
-  return true;
+  return and3(parts);
+}
+
+/** A row matches only when the where clause is TRUE (UNKNOWN does not match). */
+export function matchesWhere(row: Row, where: Where): boolean {
+  return evalWhere(row, where) === true;
 }
 
 function sortRows(rows: Row[], orderBy: OrderBy): Row[] {
@@ -175,16 +215,37 @@ function sortRows(rows: Row[], orderBy: OrderBy): Row[] {
   });
 }
 
+const SCALAR_WRITE_OPS = new Set(['set', 'increment', 'decrement']);
+const UNSUPPORTED_WRITE_OPS = new Set(['multiply', 'divide', 'push', 'unset']);
+const NESTED_WRITE_OPS = new Set([
+  'create', 'createMany', 'connect', 'connectOrCreate', 'disconnect',
+  'update', 'updateMany', 'upsert', 'delete', 'deleteMany',
+]);
+
+/** Validates the whole payload first so a rejected write leaves the row untouched. */
+function assertWritable(data: Row): void {
+  for (const [k, v] of Object.entries(data)) {
+    if (v === undefined || !isPlainObject(v)) continue;
+    const keys = Object.keys(v);
+    if (keys.some((x) => NESTED_WRITE_OPS.has(x))) {
+      throw new Error(`mem-db: nested writes unsupported (field ${k})`);
+    }
+    if (keys.some((x) => UNSUPPORTED_WRITE_OPS.has(x)) || (keys.some((x) => SCALAR_WRITE_OPS.has(x)) && !keys.every((x) => SCALAR_WRITE_OPS.has(x)))) {
+      throw new Error(`mem-db: unsupported write operator on ${k}: ${keys.join(',')}`);
+    }
+  }
+}
+
 function applyData(row: Row, data: Row): void {
+  assertWritable(data);
   for (const [k, v] of Object.entries(data)) {
     if (v === undefined) continue;
-    if (isPlainObject(v) && ('increment' in v || 'decrement' in v || 'set' in v)) {
+    if (isPlainObject(v) && Object.keys(v).length > 0 && Object.keys(v).every((x) => SCALAR_WRITE_OPS.has(x))) {
       if ('set' in v) row[k] = clone(v.set);
       if ('increment' in v) row[k] = (Number(row[k]) || 0) + Number(v.increment);
       if ('decrement' in v) row[k] = (Number(row[k]) || 0) - Number(v.decrement);
       continue;
     }
-    if (isPlainObject(v) && ('create' in v || 'connect' in v || 'connectOrCreate' in v)) continue;
     row[k] = clone(v);
   }
 }

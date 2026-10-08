@@ -84,3 +84,137 @@ describe('mem-db applies where clauses like Postgres', () => {
     expect((await db.table('abExpense').findFirst({ where: { id: 'a' } }))?.amountCents).toBe(100);
   });
 });
+
+describe('unsupported operators fail loudly (never a silent false / match-all)', () => {
+  it('throws on an unknown operator on a scalar column', () => {
+    expect(() => matchesWhere({ a: 1 }, { a: { bogus: 1 } })).toThrow(/unsupported operator/);
+  });
+
+  it('throws on a typo mixed with a real operator, including the case-insensitive mode typo', () => {
+    expect(() => matchesWhere({ a: 'xx' }, { a: { contains: 'x', bogus: 1 } })).toThrow(/unsupported operator bogus/);
+    expect(() => matchesWhere({ a: 'xx' }, { a: { contains: 'x', mode: 'insensitive', moed: 1 } })).toThrow(/unsupported operator moed/);
+  });
+
+  it('throws on named-but-unimplemented operators instead of treating them as relation filters', () => {
+    expect(() => matchesWhere({ tags: ['x'] }, { tags: { has: 'x' } })).toThrow(/unsupported operator has/);
+    expect(() => matchesWhere({}, { tags: { hasSome: ['x'] } })).toThrow(/unsupported operator hasSome/);
+    expect(() => matchesWhere({ n: 1 }, { n: { multiply: 2 } })).toThrow(/unsupported operator multiply/);
+    expect(() => matchesWhere({ body: 'x' }, { body: { search: 'x' } })).toThrow(/unsupported operator search/);
+  });
+
+  it('does not let NOT invert an unsupported operator into match-all', () => {
+    expect(() => matchesWhere({ tags: ['x'] }, { NOT: { tags: { has: 'x' } } })).toThrow(/unsupported operator has/);
+    expect(() => matchesWhere({}, { NOT: { tags: { has: 'x' } } })).toThrow(/unsupported operator has/);
+    expect(() => matchesWhere({ a: 1 }, { a: { not: { bogus: 1 } } })).toThrow(/unsupported operator/);
+  });
+
+  it('still supports relation filters and nested embedded relations', () => {
+    const acct = { id: 'a1', type: 'asset', journalLines: [{ debitCents: 5 }, { debitCents: 0 }] };
+    expect(matchesWhere(acct, { journalLines: { some: { debitCents: { gt: 0 } } } })).toBe(true);
+    expect(matchesWhere(acct, { journalLines: { every: { debitCents: { gt: 0 } } } })).toBe(false);
+    expect(matchesWhere(acct, { journalLines: { none: { debitCents: { gt: 9 } } } })).toBe(true);
+    const exp = { vendor: { name: 'Shell' }, entry: null };
+    expect(matchesWhere(exp, { vendor: { is: { name: 'Shell' } } })).toBe(true);
+    expect(matchesWhere(exp, { vendor: { isNot: { name: 'Shell' } } })).toBe(false);
+    expect(matchesWhere(exp, { entry: { is: null } })).toBe(true);
+    const line = { entry: { tenantId: 't1', account: { type: 'cash' } } };
+    expect(matchesWhere(line, { entry: { account: { type: 'cash' } } })).toBe(true);
+    expect(matchesWhere(line, { entry: { account: { type: 'bank' } } })).toBe(false);
+  });
+
+  it('treats a lone `mode` key as a field name in a relation filter, not an operator', () => {
+    expect(matchesWhere({ entry: { mode: 'x' } }, { entry: { mode: 'x' } })).toBe(true);
+    expect(matchesWhere({ entry: { mode: 'y' } }, { entry: { mode: 'x' } })).toBe(false);
+  });
+});
+
+describe('three-valued NOT / AND / OR (SQL NULL semantics)', () => {
+  const nullRow = { id: 'a', receiptStatus: null };
+  const skipped = { id: 'b', receiptStatus: 'skipped' };
+  const pending = { id: 'c', receiptStatus: 'pending' };
+
+  it('NOT of an equality on a NULL column is UNKNOWN, so the row is excluded (Prisma NOT (col = x))', () => {
+    const where = { NOT: { receiptStatus: 'skipped' } };
+    expect(matchesWhere(nullRow, where)).toBe(false);
+    expect(matchesWhere(skipped, where)).toBe(false);
+    expect(matchesWhere(pending, where)).toBe(true);
+  });
+
+  it('agrees with the `{ not: x }` field form on every row', () => {
+    for (const r of [nullRow, skipped, pending]) {
+      expect(matchesWhere(r, { NOT: { receiptStatus: 'skipped' } })).toBe(matchesWhere(r, { receiptStatus: { not: 'skipped' } }));
+    }
+  });
+
+  it('NOT of an explicit null equality is NOT (col IS NULL): two-valued', () => {
+    const where = { NOT: { receiptStatus: null } };
+    expect(matchesWhere(nullRow, where)).toBe(false);
+    expect(matchesWhere(skipped, where)).toBe(true);
+    expect(matchesWhere(pending, where)).toBe(true);
+  });
+
+  it('the null-inclusive idiom OR [null, NOT x] still includes NULL rows', () => {
+    const where = { OR: [{ receiptStatus: null }, { NOT: { receiptStatus: 'skipped' } }] };
+    expect(matchesWhere(nullRow, where)).toBe(true);
+    expect(matchesWhere(skipped, where)).toBe(false);
+    expect(matchesWhere(pending, where)).toBe(true);
+  });
+
+  it('AND/OR follow SQL three-valued rules', () => {
+    // UNKNOWN AND FALSE = FALSE, so NOT(...) = TRUE.
+    expect(matchesWhere(nullRow, { NOT: { AND: [{ receiptStatus: 'skipped' }, { id: 'zzz' }] } })).toBe(true);
+    // UNKNOWN AND TRUE = UNKNOWN, so NOT(...) is not true.
+    expect(matchesWhere(nullRow, { NOT: { AND: [{ receiptStatus: 'skipped' }, { id: 'a' }] } })).toBe(false);
+    // UNKNOWN OR TRUE = TRUE; UNKNOWN OR FALSE = UNKNOWN.
+    expect(matchesWhere(nullRow, { OR: [{ receiptStatus: 'skipped' }, { id: 'a' }] })).toBe(true);
+    expect(matchesWhere(nullRow, { NOT: { OR: [{ receiptStatus: 'skipped' }, { id: 'zzz' }] } })).toBe(false);
+  });
+
+  it('comparison operators on NULL are UNKNOWN too (NOT gt excludes NULL rows)', () => {
+    expect(matchesWhere({ n: null }, { NOT: { n: { gt: 5 } } })).toBe(false);
+    expect(matchesWhere({ n: 3 }, { NOT: { n: { gt: 5 } } })).toBe(true);
+    expect(matchesWhere({ n: null }, { NOT: { n: { in: ['a'] } } })).toBe(false);
+  });
+
+  it('array NOT means none of the conditions is true', () => {
+    expect(matchesWhere(pending, { NOT: [{ receiptStatus: 'skipped' }, { id: 'x' }] })).toBe(true);
+    expect(matchesWhere(pending, { NOT: [{ receiptStatus: 'skipped' }, { id: 'c' }] })).toBe(false);
+  });
+
+  it('applies through findMany', async () => {
+    db.reset({ abExpense: [{ id: 'a', tenantId: 't1', receiptStatus: null }, { id: 'b', tenantId: 't1', receiptStatus: 'pending' }, { id: 'c', tenantId: 't1', receiptStatus: 'skipped' }] });
+    const rows = await db.table('abExpense').findMany({ where: { tenantId: 't1', NOT: { receiptStatus: 'skipped' } } });
+    expect(rows.map((r) => r.id)).toEqual(['b']);
+  });
+});
+
+describe('unsupported writes throw instead of being stored', () => {
+  it('rejects non-set/increment/decrement operators and leaves the row untouched', async () => {
+    const t = db.table('abExpense');
+    await expect(t.update({ where: { id: 'a' }, data: { amountCents: { multiply: 2 } } })).rejects.toThrow(/unsupported write operator/);
+    await expect(t.update({ where: { id: 'a' }, data: { tags: { push: 'x' } } })).rejects.toThrow(/unsupported write operator/);
+    await expect(t.update({ where: { id: 'a' }, data: { amountCents: { increment: 1, bogus: 2 } } })).rejects.toThrow(/unsupported write operator/);
+    // The valid field listed before the bad one must not have been applied.
+    await expect(t.update({ where: { id: 'a' }, data: { vendorId: 'v', amountCents: { multiply: 2 } } })).rejects.toThrow();
+    expect(await t.findFirst({ where: { id: 'a' } })).toMatchObject({ amountCents: 100 });
+    expect((await t.findFirst({ where: { id: 'a' } }))?.vendorId).toBeUndefined();
+  });
+
+  it('rejects nested relation writes of every kind', async () => {
+    const t = db.table('abExpense');
+    for (const op of ['create', 'createMany', 'connect', 'connectOrCreate', 'disconnect', 'update', 'updateMany', 'upsert', 'delete', 'deleteMany']) {
+      await expect(t.create({ data: { tenantId: 't1', lines: { [op]: [] } } })).rejects.toThrow(/nested writes unsupported/);
+    }
+    await expect(t.update({ where: { id: 'a' }, data: { vendor: { connect: { id: 'v' } } } })).rejects.toThrow(/nested writes unsupported/);
+    await expect(t.upsert({ where: { id: 'zz' }, create: { tenantId: 't1', lines: { create: [] } }, update: {} })).rejects.toThrow(/nested writes unsupported/);
+    expect(await t.count({ where: { tenantId: 't1' } })).toBe(2);
+  });
+
+  it('still supports set / increment / decrement and plain JSON object values', async () => {
+    const t = db.table('abExpense');
+    await t.update({ where: { id: 'a' }, data: { amountCents: { set: 7 } } });
+    await t.update({ where: { id: 'a' }, data: { amountCents: { increment: 3 } } });
+    await t.update({ where: { id: 'a' }, data: { amountCents: { decrement: 1 }, metadata: { source: 'mobile', n: { deep: 1 } } } });
+    expect(await t.findFirst({ where: { id: 'a' } })).toMatchObject({ amountCents: 9, metadata: { source: 'mobile', n: { deep: 1 } } });
+  });
+});
