@@ -3,6 +3,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor, fireEvent, within } from '@testing-library/react';
 import { ToastHost } from '@/app/app/_kit';
 import { AiBanner, LAST_AUTOCAT_KEY } from '@/app/app/docs/_components/AiBanner';
+import { claimMobileSnapshots, clearMobileSnapshots } from '@/lib/mobile/snapshot-keys';
 
 vi.mock('@/hooks/use-t', async () => (await import('./_i18n-mock')).useTMock);
 const api = vi.hoisted(() => ({ runAutoCategorize: vi.fn(), reviewSuggestions: vi.fn() }));
@@ -52,6 +53,25 @@ describe('AiBanner text', () => {
   });
 });
 
+describe('last-run storage', () => {
+  it('lives under the ab:mobile: prefix (asserted as a literal, not via the constant) so sign-out and claim purge it', () => {
+    expect(LAST_AUTOCAT_KEY.startsWith('ab:mobile:')).toBe(true);
+    localStorage.setItem(LAST_AUTOCAT_KEY, JSON.stringify({ appliedCount: 5, pendingCount: 0, skippedCount: 0, at: Date.now() }));
+    clearMobileSnapshots();
+    expect(localStorage.getItem(LAST_AUTOCAT_KEY)).toBeNull();
+    localStorage.setItem(LAST_AUTOCAT_KEY, '{}');
+    localStorage.setItem('ab:mobile-owner', 'someone-else');
+    claimMobileSnapshots('another-user'); // a different user signs in: the previous user's run goes
+    expect(localStorage.getItem(LAST_AUTOCAT_KEY)).toBeNull();
+  });
+  it('ignores a run stamped in the future (clock set back) instead of treating it as recent forever', async () => {
+    localStorage.setItem(LAST_AUTOCAT_KEY, JSON.stringify({ appliedCount: 5, pendingCount: 0, skippedCount: 0, at: Date.now() + 3600_000 }));
+    renderBanner({ noCategoryCount: 3 });
+    expect(await screen.findByText('Without a category: 3')).toBeInTheDocument();
+    expect(screen.queryByText(/AI categorized/)).toBeNull();
+  });
+});
+
 describe('Auto-categorize', () => {
   it('runs, shows the real counts, records the run and reloads the list', async () => {
     api.runAutoCategorize.mockResolvedValue({ appliedCount: 4, pendingCount: 2, skippedCount: 1 });
@@ -83,12 +103,45 @@ describe('Auto-categorize', () => {
     renderBanner({ noCategoryCount: 2 });
     fireEvent.click(await screen.findByRole('button', { name: 'Auto-categorize' }));
     expect(await screen.findByText('Auto-categorize failed. Try again.')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Auto-categorize' })).toBeEnabled();
+    const btn = screen.getByRole('button', { name: 'Auto-categorize' });
+    expect(btn).not.toHaveAttribute('aria-disabled');
+    expect(btn).not.toHaveAttribute('aria-busy');
   });
-  it('is disabled offline and says why', async () => {
+  it('is aria-disabled offline (not disabled), ignores taps, and says why', async () => {
     renderBanner({ noCategoryCount: 2, online: false });
-    expect(await screen.findByRole('button', { name: 'Auto-categorize' })).toBeDisabled();
+    const btn = await screen.findByRole('button', { name: 'Auto-categorize' });
+    expect(btn).toHaveAttribute('aria-disabled', 'true');
+    expect(btn).not.toBeDisabled();
+    fireEvent.click(btn);
+    expect(api.runAutoCategorize).not.toHaveBeenCalled();
     expect(screen.getByText("You're offline. Changes are disabled until you reconnect.")).toBeInTheDocument();
+  });
+  it('keeps keyboard focus on the button while a run is in flight, and a second tap sends nothing', async () => {
+    let finish!: (v: { appliedCount: number; pendingCount: number; skippedCount: number }) => void;
+    api.runAutoCategorize.mockImplementation(() => new Promise((res) => { finish = res; }));
+    renderBanner({ noCategoryCount: 2 });
+    const btn = await screen.findByRole('button', { name: 'Auto-categorize' });
+    btn.focus();
+    fireEvent.click(btn);
+    const busy = await screen.findByRole('button', { name: 'Categorizing…' });
+    expect(busy).toBe(btn);
+    expect(busy).toHaveAttribute('aria-disabled', 'true');
+    expect(busy).toHaveAttribute('aria-busy', 'true');
+    expect(busy).not.toBeDisabled();
+    expect(document.activeElement).toBe(busy);
+    fireEvent.click(busy);
+    expect(api.runAutoCategorize).toHaveBeenCalledTimes(1);
+    finish({ appliedCount: 1, pendingCount: 0, skippedCount: 0 });
+    await screen.findByText('Categorized: 1 · To review: 0');
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Auto-categorize' }));
+  });
+  it('Review AI picks is aria-disabled with nothing to review, and a tap does not open the sheet', async () => {
+    renderBanner({ noCategoryCount: 2 });
+    const btn = await screen.findByRole('button', { name: 'Review AI picks' });
+    expect(btn).toHaveAttribute('aria-disabled', 'true');
+    expect(btn).not.toBeDisabled();
+    fireEvent.click(btn);
+    expect(screen.queryByRole('dialog')).toBeNull();
   });
 });
 
@@ -104,9 +157,66 @@ describe('Review AI picks sheet', () => {
     expect(within(dialog).getAllByTestId('review-row')).toHaveLength(2);
     expect(within(dialog).getAllByText('74% sure')).toHaveLength(2);
     fireEvent.click(within(dialog).getByRole('button', { name: 'Accept Office for Staples' }));
-    expect(api.reviewSuggestions).toHaveBeenCalledWith([{ expenseId: 'e1', action: 'accept', categoryId: 'c-Office' }]);
+    // Bare accept: no categoryId, so the server applies its own stored suggestion and keeps its stale-accept guard.
+    expect(api.reviewSuggestions).toHaveBeenCalledWith([{ expenseId: 'e1', action: 'accept' }]);
+    expect(api.reviewSuggestions.mock.calls[0][0][0]).not.toHaveProperty('categoryId');
     await waitFor(() => expect(within(dialog).getAllByTestId('review-row')).toHaveLength(1));
     expect(onChanged).toHaveBeenCalled();
+  });
+  it('announces the result inside the dialog and moves focus to that status line instead of <body>', async () => {
+    api.reviewSuggestions.mockResolvedValue([{ expenseId: 'e1', ok: true }]);
+    renderBanner();
+    fireEvent.click(await screen.findByRole('button', { name: 'Review AI picks' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Review AI picks' });
+    const accept = within(dialog).getByRole('button', { name: 'Accept Office for Staples' });
+    accept.focus();
+    fireEvent.click(accept);
+    const status = await within(dialog).findByText('1 AI pick resolved');
+    expect(status).toHaveAttribute('role', 'status');
+    expect(dialog.contains(status)).toBe(true);
+    await waitFor(() => expect(within(dialog).getAllByTestId('review-row')).toHaveLength(1));
+    expect(document.activeElement).toBe(status);
+    expect(dialog.contains(document.activeElement)).toBe(true);
+  });
+  it('uses the plural form for several resolved rows', async () => {
+    api.reviewSuggestions.mockResolvedValue([{ expenseId: 'e1', ok: true }, { expenseId: 'e2', ok: true }]);
+    renderBanner();
+    fireEvent.click(await screen.findByRole('button', { name: 'Review AI picks' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Review AI picks' });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Accept all' }));
+    expect(await within(dialog).findByText('2 AI picks resolved')).toHaveAttribute('role', 'status');
+  });
+  it('announces a failure inside the dialog (where a modal-inert toast could not be heard) and keeps focus in it', async () => {
+    api.reviewSuggestions.mockRejectedValue(Object.assign(new Error('boom'), { status: 500 }));
+    renderBanner();
+    fireEvent.click(await screen.findByRole('button', { name: 'Review AI picks' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Review AI picks' });
+    const accept = within(dialog).getByRole('button', { name: 'Accept Office for Staples' });
+    accept.focus();
+    fireEvent.click(accept);
+    const status = await within(dialog).findByText("Couldn't save that choice. Try again.");
+    expect(status).toHaveAttribute('role', 'status');
+    expect(dialog.contains(status)).toBe(true);
+    expect(document.activeElement).toBe(status);
+    expect(within(dialog).getAllByTestId('review-row')).toHaveLength(2);
+  });
+  it('keeps focus on the pressed control, and ignores a second tap, while a request is in flight', async () => {
+    let finish!: (v: Array<{ expenseId: string; ok: boolean }>) => void;
+    api.reviewSuggestions.mockImplementation(() => new Promise((res) => { finish = res; }));
+    renderBanner();
+    fireEvent.click(await screen.findByRole('button', { name: 'Review AI picks' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Review AI picks' });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Accept Office for Staples' }));
+    const other = within(dialog).getByRole('button', { name: 'Accept Travel for Uber' });
+    expect(other).toHaveAttribute('aria-disabled', 'true');
+    expect(other).toHaveAttribute('aria-busy', 'true');
+    expect(other).not.toBeDisabled();
+    other.focus();
+    fireEvent.click(other);
+    expect(api.reviewSuggestions).toHaveBeenCalledTimes(1);
+    expect(document.activeElement).toBe(other);
+    finish([{ expenseId: 'e1', ok: true }]);
+    await within(dialog).findByText('1 AI pick resolved');
   });
   it('shows each amount in the tenant currency, or a dash while the currency is unknown (never a guessed $)', async () => {
     const { unmount } = renderBanner({ currency: 'CAD' });
@@ -129,21 +239,21 @@ describe('Review AI picks sheet', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Reject Travel for Uber' }));
     expect(api.reviewSuggestions).toHaveBeenCalledWith([{ expenseId: 'e2', action: 'reject' }]);
   });
-  it('Accept all sends every row; failed rows come back with a toast', async () => {
+  it('Accept all sends every row; failed rows come back with a status line', async () => {
     api.reviewSuggestions.mockResolvedValue([{ expenseId: 'e1', ok: true }, { expenseId: 'e2', ok: false, error: 'gone' }]);
     renderBanner();
     fireEvent.click(await screen.findByRole('button', { name: 'Review AI picks' }));
     const dialog = await screen.findByRole('dialog', { name: 'Review AI picks' });
     fireEvent.click(within(dialog).getByRole('button', { name: 'Accept all' }));
     expect(api.reviewSuggestions).toHaveBeenCalledWith([
-      { expenseId: 'e1', action: 'accept', categoryId: 'c-Office' },
-      { expenseId: 'e2', action: 'accept', categoryId: 'c-Travel' },
+      { expenseId: 'e1', action: 'accept' },
+      { expenseId: 'e2', action: 'accept' },
     ]);
     expect(await screen.findByText('Not saved: 1')).toBeInTheDocument();
     await waitFor(() => expect(within(dialog).getAllByTestId('review-row')).toHaveLength(1));
     expect(within(dialog).getByText('Uber')).toBeInTheDocument();
   });
-  it('restores the row and toasts when the request itself fails (optimistic rollback)', async () => {
+  it('restores the row and says so when the request itself fails (optimistic rollback)', async () => {
     api.reviewSuggestions.mockRejectedValue(new Error('network'));
     renderBanner();
     fireEvent.click(await screen.findByRole('button', { name: 'Review AI picks' }));
@@ -177,8 +287,8 @@ describe('already-resolved rows (stale offline cache / a second device)', () => 
     expect(screen.queryByText("Couldn't save that choice. Try again.")).toBeNull();
     expect(onChanged).toHaveBeenCalled();
   });
-  it.each([404, 409])('drops the row when the request itself answers HTTP %i, instead of a raw error', async (status) => {
-    api.reviewSuggestions.mockRejectedValue(Object.assign(new Error('HTTP error'), { status }));
+  it('drops the row when the request itself answers HTTP 409, instead of a raw error', async () => {
+    api.reviewSuggestions.mockRejectedValue(Object.assign(new Error('HTTP error'), { status: 409 }));
     renderBanner();
     fireEvent.click(await screen.findByRole('button', { name: 'Review AI picks' }));
     const dialog = await screen.findByRole('dialog', { name: 'Review AI picks' });
@@ -188,8 +298,8 @@ describe('already-resolved rows (stale offline cache / a second device)', () => 
     expect(screen.queryByText("Couldn't save that choice. Try again.")).toBeNull();
     expect(screen.queryByText('HTTP error')).toBeNull();
   });
-  it('a 500 is a real failure: row restored with a toast', async () => {
-    api.reviewSuggestions.mockRejectedValue(Object.assign(new Error('boom'), { status: 500 }));
+  it.each([404, 500])('HTTP %i on the whole request is a real failure (nothing was saved): row restored, failure shown', async (status) => {
+    api.reviewSuggestions.mockRejectedValue(Object.assign(new Error('boom'), { status }));
     renderBanner();
     fireEvent.click(await screen.findByRole('button', { name: 'Review AI picks' }));
     const dialog = await screen.findByRole('dialog', { name: 'Review AI picks' });
@@ -229,7 +339,9 @@ describe('offline', () => {
     renderBanner({ noCategoryCount: 2, online: false });
     await screen.findByText('Without a category: 2');
     expect(extra.getPendingSuggestions).not.toHaveBeenCalled();
-    expect(screen.getByRole('button', { name: 'Review AI picks' })).toBeDisabled();
+    const review = screen.getByRole('button', { name: 'Review AI picks' });
+    expect(review).toHaveAttribute('aria-disabled', 'true');
+    expect(review).not.toBeDisabled();
   });
   it('loads them once the connection returns', async () => {
     extra.getPendingSuggestions.mockResolvedValue(two);
@@ -241,20 +353,25 @@ describe('offline', () => {
     expect(await screen.findByText('AI picks waiting: 2')).toBeInTheDocument();
     expect(extra.getPendingSuggestions).toHaveBeenCalledTimes(1);
   });
-  it('an open sheet disables Accept / Reject / Accept all the moment the device goes offline, and sends nothing', async () => {
+  it('an open sheet aria-disables Accept / Reject / Accept all the moment the device goes offline, and sends nothing', async () => {
     extra.getPendingSuggestions.mockResolvedValue(two);
     const ui = (online: boolean) => <ToastHost><AiBanner noCategoryCount={0} online={online} currency="CAD" onChanged={() => {}} /></ToastHost>;
     const { rerender } = render(ui(true));
     fireEvent.click(await screen.findByRole('button', { name: 'Review AI picks' }));
     const dialog = await screen.findByRole('dialog', { name: 'Review AI picks' });
+    const focused = within(dialog).getByRole('button', { name: 'Accept all' });
+    focused.focus();
     rerender(ui(false));
+    expect(document.activeElement).toBe(focused);
     for (const name of ['Accept Office for Staples', 'Reject Office for Staples', 'Accept all']) {
       const b = within(dialog).queryByRole('button', { name });
-      if (b) { expect(b).toBeDisabled(); fireEvent.click(b); }
+      if (b) { expect(b).toHaveAttribute('aria-disabled', 'true'); fireEvent.click(b); }
     }
-    expect(within(dialog).getByRole('button', { name: 'Accept Office for Staples' })).toBeDisabled();
-    expect(within(dialog).getByRole('button', { name: 'Reject Travel for Uber' })).toBeDisabled();
-    expect(within(dialog).getByRole('button', { name: 'Accept all' })).toBeDisabled();
+    for (const name of ['Accept Office for Staples', 'Reject Travel for Uber', 'Accept all']) {
+      const b = within(dialog).getByRole('button', { name });
+      expect(b).toHaveAttribute('aria-disabled', 'true');
+      expect(b).not.toBeDisabled(); // focus must stay on it, not fall to <body>
+    }
     expect(within(dialog).getByText("You're offline. Changes are disabled until you reconnect.")).toBeInTheDocument();
     expect(api.reviewSuggestions).not.toHaveBeenCalled();
   });

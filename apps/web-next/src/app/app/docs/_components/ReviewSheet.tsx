@@ -1,11 +1,11 @@
 'use client';
 
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useT } from '@/hooks/use-t';
 import type { ReviewItem } from '@/lib/mobile/types';
 import { MAX_REVIEW_ITEMS, reviewSuggestions } from '../../_lib/api';
 import type { PendingSuggestion } from '../../_lib/api-extra';
-import { Sheet, Pill, useToast, buttonStyle, tokens } from '../../_kit';
+import { Sheet, Pill, buttonStyle, tokens } from '../../_kit';
 import { Amount } from './Amount';
 
 /**
@@ -14,11 +14,12 @@ import { Amount } from './Amount';
  * dropped rather than shown as an error.
  */
 const STALE_RESULT = new Set(['not_found', 'no_suggestion']);
-/** An HTTP answer meaning "that expense is already resolved / gone". */
-const isStaleStatus = (e: unknown): boolean => {
-  const status = (e as { status?: unknown } | null)?.status;
-  return status === 404 || status === 409;
-};
+/**
+ * An HTTP answer meaning "that expense is already resolved". Not 404: the route
+ * reports a missing expense per item (`not_found`), so a 404 on the request
+ * itself means the route is missing (a deploy mismatch) and nothing was saved.
+ */
+const isStaleStatus = (e: unknown): boolean => (e as { status?: unknown } | null)?.status === 409;
 
 const chunk = <T,>(xs: T[], n: number): T[][] => {
   const out: T[][] = [];
@@ -40,18 +41,26 @@ export function ReviewSheet({ open, onClose, items, currency, online = true, onR
   onResolved: (ids: string[]) => void;
 }) {
   const t = useT();
-  const toast = useToast();
   // Rows hidden while their request is in flight. Cleared when it settles: the
   // parent removes resolved rows from `items`, failed rows simply come back.
   const [inFlight, setInFlight] = useState<Set<string>>(new Set());
   const [busy, setBusy] = useState(false);
   const busyRef = useRef(false);
+  // The outcome of the last action, announced from INSIDE the aria-modal dialog
+  // (a toast renders outside it, where assistive tech cannot reach). It is also
+  // the stable focus target: the row that was tapped is gone once it resolves.
+  const [status, setStatus] = useState<{ tone: 'good' | 'critical'; text: string } | null>(null);
+  const statusRef = useRef<HTMLDivElement>(null);
+  useEffect(() => { if (!open) setStatus(null); }, [open]);
   const visible = items.filter((i) => !inFlight.has(i.expenseId));
   const locked = busy || !online;
 
   async function submit(batch: ReviewItem[]) {
     if (busyRef.current || batch.length === 0) return;
     busyRef.current = true;
+    setStatus(null);
+    // Before the tapped row is hidden below: a focused element that unmounts drops focus to <body>.
+    statusRef.current?.focus();
     const ids = batch.map((b) => b.expenseId);
     setInFlight((prev) => new Set([...prev, ...ids])); // optimistic
     setBusy(true);
@@ -79,7 +88,9 @@ export function ReviewSheet({ open, onClose, items, currency, online = true, onR
         }
       }
       if (failed.length) {
-        toast.show(batch.length === 1 ? t('mobile.docs.review_failed') : t('mobile.docs.review_partial', { failed: failed.length }), { tone: 'critical' });
+        setStatus({ tone: 'critical', text: batch.length === 1 ? t('mobile.docs.review_failed') : t('mobile.docs.review_partial', { failed: failed.length }) });
+      } else if (resolved.length) {
+        setStatus({ tone: 'good', text: t('mobile.docs.review_resolved', { count: resolved.length }) });
       }
       if (resolved.length) onResolved(resolved);
     } finally {
@@ -90,6 +101,9 @@ export function ReviewSheet({ open, onClose, items, currency, online = true, onR
   }
 
   const rowButton = (extra: React.CSSProperties = {}): React.CSSProperties => ({ ...buttonStyle('secondary', locked), fontSize: tokens.font.sm, ...extra });
+  // aria-disabled, not disabled: a disabled button drops keyboard focus to <body> mid-flow.
+  const lockProps = { 'aria-disabled': locked || undefined, 'aria-busy': busy || undefined } as const;
+  const press = (batch: ReviewItem[]) => { if (!locked) void submit(batch); };
 
   return (
     <Sheet open={open} onClose={onClose} title={t('mobile.docs.review_title')}>
@@ -98,6 +112,20 @@ export function ReviewSheet({ open, onClose, items, currency, online = true, onR
           {t('mobile.docs.offline_readonly')}
         </p>
       )}
+      <div
+        ref={statusRef}
+        role="status"
+        tabIndex={-1}
+        data-testid="review-status"
+        style={{
+          outline: 'none',
+          fontSize: tokens.font.sm,
+          color: status?.tone === 'critical' ? tokens.color.critical : tokens.color.muted,
+          ...(status ? { margin: `0 0 ${tokens.space.md}px` } : null),
+        }}
+      >
+        {status?.text}
+      </div>
       {visible.length === 0 ? (
         <p style={{ color: tokens.color.muted, padding: `${tokens.space.sm}px 0` }}>{t('mobile.docs.review_empty')}</p>
       ) : (
@@ -123,18 +151,20 @@ export function ReviewSheet({ open, onClose, items, currency, online = true, onR
                     <button
                       type="button"
                       style={{ ...buttonStyle('primary', locked), fontSize: tokens.font.sm }}
-                      disabled={locked}
+                      {...lockProps}
                       aria-label={t('mobile.docs.accept_for', { category: s.suggestedCategoryName, vendor })}
-                      onClick={() => void submit([{ expenseId: s.expenseId, action: 'accept', categoryId: s.suggestedCategoryId }])}
+                      // Bare accept: the server applies ITS stored suggestion and keeps its stale-accept guard.
+                      // An explicit categoryId would bypass the guard and overwrite a category chosen since this list loaded.
+                      onClick={() => press([{ expenseId: s.expenseId, action: 'accept' }])}
                     >
                       {t('mobile.docs.accept')}
                     </button>
                     <button
                       type="button"
                       style={rowButton()}
-                      disabled={locked}
+                      {...lockProps}
                       aria-label={t('mobile.docs.reject_for', { category: s.suggestedCategoryName, vendor })}
-                      onClick={() => void submit([{ expenseId: s.expenseId, action: 'reject' }])}
+                      onClick={() => press([{ expenseId: s.expenseId, action: 'reject' }])}
                     >
                       {t('mobile.docs.reject')}
                     </button>
@@ -146,8 +176,8 @@ export function ReviewSheet({ open, onClose, items, currency, online = true, onR
           <button
             type="button"
             style={{ ...buttonStyle('primary', locked), width: '100%', marginTop: tokens.space.md }}
-            disabled={locked}
-            onClick={() => void submit(visible.map((s) => ({ expenseId: s.expenseId, action: 'accept' as const, categoryId: s.suggestedCategoryId })))}
+            {...lockProps}
+            onClick={() => press(visible.map((s) => ({ expenseId: s.expenseId, action: 'accept' as const })))}
           >
             {t('mobile.docs.accept_all')}
           </button>

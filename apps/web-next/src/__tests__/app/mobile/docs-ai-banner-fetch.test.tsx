@@ -44,7 +44,9 @@ describe('AiBanner over real requests', () => {
     await waitFor(() => expect(within(dialog).getAllByTestId('review-row')).toHaveLength(1));
     const call = f.mock.calls.find(([u]) => String(u) === REVIEW)!;
     expect(call[1]).toMatchObject({ method: 'POST', credentials: 'same-origin' });
-    expect(JSON.parse(String(call[1]?.body))).toEqual({ items: [{ expenseId: 'e1', action: 'accept', categoryId: 'c-Office' }] });
+    // Bare accept: the server applies its own stored suggestion and keeps its stale-accept guard
+    // (an explicit categoryId would bypass it and could overwrite a category chosen since the list loaded).
+    expect(JSON.parse(String(call[1]?.body))).toEqual({ items: [{ expenseId: 'e1', action: 'accept' }] });
   });
 
   it('Auto-categorize POSTs the run route, then re-reads the pending list', async () => {
@@ -59,10 +61,10 @@ describe('AiBanner over real requests', () => {
     expect(f.mock.calls.filter(([u]) => String(u) === PENDING)).toHaveLength(2);
   });
 
-  it.each([404, 409])('an HTTP %i from the review route drops the row quietly (no raw error text)', async (status) => {
+  it('an HTTP 409 from the review route drops the row quietly (no raw error text)', async () => {
     routeFetch({
       [PENDING]: () => ok({ items: [ROW('e1', 'Staples', 'Office')], uncategorizedCount: 1 }),
-      [REVIEW]: () => jsonResponse(status, { success: false, error: 'Expense already categorized' }),
+      [REVIEW]: () => jsonResponse(409, { success: false, error: 'Expense already categorized' }),
     });
     mount();
     fireEvent.click(await screen.findByRole('button', { name: 'Review AI picks' }));
@@ -72,7 +74,59 @@ describe('AiBanner over real requests', () => {
     expect(screen.queryByText(/already categorized|Couldn't save/)).toBeNull();
   });
 
-  it("the service worker's offline 503 is a failure, not a resolution: the row comes back with a toast", async () => {
+  it('a 404 on the whole review request (route missing) saves nothing: the row comes back with the failure shown', async () => {
+    routeFetch({
+      [PENDING]: () => ok({ items: [ROW('e1', 'Staples', 'Office')], uncategorizedCount: 1 }),
+      [REVIEW]: () => jsonResponse(404, { success: false, error: 'Not found' }),
+    });
+    const { onChanged } = mount();
+    fireEvent.click(await screen.findByRole('button', { name: 'Review AI picks' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Review AI picks' });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Accept Office for Staples' }));
+    expect(await within(dialog).findByText("Couldn't save that choice. Try again.")).toBeInTheDocument();
+    expect(within(dialog).getAllByTestId('review-row')).toHaveLength(1);
+    expect(onChanged).not.toHaveBeenCalled();
+  });
+
+  it('a server no_suggestion for an accept drops the row with no error, and the list is re-read via onChanged', async () => {
+    routeFetch({
+      [PENDING]: () => ok({ items: [ROW('e1', 'Staples', 'Office'), ROW('e2', 'Uber', 'Travel')], uncategorizedCount: 2 }),
+      [REVIEW]: () => ok({ results: [{ expenseId: 'e1', ok: false, error: 'no_suggestion' }] }),
+    });
+    const { onChanged } = mount();
+    fireEvent.click(await screen.findByRole('button', { name: 'Review AI picks' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Review AI picks' });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Accept Office for Staples' }));
+    await waitFor(() => expect(within(dialog).getAllByTestId('review-row')).toHaveLength(1));
+    expect(within(dialog).getByText('Uber')).toBeInTheDocument();
+    expect(screen.queryByText(/Couldn't save|Not saved/)).toBeNull();
+    expect(onChanged).toHaveBeenCalled();
+  });
+
+  it('retrying an accept after a lost response is harmless: the second bare accept answers no_suggestion and the row is dropped quietly', async () => {
+    let calls = 0;
+    const f = routeFetch({
+      [PENDING]: () => ok({ items: [ROW('e1', 'Staples', 'Office')], uncategorizedCount: 1 }),
+      // First answer is lost on the wire (the server did apply it); the retry finds nothing left to accept.
+      [REVIEW]: () => (++calls === 1 ? new Error('network down') : ok({ results: [{ expenseId: 'e1', ok: false, error: 'no_suggestion' }] })),
+    });
+    const { onChanged } = mount();
+    fireEvent.click(await screen.findByRole('button', { name: 'Review AI picks' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Review AI picks' });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Accept Office for Staples' }));
+    expect(await within(dialog).findByText("Couldn't save that choice. Try again.")).toBeInTheDocument();
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Accept Office for Staples' }));
+    expect(await within(dialog).findByText('No AI picks waiting.')).toBeInTheDocument();
+    expect(within(dialog).queryByText("Couldn't save that choice. Try again.")).toBeNull();
+    const bodies = f.mock.calls.filter(([u]) => String(u) === REVIEW).map(([, init]) => JSON.parse(String(init?.body)));
+    expect(bodies).toEqual([
+      { items: [{ expenseId: 'e1', action: 'accept' }] },
+      { items: [{ expenseId: 'e1', action: 'accept' }] },
+    ]);
+    expect(onChanged).toHaveBeenCalled();
+  });
+
+  it("the service worker's offline 503 is a failure, not a resolution: the row comes back with the failure shown", async () => {
     routeFetch({
       [PENDING]: () => ok({ items: [ROW('e1', 'Staples', 'Office')], uncategorizedCount: 1 }),
       [REVIEW]: () => jsonResponse(503, { success: false, error: 'offline' }, { 'X-Agentbook-Offline': '1' }),
@@ -98,6 +152,33 @@ describe('AiBanner over real requests', () => {
     await within(dialog).findByText('No AI picks waiting.');
     const sizes = f.mock.calls.filter(([u]) => String(u) === REVIEW).map(([, init]) => JSON.parse(String(init?.body)).items.length);
     expect(sizes).toEqual([50, 1]);
+  });
+
+  it('101 accepts: chunk 1 saves, chunk 2 answers 500, processing STOPS (chunk 3 is never sent); only the unsaved rows come back', async () => {
+    const rows = Array.from({ length: 101 }, (_, i) => ROW(`e${i}`, `V${i}`, 'Office'));
+    let n = 0;
+    const f = routeFetch({
+      [PENDING]: () => ok({ items: rows, uncategorizedCount: 101 }),
+      [REVIEW]: (_u, init) => {
+        n += 1;
+        if (n > 1) return jsonResponse(500, { success: false, error: 'boom' });
+        return ok({ results: (JSON.parse(String(init?.body)).items as Array<{ expenseId: string }>).map((i) => ({ expenseId: i.expenseId, ok: true })) });
+      },
+    });
+    const { onChanged } = mount();
+    fireEvent.click(await screen.findByRole('button', { name: 'Review AI picks' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Review AI picks' });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Accept all' }));
+    expect(await within(dialog).findByText('Not saved: 51')).toBeInTheDocument();
+    const sent = f.mock.calls.filter(([u]) => String(u) === REVIEW).map(([, init]) => (JSON.parse(String(init?.body)).items as unknown[]).length);
+    expect(sent).toEqual([50, 50]); // no third request after the failure
+    const left = within(dialog).getAllByTestId('review-row');
+    expect(left).toHaveLength(51); // chunk 2 (50) + the never-sent chunk 3 (1)
+    expect(within(dialog).queryByText('V0')).toBeNull(); // chunk 1 stays saved
+    expect(within(dialog).queryByText('V49')).toBeNull();
+    expect(within(dialog).getByText('V50')).toBeInTheDocument();
+    expect(within(dialog).getByText('V100')).toBeInTheDocument();
+    expect(onChanged).toHaveBeenCalledTimes(1);
   });
 
   it('offline, no pending GET is made and no review write can be sent', async () => {

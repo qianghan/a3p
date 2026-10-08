@@ -17,7 +17,10 @@ interface LastRun { appliedCount: number; pendingCount: number; skippedCount: nu
 
 function readLastRun(): LastRun | null {
   const r = readJson<LastRun | null>('local', LAST_AUTOCAT_KEY, null);
-  return r && typeof r.appliedCount === 'number' && typeof r.at === 'number' && Date.now() - r.at < RUN_TTL_MS ? r : null;
+  if (!r || typeof r.appliedCount !== 'number' || typeof r.at !== 'number') return null;
+  const age = Date.now() - r.at;
+  // A timestamp in the future (the clock was set back) would read as "recent" until the clock caught up.
+  return age >= 0 && age < RUN_TTL_MS ? r : null;
 }
 
 export function AiBanner({ noCategoryCount, online, currency, onChanged }: {
@@ -89,12 +92,15 @@ export function AiBanner({ noCategoryCount, online, currency, onChanged }: {
   else if (m > 0) title = t('mobile.docs.ai_pending', { m });
   else if (noCategoryCount > 0) title = t('mobile.docs.ai_idle', { k: noCategoryCount });
 
+  // aria-disabled, not disabled: a disabled button drops keyboard focus to <body> mid-flow.
+  const reviewLocked = m === 0 || !online;
+  const runLocked = running || !online;
   const actions = (
     <div style={{ display: 'flex', gap: tokens.space.sm, flexWrap: 'wrap' }}>
-      <button type="button" style={buttonStyle('secondary', m === 0 || !online)} disabled={m === 0 || !online} onClick={() => setOpen(true)}>
+      <button type="button" style={buttonStyle('secondary', reviewLocked)} aria-disabled={reviewLocked || undefined} onClick={() => { if (!reviewLocked) setOpen(true); }}>
         {t('mobile.docs.review_ai_picks')}
       </button>
-      <button type="button" style={buttonStyle('secondary', running || !online)} disabled={running || !online} aria-busy={running} onClick={() => void run()}>
+      <button type="button" style={buttonStyle('secondary', runLocked)} aria-disabled={runLocked || undefined} aria-busy={running || undefined} onClick={() => void run()}>
         {running ? t('mobile.docs.auto_categorizing') : t('mobile.docs.auto_categorize')}
       </button>
     </div>

@@ -215,6 +215,8 @@
     "confidence": "Confiance : {pct} %",
     "review_failed": "Impossible d’enregistrer ce choix. Réessayez.",
     "review_partial": "Non enregistrés : {failed}",
+    "review_resolved_one": "{count} choix de l’IA traité",
+    "review_resolved_other": "{count} choix de l’IA traités",
     "suggested": "Suggestion : {category}",
     "back": "Retour aux documents",
     "prev": "Document précédent",

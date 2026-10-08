@@ -215,6 +215,8 @@
     "confidence": "把握 {pct}%",
     "review_failed": "无法保存该选择，请重试。",
     "review_partial": "未能保存：{failed}",
+    "review_resolved_one": "已处理 {count} 条智能建议",
+    "review_resolved_other": "已处理 {count} 条智能建议",
     "suggested": "建议：{category}",
     "back": "返回单据",
     "prev": "上一张单据",

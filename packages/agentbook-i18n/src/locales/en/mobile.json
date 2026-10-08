@@ -215,6 +215,8 @@
     "confidence": "{pct}% sure",
     "review_failed": "Couldn't save that choice. Try again.",
     "review_partial": "Not saved: {failed}",
+    "review_resolved_one": "{count} AI pick resolved",
+    "review_resolved_other": "{count} AI picks resolved",
     "suggested": "Suggested: {category}",
     "back": "Back to documents",
     "prev": "Previous document",
