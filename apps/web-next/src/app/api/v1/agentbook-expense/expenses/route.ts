@@ -343,7 +343,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     // keyset clause (that would shrink it on every page after the first).
     const countWhere = withSoftDelete(parsed.countWhere as Record<string, unknown>, includeDeleted) as Prisma.AbExpenseWhereInput;
 
-    const [rows, total, counts, pending] = await Promise.all([
+    const [rows, total, counts] = await Promise.all([
       db.abExpense.findMany({
         where,
         include: { vendor: { select: { id: true, name: true, normalizedName: true } } },
@@ -355,11 +355,19 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       }),
       db.abExpense.count({ where: countWhere }),
       withCounts ? countDocFilters(tenantId) : Promise.resolve(null),
-      getPendingSuggestions(tenantId),
     ]);
     const hasMore = rows.length > limit;
     const expenses = hasMore ? rows.slice(0, limit) : rows;
     const nextCursor = hasMore ? encodeCursor(expenses[expenses.length - 1]) : null;
+
+    // The suggestion is decoration on an uncategorized row: read the pending
+    // batch only when this page has one, and never let its failure 500 the list.
+    const pending = expenses.some((e) => !e.categoryId)
+      ? await getPendingSuggestions(tenantId).catch((err) => {
+          console.warn('[agentbook-expense/expenses GET] pending suggestions unavailable:', err instanceof Error ? err.message : err);
+          return [];
+        })
+      : [];
 
     const categoryIds = [...new Set(expenses.map((e) => e.categoryId).filter((id): id is string => Boolean(id)))];
     const categories = categoryIds.length > 0

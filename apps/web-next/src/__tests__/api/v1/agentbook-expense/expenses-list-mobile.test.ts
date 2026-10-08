@@ -176,6 +176,34 @@ describe('GET /expenses — meta.total means the whole filtered list (carried-fo
   });
 });
 
+describe('GET /expenses — the pending-suggestion lookup is decoration (carried-forward F2)', () => {
+  it('a rejecting abUserMemory lookup still returns 200 with the rows and suggestion: null', async () => {
+    vi.spyOn(memDb.table('abUserMemory'), 'findUnique').mockRejectedValue(new Error('db down'));
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const { status, body } = await list();
+    expect(status).toBe(200);
+    expect(ids(body)).toEqual(['e5', 'e6', 'e2', 'e1', 'e3', 'e4']);
+    expect(body.data.find((r) => r.id === 'e6')?.suggestion).toBeNull();
+    expect(warn).toHaveBeenCalled();
+    warn.mockRestore();
+  });
+
+  it('a page with no uncategorized row performs no abUserMemory read', async () => {
+    const find = vi.spyOn(memDb.table('abUserMemory'), 'findUnique');
+    const { status, body } = await list('?categoryId=acc-fuel');
+    expect(status).toBe(200);
+    expect(ids(body)).toEqual(['e1', 'e4']);
+    expect(find).not.toHaveBeenCalled();
+  });
+
+  it('a page with an uncategorized row still reads it once and shows the suggestion', async () => {
+    const find = vi.spyOn(memDb.table('abUserMemory'), 'findUnique');
+    const { body } = await list('?categoryId=none');
+    expect(find).toHaveBeenCalledTimes(1);
+    expect(body.data.find((r) => r.id === 'e6')?.suggestion).toMatchObject({ categoryId: 'acc-meals' });
+  });
+});
+
 describe('GET /expenses — coverage gaps (carried-forward F3)', () => {
   it('a soft-deleted row is excluded from meta.counts', async () => {
     const before = (await list('?withCounts=1')).body.meta.counts;
