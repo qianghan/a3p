@@ -12,6 +12,15 @@ const DAY_MS = 86_400_000;
 export const UPCOMING_MIN_DAYS = 1;
 export const UPCOMING_MAX_DAYS = 90;
 const OPEN_CALENDAR_STATUSES = ['upcoming', 'alerted', 'snoozed'];
+/**
+ * titleKeys the jurisdiction packs seed (via cron/calendar-check, always as
+ * eventType 'tax_deadline') for the estimated-tax instalment itself:
+ * US `calendar.qN_estimated_tax_due`, CA `calendar.qN_instalment_due`, AU
+ * `calendar.payg_qN_instalment`. Other tax deadlines that fall on the same day
+ * (AU BAS/super, US annual filing, CA SE filing extension / GST-HST) are NOT
+ * twins and must stay visible.
+ */
+const INSTALMENT_TWIN_KEY = /^calendar\.(?:payg_)?q([1-4])_(?:estimated_tax_due|instalment_due|instalment)$/;
 const KIND_ORDER: Record<UpcomingItem['kind'], number> = { tax: 0, bill: 1, calendar: 2 };
 
 export function utcDayStart(d: Date): Date {
@@ -49,14 +58,15 @@ export async function getUpcoming(tenantId: string, days: number, now: Date = ne
   ]);
 
   const items: UpcomingItem[] = [];
-  const taxDays = new Set<string>();
+  // `${day}:${quarter}` of every instalment, whether or not it is paid or shown.
+  const instalmentSlots = new Set<string>();
 
   for (const y of years) {
     for (const dl of getQuarterlyDeadlines(y, jurisdiction)) {
       const row = quarterlyRows.find((r) => r.year === y && r.quarter === dl.quarter);
       const deadline = row?.deadline ?? dl.deadline;
+      instalmentSlots.add(`${isoDay(deadline)}:${dl.quarter}`);
       if (deadline < start || deadline > end) continue;
-      taxDays.add(isoDay(deadline));
       const amountCents = row && row.amountDueCents > 0 ? row.amountDueCents - row.amountPaidCents : null;
       if (amountCents !== null && amountCents <= 0) continue; // paid in full
       items.push({
@@ -72,8 +82,12 @@ export async function getUpcoming(tenantId: string, days: number, now: Date = ne
   }
 
   for (const ev of events) {
-    // A calendar tax-deadline row duplicates the instalment above, which carries the amount.
-    if (ev.eventType === 'tax_deadline' && taxDays.has(isoDay(ev.date))) continue;
+    // Drop only the seeded calendar twin of an instalment (same quarter, same
+    // day, instalment key) — it duplicates the item above, which carries the
+    // amount, and stays dropped once the instalment is paid. Never dedup by
+    // date alone: other critical deadlines share instalment days.
+    const twin = ev.eventType === 'tax_deadline' ? INSTALMENT_TWIN_KEY.exec(ev.titleKey) : null;
+    if (twin && instalmentSlots.has(`${isoDay(ev.date)}:${twin[1]}`)) continue;
     items.push({
       id: `cal:${ev.id}`,
       kind: 'calendar',

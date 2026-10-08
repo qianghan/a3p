@@ -33,7 +33,7 @@ beforeEach(() => {
     abCalendarEvent: [
       { id: 'ev1', tenantId: 't1', eventType: 'renewal', titleKey: 'calendar.domain_renewal', date: day('2026-06-10'), status: 'upcoming' },
       { id: 'ev2', tenantId: 't1', eventType: 'renewal', titleKey: 'calendar.done', date: day('2026-06-11'), status: 'acted_on' },
-      { id: 'ev3', tenantId: 't1', eventType: 'tax_deadline', titleKey: 'calendar.q2_estimated_tax', date: day('2026-06-15'), status: 'upcoming' },
+      { id: 'ev3', tenantId: 't1', eventType: 'tax_deadline', titleKey: 'calendar.q2_estimated_tax_due', date: day('2026-06-15'), status: 'upcoming' },
       { id: 'ev4', tenantId: 't1', eventType: 'renewal', titleKey: 'calendar.snoozed', date: day('2026-07-15'), status: 'snoozed' },
       { id: 'evx', tenantId: 't2', eventType: 'renewal', titleKey: 'calendar.other', date: day('2026-06-05'), status: 'upcoming' },
     ],
@@ -66,6 +66,40 @@ describe('GET /calendar/upcoming', () => {
   it('drops a paid-in-full instalment and still de-duplicates its calendar twin', async () => {
     memDb.table('abQuarterlyPayment').rows[0].amountPaidCents = 300000;
     expect(await ids()).toEqual(['cal:ev1', 'bill:b1']);
+  });
+
+  it('keeps other critical deadlines that share an instalment day (US annual filing on the Q1 instalment day)', async () => {
+    vi.setSystemTime(new Date('2026-04-01T12:00:00.000Z'));
+    memDb.table('abCalendarEvent').rows.push(
+      { id: 'evq1', tenantId: 't1', eventType: 'tax_deadline', titleKey: 'calendar.q1_estimated_tax_due', date: day('2026-04-15'), status: 'upcoming' },
+      { id: 'evf', tenantId: 't1', eventType: 'tax_deadline', titleKey: 'calendar.annual_tax_filing_due', date: day('2026-04-15'), status: 'upcoming' },
+    );
+    expect(await ids()).toEqual(['tax:us:2026:Q1', 'cal:evf']); // twin dropped, filing kept
+    // a paid-in-full Q1 instalment must not hide the same-day filing deadline, nor resurrect the twin
+    memDb.table('abQuarterlyPayment').rows.push(
+      { id: 'q-us-1', tenantId: 't1', year: 2026, quarter: 1, jurisdiction: 'us', amountDueCents: 100, amountPaidCents: 100, deadline: day('2026-04-15') },
+    );
+    expect(await ids()).toEqual(['cal:evf']);
+  });
+
+  it('AU: BAS due on the PAYG instalment day is kept; the PAYG calendar twin is dropped', async () => {
+    vi.setSystemTime(new Date('2026-10-01T12:00:00.000Z'));
+    memDb.table('abCalendarEvent').rows.push(
+      { id: 'evbas', tenantId: 't2', eventType: 'tax_deadline', titleKey: 'calendar.bas_q1_due', date: day('2026-10-28'), status: 'upcoming' },
+      { id: 'evpayg', tenantId: 't2', eventType: 'tax_deadline', titleKey: 'calendar.payg_q1_instalment', date: day('2026-10-28'), status: 'upcoming' },
+    );
+    expect(await ids('', 't2')).toEqual(['tax:au:2026:Q1', 'cal:evbas']);
+  });
+
+  it('window end is inclusive (today+N is in, daysAway N) and an item today has daysAway 0', async () => {
+    memDb.table('abCalendarEvent').rows.push(
+      { id: 'evend', tenantId: 't1', eventType: 'renewal', titleKey: 'calendar.end', date: day('2026-06-11'), status: 'upcoming' },
+      { id: 'evtoday', tenantId: 't1', eventType: 'renewal', titleKey: 'calendar.today', date: day('2026-06-01'), status: 'upcoming' },
+      { id: 'evbeyond', tenantId: 't1', eventType: 'renewal', titleKey: 'calendar.beyond', date: day('2026-06-12'), status: 'upcoming' },
+      { id: 'evyest', tenantId: 't1', eventType: 'renewal', titleKey: 'calendar.yesterday', date: day('2026-05-31'), status: 'upcoming' },
+    );
+    const items = (await upcoming('?days=10')).body.data.items;
+    expect(items.map((i) => [i.id, i.daysAway])).toEqual([['cal:evtoday', 0], ['cal:ev1', 9], ['cal:evend', 10]]);
   });
 
   it('falls back to the jurisdiction schedule (no amount) when no instalment row exists — and never writes one', async () => {
