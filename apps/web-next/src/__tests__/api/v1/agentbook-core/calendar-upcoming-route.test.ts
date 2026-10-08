@@ -116,6 +116,27 @@ describe('GET /calendar/upcoming', () => {
     ]);
   });
 
+  it('a jurisdiction without an instalment schedule (uk) gets no synthesized US instalments; its calendar events still show', async () => {
+    memDb.table('abTenantConfig').rows.push({ id: 'c3', userId: 't3', jurisdiction: 'uk', currency: 'GBP' });
+    memDb.table('abQuarterlyPayment').rows.push(
+      { id: 'q-uk-2', tenantId: 't3', year: 2026, quarter: 2, jurisdiction: 'uk', amountDueCents: 5000, amountPaidCents: 0, deadline: day('2026-06-15') },
+    );
+    memDb.table('abCalendarEvent').rows.push(
+      { id: 'ev-uk', tenantId: 't3', eventType: 'tax_deadline', titleKey: 'calendar.self_assessment_due', date: day('2026-06-12'), status: 'upcoming' },
+    );
+    const items = (await upcoming('?days=90', 't3')).body.data.items;
+    expect(items.filter((i) => i.kind === 'tax')).toEqual([]);
+    expect(items.map((i) => i.id)).toEqual(['cal:ev-uk']);
+  });
+
+  it('us / ca / au keep their instalments', async () => {
+    memDb.table('abTenantConfig').rows.push({ id: 'c4', userId: 't4', jurisdiction: 'ca', currency: 'CAD' });
+    expect((await ids('', 't1')).filter((i) => i.startsWith('tax:'))).toEqual(['tax:us:2026:Q2']);
+    expect((await ids('', 't4')).filter((i) => i.startsWith('tax:'))).toEqual(['tax:ca:2026:Q2']);
+    vi.setSystemTime(new Date('2026-07-10T12:00:00.000Z'));
+    expect((await ids('', 't2')).filter((i) => i.startsWith('tax:'))).toEqual(['tax:au:2025:Q4']);
+  });
+
   it('is tenant-scoped', async () => {
     expect(await ids('', 't2')).toEqual(['cal:evx', 'bill:bx']);
   });

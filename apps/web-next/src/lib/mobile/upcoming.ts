@@ -6,6 +6,7 @@
 import 'server-only';
 import { prisma as db } from '@naap/database';
 import { getQuarterlyDeadlines } from '@/lib/agentbook-quarterly-deadlines';
+import { TAX_ESTIMATE_JURISDICTIONS } from '@/lib/agentbook-tax-estimate';
 import type { UpcomingItem } from './types';
 
 const DAY_MS = 86_400_000;
@@ -41,16 +42,21 @@ export async function getUpcoming(tenantId: string, days: number, now: Date = ne
 
   const cfg = await db.abTenantConfig.findUnique({ where: { userId: tenantId }, select: { jurisdiction: true } });
   const jurisdiction = cfg?.jurisdiction || 'us';
+  // getQuarterlyDeadlines falls back to the US IRS dates for any jurisdiction
+  // it does not know (e.g. 'uk'). Synthesize instalments only where the tax
+  // engine models the jurisdiction — never a silent US schedule. Seeded
+  // calendar events (AbCalendarEvent) still show for everyone.
+  const hasInstalments = TAX_ESTIMATE_JURISDICTIONS.includes(jurisdiction);
   const year = now.getUTCFullYear();
   // AU instalments of FY(y-1) fall in calendar year y; US Q4 of y falls in y+1.
-  const years = [year - 1, year, year + 1];
+  const years = hasInstalments ? [year - 1, year, year + 1] : [];
 
   const [events, quarterlyRows, bills] = await Promise.all([
     db.abCalendarEvent.findMany({
       where: { tenantId, date: { gte: start, lte: end }, status: { in: OPEN_CALENDAR_STATUSES } },
       orderBy: { date: 'asc' },
     }),
-    db.abQuarterlyPayment.findMany({ where: { tenantId, jurisdiction, year: { in: years } } }),
+    hasInstalments ? db.abQuarterlyPayment.findMany({ where: { tenantId, jurisdiction, year: { in: years } } }) : [],
     db.abBill.findMany({
       where: { tenantId, status: 'open', dueDate: { gte: start, lte: end } },
       orderBy: { dueDate: 'asc' },

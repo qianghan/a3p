@@ -51,6 +51,15 @@ describe('GET /mobile/home — alerts', () => {
     });
   });
 
+  it('a jurisdiction without an instalment schedule (uk) gets no tax_deadline alert and no instalment in nextUp', async () => {
+    vi.setSystemTime(new Date('2026-09-05T12:00:00.000Z'));
+    memDb.table('abTenantConfig').rows[0].jurisdiction = 'uk';
+    const { status, body } = await home();
+    expect(status).toBe(200);
+    expect(body.data.alerts.find((a) => a.kind === 'tax_deadline')).toBeUndefined();
+    expect(body.data.nextUp.filter((u) => u.kind === 'tax')).toEqual([]);
+  });
+
   it('receipts_missing uses the same definition as proactive-alerts', async () => {
     const receipts = (await home()).body.data.alerts.find((a) => a.kind === 'receipts_missing');
     const proactive = await json<{ data: { alerts: Array<{ id: string; title: string }> } }>(
