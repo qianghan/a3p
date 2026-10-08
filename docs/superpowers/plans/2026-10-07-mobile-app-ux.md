@@ -36,6 +36,8 @@
    - `limit` is capped at 100 only when a new mobile query param is present (legacy desktop requests keep their `limit=200`).
    - `categorySource` is derived from `confidence` (≥ 0.95 → `user`, lower → `ai`); `rule` is never returned.
    - Home alerts for tax deadline and bill due target `/app/chat?topic=…`; PR 6 Task 6.9 makes the chat prefill (never auto-send) the matching question.
+   - **`MobileDoc.booked: boolean`** (PR 1 final review): true when the expense row has a `journalEntryId`. PR 2 `rowToDoc` derives it (`row.booked` or `row.journalEntryId != null`); every MobileDoc fixture in PR 2-7 tests must carry `booked`. The PR 4 viewer locks **amount, date and personal/business** on `booked` (NOT on `status === 'confirmed'`).
+   - **PR 1 final-review carry-ins for later PRs (executor: pass these into the task dispatches):** a retried bare `accept` returns `no_suggestion` (PR 4 Accept/review UI must treat it as already done and reload); `FromReceiptResult.deleted?: true` (PR 5 Capture shows "this receipt was deleted", never a saved doc); a timed-out OCR returns 201 `pending_review` possibly $0 (PR 5 shows the review prompt); the Home "N receipts missing" alert count uses `missingReceiptWhere` (confirmed, > $25, 90 days) while `/app/docs?filter=no-receipt` lists any-amount/any-status rows — PR 3 alert copy and the Docs chip must not promise the same number (PR 3 links the alert to the chip but the copy says "receipts missing over $25"-style via the alert's `count` param only; PR 4 may add a banner line when the list is longer than the alert count).
 4. **Booked-expense lock (accounting safety).** `PUT /expenses/[id]` does not re-post the journal entry when amount/date change (pre-existing, also true on desktop). Therefore the mobile viewer (PR 4 Task 4.10) makes **Amount and Date read-only for confirmed expenses** (editable while `pending_review`), with an explanation. Vendor, note, personal/business and category (via the categorize path) stay editable. A follow-up to fix the root cause on the shared route is out of scope here.
 5. **Decisions the executor must confirm with the user, not assume:** the explicit yes before the PR 1 production deploy; that the 2.5 s Slow-4G gate is measured on a repeat (warm-cache) visit with the cold load recorded but not gated; that e2e on production creates and deletes fixture expenses on the test personas and registers throwaway "fresh" accounts; deletion of stray repo-root screenshots in the shared main checkout (PR 7 lists them; the user deletes).
 6. **Known limits carried into the plan:** the user-triggered auto-categorize run is deduped for 20 hours so it often finds nothing (e2e stubs the pending-suggestions read because Gemini output is not deterministic); month-net on mobile matches the desktop dashboard (which counts soft-deleted rows); any open PR branched before PR 1 can drop the new columns while they are all-NULL (warn the user).
@@ -8367,6 +8369,9 @@ export interface RawExpense {
   receiptUrl?: string | null;
   receiptStatus?: string | null;
   archivedAt?: string | null;
+  /** The raw expense row carries the journal link; `booked` is derived from it (PR 1 final review). */
+  journalEntryId?: string | null;
+  booked?: boolean;
 }
 
 type Suggestion = NonNullable<MobileDoc['suggestion']>;
@@ -8389,6 +8394,10 @@ export function rowToDoc(row: RawExpense, suggestion: Suggestion | null): Mobile
     receiptUrl: row.receiptUrl ?? null,
     receiptStatus: receipt === 'pending' || receipt === 'attached' || receipt === 'skipped' ? receipt : null,
     archivedAt: row.archivedAt ?? null,
+    // Booked = posted to the ledger (journalEntryId set). NOT the same as status: pending_review rows get booked
+    // by auto-categorize, the review route and from-receipt promotion failures. Amount/date/personal edits are
+    // locked on this in the viewer because PUT does not repost the journal.
+    booked: typeof row.booked === 'boolean' ? row.booked : row.journalEntryId != null,
     // A suggestion only means something while the document has no category.
     suggestion: row.categoryId ? null : suggestion,
   };
@@ -13673,7 +13682,7 @@ Add a top-level `"docs"` object to `packages/agentbook-i18n/src/locales/en/mobil
   "categories_failed": "Couldn't load categories.",
   "categorized": "Category updated",
   "categorize_failed": "Couldn't change the category. It was put back.",
-  "booked_locked": "Amount and date are locked once an expense is booked. Delete it and add it again to change them.",
+  "booked_locked": "Amount, date and personal/business are locked once an expense is booked. Delete it and add it again to change them.",
   "mark_reviewed": "Mark as reviewed",
   "reviewed": "Marked as reviewed",
   "review_needs_category": "Pick a category before marking this reviewed.",
@@ -13782,7 +13791,7 @@ Add a top-level `"docs"` object to `packages/agentbook-i18n/src/locales/en/mobil
   "categories_failed": "Impossible de charger les catégories.",
   "categorized": "Catégorie mise à jour",
   "categorize_failed": "Impossible de changer la catégorie. Elle a été rétablie.",
-  "booked_locked": "Le montant et la date sont verrouillés une fois la dépense comptabilisée. Supprimez-la et saisissez-la de nouveau pour les modifier.",
+  "booked_locked": "Le montant, la date et le type perso/pro sont verrouillés une fois la dépense comptabilisée. Supprimez-la et saisissez-la de nouveau pour les modifier.",
   "mark_reviewed": "Marquer comme révisé",
   "reviewed": "Marqué comme révisé",
   "review_needs_category": "Choisissez une catégorie avant de marquer comme révisé.",
@@ -13891,7 +13900,7 @@ Add a top-level `"docs"` object to `packages/agentbook-i18n/src/locales/en/mobil
   "categories_failed": "无法加载类别。",
   "categorized": "类别已更新",
   "categorize_failed": "无法更改类别，已恢复原值。",
-  "booked_locked": "费用入账后，金额和日期将被锁定。请删除后重新添加以进行修改。",
+  "booked_locked": "费用入账后，金额、日期和个人/业务类型将被锁定。请删除后重新添加以进行修改。",
   "mark_reviewed": "标记为已审核",
   "reviewed": "已标记为已审核",
   "review_needs_category": "请先选择类别再标记为已审核。",
@@ -15316,7 +15325,7 @@ import MobileDocsPage from '@/app/app/docs/page';
 const doc = (o: Partial<MobileDoc> = {}): MobileDoc => ({
   id: 'e1', date: '2026-10-01', amountCents: 4700, vendorName: 'Blue Bottle', description: null,
   categoryId: 'c1', categoryName: 'Meals', categorySource: 'user', confidence: null, status: 'confirmed',
-  isPersonal: false, receiptUrl: null, receiptStatus: 'pending', archivedAt: null, suggestion: null, ...o,
+  isPersonal: false, receiptUrl: null, receiptStatus: 'pending', archivedAt: null, booked: false, suggestion: null, ...o,
 });
 const page = (items: MobileDoc[], o: Partial<DocList> = {}): DocList => ({
   items, nextCursor: null, counts: { needsReview: 3, noCategory: 2, noReceipt: 5, archived: 1 }, ...o,
@@ -16490,22 +16499,31 @@ describe('viewer — display', () => {
   });
 });
 
-describe('viewer — booked expenses are amount/date-locked', () => {
-  it('disables Amount and Date with an explanation for a confirmed expense, but still allows vendor, note and personal', async () => {
-    api.getDoc.mockResolvedValue(base({ status: 'confirmed' }));
+describe('viewer — booked expenses are amount/date/personal-locked', () => {
+  it('disables Amount, Date and the personal toggle with an explanation for a BOOKED expense, but still allows vendor and note', async () => {
+    api.getDoc.mockResolvedValue(base({ booked: true }));
     renderViewer();
     await screen.findByTestId('doc-amount');
     expect(screen.getByLabelText('Amount')).toBeDisabled();
     expect(screen.getByLabelText('Date')).toBeDisabled();
+    expect(screen.getByRole('checkbox')).toBeDisabled();
     expect(screen.getByTestId('booked-lock')).toBeInTheDocument();
     expect(screen.getByLabelText('Vendor')).toBeEnabled();
   });
-  it('keeps Amount and Date editable (and shows no lock note) while the expense is still pending review', async () => {
-    api.getDoc.mockResolvedValue(base({ status: 'pending_review' }));
+  it('locks a pending_review row that is already booked (status is not the signal)', async () => {
+    api.getDoc.mockResolvedValue(base({ status: 'pending_review', booked: true }));
+    renderViewer();
+    await screen.findByTestId('doc-amount');
+    expect(screen.getByLabelText('Amount')).toBeDisabled();
+    expect(screen.getByTestId('booked-lock')).toBeInTheDocument();
+  });
+  it('keeps Amount, Date and the personal toggle editable (and shows no lock note) while the expense is NOT booked', async () => {
+    api.getDoc.mockResolvedValue(base({ status: 'pending_review', booked: false }));
     renderViewer();
     await screen.findByTestId('doc-amount');
     expect(screen.getByLabelText('Amount')).toBeEnabled();
     expect(screen.getByLabelText('Date')).toBeEnabled();
+    expect(screen.getByRole('checkbox')).toBeEnabled();
     expect(screen.queryByTestId('booked-lock')).toBeNull();
   });
 });
@@ -16947,10 +16965,11 @@ function DocViewer({ id }: { id: string }) {
 
   const title = current.vendorName || current.description || t('mobile.docs.untitled');
   const disabled = readOnly || busy !== null;
-  // A confirmed expense is already booked to the ledger. PUT /expenses/[id] does not re-post the journal entry
-  // when amount/date change (pre-existing, also true on desktop), so the viewer must not offer those edits on
-  // booked rows or P&L and the tax estimate would silently disagree with what the user sees.
-  const amountDateLocked = current.status === 'confirmed';
+  // A booked expense (journalEntryId set — NOT the same as status === 'confirmed': pending_review rows get booked by
+  // auto-categorize, the review route and from-receipt promotion failures) is already in the ledger. PUT /expenses/[id]
+  // does not re-post the journal entry when amount/date/isPersonal change (pre-existing, also true on desktop), so the
+  // viewer must not offer those edits on booked rows or P&L and the tax estimate would silently disagree with the doc.
+  const amountDateLocked = current.booked;
 
   return (
     <div style={{ padding: '8px 16px 32px', color: 'var(--foreground)', display: 'grid', gap: 12 }}>
@@ -17024,7 +17043,7 @@ function DocViewer({ id }: { id: string }) {
         <textarea style={{ ...field, minHeight: 72 }} value={form.description} disabled={readOnly} onChange={(e) => set('description', e.target.value)} />
       </label>
       <label style={{ display: 'flex', alignItems: 'center', gap: 10, minHeight: 44 }}>
-        <input type="checkbox" checked={form.isPersonal} disabled={readOnly} onChange={(e) => set('isPersonal', e.target.checked)} style={{ width: 22, height: 22 }} />
+        <input type="checkbox" checked={form.isPersonal} disabled={readOnly || amountDateLocked} onChange={(e) => set('isPersonal', e.target.checked)} style={{ width: 22, height: 22 }} />
         {t('mobile.docs.personal_toggle')}
       </label>
       {formError && <p role="alert" style={{ color: 'var(--destructive, #ef4444)', fontSize: 13, margin: 0 }}>{formError}</p>}
