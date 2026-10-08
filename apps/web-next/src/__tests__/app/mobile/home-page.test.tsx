@@ -147,6 +147,32 @@ describe('Home page states', () => {
   });
 });
 
+describe('Home page — brand-new account with alerts', () => {
+  it('shows the alert carousel ABOVE the welcome, so a red tab dot always has its reason on screen', async () => {
+    const brandNewWithAlert = homeFixture({
+      isBrandNew: true,
+      nextUp: [],
+      recent: [],
+      kpis: { monthNetCents: null, cashTodayCents: null, outstandingCents: 0, overdueCount: 0, overdueCents: 0, estTaxOwedCents: 0 },
+      alerts: [{ id: 'tax_deadline:q3', kind: 'tax_deadline', severity: 'critical', params: { days: 2, amountCents: 300_000 }, target: { route: '/app/chat', query: { topic: 'tax_deadline' } } }],
+    });
+    routeFetch({ [HOME_URL]: () => jsonResponse(200, { success: true, data: brandNewWithAlert }) });
+    renderHome();
+    const welcome = await screen.findByText(/let’s get your books started/i);
+    const carousel = screen.getByTestId('alert-carousel');
+    expect(carousel).toHaveTextContent('Estimated tax payment of CA$3,000 due in 2 days');
+    expect(carousel.compareDocumentPosition(welcome) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.queryByRole('region', { name: 'Key numbers' })).toBeNull();
+  });
+
+  it('a brand-new account with NO alerts shows no carousel at all', async () => {
+    routeFetch({ [HOME_URL]: () => jsonResponse(200, { success: true, data: homeFixture({ isBrandNew: true, alerts: [], nextUp: [], recent: [] }) }) });
+    renderHome();
+    await screen.findByText(/let’s get your books started/i);
+    expect(screen.queryByTestId('alert-carousel')).toBeNull();
+  });
+});
+
 describe('Home page — populated', () => {
   it('renders the sections in spec order: alerts, KPIs, next up, recent, quick actions', async () => {
     routeFetch({ [HOME_URL]: () => jsonResponse(200, { success: true, data: homeFixture() }) });

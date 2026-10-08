@@ -143,7 +143,7 @@ test.describe('@mobile-shell', () => {
       await expectScreen(page, '/app/chat', t);
     });
 
-    test('fresh account: the shell renders with no badges', async ({ page }) => {
+    test('fresh account: the shell renders; the Home dot only for a critical alert in the consumed response', async ({ page }) => {
       await loginAs(page, 'fresh');
       // Home is live: the tab bar's badges come from the same /mobile/home response the screen
       // reads. Wait for the app to have USED THIS response (its snapshot + two frames) before
@@ -154,12 +154,16 @@ test.describe('@mobile-shell', () => {
         { timeout: 30_000 },
       );
       await page.goto('/app');
-      const generatedAt = ((await (await homeResponse).json()).data as { generatedAt: string }).generatedAt;
-      await waitForHomeSnapshot(page, generatedAt);
+      const home = (await (await homeResponse).json()).data as { generatedAt: string; alerts: Array<{ severity: string }> };
+      await waitForHomeSnapshot(page, home.generatedAt);
       await settle(page);
       const t = catalogT((await pageLocales(page)).stringLocale);
       await expect(tabNav(page, t).locator('a[data-tab]')).toHaveCount(4);
-      await expect(page.locator('[data-badge]')).toHaveCount(0);
+      // A new account can have a critical alert near a quarterly deadline (a known instalment
+      // amount ≤3 days out, an overdue bill); the dot follows the response, not the calendar.
+      const critical = BADGES_ENABLED.home && home.alerts.some((a) => a.severity === 'critical');
+      await expect(page.locator('[data-badge="home-dot"]')).toHaveCount(critical ? 1 : 0);
+      await expect(page.locator('[data-badge="docs-count"]')).toHaveCount(0);
     });
   });
 

@@ -29,7 +29,7 @@ import { useAlertAction } from './_home/useAlertAction';
  *   401                          → signed-out card with a sign-in link (no auto-retry)
  *   failed, nothing cached       → error card with Retry (offline / rate-limited / server copy)
  *   failed/offline, cache exists → cached screen + "as of HH:MM" notice (offline vs couldn't refresh)
- *   brand-new account            → welcome + the three next-step cards
+ *   brand-new account            → any alerts' banner, then welcome + the three next-step cards
  *   populated                    → banner, KPIs, next up, recent, quick actions
  *
  * Copy is chosen from ApiError.code only; ApiError.message is never shown.
@@ -78,7 +78,14 @@ export default function MobileHomePage() {
       {data && staleAt && <StaleNotice offline={offline} time={fmt.time(staleAt)} onRetry={refresh} busy={busy} />}
       {!data && !error && <HomeSkeleton />}
       {!data && error && <HomeError offline={offline} code={code} onRetry={reload} />}
-      {data && data.isBrandNew && <BrandNewHome />}
+      {data && data.isBrandNew && (
+        <>
+          {/* A brand-new account can still have an alert (a tax date, an overdue bill) — and
+              the tab bar's red dot comes from the same alerts, so its reason must be on screen. */}
+          {data.alerts.length > 0 && <AlertCarousel alerts={data.alerts} currency={data.currency} actions={actions} />}
+          <BrandNewHome />
+        </>
+      )}
       {data && !data.isBrandNew && (
         <>
           <AlertCarousel alerts={data.alerts} currency={data.currency} actions={actions} />

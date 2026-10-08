@@ -485,9 +485,9 @@ test.describe('@mobile-home', () => {
     await expect(page.getByTestId('home-error')).toHaveCount(0);
   });
 
-  test('fresh account: the welcome with its three next steps (not a blank), no KPIs, no banner, no badges', async ({ page }) => {
+  test('fresh account: the welcome with its three next steps (not a blank), no KPIs; banner and dot exactly when the response has alerts', async ({ page }) => {
     await loginAs(page, 'fresh');
-    const { t, home } = await openHome(page);
+    const { t, home, fmt } = await openHome(page);
     expect(home.isBrandNew).toBe(true);
     // openHome returned after the app stored THIS response and two frames passed, so the absences below
     // are observations of an updated tab bar, not of one that had not rendered yet.
@@ -503,10 +503,27 @@ test.describe('@mobile-home', () => {
       await expect(card).toHaveAttribute('href', href);
     }
     await expect(page.getByRole('region', { name: t('mobile.home.kpi.region') })).toHaveCount(0);
-    await expect(page.getByTestId('alert-carousel')).toHaveCount(0);
     await expect(page.getByTestId('home-error')).toHaveCount(0);
     await expect(tabNav(page, t).locator('a[data-tab]')).toHaveCount(4);
-    await expect(page.locator('[data-badge]')).toHaveCount(0);
+    // A brand-new account can still have alerts (a tax date near a quarterly deadline, an
+    // overdue bill). The banner shows exactly when the consumed response has alerts, and
+    // the red Home dot exactly when one of them is critical — so a dot always has its
+    // reason on screen. Computed from the response, never from the calendar.
+    const banner = page.getByTestId('alert-carousel');
+    if (home.alerts.length > 0) {
+      await expect(banner).toBeVisible();
+      await expect(banner).toContainText(alertCopy(home.alerts[0], t, fmt).title);
+    } else {
+      await expect(banner).toHaveCount(0);
+    }
+    const critical = BADGES_ENABLED.home && home.alerts.some((a) => a.severity === 'critical');
+    test.info().annotations.push({
+      type: 'fresh-alerts',
+      description: `${home.alerts.length} alert(s): ${home.alerts.map((a) => `${a.kind}/${a.severity}`).join(', ') || 'none'}`,
+    });
+    await expect(page.locator('a[data-tab="/app"] [data-badge="home-dot"]')).toHaveCount(critical ? 1 : 0);
+    // Docs stays gated until PR 4.
+    if (!BADGES_ENABLED.docs) await expect(page.locator('[data-badge="docs-count"]')).toHaveCount(0);
     await page.locator('main a[data-action-card="/app/chat"]').click();
     await page.waitForURL((u) => u.pathname === '/app/chat');
     await expectScreen(page, '/app/chat', t);
