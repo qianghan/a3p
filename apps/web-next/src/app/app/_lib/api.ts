@@ -22,6 +22,8 @@ import type {
   FromReceiptResult,
 } from '@/lib/mobile/types';
 import { DOC_FILTER_PARAMS } from '@/lib/mobile/doc-filters';
+import { toMobileDoc } from '@/lib/mobile/doc-mapper';
+import { RECEIPT_MAX_BYTES, IDEMPOTENCY_KEY_RE, MAX_AMOUNT_CENTS } from '@/lib/mobile/receipt-limits';
 
 export class ApiError extends Error {
   status: number;
@@ -52,6 +54,12 @@ const EXPENSE = '/api/v1/agentbook-expense';
 const JSON_HEADERS = { 'content-type': 'application/json' };
 /** A server `code` / `error` that looks like a machine code (e.g. 'rate_limited'), not a sentence. */
 const CODE_SHAPE = /^[a-z][a-z0-9_]{0,40}$/;
+/**
+ * Statuses whose meaning does not depend on the body: the tenant resolver's 401
+ * says 'unauthorized' or a sentence ('invalid session'), and Vercel's own 413 /
+ * 429 pages are not our JSON at all. Screens branch on these codes.
+ */
+const STATUS_CODES: Readonly<Record<number, string>> = { 401: 'unauthorized', 413: 'file_too_large', 429: 'rate_limited' };
 
 function retryAfterOf(body: Envelope<unknown> | null, res: Response): number | undefined {
   if (body && typeof body.retryAfterMs === 'number' && body.retryAfterMs > 0) return body.retryAfterMs;
@@ -70,11 +78,14 @@ async function call<T>(path: string, init?: RequestInit): Promise<Envelope<T>> {
   // header; fetch() does not throw for it, so it must be recognised here.
   if (res.headers?.get?.('X-Agentbook-Offline') === '1') throw new ApiError('offline', 0, 'offline');
 
+  const fixedCode = STATUS_CODES[res.status];
   let body: Envelope<T> | null;
   try {
     body = (await res.json()) as Envelope<T> | null;
   } catch {
-    throw new ApiError(`HTTP ${res.status}`, res.status, 'bad_json', res.status === 429 ? retryAfterOf(null, res) : undefined);
+    // A platform error page (Vercel's plain-text 413, an HTML 502) is not JSON.
+    // A 413 must still read as file_too_large: retrying it can never succeed.
+    throw new ApiError(`HTTP ${res.status}`, res.status, fixedCode ?? 'bad_json', res.status === 429 ? retryAfterOf(null, res) : undefined);
   }
 
   if (!res.ok || !body || typeof body !== 'object' || Array.isArray(body) || body.success === false) {
@@ -83,7 +94,7 @@ async function call<T>(path: string, init?: RequestInit): Promise<Envelope<T>> {
     // older routes put the code in `error` itself. Prefer the explicit one.
     const codeOf = (v: unknown) => (typeof v === 'string' && CODE_SHAPE.test(v) ? v : undefined);
     const serverCode = codeOf(body?.code) ?? codeOf(body?.error);
-    const code = res.status === 429 ? 'rate_limited' : serverCode ?? `http_${res.status}`;
+    const code = fixedCode ?? serverCode ?? `http_${res.status}`;
     const message =
       typeof body?.message === 'string' && body.message
         ? body.message
@@ -155,61 +166,62 @@ export interface RawExpense {
   /** The raw expense row carries the journal link; `booked` is derived from it (PR 1 final review). */
   journalEntryId?: string | null;
   booked?: boolean;
+  /** Attached by the list and detail routes themselves (null once categorized); shape-checked before use. */
+  suggestion?: unknown;
 }
 
 type Suggestion = NonNullable<MobileDoc['suggestion']>;
 
-export function rowToDoc(row: RawExpense, suggestion: Suggestion | null): MobileDoc {
-  const source = row.categorySource;
-  const receipt = row.receiptStatus;
+/** The route's `suggestion`, only if it has exactly the C1 shape — anything else is no suggestion. */
+function suggestionOf(v: unknown): Suggestion | null {
+  if (!v || typeof v !== 'object') return null;
+  const s = v as Record<string, unknown>;
+  if (typeof s.categoryId !== 'string' || !s.categoryId) return null;
+  if (typeof s.categoryName !== 'string') return null;
+  if (typeof s.confidence !== 'number' || !Number.isFinite(s.confidence)) return null;
+  return { categoryId: s.categoryId, categoryName: s.categoryName, confidence: s.confidence };
+}
+
+const validDate = (v: unknown): v is string => typeof v === 'string' && v !== '' && !Number.isNaN(new Date(v).getTime());
+
+/**
+ * Raw expense row → MobileDoc through the server's own pure mapper
+ * (lib/mobile/doc-mapper toMobileDoc), so status/receipt normalisation,
+ * categorySource derivation, archivedAt, categoryName and `booked` follow ONE
+ * set of rules. This wrapper only makes untrusted JSON safe to hand it
+ * (toMobileDoc's `new Date(x).toISOString()` throws on a malformed date).
+ *
+ * `suggestion` defaults to the row's own shape-checked `suggestion`; pass one
+ * (or null) explicitly to override it.
+ */
+export function rowToDoc(row: RawExpense, suggestion?: Suggestion | null): MobileDoc {
+  const dateOk = validDate(row.date);
+  const doc = toMobileDoc(
+    {
+      id: row.id,
+      date: dateOk ? (row.date as string) : new Date(0),
+      amountCents: typeof row.amountCents === 'number' && Number.isFinite(row.amountCents) ? row.amountCents : 0,
+      vendorName: typeof row.vendorName === 'string' ? row.vendorName : null,
+      vendor: typeof row.vendor?.name === 'string' ? { name: row.vendor.name } : null,
+      description: typeof row.description === 'string' ? row.description : null,
+      categoryId: typeof row.categoryId === 'string' && row.categoryId ? row.categoryId : null,
+      categoryName: typeof row.categoryName === 'string' ? row.categoryName : null,
+      confidence: typeof row.confidence === 'number' && Number.isFinite(row.confidence) ? row.confidence : null,
+      status: typeof row.status === 'string' ? row.status : '',
+      isPersonal: row.isPersonal === true,
+      receiptUrl: typeof row.receiptUrl === 'string' ? row.receiptUrl : null,
+      receiptStatus: typeof row.receiptStatus === 'string' ? row.receiptStatus : null,
+      archivedAt: validDate(row.archivedAt) ? row.archivedAt : null,
+      journalEntryId: row.journalEntryId ?? null,
+    },
+    suggestion === undefined ? suggestionOf(row.suggestion) : suggestion,
+  );
   return {
-    id: row.id,
-    date: String(row.date ?? '').slice(0, 10),
-    amountCents: Number(row.amountCents) || 0,
-    vendorName: row.vendorName ?? row.vendor?.name ?? null,
-    description: row.description ?? null,
-    categoryId: row.categoryId ?? null,
-    categoryName: row.categoryName ?? null,
-    categorySource: source === 'ai' || source === 'user' || source === 'rule' ? source : null,
-    confidence: typeof row.confidence === 'number' ? row.confidence : null,
-    status: row.status === 'pending_review' || row.status === 'rejected' ? row.status : 'confirmed',
-    isPersonal: Boolean(row.isPersonal),
-    receiptUrl: row.receiptUrl ?? null,
-    receiptStatus: receipt === 'pending' || receipt === 'attached' || receipt === 'skipped' ? receipt : null,
-    archivedAt: row.archivedAt ?? null,
-    // Booked = posted to the ledger (journalEntryId set). NOT the same as status: pending_review rows get booked
-    // by auto-categorize, the review route and from-receipt promotion failures. Amount/date/personal edits are
-    // locked on this in the viewer because PUT does not repost the journal.
-    booked: typeof row.booked === 'boolean' ? row.booked : row.journalEntryId != null,
-    // A suggestion only means something while the document has no category.
-    suggestion: row.categoryId ? null : suggestion,
+    ...doc,
+    date: dateOk ? doc.date : '',
+    // A server that ever sends `booked` explicitly is authoritative over the derivation.
+    booked: typeof row.booked === 'boolean' ? row.booked : doc.booked,
   };
-}
-
-interface RawPending {
-  expenseId?: string;
-  suggestedCategoryId?: string;
-  suggestedCategoryName?: string;
-  confidence?: number;
-}
-
-async function pendingSuggestions(): Promise<Map<string, Suggestion>> {
-  try {
-    const out = await dataOf<{ items?: RawPending[] }>(`${CORE}/auto-categorize/pending`);
-    const map = new Map<string, Suggestion>();
-    for (const p of Array.isArray(out?.items) ? out.items : []) {
-      if (!p.expenseId || !p.suggestedCategoryId) continue;
-      map.set(p.expenseId, {
-        categoryId: p.suggestedCategoryId,
-        categoryName: p.suggestedCategoryName ?? '',
-        confidence: typeof p.confidence === 'number' ? p.confidence : 0,
-      });
-    }
-    return map;
-  } catch {
-    // Suggestions decorate a document; they never decide whether it loads.
-    return new Map();
-  }
 }
 
 function clampLimit(limit?: number): number {
@@ -231,28 +243,40 @@ export async function listDocs(p: { filter?: DocFilter; q?: string; cursor?: str
   qs.set('limit', String(clampLimit(p.limit)));
   if (p.withCounts) qs.set('withCounts', '1');
 
-  const [env, pending] = await Promise.all([call<RawExpense[]>(`${EXPENSE}/expenses?${qs.toString()}`), pendingSuggestions()]);
-  const rows = Array.isArray(env.data) ? env.data : [];
+  // One request: the list route attaches each uncategorized row's pending suggestion itself.
+  const env = await call<RawExpense[]>(`${EXPENSE}/expenses?${qs.toString()}`);
+  const rows = (Array.isArray(env.data) ? env.data : []).filter((r): r is RawExpense => !!r && typeof r.id === 'string');
   const meta = env.meta ?? {};
   return {
-    items: rows.map((r) => rowToDoc(r, pending.get(r.id) ?? null)),
+    items: rows.map((r) => rowToDoc(r)),
     nextCursor: typeof meta.nextCursor === 'string' && meta.nextCursor ? meta.nextCursor : null,
     counts: isCounts(meta.counts) ? meta.counts : null,
   };
 }
 
 export async function getDoc(id: string): Promise<MobileDoc> {
-  const [row, pending] = await Promise.all([dataOf<RawExpense>(`${EXPENSE}/expenses/${enc(id)}`), pendingSuggestions()]);
+  // One request: the detail route attaches the pending suggestion itself.
+  const row = await dataOf<RawExpense>(`${EXPENSE}/expenses/${enc(id)}`);
   if (!row || typeof row !== 'object' || typeof row.id !== 'string') throw new ApiError('not_found', 404, 'not_found');
-  return rowToDoc(row, pending.get(row.id) ?? null);
+  return rowToDoc(row);
 }
 
+/**
+ * The only fields patchDoc may send. NOT categoryId: PUT /expenses/[id] writes
+ * it as given — no tenant/expense-account check, no journal repost, no vendor
+ * learning — which would split the ledger from the document. Category changes
+ * go through categorizeDoc only.
+ */
+const PATCHABLE = ['amountCents', 'vendor', 'date', 'description', 'isPersonal'] as const;
+type PatchBody = Partial<{ amountCents: number; vendor: string; date: string; description: string; isPersonal: boolean }>;
+
 /** PATCH then re-read: the PATCH route returns the bare row without vendor/category names. */
-export async function patchDoc(
-  id: string,
-  body: Partial<{ amountCents: number; vendor: string; date: string; description: string; isPersonal: boolean; categoryId: string }>,
-): Promise<MobileDoc> {
-  await call(`${EXPENSE}/expenses/${enc(id)}`, { method: 'PATCH', headers: JSON_HEADERS, body: JSON.stringify(body) });
+export async function patchDoc(id: string, body: PatchBody): Promise<MobileDoc> {
+  // Allow-list at runtime too, so a cast (or a spread of a wider object) cannot smuggle categoryId through.
+  const src = body as Record<string, unknown>;
+  const safe: Record<string, unknown> = {};
+  for (const k of PATCHABLE) if (src[k] !== undefined) safe[k] = src[k];
+  await call(`${EXPENSE}/expenses/${enc(id)}`, { method: 'PATCH', headers: JSON_HEADERS, body: JSON.stringify(safe) });
   return getDoc(id);
 }
 
@@ -283,6 +307,15 @@ export async function listExpenseCategories(): Promise<ExpenseCategory[]> {
 
 export const MAX_REVIEW_ITEMS = 50;
 
+/**
+ * Accept/reject pending AI suggestions (1-50 items); one result per item.
+ *
+ * `no_suggestion` is ambiguous and must not be read as success: it means
+ * EITHER the expense is already categorized (e.g. a retried accept — done) OR
+ * its suggestion is gone while it is still uncategorized (not done). Callers
+ * must re-read the list (listDocs) after a review rather than assume the
+ * outcome from the result codes.
+ */
 export async function reviewSuggestions(items: ReviewItem[]): Promise<ReviewResult[]> {
   if (items.length === 0 || items.length > MAX_REVIEW_ITEMS) throw new ApiError('invalid_request', 400, 'invalid_request');
   const out = await dataOf<{ results?: ReviewResult[] }>(`${CORE}/auto-categorize/review`, postJson({ items }));
@@ -301,12 +334,26 @@ export async function uploadReceipt(
   file: Blob,
   fields: { idempotencyKey: string; amountCents?: number; vendor?: string; date?: string; categoryId?: string; isPersonal?: boolean },
 ): Promise<FromReceiptResult> {
-  if (!fields.idempotencyKey) throw new ApiError('invalid_request', 400, 'invalid_request');
+  // Pre-flight with the server's own limits (lib/mobile/receipt-limits): refuse
+  // here rather than spend a multi-MB upload on a request that cannot succeed.
+  if (file.size > RECEIPT_MAX_BYTES) {
+    throw new ApiError(`file must be at most ${RECEIPT_MAX_BYTES} bytes`, 413, 'file_too_large');
+  }
+  if (typeof fields.idempotencyKey !== 'string' || !IDEMPOTENCY_KEY_RE.test(fields.idempotencyKey)) {
+    throw new ApiError('idempotencyKey must be 8-128 letters, digits, - or _', 400, 'bad_request');
+  }
+  let amount: number | undefined;
+  if (fields.amountCents !== undefined) {
+    amount = Math.round(fields.amountCents);
+    if (!Number.isFinite(amount) || amount <= 0 || amount > MAX_AMOUNT_CENTS) {
+      throw new ApiError('amountCents must be a positive integer', 400, 'bad_request');
+    }
+  }
   const form = new FormData();
   const name = typeof File !== 'undefined' && file instanceof File && file.name ? file.name : 'receipt.jpg';
   form.append('file', file, name);
   form.append('idempotencyKey', fields.idempotencyKey);
-  if (fields.amountCents !== undefined) form.append('amountCents', String(Math.round(fields.amountCents)));
+  if (amount !== undefined) form.append('amountCents', String(amount));
   if (fields.vendor !== undefined) form.append('vendor', fields.vendor);
   if (fields.date !== undefined) form.append('date', fields.date);
   if (fields.categoryId !== undefined) form.append('categoryId', fields.categoryId);
@@ -317,11 +364,15 @@ export async function uploadReceipt(
 
 // ── Alert actions ────────────────────────────────────────────────────────────
 
-/** Same-origin /api/v1 path only — the endpoint comes from server data and must not be steerable elsewhere. */
-const SAFE_ENDPOINT = /^\/api\/v1\/[A-Za-z0-9_\-/]+$/;
+/**
+ * The endpoint comes from server data (MobileAlert.action), so it must not be
+ * steerable: only the invoice-remind route of one invoice id, same-origin, with
+ * no query, fragment, traversal or extra segments.
+ */
+const REMIND_ENDPOINT = /^\/api\/v1\/agentbook-invoice\/invoices\/[A-Za-z0-9_-]+\/remind$/;
 
 export async function remindInvoice(endpoint: string): Promise<void> {
-  if (typeof endpoint !== 'string' || !SAFE_ENDPOINT.test(endpoint) || endpoint.includes('//')) {
+  if (typeof endpoint !== 'string' || !REMIND_ENDPOINT.test(endpoint)) {
     throw new ApiError('invalid_endpoint', 400, 'invalid_endpoint');
   }
   await call(endpoint, { method: 'POST' });
