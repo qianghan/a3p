@@ -24,6 +24,7 @@ import { sendToAllChannels } from '@/lib/agentbook-chat-adapter';
 import { sendPush } from '@/lib/web-push-send';
 import { reportError } from '@/lib/logger';
 import { requireCronSecret } from '@/lib/cron-auth';
+import { missingReceiptWhere } from '@/lib/mobile/alerts';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -74,17 +75,11 @@ async function generateAlertsForTenant(tenantId: string): Promise<Alert[]> {
     });
   }
 
-  // 2. Missing receipts (business expenses > $25 in last 30 days)
-  const missingReceipts = await db.abExpense.count({
-    where: {
-      tenantId,
-      isPersonal: false,
-      status: 'confirmed',
-      receiptUrl: null,
-      amountCents: { gt: 2500 },
-      date: { gte: thirtyDaysAgo },
-    },
-  });
+  // 2. Missing receipts — the ONE shared definition (lib/mobile/alerts.ts),
+  // the same count mobile Home and /advisor/proactive-alerts show: business
+  // expenses over $25 in the last 90 days, excluding deleted, archived and
+  // receipt-skipped rows.
+  const missingReceipts = await db.abExpense.count({ where: missingReceiptWhere(tenantId, now) });
   if (missingReceipts > 0) {
     alerts.push({
       id: 'missing-receipts',

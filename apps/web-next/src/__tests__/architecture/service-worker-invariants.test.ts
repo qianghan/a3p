@@ -165,3 +165,29 @@ describe('the manifest stays installable', () => {
     }
   });
 });
+
+describe('the mobile app (PR 2 of the /app redesign)', () => {
+  it('mobile/home and calendar/upcoming are compute-on-read and never cached', () => {
+    // Same class as incident 4: Home KPIs and deadlines recompute from the
+    // ledger on every call; a cached copy would show money that is no longer true.
+    const list = swCode.match(/NEVER_CACHE_PATHS\s*=\s*\[([\s\S]*?)\]/);
+    expect(list, 'NEVER_CACHE_PATHS must exist').toBeTruthy();
+    expect(list![1]).toContain("'/api/v1/agentbook-core/mobile/home'");
+    expect(list![1]).toContain("'/api/v1/agentbook-core/calendar/upcoming'");
+    expect(list![1]).toContain("'/api/v1/agentbook-tax/tax/estimate'");
+  });
+
+  it('a notification without a url opens the mobile app, never the desktop', () => {
+    const click = swCode.slice(swCode.indexOf("addEventListener('notificationclick'"));
+    expect(click).toMatch(/data\?\.url\s*\|\|\s*'\/app'/);
+    expect(click).not.toContain("'/agentbook'");
+  });
+
+  it('static and API caches share one version, at least v6 (the redesign ships new chunks)', () => {
+    const s = swCode.match(/STATIC_CACHE\s*=\s*'agentbook-static-v(\d+)'/);
+    const a = swCode.match(/API_CACHE\s*=\s*'agentbook-api-v(\d+)'/);
+    expect(s && a, 'both cache names must keep the agentbook-*-vN shape').toBeTruthy();
+    expect(Number(s![1])).toBeGreaterThanOrEqual(6);
+    expect(s![1]).toBe(a![1]);
+  });
+});

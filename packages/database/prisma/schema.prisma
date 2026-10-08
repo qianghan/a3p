@@ -1862,6 +1862,8 @@ model AbExpense {
   source         String    @default("manual") // manual | telegram_photo | telegram_pdf | ocr | csv_import | cc_statement | bank_sync
   journalEntryId String?
   deletedAt      DateTime? // PR 26: soft-delete; null=live, set=removed
+  archivedAt     DateTime? // Mobile PR 1: hidden from default lists only — never touches journal, tax estimate or P&L
+  idempotencyKey String? // Mobile PR 1: client key for POST /expenses/from-receipt replay dedupe, scoped per tenant (NOT unique — see mobile-expense-schema.test.ts)
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
 
@@ -1871,6 +1873,8 @@ model AbExpense {
   @@index([tenantId, isPersonal])
   @@index([tenantId, categoryId])
   @@index([tenantId, deletedAt])
+  @@index([tenantId, archivedAt])
+  @@index([tenantId, idempotencyKey])
   @@schema("plugin_agentbook_expense")
 }
 

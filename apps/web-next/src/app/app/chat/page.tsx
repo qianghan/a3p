@@ -44,7 +44,7 @@ export default function MobileChat() {
   };
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: 'calc(100dvh - 64px)', color: 'var(--foreground,#fff)' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0, color: 'var(--foreground,#fff)' }}>
       <div style={{ padding: '16px 16px 8px' }}>
         <h1 style={{ fontSize: 20, fontWeight: 500 }}>Ask AgentBook</h1>
         <p style={{ fontSize: 13, color: 'var(--muted-foreground,#888)' }}>e.g. “how much did I spend on travel?”</p>

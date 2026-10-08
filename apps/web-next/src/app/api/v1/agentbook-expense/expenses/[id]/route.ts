@@ -2,9 +2,10 @@
  * Expense detail + edit.
  *
  * GET — full row + resolved vendor name + category name/code + splits.
- * PUT — patch amountCents, categoryId, description, isPersonal, date. Editing
- *       the amount or date of a BOOKED expense also reverses and re-posts its
- *       journal entry, atomically, so P&L and the tax estimate follow the edit.
+ * PUT/PATCH — patch amountCents, categoryId, description, isPersonal, date,
+ * vendor (name; '' clears it). An invalid date is a 400 before any write.
+ * Editing the amount or date of a BOOKED expense also reverses and re-posts its
+ * journal entry, atomically, so P&L and the tax estimate follow the edit.
  */
 
 import 'server-only';
@@ -20,11 +21,43 @@ import {
   ExpenseLedgerPeriodClosedError,
   ExpenseLedgerShapeError,
 } from '@/lib/agentbook-expense-ledger';
+import { getPendingSuggestions } from '@/lib/agentbook-auto-categorize';
+import { deriveCategorySource, suggestionFromPending } from '@/lib/mobile/doc-mapper';
 import { publicErrorMessage } from '@/lib/api-error';
+import { isIsoCalendarDate } from '@/lib/iso-calendar-date';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 export const maxDuration = 30;
+
+function normalizeVendorName(name: string): string {
+  return name.toLowerCase().replace(/[^a-z0-9]/g, '').trim();
+}
+
+/**
+ * Upsert key for a vendor name the ASCII normalizer reduces to '' (e.g. '星巴克',
+ * Cyrillic, Arabic). Without it those names would take the "clear vendor"
+ * branch and silently drop the existing link. Only names with no ASCII letter
+ * or digit reach this key. The one overlap with ASCII keys is NFKC folding
+ * (full-width '１２３' → '123'), which links to the same vendor as '123', as intended.
+ */
+function unicodeVendorKey(name: string): string {
+  return name.normalize('NFKC').toLowerCase().replace(/[^\p{L}\p{N}]/gu, '');
+}
+
+/** YYYY-MM-DD, optionally followed by a time part. Rejects '1', 'June 1', etc. */
+const ISO_DATE_PREFIX = /^\d{4}-\d{2}-\d{2}(T.*)?$/;
+
+/**
+ * A date-only string must be a real calendar day ('2026-02-30' is a 400, not
+ * 2 March); a full ISO timestamp keeps the prefix check + Date parse.
+ */
+function parseExpenseDate(v: unknown): Date | null {
+  if (typeof v !== 'string' || !ISO_DATE_PREFIX.test(v)) return null;
+  if (!v.includes('T') && !isIsoCalendarDate(v)) return null;
+  const d = new Date(v);
+  return isNaN(d.getTime()) ? null : d;
+}
 
 export async function GET(
   request: NextRequest,
@@ -48,7 +81,7 @@ export async function GET(
     let categoryName: string | null = null;
     let categoryCode: string | null = null;
     if (expense.categoryId) {
-      const cat = await db.abAccount.findFirst({ where: { id: expense.categoryId } });
+      const cat = await db.abAccount.findFirst({ where: { id: expense.categoryId, tenantId } });
       if (cat) {
         categoryName = cat.name;
         categoryCode = cat.code;
@@ -56,6 +89,13 @@ export async function GET(
     }
 
     const splits = await db.abExpenseSplit.findMany({ where: { expenseId: expense.id } });
+    // The suggestion is decoration: its failure must never 500 the detail view.
+    const pending = expense.categoryId
+      ? []
+      : await getPendingSuggestions(tenantId).catch((err) => {
+          console.warn('[agentbook-expense/expenses/:id GET] pending suggestions unavailable:', err instanceof Error ? err.message : err);
+          return [];
+        });
 
     return NextResponse.json({
       success: true,
@@ -65,6 +105,8 @@ export async function GET(
         categoryName,
         categoryCode,
         splits,
+        categorySource: deriveCategorySource(expense),
+        suggestion: suggestionFromPending(pending.find((p) => p.expenseId === expense.id)),
       },
     });
   } catch (err) {
@@ -82,6 +124,7 @@ interface UpdateExpenseBody {
   description?: string;
   isPersonal?: boolean;
   date?: string;
+  vendor?: string;
 }
 
 export async function PUT(
@@ -111,16 +154,46 @@ export async function PUT(
         { status: 400 },
       );
     }
-    if (body.date !== undefined && Number.isNaN(new Date(body.date).getTime())) {
-      return NextResponse.json({ success: false, error: 'date is not a valid date' }, { status: 400 });
-    }
 
     const data: Record<string, unknown> = {};
     if (body.amountCents !== undefined) data.amountCents = body.amountCents;
     if (body.categoryId !== undefined) data.categoryId = body.categoryId;
     if (body.description !== undefined) data.description = body.description;
     if (body.isPersonal !== undefined) data.isPersonal = body.isPersonal;
-    if (body.date !== undefined) data.date = new Date(body.date);
+    if (body.date !== undefined) {
+      const parsedDate = parseExpenseDate(body.date);
+      if (!parsedDate) {
+        return NextResponse.json({ success: false, error: 'date must be an ISO date' }, { status: 400 });
+      }
+      data.date = parsedDate;
+    }
+    if (body.vendor !== undefined) {
+      if (typeof body.vendor !== 'string' || body.vendor.length > 200) {
+        return NextResponse.json(
+          { success: false, error: 'vendor must be a string of at most 200 characters' },
+          { status: 400 },
+        );
+      }
+      const vendorName = body.vendor.trim();
+      // Only an empty (or whitespace-only) name clears the vendor.
+      const normalized = vendorName ? normalizeVendorName(vendorName) || unicodeVendorKey(vendorName) : '';
+      if (!vendorName) {
+        data.vendorId = null;
+      } else if (!normalized) {
+        return NextResponse.json(
+          { success: false, error: 'vendor must contain at least one letter or digit' },
+          { status: 400 },
+        );
+      } else {
+        const vendorRow = await db.abVendor.upsert({
+          where: { tenantId_normalizedName: { tenantId, normalizedName: normalized } },
+          update: { lastSeen: new Date() },
+          create: { tenantId, name: vendorName, normalizedName: normalized },
+          select: { id: true },
+        });
+        data.vendorId = vendorRow.id;
+      }
+    }
 
     // A booked expense (journal entry exists) whose amount or date moved must
     // have its ledger entry reversed and re-posted in the SAME transaction —
@@ -169,6 +242,9 @@ export async function PUT(
       }
       throw err;
     }
+    const linkedVendor = updated.vendorId
+      ? await db.abVendor.findFirst({ where: { id: updated.vendorId, tenantId }, select: { name: true } })
+      : null;
 
     // PR 10 — audit only the fields the caller actually touched.
     const before: Record<string, unknown> = {};
@@ -188,6 +264,9 @@ export async function PUT(
     if (body.date !== undefined) {
       before.date = existing.date; after.date = updated.date;
     }
+    if (body.vendor !== undefined) {
+      before.vendorId = existing.vendorId; after.vendorId = updated.vendorId;
+    }
     await audit({
       tenantId,
       source: inferSource(request),
@@ -199,7 +278,7 @@ export async function PUT(
       after,
     });
 
-    return NextResponse.json({ success: true, data: updated });
+    return NextResponse.json({ success: true, data: { ...updated, vendorName: linkedVendor?.name ?? null } });
   } catch (err) {
     console.error('[agentbook-expense/expenses/:id PUT] failed:', err);
     return NextResponse.json(

@@ -39,6 +39,7 @@ import zhExpensesUi from './locales/zh-CN/expenses_ui.json';
 import zhHomeoffice from './locales/zh-CN/homeoffice.json';
 import zhInvoice from './locales/zh-CN/invoice.json';
 import zhInvoiceUi from './locales/zh-CN/invoice_ui.json';
+import zhMobile from './locales/zh-CN/mobile.json';
 import zhNav from './locales/zh-CN/nav.json';
 import zhOnboarding from './locales/zh-CN/onboarding.json';
 import zhStartupUi from './locales/zh-CN/startup_ui.json';
@@ -66,6 +67,7 @@ const pack: Record<string, TranslationData> = Object.freeze({
   homeoffice: zhHomeoffice,
   invoice: zhInvoice,
   invoice_ui: zhInvoiceUi,
+  mobile: zhMobile,
   nav: zhNav,
   onboarding: zhOnboarding,
   startup_ui: zhStartupUi,

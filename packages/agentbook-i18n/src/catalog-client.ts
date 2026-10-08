@@ -60,6 +60,7 @@ import enExpensesUi from './locales/en/expenses_ui.json';
 import enHomeoffice from './locales/en/homeoffice.json';
 import enInvoice from './locales/en/invoice.json';
 import enInvoiceUi from './locales/en/invoice_ui.json';
+import enMobile from './locales/en/mobile.json';
 import enNav from './locales/en/nav.json';
 import enOnboarding from './locales/en/onboarding.json';
 import enStartupUi from './locales/en/startup_ui.json';
@@ -101,6 +102,7 @@ export const CLIENT_CATALOG: Catalog = Object.freeze({
     homeoffice: enHomeoffice,
     invoice: enInvoice,
     invoice_ui: enInvoiceUi,
+    mobile: enMobile,
     nav: enNav,
     onboarding: enOnboarding,
     startup_ui: enStartupUi,

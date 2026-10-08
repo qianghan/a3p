@@ -1,6 +1,7 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { AuthProvider, useAuth } from '@/contexts/auth-context';
+import { SNAPSHOT_PREFIX, SNAPSHOT_OWNER_KEY } from '@/lib/mobile/snapshot-keys';
 
 function TestButton() {
   const { loginWithOAuth } = useAuth();
@@ -116,5 +117,73 @@ describe('initial session hydration — OAuth httpOnly cookie', () => {
 
     await waitFor(() => expect(screen.getByText(/auth:false/)).toBeTruthy());
     expect(screen.getByText(/err:401/)).toBeTruthy();
+  });
+});
+
+describe('/app snapshots never outlive the session that saved them', () => {
+  const SNAP = `${SNAPSHOT_PREFIX}home`;
+  const mockMe = (status: number, user?: { id: string; email: string }) =>
+    (global.fetch as ReturnType<typeof vi.fn>).mockImplementation(async (url: string) => {
+      if (String(url).includes('/v1/auth/me')) {
+        return { ok: status === 200, status, json: async () => (user ? { data: { user } } : {}) };
+      }
+      return { ok: true, status: 200, json: async () => ({}) };
+    });
+
+  function LoginButton() {
+    const { login } = useAuth();
+    return <button onClick={() => login('a@b.c', 'pw').catch(() => {})}>signin</button>;
+  }
+
+  beforeEach(() => {
+    window.localStorage.clear();
+    window.localStorage.setItem(SNAP, '{"data":{"balance":1000},"savedAt":"2026-10-07T14:30:00.000Z"}');
+  });
+  afterEach(() => window.localStorage.clear());
+
+  it('clears them when the session turns out to be invalid (401)', async () => {
+    mockMe(401);
+    render(<AuthProvider><AuthState /></AuthProvider>);
+    await waitFor(() => expect(screen.getByText(/err:401/)).toBeTruthy());
+    expect(window.localStorage.getItem(SNAP)).toBeNull();
+  });
+
+  it('clears them at the start of a login, before the request settles', async () => {
+    mockMe(401);
+    render(<AuthProvider><AuthState /><LoginButton /></AuthProvider>);
+    await waitFor(() => expect(screen.getByText(/err:401/)).toBeTruthy());
+    window.localStorage.setItem(SNAP, '{"data":{"balance":1000},"savedAt":"2026-10-07T14:30:00.000Z"}');
+    (global.fetch as ReturnType<typeof vi.fn>).mockImplementation(() => new Promise(() => {}));
+    fireEvent.click(screen.getByText('signin'));
+    await waitFor(() => expect(window.localStorage.getItem(SNAP)).toBeNull());
+  });
+
+  it('keeps them for the same user who saved them', async () => {
+    window.localStorage.setItem(SNAPSHOT_OWNER_KEY, 'u1');
+    mockMe(200, { id: 'u1', email: 'a@x.com' });
+    render(<AuthProvider><AuthState /></AuthProvider>);
+    await waitFor(() => expect(screen.getByText(/user:a@x.com/)).toBeTruthy());
+    expect(window.localStorage.getItem(SNAP)).not.toBeNull();
+  });
+
+  it('drops them when a different user is signed in without a logout', async () => {
+    window.localStorage.setItem(SNAPSHOT_OWNER_KEY, 'u1');
+    mockMe(200, { id: 'u2', email: 'b@x.com' });
+    render(<AuthProvider><AuthState /></AuthProvider>);
+    await waitFor(() => expect(screen.getByText(/user:b@x.com/)).toBeTruthy());
+    await waitFor(() => expect(window.localStorage.getItem(SNAP)).toBeNull());
+    expect(window.localStorage.getItem(SNAPSHOT_OWNER_KEY)).toBe('u2');
+  });
+
+  it('still clears them when removing the auth tokens throws', async () => {
+    const realRemove = Storage.prototype.removeItem;
+    vi.spyOn(Storage.prototype, 'removeItem').mockImplementation(function (this: Storage, key: string) {
+      if (key.startsWith('naap_')) throw new Error('denied');
+      return realRemove.call(this, key);
+    });
+    mockMe(401);
+    render(<AuthProvider><AuthState /></AuthProvider>);
+    await waitFor(() => expect(screen.getByText(/err:401/)).toBeTruthy());
+    expect(window.localStorage.getItem(SNAP)).toBeNull();
   });
 });
