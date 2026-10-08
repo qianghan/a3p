@@ -89,10 +89,10 @@ export function routeFetch(routes: Record<string, RouteHandler>) {
  * Dispatch a touch event jsdom can't construct natively (it has no Touch
  * constructor). React reads `touches` / `changedTouches` off the native event.
  */
-export function touch(el: Element, type: 'touchstart' | 'touchmove' | 'touchend', x: number, y: number): void {
+export function touch(el: Element, type: 'touchstart' | 'touchmove' | 'touchend' | 'touchcancel', x: number, y: number): void {
   const ev = new Event(type, { bubbles: true, cancelable: true });
   const point = [{ clientX: x, clientY: y }];
-  Object.defineProperty(ev, 'touches', { value: type === 'touchend' ? [] : point });
+  Object.defineProperty(ev, 'touches', { value: type === 'touchend' || type === 'touchcancel' ? [] : point });
   Object.defineProperty(ev, 'changedTouches', { value: point });
   fireEvent(el, ev);
 }
