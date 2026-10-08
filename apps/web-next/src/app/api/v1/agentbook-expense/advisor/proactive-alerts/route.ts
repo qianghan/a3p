@@ -12,6 +12,7 @@ import { safeResolveAgentbookTenant } from '@/lib/agentbook-tenant';
 import { formatCents } from '@/lib/agentbook-advisor';
 import { publicErrorMessage } from '@/lib/api-error';
 import { checkGstThreshold, gstStatusOf } from '@agentbook/jurisdictions';
+import { missingReceiptWhere } from '@/lib/mobile/alerts';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -52,16 +53,9 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       });
     }
 
-    const missingReceipts = await db.abExpense.count({
-      where: {
-        tenantId,
-        isPersonal: false,
-        status: 'confirmed',
-        receiptUrl: null,
-        amountCents: { gt: 2500 },
-        date: { gte: thirtyDaysAgo },
-      },
-    });
+    // One definition, shared with the mobile home alert (lib/mobile/alerts.ts):
+    // confirmed, live, not archived, no receipt, not skipped, last 90 days, over $25.
+    const missingReceipts = await db.abExpense.count({ where: missingReceiptWhere(tenantId, now) });
     if (missingReceipts > 0) {
       alerts.push({
         id: 'missing-receipts',
