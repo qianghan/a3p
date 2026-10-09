@@ -5,9 +5,18 @@ vi.mock('server-only', () => ({}));
 vi.mock('@naap/database', async () => ({ prisma: (await import('@/__tests__/helpers/mem-db')).memDb }));
 vi.mock('@/lib/agentbook-tenant', async () => (await import('@/__tests__/helpers/route-request')).tenantModuleMock);
 const backfill = vi.fn(async (): Promise<unknown> => 'je-new');
-vi.mock('@/lib/agentbook-expense-ledger', () => ({
-  backfillExpenseJournalEntry: (...a: unknown[]) => backfill(...(a as [])),
-}));
+// Re-categorizing a BOOKED expense (e6, on 6999 suspense) reposts its journal
+// entry through the REAL repost helper (spied) against mem-db.
+const h = vi.hoisted(() => ({ repost: vi.fn() }));
+vi.mock('@/lib/agentbook-expense-ledger', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/agentbook-expense-ledger')>();
+  h.repost.mockImplementation(actual.repostExpenseJournalEntry);
+  return {
+    ...actual,
+    backfillExpenseJournalEntry: (...a: unknown[]) => backfill(...(a as [])),
+    repostExpenseJournalEntry: (...a: unknown[]) => h.repost(...a),
+  };
+});
 
 import { memDb } from '@/__tests__/helpers/mem-db';
 import { tenantReq, json } from '@/__tests__/helpers/route-request';
@@ -35,6 +44,7 @@ beforeEach(() => {
   memDb.reset(fullSeed());
   backfill.mockReset();
   backfill.mockImplementation(async () => 'je-new');
+  h.repost.mockClear();
 });
 
 /**
@@ -112,7 +122,10 @@ describe('POST /expenses/:id/categorize — characterization', () => {
     const r = await call('e6', { categoryId: 'acc-meals' });
     expect(r.status).toBe(200);
     expect(r.body.data).toMatchObject({ id: 'e6', categoryId: 'acc-meals', confidence: 1 });
-    expect(backfill).toHaveBeenCalledWith('t1', 'e6');
+    // e6 is already BOOKED (on 6999 suspense): its entry is reposted onto the
+    // category in the categorize transaction, not backfilled.
+    expect(h.repost).toHaveBeenCalledWith('t1', 'e6', expect.anything(), { categoryChanged: true });
+    expect(backfill).not.toHaveBeenCalled();
     expect(writes('abPattern')).toEqual([]);
     expect(writes('abVendor')).toEqual([]);
   });

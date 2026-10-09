@@ -76,7 +76,11 @@ export interface DocCounts { needsReview: number; noCategory: number; noReceipt:
 export interface DocList { items: MobileDoc[]; nextCursor: string | null; counts: DocCounts | null }
 export interface ExpenseCategory { id: string; name: string; code: string }
 export interface ReviewItem { expenseId: string; action: 'accept' | 'reject'; categoryId?: string }
-export type ReviewError = 'not_found' | 'no_suggestion' | 'invalid_category' | 'failed';
+// period_closed / split_entry / already_reversed / conflict: accepting would have
+// moved a BOOKED expense's journal entry and the ledger refused (nothing written).
+export type ReviewError =
+  | 'not_found' | 'no_suggestion' | 'invalid_category' | 'failed'
+  | 'period_closed' | 'split_entry' | 'already_reversed' | 'conflict';
 export interface ReviewResult { expenseId: string; ok: boolean; error?: ReviewError }
 export interface FromReceiptResult {
   doc: MobileDoc;

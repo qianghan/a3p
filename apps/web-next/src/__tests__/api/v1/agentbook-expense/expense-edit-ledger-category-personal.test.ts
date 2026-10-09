@@ -485,9 +485,13 @@ describe('an entry that was ALREADY reversed (delete → restore, bot orphan) is
     h.fake.seedBookedExpense({ amountCents: 10000, date: JAN, debitAccountId: 'acct-suspense', categoryId: null });
     await deleteAndRestore();
     const { categorizeExpense } = await import('@/lib/agentbook-categorize-expense');
+    const beforeCat = snap();
     const cat = await categorizeExpense('t1', 'exp-1', { categoryId: 'acct-meals', source: 'user' });
-    expect(cat.ok).toBe(true);
-    // The already-reversed entry is NOT reclassified (that would book +meals / −suspense).
+    // Re-categorizing a booked expense reposts its entry, so — like the PATCH
+    // route — an already-reversed entry is refused and nothing is written. (It
+    // is NOT reclassified either: that would book +meals / −suspense.)
+    expect(cat).toMatchObject({ ok: false, status: 422, code: 'already_reversed' });
+    expect(snap()).toEqual(beforeCat);
     expect(h.fake.netByAccount()).toEqual({});
     const before = snap();
 
