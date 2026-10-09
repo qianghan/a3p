@@ -8,14 +8,14 @@ import { useT, useShellLocale } from '@/hooks/use-t';
 import type { ExpenseCategory, MobileDoc } from '@/lib/mobile/types';
 import { archiveDoc, categorizeDoc, deleteDoc, getDoc, patchDoc, reviewSuggestions, unarchiveDoc } from '../../_lib/api';
 import { confirmDoc, getPendingSuggestions } from '../../_lib/api-extra';
-import { SNAPSHOT_PREFIX, useMobileData } from '../../_lib/useMobileData';
+import { SNAPSHOT_PREFIX, useMobileData, writeSnapshot } from '../../_lib/useMobileData';
 import { useOnlineStatus } from '../../_lib/useOnlineStatus';
 import { useTenantCurrency } from '../../_lib/useTenantCurrency';
 import { docsHref, neighbors, readDocNav, removeFromDocNav } from '../../_lib/doc-nav';
 import { pushRecentCategory } from '../../_lib/category-recents';
-import { formatTime } from '../../_lib/format';
+import { formatAmountInput, formatTime } from '../../_lib/format';
 import { removeJson } from '../../_lib/safe-storage';
-import { EmptyState, Pill, Sheet, Skeleton, buttonStyle, iconButtonStyle, tokens, TOUCH, useToast } from '../../_kit';
+import { EmptyState, Pill, Sheet, Skeleton, buttonStyle, iconButtonStyle, moneyText, tokens, TOUCH, useToast } from '../../_kit';
 import { Amount } from '../_components/Amount';
 import { CategoryPicker } from '../_components/CategoryPicker';
 import { ReceiptPanel } from '../_components/ReceiptPanel';
@@ -47,10 +47,23 @@ type Translate = ReturnType<typeof useT>;
 type ApiLike = { status?: number; code?: string } | null;
 
 /** Each form error maps to a literal t() call: the hygiene guard forbids a t(variable). */
-function formErrorText(t: Translate, e: FormError): string {
-  if (e.key === 'mobile.docs.amount_ambiguous') return t('mobile.docs.amount_ambiguous', e.params);
+function formErrorText(t: Translate, e: FormError, currency: string | null, locale: string): string {
+  if (e.key === 'mobile.docs.amount_ambiguous') {
+    // Echoed in the TENANT currency; until it is known, the bare number (never a currency guessed from the locale).
+    const cents = e.cents ?? 0;
+    return t('mobile.docs.amount_ambiguous', { formatted: currency ? moneyText(cents, currency, locale) : formatAmountInput(cents, locale) });
+  }
   if (e.key === 'mobile.docs.vendor_required') return t('mobile.docs.vendor_required');
+  if (e.key === 'mobile.docs.check_value') return t('mobile.docs.check_value');
   return t('mobile.docs.amount_invalid');
+}
+
+/** One catalogued message per refusal kind: 422 = the books refuse, 400 = the value itself is refused, else retry. */
+function saveFailureText(t: Translate, e: unknown): string {
+  const status = (e as ApiLike)?.status;
+  if (status === 422) return t('mobile.docs.save_blocked');
+  if (status === 400) return t('mobile.docs.check_value');
+  return t('mobile.docs.save_failed');
 }
 
 export default function DocViewerPage() {
@@ -91,6 +104,7 @@ function DocViewer({ id }: { id: string }) {
   const categoryButtonRef = useRef<HTMLButtonElement>(null);
   const amountRef = useRef<HTMLInputElement>(null);
   const vendorRef = useRef<HTMLInputElement>(null);
+  const dateRef = useRef<HTMLInputElement>(null);
 
   // What the list showed, read once: prev/next and Back follow THAT list, and only when it really held this
   // document (a deep link from Home must not inherit the filter of a list opened an hour ago).
@@ -100,6 +114,9 @@ function DocViewer({ id }: { id: string }) {
   }, [id]);
   const { prev, next } = neighbors(nav, id);
   const backHref = docsHref(nav);
+
+  // The offline copy follows every successful write, so a later offline open shows the post-write document.
+  const persist = (d: MobileDoc) => writeSnapshot(`doc:${id}`, d);
 
   // An offline snapshot (or one served because the server failed) is for reading only.
   const readOnly = !online || !!staleAt;
@@ -182,7 +199,7 @@ function DocViewer({ id }: { id: string }) {
     const { body, error: problem } = diffForm(before, typed, locale);
     if (problem) {
       setFormError(problem);
-      (problem.key === 'mobile.docs.vendor_required' ? vendorRef : amountRef).current?.focus();
+      (problem.key === 'mobile.docs.vendor_required' ? vendorRef : problem.key === 'mobile.docs.check_value' ? dateRef : amountRef).current?.focus();
       return;
     }
     setFormError(null);
@@ -200,11 +217,13 @@ function DocViewer({ id }: { id: string }) {
       const server = await patchDoc(before.id, body);
       setDoc(server);
       setForm(toForm(server, locale));
+      persist(server);
       toast.show(t('mobile.docs.saved'), { tone: 'good' });
     } catch (e) {
       setDoc(before); // the figures go back; what was typed stays, so Retry is one tap
-      // 422 is the books refusing (closed period, split entry, already reversed): say that, not "try again".
-      toast.show((e as ApiLike)?.status === 422 ? t('mobile.docs.save_blocked') : t('mobile.docs.save_failed'), { tone: 'critical' });
+      // 422 is the books refusing (closed period, split entry, already reversed) and 400 is the server refusing the
+      // value itself (it would refuse it again): neither says "try again".
+      toast.show(saveFailureText(t, e), { tone: 'critical' });
       reconcile();
     } finally {
       end();
@@ -223,11 +242,14 @@ function DocViewer({ id }: { id: string }) {
       const server = await categorizeDoc(before.id, cat.id);
       setDoc(server);
       setPendingSuggestion(null);
+      persist(server);
       pushRecentCategory({ id: cat.id, name: cat.name });
       toast.show(t('mobile.docs.categorized'), { tone: 'good' });
-    } catch {
+    } catch (e) {
+      // 422: the books refuse a re-categorize (closed period, split, already reversed). Nothing optimistic stays:
+      // the document goes back and the re-read below shows what the server holds.
       setDoc(before);
-      toast.show(t('mobile.docs.categorize_failed'), { tone: 'critical' });
+      toast.show((e as ApiLike)?.status === 422 ? t('mobile.docs.save_blocked') : t('mobile.docs.categorize_failed'), { tone: 'critical' });
       reconcile();
     } finally {
       end();
@@ -256,6 +278,7 @@ function DocViewer({ id }: { id: string }) {
       if (!server.categoryId) throw new PickGone();
       setDoc(server);
       setPendingSuggestion(null);
+      persist(server);
       if (r.ok) pushRecentCategory({ id: server.categoryId, name: server.categoryName ?? pick.categoryName });
       toast.show(t('mobile.docs.categorized'), { tone: 'good' });
     } catch (e) {
@@ -278,6 +301,7 @@ function DocViewer({ id }: { id: string }) {
     setDoc({ ...before, status: 'confirmed' });
     try {
       await confirmDoc(before.id);
+      persist({ ...before, status: 'confirmed' });
       toast.show(t('mobile.docs.reviewed'), { tone: 'good' });
     } catch {
       setDoc(before);
@@ -299,6 +323,7 @@ function DocViewer({ id }: { id: string }) {
       const r = archiving ? await archiveDoc(before.id) : await unarchiveDoc(before.id);
       const at = archiving ? (typeof r?.archivedAt === 'string' ? r.archivedAt : optimisticAt) : null;
       setDoc((d) => (d ? { ...d, archivedAt: at } : d));
+      persist({ ...before, archivedAt: at });
       // The document just left the list it was opened from (archived → every list but Archived; restored → Archived):
       // prev/next must not walk it. It is archived, not deleted, so it is still readable here.
       if (nav && (archiving ? nav.filter !== 'archived' : nav.filter === 'archived')) removeFromDocNav(before.id);
@@ -331,7 +356,8 @@ function DocViewer({ id }: { id: string }) {
     removeJson('local', `${SNAPSHOT_PREFIX}doc:${before.id}`);
     setDeleteOpen(false);
     toast.show(t('mobile.docs.deleted_toast'), { tone: 'good' });
-    router.push(next ? `/app/docs/${encodeURIComponent(next)}` : backHref);
+    // replace, not push: Back must not land on the document that was just deleted.
+    router.replace(next ? `/app/docs/${encodeURIComponent(next)}` : backHref);
   }
 
   // ── Not a document yet ─────────────────────────────────────────────────────
@@ -498,7 +524,7 @@ function DocViewer({ id }: { id: string }) {
           inputMode="decimal"
           value={form.amount}
           readOnly={inputsLocked}
-          aria-invalid={formError && formError.key !== 'mobile.docs.vendor_required' ? true : undefined}
+          aria-invalid={formError?.key === 'mobile.docs.amount_invalid' || formError?.key === 'mobile.docs.amount_ambiguous' ? true : undefined}
           onChange={(e) => set('amount', e.target.value)}
         />
       </label>
@@ -514,7 +540,7 @@ function DocViewer({ id }: { id: string }) {
         />
       </label>
       <label style={labelStyle}>{t('mobile.docs.field_date')}
-        <input style={field} type="date" value={form.date} readOnly={inputsLocked} onChange={(e) => set('date', e.target.value)} />
+        <input ref={dateRef} style={field} type="date" value={form.date} readOnly={inputsLocked} aria-invalid={formError?.key === 'mobile.docs.check_value' ? true : undefined} onChange={(e) => set('date', e.target.value)} />
       </label>
       <label style={labelStyle}>{t('mobile.docs.field_description')}
         <textarea style={{ ...field, minHeight: 72 }} value={form.description} readOnly={inputsLocked} onChange={(e) => set('description', e.target.value)} />
@@ -529,7 +555,7 @@ function DocViewer({ id }: { id: string }) {
         />
         {t('mobile.docs.personal_toggle')}
       </label>
-      {formError && <p role="alert" style={{ color: tokens.color.critical, fontSize: tokens.font.sm, margin: 0 }}>{formErrorText(t, formError)}</p>}
+      {formError && <p role="alert" style={{ color: tokens.color.critical, fontSize: tokens.font.sm, margin: 0 }}>{formErrorText(t, formError, currency, locale)}</p>}
       <button
         type="button"
         data-testid="save-changes"

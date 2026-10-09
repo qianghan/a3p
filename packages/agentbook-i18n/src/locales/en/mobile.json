@@ -268,6 +268,7 @@
     "image_offline": "You’re offline. Reconnect to load the receipt image.",
     "vendor_required": "A vendor name can’t be empty.",
     "save_blocked": "This change can’t be made: the expense’s entry in your books is in a closed period, split, or already reversed.",
+    "check_value": "Check this value: a vendor name needs a letter or number, and the amount and date must be valid.",
     "confirm_failed": "Couldn’t mark this as reviewed. Try again.",
     "mark_reviewed": "Mark as reviewed",
     "reviewed": "Marked as reviewed",

@@ -9,8 +9,9 @@ export type PatchBody = Partial<{ amountCents: number; vendor: string; date: str
  * The catalog keys a form error can name. A union (not `string`) so the page can map each one to a literal
  * `t('…')` call: the hygiene guard forbids a `t(variable)`.
  */
-export type FormErrorKey = 'mobile.docs.amount_invalid' | 'mobile.docs.amount_ambiguous' | 'mobile.docs.vendor_required';
-export interface FormError { key: FormErrorKey; params?: Record<string, string> }
+export type FormErrorKey = 'mobile.docs.amount_invalid' | 'mobile.docs.amount_ambiguous' | 'mobile.docs.vendor_required' | 'mobile.docs.check_value';
+/** `cents` rides along on an ambiguous amount so the page can echo it in the TENANT currency (not a locale guess). */
+export interface FormError { key: FormErrorKey; cents?: number }
 
 export function toForm(doc: MobileDoc, locale: string): FormState {
   return {
@@ -39,17 +40,21 @@ export function diffForm(doc: MobileDoc, form: FormState, locale: string): { bod
   const initial = toForm(doc, locale);
   const body: PatchBody = {};
   if (form.amount.trim() !== initial.amount) {
-    const parsed = parseAmountToCents(form.amount, locale);
+    // NFKC first: a zh-CN/ja IME types full-width digits and a full-width decimal point ("１２３．４５").
+    const parsed = parseAmountToCents(form.amount.normalize('NFKC'), locale);
     if (!parsed.ok || !Number.isSafeInteger(parsed.cents) || parsed.cents <= 0 || parsed.cents > MAX_AMOUNT_CENTS) {
       return { body: {}, error: { key: 'mobile.docs.amount_invalid' } };
     }
-    if (parsed.ambiguous) return { body: {}, error: { key: 'mobile.docs.amount_ambiguous', params: { formatted: parsed.formatted } } };
+    if (parsed.ambiguous) return { body: {}, error: { key: 'mobile.docs.amount_ambiguous', cents: parsed.cents } };
     if (parsed.cents !== doc.amountCents) body.amountCents = parsed.cents;
   }
   const vendor = form.vendor.trim();
   // An empty vendor is never sent: the viewer cannot clear one, so say so instead of silently ignoring the edit.
   if (!vendor && (doc.vendorName ?? '') !== '') return { body: {}, error: { key: 'mobile.docs.vendor_required' } };
   if (vendor && vendor !== (doc.vendorName ?? '')) body.vendor = vendor;
+  // A date picker can be cleared. The server has no "no date", so refuse it (visibly) rather than reset the field
+  // on Save as if nothing had been typed. A document that never had a date has nothing to lose.
+  if (!form.date.trim() && initial.date) return { body: {}, error: { key: 'mobile.docs.check_value' } };
   if (form.date && form.date !== initial.date) body.date = form.date;
   const description = form.description.trim();
   if (description !== (doc.description ?? '')) body.description = description;

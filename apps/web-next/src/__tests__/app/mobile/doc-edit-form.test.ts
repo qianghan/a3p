@@ -44,7 +44,17 @@ describe('edit form', () => {
     const r = diffForm(doc, { ...toForm(doc, 'fr-CA'), amount: '1,500' }, 'fr-CA');
     expect(r.body).toEqual({});
     expect(r.error?.key).toBe('mobile.docs.amount_ambiguous');
-    expect(r.error?.params?.formatted).toBeTruthy();
+    expect(r.error).toEqual({ key: 'mobile.docs.amount_ambiguous', cents: 150 }); // the page formats it in the tenant currency
+  });
+  it('reads full-width digits and a full-width decimal point (a zh-CN IME) like their ASCII forms', () => {
+    expect(diffForm(doc, { ...toForm(doc, 'zh-CN'), amount: '１２３．４５' }, 'zh-CN')).toEqual({ body: { amountCents: 12345 }, error: null });
+    expect(diffForm(doc, { ...toForm(doc, 'en'), amount: '１２.５０' }, 'en').body).toEqual({ amountCents: 1250 });
+  });
+  it('a cleared date is refused with the Check-this-value error, not silently reset', () => {
+    expect(diffForm(doc, { ...toForm(doc, 'en'), date: '' }, 'en')).toEqual({ body: {}, error: { key: 'mobile.docs.check_value' } });
+    // a doc that never had a date: empty is no change
+    const undated = { ...doc, date: '' };
+    expect(diffForm(undated, toForm(undated, 'en'), 'en')).toEqual({ body: {}, error: null });
   });
   it('never sends an empty vendor (it cannot clear one) and says so', () => {
     const r = diffForm(doc, { ...toForm(doc, 'en'), vendor: '   ' }, 'en');

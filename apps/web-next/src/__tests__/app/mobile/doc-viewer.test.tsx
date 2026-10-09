@@ -12,9 +12,9 @@ import { RECENTS_KEY } from '@/app/app/_lib/category-recents';
 import { jsonResponse, routeFetch } from './test-utils';
 
 vi.mock('@/hooks/use-t', async () => (await import('./_i18n-mock')).useTMock);
-const nav = vi.hoisted(() => ({ id: 'e2', push: vi.fn() }));
+const nav = vi.hoisted(() => ({ id: 'e2', push: vi.fn(), replace: vi.fn() }));
 vi.mock('next/navigation', () => ({
-  useRouter: () => ({ push: nav.push, replace: vi.fn(), prefetch: vi.fn(), back: vi.fn(), forward: vi.fn() }),
+  useRouter: () => ({ push: nav.push, replace: nav.replace, prefetch: vi.fn(), back: vi.fn(), forward: vi.fn() }),
   useParams: () => ({ id: nav.id }),
   useSearchParams: () => new URLSearchParams(),
   usePathname: () => `/app/docs/${nav.id}`,
@@ -145,6 +145,7 @@ const isLocked = (el: HTMLElement) => el.getAttribute('aria-disabled') === 'true
 const input = (label: string) => screen.getByLabelText(label) as HTMLInputElement;
 const savedNav = () => JSON.parse(sessionStorage.getItem(NAV_KEY)!) as { ids: string[]; filter: string; q: string };
 const seedNav = (ids: string[], filter = 'all', q = '') => sessionStorage.setItem(NAV_KEY, JSON.stringify({ ids, filter, q }));
+const snapshot = () => (JSON.parse(localStorage.getItem('ab:mobile:doc:e2') ?? 'null') as { data: Record<string, unknown> }).data;
 const recents = () => JSON.parse(localStorage.getItem(RECENTS_KEY) ?? '[]') as { id: string; name: string }[];
 
 beforeEach(() => {
@@ -153,6 +154,7 @@ beforeEach(() => {
   setOnline(true);
   nav.id = 'e2';
   nav.push.mockReset();
+  nav.replace.mockReset();
 });
 afterEach(() => {
   vi.restoreAllMocks();
@@ -412,6 +414,86 @@ describe('viewer — editing', () => {
     expect(screen.queryByText('Couldn’t save your changes. Try again.')).toBeNull();
   });
 
+  it.each([
+    [400, 'Check this value: a vendor name needs a letter or number, and the amount and date must be valid.', 'Try again'],
+    [422, 'This change can’t be made', 'Try again'],
+    [500, 'Couldn’t save your changes. Try again.', 'Check this value'],
+  ])('a %i from the edit route gets its own message', async (status, shown, absent) => {
+    const f = startServer();
+    over['PATCH '] = () => fail(status);
+    renderViewer();
+    await ready();
+    fireEvent.change(input('Vendor'), { target: { value: '!!!' } });
+    fireEvent.click(btn('Save changes'));
+    expect(await screen.findByText(new RegExp(shown.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))).toBeInTheDocument();
+    expect(screen.queryByText(new RegExp(absent))).toBeNull();
+    expect(input('Vendor')).toHaveValue('!!!'); // what the user typed stays
+    expect(isLocked(btn('Save changes'))).toBe(false);
+    expect(writes(f)).toEqual([`PATCH ${EXP}/e2 {"vendor":"!!!"}`]);
+  });
+
+  it('a 400 is not retried by the page: one request, then the re-read', async () => {
+    const f = startServer();
+    over['PATCH '] = () => fail(400, 'vendor must contain a letter or number');
+    renderViewer();
+    await ready();
+    const before = detailGets(f);
+    fireEvent.change(input('Vendor'), { target: { value: '☕' } });
+    fireEvent.click(btn('Save changes'));
+    await screen.findByText(/Check this value/);
+    await waitFor(() => expect(detailGets(f)).toBe(before + 1));
+    expect(writes(f)).toHaveLength(1);
+  });
+
+  it('a cleared date is refused with Check this value, focus on the date, no request — and is not silently reset', async () => {
+    const f = startServer();
+    renderViewer();
+    await ready();
+    fireEvent.change(input('Date'), { target: { value: '' } });
+    expect(isLocked(btn('Save changes'))).toBe(false);
+    fireEvent.click(btn('Save changes'));
+    expect((await screen.findByText(/Check this value/)).getAttribute('role')).toBe('alert');
+    expect(input('Date')).toHaveAttribute('aria-invalid', 'true');
+    expect(document.activeElement).toBe(input('Date'));
+    expect(input('Date')).toHaveValue(''); // not reset behind the user's back
+    expect(writes(f)).toEqual([]);
+    fireEvent.change(input('Date'), { target: { value: '2026-09-30' } });
+    expect(screen.queryByText(/Check this value/)).toBeNull();
+  });
+
+  it('an ambiguous amount is echoed in the TENANT currency, not one guessed from the locale', async () => {
+    const f = startServer();
+    renderViewer();
+    await ready();
+    fireEvent.change(input('Amount'), { target: { value: '45.005' } }); // en: the sole "." is the decimal mark, 3 digits after
+    fireEvent.click(btn('Save changes'));
+    const alert = await screen.findByText(/Did you mean/);
+    expect(alert).toHaveTextContent(`Did you mean ${money(4501)}?`); // CAD, from tenant-config
+    expect(money(4501)).not.toBe('$45.01'); // the USD a locale guess would have printed
+    expect(writes(f)).toEqual([]);
+  });
+
+  it('full-width digits typed by an IME are read as numbers', async () => {
+    const f = startServer();
+    renderViewer();
+    await ready();
+    fireEvent.change(input('Amount'), { target: { value: '５２．５０' } });
+    fireEvent.click(btn('Save changes'));
+    await screen.findByText('Saved');
+    expect(writes(f)).toEqual([`PATCH ${EXP}/e2 {"amountCents":5250}`]);
+  });
+
+  it('after a successful write the offline copy is the post-write document, not the pre-edit one', async () => {
+    startServer();
+    renderViewer();
+    await ready();
+    expect(snapshot().amountCents).toBe(4700); // the load wrote the pre-edit copy
+    fireEvent.change(input('Amount'), { target: { value: '52.50' } });
+    fireEvent.click(btn('Save changes'));
+    await screen.findByText('Saved');
+    expect(snapshot()).toMatchObject({ id: 'e2', amountCents: 5250, vendorName: 'Blue Bottle' });
+  });
+
   it('blocks an invalid amount with a message, focus and no request', async () => {
     const f = startServer(rawRow({ status: 'pending_review' }));
     renderViewer();
@@ -668,6 +750,47 @@ describe('viewer — categorization', () => {
     expect(recents()).toEqual([]);
   });
 
+  it('a 422 on a re-categorize says the books refused, puts the category back and re-reads the server', async () => {
+    const f = startServer();
+    over['POST /categorize'] = () => jsonResponse(422, { success: false, error: 'Period gate violated' });
+    renderViewer();
+    await ready();
+    const before = detailGets(f);
+    fireEvent.click(btn('Change category'));
+    const dialog = await screen.findByRole('dialog', { name: 'Choose a category' });
+    fireEvent.click(await within(dialog).findByText('Travel'));
+    expect(await screen.findByText(/closed period, split, or already reversed/)).toBeInTheDocument();
+    expect(screen.queryByText('Couldn’t change the category. It was put back.')).toBeNull();
+    expect(screen.getByTestId('doc-category')).toHaveTextContent('Meals');
+    expect(recents()).toEqual([]);
+    await waitFor(() => expect(detailGets(f)).toBe(before + 1)); // no optimistic state is trusted: ask the server
+  });
+
+  it('after a category change, a confirm and an archive the offline copy follows each one', async () => {
+    startServer(rawRow({ status: 'pending_review' }));
+    renderViewer();
+    await ready();
+    fireEvent.click(btn('Change category'));
+    const dialog = await screen.findByRole('dialog', { name: 'Choose a category' });
+    fireEvent.click(await within(dialog).findByText('Travel'));
+    await screen.findByText('Category updated');
+    expect(snapshot()).toMatchObject({ categoryId: 'c5', categoryName: 'Travel' });
+    fireEvent.click(btn('Mark as reviewed'));
+    await screen.findByText('Marked as reviewed');
+    expect(snapshot()).toMatchObject({ status: 'confirmed', categoryId: 'c5' });
+    fireEvent.click(btn('Archive'));
+    await screen.findByText('Archived — totals are unchanged');
+    expect(snapshot().archivedAt).toBe('2026-10-07T10:00:00.000Z');
+  });
+
+  it('accepting the AI pick rewrites the offline copy from the server’s answer', async () => {
+    startServer(rawRow({ categoryId: null, categoryName: null, suggestion: SUGGEST }));
+    renderViewer();
+    fireEvent.click(within(await screen.findByTestId('ai-suggestion')).getByText('Accept'));
+    await screen.findByText('Category updated');
+    expect(snapshot()).toMatchObject({ categoryId: 'c5', categoryName: 'Travel' });
+  });
+
   it('picking the category it already has changes nothing', async () => {
     const f = startServer();
     renderViewer();
@@ -819,7 +942,8 @@ describe('viewer — archive and delete', () => {
     expect(writes(f)).toEqual([]);
     const dialog = screen.getByRole('dialog', { name: 'Delete this expense?' });
     fireEvent.click(within(dialog).getByText('Delete expense'));
-    await waitFor(() => expect(nav.push).toHaveBeenCalledWith('/app/docs/e3'));
+    await waitFor(() => expect(nav.replace).toHaveBeenCalledWith('/app/docs/e3'));
+    expect(nav.push).not.toHaveBeenCalled(); // replace: Back must not return to the deleted document
     expect(writes(f)).toEqual([`DELETE ${EXP}/e2`]);
     expect(savedNav().ids).toEqual(['e3']);
     expect(localStorage.getItem('ab:mobile:doc:e2')).toBeNull();
@@ -833,7 +957,8 @@ describe('viewer — archive and delete', () => {
     await ready();
     fireEvent.click(btn('Delete'));
     fireEvent.click(within(screen.getByRole('dialog', { name: 'Delete this expense?' })).getByText('Delete expense'));
-    await waitFor(() => expect(nav.push).toHaveBeenCalledWith('/app/docs?filter=no-receipt'));
+    await waitFor(() => expect(nav.replace).toHaveBeenCalledWith('/app/docs?filter=no-receipt'));
+    expect(nav.push).not.toHaveBeenCalled();
     expect(savedNav().ids).toEqual(['e1']);
   });
 
@@ -846,6 +971,7 @@ describe('viewer — archive and delete', () => {
     expect(screen.queryByRole('dialog')).toBeNull();
     expect(writes(f)).toEqual([]);
     expect(nav.push).not.toHaveBeenCalled();
+    expect(nav.replace).not.toHaveBeenCalled();
   });
 
   it('waits for the server: the sheet cannot be dismissed mid-delete and a double tap sends one DELETE', async () => {
@@ -864,10 +990,10 @@ describe('viewer — archive and delete', () => {
     fireEvent.click(screen.getByTestId('sheet-backdrop'));
     fireEvent.keyDown(document, { key: 'Escape' });
     expect(screen.getByRole('dialog', { name: 'Delete this expense?' })).toBeInTheDocument();
-    expect(nav.push).not.toHaveBeenCalled(); // not optimistic: nothing moved yet
+    expect(nav.replace).not.toHaveBeenCalled(); // not optimistic: nothing moved yet
     expect(savedNav().ids).toEqual(['e2', 'e3']);
     held.release(ok({ id: 'e2' }));
-    await waitFor(() => expect(nav.push).toHaveBeenCalledWith('/app/docs/e3'));
+    await waitFor(() => expect(nav.replace).toHaveBeenCalledWith('/app/docs/e3'));
   });
 
   it('a failed delete stays on the page, tells the user inside the dialog, and keeps the order', async () => {
@@ -881,6 +1007,7 @@ describe('viewer — archive and delete', () => {
     fireEvent.click(within(dialog).getByText('Delete expense'));
     expect(await within(dialog).findByText('Couldn’t delete. Try again.')).toBeInTheDocument();
     expect(nav.push).not.toHaveBeenCalled();
+    expect(nav.replace).not.toHaveBeenCalled();
     expect(savedNav().ids).toEqual(['e2', 'e3']);
     expect(isLocked(within(dialog).getByText('Delete expense').closest('button')!)).toBe(false); // can try again
   });
@@ -893,6 +1020,24 @@ describe('viewer — archive and delete', () => {
     fireEvent.click(btn('Delete'));
     expect(screen.queryByRole('dialog')).toBeNull();
     expect(writes(f)).toEqual([]);
+  });
+
+  it('the Delete confirm inside an already-open dialog is inert once the device goes offline', async () => {
+    seedNav(['e2', 'e3']);
+    const f = startServer();
+    renderViewer();
+    await ready();
+    fireEvent.click(btn('Delete'));
+    const dialog = screen.getByRole('dialog', { name: 'Delete this expense?' });
+    goOffline();
+    const confirm = within(dialog).getByText('Delete expense').closest('button')!;
+    await waitFor(() => expect(isLocked(confirm)).toBe(true));
+    expect(confirm).not.toBeDisabled(); // aria-disabled keeps focus
+    fireEvent.click(confirm);
+    await act(async () => {});
+    expect(writes(f)).toEqual([]);
+    expect(nav.replace).not.toHaveBeenCalled();
+    expect(savedNav().ids).toEqual(['e2', 'e3']);
   });
 
   it('a delete that lost its answer but went through shows "no longer exists" on the re-read', async () => {

@@ -321,22 +321,46 @@ describe('Docs list — filters, deep link, search, view', () => {
     expect(screen.getByRole('button', { name: /Needs review.*3/ })).toBeInTheDocument();
   });
 
-  it('a rapid second tap wins, and the first one arriving in the URL does not undo it', async () => {
-    mockApi(() => listOf([raw()]));
-    const view = renderPage();
-    await rowsOf();
-    fireEvent.click(screen.getByRole('button', { name: /No category/ }));
-    fireEvent.click(screen.getByRole('button', { name: /No receipt/ }));
-    await waitFor(() => expect(urlNow()).toBe('/app/docs?filter=no-receipt'));
-    // Next applies the first replace's params, then the second's. The first arriving must not be
-    // mistaken for an outside navigation that moves the screen back to it.
-    nav.params = new URLSearchParams('filter=no-category');
-    view.rerender(<ToastHost><MobileDocsPage /></ToastHost>);
-    expect(screen.getByRole('button', { name: /No receipt/ })).toHaveAttribute('aria-pressed', 'true');
-    expect(screen.getByRole('button', { name: /No category/ })).toHaveAttribute('aria-pressed', 'false');
-    nav.params = new URLSearchParams('filter=no-receipt');
-    view.rerender(<ToastHost><MobileDocsPage /></ToastHost>);
-    expect(screen.getByRole('button', { name: /No receipt/ })).toHaveAttribute('aria-pressed', 'true');
+  // The page remembers its own URL writes for 2 s of WALL-CLOCK time (Date.now()). Faking only Date pins that
+  // clock, so a slow runner cannot age the first write past its TTL mid-test; waitFor's timers stay real.
+  describe('own-write window (Date pinned)', () => {
+    beforeEach(() => {
+      vi.useFakeTimers({ toFake: ['Date'] });
+      vi.setSystemTime(new Date('2026-10-08T12:00:00Z'));
+    });
+    afterEach(() => { vi.useRealTimers(); });
+
+    it('a rapid second tap wins, and the first one arriving in the URL does not undo it', async () => {
+      mockApi(() => listOf([raw()]));
+      const view = renderPage();
+      await rowsOf();
+      fireEvent.click(screen.getByRole('button', { name: /No category/ }));
+      fireEvent.click(screen.getByRole('button', { name: /No receipt/ }));
+      await waitFor(() => expect(urlNow()).toBe('/app/docs?filter=no-receipt'));
+      // Next applies the first replace's params, then the second's. The first arriving must not be
+      // mistaken for an outside navigation that moves the screen back to it.
+      nav.params = new URLSearchParams('filter=no-category');
+      view.rerender(<ToastHost><MobileDocsPage /></ToastHost>);
+      expect(screen.getByRole('button', { name: /No receipt/ })).toHaveAttribute('aria-pressed', 'true');
+      expect(screen.getByRole('button', { name: /No category/ })).toHaveAttribute('aria-pressed', 'false');
+      nav.params = new URLSearchParams('filter=no-receipt');
+      view.rerender(<ToastHost><MobileDocsPage /></ToastHost>);
+      expect(screen.getByRole('button', { name: /No receipt/ })).toHaveAttribute('aria-pressed', 'true');
+    });
+
+    it('past the 2 s window the same URL is an outside navigation and is honoured', async () => {
+      mockApi(() => listOf([raw()]));
+      const view = renderPage();
+      await rowsOf();
+      fireEvent.click(screen.getByRole('button', { name: /No category/ }));
+      fireEvent.click(screen.getByRole('button', { name: /No receipt/ }));
+      await waitFor(() => expect(urlNow()).toBe('/app/docs?filter=no-receipt'));
+      vi.setSystemTime(Date.now() + 2001); // the page's own writes have expired
+      nav.params = new URLSearchParams('filter=no-category');
+      view.rerender(<ToastHost><MobileDocsPage /></ToastHost>);
+      await waitFor(() => expect(screen.getByRole('button', { name: /No category/ })).toHaveAttribute('aria-pressed', 'true'));
+      expect(screen.getByRole('button', { name: /No receipt/ })).toHaveAttribute('aria-pressed', 'false');
+    });
   });
 
   it('an outside navigation (the Docs tab tapped again) resets the filter and search', async () => {
