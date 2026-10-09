@@ -13,7 +13,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, act, waitFor, within } from '@testing-library/react';
 import { RECENTS_KEY, pushRecentCategory, getRecentCategories } from '@/app/app/_lib/category-recents';
 import { SNAPSHOT_PREFIX, clearMobileSnapshots } from '@/lib/mobile/snapshot-keys';
-import { CategoryPicker, foldForSearch } from '@/app/app/docs/_components/CategoryPicker';
+import { CategoryPicker, foldForSearch, SUSPENSE_ACCOUNT_CODE } from '@/app/app/docs/_components/CategoryPicker';
 import { jsonResponse, routeFetch } from './test-utils';
 import './_load-tolerance';
 
@@ -395,5 +395,57 @@ describe('foldForSearch', () => {
     expect(foldForSearch('DÉPENSES')).toBe('depenses');
     expect(foldForSearch('Ça va')).toBe('ca va');
     expect(foldForSearch('办公用品 5100')).toBe('办公用品 5100');
+  });
+});
+
+describe('CategoryPicker — the suspense account is never offered', () => {
+  const SUSPENSE = row('susp', 'Uncategorized Expenses', '6999');
+  const WITH_SUSPENSE = [...CATS.slice(0, 2), SUSPENSE, ...CATS.slice(2)];
+
+  it('is pinned to the server constant (read from source: that module is server-only)', () => {
+    const src = readFileSync(join(__dirname, '../../../lib/agentbook-chart-of-accounts.ts'), 'utf8');
+    const m = src.match(/export const UNCATEGORIZED_CODE = '([^']+)'/);
+    expect(m?.[1]).toBe(SUSPENSE_ACCOUNT_CODE);
+  });
+
+  it('renders no row for 6999 (by text and by id) and leaves every other category as the server sent it', async () => {
+    routeFetch({ [ACCOUNTS]: () => ok(WITH_SUSPENSE) });
+    mount();
+    await screen.findAllByTestId('category-option');
+    expect(screen.queryByText('Uncategorized Expenses')).toBeNull();
+    expect(screen.queryByText('6999')).toBeNull();
+    expect(ids().slice().sort()).toEqual(['c1', 'c2', 'c3', 'c4', 'c5']);
+    expect(names()).toEqual(['Advertising', 'Café & Coffee', 'Meals', 'Office Supplies', 'Travel']);
+    expect(screen.getByTestId('category-status')).toHaveTextContent('5 categories');
+  });
+
+  it('a recent that points at 6999 is dropped, not resurfaced; other recents still lead', async () => {
+    localStorage.setItem(RECENTS_KEY, JSON.stringify([{ id: 'susp', name: 'Uncategorized Expenses' }, { id: 'c2', name: 'Meals' }]));
+    routeFetch({ [ACCOUNTS]: () => ok(WITH_SUSPENSE) });
+    mount();
+    await screen.findAllByTestId('category-option');
+    expect(ids()).toEqual(['c2', 'c3', 'c5', 'c4', 'c1']);
+    expect(ids()).not.toContain('susp');
+    expect(screen.queryByText('Uncategorized Expenses')).toBeNull();
+  });
+
+  it('search by name or code does not find it', async () => {
+    routeFetch({ [ACCOUNTS]: () => ok(WITH_SUSPENSE) });
+    mount();
+    await screen.findAllByTestId('category-option');
+    search('uncategor');
+    expect(ids()).toEqual([]);
+    expect(screen.getByText('Try a different search.')).toBeInTheDocument();
+    search('6999');
+    expect(ids()).toEqual([]);
+    search('travel');
+    expect(ids()).toEqual(['c1']);
+  });
+
+  it('a list holding only the suspense account reads as having no categories', async () => {
+    routeFetch({ [ACCOUNTS]: () => ok([SUSPENSE]) });
+    mount();
+    await screen.findByText('No expense categories yet');
+    expect(ids()).toEqual([]);
   });
 });

@@ -10,6 +10,14 @@ import { useOnlineStatus } from '../../_lib/useOnlineStatus';
 import { Banner, EmptyState, Sheet, Skeleton, TOUCH, buttonStyle, tokens, visuallyHidden } from '../../_kit';
 
 const SEARCH_MAX_LENGTH = 100;
+/**
+ * The ledger's suspense account ("Uncategorized Expenses"). The server returns it among the active expense
+ * accounts, but an uncategorized expense must keep categoryId === null (the suspense posting is internal);
+ * explicitly picking it would hide the expense from the needs-category watchdog and the Uncategorized
+ * reports. So it is never offered. Mirrors UNCATEGORIZED_CODE in lib/agentbook-chart-of-accounts.ts, which
+ * is `server-only` and cannot be imported here; a test pins the two equal.
+ */
+export const SUSPENSE_ACCOUNT_CODE = '6999';
 // An HTML enum (the virtual keyboard's action key), not copy: held in a constant because the hygiene guard
 // reads any `*Hint="…"` attribute as English text.
 const ENTER_KEY_HINT = 'search' as const;
@@ -51,7 +59,7 @@ const listStyle: React.CSSProperties = { listStyle: 'none', margin: 0, padding: 
 
 /**
  * Chooses the expense account an expense is booked to, so what it offers and what it
- * returns are exactly the server's: GET /accounts?type=expense (active expense accounts of
+ * returns are the server's, minus the suspense account (see SUSPENSE_ACCOUNT_CODE): GET /accounts?type=expense (active expense accounts of
  * this tenant, by code), rendered as received and handed to `onSelect` unchanged. There is
  * no client-side fallback list — when the request fails the picker says so and offers Retry
  * rather than an empty list that reads as "you have no categories".
@@ -127,7 +135,9 @@ export function CategoryPicker({ open, onClose, onSelect, currentId }: {
   }, [all]);
 
   const recents = useMemo(() => (open ? getRecentCategories() : []), [open]);
-  const { recent, rest } = useMemo(() => orderWithRecents(all ?? [], recents), [all, recents]);
+  // Filtered before anything else uses the list, so recents, search and the count can never see the suspense account.
+  const offered = useMemo(() => (all ? all.filter((c) => c.code !== SUSPENSE_ACCOUNT_CODE) : null), [all]);
+  const { recent, rest } = useMemo(() => orderWithRecents(offered ?? [], recents), [offered, recents]);
   const needle = foldForSearch(query.trim());
   const match = (c: ExpenseCategory) => !needle || foldForSearch(c.name).includes(needle) || foldForSearch(c.code).includes(needle);
   const shownRecent = recent.filter(match);
@@ -156,7 +166,7 @@ export function CategoryPicker({ open, onClose, onSelect, currentId }: {
     );
   };
 
-  const status = !all ? '' : shownCount === 0 ? t('mobile.docs.empty_search_title') : t('mobile.docs.category_count', { count: shownCount });
+  const status = !offered ? '' : shownCount === 0 ? t('mobile.docs.empty_search_title') : t('mobile.docs.category_count', { count: shownCount });
 
   return (
     <Sheet open={open} onClose={onClose} title={t('mobile.docs.choose_category')}>
@@ -216,8 +226,8 @@ export function CategoryPicker({ open, onClose, onSelect, currentId }: {
           <Skeleton height={TOUCH} />
         </div>
       )}
-      {all && all.length === 0 && <EmptyState title={t('mobile.docs.categories_empty')} />}
-      {all && all.length > 0 && shownCount === 0 && (
+      {offered && offered.length === 0 && <EmptyState title={t('mobile.docs.categories_empty')} />}
+      {offered && offered.length > 0 && shownCount === 0 && (
         <EmptyState title={t('mobile.docs.empty_search_title')} body={t('mobile.docs.empty_search_body')} />
       )}
       {shownRecent.length > 0 && (
