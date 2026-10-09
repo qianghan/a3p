@@ -10,6 +10,7 @@ import { EmptyState } from '@/app/app/_kit/EmptyState';
 import { Thumb, isOptimizableHost, isPdfUrl } from '@/app/app/_kit/Thumb';
 import { tokens } from '@/app/app/_kit/tokens';
 import { renderWithI18n, expectTokenOnly, expectTouchTarget } from './test-utils';
+import './_load-tolerance';
 
 describe('Button', () => {
   it('is a 44px button that fires onClick and defaults to type=button', () => {

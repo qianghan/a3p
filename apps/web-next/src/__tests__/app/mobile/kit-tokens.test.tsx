@@ -9,6 +9,7 @@ import { Money, moneyText } from '@/app/app/_kit/Money';
 import { makeFormatters } from '@/app/app/_kit/format';
 import { formatCurrencyCents } from '@/lib/jurisdiction-currency';
 import { renderWithI18n, expectTokenOnly } from './test-utils';
+import './_load-tolerance';
 
 const VARS_CSS = readFileSync(
   join(__dirname, '..', '..', '..', '..', '..', '..', 'packages', 'theme', 'src', 'shell-variables.css'),

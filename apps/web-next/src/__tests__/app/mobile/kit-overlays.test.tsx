@@ -7,6 +7,7 @@ import { Banner, bannerStyle } from '@/app/app/_kit/Banner';
 import { ToastHost, useToast, toastStyle, DEFAULT_TOAST_MS, CRITICAL_TOAST_MS } from '@/app/app/_kit/Toast';
 import { tokens } from '@/app/app/_kit/tokens';
 import { i18nT, renderWithI18n, expectTokenOnly, expectTouchTarget } from './test-utils';
+import './_load-tolerance';
 
 afterEach(() => {
   vi.useRealTimers();

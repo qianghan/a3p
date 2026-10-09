@@ -7,6 +7,7 @@ import {
 } from '@/app/app/docs/_lib/pinch-zoom';
 import { PinchZoomImage } from '@/app/app/docs/_components/PinchZoomImage';
 import { installPointerEvent } from './_pointer';
+import './_load-tolerance';
 
 // Real English catalog: every rendered label proves its key exists.
 vi.mock('@/hooks/use-t', async () => (await import('./_i18n-mock')).useTMock);

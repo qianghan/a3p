@@ -358,6 +358,10 @@ describe('Home page — revalidates when the app becomes visible again', () => {
     const mock = routeFetch({ [HOME_URL]: () => jsonResponse(200, { success: true, data: homeFixture() }) });
     const view = renderHome();
     await screen.findByRole('region', { name: 'Key numbers' });
+    // The "loaded at" stamp is written by an effect that runs just after the numbers render. On a loaded runner it
+    // could land AFTER a test moved the fake clock forward, stamping the future and reading as fresh (a 4-in-24
+    // flake under 6x parallel load): let it run first.
+    await settle();
     expect(homeCalls(mock)).toBe(1);
     return { mock, view };
   }

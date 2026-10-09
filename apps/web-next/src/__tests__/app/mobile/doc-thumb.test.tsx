@@ -2,6 +2,7 @@ import React from 'react';
 import { describe, it, expect } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { DocThumb } from '@/app/app/docs/_components/DocThumb';
+import './_load-tolerance';
 
 const BLOB = 'https://abcd.public.blob.vercel-storage.com/receipts/t/1-r.jpg';
 

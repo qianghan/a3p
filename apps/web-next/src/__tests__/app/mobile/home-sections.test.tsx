@@ -10,6 +10,7 @@ import { BrandNewHome } from '@/app/app/_home/BrandNewHome';
 import { HomeSkeleton, HomeError, StaleNotice, PullIndicator } from '@/app/app/_home/HomeStates';
 import { renderWithI18n, expectTouchTarget, i18nT } from './test-utils';
 import { homeFixture } from './fixtures';
+import './_load-tolerance';
 
 const up = (over: Partial<UpcomingItem>): UpcomingItem => ({
   id: 'u', kind: 'tax', titleKey: 'mobile.upcoming.tax_instalment', params: { quarter: 3, year: 2026 }, date: '2026-10-15', daysAway: 8, amountCents: 300_000, ...over,

@@ -14,6 +14,7 @@ import MobileHomePage from '@/app/app/page';
 import { ToastHost } from '@/app/app/_kit/Toast';
 import { renderWithI18n, routeFetch, jsonResponse } from './mobile/test-utils';
 import { homeFixture } from './mobile/fixtures';
+import './mobile/_load-tolerance';
 
 const HOME_URL = '/api/v1/agentbook-core/mobile/home';
 

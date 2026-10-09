@@ -3,6 +3,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, act } from '@testing-library/react';
 import { useInfiniteScroll } from '@/app/app/_lib/useInfiniteScroll';
 import { MockIntersectionObserver } from './_mock-io';
+import './_load-tolerance';
 
 type HarnessProps = {
   hasMore: boolean;

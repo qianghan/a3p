@@ -4,6 +4,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { render, screen, act } from '@testing-library/react';
 import { usePullToRefresh } from '@/app/app/_lib/usePullToRefresh';
 import { touch } from './test-utils';
+import './_load-tolerance';
 
 function Harness({ onRefresh, scrollTop = 0 }: { onRefresh: () => void | Promise<void>; scrollTop?: number }) {
   const p = usePullToRefresh(onRefresh, { getScrollTop: () => scrollTop });
