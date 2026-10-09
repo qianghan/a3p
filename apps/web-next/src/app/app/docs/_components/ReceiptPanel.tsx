@@ -55,28 +55,29 @@ function ReceiptImage({ src }: { src: string }) {
   const t = useT();
   const online = useOnlineStatus();
   const boxRef = useRef<HTMLDivElement>(null);
-  const [failed, setFailed] = useState(false);
-  const [attempt, setAttempt] = useState(0);
+  // Keyed by src (like DocThumb): a different receipt starts un-failed with no reset effect, which could
+  // otherwise run AFTER a failure had been reported and wipe it.
+  const [failedSrc, setFailedSrc] = useState<string | null>(null);
+  const failed = failedSrc === src;
 
   // A load that had already failed before React could see an event for it (a cached failure).
   useEffect(() => {
-    setFailed(false);
+    if (failed) return;
     const img = boxRef.current?.querySelector('img');
-    if (img && img.getAttribute('src') && img.complete && img.naturalWidth === 0) setFailed(true);
-  }, [src, attempt]);
+    if (img && img.getAttribute('src') && img.complete && img.naturalWidth === 0) setFailedSrc(src);
+  }, [src, failed]);
 
   // The image's `error` event does not bubble in the DOM, but React delivers it to an ancestor's onError, and
   // attaches that listener while committing the <img> — so there is no window in which a failure can be missed.
   const onImageError = (e: React.SyntheticEvent) => {
-    if (e.target instanceof HTMLImageElement) setFailed(true);
+    if (e.target instanceof HTMLImageElement) setFailedSrc(src);
   };
   const retryLocked = !online;
   const retry = () => {
     if (retryLocked) return;
     // The Retry button is replaced by the image: keep focus on a stable element instead of <body>.
     boxRef.current?.focus();
-    setFailed(false);
-    setAttempt((n) => n + 1);
+    setFailedSrc(null); // the failed state unmounted the viewer, so this mounts a fresh <img>: the browser asks again
   };
 
   // Coming back online is the one moment a retry is certain to be wanted.
@@ -84,10 +85,7 @@ function ReceiptImage({ src }: { src: string }) {
   const failedNow = useRef(failed);
   failedNow.current = failed;
   useEffect(() => {
-    if (online && !wasOnline.current && failedNow.current) {
-      setFailed(false);
-      setAttempt((n) => n + 1);
-    }
+    if (online && !wasOnline.current && failedNow.current) setFailedSrc(null);
     wasOnline.current = online;
   }, [online]);
 
