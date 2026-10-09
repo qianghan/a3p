@@ -202,13 +202,13 @@ describe('Home page — populated', () => {
     expect(region).not.toHaveTextContent('CA$');
   });
 
-  it('a recent expense links to the Docs list until the viewer ships (PR 4)', async () => {
+  it('a recent expense links to its document in the viewer (PR 4)', async () => {
     routeFetch({ [HOME_URL]: () => jsonResponse(200, { success: true, data: homeFixture() }) });
     renderHome();
     await screen.findByRole('region', { name: 'Key numbers' });
     const recent = screen.getByRole('heading', { name: 'Recent activity' }).closest('section') as HTMLElement;
     const staples = within(recent).getByText('Staples').closest('a');
-    expect(staples).toHaveAttribute('href', '/app/docs');
+    expect(staples).toHaveAttribute('href', '/app/docs/exp-1');
   });
 
   it('pull-to-refresh fetches again and keeps the numbers on screen meanwhile', async () => {

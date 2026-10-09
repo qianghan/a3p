@@ -10,12 +10,12 @@ import { tokens, TOUCH } from '../_kit/tokens';
 import { useFormatters } from '../_kit/format';
 
 /**
- * PR 4 (Docs) creates the document viewer at /app/docs/[docId]. Until it
- * exists, an expense row links to the Docs list — a link to a route that 404s
- * is worse than a link one level up. PR 4 flips this to true (and updates the
- * test that pins it); nothing else here changes.
+ * The document viewer lives at /app/docs/[id] (PR 4, Task 4.10), so an expense
+ * row links straight to it. The flag stays as the one switch: a link to a route
+ * that 404s is worse than a link one level up, so it can be turned back to false
+ * (rows then link the Docs list) if the viewer is ever pulled.
  */
-export const DOC_VIEWER_ROUTE_SHIPPED = false;
+export const DOC_VIEWER_ROUTE_SHIPPED = true;
 
 const DOCS_LIST = '/app/docs';
 
