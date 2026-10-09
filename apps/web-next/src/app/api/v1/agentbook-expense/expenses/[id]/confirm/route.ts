@@ -33,7 +33,10 @@ export async function POST(
     const { id } = await params;
     const body = (await request.json().catch(() => ({}))) as ConfirmBody;
 
-    const expense = await db.abExpense.findFirst({ where: { id, tenantId } });
+    // A soft-deleted expense is 404, as on every other [id] route: confirming it
+    // would book money DELETE already took off the books (e.g. a document
+    // deleted on another device while this one still showed it).
+    const expense = await db.abExpense.findFirst({ where: { id, tenantId, deletedAt: null } });
     if (!expense) {
       return NextResponse.json({ success: false, error: 'Expense not found' }, { status: 404 });
     }

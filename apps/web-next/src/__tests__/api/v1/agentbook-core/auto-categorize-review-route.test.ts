@@ -5,9 +5,19 @@ vi.mock('server-only', () => ({}));
 vi.mock('@naap/database', async () => ({ prisma: (await import('@/__tests__/helpers/mem-db')).memDb }));
 vi.mock('@/lib/agentbook-tenant', async () => (await import('@/__tests__/helpers/route-request')).tenantModuleMock);
 const backfill = vi.fn(async () => 'je-new');
-vi.mock('@/lib/agentbook-expense-ledger', () => ({
-  backfillExpenseJournalEntry: (...a: unknown[]) => backfill(...(a as [])),
-}));
+// e6 is BOOKED (on 6999 suspense), so accepting it reposts its journal entry
+// through the REAL repost helper (spied) against mem-db; the unbooked e5 still
+// goes through the (mocked) backfill.
+const h = vi.hoisted(() => ({ repost: vi.fn() }));
+vi.mock('@/lib/agentbook-expense-ledger', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/agentbook-expense-ledger')>();
+  h.repost.mockImplementation(actual.repostExpenseJournalEntry);
+  return {
+    ...actual,
+    backfillExpenseJournalEntry: (...a: unknown[]) => backfill(...(a as [])),
+    repostExpenseJournalEntry: (...a: unknown[]) => h.repost(...a),
+  };
+});
 
 import { memDb } from '@/__tests__/helpers/mem-db';
 import { NextRequest } from 'next/server';
@@ -31,7 +41,19 @@ beforeEach(() => {
   seed.abUserMemory = [pendingMemoryRow('t1', [E6_SUGGESTION, E5_SUGGESTION])];
   memDb.reset(seed);
   backfill.mockClear();
+  h.repost.mockClear();
 });
+
+/** e6's debit (6000 on suspense in the fixture) per account, across every entry. */
+const e6Books = () => {
+  const lines = memDb.table('abJournalLine').rows;
+  // the original entry, plus the reversal + replacement a repost keys to it
+  const ids = new Set(memDb.table('abJournalEntry').rows.filter((e) => e.id === 'je-e6' || e.sourceId === 'je-e6').map((e) => e.id));
+  const out: Record<string, number> = {};
+  for (const l of lines) if (ids.has(l.entryId) && l.accountId !== 'acc-cash') out[l.accountId] = (out[l.accountId] ?? 0) + l.debitCents - l.creditCents;
+  for (const k of Object.keys(out)) if (out[k] === 0) delete out[k];
+  return out;
+};
 
 describe('POST /auto-categorize/review — accept', () => {
   it('applies the suggestion through the categorize path: category, journal, suggestion dropped', async () => {
@@ -39,7 +61,10 @@ describe('POST /auto-categorize/review — accept', () => {
     expect(status).toBe(200);
     expect(body.data.results).toEqual([{ expenseId: 'e6', ok: true }]);
     expect(await row('e6')).toMatchObject({ categoryId: 'acc-meals', confidence: 1 });
-    expect(backfill).toHaveBeenCalledWith('t1', 'e6');
+    // Booked on suspense: the journal entry is reposted onto the accepted category.
+    expect(h.repost).toHaveBeenCalledWith('t1', 'e6', expect.anything(), { categoryChanged: true });
+    expect(backfill).not.toHaveBeenCalled();
+    expect(e6Books()).toEqual({ 'acc-meals': 6000 });
     expect(await pendingIds()).toEqual(['e5']);
   });
 
@@ -88,11 +113,12 @@ describe('POST /auto-categorize/review — mixed batch and tenant isolation', ()
     ]);
     expect((await row('x1'))?.categoryId).toBe('b-meals');
     expect((await row('e5'))?.categoryId).toBeNull();
-    // Write nothing for the refused items: one ledger backfill (the valid item),
-    // the invalid item's suggestion survives, no vendor pattern learned anywhere
-    // (e6 has no vendor; e5/x1/e1 were refused).
-    expect(backfill).toHaveBeenCalledTimes(1);
-    expect(backfill).toHaveBeenCalledWith('t1', 'e6');
+    // Write nothing for the refused items: one ledger repost (the valid, booked
+    // item), the invalid item's suggestion survives, no vendor pattern learned
+    // anywhere (e6 has no vendor; e5/x1/e1 were refused).
+    expect(h.repost).toHaveBeenCalledTimes(1);
+    expect(h.repost).toHaveBeenCalledWith('t1', 'e6', expect.anything(), { categoryChanged: true });
+    expect(backfill).not.toHaveBeenCalled();
     expect(await pendingIds()).toEqual(['e5']);
     expect(memDb.table('abPattern').rows).toEqual([]);
     expect((await memDb.table('abVendor').findFirst({ where: { id: 'v-cafe' } }))?.defaultCategoryId).toBeNull();
@@ -106,7 +132,8 @@ describe('POST /auto-categorize/review — mixed batch and tenant isolation', ()
       { expenseId: 'e6', ok: true },
       { expenseId: 'e6', ok: false, error: 'no_suggestion' },
     ]);
-    expect(backfill).toHaveBeenCalledTimes(1);
+    expect(h.repost).toHaveBeenCalledTimes(1);
+    expect(e6Books()).toEqual({ 'acc-meals': 6000 });
   });
 
   it("another tenant cannot accept t1's suggestions", async () => {
@@ -138,7 +165,7 @@ describe('POST /auto-categorize/review — stale suggestions', () => {
     const { body } = await review({ items: [{ expenseId: 'e6', action: 'accept', categoryId: 'acc-meals' }] });
     expect(body.data.results).toEqual([{ expenseId: 'e6', ok: true }]);
     expect((await row('e6'))?.categoryId).toBe('acc-meals');
-    expect(backfill).toHaveBeenCalledWith('t1', 'e6');
+    expect(h.repost).toHaveBeenCalledWith('t1', 'e6', expect.anything(), { categoryChanged: true });
     expect(await pendingIds()).toEqual(['e5']);
   });
 });
@@ -177,9 +204,10 @@ describe('POST /auto-categorize/review — invalid_category', () => {
 
 describe('POST /auto-categorize/review — category validated once', () => {
   it('an accepted item reads its account exactly once (the categorize lib validates; the route does not repeat it)', async () => {
+    // e5: an UNBOOKED draft, so no repost re-validates the account inside its transaction.
     const find = vi.spyOn(memDb.table('abAccount'), 'findFirst');
-    const { body } = await review({ items: [{ expenseId: 'e6', action: 'accept' }] });
-    expect(body.data.results).toEqual([{ expenseId: 'e6', ok: true }]);
+    const { body } = await review({ items: [{ expenseId: 'e5', action: 'accept' }] });
+    expect(body.data.results).toEqual([{ expenseId: 'e5', ok: true }]);
     expect(find).toHaveBeenCalledTimes(1);
     find.mockRestore();
   });
@@ -187,7 +215,7 @@ describe('POST /auto-categorize/review — category validated once', () => {
 
 describe('POST /auto-categorize/review — failure isolation and repeats', () => {
   it('one failing item reports a code and does not abort the rest; its suggestion stays for a retry', async () => {
-    backfill.mockRejectedValueOnce(new Error('ledger down'));
+    h.repost.mockRejectedValueOnce(new Error('ledger down'));
     const { status, body } = await review({
       items: [{ expenseId: 'e6', action: 'accept' }, { expenseId: 'e5', action: 'accept' }],
     });
