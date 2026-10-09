@@ -26,9 +26,9 @@ export function safeReceiptUrl(url: string | null | undefined): string | null {
  * The receipt, three ways: a PDF is a link out, an image is the pinch-zoom viewer, nothing is a plain tile.
  *
  * PinchZoomImage has no onError of its own, so a failed load (offline with nothing cached, a deleted blob, a
- * revoked URL) would leave an empty bordered box. The image's `error` event does not bubble, so it is caught in
- * the capture phase on the wrapper; a load that already failed before the listener attached is caught by the
- * `complete && naturalWidth === 0` check. The failed state says so and offers Retry, which remounts the image.
+ * revoked URL) would leave an empty bordered box. The wrapper's onError sees the image's failure (React delivers
+ * it to ancestors); an image that had already failed by mount is caught by `complete && naturalWidth === 0`.
+ * The failed state says so and offers Retry, which remounts the image.
  */
 export function ReceiptPanel({ url }: { url: string | null }) {
   const t = useT();
@@ -58,19 +58,18 @@ function ReceiptImage({ src }: { src: string }) {
   const [failed, setFailed] = useState(false);
   const [attempt, setAttempt] = useState(0);
 
+  // A load that had already failed before React could see an event for it (a cached failure).
   useEffect(() => {
     setFailed(false);
-    const box = boxRef.current;
-    if (!box) return;
-    const onError = (e: Event) => {
-      if (e.target instanceof HTMLImageElement) setFailed(true);
-    };
-    box.addEventListener('error', onError, true);
-    const img = box.querySelector('img');
+    const img = boxRef.current?.querySelector('img');
     if (img && img.getAttribute('src') && img.complete && img.naturalWidth === 0) setFailed(true);
-    return () => box.removeEventListener('error', onError, true);
   }, [src, attempt]);
 
+  // The image's `error` event does not bubble in the DOM, but React delivers it to an ancestor's onError, and
+  // attaches that listener while committing the <img> — so there is no window in which a failure can be missed.
+  const onImageError = (e: React.SyntheticEvent) => {
+    if (e.target instanceof HTMLImageElement) setFailed(true);
+  };
   const retryLocked = !online;
   const retry = () => {
     if (retryLocked) return;
@@ -93,7 +92,7 @@ function ReceiptImage({ src }: { src: string }) {
   }, [online]);
 
   return (
-    <div ref={boxRef} tabIndex={-1} style={{ outline: 'none' }}>
+    <div ref={boxRef} tabIndex={-1} onError={onImageError} style={{ outline: 'none' }}>
       {failed ? (
         <div role="alert" data-testid="receipt-failed">
           <EmptyState
