@@ -239,6 +239,7 @@
     "zoom_out": "Réduire",
     "zoom_reset": "Réinitialiser le zoom",
     "zoom_level": "Zoom : {pct} %",
+    "zoom_pan_hint": "Zoom actif. Utilisez les touches fléchées pour déplacer le reçu. Appuyez sur Début ou Échap pour réinitialiser le zoom.",
     "field_amount": "Montant",
     "field_vendor": "Fournisseur",
     "field_date": "Date de la dépense",

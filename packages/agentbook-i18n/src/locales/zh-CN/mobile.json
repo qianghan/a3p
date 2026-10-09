@@ -239,6 +239,7 @@
     "zoom_out": "缩小",
     "zoom_reset": "重置缩放",
     "zoom_level": "缩放：{pct}%",
+    "zoom_pan_hint": "已放大。使用方向键移动收据，按 Home 或 Esc 键重置缩放。",
     "field_amount": "金额",
     "field_vendor": "商家",
     "field_date": "日期",

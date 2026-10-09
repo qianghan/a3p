@@ -239,6 +239,7 @@
     "zoom_out": "Zoom out",
     "zoom_reset": "Reset zoom",
     "zoom_level": "Zoom: {pct}%",
+    "zoom_pan_hint": "Zoomed in. Use the arrow keys to move around the receipt. Press Home or Escape to reset the zoom.",
     "field_amount": "Amount",
     "field_vendor": "Vendor",
     "field_date": "Date",

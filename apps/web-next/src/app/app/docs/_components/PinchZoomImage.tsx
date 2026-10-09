@@ -3,10 +3,10 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Maximize2, ZoomIn, ZoomOut } from 'lucide-react';
 import { useT } from '@/hooks/use-t';
-import { buttonStyle, tokens } from '../../_kit';
+import { buttonStyle, tokens, visuallyHidden } from '../../_kit';
 import {
   IDENTITY, DOUBLE_TAP_MS, DOUBLE_TAP_DIST_PX, TAP_SLOP_PX, MAX_SCALE, MIN_SCALE, ZOOM_STEP,
-  distance, midpoint, pinch, pan, reset, stepZoom, toggleDoubleTap, type Pt, type ZoomState,
+  distance, midpoint, pinch, pan, reset, stepZoom, keyPan, toggleDoubleTap, type Pt, type ZoomState,
 } from '../_lib/pinch-zoom';
 
 function usePrefersReducedMotion(): boolean {
@@ -38,6 +38,7 @@ interface Gesture { start: ZoomState; startDist: number; startMid: Pt; panFrom: 
  */
 export function PinchZoomImage({ src, alt, hint }: { src: string; alt: string; hint: string }) {
   const t = useT();
+  const hintId = React.useId();
   const boxRef = useRef<HTMLDivElement>(null);
   const pointers = useRef(new Map<number, Pt>());
   const downAt = useRef(new Map<number, Pt>());
@@ -54,9 +55,19 @@ export function PinchZoomImage({ src, alt, hint }: { src: string; alt: string; h
   const [active, setActive] = useState(false);
   const reduced = usePrefersReducedMotion();
 
-  const commit = useCallback((next: ZoomState) => {
+  /**
+   * What the screen-reader live region says. It follows `z` only when a zoom
+   * action COMPLETES (gesture end, button, double-tap, key, reset), never per
+   * pointermove, so a pinch is announced once ("Zoom: 235%") rather than as a
+   * stream of 101%, 102%, ...
+   */
+  const [announced, setAnnounced] = useState(1);
+  const [focused, setFocused] = useState(false);
+
+  const commit = useCallback((next: ZoomState, announce = true) => {
     zRef.current = next;
     setZ(next);
+    if (announce) setAnnounced(next.scale);
   }, []);
 
   const size = () => {
@@ -122,10 +133,11 @@ export function PinchZoomImage({ src, alt, hint }: { src: string; alt: string; h
     if (!g) return;
     const { w, h } = size();
     const pts = [...pointers.current.values()];
-    if (pts.length >= 2 && g.startDist > 0) {
-      commit(pinch(g.start, g.startDist, g.startMid, distance(pts[0], pts[1]), midpoint(pts[0], pts[1]), w, h));
+    // Mid-gesture frames update the picture and the visible label, not the live region.
+    if (pts.length >= 2) {
+      commit(pinch(g.start, g.startDist, g.startMid, distance(pts[0], pts[1]), midpoint(pts[0], pts[1]), w, h), false);
     } else if (pts.length === 1 && g.panFrom) {
-      commit(pan(g.start, pts[0].x - g.panFrom.x, pts[0].y - g.panFrom.y, w, h));
+      commit(pan(g.start, pts[0].x - g.panFrom.x, pts[0].y - g.panFrom.y, w, h), false);
     }
   };
 
@@ -157,6 +169,7 @@ export function PinchZoomImage({ src, alt, hint }: { src: string; alt: string; h
     if (pointers.current.size === 0) {
       multi.current = false;
       setActive(false);
+      setAnnounced(zRef.current.scale); // the gesture is over: announce its result once
     }
     begin();
   };
@@ -166,9 +179,26 @@ export function PinchZoomImage({ src, alt, hint }: { src: string; alt: string; h
     lastTap.current = null;
     commit(next(zRef.current, w, h));
   };
+  const onKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    if (e.altKey || e.ctrlKey || e.metaKey || zRef.current.scale <= MIN_SCALE) return; // nothing to do at 1x
+    if (e.key === 'Home' || e.key === 'Escape') {
+      e.preventDefault();
+      apply(() => reset());
+      return;
+    }
+    const { w, h } = size();
+    const next = keyPan(zRef.current, e.key, w, h);
+    if (!next) return; // not a pan key, or already at the edge: leave the key to the browser
+    e.preventDefault();
+    lastTap.current = null;
+    commit(next);
+  };
   const atMax = z.scale >= MAX_SCALE;
   const atMin = z.scale <= MIN_SCALE;
   const zoomed = !atMin;
+  // A tab stop only while there is something to pan (and while it holds focus, so a
+  // keyboard reset does not strand focus on an element that just stopped being focusable).
+  const focusable = zoomed || focused;
 
   const btn = (disabled: boolean): React.CSSProperties => ({ ...buttonStyle('secondary', disabled), padding: 0 });
 
@@ -180,6 +210,11 @@ export function PinchZoomImage({ src, alt, hint }: { src: string; alt: string; h
           data-testid="pinch-zoom"
           role="img"
           aria-label={alt}
+          aria-describedby={zoomed ? hintId : undefined}
+          tabIndex={focusable ? 0 : undefined}
+          onKeyDown={onKeyDown}
+          onFocus={() => setFocused(true)}
+          onBlur={() => setFocused(false)}
           onPointerDown={onPointerDown}
           onPointerMove={onPointerMove}
           onPointerUp={(e) => finish(e, true)}
@@ -218,6 +253,9 @@ export function PinchZoomImage({ src, alt, hint }: { src: string; alt: string; h
           </span>
         )}
       </div>
+      <span id={hintId} data-testid="pinch-zoom-pan-hint" style={visuallyHidden}>
+        {t('mobile.docs.zoom_pan_hint')}
+      </span>
       <div
         role="group"
         aria-label={t('mobile.docs.zoom_controls')}
@@ -233,12 +271,16 @@ export function PinchZoomImage({ src, alt, hint }: { src: string; alt: string; h
         >
           <ZoomOut size={20} aria-hidden="true" />
         </button>
+        {/* Visible label follows the gesture frame by frame; it is hidden from AT, which hears the live region below. */}
         <span
           data-testid="zoom-level"
-          aria-live="polite"
+          aria-hidden="true"
           style={{ minWidth: 72, textAlign: 'center', fontSize: tokens.font.sm, color: tokens.color.muted }}
         >
           {t('mobile.docs.zoom_level', { pct: Math.round(z.scale * 100) })}
+        </span>
+        <span data-testid="zoom-live" role="status" aria-live="polite" aria-atomic="true" style={visuallyHidden}>
+          {t('mobile.docs.zoom_level', { pct: Math.round(announced * 100) })}
         </span>
         <button
           type="button"

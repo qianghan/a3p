@@ -23,6 +23,14 @@ export const TAP_SLOP_PX = 10;
 export const DOUBLE_TAP_DIST_PX = 30;
 /** Factor applied by the zoom-in / zoom-out buttons (zoom-out divides by it). */
 export const ZOOM_STEP = 1.5;
+/** Arrow-key pan distance in CSS px per key press (keyboard / assistive-tech pan). */
+export const KEY_PAN_STEP_PX = 40;
+/**
+ * Floor for the distance a pinch is measured against. Two fingers that land
+ * within a few px of each other would otherwise make the pinch dead (0) or an
+ * enormous ratio (3 px -> 4x on the first move).
+ */
+export const MIN_PINCH_DIST_PX = 8;
 export const IDENTITY: ZoomState = { scale: 1, x: 0, y: 0 };
 const ORIGIN: Pt = { x: 0, y: 0 };
 
@@ -46,13 +54,17 @@ export function clampPan(s: ZoomState, w: number, h: number): ZoomState {
   };
 }
 
+/** Scale by the raw factor `ratio`, keeping the content under `startMid` pinned under `curMid`. */
+function scaleAbout(start: ZoomState, ratio: number, startMid: Pt, curMid: Pt, w: number, h: number): ZoomState {
+  const scale = clampScale(start.scale * ratio);
+  const k = scale / start.scale;
+  return clampPan({ scale, x: curMid.x - k * (startMid.x - start.x), y: curMid.y - k * (startMid.y - start.y) }, w, h);
+}
+
 export function pinch(
   start: ZoomState, startDist: number, startMid: Pt, curDist: number, curMid: Pt, w: number, h: number,
 ): ZoomState {
-  if (startDist <= 0) return start;
-  const scale = clampScale(start.scale * (curDist / startDist));
-  const k = scale / start.scale;
-  return clampPan({ scale, x: curMid.x - k * (startMid.x - start.x), y: curMid.y - k * (startMid.y - start.y) }, w, h);
+  return scaleAbout(start, curDist / Math.max(startDist, MIN_PINCH_DIST_PX), startMid, curMid, w, h);
 }
 
 export function pan(start: ZoomState, dx: number, dy: number, w: number, h: number): ZoomState {
@@ -62,11 +74,27 @@ export function pan(start: ZoomState, dx: number, dy: number, w: number, h: numb
 
 /** Zoom by `factor` about the container centre (the +/- buttons). */
 export function stepZoom(s: ZoomState, factor: number, w: number, h: number): ZoomState {
-  return pinch(s, 1, ORIGIN, factor, ORIGIN, w, h);
+  return scaleAbout(s, factor, ORIGIN, ORIGIN, w, h);
 }
 
 export function toggleDoubleTap(s: ZoomState, at: Pt, w: number, h: number): ZoomState {
   if (s.scale > MIN_SCALE) return reset();
   // From scale 1 / x = 0 the content point under the tap is `at`; keeping it there needs x = at − S·at = −at·(S − 1).
   return clampPan({ scale: DOUBLE_TAP_SCALE, x: -at.x * (DOUBLE_TAP_SCALE - 1), y: -at.y * (DOUBLE_TAP_SCALE - 1) }, w, h);
+}
+
+/**
+ * Keyboard pan: an arrow key moves the VIEW (so the content moves the other
+ * way, as when scrolling), by KEY_PAN_STEP_PX, through the same clamp as the
+ * pointer path. Returns null when the key is not a pan key, the image is not
+ * zoomed, or the pan is already at the edge (nothing moves: the caller must not
+ * preventDefault).
+ */
+export function keyPan(s: ZoomState, key: string, w: number, h: number): ZoomState | null {
+  if (s.scale <= MIN_SCALE) return null;
+  const dx = key === 'ArrowLeft' ? KEY_PAN_STEP_PX : key === 'ArrowRight' ? -KEY_PAN_STEP_PX : 0;
+  const dy = key === 'ArrowUp' ? KEY_PAN_STEP_PX : key === 'ArrowDown' ? -KEY_PAN_STEP_PX : 0;
+  if (dx === 0 && dy === 0) return null;
+  const next = pan(s, dx, dy, w, h);
+  return next.x === s.x && next.y === s.y ? null : next;
 }

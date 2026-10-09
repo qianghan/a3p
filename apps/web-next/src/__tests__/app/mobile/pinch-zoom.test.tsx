@@ -2,8 +2,8 @@ import React from 'react';
 import { describe, it, expect, vi, beforeAll, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import {
-  IDENTITY, MAX_SCALE, MIN_SCALE, ZOOM_STEP, DOUBLE_TAP_SCALE,
-  pinch, pan, clampPan, clampScale, toggleDoubleTap, stepZoom, reset, distance, midpoint,
+  IDENTITY, MAX_SCALE, MIN_SCALE, ZOOM_STEP, DOUBLE_TAP_SCALE, KEY_PAN_STEP_PX, MIN_PINCH_DIST_PX,
+  pinch, pan, clampPan, clampScale, toggleDoubleTap, stepZoom, reset, distance, midpoint, keyPan,
 } from '@/app/app/docs/_lib/pinch-zoom';
 import { PinchZoomImage } from '@/app/app/docs/_components/PinchZoomImage';
 import { installPointerEvent } from './_pointer';
@@ -62,9 +62,33 @@ describe('pinch-zoom math', () => {
     expect(pinch({ scale: 2, x: 120, y: -150 }, 200, { x: 30, y: 10 }, 20, { x: 30, y: 10 }, W, H)).toEqual(IDENTITY);
   });
 
-  it('ignores a pinch that started with the fingers on the same point', () => {
-    const start = { scale: 2, x: 10, y: 10 };
-    expect(pinch(start, 0, O, 120, O, W, H)).toBe(start);
+  it('measures a pinch against a minimum start distance, so fingers that land together are neither dead nor a jump to 4x', () => {
+    expect(MIN_PINCH_DIST_PX).toBe(8);
+    // Same point (0 px): not dead. 0 -> 16 px is measured against the 8 px floor: 2x.
+    expect(pinch(IDENTITY, 0, O, 16, O, W, H)).toEqual({ scale: 2, x: 0, y: 0 });
+    // 3 px apart, first move to 4 px: 4/8 = 0.5 (clamped to 1x), NOT 4/3 or 4x.
+    expect(pinch(IDENTITY, 3, O, 4, O, W, H).scale).toBe(1);
+    // 3 px apart then 6 px: still below the floor, still 1x.
+    expect(pinch(IDENTITY, 3, O, 6, O, W, H).scale).toBe(1);
+    // A start distance above the floor is untouched: 20 -> 40 is exactly 2x.
+    expect(pinch(IDENTITY, 20, O, 40, O, W, H).scale).toBe(2);
+    expect(pinch(IDENTITY, 8, O, 12, O, W, H).scale).toBe(1.5);
+  });
+
+  it('keyPan moves the view by the fixed step through the pan clamp, and says null when nothing moves', () => {
+    expect(KEY_PAN_STEP_PX).toBe(40);
+    const z = { scale: 2, x: 0, y: 0 };
+    expect(keyPan(z, 'ArrowRight', W, H)).toEqual({ scale: 2, x: -40, y: 0 });
+    expect(keyPan(z, 'ArrowLeft', W, H)).toEqual({ scale: 2, x: 40, y: 0 });
+    expect(keyPan(z, 'ArrowDown', W, H)).toEqual({ scale: 2, x: 0, y: -40 });
+    expect(keyPan(z, 'ArrowUp', W, H)).toEqual({ scale: 2, x: 0, y: 40 });
+    // Clamp: x limit at 2x is 150; 130 + 40 stops at 150, then nothing moves.
+    expect(keyPan({ scale: 2, x: 130, y: 0 }, 'ArrowLeft', W, H)).toEqual({ scale: 2, x: 150, y: 0 });
+    expect(keyPan({ scale: 2, x: 150, y: 0 }, 'ArrowLeft', W, H)).toBeNull();
+    expect(keyPan({ scale: 2, x: 0, y: -200 }, 'ArrowDown', W, H)).toBeNull();
+    // Not a pan key / not zoomed.
+    expect(keyPan(z, 'a', W, H)).toBeNull();
+    expect(keyPan(IDENTITY, 'ArrowRight', W, H)).toBeNull();
   });
 
   it('clamps panning so the image edge never enters the viewport', () => {
@@ -257,6 +281,72 @@ describe('<PinchZoomImage> pointer handling', () => {
     expect(screen.queryByTestId('pinch-zoom-hint')).toBeNull();
   });
 
+  it('announces a pinch once, at the end: the live region is frozen mid-gesture while the visible label follows', () => {
+    mount();
+    const live = () => screen.getByTestId('zoom-live');
+    const label = () => screen.getByTestId('zoom-level');
+    down(1, 100); down(2, 200);
+    for (const [a, b] of [[95, 205], [80, 220], [60, 240], [50, 250]]) {
+      move(1, a); move(2, b);
+      expect(live()).toHaveTextContent('Zoom: 100%');
+    }
+    expect(label()).toHaveTextContent('Zoom: 200%');
+    up(2, 250);
+    expect(live()).toHaveTextContent('Zoom: 100%'); // one finger is still down: the gesture is not over
+    move(1, 60); // the survivor now pans: still the same gesture
+    expect(live()).toHaveTextContent('Zoom: 100%');
+    up(1, 60);
+    expect(live()).toHaveTextContent('Zoom: 200%');
+  });
+
+  it('announces on pointercancel too, and a button zoom announces immediately', () => {
+    mount();
+    down(1, 100); down(2, 200);
+    move(1, 50); move(2, 250);
+    expect(screen.getByTestId('zoom-live')).toHaveTextContent('Zoom: 100%');
+    fireEvent.pointerCancel(box(), { pointerId: 2, clientX: 250, clientY: 200 });
+    fireEvent.pointerCancel(box(), { pointerId: 1, clientX: 50, clientY: 200 });
+    expect(screen.getByTestId('zoom-live')).toHaveTextContent('Zoom: 200%');
+    fireEvent.click(screen.getByTestId('zoom-in')); // 3x
+    expect(screen.getByTestId('zoom-live')).toHaveTextContent('Zoom: 300%');
+    fireEvent.click(screen.getByTestId('zoom-reset'));
+    expect(screen.getByTestId('zoom-live')).toHaveTextContent('Zoom: 100%');
+  });
+
+  it('announces a double-tap zoom immediately', () => {
+    const now = vi.spyOn(Date, 'now');
+    mount();
+    tapAt(now, 1000); tapAt(now, 1150);
+    expect(screen.getByTestId('zoom-live')).toHaveTextContent('Zoom: 250%');
+  });
+
+  it('rounds the zoom label for an off-integer scale (a pinch ending at 2.3456x reads 235%)', () => {
+    mount();
+    // 100 apart -> 234.56 apart about the centre: 2.3456x.
+    down(1, 100); down(2, 200);
+    move(1, 150 - 117.28); move(2, 150 + 117.28);
+    expect(transform()).toMatch(/scale\(2\.345\d*\)$/); // 2.3456 up to float noise: not an integer
+    expect(screen.getByTestId('zoom-level').textContent).toBe('Zoom: 235%');
+    up(1, 32.72); up(2, 267.28);
+    expect(screen.getByTestId('zoom-live').textContent).toBe('Zoom: 235%');
+  });
+
+  it('a pinch whose fingers land on the same point still works, and a few px apart does not jump to 4x', () => {
+    mount();
+    down(1, 150); down(2, 150); // 0 px apart
+    move(1, 142); // 8 px apart: 8/8 = 1x
+    expect(transform()).toBe('translate(0px, 0px) scale(1)');
+    move(2, 158); // 16 px apart: 2x
+    expect(transform()).toBe('translate(0px, 0px) scale(2)');
+  });
+
+  it('a few px apart on landing does not leap to 4x on the first move', () => {
+    mount();
+    down(1, 148); down(2, 152); // 4 px apart
+    move(2, 156); // 8 px apart: 8/8 = 1x, not 8/4 = 2x
+    expect(transform()).toBe('translate(0px, 0px) scale(1)');
+  });
+
   it('ignores a third finger: it neither jumps the image nor ends the pinch', () => {
     mount();
     down(1, 100); down(2, 200);
@@ -441,7 +531,11 @@ describe('<PinchZoomImage> keyboard / assistive-tech controls', () => {
     expect(screen.getByTestId('zoom-reset')).toHaveAttribute('aria-label', 'Reset zoom');
     expect(screen.getByTestId('zoom-in').closest('[role="group"]')).toHaveAttribute('aria-label', 'Zoom controls');
     expect(screen.getByTestId('zoom-level')).toHaveTextContent('Zoom: 100%');
-    expect(screen.getByTestId('zoom-level')).toHaveAttribute('aria-live', 'polite');
+    // The visible label is hidden from AT; the polite live region is the separate, once-per-action one.
+    expect(screen.getByTestId('zoom-level')).toHaveAttribute('aria-hidden', 'true');
+    expect(screen.getByTestId('zoom-level')).not.toHaveAttribute('aria-live');
+    expect(screen.getByTestId('zoom-live')).toHaveAttribute('aria-live', 'polite');
+    expect(screen.getByTestId('zoom-live')).toHaveTextContent('Zoom: 100%');
   });
 
   it('every control is at least 44x44 CSS px', () => {
@@ -488,5 +582,85 @@ describe('<PinchZoomImage> keyboard / assistive-tech controls', () => {
     expect(transform()).toBe('translate(0px, 0px) scale(1)');
     expect(screen.getByTestId('zoom-level')).toHaveTextContent('Zoom: 100%');
     expect(rst).toHaveAttribute('aria-disabled', 'true');
+  });
+
+  const kbox = () => screen.getByTestId('pinch-zoom');
+  /** fireEvent returns false when the handler called preventDefault. */
+  const key = (k: string, init: Record<string, unknown> = {}) => fireEvent.keyDown(kbox(), { key: k, ...init });
+
+  it('is not a tab stop at 1x, becomes one when zoomed, and is described by the catalog pan hint', () => {
+    mount();
+    expect(kbox()).not.toHaveAttribute('tabindex');
+    expect(kbox()).not.toHaveAttribute('aria-describedby');
+    fireEvent.click(screen.getByTestId('zoom-in'));
+    expect(kbox()).toHaveAttribute('tabindex', '0');
+    const hintId = kbox().getAttribute('aria-describedby') as string;
+    expect(document.getElementById(hintId)).toHaveTextContent('Zoomed in. Use the arrow keys to move around the receipt. Press Home or Escape to reset the zoom.');
+    fireEvent.click(screen.getByTestId('zoom-reset'));
+    expect(kbox()).not.toHaveAttribute('tabindex');
+    expect(kbox()).not.toHaveAttribute('aria-describedby');
+  });
+
+  it('keys do nothing at 1x (and are not swallowed)', () => {
+    mount();
+    expect(key('ArrowLeft')).toBe(true);
+    expect(key('Home')).toBe(true);
+    expect(key('Escape')).toBe(true);
+    expect(transform()).toBe('translate(0px, 0px) scale(1)');
+  });
+
+  it('arrow keys pan the zoomed image by 40px through the clamp, and only swallow the key when they move it', () => {
+    mount();
+    fireEvent.click(screen.getByTestId('zoom-in')); // 1.5x: x limit 75, y limit 100
+    expect(key('ArrowLeft')).toBe(false);
+    expect(transform()).toBe('translate(40px, 0px) scale(1.5)');
+    expect(key('ArrowLeft')).toBe(false);
+    expect(transform()).toBe('translate(75px, 0px) scale(1.5)'); // 80 clamped to 75
+    expect(key('ArrowLeft')).toBe(true); // at the edge: nothing moved, key left alone
+    expect(transform()).toBe('translate(75px, 0px) scale(1.5)');
+    expect(key('ArrowRight')).toBe(false);
+    expect(transform()).toBe('translate(35px, 0px) scale(1.5)');
+    expect(key('ArrowDown')).toBe(false);
+    expect(transform()).toBe('translate(35px, -40px) scale(1.5)');
+    key('ArrowDown'); key('ArrowDown'); // -80, then clamped at -100
+    expect(transform()).toBe('translate(35px, -100px) scale(1.5)');
+    expect(key('ArrowDown')).toBe(true);
+    expect(key('ArrowUp')).toBe(false);
+    expect(transform()).toBe('translate(35px, -60px) scale(1.5)');
+  });
+
+  it('ignores unrelated keys and modified arrows', () => {
+    mount();
+    fireEvent.click(screen.getByTestId('zoom-in'));
+    expect(key('a')).toBe(true);
+    expect(key('Tab')).toBe(true);
+    expect(key('ArrowLeft', { ctrlKey: true })).toBe(true);
+    expect(key('ArrowLeft', { metaKey: true })).toBe(true);
+    expect(key('ArrowLeft', { altKey: true })).toBe(true);
+    expect(transform()).toBe('translate(0px, 0px) scale(1.5)');
+  });
+
+  it('Home and Escape reset the zoom, announce it, and keep the box focusable while it holds focus', () => {
+    mount();
+    fireEvent.click(screen.getByTestId('zoom-in'));
+    key('ArrowLeft');
+    kbox().focus();
+    expect(key('Home')).toBe(false);
+    expect(transform()).toBe('translate(0px, 0px) scale(1)');
+    expect(screen.getByTestId('zoom-live')).toHaveTextContent('Zoom: 100%');
+    expect(kbox()).toHaveAttribute('tabindex', '0'); // focus is not stranded
+    fireEvent.blur(kbox());
+    expect(kbox()).not.toHaveAttribute('tabindex');
+    fireEvent.click(screen.getByTestId('zoom-in'));
+    key('ArrowLeft');
+    expect(key('Escape')).toBe(false);
+    expect(transform()).toBe('translate(0px, 0px) scale(1)');
+  });
+
+  it('a key pan is announced as an action but does not change the announced percentage', () => {
+    mount();
+    fireEvent.click(screen.getByTestId('zoom-in'));
+    key('ArrowRight');
+    expect(screen.getByTestId('zoom-live')).toHaveTextContent('Zoom: 150%');
   });
 });
