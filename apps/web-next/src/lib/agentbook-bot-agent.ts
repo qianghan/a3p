@@ -21,6 +21,7 @@
 
 import 'server-only';
 import { prisma as db } from '@naap/database';
+import { validateExpenseCategory } from '@/lib/agentbook-expense-category';
 import { parseInvoiceFromText } from './agentbook-invoice-parser';
 import { createInvoiceDraft } from './agentbook-invoice-draft';
 import { parseRecurringFromText } from './agentbook-recurring-parser';
@@ -1548,6 +1549,10 @@ export async function executeStep(step: PlanStep, ctx: BotContext): Promise<Exec
         if (!ctx.active || !name) return { stepId: step.id, success: false, error: 'missing args' };
         const matched = ctx.categories.find((c) => c.name === name);
         if (!matched) return { stepId: step.id, success: false, error: 'no such category' };
+        // ctx.categories comes from the caller; do not trust it to have left out
+        // the 6999 suspense account (or an account that has since gone inactive).
+        const check = await validateExpenseCategory(ctx.tenantId, matched.id);
+        if (!check.ok) return { stepId: step.id, success: false, error: 'no such category' };
         await applyCategory(ctx.tenantId, ctx.active, matched);
         return { stepId: step.id, success: true, data: { categoryName: matched.name } };
       }

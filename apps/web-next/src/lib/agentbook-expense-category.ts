@@ -36,6 +36,20 @@ export type CategoryCheck = { ok: true } | ({ ok: false } & CategoryRejection);
 /** Body of the JSON error response for a rejection (shared by the routes). */
 export const categoryRejectionBody = (r: CategoryRejection) => ({ success: false as const, code: r.code, error: r.error });
 
+/**
+ * `where` for every list of categories offered to a human or a model (Telegram
+ * pickers, the bot's name matching, the LLM categorizer): the tenant's active
+ * expense accounts WITHOUT the suspense account, so it cannot be chosen by name
+ * or by tapping it. Writers still run `validateExpenseCategory`; this keeps it
+ * from being offered at all.
+ */
+export const assignableCategoryWhere = (tenantId: string) => ({
+  tenantId,
+  accountType: 'expense',
+  isActive: true,
+  code: { not: UNCATEGORIZED_CODE },
+});
+
 export async function validateExpenseCategory(tenantId: string, categoryId: string): Promise<CategoryCheck> {
   const account = await db.abAccount.findFirst({
     where: { id: categoryId, tenantId, accountType: 'expense', isActive: true },

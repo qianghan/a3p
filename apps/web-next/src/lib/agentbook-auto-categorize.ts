@@ -16,6 +16,7 @@
 import 'server-only';
 import { prisma as db } from '@naap/database';
 import { backfillExpenseJournalEntry } from '@/lib/agentbook-expense-ledger';
+import { assignableCategoryWhere } from '@/lib/agentbook-expense-category';
 
 export interface AutoCategoryResult {
   appliedCount: number;
@@ -246,8 +247,11 @@ export async function autoCategorizeForTenant(
     return { appliedCount: 0, pending: [], skippedCount: 0 };
   }
 
+  // Without the 6999 suspense account: the model must not be able to "classify"
+  // an expense into it (that would stamp it on categoryId and hide the row from
+  // every uncategorized surface, incl. this very sweep).
   const categories = await db.abAccount.findMany({
-    where: { tenantId, accountType: 'expense', isActive: true },
+    where: assignableCategoryWhere(tenantId),
     select: { id: true, name: true, code: true, taxCategory: true },
   });
   if (categories.length === 0) {
