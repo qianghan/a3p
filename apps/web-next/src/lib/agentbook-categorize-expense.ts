@@ -4,7 +4,13 @@
  *
  * Moved verbatim out of app/api/v1/agentbook-expense/expenses/[id]/categorize
  * so the mobile bulk review (POST /agentbook-core/auto-categorize/review)
- * runs the exact same writes: category, ledger backfill, vendor learning.
+ * runs the exact same writes: category, ledger backfill / repost, vendor learning.
+ *
+ * Re-categorizing a BOOKED expense reposts its journal entry (reversal +
+ * replacement, the PATCH route's mechanism) in the same transaction as the
+ * category write, and can therefore be refused with a 422 (closed period,
+ * split entry, already-reversed entry) or a 409 (lost race) — nothing is
+ * written then.
  *
  * A human picking a category IS certainty: the expense gets confidence 1.0 and
  * the learned pattern 0.95. A machine caller (the categorize-expenses skill)
@@ -14,7 +20,14 @@
  */
 import 'server-only';
 import { prisma as db } from '@naap/database';
-import { backfillExpenseJournalEntry } from '@/lib/agentbook-expense-ledger';
+import {
+  backfillExpenseJournalEntry,
+  repostExpenseJournalEntry,
+  ExpenseLedgerPeriodClosedError,
+  ExpenseLedgerShapeError,
+  ExpenseLedgerAlreadyReversedError,
+  ALREADY_REVERSED_MESSAGE,
+} from '@/lib/agentbook-expense-ledger';
 
 const clamp01 = (n: number) => Math.min(1, Math.max(0, n));
 
@@ -48,10 +61,51 @@ type UpdatedExpense = Awaited<ReturnType<typeof db.abExpense.update>>;
 
 export const INVALID_CATEGORY_ERROR = 'categoryId is not one of your expense categories';
 
+/**
+ * Why re-categorizing a BOOKED expense was refused. Same bodies the PATCH edit
+ * route sends for the same ledger failures, plus a machine `code` (the style
+ * invalid_category uses) so the bulk review can report it per item.
+ */
+export type CategorizeLedgerCode = 'period_closed' | 'split_entry' | 'already_reversed';
+
+export const SPLIT_ENTRY_ERROR =
+  'This expense is booked as a split or multi-line entry, so its amount or category cannot be edited automatically';
+export const CONCURRENT_EDIT_ERROR = 'This expense was just changed by another request; reload and try again';
+
 export type CategorizeOutcome =
   | { ok: true; expense: UpdatedExpense }
   | { ok: false; status: 400 | 404; error: string }
-  | { ok: false; status: 400; code: 'invalid_category'; error: string };
+  | { ok: false; status: 400; code: 'invalid_category'; error: string }
+  | { ok: false; status: 422; code: CategorizeLedgerCode; error: string; details?: Record<string, unknown> }
+  | { ok: false; status: 409; code: 'conflict'; error: string };
+
+/** The row vanished (soft-deleted) between the read and the row lock. */
+class ExpenseGoneError extends Error {}
+
+/** Map the repost helper's refusals to the PATCH route's 422 / 409 bodies. */
+function ledgerFailure(err: unknown): CategorizeOutcome | null {
+  if (err instanceof ExpenseGoneError) return { ok: false, status: 404, error: 'Expense not found' };
+  if (err instanceof ExpenseLedgerPeriodClosedError) {
+    return {
+      ok: false,
+      status: 422,
+      code: 'period_closed',
+      error: 'Period gate violated',
+      details: { constraint: 'period_gate', year: err.year, month: err.month, status: 'closed' },
+    };
+  }
+  if (err instanceof ExpenseLedgerAlreadyReversedError) {
+    return { ok: false, status: 422, code: 'already_reversed', error: ALREADY_REVERSED_MESSAGE };
+  }
+  if (err instanceof ExpenseLedgerShapeError) {
+    return { ok: false, status: 422, code: 'split_entry', error: SPLIT_ENTRY_ERROR };
+  }
+  // Another edit already superseded this journal entry (G-021 unique key).
+  if ((err as { code?: string })?.code === 'P2002') {
+    return { ok: false, status: 409, code: 'conflict', error: CONCURRENT_EDIT_ERROR };
+  }
+  return null;
+}
 
 export async function categorizeExpense(
   tenantId: string,
@@ -90,15 +144,55 @@ export async function categorizeExpense(
     return { ok: false, status: 400, code: 'invalid_category', error: INVALID_CATEGORY_ERROR };
   }
 
-  const updated = await db.abExpense.update({
-    where: { id: expenseId },
-    data: { categoryId, confidence: expenseConfidence },
-  });
+  let updated: UpdatedExpense;
+  let reposted = false;
+  if (expense.journalEntryId && expense.categoryId !== categoryId) {
+    // BOOKED and the category really changes: the debit has to follow it —
+    // off a real category (Meals → Travel) as well as off 6999 suspense.
+    // The backfill below only ever moved a SUSPENSE debit, so Meals → Travel
+    // left the books on Meals while the row said Travel. Same mechanism and
+    // the same single transaction as the PATCH edit route: a closed period, a
+    // split entry or an already-reversed entry rolls the category back too.
+    try {
+      updated = await db.$transaction(async (tx) => {
+        // Row lock first, then decide from the row as committed by anyone
+        // before us (a concurrent categorize / edit / DELETE serializes here).
+        const { count } = await tx.abExpense.updateMany({
+          where: { id: expenseId, tenantId, deletedAt: null },
+          data: { updatedAt: new Date() },
+        });
+        if (count === 0) throw new ExpenseGoneError();
+        const prev = await tx.abExpense.findFirst({ where: { id: expenseId, tenantId } });
+        if (!prev) throw new ExpenseGoneError();
+        const row = await tx.abExpense.update({
+          where: { id: expenseId },
+          data: { categoryId, confidence: expenseConfidence },
+        });
+        // Unchanged under the lock (a retry, or a concurrent identical pick)
+        // posts nothing: a retry after a lost response must not double-book.
+        if (prev.categoryId === categoryId || !row.journalEntryId || row.status === 'rejected') return row;
+        await repostExpenseJournalEntry(tenantId, expenseId, tx, { categoryChanged: true });
+        reposted = true;
+        return (await tx.abExpense.findFirst({ where: { id: expenseId, tenantId } })) ?? row;
+      });
+    } catch (err) {
+      const failure = ledgerFailure(err);
+      if (failure) return failure;
+      throw err;
+    }
+  } else {
+    updated = await db.abExpense.update({
+      where: { id: expenseId },
+      data: { categoryId, confidence: expenseConfidence },
+    });
+  }
 
-  // Now that the expense has a category, post its ledger entry if it never
-  // got one at creation (receipt-capture / bank-import), or move a suspense
-  // posting onto the real category.
-  await backfillExpenseJournalEntry(tenantId, expenseId);
+  if (!reposted) {
+    // Unbooked: post its ledger entry if it never got one at creation
+    // (receipt-capture / bank-import). Booked with an unchanged category: a
+    // no-op, except it still moves a debit left on suspense. Idempotent.
+    await backfillExpenseJournalEntry(tenantId, expenseId);
+  }
 
   // Best-effort: the category + ledger writes above have already committed,
   // so a failure here (e.g. a P2002 on tenantId_vendorPattern when concurrent
