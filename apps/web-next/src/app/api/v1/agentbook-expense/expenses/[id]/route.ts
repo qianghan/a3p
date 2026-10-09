@@ -31,7 +31,7 @@ import {
   ExpenseLedgerAlreadyReversedError,
   ALREADY_REVERSED_MESSAGE,
 } from '@/lib/agentbook-expense-ledger';
-import { INVALID_CATEGORY_ERROR } from '@/lib/agentbook-categorize-expense';
+import { INVALID_CATEGORY_ERROR, categoryRejectionBody, validateExpenseCategory } from '@/lib/agentbook-expense-category';
 import { getPendingSuggestions } from '@/lib/agentbook-auto-categorize';
 import { deriveCategorySource, suggestionFromPending } from '@/lib/mobile/doc-mapper';
 import { publicErrorMessage } from '@/lib/api-error';
@@ -189,15 +189,9 @@ export async function PUT(
         );
       } else {
         if (body.categoryId !== existing.categoryId) {
-          const category = await db.abAccount.findFirst({
-            where: { id: body.categoryId, tenantId, accountType: 'expense', isActive: true },
-            select: { id: true },
-          });
-          if (!category) {
-            return NextResponse.json(
-              { success: false, code: 'invalid_category', error: INVALID_CATEGORY_ERROR },
-              { status: 400 },
-            );
+          const check = await validateExpenseCategory(tenantId, body.categoryId);
+          if (!check.ok) {
+            return NextResponse.json(categoryRejectionBody(check), { status: check.status });
           }
         }
         data.categoryId = body.categoryId;

@@ -13,6 +13,7 @@ import { memDb } from '@/__tests__/helpers/mem-db';
 import { tenantReq, json } from '@/__tests__/helpers/route-request';
 import { fullSeed } from '@/__tests__/helpers/mobile-fixtures';
 import { publicErrorMessage } from '@/lib/api-error';
+import { SUSPENSE_CATEGORY_ERROR } from '@/lib/agentbook-expense-category';
 import { POST } from '@/app/api/v1/agentbook-expense/expenses/[id]/categorize/route';
 
 interface Body {
@@ -161,5 +162,20 @@ describe('POST /expenses/:id/categorize — the category is validated (final rev
     expect((await call('e5', { categoryId: 'acc-old' })).status).toBe(400);
     expect(writes('abExpense')).toEqual([]);
     expect(backfill).not.toHaveBeenCalled();
+  });
+});
+
+describe('POST /expenses/:id/categorize — the 6999 suspense account is not a category', () => {
+  it('422 invalid_category, writing nothing, and the expense stays uncategorized', async () => {
+    const r = await call('e5', { categoryId: 'acc-susp' });
+    expect(r).toEqual({
+      status: 422,
+      body: { success: false, code: 'invalid_category', error: SUSPENSE_CATEGORY_ERROR },
+    });
+    expect(writes('abExpense')).toEqual([]);
+    expect(writes('abPattern')).toEqual([]);
+    expect(writes('abVendor')).toEqual([]);
+    expect(backfill).not.toHaveBeenCalled();
+    expect((await memDb.table('abExpense').findFirst({ where: { id: 'e5' } }))?.categoryId).toBeNull();
   });
 });

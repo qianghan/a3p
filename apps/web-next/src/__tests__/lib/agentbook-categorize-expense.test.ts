@@ -11,6 +11,7 @@ vi.mock('@/lib/agentbook-expense-ledger', () => ({
 import { memDb } from '@/__tests__/helpers/mem-db';
 import { fullSeed } from '@/__tests__/helpers/mobile-fixtures';
 import { categorizeExpense } from '@/lib/agentbook-categorize-expense';
+import { SUSPENSE_CATEGORY_ERROR } from '@/lib/agentbook-expense-category';
 
 beforeEach(() => {
   memDb.reset(fullSeed());
@@ -68,6 +69,24 @@ describe('categorizeExpense — the one categorize path (route + mobile review)'
 
     it('an id that is no account at all is invalid_category', async () => {
       expect(await categorizeExpense('t1', 'e5', { categoryId: 'nope' })).toEqual(INVALID);
+      nothingWritten();
+    });
+
+    it('the 6999 suspense account is refused with a 422 invalid_category: the expense must stay uncategorized', async () => {
+      // acc-susp is the tenant's own, active EXPENSE account — it passes every
+      // other check. Stamping it on expense.categoryId would hide the row from
+      // the needs-category filter, the auto-categorize watchdog and reports,
+      // all of which key off categoryId === null.
+      expect(await categorizeExpense('t1', 'e5', { categoryId: 'acc-susp' })).toEqual({
+        ok: false, status: 422, code: 'invalid_category', error: SUSPENSE_CATEGORY_ERROR,
+      });
+      nothingWritten();
+      expect((await memDb.table('abExpense').findFirst({ where: { id: 'e5' } }))?.categoryId).toBeNull();
+    });
+
+    it("another tenant's suspense account stays the generic 400 (reveals nothing across tenants)", async () => {
+      memDb.table('abAccount').rows.push({ id: 'b-susp', tenantId: 't2', code: '6999', name: 'Uncategorized', accountType: 'expense', isActive: true });
+      expect(await categorizeExpense('t1', 'e5', { categoryId: 'b-susp' })).toEqual(INVALID);
       nothingWritten();
     });
 

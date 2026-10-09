@@ -158,6 +158,15 @@ describe('POST /auto-categorize/review — invalid_category', () => {
     expect(backfill).not.toHaveBeenCalled();
   });
 
+  it('refuses the 6999 suspense account: invalid_category, expense stays uncategorized, suggestion kept', async () => {
+    const { body } = await review({ items: [{ expenseId: 'e5', action: 'accept', categoryId: 'acc-susp' }] });
+    expect(body.data.results).toEqual([{ expenseId: 'e5', ok: false, error: 'invalid_category' }]);
+    expect((await row('e5'))?.categoryId).toBeNull();
+    expect(memDb.table('abExpense').writes).toEqual([]);
+    expect(backfill).not.toHaveBeenCalled();
+    expect(await pendingIds()).toEqual(['e6', 'e5']);
+  });
+
   it('refuses an inactive expense account', async () => {
     memDb.table('abAccount').rows.push({ id: 'acc-old', tenantId: 't1', code: '5400', name: 'Old', accountType: 'expense', isActive: false });
     const { body } = await review({ items: [{ expenseId: 'e5', action: 'accept', categoryId: 'acc-old' }] });
