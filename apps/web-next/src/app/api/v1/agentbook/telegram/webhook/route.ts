@@ -32,6 +32,7 @@ import { parseDateHint } from '@/lib/agentbook-time-aggregator';
 import { getPendingSuggestions, dropPendingSuggestion } from '@/lib/agentbook-auto-categorize';
 import { updateMileageEntry } from '@/lib/agentbook-mileage-service';
 import { backfillExpenseJournalEntry } from '@/lib/agentbook-expense-ledger';
+import { assignableCategoryWhere, validateExpenseCategory } from '@/lib/agentbook-expense-category';
 import { formatCurrencyCents } from '@/lib/jurisdiction-currency';
 import { mdToTelegramHtml, shouldAppendBreakdown } from '@/lib/agentbook-telegram-markdown';
 import { estimateTotalIncomeTax } from '@agentbook/jurisdictions/total-tax';
@@ -3177,7 +3178,7 @@ function getBot(): Bot {
       try {
         const active = await getActiveExpense(tenantId);
         const categories = await db.abAccount.findMany({
-          where: { tenantId, accountType: 'expense', isActive: true },
+          where: assignableCategoryWhere(tenantId),
           select: { id: true, name: true, code: true },
         });
         const botCtx: BotContext = {
@@ -3430,7 +3431,7 @@ function getBot(): Bot {
     try {
       const active = await getActiveExpense(tenantId);
       const categories = await db.abAccount.findMany({
-        where: { tenantId, accountType: 'expense', isActive: true },
+        where: assignableCategoryWhere(tenantId),
         select: { id: true, name: true, code: true },
       });
       const botCtx: BotContext = {
@@ -4439,7 +4440,7 @@ function getBot(): Bot {
           return;
         }
         const categories = await db.abAccount.findMany({
-          where: { tenantId, accountType: 'expense', isActive: true },
+          where: assignableCategoryWhere(tenantId),
           orderBy: { code: 'asc' },
           select: { id: true, name: true, code: true },
           take: 12,
@@ -4507,6 +4508,11 @@ function getBot(): Bot {
           where: { tenantId_code: { tenantId, code } },
         });
         if (!account) {
+          await ctx.answerCallbackQuery({ text: botT('bot.category_not_found', { p0: code }) });
+          return;
+        }
+        // A stale or hand-built cat:6999 must not stamp the suspense account.
+        if (!(await validateExpenseCategory(tenantId, account.id)).ok) {
           await ctx.answerCallbackQuery({ text: botT('bot.category_not_found', { p0: code }) });
           return;
         }
@@ -4728,6 +4734,15 @@ function getBot(): Bot {
           await ctx.answerCallbackQuery({ text: botT('bot.expense_not_found') });
           return;
         }
+        // The suggestion was stored earlier: its account may since have been
+        // deactivated, or (pre-fix) be the 6999 suspense account. Drop it
+        // rather than stamping it.
+        if (!(await validateExpenseCategory(tenantId, suggestion.suggestedCategoryId)).ok) {
+          await dropPendingSuggestion(tenantId, expenseId);
+          await ctx.answerCallbackQuery({ text: botT('bot.no_longer_pending') });
+          await ctx.editMessageText(botT('bot.already_handled'));
+          return;
+        }
         await db.abExpense.update({
           where: { id: expenseId },
           data: { categoryId: suggestion.suggestedCategoryId, confidence: 0.95 },
@@ -4785,7 +4800,7 @@ function getBot(): Bot {
         await setActiveExpense(tenantId, expenseId);
         if (ctx.chat?.id) await focusThreadExpense(tenantId, ctx.chat.id, expenseId);
         const categories = await db.abAccount.findMany({
-          where: { tenantId, accountType: 'expense', isActive: true },
+          where: assignableCategoryWhere(tenantId),
           orderBy: { code: 'asc' },
           select: { id: true, name: true, code: true },
           take: 12,
