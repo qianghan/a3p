@@ -125,6 +125,22 @@ describe('CategoryPicker — what it asks for and shows', () => {
     expect(ids()).toEqual(['c2']);
   });
 
+  it('a failure from the previous open that arrives after reopening does not flash the error while the new load is pending', async () => {
+    const pending: Array<(r: Response | Error) => void> = [];
+    routeFetch({ [ACCOUNTS]: () => new Promise<Response | Error>((res) => { pending.push(res); }) as Promise<Response> });
+    const { rerender } = mount();
+    expect(pending).toHaveLength(1);
+    rerender(<CategoryPicker open={false} onClose={vi.fn()} onSelect={vi.fn()} currentId={null} />);
+    rerender(<CategoryPicker open onClose={vi.fn()} onSelect={vi.fn()} currentId={null} />);
+    expect(pending).toHaveLength(2);
+    await act(async () => pending[0](new Error('Failed to fetch'))); // the first open's request fails late
+    expect(screen.queryByRole('alert')).toBeNull();
+    expect(screen.getByTestId('category-loading')).toBeInTheDocument();
+    await act(async () => pending[1](ok([SERVER('c2')])));
+    expect(ids()).toEqual(['c2']);
+    expect(screen.queryByRole('alert')).toBeNull();
+  });
+
   it('a list read on a previous open is not shown while the next open is loading (a deactivated account is never offered from memory)', async () => {
     let release!: (r: Response) => void;
     let n = 0;
@@ -204,6 +220,33 @@ describe('CategoryPicker — search', () => {
     expect(screen.getByTestId('category-status')).toHaveTextContent('No matches');
   });
 
+  it('folds full-width forms from a CJK IME: "５１００" finds the 5100 account, "ＴＲＡＶ" finds Travel', async () => {
+    mount();
+    await screen.findAllByTestId('category-option');
+    search('５１００');
+    expect(names()).toEqual(['Travel']);
+    search('ＴＲＡＶ');
+    expect(names()).toEqual(['Travel']);
+    expect(foldForSearch('５１００')).toBe('5100');
+  });
+
+  it('keeps "cafe" finding "Café" after the compatibility fold (NFKD)', async () => {
+    mount();
+    await screen.findAllByTestId('category-option');
+    search('cafe');
+    expect(names()).toEqual(['Café & Coffee']);
+    expect(foldForSearch('Café')).toBe('cafe');
+  });
+
+  it('ignores leading and trailing whitespace in the query', async () => {
+    mount();
+    await screen.findAllByTestId('category-option');
+    search('  trav  ');
+    expect(names()).toEqual(['Travel']);
+    search('   ');
+    expect(names()).toHaveLength(5); // blank is no filter, not "no match"
+  });
+
   it('resets the search when the sheet is closed', async () => {
     const { rerender } = mount();
     await screen.findAllByTestId('category-option');
@@ -230,6 +273,25 @@ describe('CategoryPicker — selection', () => {
     expect(onSelect).toHaveBeenCalledWith(asCategory(SERVER('c2')));
     expect(onSelect.mock.calls[0][0]).toEqual({ id: 'c2', name: 'Meals', code: '5200' });
     expect(onClose).not.toHaveBeenCalled(); // closing is the caller's decision
+  });
+
+  it('fires onSelect once per open even on a double tap, and again after the sheet is reopened', async () => {
+    routeFetch({ [ACCOUNTS]: () => ok(CATS) });
+    const onSelect = vi.fn();
+    const { rerender } = render(<CategoryPicker open onClose={vi.fn()} onSelect={onSelect} currentId={null} />);
+    await screen.findAllByTestId('category-option');
+    const meals = document.querySelector('[data-category-id="c2"]') as HTMLElement;
+    const travel = document.querySelector('[data-category-id="c1"]') as HTMLElement;
+    fireEvent.click(meals);
+    fireEvent.click(meals);
+    fireEvent.click(travel);
+    expect(onSelect).toHaveBeenCalledTimes(1);
+    expect(onSelect).toHaveBeenCalledWith(asCategory(SERVER('c2')));
+    rerender(<CategoryPicker open={false} onClose={vi.fn()} onSelect={onSelect} currentId={null} />);
+    rerender(<CategoryPicker open onClose={vi.fn()} onSelect={onSelect} currentId={null} />);
+    await screen.findAllByTestId('category-option');
+    fireEvent.click(document.querySelector('[data-category-id="c1"]') as HTMLElement);
+    expect(onSelect).toHaveBeenCalledTimes(2);
   });
 
   it('choosing is not committing: it does not write a recent (the caller does, once the save succeeds)', async () => {
@@ -342,7 +404,10 @@ describe('CategoryPicker — loading, failure and retry', () => {
   it('a server that really has no expense categories says so — distinct from a failure', async () => {
     routeFetch({ [ACCOUNTS]: () => ok([]) });
     mount();
-    expect(await screen.findByText('No expense categories yet')).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'No expense categories yet' })).toBeInTheDocument();
+    // the live region says the same as the visible state, not "No matches"
+    expect(screen.getByTestId('category-status')).toHaveTextContent('No expense categories yet');
+    expect(screen.getByTestId('category-status')).not.toHaveTextContent('No matches');
     expect(screen.queryByRole('alert')).toBeNull();
     expect(screen.queryByText('Retry')).toBeNull();
     expect(ids()).toEqual([]);
@@ -445,7 +510,18 @@ describe('CategoryPicker — the suspense account is never offered', () => {
   it('a list holding only the suspense account reads as having no categories', async () => {
     routeFetch({ [ACCOUNTS]: () => ok([SUSPENSE]) });
     mount();
-    await screen.findByText('No expense categories yet');
+    await screen.findByRole('heading', { name: 'No expense categories yet' });
     expect(ids()).toEqual([]);
+    expect(screen.getByTestId('category-status')).toHaveTextContent('No expense categories yet');
+    expect(screen.getByTestId('category-status')).not.toHaveTextContent('No matches');
+  });
+
+  it('an unmatched search over a non-empty list still announces "No matches"', async () => {
+    routeFetch({ [ACCOUNTS]: () => ok([...WITH_SUSPENSE]) });
+    mount();
+    await screen.findAllByTestId('category-option');
+    search('zzzz');
+    expect(screen.getByTestId('category-status')).toHaveTextContent('No matches');
+    expect(screen.getByTestId('category-status')).not.toHaveTextContent('No expense categories yet');
   });
 });

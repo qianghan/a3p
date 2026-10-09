@@ -23,11 +23,13 @@ export const SUSPENSE_ACCOUNT_CODE = '6999';
 const ENTER_KEY_HINT = 'search' as const;
 
 /**
- * Case- and diacritic-insensitive: "cafe" finds "Café", "DEPENSES" finds "Dépenses".
- * NFD splits an accented letter into base + combining mark; the marks are then dropped.
+ * Case-, diacritic- and width-insensitive: "cafe" finds "Café", "DEPENSES" finds "Dépenses", and the
+ * full-width digits a CJK IME types ("５１００") find "5100".
+ * NFKD splits an accented letter into base + combining mark (the marks are then dropped) and maps
+ * compatibility forms such as full-width characters onto their ASCII equivalents.
  */
 export function foldForSearch(s: string): string {
-  return s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+  return s.normalize('NFKD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
 }
 
 const optionStyle = (selected: boolean): React.CSSProperties => ({
@@ -93,9 +95,12 @@ export function CategoryPicker({ open, onClose, onSelect, currentId }: {
   loadingRef.current = loading;
   const failedRef = useRef(false);
   failedRef.current = failed;
+  // One choice per open: a second tap before the caller has closed the sheet must not select twice.
+  const pickedRef = useRef(false);
 
   // Fresh on every open: a category deactivated since the last open must not linger.
   useEffect(() => {
+    pickedRef.current = false;
     if (!open) {
       setAll(null);
       setFailed(false);
@@ -155,7 +160,11 @@ export function CategoryPicker({ open, onClose, onSelect, currentId }: {
     const selected = c.id === currentId;
     return (
       <li key={c.id}>
-        <button type="button" data-testid="category-option" data-category-id={c.id} aria-pressed={selected} style={optionStyle(selected)} onClick={() => onSelect(c)}>
+        <button type="button" data-testid="category-option" data-category-id={c.id} aria-pressed={selected} style={optionStyle(selected)} onClick={() => {
+          if (pickedRef.current) return;
+          pickedRef.current = true;
+          onSelect(c);
+        }}>
           <span style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
             <span data-testid="category-name">{c.name}</span>
             {c.code && <span style={{ fontSize: tokens.font.xs, color: tokens.color.muted }}>{c.code}</span>}
@@ -166,7 +175,14 @@ export function CategoryPicker({ open, onClose, onSelect, currentId }: {
     );
   };
 
-  const status = !offered ? '' : shownCount === 0 ? t('mobile.docs.empty_search_title') : t('mobile.docs.category_count', { count: shownCount });
+  // Same wording as the visible state: an empty server list is "no categories", not a search with no hits.
+  const status = !offered
+    ? ''
+    : offered.length === 0
+      ? t('mobile.docs.categories_empty')
+      : shownCount === 0
+        ? t('mobile.docs.empty_search_title')
+        : t('mobile.docs.category_count', { count: shownCount });
 
   return (
     <Sheet open={open} onClose={onClose} title={t('mobile.docs.choose_category')}>
