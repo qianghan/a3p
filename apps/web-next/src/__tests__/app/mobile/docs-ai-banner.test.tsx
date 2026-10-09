@@ -4,6 +4,7 @@ import { render, screen, waitFor, fireEvent, within } from '@testing-library/rea
 import { ToastHost } from '@/app/app/_kit';
 import { AiBanner, LAST_AUTOCAT_KEY } from '@/app/app/docs/_components/AiBanner';
 import { claimMobileSnapshots, clearMobileSnapshots } from '@/lib/mobile/snapshot-keys';
+import './_load-tolerance';
 
 vi.mock('@/hooks/use-t', async () => (await import('./_i18n-mock')).useTMock);
 const api = vi.hoisted(() => ({ runAutoCategorize: vi.fn(), reviewSuggestions: vi.fn() }));

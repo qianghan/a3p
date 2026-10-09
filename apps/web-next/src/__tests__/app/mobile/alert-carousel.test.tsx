@@ -8,6 +8,7 @@ import { ToastHost } from '@/app/app/_kit/Toast';
 import { SNAPSHOT_PREFIX, SNAPSHOT_CLEARED_EVENT } from '@/lib/mobile/snapshot-keys';
 import { renderWithI18n, routeFetch, jsonResponse, touch, expectTouchTarget } from './test-utils';
 import { homeFixture } from './fixtures';
+import './_load-tolerance';
 
 const REMIND_URL = '/api/v1/agentbook-invoice/invoices/inv-1/remind';
 

@@ -9,6 +9,7 @@ import { SNAPSHOT_PREFIX } from '@/lib/mobile/snapshot-keys';
 import { BADGE_MAX_AGE_MS } from '@/app/app/_shell/badges';
 import { renderWithI18n, routeFetch, jsonResponse, touch, expectTouchTarget } from './test-utils';
 import { homeFixture } from './fixtures';
+import './_load-tolerance';
 
 const HOME_URL = '/api/v1/agentbook-core/mobile/home';
 const REMIND_URL = '/api/v1/agentbook-invoice/invoices/inv-1/remind';

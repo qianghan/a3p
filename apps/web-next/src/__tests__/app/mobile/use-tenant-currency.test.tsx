@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { renderHook, waitFor } from '@testing-library/react';
 import { useTenantCurrency } from '@/app/app/_lib/useTenantCurrency';
 import { jsonResponse } from './test-utils';
+import './_load-tolerance';
 
 let fetchMock: ReturnType<typeof vi.fn>;
 beforeEach(() => {

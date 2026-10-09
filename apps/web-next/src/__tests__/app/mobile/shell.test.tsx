@@ -39,6 +39,7 @@ import { badgesFrom, BADGE_MAX_AGE_MS, isBadgeSnapshotStale } from '@/app/app/_l
 import MobileChat from '@/app/app/chat/page';
 import MobileHomePage from '@/app/app/page';
 import { BADGES_ENABLED, type BadgeGate } from '@/app/app/_shell/badges';
+import './_load-tolerance';
 
 // The badge behaviour below is tested with both badges switched ON (the state
 // after PR 3 + PR 4). What ships today is gated — see 'Badge gate' at the end.

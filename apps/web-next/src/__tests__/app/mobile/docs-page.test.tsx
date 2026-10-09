@@ -21,6 +21,7 @@ vi.mock('next/navigation', () => ({
 }));
 
 import MobileDocsPage from '@/app/app/docs/page';
+import './_load-tolerance';
 
 const EXPENSES = '/api/v1/agentbook-expense/expenses';
 const TENANT = '/api/v1/agentbook-core/tenant-config';

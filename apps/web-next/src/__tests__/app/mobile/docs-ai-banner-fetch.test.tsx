@@ -10,6 +10,7 @@ import { render, screen, waitFor, fireEvent, within } from '@testing-library/rea
 import { ToastHost } from '@/app/app/_kit';
 import { AiBanner } from '@/app/app/docs/_components/AiBanner';
 import { jsonResponse, routeFetch } from './test-utils';
+import './_load-tolerance';
 
 vi.mock('@/hooks/use-t', async () => (await import('./_i18n-mock')).useTMock);
 
@@ -26,6 +27,17 @@ const mount = (props: Partial<React.ComponentProps<typeof AiBanner>> = {}) => {
   const onChanged = vi.fn();
   render(<ToastHost><AiBanner noCategoryCount={0} online currency="CAD" onChanged={onChanged} {...props} /></ToastHost>);
   return { onChanged };
+};
+
+/**
+ * The bulk button of a long sheet. NOT getByRole: with 100 rows (3 buttons each) the role
+ * query computes an accessible name for every button and costs ~60 ms alone, several
+ * seconds on a loaded runner. The label is a text node of the button itself.
+ */
+const acceptAll = (dialog: HTMLElement) => {
+  const button = within(dialog).getByText('Accept all').closest('button');
+  expect(button).not.toBeNull();
+  return button as HTMLButtonElement;
 };
 
 beforeEach(() => localStorage.clear());
@@ -148,7 +160,7 @@ describe('AiBanner over real requests', () => {
     mount();
     fireEvent.click(await screen.findByRole('button', { name: 'Review AI picks' }));
     const dialog = await screen.findByRole('dialog', { name: 'Review AI picks' });
-    fireEvent.click(within(dialog).getByRole('button', { name: 'Accept all' }));
+    fireEvent.click(acceptAll(dialog));
     await within(dialog).findByText('No AI picks waiting.');
     const sizes = f.mock.calls.filter(([u]) => String(u) === REVIEW).map(([, init]) => JSON.parse(String(init?.body)).items.length);
     expect(sizes).toEqual([50, 1]);
@@ -168,7 +180,7 @@ describe('AiBanner over real requests', () => {
     const { onChanged } = mount();
     fireEvent.click(await screen.findByRole('button', { name: 'Review AI picks' }));
     const dialog = await screen.findByRole('dialog', { name: 'Review AI picks' });
-    fireEvent.click(within(dialog).getByRole('button', { name: 'Accept all' }));
+    fireEvent.click(acceptAll(dialog));
     expect(await within(dialog).findByText('Not saved: 51')).toBeInTheDocument();
     const sent = f.mock.calls.filter(([u]) => String(u) === REVIEW).map(([, init]) => (JSON.parse(String(init?.body)).items as unknown[]).length);
     expect(sent).toEqual([50, 50]); // no third request after the failure

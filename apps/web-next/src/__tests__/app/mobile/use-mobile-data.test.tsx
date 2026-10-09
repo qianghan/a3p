@@ -3,6 +3,7 @@ import { renderHook, waitFor, act } from '@testing-library/react';
 import { useMobileData, readSnapshot, writeSnapshot, SNAPSHOT_EVENT, SNAPSHOT_CLEARED_EVENT } from '@/app/app/_lib/useMobileData';
 import { SNAPSHOT_PREFIX, clearMobileSnapshots, claimMobileSnapshots } from '@/lib/mobile/snapshot-keys';
 import { ApiError } from '@/app/app/_lib/api';
+import './_load-tolerance';
 
 const SAVED_AT = '2026-10-07T14:30:00.000Z';
 
