@@ -15,6 +15,7 @@
 import 'server-only';
 import { prisma as db } from '@naap/database';
 import { backfillExpenseJournalEntry } from '@/lib/agentbook-expense-ledger';
+import { validateExpenseCategory, INVALID_CATEGORY_ERROR, type CategoryRejection } from '@/lib/agentbook-expense-category';
 
 const clamp01 = (n: number) => Math.min(1, Math.max(0, n));
 
@@ -46,12 +47,12 @@ export interface CategorizeInput {
 
 type UpdatedExpense = Awaited<ReturnType<typeof db.abExpense.update>>;
 
-export const INVALID_CATEGORY_ERROR = 'categoryId is not one of your expense categories';
+export { INVALID_CATEGORY_ERROR };
 
 export type CategorizeOutcome =
   | { ok: true; expense: UpdatedExpense }
   | { ok: false; status: 400 | 404; error: string }
-  | { ok: false; status: 400; code: 'invalid_category'; error: string };
+  | ({ ok: false } & CategoryRejection);
 
 export async function categorizeExpense(
   tenantId: string,
@@ -80,15 +81,10 @@ export async function categorizeExpense(
   }
 
   // Never trust the caller's categoryId: only this tenant's ACTIVE EXPENSE
-  // accounts are accepted, before any write. One message for foreign, unknown,
-  // non-expense and inactive ids, so it reveals nothing about other tenants.
-  const category = await db.abAccount.findFirst({
-    where: { id: categoryId, tenantId, accountType: 'expense', isActive: true },
-    select: { id: true },
-  });
-  if (!category) {
-    return { ok: false, status: 400, code: 'invalid_category', error: INVALID_CATEGORY_ERROR };
-  }
+  // accounts — and never the 6999 suspense account — are accepted, before any
+  // write. See validateExpenseCategory for why each rejection is shaped as it is.
+  const check = await validateExpenseCategory(tenantId, categoryId);
+  if (!check.ok) return check;
 
   const updated = await db.abExpense.update({
     where: { id: expenseId },

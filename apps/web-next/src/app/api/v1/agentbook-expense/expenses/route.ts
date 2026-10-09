@@ -16,7 +16,8 @@ import { audit } from '@/lib/agentbook-audit';
 import { inferSource, inferActor } from '@/lib/agentbook-audit-context';
 import { withSoftDelete, parseIncludeDeleted } from '@/lib/agentbook-soft-delete';
 import { withHttpIdempotency } from '@/lib/agentbook-idempotency';
-import { ensureChartOfAccounts, ensureUncategorizedAccount } from '@/lib/agentbook-chart-of-accounts';
+import { ensureChartOfAccounts, ensureUncategorizedAccount, UNCATEGORIZED_CODE } from '@/lib/agentbook-chart-of-accounts';
+import { INVALID_CATEGORY_ERROR, categoryRejectionBody, validateExpenseCategory } from '@/lib/agentbook-expense-category';
 import { publicErrorMessage } from '@/lib/api-error';
 import { autoCategorizeForTenant, getPendingSuggestions } from '@/lib/agentbook-auto-categorize';
 import { parseExpenseListQuery, encodeCursor, countDocFilters } from '@/lib/agentbook-expense-list-query';
@@ -110,6 +111,20 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
           return { status: 400, body: { success: false, error: 'amountCents must be a positive integer' } };
         }
 
+        // A caller-named category must be assignable BEFORE anything is written
+        // (the vendor upsert below stores it as the vendor's default). This
+        // route used to take it on trust: another tenant's account id posted a
+        // journal line onto a foreign ledger, and the 6999 suspense account got
+        // stamped on categoryId, hiding the expense from every uncategorized
+        // surface — see validateExpenseCategory.
+        if (categoryId) {
+          const check = typeof categoryId === 'string' ? await validateExpenseCategory(tenantId, categoryId) : null;
+          if (!check || !check.ok) {
+            const r = check ?? ({ status: 400, code: 'invalid_category', error: INVALID_CATEGORY_ERROR } as const);
+            return { status: r.status, body: categoryRejectionBody(r) };
+          }
+        }
+
         let vendorRecord: { id: string; defaultCategoryId: string | null; normalizedName: string } | null = null;
         if (vendor) {
           const normalized = normalizeVendorName(vendor);
@@ -163,11 +178,16 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
             //
             // Scoped by tenantId as well as id: a pattern must not be able to
             // point at another tenant's account.
+            //
+            // A pattern pointing at the 6999 suspense account is just as
+            // unusable: applying it would stamp 6999 on categoryId and hide the
+            // expense from every uncategorized surface. It is dropped below the
+            // same way, and the expense falls back to uncategorized.
             const category = await db.abAccount.findFirst({
               where: { id: pattern.categoryId, tenantId },
-              select: { id: true },
+              select: { id: true, code: true },
             });
-            if (category) {
+            if (category && category.code !== UNCATEGORIZED_CODE) {
               resolvedCategoryId = pattern.categoryId;
               resolvedConfidence = pattern.confidence;
               await db.abPattern.update({
@@ -180,7 +200,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
               // uncategorised, which the user can correct — and that correction
               // relearns the pattern against a live account.
               console.warn(
-                `[expenses] pattern ${pattern.id} referenced missing account ${pattern.categoryId}; removing`,
+                `[expenses] pattern ${pattern.id} referenced missing/suspense account ${pattern.categoryId}; removing`,
               );
               await db.abPattern.delete({ where: { id: pattern.id } }).catch(() => {});
             }

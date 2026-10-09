@@ -44,6 +44,8 @@ vi.mock('@/lib/agentbook-chart-of-accounts', () => ({
   UNCATEGORIZED_CODE: '6999',
 }));
 
+import { SUSPENSE_CATEGORY_ERROR } from '@/lib/agentbook-expense-category';
+
 const D = (s: string) => new Date(s);
 const JAN = D('2026-01-15T12:00:00.000Z');
 
@@ -141,6 +143,18 @@ describe('category change on a booked expense', () => {
     const { status, json } = await send({ categoryId: bad, amountCents: 5000 });
     expect(status).toBe(400);
     expect(json.code).toBe('invalid_category');
+    expect(expenseRow()).toMatchObject({ categoryId: 'acct-meals', amountCents: 4200 });
+    expect(h.fake.state.entries).toHaveLength(1);
+  });
+
+  it('rejects the 6999 suspense account with 422 invalid_category and writes nothing', async () => {
+    // Clearing the category (null) is how an expense goes back to suspense; the
+    // posting is internal. Naming the suspense account would stamp it on
+    // categoryId and hide the row from every "needs a category" surface.
+    h.fake.seedBookedExpense({ amountCents: 4200, date: JAN });
+    const { status, json } = await send({ categoryId: 'acct-suspense', amountCents: 5000 });
+    expect(status).toBe(422);
+    expect(json).toEqual({ success: false, code: 'invalid_category', error: SUSPENSE_CATEGORY_ERROR });
     expect(expenseRow()).toMatchObject({ categoryId: 'acct-meals', amountCents: 4200 });
     expect(h.fake.state.entries).toHaveLength(1);
   });

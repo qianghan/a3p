@@ -95,6 +95,8 @@ vi.mock('@naap/database', () => ({
   },
 }));
 
+import { INVALID_CATEGORY_ERROR, SUSPENSE_CATEGORY_ERROR } from '@/lib/agentbook-expense-category';
+
 beforeEach(() => {
   vi.clearAllMocks();
   ensureChartOfAccounts.mockResolvedValue({ seeded: false, count: 0 });
@@ -191,6 +193,65 @@ describe('POST /expenses — chart seeding wiring (the #395 regression)', () => 
     // and no suspense posting either — a personal expense is not business money
     expect(ensureUncategorizedAccount).not.toHaveBeenCalled();
     expect(journalEntryCreate).not.toHaveBeenCalled();
+  });
+});
+
+describe('POST /expenses — a category must be a real, assignable expense account', () => {
+  const post = async (body: Record<string, unknown>) => {
+    const { POST } = await import('@/app/api/v1/agentbook-expense/expenses/route');
+    const res = await POST(
+      new NextRequest('http://x/api/v1/agentbook-expense/expenses', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(body),
+      }),
+    );
+    return { status: res.status, json: await res.json() };
+  };
+  // Honour the lookup's id + tenant like the real table does.
+  const accounts: Record<string, Record<string, unknown>> = {
+    'acct-meals': { id: 'acct-meals', tenantId: 'tenant-1', code: '5100', accountType: 'expense', isActive: true },
+    'acct-susp': { id: 'acct-susp', tenantId: 'tenant-1', code: '6999', accountType: 'expense', isActive: true },
+    'acct-other-tenant': { id: 'acct-other-tenant', tenantId: 'tenant-2', code: '5100', accountType: 'expense', isActive: true },
+  };
+  beforeEach(() => {
+    accountFindFirst.mockImplementation(async ({ where }: { where: { id?: string; tenantId?: string; code?: string } }) => {
+      if (where.code === '1000') return { id: 'acct-cash' };
+      const a = where.id ? accounts[where.id] : undefined;
+      return a && (!where.tenantId || a.tenantId === where.tenantId) ? a : null;
+    });
+  });
+
+  it('422 invalid_category for the 6999 suspense account: no expense, no journal, no vendor write', async () => {
+    const { status, json } = await post({ amountCents: 2500, vendor: 'Tea', categoryId: 'acct-susp' });
+    expect(status).toBe(422);
+    expect(json).toEqual({ success: false, code: 'invalid_category', error: SUSPENSE_CATEGORY_ERROR });
+    expect(expenseCreate).not.toHaveBeenCalled();
+    expect(journalEntryCreate).not.toHaveBeenCalled();
+    expect(transaction).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["another tenant's account", 'acct-other-tenant'],
+    ['an unknown id', 'acct-nope'],
+  ])('400 invalid_category for %s, writing nothing', async (_n, categoryId) => {
+    const { status, json } = await post({ amountCents: 2500, vendor: 'Tea', categoryId });
+    expect(status).toBe(400);
+    expect(json).toEqual({ success: false, code: 'invalid_category', error: INVALID_CATEGORY_ERROR });
+    expect(expenseCreate).not.toHaveBeenCalled();
+  });
+
+  it('a real category still books and is stamped on the expense', async () => {
+    const { status } = await post({ amountCents: 2500, vendor: 'Tea', categoryId: 'acct-meals' });
+    expect(status).toBe(201);
+    expect(expenseCreate.mock.calls[0][0].data.categoryId).toBe('acct-meals');
+  });
+
+  it('a learned vendor pattern that points at 6999 is not applied: the expense stays uncategorized', async () => {
+    patternFindFirst.mockResolvedValue({ id: 'p1', categoryId: 'acct-susp', confidence: 0.95 });
+    const { status } = await post({ amountCents: 2500, vendor: 'Tea' });
+    expect(status).toBe(201);
+    expect(expenseCreate.mock.calls[0][0].data.categoryId).toBeNull();
   });
 });
 
