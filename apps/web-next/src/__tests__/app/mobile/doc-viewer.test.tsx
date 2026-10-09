@@ -128,6 +128,12 @@ const renderViewer = () => render(<ToastHost><DocViewerPage /></ToastHost>);
 const setOnline = (v: boolean) => Object.defineProperty(window.navigator, 'onLine', { configurable: true, get: () => v });
 const goOffline = () => { setOnline(false); fireEvent(window, new Event('offline')); };
 const goOnline = () => { setOnline(true); fireEvent(window, new Event('online')); };
+/**
+ * Two taps inside ONE act: React cannot re-render between them, so the handler sees the same (unlocked) closure
+ * twice — only the synchronous lock can stop the second request. (Two separate fireEvent calls flush a render in
+ * between, which would let the button's own aria-disabled do the stopping and prove nothing about the lock.)
+ */
+const tapTwice = (el: HTMLElement) => act(() => { fireEvent.click(el); fireEvent.click(el); });
 const amountShown = () => screen.getByTestId('doc-amount');
 /** The document and the tenant currency have both arrived. */
 async function ready(cents = 4700) {
@@ -437,9 +443,7 @@ describe('viewer — editing', () => {
     renderViewer();
     await ready();
     fireEvent.change(input('Amount'), { target: { value: '55' } });
-    const save = btn('Save changes');
-    fireEvent.click(save);
-    fireEvent.click(save);
+    tapTwice(btn('Save changes'));
     expect(writes(f)).toHaveLength(1);
     expect(screen.getByText('Saving…').closest('button')).toHaveAttribute('aria-busy', 'true');
     expect(input('Amount')).toHaveAttribute('readonly'); // nothing typed mid-flight can be overwritten by the answer
@@ -516,8 +520,7 @@ describe('viewer — categorization', () => {
     renderViewer();
     const chip = await screen.findByTestId('ai-suggestion');
     const accept = within(chip).getByText('Accept').closest('button')!;
-    fireEvent.click(accept);
-    fireEvent.click(accept);
+    tapTwice(accept);
     expect(screen.getByTestId('doc-category')).toHaveTextContent('Travel');
     expect(recents()).toEqual([]); // nothing is remembered until it is saved
     expect(writes(f)).toHaveLength(1);
@@ -567,6 +570,25 @@ describe('viewer — categorization', () => {
     renderViewer();
     expect(await screen.findByTestId('ai-suggestion')).toHaveTextContent('Suggested: Meals');
     expect(screen.queryByRole('dialog')).toBeNull();
+  });
+
+  it('a manual pick hides the AI chip at once, even one that came from the pending-suggestions route', async () => {
+    startServer(rawRow({ categoryId: null, categoryName: null }), {
+      pending: [{ expenseId: 'e2', vendorName: 'x', amountCents: 1, date: '2026-10-01', description: null, suggestedCategoryId: 'c5', suggestedCategoryName: 'Travel', confidence: 0.9 }],
+    });
+    const held = hold();
+    over['POST /categorize'] = () => held.promise;
+    renderViewer();
+    await screen.findByTestId('ai-suggestion');
+    fireEvent.click(btn('Change category'));
+    const dialog = await screen.findByRole('dialog', { name: 'Choose a category' });
+    fireEvent.click(await within(dialog).findByText('Meals'));
+    expect(screen.getByTestId('doc-category')).toHaveTextContent('Meals');
+    expect(screen.queryByTestId('ai-suggestion')).toBeNull();
+    row.categoryId = 'c1'; row.categoryName = 'Meals'; row.confidence = 1;
+    held.release(ok(row));
+    await screen.findByText('Category updated');
+    expect(screen.queryByTestId('ai-suggestion')).toBeNull();
   });
 
   it('does not open the picker until the pending-suggestion check is done, then not at all if one arrives', async () => {
@@ -778,8 +800,8 @@ describe('viewer — archive and delete', () => {
     over['POST /archive'] = () => held.promise;
     renderViewer();
     await ready();
-    const archive = btn('Archive');
-    fireEvent.click(archive);
+    tapTwice(btn('Archive'));
+    expect(writes(f)).toEqual([`POST ${EXP}/e2/archive`]);
     fireEvent.click(btn('Restore')); // the label already flipped (optimistic): it must not un-archive mid-flight
     expect(writes(f)).toEqual([`POST ${EXP}/e2/archive`]);
     held.release(ok({ id: 'e2', archivedAt: '2026-10-07T10:00:00.000Z' }));
@@ -836,8 +858,7 @@ describe('viewer — archive and delete', () => {
     fireEvent.click(btn('Delete'));
     const dialog = screen.getByRole('dialog', { name: 'Delete this expense?' });
     const confirm = within(dialog).getByText('Delete expense').closest('button')!;
-    fireEvent.click(confirm);
-    fireEvent.click(confirm);
+    tapTwice(confirm);
     expect(writes(f)).toEqual([`DELETE ${EXP}/e2`]);
     expect(confirm).toHaveAttribute('aria-busy', 'true');
     fireEvent.click(screen.getByTestId('sheet-backdrop'));

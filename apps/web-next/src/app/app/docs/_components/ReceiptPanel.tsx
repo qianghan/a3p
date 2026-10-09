@@ -114,7 +114,7 @@ function ReceiptImage({ src }: { src: string }) {
           </EmptyState>
         </div>
       ) : (
-        <PinchZoomImage key={`${src}|${attempt}`} src={src} alt={t('mobile.docs.receipt_alt')} hint={t('mobile.docs.zoom_hint')} />
+        <PinchZoomImage key={src} src={src} alt={t('mobile.docs.receipt_alt')} hint={t('mobile.docs.zoom_hint')} />
       )}
     </div>
   );
