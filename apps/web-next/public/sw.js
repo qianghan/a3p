@@ -171,7 +171,9 @@ async function networkFirstWithCache(request) {
   }
 }
 
-// Background sync: replay queued operations when back online
+// Background sync: replay queued operations when back online. A rejected
+// waitUntil tells the browser to retry later with backoff — resolving while
+// still offline would mark the sync done and strand the receipt.
 self.addEventListener('sync', (event) => {
   if (event.tag === 'agentbook-expense-sync') {
     event.waitUntil(replayExpenseQueue());
@@ -239,19 +241,110 @@ async function replayExpenseQueue() {
   }
 }
 
+// Receipts replay to from-receipt — the route that CREATES the expense. They
+// used to replay to the scan-only endpoint, which just stores + OCRs a photo, so every
+// offline capture was orphaned. Mirrors replayReceipts() in
+// src/lib/offline-queue.ts; the shared record shape, key handling and field
+// names are pinned by __tests__/architecture/service-worker-replay.test.ts.
+const FROM_RECEIPT_PATH = '/api/v1/agentbook-expense/expenses/from-receipt';
+
+function putItem(db, store, value) {
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(store, 'readwrite');
+    tx.objectStore(store).put(value);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+// Same algorithm as newIdempotencyKey() in src/lib/offline-queue.ts.
+function newIdempotencyKey() {
+  if (self.crypto && typeof self.crypto.randomUUID === 'function') return self.crypto.randomUUID();
+  const b = new Uint8Array(16);
+  self.crypto.getRandomValues(b);
+  b[6] = (b[6] & 0x0f) | 0x40;
+  b[8] = (b[8] & 0x3f) | 0x80;
+  const h = Array.from(b, (x) => x.toString(16).padStart(2, '0')).join('');
+  return h.slice(0, 8) + '-' + h.slice(8, 12) + '-' + h.slice(12, 16) + '-' + h.slice(16, 20) + '-' + h.slice(20);
+}
+
+// Legacy records (queued before idempotency keys existed) get a key minted and
+// persisted inside ONE readwrite transaction, so this worker and the page
+// replaying at the same moment cannot mint two keys for one photo.
+function ensureReceiptKey(db, id) {
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(RECEIPT_STORE, 'readwrite');
+    const store = tx.objectStore(RECEIPT_STORE);
+    let key = null;
+    const req = store.get(id);
+    req.onsuccess = () => {
+      const rec = req.result;
+      if (!rec) return;
+      if (!rec.idempotencyKey) {
+        rec.idempotencyKey = newIdempotencyKey();
+        store.put(rec);
+      }
+      key = rec.idempotencyKey;
+    };
+    tx.oncomplete = () => resolve(key);
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+async function receiptBlob(item) {
+  const type = item.fileType || (item.file && item.file.type) || 'image/jpeg';
+  if (item.bytes) return new Blob([item.bytes], { type });
+  return new Blob([await item.file.arrayBuffer()], { type });
+}
+
+function buildReceiptForm(blob, fileName, key, fields) {
+  const f = fields || {};
+  const form = new FormData();
+  form.append('file', blob, fileName || 'receipt.jpg');
+  form.append('idempotencyKey', key);
+  if (f.amountCents != null) form.append('amountCents', String(f.amountCents));
+  if (f.vendor) form.append('vendor', f.vendor);
+  if (f.date) form.append('date', f.date);
+  if (f.categoryId) form.append('categoryId', f.categoryId);
+  if (f.isPersonal != null) form.append('isPersonal', String(f.isPersonal));
+  return form;
+}
+
 async function replayReceiptQueue() {
   const db = await openOfflineDb();
   const items = await getAll(db, RECEIPT_STORE);
+  let offline = false;
   for (const item of items) {
+    const key = await ensureReceiptKey(db, item.id);
+    if (!key) continue; // drained by the page meanwhile
+    let blob;
     try {
-      const form = new FormData();
-      form.append('file', item.file, item.fileName);
-      const res = await fetch('/api/v1/agentbook-expense/receipts/scan', { method: 'POST', body: form });
-      if (res.ok) await deleteItem(db, RECEIPT_STORE, item.id);
+      blob = await receiptBlob(item);
     } catch {
+      await putItem(db, RECEIPT_STORE, Object.assign({}, item, { idempotencyKey: key, attempts: (item.attempts || 0) + 1, lastError: 'unreadable' }));
+      continue;
+    }
+    let res;
+    try {
+      res = await fetch(FROM_RECEIPT_PATH, { method: 'POST', credentials: 'include', body: buildReceiptForm(blob, item.fileName, key, item.fields) });
+    } catch {
+      offline = true;
       break;
     }
+    // The service worker's own synthetic offline answer is not a server verdict.
+    if (res.headers && res.headers.get('X-Agentbook-Offline') === '1') {
+      offline = true;
+      break;
+    }
+    if (res.ok) {
+      await deleteItem(db, RECEIPT_STORE, item.id);
+      continue;
+    }
+    // A considered server answer (auth expired, validation) needs the user:
+    // keep it queued and record why, for the app's "Queued" sheet.
+    await putItem(db, RECEIPT_STORE, Object.assign({}, item, { idempotencyKey: key, attempts: (item.attempts || 0) + 1, lastError: 'http_' + res.status }));
   }
+  if (offline) throw new Error('offline: background sync will retry');
 }
 
 // Push notifications
