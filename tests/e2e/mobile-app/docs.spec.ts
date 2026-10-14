@@ -565,6 +565,12 @@ for (const persona of PERSONAS) {
         // The pick is shown, so the picker does not cover it.
         await expect(picker()).toBeHidden();
 
+        // From here on the server no longer holds the pick (this is the whole premise of the test). After the failed
+        // accept the viewer re-reads the pending picks, so the stub must stop claiming the pick exists, or it
+        // re-injects the chip and the "pick is gone" assertion below contradicts the stub, not the viewer.
+        await page.unroute(PENDING_PATH);
+        await injectPending([]);
+
         const reviewed = page.waitForResponse((r) => new URL(r.url()).pathname.endsWith('/auto-categorize/review') && r.request().method() === 'POST');
         await chipEl.getByTestId('accept-suggestion').click();
         const res = await reviewed;
