@@ -9,6 +9,7 @@ import {
   getTenantCurrency,
   resolveTenantCurrency,
   confirmDoc,
+  createExpense,
   request,
   HttpError,
 } from '@/app/app/_lib/api-extra';
@@ -262,5 +263,21 @@ describe('confirmDoc', () => {
   it.each(['', undefined as unknown as string, null as unknown as string])('refuses id %j without calling the server', async (id) => {
     await expect(confirmDoc(id)).rejects.toMatchObject({ status: 400, code: 'invalid_request' });
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
+
+describe('createExpense', () => {
+  it('POSTs JSON with an Idempotency-Key header and returns the id', async () => {
+    fetchMock.mockResolvedValue(jsonResponse(201, { success: true, data: { id: 'exp_9', amountCents: 1250 } }));
+    await expect(createExpense({ amountCents: 1250, vendor: 'Bus', currency: 'CAD', isPersonal: false }, 'key-1')).resolves.toEqual({ id: 'exp_9' });
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe('/api/v1/agentbook-expense/expenses');
+    expect(init.method).toBe('POST');
+    expect(init.headers).toMatchObject({ 'Idempotency-Key': 'key-1', 'content-type': 'application/json' });
+    expect(JSON.parse(init.body)).toEqual({ amountCents: 1250, vendor: 'Bus', currency: 'CAD', isPersonal: false });
+  });
+  it('surfaces the server validation message', async () => {
+    fetchMock.mockResolvedValue(jsonResponse(400, { success: false, error: 'amountCents must be a positive integer' }));
+    await expect(createExpense({ amountCents: 0 }, 'k')).rejects.toMatchObject({ status: 400, message: 'amountCents must be a positive integer' });
   });
 });
