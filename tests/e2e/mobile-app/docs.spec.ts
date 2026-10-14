@@ -857,6 +857,10 @@ for (const persona of PERSONAS) {
       await expect(rows().first()).toBeVisible();
       // The first page only: a later page loads on scroll and is not part of the saved first page.
       const firstPage = async () => (await rows().allInnerTexts()).slice(0, PAGE_SIZE);
+      // An amount renders as a labelled dash (data-money="none") until the tenant currency has loaded. Snapshot only
+      // once every row shows its real amount, or the "unchanged" comparison below races the currency fetch and sees
+      // "—" before and "$586" after.
+      await expect(rows().locator('[data-money="none"]')).toHaveCount(0);
       const savedRows = await firstPage();
       await chip('all').click();
       await expect(chip('all')).toHaveAttribute('aria-pressed', 'true');
