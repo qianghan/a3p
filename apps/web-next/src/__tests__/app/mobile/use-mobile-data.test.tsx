@@ -3,6 +3,7 @@ import { renderHook, waitFor, act } from '@testing-library/react';
 import { useMobileData, readSnapshot, writeSnapshot, SNAPSHOT_EVENT, SNAPSHOT_CLEARED_EVENT } from '@/app/app/_lib/useMobileData';
 import { SNAPSHOT_PREFIX, clearMobileSnapshots, claimMobileSnapshots } from '@/lib/mobile/snapshot-keys';
 import { ApiError } from '@/app/app/_lib/api';
+import './_load-tolerance';
 
 const SAVED_AT = '2026-10-07T14:30:00.000Z';
 
@@ -142,6 +143,15 @@ describe('snapshot helpers', () => {
     expect(window.localStorage.getItem(`${SNAPSHOT_PREFIX}home`)).toBeNull();
     expect(window.localStorage.getItem(`${SNAPSHOT_PREFIX}docs`)).toBeNull();
     expect(window.localStorage.getItem('theme')).toBe('dark');
+  });
+
+  it('clearMobileSnapshots also removes ab:mobile: keys from sessionStorage (Docs nav)', () => {
+    window.sessionStorage.setItem(`${SNAPSHOT_PREFIX}docs:nav`, '{"ids":["a"],"q":"secret"}');
+    window.sessionStorage.setItem('other', 'x');
+    clearMobileSnapshots();
+    expect(window.sessionStorage.getItem(`${SNAPSHOT_PREFIX}docs:nav`)).toBeNull();
+    expect(window.sessionStorage.getItem('other')).toBe('x');
+    window.sessionStorage.clear();
   });
 });
 

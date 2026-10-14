@@ -9,6 +9,7 @@ import { SNAPSHOT_PREFIX } from '@/lib/mobile/snapshot-keys';
 import { BADGE_MAX_AGE_MS } from '@/app/app/_shell/badges';
 import { renderWithI18n, routeFetch, jsonResponse, touch, expectTouchTarget } from './test-utils';
 import { homeFixture } from './fixtures';
+import './_load-tolerance';
 
 const HOME_URL = '/api/v1/agentbook-core/mobile/home';
 const REMIND_URL = '/api/v1/agentbook-invoice/invoices/inv-1/remind';
@@ -201,13 +202,13 @@ describe('Home page — populated', () => {
     expect(region).not.toHaveTextContent('CA$');
   });
 
-  it('a recent expense links to the Docs list until the viewer ships (PR 4)', async () => {
+  it('a recent expense links to its document in the viewer (PR 4)', async () => {
     routeFetch({ [HOME_URL]: () => jsonResponse(200, { success: true, data: homeFixture() }) });
     renderHome();
     await screen.findByRole('region', { name: 'Key numbers' });
     const recent = screen.getByRole('heading', { name: 'Recent activity' }).closest('section') as HTMLElement;
     const staples = within(recent).getByText('Staples').closest('a');
-    expect(staples).toHaveAttribute('href', '/app/docs');
+    expect(staples).toHaveAttribute('href', '/app/docs/exp-1');
   });
 
   it('pull-to-refresh fetches again and keeps the numbers on screen meanwhile', async () => {
@@ -357,6 +358,10 @@ describe('Home page — revalidates when the app becomes visible again', () => {
     const mock = routeFetch({ [HOME_URL]: () => jsonResponse(200, { success: true, data: homeFixture() }) });
     const view = renderHome();
     await screen.findByRole('region', { name: 'Key numbers' });
+    // The "loaded at" stamp is written by an effect that runs just after the numbers render. On a loaded runner it
+    // could land AFTER a test moved the fake clock forward, stamping the future and reading as fresh (a 4-in-24
+    // flake under 6x parallel load): let it run first.
+    await settle();
     expect(homeCalls(mock)).toBe(1);
     return { mock, view };
   }

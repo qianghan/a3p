@@ -73,6 +73,22 @@ export function clearMobileSnapshots(reason: SnapshotClearReason = 'session'): v
   } catch {
     // Storage unavailable (private mode, blocked) — there is nothing to clear.
   }
+  // sessionStorage holds per-tab state under the same prefix (e.g. the Docs
+  // prev/next list with the search text) — it must not outlive the user either.
+  // Its own try so a blocked localStorage doesn't skip it.
+  try {
+    if (typeof window !== 'undefined') {
+      const session = window.sessionStorage;
+      const doomedSession: string[] = [];
+      for (let i = 0; i < session.length; i++) {
+        const key = session.key(i);
+        if (key && key.startsWith(SNAPSHOT_PREFIX)) doomedSession.push(key);
+      }
+      for (const key of doomedSession) session.removeItem(key);
+    }
+  } catch {
+    // sessionStorage unavailable — nothing to clear.
+  }
   dropApiCaches();
   // Mounted screens hold copies in memory; tell them, even if the disk part failed.
   try {

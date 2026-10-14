@@ -8,6 +8,7 @@ import { ToastHost } from '@/app/app/_kit/Toast';
 import { renderWithI18n, routeFetch, jsonResponse, expectTouchTarget } from './test-utils';
 import { homeFixture } from './fixtures';
 import { formatCurrencyCents } from '@/lib/jurisdiction-currency';
+import './_load-tolerance';
 
 function Harness({ data, onDone = () => {} }: { data: MobileHome; onDone?: () => void }) {
   const actions = useAlertAction(onDone);

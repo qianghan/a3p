@@ -6,6 +6,7 @@ import React, { useState } from 'react';
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { render, act } from '@testing-library/react';
 import { useSettledReload, SETTLED_RELOAD_TIMEOUT_MS, type SettledReloadState } from '@/app/app/_lib/useSettledReload';
+import './_load-tolerance';
 
 interface Harness {
   run: () => Promise<void>;

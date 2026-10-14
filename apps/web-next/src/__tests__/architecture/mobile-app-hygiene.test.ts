@@ -32,7 +32,6 @@ const LOCALES = ['en', 'fr-CA', 'zh-CN'];
 const MAX_SUPPRESSIONS = 3;
 
 const LEGACY: Record<string, string> = {
-  'docs/page.tsx': 'Docs — converted in PR 4',
   'capture/page.tsx': 'Capture — converted in PR 5',
   'chat/page.tsx': 'Chat — converted in PR 6',
 };

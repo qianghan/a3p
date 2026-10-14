@@ -12,6 +12,9 @@ import {
   clockTime,
   calendarDay,
   HOME_SNAPSHOT_STORAGE_KEY,
+  claimLogin,
+  expectedDocsBadge,
+  docsBadgeText,
 } from './helpers';
 
 // Pure helpers — no browser, no network. They run in every invocation so a broken
@@ -111,5 +114,36 @@ test.describe('@mobile-helpers', () => {
     expect(got).not.toContain('/api/v1/agentbook-core/calendar/upcoming');
 
     expect(neverCachePaths('const X = [];')).toBeNull();
+  });
+  test('one browser context signs in once: a second login (the PR 3 gate-test defect) is refused, a fresh context is not', () => {
+    const registry = new WeakMap<object, string>();
+    const ctxA = {};
+    const ctxB = {};
+    claimLogin(registry, ctxA, 'maya');
+    // The same context again, as ANOTHER persona: refused, naming the first one and the fix.
+    expect(() => claimLogin(registry, ctxA, 'alex')).toThrow(/already signed in as maya/);
+    expect(() => claimLogin(registry, ctxA, 'alex')).toThrow(/fresh context per persona/);
+    // ... and as the SAME persona: also refused (a second session on a context is never what a test means).
+    expect(() => claimLogin(registry, ctxA, 'maya')).toThrow(/already signed in as maya/);
+    // A different context is independent.
+    expect(() => claimLogin(registry, ctxB, 'alex')).not.toThrow();
+    expect(() => claimLogin(registry, ctxB, 'sydney')).toThrow(/already signed in as alex/);
+  });
+
+  test('expectedDocsBadge mirrors the shell: the review_needed alert count, positive and whole, else none; gated = none', () => {
+    const alerts = (count: unknown) => ({ alerts: [{ kind: 'receipts_missing', params: { count: 9 } }, { kind: 'review_needed', params: { count } }] });
+    expect(expectedDocsBadge(alerts(3), true)).toBe(3);
+    expect(expectedDocsBadge(alerts(3.9), true)).toBe(3);
+    expect(expectedDocsBadge(alerts(0), true)).toBe(0);
+    expect(expectedDocsBadge(alerts(-2), true)).toBe(0);
+    expect(expectedDocsBadge(alerts('many'), true)).toBe(0);
+    expect(expectedDocsBadge(alerts(150), true)).toBe(150);
+    expect(expectedDocsBadge(alerts(3), false)).toBe(0);
+    // Only review_needed feeds the badge, never another alert's count.
+    expect(expectedDocsBadge({ alerts: [{ kind: 'uncategorized', params: { count: 4 } }] }, true)).toBe(0);
+    expect(expectedDocsBadge({ alerts: [] }, true)).toBe(0);
+    expect(docsBadgeText(7)).toBe('7');
+    expect(docsBadgeText(99)).toBe('99');
+    expect(docsBadgeText(100)).toBe('99+');
   });
 });

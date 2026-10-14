@@ -10,6 +10,7 @@ import { BrandNewHome } from '@/app/app/_home/BrandNewHome';
 import { HomeSkeleton, HomeError, StaleNotice, PullIndicator } from '@/app/app/_home/HomeStates';
 import { renderWithI18n, expectTouchTarget, i18nT } from './test-utils';
 import { homeFixture } from './fixtures';
+import './_load-tolerance';
 
 const up = (over: Partial<UpcomingItem>): UpcomingItem => ({
   id: 'u', kind: 'tax', titleKey: 'mobile.upcoming.tax_instalment', params: { quarter: 3, year: 2026 }, date: '2026-10-15', daysAway: 8, amountCents: 300_000, ...over,
@@ -122,7 +123,7 @@ describe('upcomingTitle — seeded calendar keys that may not be in the catalog'
 });
 
 describe('RecentActivity', () => {
-  it('lists up to five items; labels are text; expense rows link to Docs until the viewer ships', () => {
+  it('lists up to five items; labels are text; expense rows link to the document viewer', () => {
     const items: RecentItem[] = [
       ...homeFixture().recent,
       ...Array.from({ length: 4 }, (_, i) => ({ id: `x${i}`, kind: 'invoice' as const, label: `INV-${i}`, amountCents: 1_000, at: '2026-10-01T12:00:00.000Z' })),
@@ -131,9 +132,9 @@ describe('RecentActivity', () => {
     expect(screen.getByRole('heading', { name: 'Recent activity' })).toBeInTheDocument();
     expect(document.querySelectorAll('[data-recent]')).toHaveLength(5);
     const link = screen.getByRole('link', { name: /Staples/ });
-    // PR 4 ships /app/docs/[docId]; until DOC_VIEWER_ROUTE_SHIPPED flips, link the list (never a 404).
-    expect(DOC_VIEWER_ROUTE_SHIPPED).toBe(false);
-    expect(link).toHaveAttribute('href', '/app/docs');
+    // PR 4 shipped /app/docs/[id]: an expense row lands on its own document, not the list.
+    expect(DOC_VIEWER_ROUTE_SHIPPED).toBe(true);
+    expect(link).toHaveAttribute('href', '/app/docs/exp-1');
     expect(link).toHaveTextContent('CA$43');
     expectTouchTarget(link);
     const payment = document.querySelector('[data-recent="payment"]') as HTMLElement;

@@ -1,6 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { loginAsE2eUser } from './helpers/auth';
 import { expectOk } from './helpers/api';
+import { catalogT } from '../mobile-app/helpers';
 
 /**
  * @phase9-pwa — the installable mobile app, on the deployed site.
@@ -97,6 +98,11 @@ test.describe('@phase9-pwa', () => {
 
     await page.goto('/app/docs');
     await expect(page.getByText('Documents', { exact: true })).toBeVisible();
+    // The rebuilt Docs screen: its filter chips and search box must render, not just the title.
+    // Text from the app's own catalog (the nightly user is an English tenant), never retyped here.
+    const t = catalogT('en');
+    await expect(page.getByRole('button', { name: new RegExp(`^${t('mobile.docs.filter_needs_review')}`) })).toBeVisible();
+    await expect(page.getByRole('searchbox', { name: t('mobile.docs.search_label') })).toBeVisible();
 
     await page.goto('/app/chat');
     await expect(page.getByPlaceholder('Type a message…')).toBeVisible();

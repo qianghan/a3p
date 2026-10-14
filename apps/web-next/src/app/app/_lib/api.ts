@@ -251,6 +251,7 @@ export async function listDocs(p: { filter?: DocFilter; q?: string; cursor?: str
     items: rows.map((r) => rowToDoc(r)),
     nextCursor: typeof meta.nextCursor === 'string' && meta.nextCursor ? meta.nextCursor : null,
     counts: isCounts(meta.counts) ? meta.counts : null,
+    total: typeof meta.total === 'number' && Number.isInteger(meta.total) && meta.total >= 0 ? meta.total : null,
   };
 }
 
