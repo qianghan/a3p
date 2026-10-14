@@ -1,6 +1,7 @@
 /**
  * Categorize / re-categorize an expense. The writes (category, ledger
- * backfill, vendor-pattern learning, confidence policy by `source`) live in
+ * backfill or — for a booked expense whose category changes — a repost of its
+ * journal entry, vendor-pattern learning, confidence policy by `source`) live in
  * lib/agentbook-categorize-expense.ts, shared with the mobile bulk review.
  */
 
@@ -27,9 +28,13 @@ export async function POST(
 
     const outcome = await categorizeExpense(tenantId, id, body);
     if (!outcome.ok) {
-      // invalid_category carries a machine code (like from-receipt) so a client can localize it.
+      // invalid_category and the ledger refusals (period_closed / split_entry /
+      // already_reversed → 422, conflict → 409) carry a machine code so a
+      // client can localize it; a closed period also carries the PATCH route's
+      // period_gate details.
       const code = 'code' in outcome ? { code: outcome.code } : {};
-      return NextResponse.json({ success: false, ...code, error: outcome.error }, { status: outcome.status });
+      const details = 'details' in outcome && outcome.details ? { details: outcome.details } : {};
+      return NextResponse.json({ success: false, ...code, error: outcome.error, ...details }, { status: outcome.status });
     }
     return NextResponse.json({ success: true, data: outcome.expense });
   } catch (err) {
