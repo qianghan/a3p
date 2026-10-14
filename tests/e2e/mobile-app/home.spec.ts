@@ -1,13 +1,19 @@
-import { test, expect, type Locator, type Page, type Response } from '@playwright/test';
-import type { MobileAlert, MobileHome } from '../../../apps/web-next/src/lib/mobile/types';
+import { test, expect, type BrowserContext, type Locator, type Page } from '@playwright/test';
+import type { MobileAlert } from '../../../apps/web-next/src/lib/mobile/types';
 import { alertCopy } from '../../../apps/web-next/src/app/app/_lib/alert-copy';
 import { BADGES_ENABLED } from '../../../apps/web-next/src/app/app/_shell/badges';
 import {
   loginAs,
+  newPersonaContext,
+  withPersonaPage,
+  openHome,
+  showAlert,
+  isHomeGet,
+  expectedDocsBadge,
+  docsBadgeText,
   settle,
   pageLocales,
   catalogT,
-  money,
   clockTime,
   calendarDay,
   expectScreen,
@@ -15,7 +21,6 @@ import {
   loginUnavailableReason,
   applySafeAreaInsets,
   measureShell,
-  waitForHomeSnapshot,
   HOME_SNAPSHOT_STORAGE_KEY,
   IPHONE_INSETS,
   MOBILE_VIEWPORT,
@@ -34,7 +39,6 @@ import {
  * renders the wrong sentence, figure or currency does.
  */
 
-const HOME_PATH = '/api/v1/agentbook-core/mobile/home';
 const CHAT_MESSAGE_PATH = '/api/v1/agentbook-core/agent/message';
 /** The banner shows at most this many alerts (MAX_ALERTS in _home/AlertCarousel.tsx — a React module Playwright cannot import). */
 const MAX_ALERTS = 5;
@@ -42,39 +46,8 @@ const MAX_NEXT_UP = 3;
 const MAX_RECENT = 5;
 const REMIND_ENDPOINT = /^\/api\/v1\/agentbook-invoice\/invoices\/[\w-]+\/remind$/;
 
-const isHomeGet = (r: Response): boolean => new URL(r.url()).pathname === HOME_PATH && r.request().method() === 'GET';
-
-/**
- * Open Home and return what the page itself was given. The response listener is
- * registered before the navigation (a response that arrives during goto would
- * otherwise be missed), the body is the SAME one the screen and the tab bar used,
- * and the call returns only after the app has stored that response's snapshot
- * (so "no badge" checks made afterwards are observations, not races).
- */
-async function openHome(page: Page) {
-  const homeResponse = page.waitForResponse(isHomeGet, { timeout: 30_000 });
-  await page.goto('/app');
-  const res = await homeResponse;
-  expect(res.status(), 'mobile/home status').toBe(200);
-  const home = ((await res.json()) as { data: MobileHome }).data;
-  await waitForHomeSnapshot(page, home.generatedAt);
-  await settle(page);
-  const { stringLocale, formatLocale } = await pageLocales(page);
-  const t = catalogT(stringLocale);
-  const fmt = (cents: number) => money(cents, home.currency, formatLocale);
-  return { t, home, fmt, formatLocale };
-}
-
 function currencySymbol(currency: string, locale: string): string {
   return new Intl.NumberFormat(locale, { style: 'currency', currency }).formatToParts(1).find((p) => p.type === 'currency')!.value;
-}
-
-/** The slide for alert `index` (0-based among the shown alerts), selected the way a user does: its dot. */
-async function showAlert(page: Page, t: ReturnType<typeof catalogT>, total: number, index: number): Promise<Locator> {
-  if (total > 1) {
-    await page.getByRole('button', { name: t('mobile.home.alert_dot', { index: index + 1, total }), exact: true }).click();
-  }
-  return page.getByTestId('alert-carousel');
 }
 
 /** "invoice_overdue+action, review_needed→/app/docs" — what a persona's banner could exercise. */
@@ -192,14 +165,15 @@ test.describe('@mobile-home', () => {
 
         // Tab badges (the shell's own request is the one this response was shared with; the snapshot wait in
         // openHome means the tab bar has already used it): the Home dot iff a critical alert exists, and the
-        // Docs badge absent while its gate is off.
+        // Docs badge = the review_needed alert's count (none when zero, "99+" over 99; a gated badge shows nothing).
         const nav = tabNav(page, t);
         const critical = BADGES_ENABLED.home && home.alerts.some((a) => a.severity === 'critical');
         test.info().annotations.push({ type: 'home-dot', description: critical ? 'positive: a critical alert exists, dot expected' : 'zero: no critical alert, no dot expected' });
         await expect(nav.locator('a[data-tab="/app"] [data-badge="home-dot"]')).toHaveCount(critical ? 1 : 0, { timeout: 10_000 });
-        if (!BADGES_ENABLED.docs) {
-          await expect(nav.locator('a[data-tab="/app/docs"] [data-badge="docs-count"]')).toHaveCount(0);
-        }
+        const review = expectedDocsBadge(home, BADGES_ENABLED.docs);
+        const docsBadge = nav.locator('a[data-tab="/app/docs"] [data-badge="docs-count"]');
+        if (review > 0) await expect(docsBadge).toHaveText(docsBadgeText(review), { timeout: 10_000 });
+        else await expect(docsBadge).toHaveCount(0);
       });
 
       test('every banner action is present and every banner link lands on a working /app screen', async ({ page }) => {
@@ -364,23 +338,43 @@ test.describe('@mobile-home', () => {
   test.describe('remind', () => {
     test.describe.configure({ retries: 0 });
 
-    test('Remind on ONE overdue invoice: "Logged" at once, the toast only after the POST resolves', async ({ page }) => {
+    // The context of the persona that has the overdue invoice, kept open for the rest of the test.
+    let remindContext: BrowserContext | null = null;
+    test.afterEach(async () => {
+      await remindContext?.close();
+      remindContext = null;
+    });
+
+    test('Remind on ONE overdue invoice: "Logged" at once, the toast only after the POST resolves', async ({ browser, baseURL }) => {
       // The remind route only LOGS the reminder (delivered:false, email deferred) and bumps lastRemindedAt,
       // so it is harmless to repeat; still, exactly one click on one alert per run, and none at all when no
       // seeded persona has an overdue invoice (the collective gate test then fails the run instead).
-      let chosen: { persona: 'maya' | 'alex' | 'sydney'; ctx: Awaited<ReturnType<typeof openHome>>; index: number } | null = null;
+      //
+      // A FRESH browser context per persona. Signing in as the next persona on the same page after
+      // clearCookies() kept the first persona's naap_auth_token in localStorage, so /auth/me kept answering for
+      // the FIRST user (the PR 3 production run: every persona after maya read maya's books).
+      let chosen: { persona: 'maya' | 'alex' | 'sydney'; page: Page; ctx: Awaited<ReturnType<typeof openHome>>; index: number } | null = null;
       for (const persona of ['maya', 'alex', 'sydney'] as const) {
-        await page.context().clearCookies();
-        await loginAs(page, persona);
-        const ctx = await openHome(page);
-        const shown = ctx.home.alerts.slice(0, MAX_ALERTS);
-        const index = shown.findIndex((a) => a.kind === 'invoice_overdue' && a.action);
-        if (index !== -1) {
-          chosen = { persona, ctx, index };
-          break;
+        const context = await newPersonaContext(browser, baseURL);
+        try {
+          const probe = await context.newPage();
+          await loginAs(probe, persona);
+          const ctx = await openHome(probe);
+          const shown = ctx.home.alerts.slice(0, MAX_ALERTS);
+          const index = shown.findIndex((a) => a.kind === 'invoice_overdue' && a.action);
+          if (index !== -1) {
+            remindContext = context;
+            chosen = { persona, page: probe, ctx, index };
+            break;
+          }
+        } catch (err) {
+          await context.close();
+          throw err;
         }
+        await context.close();
       }
       test.skip(chosen === null, 'no seeded persona has an overdue-invoice alert on this deployment: nothing to remind (the collective gate test fails this run)');
+      const page = chosen!.page;
       const { persona, ctx, index } = chosen!;
       const { t, home, fmt } = ctx;
       const shown = home.alerts.slice(0, MAX_ALERTS);
@@ -522,8 +516,10 @@ test.describe('@mobile-home', () => {
       description: `${home.alerts.length} alert(s): ${home.alerts.map((a) => `${a.kind}/${a.severity}`).join(', ') || 'none'}`,
     });
     await expect(page.locator('a[data-tab="/app"] [data-badge="home-dot"]')).toHaveCount(critical ? 1 : 0);
-    // Docs stays gated until PR 4.
-    if (!BADGES_ENABLED.docs) await expect(page.locator('[data-badge="docs-count"]')).toHaveCount(0);
+    // The Docs count follows the response too: a brand-new account has nothing to review, so none.
+    const review = expectedDocsBadge(home, BADGES_ENABLED.docs);
+    if (review > 0) await expect(page.locator('a[data-tab="/app/docs"] [data-badge="docs-count"]')).toHaveText(docsBadgeText(review));
+    else await expect(page.locator('[data-badge="docs-count"]')).toHaveCount(0);
     await page.locator('main a[data-action-card="/app/chat"]').click();
     await page.waitForURL((u) => u.pathname === '/app/chat');
     await expectScreen(page, '/app/chat', t);
@@ -565,15 +561,15 @@ test.describe('@mobile-home', () => {
   // invoices and open work, so a missing one is a data/seed regression, not a reason to go green having
   // verified nothing. (It sits last in the file; workers: 1 runs files' tests in order, but it does not
   // depend on the others — it reads each persona's /mobile/home itself.)
-  test('collective gate: the persona matrix has an overdue-invoice Remind alert and a target-link alert to exercise', async ({ page }) => {
+  test('collective gate: the persona matrix has an overdue-invoice Remind alert and a target-link alert to exercise', async ({ browser, baseURL }) => {
+    test.setTimeout(180_000);
     const per: string[] = [];
     let remind = 0;
     let link = 0;
     let chatLink = 0;
     for (const persona of ['maya', 'alex', 'sydney'] as const) {
-      await page.context().clearCookies();
-      await loginAs(page, persona);
-      const { home } = await openHome(page);
+      // A fresh context per persona (see the remind test): one page re-logged-in across personas reads the first one's books.
+      const home = await withPersonaPage(browser, baseURL, persona, async (page) => (await openHome(page)).home);
       const shown = home.alerts.slice(0, MAX_ALERTS); // only these render, so only these can be exercised
       per.push(`${persona}: ${describeKinds(shown)}`);
       remind += shown.filter((a) => a.kind === 'invoice_overdue' && a.action).length;

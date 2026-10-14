@@ -16,6 +16,9 @@ export default defineConfig({
   retries: 1,
   workers: 1,
   fullyParallel: false,
+  // 15 s, not the 5 s default: a screen assertion that follows a real write (a category saved, a list re-read, a
+  // 20 s serverless cold start on production) is waiting on the server, and the Docs journeys have dozens of them.
+  expect: { timeout: 15_000 },
   reporter: [
     ['list'],
     ['html', { open: 'never', outputFolder: 'playwright-report' }],

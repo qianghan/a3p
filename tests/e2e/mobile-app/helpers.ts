@@ -1,4 +1,5 @@
-import { expect, type BrowserContext, type Locator, type Page } from '@playwright/test';
+import { expect, devices, type Browser, type BrowserContext, type Locator, type Page, type Response } from '@playwright/test';
+import type { MobileHome } from '../../../apps/web-next/src/lib/mobile/types';
 import { readdirSync, readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { randomBytes } from 'node:crypto';
@@ -58,8 +59,66 @@ export function loginUnavailableReason(baseURL: string | undefined): string | nu
   return null;
 }
 
+/**
+ * One browser context = ONE signed-in user, ever.
+ *
+ * The session lives in two places: the httpOnly cookie AND a `naap_auth_token`
+ * in localStorage. Clearing cookies and signing in as someone else leaves the
+ * old localStorage token behind, and /auth/me keeps answering for the FIRST
+ * user: the PR 3 production run failed exactly this way (maya -> alex -> sydney
+ * on one page, every persona after the first read the first one's books). So a
+ * second login on one context is refused outright, rather than relied on to be
+ * remembered: use `newPersonaContext` / `withPersonaPage` for each persona.
+ */
+const signedInAs = new WeakMap<object, string>();
+
+export function claimLogin(registry: WeakMap<object, string>, context: object, who: string): void {
+  const prior = registry.get(context);
+  if (prior !== undefined) {
+    throw new Error(
+      `loginAs(${who}): this browser context is already signed in as ${prior}. A second login keeps the first ` +
+        `session's localStorage token alive, so every later persona would silently read ${prior}'s books. ` +
+        'Open a fresh context per persona (newPersonaContext / withPersonaPage in tests/e2e/mobile-app/helpers.ts).',
+    );
+  }
+  registry.set(context, who);
+}
+
+/** A brand-new phone-shaped context (own cookies, own localStorage) with the suite's settings. */
+export async function newPersonaContext(browser: Browser, baseURL: string | undefined): Promise<BrowserContext> {
+  // Not inherited from playwright.config `use`: `browser.newContext` takes only what it is given. No tracing,
+  // video or HAR is ever started on it (these journeys type a password; see playwright.config.ts).
+  return browser.newContext({
+    baseURL,
+    viewport: MOBILE_VIEWPORT,
+    isMobile: true,
+    hasTouch: true,
+    deviceScaleFactor: 3,
+    userAgent: devices['iPhone 13'].userAgent,
+    serviceWorkers: 'block',
+  });
+}
+
+/** Run `fn` as `persona` on its own fresh context; the context is always closed. */
+export async function withPersonaPage<T>(
+  browser: Browser,
+  baseURL: string | undefined,
+  persona: Persona,
+  fn: (page: Page) => Promise<T>,
+): Promise<T> {
+  const context = await newPersonaContext(browser, baseURL);
+  try {
+    const page = await context.newPage();
+    await loginAs(page, persona);
+    return await fn(page);
+  } finally {
+    await context.close();
+  }
+}
+
 /** Sign in as a seeded persona, or register + sign in a brand-new empty account. */
 export async function loginAs(page: Page, persona: Persona): Promise<{ email: string }> {
+  claimLogin(signedInAs, page.context(), persona);
   await page.setViewportSize(MOBILE_VIEWPORT);
   let email: string;
   let password: string;
@@ -190,6 +249,22 @@ export function calendarDay(iso: string, locale: string): string {
   return formatDateOnly(iso.slice(0, 10), locale, { month: 'short', day: 'numeric' });
 }
 
+/**
+ * The Docs tab's badge, as the shell derives it from /mobile/home (useShellBadges.badgesFrom):
+ * the `review_needed` alert's `params.count`, a positive whole number, else none. 0 = no badge.
+ * `enabled` is BADGES_ENABLED.docs: a gated badge shows nothing whatever the data says.
+ */
+export function expectedDocsBadge(home: { alerts: Array<{ kind: string; params?: Record<string, unknown> }> }, enabled: boolean): number {
+  if (!enabled) return 0;
+  const n = Number(home.alerts.find((a) => a.kind === 'review_needed')?.params?.count ?? 0);
+  return Number.isFinite(n) && n > 0 ? Math.floor(n) : 0;
+}
+
+/** The badge's text: the count, capped at "99+" (TabBar). */
+export function docsBadgeText(count: number): string {
+  return count > 99 ? '99+' : String(count);
+}
+
 /** Where the Home screen's last-good copy lives: the app's SNAPSHOT_PREFIX + its HOME_KEY ('home', _lib/useShellBadges.ts). */
 export const HOME_SNAPSHOT_STORAGE_KEY = `${SNAPSHOT_PREFIX}home`;
 
@@ -223,6 +298,39 @@ export async function waitForHomeSnapshot(page: Page, generatedAt?: string): Pro
     { timeout: 15_000 },
   );
   await page.evaluate(() => new Promise<void>((res) => requestAnimationFrame(() => requestAnimationFrame(() => res()))));
+}
+
+export const HOME_PATH = '/api/v1/agentbook-core/mobile/home';
+
+export const isHomeGet = (r: Response): boolean => new URL(r.url()).pathname === HOME_PATH && r.request().method() === 'GET';
+
+/**
+ * Open Home and return what the page itself was given. The response listener is
+ * registered before the navigation (a response that arrives during goto would
+ * otherwise be missed), the body is the SAME one the screen and the tab bar used,
+ * and the call returns only after the app has stored that response's snapshot
+ * (so "no badge" checks made afterwards are observations, not races).
+ */
+export async function openHome(page: Page) {
+  const homeResponse = page.waitForResponse(isHomeGet, { timeout: 30_000 });
+  await page.goto('/app');
+  const res = await homeResponse;
+  expect(res.status(), 'mobile/home status').toBe(200);
+  const home = ((await res.json()) as { data: MobileHome }).data;
+  await waitForHomeSnapshot(page, home.generatedAt);
+  await settle(page);
+  const { stringLocale, formatLocale } = await pageLocales(page);
+  const t = catalogT(stringLocale);
+  const fmt = (cents: number) => money(cents, home.currency, formatLocale);
+  return { t, home, fmt, formatLocale };
+}
+
+/** The banner slide for alert `index` (0-based among the shown alerts), selected the way a user does: its dot. */
+export async function showAlert(page: Page, t: CatalogT, total: number, index: number): Promise<Locator> {
+  if (total > 1) {
+    await page.getByRole('button', { name: t('mobile.home.alert_dot', { index: index + 1, total }), exact: true }).click();
+  }
+  return page.getByTestId('alert-carousel');
 }
 
 export type ScreenRoute = '/app' | '/app/docs' | '/app/capture' | '/app/chat';

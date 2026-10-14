@@ -524,20 +524,21 @@ describe('badgesFrom', () => {
 
 // ── Badge gate (I1) ─────────────────────────────────────────────────────────
 // A badge is live only once its screen can show and clear what it points at:
-// home since PR 3 (the Home rewrite), docs from PR 4 (the Docs rewrite).
+// home since PR 3 (the Home rewrite), docs since PR 4 (the Docs rewrite).
 describe('Badge gate', () => {
-  it('ships with home ON and docs OFF (PR 4 flips docs — update this test then)', () => {
-    expect(BADGES_ENABLED).toEqual({ home: true, docs: false });
+  it('ships with home ON and docs ON (both flipped: a flag goes back to false only with its screen)', () => {
+    expect(BADGES_ENABLED).toEqual({ home: true, docs: true });
   });
 
-  it('the default gate (no prop): Home is fetched once and shows the dot; the Docs count stays off', async () => {
+  it('the default gate (no prop): Home is fetched once (shared) and shows BOTH the dot and the Docs count', async () => {
     const fetchMock = routeFetch({ [HOME_URL]: () => jsonResponse(200, { success: true, data: homeFixture() }) });
     renderWithI18n(<MobileShell><p /></MobileShell>);
     const homeTab = await screen.findByRole('link', { name: 'Home, needs attention' });
     expect(homeTab.querySelector('[data-badge="home-dot"]')).not.toBeNull();
+    // homeFixture() carries a review_needed alert with count 3: the Docs tab says so, visibly and by name.
+    const docsTab = await screen.findByRole('link', { name: 'Docs, 3 items need review' });
+    expect(docsTab.querySelector('[data-badge="docs-count"]')?.textContent).toBe('3');
     expect(homeCalls(fetchMock)).toBe(1);
-    expect(document.querySelector('[data-badge="docs-count"]')).toBeNull();
-    expect(screen.getByRole('link', { name: 'Docs' })).toBeInTheDocument();
   });
 
   it('both gated: zero /mobile/home requests, no dot, no count, plain labels — even with data cached', async () => {
