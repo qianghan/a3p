@@ -14,7 +14,7 @@ import { createTranslator } from '@agentbook/i18n';
 const APP_DIR = join(__dirname, '..', '..', 'app', 'app');
 const LOCALES = ['en', 'fr-CA', 'zh-CN'] as const;
 // PR 5 (Task 5.5) appends 'capture'.
-const SCREENS_OWNED_HERE = ['docs'] as const;
+const SCREENS_OWNED_HERE = ['docs', 'capture'] as const;
 // Measured after Task 4.7 fix round 1 (PR 2/3 code + the Docs list screens, 3+ segments, all quote
 // styles): 175 distinct keys; a ratchet: keys only get added, so a drop means the
 // scanner broke. (The plan said 50; the tree already exceeded that, so it is raised to
