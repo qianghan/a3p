@@ -500,14 +500,16 @@ describe('Shell layout', () => {
     expect(TAB_BAR_CLEARANCE).toBe('calc(88px + env(safe-area-inset-bottom))');
   });
 
-  it('the legacy chat screen fills the space the shell gives it instead of assuming calc(100dvh - 64px)', () => {
+  it('the chat screen does not assume the old calc(100dvh - 64px) tab-bar offset', () => {
     routeFetch({ [HOME_URL]: () => jsonResponse(200, { success: true, data: homeFixture({ alerts: [] }) }) });
     renderWithI18n(<MobileShell badges={ALL}><MobileChat /></MobileShell>);
-    const main = document.getElementById('mobile-main') as HTMLElement;
-    const root = main.firstElementChild as HTMLElement;
-    expect(root.style.height).toBe('100%');
-    expect(root.style.minHeight).toMatch(/^0(px)?$/);
-    expect(root.getAttribute('style') ?? '').not.toContain('100dvh');
+    // PR 6 replaced the legacy page: a measured panel (fixed between the header and the tab bar / keyboard), with a
+    // pre-measurement fallback. Neither may reintroduce the hardcoded 64px offset the legacy page used.
+    const screenEl = document.querySelector('[data-testid="chat-screen"]') as HTMLElement;
+    expect(screenEl).not.toBeNull();
+    const style = screenEl.getAttribute('style') ?? '';
+    expect(style).not.toContain('100dvh - 64px');
+    expect(style).toMatch(/display:\s*flex/);
   });
 });
 

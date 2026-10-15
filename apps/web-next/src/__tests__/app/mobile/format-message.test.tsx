@@ -145,6 +145,8 @@ describe('formatMessage — no catastrophic backtracking (test the FAILING match
   it.each(CASES)('%s completes fast', (_n, input) => {
     const t0 = performance.now();
     formatMessage(input);
-    expect(performance.now() - t0).toBeLessThan(150);
+    // Real cost is ~2 ms per input. The bound only has to separate that from catastrophic backtracking (seconds on
+    // 20k chars) while surviving a CPU-starved full-suite run, where 150 ms flaked.
+    expect(performance.now() - t0).toBeLessThan(500);
   });
 });
