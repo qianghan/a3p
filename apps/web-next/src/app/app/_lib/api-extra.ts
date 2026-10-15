@@ -144,3 +144,23 @@ export async function confirmDoc(id: string): Promise<void> {
     body: '{}',
   });
 }
+
+export interface CreateExpenseBody {
+  amountCents: number;
+  vendor?: string;
+  date?: string;
+  categoryId?: string;
+  isPersonal?: boolean;
+  /** Always send it: the route defaults to 'USD', which mis-booked every CA/AU manual capture. */
+  currency?: string;
+}
+
+/** Manual entry (no photo). The key makes a retry after a lost response a no-op, not a second expense. */
+export async function createExpense(body: CreateExpenseBody, idempotencyKey: string): Promise<{ id: string }> {
+  const data = await request<{ id: string }>(`${EXPENSE}/expenses`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', 'Idempotency-Key': idempotencyKey },
+    body: JSON.stringify(body),
+  });
+  return { id: data.id };
+}
