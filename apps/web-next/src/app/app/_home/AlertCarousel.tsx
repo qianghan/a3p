@@ -102,7 +102,7 @@ export function AlertCarousel({ alerts, currency, actions }: { alerts: MobileAle
     );
   } else if (copy.href && copy.actionLabel) {
     action = (
-      <Link href={copy.href} data-alert-action="link" style={buttonStyle('secondary')}>
+      <Link href={copy.href} data-testid="home-alert-action" data-alert-action="link" style={buttonStyle('secondary')}>
         {copy.actionLabel}
       </Link>
     );

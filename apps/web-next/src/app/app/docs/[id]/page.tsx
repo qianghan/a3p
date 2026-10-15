@@ -372,7 +372,7 @@ function DocViewer({ id }: { id: string }) {
   if (gone || !doc || !form) {
     let body: React.ReactNode;
     if (gone) {
-      body = <EmptyState title={t('mobile.docs.not_found')} />;
+      body = <EmptyState title={t('mobile.docs.not_found')} testId="doc-viewer-error" />;
     } else if (!error) {
       return (
         <div role="status" aria-label={t('mobile.kit.loading')} aria-busy="true" data-testid="doc-skeleton" style={{ padding: tokens.space.lg, display: 'grid', gap: tokens.space.md }}>
@@ -395,7 +395,7 @@ function DocViewer({ id }: { id: string }) {
       const off = !online || failure?.status === 0;
       body = (
         <div role="alert">
-          <EmptyState title={off ? t('mobile.kit.offline_title') : t('mobile.docs.load_failed')} body={off ? t('mobile.kit.offline_body') : t('mobile.kit.error_body')}>
+          <EmptyState title={off ? t('mobile.kit.offline_title') : t('mobile.docs.load_failed')} body={off ? t('mobile.kit.offline_body') : t('mobile.kit.error_body')} testId="doc-viewer-error">
             <div>
               <button
                 type="button"
@@ -438,7 +438,7 @@ function DocViewer({ id }: { id: string }) {
   const lock = (locked: boolean, working = false) => ({ 'aria-disabled': locked || undefined, 'aria-busy': working || undefined }) as const;
 
   return (
-    <div style={{ padding: `${tokens.space.sm}px ${tokens.space.lg}px ${tokens.space.xl + tokens.space.lg}px`, color: tokens.color.fg, display: 'grid', gap: tokens.space.md }}>
+    <div data-testid="doc-viewer" style={{ padding: `${tokens.space.sm}px ${tokens.space.lg}px ${tokens.space.xl + tokens.space.lg}px`, color: tokens.color.fg, display: 'grid', gap: tokens.space.md }}>
       <nav aria-label={t('mobile.docs.nav_label')} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         {backLink}
         <span style={{ display: 'flex', gap: tokens.space.xs }}>
@@ -530,6 +530,7 @@ function DocViewer({ id }: { id: string }) {
       </label>
       <label style={labelStyle}>{t('mobile.docs.field_vendor')}
         <input
+          data-testid="doc-viewer-vendor"
           ref={vendorRef}
           style={field}
           value={form.vendor}
@@ -582,6 +583,7 @@ function DocViewer({ id }: { id: string }) {
         )}
         <button
           type="button"
+          data-testid={current.archivedAt ? 'doc-restore' : 'doc-archive'}
           style={buttonStyle('secondary', writesLocked)}
           {...lock(writesLocked, busy === 'archive')}
           onClick={() => { if (!writesLocked) void toggleArchive(); }}
