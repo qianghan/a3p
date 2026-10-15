@@ -50,6 +50,9 @@ describe('sw.js — mobile routes', () => {
   it.each([
     'https://agentbook.brainliber.com/api/v1/agentbook-core/mobile/home',
     'https://agentbook.brainliber.com/api/v1/agentbook-core/calendar/upcoming?days=30',
+    // Chat history: a cached 200 served offline would read as live history (PR 4 offline-fallback hazard).
+    'https://agentbook.brainliber.com/api/v1/agentbook-core/threads?channel=web&status=active',
+    'https://agentbook.brainliber.com/api/v1/agentbook-core/threads/th1/turns',
   ])('%s goes straight to the network and touches no cache', async (url) => {
     const w = loadWorker();
     const request = await dispatchFetch(w, url);
