@@ -61,7 +61,12 @@ export function stripMarkup(raw: string): string {
   s = s.replace(/<\/(p|div|li)>/gi, '\n');
   // <b>/<strong> become bold markers; any attributes (onclick=…) are discarded with the tag.
   s = s.replace(/<(b|strong)(?:\s[^<>]*)?>/gi, '**').replace(/<\/(b|strong)>/gi, '**');
-  s = s.replace(/<\/?[a-zA-Z][^<>]*>/g, '');
+  // Repeat until stable: one pass over '<scr<script>ipt>' removes the inner tag and joins the outer halves into a new
+  // '<script>'. Each changing pass shortens the string (input is capped), so this terminates.
+  for (let prev = ''; prev !== s; ) {
+    prev = s;
+    s = s.replace(/<\/?[a-zA-Z][^<>]*>/g, '');
+  }
   // Decode LAST: an encoded "&lt;script&gt;" becomes literal text, never a tag.
   s = s.replace(/&(lt|gt|quot|#39|#x27|nbsp|amp);/g, (m) => ENTITIES[m] ?? m);
   return s;

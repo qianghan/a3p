@@ -85,6 +85,19 @@ describe('formatMessage — structure', () => {
     expect(stripMarkup('&lt;b&gt;hi&lt;/b&gt; &amp; more')).toBe('<b>hi</b> & more');
   });
 
+  // A single replace pass over '<scr<script>ipt>' removes the inner tag and leaves the outer pieces joined into a new
+  // '<script>' (CodeQL js/incomplete-multi-character-sanitization). Strip until nothing more changes.
+  it.each([
+    ['<scr<script>ipt>alert(1)</scr</script>ipt>', ''], // script contents are dropped by design
+    ['<<b>b>x', 'x'],
+    ['<im<img>g src=x onerror=y>z', 'z'],
+    ['<a<a<a>b>c>d', 'd'],
+  ])('nested tag fragments cannot rebuild a tag: %s', (input, text) => {
+    const out = stripMarkup(input);
+    expect(out).not.toMatch(/<\/?[a-zA-Z]/);
+    expect(out).toContain(text);
+  });
+
   it('truncates absurdly long input', () => {
     expect(stripMarkup('a'.repeat(MAX_MESSAGE_CHARS + 50)).length).toBe(MAX_MESSAGE_CHARS);
   });
@@ -141,6 +154,7 @@ describe('formatMessage — no catastrophic backtracking (test the FAILING match
     ['many &', '&'.repeat(20000) + 'amp'],
     ['many <script', '<script'.repeat(3000)],
     ['many unclosed link targets', '[a]('.repeat(2000)],
+    ['deeply nested tag fragments (one removal per pass)', '<a'.repeat(2500) + '>'.repeat(2500)],
   ];
   it.each(CASES)('%s completes fast', (_n, input) => {
     const t0 = performance.now();
