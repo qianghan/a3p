@@ -349,6 +349,8 @@
     "starter_briefing": "Give me a daily briefing",
     "starter_spend": "How much did I spend this month?",
     "starter_log": "Log $5 coffee",
+    "topic_tax_deadline": "When is my next tax payment due, and how much is it?",
+    "topic_bill_due": "Which bills are due soon?",
     "placeholder": "Message your advisor",
     "send": "Send message",
     "attach": "Attach a photo",

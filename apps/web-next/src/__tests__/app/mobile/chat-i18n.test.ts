@@ -24,6 +24,8 @@ export const CHAT_KEYS = [
   'mobile.chat.starter_briefing',
   'mobile.chat.starter_spend',
   'mobile.chat.starter_log',
+  'mobile.chat.topic_tax_deadline',
+  'mobile.chat.topic_bill_due',
   'mobile.chat.placeholder',
   'mobile.chat.send',
   'mobile.chat.attach',

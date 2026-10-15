@@ -33,6 +33,23 @@ export default function MobileChat() {
   const files = useRef(new Map<string, File>());
   const listRef = useRef<HTMLDivElement>(null);
   const anchorRef = useRef<HTMLDivElement>(null);
+
+  // /app/chat?topic=... arrives from Home alerts that have no screen of their own (tax deadline, bill due).
+  // Prefill the question; never send it, and never overwrite what the user already typed.
+  useEffect(() => {
+    try {
+      const topic = new URLSearchParams(window.location.search).get('topic');
+      const text =
+        topic === 'tax_deadline' ? t('mobile.chat.topic_tax_deadline')
+        : topic === 'bill_due' ? t('mobile.chat.topic_bill_due')
+        : null;
+      if (text) setDraft((d) => d || text);
+    } catch {
+      /* no window, or blocked: the composer simply stays empty */
+    }
+    // run once on mount; `t` is stable for the session language
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const historyStarted = useRef(false);
   const frame = useKeyboardInset();
   const { hasUnseen, scrollToBottom } = useStickToBottom(listRef, `${state.items.length}:${state.busy}:${state.history}`);

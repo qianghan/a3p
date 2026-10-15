@@ -349,6 +349,8 @@
     "starter_briefing": "给我今天的简报",
     "starter_spend": "我这个月花了多少钱？",
     "starter_log": "记一笔 $5 咖啡",
+    "topic_tax_deadline": "我下一次的税款什么时候到期？金额是多少？",
+    "topic_bill_due": "哪些账单快到期了？",
     "placeholder": "给顾问发消息",
     "send": "发送消息",
     "attach": "添加照片",
