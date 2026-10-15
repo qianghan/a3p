@@ -102,4 +102,8 @@ describe('mobile chat i18n keys', () => {
     const extra = scrapeChatKeys().filter((k) => !(CHAT_KEYS as readonly string[]).includes(k));
     expect(extra, `keys used in source but not declared: ${extra.join(', ')}`).toEqual([]);
   });
+
+  it('the scrape is not vacuous once the page exists', () => {
+    expect(scrapeChatKeys().length).toBeGreaterThanOrEqual(30);
+  });
 });
