@@ -352,7 +352,7 @@ export async function expectScreen(page: Page, route: string, t: CatalogT): Prom
   } else if (route.startsWith('/app/capture')) {
     await expect(main.getByRole('heading', { name: t('mobile.capture.title') })).toBeVisible();
   } else if (route.startsWith('/app/chat')) {
-    await expect(main.getByRole('heading', { name: 'Ask AgentBook' })).toBeVisible();
+    await expect(main.getByRole('heading', { name: t('mobile.chat.title') })).toBeVisible();
   } else {
     throw new Error(`expectScreen: no marker for ${route} yet`);
   }

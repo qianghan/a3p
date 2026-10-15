@@ -64,6 +64,12 @@ const NEVER_CACHE_PATHS = [
   '/api/v1/agentbook-tax/tax/estimate', // live tax estimate, recomputed every call
   '/api/v1/agentbook-core/mobile/home', // PWA Home: KPIs + alerts composed live from the ledger
   '/api/v1/agentbook-core/calendar/upcoming', // PWA "Next up": deadlines and bills, recomputed every call
+  '/api/v1/agentbook-core/threads', // PWA Chat: active thread list (a cached 200 offline would read as live history)
+];
+
+// Same rule for paths that carry an id, which an exact-match list can't express.
+const NEVER_CACHE_PATTERNS = [
+  /^\/api\/v1\/agentbook-core\/threads\/[^/]+\/turns$/, // PWA Chat: a thread's transcript
 ];
 
 const BINARY_DOWNLOAD_PATTERNS = [
@@ -77,6 +83,7 @@ const BINARY_DOWNLOAD_PATTERNS = [
 
 function isExcludedFromApiCache(pathname) {
   if (NEVER_CACHE_PATHS.includes(pathname)) return true;
+  if (NEVER_CACHE_PATTERNS.some((re) => re.test(pathname))) return true;
   return BINARY_DOWNLOAD_PATTERNS.some((re) => re.test(pathname));
 }
 
