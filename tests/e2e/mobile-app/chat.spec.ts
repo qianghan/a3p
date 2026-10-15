@@ -1,7 +1,7 @@
 import { test, expect, type Page } from '@playwright/test';
 import { MOBILE_VIEWPORT, catalogT, loginAs, newPersonaContext, pageLocales, settle, type CatalogT } from './helpers';
 import { inPageFetch } from './page-api';
-import { runTag } from './fixtures';
+import { PERSONA_CURRENCY, createExpense, deleteExpenseQuietly, randomWholeDollars, runTag, todayIso } from './fixtures';
 
 /**
  * Chat journeys on a DEPLOYED site (PR 6). Every UI string is read from the app's own catalog (the persona may
@@ -19,7 +19,14 @@ const MSG_PATH = '/api/v1/agentbook-core/agent/message';
 const SAFE_FALLBACK = /I don't want to quote you a number/i;
 
 async function tFor(page: Page): Promise<CatalogT> {
-  return catalogT((await pageLocales(page)).stringLocale);
+  // The string locale comes from the document's lang, which is only the tenant's once an /app page has loaded;
+  // read it earlier and `t` silently falls back to English, so every "not.toContainText(<server text>)" check
+  // passes for the wrong reason. So: load the chat, read the locale, then PROVE `t` matches what is on screen.
+  await page.goto('/app/chat');
+  await expect(page.getByTestId('chat-screen')).toBeVisible();
+  const t = catalogT((await pageLocales(page)).stringLocale);
+  await expect(page.getByRole('heading', { level: 1 }), 'catalog locale does not match the rendered page').toHaveText(t('mobile.chat.title'));
+  return t;
 }
 async function openChat(page: Page) {
   await page.goto('/app/chat');
@@ -34,7 +41,8 @@ async function send(page: Page, text: string) {
 }
 async function nextBot(page: Page, before: number) {
   await expect(bots(page)).toHaveCount(before + 1, { timeout: 90_000 });
-  const b = bots(page).last();
+  // Pinned by index, not `.last()`: a locator is lazy, and after the NEXT reply `.last()` would point at a different bubble.
+  const b = bots(page).nth(before);
   await expect(b).not.toHaveText('');
   return b;
 }
@@ -91,6 +99,13 @@ test.describe('mobile chat (Maya)', () => {
   });
 
   test('a plan renders Proceed/Cancel and Proceed executes', async ({ page }) => {
+    // "edit my last expense" really edits the persona's most recent expense, so give it one of OUR OWN (dated today,
+    // tagged, deleted below) instead of letting Proceed touch a seeded record.
+    const fixtureId = await createExpense(page, {
+      amountCents: randomWholeDollars() * 100, vendor: `${tag} Edit`, description: `${tag} edit target`,
+      date: todayIso(), currency: PERSONA_CURRENCY.maya, isPersonal: false,
+    });
+    try {
     await openChat(page);
     await clearSession(page);
     await page.reload();
@@ -118,6 +133,9 @@ test.describe('mobile chat (Maya)', () => {
       executed = true;
     }
     expect(executed, 'no plan preview appeared within 3 attempts of "edit my last expense"').toBe(true);
+    } finally {
+      await deleteExpenseQuietly(page, fixtureId);
+    }
   });
 
   test('Cancel on a plan cancels it (nothing is booked)', async ({ page }) => {

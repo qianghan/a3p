@@ -21,13 +21,20 @@ async function sendAndRead(page: Page, text: string) {
   await page.getByTestId('chat-input').fill(text);
   await page.getByTestId('chat-send').click();
   await expect(bots).toHaveCount(before + 1, { timeout: 90_000 });
-  return bots.last();
+  // By index, not `.last()`: a locator is lazy and would drift to a later bubble.
+  return bots.nth(before);
 }
 
 test('mobile transcript replay - no reviewer-rule regressions', async ({ page }) => {
   await loginAs(page, 'maya');
   await settle(page);
+  // Land on the chat FIRST: the string locale is the document's lang, only the tenant's once an /app page loaded,
+  // and "history loading is gone" is trivially true before the screen has hydrated (it counted 0 bubbles, then 5).
+  await page.goto('/app/chat');
+  await expect(page.getByTestId('chat-screen')).toBeVisible();
+  await expect(page.getByTestId('chat-history-loading')).toHaveCount(0, { timeout: 30_000 });
   const t = catalogT((await pageLocales(page)).stringLocale);
+  await expect(page.getByRole('heading', { level: 1 }), 'catalog locale does not match the rendered page').toHaveText(t('mobile.chat.title'));
   const transcript: Array<{ text: string; must?: RegExp; noPlan?: boolean }> = [
     { text: 'hello', noPlan: true },
     // "cancel" with no plan pending: the server's truthful reply, or an already-cancelled notice.
@@ -36,8 +43,6 @@ test('mobile transcript replay - no reviewer-rule regressions', async ({ page })
     // Any currency symbol / digit: the persona's currency and locale decide the format.
     { text: 'how much did I spend this month?', must: /\d/ },
   ];
-  await page.goto('/app/chat');
-  await expect(page.getByTestId('chat-history-loading')).toHaveCount(0, { timeout: 30_000 });
   for (const turn of transcript) {
     const reply = await sendAndRead(page, turn.text);
     const text = (await reply.textContent()) ?? '';
