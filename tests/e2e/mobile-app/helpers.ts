@@ -350,7 +350,7 @@ export async function expectScreen(page: Page, route: string, t: CatalogT): Prom
   } else if (route === '/app/docs' || route.startsWith('/app/docs?')) {
     await expect(main.getByRole('heading', { name: t('common.documents') })).toBeVisible();
   } else if (route.startsWith('/app/capture')) {
-    await expect(main.getByRole('heading', { name: 'Capture expense' })).toBeVisible();
+    await expect(main.getByRole('heading', { name: t('mobile.capture.title') })).toBeVisible();
   } else if (route.startsWith('/app/chat')) {
     await expect(main.getByRole('heading', { name: 'Ask AgentBook' })).toBeVisible();
   } else {
