@@ -1,4 +1,5 @@
 import type { Page } from '@playwright/test';
+import { test as base, expect } from '@playwright/test';
 import { randomBytes, randomInt } from 'node:crypto';
 import { api, expectOk } from '../nightly/helpers/api';
 import { PERSONAS, money, type Persona as AnyPersona } from './helpers';
@@ -340,3 +341,42 @@ export async function totalsSnapshot(page: Page): Promise<Totals> {
     pnlRevenueCents: pnl.grossRevenueCents,
   };
 }
+
+
+// ── Error collector (PR 7 / spec §8.3) ───────────────────────────────────────
+
+/**
+ * Spec §8.3: "no unhandled promise rejections or console errors during the
+ * journeys". Auto fixture: every test using THIS `test` fails on any of them.
+ * unhandledrejection is re-emitted as console.error by an init script because
+ * not every engine reports it as a pageerror. Specs that import `test` from
+ * '@playwright/test' are unaffected.
+ */
+export interface Collected { console: string[]; pageErrors: string[] }
+/** Console noise that is NOT ours and is documented here with a reason. Starts empty. */
+const IGNORED_CONSOLE: RegExp[] = [];
+
+export const test = base.extend<{ errors: Collected; strictErrors: boolean }>({
+  strictErrors: [true, { option: true }],
+  errors: [
+    async ({ page, strictErrors }, use, testInfo) => {
+      const c: Collected = { console: [], pageErrors: [] };
+      await page.addInitScript(() => {
+        window.addEventListener('unhandledrejection', (e) => {
+          const r = (e as PromiseRejectionEvent).reason;
+          console.error(`unhandledrejection: ${r && r.message ? r.message : String(r)}`);
+        });
+      });
+      page.on('console', (msg) => { if (msg.type() === 'error') c.console.push(msg.text()); });
+      page.on('pageerror', (err) => c.pageErrors.push(String(err?.stack ?? err)));
+      await use(c);
+      const consoleErrors = c.console
+        .filter((m) => !IGNORED_CONSOLE.some((re) => re.test(m)))
+        .filter((m) => strictErrors || !/Failed to load resource/i.test(m));
+      expect(c.pageErrors, `uncaught errors in "${testInfo.title}"`).toEqual([]);
+      expect(consoleErrors, `console errors in "${testInfo.title}"`).toEqual([]);
+    },
+    { auto: true },
+  ],
+});
+export { expect };
