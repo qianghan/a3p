@@ -318,6 +318,8 @@
     "discard_failed": "Impossible d’abandonner. Réessayez.",
     "read_failed": "Lecture automatique du reçu impossible — entrez les détails ci-dessous.",
     "too_large": "Cette photo est trop lourde à téléverser, même réduite.",
+    "receipt_deleted": "Ce reçu a été supprimé, rien n’a été enregistré.",
+    "review_amount": "Impossible de lire un montant sur ce reçu. Entrez le montant, puis enregistrez.",
     "save_failed": "Impossible d’enregistrer. Réessayez.",
     "queue_failed": "Impossible de conserver hors ligne. Réessayez.",
     "amount_invalid": "Entrez un montant comme 12,50",
@@ -332,6 +334,9 @@
     "queue_item_receipt": "Photo de reçu",
     "queue_item_expense": "Dépense",
     "queue_item_error": "Dernière tentative échouée ({status})",
+    "queue_error_unauthorized": "Reconnectez-vous pour envoyer ce reçu.",
+    "queue_error_too_large": "Trop volumineux pour être envoyé. Abandonnez-le et reprenez une photo plus légère.",
+    "queue_error_unreadable": "Impossible de lire cette photo. Abandonnez-la et reprenez-la.",
     "queue_retry_done": "Synchronisation : {sent} envoyées · {remaining} en attente"
   }
 }

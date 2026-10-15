@@ -248,15 +248,6 @@ async function replayExpenseQueue() {
 // names are pinned by __tests__/architecture/service-worker-replay.test.ts.
 const FROM_RECEIPT_PATH = '/api/v1/agentbook-expense/expenses/from-receipt';
 
-function putItem(db, store, value) {
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction(store, 'readwrite');
-    tx.objectStore(store).put(value);
-    tx.oncomplete = () => resolve();
-    tx.onerror = () => reject(tx.error);
-  });
-}
-
 // Same algorithm as newIdempotencyKey() in src/lib/offline-queue.ts.
 function newIdempotencyKey() {
   if (self.crypto && typeof self.crypto.randomUUID === 'function') return self.crypto.randomUUID();
@@ -270,25 +261,72 @@ function newIdempotencyKey() {
 
 // Legacy records (queued before idempotency keys existed) get a key minted and
 // persisted inside ONE readwrite transaction, so this worker and the page
-// replaying at the same moment cannot mint two keys for one photo.
-function ensureReceiptKey(db, id) {
+// replaying at the same moment cannot mint two keys for one photo. A legacy
+// record with no owner is stamped with `stampOwner` (the user /auth/me reports)
+// in the same transaction — see ensureReceiptKey in src/lib/offline-queue.ts.
+// Resolves { key, ownerId } or null if the record is gone.
+function ensureReceiptKey(db, id, stampOwner) {
   return new Promise((resolve, reject) => {
     const tx = db.transaction(RECEIPT_STORE, 'readwrite');
     const store = tx.objectStore(RECEIPT_STORE);
-    let key = null;
+    let out = null;
     const req = store.get(id);
     req.onsuccess = () => {
       const rec = req.result;
       if (!rec) return;
-      if (!rec.idempotencyKey) {
-        rec.idempotencyKey = newIdempotencyKey();
-        store.put(rec);
-      }
-      key = rec.idempotencyKey;
+      let dirty = false;
+      if (!rec.idempotencyKey) { rec.idempotencyKey = newIdempotencyKey(); dirty = true; }
+      if (!rec.ownerId && stampOwner) { rec.ownerId = stampOwner; dirty = true; }
+      if (dirty) store.put(rec);
+      out = { key: rec.idempotencyKey, ownerId: rec.ownerId || null };
     };
-    tx.oncomplete = () => resolve(key);
+    tx.oncomplete = () => resolve(out);
     tx.onerror = () => reject(tx.error);
   });
+}
+
+// Read-modify-write in one transaction so a concurrent stamp/key is never overwritten.
+function markReceiptFailed(db, id, key, reason, permanent) {
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(RECEIPT_STORE, 'readwrite');
+    const store = tx.objectStore(RECEIPT_STORE);
+    const req = store.get(id);
+    req.onsuccess = () => {
+      const rec = req.result;
+      if (!rec) return; // drained meanwhile
+      const next = Object.assign({}, rec, { idempotencyKey: rec.idempotencyKey || key, attempts: (rec.attempts || 0) + 1, lastError: reason });
+      if (permanent) next.permanent = true;
+      store.put(next);
+    };
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+// The worker has no localStorage, so it asks the server who is signed in.
+// Resolves { offline: true } ("cannot tell", the caller rejects so Background Sync retries)
+// or { id: string | null } (null = the server said nobody is signed in).
+//
+// Only a 401/403, or a well-formed answer with no user, is a verdict. A 5xx, a throttle, a captive portal's
+// HTML 200 or any other unreadable answer is NOT: resolving there would make Background Sync stop retrying
+// until the next page load, stranding the receipts.
+async function whoAmI() {
+  let res;
+  try {
+    res = await fetch('/api/v1/auth/me', { credentials: 'include', cache: 'no-store' });
+  } catch {
+    return { offline: true };
+  }
+  if (res.headers && res.headers.get('X-Agentbook-Offline') === '1') return { offline: true };
+  if (res.status === 401 || res.status === 403) return { id: null };
+  if (!res.ok) return { offline: true };
+  try {
+    const body = await res.json();
+    const id = body && body.data && body.data.user && body.data.user.id;
+    return { id: typeof id === 'string' && id ? id : null };
+  } catch {
+    return { offline: true };
+  }
 }
 
 async function receiptBlob(item) {
@@ -312,16 +350,27 @@ function buildReceiptForm(blob, fileName, key, fields) {
 
 async function replayReceiptQueue() {
   const db = await openOfflineDb();
-  const items = await getAll(db, RECEIPT_STORE);
+  // Permanent records already have a final server answer; they wait for Discard.
+  const items = (await getAll(db, RECEIPT_STORE)).filter((r) => !r.permanent);
+  if (items.length === 0) return; // nothing to send: don't add a request to an empty sync
+  const me = await whoAmI(); // once per pass, not per record
+  if (me.offline) throw new Error('offline: background sync will retry');
+  // Nobody signed in: HOLD everything (owned and legacy). The page's `online`
+  // handler picks them up after sign-in. Resolve, don't reject.
+  if (!me.id) return;
+  const owner = me.id;
   let offline = false;
   for (const item of items) {
-    const key = await ensureReceiptKey(db, item.id);
-    if (!key) continue; // drained by the page meanwhile
+    if (item.ownerId && item.ownerId !== owner) continue; // HOLD: someone else's receipt
+    const ensured = await ensureReceiptKey(db, item.id, owner);
+    if (!ensured) continue; // drained by the page meanwhile
+    if (ensured.ownerId && ensured.ownerId !== owner) continue; // the page stamped a different owner first
+    const key = ensured.key;
     let blob;
     try {
       blob = await receiptBlob(item);
     } catch {
-      await putItem(db, RECEIPT_STORE, Object.assign({}, item, { idempotencyKey: key, attempts: (item.attempts || 0) + 1, lastError: 'unreadable' }));
+      await markReceiptFailed(db, item.id, key, 'unreadable', false);
       continue;
     }
     let res;
@@ -340,9 +389,14 @@ async function replayReceiptQueue() {
       await deleteItem(db, RECEIPT_STORE, item.id);
       continue;
     }
-    // A considered server answer (auth expired, validation) needs the user:
-    // keep it queued and record why, for the app's "Queued" sheet.
-    await putItem(db, RECEIPT_STORE, Object.assign({}, item, { idempotencyKey: key, attempts: (item.attempts || 0) + 1, lastError: 'http_' + res.status }));
+    if (res.status === 401) {
+      // Nobody is signed in: keep it (retried after sign-in) and stop the pass.
+      await markReceiptFailed(db, item.id, key, 'unauthorized', false);
+      break;
+    }
+    if (res.status === 413) { await markReceiptFailed(db, item.id, key, 'file_too_large', true); continue; }
+    const transient = res.status === 408 || res.status === 409 || res.status === 429 || res.status >= 500;
+    await markReceiptFailed(db, item.id, key, 'http_' + res.status, !transient);
   }
   if (offline) throw new Error('offline: background sync will retry');
 }

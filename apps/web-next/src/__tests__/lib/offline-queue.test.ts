@@ -17,7 +17,7 @@ beforeEach(() => {
   server = fakeServer();
   vi.stubGlobal('fetch', server.fetchImpl);
 });
-afterEach(() => { vi.unstubAllGlobals(); });
+afterEach(() => { vi.unstubAllGlobals(); localStorage.clear(); });
 
 const photo = () => new File([new Uint8Array([1, 2, 3, 4, 5])], 'receipt.jpg', { type: 'image/jpeg' });
 
@@ -116,7 +116,7 @@ describe('receipt queue → replay → from-receipt', () => {
     await q.queueReceipt(photo(), { idempotencyKey: 'k-401' });
     server.setMode('http401');
     await q.replayReceipts();
-    expect((await q.listQueue())[0]).toMatchObject({ attempts: 1, lastError: 'http_401' });
+    expect((await q.listQueue())[0]).toMatchObject({ attempts: 1, lastError: 'unauthorized', permanent: false });
   });
 });
 
@@ -173,5 +173,113 @@ describe('manual-expense queue is unchanged', () => {
     const [url, init] = server.fetchImpl.mock.calls[0] as [string, RequestInit];
     expect(url).toBe('/api/v1/agentbook-expense/expenses');
     expect(JSON.parse(init.body as string)).toEqual({ amountCents: 700, vendor: 'Taxi' });
+  });
+});
+
+const OWNER = 'ab:mobile-owner';
+const setOwner = (id: string | null) => { if (id) localStorage.setItem(OWNER, id); else localStorage.removeItem(OWNER); };
+async function rawReceipts(): Promise<Array<Record<string, unknown>>> {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open('agentbook-offline', 1);
+    req.onsuccess = () => {
+      const r = req.result.transaction('receipt-queue', 'readonly').objectStore('receipt-queue').getAll();
+      r.onsuccess = () => resolve(r.result);
+      r.onerror = () => reject(r.error);
+    };
+    req.onerror = () => reject(req.error);
+  });
+}
+
+describe('failure classification', () => {
+  it.each([[413, 'http413', 'file_too_large'], [400, 'http400', 'http_400']] as const)('%i is permanent: kept, never re-POSTed, still listed', async (_s, mode, reason) => {
+    const q = await load();
+    await q.queueReceipt(photo(), { idempotencyKey: 'k-perm' });
+    server.setMode(mode);
+    expect(await q.replayReceipts()).toEqual({ sent: 0, failed: 1, remaining: 1 });
+    expect(server.calls).toHaveLength(1);
+    expect(await q.listQueue()).toEqual([expect.objectContaining({ attempts: 1, lastError: reason, permanent: true })]);
+    server.setMode('ok');
+    expect(await q.replayReceipts()).toEqual({ sent: 0, failed: 0, remaining: 1 });
+    expect(server.calls).toHaveLength(1);
+    expect(await q.listQueue()).toEqual([expect.objectContaining({ attempts: 1, lastError: reason, permanent: true })]);
+    await q.discardQueueEntry('receipt', (await q.listQueue())[0].id);
+    expect(await q.pendingCount()).toBe(0);
+  });
+
+  it.each([['http408', 'http_408'], ['http409', 'http_409'], ['http429', 'http_429'], ['http500', 'http_500']] as const)('%s is transient: kept, not permanent, re-POSTed next pass', async (mode, reason) => {
+    const q = await load();
+    await q.queueReceipt(photo(), { idempotencyKey: 'k-tr' });
+    server.setMode(mode);
+    await q.replayReceipts();
+    expect(await q.listQueue()).toEqual([expect.objectContaining({ attempts: 1, lastError: reason, permanent: false })]);
+    await q.replayReceipts();
+    expect(server.calls).toHaveLength(2);
+    expect(await q.listQueue()).toEqual([expect.objectContaining({ attempts: 2, permanent: false })]);
+  });
+
+  it('401 keeps the record (not permanent), stops the pass, and succeeds after sign-in', async () => {
+    const q = await load();
+    await q.queueReceipt(photo(), { idempotencyKey: 'k-a' });
+    await q.queueReceipt(photo(), { idempotencyKey: 'k-b' });
+    server.setMode('http401');
+    await q.replayReceipts();
+    expect(server.calls).toHaveLength(1);
+    expect(await q.listQueue()).toEqual([
+      expect.objectContaining({ attempts: 1, lastError: 'unauthorized', permanent: false }),
+      expect.objectContaining({ attempts: 0, lastError: null, permanent: false }),
+    ]);
+    server.setMode('ok');
+    expect(await q.replayReceipts()).toEqual({ sent: 2, failed: 0, remaining: 0 });
+    expect(server.byKey.size).toBe(2);
+  });
+});
+
+describe('queue owner (tag + hold)', () => {
+  it('stamps the signed-in owner; another user does not see, send or alter it; the owner gets it back', async () => {
+    setOwner('user-A');
+    const q = await load();
+    await q.queueReceipt(photo(), { idempotencyKey: 'k-own', fields: { vendor: 'Secret Cafe', amountCents: 500 } });
+    expect((await rawReceipts())[0]).toMatchObject({ ownerId: 'user-A' });
+    setOwner('user-B');
+    expect(await q.replayReceipts()).toEqual({ sent: 0, failed: 0, remaining: 0 });
+    expect(server.calls).toHaveLength(0);
+    expect(await q.listQueue()).toEqual([]);
+    expect(await q.pendingCount()).toBe(0);
+    const held = (await rawReceipts())[0];
+    expect(held).toMatchObject({ ownerId: 'user-A', attempts: 0, lastError: null });
+    setOwner(null);
+    await q.replayReceipts();
+    expect(server.calls).toHaveLength(0);
+    setOwner('user-A');
+    expect(await q.pendingCount()).toBe(1);
+    expect(await q.replayReceipts()).toEqual({ sent: 1, failed: 0, remaining: 0 });
+    expect(await q.pendingCount()).toBe(0);
+    expect(await rawReceipts()).toEqual([]);
+  });
+
+  it('a legacy unowned record replays under the signed-in user and is stamped with that owner', async () => {
+    await seedLegacy({ file: new NodeBlob([new Uint8Array([9])], { type: 'image/jpeg' }), fileName: 'old.jpg', fileType: 'image/jpeg', queuedAt: 1 });
+    setOwner('user-A');
+    const q = await load();
+    server.setMode('http500');
+    await q.replayReceipts();
+    expect(server.calls).toHaveLength(1);
+    expect(await rawReceipts()).toEqual([expect.objectContaining({ ownerId: 'user-A', attempts: 1, lastError: 'http_500' })]);
+    setOwner('user-B');
+    server.setMode('ok');
+    await q.replayReceipts();
+    expect(server.calls).toHaveLength(1);
+    setOwner('user-A');
+    await q.replayReceipts();
+    expect(server.byKey.size).toBe(1);
+  });
+
+  it('a legacy unowned record still replays when nobody is known (no stamp)', async () => {
+    await seedLegacy({ file: new NodeBlob([new Uint8Array([9])], { type: 'image/jpeg' }), fileName: 'old.jpg', fileType: 'image/jpeg', queuedAt: 1 });
+    const q = await load();
+    expect(await q.pendingCount()).toBe(1);
+    server.setMode('http500');
+    await q.replayReceipts();
+    expect((await rawReceipts())[0].ownerId).toBeUndefined();
   });
 });

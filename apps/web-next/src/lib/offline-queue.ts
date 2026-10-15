@@ -1,5 +1,7 @@
 'use client';
 
+import { SNAPSHOT_OWNER_KEY } from '@/lib/mobile/snapshot-keys';
+
 /**
  * Offline queue for the mobile PWA's capture flow: if "record expense" or
  * "save receipt" fails because the device has no connection, the write goes
@@ -44,10 +46,14 @@ interface ReceiptRecord {
   queuedAt: number;
   attempts?: number;
   lastError?: string | null;
+  /** User who queued it (SNAPSHOT_OWNER_KEY at queue time). Absent on legacy records. */
+  ownerId?: string;
+  /** The server gave a final 4xx answer: never re-POSTed, kept so the user can see why and Discard. */
+  permanent?: boolean;
 }
 interface ExpenseRecord { id?: number; payload: Record<string, unknown>; queuedAt: number }
 
-export interface QueueEntry { store: 'receipt' | 'expense'; id: number; label: string | null; amountCents: number | null; queuedAt: number; attempts: number; lastError: string | null }
+export interface QueueEntry { store: 'receipt' | 'expense'; id: number; label: string | null; amountCents: number | null; queuedAt: number; attempts: number; lastError: string | null; permanent: boolean }
 export interface ReplaySummary { sent: number; failed: number; remaining: number }
 
 function openDb(): Promise<IDBDatabase> {
@@ -72,6 +78,21 @@ async function withStore<T>(store: string, mode: IDBTransactionMode, run: (s: ID
     tx.onerror = () => reject(tx.error);
     tx.onabort = () => reject(tx.error);
   });
+}
+
+/** Who is signed in on this device, or null (nobody / storage blocked). */
+function currentOwnerId(): string | null {
+  try {
+    if (typeof window === 'undefined') return null;
+    return window.localStorage.getItem(SNAPSHOT_OWNER_KEY) || null;
+  } catch {
+    return null;
+  }
+}
+
+/** A receipt is visible/replayable by `owner` if it is theirs or a legacy record nobody owns. */
+function visibleTo(rec: ReceiptRecord, owner: string | null): boolean {
+  return !rec.ownerId || rec.ownerId === owner;
 }
 
 function notifyQueueChanged(): void {
@@ -156,6 +177,7 @@ export async function queueReceipt(
     queuedAt: Date.now(),
     attempts: 0,
     lastError: null,
+    ownerId: currentOwnerId() ?? undefined,
   };
   const id = (await withStore<IDBValidKey>(RECEIPT_STORE, 'readwrite', (s) => s.add(record))) as number;
   notifyQueueChanged();
@@ -165,6 +187,12 @@ export async function queueReceipt(
 }
 
 async function countPending(store: string): Promise<number> {
+  if (store === RECEIPT_STORE) {
+    // Another user's held receipts must not inflate this user's count.
+    const owner = currentOwnerId();
+    const all = (await withStore<ReceiptRecord[]>(RECEIPT_STORE, 'readonly', (s) => s.getAll())) ?? [];
+    return all.filter((r) => visibleTo(r, owner)).length;
+  }
   return (await withStore<number>(store, 'readonly', (s) => s.count())) ?? 0;
 }
 
@@ -179,15 +207,16 @@ export async function listQueue(): Promise<QueueEntry[]> {
     withStore<ReceiptRecord[]>(RECEIPT_STORE, 'readonly', (s) => s.getAll()),
     withStore<ExpenseRecord[]>(EXPENSE_STORE, 'readonly', (s) => s.getAll()),
   ]);
-  const r: QueueEntry[] = (receipts ?? []).map((x) => ({
+  const owner = currentOwnerId();
+  const r: QueueEntry[] = (receipts ?? []).filter((x) => visibleTo(x, owner)).map((x) => ({
     store: 'receipt', id: x.id as number, label: x.fields?.vendor ?? null, amountCents: x.fields?.amountCents ?? null,
-    queuedAt: x.queuedAt, attempts: x.attempts ?? 0, lastError: x.lastError ?? null,
+    queuedAt: x.queuedAt, attempts: x.attempts ?? 0, lastError: x.lastError ?? null, permanent: x.permanent === true,
   }));
   const e: QueueEntry[] = (expenses ?? []).map((x) => ({
     store: 'expense', id: x.id as number,
     label: typeof x.payload.vendor === 'string' ? x.payload.vendor : null,
     amountCents: typeof x.payload.amountCents === 'number' ? x.payload.amountCents : null,
-    queuedAt: x.queuedAt, attempts: 0, lastError: null,
+    queuedAt: x.queuedAt, attempts: 0, lastError: null, permanent: false,
   }));
   return [...r, ...e].sort((a, b) => a.queuedAt - b.queuedAt);
 }
@@ -223,48 +252,71 @@ async function replayExpenses(): Promise<{ sent: number }> {
  * IndexedDB serialises readwrite transactions on a store across connections,
  * so the page and the service worker replaying at the same instant cannot mint
  * two different keys for one photo. Returns null if the record is gone.
+ *
+ * Legacy records (queued before owners existed) are replayed under whoever is
+ * signed in — we cannot know better — and `stampOwner` makes that user the
+ * owner in the SAME transaction, so the record is owned from then on. The
+ * trade-off: a legacy receipt queued by user A and first replayed after B signs
+ * in is booked to B. Returns the record's owner so the caller can still hold
+ * it if the other replay path stamped someone else first.
  */
-async function ensureReceiptKey(id: number): Promise<string | null> {
+async function ensureReceiptKey(id: number, stampOwner: string | null): Promise<{ key: string; ownerId: string | null } | null> {
   const db = await openDb();
   return new Promise((resolve, reject) => {
     const tx = db.transaction(RECEIPT_STORE, 'readwrite');
     const store = tx.objectStore(RECEIPT_STORE);
-    let key: string | null = null;
+    let out: { key: string; ownerId: string | null } | null = null;
     const req = store.get(id);
     req.onsuccess = () => {
       const rec = req.result as ReceiptRecord | undefined;
       if (!rec) return;
-      if (!rec.idempotencyKey) {
-        rec.idempotencyKey = newIdempotencyKey();
-        store.put(rec);
-      }
-      key = rec.idempotencyKey;
+      let dirty = false;
+      if (!rec.idempotencyKey) { rec.idempotencyKey = newIdempotencyKey(); dirty = true; }
+      if (!rec.ownerId && stampOwner) { rec.ownerId = stampOwner; dirty = true; }
+      if (dirty) store.put(rec);
+      out = { key: rec.idempotencyKey, ownerId: rec.ownerId ?? null };
     };
-    tx.oncomplete = () => resolve(key);
+    tx.oncomplete = () => resolve(out);
     tx.onerror = () => reject(tx.error);
   });
 }
 
-async function markFailed(item: ReceiptRecord, key: string, reason: string): Promise<void> {
-  await withStore(RECEIPT_STORE, 'readwrite', (s) => {
-    s.put({ ...item, idempotencyKey: key, attempts: (item.attempts ?? 0) + 1, lastError: reason });
+/** Read-modify-write inside one transaction so a concurrent stamp/key from the worker is never overwritten. */
+async function markFailed(id: number, key: string, reason: string, permanent: boolean): Promise<void> {
+  const db = await openDb();
+  await new Promise<void>((resolve, reject) => {
+    const tx = db.transaction(RECEIPT_STORE, 'readwrite');
+    const store = tx.objectStore(RECEIPT_STORE);
+    const req = store.get(id);
+    req.onsuccess = () => {
+      const rec = req.result as ReceiptRecord | undefined;
+      if (!rec) return; // drained meanwhile
+      store.put({ ...rec, idempotencyKey: rec.idempotencyKey || key, attempts: (rec.attempts ?? 0) + 1, lastError: reason, ...(permanent ? { permanent: true } : {}) });
+    };
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
   });
 }
 
 async function doReplayReceipts(): Promise<ReplaySummary> {
   const items = (await withStore<ReceiptRecord[]>(RECEIPT_STORE, 'readonly', (s) => s.getAll())) ?? [];
+  const owner = currentOwnerId();
   let sent = 0;
   let failed = 0;
   for (const item of items) {
-    const key = await ensureReceiptKey(item.id as number);
-    if (!key) continue; // drained by the service worker meanwhile
+    if (item.permanent) continue; // final answer already received; waits for the user to Discard
+    if (item.ownerId && item.ownerId !== owner) continue; // HOLD: someone else's receipt (or nobody is signed in)
+    const ensured = await ensureReceiptKey(item.id as number, owner);
+    if (!ensured) continue; // drained by the service worker meanwhile
+    if (ensured.ownerId && ensured.ownerId !== owner) continue; // the worker stamped a different owner first
+    const key = ensured.key;
     let blob: Blob;
     try {
       const type = item.fileType || item.file?.type || 'image/jpeg';
       blob = new Blob([item.bytes ?? (await blobToArrayBuffer(item.file as Blob))], { type });
     } catch {
       failed += 1;
-      await markFailed(item, key, 'unreadable');
+      await markFailed(item.id as number, key, 'unreadable', false);
       continue;
     }
     let res: Response;
@@ -283,9 +335,15 @@ async function doReplayReceipts(): Promise<ReplaySummary> {
       sent += 1;
       continue;
     }
-    // A considered server answer (auth expired, validation) needs the user — keep it and say why.
     failed += 1;
-    await markFailed(item, key, `http_${res.status}`);
+    if (res.status === 401) {
+      // Nobody is signed in: keep it (retried after sign-in) and stop — sending the rest is pointless.
+      await markFailed(item.id as number, key, 'unauthorized', false);
+      break;
+    }
+    if (res.status === 413) { await markFailed(item.id as number, key, 'file_too_large', true); continue; }
+    const transient = res.status === 408 || res.status === 409 || res.status === 429 || res.status >= 500;
+    await markFailed(item.id as number, key, `http_${res.status}`, !transient);
   }
   const remaining = await countPending(RECEIPT_STORE);
   notifyQueueChanged();

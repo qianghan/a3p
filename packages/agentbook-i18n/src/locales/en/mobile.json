@@ -318,6 +318,8 @@
     "discard_failed": "Couldn't discard. Try again.",
     "read_failed": "Couldn't auto-read the receipt — enter the details below.",
     "too_large": "That photo is too large to upload, even after shrinking it.",
+    "receipt_deleted": "This receipt was deleted, so nothing was saved.",
+    "review_amount": "We could not read an amount from this receipt. Type the amount, then save.",
     "save_failed": "Couldn't save. Try again.",
     "queue_failed": "Couldn't keep this offline. Try again.",
     "amount_invalid": "Enter an amount like 12.50",
@@ -332,6 +334,9 @@
     "queue_item_receipt": "Receipt photo",
     "queue_item_expense": "Expense",
     "queue_item_error": "Last attempt failed ({status})",
+    "queue_error_unauthorized": "Sign in again to send this receipt.",
+    "queue_error_too_large": "Too large to upload. Discard it and retake a smaller photo.",
+    "queue_error_unreadable": "This photo can't be read. Discard it and retake it.",
     "queue_retry_done": "Sync attempted: {sent} sent · {remaining} waiting"
   }
 }

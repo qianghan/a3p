@@ -89,14 +89,32 @@ describe('<QueuePill>', () => {
     expect(server.byKey.size).toBe(1);
   });
 
-  it('shows why an entry is stuck', async () => {
+  // The stored reason is a machine code. The pill turns each one into a sentence the user can act on; it must
+  // never print the raw code ("file_too_large", "unauthorized") inside a translated sentence.
+  async function stuckWith(mode: 'http401' | 'http413' | 'http500') {
     await queueReceiptForReplay(new File([new Uint8Array([1])], 'a.jpg', { type: 'image/jpeg' }), { idempotencyKey: 'k-s', vendor: 'Alpha' });
     setOnline(true);
-    server.setMode('http401');
+    server.setMode(mode);
     await q.replayReceipts();
     setOnline(false);
     await renderPill();
     fireEvent.click(await screen.findByTestId('queue-pill'));
-    expect(await screen.findByText('Last attempt failed (401)')).toBeInTheDocument();
+  }
+
+  it('an expired session says to sign in again, not "failed (unauthorized)"', async () => {
+    await stuckWith('http401');
+    expect(await screen.findByText('Sign in again to send this receipt.')).toBeInTheDocument();
+    expect(screen.queryByText(/unauthorized/i)).toBeNull();
+  });
+
+  it('a permanently too-large photo says to discard it and retake, not "failed (file_too_large)"', async () => {
+    await stuckWith('http413');
+    expect(await screen.findByText('Too large to upload. Discard it and retake a smaller photo.')).toBeInTheDocument();
+    expect(screen.queryByText(/file_too_large/)).toBeNull();
+  });
+
+  it('any other server answer shows its status', async () => {
+    await stuckWith('http500');
+    expect(await screen.findByText('Last attempt failed (500)')).toBeInTheDocument();
   });
 });

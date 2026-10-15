@@ -318,6 +318,8 @@
     "discard_failed": "无法放弃，请重试。",
     "read_failed": "无法自动识别收据 — 请在下方填写信息。",
     "too_large": "照片太大，压缩后仍无法上传。",
+    "receipt_deleted": "此收据已被删除，未保存任何内容。",
+    "review_amount": "无法从这张收据读取金额。请输入金额后保存。",
     "save_failed": "无法保存，请重试。",
     "queue_failed": "无法离线保存，请重试。",
     "amount_invalid": "请输入金额，例如 12.50",
@@ -332,6 +334,9 @@
     "queue_item_receipt": "收据照片",
     "queue_item_expense": "支出",
     "queue_item_error": "上次尝试失败（{status}）",
+    "queue_error_unauthorized": "请重新登录后再发送此收据。",
+    "queue_error_too_large": "文件太大，无法上传。请放弃后重新拍一张较小的照片。",
+    "queue_error_unreadable": "无法读取此照片。请放弃后重新拍摄。",
     "queue_retry_done": "同步结果：已发送 {sent} · 待同步 {remaining}"
   }
 }

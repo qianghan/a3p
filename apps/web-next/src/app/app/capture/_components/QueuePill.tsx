@@ -16,6 +16,17 @@ export function QueuePill({ currency }: { currency: string | null }) {
   const [open, setOpen] = useState(false);
   if (count === 0) return null;
 
+  // lastError is a machine code stored by the replay (offline-queue.ts / sw.js). Turn each into a sentence the user
+  // can act on; never print the raw code inside a translated sentence. Literal keys only (the dynamic-key guard).
+  function errorLine(reason: string): string {
+    switch (reason) {
+      case 'unauthorized': return t('mobile.capture.queue_error_unauthorized');
+      case 'file_too_large': return t('mobile.capture.queue_error_too_large');
+      case 'unreadable': return t('mobile.capture.queue_error_unreadable');
+      default: return t('mobile.capture.queue_item_error', { status: reason.replace(/^http_/, '') });
+    }
+  }
+
   async function onRetry() {
     try {
       const r = await retry();
@@ -47,7 +58,7 @@ export function QueuePill({ currency }: { currency: string | null }) {
                     <span style={{ fontSize: 12, color: 'var(--muted-foreground)' }}>{kind}</span>
                     {it.lastError && (
                       <span style={{ fontSize: 12, color: tokens.color.critical }}>
-                        {t('mobile.capture.queue_item_error', { status: it.lastError.replace(/^http_/, '') })}
+                        {errorLine(it.lastError)}
                       </span>
                     )}
                   </span>
