@@ -102,5 +102,6 @@
   "uploading": "Téléversement…",
   "view_details": "Voir les détails",
   "yes": "Oui",
-  "documents": "Documents"
+  "documents": "Documents",
+  "change_language_failed": "Impossible de changer la langue. Réessayez."
 }

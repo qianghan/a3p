@@ -102,5 +102,6 @@
   "uploading": "Uploading…",
   "view_details": "View details",
   "yes": "Yes",
-  "documents": "Documents"
+  "documents": "Documents",
+  "change_language_failed": "Could not change language. Please try again."
 }

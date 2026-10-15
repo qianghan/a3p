@@ -166,7 +166,7 @@ export function LanguageSwitcher() {
         >
           {error && (
             <p className="border-b border-border px-3 py-2 text-xs text-destructive">
-              Could not change language. Please try again.
+              {t('common.change_language_failed')}
             </p>
           )}
           {OPTIONS.map((o) => (
