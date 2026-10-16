@@ -6338,6 +6338,43 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     }
     // === end PR 25 =========================================================
 
+    // === P0-6: monthly AI fair-use ceiling (plan-aware) =====================
+    // The per-day rate limiter above stops floods; this stops a $19/mo
+    // tenant from burning a month of inference budget. Denied chats get a
+    // plain-English reply and the update is acked (no retry storm).
+    let fairUseBlocked = false;
+    try {
+      const { checkFairUse, recordFairUseMessage } = await import('@/lib/agentbook-fair-use');
+      const { getCurrentPlan } = await import('@naap/billing');
+      const planCode = (await getCurrentPlan(idemTenantId).catch(() => null))?.plan.code ?? 'free';
+      const fu = await checkFairUse(idemTenantId, planCode);
+      if (!fu.allowed) {
+        fairUseBlocked = true;
+        const updateAnyFu = update as { message?: { chat?: { id?: number } } };
+        const chatIdFu = updateAnyFu.message?.chat?.id;
+        if (chatIdFu) {
+          try {
+            await b.api.sendMessage(
+              chatIdFu,
+              "You've reached this month's AI message budget on your plan. " +
+                'It resets on the 1st — or upgrade in the web app for a higher budget.',
+            );
+          } catch (sendErr) {
+            console.warn('[telegram] fair-use reply failed:', sendErr);
+          }
+        }
+      } else {
+        void recordFairUseMessage(idemTenantId).catch(() => {});
+      }
+    } catch (fuErr) {
+      // Fail open (loudly): a fair-use outage must not brick the bot.
+      console.warn('[telegram] fair-use check failed open:', fuErr);
+    }
+    if (fairUseBlocked) {
+      return NextResponse.json({ ok: true, throttled: true, fairUse: true });
+    }
+    // === end P0-6 ==========================================================
+
     // === PR 23: Retry + Dead-letter ========================================
     // Wrap handleUpdate in `withRetry`. Transient failures (LLM timeout,
     // brief Postgres connection blip) get up to 3 attempts at 100ms /

@@ -59,6 +59,16 @@ export default function TermsPage() {
           documented in the API surface.
         </li>
       </ul>
+      <p>
+        <strong>Fair use of AI features.</strong> Plans include a monthly
+        budget of AI messages (see your plan details; "unlimited" plans are
+        subject to a generous fair-use ceiling published in the app). If you
+        reach the ceiling, AI features pause until the next monthly period —
+        your data, books, and exports remain fully available. We may adjust
+        fair-use ceilings as our costs change; the current ceilings are always
+        shown in the app before they apply to you.
+        {/* OWNER DECISION: final fair-use wording — have counsel review before production. */}
+      </p>
 
       <h2>5. Disclaimer of warranties</h2>
       <p>
