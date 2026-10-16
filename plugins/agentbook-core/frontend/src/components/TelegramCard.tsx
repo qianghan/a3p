@@ -17,6 +17,16 @@ interface BotStatus {
   lastError?: string | null;
 }
 
+/** P0-4: one-click connect via the official AgentBook bot (deep link). */
+interface OneClickLink {
+  platformConfigured: boolean;
+  botUsername: string | null;
+  deepLink: string | null;
+  linkCode: string | null;
+  chatIds: string[];
+  linkedAt: string | null;
+}
+
 interface SetupResult {
   botUsername: string;
   botName: string;
@@ -33,6 +43,11 @@ export function TelegramCard(): JSX.Element {
   const [botToken, setBotToken]       = useState('');
   const [error, setError]             = useState<string | null>(null);
   const [success, setSuccess]         = useState<string | null>(null);
+  // P0-4: one-click connect state
+  const [link, setLink]               = useState<OneClickLink | null>(null);
+  const [linkLoading, setLinkLoading] = useState(true);
+  const [unlinking, setUnlinking]     = useState(false);
+  const [showByo, setShowByo]         = useState(false);
 
   const fetchStatus = async (): Promise<void> => {
     try {
@@ -46,7 +61,19 @@ export function TelegramCard(): JSX.Element {
     }
   };
 
-  useEffect(() => { void fetchStatus(); }, []);
+  const fetchLink = async (): Promise<void> => {
+    try {
+      const res = await fetch(`${API}/telegram/link`);
+      const d = await res.json();
+      if (d.success) setLink(d.data as OneClickLink);
+    } catch {
+      /* one-click panel simply won't render */
+    } finally {
+      setLinkLoading(false);
+    }
+  };
+
+  useEffect(() => { void fetchStatus(); void fetchLink(); }, []);
 
   const handleSetup = async (): Promise<void> => {
     if (!botToken.trim() || !botToken.includes(':')) {
@@ -90,6 +117,26 @@ export function TelegramCard(): JSX.Element {
     }
   };
 
+  /** P0-4: unlink chats from the official bot (keeps the link code). */
+  const handleUnlink = async (): Promise<void> => {
+    if (!confirm('Unlink Telegram chats from the official AgentBook bot? You can relink anytime with the same code.')) return;
+    setUnlinking(true);
+    try {
+      const res = await fetch(`${API}/telegram/unlink`, { method: 'POST' });
+      const d = await res.json();
+      if (d.success) {
+        setSuccess('Telegram chats unlinked.');
+        await fetchLink();
+      } else {
+        setError(d.error || 'Unlink failed');
+      }
+    } catch {
+      setError('Could not unlink. Please try again.');
+    } finally {
+      setUnlinking(false);
+    }
+  };
+
   return (
     <div className="rounded-xl border border-border bg-card overflow-hidden">
       {/* Card header */}
@@ -129,7 +176,73 @@ export function TelegramCard(): JSX.Element {
           </div>
         )}
 
-        {loading ? (
+        {/* ── P0-4: one-click connect via the official AgentBook bot ── */}
+        {!linkLoading && link?.platformConfigured && (
+          <div className="mb-4 rounded-lg border border-primary/25 bg-primary/5 p-4">
+            {link.chatIds.length > 0 ? (
+              <div className="space-y-2">
+                <div className="flex items-center gap-2 text-sm font-medium text-foreground">
+                  <CheckCircle className="h-4 w-4 text-primary" />
+                  Connected via {link.botUsername ? `@${link.botUsername}` : 'the AgentBook bot'}
+                  <span className="rounded-full bg-primary/10 px-2 py-0.5 text-xs text-primary">
+                    {link.chatIds.length} chat{link.chatIds.length === 1 ? '' : 's'}
+                  </span>
+                </div>
+                <p className="text-xs text-muted-foreground leading-relaxed">
+                  Send a receipt photo or type expenses naturally in Telegram.
+                </p>
+                <button onClick={() => void handleUnlink()} disabled={unlinking}
+                  className="flex items-center gap-1.5 text-xs text-destructive hover:text-destructive/80 disabled:opacity-50">
+                  {unlinking ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
+                  {unlinking ? 'Unlinking…' : 'Unlink chats'}
+                </button>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                <div className="text-sm font-semibold text-foreground">Connect in one tap</div>
+                <ol className="space-y-1.5 text-sm text-muted-foreground">
+                  <li className="flex gap-2">
+                    <span className="mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-primary/15 text-xs text-primary">1</span>
+                    Open the AgentBook bot in Telegram
+                  </li>
+                  <li className="flex gap-2">
+                    <span className="mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-primary/15 text-xs text-primary">2</span>
+                    Press <code className="rounded bg-muted px-1 py-0.5 text-xs">Start</code> — your code links automatically
+                  </li>
+                </ol>
+                <div className="flex flex-wrap items-center gap-2">
+                  {link.deepLink && (
+                    <a href={link.deepLink} target="_blank" rel="noopener noreferrer"
+                      className="flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground">
+                      <Send className="h-4 w-4" />
+                      Open Telegram <ExternalLink className="h-3 w-3" />
+                    </a>
+                  )}
+                  {link.linkCode && (
+                    <code className="rounded-lg border border-border bg-background px-3 py-2 font-mono text-xs text-foreground">
+                      {link.linkCode}
+                    </code>
+                  )}
+                </div>
+                <p className="text-xs text-muted-foreground leading-relaxed">
+                  No BotFather, no tokens. Takes under a minute.
+                </p>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* BYO-bot flow: the primary path only when one-click isn't configured;
+            otherwise it collapses under "Advanced". */}
+        {link?.platformConfigured && !loading && (
+          <button
+            onClick={() => setShowByo((v) => !v)}
+            className="mb-3 text-xs text-muted-foreground hover:text-foreground underline underline-offset-2"
+          >
+            {showByo ? 'Hide advanced options' : 'Advanced: bring your own bot instead'}
+          </button>
+        )}
+        {(!link?.platformConfigured || showByo) && (loading ? (
           <div className="flex items-center justify-center gap-2 py-6 text-muted-foreground">
             <Loader2 className="h-4 w-4 animate-spin" />
             <span className="text-sm">Loading…</span>
@@ -235,7 +348,7 @@ export function TelegramCard(): JSX.Element {
               </button>
             </div>
           </div>
-        )}
+        ))}
       </div>
     </div>
   );

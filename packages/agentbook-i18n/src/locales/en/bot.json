@@ -293,6 +293,8 @@
   "walking_you_through_item_in_the_review_other": "📂 Walking you through <b>{count}</b> items in the review queue ({p2}). Tap a button or just tell me what to do.",
   "want_to_attach_the_new_receipt_to": "Want to attach the new receipt to that existing record, or keep both as separate expenses?",
   "welcome_to_agentbook_i_m_your_ai": "👋 Welcome to <b>AgentBook</b>!\n\nI'm your AI accounting agent. Here's what I can do:\n\n💬 <b>Record expenses:</b> \"Spent $45 on lunch at Starbucks\"\n📸 <b>Snap receipts:</b> Send a photo or PDF\n❓ <b>Ask anything:</b> \"How much on travel this month?\"\n📊 <b>Get insights:</b> \"Show me spending breakdown\"\n💰 <b>Check balance:</b> \"What's my cash balance?\"\n🧾 <b>Invoicing:</b> \"Invoice Acme $5000 for consulting\"\n\n/help for all commands",
+  "telegram_link_success": "✅ <b>Connected!</b>\n\nThis Telegram chat is now linked to your AgentBook account. Send a receipt photo or type \"Spent $45 on lunch\" to try it.",
+  "telegram_link_invalid": "⚠️ That link code didn't match any AgentBook account.\n\nOpen Settings → Telegram in the web app to get a fresh connect link.",
   "which_did_you_mean": "Which {p0} did you mean — {p1}{p2}?",
   "which_did_you_mean_2": "Which {p0} did you mean — {p1}?",
   "which_field_amount_or_due_date_client": "Which field — <b>amount</b> or <b>due date</b>? (Client and line-item edits land in the next release.)",

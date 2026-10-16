@@ -156,6 +156,15 @@ async function resolveTenantId(chatId: number, botToken?: string): Promise<strin
       }
       return bot.tenantId;
     }
+
+    // P0-4: one-click linked chats (official bot) resolve via AbTelegramLink.
+    try {
+      const links = await db.abTelegramLink.findMany({ select: { tenantId: true, chatIds: true } });
+      const hit = links.find((l) => ((l.chatIds as string[]) || []).includes(chatStr));
+      if (hit) return hit.tenantId;
+    } catch (err) {
+      console.warn('[telegram] AbTelegramLink lookup failed:', err);
+    }
   } catch (err) {
     console.warn('[telegram] DB tenant lookup failed:', err);
   }
@@ -163,6 +172,32 @@ async function resolveTenantId(chatId: number, botToken?: string): Promise<strin
   if (CHAT_TO_TENANT_FALLBACK[chatStr]) return CHAT_TO_TENANT_FALLBACK[chatStr];
   console.warn(`Unknown Telegram chat ${chatStr} — no tenant mapping found`);
   return `unmapped:${chatStr}`;
+}
+
+/**
+ * P0-4: bind a Telegram chat to a tenant via one-click link code.
+ * Called when the official bot receives `/start <linkCode>` (deep link
+ * t.me/<bot>?start=<linkCode>). Returns the tenantId on success, null when
+ * the code doesn't match. Idempotent: re-sending the same code re-confirms.
+ */
+async function linkTelegramChatByCode(code: string, chatId: number): Promise<string | null> {
+  try {
+    const link = await db.abTelegramLink.findUnique({ where: { linkCode: code } });
+    if (!link) return null;
+    const chatStr = String(chatId);
+    const ids = (link.chatIds as string[]) || [];
+    if (!ids.includes(chatStr)) {
+      ids.push(chatStr);
+      await db.abTelegramLink.update({
+        where: { id: link.id },
+        data: { chatIds: ids as never, linkedAt: link.linkedAt ?? new Date() },
+      });
+    }
+    return link.tenantId;
+  } catch (err) {
+    console.warn('[telegram] link-by-code failed:', err);
+    return null;
+  }
 }
 
 /**
@@ -2394,6 +2429,18 @@ function getBot(): Bot {
     }
 
     // Commands that show static help text
+    // P0-4: one-click connect — deep link t.me/<bot>?start=<linkCode>
+    // arrives as "/start LINK-XXXXXX". Bind the chat, then confirm.
+    const startLinkMatch = text.match(/^\/start\s+(LINK-[A-Z0-9]{6})$/i);
+    if (startLinkMatch) {
+      const linkedTenant = await linkTelegramChatByCode(startLinkMatch[1].toUpperCase(), ctx.chat.id);
+      if (linkedTenant) {
+        await ctx.reply(botT('bot.telegram_link_success'), { parse_mode: 'HTML' });
+      } else {
+        await ctx.reply(botT('bot.telegram_link_invalid'), { parse_mode: 'HTML' });
+      }
+      return;
+    }
     if (text === '/start') {
       await ctx.reply(botT('bot.welcome_to_agentbook_i_m_your_ai'), { parse_mode: 'HTML' });
       return;
