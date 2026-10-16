@@ -197,6 +197,7 @@ export default async function LandingPage() {
             <a className="ab-link hidden sm:inline" href="#pricing">Pricing</a>
             <a className="ab-link hidden md:inline" href="#voices">Voices</a>
             <Link className="ab-link hidden sm:inline" href="/guides">Guides</Link>
+            <Link className="ab-link hidden sm:inline" href="/about">About</Link>
             <InstallAppButton />
             <Link
               href="/login"
@@ -704,42 +705,33 @@ export default async function LandingPage() {
       <Hairline />
 
       {/* ── Voices ───────────────────────────────────────────────────────── */}
+      {/* P0-3: placeholder testimonials removed — none were verifiable or
+          consented. This section now says so honestly until real user notes
+          exist. */}
       <section id="voices" className="container-rule py-20 sm:py-28">
         <div className="grid grid-cols-12 gap-x-8 gap-y-12">
-          <div className="col-span-12">
+          <div className="col-span-12 md:col-span-7">
             <Marker n="06" label="Voices" />
             <h2 className="mt-5 text-[40px] sm:text-[56px] leading-[0.96] max-w-[24ch]" style={{ fontWeight: 400 }}>
-              The notes our users write us, <span className="ital">unprompted.</span>
+              The first notes are <span className="ital">still being written.</span>
             </h2>
           </div>
-
-          {[
-            {
-              q: '"I stopped dreading the end of the month. The agent had already done it."',
-              n: 'Alex',
-              role: 'Agency owner · Brooklyn',
-            },
-            {
-              q: '"It picks better expense categories than I do. My CPA actually said thank you."',
-              n: 'Maya',
-              role: 'Solo consultant · Toronto',
-            },
-            {
-              q: '"Telegram. I cannot stress this enough. I log a coffee from the line at the coffee place."',
-              n: 'Jordan',
-              role: 'Etsy seller · Portland',
-            },
-          ].map((t) => (
-            <figure key={t.n} className="col-span-12 md:col-span-4">
-              <blockquote className="ital text-[20px] sm:text-[22px] leading-[1.4]" style={{ fontWeight: 400 }}>
-                {t.q}
-              </blockquote>
-              <figcaption className="mt-5 pt-4 border-t border-[var(--rule)] text-[12.5px] num uppercase tracking-[0.14em] text-[var(--muted)]">
-                <span className="text-[var(--ink)]">{t.n}</span>
-                <span> · {t.role}</span>
-              </figcaption>
-            </figure>
-          ))}
+          <div className="col-span-12 md:col-span-5 md:pt-12 md:pl-8">
+            <p className="text-[16.5px] leading-[1.6] text-[var(--ink-soft)] max-w-[44ch]">
+              AgentBook launched in 2026. We used to show sample quotes here —
+              we took them down, because we&apos;d rather earn real ones. If
+              AgentBook does right by your books, write to{' '}
+              <a className="ab-link" href="mailto:support@agentbook.io">
+                support@agentbook.io
+              </a>{' '}
+              and tell us. With your permission, your words go here.
+            </p>
+            <p className="mt-5 text-[16.5px] leading-[1.6] text-[var(--ink-soft)] max-w-[44ch]">
+              <Link href="/about" className="ab-link">
+                Who builds this <span className="arrow">→</span>
+              </Link>
+            </p>
+          </div>
         </div>
       </section>
 
@@ -849,7 +841,9 @@ export default async function LandingPage() {
             <a href="#how" className="ab-link">How it works</a>
             <a href="#pricing" className="ab-link">Pricing</a>
             <a href="#voices" className="ab-link">Voices</a>
+            <Link href="/about" className="ab-link">About</Link>
             <Link href="/docs" className="ab-link">Docs</Link>
+            <a href="mailto:support@agentbook.io" className="ab-link">Contact</a>
             <Link href="/login" className="ab-link">Sign in</Link>
             <Link href="/register" className="ab-link">Start free</Link>
           </div>
