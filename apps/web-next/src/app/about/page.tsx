@@ -6,6 +6,12 @@ export const metadata: Metadata = {
   title: 'About — AgentBook',
   description:
     'Who builds AgentBook, what it is, what it is not, and how to reach us.',
+  alternates: { canonical: '/about' },
+  openGraph: {
+    title: 'About — AgentBook',
+    description:
+      'Who builds AgentBook, what it is, what it is not, and how to reach us.',
+  },
 };
 
 // P0-3: trust infrastructure. Every claim below is verifiable:

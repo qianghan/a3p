@@ -6,6 +6,12 @@ export const metadata: Metadata = {
   title: 'Try the demo — AgentBook',
   description:
     'A two-minute sandbox: log an expense in plain English, see a report, get an insight. No signup, nothing saved.',
+  alternates: { canonical: '/demo' },
+  openGraph: {
+    title: 'Try the demo — AgentBook',
+    description:
+      'A two-minute sandbox: log an expense in plain English, see a report, get an insight. No signup, nothing saved.',
+  },
 };
 
 // P0-5: pre-signup interactive demo. Fully client-side, fictional seeded

@@ -58,6 +58,12 @@ export const metadata: Metadata = {
   title: 'AgentBook — Bookkeeping that listens.',
   description:
     'An AI accountant for solo founders, freelancers, and micro-businesses. Talk to your books in plain English. Telegram, web, receipts, taxes — handled.',
+  alternates: { canonical: '/' },
+  openGraph: {
+    title: 'AgentBook — Bookkeeping that listens.',
+    description:
+      'An AI accountant for solo founders, freelancers, and micro-businesses. Talk to your books in plain English.',
+  },
 };
 
 // ─── Reusable bits ──────────────────────────────────────────────────────────
@@ -845,6 +851,7 @@ export default async function LandingPage() {
             <a href="#pricing" className="ab-link">Pricing</a>
             <a href="#voices" className="ab-link">Voices</a>
             <Link href="/about" className="ab-link">About</Link>
+            <Link href="/changelog" className="ab-link">Changelog</Link>
             <Link href="/docs" className="ab-link">Docs</Link>
             <a href="mailto:support@agentbook.io" className="ab-link">Contact</a>
             <Link href="/login" className="ab-link">Sign in</Link>
