@@ -479,7 +479,7 @@ export default async function LandingPage() {
             },
             {
               n: '4·7',
-              h: 'Tax fast-track filing.',
+              h: 'Tax Fast-Track.',
               p: "A few quick questions — in chat or on the tab — about what changed since last year, and the agent drafts a full estimate plus an accountant-ready cover letter, anchored to your actual prior return. Deadline nudges land before you have to remember. US, Canada, and Australia.",
             },
             {
