@@ -1,9 +1,17 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
+import { headers } from 'next/headers';
 import { Fraunces, Newsreader, JetBrains_Mono } from 'next/font/google';
 import { Wordmark } from '@/components/brand/Wordmark';
 import { InstallAppButton } from '@/components/pwa/InstallAppButton';
-import { CORE_PLANS, formatWholeDollars, formatDollarsAndCents } from '@agentbook/pricing';
+import {
+  planForRegion,
+  regionFromCountry,
+  formatMoney,
+  formatMoneyPrecise,
+  ADDON_DISPLAY,
+  addOnStandardPrice,
+} from '@agentbook/pricing';
 
 // ─── Type-as-design ─────────────────────────────────────────────────────────
 // Fraunces: a variable serif with optical sizing — characterful at display
@@ -69,14 +77,25 @@ function Marker({ n, label }: { n: string; label: string }) {
 
 // ─── Page ───────────────────────────────────────────────────────────────────
 
-export default function LandingPage() {
-  const proMonthly = CORE_PLANS.find((p) => p.code === 'pro')!;
-  const proYearly = CORE_PLANS.find((p) => p.code === 'pro_yearly')!;
-  const business = CORE_PLANS.find((p) => p.code === 'business')!;
-  const proMonthlyPrice = formatWholeDollars(proMonthly.priceCents);
-  const proYearlyPrice = formatWholeDollars(proYearly.priceCents);
-  const proYearlyMonthlyEquivalent = formatDollarsAndCents(Math.round(proYearly.priceCents / 12));
-  const businessPrice = formatWholeDollars(business.priceCents);
+export default async function LandingPage() {
+  // P0-1: region-aware pricing with explicit currency. Country comes from the
+  // hosting platform's geo header; unknown/missing falls back to USD.
+  const headersList = await headers();
+  const region = regionFromCountry(headersList.get('x-vercel-ip-country'));
+  const proMonthly = planForRegion('pro', region);
+  const proYearly = planForRegion('pro_yearly', region);
+  const business = planForRegion('business', region);
+  const proMonthlyPrice = formatMoney(proMonthly.priceCents, proMonthly.currency);
+  const proYearlyPrice = formatMoney(proYearly.priceCents, proYearly.currency);
+  const proYearlyMonthlyEquivalent = formatMoneyPrecise(
+    Math.round(proYearly.priceCents / 12),
+    proYearly.currency,
+  );
+  const businessPrice = formatMoney(business.priceCents, business.currency);
+  const addOnRows = ADDON_DISPLAY.map((meta) => ({
+    meta,
+    price: addOnStandardPrice(meta.code, region),
+  })).filter((row) => row.price !== null);
   return (
     <div
       className={`${display.variable} ${body.variable} ${mono.variable} ab-landing min-h-screen w-full overflow-x-clip`}
@@ -635,6 +654,44 @@ export default function LandingPage() {
             <Link href="/register?plan=business" className="btn btn-ghost mt-8 w-full justify-center">
               Start 90-day trial
             </Link>
+          </div>
+        </div>
+
+        {/* ── Add-ons ──────────────────────────────────────────────────────── */}
+        {/* P0-1: every paid add-on shows its public price + currency + interval. */}
+        <div className="mt-14">
+          <div className="mb-8 flex items-baseline justify-between">
+            <h3 className="text-[24px]" style={{ fontWeight: 500 }}>
+              Add-ons, <span className="ital">when you need them.</span>
+            </h3>
+            <span className="text-[12px] tracking-[0.14em] uppercase text-[var(--muted)]">
+              Prices in {region === 'ca' ? 'CAD' : region === 'au' ? 'AUD' : 'USD'}
+            </span>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5">
+            {addOnRows.map(({ meta, price }) => (
+              <div key={meta.code} className="ab-card p-8" style={{ borderRadius: '2px' }}>
+                <div className="flex items-center justify-between">
+                  <h4 className="text-[20px]" style={{ fontWeight: 500 }}>
+                    {meta.name}
+                  </h4>
+                  <span className="pill pill-paper">add-on</span>
+                </div>
+                <div className="mt-5 flex items-baseline gap-2">
+                  <span className="display num text-[44px] leading-none" style={{ fontWeight: 500 }}>
+                    {formatMoney(price!.priceCents, price!.currency)}
+                  </span>
+                  <span className="num text-[12px] text-[var(--muted)] tracking-[0.14em] uppercase">
+                    {meta.intervalLabel}
+                  </span>
+                </div>
+                <p className="mt-3 text-[14px] text-[var(--ink-soft)]">{meta.blurb}</p>
+                <Hairline className="my-6" />
+                <Link href={meta.learnMoreHref} className="ab-link text-[14px]">
+                  Learn more <span className="arrow">→</span>
+                </Link>
+              </div>
+            ))}
           </div>
         </div>
 
