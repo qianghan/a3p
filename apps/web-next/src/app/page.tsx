@@ -282,6 +282,9 @@ export default async function LandingPage() {
                 Start free, no card
                 <span className="arrow">→</span>
               </Link>
+              <Link href="/demo" className="btn btn-ghost">
+                Try the demo
+              </Link>
               <Link href="#pricing" className="btn btn-ghost">
                 See plans
               </Link>
