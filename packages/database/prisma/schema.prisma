@@ -1592,6 +1592,26 @@ model AbTelegramBot {
   @@schema("plugin_agentbook_core")
 }
 
+// P0-7: product funnel analytics. One row per funnel transition
+// (signup, trial start, first expense/report, card added, paid, cancelled).
+// tenantId is null for pre-signup events (identified by anonymousId).
+// properties is PII-free by construction — trackFunnelEvent() allowlists
+// keys (see packages/billing/src/funnel.ts). Never store emails, names,
+// amounts, or message contents here.
+model AbFunnelEvent {
+  id          String   @id @default(uuid())
+  tenantId    String?
+  anonymousId String?
+  event       String
+  properties  Json     @default("{}")
+  createdAt   DateTime @default(now())
+
+  @@index([event, createdAt])
+  @@index([tenantId, createdAt])
+  @@index([anonymousId])
+  @@schema("plugin_agentbook_core")
+}
+
 // One-click Telegram connect (P0-4): tenants link to the centrally-owned
 // official AgentBook bot via a deep link (t.me/<bot>?start=<linkCode>)
 // instead of creating their own bot via @BotFather. The webhook binds the

@@ -9,7 +9,7 @@ import { createPluginServer } from '@naap/plugin-server-sdk';
 import { db } from './db/client.js';
 import { Configuration, PlaidApi, PlaidEnvironments, Products, CountryCode } from 'plaid';
 import { encryptToken, decryptToken } from './plaid-token-crypto.js';
-import { checkQuota, incrementUsage } from '@naap/billing';
+import { checkQuota, incrementUsage, trackFunnelEvent, FUNNEL_EVENTS } from '@naap/billing';
 import { fetchReceipt } from '@naap/utils/safe-fetch';
 
 // === Plaid Client Setup ===
@@ -321,6 +321,17 @@ app.post('/api/v1/agentbook-expense/expenses', async (req, res) => {
       },
     });
     void checkAndAutoCategorize(tenantId);
+    // P0-7: funnel — first expense is the activation aha-moment. One indexed
+    // count query; the just-created expense is included, so count === 1 means
+    // first. Non-blocking, never throws.
+    void (async () => {
+      try {
+        const count = await db.abExpense.count({ where: { tenantId } });
+        if (count <= 1) {
+          await trackFunnelEvent({ tenantId, event: FUNNEL_EVENTS.FIRST_EXPENSE });
+        }
+      } catch { /* trackFunnelEvent already swallows; belt and suspenders */ }
+    })();
   } catch (err) {
     res.status(500).json({ success: false, error: String(err) });
   }

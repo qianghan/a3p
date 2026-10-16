@@ -1,6 +1,6 @@
 import 'server-only';
 import { prisma } from '@naap/database';
-import { invalidateAccount } from '@naap/billing';
+import { invalidateAccount, trackFunnelEvent, FUNNEL_EVENTS } from '@naap/billing';
 import { processInviteePaid, applyPendingCredits } from '@/lib/billing/referrals';
 import { accrueSalesRepCommission } from '@/lib/billing/sales-rep';
 import { refreshConnectStatusByAccountId } from '@/lib/billing/sales-rep-connect';
@@ -83,6 +83,20 @@ export async function applyEvent(event: Stripe.Event): Promise<void> {
         },
       });
       invalidateAccount(tenantId);
+      // P0-7: funnel — trial started / subscription active. Non-blocking.
+      if (sub.status === 'trialing') {
+        void trackFunnelEvent({
+          tenantId,
+          event: FUNNEL_EVENTS.TRIAL_STARTED,
+          properties: { plan_code: plan.code },
+        });
+      } else if (sub.status === 'active') {
+        void trackFunnelEvent({
+          tenantId,
+          event: FUNNEL_EVENTS.SUBSCRIPTION_ACTIVE,
+          properties: { plan_code: plan.code },
+        });
+      }
       // If this account was invited and is now actively paying, settle its
       // referrer's reward (reliable trigger — tenantId is known here, so it
       // doesn't depend on invoice.paid/subscription event ordering).
@@ -123,6 +137,21 @@ export async function applyEvent(event: Stripe.Event): Promise<void> {
         data: { status: 'canceled', canceledAt: new Date() },
       });
       invalidateAccount(tenantId);
+      // P0-7: funnel — subscription cancelled. Non-blocking.
+      void trackFunnelEvent({ tenantId, event: FUNNEL_EVENTS.SUBSCRIPTION_CANCELLED });
+      break;
+    }
+    case 'payment_method.attached': {
+      // P0-7: funnel — card added. Fires when a payment method is attached
+      // to the customer (including via the "add card" flow before subscribing).
+      const pm = event.data.object as Stripe.PaymentMethod;
+      const customerId = typeof pm.customer === 'string' ? pm.customer : pm.customer?.id;
+      if (customerId) {
+        const sub = await prisma.billSubscription.findFirst({ where: { stripeCustomerId: customerId } });
+        if (sub) {
+          void trackFunnelEvent({ tenantId: sub.accountId, event: FUNNEL_EVENTS.CARD_ADDED });
+        }
+      }
       break;
     }
     case 'invoice.paid': {
