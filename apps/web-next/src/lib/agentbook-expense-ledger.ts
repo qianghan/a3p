@@ -141,8 +141,17 @@ export async function backfillExpenseJournalEntry(
  * untaxed, 3-line with a tax liability, split categories) and needs no
  * knowledge of what the original entry represented.
  *
- * Idempotent: the reversal is written under sourceType 'expense_delete', and
- * @@unique([tenantId, sourceType, sourceId]) makes a second attempt a no-op.
+ * Keyed ('expense_delete', <the id of the entry being reversed>). It used to be
+ * keyed by the EXPENSE id, which is one key for the expense's whole life: once
+ * Restore re-books an expense (a fresh entry), its next delete collided with
+ * the first delete's reversal. Keyed by the entry, a re-booked expense deletes
+ * under a new key, and a second attempt on the SAME entry is still rejected.
+ *
+ * Idempotent, without ever relying on that rejection inside a transaction: an
+ * entry that already has a reversal is detected up front and nothing is
+ * inserted. (A P2002 raised mid-transaction aborts it in Postgres — "caught"
+ * or not, every later statement fails and the commit is a rollback — so the
+ * old swallow-the-P2002 idempotency turned a double delete into a 500.)
  * Accepts an optional transaction client so callers can reverse and soft-delete
  * atomically.
  */
@@ -163,17 +172,23 @@ export async function reverseExpenseJournalEntry(
   });
   if (originalLines.length === 0) return { reversed: false, reason: 'original entry has no lines' };
 
+  // Already reversed — by a previous delete (new or legacy key) or by the bot's
+  // undo. Reversing again would book the expense NEGATIVE.
+  if (await findEntryReversal(client, tenantId, expenseId, expense.journalEntryId, originalLines)) {
+    return { reversed: false, reason: 'already reversed' };
+  }
+
   try {
     await client.abJournalEntry.create({
       data: {
         tenantId,
         date: new Date(),
         memo: `DELETED - Reverse expense: ${expense.description || expenseId}`,
-        // 'expense_delete', not 'expense' — the original creation entry already
-        // holds (tenantId, 'expense', expenseId) and the G-021 unique constraint
-        // would reject a second row under that tuple.
+        // 'expense_delete', not 'expense' — the original creation entry may
+        // already hold (tenantId, 'expense', expenseId) and the G-021 unique
+        // constraint would reject a second row under that tuple.
         sourceType: 'expense_delete',
-        sourceId: expenseId,
+        sourceId: expense.journalEntryId,
         verified: true,
         lines: {
           create: originalLines.map((l) => ({
@@ -188,9 +203,10 @@ export async function reverseExpenseJournalEntry(
     });
     return { reversed: true };
   } catch (err) {
-    // P2002 = the reversal already exists (double delete). Treat as success:
-    // the books are already correct, which is all the caller cares about.
-    if ((err as { code?: string })?.code === 'P2002') {
+    // Standalone (no caller transaction): P2002 is a clean concurrent-double-
+    // delete, the books are already right. Inside a transaction it is not
+    // recoverable (Postgres aborted it) — surface it so the caller rolls back.
+    if (!tx && (err as { code?: string })?.code === 'P2002') {
       return { reversed: false, reason: 'already reversed' };
     }
     throw err;
@@ -217,11 +233,12 @@ export class ExpenseLedgerShapeError extends Error {
  * Thrown when the expense's current entry has ALREADY been mirror-reversed by
  * another path, so reversing it again would drive the books negative.
  *
- * How it happens today: DELETE posts an `expense_delete` reversal of the entry
- * but keeps journalEntryId pointing at it, and Restore only clears deletedAt
- * (it never re-books); the bot's "actually it was $52" amount fix can commit
- * its reversal and then fail the replacement, leaving the same state. An edit
- * that reversed the entry again would book −$100 for a $100 expense.
+ * How it still happens: DELETE posts an `expense_delete` reversal of the entry
+ * but keeps journalEntryId pointing at it. Restore now re-books (a fresh
+ * entry), but rows restored BEFORE that fix, and rows the bot's old "actually
+ * it was $52" amount fix orphaned (reversal committed, replacement failed),
+ * are still in that state until the repair script re-books them. An edit that
+ * reversed the entry again would book −$100 for a $100 expense.
  */
 export const ALREADY_REVERSED_MESSAGE =
   "This expense's books were already reversed (it was deleted and restored). Its amount, date, category and personal/business status can't be edited until a bookkeeper re-books it.";
@@ -297,35 +314,80 @@ async function appendBalancedEntry(
   return entry.id;
 }
 
+/** An entry, as the reversal lookup returns it. */
+interface ReversalEntry {
+  id: string;
+  date: Date;
+  sourceType: string;
+  sourceId: string | null;
+  memo: string;
+}
+
 /**
- * Has the expense's current entry ALREADY been reversed by another path?
+ * Find the entry that ALREADY reverses the expense's current entry, if any.
  *
- * Detected by the EXISTENCE of a reversal keyed to this expense, not by
- * comparing line contents: backfillExpenseJournalEntry → reclassifyFromSuspense
- * rewrites the entry's debit line in place (6999 → category), after which the
- * delete reversal (CR 6999 / DR cash) no longer mirrors it — a content test
- * then let the edit through and booked −$60 for a $100 → $40 edit.
+ * Two generations of key exist and both are recognised:
  *
- * Why existence is sufficient (and stricter than ordering by createdAt):
- *   - 'expense_delete' (sourceId = expenseId) is written by DELETE against the
- *     pointer current at that moment. Afterwards nothing can move the pointer:
- *     edits of a deleted row are refused, Restore only clears deletedAt, the
- *     confirm / backfill / Telegram posting paths only act on a NULL pointer,
- *     and every pointer-moving path of ours runs through this guard. So if one
- *     exists, the current pointer IS the entry it reversed. (createdAt was not
- *     used: Prisma/Postgres stamp it per transaction, and a DELETE whose
- *     transaction began before a concurrent edit's could carry an EARLIER
- *     createdAt than the entry it reversed.)
- *   - The bot's undo / "actually it was $52" amount fix writes its reversal as
- *     ('expense', expenseId) with memo "REVERSAL: …"; its replacement uses the
- *     same G-021 key and fails, so the pointer is left on the reversed entry.
- *   - Belt and braces: any other ('expense', expenseId) entry that exactly
- *     mirrors the current lines is a reversal whatever its memo says.
- * Only entries keyed to THIS expense (sourceId = expenseId) are considered, so
- * manual journal entries can never match; our own amend entries are keyed by
- * the superseded ENTRY id and are never candidates.
- * A future "Restore re-books" fix must re-key or retire the delete reversal.
+ *   keyed by the ENTRY being reversed (current code)
+ *     ('expense_delete', <entryId>). Targets exactly one entry, so it can never
+ *     be confused with a later re-booking.
+ *   keyed by the EXPENSE (written before Restore re-booked; `legacy: true`)
+ *     - 'expense_delete' (sourceId = expenseId) from DELETE;
+ *     - the Telegram bot's undo / "actually it was $52" amount fix, which wrote
+ *       its reversal as ('expense', expenseId) with memo "REVERSAL: …" — its
+ *       replacement used the same key and failed, orphaning the reversal;
+ *     - belt and braces: any other ('expense', expenseId) entry that exactly
+ *       mirrors the current lines is a reversal whatever its memo says.
+ *     A legacy key names the expense, not the entry, so it cannot say WHICH
+ *     entry it reversed: rebookReversedExpenseEntry re-keys it to the entry id
+ *     when it re-books, which retires it for the new entry.
+ *
+ * Detected by EXISTENCE of a keyed reversal, not by comparing line contents:
+ * backfillExpenseJournalEntry → reclassifyFromSuspense rewrites the entry's
+ * debit line in place (6999 → category), after which the delete reversal
+ * (CR 6999 / DR cash) no longer mirrors it — a content test then let an edit
+ * through and booked −$60 for a $100 → $40 edit. (createdAt ordering was not
+ * used either: Prisma/Postgres stamp it per transaction, so a DELETE whose
+ * transaction began before a concurrent edit's could carry an EARLIER
+ * createdAt than the entry it reversed.)
+ * Only entries keyed to THIS entry or THIS expense are considered, so manual
+ * journal entries can never match; our own amend replacements are keyed by the
+ * superseded ENTRY id with a different sourceType and are never candidates.
  */
+export async function findEntryReversal(
+  client: Pick<LedgerClient, 'abJournalEntry' | 'abJournalLine'>,
+  tenantId: string,
+  expenseId: string,
+  entryId: string,
+  lines: LedgerLine[],
+): Promise<{ entry: ReversalEntry; legacy: boolean } | null> {
+  const keyed = (await client.abJournalEntry.findMany({ where: { tenantId, sourceId: entryId } })) || [];
+  // Only a DELETE reversal counts. An 'expense_amend_reversal' keyed to this
+  // entry means another request is superseding it RIGHT NOW: the G-021 unique
+  // key already makes the loser's own amend a P2002 → 409 "changed by another
+  // request", which is the true answer; calling it "already reversed" (422,
+  // "ask a bookkeeper") would not be.
+  const direct = keyed.find((c) => c.sourceType === 'expense_delete');
+  if (direct) return { entry: direct as ReversalEntry, legacy: false };
+
+  const candidates = (await client.abJournalEntry.findMany({ where: { tenantId, sourceId: expenseId } })) || [];
+  const key = (l: Pick<LedgerLine, 'accountId' | 'debitCents' | 'creditCents'>) =>
+    `${l.accountId}|${l.debitCents}|${l.creditCents}`;
+  const mirrored = lines.map((l) => key({ accountId: l.accountId, debitCents: l.creditCents, creditCents: l.debitCents })).sort();
+  for (const c of candidates) {
+    if (c.id === entryId) continue;
+    if (c.sourceType === 'expense_delete') return { entry: c as ReversalEntry, legacy: true };
+    if (c.sourceType !== 'expense') continue;
+    if (typeof c.memo === 'string' && c.memo.startsWith('REVERSAL:')) return { entry: c as ReversalEntry, legacy: true };
+    const cKeys = ((await client.abJournalLine.findMany({ where: { entryId: c.id } })) || []).map(key).sort();
+    if (cKeys.length === mirrored.length && cKeys.every((k, i) => k === mirrored[i])) {
+      return { entry: c as ReversalEntry, legacy: true };
+    }
+  }
+  return null;
+}
+
+/** Has the expense's current entry ALREADY been reversed by another path? See findEntryReversal. */
 export async function isExpenseEntryAlreadyReversed(
   client: Pick<LedgerClient, 'abJournalEntry' | 'abJournalLine'>,
   tenantId: string,
@@ -333,19 +395,7 @@ export async function isExpenseEntryAlreadyReversed(
   entryId: string,
   lines: LedgerLine[],
 ): Promise<boolean> {
-  const candidates = (await client.abJournalEntry.findMany({ where: { tenantId, sourceId: expenseId } })) || [];
-  const key = (l: Pick<LedgerLine, 'accountId' | 'debitCents' | 'creditCents'>) =>
-    `${l.accountId}|${l.debitCents}|${l.creditCents}`;
-  const mirrored = lines.map((l) => key({ accountId: l.accountId, debitCents: l.creditCents, creditCents: l.debitCents })).sort();
-  for (const c of candidates) {
-    if (c.id === entryId) continue;
-    if (c.sourceType === 'expense_delete') return true;
-    if (c.sourceType !== 'expense') continue;
-    if (typeof c.memo === 'string' && c.memo.startsWith('REVERSAL:')) return true;
-    const cKeys = ((await client.abJournalLine.findMany({ where: { entryId: c.id } })) || []).map(key).sort();
-    if (cKeys.length === mirrored.length && cKeys.every((k, i) => k === mirrored[i])) return true;
-  }
-  return false;
+  return (await findEntryReversal(client, tenantId, expenseId, entryId, lines)) !== null;
 }
 
 async function assertNotAlreadyReversed(
@@ -510,11 +560,15 @@ export async function repostExpenseJournalEntry(
  * G-021 key a repost of that entry would use, so an un-book racing a repost of
  * the same entry is a P2002 for the loser, never a double reversal.
  * Call inside the edit transaction.
+ *
+ * `opts.memo` renames the reversal for callers other than the personal flip —
+ * the bot's undo uses it so the ledger says "undone", not "personal".
  */
 export async function unbookExpenseJournalEntry(
   tenantId: string,
   expenseId: string,
   tx: LedgerClient,
+  opts: { memo?: string } = {},
 ): Promise<{ unbooked: boolean; reason?: string }> {
   const expense = await tx.abExpense.findFirst({ where: { id: expenseId, tenantId } });
   if (!expense?.journalEntryId) return { unbooked: false, reason: 'not booked' };
@@ -533,7 +587,7 @@ export async function unbookExpenseJournalEntry(
     tenantId,
     {
       date: original.date,
-      memo: `PERSONAL - Reverse expense: ${expense.description || 'Expense'}`,
+      memo: opts.memo ?? `PERSONAL - Reverse expense: ${expense.description || 'Expense'}`,
       sourceType: 'expense_amend_reversal',
       sourceId: original.id,
     },
@@ -593,6 +647,179 @@ export async function bookExpenseJournalEntry(
   );
   await tx.abExpense.update({ where: { id: expense.id }, data: { journalEntryId } });
   return { booked: true, journalEntryId };
+}
+
+/** Does the reversal entry exactly mirror `lines` (same accounts, sides swapped)? */
+async function reversalMirrorsLines(
+  client: Pick<LedgerClient, 'abJournalLine'>,
+  reversalId: string,
+  lines: LedgerLine[],
+): Promise<boolean> {
+  const key = (l: Pick<LedgerLine, 'accountId' | 'debitCents' | 'creditCents'>) =>
+    `${l.accountId}|${l.debitCents}|${l.creditCents}`;
+  const reversalLines: LedgerLine[] = (await client.abJournalLine.findMany({ where: { entryId: reversalId } })) || [];
+  const expected = mirror(lines).map(key).sort();
+  const actual = reversalLines.map(key).sort();
+  return expected.length === actual.length && expected.every((k, i) => k === actual[i]);
+}
+
+export type RebookOutcome =
+  | 'rebooked'          // a fresh entry was posted and the expense points at it
+  | 'not_booked'        // nothing to re-book: never booked, personal, or rejected (undone)
+  | 'already_on_books'  // the current entry is live — nothing reverses it
+  | 'needs_review';     // reversed, but the entry was edited since: a bookkeeper must decide
+
+/**
+ * Put an expense back on the books after its current entry was reversed by a
+ * DELETE (Restore) or orphaned by the bot's old amount-fix. Call inside the
+ * transaction that clears `deletedAt`.
+ *
+ * Cancels the reversal rather than touching anything posted: it appends a copy
+ * of the current entry's lines, dated at the reversal it cancels (so the month
+ * the expense belongs to keeps it and the delete month nets to zero), keyed
+ * ('expense_rebook', <reversal id>) so one reversal can be cancelled once, and
+ * points the expense at the new entry — a live entry no reversal targets, so
+ * later edits and deletes work and key off it.
+ *
+ * If that month is closed it is dated today instead (a closed month can't be
+ * changed; the correction lands in the open one). If today is closed too it
+ * throws ExpenseLedgerPeriodClosedError and nothing is written.
+ *
+ * Refuses (`needs_review`) unless the reversal exactly mirrors the current
+ * lines. After an in-place reclassification (suspense → category, pre-#580) the
+ * mirror no longer matches and re-posting the entry's lines would double-count
+ * the category; those go to a bookkeeper rather than be guessed at.
+ *
+ * A reversal written under the legacy expense-id key is re-keyed to the entry id
+ * it reversed (same type family, same lines and amounts): that retires it for the
+ * NEW entry, which it would otherwise keep flagging as "already reversed".
+ */
+export async function rebookReversedExpenseEntry(
+  tenantId: string,
+  expenseId: string,
+  tx: LedgerClient,
+): Promise<{ rebooked: boolean; journalEntryId: string | null; outcome: RebookOutcome }> {
+  const expense = await tx.abExpense.findFirst({ where: { id: expenseId, tenantId } });
+  if (!expense?.journalEntryId || expense.isPersonal || expense.status === 'rejected') {
+    return { rebooked: false, journalEntryId: expense?.journalEntryId ?? null, outcome: 'not_booked' };
+  }
+  const loaded = await loadEntry(tx, tenantId, expense.journalEntryId);
+  if (!loaded || loaded.lines.length === 0) {
+    return { rebooked: false, journalEntryId: expense.journalEntryId, outcome: 'not_booked' };
+  }
+  const { entry: current, lines } = loaded;
+
+  const found = await findEntryReversal(tx, tenantId, expense.id, current.id, lines);
+  if (!found) return { rebooked: false, journalEntryId: current.id, outcome: 'already_on_books' };
+
+  if (!(await reversalMirrorsLines(tx, found.entry.id, lines))) {
+    return { rebooked: false, journalEntryId: current.id, outcome: 'needs_review' };
+  }
+
+  let date = found.entry.date;
+  try {
+    await assertPeriodOpen(tx, tenantId, date);
+  } catch (err) {
+    if (!(err instanceof ExpenseLedgerPeriodClosedError)) throw err;
+    date = new Date();
+    await assertPeriodOpen(tx, tenantId, date); // closed too → throws, nothing written yet
+  }
+
+  if (found.legacy) {
+    await tx.abJournalEntry.update({
+      where: { id: found.entry.id },
+      data: {
+        sourceType: found.entry.sourceType === 'expense_delete' ? 'expense_delete' : 'expense_amend_reversal',
+        sourceId: current.id,
+      },
+    });
+  }
+  const freshId = await appendBalancedEntry(
+    tx,
+    tenantId,
+    {
+      date,
+      memo: `RESTORED - Re-book expense: ${expense.description || 'Expense'}`,
+      sourceType: 'expense_rebook',
+      sourceId: found.entry.id,
+    },
+    lines.map((l) => ({ accountId: l.accountId, debitCents: l.debitCents, creditCents: l.creditCents, description: l.description })),
+  );
+  await tx.abExpense.update({ where: { id: expense.id }, data: { journalEntryId: freshId } });
+  return { rebooked: true, journalEntryId: freshId, outcome: 'rebooked' };
+}
+
+export interface OrphanedExpenseReversal {
+  tenantId: string;
+  expenseId: string;
+  description: string | null;
+  amountCents: number;
+  date: Date;
+  /** The expense's current entry — the one that has been reversed. */
+  entryId: string;
+  reversalId: string;
+  reversalType: string;
+  /** Keyed by expense id (written before the fix) rather than by entry id. */
+  legacy: boolean;
+  /** `rebookable`: rebookReversedExpenseEntry will repair it. `needs_review`: a bookkeeper must. */
+  outcome: 'rebookable' | 'needs_review';
+}
+
+/**
+ * READ-ONLY. Find live, confirmed, business expenses whose CURRENT journal
+ * entry has already been reversed — they show in the user's list while the
+ * books net them to $0 (missing from P&L, the trial balance and the tax
+ * estimate). Producers: Restore before it re-booked, and the Telegram bot's old
+ * amount fix (reversal committed, replacement rejected by the unique key).
+ *
+ * Starts from the (small) set of reversal entries and walks back to expenses,
+ * rather than scanning every expense. Deleted, undone (rejected) and personal
+ * expenses are never reported: being off the books is correct for them.
+ */
+export async function findOrphanedExpenseReversals(
+  client: LedgerClient,
+  opts: { tenantId?: string } = {},
+): Promise<OrphanedExpenseReversal[]> {
+  const { tenantId } = opts;
+  const reversals = [
+    ...((await client.abJournalEntry.findMany({ where: { tenantId, sourceType: 'expense_delete' } })) || []),
+    ...((await client.abJournalEntry.findMany({
+      where: { tenantId, sourceType: 'expense', memo: { startsWith: 'REVERSAL:' } },
+    })) || []),
+  ];
+  // A reversal's sourceId is an expense id (legacy) or the reversed entry's id.
+  const keys = [...new Set(reversals.map((r) => r.sourceId).filter((k): k is string => !!k))];
+
+  const live = { tenantId, deletedAt: null, status: 'confirmed', isPersonal: false };
+  const expenses = new Map<string, Awaited<ReturnType<LedgerClient['abExpense']['findMany']>>[number]>();
+  for (let i = 0; i < keys.length; i += 500) {
+    const chunk = keys.slice(i, i + 500);
+    for (const where of [{ ...live, id: { in: chunk } }, { ...live, journalEntryId: { in: chunk } }]) {
+      for (const e of (await client.abExpense.findMany({ where })) || []) expenses.set(e.id, e);
+    }
+  }
+
+  const out: OrphanedExpenseReversal[] = [];
+  for (const e of expenses.values()) {
+    if (!e.journalEntryId) continue;
+    const loaded = await loadEntry(client, e.tenantId, e.journalEntryId);
+    if (!loaded || loaded.lines.length === 0) continue;
+    const found = await findEntryReversal(client, e.tenantId, e.id, loaded.entry.id, loaded.lines);
+    if (!found) continue;
+    out.push({
+      tenantId: e.tenantId,
+      expenseId: e.id,
+      description: e.description ?? null,
+      amountCents: e.amountCents,
+      date: e.date,
+      entryId: loaded.entry.id,
+      reversalId: found.entry.id,
+      reversalType: found.entry.sourceType,
+      legacy: found.legacy,
+      outcome: (await reversalMirrorsLines(client, found.entry.id, loaded.lines)) ? 'rebookable' : 'needs_review',
+    });
+  }
+  return out.sort((a, b) => a.tenantId.localeCompare(b.tenantId) || a.expenseId.localeCompare(b.expenseId));
 }
 
 /**

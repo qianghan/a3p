@@ -33,6 +33,14 @@ import { parseDateHint, aggregateByDay, type TimeEntryRow } from './agentbook-ti
 import { resolveClientByHint } from './agentbook-client-resolver';
 import { resolveMileageDeduction, mileagePeriodStart } from './agentbook-mileage-rates';
 import { resolveVehicleAccounts } from './agentbook-account-resolver';
+import {
+  ALREADY_REVERSED_MESSAGE,
+  ExpenseLedgerAlreadyReversedError,
+  ExpenseLedgerPeriodClosedError,
+  ExpenseLedgerShapeError,
+  repostExpenseJournalEntry,
+  unbookExpenseJournalEntry,
+} from './agentbook-expense-ledger';
 import { lookupPerDiem, CONUS_DEFAULT_MIE_CENTS } from './agentbook-perdiem-rates';
 import { perDiemAvailability } from '@agentbook/jurisdictions';
 import { computeQuarterlyDeductible, computeRatio } from './agentbook-home-office';
@@ -1467,6 +1475,23 @@ async function applyCategory(tenantId: string, active: ActiveExpense, matched: C
   }
 }
 
+/**
+ * The user-facing reason a ledger helper refused an expense edit, or null when
+ * the error is not one of the expected refusals (the caller rethrows it). The
+ * helper's transaction has rolled back, so the row and the books are unchanged.
+ */
+function ledgerFailureMessage(err: unknown): string | null {
+  if (err instanceof ExpenseLedgerPeriodClosedError) {
+    return `That expense is in a closed accounting period (${err.year}-${String(err.month).padStart(2, '0')}), so its books can't be changed. Nothing was changed.`;
+  }
+  if (err instanceof ExpenseLedgerAlreadyReversedError) return ALREADY_REVERSED_MESSAGE;
+  if (err instanceof ExpenseLedgerShapeError) return err.message;
+  if ((err as { code?: string })?.code === 'P2002') {
+    return 'This expense was just changed by another request; please try again.';
+  }
+  return null;
+}
+
 export async function executeStep(step: PlanStep, ctx: BotContext): Promise<ExecResult> {
   try {
     switch (step.skill) {
@@ -1562,52 +1587,36 @@ export async function executeStep(step: PlanStep, ctx: BotContext): Promise<Exec
           };
         }
 
-        // Confirmed + booked → post a reversing journal entry, mark
-        // rejected. (Journal entries are immutable per the constraint
-        // engine; corrections are reversing entries, never edits.)
+        // Confirmed + booked → take it off the books and mark it rejected, in
+        // ONE transaction. unbookExpenseJournalEntry appends the mirror
+        // reversal (journal entries are immutable) under a key derived from the
+        // entry being reversed. This used to hand-write the reversal under
+        // ('expense', expenseId) — the key the original entry may already hold —
+        // and then update the status in a separate, non-transactional write.
         //
         // Gated on being BOOKED, not on having a category: an uncategorized
-        // expense now posts to the 6999 suspense account, so requiring a
-        // category here marked the expense rejected while leaving its money in
-        // the P&L and the tax estimate. The reversal mirrors the original
-        // lines, so it needs no knowledge of which account was debited.
+        // expense posts to the 6999 suspense account, so requiring a category
+        // marked it rejected while its money stayed in the P&L and tax estimate.
         if (ctx.active.status === 'confirmed' && !ctx.active.isPersonal) {
-          const expenseRow = await db.abExpense.findUnique({
-            where: { id: ctx.active.id },
-            select: { journalEntryId: true },
-          });
-          if (expenseRow?.journalEntryId) {
-            const original = await db.abJournalEntry.findUnique({
-              where: { id: expenseRow.journalEntryId },
-              include: { lines: true },
+          try {
+            await db.$transaction(async (tx) => {
+              try {
+                await unbookExpenseJournalEntry(ctx.tenantId, ctx.active!.id, tx, {
+                  memo: `UNDONE - Reverse expense: ${ctx.active!.description || 'Expense'}`,
+                });
+              } catch (err) {
+                // Already reversed (e.g. the old amount-fix left its reversal
+                // behind): the books are already right, so only the status
+                // is left to record.
+                if (!(err instanceof ExpenseLedgerAlreadyReversedError)) throw err;
+              }
+              await tx.abExpense.update({ where: { id: ctx.active!.id }, data: { status: 'rejected' } });
             });
-            if (original) {
-              await db.abJournalEntry.create({
-                data: {
-                  tenantId: ctx.tenantId,
-                  date: new Date(),
-                  memo: `REVERSAL: ${original.memo}`,
-                  sourceType: 'expense',
-                  sourceId: ctx.active.id,
-                  verified: true,
-                  lines: {
-                    create: original.lines.map((l) => ({
-                      tenantId: ctx.tenantId, // G-009
-                      accountId: l.accountId,
-                      // swap debit and credit to reverse the original entry
-                      debitCents: l.creditCents,
-                      creditCents: l.debitCents,
-                      description: `Reversal: ${l.description || ''}`,
-                    })),
-                  },
-                },
-              });
-            }
+          } catch (err) {
+            const failure = ledgerFailureMessage(err);
+            if (failure) return { stepId: step.id, success: false, error: failure };
+            throw err;
           }
-          await db.abExpense.update({
-            where: { id: ctx.active.id },
-            data: { status: 'rejected' },
-          });
         } else {
           // Draft or personal — no journal to reverse, just delete the
           // expense outright since it never made it onto the books.
@@ -1652,90 +1661,28 @@ export async function executeStep(step: PlanStep, ctx: BotContext): Promise<Exec
           return { stepId: step.id, success: true, data: { unchanged: true } };
         }
 
-        // If the expense is already booked to the ledger, post a
-        // reversing entry and a fresh entry at the new amount. The
-        // immutability rule means we cannot just patch the journal lines.
+        // Patch the row and bring the ledger entry in line in ONE transaction,
+        // through the same helper the web edit uses: it appends a reversal and
+        // a replacement keyed by the superseded ENTRY id (so every correction
+        // gets a fresh key) and does nothing when the expense is not booked.
+        // This used to write both entries by hand under ('expense', expenseId)
+        // with no transaction: for a create-route expense the reversal
+        // committed and the replacement threw P2002 (the expense netted $0);
+        // for a bot-confirmed one the reversal itself threw.
         //
         // Gated on being BOOKED, not on having a category: an uncategorized
-        // expense now posts to the 6999 suspense account, so requiring a
-        // category here left the original amount sitting in the books after
-        // the user corrected it.
+        // expense posts to the 6999 suspense account, and the helper re-posts
+        // against whatever the original debited.
         if (ctx.active.status === 'confirmed' && !ctx.active.isPersonal) {
-          const expenseRow = await db.abExpense.findUnique({
-            where: { id: ctx.active.id },
-            select: { journalEntryId: true },
-          });
-          if (expenseRow?.journalEntryId) {
-            const original = await db.abJournalEntry.findUnique({
-              where: { id: expenseRow.journalEntryId },
-              include: { lines: true },
+          try {
+            await db.$transaction(async (tx) => {
+              await tx.abExpense.update({ where: { id: ctx.active!.id }, data: { amountCents: newAmount } });
+              await repostExpenseJournalEntry(ctx.tenantId, ctx.active!.id, tx);
             });
-            // Re-post against whatever the original debited. For an
-            // uncategorized expense that's the suspense account and
-            // ctx.active.categoryId is null — using it would write a line with
-            // no account at all.
-            const originalDebit = original?.lines.find((l) => l.debitCents > 0);
-            const debitAccountId = originalDebit?.accountId || ctx.active.categoryId;
-            if (original) {
-              await db.abJournalEntry.create({
-                data: {
-                  tenantId: ctx.tenantId,
-                  date: new Date(),
-                  memo: `REVERSAL: ${original.memo} (amount fix)`,
-                  sourceType: 'expense',
-                  sourceId: ctx.active.id,
-                  verified: true,
-                  lines: {
-                    create: original.lines.map((l) => ({
-                      tenantId: ctx.tenantId, // G-009
-                      accountId: l.accountId,
-                      debitCents: l.creditCents,
-                      creditCents: l.debitCents,
-                      description: `Reversal: ${l.description || ''}`,
-                    })),
-                  },
-                },
-              });
-            }
-            const cash = await db.abAccount.findFirst({
-              where: { tenantId: ctx.tenantId, code: '1000' },
-            });
-            // No debit account at all (no original debit line and no category)
-            // means there is nothing coherent to re-post against — reverse
-            // only, and just record the new amount, rather than writing a line
-            // with no account.
-            if (cash && debitAccountId) {
-              const replacement = await db.abJournalEntry.create({
-                data: {
-                  tenantId: ctx.tenantId,
-                  date: ctx.active.date,
-                  memo: `Expense (amended): ${ctx.active.description || 'Expense'}`,
-                  sourceType: 'expense',
-                  sourceId: ctx.active.id,
-                  verified: true,
-                  lines: {
-                    create: [
-                      { tenantId: ctx.tenantId, accountId: debitAccountId, debitCents: newAmount, creditCents: 0, description: ctx.active.description || 'Expense' }, // G-009
-                      { tenantId: ctx.tenantId, accountId: cash.id, debitCents: 0, creditCents: newAmount, description: 'Payment' }, // G-009
-                    ],
-                  },
-                },
-              });
-              await db.abExpense.update({
-                where: { id: ctx.active.id },
-                data: { amountCents: newAmount, journalEntryId: replacement.id },
-              });
-            } else {
-              await db.abExpense.update({
-                where: { id: ctx.active.id },
-                data: { amountCents: newAmount },
-              });
-            }
-          } else {
-            await db.abExpense.update({
-              where: { id: ctx.active.id },
-              data: { amountCents: newAmount },
-            });
+          } catch (err) {
+            const failure = ledgerFailureMessage(err);
+            if (failure) return { stepId: step.id, success: false, error: failure };
+            throw err;
           }
         } else {
           // Draft or personal — no journal entry to reverse, just patch.

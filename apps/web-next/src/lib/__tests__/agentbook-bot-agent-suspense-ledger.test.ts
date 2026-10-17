@@ -11,9 +11,10 @@
  *   expense.confirm       — booked a journal entry whenever a category was set,
  *                           without checking journalEntryId, so a suspense-booked
  *                           expense got a SECOND entry and was counted twice.
- *   expense.update_amount — only fixed the books for a CATEGORIZED expense, so
- *                           correcting an uncategorized one left the original
- *                           amount sitting in the ledger.
+ *
+ * (expense.undo_last / expense.update_amount used to be pinned here too — they
+ * now run through the shared repost/unbook helpers; see
+ * agentbook-bot-agent-expense-ledger.test.ts.)
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -105,85 +106,5 @@ describe('expense.confirm — must not double-book a suspense-booked expense', (
     );
 
     expect(journalEntryCreate).toHaveBeenCalled();
-  });
-});
-
-describe('expense.undo_last — must reverse an UNCATEGORIZED booked expense', () => {
-  it('posts a reversing entry so undone money stops counting, even with no category', async () => {
-    expenseFindUnique.mockResolvedValue({ journalEntryId: 'je-suspense' });
-    journalEntryFindUnique.mockResolvedValue({
-      id: 'je-suspense',
-      memo: 'Expense: Coffee',
-      lines: [
-        { accountId: 'acct-uncategorized', debitCents: 2500, creditCents: 0, description: 'Coffee' },
-        { accountId: 'acct-cash', debitCents: 0, creditCents: 2500, description: 'Payment' },
-      ],
-    });
-
-    const res = await executeStep(
-      { id: 's1', skill: 'expense.undo_last', args: {}, dependsOn: [] },
-      ctx(activeExpense({ categoryId: null })),
-    );
-
-    expect(res).toMatchObject({ success: true });
-    // Without this the expense is marked rejected while its money stays in the
-    // P&L and the tax estimate.
-    expect(journalEntryCreate).toHaveBeenCalled();
-    const lines = journalEntryCreate.mock.calls[0][0].data.lines.create;
-    expect(lines.find((l: { accountId: string }) => l.accountId === 'acct-uncategorized'))
-      .toMatchObject({ debitCents: 0, creditCents: 2500 });
-  });
-});
-
-describe('expense.update_amount — must fix the books for an UNCATEGORIZED booked expense', () => {
-  it('reverses and re-posts at the new amount, against the account the original used', async () => {
-    // Uncategorized (categoryId null) but booked to suspense — the state the
-    // create route now produces for "I spent $25 at Tea".
-    expenseFindUnique.mockResolvedValue({ journalEntryId: 'je-suspense' });
-    journalEntryFindUnique.mockResolvedValue({
-      id: 'je-suspense',
-      memo: 'Expense: Coffee',
-      lines: [
-        { accountId: 'acct-uncategorized', debitCents: 2500, creditCents: 0, description: 'Coffee' },
-        { accountId: 'acct-cash', debitCents: 0, creditCents: 2500, description: 'Payment' },
-      ],
-    });
-
-    const res = await executeStep(
-      { id: 's1', skill: 'expense.update_amount', args: { amountCents: 5200 }, dependsOn: [] },
-      ctx(activeExpense({ categoryId: null })),
-    );
-
-    expect(res.success).toBe(true);
-    // Gating this on categoryId meant the books kept the stale $25 forever.
-    expect(journalEntryCreate).toHaveBeenCalledTimes(2); // reversal + replacement
-
-    const replacement = journalEntryCreate.mock.calls[1][0].data;
-    const lines = replacement.lines.create;
-    // Debits the SAME account as the original — there is no category to use.
-    expect(lines.find((l: { accountId: string }) => l.accountId === 'acct-uncategorized'))
-      .toMatchObject({ debitCents: 5200, creditCents: 0 });
-    expect(lines.find((l: { accountId: string }) => l.accountId === 'acct-cash'))
-      .toMatchObject({ debitCents: 0, creditCents: 5200 });
-    expect(lines.reduce((s: number, l: { debitCents: number }) => s + l.debitCents, 0))
-      .toBe(lines.reduce((s: number, l: { creditCents: number }) => s + l.creditCents, 0));
-
-    expect(expenseUpdate).toHaveBeenCalledWith(
-      expect.objectContaining({ data: expect.objectContaining({ amountCents: 5200 }) }),
-    );
-  });
-
-  it('still just updates the amount when the expense never reached the ledger', async () => {
-    expenseFindUnique.mockResolvedValue({ journalEntryId: null });
-
-    await executeStep(
-      { id: 's1', skill: 'expense.update_amount', args: { amountCents: 5200 }, dependsOn: [] },
-      ctx(activeExpense({ categoryId: null })),
-    );
-
-    expect(journalEntryCreate).not.toHaveBeenCalled();
-    expect(expenseUpdate).toHaveBeenCalledWith(
-      expect.objectContaining({ data: expect.objectContaining({ amountCents: 5200 }) }),
-    );
   });
 });
