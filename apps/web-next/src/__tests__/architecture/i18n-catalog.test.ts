@@ -97,6 +97,10 @@ const IDENTICAL_ALLOWED = new Set<string>([
   'core_ui.test_action',
   // "Correct" is a valid French word with the same spelling and meaning.
   'common.correct',
+  // Proper nouns — a person's name and the brand name are identical in every
+  // locale by definition; translating them would invent a difference.
+  'common.about_founder_name',
+  'common.brand_name',
   // Table headers in the chart of accounts. "Code" and "Type" are spelled and
   // used identically in French; translating them would be inventing a
   // difference that does not exist.
