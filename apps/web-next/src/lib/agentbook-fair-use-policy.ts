@@ -8,10 +8,10 @@ export const FAIR_USE_WARN_LEVELS = [0.7, 0.9] as const;
 /**
  * Monthly AI-message ceiling per plan code.
  *
- * PLACEHOLDER VALUES — owner must confirm before production. Rationale for
- * the starting points: free/pro match the plan quota templates
- * (apps/web-next/src/lib/billing/templates.ts); business gets a generous
- * but finite ceiling so "unlimited" can't mean unbounded inference cost.
+ * APPROVED 2026-10-16 (CRO): free 100 matches the Free plan's 100-message
+ * quota; pro 5000/mo (~160/day) is generous for $19 while capping inference
+ * cost; business 20000 covers teams. Warnings at 70%/90%, hard deny at 100%.
+ * Tune only from real usage data post-launch.
  */
 export const FAIR_USE_MONTHLY_AI_MESSAGES: Record<string, number> = {
   free: 100,

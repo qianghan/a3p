@@ -196,9 +196,13 @@ export interface AddOnDisplayMeta {
  * Marketing metadata for the four paid add-ons. Prices themselves live in
  * ADDON_PRICES (single source of truth); this is display copy only.
  *
- * OWNER DECISION REQUIRED: the ADDON_PRICES figures were set from 2026-07
- * value-anchor research and have not been confirmed as final public prices.
- * Confirm or adjust before this section ships to production.
+ * APPROVED 2026-10-16 (CRO): the 2026-07 value-anchor research figures are
+ * confirmed as the launch prices — tax_fast_track $149/yr undercuts the
+ * Keeper-style $199/yr expert-review tier; student_success $79/yr stays
+ * student-accessible; personal_insights $9/mo sits cleanly under Pro $19/mo
+ * as an upsell; startup_tax_benefits $99/$249/$499 founding/standard/scaled
+ * prices against accountants charging thousands per R&D claim. Adjust only
+ * from real conversion data post-launch.
  */
 export const ADDON_DISPLAY: AddOnDisplayMeta[] = [
   {
