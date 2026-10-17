@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import type { Metadata } from 'next';
 import { Wordmark } from '@/components/brand/Wordmark';
+import { T } from '@/components/i18n/t';
 
 export const metadata: Metadata = {
   title: 'Changelog — AgentBook',
@@ -62,7 +63,7 @@ export default function ChangelogPage() {
         <Link href="/" className="inline-block mb-8 opacity-80 hover:opacity-100">
           <Wordmark size={30} />
         </Link>
-        <h1 className="text-4xl font-medium tracking-tight">Changelog</h1>
+        <h1 className="text-4xl font-medium tracking-tight"><T k="common.nav_changelog" /></h1>
         <p className="mt-3 text-[15px] leading-relaxed text-[var(--ink-soft)]">
           What changed in AgentBook, newest first. Plain language, real dates —
           no internal ticket numbers.
@@ -88,8 +89,8 @@ export default function ChangelogPage() {
         </ol>
         <p className="text-[13px] text-[var(--muted)]">
           AgentBook is not a licensed CPA and does not provide tax or legal
-          advice. <Link href="/legal/terms" className="underline">Terms</Link> ·{' '}
-          <Link href="/legal/privacy" className="underline">Privacy</Link>
+          advice. <Link href="/legal/terms" className="underline"><T k="invoice_ui.terms" /></Link> ·{' '}
+          <Link href="/legal/privacy" className="underline"><T k="common.nav_privacy" /></Link>
         </p>
       </main>
     </div>

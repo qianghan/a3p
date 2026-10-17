@@ -4,14 +4,15 @@ import { headers } from 'next/headers';
 import { Fraunces, Newsreader, JetBrains_Mono } from 'next/font/google';
 import { Wordmark } from '@/components/brand/Wordmark';
 import { InstallAppButton } from '@/components/pwa/InstallAppButton';
+import { T } from '@/components/i18n/t';
 import {
   planForRegion,
   regionFromCountry,
-  formatMoney,
   formatMoneyPrecise,
   ADDON_DISPLAY,
   addOnStandardPrice,
 } from '@agentbook/pricing';
+import { Money } from '@/components/i18n/money';
 
 // ─── Type-as-design ─────────────────────────────────────────────────────────
 // Fraunces: a variable serif with optical sizing — characterful at display
@@ -88,16 +89,14 @@ export default async function LandingPage() {
   // hosting platform's geo header; unknown/missing falls back to USD.
   const headersList = await headers();
   const region = regionFromCountry(headersList.get('x-vercel-ip-country'));
+  const priceCurrencyCode = region === 'ca' ? 'CAD' : region === 'au' ? 'AUD' : 'USD';
   const proMonthly = planForRegion('pro', region);
   const proYearly = planForRegion('pro_yearly', region);
   const business = planForRegion('business', region);
-  const proMonthlyPrice = formatMoney(proMonthly.priceCents, proMonthly.currency);
-  const proYearlyPrice = formatMoney(proYearly.priceCents, proYearly.currency);
   const proYearlyMonthlyEquivalent = formatMoneyPrecise(
     Math.round(proYearly.priceCents / 12),
     proYearly.currency,
   );
-  const businessPrice = formatMoney(business.priceCents, business.currency);
   const addOnRows = ADDON_DISPLAY.map((meta) => ({
     meta,
     price: addOnStandardPrice(meta.code, region),
@@ -203,7 +202,7 @@ export default async function LandingPage() {
             <a className="ab-link hidden sm:inline" href="#pricing">Pricing</a>
             <a className="ab-link hidden md:inline" href="#voices">Voices</a>
             <Link className="ab-link hidden sm:inline" href="/guides">Guides</Link>
-            <Link className="ab-link hidden sm:inline" href="/about">About</Link>
+            <Link className="ab-link hidden sm:inline" href="/about"><T k="core_ui.about" /></Link>
             <InstallAppButton />
             <Link
               href="/login"
@@ -289,7 +288,7 @@ export default async function LandingPage() {
                 <span className="arrow">→</span>
               </Link>
               <Link href="/demo" className="btn btn-ghost">
-                Try the demo
+                <T k="common.home_try_demo" />
               </Link>
               <Link href="#pricing" className="btn btn-ghost">
                 See plans
@@ -527,7 +526,7 @@ export default async function LandingPage() {
           </div>
           <div className="col-span-12 md:col-span-5 md:pt-12 md:pl-8">
             <p className="text-[16.5px] leading-[1.6] text-[var(--ink-soft)] max-w-[44ch]">
-              No card to start. After the trial, {proMonthlyPrice} a month or {proYearlyPrice} a year — whichever you
+              No card to start. After the trial, <Money cents={proMonthly.priceCents} currency={proMonthly.currency} /> a month or <Money cents={proYearly.priceCents} currency={proYearly.currency} /> a year — whichever you
               like. Cancel any time, in plain English. We won't make it hard.
             </p>
           </div>
@@ -582,7 +581,7 @@ export default async function LandingPage() {
             </div>
             <div className="mt-5 flex items-baseline gap-2">
               <span className="display num text-[64px] leading-none" style={{ fontWeight: 500 }}>
-                {proYearlyPrice}
+                <Money cents={proYearly.priceCents} currency={proYearly.currency} />
               </span>
               <span className="num text-[12px] text-[var(--paper)] opacity-70 tracking-[0.14em] uppercase">/yr</span>
             </div>
@@ -618,7 +617,7 @@ export default async function LandingPage() {
             </div>
             <div className="mt-5 flex items-baseline gap-2">
               <span className="display num text-[64px] leading-none" style={{ fontWeight: 500 }}>
-                {proMonthlyPrice}
+                <Money cents={proMonthly.priceCents} currency={proMonthly.currency} />
               </span>
               <span className="num text-[12px] text-[var(--muted)] tracking-[0.14em] uppercase">/mo</span>
             </div>
@@ -647,7 +646,7 @@ export default async function LandingPage() {
             </div>
             <div className="mt-5 flex items-baseline gap-2">
               <span className="display num text-[64px] leading-none" style={{ fontWeight: 500 }}>
-                {businessPrice}
+                <Money cents={business.priceCents} currency={business.currency} />
               </span>
               <span className="num text-[12px] text-[var(--muted)] tracking-[0.14em] uppercase">/mo</span>
             </div>
@@ -672,10 +671,10 @@ export default async function LandingPage() {
         <div className="mt-14">
           <div className="mb-8 flex items-baseline justify-between">
             <h3 className="text-[24px]" style={{ fontWeight: 500 }}>
-              Add-ons, <span className="ital">when you need them.</span>
+              <T k="common.home_addons_lead" /> <span className="ital">when you need them.</span>
             </h3>
             <span className="text-[12px] tracking-[0.14em] uppercase text-[var(--muted)]">
-              Prices in {region === 'ca' ? 'CAD' : region === 'au' ? 'AUD' : 'USD'}
+              <T k="common.prices_in_currency" params={{ currency: priceCurrencyCode }} />
             </span>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5">
@@ -689,7 +688,7 @@ export default async function LandingPage() {
                 </div>
                 <div className="mt-5 flex items-baseline gap-2">
                   <span className="display num text-[44px] leading-none" style={{ fontWeight: 500 }}>
-                    {formatMoney(price!.priceCents, price!.currency)}
+                    <Money cents={price!.priceCents} currency={price!.currency} />
                   </span>
                   <span className="num text-[12px] text-[var(--muted)] tracking-[0.14em] uppercase">
                     {meta.intervalLabel}
@@ -698,7 +697,7 @@ export default async function LandingPage() {
                 <p className="mt-3 text-[14px] text-[var(--ink-soft)]">{meta.blurb}</p>
                 <Hairline className="my-6" />
                 <Link href={meta.learnMoreHref} className="ab-link text-[14px]">
-                  Learn more <span className="arrow">→</span>
+                  <T k="common.home_learn_more" /> <span className="arrow">→</span>
                 </Link>
               </div>
             ))}
@@ -722,7 +721,7 @@ export default async function LandingPage() {
           <div className="col-span-12 md:col-span-7">
             <Marker n="06" label="Voices" />
             <h2 className="mt-5 text-[40px] sm:text-[56px] leading-[0.96] max-w-[24ch]" style={{ fontWeight: 400 }}>
-              The first notes are <span className="ital">still being written.</span>
+              <T k="common.home_first_notes" /> <span className="ital">still being written.</span>
             </h2>
           </div>
           <div className="col-span-12 md:col-span-5 md:pt-12 md:pl-8">
@@ -737,7 +736,7 @@ export default async function LandingPage() {
             </p>
             <p className="mt-5 text-[16.5px] leading-[1.6] text-[var(--ink-soft)] max-w-[44ch]">
               <Link href="/about" className="ab-link">
-                Who builds this <span className="arrow">→</span>
+                <T k="common.home_who_builds" /> <span className="arrow">→</span>
               </Link>
             </p>
           </div>
@@ -820,7 +819,7 @@ export default async function LandingPage() {
           <span className="ital text-[var(--accent)]">a co-worker.</span>
         </h2>
         <p className="mt-8 max-w-[44ch] mx-auto text-[17.5px] leading-[1.6] text-[var(--ink-soft)]">
-          Ninety days of Pro, no card, no hooks. After that, {proMonthlyPrice} a month or {proYearlyPrice} a year. Or
+          Ninety days of Pro, no card, no hooks. After that, <Money cents={proMonthly.priceCents} currency={proMonthly.currency} /> a month or <Money cents={proYearly.priceCents} currency={proYearly.currency} /> a year. Or
           stay on Free. You decide — every time.
         </p>
         <div className="mt-12 flex flex-wrap justify-center gap-3">
@@ -850,10 +849,10 @@ export default async function LandingPage() {
             <a href="#how" className="ab-link">How it works</a>
             <a href="#pricing" className="ab-link">Pricing</a>
             <a href="#voices" className="ab-link">Voices</a>
-            <Link href="/about" className="ab-link">About</Link>
-            <Link href="/changelog" className="ab-link">Changelog</Link>
+            <Link href="/about" className="ab-link"><T k="core_ui.about" /></Link>
+            <Link href="/changelog" className="ab-link"><T k="common.nav_changelog" /></Link>
             <Link href="/docs" className="ab-link">Docs</Link>
-            <a href="mailto:support@agentbook.io" className="ab-link">Contact</a>
+            <a href="mailto:support@agentbook.io" className="ab-link"><T k="common.nav_contact" /></a>
             <Link href="/login" className="ab-link">Sign in</Link>
             <Link href="/register" className="ab-link">Start free</Link>
           </div>
@@ -862,8 +861,8 @@ export default async function LandingPage() {
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 text-[11.5px] num uppercase tracking-[0.16em] text-[var(--muted)]">
           <span>© {new Date().getFullYear()} AgentBook · A folio of one ledger</span>
           <div className="flex items-center gap-4 normal-case tracking-normal">
-            <Link href="/legal/terms" className="ab-link">Terms</Link>
-            <Link href="/legal/privacy" className="ab-link">Privacy</Link>
+            <Link href="/legal/terms" className="ab-link"><T k="invoice_ui.terms" /></Link>
+            <Link href="/legal/privacy" className="ab-link"><T k="common.nav_privacy" /></Link>
           </div>
           <span>Built quietly. Yours plainly.</span>
         </div>

@@ -1,6 +1,8 @@
 import Link from 'next/link';
 import type { Metadata } from 'next';
 import { Wordmark } from '@/components/brand/Wordmark';
+import { T } from '@/components/i18n/t';
+import { HomeLink } from '@/components/i18n/home-link';
 
 export const metadata: Metadata = {
   title: 'About — AgentBook',
@@ -40,13 +42,13 @@ export default function AboutPage() {
       `}</style>
 
       <header className="wrap" style={{ paddingTop: 32 }}>
-        <Link href="/" aria-label="AgentBook home">
+        <HomeLink>
           <Wordmark size={28} />
-        </Link>
+        </HomeLink>
       </header>
 
       <main className="wrap" style={{ paddingTop: 56, paddingBottom: 96 }}>
-        <div className="eyebrow">About</div>
+        <div className="eyebrow"><T k="core_ui.about" /></div>
         <h1>
           Bookkeeping for people who never wanted to be{' '}
           <em>bookkeepers.</em>
@@ -59,9 +61,10 @@ export default function AboutPage() {
           and tax estimates for the United States, Canada, and Australia.
         </p>
 
-        <h2>Who builds it</h2>
+        <h2><T k="common.about_who_builds_it" /></h2>
         <p>
-          AgentBook is built by <strong>Qiang Han</strong>, an independent
+          <T k="common.about_built_by_lead" />{' '}
+          <strong><T k="common.about_founder_name" /></strong>, an independent
           developer based in Vancouver, BC, Canada. It is a small, deliberately
           quiet operation — no sales team, no growth department. The public
           source history lives at{' '}
@@ -71,9 +74,10 @@ export default function AboutPage() {
           .
         </p>
 
-        <h2>What it is not</h2>
+        <h2><T k="common.about_what_it_is_not" /></h2>
         <p>
-          AgentBook is a software tool. It is <strong>not</strong> a licensed
+          <T k="common.about_not_cpa_lead" />{' '}
+          <strong><T k="common.about_not_cpa_emph" /></strong> a licensed
           CPA, tax advisor, or attorney, and it does not give legal advice. It
           does not file your taxes — it prepares the package; you (or your
           accountant) file it. You remain responsible for the accuracy of your
@@ -81,25 +85,25 @@ export default function AboutPage() {
           them to a filing.
         </p>
 
-        <h2>How we handle your data</h2>
+        <h2><T k="common.about_data_heading" /></h2>
         <p>
           Your books are yours: journal entries, transactions, invoices, and
           attachments export cleanly (CSV, JSON, CPA-ready package) any time,
           including if you leave. Bank connections use Plaid; tokens are
           encrypted at rest. Details are in the{' '}
           <Link className="ab-link" href="/legal/privacy">
-            Privacy Policy
+            <T k="common.about_privacy_policy" />
           </Link>{' '}
           and{' '}
           <Link className="ab-link" href="/legal/terms">
-            Terms of Service
+            <T k="common.about_terms_of_service" />
           </Link>
           .
         </p>
 
         <div className="rule" />
 
-        <h2>Reach us</h2>
+        <h2><T k="common.about_reach_us" /></h2>
         <p>
           Support:{' '}
           <a className="ab-link" href="mailto:support@agentbook.io">

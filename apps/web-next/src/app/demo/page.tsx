@@ -1,6 +1,8 @@
 import Link from 'next/link';
 import type { Metadata } from 'next';
 import { DemoSandbox } from './demo-sandbox';
+import { T } from '@/components/i18n/t';
+import { HomeLink } from '@/components/i18n/home-link';
 
 export const metadata: Metadata = {
   title: 'Try the demo — AgentBook',
@@ -42,15 +44,15 @@ export default function DemoPage() {
       `}</style>
 
       <header className="wrap" style={{ paddingTop: 32 }}>
-        <Link href="/" aria-label="AgentBook home" style={{ fontSize: 22, fontWeight: 600 }}>
-          AgentBook
-        </Link>
+        <HomeLink style={{ fontSize: 22, fontWeight: 600 }}>
+          <T k="common.brand_name" />
+        </HomeLink>
       </header>
 
       <main className="wrap" style={{ paddingTop: 48, paddingBottom: 96 }}>
-        <div className="eyebrow">Interactive demo</div>
+        <div className="eyebrow"><T k="common.demo_title" /></div>
         <h1>
-          Two minutes. <em>No signup.</em>
+          <T k="common.demo_two_minutes" /> <em><T k="common.demo_no_signup" /></em>
         </h1>
         <p className="lede">
           This is a sandbox with a fictional freelance business. Type an expense
@@ -68,7 +70,7 @@ export default function DemoPage() {
         <p className="lede" style={{ marginTop: 40 }}>
           Like what you see?{' '}
           <Link href="/register" className="ab-link">
-            Start free — 90 days of Pro, no card
+            <T k="common.demo_start_free" />
           </Link>
           .
         </p>

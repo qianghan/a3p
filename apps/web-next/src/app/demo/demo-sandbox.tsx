@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import { useT } from '@/hooks/use-t';
 
 interface DemoExpense {
   id: number;
@@ -47,6 +48,7 @@ function fmt(cents: number): string {
 let nextId = 100;
 
 export function DemoSandbox() {
+  const t = useT();
   const [expenses, setExpenses] = useState<DemoExpense[]>(SEED);
   const [msgs, setMsgs] = useState<ChatMsg[]>([
     {
@@ -187,12 +189,12 @@ export function DemoSandbox() {
             borderRadius: 2, padding: '10px 16px', fontSize: 14, cursor: 'pointer',
           }}
         >
-          Reset
+          {t('common.demo_reset')}
         </button>
       </div>
 
       {/* Ledger */}
-      <h2 style={{ fontSize: 22, fontWeight: 500, marginTop: 40 }}>Sandbox ledger</h2>
+      <h2 style={{ fontSize: 22, fontWeight: 500, marginTop: 40 }}>{t('common.demo_sandbox_ledger')}</h2>
       <p style={{ fontSize: 14, color: 'var(--ink-soft)', marginTop: 6 }}>
         {expenses.length} expenses · {fmt(grand)} total · fictional data
       </p>

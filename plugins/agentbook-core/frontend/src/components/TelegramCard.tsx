@@ -189,25 +189,25 @@ export function TelegramCard(): JSX.Element {
                   </span>
                 </div>
                 <p className="text-xs text-muted-foreground leading-relaxed">
-                  Send a receipt photo or type expenses naturally in Telegram.
+                  {t('common.telegram_send_receipt')}
                 </p>
                 <button onClick={() => void handleUnlink()} disabled={unlinking}
                   className="flex items-center gap-1.5 text-xs text-destructive hover:text-destructive/80 disabled:opacity-50">
                   {unlinking ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
-                  {unlinking ? 'Unlinking…' : 'Unlink chats'}
+                  {unlinking ? t('common.telegram_unlinking') : t('common.telegram_unlink_chats')}
                 </button>
               </div>
             ) : (
               <div className="space-y-3">
-                <div className="text-sm font-semibold text-foreground">Connect in one tap</div>
+                <div className="text-sm font-semibold text-foreground">{t('common.telegram_connect_title')}</div>
                 <ol className="space-y-1.5 text-sm text-muted-foreground">
                   <li className="flex gap-2">
                     <span className="mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-primary/15 text-xs text-primary">1</span>
-                    Open the AgentBook bot in Telegram
+                    {t('common.telegram_step1')}
                   </li>
                   <li className="flex gap-2">
                     <span className="mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-primary/15 text-xs text-primary">2</span>
-                    Press <code className="rounded bg-muted px-1 py-0.5 text-xs">Start</code> — your code links automatically
+                    {t('common.telegram_step2_press')} <code className="rounded bg-muted px-1 py-0.5 text-xs">{t('common.start')}</code> {t('common.telegram_step2_tail')}
                   </li>
                 </ol>
                 <div className="flex flex-wrap items-center gap-2">
@@ -215,7 +215,7 @@ export function TelegramCard(): JSX.Element {
                     <a href={link.deepLink} target="_blank" rel="noopener noreferrer"
                       className="flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground">
                       <Send className="h-4 w-4" />
-                      Open Telegram <ExternalLink className="h-3 w-3" />
+                      {t('common.telegram_open_button')} <ExternalLink className="h-3 w-3" />
                     </a>
                   )}
                   {link.linkCode && (
@@ -225,7 +225,7 @@ export function TelegramCard(): JSX.Element {
                   )}
                 </div>
                 <p className="text-xs text-muted-foreground leading-relaxed">
-                  No BotFather, no tokens. Takes under a minute.
+                  {t('common.telegram_no_botfather')}
                 </p>
               </div>
             )}
@@ -239,7 +239,7 @@ export function TelegramCard(): JSX.Element {
             onClick={() => setShowByo((v) => !v)}
             className="mb-3 text-xs text-muted-foreground hover:text-foreground underline underline-offset-2"
           >
-            {showByo ? 'Hide advanced options' : 'Advanced: bring your own bot instead'}
+            {showByo ? t('common.telegram_hide_advanced') : t('common.telegram_byo_instead')}
           </button>
         )}
         {(!link?.platformConfigured || showByo) && (loading ? (

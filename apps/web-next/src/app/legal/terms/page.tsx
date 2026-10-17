@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import { T } from '@/components/i18n/t';
 
 export const metadata: Metadata = {
   title: 'Terms of Service',
@@ -60,7 +61,7 @@ export default function TermsPage() {
         </li>
       </ul>
       <p>
-        <strong>Fair use of AI features.</strong> Plans include a monthly
+        <strong><T k="common.terms_fair_use_heading" /></strong> Plans include a monthly
         budget of AI messages (see your plan details; "unlimited" plans are
         subject to a generous fair-use ceiling published in the app). If you
         reach the ceiling, AI features pause until the next monthly period —
