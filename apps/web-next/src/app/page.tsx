@@ -87,8 +87,15 @@ function Marker({ n, label }: { n: string; label: string }) {
 export default async function LandingPage() {
   // P0-1: region-aware pricing with explicit currency. Country comes from the
   // hosting platform's geo header; unknown/missing falls back to USD.
-  const headersList = await headers();
-  const region = regionFromCountry(headersList.get('x-vercel-ip-country'));
+  // Wrapped defensively: outside a real request context (tests, static
+  // pre-render) headers() can throw — the page must still render.
+  let region: ReturnType<typeof regionFromCountry> = 'us';
+  try {
+    const headersList = await headers();
+    region = regionFromCountry(headersList.get('x-vercel-ip-country'));
+  } catch {
+    region = 'us';
+  }
   const priceCurrencyCode = region === 'ca' ? 'CAD' : region === 'au' ? 'AUD' : 'USD';
   const proMonthly = planForRegion('pro', region);
   const proYearly = planForRegion('pro_yearly', region);
