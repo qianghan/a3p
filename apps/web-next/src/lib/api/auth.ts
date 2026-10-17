@@ -332,6 +332,17 @@ export async function register(
     });
   }
 
+  // P0-7: funnel — signup completed. Non-blocking, never throws.
+  import('@naap/billing')
+    .then(({ trackFunnelEvent, FUNNEL_EVENTS }) =>
+      trackFunnelEvent({
+        tenantId: user.id,
+        event: FUNNEL_EVENTS.SIGNUP_COMPLETED,
+        properties: ref ? { ref } : {},
+      }),
+    )
+    .catch(() => {});
+
   return { created: true };
 }
 

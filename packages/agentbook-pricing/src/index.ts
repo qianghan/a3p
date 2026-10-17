@@ -125,3 +125,130 @@ export function formatWholeDollars(cents: number): string {
 export function formatDollarsAndCents(cents: number): string {
   return `$${(cents / 100).toFixed(2)}`;
 }
+
+// ─── P0-1: region-aware pricing + explicit currency ───────────────────────────
+// The marketing page previously rendered bare "$19" with no currency qualifier
+// and always showed the USD row. These helpers make region + currency explicit.
+
+export type PricingRegion = 'us' | 'ca' | 'au';
+
+const COUNTRY_TO_REGION: Record<string, PricingRegion> = {
+  CA: 'ca',
+  AU: 'au',
+};
+
+/**
+ * Map an ISO 3166-1 alpha-2 country code (e.g. from the
+ * `x-vercel-ip-country` request header) to a pricing region.
+ * Unknown/missing countries fall back to 'us'. Pure function — safe to unit test.
+ */
+export function regionFromCountry(countryCode: string | null | undefined): PricingRegion {
+  if (!countryCode) return 'us';
+  return COUNTRY_TO_REGION[countryCode.trim().toUpperCase()] ?? 'us';
+}
+
+/** Return the CORE_PLANS row for a plan code in the given region (falls back to 'us'). */
+export function planForRegion(
+  code: CorePlanPrice['code'],
+  region: PricingRegion,
+): CorePlanPrice {
+  return (
+    CORE_PLANS.find((p) => p.code === code && p.region === region) ??
+    CORE_PLANS.find((p) => p.code === code && p.region === 'us')!
+  );
+}
+
+const CURRENCY_LABEL: Record<string, string> = {
+  usd: 'USD',
+  cad: 'CAD',
+  aud: 'AUD',
+  gbp: 'GBP',
+};
+
+/**
+ * Format cents with an explicit ISO currency code, e.g.
+ * formatMoney(1900, 'usd') -> "$19 USD". The bare "$" convention is kept
+ * for visual continuity; the appended code removes the ambiguity.
+ */
+export function formatMoney(cents: number, currency: string): string {
+  const code = CURRENCY_LABEL[currency.toLowerCase()] ?? currency.toUpperCase();
+  return `$${(cents / 100).toFixed(0)} ${code}`;
+}
+
+/** Two-decimal variant of formatMoney, e.g. formatMoneyPrecise(1517, 'cad') -> "$15.17 CAD". */
+export function formatMoneyPrecise(cents: number, currency: string): string {
+  const code = CURRENCY_LABEL[currency.toLowerCase()] ?? currency.toUpperCase();
+  return `$${(cents / 100).toFixed(2)} ${code}`;
+}
+
+export interface AddOnDisplayMeta {
+  code: string;
+  name: string;
+  /** One-line factual blurb. Must not imply tax filing or professional advice. */
+  blurb: string;
+  /** Billing interval shown to prospects. */
+  intervalLabel: '/yr' | '/mo';
+  /** Deep link for "learn more". */
+  learnMoreHref: string;
+}
+
+/**
+ * Marketing metadata for the four paid add-ons. Prices themselves live in
+ * ADDON_PRICES (single source of truth); this is display copy only.
+ *
+ * APPROVED 2026-10-16 (CRO): the 2026-07 value-anchor research figures are
+ * confirmed as the launch prices — tax_fast_track $149/yr undercuts the
+ * Keeper-style $199/yr expert-review tier; student_success $79/yr stays
+ * student-accessible; personal_insights $9/mo sits cleanly under Pro $19/mo
+ * as an upsell; startup_tax_benefits $99/$249/$499 founding/standard/scaled
+ * prices against accountants charging thousands per R&D claim. Adjust only
+ * from real conversion data post-launch.
+ */
+export const ADDON_DISPLAY: AddOnDisplayMeta[] = [
+  {
+    code: 'tax_fast_track',
+    name: 'Tax Fast-Track',
+    blurb: 'Year-end tax package for your accountant, assembled from your books.',
+    intervalLabel: '/yr',
+    learnMoreHref: '/guides/workflows',
+  },
+  {
+    code: 'student_success',
+    name: 'Student Success',
+    blurb: 'Scholarship, jobs & co-op, and housing copilots for student life.',
+    intervalLabel: '/yr',
+    learnMoreHref: '/guides/students',
+  },
+  {
+    code: 'personal_insights',
+    name: 'Personal Insights',
+    blurb: 'A personal-finance money view across your accounts and spending.',
+    intervalLabel: '/mo',
+    learnMoreHref: '/guides/workflows',
+  },
+  {
+    code: 'startup_tax_benefits',
+    name: 'Startup Tax Benefits',
+    blurb: 'Burn & runway tracking, R&D benefit guidance, and a CPA seat.',
+    intervalLabel: '/yr',
+    learnMoreHref: '/guides/startup-founders',
+  },
+];
+
+/**
+ * The public standard-tier price for an add-on in a region (what the
+ * marketing page shows). Falls back to the 'us' row when the region is absent.
+ * Returns null when the add-on has no standard tier at all.
+ */
+export function addOnStandardPrice(
+  code: string,
+  region: PricingRegion,
+): AddOnTierPrice | null {
+  const tiers = ADDON_PRICES[code];
+  if (!tiers) return null;
+  return (
+    tiers.find((t) => t.region === region && t.tier === 'standard') ??
+    tiers.find((t) => t.region === 'us' && t.tier === 'standard') ??
+    null
+  );
+}

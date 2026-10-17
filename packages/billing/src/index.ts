@@ -12,6 +12,7 @@ export { getCurrentPlan, getCurrentPlanStrict, _resetCacheForTests, type Current
 export { canUseFeature } from './features.js';
 export { checkQuota, incrementUsage, getUsage, type QuotaCheck } from './quotas.js';
 export { hasAddOn, activeAddOnCodes, resolveAddOnPrice, type ResolvedAddOnPrice } from './addons.js';
+export { trackFunnelEvent, getFunnelStats, scrubProperties, FUNNEL_EVENTS, type FunnelEventName, type FunnelStatRow } from './funnel.js';
 
 import { planCache } from './cache.js';
 

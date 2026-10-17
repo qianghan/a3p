@@ -63,7 +63,7 @@ export default function MobileHomePage() {
       <PullIndicator distance={pull.distance} busy={pull.refreshing} />
       <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: tokens.space.sm, marginBottom: tokens.space.lg }}>
         <div style={{ minWidth: 0 }}>
-          <h1 style={{ fontSize: tokens.font.xl, fontWeight: 600, margin: 0 }}>AgentBook</h1>
+          <h1 style={{ fontSize: tokens.font.xl, fontWeight: 600, margin: 0 }}>{t('common.brand_name')}</h1>
           <p style={{ fontSize: tokens.font.sm, color: tokens.color.muted, margin: '2px 0 0' }}>{t('mobile.home.subtitle')}</p>
         </div>
         {data && (

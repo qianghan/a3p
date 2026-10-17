@@ -1,9 +1,18 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
+import { headers } from 'next/headers';
 import { Fraunces, Newsreader, JetBrains_Mono } from 'next/font/google';
 import { Wordmark } from '@/components/brand/Wordmark';
 import { InstallAppButton } from '@/components/pwa/InstallAppButton';
-import { CORE_PLANS, formatWholeDollars, formatDollarsAndCents } from '@agentbook/pricing';
+import { T } from '@/components/i18n/t';
+import {
+  planForRegion,
+  regionFromCountry,
+  formatMoneyPrecise,
+  ADDON_DISPLAY,
+  addOnStandardPrice,
+} from '@agentbook/pricing';
+import { Money } from '@/components/i18n/money';
 
 // ─── Type-as-design ─────────────────────────────────────────────────────────
 // Fraunces: a variable serif with optical sizing — characterful at display
@@ -50,6 +59,12 @@ export const metadata: Metadata = {
   title: 'AgentBook — Bookkeeping that listens.',
   description:
     'An AI accountant for solo founders, freelancers, and micro-businesses. Talk to your books in plain English. Telegram, web, receipts, taxes — handled.',
+  alternates: { canonical: '/' },
+  openGraph: {
+    title: 'AgentBook — Bookkeeping that listens.',
+    description:
+      'An AI accountant for solo founders, freelancers, and micro-businesses. Talk to your books in plain English.',
+  },
 };
 
 // ─── Reusable bits ──────────────────────────────────────────────────────────
@@ -69,14 +84,30 @@ function Marker({ n, label }: { n: string; label: string }) {
 
 // ─── Page ───────────────────────────────────────────────────────────────────
 
-export default function LandingPage() {
-  const proMonthly = CORE_PLANS.find((p) => p.code === 'pro')!;
-  const proYearly = CORE_PLANS.find((p) => p.code === 'pro_yearly')!;
-  const business = CORE_PLANS.find((p) => p.code === 'business')!;
-  const proMonthlyPrice = formatWholeDollars(proMonthly.priceCents);
-  const proYearlyPrice = formatWholeDollars(proYearly.priceCents);
-  const proYearlyMonthlyEquivalent = formatDollarsAndCents(Math.round(proYearly.priceCents / 12));
-  const businessPrice = formatWholeDollars(business.priceCents);
+export default async function LandingPage() {
+  // P0-1: region-aware pricing with explicit currency. Country comes from the
+  // hosting platform's geo header; unknown/missing falls back to USD.
+  // Wrapped defensively: outside a real request context (tests, static
+  // pre-render) headers() can throw — the page must still render.
+  let region: ReturnType<typeof regionFromCountry> = 'us';
+  try {
+    const headersList = await headers();
+    region = regionFromCountry(headersList.get('x-vercel-ip-country'));
+  } catch {
+    region = 'us';
+  }
+  const priceCurrencyCode = region === 'ca' ? 'CAD' : region === 'au' ? 'AUD' : 'USD';
+  const proMonthly = planForRegion('pro', region);
+  const proYearly = planForRegion('pro_yearly', region);
+  const business = planForRegion('business', region);
+  const proYearlyMonthlyEquivalent = formatMoneyPrecise(
+    Math.round(proYearly.priceCents / 12),
+    proYearly.currency,
+  );
+  const addOnRows = ADDON_DISPLAY.map((meta) => ({
+    meta,
+    price: addOnStandardPrice(meta.code, region),
+  })).filter((row) => row.price !== null);
   return (
     <div
       className={`${display.variable} ${body.variable} ${mono.variable} ab-landing min-h-screen w-full overflow-x-clip`}
@@ -178,6 +209,7 @@ export default function LandingPage() {
             <a className="ab-link hidden sm:inline" href="#pricing">Pricing</a>
             <a className="ab-link hidden md:inline" href="#voices">Voices</a>
             <Link className="ab-link hidden sm:inline" href="/guides">Guides</Link>
+            <Link className="ab-link hidden sm:inline" href="/about"><T k="core_ui.about" /></Link>
             <InstallAppButton />
             <Link
               href="/login"
@@ -261,6 +293,9 @@ export default function LandingPage() {
               <Link href="/register" className="btn btn-primary">
                 Start free, no card
                 <span className="arrow">→</span>
+              </Link>
+              <Link href="/demo" className="btn btn-ghost">
+                <T k="common.home_try_demo" />
               </Link>
               <Link href="#pricing" className="btn btn-ghost">
                 See plans
@@ -460,7 +495,7 @@ export default function LandingPage() {
             },
             {
               n: '4·7',
-              h: 'Tax fast-track filing.',
+              h: 'Tax Fast-Track.',
               p: "A few quick questions — in chat or on the tab — about what changed since last year, and the agent drafts a full estimate plus an accountant-ready cover letter, anchored to your actual prior return. Deadline nudges land before you have to remember. US, Canada, and Australia.",
             },
             {
@@ -498,7 +533,7 @@ export default function LandingPage() {
           </div>
           <div className="col-span-12 md:col-span-5 md:pt-12 md:pl-8">
             <p className="text-[16.5px] leading-[1.6] text-[var(--ink-soft)] max-w-[44ch]">
-              No card to start. After the trial, {proMonthlyPrice} a month or {proYearlyPrice} a year — whichever you
+              No card to start. After the trial, <Money cents={proMonthly.priceCents} currency={proMonthly.currency} /> a month or <Money cents={proYearly.priceCents} currency={proYearly.currency} /> a year — whichever you
               like. Cancel any time, in plain English. We won't make it hard.
             </p>
           </div>
@@ -553,7 +588,7 @@ export default function LandingPage() {
             </div>
             <div className="mt-5 flex items-baseline gap-2">
               <span className="display num text-[64px] leading-none" style={{ fontWeight: 500 }}>
-                {proYearlyPrice}
+                <Money cents={proYearly.priceCents} currency={proYearly.currency} />
               </span>
               <span className="num text-[12px] text-[var(--paper)] opacity-70 tracking-[0.14em] uppercase">/yr</span>
             </div>
@@ -589,7 +624,7 @@ export default function LandingPage() {
             </div>
             <div className="mt-5 flex items-baseline gap-2">
               <span className="display num text-[64px] leading-none" style={{ fontWeight: 500 }}>
-                {proMonthlyPrice}
+                <Money cents={proMonthly.priceCents} currency={proMonthly.currency} />
               </span>
               <span className="num text-[12px] text-[var(--muted)] tracking-[0.14em] uppercase">/mo</span>
             </div>
@@ -618,7 +653,7 @@ export default function LandingPage() {
             </div>
             <div className="mt-5 flex items-baseline gap-2">
               <span className="display num text-[64px] leading-none" style={{ fontWeight: 500 }}>
-                {businessPrice}
+                <Money cents={business.priceCents} currency={business.currency} />
               </span>
               <span className="num text-[12px] text-[var(--muted)] tracking-[0.14em] uppercase">/mo</span>
             </div>
@@ -638,6 +673,44 @@ export default function LandingPage() {
           </div>
         </div>
 
+        {/* ── Add-ons ──────────────────────────────────────────────────────── */}
+        {/* P0-1: every paid add-on shows its public price + currency + interval. */}
+        <div className="mt-14">
+          <div className="mb-8 flex items-baseline justify-between">
+            <h3 className="text-[24px]" style={{ fontWeight: 500 }}>
+              <T k="common.home_addons_lead" /> <span className="ital">when you need them.</span>
+            </h3>
+            <span className="text-[12px] tracking-[0.14em] uppercase text-[var(--muted)]">
+              <T k="common.prices_in_currency" params={{ currency: priceCurrencyCode }} />
+            </span>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5">
+            {addOnRows.map(({ meta, price }) => (
+              <div key={meta.code} className="ab-card p-8" style={{ borderRadius: '2px' }}>
+                <div className="flex items-center justify-between">
+                  <h4 className="text-[20px]" style={{ fontWeight: 500 }}>
+                    {meta.name}
+                  </h4>
+                  <span className="pill pill-paper">add-on</span>
+                </div>
+                <div className="mt-5 flex items-baseline gap-2">
+                  <span className="display num text-[44px] leading-none" style={{ fontWeight: 500 }}>
+                    <Money cents={price!.priceCents} currency={price!.currency} />
+                  </span>
+                  <span className="num text-[12px] text-[var(--muted)] tracking-[0.14em] uppercase">
+                    {meta.intervalLabel}
+                  </span>
+                </div>
+                <p className="mt-3 text-[14px] text-[var(--ink-soft)]">{meta.blurb}</p>
+                <Hairline className="my-6" />
+                <Link href={meta.learnMoreHref} className="ab-link text-[14px]">
+                  <T k="common.home_learn_more" /> <span className="arrow">→</span>
+                </Link>
+              </div>
+            ))}
+          </div>
+        </div>
+
         <p className="mt-10 text-center text-[13px] num text-[var(--muted)] tracking-[0.12em] uppercase">
           All plans · cancel any time · we never charge during your trial · your data exports
           cleanly
@@ -647,42 +720,33 @@ export default function LandingPage() {
       <Hairline />
 
       {/* ── Voices ───────────────────────────────────────────────────────── */}
+      {/* P0-3: placeholder testimonials removed — none were verifiable or
+          consented. This section now says so honestly until real user notes
+          exist. */}
       <section id="voices" className="container-rule py-20 sm:py-28">
         <div className="grid grid-cols-12 gap-x-8 gap-y-12">
-          <div className="col-span-12">
+          <div className="col-span-12 md:col-span-7">
             <Marker n="06" label="Voices" />
             <h2 className="mt-5 text-[40px] sm:text-[56px] leading-[0.96] max-w-[24ch]" style={{ fontWeight: 400 }}>
-              The notes our users write us, <span className="ital">unprompted.</span>
+              <T k="common.home_first_notes" /> <span className="ital">still being written.</span>
             </h2>
           </div>
-
-          {[
-            {
-              q: '"I stopped dreading the end of the month. The agent had already done it."',
-              n: 'Alex',
-              role: 'Agency owner · Brooklyn',
-            },
-            {
-              q: '"It picks better expense categories than I do. My CPA actually said thank you."',
-              n: 'Maya',
-              role: 'Solo consultant · Toronto',
-            },
-            {
-              q: '"Telegram. I cannot stress this enough. I log a coffee from the line at the coffee place."',
-              n: 'Jordan',
-              role: 'Etsy seller · Portland',
-            },
-          ].map((t) => (
-            <figure key={t.n} className="col-span-12 md:col-span-4">
-              <blockquote className="ital text-[20px] sm:text-[22px] leading-[1.4]" style={{ fontWeight: 400 }}>
-                {t.q}
-              </blockquote>
-              <figcaption className="mt-5 pt-4 border-t border-[var(--rule)] text-[12.5px] num uppercase tracking-[0.14em] text-[var(--muted)]">
-                <span className="text-[var(--ink)]">{t.n}</span>
-                <span> · {t.role}</span>
-              </figcaption>
-            </figure>
-          ))}
+          <div className="col-span-12 md:col-span-5 md:pt-12 md:pl-8">
+            <p className="text-[16.5px] leading-[1.6] text-[var(--ink-soft)] max-w-[44ch]">
+              AgentBook launched in 2026. We used to show sample quotes here —
+              we took them down, because we&apos;d rather earn real ones. If
+              AgentBook does right by your books, write to{' '}
+              <a className="ab-link" href="mailto:support@agentbook.io">
+                support@agentbook.io
+              </a>{' '}
+              and tell us. With your permission, your words go here.
+            </p>
+            <p className="mt-5 text-[16.5px] leading-[1.6] text-[var(--ink-soft)] max-w-[44ch]">
+              <Link href="/about" className="ab-link">
+                <T k="common.home_who_builds" /> <span className="arrow">→</span>
+              </Link>
+            </p>
+          </div>
         </div>
       </section>
 
@@ -762,7 +826,7 @@ export default function LandingPage() {
           <span className="ital text-[var(--accent)]">a co-worker.</span>
         </h2>
         <p className="mt-8 max-w-[44ch] mx-auto text-[17.5px] leading-[1.6] text-[var(--ink-soft)]">
-          Ninety days of Pro, no card, no hooks. After that, {proMonthlyPrice} a month or {proYearlyPrice} a year. Or
+          Ninety days of Pro, no card, no hooks. After that, <Money cents={proMonthly.priceCents} currency={proMonthly.currency} /> a month or <Money cents={proYearly.priceCents} currency={proYearly.currency} /> a year. Or
           stay on Free. You decide — every time.
         </p>
         <div className="mt-12 flex flex-wrap justify-center gap-3">
@@ -792,7 +856,10 @@ export default function LandingPage() {
             <a href="#how" className="ab-link">How it works</a>
             <a href="#pricing" className="ab-link">Pricing</a>
             <a href="#voices" className="ab-link">Voices</a>
+            <Link href="/about" className="ab-link"><T k="core_ui.about" /></Link>
+            <Link href="/changelog" className="ab-link"><T k="common.nav_changelog" /></Link>
             <Link href="/docs" className="ab-link">Docs</Link>
+            <a href="mailto:support@agentbook.io" className="ab-link"><T k="common.nav_contact" /></a>
             <Link href="/login" className="ab-link">Sign in</Link>
             <Link href="/register" className="ab-link">Start free</Link>
           </div>
@@ -801,8 +868,8 @@ export default function LandingPage() {
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 text-[11.5px] num uppercase tracking-[0.16em] text-[var(--muted)]">
           <span>© {new Date().getFullYear()} AgentBook · A folio of one ledger</span>
           <div className="flex items-center gap-4 normal-case tracking-normal">
-            <Link href="/legal/terms" className="ab-link">Terms</Link>
-            <Link href="/legal/privacy" className="ab-link">Privacy</Link>
+            <Link href="/legal/terms" className="ab-link"><T k="invoice_ui.terms" /></Link>
+            <Link href="/legal/privacy" className="ab-link"><T k="common.nav_privacy" /></Link>
           </div>
           <span>Built quietly. Yours plainly.</span>
         </div>
