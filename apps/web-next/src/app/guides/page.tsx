@@ -8,7 +8,7 @@ export const metadata: Metadata = {
 
 const GUIDES = [
   { n: '01', href: '/guides/chatbot-mcp', title: 'Chat & Claude connector', blurb: 'Talk to AgentBook in the app, on Telegram, or straight from Claude.' },
-  { n: '02', href: '/guides/workflows', title: 'Everyday workflows', blurb: 'The three you’ll use most: bookkeeping, tax filing, personal finance.' },
+  { n: '02', href: '/guides/workflows', title: 'Everyday workflows', blurb: 'The three you’ll use most: bookkeeping, tax prep, personal finance.' },
   { n: '03', href: '/guides/students', title: 'Student life', blurb: 'Money, housing, and scholarships — built for students.' },
   { n: '04', href: '/guides/sales-rep', title: 'Earn as a partner', blurb: 'Refer AgentBook and earn 20% — turn it into passive income.' },
   { n: '05', href: '/guides/startup-founders', title: 'For startup founders', blurb: 'Clean books from day one: burn, runway, invoicing, and startup tax.' },

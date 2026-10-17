@@ -30,7 +30,7 @@ import { caSelfEmploymentTax } from '@agentbook/jurisdictions/ca/self-employment
 import { auSelfEmploymentTax } from '@agentbook/jurisdictions/au/self-employment-tax';
 import { calculateStateTax } from '@agentbook/jurisdictions/sub-national-tax';
 import type { TaxBracketProvider, SelfEmploymentTaxCalculator } from '@agentbook/jurisdictions/interfaces';
-import { checkQuota, incrementUsage } from '@naap/billing';
+import { checkQuota, incrementUsage, trackFunnelEvent, FUNNEL_EVENTS } from '@naap/billing';
 import multer from 'multer';
 import {
   uploadPastFiling, parsePastFiling, listPastFilings, getPastFiling,
@@ -44,6 +44,23 @@ import {
 } from './tax-review-agent.js';
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024 } });
+
+/**
+ * P0-7: funnel — first report viewed is an activation signal. Checks for an
+ * existing FIRST_REPORT event for the tenant (indexed query); tracks only
+ * the first. Non-blocking, never throws.
+ */
+async function trackFirstReport(tenantId: string): Promise<void> {
+  try {
+    const existing = await db.abFunnelEvent.findFirst({
+      where: { tenantId, event: FUNNEL_EVENTS.FIRST_REPORT },
+      select: { id: true },
+    });
+    if (!existing) {
+      await trackFunnelEvent({ tenantId, event: FUNNEL_EVENTS.FIRST_REPORT });
+    }
+  } catch { /* trackFunnelEvent already swallows; belt and suspenders */ }
+}
 
 // Read plugin.json for dev-only fields (devPort). When this module is
 // bundled by webpack (as happens when hosted inside a Next.js function on
@@ -624,6 +641,7 @@ router.get('/agentbook-tax/reports/pnl', async (req: any, res) => {
         netIncomeCents,
       },
     });
+    void trackFirstReport(tenantId);
   } catch (err) {
     console.error('[reports/pnl] Error:', err);
     res.status(500).json({ success: false, error: String(err) });
@@ -738,6 +756,7 @@ router.get('/agentbook-tax/reports/balance-sheet', async (req: any, res) => {
         balanced: totalAssetsCents === totalLiabilitiesCents + totalEquityWithRetainedCents,
       },
     });
+    void trackFirstReport(tenantId);
   } catch (err) {
     console.error('[reports/balance-sheet] Error:', err);
     res.status(500).json({ success: false, error: String(err) });
@@ -824,6 +843,7 @@ router.get('/agentbook-tax/reports/cashflow', async (req: any, res) => {
         totalNetCents: months.reduce((s, m) => s + m.netCents, 0),
       },
     });
+    void trackFirstReport(tenantId);
   } catch (err) {
     console.error('[reports/cashflow] Error:', err);
     res.status(500).json({ success: false, error: String(err) });

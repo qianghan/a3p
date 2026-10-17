@@ -26,9 +26,9 @@ export default function ChatbotMcpGuideZh() {
 
       <h2 className="gd-h2">随时随地：Telegram</h2>
       <ol className="gd-steps">
-        <li><b>创建你自己的机器人</b><span>在 Telegram 中给 <code>@BotFather</code> 发消息，发送 <code>/newbot</code>，复制它给你的令牌。</span></li>
-        <li><b>把令牌粘贴到设置里</b><span>打开 <Link href="/login" className="gd-kbd">设置</Link> → 聊天机器人 → Telegram，粘贴令牌并保存。剩下的 AgentBook 会自动接好。</span></li>
-        <li><b>给你的机器人发消息</b><span>现在就能在 Telegram 里记录支出、提问了——同一个助理，装在口袋里。</span></li>
+        <li><b>一键连接</b><span>打开 <Link href="/login" className="gd-kbd">设置</Link> → 聊天机器人 → Telegram，点击“一键连接”，然后在 Telegram 里按 Start。一分钟内搞定——不用 BotFather，不用令牌。</span></li>
+        <li><b>给机器人发消息</b><span>现在就能在 Telegram 里记录支出、提问了——同一个助理，装在口袋里。</span></li>
+        <li><b>进阶：用自己的机器人（可选）</b><span>想要私有机器人？给 <code>@BotFather</code> 发消息，发送 <code>/newbot</code>，把令牌粘贴到同一设置面板的“进阶”选项里。</span></li>
       </ol>
 
       <h2 className="gd-h2">进阶玩法：连接 Claude（MCP）</h2>

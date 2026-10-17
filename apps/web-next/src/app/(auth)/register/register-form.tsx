@@ -190,7 +190,7 @@ export default function RegisterForm() {
             </Link>{' '}
             and{' '}
             <Link href="/legal/privacy" className="hover:text-muted-foreground transition-colors">
-              Privacy Policy
+              {t('common.about_privacy_policy')}
             </Link>
             .
           </span>

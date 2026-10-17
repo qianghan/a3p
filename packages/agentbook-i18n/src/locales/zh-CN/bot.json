@@ -293,6 +293,8 @@
   "walking_you_through_item_in_the_review_other": "📂 带你处理待审队列中的 <b>{count}</b> 项（{p2}）。点击按钮或直接告诉我怎么做。",
   "want_to_attach_the_new_receipt_to": "要把新收据附到已有记录上，还是保留为两笔独立支出？",
   "welcome_to_agentbook_i_m_your_ai": "👋 欢迎使用 <b>AgentBook</b>！\n\n我是你的 AI 记账助手。我可以做这些事：\n\n💬 <b>记录支出：</b>“在星巴克花了 45 元吃午饭”\n📸 <b>拍摄收据：</b>发送照片或 PDF\n❓ <b>随便问：</b>“这个月差旅花了多少？”\n📊 <b>获取洞察：</b>“显示支出构成”\n💰 <b>查看余额：</b>“我的现金余额是多少？”\n🧾 <b>开发票：</b>“给 Acme 开 5000 元咨询发票”\n\n/help 查看全部命令",
+  "telegram_link_success": "✅ <b>已连接！</b>\n\n此 Telegram 聊天已关联到你的 AgentBook 账户。发送收据照片或输入“午饭花了 45 元”试试吧。",
+  "telegram_link_invalid": "⚠️ 此链接码与任何 AgentBook 账户都不匹配。\n\n请在网页应用的“设置 → Telegram”中获取新的连接链接。",
   "which_did_you_mean": "你指的是哪个{p0} — {p1}{p2}？",
   "which_did_you_mean_2": "你指的是哪个{p0} — {p1}？",
   "which_field_amount_or_due_date_client": "哪个字段 — <b>金额</b>还是<b>到期日</b>？（客户和明细的编辑将在下个版本推出。）",

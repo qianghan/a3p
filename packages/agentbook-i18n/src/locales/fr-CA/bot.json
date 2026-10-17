@@ -293,6 +293,8 @@
   "walking_you_through_item_in_the_review_other": "📂 Je vous guide à travers <b>{count}</b> éléments de la file de révision ({p2}). Touchez un bouton ou dites-moi quoi faire.",
   "want_to_attach_the_new_receipt_to": "Voulez-vous joindre le nouveau reçu à cet enregistrement, ou garder les deux comme dépenses distinctes?",
   "welcome_to_agentbook_i_m_your_ai": "👋 Bienvenue dans <b>AgentBook</b>!\n\nJe suis votre agent comptable IA. Voici ce que je peux faire :\n\n💬 <b>Enregistrer des dépenses :</b> « Dépensé 45 $ pour le dîner au Starbucks »\n📸 <b>Photographier des reçus :</b> envoyez une photo ou un PDF\n❓ <b>Poser une question :</b> « Combien en déplacements ce mois-ci? »\n📊 <b>Obtenir des analyses :</b> « Montre la répartition des dépenses »\n💰 <b>Vérifier le solde :</b> « Quelle est mon encaisse? »\n🧾 <b>Facturation :</b> « Facture Acme 5 000 $ pour consultation »\n\n/help pour toutes les commandes",
+  "telegram_link_success": "✅ <b>Connecté!</b>\n\nCette conversation Telegram est maintenant liée à votre compte AgentBook. Envoyez une photo de reçu ou écrivez « Dépensé 45 $ pour le dîner » pour essayer.",
+  "telegram_link_invalid": "⚠️ Ce code de liaison ne correspond à aucun compte AgentBook.\n\nOuvrez Paramètres → Telegram dans l'application web pour obtenir un nouveau lien de connexion.",
   "which_did_you_mean": "Quel {p0} vouliez-vous dire — {p1}{p2}?",
   "which_did_you_mean_2": "Quel {p0} vouliez-vous dire — {p1}?",
   "which_field_amount_or_due_date_client": "Quel champ — <b>montant</b> ou <b>échéance</b>? (La modification du client et des postes arrive dans la prochaine version.)",

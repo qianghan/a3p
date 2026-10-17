@@ -1592,14 +1592,50 @@ model AbTelegramBot {
   @@schema("plugin_agentbook_core")
 }
 
+// P0-7: product funnel analytics. One row per funnel transition
+// (signup, trial start, first expense/report, card added, paid, cancelled).
+// tenantId is null for pre-signup events (identified by anonymousId).
+// properties is PII-free by construction — trackFunnelEvent() allowlists
+// keys (see packages/billing/src/funnel.ts). Never store emails, names,
+// amounts, or message contents here.
+model AbFunnelEvent {
+  id          String   @id @default(uuid())
+  tenantId    String?
+  anonymousId String?
+  event       String
+  properties  Json     @default("{}")
+  createdAt   DateTime @default(now())
+
+  @@index([event, createdAt])
+  @@index([tenantId, createdAt])
+  @@index([anonymousId])
+  @@schema("plugin_agentbook_core")
+}
+
+// One-click Telegram connect (P0-4): tenants link to the centrally-owned
+// official AgentBook bot via a deep link (t.me/<bot>?start=<linkCode>)
+// instead of creating their own bot via @BotFather. The webhook binds the
+// chat on `/start <linkCode>`. Mirrors AbWhatsAppLink. The BYO-bot path
+// (AbTelegramBot) remains as the advanced option.
+model AbTelegramLink {
+  id        String    @id @default(uuid())
+  tenantId  String    @unique
+  chatIds   Json      @default("[]") // Telegram chat IDs linked to this tenant
+  linkCode  String    @unique // shown in Settings, e.g. "LINK-A1B2C3"
+  linkedAt  DateTime? // set once the first chat links
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  @@schema("plugin_agentbook_core")
+}
+
 // Unlike AbTelegramBot (each tenant brings their own bot), WhatsApp Business
 // Cloud API is one centrally-owned AgentBook number shared by every tenant —
 // there's no way for a tenant to self-provision their own number. A tenant
 // links by messaging the shared number with their own `linkCode`; the
 // webhook adds the sending phone number to `phoneNumbers` on a match. See
 // apps/web-next/src/app/api/v1/agentbook/whatsapp/webhook/route.ts.
-model AbWhatsAppLink {
-  id           String    @id @default(uuid())
+model AbWhatsAppLink {  id           String    @id @default(uuid())
   tenantId     String    @unique
   phoneNumbers Json      @default("[]") // E.164 numbers linked to this tenant
   linkCode     String    @unique // shown in Settings, e.g. "LINK-A1B2C3"

@@ -3,7 +3,7 @@ import type { Metadata } from 'next';
 
 export const metadata: Metadata = {
   title: 'Everyday workflows — AgentBook Guides',
-  description: 'The three you’ll use most: bookkeeping, tax filing, and personal finance.',
+  description: 'The three you’ll use most: bookkeeping, tax prep, and personal finance.',
 };
 
 export default function WorkflowsGuide() {
@@ -24,7 +24,7 @@ export default function WorkflowsGuide() {
         <li><b>Clear the review queue</b><span>Check <code>/agentbook/expenses</code> now and then — confirm anything flagged, split personal from business.</span></li>
       </ol>
 
-      <h2 className="gd-h2">2 · Tax filing (no surprises)</h2>
+      <h2 className="gd-h2">2 · Tax prep (no surprises)</h2>
       <ol className="gd-steps">
         <li><b>Watch your estimate</b><span>Open the Tax dashboard at <code>/agentbook/tax</code> for a live estimate of what you’ll owe and quarterly amounts.</span></li>
         <li><b>Generate your package</b><span>At <code>/agentbook/tax-package</code>, build a filing-ready PDF + CSVs (P&amp;L, deductions, mileage).</span></li>

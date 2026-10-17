@@ -109,6 +109,35 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         },
       );
     }
+
+    // P0-6: monthly AI fair-use ceiling (plan-aware). The per-day rate
+    // limiter above stops floods; this stops a $19/mo tenant from burning
+    // a month of inference budget. Denied tenants get a 429 with upgrade
+    // guidance; allowed tenants have the message recorded best-effort.
+    try {
+      const { checkFairUse, recordFairUseMessage } = await import('@/lib/agentbook-fair-use');
+      const { getCurrentPlan } = await import('@naap/billing');
+      const planCode = (await getCurrentPlan(tenantId).catch(() => null))?.plan.code ?? 'free';
+      const fu = await checkFairUse(tenantId, planCode);
+      if (!fu.allowed) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: 'fair_use_exceeded',
+            message:
+              'You\'ve reached this month\'s AI message budget on your plan. ' +
+              'It resets on the 1st — or upgrade for a higher budget.',
+            monthlyUsed: fu.monthlyUsed,
+            monthlyLimit: fu.monthlyLimit,
+          },
+          { status: 429 },
+        );
+      }
+      void recordFairUseMessage(tenantId).catch(() => {});
+    } catch (err) {
+      // Fail open (loudly): a fair-use outage must not brick chat.
+      console.warn('[fair-use] web gate failed open:', err);
+    }
   }
 
   try {

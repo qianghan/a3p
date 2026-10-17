@@ -129,7 +129,7 @@ export const DashboardPage: React.FC = () => {
     return (
       <div className="px-4 py-6 max-w-7xl mx-auto">
         <header className="flex items-center justify-between mb-6">
-          <h1 className="text-2xl font-bold">AgentBook</h1>
+          <h1 className="text-2xl font-bold">{t('common.brand_name')}</h1>
           <DesktopHeaderActions />
         </header>
         <div className="bg-red-500/10 border border-red-500/20 rounded-xl p-4 flex items-center justify-between">

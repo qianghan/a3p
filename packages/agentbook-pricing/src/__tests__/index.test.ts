@@ -131,3 +131,56 @@ describe('ADDON_PRICES', () => {
     expect(rows.find((r) => r.region === 'au' && r.tier === 'scaled')).toMatchObject({ currency: 'aud', priceCents: 59900 });
   });
 });
+
+describe('P0-1: region-aware pricing + explicit currency', () => {
+  it('regionFromCountry maps CA/AU correctly, defaults to us', async () => {
+    const { regionFromCountry } = await import('../index.js');
+    expect(regionFromCountry('CA')).toBe('ca');
+    expect(regionFromCountry('ca')).toBe('ca');
+    expect(regionFromCountry('AU')).toBe('au');
+    expect(regionFromCountry('US')).toBe('us');
+    expect(regionFromCountry('DE')).toBe('us');
+    expect(regionFromCountry('')).toBe('us');
+    expect(regionFromCountry(null)).toBe('us');
+    expect(regionFromCountry(undefined)).toBe('us');
+  });
+
+  it('planForRegion returns the region row, falling back to us', async () => {
+    const { planForRegion } = await import('../index.js');
+    const caPro = planForRegion('pro', 'ca');
+    expect(caPro.region).toBe('ca');
+    expect(caPro.currency).toBe('cad');
+    expect(caPro.priceCents).toBe(1900);
+    const auPro = planForRegion('pro', 'au');
+    expect(auPro.region).toBe('au');
+    expect(auPro.priceCents).toBe(2300);
+  });
+
+  it('formatMoney appends the ISO currency code', async () => {
+    const { formatMoney, formatMoneyPrecise } = await import('../index.js');
+    expect(formatMoney(1900, 'usd')).toBe('$19 USD');
+    expect(formatMoney(1900, 'cad')).toBe('$19 CAD');
+    expect(formatMoney(2300, 'aud')).toBe('$23 AUD');
+    expect(formatMoney(0, 'usd')).toBe('$0 USD');
+    expect(formatMoneyPrecise(1517, 'cad')).toBe('$15.17 CAD');
+  });
+
+  it('ADDON_DISPLAY covers all four add-ons with safe, filing-free copy', async () => {
+    const { ADDON_DISPLAY, addOnStandardPrice } = await import('../index.js');
+    expect(ADDON_DISPLAY.map((a) => a.code).sort()).toEqual(
+      ['personal_insights', 'startup_tax_benefits', 'student_success', 'tax_fast_track'].sort(),
+    );
+    for (const meta of ADDON_DISPLAY) {
+      expect(meta.name.length).toBeGreaterThan(0);
+      expect(meta.blurb.length).toBeGreaterThan(0);
+      // Hard constraint: never imply filing/transmission or professional advice.
+      expect(meta.blurb.toLowerCase()).not.toMatch(/fil(e|ing)|CRA|IRS|CPA review/);
+      const price = addOnStandardPrice(meta.code, 'ca');
+      expect(price).not.toBeNull();
+      expect(price!.currency).toBe('cad');
+    }
+    // us fallback for a region without rows (startup_tax_benefits has no 'xx')
+    expect(addOnStandardPrice('tax_fast_track', 'us')!.priceCents).toBe(14900);
+    expect(addOnStandardPrice('nope', 'us')).toBeNull();
+  });
+});

@@ -26,9 +26,9 @@ export default function ChatbotMcpGuide() {
 
       <h2 className="gd-h2">On the go: Telegram</h2>
       <ol className="gd-steps">
-        <li><b>Create your own bot</b><span>In Telegram, message <code>@BotFather</code>, send <code>/newbot</code>, and copy the token it gives you.</span></li>
-        <li><b>Paste the token in Settings</b><span>Open <Link href="/login" className="gd-kbd">Settings</Link> → Chatbots → Telegram, paste the token, save. AgentBook wires up the rest.</span></li>
-        <li><b>Text your bot</b><span>Now log expenses and ask questions from Telegram — same assistant, in your pocket.</span></li>
+        <li><b>Connect in one tap</b><span>Open <Link href="/login" className="gd-kbd">Settings</Link> → Chatbots → Telegram, tap “Connect in one tap”, and press Start in Telegram. Done in under a minute — no BotFather, no tokens.</span></li>
+        <li><b>Text the bot</b><span>Now log expenses and ask questions from Telegram — same assistant, in your pocket.</span></li>
+        <li><b>Advanced: your own bot (optional)</b><span>Prefer a private bot? Message <code>@BotFather</code>, send <code>/newbot</code>, and paste the token in the same Settings panel under “Advanced”.</span></li>
       </ol>
 
       <h2 className="gd-h2">Power move: connect Claude (MCP)</h2>
