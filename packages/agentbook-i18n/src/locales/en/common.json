@@ -103,6 +103,7 @@
   "view_details": "View details",
   "yes": "Yes",
   "documents": "Documents",
+  "change_language_failed": "Could not change language. Please try again.",
   "nav_changelog": "Changelog",
   "nav_contact": "Contact",
   "nav_privacy": "Privacy",

@@ -112,6 +112,7 @@ export interface SheetProps {
   onClose: () => void;
   title: string;
   children: React.ReactNode;
+  testId?: string;
 }
 
 /**
@@ -120,7 +121,7 @@ export interface SheetProps {
  * focus in and back out, page scroll locked. No motion, so
  * prefers-reduced-motion is satisfied by construction.
  */
-export function Sheet({ open, onClose, title, children }: SheetProps) {
+export function Sheet({ open, onClose, title, children, testId }: SheetProps) {
   const t = useT();
   const titleId = useId();
   const panelRef = useRef<HTMLDivElement>(null);
@@ -148,6 +149,7 @@ export function Sheet({ open, onClose, title, children }: SheetProps) {
       <div
         ref={panelRef}
         role="dialog"
+        data-testid={testId}
         aria-modal="true"
         aria-labelledby={titleId}
         tabIndex={-1}

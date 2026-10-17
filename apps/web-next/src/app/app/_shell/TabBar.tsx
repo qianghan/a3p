@@ -60,6 +60,13 @@ interface TabDef {
   raised?: boolean;
 }
 
+const TAB_TESTID: Record<(typeof TAB_ORDER)[number], string> = {
+  '/app': 'tab-home',
+  '/app/docs': 'tab-docs',
+  '/app/capture': 'tab-capture',
+  '/app/chat': 'tab-chat',
+};
+
 /** `badges` defaults to the shipped gate; tests pass a different one. */
 export function TabBar({ badges = BADGES_ENABLED }: { badges?: BadgeGate } = {}) {
   const t = useT();
@@ -87,6 +94,7 @@ export function TabBar({ badges = BADGES_ENABLED }: { badges?: BadgeGate } = {})
 
   return (
     <nav
+      data-testid="tabbar"
       aria-label={t('mobile.tabs.nav_label')}
       style={{
         position: 'fixed',
@@ -112,6 +120,7 @@ export function TabBar({ badges = BADGES_ENABLED }: { badges?: BadgeGate } = {})
             key={tab.href}
             href={tab.href}
             data-tab={tab.href}
+            data-testid={TAB_TESTID[tab.href]}
             className={tab.raised ? `${TAB_CLASS.tab} ${TAB_CLASS.raised}` : TAB_CLASS.tab}
             aria-current={active ? 'page' : undefined}
             aria-label={tab.ariaLabel}

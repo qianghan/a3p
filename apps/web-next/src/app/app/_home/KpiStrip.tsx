@@ -48,6 +48,12 @@ const CHAT_HREF = mobileHref({ route: '/app/chat' }) ?? '/app';
 const help: React.CSSProperties = { fontSize: tokens.font.sm, color: tokens.color.muted, margin: 0, lineHeight: 1.45 };
 const column: React.CSSProperties = { display: 'grid', gap: tokens.space.md };
 const big: React.CSSProperties = { fontSize: tokens.font.xl, fontWeight: 600, margin: 0 };
+const KPI_TESTID: Record<KpiId, string> = {
+  month_net: 'home-kpi-month-net',
+  cash: 'home-kpi-cash',
+  outstanding: 'home-kpi-outstanding',
+  tax: 'home-kpi-tax',
+};
 
 export function KpiStrip({ data, actions }: { data: MobileHome; actions: AlertActions }) {
   const t = useT();
@@ -76,6 +82,7 @@ export function KpiStrip({ data, actions }: { data: MobileHome; actions: AlertAc
           key={id}
           type="button"
           data-kpi={id}
+          data-testid={KPI_TESTID[id]}
           aria-label={accessibleName(id)}
           aria-haspopup="dialog"
           onClick={() => setOpen(id)}
@@ -105,7 +112,7 @@ export function KpiStrip({ data, actions }: { data: MobileHome; actions: AlertAc
           )}
         </button>
       ))}
-      <Sheet open={open !== null} onClose={() => setOpen(null)} title={open ? kpiLabel(t, open) : ''}>
+      <Sheet open={open !== null} onClose={() => setOpen(null)} title={open ? kpiLabel(t, open) : ''} testId="home-kpi-sheet">
         {open && <KpiDetail id={open} data={data} actions={actions} />}
       </Sheet>
     </section>

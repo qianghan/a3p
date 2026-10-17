@@ -28,11 +28,12 @@ export interface ChipProps {
   count?: number;
   onClick?: () => void;
   ariaLabel?: string;
+  testId?: string;
 }
 
-export function Chip({ label, selected = false, count, onClick, ariaLabel }: ChipProps) {
+export function Chip({ label, selected = false, count, onClick, ariaLabel, testId }: ChipProps) {
   return (
-    <button type="button" aria-pressed={selected} aria-label={ariaLabel} onClick={onClick} style={chipStyle(selected)}>
+    <button type="button" data-testid={testId} aria-pressed={selected} aria-label={ariaLabel} onClick={onClick} style={chipStyle(selected)}>
       <span>{label}</span>
       {typeof count === 'number' && (
         <span

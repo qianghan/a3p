@@ -103,6 +103,7 @@
   "view_details": "查看详情",
   "yes": "是",
   "documents": "文档",
+  "change_language_failed": "无法切换语言，请重试。",
   "nav_changelog": "更新日志",
   "nav_contact": "联系我们",
   "nav_privacy": "隐私",

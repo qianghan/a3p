@@ -19,7 +19,7 @@ export function BrandNewHome() {
     { href: '/app/docs', title: t('mobile.home.new.docs_title'), body: t('mobile.home.new.docs_body') },
   ];
   return (
-    <EmptyState title={t('mobile.home.new.title')} body={t('mobile.home.new.body')}>
+    <EmptyState title={t('mobile.home.new.title')} body={t('mobile.home.new.body')} testId="home-empty">
       <div style={{ display: 'grid', gap: tokens.space.sm + 2 }}>
         {cards.map((c) => (
           <Link
