@@ -63,6 +63,16 @@ vi.mock('@naap/database', () => ({
 
 vi.mock('@naap/billing', () => ({
   invalidateAccount: (id: string) => planCacheInvalidate(id),
+  trackFunnelEvent: vi.fn(),
+  FUNNEL_EVENTS: {
+    SIGNUP_COMPLETED: 'funnel.signup_completed',
+    TRIAL_STARTED: 'funnel.trial_started',
+    FIRST_EXPENSE: 'funnel.first_expense',
+    FIRST_REPORT: 'funnel.first_report',
+    CARD_ADDED: 'funnel.card_added',
+    SUBSCRIPTION_ACTIVE: 'funnel.subscription_active',
+    SUBSCRIPTION_CANCELLED: 'funnel.subscription_cancelled',
+  },
 }));
 
 import { POST } from '@/app/api/v1/agentbook/stripe-webhook/route';
