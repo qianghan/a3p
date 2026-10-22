@@ -143,7 +143,7 @@ export function MobileShell({ children, badges }: { children: React.ReactNode; b
             paddingLeft: 'max(8px, env(safe-area-inset-left))', paddingRight: 'max(8px, env(safe-area-inset-right))',
           }}
         >
-          <LanguageSwitcher />
+          <LanguageSwitcher size="touch" />
         </header>
         <main id="mobile-main" style={MAIN_STYLE}>
           {children}
