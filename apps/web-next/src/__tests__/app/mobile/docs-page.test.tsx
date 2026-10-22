@@ -472,6 +472,26 @@ describe('Docs list — paging and viewer handoff', () => {
     expect(MockIntersectionObserver.latest().options?.root).toBe(document.getElementById('mobile-main'));
   });
 
+  // Layout shift is impact-fraction x distance-fraction: an idle sentinel that is a 51 px padded box scored 0.06 per
+  // page appended (it sits in view when rows are inserted above it), 0.12 over a Docs scroll, past the 0.1 limit.
+  // Idle it must be a hairline; it only takes space while it has something to say.
+  it('keeps the idle sentinel a hairline (no layout shift) and only pads it while it has content', async () => {
+    let release!: (r: Response) => void;
+    mockApi((p) => (p.get('cursor') === 'c2' ? new Promise<Response>((res) => { release = res; }) : listOf([raw()], { nextCursor: 'c2' })));
+    renderPage();
+    await rowsOf();
+    await waitFor(() => expect(MockIntersectionObserver.instances.length).toBeGreaterThan(0));
+    const sentinel = [...MockIntersectionObserver.latest().observed][0] as HTMLElement;
+    expect(sentinel.style.padding).toMatch(/^0(px)?$/);
+    expect(parseFloat(sentinel.style.minHeight)).toBeLessThanOrEqual(1);
+    // The status line stays mounted (a live region added together with its text is often not announced).
+    expect(within(sentinel).getByRole('status')).toBeInTheDocument();
+    act(() => MockIntersectionObserver.latest().fire(true));
+    expect(await screen.findByText('Loading more…')).toBeInTheDocument();
+    expect(parseFloat(sentinel.style.padding)).toBeGreaterThanOrEqual(16);
+    await act(async () => release(listOf([raw({ id: 'e9' })], { nextCursor: null, counts: null })));
+  });
+
   it('does not request a page when the observer fires while one is already loading', async () => {
     let release!: (r: Response) => void;
     const f = mockApi((p) => (p.get('cursor') === 'c2' ? new Promise<Response>((res) => { release = res; }) : listOf([raw()], { nextCursor: 'c2' })));
