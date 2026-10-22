@@ -1,0 +1,17 @@
+{
+  "commit": "db77324e1611706ace6ccdbce8fec2f2e5b48bf8",
+  "measuredAt": "2026-10-22T14:35:50.255Z",
+  "method": "First Load JS from the `next build` route table of the last main commit before the mobile redesign (first parent of the commit that added apps/web-next/src/app/app/_kit/index.ts); CI Build-job log when available, else a local ./bin/vercel-build.sh in a git worktree of that commit.",
+  "unit": "kB First Load JS (gzip) as printed by next build",
+  "allowanceKb": 40,
+  "routes": {
+    "/app": 105,
+    "/app/capture": 136,
+    "/app/chat": 106,
+    "/app/docs": 135
+  },
+  "sharedKb": 103,
+  "inheritFrom": {
+    "/app/docs/[id]": "/app/docs"
+  }
+}
