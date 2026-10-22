@@ -51,6 +51,18 @@ test('report: table escapes pipes and states the verdict', () => {
   assert.match(md, /\*\*Verdict: GO\*\*/);
 });
 
+test('report: a backslash before a pipe cannot un-escape the pipe and split the row', () => {
+  // 'x\\|y' (backslash, pipe): escaping only '|' gives 'x\\\\|y' whose pipe is live again. Backslashes go first.
+  const md = renderReport(
+    [{ id: 'G1', gate: 'CI', rubric: 'r', status: 'pass', evidence: 'x\\|y' }],
+    { base: 'b', commit: 'c', runAt: 't' },
+  );
+  const row = md.split('\n').find((l) => l.startsWith('| G1 |')) as string;
+  assert.ok(row.includes('x\\\\\\|y'), row);            // x \\ \| y  ->  backslash escaped, then pipe escaped
+  // Counting only UNESCAPED pipes, the row still has exactly 6 cell delimiters (5 columns).
+  assert.equal(row.replace(/\\\\|\\\|/g, '').split('|').length - 1, 6);
+});
+
 test('overrides are parsed from the json, ignoring _comment', () => {
   const o = parseOverrides({ _comment: 'x', '/app': { allowanceKb: 60, reason: 'why A' }, '/app/chat': { allowanceKb: 52, reason: 'why B' } });
   assert.deepEqual(o, [

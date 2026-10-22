@@ -104,7 +104,8 @@ export function knownLimitations(
   ];
 }
 
-const cell = (s: string) => s.replace(/\|/g, '\\|').replace(/\s*\n\s*/g, ' ').trim();
+// Backslashes first: escaping only '|' lets a trailing backslash in the input un-escape it ('\\|' -> '\\\\|') and split the row.
+const cell = (s: string) => s.replace(/\\/g, '\\\\').replace(/\|/g, '\\|').replace(/\s*\n\s*/g, ' ').trim();
 
 export function renderReport(results: GateResult[], meta: ReportMeta): string {
   const v = verdict(results);
