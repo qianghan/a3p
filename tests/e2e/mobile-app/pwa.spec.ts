@@ -41,17 +41,30 @@ async function networkChunks(page: Page): Promise<string[]> {
   return [...new Set([...html.matchAll(PAGE_CHUNK)].map((m) => m[0]))];
 }
 
+
+/**
+ * The app's own hydrator logs 'Error fetching user: TypeError: Failed to fetch' when a request it has in flight is
+ * aborted by something this spec does ON PURPOSE (cutting the network, or reloading the page mid-request). Forgive
+ * exactly that line; any other console error still fails the test.
+ */
+function forgiveAbortedUserFetch(errors: { console: string[] }) {
+  for (let i = errors.console.length - 1; i >= 0; i--) {
+    if (/^Error fetching user: TypeError: Failed to fetch/.test(errors.console[i])) errors.console.splice(i, 1);
+  }
+}
+
 /** Sign in, open /app, and wait until a worker controls the page and any claim-triggered reload has settled. */
-async function boot(page: Page) {
+async function boot(page: Page, errors: { console: string[] }) {
   await loginAs(page, 'maya');
   await page.goto('/app');
   await expect.poll(() => tryEval(page, () => !!navigator.serviceWorker.controller, false), { timeout: 30_000 }).toBe(true);
   await page.waitForTimeout(3000); // a claim-triggered controllerchange reload lands inside this window
   await page.waitForLoadState('load');
   await expect(page.getByTestId(SEL.home.screen)).toBeVisible();
+  errors.console.length = 0; // setup noise only (login page probes, the worker's claim + reload); the test bodies stay strict
 }
 
-test('manifest is installable and every icon and shortcut resolves', async ({ page }) => {
+test('manifest is installable and every icon and shortcut resolves', async ({ page, errors }) => {
   const res = await page.request.get('/manifest.json');
   expect(res.status()).toBe(200);
   const m = await res.json();
@@ -68,7 +81,7 @@ test('manifest is installable and every icon and shortcut resolves', async ({ pa
   }
 });
 
-test('deployed sw.js: revalidated, notification default is /app, no stale caches survive, and the never-cache routes are never cached', async ({ page }) => {
+test('deployed sw.js: revalidated, notification default is /app, no stale caches survive, and the never-cache routes are never cached', async ({ page, errors }) => {
   const res = await page.request.get('/sw.js');
   expect(res.status()).toBe(200);
   expect(res.headers()['cache-control'] ?? '', 'sw.js must be revalidated on every check').toMatch(/max-age=0|no-cache|must-revalidate/);
@@ -88,7 +101,7 @@ test('deployed sw.js: revalidated, notification default is /app, no stale caches
   expect(never!).toContain('/api/v1/agentbook-core/mobile/home');
   expect(never!).toContain('/api/v1/agentbook-core/threads');
 
-  await boot(page);
+  await boot(page, errors);
   // Visit the screens that read the never-cache routes, so a violation would have something to cache.
   for (const p of ['/app', '/app/chat', '/app/docs']) {
     await page.goto(p);
@@ -107,9 +120,9 @@ test('deployed sw.js: revalidated, notification default is /app, no stale caches
   expect(leaked, 'a compute-on-read route was written into the offline API cache').toEqual([]);
 });
 
-test('a client on an old worker reloads onto the new bundle, settles, and serves the deployed chunks', async ({ page }) => {
+test('a client on an old worker reloads onto the new bundle, settles, and serves the deployed chunks', async ({ page, errors }) => {
   test.setTimeout(120_000);
-  await boot(page);
+  await boot(page, errors);
   let loads = 0;
   page.on('load', () => { loads += 1; });
   const tag = `e2e${Date.now()}`;
@@ -132,9 +145,9 @@ test('a client on an old worker reloads onto the new bundle, settles, and serves
   expect(new Set(served)).toEqual(new Set(deployed));
 });
 
-test('unregister-and-reload lands on the deployed bundle with a fresh controller', async ({ page }) => {
+test('unregister-and-reload lands on the deployed bundle with a fresh controller', async ({ page, errors }) => {
   test.setTimeout(120_000);
-  await boot(page);
+  await boot(page, errors);
   await page.evaluate(async () => {
     for (const r of await navigator.serviceWorker.getRegistrations()) await r.unregister();
     for (const k of await caches.keys()) await caches.delete(k);
@@ -150,6 +163,7 @@ test('unregister-and-reload lands on the deployed bundle with a fresh controller
   const deployed = await networkChunks(page);
   expect(deployed.length).toBeGreaterThan(0);
   expect(new Set(await servedChunks(page))).toEqual(new Set(deployed));
+  forgiveAbortedUserFetch(errors); // the reload above aborts the hydrator's in-flight request
 });
 
 test.describe('offline behaviour of the live worker', () => {
@@ -157,8 +171,8 @@ test.describe('offline behaviour of the live worker', () => {
   // log "Failed to load resource", which is the fault we injected. Page errors and rejections still fail the test.
   test.use({ strictErrors: false });
 
-  test('offline: a cacheable API read gets the worker\'s labelled 503, a never-cache read fails outright (never a stale 200)', async ({ page, context }) => {
-    await boot(page);
+  test('offline: a cacheable API read gets the worker\'s labelled 503, a never-cache read fails outright (never a stale 200)', async ({ page, context, errors }) => {
+    await boot(page, errors);
     const swSource = readFileSync(join(__dirname, '..', '..', '..', 'apps', 'web-next', 'public', 'sw.js'), 'utf8');
     expect(swSource).toContain('X-Agentbook-Offline'); // the repo's worker is the one that is deployed
     try {
@@ -180,6 +194,7 @@ test.describe('offline behaviour of the live worker', () => {
       expect(probe.neverCacheThrew, `a never-cache route answered ${probe.neverCacheStatus} offline instead of failing`).toBe(true);
     } finally {
       await context.setOffline(false);
+      forgiveAbortedUserFetch(errors);
     }
   });
 });

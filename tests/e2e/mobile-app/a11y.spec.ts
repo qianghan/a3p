@@ -39,12 +39,13 @@ async function proveLocale(page: Page) {
   return t;
 }
 
-async function open(page: Page, s: Screen, theme: 'light' | 'dark') {
+async function open(page: Page, s: Screen, theme: 'light' | 'dark', errors: { console: string[] }) {
   await page.addInitScript((th) => {
     try { localStorage.setItem('theme', th); } catch { /* private mode */ }
   }, theme);
   await loginAs(page, 'maya');
   await settle(page);
+  errors.console.length = 0; // sign-in noise only (the login page's unauthenticated probes); everything after stays strict
   await page.goto('/app');
   await page.goto(await s.path(page));
   await expect(page.getByTestId(s.ready)).toBeVisible();
@@ -55,8 +56,8 @@ async function open(page: Page, s: Screen, theme: 'light' | 'dark') {
 
 for (const theme of ['light', 'dark'] as const) {
   for (const s of SCREENS) {
-    test(`axe: ${s.name} (${theme}) has zero serious/critical violations`, async ({ page }, testInfo) => {
-      await open(page, s, theme);
+    test(`axe: ${s.name} (${theme}) has zero serious/critical violations`, async ({ page, errors }, testInfo) => {
+      await open(page, s, theme, errors);
       const res = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa']).analyze();
       const bad = res.violations.filter((v) => v.impact === 'serious' || v.impact === 'critical');
       await testInfo.attach(`axe-${s.name}-${theme}.json`, { body: JSON.stringify(res.violations, null, 2), contentType: 'application/json' });
@@ -66,13 +67,15 @@ for (const theme of ['light', 'dark'] as const) {
 }
 
 for (const s of SCREENS) {
-  test(`targets: every interactive element on ${s.name} is at least 44x44`, async ({ page }) => {
-    await open(page, s, 'light');
+  test(`targets: every interactive element on ${s.name} is at least 44x44`, async ({ page, errors }) => {
+    await open(page, s, 'light', errors);
     const small = await page.evaluate(() => {
       const sel = 'button, a[href], [role="button"], [role="tab"], [role="menuitem"], [role="menuitemradio"], input:not([type="hidden"]):not([type="file"]), select, textarea, summary';
       const out: string[] = [];
       for (const el of Array.from(document.querySelectorAll<HTMLElement>(sel))) {
-        const r = el.getBoundingClientRect();
+        // A checkbox/radio inside a <label> is tapped through the label (the whole row toggles it): measure that.
+        const target = el.matches('input[type="checkbox"], input[type="radio"]') ? (el.closest('label') ?? el) : el;
+        const r = target.getBoundingClientRect();
         const cs = getComputedStyle(el);
         if (r.width === 0 || r.height === 0 || cs.visibility === 'hidden' || cs.display === 'none') continue;
         if (el.tagName === 'A' && el.closest('p, li')) continue; // WCAG 2.5.8 inline-link exception
@@ -87,8 +90,8 @@ for (const s of SCREENS) {
   });
 }
 
-test('focus: the first 6 tab stops on Home show a visible focus ring', async ({ page }) => {
-  await open(page, SCREENS[0], 'light');
+test('focus: the first 6 tab stops on Home show a visible focus ring', async ({ page, errors }) => {
+  await open(page, SCREENS[0], 'light', errors);
   for (let i = 0; i < 6; i++) {
     await page.keyboard.press('Tab');
     const ring = await page.evaluate(() => {
@@ -101,7 +104,7 @@ test('focus: the first 6 tab stops on Home show a visible focus ring', async ({ 
   }
 });
 
-test('reduced motion: nothing animates on Home skeleton or the chat typing indicator', async ({ page }) => {
+test('reduced motion: nothing animates on Home skeleton or the chat typing indicator', async ({ page, errors }) => {
   await page.emulateMedia({ reducedMotion: 'reduce' });
   await page.route((u) => u.pathname === '/api/v1/agentbook-core/mobile/home', async (route) => {
     await new Promise((r) => setTimeout(r, 2500));
@@ -113,6 +116,7 @@ test('reduced motion: nothing animates on Home skeleton or the chat typing indic
   });
   await loginAs(page, 'maya');
   await settle(page);
+  errors.console.length = 0; // sign-in noise only
   const moving = () => page.evaluate(() =>
     Array.from(document.querySelectorAll('*'))
       .filter((el) => {
