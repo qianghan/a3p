@@ -58,7 +58,7 @@ export default function MobileHomePage() {
   };
 
   return (
-    <div {...pull.bind} style={{ padding: `${tokens.space.md}px ${tokens.space.lg}px ${tokens.space.xl}px`, color: tokens.color.fg }}>
+    <div {...pull.bind} data-testid="home-screen" style={{ padding: `${tokens.space.md}px ${tokens.space.lg}px ${tokens.space.xl}px`, color: tokens.color.fg }}>
       {/* Gesture feedback only: a Refresh tap or a background reload must not insert this row (layout jump) or announce twice. */}
       <PullIndicator distance={pull.distance} busy={pull.refreshing} />
       <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: tokens.space.sm, marginBottom: tokens.space.lg }}>

@@ -33,7 +33,7 @@ export function FilterChips({ value, counts, onChange }: { value: DocFilter; cou
       style={{ display: 'flex', gap: tokens.space.sm, overflowX: 'auto', padding: `${tokens.space.md}px ${tokens.space.lg}px ${tokens.space.xs}px`, scrollbarWidth: 'none' }}
     >
       {DOC_FILTERS.map((f) => (
-        <Chip key={f} label={label[f]} count={countFor(f, counts)} selected={f === value} onClick={() => onChange(f)} />
+        <Chip key={f} label={label[f]} count={countFor(f, counts)} selected={f === value} onClick={() => onChange(f)} testId={`docs-filter-${f}`} />
       ))}
     </div>
   );

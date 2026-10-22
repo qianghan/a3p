@@ -263,7 +263,7 @@ export default function MobileCapture() {
   const busy = saving || stage === 'uploading';
 
   return (
-    <div style={{ padding: '16px 16px 32px', color: tokens.color.fg, display: 'grid', gap: 12 }}>
+    <div data-testid="capture-screen" style={{ padding: '16px 16px 32px', color: tokens.color.fg, display: 'grid', gap: 12 }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
         <h1 style={{ fontSize: 20, fontWeight: 600, margin: 0 }}>{t('mobile.capture.title')}</h1>
         <QueuePill currency={currency} />
@@ -294,14 +294,14 @@ export default function MobileCapture() {
             <p role="status" style={{ margin: 0, padding: '8px 12px', borderRadius: 10, fontSize: 13, background: tokens.color.mutedBg }}>{t('mobile.capture.offline_mode')}</p>
           )}
           {errorKind && (
-            <div role="alert" style={{ color: tokens.color.critical, fontSize: 13, display: 'grid', gap: 4 }}>
+            <div data-testid="capture-error" role="alert" style={{ color: tokens.color.critical, fontSize: 13, display: 'grid', gap: 4 }}>
               {errorLines(errorKind).map((line) => <p key={line} style={{ margin: 0 }}>{line}</p>)}
             </div>
           )}
 
           <fieldset disabled={busy} style={{ border: 'none', padding: 0, margin: 0, display: 'grid', gap: 10 }}>
             <label style={label}>{t('mobile.capture.field_amount')}
-              <input style={field} inputMode="decimal" value={draft.amount} onChange={(e) => set('amount', e.target.value)} />
+              <input data-testid="capture-amount" style={field} inputMode="decimal" value={draft.amount} onChange={(e) => set('amount', e.target.value)} />
             </label>
             <label style={label}>{t('mobile.capture.field_vendor')}
               <input style={field} value={draft.vendor} onChange={(e) => set('vendor', e.target.value)} />
@@ -330,7 +330,7 @@ export default function MobileCapture() {
           </fieldset>
 
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-            <button type="button" style={primary} disabled={busy || !draft.amount.trim()} onClick={() => void save(false)}>
+            <button type="button" data-testid="capture-save" style={primary} disabled={busy || !draft.amount.trim()} onClick={() => void save(false)}>
               {saving ? t('mobile.capture.saving') : t('mobile.capture.save')}
             </button>
             <button type="button" style={secondary} disabled={busy || !draft.amount.trim()} onClick={() => void save(true)}>

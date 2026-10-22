@@ -170,6 +170,7 @@ function DocsScreen() {
       >
         <Search aria-hidden="true" style={{ width: 16, height: 16, color: tokens.color.muted }} />
         <input
+          data-testid="docs-search"
           type="search"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
@@ -192,7 +193,7 @@ function DocsScreen() {
 
 function EmptyForFilter({ filter, searching }: { filter: DocFilter; searching: boolean }) {
   const t = useT();
-  if (searching) return <EmptyState title={t('mobile.docs.empty_search_title')} body={t('mobile.docs.empty_search_body')} />;
+  if (searching) return <EmptyState title={t('mobile.docs.empty_search_title')} body={t('mobile.docs.empty_search_body')} testId="docs-empty" />;
   const copy: Record<DocFilter, { title: string; body: string }> = {
     'needs-review': { title: t('mobile.docs.empty_needs_review_title'), body: t('mobile.docs.empty_needs_review_body') },
     'no-category': { title: t('mobile.docs.empty_no_category_title'), body: t('mobile.docs.empty_no_category_body') },
@@ -201,7 +202,7 @@ function EmptyForFilter({ filter, searching }: { filter: DocFilter; searching: b
     archived: { title: t('mobile.docs.empty_archived_title'), body: t('mobile.docs.empty_archived_body') },
   };
   return (
-    <EmptyState title={copy[filter].title} body={copy[filter].body}>
+    <EmptyState title={copy[filter].title} body={copy[filter].body} testId="docs-empty">
       {filter === 'all' && (
         <div>
           <Link href="/app/capture" style={buttonStyle('secondary')}>{t('mobile.docs.snap_receipt')}</Link>
@@ -327,7 +328,7 @@ function DocsList({ filter, q, view, currency, online, refreshToken, onCounts, o
       const off = offlineNow || code === 'offline';
       body = (
         <div role="alert" style={{ padding: tokens.space.lg }}>
-          <EmptyState title={off ? t('mobile.kit.offline_title') : t('mobile.docs.error_title')} body={off ? t('mobile.kit.offline_body') : t('mobile.kit.error_body')}>
+          <EmptyState title={off ? t('mobile.kit.offline_title') : t('mobile.docs.error_title')} body={off ? t('mobile.kit.offline_body') : t('mobile.kit.error_body')} testId="docs-error">
             <div>
               <button type="button" style={buttonStyle('secondary')} onClick={retry}>{t('mobile.docs.retry')}</button>
             </div>
@@ -394,7 +395,7 @@ function DocsList({ filter, q, view, currency, online, refreshToken, onCounts, o
   }
 
   return (
-    <div ref={regionRef} tabIndex={-1} aria-busy={refreshing || undefined} style={{ outline: 'none' }}>
+    <div data-testid="docs-screen" ref={regionRef} tabIndex={-1} aria-busy={refreshing || undefined} style={{ outline: 'none' }}>
       {body}
     </div>
   );

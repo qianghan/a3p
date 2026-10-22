@@ -10,6 +10,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, waitFor, fireEvent, within } from '@testing-library/react';
 
 import { LanguageSwitcher } from '../language-switcher';
+import { renderWithI18n } from '../../../__tests__/app/mobile/test-utils';
 
 const originalFetch = global.fetch;
 
@@ -136,23 +137,31 @@ describe('LanguageSwitcher', () => {
     expect(within(screen.getByRole('menu')).getByText('简体中文')).toBeTruthy();
   });
 
-  it('reports a failed save inline rather than through shell notifications', async () => {
-    // Same reason: shell.notifications is unreachable without a provider.
+  // The switcher renders inside the /app PWA's translator, so the error line is a catalog key, not English text.
+  // (Rendered with NO translator at all it degrades to the humanised key, which the no-provider test above covers.)
+  function failingSave() {
     global.fetch = vi.fn(async (_u: unknown, init?: RequestInit) => {
       if (init?.method === 'PUT') return { ok: false, status: 500 } as Response;
-      // Must include the flag, or the switcher is hidden and there is nothing
-      // to click — the GET shape and the visibility gate are coupled.
+      // Must include the flag, or the switcher is hidden and there is nothing to click.
       return {
         ok: true,
         json: async () => ({ success: true, data: { locale: 'en-US' }, i18nLocalesEnabled: true }),
       } as Response;
     }) as unknown as typeof fetch;
+  }
 
-    render(<LanguageSwitcher />);
-    fireEvent.click(await waitForSwitcher());
+  it.each([
+    ['en', /change language/i, /could not change language/i],
+    ['fr-CA', /changer de langue/i, /impossible de changer la langue/i],
+    ['zh-CN', /更改语言/, /无法切换语言/],
+  ] as const)('reports a failed save inline, in the viewer\'s language (%s)', async (locale, trigger, message) => {
+    failingSave();
+    renderWithI18n(<LanguageSwitcher />, locale);
+    // The trigger's own label is localized too, so find it by the locale's name for it.
+    fireEvent.click(await waitFor(() => screen.getByRole('button', { name: trigger })));
     fireEvent.click(within(screen.getByRole('menu')).getByText('简体中文'));
     await waitFor(() => {
-      expect(screen.getByText(/could not change language/i)).toBeTruthy();
+      expect(screen.getByText(message)).toBeTruthy();
     });
   });
 
