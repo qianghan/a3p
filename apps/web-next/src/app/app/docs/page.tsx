@@ -177,7 +177,7 @@ function DocsScreen() {
           maxLength={SEARCH_MAX_LENGTH}
           aria-label={t('mobile.docs.search_label')}
           placeholder={t('mobile.docs.search_placeholder')}
-          style={{ flex: 1, minWidth: 0, minHeight: TOUCH - 2, border: 'none', outline: 'none', background: 'transparent', color: tokens.color.fg, fontSize: 16 }}
+          style={{ flex: 1, minWidth: 0, minHeight: TOUCH, alignSelf: 'stretch', border: 'none', outline: 'none', background: 'transparent', color: tokens.color.fg, fontSize: 16 }}
         />
       </label>
 

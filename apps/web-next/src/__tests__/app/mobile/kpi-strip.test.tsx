@@ -150,8 +150,8 @@ describe('KpiStrip', () => {
   ])('%s tenant (%s): exact negative net and cash strings; the name carries label, sign and "net loss"', (currency, locale, net, cash) => {
     renderStrip(homeFixture({ currency, kpis: NEG }), locale);
     expect(tile('month_net')).toHaveTextContent(net);
-    expect(tile('month_net')).toHaveAttribute('aria-label', `Net this month, ${net}, net loss`);
-    expect(tile('cash')).toHaveAttribute('aria-label', `Cash today, ${cash}`);
+    expect(tile('month_net')).toHaveAttribute('aria-label', `Net this month ${net} net loss`);
+    expect(tile('cash')).toHaveAttribute('aria-label', `Cash today ${cash}`);
     expect(net).toBe(formatCurrencyCents(-123_400, currency, locale));
     expect(cash).toBe(formatCurrencyCents(1_250_000, currency, locale));
   });
@@ -162,8 +162,8 @@ describe('KpiStrip', () => {
     const cash = formatCurrencyCents(1_250_000, 'CAD', 'fr-CA');
     expect(net).toMatch(/^-1[  ]234[  ]\$$/);
     expect(cash).toMatch(/^12[  ]500[  ]\$$/);
-    expect(tile('month_net')).toHaveAttribute('aria-label', `Net ce mois-ci, ${net}, perte nette`);
-    expect(tile('cash')).toHaveAttribute('aria-label', `Encaisse aujourd’hui, ${cash}`);
+    expect(tile('month_net')).toHaveAttribute('aria-label', `Net ce mois-ci ${net} perte nette`);
+    expect(tile('cash')).toHaveAttribute('aria-label', `Encaisse aujourd’hui ${cash}`);
     expect(tile('outstanding')).toHaveTextContent('2 en retard');
     fireEvent.click(tile('tax'));
     expect(screen.getByRole('dialog', { name: 'Impôt estimé' })).toHaveTextContent('Prochaine échéance fiscale');
@@ -171,21 +171,21 @@ describe('KpiStrip', () => {
 
   it('zh-CN: exact tile names and the Chinese loss marker', () => {
     renderStrip(homeFixture({ kpis: NEG }), 'zh-CN');
-    expect(tile('month_net')).toHaveAttribute('aria-label', '本月净额, -CA$1,234, 净亏损');
-    expect(tile('cash')).toHaveAttribute('aria-label', '今日现金, CA$12,500');
+    expect(tile('month_net')).toHaveAttribute('aria-label', '本月净额 -CA$1,234 净亏损');
+    expect(tile('cash')).toHaveAttribute('aria-label', '今日现金 CA$12,500');
     expect(tile('tax')).toHaveTextContent('预估税款');
     expect(tile('outstanding')).toHaveTextContent('2 张逾期');
   });
 
   it('a positive month carries no loss marker', () => {
     renderStrip(homeFixture());
-    expect(tile('month_net')).toHaveAttribute('aria-label', 'Net this month, CA$4,123');
+    expect(tile('month_net')).toHaveAttribute('aria-label', 'Net this month CA$4,123');
   });
 
   it('null month net: labelled dash on the tile, and the sheet explains it is not a zero', () => {
     renderStrip(homeFixture({ kpis: { ...homeFixture().kpis, monthNetCents: null } }));
     expect(within(tile('month_net')).getByLabelText('Not available')).toHaveTextContent('—');
-    expect(tile('month_net')).toHaveAttribute('aria-label', 'Net this month, Not available');
+    expect(tile('month_net')).toHaveAttribute('aria-label', 'Net this month Not available');
     expect(tile('month_net')).not.toHaveTextContent('$0');
     fireEvent.click(tile('month_net'));
     const dialog = screen.getByRole('dialog', { name: 'Net this month' });
