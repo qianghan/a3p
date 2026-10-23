@@ -29,7 +29,7 @@ describe('tokens', () => {
     for (const [name, value] of colours) {
       if (name === 'scrim') continue;
       // Mobile-scoped contrast mixes of two shell variables; ratios are asserted in kit-contrast.test.ts.
-      if (name === 'muted' || name === 'primaryStrong') { expect(value, name).toMatch(/^color-mix\(in srgb, hsl\(var\(--[a-z-]+\)\) \d+%, (hsl\(var\(--[a-z-]+\)\)|black) \d+%\)$/); continue; }
+      if (name === 'muted' || name === 'primaryStrong' || name === 'primaryInk') { expect(value, name).toMatch(/^color-mix\(in srgb, hsl\(var\(--[a-z-]+\)\) \d+%, (hsl\(var\(--[a-z-]+\)\)|black) \d+%\)$/); continue; }
       expect(value, name).toMatch(/^hsl\(var\(--[a-z-]+\)( \/ [\d.]+)?\)$/);
     }
     expect(tokens.color.scrim).toBe('hsl(0 0% 0% / 0.5)');
