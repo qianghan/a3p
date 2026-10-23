@@ -45,7 +45,9 @@ export async function forceLocale(page: Page, initial: string): Promise<{ curren
       return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ success: true, data: { locale } }) });
     }
     if (req.method() !== 'GET') return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ success: true, data: { locale } }) });
-    const res = await route.fetch();
+    // The test may finish (and close the context) while this fetch is in flight: that is the harness ending, not a failure.
+    const res = await route.fetch().catch(() => null);
+    if (!res) return route.abort().catch(() => undefined);
     const json = (await res.json().catch(() => ({}))) as Record<string, unknown>;
     json.i18nLocalesEnabled = true;
     json.data = { ...((json.data as Record<string, unknown>) ?? {}), locale };
