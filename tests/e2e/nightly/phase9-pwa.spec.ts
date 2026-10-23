@@ -104,7 +104,14 @@ test.describe('@phase9-pwa', () => {
     await expect(page.getByRole('button', { name: new RegExp(`^${t('mobile.docs.filter_needs_review')}`) })).toBeVisible();
     await expect(page.getByRole('searchbox', { name: t('mobile.docs.search_label') })).toBeVisible();
 
+    // Let /app/docs finish before navigating on: the shell does a one-time reload when the service worker first takes
+    // control, and a goto that races it fails with net::ERR_ABORTED (seen on every nightly retry).
+    await page.waitForLoadState('networkidle');
     await page.goto('/app/chat');
-    await expect(page.getByPlaceholder('Type a message…')).toBeVisible();
+    // The rebuilt Chat (PR 6): its title and composer must render. The old assertion was the legacy page's hardcoded
+    // placeholder, so this test failed every night after Chat shipped. Same catalog + selector contract as the app.
+    await expect(page.getByRole('heading', { level: 1, name: t('mobile.chat.title') })).toBeVisible();
+    await expect(page.getByTestId('chat-input')).toBeVisible();
+    await expect(page.getByTestId('chat-input')).toHaveAttribute('placeholder', t('mobile.chat.placeholder'));
   });
 });
