@@ -105,12 +105,19 @@ export function KpiStrip({ data, actions }: { data: MobileHome; actions: AlertAc
           }}
         >
           <span style={{ fontSize: tokens.font.sm, color: tokens.color.muted }}>{kpiLabel(t, id)}</span>
+          {/* A real space between the spans: axe reads the visible text as 'Label' + 'Value' with nothing between them
+              ('Encaisse aujourd’hui16 836 $'), which is not contained in the accessible name 'Encaisse aujourd’hui 16 836 $'
+              (WCAG 2.5.3 Label in Name). Flex layout ignores whitespace-only text, so nothing moves. */}
+          {' '}
           <Money cents={kpiCents(data, id)} currency={data.currency} size={tokens.font.kpi} weight={600} />
           {id === 'outstanding' && overdue && (
-            <span data-kpi-sub style={{ fontSize: tokens.font.xs, color: tokens.color.fg, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-              <span aria-hidden="true" style={{ width: 6, height: 6, borderRadius: tokens.radius.pill, background: tokens.color.critical }} />
-              {overdue}
-            </span>
+            <>
+              {' '}
+              <span data-kpi-sub style={{ fontSize: tokens.font.xs, color: tokens.color.fg, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                <span aria-hidden="true" style={{ width: 6, height: 6, borderRadius: tokens.radius.pill, background: tokens.color.critical }} />
+                {overdue}
+              </span>
+            </>
           )}
         </button>
       ))}

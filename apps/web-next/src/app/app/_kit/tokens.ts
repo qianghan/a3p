@@ -18,6 +18,7 @@
  */
 export const MUTED_MIX_PCT = 20;
 export const PRIMARY_STRONG_BLACK_PCT = 32;
+export const PRIMARY_TEXT_FG_PCT = 35;
 
 const v = (name: string, alpha?: number): string =>
   alpha === undefined ? `hsl(var(--${name}))` : `hsl(var(--${name}) / ${alpha})`;
@@ -37,6 +38,8 @@ export const tokens = {
     muted: `color-mix(in srgb, hsl(var(--muted-foreground)) ${100 - MUTED_MIX_PCT}%, hsl(var(--foreground)) ${MUTED_MIX_PCT}%)`,
     /** Fill behind white text (primary buttons): --primary darkened so white on it is >= 4.5:1 in both themes. */
     primaryStrong: `color-mix(in srgb, hsl(var(--primary)) ${100 - PRIMARY_STRONG_BLACK_PCT}%, black ${PRIMARY_STRONG_BLACK_PCT}%)`,
+    /** Brand colour AS TEXT (active tab label, info banner title): --primary nudged toward --foreground. Plain --primary is 3.3-3.6:1 on light surfaces. */
+    primaryInk: `color-mix(in srgb, hsl(var(--primary)) ${100 - PRIMARY_TEXT_FG_PCT}%, hsl(var(--foreground)) ${PRIMARY_TEXT_FG_PCT}%)`,
     mutedBg: v('muted'),
     good: v('success'),
     goodSoft: v('success', 0.12),
@@ -67,7 +70,7 @@ export interface ToneColors {
 export function toneColors(tone: Tone): ToneColors {
   switch (tone) {
     case 'primary':
-      return { fg: tokens.color.primary, bg: tokens.color.primarySoft, accent: tokens.color.primary };
+      return { fg: tokens.color.primaryInk, bg: tokens.color.primarySoft, accent: tokens.color.primary };
     case 'good':
       return { fg: tokens.color.good, bg: tokens.color.goodSoft, accent: tokens.color.good };
     // Amber and red text on a light card fall below WCAG AA at body size, so

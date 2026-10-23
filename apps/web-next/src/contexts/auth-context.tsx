@@ -493,7 +493,7 @@ export function RequireAuth({
   if (isLoading) {
     return fallback ?? (
       <div className="flex min-h-screen items-center justify-center">
-        <div className="h-8 w-8 animate-spin rounded-full border-2 border-muted-foreground border-t-transparent" />
+        <div className="h-8 w-8 animate-spin motion-reduce:animate-none rounded-full border-2 border-muted-foreground border-t-transparent" />
       </div>
     );
   }
@@ -540,7 +540,7 @@ export function RequireAuth({
   if (!isAuthenticated) {
     return fallback ?? (
       <div className="flex min-h-screen items-center justify-center">
-        <div className="h-8 w-8 animate-spin rounded-full border-2 border-muted-foreground border-t-transparent" />
+        <div className="h-8 w-8 animate-spin motion-reduce:animate-none rounded-full border-2 border-muted-foreground border-t-transparent" />
       </div>
     );
   }

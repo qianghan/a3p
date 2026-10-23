@@ -114,7 +114,7 @@ export function TabBar({ badges = BADGES_ENABLED }: { badges?: BadgeGate } = {})
       <style>{TAB_CSS}</style>
       {tabs.map((tab) => {
         const active = isTabActive(tab.href, pathname);
-        const colour = tab.raised ? tokens.color.fg : active ? tokens.color.primary : tokens.color.muted;
+        const colour = tab.raised ? tokens.color.fg : active ? tokens.color.primaryInk : tokens.color.muted;
         return (
           <Link
             key={tab.href}

@@ -45,8 +45,11 @@ async function open(page: Page, s: Screen, theme: 'light' | 'dark', errors: { co
   }, theme);
   await loginAs(page, 'maya');
   await settle(page);
-  errors.console.length = 0; // sign-in noise only (the login page's unauthenticated probes); everything after stays strict
   await page.goto('/app');
+  // Let /app finish its requests BEFORE navigating away: navigating mid-request aborts the app's own fetches, which it
+  // logs as 'Error fetching user/plugins: Failed to fetch' (that is the navigation, not a defect).
+  await page.waitForLoadState('networkidle');
+  errors.console.length = 0; // sign-in + first-page noise only; everything from here on stays strict
   await page.goto(await s.path(page));
   await expect(page.getByTestId(s.ready)).toBeVisible();
   await expect(page.locator('html')).toHaveClass(theme === 'dark' ? /\bdark\b/ : /^(?!.*\bdark\b).*$/);
@@ -104,34 +107,53 @@ test('focus: the first 6 tab stops on Home show a visible focus ring', async ({ 
   }
 });
 
-test('reduced motion: nothing animates on Home skeleton or the chat typing indicator', async ({ page, errors }) => {
+/**
+ * Playwright drops media emulation on every navigation (verified on a bare page: set before goto -> matchMedia false,
+ * set after load -> true), so the preference is applied AFTER the page under test has loaded, and asserted to have
+ * matched. Without that assertion this test passed or failed for reasons unrelated to motion.
+ */
+async function reduceMotion(page: Page) {
   await page.emulateMedia({ reducedMotion: 'reduce' });
+  expect(await page.evaluate(() => matchMedia('(prefers-reduced-motion: reduce)').matches), 'reduced-motion emulation did not take effect').toBe(true);
+}
+
+const moving = (page: Page) => page.evaluate(() =>
+  Array.from(document.querySelectorAll<HTMLElement>('*'))
+    .filter((el) => {
+      const cs = getComputedStyle(el);
+      return cs.animationName !== 'none' && parseFloat(cs.animationDuration) > 0.001;
+    })
+    .map((el) => `${el.tagName.toLowerCase()}${el.dataset.testid ? '#' + el.dataset.testid : ''}${el.dataset.chatDot ? '[chat-dot]' : ''}.${String(el.className).slice(0, 40)} -> ${getComputedStyle(el).animationName}`));
+
+test('reduced motion: nothing animates on the Home loading state', async ({ page, errors }) => {
   await page.route((u) => u.pathname === '/api/v1/agentbook-core/mobile/home', async (route) => {
-    await new Promise((r) => setTimeout(r, 2500));
-    return route.continue();
-  });
-  await page.route((u) => u.pathname === '/api/v1/agentbook-core/agent/message', async (route) => {
-    await new Promise((r) => setTimeout(r, 2500));
+    await new Promise((r) => setTimeout(r, 4000));
     return route.continue();
   });
   await loginAs(page, 'maya');
   await settle(page);
   errors.console.length = 0; // sign-in noise only
-  const moving = () => page.evaluate(() =>
-    Array.from(document.querySelectorAll('*'))
-      .filter((el) => {
-        const cs = getComputedStyle(el);
-        return cs.animationName !== 'none' && parseFloat(cs.animationDuration) > 0.001;
-      })
-      .map((el) => el.getAttribute('data-testid') || el.tagName));
-  await page.goto('/app');
+  await page.goto('/app', { waitUntil: 'commit' });
   await expect(page.getByTestId(SEL.home.skeleton)).toBeVisible();
-  expect(await moving()).toEqual([]);
+  await reduceMotion(page);
+  expect(await moving(page)).toEqual([]);
+});
+
+test('reduced motion: nothing animates on the chat typing indicator', async ({ page, errors }) => {
+  await page.route((u) => u.pathname === '/api/v1/agentbook-core/agent/message', async (route) => {
+    await new Promise((r) => setTimeout(r, 4000));
+    return route.continue();
+  });
+  await loginAs(page, 'maya');
+  await settle(page);
   await page.goto('/app/chat');
+  await expect(page.getByTestId(SEL.chat.screen)).toBeVisible();
   await expect(page.getByTestId(SEL.chat.loading)).toHaveCount(0, { timeout: 30_000 });
   await proveLocale(page);
+  errors.console.length = 0; // sign-in noise only
+  await reduceMotion(page);
   await page.getByTestId(SEL.chat.input).fill('hello');
   await page.getByTestId(SEL.chat.send).click();
   await expect(page.getByTestId(SEL.chat.typing)).toBeVisible();
-  expect(await moving()).toEqual([]);
+  expect(await moving(page)).toEqual([]);
 });

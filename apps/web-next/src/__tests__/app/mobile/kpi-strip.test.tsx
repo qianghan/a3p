@@ -38,6 +38,18 @@ describe('KpiStrip', () => {
     expect(tile('tax')).toHaveTextContent('CA$6,150');
   });
 
+  // WCAG 2.5.3 Label in Name, as axe checks it (label-content-name-mismatch): the tile's VISIBLE text, read from its
+  // text nodes, must be contained in its accessible name. The label, the amount and the overdue sub-line are separate
+  // spans; with no whitespace between them the visible text reads 'Cash today$12,500' and is not found inside the
+  // name 'Cash today $12,500'. (Production: only cash + outstanding failed; a lone dash is not human-interpretable.)
+  it.each(['en', 'fr-CA', 'zh-CN'])('every tile\'s visible text is contained in its accessible name (%s)', (locale) => {
+    renderStrip(homeFixture(), locale);
+    const norm = (x: string) => x.replace(/[\s\u00a0\u202f]+/g, ' ').trim();
+    for (const id of ['month_net', 'cash', 'outstanding', 'tax']) {
+      expect(norm(tile(id).getAttribute('aria-label') ?? ''), `${id} (${locale})`).toContain(norm(tile(id).textContent ?? ''));
+    }
+  });
+
   it('every tile is a ≥44px button that opens a dialog', () => {
     renderStrip(homeFixture());
     for (const id of ['month_net', 'cash', 'outstanding', 'tax']) {

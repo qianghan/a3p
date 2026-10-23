@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { MUTED_MIX_PCT, PRIMARY_STRONG_BLACK_PCT, tokens } from '@/app/app/_kit/tokens';
+import { MUTED_MIX_PCT, PRIMARY_STRONG_BLACK_PCT, PRIMARY_TEXT_FG_PCT, tokens } from '@/app/app/_kit/tokens';
 import { DOT_KEYFRAMES } from '@/app/app/chat/_components/ChatParts';
 
 type RGB = [number, number, number];
@@ -31,12 +31,24 @@ describe('mobile contrast (WCAG AA 4.5:1)', () => {
   it('tokens emit the mixes the maths below assumes', () => {
     expect(tokens.color.muted).toContain(`${MUTED_MIX_PCT}%`);
     expect(tokens.color.primaryStrong).toContain(`black ${PRIMARY_STRONG_BLACK_PCT}%`);
+    expect(tokens.color.primaryInk).toContain(`hsl(var(--foreground)) ${PRIMARY_TEXT_FG_PCT}%`);
   });
 
   for (const [name, th] of [['light', light], ['dark', dark]] as const) {
     it(`muted text clears 4.5:1 on background, card and muted surfaces (${name})`, () => {
       const fg = mix(th['muted-foreground'], th['foreground'], MUTED_MIX_PCT);
       for (const surface of ['background', 'card', 'muted']) expect(ratio(fg, th[surface])).toBeGreaterThanOrEqual(4.5);
+    });
+    // Measured on production by axe: the brand colour AS TEXT was 3.63:1 on the card (active tab label, 11px) and
+    // 3.29:1 on its own 12% tint (info-tone banner title). Text uses primaryInk, not primary.
+    it(`brand-coloured text (primaryInk) clears 4.5:1 on background, card and its own tint (${name})`, () => {
+      const fg = mix(th['primary'], th['foreground'], PRIMARY_TEXT_FG_PCT);
+      for (const surface of ['background', 'card']) expect(ratio(fg, th[surface])).toBeGreaterThanOrEqual(4.5);
+      // primarySoft = --primary at 12% over the page background
+      const tint = mix(th['background'], th['primary'], 12);
+      expect(ratio(fg, tint)).toBeGreaterThanOrEqual(4.5);
+      const tintOnCard = mix(th['card'], th['primary'], 12);
+      expect(ratio(fg, tintOnCard)).toBeGreaterThanOrEqual(4.5);
     });
     it(`white text on the strong primary fill clears 4.5:1 (${name})`, () => {
       const fill = mix(th['primary'], BLACK, PRIMARY_STRONG_BLACK_PCT);
@@ -48,6 +60,8 @@ describe('mobile contrast (WCAG AA 4.5:1)', () => {
     expect(ratio(light['muted-foreground'], light['muted'])).toBeLessThan(4.5);
     expect(ratio(light['primary-foreground'], light['primary'])).toBeLessThan(4.5);
     expect(ratio(dark['primary-foreground'], dark['primary'])).toBeLessThan(4.5);
+    expect(ratio(light['primary'], light['card'])).toBeLessThan(4.5); // brand text on the card (tab label)
+    expect(ratio(light['primary'], mix(light['background'], light['primary'], 12))).toBeLessThan(4.5); // banner title
   });
 });
 
