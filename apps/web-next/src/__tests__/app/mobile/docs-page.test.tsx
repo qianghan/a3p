@@ -472,24 +472,42 @@ describe('Docs list — paging and viewer handoff', () => {
     expect(MockIntersectionObserver.latest().options?.root).toBe(document.getElementById('mobile-main'));
   });
 
-  // Layout shift is impact-fraction x distance-fraction: an idle sentinel that is a 51 px padded box scored 0.06 per
-  // page appended (it sits in view when rows are inserted above it), 0.12 over a Docs scroll, past the 0.1 limit.
-  // Idle it must be a hairline; it only takes space while it has something to say.
-  it('keeps the idle sentinel a hairline (no layout shift) and only pads it while it has content', async () => {
+  // Layout shift is impact-fraction x distance-fraction. The sentinel sits in view when a page is appended above it, so
+  // ANY in-flow box it has gets pushed off-screen and scores: 51 px x 390 px of a 390 x 844 viewport = 0.0604 per page.
+  // Measured on production twice: first as an idle padded box, then (after making it a hairline while idle) as the
+  // 52 px 'Loading more...' box. So the sentinel stays a hairline always, and the loading message is a fixed pill that
+  // inserting rows cannot displace.
+  it('keeps the sentinel a hairline, even while loading, and shows "Loading more…" as a fixed pill', async () => {
     let release!: (r: Response) => void;
     mockApi((p) => (p.get('cursor') === 'c2' ? new Promise<Response>((res) => { release = res; }) : listOf([raw()], { nextCursor: 'c2' })));
     renderPage();
     await rowsOf();
     await waitFor(() => expect(MockIntersectionObserver.instances.length).toBeGreaterThan(0));
     const sentinel = [...MockIntersectionObserver.latest().observed][0] as HTMLElement;
-    expect(sentinel.style.padding).toMatch(/^0(px)?$/);
-    expect(parseFloat(sentinel.style.minHeight)).toBeLessThanOrEqual(1);
+    const hairline = () => {
+      expect(sentinel.style.padding).toMatch(/^0(px)?$/);
+      expect(parseFloat(sentinel.style.minHeight)).toBeLessThanOrEqual(1);
+    };
+    hairline();
     // The status line stays mounted (a live region added together with its text is often not announced).
-    expect(within(sentinel).getByRole('status')).toBeInTheDocument();
+    const status = within(sentinel).getByRole('status');
     act(() => MockIntersectionObserver.latest().fire(true));
     expect(await screen.findByText('Loading more…')).toBeInTheDocument();
-    expect(parseFloat(sentinel.style.padding)).toBeGreaterThanOrEqual(16);
+    hairline(); // still a hairline while loading
+    expect(status.style.position).toBe('fixed'); // out of flow: new rows cannot push it
     await act(async () => release(listOf([raw({ id: 'e9' })], { nextCursor: null, counts: null })));
+  });
+
+  it('a failed page puts the Retry button back in flow (it must be reachable), padded', async () => {
+    mockApi((p) => (p.get('cursor') === 'c2' ? Promise.reject(new Error('boom')) : listOf([raw()], { nextCursor: 'c2' })));
+    renderPage();
+    await rowsOf();
+    await waitFor(() => expect(MockIntersectionObserver.instances.length).toBeGreaterThan(0));
+    act(() => MockIntersectionObserver.latest().fire(true));
+    const retry = await screen.findByRole('button', { name: 'Retry' });
+    const sentinel = retry.parentElement as HTMLElement;
+    expect(parseFloat(sentinel.style.padding)).toBeGreaterThanOrEqual(16);
+    expectTouchTarget(retry);
   });
 
   it('does not request a page when the observer fires while one is already loading', async () => {

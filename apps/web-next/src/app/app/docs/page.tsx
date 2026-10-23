@@ -15,6 +15,7 @@ import { readJson, writeJson } from '../_lib/safe-storage';
 import { parseDocFilter, saveDocNav } from '../_lib/doc-nav';
 import { formatTime } from '../_lib/format';
 import { Skeleton, EmptyState, buttonStyle, iconButtonStyle, tokens, TOUCH, visuallyHidden } from '../_kit';
+import { TAB_BAR_CLEARANCE } from '../_shell/MobileShell';
 import { FilterChips } from './_components/FilterChips';
 import { DocItem } from './_components/DocItem';
 import { AiBanner } from './_components/AiBanner';
@@ -340,7 +341,11 @@ function DocsList({ filter, q, view, currency, online, refreshToken, onCounts, o
     const showMore = !!cursor && items.length > 0 && !offlineNow;
     // Without IntersectionObserver, after a failed page, and while a pressed button's own request runs.
     const showButton = showMore && (!supported || moreError || (manualMore && loadingMore));
-    const sentinelBusy = loadingMore || moreError || showButton;
+    // In-flow space is only for things the user must be able to reach (the Retry / Load more button, the error).
+    // Plain loading is a fixed pill: any in-flow box here is in view when rows are appended above it, gets pushed
+    // off-screen, and scores as layout shift (measured on production: 0.06 per page, 0.12 over a Docs scroll).
+    const sentinelBusy = moreError || showButton;
+    const loadingPill = loadingMore && !sentinelBusy;
     const time = staleAt ? formatTime(staleAt, locale) : '';
     body = (
       <>
@@ -373,12 +378,20 @@ function DocsList({ filter, q, view, currency, online, refreshToken, onCounts, o
           </ul>
         )}
         {showMore && (
-          // Idle, the sentinel is a hairline: it sits in view when a page is appended above it, and a 51 px padded box
-          // that moves counts as layout shift (0.06 per page, 0.12 over a Docs scroll). It only takes space while it
-          // has something to show (loading, an error, or the button).
+          // The sentinel is a hairline unless it holds the Retry / Load more button (see sentinelBusy).
           <div ref={sentinelRef} style={{ padding: sentinelBusy ? tokens.space.lg : 0, minHeight: sentinelBusy ? TOUCH : 1, display: 'grid', gap: tokens.space.sm, justifyItems: 'center' }}>
             {/* Always mounted with the sentinel: a live region added together with its text is often not announced. */}
-            <p role="status" aria-live="polite" style={{ margin: 0, fontSize: tokens.font.sm, color: moreError ? tokens.color.critical : tokens.color.muted }}>
+            <p
+              role="status"
+              aria-live="polite"
+              style={loadingPill
+                ? {
+                    position: 'fixed', left: '50%', transform: 'translateX(-50%)', bottom: `calc(${TAB_BAR_CLEARANCE} + ${tokens.space.sm}px)`,
+                    margin: 0, padding: `${tokens.space.xs}px ${tokens.space.md}px`, borderRadius: tokens.radius.pill, zIndex: 5,
+                    background: tokens.color.card, border: `1px solid ${tokens.color.border}`, fontSize: tokens.font.sm, color: tokens.color.muted,
+                  }
+                : { margin: 0, fontSize: tokens.font.sm, color: moreError ? tokens.color.critical : tokens.color.muted }}
+            >
               {loadingMore ? t('mobile.docs.loading_more') : moreError ? t('mobile.docs.load_more_failed') : ''}
             </p>
             {showButton && (
