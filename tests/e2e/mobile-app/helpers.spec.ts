@@ -10,6 +10,8 @@ import {
   freshEmail,
   neverCachePaths,
   clockTime,
+  loginRetryDelayMs,
+  MAX_LOGIN_RETRIES,
   calendarDay,
   HOME_SNAPSHOT_STORAGE_KEY,
   claimLogin,
@@ -145,5 +147,37 @@ test.describe('@mobile-helpers', () => {
     expect(docsBadgeText(7)).toBe('7');
     expect(docsBadgeText(99)).toBe('99');
     expect(docsBadgeText(100)).toBe('99+');
+  });
+});
+
+
+test.describe('loginRetryDelayMs (the login endpoint rate-limits: 429 is waited out, never a 30 s hang)', () => {
+  test('only a 429 is retried; every other status is final', () => {
+    for (const status of [200, 302, 400, 401, 403, 500, 503]) expect(loginRetryDelayMs(status, null, 0)).toBeNull();
+    expect(loginRetryDelayMs(429, null, 0)).not.toBeNull();
+  });
+
+  test('honours Retry-After in seconds, with a small buffer', () => {
+    expect(loginRetryDelayMs(429, '4', 0)).toBe(4_500);
+  });
+
+  test('honours an HTTP-date Retry-After', () => {
+    const inSix = new Date(Date.now() + 6_000).toUTCString();
+    const d = loginRetryDelayMs(429, inSix, 0) as number;
+    expect(d).toBeGreaterThan(4_000);
+    expect(d).toBeLessThanOrEqual(7_500);
+  });
+
+  test('a missing or unreadable Retry-After falls back to a default; absurd values are capped', () => {
+    expect(loginRetryDelayMs(429, null, 0)).toBe(15_500);
+    expect(loginRetryDelayMs(429, 'soon', 0)).toBe(15_500);
+    expect(loginRetryDelayMs(429, '86400', 0)).toBe(60_500);
+    expect(loginRetryDelayMs(429, '0', 0)).toBe(1_500);
+  });
+
+  test('gives up after MAX_LOGIN_RETRIES so a genuinely blocked login fails loudly instead of looping', () => {
+    expect(MAX_LOGIN_RETRIES).toBe(3);
+    expect(loginRetryDelayMs(429, '1', MAX_LOGIN_RETRIES - 1)).not.toBeNull();
+    expect(loginRetryDelayMs(429, '1', MAX_LOGIN_RETRIES)).toBeNull();
   });
 });

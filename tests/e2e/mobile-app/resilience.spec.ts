@@ -24,6 +24,19 @@ import { SNAPSHOT_PREFIX } from '../../../apps/web-next/src/lib/mobile/snapshot-
  */
 test.use({ viewport: MOBILE_VIEWPORT, serviceWorkers: 'block', strictErrors: false });
 
+/**
+ * Next prefetches the RSC payload of links on screen. With the network cut (the fault these tests inject) that fetch
+ * fails and Next logs `Failed to fetch RSC payload for <url>. Falling back to browser navigation.` Forgive exactly that
+ * line, and ONLY in the tests that go offline: online it would mean a broken RSC route and must fail. afterEach runs
+ * before the collector's own teardown assertion, so dropping the lines here is what it checks.
+ */
+test.afterEach(async ({ errors }, testInfo) => {
+  if (!/offline/i.test(testInfo.title)) return;
+  for (let i = errors.console.length - 1; i >= 0; i--) {
+    if (/^Failed to fetch RSC payload for .* Falling back to browser navigation\./s.test(errors.console[i])) errors.console.splice(i, 1);
+  }
+});
+
 const TOKEN = '@@TIME@@';
 const CORE = '/api/v1/agentbook-core';
 const EXPENSE = '/api/v1/agentbook-expense';

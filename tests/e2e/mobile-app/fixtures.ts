@@ -353,8 +353,17 @@ export async function totalsSnapshot(page: Page): Promise<Totals> {
  * '@playwright/test' are unaffected.
  */
 export interface Collected { console: string[]; pageErrors: string[] }
-/** Console noise that is NOT ours and is documented here with a reason. Starts empty. */
-const IGNORED_CONSOLE: RegExp[] = [];
+/**
+ * Console lines that are known, benign and fully explained. Every entry is an exact-prefix match and says why.
+ * - The shell's auth + plugin hydrators log `console.error('Error fetching user|plugins: ...', err)` when a request they
+ *   have IN FLIGHT is aborted by a navigation (a journey that clicks a link mid-load, or a deliberate reload). The abort
+ *   surfaces as `TypeError: Failed to fetch`. It is OUR app's log, but it is the navigation, not a failure: a genuinely
+ *   failing API also fails the assertions on the data. Anything else the app logs still fails the test.
+ */
+const IGNORED_CONSOLE: RegExp[] = [
+  /^Error fetching user: TypeError: Failed to fetch/,
+  /^Error fetching plugins: Failed to fetch/,
+];
 
 export const test = base.extend<{ errors: Collected; strictErrors: boolean }>({
   strictErrors: [true, { option: true }],

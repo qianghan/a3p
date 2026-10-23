@@ -117,3 +117,9 @@ tests/e2e/mobile-app/test-results/
 .env*.local
 .worktrees/
 .env*
+
+# Ad-hoc screenshots at the repo root (never product assets)
+/*.png
+# Launch scorecard raw artifacts (the report itself is committed)
+tests/e2e/mobile-app/results/
+tests/e2e/mobile-app/playwright-report/

@@ -40,6 +40,9 @@ Phase 11 analysis (100-feature comparison):
 
 ## Feature Inventory
 
+### Mobile app (/app PWA)
+- Glance-then-one-tap Home (alerts, 4 KPIs, next up), Docs with viewer + AI categorize/archive, camera Capture with offline queue, Chat with history/plans/receipts; en/fr-CA/zh-CN.
+
 ### Expense Workflow (the hero flow)
 - Telegram photo → Vercel Blob → Gemini Vision OCR → auto-record expense
 - Telegram PDF → same flow

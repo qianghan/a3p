@@ -84,11 +84,14 @@ for (const persona of PERSONA_KEYS) {
     test('deep links + unknown route', async ({ page, errors }) => J.deepLinks(page, persona, { ...ctx, errors }));
     test('language switch fr-CA -> English (no prod mutation)', async ({ page }) => J.languageSwitch(page));
 
-    test("totals invariant: after every journey the persona's books are exactly where they started", async ({ page }) => {
+    test("totals invariant: after every journey the persona's books are exactly where they started", async ({ page, errors }) => {
       test.setTimeout(150_000);
       expect(await countByQuery(page, tag), 'nothing of this run is left in the list').toBe(0);
       if (!seeded) return; // a fresh account has no baseline: the tag sweep above is its invariant
       for (const id of ctx.created) await deleteExpenseQuietly(page, id);
+      // Safety-net deletes of fixtures the journeys already removed answer 404 ('already gone'); the browser logs those.
+      // Drop exactly the 404 lines; any other failing request still fails this test.
+      errors.console.splice(0, errors.console.length, ...errors.console.filter((m) => !/Failed to load resource: the server responded with a status of 404/.test(m)));
       expect(await countByQuery(page, tag, '&archived=true'), 'nothing archived is left').toBe(0);
       const after = await totalsSnapshot(page);
       expect(diffTotals(baseline as Totals, after), 'fields that did not return to their starting value').toEqual([]);
