@@ -11,7 +11,7 @@ import { tokens } from '@/app/app/_kit/tokens';
 
 const TAP = 44;
 // CSS, not copy: kept out of JSX so the English-string guard doesn't read it as text.
-const DOT_KEYFRAMES = '@keyframes abChatDot{0%,80%,100%{opacity:.25}40%{opacity:1}}';
+export const DOT_KEYFRAMES = '@keyframes abChatDot{0%,80%,100%{opacity:.25}40%{opacity:1}}@media (prefers-reduced-motion: reduce){[data-chat-dot]{animation:none !important;opacity:.6}}';
 const bubble: React.CSSProperties = {
   padding: '10px 12px', borderRadius: 16, fontSize: 15, lineHeight: 1.45, overflowWrap: 'anywhere',
 };
@@ -140,7 +140,7 @@ export function TypingIndicator({ label }: { label: string }) {
       style={{ alignSelf: 'flex-start', display: 'flex', gap: 4, padding: '12px 14px', borderRadius: 16, background: 'hsl(var(--card))', border: '1px solid hsl(var(--border))' }}>
       <style>{DOT_KEYFRAMES}</style>
       {[0, 1, 2].map((i) => (
-        <span key={i} aria-hidden style={{
+        <span key={i} aria-hidden data-chat-dot style={{
           width: 7, height: 7, borderRadius: 4, background: 'hsl(var(--muted-foreground))',
           animation: `abChatDot 1.2s ${i * 0.2}s infinite ease-in-out`,
         }} />

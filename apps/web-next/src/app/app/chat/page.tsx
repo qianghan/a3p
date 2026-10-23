@@ -217,7 +217,7 @@ export default function MobileChat() {
           </div>
         )}
 
-        <div ref={listRef} data-testid="chat-list" role="log" aria-live="polite"
+        <div ref={listRef} data-testid="chat-list" role="log" aria-live="polite" tabIndex={0} aria-labelledby="chat-title"
           style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: '12px 12px 16px', display: 'flex', flexDirection: 'column', gap: 10, overscrollBehavior: 'contain' }}>
           {state.history === 'loading' && (
             <div data-testid="chat-history-loading" role="status" style={{ alignSelf: 'center', fontSize: 14, color: 'hsl(var(--muted-foreground))' }}>

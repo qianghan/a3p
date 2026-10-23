@@ -106,7 +106,7 @@ describe('/app hygiene — the real tree', () => {
       'initOfflineQueueReplay()',
       "'/api/v1/push/subscribe'",
       'pushManager.subscribe',
-      '<LanguageSwitcher />',
+      '<LanguageSwitcher size="touch" />',
     ]) {
       expect(shell, needle).toContain(needle);
     }

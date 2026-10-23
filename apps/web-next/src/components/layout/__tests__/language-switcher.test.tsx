@@ -195,4 +195,32 @@ describe('LanguageSwitcher', () => {
     render(<LanguageSwitcher />);
     expect(await waitForSwitcher()).toBeTruthy();
   });
+
+  describe('size', () => {
+    it('touch: trigger and every menu item are at least 44px (class contract; jsdom has no layout)', async () => {
+      mockConfig('en-US');
+      render(<LanguageSwitcher size="touch" />);
+      const trigger = await waitForSwitcher();
+      expect(trigger.className).toContain('min-h-[44px]');
+      expect(trigger.className).toContain('min-w-[44px]');
+      fireEvent.click(trigger);
+      const items = screen.getAllByRole('menuitemradio');
+      expect(items.length).toBeGreaterThanOrEqual(2);
+      for (const item of items) expect(item.className).toContain('min-h-[44px]');
+    });
+
+    it('default and omitted: markup carries no 44px minimums (desktop unchanged)', async () => {
+      mockConfig('en-US');
+      const { unmount } = render(<LanguageSwitcher />);
+      const omitted = await waitForSwitcher();
+      expect(omitted.className).not.toContain('44px');
+      const omittedClass = omitted.className;
+      unmount();
+      render(<LanguageSwitcher size="default" />);
+      const explicit = await waitForSwitcher();
+      expect(explicit.className).toBe(omittedClass);
+      fireEvent.click(explicit);
+      for (const item of screen.getAllByRole('menuitemradio')) expect(item.className).not.toContain('44px');
+    });
+  });
 });

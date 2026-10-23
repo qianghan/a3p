@@ -20,7 +20,7 @@ export function buttonStyle(variant: ButtonVariant = 'primary', disabled = false
     opacity: disabled ? 0.6 : 1,
   };
   if (variant === 'primary') {
-    return { ...base, background: tokens.color.primary, color: tokens.color.primaryFg, border: `1px solid ${tokens.color.primary}` };
+    return { ...base, background: tokens.color.primaryStrong, color: tokens.color.primaryFg, border: `1px solid ${tokens.color.primaryStrong}` };
   }
   if (variant === 'secondary') {
     return { ...base, background: tokens.color.card, color: tokens.color.fg, border: `1px solid ${tokens.color.border}` };

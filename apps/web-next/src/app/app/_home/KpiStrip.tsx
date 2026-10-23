@@ -68,7 +68,9 @@ export function KpiStrip({ data, actions }: { data: MobileHome; actions: AlertAc
     const cents = kpiCents(data, id);
     const value = cents === null || !Number.isFinite(cents) ? t('mobile.kit.not_available') : moneyText(cents, data.currency, locale);
     const loss = id === 'month_net' && cents !== null && cents < 0 ? t('mobile.home.kpi.net_loss') : null;
-    return [kpiLabel(t, id), value, loss, id === 'outstanding' ? overdue : null].filter(Boolean).join(', ');
+    // Label in Name (WCAG 2.5.3): the visible text is label, then value, then the overdue sub-line. Keep that
+    // exact order and plain-space separators (a comma is not in the DOM text, so the name would not contain it).
+    return [kpiLabel(t, id), value, id === 'outstanding' ? overdue : null, loss].filter(Boolean).join(' ');
   };
 
   return (

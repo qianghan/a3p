@@ -54,7 +54,7 @@ function matchOption(stored: string | undefined): string {
   return OPTIONS.find((o) => o.value.toLowerCase().split('-')[0] === lang)?.value ?? fallback;
 }
 
-export function LanguageSwitcher() {
+export function LanguageSwitcher({ size = 'default' }: { size?: 'default' | 'touch' } = {}) {
   const t = useT();
   const [open, setOpen] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -151,7 +151,7 @@ export function LanguageSwitcher() {
         aria-expanded={open}
         aria-label={t('common.change_language')}
         title={t('common.change_language')}
-        className="flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-sm text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-50"
+        className={`flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-sm text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-50${size === 'touch' ? ' min-h-[44px] min-w-[44px] justify-center' : ''}`}
       >
         <Languages className="w-4 h-4" />
         <span className="hidden sm:inline text-xs font-medium">
@@ -175,7 +175,7 @@ export function LanguageSwitcher() {
               role="menuitemradio"
               aria-checked={o.value === current}
               onClick={() => void choose(o.value)}
-              className="flex w-full items-center justify-between px-3 py-2 text-left text-sm text-foreground hover:bg-muted"
+              className={`flex w-full items-center justify-between px-3 py-2 text-left text-sm text-foreground hover:bg-muted${size === 'touch' ? ' min-h-[44px]' : ''}`}
             >
               {/* Each language is named IN that language — someone who cannot
                   read the current UI language still recognises their own. */}

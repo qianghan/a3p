@@ -177,7 +177,7 @@ function DocsScreen() {
           maxLength={SEARCH_MAX_LENGTH}
           aria-label={t('mobile.docs.search_label')}
           placeholder={t('mobile.docs.search_placeholder')}
-          style={{ flex: 1, minWidth: 0, minHeight: TOUCH - 2, border: 'none', outline: 'none', background: 'transparent', color: tokens.color.fg, fontSize: 16 }}
+          style={{ flex: 1, minWidth: 0, minHeight: TOUCH, alignSelf: 'stretch', border: 'none', outline: 'none', background: 'transparent', color: tokens.color.fg, fontSize: 16 }}
         />
       </label>
 
@@ -340,6 +340,7 @@ function DocsList({ filter, q, view, currency, online, refreshToken, onCounts, o
     const showMore = !!cursor && items.length > 0 && !offlineNow;
     // Without IntersectionObserver, after a failed page, and while a pressed button's own request runs.
     const showButton = showMore && (!supported || moreError || (manualMore && loadingMore));
+    const sentinelBusy = loadingMore || moreError || showButton;
     const time = staleAt ? formatTime(staleAt, locale) : '';
     body = (
       <>
@@ -372,7 +373,10 @@ function DocsList({ filter, q, view, currency, online, refreshToken, onCounts, o
           </ul>
         )}
         {showMore && (
-          <div ref={sentinelRef} style={{ padding: tokens.space.lg, minHeight: TOUCH, display: 'grid', gap: tokens.space.sm, justifyItems: 'center' }}>
+          // Idle, the sentinel is a hairline: it sits in view when a page is appended above it, and a 51 px padded box
+          // that moves counts as layout shift (0.06 per page, 0.12 over a Docs scroll). It only takes space while it
+          // has something to show (loading, an error, or the button).
+          <div ref={sentinelRef} style={{ padding: sentinelBusy ? tokens.space.lg : 0, minHeight: sentinelBusy ? TOUCH : 1, display: 'grid', gap: tokens.space.sm, justifyItems: 'center' }}>
             {/* Always mounted with the sentinel: a live region added together with its text is often not announced. */}
             <p role="status" aria-live="polite" style={{ margin: 0, fontSize: tokens.font.sm, color: moreError ? tokens.color.critical : tokens.color.muted }}>
               {loadingMore ? t('mobile.docs.loading_more') : moreError ? t('mobile.docs.load_more_failed') : ''}

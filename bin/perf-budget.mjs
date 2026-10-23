@@ -147,7 +147,91 @@ function fontBytes(nextDir) {
   return total / KB;
 }
 
+/**
+ * /app PWA budgets: the measured pre-redesign First Load JS + 40 kB (gzip, as
+ * `next build` prints it), per spec 2026-10-07 section 8.3. The baseline lives
+ * in bin/perf-baseline-mobile.json with the commit and method it was measured
+ * by. Routes the redesign added (the viewer) borrow their parent's baseline.
+ * The shared-by-all figure is bounded too: a bundle "fix" once moved cost out
+ * of a route and into the shared runtime manifest, which a per-route check
+ * alone cannot see.
+ */
+export const MOBILE_BASELINE_ROUTES = ['/app', '/app/capture', '/app/chat', '/app/docs'];
+
+export function mobileBudgets(baseline) {
+  // A route can carry its own allowance, but only with a written reason: raising a budget silently is the failure
+  // mode this guard exists to prevent. The reason lives next to the number, in bin/perf-baseline-mobile.json.
+  const overrides = baseline.overrides ?? {};
+  for (const [route, o] of Object.entries(overrides)) {
+    if (!(route in baseline.routes)) throw new Error(`perf-baseline-mobile: override for unknown route ${route}`);
+    if (typeof o?.allowanceKb !== 'number' || typeof o?.reason !== 'string' || o.reason.trim() === '') {
+      throw new Error(`perf-baseline-mobile: override for ${route} needs a numeric allowanceKb and a non-empty reason`);
+    }
+  }
+  const allowanceFor = (route) => overrides[route]?.allowanceKb ?? baseline.allowanceKb;
+  const out = {};
+  for (const [route, kb] of Object.entries(baseline.routes)) out[route] = kb + allowanceFor(route);
+  for (const [route, parent] of Object.entries(baseline.inheritFrom ?? {})) {
+    out[route] = baseline.routes[parent] + allowanceFor(parent);
+  }
+  return out;
+}
+
+export function checkMobileRoutes(routes, baseline, sharedKb = null) {
+  const failures = [];
+  for (const [route, budget] of Object.entries(mobileBudgets(baseline))) {
+    const r = routes.find((x) => x.route === route);
+    if (!r) {
+      failures.push(`${route}: missing from the build table — the mobile budget cannot be checked`);
+      continue;
+    }
+    if (r.firstLoadKb > budget) {
+      failures.push(`${route}: First Load JS ${r.firstLoadKb.toFixed(0)} kB exceeds mobile budget ${budget} kB`);
+    }
+  }
+  if (typeof baseline.sharedKb === 'number') {
+    const budget = baseline.sharedKb + baseline.allowanceKb;
+    if (sharedKb === null) {
+      failures.push('shared First Load JS: missing from the build table — the shared mobile budget cannot be checked');
+    } else if (sharedKb > budget) {
+      failures.push(`shared First Load JS ${sharedKb.toFixed(0)} kB exceeds mobile budget ${budget} kB`);
+    }
+  }
+  return failures;
+}
+
+export function recordMobileBaseline(log, commit, measuredAt) {
+  const routes = parseRoutes(log);
+  const picked = {};
+  for (const route of MOBILE_BASELINE_ROUTES) {
+    const r = routes.find((x) => x.route === route);
+    if (!r) throw new Error(`baseline log has no row for ${route}`);
+    picked[route] = Math.round(r.firstLoadKb);
+  }
+  const shared = parseShared(log);
+  return {
+    commit,
+    measuredAt,
+    method: 'First Load JS from the `next build` route table of the last main commit before the mobile redesign (first parent of the commit that added apps/web-next/src/app/app/_kit/index.ts); CI Build-job log when available, else a local ./bin/vercel-build.sh in a git worktree of that commit.',
+    unit: 'kB First Load JS (gzip) as printed by next build',
+    allowanceKb: 40,
+    routes: picked,
+    ...(shared !== null ? { sharedKb: Math.round(shared) } : {}),
+    inheritFrom: { '/app/docs/[id]': '/app/docs' },
+  };
+}
+
 function main() {
+  if (process.argv[2] === '--record-mobile-baseline') {
+    const [, , , logFile, commit] = process.argv;
+    if (!logFile || !commit) {
+      console.error('usage: node bin/perf-budget.mjs --record-mobile-baseline <build-log> <commit-sha>');
+      process.exit(2);
+    }
+    const b = recordMobileBaseline(fs.readFileSync(logFile, 'utf8'), commit, new Date().toISOString());
+    process.stdout.write(JSON.stringify(b, null, 2) + '\n');
+    return;
+  }
   const logPath = process.argv[2];
   if (!logPath || !fs.existsSync(logPath)) {
     console.error('usage: node bin/perf-budget.mjs <next-build-log> ');
@@ -190,6 +274,29 @@ function main() {
     if (r.firstLoadKb > budget) {
       failures.push(`${r.route}: First Load JS ${r.firstLoadKb.toFixed(0)} kB exceeds ${budget} kB`);
     }
+  }
+
+  const baselineFile = new URL('./perf-baseline-mobile.json', import.meta.url);
+  if (fs.existsSync(baselineFile)) {
+    const baseline = JSON.parse(fs.readFileSync(baselineFile, 'utf8'));
+    const overridesFile = new URL('./perf-mobile-overrides.json', import.meta.url);
+    if (fs.existsSync(overridesFile)) {
+      const { _comment, ...overrides } = JSON.parse(fs.readFileSync(overridesFile, 'utf8'));
+      baseline.overrides = overrides;
+    }
+    console.log('=== /app PWA routes (baseline + ' + baseline.allowanceKb + ' kB) ===');
+    for (const [route, o] of Object.entries(baseline.overrides ?? {})) console.log(`    override ${route}: +${o.allowanceKb} kB — ${o.reason}`);
+    for (const [route, budget] of Object.entries(mobileBudgets(baseline))) {
+      const r = routes.find((x) => x.route === route);
+      console.log(`    ${route.padEnd(24)} ${r ? r.firstLoadKb.toFixed(0).padStart(4) + ' kB' : '   n/a'}  (budget ${budget})`);
+    }
+    failures.push(...checkMobileRoutes(routes, baseline, shared));
+  } else {
+    failures.push(
+      'bin/perf-baseline-mobile.json is missing — record the baseline first ' +
+        '(node bin/perf-budget.mjs --record-mobile-baseline <baseline-build-log> <baseline-commit-sha> > bin/perf-baseline-mobile.json); ' +
+        'the /app budget would otherwise be vacuous',
+    );
   }
 
   const nextDir = path.join(process.cwd(), 'apps', 'web-next', '.next');

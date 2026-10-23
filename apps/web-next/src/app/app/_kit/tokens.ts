@@ -10,6 +10,15 @@
  * Light and dark both work because the same variable names are redefined under
  * `.dark`; kit-tokens.test.tsx asserts every variable used here exists in both.
  */
+/**
+ * Mobile-scoped contrast adjustments (the shell variables are shared with the
+ * desktop and must not move). Mixing in sRGB toward a theme colour that is
+ * already high-contrast works in both themes: darker in light, lighter in dark.
+ * Ratios are asserted in kit-contrast.test.ts.
+ */
+export const MUTED_MIX_PCT = 20;
+export const PRIMARY_STRONG_BLACK_PCT = 32;
+
 const v = (name: string, alpha?: number): string =>
   alpha === undefined ? `hsl(var(--${name}))` : `hsl(var(--${name}) / ${alpha})`;
 
@@ -24,7 +33,10 @@ export const tokens = {
     primaryFg: v('primary-foreground'),
     primarySoft: v('primary', 0.12),
     primaryGlow: v('primary', 0.35),
-    muted: v('muted-foreground'),
+    /** Secondary text: --muted-foreground nudged toward --foreground so it clears 4.5:1 on card and muted surfaces. */
+    muted: `color-mix(in srgb, hsl(var(--muted-foreground)) ${100 - MUTED_MIX_PCT}%, hsl(var(--foreground)) ${MUTED_MIX_PCT}%)`,
+    /** Fill behind white text (primary buttons): --primary darkened so white on it is >= 4.5:1 in both themes. */
+    primaryStrong: `color-mix(in srgb, hsl(var(--primary)) ${100 - PRIMARY_STRONG_BLACK_PCT}%, black ${PRIMARY_STRONG_BLACK_PCT}%)`,
     mutedBg: v('muted'),
     good: v('success'),
     goodSoft: v('success', 0.12),
