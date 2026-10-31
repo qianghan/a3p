@@ -84,6 +84,24 @@ Client ID: `69d02fa4f1949b000dbfc51e` | Secret: `59be40029c47288c4db4acfd79ae56`
 cd tests/e2e && npx playwright test --config=playwright.config.ts
 ```
 
+### Mobile app (`/app` PWA)
+
+Installable PWA at `/app` (Home · Docs · Capture · Chat), separate from the desktop `/agentbook` UI.
+Code: `apps/web-next/src/app/app/` — `_lib/api.ts` (typed client, the only fetch layer), `_lib/useMobileData.ts`,
+`_kit/` (UI primitives), one folder per screen. Server composition in `apps/web-next/src/lib/mobile/`.
+Spec + launch gates: `docs/superpowers/specs/2026-10-07-mobile-app-ux-design.md` §8.
+E2E + gates: `tests/e2e/mobile-app/` (selector contract `selectors.ts`; personas maya/alex/sydney/fresh).
+Launch scorecard: `npx tsx tests/e2e/mobile-app/scorecard.ts --base https://agentbook.brainliber.com`
+→ `docs/superpowers/reports/2026-10-mobile-app-launch-report.md`.
+Chat photos go through `expenses/from-receipt` (idempotent), never `agent/message` attachments (Express-only OCR route).
+
+Rules learned the hard way (each caused a real failure):
+- In e2e, read the catalog locale only AFTER an `/app` page loaded and prove it (`expect(h1).toHaveText(t('<screen>.title'))`); Maya's tenant renders French.
+- Playwright drops media emulation (`reducedMotion`, etc.) on every navigation: apply it after load and assert `matchMedia` matched.
+- Never let a prod e2e act on seeded data: create a tagged fixture dated today, act on it, delete it.
+- A new screen/title ships with its `expectScreen` marker in `tests/e2e/mobile-app/helpers.ts`, via `t(...)`, never an English literal.
+- Infinite-scroll sentinels and loading indicators must not be in-flow boxes in view (layout shift); keep the sentinel a hairline.
+
 ### Building Plugin Frontends
 
 ```bash

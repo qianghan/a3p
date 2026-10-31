@@ -28,6 +28,10 @@
 | API proxy (generic) | `apps/web-next/src/app/api/v1/[plugin]/[...path]/route.ts` |
 | API proxy (dedicated) | `apps/web-next/src/app/api/v1/agentbook/{core,expense,invoice,tax}/[...path]/route.ts` |
 | Middleware (routing) | `apps/web-next/src/middleware.ts` — PLUGIN_ROUTE_MAP |
+| Mobile PWA screens | `apps/web-next/src/app/app/` (`_lib/api.ts` client, `_kit/` primitives) |
+| Mobile server composition | `apps/web-next/src/lib/mobile/` (home, alerts, upcoming, doc-mapper) |
+| Mobile e2e + launch gates | `tests/e2e/mobile-app/` (`scorecard.ts` runs every gate) |
+| Stripe price reconciliation | `agentbook/check-stripe-pricing-sync.ts` (read-only: code vs DB vs Stripe) |
 | AGI features | `packages/agentbook-framework/src/agi/` |
 | Proactive handlers | `packages/agentbook-framework/src/proactive-handlers/` |
 | Skills | `packages/agentbook-framework/src/skills/` |

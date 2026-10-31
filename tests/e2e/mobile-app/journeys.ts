@@ -107,6 +107,16 @@ function forgiveProbe(ctx: JourneyCtx | undefined) {
   ctx.errors.console.splice(0, ctx.errors.console.length, ...keep);
 }
 
+/**
+ * Narrower than forgiveProbe: drop only 404 lines. For the one 404 a journey provokes on purpose (asserting that a
+ * fixture it deleted is really gone, via an in-page fetch the browser logs); any other failing request still fails.
+ */
+function forgive404(ctx: JourneyCtx | undefined) {
+  if (!ctx?.errors) return;
+  const keep = ctx.errors.console.filter((m) => !/Failed to load resource: the server responded with a status of 404/.test(m));
+  ctx.errors.console.splice(0, ctx.errors.console.length, ...keep);
+}
+
 export async function home(page: Page, persona: PersonaKey) {
   await page.goto('/app');
   await expect(page.getByTestId(SEL.home.screen)).toBeVisible();
@@ -238,6 +248,15 @@ export async function archiveRoundTrip(page: Page, persona: PersonaKey, ctx?: Jo
     const before = await totalsSnapshot(page);
     await page.goto(`/app/docs/${id}`);
     await expect(page.getByTestId(SEL.viewer.screen)).toBeVisible();
+    // By design (PR 4) an UNCATEGORIZED document with no AI pick opens the category picker on arrival, once the pick
+    // check has finished. The fixture is uncategorized, so the picker covers the Archive button (a pointer-intercepting
+    // sheet, which is what failed here) until the user dismisses it. Do what a user does; tolerate the case where an AI
+    // suggestion arrived instead and the picker never opened.
+    const picker = page.getByRole('dialog');
+    if (await picker.waitFor({ state: 'visible', timeout: 6_000 }).then(() => true, () => false)) {
+      await page.keyboard.press('Escape');
+      await expect(picker).toHaveCount(0);
+    }
     await page.getByTestId(SEL.viewer.archive).click();
     await expect(page.getByTestId(SEL.viewer.restore)).toBeVisible();
     await expect.poll(async () => (await getExpense(page, id)).data.data.archivedAt, { timeout: 20_000 }).not.toBeNull();
@@ -255,9 +274,12 @@ export async function archiveRoundTrip(page: Page, persona: PersonaKey, ctx?: Jo
     expect((await listFilter(page, 'archived', { q: tag })).rows.map((r) => r.id), 'out of Archived').not.toContain(id);
     expect(diffTotals(before, await totalsSnapshot(page)), 'restore must not move any total').toEqual([]);
   } finally {
+    // Leave the viewer BEFORE deleting its document: a page that is still open on it refetches and logs a 404.
+    await page.goto('/app/docs', { waitUntil: 'commit' }).catch(() => undefined);
     await deleteExpenseQuietly(page, id);
   }
   expect((await getExpense(page, id)).status, 'fixture removed').toBe(404);
+  forgive404(ctx); // that 404 was the assertion
 }
 
 /**

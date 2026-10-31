@@ -116,6 +116,28 @@ export async function withPersonaPage<T>(
   }
 }
 
+/**
+ * The login endpoint rate-limits (`enforceRateLimit`, keyPrefix auth:login): about ten sign-ins in a short window from
+ * one IP, then `429`. The suites sign in dozens of times, so a 429 is EXPECTED load, not a failure: wait it out and try
+ * again, a bounded number of times, then fail loudly. (Measured on production: ten logins 0.7-0.9 s each, the next
+ * two got 429, then it recovered; without this a 429 shows up as a 30 s `waitForURL` timeout in an unrelated test.)
+ * Returns the delay to wait before retrying, or null when the status is final.
+ */
+export const MAX_LOGIN_RETRIES = 3;
+export function loginRetryDelayMs(status: number, retryAfter: string | null | undefined, attempt: number): number | null {
+  if (status !== 429 || attempt >= MAX_LOGIN_RETRIES) return null;
+  let seconds = 15; // no usable Retry-After: a conservative default
+  if (retryAfter) {
+    const n = Number(retryAfter);
+    if (Number.isFinite(n)) seconds = n;
+    else {
+      const at = Date.parse(retryAfter);
+      if (Number.isFinite(at)) seconds = Math.max(0, (at - Date.now()) / 1000);
+    }
+  }
+  return Math.round(Math.min(60, Math.max(1, seconds)) * 1000) + 500;
+}
+
 /** Sign in as a seeded persona, or register + sign in a brand-new empty account. */
 export async function loginAs(page: Page, persona: Persona): Promise<{ email: string }> {
   claimLogin(signedInAs, page.context(), persona);
@@ -147,7 +169,19 @@ export async function loginAs(page: Page, persona: Persona): Promise<{ email: st
   await page.goto('/login');
   await page.fill('input[type="email"]', email);
   await page.fill('input[type="password"]', password);
-  await page.click('button[type="submit"]');
+  for (let attempt = 0; ; attempt++) {
+    const answered = page.waitForResponse((r) => r.request().method() === 'POST' && new URL(r.url()).pathname === '/api/v1/auth/login', { timeout: 30_000 });
+    await page.click('button[type="submit"]');
+    const res = await answered;
+    const delay = loginRetryDelayMs(res.status(), res.headers()['retry-after'], attempt);
+    if (delay === null) {
+      expect(res.status(), `${persona}: the login request was answered ${res.status()}${res.status() === 429 ? ` after ${MAX_LOGIN_RETRIES} retries (rate limited)` : ''}`).toBeLessThan(400);
+      break;
+    }
+    await page.waitForTimeout(delay);
+    await page.fill('input[type="email"]', email);
+    await page.fill('input[type="password"]', password);
+  }
   // Anchored on the PATH: "/login?redirect=…" is where a FAILED login sits.
   await page.waitForURL((u) => !u.pathname.startsWith('/login'), { timeout: 30_000 });
 
