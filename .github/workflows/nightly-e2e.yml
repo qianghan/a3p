@@ -151,7 +151,10 @@ jobs:
 
   e2e:
     name: Phase ${{ matrix.phase }}
-    runs-on: ubuntu-latest
+    # Pinned: this job installs a Playwright browser, and `ubuntu-latest` moved to Ubuntu 26.04, where
+    # `npx playwright install --with-deps chromium` fails ("Playwright does not support chromium on ubuntu26.04-x64").
+    # Every phase died at that step before running a single test. Move to ubuntu-latest again once Playwright supports it.
+    runs-on: ubuntu-24.04
     needs: seed
     timeout-minutes: 25
     strategy:
