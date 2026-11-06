@@ -14,6 +14,9 @@ const GUIDES = [
   { n: '05', href: '/guides/startup-founders', title: 'For startup founders', blurb: 'Clean books from day one: burn, runway, invoicing, and startup tax.' },
   { n: '06', href: '/guides/connect-ai', title: 'Connect your AI assistant', blurb: 'Use AgentBook from Claude, Codex, ChatGPT or Gemini — and check it really works.' },
   { n: '07', href: '/guides/mcp-admin', title: 'Switch on the AI connector', blurb: 'For admins: the two one-time settings that let everyone else connect.' },
+  { n: '08', href: '/guides/year-end-checklist', title: 'Year-end checklist: 15 items', blurb: 'Close your 2026 books before Dec 31 — receipts, deductions, GST/HST, RRSP.' },
+  { n: '09', href: '/guides/year-end-bookkeeping-catchup', title: 'Catch up a year of bookkeeping', blurb: 'A 3-hour method, the 5 deductions Canadians miss most, and what to do before Dec 31.' },
+  { n: '10', href: '/guides/t2125-home-office-deductions', title: 'T2125 home office expenses', blurb: 'Detailed vs simplified, what counts, and the 3 mistakes that trigger CRA attention.' },
 ];
 
 export default function GuidesIndex() {

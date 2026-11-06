@@ -14,6 +14,9 @@ const GUIDES = [
   { n: '05', href: '/guides/zh/startup-founders', title: '写给创业者', blurb: '从第一天就把账做干净：现金消耗、可用月数、开票与创业税务。' },
   { n: '06', href: '/guides/zh/connect-ai', title: '连接你的 AI 助理', blurb: '在 Claude、Codex、ChatGPT 或 Gemini 里使用 AgentBook——并验证它真的连上了。' },
   { n: '07', href: '/guides/zh/mcp-admin', title: '开启 AI 连接器', blurb: '写给管理员：两项一次性设置，让其他所有人都能连上。' },
+  { n: '08', href: '/guides/zh/year-end-checklist', title: '年末检查清单：15 项', blurb: '在 12 月 31 日前结清 2026 年账目——收据、抵扣项、GST/HST、RRSP。' },
+  { n: '09', href: '/guides/zh/year-end-bookkeeping-catchup', title: '补完一整年的账', blurb: '3 小时补账方法、加拿大人最容易漏的 5 项抵扣，以及 12 月 31 日前要做的事。' },
+  { n: '10', href: '/guides/zh/t2125-home-office-deductions', title: 'T2125 家庭办公室费用', blurb: '详细法与简易法、哪些费用能算，以及最容易引起 CRA 注意的 3 个错误。' },
 ];
 
 export default function GuidesIndexZh() {

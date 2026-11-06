@@ -18,6 +18,9 @@ const GUIDE_SLUGS = [
   'startup-founders',
   'students',
   'workflows',
+  'year-end-checklist',
+  'year-end-bookkeeping-catchup',
+  't2125-home-office-deductions',
 ];
 
 const STATIC_ROUTES: Array<{ path: string; changeFrequency: MetadataRoute.Sitemap[number]['changeFrequency']; priority: number }> = [

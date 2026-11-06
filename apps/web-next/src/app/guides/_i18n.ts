@@ -26,6 +26,9 @@ export const GUIDE_ROUTES = [
   'sales-rep/materials',
   'sales-rep/earnings',
   'startup-founders',
+  'year-end-checklist',
+  'year-end-bookkeeping-catchup',
+  't2125-home-office-deductions',
 ] as const;
 
 export function guidesLocaleOf(pathname: string): GuidesLocale {
