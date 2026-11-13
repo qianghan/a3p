@@ -8,7 +8,7 @@ vi.mock('@/lib/agentbook-auto-categorize', () => ({ classifyExpenseWithGemini: l
 
 import { memDb } from '@/__tests__/helpers/mem-db';
 import { fullSeed } from '@/__tests__/helpers/mobile-fixtures';
-import { suggestCategory, rememberVendorCategory, MIN_AI_CONFIDENCE } from '../agentbook-suggest-category';
+import { suggestCategory, rememberVendorCategory, MIN_AI_CONFIDENCE } from '@/lib/agentbook-suggest-category';
 
 const seed = () => {
   const s = fullSeed();

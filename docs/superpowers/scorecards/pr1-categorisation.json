@@ -11,7 +11,7 @@
       "id": "G2-suggest",
       "text": "A suggestion comes from the vendor default, then a learned pattern, then one AI call (>= 0.55) — only a live expense account of this tenant, never suspense, and failure degrades to no suggestion.",
       "tests": [
-        "apps/web-next/src/lib/__tests__/agentbook-suggest-category.test.ts",
+        "apps/web-next/src/__tests__/lib/agentbook-suggest-category.test.ts",
         "apps/web-next/src/__tests__/api/v1/agentbook-expense/category-suggest-route.test.ts"
       ]
     },
