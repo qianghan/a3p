@@ -9,7 +9,8 @@
   "ux": {
     "vitest": [],
     "playwright": [],
-    "checklist": "docs/superpowers/scorecards/pr-id-ux-checklist.md"
+    "checklist": "docs/superpowers/scorecards/pr-id-ux-checklist.md",
+    "postChecklist": "docs/superpowers/scorecards/pr-id-ux-postdeploy.md"
   },
   "launch": {
     "docs": ["CLAUDE.md"],

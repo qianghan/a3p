@@ -140,6 +140,10 @@ if (PHASE === 'pre') {
     add('L4', 'L', 'post', 'Deployed', 'the merge commit is live on production', states.includes('success') ? { status: 'pass', evidence: `Vercel status for ${sha.slice(0, 8)}: ${states}` } : { status: 'pending', evidence: states ? `Vercel status: ${states}` : 'no Vercel status found yet' });
   } else add('L4', 'L', 'post', 'Deployed', 'the merge commit is live on production', { status: 'pending', evidence: 'no --merge-sha given' });
   if (manifest.ux.playwright?.length) add('U3', 'U', 'post', 'Prod a11y / locale / layout', 'axe, fr-CA/zh-CN and layout on the touched screens', runPlaywright(manifest.ux.playwright, 'ux-prod'));
+  if (manifest.ux.postChecklist) {
+    const pc = checklistStatus(readFileSync(join(ROOT, manifest.ux.postChecklist), 'utf8'));
+    add('U4', 'U', 'post', 'Visual review on the deployed build', 'real-browser look at each touched screen (light/dark, fr-CA/zh-CN, phone and desktop)', { status: pc.status, evidence: `${pc.done}/${pc.total} boxes ticked` });
+  }
   add('L5', 'L', 'post', 'Prod e2e, three markets', 'create → verify → clean up on CA, US, AU personas; books return to start', runPlaywright(manifest.launch.prodPlaywright, 'prod'));
 }
 

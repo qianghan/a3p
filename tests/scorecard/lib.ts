@@ -19,7 +19,8 @@ export interface Manifest {
   title: string;
   goals: Goal[];
   regression?: { vitest?: string[] };
-  ux: { vitest?: string[]; playwright?: string[]; checklist: string };
+  /** checklist: reviewed before merge (code-level consistency); postChecklist: visual checks in a real browser on the deployed build. */
+  ux: { vitest?: string[]; playwright?: string[]; checklist: string; postChecklist?: string };
   launch: { docs: string[]; rollback: string; prodPlaywright: string[]; playwrightConfig?: string };
 }
 
@@ -159,6 +160,7 @@ export function validateManifest(m: Partial<Manifest> | null, exists: (p: string
   }
   if (!m.ux?.checklist) e.push('ux.checklist missing');
   else if (!exists(m.ux.checklist)) e.push(`ux.checklist not found: ${m.ux.checklist}`);
+  if (m.ux?.postChecklist && !exists(m.ux.postChecklist)) e.push(`ux.postChecklist not found: ${m.ux.postChecklist}`);
   if (!m.launch?.rollback?.trim()) e.push('launch.rollback must say how this PR is undone');
   if (!m.launch?.docs?.length) e.push('launch.docs must list the docs this PR updates');
   if (!m.launch?.prodPlaywright?.length) e.push('launch.prodPlaywright needs at least one prod e2e file');

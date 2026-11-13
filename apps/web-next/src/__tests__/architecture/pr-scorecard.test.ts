@@ -120,6 +120,10 @@ describe('validateManifest', () => {
     expect(e).toContain('text missing');
     expect(e).toContain('not found: nope.ts');
   });
+  it('checks that a declared post-deploy checklist exists', () => {
+    const m = { ...ok, ux: { ...ok.ux, postChecklist: 'missing.md' } };
+    expect(validateManifest(m, (p) => p !== 'missing.md').join('|')).toContain('ux.postChecklist not found');
+  });
   it('requires a rollback statement, docs and a prod e2e', () => {
     const e = validateManifest({ ...ok, launch: { docs: [], rollback: ' ', prodPlaywright: [] } }, all).join('|');
     expect(e).toContain('rollback');
