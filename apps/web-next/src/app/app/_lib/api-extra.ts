@@ -153,6 +153,8 @@ export interface CreateExpenseBody {
   isPersonal?: boolean;
   /** Always send it: the route defaults to 'USD', which mis-booked every CA/AU manual capture. */
   currency?: string;
+  /** Set when a person chose or accepted `categoryId`; only then does the server learn the vendor → category. */
+  categorySource?: 'user' | 'user_corrected';
 }
 
 /** Manual entry (no photo). The key makes a retry after a lost response a no-op, not a second expense. */
@@ -163,4 +165,35 @@ export async function createExpense(body: CreateExpenseBody, idempotencyKey: str
     body: JSON.stringify(body),
   });
   return { id: data.id };
+}
+
+export interface CategorySuggestion {
+  categoryId: string;
+  categoryName: string;
+  confidence: number;
+  source: 'vendor' | 'pattern' | 'ai';
+}
+
+const SUGGESTION_SOURCES = new Set(['vendor', 'pattern', 'ai']);
+
+/**
+ * The category to prefill while a vendor is being typed. A convenience, never a blocker:
+ * a blank vendor makes no request, and any failure or malformed answer is `null`.
+ */
+export async function suggestCategoryFor(p: { vendor?: string; description?: string; amountCents?: number }): Promise<CategorySuggestion | null> {
+  const vendor = (p.vendor ?? '').trim();
+  const description = (p.description ?? '').trim();
+  if (!vendor && !description) return null;
+  const qs = new URLSearchParams();
+  if (vendor) qs.set('vendor', vendor);
+  if (description) qs.set('description', description);
+  if (p.amountCents && p.amountCents > 0) qs.set('amountCents', String(Math.round(p.amountCents)));
+  try {
+    const d = await request<Partial<CategorySuggestion> | null>(`${EXPENSE}/categories/suggest?${qs.toString()}`);
+    if (!d || typeof d.categoryId !== 'string' || typeof d.categoryName !== 'string'
+      || typeof d.confidence !== 'number' || !SUGGESTION_SOURCES.has(String(d.source))) return null;
+    return { categoryId: d.categoryId, categoryName: d.categoryName, confidence: d.confidence, source: d.source as CategorySuggestion['source'] };
+  } catch {
+    return null;
+  }
 }

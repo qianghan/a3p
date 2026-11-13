@@ -130,5 +130,10 @@
   "expense_advisor": "Conseiller en dépenses",
   "ask_placeholder": "Posez une question sur vos dépenses…",
   "per_diem_unsupported": "L’indemnité journalière n’est pas encore une méthode prise en charge pour {jurisdiction} — utilisez plutôt le kilométrage et les dépenses de repas. (À venir dans une prochaine version.)",
-  "export_ytd": "Exporter le cumul annuel"
+  "export_ytd": "Exporter le cumul annuel",
+  "category_label": "Catégorie",
+  "category_choose": "Choisir une catégorie",
+  "category_hint_vendor": "Retenue d’après vos dépenses passées",
+  "category_hint_pattern": "Apprise d’après vos dépenses passées ({pct} %)",
+  "category_hint_ai": "Suggérée par l’IA ({pct} %) — veuillez la vérifier"
 }

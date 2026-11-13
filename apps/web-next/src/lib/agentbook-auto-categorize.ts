@@ -35,14 +35,14 @@ export interface PendingSuggestion {
   reason: string;
 }
 
-interface CategoryRow {
+export interface CategoryRow {
   id: string;
   name: string;
   code: string;
   taxCategory: string | null;
 }
 
-interface UncategorizedExpense {
+export interface UncategorizedExpense {
   id: string;
   amountCents: number;
   date: Date;
@@ -51,7 +51,7 @@ interface UncategorizedExpense {
   vendorId: string | null;
 }
 
-interface LlmCategoryResponse {
+export interface LlmCategoryResponse {
   categoryName: string | null;
   confidence: number;
   reason: string;
@@ -62,7 +62,7 @@ const MEDIUM_CONF = 0.55;
 const PENDING_KEY = 'telegram:ai_categorize_pending';
 const LAST_RUN_KEY = 'telegram:last_auto_categorize';
 
-async function classifyExpenseWithGemini(
+export async function classifyExpenseWithGemini(
   expense: UncategorizedExpense,
   categories: CategoryRow[],
 ): Promise<LlmCategoryResponse | null> {
