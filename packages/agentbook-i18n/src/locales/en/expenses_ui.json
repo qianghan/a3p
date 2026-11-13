@@ -130,5 +130,10 @@
   "expense_advisor": "Expense Advisor",
   "ask_placeholder": "Ask about your expenses...",
   "per_diem_unsupported": "Per-diem isn't a {jurisdiction}-supported method yet — use mileage + meals expenses instead. (Coming in a future release.)",
-  "export_ytd": "Export YTD"
+  "export_ytd": "Export YTD",
+  "category_label": "Category",
+  "category_choose": "Choose a category",
+  "category_hint_vendor": "Remembered from your past expenses",
+  "category_hint_pattern": "Learned from your past expenses ({pct}%)",
+  "category_hint_ai": "Suggested by AI ({pct}%) — please check it"
 }
