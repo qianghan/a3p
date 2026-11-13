@@ -102,6 +102,16 @@ Rules learned the hard way (each caused a real failure):
 - A new screen/title ships with its `expectScreen` marker in `tests/e2e/mobile-app/helpers.ts`, via `t(...)`, never an English literal.
 - Infinite-scroll sentinels and loading indicators must not be in-flow boxes in view (layout shift); keep the sentinel a hairline.
 
+### Per-PR merge scorecard (bills / tax codes / inventory / payroll programme)
+
+Every PR in `docs/superpowers/plans/2026-11-13-ap-tax-codes-inventory-payroll.md` merges only on a passing scorecard:
+`npx tsx tests/scorecard/run.ts --manifest docs/superpowers/scorecards/<pr>.json --pr <N>` (phase `pre`, verdict MERGE-READY),
+then after merge + deploy `--phase post --merge-sha <sha>` (verdict LAUNCH-READY). Four gate groups, all must PASS:
+Functional (each design goal maps to named test files), Regression (typecheck with no new errors per file, core ledger/tax/payroll
+guards, full vitest suite vs the floor in `tests/scorecard/baseline.json`), UX (kit/hygiene/i18n guards, ticked consistency checklist,
+prod axe/locale run), Launch (CI incl. Shell Tests, docs updated, rollback stated, deploy verified, prod e2e on three markets).
+Skipped, flaky, zero-test or not-run all FAIL. A new PR copies `docs/superpowers/scorecards/_template.json`.
+
 ### Building Plugin Frontends
 
 ```bash
