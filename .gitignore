@@ -123,3 +123,6 @@ tests/e2e/mobile-app/test-results/
 # Launch scorecard raw artifacts (the report itself is committed)
 tests/e2e/mobile-app/results/
 tests/e2e/mobile-app/playwright-report/
+
+# Merge scorecard raw results
+tests/scorecard/results/
