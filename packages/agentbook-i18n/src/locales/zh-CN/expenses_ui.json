@@ -130,5 +130,10 @@
   "expense_advisor": "支出顾问",
   "ask_placeholder": "询问有关支出的问题…",
   "per_diem_unsupported": "{jurisdiction} 尚不支持每日津贴方式 — 请改用里程和餐饮支出。（将在后续版本中推出。）",
-  "export_ytd": "导出年初至今"
+  "export_ytd": "导出年初至今",
+  "category_label": "类别",
+  "category_choose": "选择类别",
+  "category_hint_vendor": "根据您过去的支出记住的类别",
+  "category_hint_pattern": "根据您过去的支出学习得到（{pct}%）",
+  "category_hint_ai": "AI 建议（{pct}%）——请核对"
 }

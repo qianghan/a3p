@@ -20,7 +20,7 @@ import { RECENTS_KEY } from '@/app/app/_lib/category-recents';
 vi.mock('@/hooks/use-t', async () => (await import('./mobile/_i18n-mock')).useTMock);
 const api = vi.hoisted(() => ({ uploadReceipt: vi.fn(), patchDoc: vi.fn(), categorizeDoc: vi.fn(), deleteDoc: vi.fn(), listExpenseCategories: vi.fn() }));
 vi.mock('@/app/app/_lib/api', async (orig) => ({ ...(await orig<object>()), ...api }));
-const extra = vi.hoisted(() => ({ confirmDoc: vi.fn(), createExpense: vi.fn(), getTenantCurrency: vi.fn() }));
+const extra = vi.hoisted(() => ({ confirmDoc: vi.fn(), createExpense: vi.fn(), getTenantCurrency: vi.fn(), suggestCategoryFor: vi.fn() }));
 vi.mock('@/app/app/_lib/api-extra', async (orig) => ({ ...(await orig<object>()), ...extra }));
 
 import MobileCapture from '../../app/app/capture/page';
@@ -53,6 +53,7 @@ beforeEach(() => {
   Object.values(extra).forEach((f) => f.mockReset());
   extra.getTenantCurrency.mockResolvedValue('CAD');
   extra.confirmDoc.mockResolvedValue(undefined);
+  extra.suggestCategoryFor.mockResolvedValue(null);
   vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('fetch not expected in this test')));
 });
 
@@ -298,5 +299,86 @@ describe('manual entry', () => {
     expect(extra.createExpense).not.toHaveBeenCalled();
     const q = await import('@/lib/offline-queue');
     expect(await q.listQueue()).toEqual([expect.objectContaining({ store: 'expense', amountCents: 300 })]);
+  });
+});
+
+describe('one-step entry: the category is suggested while the vendor is typed', () => {
+  const SUG = { categoryId: 'c-meals', categoryName: 'Meals', confidence: 0.95, source: 'vendor' as const };
+  const startManual = () => {
+    renderPage();
+    fireEvent.click(screen.getByRole('button', { name: 'Enter without a photo' }));
+  };
+  const group = () => screen.getByRole('group', { name: 'Category' });
+
+  it('prefills the suggested category (with the AI pill) once the vendor settles', async () => {
+    extra.suggestCategoryFor.mockResolvedValue(SUG);
+    startManual();
+    fireEvent.change(screen.getByLabelText('Vendor'), { target: { value: 'Starbucks' } });
+    await waitFor(() => expect(within(group()).getByText('AI guess')).toBeInTheDocument());
+    const chip = within(group()).getByRole('button', { name: 'Meals' });
+    expect(chip).toHaveAttribute('aria-pressed', 'true');
+    expect(extra.suggestCategoryFor).toHaveBeenCalledWith(expect.objectContaining({ vendor: 'Starbucks' }));
+  });
+
+  it('saving the prefilled category sends categoryId + categorySource "user" in the single create call', async () => {
+    extra.suggestCategoryFor.mockResolvedValue(SUG);
+    extra.createExpense.mockResolvedValue({ id: 'm1' });
+    startManual();
+    fireEvent.change(screen.getByLabelText('Amount'), { target: { value: '7.25' } });
+    fireEvent.change(screen.getByLabelText('Vendor'), { target: { value: 'Starbucks' } });
+    await waitFor(() => expect(within(group()).getByRole('button', { name: 'Meals' })).toHaveAttribute('aria-pressed', 'true'));
+    fireEvent.click(screen.getByRole('button', { name: 'Save', exact: true }));
+    await waitFor(() => expect(extra.createExpense).toHaveBeenCalledTimes(1));
+    expect(extra.createExpense.mock.calls[0][0]).toMatchObject({ amountCents: 725, vendor: 'Starbucks', categoryId: 'c-meals', categorySource: 'user' });
+    expect(api.categorizeDoc).not.toHaveBeenCalled();
+    expect(extra.confirmDoc).not.toHaveBeenCalled();
+  });
+
+  it('never overrides a category the person already chose', async () => {
+    localStorage.setItem(RECENTS_KEY, JSON.stringify([{ id: 'c-travel', name: 'Travel' }]));
+    extra.suggestCategoryFor.mockResolvedValue(SUG);
+    startManual();
+    fireEvent.click(within(group()).getByRole('button', { name: 'Travel' }));
+    fireEvent.change(screen.getByLabelText('Vendor'), { target: { value: 'Starbucks' } });
+    await act(async () => { await new Promise((r) => setTimeout(r, 450)); }); // past the 300 ms settle
+    expect(extra.suggestCategoryFor).not.toHaveBeenCalled(); // a chosen category is final: not even asked
+    expect(within(group()).getByRole('button', { name: 'Travel' })).toHaveAttribute('aria-pressed', 'true');
+    expect(within(group()).queryByText('AI guess')).not.toBeInTheDocument();
+  });
+
+  it('changing the suggestion is reported as a correction', async () => {
+    localStorage.setItem(RECENTS_KEY, JSON.stringify([{ id: 'c-travel', name: 'Travel' }]));
+    extra.suggestCategoryFor.mockResolvedValue(SUG);
+    extra.createExpense.mockResolvedValue({ id: 'm1' });
+    startManual();
+    fireEvent.change(screen.getByLabelText('Amount'), { target: { value: '9' } });
+    fireEvent.change(screen.getByLabelText('Vendor'), { target: { value: 'Starbucks' } });
+    await waitFor(() => expect(within(group()).getByRole('button', { name: 'Meals' })).toHaveAttribute('aria-pressed', 'true'));
+    fireEvent.click(within(group()).getByRole('button', { name: 'Travel' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Save', exact: true }));
+    await waitFor(() => expect(extra.createExpense).toHaveBeenCalled());
+    expect(extra.createExpense.mock.calls[0][0]).toMatchObject({ categoryId: 'c-travel', categorySource: 'user_corrected' });
+  });
+
+  it('no suggestion and no choice: no category and no categorySource are sent (the books use suspense, as before)', async () => {
+    extra.createExpense.mockResolvedValue({ id: 'm1' });
+    startManual();
+    fireEvent.change(screen.getByLabelText('Amount'), { target: { value: '4' } });
+    fireEvent.change(screen.getByLabelText('Vendor'), { target: { value: 'Unknown' } });
+    await waitFor(() => expect(extra.suggestCategoryFor).toHaveBeenCalled());
+    fireEvent.click(screen.getByRole('button', { name: 'Save', exact: true }));
+    await waitFor(() => expect(extra.createExpense).toHaveBeenCalled());
+    const body = extra.createExpense.mock.calls[0][0];
+    expect(body.categoryId).toBeUndefined();
+    expect(body.categorySource).toBeUndefined();
+  });
+
+  it('offline: no lookup is attempted and the form still saves to the queue', async () => {
+    startManual();
+    setOnline(false);
+    fireEvent.change(screen.getByLabelText('Amount'), { target: { value: '3' } });
+    fireEvent.change(screen.getByLabelText('Vendor'), { target: { value: 'Starbucks' } });
+    await act(async () => { await new Promise((r) => setTimeout(r, 400)); });
+    expect(extra.suggestCategoryFor).not.toHaveBeenCalled();
   });
 });

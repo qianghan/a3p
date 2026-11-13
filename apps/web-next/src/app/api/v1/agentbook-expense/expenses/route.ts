@@ -19,6 +19,7 @@ import { withHttpIdempotency } from '@/lib/agentbook-idempotency';
 import { ensureChartOfAccounts, ensureUncategorizedAccount } from '@/lib/agentbook-chart-of-accounts';
 import { publicErrorMessage } from '@/lib/api-error';
 import { autoCategorizeForTenant, getPendingSuggestions } from '@/lib/agentbook-auto-categorize';
+import { rememberVendorCategory } from '@/lib/agentbook-suggest-category';
 import { parseExpenseListQuery, encodeCursor, countDocFilters } from '@/lib/agentbook-expense-list-query';
 import { deriveCategorySource, suggestionFromPending } from '@/lib/mobile/doc-mapper';
 import type { Prisma } from '@naap/database';
@@ -81,6 +82,8 @@ interface CreateExpenseBody {
   clientId?: string;
   source?: string;
   status?: string;
+  /** Set by an entry form when a HUMAN chose/accepted categoryId; only then do we learn from it. */
+  categorySource?: string;
 }
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
@@ -103,7 +106,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         }
         const {
           amountCents, vendor, categoryId, date, description, receiptUrl, confidence, isPersonal,
-          taxAmountCents, tipAmountCents, paymentMethod, currency, notes, tags, isBillable, clientId, source, status,
+          taxAmountCents, tipAmountCents, paymentMethod, currency, notes, tags, isBillable, clientId, source, status, categorySource,
         } = body;
 
         if (!amountCents || amountCents <= 0) {
@@ -138,6 +141,19 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         // runs its own transaction so it must stay outside the one below.
         if (!isPersonal) {
           await ensureChartOfAccounts(tenantId);
+        }
+
+        // A category the caller names must be one of THIS tenant's live expense accounts. Unchecked, a
+        // foreign or stale id either exploded on the journal-line foreign key or booked against another
+        // tenant's account; the one-step entry forms send categoryId on every save, so check it here.
+        if (categoryId) {
+          const owned = await db.abAccount.findFirst({
+            where: { id: categoryId, tenantId, accountType: 'expense', isActive: true },
+            select: { id: true },
+          });
+          if (!owned) {
+            return { status: 400, body: { success: false, code: 'invalid_category', error: 'categoryId is not one of your expense categories' } };
+          }
         }
 
         let resolvedCategoryId: string | null = categoryId ?? null;
@@ -296,6 +312,17 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
             hasReceipt: !!receiptUrl,
           },
         });
+
+        // Learn only from a human's choice (an entry form says so via categorySource). An agent or
+        // import that names a category is a guess, and teaching the vendor memory from guesses is how
+        // one wrong auto-category becomes every future default. Best-effort: the expense is saved.
+        if ((categorySource === 'user' || categorySource === 'user_corrected') && categoryId && vendor && !isPersonal) {
+          try {
+            await rememberVendorCategory(tenantId, vendor, categoryId, categorySource);
+          } catch (err) {
+            console.warn('[agentbook-expense/expenses POST] vendor learning skipped:', err instanceof Error ? err.message : err);
+          }
+        }
 
         await checkAndAutoCategorize(tenantId);
 

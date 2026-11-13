@@ -90,6 +90,14 @@ When creating an expense that should hit the books:
 4. Create `AbExpense` with `journalEntryId`, `categoryId`, `status: 'confirmed'`
 5. If low confidence: `status: 'pending_review'`, skip journal entry until confirmed
 
+### One-step category entry (expense forms)
+An entry form saves the expense ONCE, on its real category — never "save, then categorize".
+- `GET /api/v1/agentbook-expense/categories/suggest?vendor=&description=&amountCents=` → `{categoryId, categoryName, confidence, source}` or `data: null`.
+  Order: vendor default → learned `AbPattern` → one AI call (≥ 0.55, only if memory has nothing). Never the 6999 suspense account, never another tenant's account (`lib/agentbook-suggest-category.ts`).
+- `POST /expenses` accepts `categoryId` (validated: this tenant's live expense account, else 400 `invalid_category`) and, ONLY when a human chose/accepted it, `categorySource: 'user' | 'user_corrected'` → `rememberVendorCategory` teaches the vendor memory. Agents/imports that name a category must NOT send `categorySource` (a guess must not become the vendor default).
+- Desktop: `plugins/agentbook-expense/frontend/src/pages/NewExpense.tsx` (category select, prefilled, required for business expenses). Mobile: `app/app/capture/page.tsx` (suggestion chip with the AI pill; a category the person picked is never replaced). Client fetch: `suggestCategoryFor` in `app/app/_lib/api-extra.ts` (any failure → `null`).
+- Remember to rebuild + COMMIT the plugin UMD bundle after changing `NewExpense.tsx` (see "Building Plugin Frontends" in CLAUDE.md).
+
 ### Bank Reconciliation
 1. Plaid Link → `POST /plaid/create-link-token` → `POST /plaid/exchange-token`
 2. `POST /bank-sync` → fetch transactions from Plaid API (last 30 days)

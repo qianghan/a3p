@@ -7,12 +7,13 @@ import { useT, useShellLocale } from '@/hooks/use-t';
 import type { FromReceiptResult, MobileDoc } from '@/lib/mobile/types';
 import { queueExpense } from '@/lib/offline-queue';
 import { uploadReceipt, patchDoc, categorizeDoc, deleteDoc } from '../_lib/api';
-import { confirmDoc, createExpense, getTenantCurrency } from '../_lib/api-extra';
+import { confirmDoc, createExpense, getTenantCurrency, suggestCategoryFor } from '../_lib/api-extra';
 import { compressImage } from '../_lib/image';
 import { queueReceiptForReplay, isOfflineError, newIdempotencyKey } from '../_lib/offline';
 import { getRecentCategories, pushRecentCategory, type RecentCategory } from '../_lib/category-recents';
 import { formatAmountInput, todayIso } from '../_lib/format';
 import { useTenantCurrency } from '../_lib/useTenantCurrency';
+import { useDebouncedValue } from '../_lib/useDebouncedValue';
 import { Chip, Pill, tokens, useToast } from '../_kit';
 import { CategoryPicker } from '../docs/_components/CategoryPicker';
 import { QueuePill } from './_components/QueuePill';
@@ -69,13 +70,35 @@ export default function MobileCapture() {
   const [errorKind, setErrorKind] = useState<ErrorKind>(null);
   const [ambiguous, setAmbiguous] = useState('');
   const [pickerOpen, setPickerOpen] = useState(false);
+  // One-step entry: a category suggested for the typed vendor is PREFILLED (like a photo's OCR guess), but
+  // the moment the person picks one themselves it is theirs and no later suggestion may replace it.
+  const userPicked = useRef(false);
+  const suggestedId = useRef<string | null>(null);
 
   useEffect(() => { setRecents(getRecentCategories()); }, []);
   useEffect(() => () => { if (preview && typeof URL.revokeObjectURL === 'function') URL.revokeObjectURL(preview); }, [preview]);
 
   const set = <K extends keyof Draft>(k: K, v: Draft[K]) => setDraft((d) => ({ ...d, [k]: v }));
 
+  const vendorForSuggest = useDebouncedValue(draft.vendor.trim(), 300);
+  useEffect(() => {
+    if (stage !== 'review' || !vendorForSuggest || userPicked.current || deviceOffline()) return;
+    // Only fill an EMPTY category, or replace our own earlier suggestion when the vendor changed.
+    if (draft.categoryId && draft.categoryId !== suggestedId.current) return;
+    let live = true;
+    void suggestCategoryFor({ vendor: vendorForSuggest }).then((s) => {
+      if (!live || !s || userPicked.current) return;
+      suggestedId.current = s.categoryId;
+      setAiGuess({ id: s.categoryId, name: s.categoryName });
+      setDraft((d) => (d.categoryId == null || d.categoryId === suggestedId.current || d.categoryId === s.categoryId
+        ? { ...d, categoryId: s.categoryId, categoryName: s.categoryName } : d));
+    });
+    return () => { live = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- re-run on the settled vendor only
+  }, [vendorForSuggest, stage]);
+
   function reset(focusSnap: boolean) {
+    userPicked.current = false; suggestedId.current = null;
     setStage('idle'); setSource('manual'); setFile(null); setPreview(null); setAttemptKey(null);
     setDoc(null); setAiGuess(null); setDraft(emptyDraft()); setErrorKind(null); setAmbiguous('');
     setRecents(getRecentCategories());
@@ -180,6 +203,10 @@ export default function MobileCapture() {
     const payload = {
       amountCents: f.amountCents, vendor: f.vendor, date: f.date, categoryId: f.categoryId, isPersonal: f.isPersonal,
       ...(cur ? { currency: cur } : {}),
+      // A person saw this category and saved: that teaches the vendor memory. Changing our suggestion is a correction.
+      ...(f.categoryId && !f.isPersonal
+        ? { categorySource: suggestedId.current && suggestedId.current !== f.categoryId ? ('user_corrected' as const) : ('user' as const) }
+        : {}),
     };
     const key = attemptKey ?? newIdempotencyKey();
     const queue = async () => { await queueOr(() => queueExpense(payload)); return true; };
@@ -313,7 +340,7 @@ export default function MobileCapture() {
               {visibleChips.map((c) => (
                 <span key={c.id} style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
                   <Chip label={c.name} selected={draft.categoryId === c.id}
-                    onClick={() => setDraft((d) => (d.categoryId === c.id ? { ...d, categoryId: null, categoryName: null } : { ...d, categoryId: c.id, categoryName: c.name }))} />
+                    onClick={() => { userPicked.current = true; setDraft((d) => (d.categoryId === c.id ? { ...d, categoryId: null, categoryName: null } : { ...d, categoryId: c.id, categoryName: c.name })); }} />
                   {aiGuess?.id === c.id && <Pill tone="primary">{t('mobile.capture.ai_guess')}</Pill>}
                 </span>
               ))}
@@ -342,7 +369,7 @@ export default function MobileCapture() {
       )}
 
       <CategoryPicker open={pickerOpen} onClose={() => setPickerOpen(false)} currentId={draft.categoryId}
-        onSelect={(c) => { setPickerOpen(false); setDraft((d) => ({ ...d, categoryId: c.id, categoryName: c.name })); }} />
+        onSelect={(c) => { userPicked.current = true; setPickerOpen(false); setDraft((d) => ({ ...d, categoryId: c.id, categoryName: c.name })); }} />
     </div>
   );
 }
