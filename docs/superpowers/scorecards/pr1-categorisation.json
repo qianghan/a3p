@@ -1,0 +1,56 @@
+{
+  "id": "pr1-categorisation",
+  "title": "PR 1 — one-step categorisation",
+  "goals": [
+    {
+      "id": "G1-form",
+      "text": "The desktop New Expense form has a Category field, prefilled from the vendor's history, required for business expenses, and Save is ONE request carrying categoryId (no later categorize/confirm).",
+      "tests": ["plugins/agentbook-expense/frontend/src/__tests__/new-expense-category.test.tsx"]
+    },
+    {
+      "id": "G2-suggest",
+      "text": "A suggestion comes from the vendor default, then a learned pattern, then one AI call (>= 0.55) — only a live expense account of this tenant, never suspense, and failure degrades to no suggestion.",
+      "tests": [
+        "apps/web-next/src/__tests__/lib/agentbook-suggest-category.test.ts",
+        "apps/web-next/src/__tests__/api/v1/agentbook-expense/category-suggest-route.test.ts"
+      ]
+    },
+    {
+      "id": "G3-create",
+      "text": "POST /expenses books DR chosen category / CR cash in the same transaction (never suspense), refuses a category that is not this tenant's expense account, and learns the vendor's category only from a human's choice.",
+      "tests": ["apps/web-next/src/__tests__/api/v1/agentbook-expense/expense-create-category.test.ts"]
+    },
+    {
+      "id": "G4-mobile",
+      "text": "Mobile Capture prefills the suggested category while the vendor is typed, never replaces a category the person chose, and saves category + categorySource in the single create call; the client degrades to null on any failure.",
+      "tests": [
+        "apps/web-next/src/__tests__/app/capture-page.test.tsx",
+        "apps/web-next/src/__tests__/app/mobile/suggest-category-client.test.ts"
+      ]
+    }
+  ],
+  "regression": {
+    "vitest": [
+      "apps/web-next/src/__tests__/api/v1/agentbook-expense/ledger-wiring.test.ts",
+      "apps/web-next/src/__tests__/api/v1/agentbook-expense/categorize-characterization.test.ts",
+      "apps/web-next/src/__tests__/api/v1/agentbook-expense/categorize-reposts-ledger.test.ts",
+      "apps/web-next/src/__tests__/api/v1/agentbook-expense/from-receipt-route.test.ts",
+      "apps/web-next/src/__tests__/app/capture-page-413.test.tsx"
+    ]
+  },
+  "ux": {
+    "vitest": [
+      "plugins/agentbook-expense/frontend/src/__tests__/i18n-expense-list.test.tsx",
+      "plugins/agentbook-expense/frontend/src/__tests__/expense-categorize-picker.test.tsx"
+    ],
+    "playwright": [],
+    "checklist": "docs/superpowers/scorecards/pr1-categorisation-ux-checklist.md",
+    "postChecklist": "docs/superpowers/scorecards/pr1-categorisation-ux-postdeploy.md"
+  },
+  "launch": {
+    "docs": ["agentbook/skills/workflows.md"],
+    "rollback": "Revert the PR. No schema change: AbPattern/AbVendor rows written by the learning path are ordinary vendor memory and stay valid; the plugin UMD bundle reverts with the commit.",
+    "prodPlaywright": ["tests/e2e/mobile-app/one-step-entry.spec.ts"],
+    "playwrightConfig": "tests/e2e/mobile-app/playwright.config.ts"
+  }
+}

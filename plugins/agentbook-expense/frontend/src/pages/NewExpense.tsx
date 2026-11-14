@@ -1,9 +1,16 @@
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Upload, DollarSign, Loader2, CheckCircle, AlertCircle } from 'lucide-react';
 import { ChatCTA } from '@naap/plugin-sdk';
 import { useI18n } from '@naap/plugin-sdk';
 
 const API_BASE = '/api/v1/agentbook-expense';
+const ACCOUNTS_URL = '/api/v1/agentbook-core/accounts?type=expense';
+/** The suspense account is a bookkeeping holding pen, never a category a person picks. */
+const SUSPENSE_CODE = '6999';
+const SUGGEST_DEBOUNCE_MS = 300;
+
+interface CategoryOption { id: string; name: string }
+interface Suggestion { categoryId: string; categoryName: string; confidence: number; source: 'vendor' | 'pattern' | 'ai' }
 
 interface OCRResult {
   amount_cents?: number;
@@ -20,6 +27,13 @@ export const NewExpensePage: React.FC = () => {
   const [description, setDescription] = useState('');
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
   const [isPersonal, setIsPersonal] = useState(false);
+  // One-step entry: the category is part of the form, prefilled from the vendor's history
+  // (or one AI guess), so saving once books the expense on its real category.
+  const [categories, setCategories] = useState<CategoryOption[]>([]);
+  const [categoryId, setCategoryId] = useState('');
+  const [suggestion, setSuggestion] = useState<Suggestion | null>(null);
+  // Once the person picks a category themselves, a late suggestion must never overwrite it.
+  const categoryTouched = useRef(false);
   const [submitting, setSubmitting] = useState(false);
   const [success, setSuccess] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
@@ -48,6 +62,41 @@ export const NewExpensePage: React.FC = () => {
   >({ kind: 'idle' });
   const [dragging, setDragging] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    let live = true;
+    fetch(ACCOUNTS_URL)
+      .then((r) => r.json())
+      .then((d) => {
+        if (!live || !d?.success || !Array.isArray(d.data)) return;
+        setCategories(
+          (d.data as Array<{ id: string; name: string; code?: string; isActive?: boolean }>)
+            .filter((a) => a.isActive !== false && a.code !== SUSPENSE_CODE)
+            .map((a) => ({ id: a.id, name: a.name })),
+        );
+      })
+      .catch(() => { /* no list → the field stays optional and the server books to suspense, as before */ });
+    return () => { live = false; };
+  }, []);
+
+  // Ask for a suggestion once the vendor/description settle. Best-effort: a failure leaves the form as-is.
+  useEffect(() => {
+    if (!vendor.trim() && !description.trim()) return;
+    let live = true;
+    const timer = setTimeout(() => {
+      const qs = new URLSearchParams({ vendor, description });
+      fetch(`${API_BASE}/categories/suggest?${qs.toString()}`)
+        .then((r) => r.json())
+        .then((d) => {
+          if (!live || !d?.success || !d.data) return;
+          const s = d.data as Suggestion;
+          setSuggestion(s);
+          if (!categoryTouched.current) setCategoryId(s.categoryId);
+        })
+        .catch(() => { /* ignore */ });
+    }, SUGGEST_DEBOUNCE_MS);
+    return () => { live = false; clearTimeout(timer); };
+  }, [vendor, description]);
 
   const handleReceiptFile = async (file: File) => {
     if (!file) return;
@@ -152,6 +201,11 @@ export const NewExpensePage: React.FC = () => {
         date,
         isPersonal,
       };
+      if (!isPersonal && categoryId) {
+        body.categoryId = categoryId;
+        // Only a human choice teaches the vendor memory. Changing what we suggested is a correction.
+        body.categorySource = suggestion && suggestion.categoryId !== categoryId ? 'user_corrected' : 'user';
+      }
       // If we have a stored receipt URL from OCR, attach it.
       if (receiptStatus.kind === 'extracted') {
         body.receiptUrl = receiptStatus.blobUrl;
@@ -165,6 +219,7 @@ export const NewExpensePage: React.FC = () => {
       if (data.success) {
         setSuccess(true);
         setAmount(''); setVendor(''); setDescription('');
+        setCategoryId(''); setSuggestion(null); categoryTouched.current = false;
         setReceiptStatus({ kind: 'idle' });
         setTimeout(() => setSuccess(false), 3000);
       } else {
@@ -260,29 +315,52 @@ export const NewExpensePage: React.FC = () => {
 
       <form onSubmit={handleSubmit} className="space-y-4">
         <div>
-          <label className="block text-sm font-medium mb-1">Amount *</label>
+          <label htmlFor="new-expense-amount" className="block text-sm font-medium mb-1">Amount *</label>
           <div className="relative">
             <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-            <input type="number" step="0.01" min="0.01" required value={amount} onChange={e => setAmount(e.target.value)}
+            <input id="new-expense-amount" type="number" step="0.01" min="0.01" required value={amount} onChange={e => setAmount(e.target.value)}
               className="w-full pl-9 pr-4 py-2 bg-background border border-border rounded-lg focus:ring-2 focus:ring-primary/50 focus:border-primary" placeholder="0.00" />
           </div>
         </div>
 
         <div>
-          <label className="block text-sm font-medium mb-1">{t('expenses_ui.col_vendor')}</label>
-          <input type="text" value={vendor} onChange={e => setVendor(e.target.value)}
+          <label htmlFor="new-expense-vendor" className="block text-sm font-medium mb-1">{t('expenses_ui.col_vendor')}</label>
+          <input id="new-expense-vendor" type="text" value={vendor} onChange={e => setVendor(e.target.value)}
             className="w-full px-4 py-2 bg-background border border-border rounded-lg focus:ring-2 focus:ring-primary/50" placeholder="e.g., Starbucks, Amazon" />
         </div>
 
         <div>
-          <label className="block text-sm font-medium mb-1">{t('expenses_ui.col_description')}</label>
-          <input type="text" value={description} onChange={e => setDescription(e.target.value)}
+          <label htmlFor="new-expense-description" className="block text-sm font-medium mb-1">{t('expenses_ui.col_description')}</label>
+          <input id="new-expense-description" type="text" value={description} onChange={e => setDescription(e.target.value)}
             className="w-full px-4 py-2 bg-background border border-border rounded-lg focus:ring-2 focus:ring-primary/50" placeholder={t('expenses_ui.description_placeholder')} />
         </div>
 
         <div>
-          <label className="block text-sm font-medium mb-1">{t('expenses_ui.col_date')}</label>
-          <input type="date" value={date} onChange={e => setDate(e.target.value)}
+          <label htmlFor="new-expense-category" className="block text-sm font-medium mb-1">{t('expenses_ui.category_label')}</label>
+          <select
+            id="new-expense-category"
+            value={categoryId}
+            required={!isPersonal && categories.length > 0}
+            onChange={e => { categoryTouched.current = true; setCategoryId(e.target.value); }}
+            className="w-full px-4 py-2 bg-background border border-border rounded-lg focus:ring-2 focus:ring-primary/50"
+          >
+            <option value="">{t('expenses_ui.category_choose')}</option>
+            {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+          </select>
+          {suggestion && categoryId === suggestion.categoryId && (
+            <p className="text-xs text-muted-foreground mt-1">
+              {suggestion.source === 'vendor'
+                ? t('expenses_ui.category_hint_vendor')
+                : suggestion.source === 'pattern'
+                  ? t('expenses_ui.category_hint_pattern', { pct: Math.round(suggestion.confidence * 100) })
+                  : t('expenses_ui.category_hint_ai', { pct: Math.round(suggestion.confidence * 100) })}
+            </p>
+          )}
+        </div>
+
+        <div>
+          <label htmlFor="new-expense-date" className="block text-sm font-medium mb-1">{t('expenses_ui.col_date')}</label>
+          <input id="new-expense-date" type="date" value={date} onChange={e => setDate(e.target.value)}
             className="w-full px-4 py-2 bg-background border border-border rounded-lg focus:ring-2 focus:ring-primary/50" />
         </div>
 
