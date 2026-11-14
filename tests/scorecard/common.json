@@ -1,0 +1,26 @@
+{
+  "_comment": "Gates every programme PR shares. Paths are repo-root relative. Files must exist or the scorecard fails (a renamed guard must not silently drop out).",
+  "regressionCore": [
+    "apps/web-next/src/__tests__/architecture/expense-ledger-consistency.test.ts",
+    "apps/web-next/src/__tests__/architecture/tax-consistency.test.ts",
+    "apps/web-next/src/__tests__/architecture/period-parsing-consistency.test.ts",
+    "apps/web-next/src/__tests__/architecture/mobile-expense-schema.test.ts",
+    "apps/web-next/src/lib/__tests__/agentbook-expense-ledger.test.ts",
+    "apps/web-next/src/lib/__tests__/agentbook-expense-repost.test.ts",
+    "apps/web-next/src/lib/__tests__/agentbook-chart-of-accounts.test.ts",
+    "apps/web-next/src/lib/__tests__/balance-sheet.test.ts",
+    "apps/web-next/src/lib/__tests__/payroll-ledger.test.ts"
+  ],
+  "uxGuards": [
+    "apps/web-next/src/__tests__/architecture/mobile-app-hygiene.test.ts",
+    "apps/web-next/src/__tests__/architecture/mobile-app-i18n.test.ts",
+    "apps/web-next/src/__tests__/architecture/i18n-catalog.test.ts",
+    "apps/web-next/src/__tests__/architecture/i18n-client-catalog.test.ts",
+    "apps/web-next/src/__tests__/architecture/i18n-mobile-keys.test.ts",
+    "apps/web-next/src/__tests__/architecture/i18n-unwired-guard-nested.test.ts",
+    "apps/web-next/src/__tests__/architecture/i18n-french-quality.test.ts",
+    "apps/web-next/src/__tests__/app/mobile/kit-tokens.test.tsx",
+    "apps/web-next/src/__tests__/app/mobile/kit-contrast.test.ts",
+    "apps/web-next/src/__tests__/app/mobile/no-dangerous-html.test.ts"
+  ]
+}
