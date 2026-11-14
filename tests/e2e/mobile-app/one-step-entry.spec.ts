@@ -127,7 +127,9 @@ for (const persona of ['maya', 'alex', 'sydney'] as Exclude<Persona, 'fresh'>[])
       expect(await suggest(vendor)).toMatchObject({ categoryId: category.id, source: 'vendor' });
       // spelling and case do not matter, another vendor does not inherit it
       expect((await suggest(vendor.toLowerCase()))?.categoryId).toBe(category.id);
-      expect(await suggest(`${tag} Someone Else Entirely`)).not.toMatchObject({ categoryId: category.id, source: 'vendor' });
+      // null (no suggestion) is the expected answer; toMatchObject throws on null, so compare fields instead
+      const other = await suggest(`${tag} Someone Else Entirely`);
+      expect(other?.source === 'vendor' && other?.categoryId === category.id, 'another vendor inherited the memory').toBe(false);
     });
 
     test('a category that is not the tenant’s expense account is refused and nothing is created', async () => {
