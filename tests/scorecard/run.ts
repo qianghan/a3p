@@ -12,9 +12,9 @@
  *   --reuse-full  evaluate a vitest JSON report from an earlier full run instead of re-running.
  * Exit code 0 only on MERGE-READY / LAUNCH-READY.
  */
-import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, relative, resolve } from 'node:path';
+import { runPlaywright as playwright, runVitest as vitest, sh as shell } from './exec';
 import {
   checklistStatus, ciGate, goalGate, parseTsc, tscGate, regressionGate, renderReport, strictStatus, summarizeVitest, touchedGate,
   validateManifest, verdict, type Gate, type Group, type Manifest, type Phase, type VitestSummary,
@@ -45,51 +45,17 @@ const errors = validateManifest(manifest, exists);
 for (const f of [...common.regressionCore, ...common.uxGuards]) if (!exists(f)) errors.push(`common guard missing (renamed or deleted?): ${f}`);
 if (errors.length) { console.error(`Manifest/guard errors:\n - ${errors.join('\n - ')}`); process.exit(2); }
 
-function sh(cmd: string, a: string[], cwd = ROOT, env: Record<string, string> = {}) {
-  const r = spawnSync(cmd, a, { cwd, env: { ...process.env, ...env }, encoding: 'utf8', maxBuffer: 256 * 1024 * 1024 });
-  return { code: r.status ?? 1, out: `${r.stdout ?? ''}${r.stderr ?? ''}` };
-}
+const sh = (cmd: string, a: string[], cwd = ROOT, env: Record<string, string> = {}) => shell(cmd, a, cwd, env);
 const tail = (s: string, n = 300) => s.trim().slice(-n);
 const commit = sh('git', ['rev-parse', '--short', 'HEAD']).out.trim();
 
-/** Nearest ancestor directory holding a vitest config: the workspace a test file must be run from. */
-function vitestRoot(file: string): string {
-  let d = dirname(join(ROOT, file));
-  while (d.startsWith(ROOT) && d !== ROOT) {
-    if (['vitest.config.ts', 'vitest.config.mts', 'vitest.config.js'].some((c) => existsSync(join(d, c)))) return d;
-    d = dirname(d);
-  }
-  return ROOT;
-}
-function runVitest(files: string[], tag: string): VitestSummary {
-  const byRoot = new Map<string, string[]>();
-  for (const f of files) byRoot.set(vitestRoot(f), [...(byRoot.get(vitestRoot(f)) ?? []), f]);
-  const merged: VitestSummary = { total: 0, passed: 0, failed: 0, skipped: 0, files: {} };
-  let i = 0;
-  for (const [root, fs] of byRoot) {
-    const out = join(RESULTS, `${manifest.id}.${tag}.${i++}.json`);
-    sh('npx', ['vitest', 'run', '--reporter=json', `--outputFile=${out}`, ...fs.map((f) => relative(root, join(ROOT, f)))], root, { NODE_OPTIONS: '--max-old-space-size=4096' });
-    if (!existsSync(out)) continue; // nothing ran: every file reads "not run" and fails
-    const s = summarizeVitest(JSON.parse(readFileSync(out, 'utf8')));
-    merged.total += s.total; merged.passed += s.passed; merged.failed += s.failed; merged.skipped += s.skipped;
-    Object.assign(merged.files, s.files);
-  }
-  return merged;
-}
+const runVitest = (files: string[], tag: string): VitestSummary => vitest(ROOT, files, join(RESULTS, `${manifest.id}.${tag}`));
 
 const gates: Gate[] = [];
 const add = (id: string, group: Group, phase: Phase, name: string, rubric: string, r: Pick<Gate, 'status' | 'evidence'>) =>
   gates.push({ id, group, phase, name, rubric, ...r });
-const playwrightSummary = (j: unknown) => { const s = ((j as { stats?: Record<string, number> } | null)?.stats ?? {}); return { expected: s.expected ?? 0, unexpected: s.unexpected ?? 0, flaky: s.flaky ?? 0, skipped: s.skipped ?? 0 }; };
-function runPlaywright(files: string[], tag: string): Pick<Gate, 'status' | 'evidence'> {
-  const out = join(RESULTS, `${manifest.id}.${tag}.json`);
-  sh('npx', ['playwright', 'test', `--config=${manifest.launch.playwrightConfig ?? 'tests/e2e/mobile-app/playwright.config.ts'}`, ...files, '--reporter=json'], ROOT, { E2E_BASE_URL: BASE, PLAYWRIGHT_JSON_OUTPUT_NAME: out });
-  if (!existsSync(out)) return { status: 'fail', evidence: 'not run: no result file' };
-  let j: unknown = null; try { j = JSON.parse(readFileSync(out, 'utf8')); } catch { /* empty => fail */ }
-  const s = playwrightSummary(j);
-  const ok = s.expected > 0 && s.unexpected === 0 && s.flaky === 0 && s.skipped === 0;
-  return { status: ok ? 'pass' : 'fail', evidence: `passed ${s.expected}, failed ${s.unexpected}, flaky ${s.flaky}, skipped ${s.skipped}` };
-}
+const runPlaywright = (files: string[], tag: string) =>
+  playwright(ROOT, files, join(RESULTS, `${manifest.id}.${tag}.json`), manifest.launch.playwrightConfig ?? 'tests/e2e/mobile-app/playwright.config.ts', BASE);
 
 if (PHASE === 'pre') {
   // F — one gate per design goal, traceable to the test files that prove it.

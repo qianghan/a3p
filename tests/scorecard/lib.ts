@@ -13,7 +13,8 @@ export type Group = 'F' | 'R' | 'U' | 'L';
 export type Phase = 'pre' | 'post';
 export interface Gate { id: string; group: Group; phase: Phase; name: string; rubric: string; status: GateStatus; evidence: string }
 
-export interface Goal { id: string; text: string; tests: string[] }
+/** covers: programme requirement ids (docs/superpowers/scorecards/programme.json) this goal proves. */
+export interface Goal { id: string; text: string; tests: string[]; covers?: string[] }
 export interface Manifest {
   id: string;
   title: string;
