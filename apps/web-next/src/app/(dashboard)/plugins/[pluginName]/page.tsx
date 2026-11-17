@@ -179,9 +179,9 @@ export default function PluginPage() {
           <Cloud className="w-3 h-3" /> CDN
         </div>
       </div>
-      {/* Floats over plugin content; below lg it lands on form fields (Category chevron on New Expense), so desktop only. */}
+      {/* Floats over plugin content; below lg it lands on form fields (Category chevron on New Expense), so desktop only. max-lg:hidden, not hidden + lg:block: on prod a later stylesheet's .hidden beat lg:block and hid it at every width. */}
       {pluginMetadata && (
-        <div className="absolute bottom-4 right-4 z-10 hidden lg:block">
+        <div className="absolute bottom-4 right-4 z-10 max-lg:hidden">
           <PluginInfoButton metadata={pluginMetadata} />
         </div>
       )}
