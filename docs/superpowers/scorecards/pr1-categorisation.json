@@ -4,11 +4,13 @@
   "goals": [
     {
       "id": "G1-form",
+      "covers": ["R-CAT-1"],
       "text": "The desktop New Expense form has a Category field, prefilled from the vendor's history, required for business expenses, and Save is ONE request carrying categoryId (no later categorize/confirm).",
       "tests": ["plugins/agentbook-expense/frontend/src/__tests__/new-expense-category.test.tsx"]
     },
     {
       "id": "G2-suggest",
+      "covers": ["R-CAT-1"],
       "text": "A suggestion comes from the vendor default, then a learned pattern, then one AI call (>= 0.55) — only a live expense account of this tenant, never suspense, and failure degrades to no suggestion.",
       "tests": [
         "apps/web-next/src/__tests__/lib/agentbook-suggest-category.test.ts",
@@ -17,11 +19,13 @@
     },
     {
       "id": "G3-create",
+      "covers": ["R-CAT-1"],
       "text": "POST /expenses books DR chosen category / CR cash in the same transaction (never suspense), refuses a category that is not this tenant's expense account, and learns the vendor's category only from a human's choice.",
       "tests": ["apps/web-next/src/__tests__/api/v1/agentbook-expense/expense-create-category.test.ts"]
     },
     {
       "id": "G4-mobile",
+      "covers": ["R-CAT-1"],
       "text": "Mobile Capture prefills the suggested category while the vendor is typed, never replaces a category the person chose, and saves category + categorySource in the single create call; the client degrades to null on any failure.",
       "tests": [
         "apps/web-next/src/__tests__/app/capture-page.test.tsx",

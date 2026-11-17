@@ -3,7 +3,7 @@
   "id": "pr-id",
   "title": "Human title",
   "goals": [
-    { "id": "G1", "text": "One design goal, phrased as an observable outcome", "tests": ["apps/web-next/src/__tests__/path/to.test.ts"] }
+    { "id": "G1", "text": "One design goal, phrased as an observable outcome", "covers": ["R-…  (programme.json requirement ids this PR is assigned)"], "tests": ["apps/web-next/src/__tests__/path/to.test.ts"] }
   ],
   "regression": { "vitest": [] },
   "ux": {

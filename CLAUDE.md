@@ -112,6 +112,13 @@ guards, full vitest suite vs the floor in `tests/scorecard/baseline.json`), UX (
 prod axe/locale run), Launch (CI incl. Shell Tests, docs updated, rollback stated, deploy verified, prod e2e on three markets).
 Skipped, flaky, zero-test or not-run all FAIL. A new PR copies `docs/superpowers/scorecards/_template.json`.
 
+Programme scorecard (is the WHOLE scope delivered?): `npx tsx tests/scorecard/programme.ts [--phase post]` reads
+`docs/superpowers/scorecards/programme.json` (7 tester findings → 26 requirements → plan PRs → cross-PR prod journeys → owner calls)
+and writes `docs/superpowers/reports/scorecards/programme-<phase>.md`. Every spec goal/anti-goal and plan PR must be mapped (else BROKEN);
+each PR manifest's goals declare `covers: [requirement ids]` and must cover exactly what the programme assigns that PR. A requirement is
+DELIVERED only when its covering tests pass, every PR behind it has a committed LAUNCH-READY post report, and it has prod evidence in each
+of its markets. Verdict COMPLETE also needs every spec §10 owner call confirmed. Commit each PR's `-pre.md`/`-post.md` report: they are the evidence.
+
 ### Building Plugin Frontends
 
 ```bash
