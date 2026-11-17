@@ -179,8 +179,9 @@ export default function PluginPage() {
           <Cloud className="w-3 h-3" /> CDN
         </div>
       </div>
+      {/* Floats over plugin content; below lg it lands on form fields (Category chevron on New Expense), so desktop only. */}
       {pluginMetadata && (
-        <div className="absolute bottom-4 right-4 z-10">
+        <div className="absolute bottom-4 right-4 z-10 hidden lg:block">
           <PluginInfoButton metadata={pluginMetadata} />
         </div>
       )}
