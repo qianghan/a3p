@@ -78,7 +78,7 @@ export default function PluginPage() {
       displayName: plugin.displayName,
       installedVersion: plugin.version || '1.0.0',
       latestVersion: plugin.latestVersion || plugin.version || '1.0.0',
-      publisher: plugin.author || plugin.publisher || 'NAAP Team',
+      publisher: plugin.author || plugin.publisher || 'AgentBook',
       installedAt: plugin.installedAt || plugin.createdAt,
       createdAt: plugin.createdAt,
       category: plugin.category,

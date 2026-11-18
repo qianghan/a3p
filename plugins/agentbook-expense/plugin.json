@@ -6,7 +6,7 @@
   "description": "Expense tracking, receipt OCR, auto-categorization, vendor patterns, recurring expense detection, and business/personal separation.",
   "isCore": true,
   "author": {
-    "name": "A3P Team",
+    "name": "AgentBook",
     "email": "team@a3p.io",
     "url": "https://a3p.io"
   },
