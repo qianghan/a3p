@@ -10,6 +10,7 @@ import { prisma as db } from '@naap/database';
 import { safeResolveAgentbookTenant } from '@/lib/agentbook-tenant';
 import { advisorGemini, formatCents } from '@/lib/agentbook-advisor';
 import { publicErrorMessage } from '@/lib/api-error';
+import { deductibleCents } from '@/lib/expense-amounts';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -42,7 +43,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       where: { tenantId, date: { gte: startDate, lte: endDate } },
     });
 
-    let compExpenses: { categoryId: string | null; amountCents: number }[] = [];
+    let compExpenses: { categoryId: string | null; amountCents: number; recoverableTaxCents?: number | null }[] = [];
     if (params.get('compareStartDate') && params.get('compareEndDate')) {
       compExpenses = await db.abExpense.findMany({
         where: {
@@ -52,7 +53,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
             lte: new Date(params.get('compareEndDate')!),
           },
         },
-        select: { categoryId: true, amountCents: true },
+        select: { categoryId: true, amountCents: true, recoverableTaxCents: true },
       });
     }
 
@@ -80,7 +81,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       expenses.forEach((e) => {
         const d = new Date(e.date);
         const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-        monthMap[key] = (monthMap[key] || 0) + e.amountCents;
+        monthMap[key] = (monthMap[key] || 0) + deductibleCents(e);
       });
       data = Object.entries(monthMap)
         .sort(([a], [b]) => a.localeCompare(b))
@@ -93,12 +94,12 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       const catTotals: Record<string, number> = {};
       expenses.forEach((e) => {
         const cat = e.categoryId || 'uncategorized';
-        catTotals[cat] = (catTotals[cat] || 0) + e.amountCents;
+        catTotals[cat] = (catTotals[cat] || 0) + deductibleCents(e);
       });
       const compCatTotals: Record<string, number> = {};
       compExpenses.forEach((e) => {
         const cat = e.categoryId || 'uncategorized';
-        compCatTotals[cat] = (compCatTotals[cat] || 0) + e.amountCents;
+        compCatTotals[cat] = (compCatTotals[cat] || 0) + deductibleCents(e);
       });
 
       data = Object.entries(catTotals)

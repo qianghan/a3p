@@ -18,6 +18,7 @@
 import 'server-only';
 import { prisma as db } from '@naap/database';
 import { buildLedgerHeadline } from '@agentbook-core/server';
+import { deductibleCents } from '@/lib/expense-amounts';
 
 /**
  * Cheap, bounded, and safe to call on any consultative turn — a contract, not
@@ -117,9 +118,9 @@ export async function buildGroundingFacts(tenantId: string): Promise<string[]> {
     // printed beside it. Both apply the same filter, so the two agree.
     const expenses = await db.abExpense.findMany({
       where: { tenantId, isPersonal: false, deletedAt: null, date: { gte: yearStart } },
-      select: { amountCents: true, categoryId: true },
+      select: { amountCents: true, recoverableTaxCents: true, categoryId: true },
     });
-    const total = expenses.reduce((s, e) => s + e.amountCents, 0);
+    const total = expenses.reduce((s, e) => s + deductibleCents(e), 0);
     facts.push(
       `Business expenses ${windowLabel}: ${money(total, currency)} across ${expenses.length} transactions.`,
     );
@@ -128,7 +129,7 @@ export async function buildGroundingFacts(tenantId: string): Promise<string[]> {
       const byCat = new Map<string, number>();
       for (const e of expenses) {
         if (!e.categoryId) continue;
-        byCat.set(e.categoryId, (byCat.get(e.categoryId) ?? 0) + e.amountCents);
+        byCat.set(e.categoryId, (byCat.get(e.categoryId) ?? 0) + deductibleCents(e));
       }
       const ids = [...byCat.keys()];
       if (ids.length > 0) {

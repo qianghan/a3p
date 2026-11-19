@@ -7,6 +7,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma as db } from '@naap/database';
 import { safeResolveAgentbookTenant } from '@/lib/agentbook-tenant';
 import { publicErrorMessage } from '@/lib/api-error';
+import { deductibleCents } from '@/lib/expense-amounts';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -25,11 +26,11 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       const end = new Date(now.getFullYear(), now.getMonth() - i + 1, 0);
       const expenses = await db.abExpense.findMany({
         where: { tenantId, isPersonal: false, date: { gte: start, lte: end } },
-        select: { amountCents: true },
+        select: { amountCents: true, recoverableTaxCents: true },
       });
       months.push({
         month: `${start.getFullYear()}-${String(start.getMonth() + 1).padStart(2, '0')}`,
-        totalCents: expenses.reduce((s, e) => s + e.amountCents, 0),
+        totalCents: expenses.reduce((s, e) => s + deductibleCents(e), 0),
       });
     }
 

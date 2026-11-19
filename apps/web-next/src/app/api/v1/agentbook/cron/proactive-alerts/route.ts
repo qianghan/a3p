@@ -25,6 +25,7 @@ import { sendPush } from '@/lib/web-push-send';
 import { reportError } from '@/lib/logger';
 import { requireCronSecret } from '@/lib/cron-auth';
 import { missingReceiptWhere } from '@/lib/mobile/alerts';
+import { deductibleCents } from '@/lib/expense-amounts';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -107,7 +108,7 @@ async function generateAlertsForTenant(tenantId: string): Promise<Alert[]> {
   // 4. Spending-spike detection (category > 20% vs prior 30 days)
   const currentExpenses = await db.abExpense.findMany({
     where: { tenantId, isPersonal: false, status: 'confirmed', date: { gte: thirtyDaysAgo } },
-    select: { categoryId: true, amountCents: true },
+    select: { categoryId: true, amountCents: true, recoverableTaxCents: true },
   });
   const priorExpenses = await db.abExpense.findMany({
     where: {
@@ -116,18 +117,18 @@ async function generateAlertsForTenant(tenantId: string): Promise<Alert[]> {
       status: 'confirmed',
       date: { gte: sixtyDaysAgo, lt: thirtyDaysAgo },
     },
-    select: { categoryId: true, amountCents: true },
+    select: { categoryId: true, amountCents: true, recoverableTaxCents: true },
   });
 
   const currentByCat: Record<string, number> = {};
   const priorByCat: Record<string, number> = {};
   for (const e of currentExpenses) {
     const k = e.categoryId || 'other';
-    currentByCat[k] = (currentByCat[k] || 0) + e.amountCents;
+    currentByCat[k] = (currentByCat[k] || 0) + deductibleCents(e);
   }
   for (const e of priorExpenses) {
     const k = e.categoryId || 'other';
-    priorByCat[k] = (priorByCat[k] || 0) + e.amountCents;
+    priorByCat[k] = (priorByCat[k] || 0) + deductibleCents(e);
   }
 
   const catIds = [

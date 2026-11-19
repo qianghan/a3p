@@ -8,6 +8,7 @@ import { prisma as db } from '@naap/database';
 import { safeResolveAgentbookTenant } from '@/lib/agentbook-tenant';
 import { withSoftDelete, parseIncludeDeleted } from '@/lib/agentbook-soft-delete';
 import { publicErrorMessage } from '@/lib/api-error';
+import { sumDeductibleCents } from '@/lib/expense-amounts';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -32,14 +33,14 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     const spendByVendor = await db.abExpense.groupBy({
       by: ['vendorId'],
       where: { tenantId, isPersonal: false, deletedAt: null, vendorId: { in: vendors.map((v) => v.id) } },
-      _sum: { amountCents: true },
+      _sum: { amountCents: true, recoverableTaxCents: true },
       _count: { _all: true },
     });
     const spendMap = new Map(spendByVendor.map((s) => [s.vendorId, s]));
 
     const enriched = vendors.map((v) => {
       const spend = spendMap.get(v.id);
-      const totalCents = spend?._sum.amountCents ?? 0;
+      const totalCents = spend ? sumDeductibleCents(spend._sum) : 0;
       const count = spend?._count._all ?? 0;
       return {
         ...v,

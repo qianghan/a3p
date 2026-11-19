@@ -13,6 +13,7 @@ import { formatCents } from '@/lib/agentbook-advisor';
 import { publicErrorMessage } from '@/lib/api-error';
 import { checkGstThreshold, gstStatusOf } from '@agentbook/jurisdictions';
 import { missingReceiptWhere } from '@/lib/mobile/alerts';
+import { deductibleCents } from '@/lib/expense-amounts';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -94,11 +95,11 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     const priorByCat: Record<string, number> = {};
     for (const e of currentExpenses) {
       const k = e.categoryId || 'other';
-      currentByCat[k] = (currentByCat[k] || 0) + e.amountCents;
+      currentByCat[k] = (currentByCat[k] || 0) + deductibleCents(e);
     }
     for (const e of priorExpenses) {
       const k = e.categoryId || 'other';
-      priorByCat[k] = (priorByCat[k] || 0) + e.amountCents;
+      priorByCat[k] = (priorByCat[k] || 0) + deductibleCents(e);
     }
 
     const catIds = [

@@ -2,6 +2,7 @@ import 'server-only';
 import { prisma as db } from '@naap/database';
 import { getCashPosition } from '@agentbook-core/cash-position';
 import { defaultCurrencyFor } from '@/lib/jurisdiction-currency';
+import { sumDeductibleCents } from '@/lib/expense-amounts';
 
 /**
  * Structured, read-only data for the MCP connector.
@@ -157,7 +158,7 @@ export async function readExpenseBreakdown(
   const grouped = await db.abExpense.groupBy({
     by: ['categoryId'],
     where: { tenantId, date: { gte: from, lte: to } },
-    _sum: { amountCents: true },
+    _sum: { amountCents: true, recoverableTaxCents: true },
   });
 
   const ids = grouped.map((g) => g.categoryId).filter((v): v is string => Boolean(v));
@@ -166,10 +167,10 @@ export async function readExpenseBreakdown(
     : [];
   const nameById = new Map(accounts.map((a) => [a.id, a.name]));
 
-  const total = grouped.reduce((n, g) => n + (g._sum.amountCents ?? 0), 0);
+  const total = grouped.reduce((n, g) => n + sumDeductibleCents(g._sum), 0);
   const categories = grouped
     .map((g) => {
-      const cents = g._sum.amountCents ?? 0;
+      const cents = sumDeductibleCents(g._sum);
       return {
         // A null category is shown as "Uncategorised" rather than dropped:
         // silently omitting it makes the shares add to less than 100% with no

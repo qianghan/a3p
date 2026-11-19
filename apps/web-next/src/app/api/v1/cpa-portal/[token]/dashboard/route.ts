@@ -23,6 +23,7 @@ import 'server-only';
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma as db } from '@naap/database';
 import { resolveAccessByToken } from '@/lib/agentbook-cpa-token';
+import { deductibleCents } from '@/lib/expense-amounts';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -105,6 +106,7 @@ export async function GET(
           id: true,
           date: true,
           amountCents: true,
+          recoverableTaxCents: true,
           currency: true,
           description: true,
           categoryId: true,
@@ -215,7 +217,7 @@ export async function GET(
       const name = cat?.name || 'Uncategorized';
       const code = cat?.code || '';
       const cur = breakdown.get(key) || { name, code, amountCents: 0 };
-      cur.amountCents += e.amountCents;
+      cur.amountCents += deductibleCents(e);
       breakdown.set(key, cur);
     }
 
