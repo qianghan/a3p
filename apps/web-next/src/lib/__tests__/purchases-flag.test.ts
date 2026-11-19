@@ -19,6 +19,12 @@ describe('flagAllowsTenant', () => {
     const row = { enabled: false, metadata: { tenantIds: ['t1', 't2'] } };
     expect([flagAllowsTenant(row, 't1'), flagAllowsTenant(row, 't2'), flagAllowsTenant(row, 't3')]).toEqual([true, true, false]);
   });
+  it('excludeTenantIds wins over global on and over the allowlist', () => {
+    const on = { enabled: true, metadata: { excludeTenantIds: ['j'] } };
+    expect([flagAllowsTenant(on, 'j'), flagAllowsTenant(on, 'x')]).toEqual([false, true]);
+    const list = { enabled: false, metadata: { tenantIds: ['j', 'x'], excludeTenantIds: ['j'] } };
+    expect([flagAllowsTenant(list, 'j'), flagAllowsTenant(list, 'x')]).toEqual([false, true]);
+  });
   it('fail-closed: missing row, junk metadata, no tenant', () => {
     expect(flagAllowsTenant(null, 't1')).toBe(false);
     expect(flagAllowsTenant({ enabled: false, metadata: { tenantIds: 't1' } }, 't1')).toBe(false);

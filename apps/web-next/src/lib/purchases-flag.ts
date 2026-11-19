@@ -9,6 +9,7 @@ import { prisma } from '@naap/database';
  * Rollout (3bc.10): the FeatureFlag row is either
  *   - globally on (`enabled = true`), or
  *   - off globally with a per-tenant allowlist in `metadata.tenantIds`.
+ * `metadata.excludeTenantIds` always wins (even over a global on).
  * Ops path: `agentbook/enable-purchases-at-entry.ts` (dry run by default).
  *
  * Even when flagged, at_entry applies ONLY to accrual tenants (R-AP-1);
@@ -20,11 +21,12 @@ interface FlagRow { enabled: boolean; metadata?: unknown }
 
 export function flagAllowsTenant(row: FlagRow | null | undefined, tenantId: string | undefined): boolean {
   if (!row) return false;
+  const meta = row.metadata && typeof row.metadata === 'object' ? (row.metadata as { tenantIds?: unknown; excludeTenantIds?: unknown }) : null;
+  // Exclusion wins over both the global switch and the allowlist (e2e control persona).
+  if (tenantId && Array.isArray(meta?.excludeTenantIds) && meta.excludeTenantIds.includes(tenantId)) return false;
   if (row.enabled === true) return true;
-  if (!tenantId) return false;
-  const meta = row.metadata;
-  if (!meta || typeof meta !== 'object') return false;
-  const ids = (meta as { tenantIds?: unknown }).tenantIds;
+  if (!tenantId || !meta) return false;
+  const ids = meta.tenantIds;
   return Array.isArray(ids) && ids.includes(tenantId);
 }
 

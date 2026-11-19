@@ -37,7 +37,7 @@ export async function GET(request: NextRequest, ctx: RouteCtx): Promise<NextResp
     const bill = await db.abBill.findFirst({ where: { id, tenantId, ...liveBillWhere() } });
     if (!bill) return NextResponse.json({ success: false, error: 'bill not found' }, { status: 404 });
     const [lines, payments] = await Promise.all([
-      db.abBillLine.findMany({ where: { billId: id } }),
+      db.abBillLine.findMany({ where: { billId: id, tenantId } }),
       db.abBillPayment.findMany({ where: { billId: id, tenantId } }),
     ]);
     return NextResponse.json({ success: true, data: { ...bill, lines, payments } });
@@ -140,7 +140,7 @@ export async function PATCH(request: NextRequest, ctx: RouteCtx): Promise<NextRe
       }
       const bill = await db.abBill.findFirst({ where: { id, tenantId, ...liveBillWhere() } });
       if (!bill) return NextResponse.json({ success: false, error: 'bill not found' }, { status: 404 });
-      const lines = await db.abBillLine.findMany({ where: { billId: id } });
+      const lines = await db.abBillLine.findMany({ where: { billId: id, tenantId } });
       if (lines.length > 1) {
         return NextResponse.json({ success: false, code: 'bill_multi_line', error: 'this bill has several lines; send lines' }, { status: 422 });
       }
