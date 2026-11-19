@@ -96,3 +96,7 @@ Build: `cd plugins/<name>/frontend && npm run build` → copies to `apps/web-nex
 Browser login → naap_auth_token cookie → Next.js proxy extracts user ID → sets x-tenant-id header → backend uses for all queries
 Telegram → chat ID → CHAT_TO_TENANT mapping → same x-tenant-id flow
 ```
+
+### Bills and employee schema (PRs 3a, 4a)
+
+Bill schema is additive (`AbBillLine`, `AbBillPayment`, `postingMode`); posting behaviour is described under Bills above (PR 3bc). Employee schema adds optional profile columns, `AbEmployeeSensitive` (encrypted, never exported) and `AbEmployeeChange` (audit, no values); all are in the tenant export/deletion registry (`agentbook-tenant-data-models.ts`).

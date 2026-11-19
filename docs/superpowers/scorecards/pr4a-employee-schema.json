@@ -1,0 +1,47 @@
+{
+  "id": "pr4a-employee-schema",
+  "title": "PR 4a \u2014 additive employee/payroll schema",
+  "goals": [
+    {
+      "id": "G1-employee-columns",
+      "covers": [
+        "R-EMP-1"
+      ],
+      "text": "AbEmployee gains the market tax, bank and benefit profile columns as optional fields, plus AbEmployeeSensitive (no plaintext tax-id/bank/member columns) and AbEmployeeChange (stores no values).",
+      "tests": [
+        "apps/web-next/src/__tests__/architecture/employee-schema.test.ts"
+      ]
+    },
+    {
+      "id": "G2-pay-frequency",
+      "covers": [
+        "R-EMP-3"
+      ],
+      "text": "Pay frequency and pay date are stored (AbPayRun.payDate, payFrequency; employee payAnchorDate) as additive optional columns.",
+      "tests": [
+        "apps/web-next/src/__tests__/architecture/employee-schema.test.ts"
+      ]
+    }
+  ],
+  "regression": {
+    "vitest": [
+      "apps/web-next/src/lib/__tests__/agentbook-tenant-data-models.test.ts"
+    ]
+  },
+  "ux": {
+    "vitest": [],
+    "playwright": [],
+    "checklist": "docs/superpowers/scorecards/pr4a-employee-schema-ux-checklist.md",
+    "postChecklist": "docs/superpowers/scorecards/pr4a-employee-schema-ux-postdeploy.md"
+  },
+  "launch": {
+    "docs": [
+      "agentbook/skills/architecture.md"
+    ],
+    "rollback": "Revert the PR. The added columns and tables are additive and optional; they stay in the database unused.",
+    "prodPlaywright": [
+      "tests/e2e/mobile-app/employee-privacy.spec.ts"
+    ],
+    "playwrightConfig": "tests/e2e/mobile-app/playwright.config.ts"
+  }
+}
