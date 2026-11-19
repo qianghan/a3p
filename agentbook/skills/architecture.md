@@ -40,6 +40,7 @@ packages/
 - Double-entry ledger: every financial transaction creates `AbJournalEntry` + `AbJournalLine`s
 - Event sourcing: `AbEvent` logs every mutation for audit trail
 - `@@unique` constraints prevent duplicates (e.g., `[tenantId, number]` on invoices)
+- Purchase tax (PR 2b): `AbExpense.taxCode` + `recoverableTaxCents` (⊂ `taxAmountCents` ⊂ `amountCents`); engine in `@agentbook/jurisdictions` `tax-codes.ts`, app adapter `lib/tax-codes.ts`, posting resolution `lib/expense-tax.ts` (`resolveExpenseTax`), UI view `lib/expense-tax-row.ts`. Registrants book recoverable tax to `2100`; every table reader uses `deductibleCents` (`lib/expense-amounts.ts`) = `amountCents − recoverableTaxCents`. Flags: `AbTenantConfig.gstRegistered`/`qstRegistered` (tri-state), `gstReportingBasis`.
 
 ## API Endpoints (140 total)
 
