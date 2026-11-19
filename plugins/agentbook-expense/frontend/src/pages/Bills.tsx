@@ -32,6 +32,14 @@ const STATUS_STYLE: Record<string, string> = {
   cancelled: 'bg-muted text-muted-foreground',
 };
 
+/** Catalog key for a refused bill payment (server `code`, else HTTP status). */
+export function payErrorKey(status: number, code?: string): string {
+  if (code === 'period_closed') return 'expenses_ui.bill_payment_period_closed';
+  if (code === 'ledger_account_missing') return 'expenses_ui.bill_payment_account_missing';
+  if (status === 409) return 'expenses_ui.bill_payment_conflict';
+  return 'expenses_ui.bill_payment_failed';
+}
+
 export const BillsPage: React.FC = () => {
   const [bills, setBills] = useState<Bill[]>([]);
   // Locale-aware money input.
@@ -103,11 +111,22 @@ export const BillsPage: React.FC = () => {
 
   const payBill = async (id: string) => {
     if (!confirm('Mark this bill as paid? This records the expense in your ledger.')) return;
-    await fetch(`${API}/bills/${id}?action=pay`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({}),
-    });
+    setErr(null);
+    try {
+      const res = await fetch(`${API}/bills/${id}?action=pay`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({}),
+      });
+      if (!res.ok) {
+        // The server refuses rather than marking the bill paid without a ledger
+        // entry (closed period, missing account, already paid): say why.
+        const body = (await res.json().catch(() => ({}))) as { code?: string };
+        setErr(t(payErrorKey(res.status, body.code)));
+      }
+    } catch {
+      setErr(t('expenses_ui.bill_payment_failed'));
+    }
     await load(tab);
   };
 
