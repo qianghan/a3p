@@ -1,0 +1,48 @@
+{
+  "id": "pr3a-bill-schema",
+  "title": "PR 3a \u2014 additive bill schema",
+  "goals": [
+    {
+      "id": "G1-bill-columns",
+      "covers": [
+        "R-AP-3"
+      ],
+      "text": "AbBill gains only additive nullable/defaulted columns (lines, payments, postingMode, partial/draft) so existing bills and cash-basis tenants keep their rows and pay-time behaviour unchanged.",
+      "tests": [
+        "apps/web-next/src/__tests__/architecture/bill-schema.test.ts"
+      ]
+    },
+    {
+      "id": "G2-export-deletion",
+      "covers": [
+        "R-AP-8"
+      ],
+      "text": "AbBillLine and AbBillPayment (children) are in the tenant export and deletion registry, deleted before AbBill.",
+      "tests": [
+        "apps/web-next/src/__tests__/architecture/bill-schema.test.ts",
+        "apps/web-next/src/lib/__tests__/agentbook-tenant-data-models.test.ts"
+      ]
+    }
+  ],
+  "regression": {
+    "vitest": [
+      "apps/web-next/src/app/api/v1/agentbook-expense/bills/__tests__/route-wiring.test.ts"
+    ]
+  },
+  "ux": {
+    "vitest": [],
+    "playwright": [],
+    "checklist": "docs/superpowers/scorecards/pr3a-bill-schema-ux-checklist.md",
+    "postChecklist": "docs/superpowers/scorecards/pr3a-bill-schema-ux-postdeploy.md"
+  },
+  "launch": {
+    "docs": [
+      "agentbook/skills/architecture.md"
+    ],
+    "rollback": "Revert the PR. The added columns and tables are additive and nullable/defaulted; they stay in the database unused and existing bills are untouched.",
+    "prodPlaywright": [
+      "tests/e2e/mobile-app/bills.spec.ts"
+    ],
+    "playwrightConfig": "tests/e2e/mobile-app/playwright.config.ts"
+  }
+}
