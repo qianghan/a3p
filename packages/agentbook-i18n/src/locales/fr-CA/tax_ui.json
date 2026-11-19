@@ -86,5 +86,8 @@
   "reparse": "Réanalyser",
   "deadline": "Échéance",
   "amount_due": "Montant dû",
-  "amount_paid": "Montant payé"
+  "amount_paid": "Montant payé",
+  "return_bas_g10": "G10 — Achats d’immobilisations",
+  "return_bas_g11": "G11 — Achats autres que d’immobilisations",
+  "return_qst_itr": "Remboursements de la taxe sur les intrants (RTI) de TVQ — Revenu Québec"
 }

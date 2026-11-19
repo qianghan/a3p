@@ -13,7 +13,7 @@ import { useI18n } from '@naap/plugin-sdk';
  * separate accredited step, so nothing is transmitted from here.
  */
 
-interface Line { label: string; amountCents: number; strong?: boolean; note?: string }
+interface Line { label: string; amountCents: number; strong?: boolean; note?: string; id?: string }
 
 interface CaReturn {
   period: { start: string; end: string };
@@ -21,6 +21,8 @@ interface CaReturn {
   line105GstHstCollectedCents: number;
   line108ItcCents: number;
   line109NetTaxCents: number;
+  /** PR 2b.7: QST input tax refunds (Revenu Québec, separate from line 108). */
+  qstItrCents?: number;
   outcome: string;
 }
 interface AuReturn {
@@ -28,6 +30,8 @@ interface AuReturn {
   g1TotalSalesCents: number;
   label1AGstOnSalesCents: number;
   label1BGstOnPurchasesCents: number;
+  g10CapitalPurchasesCents?: number;
+  g11NonCapitalPurchasesCents?: number;
   netGstCents: number;
   w1TotalWagesCents: number;
   w2PaygWithheldCents: number;
@@ -61,12 +65,17 @@ export const SalesTaxReturnPage: React.FC = () => {
           if (!res.ok || !body.success) throw new Error(body?.error?.message || 'Failed to load the GST/HST return.');
           const d = body.data as CaReturn;
           setPeriod(d.period); setOutcome(d.outcome);
-          setLines([
+          const caRows: Line[] = [
             { label: 'Line 101 — Total sales (excl. tax)', amountCents: d.line101TotalSalesCents },
             { label: 'Line 105 — GST/HST collected', amountCents: d.line105GstHstCollectedCents },
             { label: 'Line 108 — Input tax credits (ITCs)', amountCents: d.line108ItcCents },
             { label: 'Line 109 — Net tax', amountCents: d.line109NetTaxCents, strong: true },
-          ]);
+          ];
+          // QST is claimed on Revenu Québec's return, not line 108 — shown apart, only when present.
+          if ((d.qstItrCents ?? 0) > 0) {
+            caRows.push({ id: 'qst-itr', label: t('tax_ui.return_qst_itr'), amountCents: d.qstItrCents as number });
+          }
+          setLines(caRows);
         } else if (j === 'au') {
           setTitle('BAS — GST');
           const res = await fetch('/api/v1/agentbook-tax/au/bas-return');
@@ -78,6 +87,8 @@ export const SalesTaxReturnPage: React.FC = () => {
             { label: 'G1 — Total sales (incl. GST)', amountCents: d.g1TotalSalesCents },
             { label: '1A — GST on sales', amountCents: d.label1AGstOnSalesCents },
             { label: '1B — GST on purchases (ITCs)', amountCents: d.label1BGstOnPurchasesCents },
+            { id: 'g10', label: t('tax_ui.return_bas_g10'), amountCents: d.g10CapitalPurchasesCents ?? 0 },
+            { id: 'g11', label: t('tax_ui.return_bas_g11'), amountCents: d.g11NonCapitalPurchasesCents ?? 0 },
             { label: 'Net GST (1A − 1B)', amountCents: d.netGstCents },
           ];
           if (d.w1TotalWagesCents > 0 || d.w2PaygWithheldCents > 0) {
@@ -145,7 +156,7 @@ export const SalesTaxReturnPage: React.FC = () => {
         <table className="w-full text-sm">
           <tbody>
             {(lines ?? []).map((l) => (
-              <tr key={l.label} className={`border-b border-border last:border-0 ${l.strong ? 'font-semibold bg-muted/40' : ''}`}>
+              <tr key={l.label} data-testid={l.id ? `return-line-${l.id}` : undefined} className={`border-b border-border last:border-0 ${l.strong ? 'font-semibold bg-muted/40' : ''}`}>
                 <td className="px-4 py-2.5 text-foreground">{l.label}</td>
                 <td className="px-4 py-2.5 text-right tabular-nums">{formatMoney(l.amountCents, currency)}</td>
               </tr>
