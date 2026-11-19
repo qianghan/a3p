@@ -17,6 +17,6 @@ export { Thumb, isOptimizableHost, isPdfUrl } from './Thumb';
 export { Toast, ToastHost, useToast, toastStyle, DEFAULT_TOAST_MS, CRITICAL_TOAST_MS } from './Toast';
 export type { ToastTone, ToastApi } from './Toast';
 export { EmptyState } from './EmptyState';
-export { Money, moneyText } from './Money';
+export { Money, moneyText, moneyTextExact } from './Money';
 export { useFormatters, makeFormatters } from './format';
 export type { Formatters } from './format';

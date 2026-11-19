@@ -332,5 +332,6 @@
   "gst_basis_accrual": "Accrual — when billed",
   "gst_basis_cash": "Cash — when paid",
   "gst_basis_help": "Decides which period a purchase’s tax credit lands in on your GST return.",
-  "gst_registered_label_ca": "Registered for GST/HST?"
+  "gst_registered_label_ca": "Registered for GST/HST?",
+  "gst_basis_label_ca": "GST/HST reporting basis"
 }

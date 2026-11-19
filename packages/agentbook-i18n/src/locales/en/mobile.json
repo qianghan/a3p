@@ -354,6 +354,11 @@
     "tax_code_zero_rated": "Zero-rated",
     "tax_code_exempt": "Exempt",
     "tax_code_out_of_scope": "Out of scope",
+    "tax_code_ca_gst": "GST",
+    "tax_code_ca_hst": "HST",
+    "tax_code_ca_gst_pst": "GST + PST",
+    "tax_code_ca_gst_qst": "GST + QST",
+    "tax_code_au_gst": "GST",
     "period_closed": "This expense is dated in a closed period, so it can’t be booked. Reopen the period or change the date."
   },
   "chat": {

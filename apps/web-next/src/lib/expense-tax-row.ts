@@ -34,6 +34,8 @@ export interface TaxRowView {
   preview: TaxRowPreview | null;
   /** Tenant currency (ISO 4217): the preview amounts are in it; UIs format with it. */
   currency: string | null;
+  /** Which pack the codes belong to; 'GST' means different things in au and ca, so UIs localize by this + code. */
+  jurisdiction: 'au' | 'ca' | null;
 }
 
 export interface TaxRowQuery {
@@ -42,7 +44,7 @@ export interface TaxRowQuery {
   taxCode?: string;
 }
 
-const HIDDEN: TaxRowView = { visible: false, codes: [], defaultCode: null, registrationPrompt: false, preview: null, currency: null };
+const HIDDEN: TaxRowView = { visible: false, codes: [], defaultCode: null, registrationPrompt: false, preview: null, currency: null, jurisdiction: null };
 
 export function buildTaxRowView(t: (TenantTaxContext & { currency?: string | null }) | null, q: TaxRowQuery): TaxRowView {
   const j = taxJurisdictionOf(t?.jurisdiction);
@@ -62,5 +64,5 @@ export function buildTaxRowView(t: (TenantTaxContext & { currency?: string | nul
       preview = null;
     }
   }
-  return { visible: true, codes, defaultCode, registrationPrompt, preview, currency: t.currency ?? null };
+  return { visible: true, codes, defaultCode, registrationPrompt, preview, currency: t.currency ?? null, jurisdiction: j };
 }

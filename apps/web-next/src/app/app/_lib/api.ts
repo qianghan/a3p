@@ -297,8 +297,9 @@ export interface TaxRow {
   defaultCode: string | null;
   registrationPrompt: boolean;
   preview: TaxRowPreview | null;
+  jurisdiction: 'au' | 'ca' | null;
 }
-const HIDDEN_TAX_ROW: TaxRow = { visible: false, codes: [], defaultCode: null, registrationPrompt: false, preview: null };
+const HIDDEN_TAX_ROW: TaxRow = { visible: false, codes: [], defaultCode: null, registrationPrompt: false, preview: null, jurisdiction: null };
 const isInt = (n: unknown): n is number => typeof n === 'number' && Number.isSafeInteger(n);
 
 /**
@@ -324,6 +325,7 @@ export async function getTaxRow(q: { amountCents?: number; inclusive: boolean; t
     defaultCode: typeof d.defaultCode === 'string' ? d.defaultCode : null,
     registrationPrompt: d.registrationPrompt === true,
     preview,
+    jurisdiction: d.jurisdiction === 'au' || d.jurisdiction === 'ca' ? d.jurisdiction : null,
   };
 }
 
