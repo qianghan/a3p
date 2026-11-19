@@ -17,7 +17,7 @@ import { safeResolveAgentbookTenant } from '@/lib/agentbook-tenant';
 import { publicErrorMessage } from '@/lib/api-error';
 import { isUnpaid, liveBillWhere, outstandingCents } from '@/lib/bill-amounts';
 import { postBill, PurchaseError } from '@/lib/purchases';
-import { isPurchasesAtEntryEnabled } from '@/lib/purchases-flag';
+import { purchasesAtEntryApplies } from '@/lib/purchases-flag';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -112,9 +112,10 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       );
     }
 
-    // PR 3bc: accrual tenants post AP at entry — behind `purchases_at_entry` (off).
-    if (await isPurchasesAtEntryEnabled()) {
-      if (cfg && cfg.accountingBasis !== 'cash') {
+    // PR 3bc: accrual tenants post AP at entry — behind `purchases_at_entry`
+    // (global or per-tenant allowlist). Cash-basis tenants never do (R-AP-3).
+    if (await purchasesAtEntryApplies(tenantId, cfg)) {
+      {
         // Omitted → the engine dates it today; a replay then ignores the date.
         const billDate = body.billDate ? new Date(body.billDate) : undefined;
         if (billDate && isNaN(billDate.getTime())) {
@@ -152,6 +153,10 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         categoryCode: body.categoryCode || null,
         dueDate: due,
         status: 'open',
+        postingMode: 'at_payment',
+        paidCents: 0,
+        revision: 0,
+        deletedAt: null,
       },
     });
 

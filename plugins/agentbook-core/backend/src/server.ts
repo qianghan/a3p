@@ -3,7 +3,7 @@
  * Every financial action produces a balanced journal entry.
  * The constraint engine is code, not LLM prompts.
  */
-import { loadUnpaidBills, outstandingCents, summarizeUnpaidBills } from './bill-amounts.js';
+import { loadUnpaidBills, outstandingCents, summarizeUnpaidBills, type BillAmountLike } from './bill-amounts.js';
 import { applyTaxPhrase, taxSplitLine } from './expense-tax-phrase.js';
 import 'dotenv/config';
 import crypto from 'node:crypto';
@@ -4678,7 +4678,7 @@ async function _executeClassificationCore(
       if (bills.length === 0) {
         message = t('skill.bills_none_open', { page: PAGE_BILLS });
       } else {
-        const list = bills.slice(0, 8).map((b) => `${b.dueDate < now ? '🔴' : '🟡'} **${b.vendorName}** — ${fmt(outstandingCents(b))} due ${new Date(b.dueDate).toLocaleDateString(replyLocale)}`).join('\n');
+        const list = bills.slice(0, 8).map((b: BillAmountLike & { dueDate: Date; vendorName: string }) => `${b.dueDate < now ? '🔴' : '🟡'} **${b.vendorName}** — ${fmt(outstandingCents(b))} due ${new Date(b.dueDate).toLocaleDateString(replyLocale)}`).join('\n');
         message = `${t('skill.bills_open', { amount: fmt(openCents), count: bills.length })}${overdue.length ? ` (${overdue.length} overdue)` : ''}:\n\n${list}`;
       }
       await db.abConversation.create({ data: { tenantId, question: text, answer: message, queryType: 'agent', channel, skillUsed: 'manage-bills' } });

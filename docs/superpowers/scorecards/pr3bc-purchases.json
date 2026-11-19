@@ -1,0 +1,125 @@
+{
+  "id": "pr3bc-purchases",
+  "title": "PR 3bc — purchases engine (AP at entry) + every reader, one deploy",
+  "goals": [
+    {
+      "id": "G1-writer",
+      "covers": ["R-LED-1"],
+      "text": "Every bill posting (create at_entry, pay, partial pay, void, void payment, amend) and the legacy at_payment pay goes through lib/purchases on the ledger writer: balanced, closed-period gate, idempotent replay on (tenantId, sourceType, sourceId); route-level wiring tests assert the journal lines of each bills route and each call into lib/purchases is mutation-checked.",
+      "tests": [
+        "apps/web-next/src/lib/__tests__/purchases.test.ts",
+        "apps/web-next/src/lib/__tests__/purchases-property.test.ts",
+        "apps/web-next/src/app/api/v1/agentbook-expense/bills/__tests__/route-wiring.test.ts",
+        "apps/web-next/src/__tests__/api/v1/agentbook-expense/bills-legacy-pay-route.test.ts"
+      ]
+    },
+    {
+      "id": "G2-returns",
+      "covers": ["R-TAX-4"],
+      "text": "Bills feed AU BAS 1B/G10/G11 and CA line 108 from their line data: accrual by billDate, cash GST by AbBillPayment.date pro-rata (golden fixtures incl. partial payments and a quarter boundary).",
+      "tests": [
+        "apps/web-next/src/__tests__/api/v1/agentbook-tax/au-bas-bills-route.test.ts",
+        "apps/web-next/src/__tests__/api/v1/agentbook-tax/au-bas-return-route.test.ts",
+        "apps/web-next/src/__tests__/api/v1/agentbook-tax/ca-gst-hst-return-route.test.ts",
+        "plugins/agentbook-tax/frontend/src/__tests__/sales-tax-return-basis.test.tsx"
+      ]
+    },
+    {
+      "id": "G3-at-entry",
+      "covers": ["R-AP-1"],
+      "text": "For an accrual tenant with purchases_at_entry on (globally or by per-tenant allowlist in FeatureFlag.metadata.tenantIds), a new bill posts DR category net | DR 2100 recoverable | CR 2000 gross on its bill date; a cash-basis tenant never does.",
+      "tests": [
+        "apps/web-next/src/lib/__tests__/purchases.test.ts",
+        "apps/web-next/src/lib/__tests__/purchases-flag.test.ts",
+        "apps/web-next/src/app/api/v1/agentbook-expense/bills/__tests__/route-wiring.test.ts"
+      ]
+    },
+    {
+      "id": "G4-pay",
+      "covers": ["R-AP-2"],
+      "text": "Paying an at_entry bill in full or in part posts DR 2000 / CR 1000 and creates no expense row; overpayment is 422; concurrent payments cannot overpay.",
+      "tests": [
+        "apps/web-next/src/lib/__tests__/purchases.test.ts",
+        "apps/web-next/src/lib/__tests__/purchases-property.test.ts",
+        "apps/web-next/src/app/api/v1/agentbook-expense/bills/__tests__/route-wiring.test.ts"
+      ]
+    },
+    {
+      "id": "G5-legacy",
+      "covers": ["R-AP-3"],
+      "text": "at_payment bills and cash-basis tenants pay exactly as before (DR expense / CR 1000) through the writer with a real payment sourceId, a period gate and no silent fallback account; DELETE of a paid bill is refused; soft-deleted bills are 404 on GET/PUT/PATCH.",
+      "tests": [
+        "apps/web-next/src/__tests__/api/v1/agentbook-expense/bills-legacy-pay-route.test.ts",
+        "apps/web-next/src/app/api/v1/agentbook-expense/bills/__tests__/route-wiring.test.ts",
+        "apps/web-next/src/lib/__tests__/purchases-flag.test.ts"
+      ]
+    },
+    {
+      "id": "G6-readers",
+      "covers": ["R-AP-4"],
+      "text": "Every reader treats open|partial as unpaid (bills GET, aging, Home, Upcoming, CPA run, manage-bills, cpa-review); the balance sheet balances for mixed legacy/new bills and counts no bill twice.",
+      "tests": [
+        "apps/web-next/src/lib/__tests__/balance-sheet-mixed-bills.test.ts",
+        "apps/web-next/src/__tests__/api/v1/agentbook-tax/balance-sheet-bills-route.test.ts",
+        "apps/web-next/src/__tests__/api/v1/bill-unpaid-readers.test.ts",
+        "apps/web-next/src/__tests__/architecture/bill-unpaid-readers-guard.test.ts"
+      ]
+    },
+    {
+      "id": "G7-cash-guard",
+      "covers": ["R-AP-5"],
+      "text": "?basis=cash is disabled with a localized banner (Reports) and a Settings basis note while open at_entry bills exist.",
+      "tests": [
+        "apps/web-next/src/__tests__/api/v1/agentbook-tax/cash-basis-guard-route.test.ts",
+        "plugins/agentbook-tax/frontend/src/__tests__/reports-cash-basis-banner.test.tsx",
+        "apps/web-next/src/__tests__/components/settings/basis-open-bills-note.test.tsx"
+      ]
+    },
+    {
+      "id": "G8-purchase-view",
+      "covers": ["R-AP-6"],
+      "text": "GET purchases returns one row per bill with a Due/Paid badge among expenses; the mobile Docs list and the desktop expense list render it, and a paid bill is never an expense row.",
+      "tests": [
+        "apps/web-next/src/lib/__tests__/purchases-view.test.ts",
+        "apps/web-next/src/app/api/v1/agentbook-expense/purchases/__tests__/route.test.ts",
+        "apps/web-next/src/__tests__/app/mobile/docs-page.test.tsx",
+        "plugins/agentbook-expense/frontend/src/__tests__/expense-list-bills.test.tsx"
+      ]
+    }
+  ],
+  "regression": {
+    "vitest": [
+      "apps/web-next/src/__tests__/api/v1/agentbook-expense/ledger-wiring.test.ts",
+      "apps/web-next/src/__tests__/app/mobile/api-client.test.ts",
+      "plugins/agentbook-expense/frontend/src/__tests__/bills-pay-error.test.tsx"
+    ]
+  },
+  "ux": {
+    "vitest": [
+      "apps/web-next/src/__tests__/app/mobile/docs-page.test.tsx",
+      "plugins/agentbook-expense/frontend/src/__tests__/bills-pay-error.test.tsx",
+      "plugins/agentbook-expense/frontend/src/__tests__/expense-list-bills.test.tsx",
+      "plugins/agentbook-tax/frontend/src/__tests__/reports-cash-basis-banner.test.tsx",
+      "plugins/agentbook-tax/frontend/src/__tests__/sales-tax-return-basis.test.tsx",
+      "apps/web-next/src/__tests__/components/settings/basis-open-bills-note.test.tsx",
+      "apps/web-next/src/__tests__/architecture/mobile-app-hygiene.test.ts",
+      "apps/web-next/src/__tests__/architecture/mobile-app-i18n.test.ts",
+      "apps/web-next/src/__tests__/architecture/i18n-mobile-keys.test.ts",
+      "apps/web-next/src/__tests__/architecture/i18n-catalog.test.ts"
+    ],
+    "playwright": [],
+    "checklist": "docs/superpowers/scorecards/pr3bc-purchases-ux-checklist.md",
+    "postChecklist": "docs/superpowers/scorecards/pr3bc-purchases-ux-postdeploy.md"
+  },
+  "launch": {
+    "docs": [
+      "agentbook/skills/workflows.md",
+      "agentbook/skills/architecture.md"
+    ],
+    "rollback": "First lever, no deploy: turn the flag off (`npx tsx agentbook/enable-purchases-at-entry.ts --remove --apply`, or `--global off --apply`); new bills are created at_payment again. Bills already posted at entry keep their balanced journals (DR expense/2100, CR 2000) and stay payable/voidable, since pay/void/amend dispatch on each bill's postingMode, not on the flag. Full rollback: revert the PR; the additive bill columns (lines, payments, postingMode, paidCents, revision, deletedAt) stay and are ignored. Before a revert, void or pay out any open at_entry bills, because the pre-PR pay route would post a second DR expense for them.",
+    "prodPlaywright": [
+      "tests/e2e/mobile-app/bills.spec.ts"
+    ],
+    "playwrightConfig": "tests/e2e/mobile-app/playwright.config.ts"
+  }
+}

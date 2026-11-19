@@ -42,6 +42,9 @@ packages/
 - `@@unique` constraints prevent duplicates (e.g., `[tenantId, number]` on invoices)
 - Purchase tax (PR 2b): `AbExpense.taxCode` + `recoverableTaxCents` (⊂ `taxAmountCents` ⊂ `amountCents`); engine in `@agentbook/jurisdictions` `tax-codes.ts`, app adapter `lib/tax-codes.ts`, posting resolution `lib/expense-tax.ts` (`resolveExpenseTax`), UI view `lib/expense-tax-row.ts`. Registrants book recoverable tax to `2100`; every table reader uses `deductibleCents` (`lib/expense-amounts.ts`) = `amountCents − recoverableTaxCents`. Flags: `AbTenantConfig.gstRegistered`/`qstRegistered` (tri-state), `gstReportingBasis`.
 
+### Accounts payable (PR 3bc)
+Bills (`AbBill` + `AbBillLine` + `AbBillPayment`) post through `apps/web-next/src/lib/purchases.ts` on the ledger writer. `postingMode='at_entry'` (accrual tenants with flag `purchases_at_entry`, global or per-tenant `FeatureFlag.metadata.tenantIds`) books AP (2000) on the bill date and moves it to cash (1000) on payment, never creating an expense row; `at_payment` (legacy rows, cash-basis tenants) books DR expense / CR 1000 at payment. Readers treat `open|partial` as unpaid (`lib/bill-amounts.ts`); the balance sheet combines journal 2000 (at_entry) with derived AP (at_payment) so no bill counts twice; BAS 1B/G10/G11 and CA line 108 include bills by billDate (accrual) or payment date pro-rata (cash GST). Routes: `agentbook-expense/bills`, `/bills/:id`, `/bills/:id/payments/:paymentId`, `agentbook-expense/purchases`.
+
 ## API Endpoints (140 total)
 
 | Plugin | Port | Endpoints | Key Routes |
