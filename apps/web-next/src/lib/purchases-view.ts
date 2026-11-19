@@ -26,6 +26,10 @@ export interface PurchaseRow {
   overdue?: boolean;
   /** Bills only: ISO due date. */
   dueDate?: string;
+  /** Bills only: the supplier's invoice number, when entered. */
+  billNumber?: string | null;
+  /** Bills only: amount paid so far (0 for a legacy at_payment bill — never derive "paid" from it). */
+  paidCents?: number;
 }
 
 /** Stored bill statuses that belong in a purchases list (cancelled / void / draft do not). */
@@ -34,7 +38,7 @@ export const PURCHASE_BILL_STATUSES = ['open', 'partial', 'paid'] as const;
 interface ExpenseLike { id: string; date: Date; amountCents: number; vendor?: { name: string } | null; description?: string | null }
 interface BillLike {
   id: string; vendorName: string; amountCents: number; status: string; paidCents?: number | null;
-  billDate?: Date | null; createdAt: Date; dueDate: Date; deletedAt?: Date | null; postingMode?: string | null;
+  billDate?: Date | null; createdAt: Date; dueDate: Date; deletedAt?: Date | null; postingMode?: string | null; billNumber?: string | null;
 }
 
 export function billDateOf(b: { billDate?: Date | null; createdAt: Date }): Date {
@@ -48,12 +52,26 @@ export function expenseToPurchase(e: ExpenseLike): PurchaseRow {
   };
 }
 
-export function billToPurchase(b: BillLike, now: Date = new Date()): PurchaseRow {
+/** Today's calendar date (YYYY-MM-DD) in an IANA timezone; an invalid name falls back to UTC. */
+export function todayInZone(timezone: string | null | undefined, now: Date = new Date()): string {
+  try {
+    return new Intl.DateTimeFormat('en-CA', { timeZone: timezone || 'UTC', year: 'numeric', month: '2-digit', day: '2-digit' }).format(now);
+  } catch {
+    return now.toISOString().slice(0, 10);
+  }
+}
+
+/**
+ * `today` is the tenant's calendar date. A due date is a calendar date stored at UTC midnight, so it is
+ * compared as a DATE: due today is not overdue, whatever the server clock says.
+ */
+export function billToPurchase(b: BillLike, today: string = todayInZone('UTC')): PurchaseRow {
   const owed = outstandingCents(b);
   const due = b.status === 'open' || b.status === 'partial';
   return {
     kind: 'bill', id: b.id, date: billDateOf(b).toISOString(), vendor: b.vendorName, amountCents: b.amountCents,
-    status: due ? 'due' : 'paid', outstandingCents: owed, overdue: due && b.dueDate < now, dueDate: b.dueDate.toISOString(),
+    status: due ? 'due' : 'paid', outstandingCents: owed, overdue: due && b.dueDate.toISOString().slice(0, 10) < today, dueDate: b.dueDate.toISOString(),
+    billNumber: b.billNumber ?? null, paidCents: b.paidCents ?? 0,
   };
 }
 

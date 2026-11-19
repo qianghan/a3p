@@ -268,7 +268,7 @@ function DocsList({ filter, q, view, currency, online, refreshToken, onCounts, o
   useEffect(() => {
     if (!data || filter !== 'all' || q) { setBills([]); return; }
     let live = true;
-    listBillRows({ limit: 100 }).then((b) => { if (live) setBills(b); }).catch(() => { if (live) setBills([]); });
+    listBillRows().then((b) => { if (live) setBills(b); }).catch(() => { if (live) setBills([]); });
     return () => { live = false; };
   }, [data, filter, q]);
 

@@ -10,10 +10,12 @@ const d = (s: string) => new Date(`${s}T00:00:00.000Z`);
 const expenseFind = vi.fn();
 const expenseCount = vi.fn();
 const billFind = vi.fn();
+const cfgFind = vi.fn();
 vi.mock('@naap/database', () => ({
   prisma: {
     abExpense: { findMany: (...a: unknown[]) => expenseFind(...a), count: (...a: unknown[]) => expenseCount(...a) },
     abBill: { findMany: (...a: unknown[]) => billFind(...a) },
+    abTenantConfig: { findUnique: (...a: unknown[]) => cfgFind(...a) },
   },
 }));
 
@@ -32,6 +34,7 @@ beforeEach(() => {
     { id: 'e2', date: d('2026-10-02'), amountCents: 700, vendor: null, description: 'Taxi' },
   ]);
   expenseCount.mockResolvedValue(2);
+  cfgFind.mockResolvedValue({ timezone: 'UTC' });
   billFind.mockResolvedValue([
     bill({ id: 'b1' }),
     bill({ id: 'b2', status: 'paid', paidCents: 0, vendorName: 'Landlord', amountCents: 90000, billDate: null, createdAt: d('2026-10-03') }),
@@ -74,6 +77,21 @@ describe('GET /purchases', () => {
     const ranged = await (await GET(req('?startDate=2026-10-01'))).json();
     expect(ranged.data.map((r: { id: string }) => r.id)).not.toContain('b3');
     expect(ranged.meta.total).toBe(2 + 2);
+  });
+
+  it('orders bills deterministically and judges overdue in the tenant timezone', async () => {
+    await GET(req());
+    expect(billFind.mock.calls[0][0].orderBy).toEqual([{ billDate: 'desc' }, { createdAt: 'desc' }, { id: 'desc' }]);
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-11-06T01:00:00.000Z')); // 17:00 PT Nov 5
+    billFind.mockResolvedValue([bill({ id: 'bt', dueDate: d('2026-11-05') })]);
+    cfgFind.mockResolvedValue({ timezone: 'America/Los_Angeles' });
+    const la = await (await GET(req('?kind=bill'))).json();
+    cfgFind.mockResolvedValue({ timezone: 'UTC' });
+    const utc = await (await GET(req('?kind=bill'))).json();
+    vi.useRealTimers();
+    expect(la.data[0].overdue).toBe(false);
+    expect(utc.data[0].overdue).toBe(true);
   });
 
   it('kind=bill returns bill rows only and never queries expenses', async () => {

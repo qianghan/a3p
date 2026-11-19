@@ -295,7 +295,14 @@
     "bill_due_pill": "À payer",
     "bill_overdue_pill": "En retard",
     "bill_paid_pill": "Payée",
-    "bill_remaining": "Solde :"
+    "bill_remaining": "Solde :",
+    "bill_status": "Statut",
+    "bill_number": "Numéro de facture",
+    "bill_date": "Date de la facture",
+    "bill_due_date": "Date d’échéance",
+    "bill_total": "Montant total",
+    "bill_paid_so_far": "Payé",
+    "bill_outstanding": "Solde dû"
   },
   "capture": {
     "title": "Saisir une dépense",

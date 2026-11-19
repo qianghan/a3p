@@ -12,7 +12,7 @@ import { publicErrorMessage } from '@/lib/api-error';
 import { liveBillWhere } from '@/lib/bill-amounts';
 import { liveExpenseWhere } from '@/lib/agentbook-live-expense';
 import {
-  PURCHASE_BILL_STATUSES, billDateOf, billToPurchase, expenseToPurchase, mergePurchases,
+  PURCHASE_BILL_STATUSES, billDateOf, billToPurchase, expenseToPurchase, mergePurchases, todayInZone,
 } from '@/lib/purchases-view';
 
 export const runtime = 'nodejs';
@@ -46,7 +46,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     const billsOnly = p.get('kind') === 'bill';
     const range = start || end ? { ...(start ? { gte: start } : {}), ...(end ? { lte: end } : {}) } : null;
 
-    const [expenses, expenseTotal, bills] = await Promise.all([
+    const [expenses, expenseTotal, bills, cfg] = await Promise.all([
       billsOnly ? Promise.resolve([]) : db.abExpense.findMany({
         where: { tenantId, ...liveExpenseWhere(), archivedAt: null, ...(range ? { date: range } : {}) },
         include: { vendor: { select: { name: true } } },
@@ -57,17 +57,19 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       // Bills are few per tenant; billDate ?? createdAt cannot be ordered in SQL, so filter here.
       db.abBill.findMany({
         where: { tenantId, ...liveBillWhere(), status: { in: [...PURCHASE_BILL_STATUSES] } },
+        orderBy: [{ billDate: 'desc' }, { createdAt: 'desc' }, { id: 'desc' }],
         take: 1000,
       }),
+      db.abTenantConfig.findUnique({ where: { userId: tenantId }, select: { timezone: true } }),
     ]);
 
-    const now = new Date();
+    const today = todayInZone(cfg?.timezone, new Date());
     const liveBills = bills.filter((b) => {
       const d = billDateOf(b);
       return (!start || d >= start) && (!end || d <= end);
     });
     const rows = mergePurchases(
-      [...expenses.map(expenseToPurchase), ...liveBills.map((b) => billToPurchase(b, now))],
+      [...expenses.map(expenseToPurchase), ...liveBills.map((b) => billToPurchase(b, today))],
       limit,
       offset,
     );

@@ -261,15 +261,24 @@ export async function listDocs(p: { filter?: DocFilter; q?: string; cursor?: str
  * dropped rather than rendered: a bill row needs a string id, ISO date, integer
  * total and a due|paid badge.
  */
-export async function listBillRows(p: { limit?: number; offset?: number } = {}): Promise<PurchaseRow[]> {
-  const qs = new URLSearchParams({ kind: 'bill', limit: String(Math.min(clampLimit(p.limit), 100)) });
-  if (p.offset) qs.set('offset', String(Math.max(0, Math.floor(p.offset))));
-  const env = await call<PurchaseRow[]>(`${EXPENSE}/purchases?${qs.toString()}`);
-  return (Array.isArray(env.data) ? env.data : []).filter(
-    (r): r is PurchaseRow =>
-      !!r && r.kind === 'bill' && typeof r.id === 'string' && typeof r.date === 'string' && !isNaN(Date.parse(r.date)) &&
-      Number.isInteger(r.amountCents) && (r.status === 'due' || r.status === 'paid'),
-  );
+export async function listBillRows(): Promise<PurchaseRow[]> {
+  const PAGE = 100;
+  const MAX_PAGES = 10; // 1,000 bills — the route's own ceiling
+  const out: PurchaseRow[] = [];
+  for (let page = 0; page < MAX_PAGES; page++) {
+    const qs = new URLSearchParams({ kind: 'bill', limit: String(PAGE) });
+    if (page > 0) qs.set('offset', String(page * PAGE));
+    const env = await call<PurchaseRow[]>(`${EXPENSE}/purchases?${qs.toString()}`);
+    const raw = Array.isArray(env.data) ? env.data : [];
+    for (const r of raw) {
+      if (
+        r && r.kind === 'bill' && typeof r.id === 'string' && typeof r.date === 'string' && !isNaN(Date.parse(r.date)) &&
+        Number.isInteger(r.amountCents) && (r.status === 'due' || r.status === 'paid')
+      ) out.push(r);
+    }
+    if (raw.length < PAGE) break;
+  }
+  return out;
 }
 
 export async function getDoc(id: string): Promise<MobileDoc> {

@@ -295,7 +295,14 @@
     "bill_due_pill": "待付",
     "bill_overdue_pill": "已逾期",
     "bill_paid_pill": "已付",
-    "bill_remaining": "未付："
+    "bill_remaining": "未付：",
+    "bill_status": "状态",
+    "bill_number": "账单编号",
+    "bill_date": "账单日期",
+    "bill_due_date": "到期日",
+    "bill_total": "总额",
+    "bill_paid_so_far": "已付",
+    "bill_outstanding": "未付"
   },
   "capture": {
     "title": "记录支出",

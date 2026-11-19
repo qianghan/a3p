@@ -1,20 +1,16 @@
 'use client';
-import React from 'react';
-import Link from 'next/link';
+import React, { useState } from 'react';
 import { Receipt } from 'lucide-react';
 import { useT, useShellLocale } from '@/hooks/use-t';
 import type { PurchaseRow } from '@/lib/purchases-view';
-import { Pill, tokens, TOUCH } from '../../_kit';
+import { Pill, Sheet, tokens, TOUCH } from '../../_kit';
 import { formatDocDate } from '../../_lib/format';
 import { Amount } from './Amount';
 
 const ellipsis: React.CSSProperties = { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' };
 
-/** Where a tapped bill goes: the desktop Bills page. There is no mobile bill screen, and this is the smallest honest target. */
-export const BILLS_HREF = '/agentbook/bills';
-
 /**
- * One bill among the Docs rows (PR 3bc.7): a Due / Overdue / Paid badge, the
+ * One bill among the Docs rows (PR 3bc.7). Tapping opens a read-only sheet inside /app (paying is PR 3d): a Due / Overdue / Paid badge, the
  * bill TOTAL, and for a part-paid bill what is still owed. The badge is text,
  * not colour alone.
  */
@@ -24,12 +20,22 @@ export function BillItem({ bill, currency }: { bill: PurchaseRow; currency: stri
   const paid = bill.status === 'paid';
   const owed = bill.outstandingCents ?? 0;
   const part = !paid && owed > 0 && owed < bill.amountCents;
+  const [open, setOpen] = useState(false);
+  const badge = paid ? (
+    <Pill tone="good">{t('mobile.docs.bill_paid_pill')}</Pill>
+  ) : (
+    <Pill tone={bill.overdue ? 'critical' : 'warn'}>{bill.overdue ? t('mobile.docs.bill_overdue_pill') : t('mobile.docs.bill_due_pill')}</Pill>
+  );
+  const vendor = bill.vendor || t('mobile.docs.untitled');
   return (
-    <Link
-      href={BILLS_HREF}
+    <>
+    <button
+      type="button"
+      onClick={() => setOpen(true)}
+      aria-haspopup="dialog"
       data-testid="bill-item"
       style={{
-        textDecoration: 'none', color: tokens.color.fg, background: tokens.color.card, border: `1px solid ${tokens.color.border}`,
+        font: 'inherit', textAlign: 'left', width: '100%', cursor: 'pointer', boxSizing: 'border-box', color: tokens.color.fg, background: tokens.color.card, border: `1px solid ${tokens.color.border}`,
         borderRadius: tokens.radius.md, minHeight: TOUCH, display: 'flex', gap: tokens.space.md, alignItems: 'center', padding: tokens.space.md - 2,
       }}
     >
@@ -42,11 +48,7 @@ export function BillItem({ bill, currency }: { bill: PurchaseRow; currency: stri
           {formatDocDate(bill.date, locale)} · {t('mobile.docs.bill_label')}
         </span>
         <span style={{ display: 'inline-flex', gap: tokens.space.xs, flexWrap: 'wrap', alignItems: 'center' }}>
-          {paid ? (
-            <Pill tone="good">{t('mobile.docs.bill_paid_pill')}</Pill>
-          ) : (
-            <Pill tone={bill.overdue ? 'critical' : 'warn'}>{bill.overdue ? t('mobile.docs.bill_overdue_pill') : t('mobile.docs.bill_due_pill')}</Pill>
-          )}
+          {badge}
           {part && (
             <span style={{ fontSize: tokens.font.xs, color: tokens.color.muted }}>
               {t('mobile.docs.bill_remaining')} <Amount cents={owed} currency={currency} />
@@ -55,6 +57,41 @@ export function BillItem({ bill, currency }: { bill: PurchaseRow; currency: stri
         </span>
       </span>
       <span style={{ fontSize: tokens.font.md, fontWeight: 600, whiteSpace: 'nowrap' }}><Amount cents={bill.amountCents} currency={currency} /></span>
-    </Link>
+    </button>
+    <BillSheet open={open} onClose={() => setOpen(false)} bill={bill} vendor={vendor} badge={badge} currency={currency} />
+    </>
+  );
+}
+
+function Row({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div style={{ display: 'flex', justifyContent: 'space-between', gap: tokens.space.md, padding: `${tokens.space.sm}px 0`, borderBottom: `1px solid ${tokens.color.border}` }}>
+      <dt style={{ color: tokens.color.muted, fontSize: tokens.font.sm }}>{label}</dt>
+      <dd style={{ margin: 0, fontSize: tokens.font.md, fontWeight: 500, textAlign: 'right' }}>{children}</dd>
+    </div>
+  );
+}
+
+/** Read-only detail for one bill. No actions: paying from the phone is a later PR. */
+function BillSheet({ open, onClose, bill, vendor, badge, currency }: {
+  open: boolean; onClose: () => void; bill: PurchaseRow; vendor: string; badge: React.ReactNode; currency: string | null;
+}) {
+  const t = useT();
+  const locale = useShellLocale();
+  const paid = bill.status === 'paid';
+  // A legacy at_payment bill is 'paid' with paidCents 0: show the total, never a derived "0 paid".
+  const paidCents = paid ? bill.amountCents : (bill.paidCents ?? 0);
+  return (
+    <Sheet open={open} onClose={onClose} title={vendor} testId="bill-sheet">
+      <dl style={{ margin: 0 }}>
+        <Row label={t('mobile.docs.bill_status')}>{badge}</Row>
+        {bill.billNumber ? <Row label={t('mobile.docs.bill_number')}>{bill.billNumber}</Row> : null}
+        <Row label={t('mobile.docs.bill_date')}>{formatDocDate(bill.date, locale)}</Row>
+        {bill.dueDate ? <Row label={t('mobile.docs.bill_due_date')}>{formatDocDate(bill.dueDate, locale)}</Row> : null}
+        <Row label={t('mobile.docs.bill_total')}><Amount cents={bill.amountCents} currency={currency} /></Row>
+        <Row label={t('mobile.docs.bill_paid_so_far')}><Amount cents={paidCents} currency={currency} /></Row>
+        <Row label={t('mobile.docs.bill_outstanding')}><Amount cents={bill.outstandingCents ?? 0} currency={currency} /></Row>
+      </dl>
+    </Sheet>
   );
 }

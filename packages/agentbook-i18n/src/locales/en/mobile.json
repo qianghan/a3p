@@ -295,7 +295,14 @@
     "bill_due_pill": "Due",
     "bill_overdue_pill": "Overdue",
     "bill_paid_pill": "Paid",
-    "bill_remaining": "Remaining:"
+    "bill_remaining": "Remaining:",
+    "bill_status": "Status",
+    "bill_number": "Bill number",
+    "bill_date": "Bill date",
+    "bill_due_date": "Due date",
+    "bill_total": "Total",
+    "bill_paid_so_far": "Paid",
+    "bill_outstanding": "Outstanding"
   },
   "capture": {
     "title": "Capture expense",

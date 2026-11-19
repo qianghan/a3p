@@ -960,7 +960,16 @@ describe('Docs list — bills (PR 3bc.7)', () => {
     expect(within(bills[1]).getByText(moneyText(90000, 'CAD', 'en'))).toBeInTheDocument();
     expect(within(bills[2]).getByText('Overdue')).toBeInTheDocument();
     expect(within(bills[2]).getByText(moneyText(3000, 'CAD', 'en'))).toBeInTheDocument();
-    expect(bills[0]).toHaveAttribute('href', '/agentbook/bills');
+    // Tapping opens a read-only sheet inside /app, never navigates away.
+    fireEvent.click(bills[1]);
+    const sheet = await screen.findByTestId('bill-sheet');
+    expect(within(sheet).getByText('Landlord')).toBeInTheDocument();
+    expect(within(sheet).getAllByText('Paid')).toHaveLength(2); // status pill + paid row label
+    expect(within(sheet).getByText('Oct 3, 2026')).toBeInTheDocument();
+    expect(within(sheet).getAllByText(moneyText(90000, 'CAD', 'en'))).toHaveLength(2); // total + paid (legacy paidCents 0 still shows total paid)
+    expect(within(sheet).getByText(moneyText(0, 'CAD', 'en'))).toBeInTheDocument(); // outstanding
+    expect(sheet.querySelector('a')).toBeNull();
+    expect(nav.push).not.toHaveBeenCalled();
     const order = screen.getAllByRole('listitem').map((li) => li.textContent ?? '');
     expect(order.findIndex((x) => x.includes('Acme'))).toBeLessThan(order.findIndex((x) => x.includes('Cafe')));
     expect(order.findIndex((x) => x.includes('Blue Bottle'))).toBeLessThan(order.findIndex((x) => x.includes('Acme')));
