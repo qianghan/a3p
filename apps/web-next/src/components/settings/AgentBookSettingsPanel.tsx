@@ -206,11 +206,17 @@ function highlight(text: string, q: string): React.ReactElement {
   );
 }
 
-async function fetchConfig(): Promise<TenantConfig> {
+interface CashBasisBlock { reason: string; openAtEntryBillCount: number }
+
+async function fetchConfigWithMeta(): Promise<{ data: TenantConfig; cashBasisDisabled: CashBasisBlock | null }> {
   const r = await fetch(`${API}/tenant-config`);
   if (!r.ok) throw new Error(`${r.status}`);
-  const { data } = await r.json() as { data: TenantConfig };
-  return data;
+  const body = await r.json() as { data: TenantConfig; cashBasisDisabled?: CashBasisBlock | null };
+  return { data: body.data, cashBasisDisabled: body.cashBasisDisabled ?? null };
+}
+
+async function fetchConfig(): Promise<TenantConfig> {
+  return (await fetchConfigWithMeta()).data;
 }
 
 async function saveConfig(patch: Partial<TenantConfig>): Promise<void> {
@@ -1830,9 +1836,12 @@ export function AgentBookSettingsPanel({ initialTab }: { initialTab?: string }):
   const logoPreview = safeImageSrc(pendingLogoUrl ?? form?.logoUrl);
   const fileRef = useRef<HTMLInputElement>(null);
 
+  // PR 3bc.8: open at_entry bills keep cash-basis reports on accrual.
+  const [cashBlock, setCashBlock] = useState<CashBasisBlock | null>(null);
+
   useEffect(() => {
-    fetchConfig()
-      .then((c) => setForm(c))
+    fetchConfigWithMeta()
+      .then(({ data, cashBasisDisabled }) => { setForm(data); setCashBlock(cashBasisDisabled); })
       .catch((e: unknown) => setErr(String(e)));
   }, []);
 
@@ -2196,6 +2205,11 @@ export function AgentBookSettingsPanel({ initialTab }: { initialTab?: string }):
                     <option value="cash">{t('core_ui.gst_basis_cash')}</option>
                   </select>
                   <p className="mt-1 text-xs text-muted-foreground">{t('core_ui.gst_basis_help')}</p>
+                  {form.gstReportingBasis === 'cash' && cashBlock && (
+                    <p role="status" data-testid="reg-basis-open-bills" className="mt-2 rounded-md border border-amber-300 bg-amber-50 px-2 py-1.5 text-xs text-amber-900 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-200">
+                      {t('core_ui.gst_basis_open_bills', { count: String(cashBlock.openAtEntryBillCount) })}
+                    </p>
+                  )}
                 </div>
               )}
               <div>

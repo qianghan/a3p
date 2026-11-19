@@ -109,6 +109,14 @@ Every journal posting goes through `apps/web-next/src/lib/ledger-writer.ts`: `ap
 - Readers: never read `amountCents` as a deduction — use `deductibleCents(expense)` from `lib/expense-amounts.ts` (guarded by `deductible-readers.test.ts`). Returns: BAS 1B/G10/G11 and CA ITC/QST ITR sum `recoverableTaxCents` for typed rows, `taxAmountCents` for untyped.
 - Prod e2e: `tests/e2e/mobile-app/tax-codes.spec.ts` (sydney/maya/alex; sets `gstRegistered` for the run only if not already true and restores it).
 
+### Bills / purchases (PR 3bc)
+- Engine: `apps/web-next/src/lib/purchases.ts` — `postBill`, `payBill` (full or partial), `voidPayment`, `voidBill`, `amendBill`, all on the ledger writer (balanced, period-gated, keyed `(tenantId, sourceType, sourceId)`; sourceTypes `bill`, `bill_payment`, `bill_payment_void`, `bill_void`, `bill_amend`, `bill_amend_reversal`). Throws `PurchaseError(status, code)`; routes echo `{ success: false, code }`.
+- Routes (`agentbook-expense/bills`): `POST` create; `GET/PUT/PATCH/DELETE /:id` (read, legacy edit, amend at_entry, void); `POST /:id?action=pay` (body `amountCents` for partial; response carries `payment`); `DELETE /:id/payments/:paymentId` void payment. Soft-deleted bills (`deletedAt`) are 404 everywhere. Wiring tests: `bills/__tests__/route-wiring.test.ts` (fake ledger, `lib/__tests__/fake-ledger-db.ts`).
+- Posting modes: `at_entry` = DR category net | DR 2100 recoverable | CR 2000 on billDate, pay DR 2000 / CR 1000; `at_payment` (legacy, cash-basis tenants) = nothing until paid, then DR category / CR 1000. Every pay/void dispatches on the bill's own `postingMode`.
+- Flag `purchases_at_entry` (`lib/purchases-flag.ts`, fail-closed): FeatureFlag `enabled` = global, else `metadata.tenantIds` allowlist; applies only to accrual tenants (`purchasesAtEntryApplies`). Enable: `npx tsx agentbook/enable-purchases-at-entry.ts` (dry run; `--apply`, `--email x`, `--remove`, `--global on|off`).
+- Readers: unpaid = `open|partial`, amounts outstanding (`lib/bill-amounts.ts`); balance sheet reads journal 2000 for at_entry and derived AP for at_payment (`lib/balance-sheet.ts`); BAS/CA bills in `lib/tax-return-bills.ts`; Docs/Expenses `GET agentbook-expense/purchases` (`lib/purchases-view.ts`); `?basis=cash` guard `lib/cash-basis-guard.ts`.
+- Prod e2e: `tests/e2e/mobile-app/bills.spec.ts` (default phase flag-on; `BILLS_E2E_PHASE=flag-off` for the legacy check).
+
 ### Bank Reconciliation
 1. Plaid Link → `POST /plaid/create-link-token` → `POST /plaid/exchange-token`
 2. `POST /bank-sync` → fetch transactions from Plaid API (last 30 days)

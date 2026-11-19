@@ -8,6 +8,7 @@ import { prisma as db } from '@naap/database';
 import { getQuarterlyDeadlines } from '@/lib/agentbook-quarterly-deadlines';
 import { TAX_ESTIMATE_JURISDICTIONS } from '@/lib/agentbook-tax-estimate';
 import type { UpcomingItem } from './types';
+import { outstandingCents, unpaidBillWhere } from '@/lib/bill-amounts';
 
 const DAY_MS = 86_400_000;
 export const UPCOMING_MIN_DAYS = 1;
@@ -58,7 +59,7 @@ export async function getUpcoming(tenantId: string, days: number, now: Date = ne
     }),
     hasInstalments ? db.abQuarterlyPayment.findMany({ where: { tenantId, jurisdiction, year: { in: years } } }) : [],
     db.abBill.findMany({
-      where: { tenantId, status: 'open', dueDate: { gte: start, lte: end } },
+      where: { tenantId, ...unpaidBillWhere(), dueDate: { gte: start, lte: end } },
       orderBy: { dueDate: 'asc' },
     }),
   ]);
@@ -113,7 +114,7 @@ export async function getUpcoming(tenantId: string, days: number, now: Date = ne
       params: { vendor: b.vendorName },
       date: isoDay(b.dueDate),
       daysAway: daysBetweenUtc(now, b.dueDate),
-      amountCents: b.amountCents,
+      amountCents: outstandingCents(b),
     });
   }
 

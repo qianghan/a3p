@@ -22,6 +22,7 @@ import {
   uploadReceipt,
   remindInvoice,
 } from '@/app/app/_lib/api';
+import { listBillRows } from '@/app/app/docs/_lib/bills';
 import { RECEIPT_MAX_BYTES } from '@/lib/mobile/receipt-limits';
 import { jsonResponse, textResponse, routeFetch } from './test-utils';
 
@@ -564,5 +565,36 @@ describe('remindInvoice', () => {
   ])('refuses %s without calling anything', async (endpoint) => {
     await expect(remindInvoice(endpoint)).rejects.toMatchObject({ code: 'invalid_endpoint' });
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
+
+describe('listBillRows', () => {
+  const BILL = { kind: 'bill', id: 'b1', date: '2026-10-05T00:00:00.000Z', vendor: 'Acme', amountCents: 12000, status: 'due', outstandingCents: 7000 };
+  it('asks the purchases route for bills only and returns well-formed rows', async () => {
+    const mock = routeFetch({
+      '/api/v1/agentbook-expense/purchases': () => jsonResponse(200, { success: true, data: [BILL, { ...BILL, id: 'b2', status: 'weird' }, { kind: 'expense', id: 'e1' }, null] }),
+    });
+    const rows = await listBillRows();
+    expect(rows.map((r) => r.id)).toEqual(['b1']);
+    const url = String(mock.mock.calls[0][0]);
+    expect(url).toContain('kind=bill');
+    expect(url).toContain('limit=100');
+    expect(mock).toHaveBeenCalledTimes(1);
+  });
+  it('pages through every bill instead of truncating at 100', async () => {
+    const page = (n: number, from: number) => Array.from({ length: n }, (_, i) => ({ ...BILL, id: `b${from + i}` }));
+    const mock = routeFetch({
+      '/api/v1/agentbook-expense/purchases': (url: string) =>
+        jsonResponse(200, { success: true, data: new URL(url, 'http://x').searchParams.get('offset') === '100' ? page(30, 100) : page(100, 0) }),
+    });
+    const rows = await listBillRows();
+    expect(rows).toHaveLength(130);
+    expect(new Set(rows.map((r) => r.id)).size).toBe(130);
+    expect(mock).toHaveBeenCalledTimes(2);
+    expect(String(mock.mock.calls[1][0])).toContain('offset=100');
+  });
+  it('maps a failure to ApiError', async () => {
+    routeFetch({ '/api/v1/agentbook-expense/purchases': () => jsonResponse(401, { success: false, error: 'unauthorized' }) });
+    await expect(listBillRows()).rejects.toMatchObject({ status: 401, code: 'unauthorized' });
   });
 });

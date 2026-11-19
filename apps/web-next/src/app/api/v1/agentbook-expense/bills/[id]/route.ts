@@ -1,11 +1,15 @@
 /**
- * Bill detail operations — update (PUT), cancel (DELETE), pay (POST .../pay
+ * Bill detail operations — read (GET), legacy edit (PUT), amend (PATCH),
+ * cancel (DELETE), pay (POST .../pay
  * is handled here via ?action=pay for a flat route surface).
  *
- * Pay posts the bill to the ledger at payment time: Dr <expense account>
- * / Cr Cash (1000), the same shape as a normal recorded expense. This makes
- * the expense land on both the cash and accrual P&L at the payment date and
- * never double-counts (bills carry no ledger impact before payment).
+ * Pay and cancel go through lib/purchases (PR 3bc). For legacy
+ * `postingMode='at_payment'` bills pay still posts Dr <expense> / Cr Cash
+ * (1000) at payment, now via the ledger writer: keyed 'bill' / payment.id,
+ * period-gated, a missing category books 6999, and a missing account FAILS
+ * the request instead of marking the bill paid with no entry. `at_entry`
+ * bills pay Dr 2000 / Cr 1000. DELETE of a paid/partial bill is refused
+ * until its payments are voided.
  */
 
 import 'server-only';
@@ -13,6 +17,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma as db } from '@naap/database';
 import { safeResolveAgentbookTenant } from '@/lib/agentbook-tenant';
 import { publicErrorMessage } from '@/lib/api-error';
+import { amendBill, liveBillWhere, payBill, voidBill, PurchaseError, type AmendInput } from '@/lib/purchases';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -20,6 +25,26 @@ export const maxDuration = 30;
 
 interface RouteCtx {
   params: Promise<{ id: string }>;
+}
+
+/** GET: one live (not soft-deleted) bill with its lines and payments. */
+export async function GET(request: NextRequest, ctx: RouteCtx): Promise<NextResponse> {
+  try {
+    const __resolved = await safeResolveAgentbookTenant(request);
+    if ('response' in __resolved) return __resolved.response;
+    const { tenantId } = __resolved;
+    const { id } = await ctx.params;
+    const bill = await db.abBill.findFirst({ where: { id, tenantId, ...liveBillWhere() } });
+    if (!bill) return NextResponse.json({ success: false, error: 'bill not found' }, { status: 404 });
+    const [lines, payments] = await Promise.all([
+      db.abBillLine.findMany({ where: { billId: id, tenantId } }),
+      db.abBillPayment.findMany({ where: { billId: id, tenantId } }),
+    ]);
+    return NextResponse.json({ success: true, data: { ...bill, lines, payments } });
+  } catch (err) {
+    console.error('[agentbook-expense/bills GET :id] failed:', err);
+    return NextResponse.json({ success: false, error: publicErrorMessage(err) }, { status: 500 });
+  }
 }
 
 export async function PUT(request: NextRequest, ctx: RouteCtx): Promise<NextResponse> {
@@ -32,10 +57,14 @@ export async function PUT(request: NextRequest, ctx: RouteCtx): Promise<NextResp
       vendorName?: string; description?: string | null; amountCents?: number; categoryCode?: string | null; dueDate?: string;
     };
 
-    const existing = await db.abBill.findFirst({ where: { id, tenantId } });
+    const existing = await db.abBill.findFirst({ where: { id, tenantId, ...liveBillWhere() } });
     if (!existing) return NextResponse.json({ success: false, error: 'bill not found' }, { status: 404 });
     if (existing.status === 'paid') {
       return NextResponse.json({ success: false, error: 'cannot edit a paid bill' }, { status: 409 });
+    }
+    if (existing.postingMode === 'at_entry') {
+      // Its entry is already in the ledger: a raw field edit would drift from it.
+      return NextResponse.json({ success: false, code: 'bill_amend_required', error: 'this bill is posted; amend it instead' }, { status: 409 });
     }
 
     const update: Record<string, unknown> = {};
@@ -57,18 +86,88 @@ export async function PUT(request: NextRequest, ctx: RouteCtx): Promise<NextResp
   }
 }
 
+function purchaseErrorResponse(err: unknown): NextResponse | null {
+  if (err instanceof PurchaseError) {
+    return NextResponse.json({ success: false, code: err.code, error: publicErrorMessage(err) }, { status: err.status });
+  }
+  return null;
+}
+
 export async function DELETE(request: NextRequest, ctx: RouteCtx): Promise<NextResponse> {
   try {
     const __resolved = await safeResolveAgentbookTenant(request);
     if ('response' in __resolved) return __resolved.response;
     const { tenantId } = __resolved;
     const { id } = await ctx.params;
-    const existing = await db.abBill.findFirst({ where: { id, tenantId } });
-    if (!existing) return NextResponse.json({ success: false, error: 'bill not found' }, { status: 404 });
-    const bill = await db.abBill.update({ where: { id }, data: { status: 'cancelled' } });
+    const { bill } = await voidBill(db, tenantId, id);
     return NextResponse.json({ success: true, data: bill });
   } catch (err) {
+    const known = purchaseErrorResponse(err);
+    if (known) return known;
     console.error('[agentbook-expense/bills DELETE] failed:', err);
+    return NextResponse.json({ success: false, error: publicErrorMessage(err) }, { status: 500 });
+  }
+}
+
+/**
+ * PATCH: amend a posted (at_entry, open, unpaid) bill through lib/purchases —
+ * reverses the old entry and posts the new one. Amount/category/tax changes
+ * rebuild the bill's single line; a multi-line bill must send `lines`.
+ */
+export async function PATCH(request: NextRequest, ctx: RouteCtx): Promise<NextResponse> {
+  try {
+    const __resolved = await safeResolveAgentbookTenant(request);
+    if ('response' in __resolved) return __resolved.response;
+    const { tenantId } = __resolved;
+    const { id } = await ctx.params;
+    const body = (await request.json().catch(() => ({}))) as {
+      vendorName?: string; billNumber?: string | null; description?: string | null; billDate?: string; dueDate?: string;
+      amountCents?: number; categoryCode?: string | null; taxCode?: string | null;
+    };
+    const input: AmendInput = {};
+    if (body.vendorName !== undefined) input.vendorName = body.vendorName;
+    if (body.billNumber !== undefined) input.billNumber = body.billNumber;
+    if (body.description !== undefined) input.description = body.description;
+    for (const k of ['billDate', 'dueDate'] as const) {
+      if (body[k] === undefined) continue;
+      const d = new Date(body[k] as string);
+      if (isNaN(d.getTime())) return NextResponse.json({ success: false, error: `invalid ${k}` }, { status: 400 });
+      input[k] = d;
+    }
+    if (body.amountCents !== undefined || body.categoryCode !== undefined || body.taxCode !== undefined) {
+      if (body.amountCents !== undefined && (!Number.isInteger(body.amountCents) || body.amountCents <= 0)) {
+        return NextResponse.json({ success: false, error: 'positive integer amountCents required' }, { status: 400 });
+      }
+      const bill = await db.abBill.findFirst({ where: { id, tenantId, ...liveBillWhere() } });
+      if (!bill) return NextResponse.json({ success: false, error: 'bill not found' }, { status: 404 });
+      const lines = await db.abBillLine.findMany({ where: { billId: id, tenantId } });
+      if (lines.length > 1) {
+        return NextResponse.json({ success: false, code: 'bill_multi_line', error: 'this bill has several lines; send lines' }, { status: 422 });
+      }
+      const line = lines[0];
+      let categoryId: string | null = line?.categoryId ?? null;
+      if (body.categoryCode !== undefined) {
+        const cat = body.categoryCode
+          ? await db.abAccount.findFirst({ where: { tenantId, code: body.categoryCode, accountType: 'expense' } })
+          : null;
+        if (body.categoryCode && !cat) {
+          return NextResponse.json({ success: false, code: 'invalid_category', error: 'unknown categoryCode' }, { status: 422 });
+        }
+        categoryId = cat?.id ?? null;
+      }
+      input.lines = [{
+        description: line?.description ?? bill.description ?? bill.vendorName,
+        amountCents: body.amountCents ?? line?.amountCents ?? bill.amountCents,
+        categoryId,
+        taxCode: body.taxCode !== undefined ? body.taxCode : (line?.taxCode ?? null),
+      }];
+    }
+    const { bill } = await amendBill(db, tenantId, id, input);
+    return NextResponse.json({ success: true, data: bill });
+  } catch (err) {
+    const known = purchaseErrorResponse(err);
+    if (known) return known;
+    console.error('[agentbook-expense/bills PATCH] failed:', err);
     return NextResponse.json({ success: false, error: publicErrorMessage(err) }, { status: 500 });
   }
 }
@@ -84,57 +183,24 @@ export async function POST(request: NextRequest, ctx: RouteCtx): Promise<NextRes
     if (action !== 'pay') {
       return NextResponse.json({ success: false, error: 'unsupported action' }, { status: 400 });
     }
-
-    const bill = await db.abBill.findFirst({ where: { id, tenantId } });
-    if (!bill) return NextResponse.json({ success: false, error: 'bill not found' }, { status: 404 });
-    if (bill.status === 'paid') {
-      return NextResponse.json({ success: false, error: 'bill already paid' }, { status: 409 });
+    const body = (await request.json().catch(() => ({}))) as {
+      paidDate?: string; amountCents?: number; method?: string; idempotencyKey?: string;
+    };
+    // Omitted → the engine uses now; a keyed replay then ignores the date.
+    const paidDate = body.paidDate ? new Date(body.paidDate) : undefined;
+    if (paidDate && isNaN(paidDate.getTime())) {
+      return NextResponse.json({ success: false, error: 'invalid paidDate' }, { status: 400 });
     }
-    if (bill.status === 'cancelled') {
-      return NextResponse.json({ success: false, error: 'cannot pay a cancelled bill' }, { status: 409 });
-    }
-
-    const body = (await request.json().catch(() => ({}))) as { paidDate?: string };
-    const paidDate = body.paidDate ? new Date(body.paidDate) : new Date();
-
-    // Resolve the expense account to debit (bill's category, else first active expense account)
-    // and the cash account to credit.
-    const [expenseAccount, cashAccount] = await Promise.all([
-      bill.categoryCode
-        ? db.abAccount.findFirst({ where: { tenantId, code: bill.categoryCode } })
-        : db.abAccount.findFirst({ where: { tenantId, accountType: 'expense', isActive: true }, orderBy: { code: 'asc' } }),
-      db.abAccount.findFirst({ where: { tenantId, code: '1000' } }),
-    ]);
-
-    const updated = await db.$transaction(async (tx) => {
-      let journalEntryId: string | null = null;
-      if (expenseAccount && cashAccount) {
-        const je = await tx.abJournalEntry.create({
-          data: {
-            tenantId,
-            date: paidDate,
-            memo: `Bill payment: ${bill.vendorName}`,
-            sourceType: 'bill',
-            verified: true,
-            lines: {
-              create: [
-                { tenantId, accountId: expenseAccount.id, debitCents: bill.amountCents, creditCents: 0, description: bill.description || bill.vendorName },
-                { tenantId, accountId: cashAccount.id, debitCents: 0, creditCents: bill.amountCents, description: `Payment: ${bill.vendorName}` },
-              ],
-            },
-          },
-        });
-        journalEntryId = je.id;
-      }
-
-      return tx.abBill.update({
-        where: { id },
-        data: { status: 'paid', paidDate, journalEntryId },
-      });
+    const { bill, payment } = await payBill(db, tenantId, id, {
+      date: paidDate,
+      amountCents: body.amountCents,
+      method: body.method,
+      idempotencyKey: body.idempotencyKey ?? request.headers.get('idempotency-key'),
     });
-
-    return NextResponse.json({ success: true, data: updated });
+    return NextResponse.json({ success: true, data: bill, payment });
   } catch (err) {
+    const known = purchaseErrorResponse(err);
+    if (known) return known;
     console.error('[agentbook-expense/bills pay] failed:', err);
     return NextResponse.json({ success: false, error: publicErrorMessage(err) }, { status: 500 });
   }

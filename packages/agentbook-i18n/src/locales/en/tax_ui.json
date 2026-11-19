@@ -89,5 +89,8 @@
   "amount_paid": "Amount Paid",
   "return_bas_g10": "G10 — Capital purchases",
   "return_bas_g11": "G11 — Non-capital purchases",
-  "return_qst_itr": "QST input tax refunds (ITRs) — Revenu Québec"
+  "return_qst_itr": "QST input tax refunds (ITRs) — Revenu Québec",
+  "cash_basis_unavailable_open_bills_one": "Cash basis is unavailable while {count} bill is still open. Showing accrual basis instead.",
+  "cash_basis_unavailable_open_bills_other": "Cash basis is unavailable while {count} bills are still open. Showing accrual basis instead.",
+  "return_sales_by_invoice_date": "Cash basis: purchases are counted when paid. Sales are reported by invoice date."
 }

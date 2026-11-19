@@ -28,6 +28,8 @@ interface ReportData {
   sections?: { heading: string; rows: ReportRow[] }[];
   rows?: ReportRow[];
   net_income?: number;
+  /** PR 3bc.8: the API refused cash basis (open at_entry bills) and served accrual. */
+  cashBasisDisabled?: { reason: string; openAtEntryBillCount: number };
 }
 
 const REPORTS = [
@@ -103,6 +105,7 @@ function transformReport(key: string, json: { success: boolean; data?: any; erro
           { heading: 'Expenses', rows: toRows(d.expenses ?? []) },
         ],
         net_income: (d.netIncomeCents ?? 0) / 100,
+        cashBasisDisabled: d.cashBasisDisabled,
       };
     case 'balance-sheet':
       return {
@@ -112,6 +115,7 @@ function transformReport(key: string, json: { success: boolean; data?: any; erro
           { heading: 'Liabilities', rows: [...toRows(d.liabilities ?? []), { label: 'Total Liabilities', amount: (d.totalLiabilitiesCents ?? 0) / 100 }] },
           { heading: 'Equity', rows: [...toRows(d.equity ?? []), { label: 'Total Equity', amount: (d.totalEquityCents ?? 0) / 100 }] },
         ],
+        cashBasisDisabled: d.cashBasisDisabled,
       };
     case 'cashflow':
       return {
@@ -224,6 +228,15 @@ export const ReportsPage: React.FC = () => {
   const renderReportContent = (data: ReportData) => {
     return (
       <div className="space-y-4">
+        {data.cashBasisDisabled && (
+          <div
+            role="status"
+            data-testid="cash-basis-disabled"
+            className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900"
+          >
+            {t('tax_ui.cash_basis_unavailable_open_bills', { count: String(data.cashBasisDisabled.openAtEntryBillCount) })}
+          </div>
+        )}
         {data.sections?.map((section, i) => (
           <div key={i}>
             <h4 className="text-xs font-semibold uppercase tracking-wide mb-2" style={{ color: 'var(--text-secondary)' }}>

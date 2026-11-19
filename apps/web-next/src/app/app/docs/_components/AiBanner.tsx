@@ -1,5 +1,6 @@
 'use client';
 
+import dynamic from 'next/dynamic';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useT } from '@/hooks/use-t';
 import { SNAPSHOT_CLEARED_EVENT } from '@/lib/mobile/snapshot-keys';
@@ -7,7 +8,8 @@ import { runAutoCategorize } from '../../_lib/api';
 import { getPendingSuggestions, type PendingSuggestion } from '../../_lib/api-extra';
 import { readJson, writeJson } from '../../_lib/safe-storage';
 import { Banner, useToast, buttonStyle, tokens } from '../../_kit';
-import { ReviewSheet } from './ReviewSheet';
+// The review sheet is only needed once the user taps Review: fetched then, not with the Docs route (perf budget).
+const ReviewSheet = dynamic(() => import('./ReviewSheet').then((m) => m.ReviewSheet), { ssr: false });
 
 /** Under the `ab:mobile:` prefix, so sign-out / owner change purges it with the snapshots. */
 export const LAST_AUTOCAT_KEY = 'ab:mobile:docs:last-autocat';
@@ -32,6 +34,9 @@ export function AiBanner({ noCategoryCount, online, currency, onChanged }: {
   const [lastRun, setLastRun] = useState<LastRun | null>(() => readLastRun());
   const [running, setRunning] = useState(false);
   const [open, setOpen] = useState(false);
+  // Mounted on first open and kept mounted after (accepting the last pick must not unmount an open sheet).
+  const [sheetMounted, setSheetMounted] = useState(false);
+  if (open && !sheetMounted) setSheetMounted(true);
   // Only the newest load may write: a slow earlier response must not bring back a row that was just resolved.
   const loadSeq = useRef(0);
 
@@ -112,7 +117,7 @@ export function AiBanner({ noCategoryCount, online, currency, onChanged }: {
         <Banner severity="info" title={title} body={online ? undefined : t('mobile.docs.offline_readonly')} action={actions} />
       )}
       {/* Stays mounted when the banner hides: accepting the last pick must not unmount the open sheet. */}
-      <ReviewSheet
+      {sheetMounted && <ReviewSheet
         open={open}
         onClose={() => setOpen(false)}
         items={pending}
@@ -123,7 +128,7 @@ export function AiBanner({ noCategoryCount, online, currency, onChanged }: {
           setPending((p) => p.filter((s) => !ids.includes(s.expenseId)));
           onChanged();
         }}
-      />
+      />}
     </>
   );
 }

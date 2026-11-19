@@ -50,6 +50,19 @@ interface CategorySummary {
 
 const API = '/api/v1/agentbook-expense';
 
+/** A bill row from GET /purchases?kind=bill (PR 3bc.7): one row per bill, never also an expense. */
+export interface BillRow {
+  kind: 'bill';
+  id: string;
+  date: string;
+  vendor: string | null;
+  amountCents: number;
+  status: 'due' | 'paid';
+  outstandingCents?: number;
+  overdue?: boolean;
+}
+type ListRow = { expense: Expense; bill?: undefined } | { bill: BillRow; expense?: undefined };
+
 function confidenceColor(c: number): string {
   if (c >= 0.80) return 'text-green-600';
   if (c >= 0.65) return 'text-yellow-600';
@@ -294,6 +307,19 @@ const PERIOD_LABELS: Record<Period, string> = {
   this_year: 'This Year', all: 'All Time',
 };
 
+/** Due / Overdue / Paid, as text (never colour alone). */
+export const BillBadge: React.FC<{ bill: BillRow }> = ({ bill }) => {
+  const { t } = useI18n();
+  const paid = bill.status === 'paid';
+  const label = paid ? t('expenses_ui.bill_paid') : bill.overdue ? t('expenses_ui.bill_overdue') : t('expenses_ui.bill_due');
+  const tone = paid ? 'bg-green-100 text-green-700' : bill.overdue ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-700';
+  return (
+    <span data-testid="bill-badge" className={`ml-2 px-2 py-0.5 rounded-full text-[10px] font-medium ${tone}`}>
+      {t('expenses_ui.bill_label')} · {label}
+    </span>
+  );
+};
+
 export const ExpenseListPage: React.FC = () => {
   // Locale for the UTC-rendered logical-date helpers above.
   const { locale, t } = useI18n();
@@ -305,6 +331,7 @@ export const ExpenseListPage: React.FC = () => {
   // unrelated events (invoice.*, tax.*) don't trigger needless refetches.
   const { lastChange } = useAgentEvents({ kinds: ['expense', 'receipt'] });
   const [expenses, setExpenses] = useState<Expense[]>([]);
+  const [bills, setBills] = useState<BillRow[]>([]);
   const [categorySummary, setCategorySummary] = useState<CategorySummary[]>([]);
   // Full expense chart of accounts, for the inline "categorize" picker below
   // (categorySummary only lists categories a tenant's EXISTING expenses
@@ -370,6 +397,17 @@ export const ExpenseListPage: React.FC = () => {
       catQs.set('compareStartDate', dates.compareStart.toISOString());
       catQs.set('compareEndDate', dates.compareEnd.toISOString());
     }
+
+    const billQs = new URLSearchParams({ kind: 'bill', limit: '200' });
+    if (period !== 'all') {
+      billQs.set('startDate', dates.start.toISOString());
+      billQs.set('endDate', dates.end.toISOString());
+    }
+
+    // Bills are best effort: a failure here never hides the expenses.
+    fetch(`${API}/purchases?${billQs}`).then(r => r.json()).then(d => {
+      setBills(d && d.success && Array.isArray(d.data) ? d.data.filter((b: BillRow) => b && b.kind === 'bill') : []);
+    }).catch(() => setBills([]));
 
     Promise.all([
       fetch(`${API}/expenses?${qs}`).then(r => r.json()).catch(() => ({ success: false })),
@@ -507,6 +545,20 @@ export const ExpenseListPage: React.FC = () => {
       return new Date(b.date).getTime() - new Date(a.date).getTime();
     });
   }, [filtered, sortBy]);
+
+  // Bills sit among the expenses only on the unfiltered business view: a search, tag, category,
+  // personal/deleted view is about expenses. Newest first (or by amount), like the expenses.
+  const rows = useMemo<ListRow[]>(() => {
+    const showBills = filter === 'all' && !searchQuery && !selectedTag && !selectedCategory && !showDeleted;
+    const all: ListRow[] = [
+      ...sorted.map(expense => ({ expense })),
+      ...(showBills ? bills.map(bill => ({ bill })) : []),
+    ];
+    if (!showBills) return all;
+    const at = (r: ListRow) => new Date((r.expense ?? r.bill).date).getTime();
+    const amt = (r: ListRow) => (r.expense ?? r.bill).amountCents;
+    return all.sort((a, b) => (sortBy === 'amount' ? amt(b) - amt(a) : at(b) - at(a)));
+  }, [sorted, bills, filter, searchQuery, selectedTag, selectedCategory, showDeleted, sortBy]);
 
   // Collect all tags
   const allTags = useMemo(() => {
@@ -791,7 +843,7 @@ export const ExpenseListPage: React.FC = () => {
 
       {loading && <p className="text-muted-foreground py-8 text-center">{t('expenses_ui.loading')}</p>}
 
-      {sorted.length === 0 && !loading && (
+      {rows.length === 0 && !loading && (
         <div className="text-center py-16 text-muted-foreground">
           <Receipt className="w-12 h-12 mx-auto mb-4 opacity-50" />
           <p className="text-lg mb-2">{t('expenses_ui.none_found')}</p>
@@ -816,7 +868,23 @@ export const ExpenseListPage: React.FC = () => {
               </tr>
             </thead>
             <tbody>
-              {sorted.map(expense => (
+              {rows.map(row => row.bill ? (
+                <tr
+                  key={`bill:${row.bill.id}`}
+                  data-testid="bill-row"
+                  className="border-b border-border/50 hover:bg-muted/30 cursor-pointer transition-colors"
+                  onClick={() => navigate('/bills')}
+                >
+                  <td className="px-4 py-3 whitespace-nowrap text-muted-foreground">{fmtDateShort(row.bill.date, locale)}</td>
+                  <td className="px-4 py-3" colSpan={4}>
+                    <span className="font-medium">{row.bill.vendor || '—'}</span>
+                    <BillBadge bill={row.bill} />
+                  </td>
+                  <td className="px-4 py-3 text-right font-bold font-mono">{fmt(row.bill.amountCents, currency || 'USD', locale)}</td>
+                  <td className="px-4 py-3 text-right font-mono text-xs text-muted-foreground">—</td>
+                  <td className="px-4 py-3"></td>
+                </tr>
+              ) : ((expense: Expense) => (
                 <React.Fragment key={expense.id}>
                   <tr
                     className={`border-b border-border/50 hover:bg-muted/30 cursor-pointer transition-colors ${expense.isPersonal ? 'opacity-50' : ''} ${expense.deletedAt ? 'line-through text-muted-foreground/70' : ''}`}
@@ -902,7 +970,7 @@ export const ExpenseListPage: React.FC = () => {
                     </td></tr>
                   )}
                 </React.Fragment>
-              ))}
+              ))(row.expense))}
             </tbody>
           </table>
         </div>
@@ -910,7 +978,16 @@ export const ExpenseListPage: React.FC = () => {
 
       {/* Mobile Cards */}
       <div className="sm:hidden space-y-2">
-        {sorted.map(expense => (
+        {rows.map(row => row.bill ? (
+          <div key={`bill:${row.bill.id}`} data-testid="bill-card" onClick={() => navigate('/bills')}
+            className="bg-card border border-border rounded-xl p-3.5 flex items-center justify-between gap-2">
+            <div className="min-w-0">
+              <p className="font-medium text-sm truncate">{row.bill.vendor || '—'}<BillBadge bill={row.bill} /></p>
+              <p className="text-xs text-muted-foreground">{fmtDate(row.bill.date, locale)}</p>
+            </div>
+            <p className="font-bold font-mono text-sm shrink-0">{fmt(row.bill.amountCents, currency || 'USD', locale)}</p>
+          </div>
+        ) : ((expense: Expense) => (
           <div key={expense.id}
             className={`bg-card border border-border rounded-xl p-3.5 ${expense.isPersonal ? 'opacity-50' : ''}`}
             onClick={() => setExpandedId(expandedId === expense.id ? null : expense.id)}>
@@ -967,7 +1044,7 @@ export const ExpenseListPage: React.FC = () => {
               </div>
             )}
           </div>
-        ))}
+        ))(row.expense))}
       </div>
     </div>
   );

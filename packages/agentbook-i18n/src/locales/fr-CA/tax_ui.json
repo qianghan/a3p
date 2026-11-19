@@ -89,5 +89,8 @@
   "amount_paid": "Montant payé",
   "return_bas_g10": "G10 — Achats d’immobilisations",
   "return_bas_g11": "G11 — Achats autres que d’immobilisations",
-  "return_qst_itr": "Remboursements de la taxe sur les intrants (RTI) de TVQ — Revenu Québec"
+  "return_qst_itr": "Remboursements de la taxe sur les intrants (RTI) de TVQ — Revenu Québec",
+  "cash_basis_unavailable_open_bills_one": "La comptabilité de caisse n’est pas disponible tant que {count} facture fournisseur est ouverte. Affichage selon la comptabilité d’exercice.",
+  "cash_basis_unavailable_open_bills_other": "La comptabilité de caisse n’est pas disponible tant que {count} factures fournisseurs sont ouvertes. Affichage selon la comptabilité d’exercice.",
+  "return_sales_by_invoice_date": "Comptabilité de caisse : les achats sont comptés lorsqu’ils sont payés. Les ventes sont déclarées selon la date de facture."
 }

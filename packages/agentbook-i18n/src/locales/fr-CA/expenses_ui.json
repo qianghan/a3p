@@ -156,5 +156,13 @@
   "tax_code_ca_gst_pst": "TPS + TVP",
   "tax_code_ca_gst_qst": "TPS + TVQ",
   "tax_code_au_gst": "GST (Australie)",
-  "tax_preview_failed": "Impossible de calculer le total taxes incluses. Vérifiez votre connexion et réessayez."
+  "tax_preview_failed": "Impossible de calculer le total taxes incluses. Vérifiez votre connexion et réessayez.",
+  "bill_payment_period_closed": "Cette date de paiement tombe dans une période fermée. Rouvrez la période ou choisissez une autre date; la facture reste ouverte.",
+  "bill_payment_account_missing": "Il manque à votre plan comptable un compte requis pour ce paiement. La facture reste ouverte.",
+  "bill_payment_conflict": "Cette facture a déjà été payée ou modifiée. Actualisez pour voir son état actuel.",
+  "bill_payment_failed": "Le paiement n’a pas pu être enregistré. La facture reste ouverte; veuillez réessayer.",
+  "bill_label": "Facture",
+  "bill_due": "À payer",
+  "bill_overdue": "En retard",
+  "bill_paid": "Payée"
 }

@@ -17,6 +17,7 @@ vi.mock('@naap/database', () => ({
     abTenantConfig: { findUnique: (...a: unknown[]) => tenantConfigFindUnique(...a) },
     abInvoice: { findMany: (...a: unknown[]) => invoiceFindMany(...a) },
     abExpense: { findMany: (...a: unknown[]) => expenseFindMany(...a) },
+    abBill: { findMany: async () => [] }, // PR 3bc.6: no bills in these fixtures
     abAccount: { findMany: (...a: unknown[]) => accountFindMany(...a) },
   },
 }));

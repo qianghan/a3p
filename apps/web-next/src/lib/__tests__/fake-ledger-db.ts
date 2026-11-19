@@ -38,7 +38,19 @@ export function createFakeLedgerDb() {
       { id: 'acct-revenue', tenantId: 't1', code: '4000', accountType: 'revenue', isActive: true },
       { id: 'acct-suspense', tenantId: 't1', code: '6999', accountType: 'expense', isActive: true },
       { id: 'acct-t2-meals', tenantId: 't2', code: '5200', accountType: 'expense', isActive: true },
+      { id: 'acct-ap', tenantId: 't1', code: '2000', accountType: 'liability', isActive: true },
     ] as Row[],
+    // PR 3bc — accounts payable documents.
+    bills: [] as Row[],
+    billLines: [] as Row[],
+    billPayments: [] as Row[],
+    tenantConfigs: [] as Row[],
+    /**
+     * Error codes to raise from the next transactions, one per transaction,
+     * AFTER the callback ran and rolled back — e.g. 'P2034', how Postgres
+     * aborts a Serializable transaction on a conflict.
+     */
+    injectTxErrors: [] as string[],
     seq: 0,
   };
   const nextId = (p: string) => `${p}-${++state.seq}`;
@@ -46,7 +58,52 @@ export function createFakeLedgerDb() {
   const entryWithLines = (e: Row | undefined, include?: Row) =>
     e ? (include?.lines ? { ...e, lines: state.lines.filter((l) => l.entryId === e.id) } : { ...e }) : null;
 
+  /** Generic table over a `state` key: equality/null where, PK uniqueness on id, sorted reads. */
+  const table = (key: 'bills' | 'billLines' | 'billPayments' | 'tenantConfigs', prefix: string) => ({
+    findFirst: async ({ where, orderBy }: Row = {}) => {
+      const rows = state[key].filter((r) => matches(r, where));
+      if (orderBy) {
+        const [[f, dir]] = Object.entries(orderBy as Row);
+        rows.sort((a, b) => (a[f] < b[f] ? -1 : a[f] > b[f] ? 1 : 0) * (dir === 'desc' ? -1 : 1));
+      }
+      return rows[0] ? { ...rows[0] } : null;
+    },
+    findUnique: async ({ where }: Row = {}) => {
+      const r = state[key].find((x) => matches(x, where));
+      return r ? { ...r } : null;
+    },
+    findMany: async ({ where }: Row = {}) => state[key].filter((r) => matches(r, where)).map((r) => ({ ...r })),
+    create: async ({ data }: Row) => {
+      const row: Row = { id: data.id ?? nextId(prefix), createdAt: new Date(), ...data };
+      if (state[key].some((r) => r.id === row.id)) {
+        throw Object.assign(new Error('Unique constraint failed on the fields: (id)'), { code: 'P2002' });
+      }
+      state[key].push(row);
+      return { ...row };
+    },
+    update: async ({ where, data }: Row) => {
+      const r = state[key].find((x) => matches(x, where));
+      if (!r) throw Object.assign(new Error('not found'), { code: 'P2025' });
+      Object.assign(r, data);
+      return { ...r };
+    },
+    updateMany: async ({ where, data }: Row) => {
+      const rows = state[key].filter((r) => matches(r, where));
+      for (const r of rows) Object.assign(r, data);
+      return { count: rows.length };
+    },
+    deleteMany: async ({ where }: Row = {}) => {
+      const before = state[key].length;
+      state[key] = state[key].filter((r) => !matches(r, where));
+      return { count: before - state[key].length };
+    },
+  });
+
   const api: Row = {
+    abBill: table('bills', 'bill'),
+    abBillLine: table('billLines', 'bl'),
+    abBillPayment: table('billPayments', 'pay'),
+    abTenantConfig: table('tenantConfigs', 'cfg'),
     abExpense: {
       findFirst: async ({ where }: Row = {}) => {
         const r = state.expenses.find((e) => matches(e, where));
@@ -132,13 +189,39 @@ export function createFakeLedgerDb() {
         return { ...row };
       },
     },
-    $transaction: async (fn: (tx: Row) => Promise<unknown>) => {
+    // Transactions are SERIALIZED (one at a time): a later transaction sees the
+    // earlier one's committed rows, as Postgres row locks / serializable
+    // isolation would give, and a rollback cannot clobber a concurrent commit.
+    // Reads OUTSIDE a transaction still interleave freely, so optimistic
+    // guards are exercised.
+    $transaction: async (fn: (tx: Row) => Promise<unknown>, _opts?: unknown) => {
+      const prev = txLock;
+      let release!: () => void;
+      txLock = new Promise<void>((r) => (release = r));
+      await prev;
+      try {
+        return await runTx(async (tx) => {
+          const r = await fn(tx);
+          const code = state.injectTxErrors.shift();
+          if (code) throw Object.assign(new Error(`injected ${code}`), { code });
+          return r;
+        });
+      } finally {
+        release();
+      }
+    },
+  };
+  let txLock: Promise<void> = Promise.resolve();
+  const runTx = async (fn: (tx: Row) => Promise<unknown>) => {
       const copy = (rows: Row[]) => rows.map((r) => ({ ...r }));
       const saved = {
         expenses: copy(state.expenses),
         entries: copy(state.entries),
         lines: copy(state.lines),
         vendors: copy(state.vendors),
+        bills: copy(state.bills),
+        billLines: copy(state.billLines),
+        billPayments: copy(state.billPayments),
         seq: state.seq,
       };
       try {
@@ -148,10 +231,12 @@ export function createFakeLedgerDb() {
         state.entries = saved.entries;
         state.lines = saved.lines;
         state.vendors = saved.vendors;
+        state.bills = saved.bills;
+        state.billLines = saved.billLines;
+        state.billPayments = saved.billPayments;
         state.seq = saved.seq;
         throw err;
       }
-    },
   };
 
   /** Seed an expense booked DR `debitAccount` / CR cash, the way create posts it. */

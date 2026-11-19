@@ -333,5 +333,6 @@
   "gst_basis_cash": "Comptabilité de caisse — au paiement",
   "gst_basis_help": "Détermine la période de votre déclaration où le crédit de taxe d’un achat est compté.",
   "gst_registered_label_ca": "Inscrit à la TPS/TVH?",
-  "gst_basis_label_ca": "Méthode de déclaration de la TPS/TVH"
+  "gst_basis_label_ca": "Méthode de déclaration de la TPS/TVH",
+  "gst_basis_open_bills": "Factures fournisseurs ouvertes : {count}. Jusqu’à leur paiement, votre état des résultats et votre bilan sont établis selon la comptabilité d’exercice. Votre déclaration de taxes compte toujours les achats lorsqu’ils sont payés."
 }

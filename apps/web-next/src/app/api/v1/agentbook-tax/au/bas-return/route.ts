@@ -17,6 +17,7 @@ import { safeResolveAgentbookTenant } from '@/lib/agentbook-tenant';
 import { computeBasReturn } from '@agentbook/jurisdictions/au/bas-return';
 import { publicErrorMessage } from '@/lib/api-error';
 import { liveExpenseWhere } from '@/lib/agentbook-live-expense';
+import { loadBillPurchases, gstBasisOf } from '@/lib/tax-return-bills';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -46,7 +47,8 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     const gte = new Date(`${periodStart}T00:00:00.000Z`);
     const lte = new Date(`${periodEnd}T23:59:59.999Z`);
 
-    const [invoices, expenses, payRuns] = await Promise.all([
+    const gstBasis = gstBasisOf(cfg);
+    const [invoices, expenses, payRuns, billLines] = await Promise.all([
       db.abInvoice.findMany({
         where: { tenantId, issuedDate: { gte, lte }, status: { in: ['sent', 'viewed', 'overdue', 'paid'] } },
         select: { amountCents: true, taxCents: true },
@@ -61,6 +63,8 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         where: { tenantId, periodEnd: { gte, lte } },
         select: { stubs: { select: { grossCents: true, federalTaxCents: true } } },
       }),
+      // PR 3bc.6: bills (never AbExpense rows) — accrual by billDate, cash by payment date pro-rata.
+      loadBillPurchases(db, tenantId, gte, lte, gstBasis),
     ]);
 
     const wages = payRuns.flatMap((run) =>
@@ -77,12 +81,17 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         taxCode: e.taxCode,
         recoverableTaxCents: e.recoverableTaxCents,
         grossCents: e.amountCents,
-      })),
+      })).concat(billLines.map((b) => ({
+        gstPaidCents: b.taxPaidCents,
+        taxCode: b.taxCode,
+        recoverableTaxCents: b.recoverableTaxCents,
+        grossCents: b.grossCents,
+      }))),
       gstRegistered: cfg?.gstRegistered ?? null,
       wages,
     });
 
-    return NextResponse.json({ success: true, data: result });
+    return NextResponse.json({ success: true, data: { ...result, gstReportingBasis: gstBasis, salesBasis: 'invoice_date' } }); // M6: sales (1A/105) stay invoice-dated on both bases
   } catch (err) {
     console.error('[agentbook-tax/au/bas-return] failed:', err);
     return NextResponse.json({ success: false, error: publicErrorMessage(err) }, { status: 500 });

@@ -39,6 +39,8 @@ interface AuReturn {
   outcome: string;
 }
 
+type BasisFields = { gstReportingBasis?: string; cashBasisDisabled?: { openAtEntryBillCount: number } | null };
+
 export const SalesTaxReturnPage: React.FC = () => {
   const { t } = useI18n();
   const [jurisdiction, setJurisdiction] = useState<string | null>(null);
@@ -47,6 +49,8 @@ export const SalesTaxReturnPage: React.FC = () => {
   const [title, setTitle] = useState('Sales Tax Return');
   const [period, setPeriod] = useState<{ start: string; end: string } | null>(null);
   const [outcome, setOutcome] = useState<string | null>(null);
+  // PR 3bc.6/3bc.8: basis notes from the return API.
+  const [basis, setBasis] = useState<{ gstReportingBasis?: string; cashBasisDisabled?: { openAtEntryBillCount: number } | null } | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -64,7 +68,7 @@ export const SalesTaxReturnPage: React.FC = () => {
           const body = await res.json();
           if (!res.ok || !body.success) throw new Error(body?.error?.message || 'Failed to load the GST/HST return.');
           const d = body.data as CaReturn;
-          setPeriod(d.period); setOutcome(d.outcome);
+          setPeriod(d.period); setOutcome(d.outcome); setBasis(d as BasisFields);
           const caRows: Line[] = [
             { label: 'Line 101 — Total sales (excl. tax)', amountCents: d.line101TotalSalesCents },
             { label: 'Line 105 — GST/HST collected', amountCents: d.line105GstHstCollectedCents },
@@ -82,7 +86,7 @@ export const SalesTaxReturnPage: React.FC = () => {
           const body = await res.json();
           if (!res.ok || !body.success) throw new Error(body?.error?.message || 'Failed to load the BAS.');
           const d = body.data as AuReturn;
-          setPeriod(d.period); setOutcome(d.outcome);
+          setPeriod(d.period); setOutcome(d.outcome); setBasis(d as BasisFields);
           const rows: Line[] = [
             { label: 'G1 — Total sales (incl. GST)', amountCents: d.g1TotalSalesCents },
             { label: '1A — GST on sales', amountCents: d.label1AGstOnSalesCents },
@@ -152,6 +156,11 @@ export const SalesTaxReturnPage: React.FC = () => {
           {outcome && <> · <span className="font-medium capitalize">{outcome.replace('_', ' ')}</span></>}
         </p>
       )}
+      {basis?.cashBasisDisabled && (
+        <div role="status" data-testid="return-cash-basis-disabled" className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-200">
+          {t('tax_ui.cash_basis_unavailable_open_bills', { count: String(basis.cashBasisDisabled.openAtEntryBillCount) })}
+        </div>
+      )}
       <div className="rounded-lg border border-border overflow-hidden">
         <table className="w-full text-sm">
           <tbody>
@@ -164,6 +173,9 @@ export const SalesTaxReturnPage: React.FC = () => {
           </tbody>
         </table>
       </div>
+      {basis?.gstReportingBasis === 'cash' && (
+        <p data-testid="return-sales-basis" className="text-xs text-muted-foreground">{t('tax_ui.return_sales_by_invoice_date')}</p>
+      )}
       <div className="rounded-lg border border-border bg-muted/40 p-3 text-xs text-muted-foreground">
         Prepared from your invoices and expenses for review and hand-off. AgentBook does <b>not</b> lodge this
         electronically — file it through {jurisdiction === 'au' ? 'the ATO (Online services / your BAS agent)' : 'CRA (My Business Account / NETFILE) or your accountant'}.

@@ -18,6 +18,16 @@ export const PERSONAS: Record<Exclude<Persona, 'fresh'>, { email: string; curren
   sydney: { email: 'sydney@agentbook.test', currency: 'AUD', jurisdiction: 'au' },
 };
 
+/**
+ * Control personas outside the market matrix (not in PERSONAS, so matrix/a11y loops never pick them up).
+ * jordan (US) is NEVER enabled for `purchases_at_entry`: bills.spec.ts proves the legacy at_payment path on him
+ * every run.
+ */
+export type ControlPersona = 'jordan';
+export const CONTROL_PERSONAS: Record<ControlPersona, { email: string; currency: string; jurisdiction: 'us' }> = {
+  jordan: { email: 'jordan@agentbook.test', currency: 'USD', jurisdiction: 'us' },
+};
+
 /** The seeded personas' shared password (seed-users.ts); override for another environment. */
 const PERSONA_PASSWORD = process.env.E2E_PERSONA_PASSWORD || 'agentbook123';
 
@@ -139,7 +149,7 @@ export function loginRetryDelayMs(status: number, retryAfter: string | null | un
 }
 
 /** Sign in as a seeded persona, or register + sign in a brand-new empty account. */
-export async function loginAs(page: Page, persona: Persona): Promise<{ email: string }> {
+export async function loginAs(page: Page, persona: Persona | ControlPersona): Promise<{ email: string }> {
   claimLogin(signedInAs, page.context(), persona);
   await page.setViewportSize(MOBILE_VIEWPORT);
   let email: string;
@@ -162,7 +172,7 @@ export async function loginAs(page: Page, persona: Persona): Promise<{ email: st
     // Status only: a response body is never logged, so nothing credential-adjacent reaches a report.
     expect(reg.status, 'register fresh account').toBeLessThan(300);
   } else {
-    email = PERSONAS[persona].email;
+    email = persona === 'jordan' ? CONTROL_PERSONAS.jordan.email : PERSONAS[persona].email;
     password = PERSONA_PASSWORD;
   }
 

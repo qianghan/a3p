@@ -50,7 +50,7 @@ interface Envelope<T> {
 }
 
 const CORE = '/api/v1/agentbook-core';
-const EXPENSE = '/api/v1/agentbook-expense';
+export const EXPENSE = '/api/v1/agentbook-expense';
 const JSON_HEADERS = { 'content-type': 'application/json' };
 /** A server `code` / `error` that looks like a machine code (e.g. 'rate_limited'), not a sentence. */
 const CODE_SHAPE = /^[a-z][a-z0-9_]{0,40}$/;
@@ -67,7 +67,7 @@ function retryAfterOf(body: Envelope<unknown> | null, res: Response): number | u
   return Number.isFinite(header) && header > 0 ? header * 1000 : undefined;
 }
 
-async function call<T>(path: string, init?: RequestInit): Promise<Envelope<T>> {
+export async function call<T>(path: string, init?: RequestInit): Promise<Envelope<T>> {
   let res: Response;
   try {
     res = await fetch(path, { credentials: 'same-origin', ...init });
