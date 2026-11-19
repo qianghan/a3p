@@ -18,9 +18,9 @@ async function main() {
   console.log(apply ? 'APPLY: setting gstRegistered=true\n' : 'DRY RUN (pass --apply to write)\n');
   for (const email of REGISTRANTS) {
     const user = await db.user.findUnique({ where: { email }, select: { id: true } });
-    if (!user) { console.log(`  ✗ ${email}: no user, skipped`); continue; }
+    if (!user) { console.log(`  ✗ ${email}: no user, skipped`); process.exitCode = 1; continue; }
     const cfg = await db.abTenantConfig.findUnique({ where: { userId: user.id }, select: { gstRegistered: true } });
-    if (!cfg) { console.log(`  ✗ ${email} (${user.id}): no tenant config, skipped`); continue; }
+    if (!cfg) { console.log(`  ✗ ${email} (${user.id}): no tenant config, skipped`); process.exitCode = 1; continue; }
     const before = cfg.gstRegistered;
     if (before === true) { console.log(`  = ${email}: gstRegistered already true`); continue; }
     if (apply) {
