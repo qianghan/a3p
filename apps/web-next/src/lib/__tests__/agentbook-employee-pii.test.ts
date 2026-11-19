@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 vi.mock('server-only', () => ({}));
 import { encryptPii, decryptPii, PiiKeyUnconfiguredError, isPiiKeyUnconfigured } from '../agentbook-employee-pii';
-import { isValidTfn, isValidSin, isValidSsn, isMaskedEcho, isValidBankAccount, maskEmployee } from '../agentbook-employee-profile';
+import { isValidTfn, isValidSin, isValidSsn, isMaskedEcho, isValidBankAccount, isValidRoutingLabel, maskEmployee } from '../agentbook-employee-profile';
 
 const ENV = { ...process.env };
 beforeEach(() => { process.env = { ...ENV }; delete process.env.EMPLOYEE_PII_ENCRYPTION_KEY; delete process.env.VERCEL_ENV; });
@@ -84,12 +84,26 @@ describe('tax-id validators', () => {
     expect(isMaskedEcho('MX12345', null)).toBe(false);
     expect(isMaskedEcho('123-45-6789', '6789')).toBe(false);
   });
-  it('bank account needs full per-jurisdiction length', () => {
-    expect(isValidBankAccount('au', '062-000 12345678')).toBe(true);
-    expect(isValidBankAccount('au', '5678')).toBe(false);
-    expect(isValidBankAccount('ca', '12345-003-1234567')).toBe(true);
-    expect(isValidBankAccount('us', '021000021' + '1234')).toBe(true);
+  it('bank account number only, per-jurisdiction length; echoes rejected', () => {
+    expect(isValidBankAccount('au', '123456')).toBe(true);
+    expect(isValidBankAccount('au', '1234567890')).toBe(false);
+    expect(isValidBankAccount('ca', '1234567')).toBe(true);
+    expect(isValidBankAccount('ca', '123456')).toBe(false);
+    expect(isValidBankAccount('us', '12345')).toBe(true);
+    expect(isValidBankAccount('us', '1'.repeat(18))).toBe(false);
+    expect(isValidBankAccount('uk', '12345678')).toBe(true);
+    expect(isValidBankAccount('uk', '1234567')).toBe(false);
+    expect(isValidBankAccount('us', '5678')).toBe(false);
     expect(isValidBankAccount('us', '…5678')).toBe(false);
+  });
+  it('routing labels: BSB 6, CA 5+3, US ABA checksum, UK sort 6', () => {
+    expect(isValidRoutingLabel('au', 'BSB 062-000')).toBe(true);
+    expect(isValidRoutingLabel('au', '06200')).toBe(false);
+    expect(isValidRoutingLabel('ca', '12345-003')).toBe(true);
+    expect(isValidRoutingLabel('us', '021000021')).toBe(true);
+    expect(isValidRoutingLabel('us', '021000022')).toBe(false);
+    expect(isValidRoutingLabel('uk', '20-00-00')).toBe(true);
+    expect(isValidRoutingLabel('us', null)).toBe(true);
   });
 });
 

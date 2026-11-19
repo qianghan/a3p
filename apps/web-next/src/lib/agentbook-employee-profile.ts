@@ -58,15 +58,42 @@ export function isMaskedEcho(raw: string, storedLast4: string | null | undefined
 }
 
 /**
- * Full bank account (digits only, separators stripped) per jurisdiction —
- * a last-4 echo can never pass: AU BSB(6)+account(5-9); CA transit(5)+
- * institution(3)+account(7-12); US routing(9)+account(4-17); UK sort(6)+account(8).
+ * Bank ACCOUNT number only (separators stripped). The routing part — AU BSB,
+ * CA transit+institution, US ABA routing, UK sort code — lives in the
+ * non-sensitive bankRoutingLabel and is validated by isValidRoutingLabel.
+ * Account lengths: AU 6–9, CA 7–12, US 5–17, UK 8. A value of ≤4 digits or
+ * equal to the stored last4 is always rejected (it is an echo, not an account).
  */
-export function isValidBankAccount(jurisdiction: string, raw: string): boolean {
+export function isValidBankAccount(jurisdiction: string, raw: string, storedLast4?: string | null): boolean {
   const d = raw.replace(/[\s-]/g, '');
-  if (!/^\d+$/.test(d)) return false;
-  const [min, max] = ({ au: [11, 15], ca: [15, 20], us: [13, 26], uk: [14, 14] } as Record<string, [number, number]>)[jurisdiction] ?? [0, -1];
+  if (!/^\d+$/.test(d) || d.length <= 4) return false;
+  if (storedLast4 && d === storedLast4) return false;
+  const [min, max] = ({ au: [6, 9], ca: [7, 12], us: [5, 17], uk: [8, 8] } as Record<string, [number, number]>)[jurisdiction] ?? [1, 0];
   return d.length >= min && d.length <= max;
+}
+
+/** ABA routing checksum: 3·(d1+d4+d7) + 7·(d2+d5+d8) + (d3+d6+d9) ≡ 0 (mod 10). */
+export function isValidAbaRouting(nine: string): boolean {
+  if (!/^\d{9}$/.test(nine)) return false;
+  const n = nine.split('').map(Number);
+  return (3 * (n[0] + n[3] + n[6]) + 7 * (n[1] + n[4] + n[7]) + (n[2] + n[5] + n[8])) % 10 === 0;
+}
+
+/**
+ * Routing label, validated on its digits (free text like "BSB 062-000" is
+ * allowed): AU BSB 6; CA transit 5 + institution 3 = 8; US ABA 9 with
+ * checksum; UK sort code 6. Null/empty clears the label.
+ */
+export function isValidRoutingLabel(jurisdiction: string, label: string | null): boolean {
+  if (label === null || label.trim() === '') return true;
+  const d = label.replace(/\D/g, '');
+  switch (jurisdiction) {
+    case 'au': return d.length === 6;
+    case 'ca': return d.length === 8;
+    case 'us': return isValidAbaRouting(d);
+    case 'uk': return d.length === 6;
+    default: return false;
+  }
 }
 
 export function validateTaxId(jurisdiction: string, raw: string): boolean {

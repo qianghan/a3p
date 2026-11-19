@@ -59,7 +59,7 @@ import { encryptPii } from '@/lib/agentbook-employee-pii';
 const TFN = '123456782';
 const SIN = '046454286';
 const SSN = '123-45-6789';
-const BANK = '06200012345678'; // AU BSB 062-000 + account 12345678 (also valid US length)
+const BANK = '12345678'; // account number only (AU 6–9, US 5–17); BSB/routing lives in bankRoutingLabel
 const MEMBER = 'MEM77881';
 
 function req(method: string, id: string, body?: unknown, opts: { token?: string | null; headers?: Record<string, string> } = {}) {
@@ -222,11 +222,32 @@ describe('PUT — masked echoes, bank length, labels, jurisdiction (review I1/I2
     expect((await PUT(req('PUT', 'e-us', { taxId: '***-**-1111' }), ctx('e-us'))).status).toBe(400);
   });
 
-  it.each(['5678', '…5678', '12345'])('bank last-4 / short echo %s → 400, real account kept', async (echo) => {
+  it.each([
+    ['au', 'e-au', '123456', 'BSB 062-000'],
+    ['ca', 'e-ca', '1234567', '12345-003'],
+    ['us', 'e-us', '12345', '021000021'],
+  ])('%s: account-only number + routing label saves', async (_j, id, acct, label) => {
+    const res = await PUT(req('PUT', id, { bankAccount: acct, bankRoutingLabel: label }), ctx(id));
+    expect(res.status).toBe(200);
+    expect(store.sensitive[0].bankLast4).toBe(acct.slice(-4));
+    expect(store.sensitive[0].bankRoutingLabel).toBe(label);
+  });
+
+  it.each(['5678', '…5678', '1234', '0620001234567890'])('bank echo / bad length %s → 400, real account kept, value not echoed', async (echo) => {
     await PUT(req('PUT', 'e-au', { bankAccount: BANK }), ctx('e-au'));
     const enc = store.sensitive[0].bankAccountEnc;
-    expect((await PUT(req('PUT', 'e-au', { bankAccount: echo }), ctx('e-au'))).status).toBe(400);
+    const res = await PUT(req('PUT', 'e-au', { bankAccount: echo }), ctx('e-au'));
+    expect(res.status).toBe(400);
+    expect(await res.text()).not.toContain(echo.replace('…', ''));
     expect(store.sensitive[0].bankAccountEnc).toBe(enc);
+  });
+
+  it.each([
+    ['e-au', 'BSB 062-00'], ['e-ca', '12345-03'], ['e-us', '021000022'],
+  ])('%s: invalid routing label %s → 400', async (id, label) => {
+    const res = await PUT(req('PUT', id, { bankRoutingLabel: label }), ctx(id));
+    expect(res.status).toBe(400);
+    expect(store.sensitive).toHaveLength(0);
   });
 
   it('unchanged label fields are not logged as changed', async () => {

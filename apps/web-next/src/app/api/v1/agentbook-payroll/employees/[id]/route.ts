@@ -21,7 +21,7 @@ import { publicErrorMessage } from '@/lib/api-error';
 import { resolveSessionUserId } from '@/lib/agentbook-session-owner';
 import { encryptPii, isPiiKeyUnconfigured, PII_KEY_UNCONFIGURED } from '@/lib/agentbook-employee-pii';
 import {
-  employeeUpdateSchema, maskEmployee, isMaskedEcho, isValidBankAccount, validateTaxId, SENSITIVE_INPUT_KEYS,
+  employeeUpdateSchema, maskEmployee, isMaskedEcho, isValidBankAccount, isValidRoutingLabel, validateTaxId, SENSITIVE_INPUT_KEYS,
 } from '@/lib/agentbook-employee-profile';
 
 export const runtime = 'nodejs';
@@ -90,7 +90,8 @@ export async function PUT(request: NextRequest, ctx: RouteCtx): Promise<NextResp
     const bankAccount = input.bankAccount && !isMaskedEcho(input.bankAccount, current?.bankLast4) ? input.bankAccount : undefined;
     const member = input.superMemberNumber && !isMaskedEcho(input.superMemberNumber, null) ? input.superMemberNumber : undefined;
     if (taxId !== undefined && !validateTaxId(jurisdiction, taxId)) return bad(`invalid tax id for jurisdiction ${jurisdiction}`);
-    if (bankAccount !== undefined && !isValidBankAccount(jurisdiction, bankAccount)) return bad(`invalid bank account for jurisdiction ${jurisdiction}`);
+    if (bankAccount !== undefined && !isValidBankAccount(jurisdiction, bankAccount, current?.bankLast4)) return bad(`invalid bank account number for jurisdiction ${jurisdiction}`);
+    if (input.bankRoutingLabel !== undefined && !isValidRoutingLabel(jurisdiction, input.bankRoutingLabel)) return bad(`invalid routing label for jurisdiction ${jurisdiction}`);
     // Jurisdiction change: a stored tax id was validated for the OLD
     // jurisdiction (TFN vs SIN vs SSN) and cannot be re-validated without
     // decrypting it, so the change must carry a new tax id for the new one.
