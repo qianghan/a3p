@@ -6,7 +6,7 @@
   "description": "Invoice creation, PDF generation, payment tracking, accounts receivable, client management, estimates, and payment follow-up.",
   "isCore": true,
   "author": {
-    "name": "A3P Team",
+    "name": "AgentBook",
     "email": "team@a3p.io",
     "url": "https://a3p.io"
   },

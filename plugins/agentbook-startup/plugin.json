@@ -6,7 +6,7 @@
   "description": "Discovers government tax-benefit programs a startup qualifies for (R&D tax credit, QSBS tracking, Delaware franchise tax optimization, and more), drafts the application with human decision points, runs an audit-risk review, and tracks it through to a decision.",
   "isCore": false,
   "author": {
-    "name": "A3P Team",
+    "name": "AgentBook",
     "email": "team@a3p.io",
     "url": "https://a3p.io"
   },

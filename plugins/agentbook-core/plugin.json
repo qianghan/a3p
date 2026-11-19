@@ -5,7 +5,7 @@
   "version": "1.0.0",
   "description": "Double-entry ledger, chart of accounts, journal entries, constraint engine, and tenant configuration for the AgentBook accounting system.",
   "isCore": true,
-  "author": { "name": "A3P Team", "email": "team@a3p.io", "url": "https://a3p.io" },
+  "author": { "name": "AgentBook", "email": "team@a3p.io", "url": "https://a3p.io" },
   "repository": "https://github.com/qianghan/a3p/tree/main/plugins/agentbook-core",
   "license": "MIT",
   "keywords": ["accounting", "ledger", "double-entry", "bookkeeping"],

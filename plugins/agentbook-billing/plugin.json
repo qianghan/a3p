@@ -5,7 +5,7 @@
   "version": "1.0.0",
   "description": "Subscription plans, payments, and entitlement gating for AgentBook.",
   "isCore": true,
-  "author": { "name": "A3P Team", "email": "team@a3p.io" },
+  "author": { "name": "AgentBook", "email": "team@a3p.io" },
   "license": "MIT",
   "keywords": ["billing", "stripe", "subscriptions"],
   "category": "platform",

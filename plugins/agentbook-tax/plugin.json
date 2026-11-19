@@ -6,7 +6,7 @@
   "description": "Tax estimation, quarterly installments, deduction optimization, Schedule C/T2125 generation, P&L, balance sheet, cash flow reports, and proactive tax planning.",
   "isCore": true,
   "author": {
-    "name": "A3P Team",
+    "name": "AgentBook",
     "email": "team@a3p.io",
     "url": "https://a3p.io"
   },

@@ -262,7 +262,7 @@ export function toPluginPackageData(
     displayName: plugin.displayName,
     description: plugin.description || `${plugin.displayName} plugin for NAAP`,
     category: plugin.category || 'other',
-    author: plugin.author || 'NAAP Team',
+    author: plugin.author || 'AgentBook',
     authorEmail: plugin.authorEmail || 'team@naap.io',
     repository: plugin.repository || `https://github.com/livepeer/naap/tree/main/plugins/${plugin.dirName}`,
     license: plugin.license || 'MIT',
