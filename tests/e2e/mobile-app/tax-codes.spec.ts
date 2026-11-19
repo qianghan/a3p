@@ -165,7 +165,8 @@ async function expectStep(ctx: Ctx, before: { pnl: PnlSnapshot; tb: Tb }, pnl: R
   track(ctx, 'tb:2100', dGst);
   const gross = Object.values(pnl).reduce((s, v) => s + v, 0) + gst;
   const dCash = tbDelta(before.tb, after.tb, '1000');
-  expect(dCash, 'cash credited by the gross').toBe(-gross);
+  // 0 - gross, not -gross: a no-op step has gross 0, and toBe uses Object.is, where -0 !== 0.
+  expect(dCash, 'cash credited by the gross').toBe(0 - gross);
   track(ctx, 'tb:1000', dCash);
   expect(after.tb.balanced, 'trial balance balances').toBe(true);
   return after;
