@@ -1503,6 +1503,8 @@ model AbTenantConfig {
   //           silently flipping live tenants either way; the threshold check
   //           surfaces the question instead of guessing at the answer.
   gstRegistered           Boolean?
+  qstRegistered           Boolean? // CA: Quebec QST registration; null = unknown (PR 2b)
+  gstReportingBasis       String? // accrual | cash; null = accrual behaviour (PR 2b)
   logoUrl                 String?
   brandColor              String   @default("#1a1a2e")
   defaultPaymentTerms     String?
@@ -1872,36 +1874,38 @@ model AbConversation {
 // ============================================
 
 model AbExpense {
-  id             String    @id @default(uuid())
+  id                  String    @id @default(uuid())
   tenantId       String
   amountCents    Int
-  taxAmountCents Int       @default(0) // sales tax / GST / HST amount
-  tipAmountCents Int       @default(0) // tip amount (meals)
+  taxAmountCents      Int       @default(0) // sales tax / GST / HST amount
+  tipAmountCents      Int       @default(0) // tip amount (meals)
+  taxCode             String? // PR 2b: AU/CA tax code (GST, CAP, FRE, HST...); null = untyped legacy row
+  recoverableTaxCents Int       @default(0) // PR 2b: recoverable input tax computed from taxCode; 0 = none/untyped
   vendorId       String?
-  vendor         AbVendor? @relation(fields: [vendorId], references: [id])
-  categoryId     String? // AbAccount.id from core
+  vendor              AbVendor? @relation(fields: [vendorId], references: [id])
+  categoryId          String? // AbAccount.id from core
   date           DateTime
   description    String?
-  notes          String? // additional notes
+  notes               String? // additional notes
   receiptUrl     String?
-  paymentMethod  String    @default("unknown") // cash | credit_card | debit | bank_transfer | unknown
-  currency       String    @default("USD")
-  tags           String? // comma-separated tags
-  confidence     Float? // 0-1 categorization confidence
-  isPersonal     Boolean   @default(false)
-  isBillable     Boolean   @default(false) // can be billed to a client
-  clientId       String? // if billable, which client
-  isDeductible   Boolean   @default(false) // PR 12: business-deductible flag (set by deduction discovery)
-  taxCategory    String? // PR 12: Schedule C / T2125 line snapshot (set on apply)
-  receiptStatus  String?   @default("pending") // PR 16: 'pending' | 'attached' | 'skipped' — drives the receipt-expiry digest
-  status         String    @default("confirmed") // confirmed | pending_review | rejected
-  source         String    @default("manual") // manual | telegram_photo | telegram_pdf | ocr | csv_import | cc_statement | bank_sync
+  paymentMethod       String    @default("unknown") // cash | credit_card | debit | bank_transfer | unknown
+  currency            String    @default("USD")
+  tags                String? // comma-separated tags
+  confidence          Float? // 0-1 categorization confidence
+  isPersonal          Boolean   @default(false)
+  isBillable          Boolean   @default(false) // can be billed to a client
+  clientId            String? // if billable, which client
+  isDeductible        Boolean   @default(false) // PR 12: business-deductible flag (set by deduction discovery)
+  taxCategory         String? // PR 12: Schedule C / T2125 line snapshot (set on apply)
+  receiptStatus       String?   @default("pending") // PR 16: 'pending' | 'attached' | 'skipped' — drives the receipt-expiry digest
+  status              String    @default("confirmed") // confirmed | pending_review | rejected
+  source              String    @default("manual") // manual | telegram_photo | telegram_pdf | ocr | csv_import | cc_statement | bank_sync
   journalEntryId String?
-  deletedAt      DateTime? // PR 26: soft-delete; null=live, set=removed
-  archivedAt     DateTime? // Mobile PR 1: hidden from default lists only — never touches journal, tax estimate or P&L
-  idempotencyKey String? // Mobile PR 1: client key for POST /expenses/from-receipt replay dedupe, scoped per tenant (NOT unique — see mobile-expense-schema.test.ts)
-  createdAt      DateTime  @default(now())
-  updatedAt      DateTime  @updatedAt
+  deletedAt           DateTime? // PR 26: soft-delete; null=live, set=removed
+  archivedAt          DateTime? // Mobile PR 1: hidden from default lists only — never touches journal, tax estimate or P&L
+  idempotencyKey      String? // Mobile PR 1: client key for POST /expenses/from-receipt replay dedupe, scoped per tenant (NOT unique — see mobile-expense-schema.test.ts)
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
 
   @@index([tenantId, date])
   @@index([tenantId, vendorId])
@@ -1935,6 +1939,7 @@ model AbVendor {
   name              String
   normalizedName    String
   defaultCategoryId String?
+  defaultTaxCode    String? // PR 2b: prefilled tax code for this vendor
   transactionCount  Int       @default(0)
   lastSeen          DateTime  @default(now())
   deletedAt         DateTime? // PR 26: soft-delete
