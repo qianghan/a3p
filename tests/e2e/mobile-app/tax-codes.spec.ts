@@ -1,5 +1,5 @@
 import { test, expect, type BrowserContext, type Page } from '@playwright/test';
-import { catalogT, loginAs, loginUnavailableReason, money, newPersonaContext, pageLocales, settle, type CatalogT } from './helpers';
+import { catalogT, loginAs, loginUnavailableReason, moneyExact, newPersonaContext, pageLocales, settle, type CatalogT } from './helpers';
 import {
   PERSONA_CURRENCY,
   amountInputText,
@@ -336,7 +336,7 @@ test.describe('tax codes - sydney (AU)', () => {
     await expect(page.getByTestId(SEL.capture.taxCodeGst)).toHaveAttribute('aria-pressed', 'true');
     await expect(page.getByTestId(SEL.capture.taxModeInclusive)).toHaveAttribute('aria-checked', 'true');
     await expect(page.getByTestId(SEL.capture.taxAmount)).toHaveText(
-      t('mobile.capture.tax_amount', { tax: money(1000, 'AUD', locale), total: money(11000, 'AUD', locale) }),
+      t('mobile.capture.tax_amount', { tax: moneyExact(1000, 'AUD', locale), total: moneyExact(11000, 'AUD', locale) }),
     );
     await page.getByRole('button', { name: t('mobile.capture.save'), exact: true }).click();
     await expect(page.getByRole('button', { name: t('mobile.capture.snap') })).toBeVisible();
