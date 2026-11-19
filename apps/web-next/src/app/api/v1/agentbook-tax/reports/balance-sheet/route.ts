@@ -11,6 +11,7 @@ import { computeBalanceSheet, type AccountTotals } from '@/lib/balance-sheet';
 import { unpaidBillWhere } from '@/lib/bill-amounts';
 import { publicErrorMessage } from '@/lib/api-error';
 
+import { cashBasisBlock } from '@/lib/cash-basis-guard';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -29,12 +30,15 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       where: { userId: tenantId },
       select: { accountingBasis: true },
     });
-    const accountingBasis =
+    const requestedBasis =
       basisParam === 'cash' || basisParam === 'accrual'
         ? basisParam
         : tenantConfig?.accountingBasis === 'cash'
           ? 'cash'
           : 'accrual';
+    // PR 3bc.8: open at_entry bills disable cash basis → accrual + reason.
+    const cashBasisDisabled = requestedBasis === 'cash' ? await cashBasisBlock(db, tenantId) : null;
+    const accountingBasis: 'cash' | 'accrual' = cashBasisDisabled ? 'accrual' : requestedBasis;
 
     const accounts = await db.abAccount.findMany({
       where: { tenantId, accountType: { in: ['asset', 'liability', 'equity', 'revenue', 'expense'] }, isActive: true },
@@ -84,6 +88,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       data: {
         asOfDate: asOfDate.toISOString(),
         accountingBasis,
+        ...(cashBasisDisabled ? { cashBasisDisabled } : {}),
         assets,
         liabilities,
         equity,

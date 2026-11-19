@@ -21,6 +21,7 @@ import { prisma as db } from '@naap/database';
 import { safeResolveAgentbookTenant } from '@/lib/agentbook-tenant';
 import { publicErrorMessage } from '@/lib/api-error';
 
+import { cashBasisBlock } from '@/lib/cash-basis-guard';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -149,6 +150,9 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       });
       basis = cfg?.accountingBasis === 'cash' ? 'cash' : 'accrual';
     }
+    // PR 3bc.8: open at_entry bills make a cash-basis P&L wrong → accrual + reason.
+    const cashBasisDisabled = basis === 'cash' ? await cashBasisBlock(db, tenantId) : null;
+    if (cashBasisDisabled) basis = 'accrual';
 
     const [revenueAccounts, expenseAccounts, cashAccount] = await Promise.all([
       db.abAccount.findMany({
@@ -202,6 +206,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         grossRevenueCents,
         totalExpensesCents,
         netIncomeCents,
+        ...(cashBasisDisabled ? { cashBasisDisabled } : {}),
       },
     });
   } catch (err) {
