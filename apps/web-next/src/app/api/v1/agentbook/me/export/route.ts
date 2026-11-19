@@ -82,6 +82,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     billLines,
     billPayments,
     employees,
+    employeeChanges,
     payRuns,
     payStubs,
   ] = await Promise.all([
@@ -139,6 +140,8 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     db.abBillLine.findMany({ where }),
     db.abBillPayment.findMany({ where }),
     db.abEmployee.findMany({ where }),
+    // AbEmployeeSensitive is deliberately NOT exported (encrypted PII); audit rows hold field names only.
+    db.abEmployeeChange.findMany({ where }),
     db.abPayRun.findMany({ where }),
     db.abPayStub.findMany({ where }),
   ]);
@@ -214,7 +217,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     agentPersonality,
     telegramBot,
     bills: { headers: bills, lines: billLines, payments: billPayments },
-    payroll: { employees, payRuns, payStubs },
+    payroll: { employees, employeeChanges, payRuns, payStubs },
   };
 
   const filename = `agentbook-export-${tenantId}-${exportedAt.slice(0, 10)}.json`;

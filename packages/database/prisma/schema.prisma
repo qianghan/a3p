@@ -3934,7 +3934,60 @@ model AbEmployee {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
+  // PR 4a — profile (all additive: nullable or defaulted)
+  phone                String?
+  address              String?
+  dateOfBirth          DateTime?
+  endDate              DateTime?
+  employmentBasis      String? // full_time | part_time | casual
+  payAnchorDate        DateTime? // per-employee anchor for the pay-frequency cycle
+  taxFreeThreshold     Boolean? // AU
+  residency            String? // AU: resident | foreign | working_holiday
+  helpDebt             Boolean? // AU
+  td1Federal           Int? // CA: TD1 federal claim, cents
+  td1Provincial        Int? // CA: TD1 provincial claim, cents
+  cppExempt            Boolean? // CA
+  eiExempt             Boolean? // CA
+  extraWithholdingCents Int? // US: W-4 extra withholding per period
+
+  sensitive AbEmployeeSensitive?
+
   @@index([tenantId, isActive])
+  @@schema("plugin_agentbook_payroll")
+}
+
+// Encrypted employee PII (1:1). Ciphertext + last4 only — NEVER plaintext, never exported.
+model AbEmployeeSensitive {
+  id                   String     @id @default(uuid())
+  tenantId             String
+  employeeId           String     @unique
+  employee             AbEmployee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  taxIdEnc             String? // TFN / SIN / SSN, AES-256-GCM ciphertext
+  taxIdLast4           String?
+  bankAccountEnc       String?
+  bankLast4            String?
+  bankRoutingLabel     String?
+  superFundUsi         String?
+  superFundName        String?
+  superMemberNumberEnc String?
+  createdAt            DateTime   @default(now())
+  updatedAt            DateTime   @updatedAt
+
+  @@index([tenantId])
+  @@schema("plugin_agentbook_payroll")
+}
+
+// Audit trail of employee edits/reveals: who, when, which field NAMES. Never values.
+model AbEmployeeChange {
+  id         String   @id @default(uuid())
+  tenantId   String
+  employeeId String
+  actorId    String
+  action     String   @default("update") // create | update | reveal
+  fields     String[] // changed field names only
+  createdAt  DateTime @default(now())
+
+  @@index([tenantId, employeeId, createdAt])
   @@schema("plugin_agentbook_payroll")
 }
 
@@ -3947,6 +4000,8 @@ model AbPayRun {
   journalEntryId String?
   processedAt    DateTime?
   createdAt      DateTime  @default(now())
+  payDate        DateTime? // PR 4a — statutory reports key off this when set
+  payFrequency   String? // snapshot: weekly | biweekly | semimonthly | monthly
 
   stubs AbPayStub[]
 

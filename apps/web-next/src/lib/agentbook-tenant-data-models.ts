@@ -54,6 +54,7 @@ export interface TenantDeleteStep {
 //   - AbExpense.vendorId -> AbVendor (optional)         NO onDelete (default SetNull, optional FK) — safe either order
 //   - AbBankTransaction.bankAccountId -> AbBankAccount onDelete: Cascade (safe either order)
 //   - AbBillLine/AbBillPayment.billId -> AbBill        onDelete: Cascade (children listed first anyway)
+//   - AbEmployeeSensitive.employeeId -> AbEmployee    onDelete: Cascade (listed first anyway)
 //   - AbPayStub.payRunId -> AbPayRun                   onDelete: Cascade (safe either order)
 // Every other same-domain "foreign-key-shaped" field found (e.g.
 // AbExpenseSplit.expenseId, AbDeferredRevenue.invoiceId,
@@ -180,6 +181,8 @@ export const TENANT_DELETE_ORDER: TenantDeleteStep[] = [
   { name: 'AbPayStub', deleteMany: (tenantId) => db.abPayStub.deleteMany({ where: { tenantId } }) },
   { name: 'AbPayrollTaxDeposit', deleteMany: (tenantId) => db.abPayrollTaxDeposit.deleteMany({ where: { tenantId } }) },
   { name: 'AbPayRun', deleteMany: (tenantId) => db.abPayRun.deleteMany({ where: { tenantId } }) },
+  { name: 'AbEmployeeSensitive', deleteMany: (tenantId) => db.abEmployeeSensitive.deleteMany({ where: { tenantId } }) },
+  { name: 'AbEmployeeChange', deleteMany: (tenantId) => db.abEmployeeChange.deleteMany({ where: { tenantId } }) },
   { name: 'AbEmployee', deleteMany: (tenantId) => db.abEmployee.deleteMany({ where: { tenantId } }) },
 
   // Personal finance
