@@ -823,6 +823,16 @@ describe('viewer — categorization', () => {
     expect(btn('Mark as reviewed')).toBeInTheDocument();
   });
 
+  it('Mark as reviewed in a closed period says so (422 period gate), and puts the status back', async () => {
+    startServer(rawRow({ status: 'pending_review' }));
+    over['POST /confirm'] = () => jsonResponse(422, { success: false, error: 'Period gate violated', details: { constraint: 'period_gate', year: 2026, month: 10, status: 'closed' } });
+    renderViewer();
+    await ready();
+    fireEvent.click(btn('Mark as reviewed'));
+    expect(await screen.findByText('This expense is dated in a closed period, so it can’t be booked. Reopen the period or change the date.')).toBeInTheDocument();
+    expect(btn('Mark as reviewed')).toBeInTheDocument();
+  });
+
   it('Mark as reviewed refuses without a category (confirm would skip the journal)', async () => {
     const f = startServer(rawRow({ status: 'pending_review', categoryId: null, categoryName: null, suggestion: SUGGEST }));
     renderViewer();

@@ -34,3 +34,8 @@ export {
 export { perDiemAvailability, type PerDiemAvailability } from './per-diem-availability.js';
 export { statutoryFactLines, type StatutoryFacts } from './statutory-facts.js';
 export { AUDIT_REVIEW_MODEL_VERSION } from './us/tax-benefits.js';
+export {
+  computeLineTax, listTaxCodes, defaultTaxCode, TaxCodeError, CA_MEALS_RECOVERABLE_FRACTION,
+  type LineTaxInput, type LineTaxResult, type LineTaxComponent, type TaxCodeInfo,
+  type TaxJurisdiction, type TaxRegistration,
+} from './tax-codes.js';

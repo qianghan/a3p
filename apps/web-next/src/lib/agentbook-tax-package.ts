@@ -29,6 +29,7 @@
 
 import 'server-only';
 import { prisma as db } from '@naap/database';
+import { deductibleCents } from '@/lib/expense-amounts';
 
 // ─── Types ────────────────────────────────────────────────────────────────
 
@@ -299,6 +300,7 @@ export async function gatherPackageData(input: PackageInput): Promise<PackageDat
     select: {
       id: true,
       amountCents: true,
+      recoverableTaxCents: true,
       date: true,
       categoryId: true,
       receiptUrl: true,
@@ -329,9 +331,9 @@ export async function gatherPackageData(input: PackageInput): Promise<PackageDat
       acct?.name || 'Uncategorised',
       acct?.taxCategory || null,
     );
-    pnlByLine[taxLine] = (pnlByLine[taxLine] || 0) + e.amountCents;
-    byCategory[taxLine] = (byCategory[taxLine] || 0) + e.amountCents;
-    deductionsTotal += e.amountCents;
+    pnlByLine[taxLine] = (pnlByLine[taxLine] || 0) + deductibleCents(e);
+    byCategory[taxLine] = (byCategory[taxLine] || 0) + deductibleCents(e);
+    deductionsTotal += deductibleCents(e);
   }
 
   // Mileage YTD — pulled from PR 4. We surface the per-trip rows so the

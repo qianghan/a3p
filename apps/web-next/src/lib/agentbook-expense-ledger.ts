@@ -33,6 +33,34 @@ import {
 const TAX_CONTROL_CODE = '2100';
 
 /**
+ * The lines a fresh booking of an expense posts. A typed row with recoverable
+ * tax (PR 2b.5, a registrant's purchase) posts
+ *   DR debit (gross − recoverable) | DR 2100 (recoverable) | CR cash (gross);
+ * everything else the unchanged DR debit | CR cash at gross. With no 2100 in
+ * the chart the gross goes to the debit account (never an unbalanced guess).
+ */
+async function expenseBookingLines(
+  client: Pick<typeof db, 'abAccount'>,
+  tenantId: string,
+  expense: { amountCents: number },
+  debitAccountId: string,
+  cashAccountId: string,
+  desc: string,
+): Promise<LedgerLine[]> {
+  const gross = expense.amountCents;
+  const recoverable = (expense as { recoverableTaxCents?: number | null }).recoverableTaxCents ?? 0;
+  const taxControl =
+    Number.isInteger(recoverable) && recoverable > 0 && recoverable < gross
+      ? await client.abAccount.findFirst({ where: { tenantId, code: TAX_CONTROL_CODE }, select: { id: true } })
+      : null;
+  return [
+    { accountId: debitAccountId, debitCents: taxControl ? gross - recoverable : gross, creditCents: 0, description: desc },
+    ...(taxControl ? [{ accountId: taxControl.id, debitCents: recoverable, creditCents: 0, description: 'Recoverable tax' }] : []),
+    { accountId: cashAccountId, debitCents: 0, creditCents: gross, description: 'Payment' },
+  ];
+}
+
+/**
  * Move an expense's debit off the suspense account onto its real category.
  *
  * Only touches an entry with exactly ONE debit line sitting on 6999 — the shape
@@ -121,24 +149,14 @@ export async function backfillExpenseJournalEntry(
   }
   if (!cashAccount) return null; // seeding genuinely failed — don't post a half entry
 
-  const amount = expense.amountCents;
   const desc = expense.description || 'Expense';
-  const je = await db.abJournalEntry.create({
-    data: {
-      tenantId,
-      date: expense.date,
-      memo: `Expense: ${desc}`,
-      sourceType: 'expense',
-      sourceId: expense.id,
-      verified: true,
-      lines: {
-        create: [
-          { tenantId, accountId: expense.categoryId, debitCents: amount, creditCents: 0, description: desc },
-          { tenantId, accountId: cashAccount.id, debitCents: 0, creditCents: amount, description: 'Payment' },
-        ],
-      },
-    },
-  });
+  const lines = await expenseBookingLines(db, tenantId, expense, expense.categoryId, cashAccount.id, desc);
+  const je = { id: await writerAppendBalancedEntry(
+    db,
+    tenantId,
+    { date: expense.date, memo: `Expense: ${desc}`, sourceType: 'expense', sourceId: expense.id },
+    lines,
+  ) };
   await db.abExpense.update({ where: { id: expense.id }, data: { journalEntryId: je.id } });
   return je.id;
 }
@@ -218,9 +236,26 @@ export { LedgerPeriodClosedError as ExpenseLedgerPeriodClosedError };
 
 /** Thrown when the booked entry's shape can't be re-priced or re-accounted without guessing. */
 export class ExpenseLedgerShapeError extends Error {
-  constructor() {
-    super('This expense is booked as a split or multi-line entry; its amount or category cannot be edited automatically');
+  constructor(message = 'This expense is booked as a split or multi-line entry; its amount or category cannot be edited automatically') {
+    super(message);
     this.name = 'ExpenseLedgerShapeError';
+  }
+}
+
+export const AMOUNT_BELOW_RECOVERABLE_TAX_MESSAGE =
+  'The amount must be more than the recoverable tax on this expense; change the tax code or the amount';
+
+/**
+ * A typed expense's amount would be at or below its recoverable tax, leaving a
+ * zero or negative category debit (PR 2a Minor-3). Extends the shape error so
+ * every existing 422 handler still refuses it; routes that can, answer with
+ * its own code `amount_below_recoverable_tax`.
+ */
+export class ExpenseAmountBelowRecoverableTaxError extends ExpenseLedgerShapeError {
+  readonly code = 'amount_below_recoverable_tax';
+  constructor() {
+    super(AMOUNT_BELOW_RECOVERABLE_TAX_MESSAGE);
+    this.name = 'ExpenseAmountBelowRecoverableTaxError';
   }
 }
 
@@ -539,7 +574,8 @@ async function repostTypedExpense(
 ): Promise<{ reposted: boolean; journalEntryId: string | null; reason?: string } | null> {
   const gross = expense.amountCents;
   const recoverable = (expense as TaxFields).recoverableTaxCents ?? 0;
-  if (!Number.isInteger(recoverable) || recoverable < 0 || recoverable >= gross) throw new ExpenseLedgerShapeError();
+  if (!Number.isInteger(recoverable) || recoverable < 0) throw new ExpenseLedgerShapeError();
+  if (recoverable > 0 && recoverable >= gross) throw new ExpenseAmountBelowRecoverableTaxError();
 
   const taxControl = await tx.abAccount.findFirst({
     where: { tenantId, code: TAX_CONTROL_CODE },
@@ -688,10 +724,7 @@ export async function bookExpenseJournalEntry(
     tx,
     tenantId,
     { date: expense.date, memo: `Expense: ${desc}`, sourceType: 'expense', sourceId: null },
-    [
-      { accountId: debitAccountId, debitCents: expense.amountCents, creditCents: 0, description: desc },
-      { accountId: cash.id, debitCents: 0, creditCents: expense.amountCents, description: 'Payment' },
-    ],
+    await expenseBookingLines(tx, tenantId, expense, debitAccountId, cash.id, desc),
   );
   await tx.abExpense.update({ where: { id: expense.id }, data: { journalEntryId } });
   return { booked: true, journalEntryId };

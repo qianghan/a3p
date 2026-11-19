@@ -13,6 +13,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma as db } from '@naap/database';
 import { safeResolveAgentbookTenant } from '@/lib/agentbook-tenant';
 import { publicErrorMessage } from '@/lib/api-error';
+import { sumDeductibleCents } from '@/lib/expense-amounts';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -37,7 +38,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     const grouped = await db.abExpense.groupBy({
       by: ['categoryId'],
       where: { tenantId, isPersonal: false, deletedAt: null, date: { gte: startDate, lte: endDate } },
-      _sum: { amountCents: true },
+      _sum: { amountCents: true, recoverableTaxCents: true },
       _count: { _all: true },
     });
 
@@ -47,14 +48,14 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       : [];
     const nameMap = new Map(categories.map((c) => [c.id, c.name]));
 
-    const totalCents = grouped.reduce((s, g) => s + (g._sum.amountCents || 0), 0);
+    const totalCents = grouped.reduce((s, g) => s + sumDeductibleCents(g._sum), 0);
 
     const data = grouped
       .map((g) => ({
         categoryName: g.categoryId ? nameMap.get(g.categoryId) || 'Uncategorized' : 'Uncategorized',
-        totalCents: g._sum.amountCents || 0,
+        totalCents: sumDeductibleCents(g._sum),
         count: g._count._all,
-        percentOfTotal: totalCents > 0 ? (g._sum.amountCents || 0) / totalCents : 0,
+        percentOfTotal: totalCents > 0 ? sumDeductibleCents(g._sum) / totalCents : 0,
       }))
       .sort((a, b) => b.totalCents - a.totalCents);
 

@@ -65,6 +65,9 @@ const vendorFindFirst = vi.fn();
 const patternFindFirst = vi.fn();
 const accountFindFirst = vi.fn();
 const journalEntryCreate = vi.fn();
+const journalLineCreate = vi.fn(async ({ data }: { data: Record<string, unknown> }) => data);
+/** Lines the create route posted through lib/ledger-writer (one create per line). */
+const postedLines = () => journalLineCreate.mock.calls.map((c) => c[0].data) as Array<{ accountId: string; debitCents: number; creditCents: number }>;
 const transaction = vi.fn();
 
 vi.mock('@naap/database', () => ({
@@ -90,6 +93,7 @@ vi.mock('@naap/database', () => ({
     },
     abAccount: { findFirst: (...a: unknown[]) => accountFindFirst(...a) },
     abJournalEntry: { create: (...a: unknown[]) => journalEntryCreate(...a) },
+    abTenantConfig: { findUnique: vi.fn(async () => null) },
     abEvent: { create: vi.fn(async () => ({})) },
     $transaction: (...a: unknown[]) => transaction(...a),
   },
@@ -107,12 +111,15 @@ beforeEach(() => {
   accountFindFirst.mockResolvedValue({ id: 'acct-cash' });
   journalEntryCreate.mockResolvedValue({ id: 'je-1' });
   expenseCreate.mockResolvedValue({ id: 'exp-new' });
+  expenseUpdate.mockImplementation(async ({ where, data }: { where: { id: string }; data: Record<string, unknown> }) => ({ id: where.id, ...data }));
   // Callback-style $transaction (expense create) and array-style both appear.
   transaction.mockImplementation(async (arg: unknown) =>
     typeof arg === 'function'
       ? (arg as (tx: unknown) => unknown)({
           abAccount: { findFirst: (...a: unknown[]) => accountFindFirst(...a) },
           abJournalEntry: { create: (...a: unknown[]) => journalEntryCreate(...a) },
+          abJournalLine: { create: (...a: unknown[]) => journalLineCreate(...(a as [{ data: Record<string, unknown> }])) },
+          abFiscalPeriod: { findUnique: vi.fn(async () => null) },
           abExpense: { create: (...a: unknown[]) => expenseCreate(...a), update: (...a: unknown[]) => expenseUpdate(...a) },
           abEvent: { create: vi.fn(async () => ({})) },
         })
@@ -153,7 +160,7 @@ describe('POST /expenses — chart seeding wiring (the #395 regression)', () => 
     // created status='confirmed' but absent from P&L, trial balance and the tax
     // estimate — and absent from the review queue too, so nothing ever surfaced it.
     expect(journalEntryCreate).toHaveBeenCalled();
-    const lines = journalEntryCreate.mock.calls[0][0].data.lines.create;
+    const lines = postedLines();
     expect(lines.find((l: { accountId: string }) => l.accountId === 'acct-uncategorized'))
       .toMatchObject({ debitCents: 2500, creditCents: 0 });
     expect(lines.find((l: { accountId: string }) => l.accountId === 'acct-cash'))

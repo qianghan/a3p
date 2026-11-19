@@ -11,6 +11,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma as db } from '@naap/database';
 import { safeResolveAgentbookTenant } from '@/lib/agentbook-tenant';
 import { publicErrorMessage } from '@/lib/api-error';
+import { deductibleCents } from '@/lib/expense-amounts';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -18,6 +19,7 @@ export const maxDuration = 30;
 
 interface ExpenseRow {
   amountCents: number;
+  recoverableTaxCents?: number | null;
   categoryId: string | null;
   vendor?: { name: string } | null;
   date: Date;
@@ -71,14 +73,14 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     const compareByCat: Record<string, number> = {};
     for (const e of compareExpenses) {
       const key = e.categoryId || 'uncategorized';
-      compareByCat[key] = (compareByCat[key] || 0) + e.amountCents;
+      compareByCat[key] = (compareByCat[key] || 0) + deductibleCents(e);
     }
 
     const byCat: Record<string, { totalCents: number; count: number; expenses: ExpenseRow[] }> = {};
     for (const e of currentExpenses) {
       const key = e.categoryId || 'uncategorized';
       if (!byCat[key]) byCat[key] = { totalCents: 0, count: 0, expenses: [] };
-      byCat[key].totalCents += e.amountCents;
+      byCat[key].totalCents += deductibleCents(e);
       byCat[key].count++;
       byCat[key].expenses.push(e);
     }
@@ -93,7 +95,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       const vendorTotals: Record<string, number> = {};
       for (const e of data.expenses) {
         const vn = e.vendor?.name || 'Other';
-        vendorTotals[vn] = (vendorTotals[vn] || 0) + e.amountCents;
+        vendorTotals[vn] = (vendorTotals[vn] || 0) + deductibleCents(e);
       }
       const topVendors = Object.entries(vendorTotals)
         .sort((a, b) => b[1] - a[1])
@@ -120,14 +122,14 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       personalWhere.date = date;
     }
     const personalExpenses = await db.abExpense.findMany({ where: personalWhere });
-    const personalTotal = personalExpenses.reduce((s, e) => s + e.amountCents, 0);
+    const personalTotal = personalExpenses.reduce((s, e) => s + deductibleCents(e), 0);
 
     return NextResponse.json({
       success: true,
       data: {
         categories: summary,
         totals: {
-          businessCents: currentExpenses.reduce((s, e) => s + e.amountCents, 0),
+          businessCents: currentExpenses.reduce((s, e) => s + deductibleCents(e), 0),
           personalCents: personalTotal,
           businessCount: currentExpenses.length,
           personalCount: personalExpenses.length,

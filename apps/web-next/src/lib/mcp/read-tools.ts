@@ -2,6 +2,7 @@ import 'server-only';
 import { prisma as db } from '@naap/database';
 import { getCashPosition } from '@agentbook-core/cash-position';
 import { defaultCurrencyFor } from '@/lib/jurisdiction-currency';
+import { sumDeductibleCents } from '@/lib/expense-amounts';
 
 /**
  * Structured, read-only data for the MCP connector.
@@ -116,14 +117,14 @@ export async function readExpenses(
       orderBy: { date: 'desc' },
       take: limit,
       select: {
-        id: true, date: true, description: true, amountCents: true, categoryId: true,
+        id: true, date: true, description: true, amountCents: true, recoverableTaxCents: true, categoryId: true,
         vendor: { select: { name: true } },
       },
     }),
     // The total is over the WHOLE period, not just the returned page — a
     // caller summing the rows would otherwise silently under-report whenever
     // the result was truncated.
-    db.abExpense.aggregate({ where, _sum: { amountCents: true }, _count: true }),
+    db.abExpense.aggregate({ where, _sum: { amountCents: true, recoverableTaxCents: true }, _count: true }),
   ]);
 
   const accountIds = [...new Set(rows.map((r) => r.categoryId).filter((v): v is string => Boolean(v)))];
@@ -135,7 +136,9 @@ export async function readExpenses(
   return {
     period: { from: from.toISOString().slice(0, 10), to: to.toISOString().slice(0, 10) },
     count: agg._count,
-    total: money(agg._sum.amountCents ?? 0, currency),
+    // Net of recoverable input tax, matching readExpenseBreakdown and the P&L.
+    // Row amounts below are the document gross.
+    total: money(sumDeductibleCents(agg._sum), currency),
     expenses: rows.map((r) => ({
       id: r.id,
       date: r.date.toISOString().slice(0, 10),
@@ -157,7 +160,7 @@ export async function readExpenseBreakdown(
   const grouped = await db.abExpense.groupBy({
     by: ['categoryId'],
     where: { tenantId, date: { gte: from, lte: to } },
-    _sum: { amountCents: true },
+    _sum: { amountCents: true, recoverableTaxCents: true },
   });
 
   const ids = grouped.map((g) => g.categoryId).filter((v): v is string => Boolean(v));
@@ -166,10 +169,10 @@ export async function readExpenseBreakdown(
     : [];
   const nameById = new Map(accounts.map((a) => [a.id, a.name]));
 
-  const total = grouped.reduce((n, g) => n + (g._sum.amountCents ?? 0), 0);
+  const total = grouped.reduce((n, g) => n + sumDeductibleCents(g._sum), 0);
   const categories = grouped
     .map((g) => {
-      const cents = g._sum.amountCents ?? 0;
+      const cents = sumDeductibleCents(g._sum);
       return {
         // A null category is shown as "Uncategorised" rather than dropped:
         // silently omitting it makes the shares add to less than 100% with no

@@ -289,7 +289,8 @@
     "not_found": "Ce document n’existe plus.",
     "load_failed": "Impossible de charger ce document.",
     "archived_banner": "Archivé. Masqué de vos listes, mais ses montants comptent toujours.",
-    "needs_review_banner": "En attente de votre révision"
+    "needs_review_banner": "En attente de votre révision",
+    "confirm_period_closed": "Cette dépense est datée dans une période fermée et ne peut pas être comptabilisée. Rouvrez la période ou changez la date."
   },
   "capture": {
     "title": "Saisir une dépense",
@@ -337,7 +338,23 @@
     "queue_error_unauthorized": "Reconnectez-vous pour envoyer ce reçu.",
     "queue_error_too_large": "Trop volumineux pour être envoyé. Abandonnez-le et reprenez une photo plus légère.",
     "queue_error_unreadable": "Impossible de lire cette photo. Abandonnez-la et reprenez-la.",
-    "queue_retry_done": "Synchronisation : {sent} envoyées · {remaining} en attente"
+    "queue_retry_done": "Synchronisation : {sent} envoyées · {remaining} en attente",
+    "tax_code_label": "Code de taxe",
+    "tax_mode_label": "Comment le montant est saisi",
+    "tax_inclusive": "Montant taxes incluses",
+    "tax_exclusive": "Taxes en sus",
+    "tax_amount": "Taxes {tax} · total {total}",
+    "tax_printed": "Sur le reçu : {label} {amount}",
+    "tax_registration_prompt": "Indiquez-nous si vous êtes inscrit aux fins de la taxe de vente pour que nous puissions réclamer la taxe payée sur vos achats.",
+    "tax_registration_link": "Ouvrir le profil d’entreprise",
+    "tax_code_gst_free": "Exonéré de GST",
+    "tax_code_input_taxed": "Exonéré (sans crédit)",
+    "tax_code_no_gst": "Sans GST",
+    "tax_code_capital": "Achat d’immobilisation",
+    "tax_code_zero_rated": "Détaxé",
+    "tax_code_exempt": "Exonéré",
+    "tax_code_out_of_scope": "Hors champ",
+    "period_closed": "Cette dépense est datée dans une période fermée et ne peut pas être comptabilisée. Rouvrez la période ou changez la date."
   },
   "chat": {
     "title": "Demandez à votre conseiller",

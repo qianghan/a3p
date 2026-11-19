@@ -289,7 +289,8 @@
     "not_found": "该单据已不存在。",
     "load_failed": "无法加载该单据。",
     "archived_banner": "已归档。它不会出现在列表中，但金额仍然计入。",
-    "needs_review_banner": "需要您审核"
+    "needs_review_banner": "需要您审核",
+    "confirm_period_closed": "该支出的日期属于已关闭的期间，无法入账。请重新开放该期间或修改日期。"
   },
   "capture": {
     "title": "记录支出",
@@ -337,7 +338,23 @@
     "queue_error_unauthorized": "请重新登录后再发送此收据。",
     "queue_error_too_large": "文件太大，无法上传。请放弃后重新拍一张较小的照片。",
     "queue_error_unreadable": "无法读取此照片。请放弃后重新拍摄。",
-    "queue_retry_done": "同步结果：已发送 {sent} · 待同步 {remaining}"
+    "queue_retry_done": "同步结果：已发送 {sent} · 待同步 {remaining}",
+    "tax_code_label": "税码",
+    "tax_mode_label": "金额的输入方式",
+    "tax_inclusive": "金额含税",
+    "tax_exclusive": "税额另加",
+    "tax_amount": "税额 {tax} · 合计 {total}",
+    "tax_printed": "收据上：{label} {amount}",
+    "tax_registration_prompt": "请告诉我们您是否已办理销售税登记，以便申报采购所付的税款。",
+    "tax_registration_link": "打开企业资料",
+    "tax_code_gst_free": "免 GST",
+    "tax_code_input_taxed": "进项课税",
+    "tax_code_no_gst": "无 GST",
+    "tax_code_capital": "资本性采购",
+    "tax_code_zero_rated": "零税率",
+    "tax_code_exempt": "免税",
+    "tax_code_out_of_scope": "不在征税范围",
+    "period_closed": "该支出的日期属于已关闭的期间，无法入账。请重新开放该期间或修改日期。"
   },
   "chat": {
     "title": "咨询您的顾问",

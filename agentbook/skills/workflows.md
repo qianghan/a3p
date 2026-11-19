@@ -101,6 +101,14 @@ An entry form saves the expense ONCE, on its real category — never "save, then
 ### Ledger writer
 Every journal posting goes through `apps/web-next/src/lib/ledger-writer.ts`: `appendBalancedEntry(client, tenantId, header, lines)` refuses unbalanced entries (`LedgerUnbalancedError`), and on a `(tenantId, sourceType, sourceId)` collision returns the existing entry when the payload (date + account/debit/credit lines) matches, else throws `LedgerKeyConflict` (carries `code: 'P2002'`; inside an aborted Postgres transaction it always throws). `assertPeriodOpen(client, tenantId, date)` is the closed-period gate, month derived in **UTC** (`LedgerPeriodClosedError`, re-exported as `ExpenseLedgerPeriodClosedError`). Expense edits of a tax-typed row (`taxCode` set) re-post as `DR category (amount − recoverableTaxCents) | DR 2100 (recoverable) | CR original credit (gross)`; untyped rows keep the legacy path. Pass the transaction client when you have one.
 
+### Purchase tax codes (PR 2b)
+- Engine: `packages/agentbook-jurisdictions/src/tax-codes.ts` — `computeLineTax({ jurisdiction, region, taxCode, amountCents, inclusive, registration, isMeal })`, `listTaxCodes`, `defaultTaxCode`. AU `GST/CAP/FRE/INP/NTR`, CA `GST/HST/GST_PST/GST_QST/ZERO/EXEMPT/OUT_OF_SCOPE` (rates from `ca/sales-tax.ts`, never literals), US `SALES_TAX/NONE` (never recoverable). Golden tests in `src/__tests__/tax-codes.test.ts`.
+- App adapter: `apps/web-next/src/lib/tax-codes.ts` maps an `AbTenantConfig` row (jurisdiction, region, `gstRegistered`, `qstRegistered`) onto the engine; UK/unknown → `null` (gross). Posting resolution: `lib/expense-tax.ts` `resolveExpenseTax` (printed OCR tax wins within 2¢, else flagged); entry-UI view: `lib/expense-tax-row.ts` served by `GET /api/v1/agentbook-expense/tax-codes?amountCents=&inclusive=&taxCode=`.
+- Posting: a registrant's typed expense is `DR category (gross − recoverable) | DR 2100 (recoverable) | CR 1000 (gross)`; non-registrants / US / `gstRegistered === null` post gross (null also shows the Business Profile prompt). `amountCents` is always the document gross; `taxInclusive` is input mode only. Amend recomputes `recoverableTaxCents` from amount + code.
+- Registration flags live only in Business Profile (`AgentBookSettingsPanel`), PUT `agentbook-core/tenant-config` validates them tri-state.
+- Readers: never read `amountCents` as a deduction — use `deductibleCents(expense)` from `lib/expense-amounts.ts` (guarded by `deductible-readers.test.ts`). Returns: BAS 1B/G10/G11 and CA ITC/QST ITR sum `recoverableTaxCents` for typed rows, `taxAmountCents` for untyped.
+- Prod e2e: `tests/e2e/mobile-app/tax-codes.spec.ts` (sydney/maya/alex; sets `gstRegistered` for the run only if not already true and restores it).
+
 ### Bank Reconciliation
 1. Plaid Link → `POST /plaid/create-link-token` → `POST /plaid/exchange-token`
 2. `POST /bank-sync` → fetch transactions from Plaid API (last 30 days)

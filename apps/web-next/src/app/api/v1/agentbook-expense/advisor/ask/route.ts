@@ -14,6 +14,7 @@ import { safeResolveAgentbookTenant } from '@/lib/agentbook-tenant';
 import { advisorGemini, formatCents } from '@/lib/agentbook-advisor';
 import { parsePeriodFromQuestion } from '@agentbook-core/period-parse';
 import { publicErrorMessage } from '@/lib/api-error';
+import { deductibleCents } from '@/lib/expense-amounts';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -61,19 +62,19 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     const catNameMap: Record<string, string> = Object.fromEntries(catAccounts.map((a) => [a.id, a.name]));
 
     // Aggregations
-    const total = expenses.reduce((s, e) => s + e.amountCents, 0);
+    const total = expenses.reduce((s, e) => s + deductibleCents(e), 0);
 
     const byCatRaw: Record<string, number> = {};
     for (const e of expenses) {
       const name = e.categoryId ? (catNameMap[e.categoryId] || e.categoryId) : 'Uncategorized';
-      byCatRaw[name] = (byCatRaw[name] || 0) + e.amountCents;
+      byCatRaw[name] = (byCatRaw[name] || 0) + deductibleCents(e);
     }
     const byCat = Object.entries(byCatRaw).sort(([, a], [, b]) => b - a).slice(0, 8);
 
     const byVendorRaw: Record<string, number> = {};
     for (const e of expenses) {
       const name = (e.vendor as any)?.name || 'Unknown';
-      byVendorRaw[name] = (byVendorRaw[name] || 0) + e.amountCents;
+      byVendorRaw[name] = (byVendorRaw[name] || 0) + deductibleCents(e);
     }
     const byVendor = Object.entries(byVendorRaw).sort(([, a], [, b]) => b - a).slice(0, 10);
 
@@ -82,7 +83,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     for (const e of expenses) {
       const d = new Date(e.date);
       const key = d.toLocaleString('en-US', { month: 'short', year: 'numeric' });
-      byMonthRaw[key] = (byMonthRaw[key] || 0) + e.amountCents;
+      byMonthRaw[key] = (byMonthRaw[key] || 0) + deductibleCents(e);
     }
     const byMonth = Object.entries(byMonthRaw).reverse();
 

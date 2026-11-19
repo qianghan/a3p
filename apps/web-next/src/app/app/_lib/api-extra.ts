@@ -155,6 +155,9 @@ export interface CreateExpenseBody {
   currency?: string;
   /** Set when a person chose or accepted `categoryId`; only then does the server learn the vendor → category. */
   categorySource?: 'user' | 'user_corrected';
+  /** PR 2b.8: the chosen tax code and the tax the person saw (the server's 2¢ tolerance keeps it). */
+  taxCode?: string;
+  taxAmountCents?: number;
 }
 
 /** Manual entry (no photo). The key makes a retry after a lost response a no-op, not a second expense. */

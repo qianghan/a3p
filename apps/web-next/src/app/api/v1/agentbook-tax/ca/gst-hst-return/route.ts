@@ -16,6 +16,7 @@ import { prisma as db } from '@naap/database';
 import { safeResolveAgentbookTenant } from '@/lib/agentbook-tenant';
 import { computeGstHstReturn } from '@agentbook/jurisdictions/ca/gst-hst-return';
 import { publicErrorMessage } from '@/lib/api-error';
+import { isMealsAccount } from '@/lib/expense-tax';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -56,9 +57,17 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       // is the GST/HST paid portion recorded at booking.
       db.abExpense.findMany({
         where: { tenantId, isPersonal: false, date: { gte, lte } },
-        select: { taxAmountCents: true },
+        select: { amountCents: true, taxAmountCents: true, taxCode: true, recoverableTaxCents: true, categoryId: true },
       }),
     ]);
+
+    // Meals flag for GST_QST splits — the SAME isMealsAccount decision posting used.
+    const mealCatIds = new Set<string>();
+    const catIds = [...new Set(expenses.filter((e) => e.taxCode === 'GST_QST' && e.categoryId).map((e) => e.categoryId as string))];
+    if (catIds.length > 0) {
+      const accts = await db.abAccount.findMany({ where: { tenantId, id: { in: catIds } }, select: { id: true, name: true, taxCategory: true } });
+      for (const a of accts) if (isMealsAccount(a)) mealCatIds.add(a.id);
+    }
 
     const result = computeGstHstReturn({
       periodStart,
@@ -67,7 +76,17 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         netSalesCents: i.amountCents - (i.taxCents ?? 0),
         taxCollectedCents: i.taxCents ?? 0,
       })),
-      purchases: expenses.map((e) => ({ taxPaidCents: e.taxAmountCents ?? 0 })),
+      // PR 2b.7: typed rows → recoverableTaxCents (QST part split out); untyped → taxAmountCents.
+      purchases: expenses.map((e) => ({
+        taxPaidCents: e.taxAmountCents ?? 0,
+        taxCode: e.taxCode,
+        recoverableTaxCents: e.recoverableTaxCents,
+        grossCents: e.amountCents,
+        isMeal: !!e.categoryId && mealCatIds.has(e.categoryId),
+      })),
+      region: cfg?.region ?? null,
+      gstRegistered: cfg?.gstRegistered ?? null,
+      qstRegistered: cfg?.qstRegistered ?? null,
     });
 
     return NextResponse.json({ success: true, data: result });

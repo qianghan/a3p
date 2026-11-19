@@ -268,8 +268,9 @@ export async function getDoc(id: string): Promise<MobileDoc> {
  * learning — which would split the ledger from the document. Category changes
  * go through categorizeDoc only.
  */
-const PATCHABLE = ['amountCents', 'vendor', 'date', 'description', 'isPersonal'] as const;
-type PatchBody = Partial<{ amountCents: number; vendor: string; date: string; description: string; isPersonal: boolean }>;
+const PATCHABLE = ['amountCents', 'vendor', 'date', 'description', 'isPersonal', 'taxCode'] as const;
+/** taxCode (PR 2b.8): the server recomputes the recoverable split from amount + code. */
+type PatchBody = Partial<{ amountCents: number; vendor: string; date: string; description: string; isPersonal: boolean; taxCode: string }>;
 
 /** PATCH then re-read: the PATCH route returns the bare row without vendor/category names. */
 export async function patchDoc(id: string, body: PatchBody): Promise<MobileDoc> {
@@ -285,6 +286,45 @@ export async function patchDoc(id: string, body: PatchBody): Promise<MobileDoc> 
 export async function categorizeDoc(id: string, categoryId: string): Promise<MobileDoc> {
   await call(`${EXPENSE}/expenses/${enc(id)}/categorize`, postJson({ categoryId, source: 'user' }));
   return getDoc(id);
+}
+
+// ── Tax row (PR 2b.8) ───────────────────────────────────────────────────────
+
+export interface TaxRowPreview { taxCode: string; inclusive: boolean; grossCents: number; netCents: number; taxCents: number }
+export interface TaxRow {
+  visible: boolean;
+  codes: Array<{ code: string; recoverable: boolean }>;
+  defaultCode: string | null;
+  registrationPrompt: boolean;
+  preview: TaxRowPreview | null;
+}
+const HIDDEN_TAX_ROW: TaxRow = { visible: false, codes: [], defaultCode: null, registrationPrompt: false, preview: null };
+const isInt = (n: unknown): n is number => typeof n === 'number' && Number.isSafeInteger(n);
+
+/**
+ * GET tax-codes: whether this tenant sees the tax row, its codes and default,
+ * and the engine's preview of the line. amountCents is what the person typed:
+ * gross when `inclusive`, net otherwise; preview.grossCents is what to save.
+ * A body of the wrong shape reads as hidden.
+ */
+export async function getTaxRow(q: { amountCents?: number; inclusive: boolean; taxCode?: string | null }): Promise<TaxRow> {
+  const qs = new URLSearchParams();
+  if (isInt(q.amountCents) && q.amountCents > 0) qs.set('amountCents', String(q.amountCents));
+  qs.set('inclusive', String(q.inclusive));
+  if (q.taxCode) qs.set('taxCode', q.taxCode);
+  const d = await dataOf<TaxRow>(`${EXPENSE}/tax-codes?${qs.toString()}`);
+  if (!d || typeof d !== 'object' || d.visible !== true || !Array.isArray(d.codes)) return HIDDEN_TAX_ROW;
+  const p = d.preview;
+  const preview = p && typeof p.taxCode === 'string' && isInt(p.grossCents) && isInt(p.netCents) && isInt(p.taxCents)
+    ? { taxCode: p.taxCode, inclusive: p.inclusive !== false, grossCents: p.grossCents, netCents: p.netCents, taxCents: p.taxCents }
+    : null;
+  return {
+    visible: true,
+    codes: d.codes.filter((c) => c && typeof c.code === 'string').map((c) => ({ code: c.code, recoverable: c.recoverable === true })),
+    defaultCode: typeof d.defaultCode === 'string' ? d.defaultCode : null,
+    registrationPrompt: d.registrationPrompt === true,
+    preview,
+  };
 }
 
 export function archiveDoc(id: string): Promise<{ id: string; archivedAt: string }> {

@@ -28,6 +28,8 @@ import {
   ensureExpenseBookingAccounts,
   ExpenseLedgerPeriodClosedError,
   ExpenseLedgerShapeError,
+  ExpenseAmountBelowRecoverableTaxError,
+  AMOUNT_BELOW_RECOVERABLE_TAX_MESSAGE,
   ExpenseLedgerAlreadyReversedError,
   ALREADY_REVERSED_MESSAGE,
 } from '@/lib/agentbook-expense-ledger';
@@ -36,6 +38,8 @@ import { getPendingSuggestions } from '@/lib/agentbook-auto-categorize';
 import { deriveCategorySource, suggestionFromPending } from '@/lib/mobile/doc-mapper';
 import { publicErrorMessage } from '@/lib/api-error';
 import { isIsoCalendarDate } from '@/lib/iso-calendar-date';
+import { resolveExpenseTax, isMealsAccount } from '@/lib/expense-tax';
+import { TaxCodeError } from '@/lib/tax-codes';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -136,6 +140,8 @@ interface UpdateExpenseBody {
   isPersonal?: boolean;
   date?: string;
   vendor?: string;
+  /** PR 2b: change the tax code; the recoverable split is recomputed from amount + code. */
+  taxCode?: string;
 }
 
 /** The row vanished (soft-deleted) between the read and the write. */
@@ -237,6 +243,52 @@ export async function PUT(
       }
     }
 
+    // PR 2b.5 — a typed row's recoverable tax is recomputed from amount + taxCode
+    // whenever either (or the category, for the CA meals fraction) changes —
+    // never carried over from the old amount (PR 2a ruling).
+    if (body.taxCode !== undefined && (typeof body.taxCode !== 'string' || body.taxCode.trim() === '')) {
+      return NextResponse.json(
+        { success: false, code: 'invalid_tax_code', error: 'taxCode must be a non-empty tax code' },
+        { status: 400 },
+      );
+    }
+    const storedTaxCode = (existing as { taxCode?: string | null }).taxCode ?? null;
+    const nextTaxCode = body.taxCode ?? storedTaxCode;
+    if (
+      nextTaxCode &&
+      (body.taxCode !== undefined || data.amountCents !== undefined || data.categoryId !== undefined)
+    ) {
+      const cfg = await db.abTenantConfig.findUnique({
+        where: { userId: tenantId },
+        select: { jurisdiction: true, region: true, gstRegistered: true, qstRegistered: true },
+      });
+      const nextCategoryId = (data.categoryId !== undefined ? data.categoryId : existing.categoryId) as string | null;
+      const catAcct = nextCategoryId
+        ? await db.abAccount.findFirst({ where: { id: nextCategoryId, tenantId }, select: { name: true, taxCategory: true } })
+        : null;
+      let tax;
+      try {
+        tax = resolveExpenseTax({
+          tenant: cfg,
+          taxCode: nextTaxCode,
+          amountCents: (data.amountCents as number | undefined) ?? existing.amountCents,
+          isMeal: isMealsAccount(catAcct),
+        });
+      } catch (err) {
+        if (err instanceof TaxCodeError) {
+          return NextResponse.json({ success: false, code: 'invalid_tax_code', error: 'taxCode is not a valid tax code for your jurisdiction and region' }, { status: 400 });
+        }
+        throw err;
+      }
+      // tax.taxCode null: the engine can't price this tenant (unsupported
+      // jurisdiction) — the stored split stands and the ledger helper decides.
+      if (tax.taxCode) {
+        data.taxCode = tax.taxCode;
+        data.taxAmountCents = tax.taxAmountCents;
+        data.recoverableTaxCents = tax.recoverableTaxCents;
+      }
+    }
+
     // Booking a personal → business flip, or moving a cleared category to
     // suspense, needs the cash and 6999 accounts. Their seeders run their own
     // upserts, so (as in the create route) they run before the transaction;
@@ -283,7 +335,10 @@ export async function PUT(
         const amountChanged = data.amountCents !== undefined && data.amountCents !== prev.amountCents;
         const categoryChanged = data.categoryId !== undefined && data.categoryId !== prev.categoryId;
         const personalChanged = data.isPersonal !== undefined && data.isPersonal !== prev.isPersonal;
-        const touchesLedger = amountChanged || data.date !== undefined || categoryChanged || personalChanged;
+        const taxChanged =
+          (data.recoverableTaxCents !== undefined && data.recoverableTaxCents !== (prev as { recoverableTaxCents?: number }).recoverableTaxCents) ||
+          (data.taxCode !== undefined && data.taxCode !== (prev as { taxCode?: string | null }).taxCode);
+        const touchesLedger = amountChanged || data.date !== undefined || categoryChanged || personalChanged || taxChanged;
         // A rejected expense was already reversed by undo; re-posting would
         // resurrect it.
         if (!touchesLedger || row.status === 'rejected') return row;
@@ -324,6 +379,9 @@ export async function PUT(
           { success: false, code: 'already_reversed', error: ALREADY_REVERSED_MESSAGE },
           { status: 422 },
         );
+      }
+      if (err instanceof ExpenseAmountBelowRecoverableTaxError) {
+        return NextResponse.json({ success: false, code: err.code, error: AMOUNT_BELOW_RECOVERABLE_TAX_MESSAGE }, { status: 422 });
       }
       if (err instanceof ExpenseLedgerShapeError) {
         return NextResponse.json(

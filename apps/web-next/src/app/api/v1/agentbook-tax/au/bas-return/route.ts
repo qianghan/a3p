@@ -52,7 +52,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       }),
       db.abExpense.findMany({
         where: { tenantId, isPersonal: false, date: { gte, lte } },
-        select: { taxAmountCents: true },
+        select: { amountCents: true, taxAmountCents: true, taxCode: true, recoverableTaxCents: true },
       }),
       // PAYG-W (W1/W2): pay runs paid in the BAS period. federalTaxCents is the
       // AU PAYG amount withheld; grossCents is the wages paid.
@@ -70,7 +70,14 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       periodStart,
       periodEnd,
       sales: invoices.map((i) => ({ grossSalesCents: i.amountCents, gstCollectedCents: i.taxCents ?? 0 })),
-      purchases: expenses.map((e) => ({ gstPaidCents: e.taxAmountCents ?? 0 })),
+      // PR 2b.7: typed rows → recoverableTaxCents (1B) + G10/G11 by code; untyped → taxAmountCents.
+      purchases: expenses.map((e) => ({
+        gstPaidCents: e.taxAmountCents ?? 0,
+        taxCode: e.taxCode,
+        recoverableTaxCents: e.recoverableTaxCents,
+        grossCents: e.amountCents,
+      })),
+      gstRegistered: cfg?.gstRegistered ?? null,
       wages,
     });
 

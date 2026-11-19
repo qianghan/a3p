@@ -15,6 +15,7 @@ import { JURISDICTION_OPTIONS, defaultCurrencyFor, formatCurrencyCents } from '@
 import { offerableLocales } from '@agentbook/i18n/catalog-client';
 import { SubscribeModal } from './SubscribeModal';
 import { useT } from '@/hooks/use-t';
+import { isQuebecRegion } from '@/lib/region-codes';
 
 const CURRENCY_OPTIONS = ['USD', 'CAD', 'GBP', 'AUD', 'EUR', 'JPY', 'CHF', 'MXN', 'BRL', 'INR'];
 
@@ -56,6 +57,8 @@ interface TenantConfig {
   companyPhone: string | null;
   abn: string | null;
   gstRegistered: boolean | null;
+  qstRegistered?: boolean | null;
+  gstReportingBasis?: 'accrual' | 'cash' | null;
   logoUrl: string | null;
   brandColor: string;
   defaultPaymentTerms: string | null;
@@ -2124,32 +2127,77 @@ export function AgentBookSettingsPanel({ initialTab }: { initialTab?: string }):
                 <input type="text" value={form.abn ?? ''} onChange={(e) => set({ abn: e.target.value || null })}
                   className={inputCls} placeholder="12 345 678 901" />
               </div>
-              <div>
-                {/* Tri-state, and the unanswered state is shown as unanswered
-                    rather than defaulted into one of the two answers — an ABN
-                    is not GST registration, and guessing either way charges
-                    the wrong amount to a real client. */}
-                <label className="block text-sm font-medium text-foreground">
-                  {t('core_ui.gst_registered_label')}{' '}
-                  <span className="font-normal text-muted-foreground">{t('core_ui.gst_registered_au_hint')}</span>
-                </label>
-                <select
-                  value={form.gstRegistered === true ? 'yes' : form.gstRegistered === false ? 'no' : ''}
-                  onChange={(e) => set({ gstRegistered: e.target.value === 'yes' ? true : e.target.value === 'no' ? false : null })}
-                  className={inputCls}
-                >
-                  <option value="">{t('core_ui.gst_not_answered')}</option>
-                  <option value="yes">{t('core_ui.gst_registered_yes')}</option>
-                  <option value="no">{t('core_ui.gst_registered_no')}</option>
-                </select>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  {form.gstRegistered === false
-                    ? t('core_ui.gst_help_not_registered')
-                    : form.gstRegistered === true
-                      ? t('core_ui.gst_help_registered')
-                      : t('core_ui.gst_help_unknown')}
-                </p>
-              </div>
+              {(form.jurisdiction === 'au' || form.jurisdiction === 'ca') && (
+                <div data-testid="reg-gst">
+                  {/* Tri-state, and the unanswered state is shown as unanswered
+                      rather than defaulted into one of the two answers — an ABN
+                      is not GST registration, and guessing either way charges
+                      the wrong amount to a real client. */}
+                  <label className="block text-sm font-medium text-foreground">
+                    {form.jurisdiction === 'ca' ? t('core_ui.gst_registered_label_ca') : t('core_ui.gst_registered_label')}
+                    {form.jurisdiction === 'au' && (
+                      <>{' '}<span className="font-normal text-muted-foreground">{t('core_ui.gst_registered_au_hint')}</span></>
+                    )}
+                  </label>
+                  <select
+                    data-testid="reg-gst-select"
+                    value={form.gstRegistered === true ? 'yes' : form.gstRegistered === false ? 'no' : ''}
+                    onChange={(e) => set({ gstRegistered: e.target.value === 'yes' ? true : e.target.value === 'no' ? false : null })}
+                    className={inputCls}
+                  >
+                    <option value="">{t('core_ui.gst_not_answered')}</option>
+                    <option value="yes">{t('core_ui.gst_registered_yes')}</option>
+                    <option value="no">{t('core_ui.gst_registered_no')}</option>
+                  </select>
+                  {form.jurisdiction === 'au' && (
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      {form.gstRegistered === false
+                        ? t('core_ui.gst_help_not_registered')
+                        : form.gstRegistered === true
+                          ? t('core_ui.gst_help_registered')
+                          : t('core_ui.gst_help_unknown')}
+                    </p>
+                  )}
+                  {form.gstRegistered == null && (
+                    <p data-testid="reg-prompt" className="mt-1 text-xs text-amber-600">
+                      {t('core_ui.gst_prompt_set_registration')}
+                    </p>
+                  )}
+                </div>
+              )}
+              {form.jurisdiction === 'ca' && isQuebecRegion(form.region) && (
+                <div data-testid="reg-qst">
+                  <label className="block text-sm font-medium text-foreground">{t('core_ui.qst_registered_label')}</label>
+                  <select
+                    data-testid="reg-qst-select"
+                    value={form.qstRegistered === true ? 'yes' : form.qstRegistered === false ? 'no' : ''}
+                    onChange={(e) => set({ qstRegistered: e.target.value === 'yes' ? true : e.target.value === 'no' ? false : null })}
+                    className={inputCls}
+                  >
+                    <option value="">{t('core_ui.gst_not_answered')}</option>
+                    <option value="yes">{t('core_ui.gst_registered_yes')}</option>
+                    <option value="no">{t('core_ui.gst_registered_no')}</option>
+                  </select>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {form.qstRegistered === true ? t('core_ui.qst_help_registered') : t('core_ui.qst_help_other')}
+                  </p>
+                </div>
+              )}
+              {(form.jurisdiction === 'au' || form.jurisdiction === 'ca') && (
+                <div data-testid="reg-basis">
+                  <label className="block text-sm font-medium text-foreground">{t('core_ui.gst_basis_label')}</label>
+                  <select
+                    data-testid="reg-basis-select"
+                    value={form.gstReportingBasis ?? 'accrual'}
+                    onChange={(e) => set({ gstReportingBasis: e.target.value === 'cash' ? 'cash' : 'accrual' })}
+                    className={inputCls}
+                  >
+                    <option value="accrual">{t('core_ui.gst_basis_accrual')}</option>
+                    <option value="cash">{t('core_ui.gst_basis_cash')}</option>
+                  </select>
+                  <p className="mt-1 text-xs text-muted-foreground">{t('core_ui.gst_basis_help')}</p>
+                </div>
+              )}
               <div>
                 <label className="block text-sm font-medium text-foreground">{t('core_ui.address')}</label>
                 <textarea value={form.companyAddress ?? ''} onChange={(e) => set({ companyAddress: e.target.value || null })}

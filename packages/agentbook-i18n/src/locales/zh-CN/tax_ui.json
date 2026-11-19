@@ -86,5 +86,8 @@
   "reparse": "重新解析",
   "deadline": "截止日期",
   "amount_due": "应付金额",
-  "amount_paid": "已付金额"
+  "amount_paid": "已付金额",
+  "return_bas_g10": "G10 — 资本性采购",
+  "return_bas_g11": "G11 — 非资本性采购",
+  "return_qst_itr": "QST 进项税退还（ITR）— Revenu Québec"
 }

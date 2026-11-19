@@ -66,6 +66,8 @@ export interface ReceiptOcrResult {
   currency: string;
   items: string | null;
   tax_cents: number;
+  /** The tax line's printed label ("GST", "HST", "TPS/TVQ"…), or null. PR 2b.8: shown beside the tax row. */
+  tax_label?: string | null;
   tip_cents: number;
   confidence: number;
 }
@@ -79,6 +81,13 @@ export const OCR_TIMEOUT_MS = 25_000;
 
 /** OCR output plus whether the model actually returned a date (otherwise `date` is today). */
 export type ReceiptOcrBytesResult = ReceiptOcrResult & { dateFound: boolean };
+
+/** A printed tax label is short display text, never a sentence: trimmed, capped, else null. */
+export function parseTaxLabel(v: unknown): string | null {
+  if (typeof v !== 'string') return null;
+  const t = v.trim();
+  return t && t.length <= 24 && !/[<>{}]/.test(t) ? t : null;
+}
 
 /** Run Gemini Vision OCR on a receipt image or PDF URL. Returns null on failure. */
 export async function ocrReceipt(fileUrl: string, hintMime?: string): Promise<ReceiptOcrResult | null> {
@@ -112,6 +121,7 @@ export async function ocrReceipt(fileUrl: string, hintMime?: string): Promise<Re
     currency: result.currency,
     items: result.items,
     tax_cents: result.tax_cents,
+    tax_label: result.tax_label,
     tip_cents: result.tip_cents,
     confidence: result.confidence,
   };
@@ -158,9 +168,10 @@ INSTRUCTIONS:
 - Date may be MM/DD/YYYY, YYYY-MM-DD, DD/MM/YYYY, or "Mon DD YYYY". Pick the issue/transaction date, not the due date if a separate due date exists.
 - amount_cents is the GRAND TOTAL in CENTS (e.g., $45.99 = 4599, $1,234.56 = 123456).
 - If you can't read the total at all, set amount_cents=0 and confidence=0.
+- tax_cents is the printed sales tax / GST / HST / QST total in CENTS; tax_label is that line's label exactly as printed (e.g. "GST", "HST", "TPS/TVQ"), or null if none is printed.
 
 Return ONLY valid JSON:
-{"amount_cents": <int>, "vendor": "<string|null>", "date": "<YYYY-MM-DD>", "currency": "USD|CAD", "items": "<string|null>", "tax_cents": <int>, "tip_cents": <int>, "confidence": <0.0-1.0>}`;
+{"amount_cents": <int>, "vendor": "<string|null>", "date": "<YYYY-MM-DD>", "currency": "USD|CAD", "items": "<string|null>", "tax_cents": <int>, "tax_label": "<string|null>", "tip_cents": <int>, "confidence": <0.0-1.0>}`;
 
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${cfg.modelVision}:generateContent?key=${cfg.apiKey}`;
   let llmRes: Response;
@@ -206,6 +217,7 @@ Return ONLY valid JSON:
       currency: parsed.currency || 'USD',
       items: parsed.items || null,
       tax_cents: parsed.tax_cents || 0,
+      tax_label: parseTaxLabel(parsed.tax_label),
       tip_cents: parsed.tip_cents || 0,
       confidence: parsed.confidence ?? 0,
       dateFound,

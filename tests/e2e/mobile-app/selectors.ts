@@ -23,6 +23,9 @@ export const SEL = {
   capture: {
     screen: 'capture-screen', fileInput: 'capture-file', amount: 'capture-amount', save: 'capture-save',
     error: 'capture-error', queuePill: 'queue-pill',
+    taxRow: 'capture-tax-row', taxAmount: 'capture-tax-amount', taxPrompt: 'capture-tax-prompt',
+    taxModeInclusive: 'capture-tax-mode-inclusive', taxModeExclusive: 'capture-tax-mode-exclusive',
+    taxCodeGst: 'capture-tax-code-GST', taxCodeGstQst: 'capture-tax-code-GST_QST', taxCodeHst: 'capture-tax-code-HST',
   },
   chat: {
     screen: 'chat-screen', loading: 'chat-history-loading', error: 'chat-history-error', empty: 'chat-empty',
@@ -49,6 +52,10 @@ export const SEL_ELEMENTS: Record<string, string> = {
   'doc-archive': 'Archive button', 'doc-restore': 'Restore button',
   'capture-screen': 'Capture page root', 'capture-file': 'the photo <input type=file>', 'capture-amount': 'amount input',
   'capture-save': 'Save button', 'capture-error': 'capture error message', 'queue-pill': '"Queued · N waiting" pill',
+  'capture-tax-row': 'tax row (AU/CA registrants)', 'capture-tax-amount': 'computed tax + total line',
+  'capture-tax-prompt': 'GST registration prompt', 'capture-tax-mode-inclusive': 'amount-includes-tax toggle',
+  'capture-tax-mode-exclusive': 'tax-added-on-top toggle', 'capture-tax-code-GST': 'GST code chip',
+  'capture-tax-code-GST_QST': 'GST + QST code chip', 'capture-tax-code-HST': 'HST code chip',
 };
 
 export const ALL_SELECTOR_IDS: string[] = Object.values(SEL).flatMap((group) => Object.values(group));

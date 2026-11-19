@@ -323,5 +323,14 @@
   "gst_registered_no": "Non — non inscrit",
   "gst_help_registered": "Factures avec 10 % de GST, intitulées « Tax Invoice ».",
   "gst_help_not_registered": "Factures sans GST, intitulées « Invoice ».",
-  "gst_help_unknown": "Sans réponse : les factures portent 10 % de GST. Seule une entreprise inscrite peut la facturer. Obligatoire au-delà de 75 000 $ AU."
+  "gst_help_unknown": "Sans réponse : les factures portent 10 % de GST. Seule une entreprise inscrite peut la facturer. Obligatoire au-delà de 75 000 $ AU.",
+  "gst_prompt_set_registration": "Indiquez si vous êtes inscrit. D’ici là, les achats sont enregistrés au montant total, sans crédit de taxe.",
+  "qst_registered_label": "Inscrit à la TVQ? (Québec)",
+  "qst_help_registered": "La TVQ payée sur les achats est récupérée en crédit de taxe sur les intrants.",
+  "qst_help_other": "La TVQ payée sur les achats reste incluse dans la dépense.",
+  "gst_basis_label": "Méthode de déclaration de la TPS/GST",
+  "gst_basis_accrual": "Comptabilité d’exercice — à la facturation",
+  "gst_basis_cash": "Comptabilité de caisse — au paiement",
+  "gst_basis_help": "Détermine la période de votre déclaration où le crédit de taxe d’un achat est compté.",
+  "gst_registered_label_ca": "Inscrit à la TPS/TVH?"
 }

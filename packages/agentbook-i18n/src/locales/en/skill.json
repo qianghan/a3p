@@ -137,5 +137,6 @@
   "scenario_tax": "Estimated annual tax change: {change}",
   "scenario_cash_negative": "Cash would go negative in month {month}.",
   "scenario_client_not_found": "I couldn't find a client named \"{client}\" in your books, so I didn't model that.",
-  "scenario_failed": "I couldn't run that scenario. Try \"what if I hire someone at $5K/month?\""
+  "scenario_failed": "I couldn't run that scenario. Try \"what if I hire someone at $5K/month?\"",
+  "expense_tax_claimable": "{label} {amount} claimable"
 }

@@ -81,7 +81,16 @@ describe('ocrReceiptBytes', () => {
       .mockResolvedValueOnce(new Response(BYTES, { status: 200, headers: { 'content-type': 'image/jpeg' } }))
       .mockResolvedValueOnce(geminiReply('{"amount_cents": 4599, "vendor": "Shell", "date": "2026-06-19", "confidence": 0.9}'));
     const r = await ocrReceipt('https://files.test/r.jpg');
-    expect(r).toEqual({ amount_cents: 4599, vendor: 'Shell', date: '2026-06-19', currency: 'USD', items: null, tax_cents: 0, tip_cents: 0, confidence: 0.9 });
+    // tax_label (PR 2b.8): the printed label; this receipt prints none, so null.
+    expect(r).toEqual({ amount_cents: 4599, vendor: 'Shell', date: '2026-06-19', currency: 'USD', items: null, tax_cents: 0, tax_label: null, tip_cents: 0, confidence: 0.9 });
+  });
+
+  it('ocrReceipt (URL) carries the printed tax label through', async () => {
+    vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(new Response(BYTES, { status: 200, headers: { 'content-type': 'image/jpeg' } }))
+      .mockResolvedValueOnce(geminiReply('{"amount_cents": 11000, "vendor": "Officeworks", "date": "2026-06-19", "currency": "AUD", "tax_cents": 1000, "tax_label": "GST", "confidence": 0.9}'));
+    const r = await ocrReceipt('https://files.test/r.jpg');
+    expect(r).toMatchObject({ amount_cents: 11000, tax_cents: 1000, tax_label: 'GST' });
   });
 });
 

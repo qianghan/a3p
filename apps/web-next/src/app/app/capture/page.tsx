@@ -6,7 +6,7 @@ import { parseAmountToCents } from '@agentbook/i18n';
 import { useT, useShellLocale } from '@/hooks/use-t';
 import type { FromReceiptResult, MobileDoc } from '@/lib/mobile/types';
 import { queueExpense } from '@/lib/offline-queue';
-import { uploadReceipt, patchDoc, categorizeDoc, deleteDoc } from '../_lib/api';
+import { uploadReceipt, patchDoc, categorizeDoc, deleteDoc, getTaxRow, type TaxRow as TaxRowView } from '../_lib/api';
 import { confirmDoc, createExpense, getTenantCurrency, suggestCategoryFor } from '../_lib/api-extra';
 import { compressImage } from '../_lib/image';
 import { queueReceiptForReplay, isOfflineError, newIdempotencyKey } from '../_lib/offline';
@@ -17,20 +17,23 @@ import { useDebouncedValue } from '../_lib/useDebouncedValue';
 import { Chip, Pill, tokens, useToast } from '../_kit';
 import { CategoryPicker } from '../docs/_components/CategoryPicker';
 import { QueuePill } from './_components/QueuePill';
+import { TaxRow, type TaxMode } from './_components/TaxRow';
 
 type Stage = 'idle' | 'uploading' | 'review';
 /** Where the expense stands while the form is open. */
 type Source = 'uploaded' | 'offline' | 'failed' | 'manual';
-type ErrorKind = null | 'read_failed' | 'upload_too_large' | 'save_too_large' | 'save_failed' | 'queue_failed'
+type ErrorKind = null | 'period_closed' | 'read_failed' | 'upload_too_large' | 'save_too_large' | 'save_failed' | 'queue_failed'
   | 'amount_invalid' | 'amount_ambiguous' | 'discard_failed' | 'review_amount' | 'receipt_deleted';
 
 interface Draft { amount: string; vendor: string; date: string; categoryId: string | null; categoryName: string | null; isPersonal: boolean }
-interface Fields { amountCents: number; vendor?: string; date?: string; categoryId?: string; isPersonal: boolean }
+interface Fields { amountCents: number; vendor?: string; date?: string; categoryId?: string; isPersonal: boolean; taxCode?: string; taxAmountCents?: number }
 
 const emptyDraft = (): Draft => ({ amount: '', vendor: '', date: todayIso(), categoryId: null, categoryName: null, isPersonal: false });
 const statusOf = (e: unknown) => (e && typeof e === 'object' ? (e as { status?: number }).status : undefined);
 const codeOf = (e: unknown) => (e && typeof e === 'object' ? (e as { code?: string }).code : undefined);
 /** A too-large photo: the client pre-flight (code) or the platform's plain-text 413 (status). Never branch on the message. */
+/** The ledger refused: the expense's date is in a closed period (422, same body as POST /expenses). */
+const isPeriodClosed = (e: unknown) => statusOf(e) === 422;
 const isTooLarge = (e: unknown) => codeOf(e) === 'file_too_large' || statusOf(e) === 413;
 const deviceOffline = () => typeof navigator !== 'undefined' && navigator.onLine === false;
 
@@ -74,6 +77,11 @@ export default function MobileCapture() {
   // the moment the person picks one themselves it is theirs and no later suggestion may replace it.
   const userPicked = useRef(false);
   const suggestedId = useRef<string | null>(null);
+  // PR 2b.8 tax row. The view (visibility, codes, preview) comes from the server's engine.
+  const [taxView, setTaxView] = useState<TaxRowView | null>(null);
+  const [taxCode, setTaxCode] = useState<string | null>(null);
+  const [taxMode, setTaxMode] = useState<TaxMode>('inclusive');
+  const [printedTax, setPrintedTax] = useState<{ cents: number | null; label: string | null } | null>(null);
 
   useEffect(() => { setRecents(getRecentCategories()); }, []);
   useEffect(() => () => { if (preview && typeof URL.revokeObjectURL === 'function') URL.revokeObjectURL(preview); }, [preview]);
@@ -97,8 +105,27 @@ export default function MobileCapture() {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- re-run on the settled vendor only
   }, [vendorForSuggest, stage]);
 
+  // Tax row only where the save path carries a code: manual entry and an uploaded document.
+  const taxEligible = stage === 'review' && (source === 'manual' || source === 'uploaded') && !draft.isPersonal;
+  const amountForTax = useDebouncedValue(draft.amount, 300);
+  useEffect(() => {
+    if (!taxEligible || deviceOffline()) { setTaxView(null); return; }
+    const parsed = parseAmountToCents(amountForTax, locale);
+    let live = true;
+    void getTaxRow({ amountCents: parsed.ok && parsed.cents > 0 ? parsed.cents : undefined, inclusive: taxMode === 'inclusive', taxCode })
+      .then((v) => {
+        if (!live) return;
+        setTaxView(v.visible ? v : null);
+        if (v.visible && !taxCode && v.defaultCode) setTaxCode(v.defaultCode);
+      })
+      .catch(() => { if (live) setTaxView(null); });
+    return () => { live = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- re-run on the settled amount, code and mode only
+  }, [taxEligible, amountForTax, taxCode, taxMode]);
+
   function reset(focusSnap: boolean) {
     userPicked.current = false; suggestedId.current = null;
+    setTaxView(null); setTaxCode(null); setTaxMode('inclusive'); setPrintedTax(null);
     setStage('idle'); setSource('manual'); setFile(null); setPreview(null); setAttemptKey(null);
     setDoc(null); setAiGuess(null); setDraft(emptyDraft()); setErrorKind(null); setAmbiguous('');
     setRecents(getRecentCategories());
@@ -117,6 +144,7 @@ export default function MobileCapture() {
       ? { id: d.categoryId, name: d.categoryName }
       : d.suggestion ? { id: d.suggestion.categoryId, name: d.suggestion.categoryName } : null;
     setAiGuess(guess);
+    setPrintedTax(res.ocr.taxCents != null ? { cents: res.ocr.taxCents, label: res.ocr.taxLabel ?? null } : null);
     setDraft({
       amount: cents != null ? formatAmountInput(cents, locale) : '',
       vendor: res.ocr.vendor ?? d.vendorName ?? '',
@@ -166,11 +194,14 @@ export default function MobileCapture() {
   }
 
   async function finalizeUploaded(d: MobileDoc, f: Fields) {
-    const patch: Partial<{ amountCents: number; vendor: string; date: string; isPersonal: boolean }> = {};
+    const patch: Partial<{ amountCents: number; vendor: string; date: string; isPersonal: boolean; taxCode: string }> = {};
     if (f.amountCents !== d.amountCents) patch.amountCents = f.amountCents;
     if (f.vendor && f.vendor !== (d.vendorName ?? '')) patch.vendor = f.vendor;
     if (f.date && f.date !== (d.date ?? '').slice(0, 10)) patch.date = f.date;
     if (f.isPersonal !== d.isPersonal) patch.isPersonal = f.isPersonal;
+    // Always the code the chip shows: the server may have stored a vendor
+    // default the user never saw, so "untouched" is not "agreed with the server".
+    if (f.taxCode && f.taxCode !== (d as { taxCode?: string | null }).taxCode) patch.taxCode = f.taxCode;
     let latest = d;
     if (Object.keys(patch).length) latest = await patchDoc(d.id, patch);
     if (f.categoryId && f.categoryId !== latest.categoryId) latest = await categorizeDoc(d.id, f.categoryId);
@@ -203,6 +234,7 @@ export default function MobileCapture() {
     const payload = {
       amountCents: f.amountCents, vendor: f.vendor, date: f.date, categoryId: f.categoryId, isPersonal: f.isPersonal,
       ...(cur ? { currency: cur } : {}),
+      ...(f.taxCode ? { taxCode: f.taxCode, taxAmountCents: f.taxAmountCents } : {}),
       // A person saw this category and saved: that teaches the vendor memory. Changing our suggestion is a correction.
       ...(f.categoryId && !f.isPersonal
         ? { categorySource: suggestedId.current && suggestedId.current !== f.categoryId ? ('user_corrected' as const) : ('user' as const) }
@@ -225,8 +257,20 @@ export default function MobileCapture() {
     if (!parsed.ok || parsed.cents <= 0) { setErrorKind('amount_invalid'); return; }
     if (parsed.ambiguous) { setAmbiguous(parsed.formatted); setErrorKind('amount_ambiguous'); return; }
     setErrorKind(null);
+    // The tax row converts an exclusive entry to the document gross with the engine, at save time,
+    // so what is booked is exactly what the server computes. No preview → never book the net as gross.
+    let tax: { amountCents: number; taxCode?: string; taxAmountCents?: number } = { amountCents: parsed.cents };
+    if (taxView && taxCode && !draft.isPersonal) {
+      try {
+        const v = await getTaxRow({ amountCents: parsed.cents, inclusive: taxMode === 'inclusive', taxCode });
+        if (v.visible && v.preview) tax = { amountCents: v.preview.grossCents, taxCode: v.preview.taxCode, taxAmountCents: v.preview.taxCents };
+        else if (taxMode === 'exclusive') { setErrorKind('save_failed'); return; }
+      } catch {
+        if (taxMode === 'exclusive') { setErrorKind('save_failed'); return; }
+      }
+    }
     const f: Fields = {
-      amountCents: parsed.cents,
+      ...tax,
       vendor: draft.vendor.trim() || undefined,
       date: draft.date || undefined,
       categoryId: draft.categoryId ?? undefined,
@@ -247,7 +291,7 @@ export default function MobileCapture() {
         reset(false);
         return;
       }
-      setErrorKind(e instanceof QueueError ? 'queue_failed' : isTooLarge(e) ? 'save_too_large' : 'save_failed');
+      setErrorKind(e instanceof QueueError ? 'queue_failed' : isTooLarge(e) ? 'save_too_large' : isPeriodClosed(e) ? 'period_closed' : 'save_failed');
     } finally {
       setSaving(false);
     }
@@ -279,6 +323,7 @@ export default function MobileCapture() {
       case 'upload_too_large': return [t('mobile.capture.too_large'), t('mobile.capture.read_failed')];
       case 'save_too_large': return [t('mobile.capture.too_large')];
       case 'save_failed': return [t('mobile.capture.save_failed')];
+      case 'period_closed': return [t('mobile.capture.period_closed')];
       case 'queue_failed': return [t('mobile.capture.queue_failed')];
       case 'amount_invalid': return [t('mobile.capture.amount_invalid')];
       case 'amount_ambiguous': return [t('mobile.capture.amount_ambiguous', { formatted: ambiguous })];
@@ -346,6 +391,11 @@ export default function MobileCapture() {
               ))}
               <Chip label={t('mobile.capture.more_categories')} onClick={() => setPickerOpen(true)} />
             </div>
+            {taxView && (
+              <TaxRow view={taxView} code={taxCode} mode={taxMode} currency={currency} printed={printedTax}
+                onCode={(c) => setTaxCode(c)}
+                onMode={(m) => setTaxMode(m)} />
+            )}
             <div role="radiogroup" aria-label={t('mobile.capture.kind_label')} style={{ display: 'flex', gap: 8 }}>
               {[false, true].map((p) => (
                 <button key={String(p)} type="button" role="radio" aria-checked={draft.isPersonal === p} style={seg(draft.isPersonal === p)}

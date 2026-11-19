@@ -8,6 +8,8 @@ const accountFindFirst = vi.fn();
 const journalCreate = vi.fn();
 const expenseUpdate = vi.fn();
 const journalLineUpdate = vi.fn();
+// backfill posts through lib/ledger-writer: header, then one create per line.
+const journalLineCreate = vi.fn(async ({ data }: { data: Record<string, unknown> }) => data);
 // Prior reversals of the expense (backfill won't reclassify an already-reversed entry).
 const journalFindMany = vi.fn(async () => [] as unknown[]);
 
@@ -25,6 +27,7 @@ vi.mock('@naap/database', () => ({
     abJournalLine: {
       findMany: (...a: unknown[]) => journalLineFindMany(...a),
       update: (...a: unknown[]) => journalLineUpdate(...a),
+      create: (...a: unknown[]) => journalLineCreate(...(a as [{ data: Record<string, unknown> }])),
     },
   },
 }));
@@ -56,7 +59,7 @@ describe('backfillExpenseJournalEntry', () => {
     expenseFindFirst.mockResolvedValue({ ...EXPENSE });
     const id = await backfillExpenseJournalEntry('t1', 'exp-1');
     expect(id).toBe('je-new');
-    const lines = journalCreate.mock.calls[0][0].data.lines.create;
+    const lines: any[] = journalLineCreate.mock.calls.map((c) => c[0].data);
     const debit = lines.reduce((s: number, l: any) => s + l.debitCents, 0);
     const credit = lines.reduce((s: number, l: any) => s + l.creditCents, 0);
     expect(debit).toBe(credit);                 // balanced

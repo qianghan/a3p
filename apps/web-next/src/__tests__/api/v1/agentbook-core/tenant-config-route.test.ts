@@ -267,3 +267,50 @@ describe('PUT /api/v1/agentbook-core/tenant-config', () => {
     });
   });
 });
+
+describe('registration flags (PR 2b.4)', () => {
+  const stored = async (body: unknown) => {
+    const res = await PUT(putReq(body));
+    const call = configUpsert.mock.calls[0]?.[0] as { update: Record<string, unknown> } | undefined;
+    return { res, update: call?.update };
+  };
+
+  it('stores qstRegistered true / false / null as given', async () => {
+    for (const v of [true, false, null]) {
+      configUpsert.mockClear();
+      const { res, update } = await stored({ qstRegistered: v });
+      expect(res.status).toBe(200);
+      expect(update?.qstRegistered).toBe(v);
+    }
+  });
+
+  it('stores gstReportingBasis cash / accrual / null as given', async () => {
+    for (const v of ['cash', 'accrual', null]) {
+      configUpsert.mockClear();
+      const { res, update } = await stored({ gstReportingBasis: v });
+      expect(res.status).toBe(200);
+      expect(update?.gstReportingBasis).toBe(v);
+    }
+  });
+
+  it('rejects an unknown gstReportingBasis with 400 and writes nothing', async () => {
+    const { res } = await stored({ gstReportingBasis: 'quarterly' });
+    expect(res.status).toBe(400);
+    expect(configUpsert).not.toHaveBeenCalled();
+  });
+
+  it('rejects non-boolean qstRegistered / gstRegistered with 400 and writes nothing', async () => {
+    for (const body of [{ qstRegistered: 'yes' }, { qstRegistered: 1 }, { gstRegistered: 'true' }]) {
+      configUpsert.mockClear();
+      const res = await PUT(putReq(body));
+      expect(res.status).toBe(400);
+      expect(configUpsert).not.toHaveBeenCalled();
+    }
+  });
+
+  it('writes against the resolved tenant only', async () => {
+    await PUT(putReq({ qstRegistered: true }));
+    const call = configUpsert.mock.calls[0][0] as { where: { userId: string } };
+    expect(call.where.userId).toBe('tenant-1');
+  });
+});

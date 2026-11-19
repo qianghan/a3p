@@ -289,7 +289,8 @@
     "not_found": "This document no longer exists.",
     "load_failed": "Couldn’t load this document.",
     "archived_banner": "Archived. It is hidden from your lists but its numbers still count.",
-    "needs_review_banner": "Needs your review"
+    "needs_review_banner": "Needs your review",
+    "confirm_period_closed": "This expense is dated in a closed period, so it can’t be booked. Reopen the period or change the date."
   },
   "capture": {
     "title": "Capture expense",
@@ -337,7 +338,23 @@
     "queue_error_unauthorized": "Sign in again to send this receipt.",
     "queue_error_too_large": "Too large to upload. Discard it and retake a smaller photo.",
     "queue_error_unreadable": "This photo can't be read. Discard it and retake it.",
-    "queue_retry_done": "Sync attempted: {sent} sent · {remaining} waiting"
+    "queue_retry_done": "Sync attempted: {sent} sent · {remaining} waiting",
+    "tax_code_label": "Tax code",
+    "tax_mode_label": "How the amount is entered",
+    "tax_inclusive": "Amount includes tax",
+    "tax_exclusive": "Tax added on top",
+    "tax_amount": "Tax {tax} · total {total}",
+    "tax_printed": "On the receipt: {label} {amount}",
+    "tax_registration_prompt": "Tell us whether you're registered for sales tax so we can claim the tax you pay on purchases.",
+    "tax_registration_link": "Open Business Profile",
+    "tax_code_gst_free": "GST-free",
+    "tax_code_input_taxed": "Input-taxed",
+    "tax_code_no_gst": "No GST",
+    "tax_code_capital": "Capital purchase",
+    "tax_code_zero_rated": "Zero-rated",
+    "tax_code_exempt": "Exempt",
+    "tax_code_out_of_scope": "Out of scope",
+    "period_closed": "This expense is dated in a closed period, so it can’t be booked. Reopen the period or change the date."
   },
   "chat": {
     "title": "Ask your advisor",

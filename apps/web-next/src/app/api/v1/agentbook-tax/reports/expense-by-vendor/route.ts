@@ -7,6 +7,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma as db } from '@naap/database';
 import { safeResolveAgentbookTenant } from '@/lib/agentbook-tenant';
 import { publicErrorMessage } from '@/lib/api-error';
+import { deductibleCents } from '@/lib/expense-amounts';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -31,14 +32,14 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
     const expenses = await db.abExpense.findMany({
       where,
-      select: { vendorId: true, amountCents: true },
+      select: { vendorId: true, amountCents: true, recoverableTaxCents: true },
     });
 
     const vendorTotals = new Map<string, number>();
     const vendorCounts = new Map<string, number>();
     for (const e of expenses) {
       if (!e.vendorId) continue;
-      vendorTotals.set(e.vendorId, (vendorTotals.get(e.vendorId) || 0) + e.amountCents);
+      vendorTotals.set(e.vendorId, (vendorTotals.get(e.vendorId) || 0) + deductibleCents(e));
       vendorCounts.set(e.vendorId, (vendorCounts.get(e.vendorId) || 0) + 1);
     }
 
