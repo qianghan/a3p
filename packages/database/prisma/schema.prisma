@@ -1503,6 +1503,8 @@ model AbTenantConfig {
   //           silently flipping live tenants either way; the threshold check
   //           surfaces the question instead of guessing at the answer.
   gstRegistered           Boolean?
+  qstRegistered           Boolean? // CA: Quebec QST registration; null = unknown (PR 2b)
+  gstReportingBasis       String? // accrual | cash; null = accrual behaviour (PR 2b)
   logoUrl                 String?
   brandColor              String   @default("#1a1a2e")
   defaultPaymentTerms     String?
@@ -1877,6 +1879,8 @@ model AbExpense {
   amountCents    Int
   taxAmountCents Int       @default(0) // sales tax / GST / HST amount
   tipAmountCents Int       @default(0) // tip amount (meals)
+  taxCode        String? // PR 2b: AU/CA tax code (GST, CAP, FRE, HST...); null = untyped legacy row
+  recoverableTaxCents Int? // PR 2b: recoverable input tax computed from taxCode; null = untyped
   vendorId       String?
   vendor         AbVendor? @relation(fields: [vendorId], references: [id])
   categoryId     String? // AbAccount.id from core
@@ -1935,6 +1939,7 @@ model AbVendor {
   name              String
   normalizedName    String
   defaultCategoryId String?
+  defaultTaxCode    String? // PR 2b: prefilled tax code for this vendor
   transactionCount  Int       @default(0)
   lastSeen          DateTime  @default(now())
   deletedAt         DateTime? // PR 26: soft-delete
