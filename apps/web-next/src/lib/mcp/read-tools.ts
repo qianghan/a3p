@@ -117,14 +117,14 @@ export async function readExpenses(
       orderBy: { date: 'desc' },
       take: limit,
       select: {
-        id: true, date: true, description: true, amountCents: true, categoryId: true,
+        id: true, date: true, description: true, amountCents: true, recoverableTaxCents: true, categoryId: true,
         vendor: { select: { name: true } },
       },
     }),
     // The total is over the WHOLE period, not just the returned page — a
     // caller summing the rows would otherwise silently under-report whenever
     // the result was truncated.
-    db.abExpense.aggregate({ where, _sum: { amountCents: true }, _count: true }),
+    db.abExpense.aggregate({ where, _sum: { amountCents: true, recoverableTaxCents: true }, _count: true }),
   ]);
 
   const accountIds = [...new Set(rows.map((r) => r.categoryId).filter((v): v is string => Boolean(v)))];
@@ -136,7 +136,9 @@ export async function readExpenses(
   return {
     period: { from: from.toISOString().slice(0, 10), to: to.toISOString().slice(0, 10) },
     count: agg._count,
-    total: money(agg._sum.amountCents ?? 0, currency),
+    // Net of recoverable input tax, matching readExpenseBreakdown and the P&L.
+    // Row amounts below are the document gross.
+    total: money(sumDeductibleCents(agg._sum), currency),
     expenses: rows.map((r) => ({
       id: r.id,
       date: r.date.toISOString().slice(0, 10),

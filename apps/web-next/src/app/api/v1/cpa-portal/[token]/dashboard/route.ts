@@ -141,6 +141,7 @@ export async function GET(
         },
         select: {
           amountCents: true,
+          recoverableTaxCents: true,
           categoryId: true,
         },
       }),

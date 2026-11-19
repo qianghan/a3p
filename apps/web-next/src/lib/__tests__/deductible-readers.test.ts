@@ -79,26 +79,58 @@ const MIGRATED = [
   'lib/agentbook-grounding.ts',
   'lib/mcp/read-tools.ts',
 ];
-// Gross reads that remain legitimate: display of a single document's amount, invoices/bills/payments.
+// Explicit, commented exceptions (everything else must go through the accessor).
 const ALLOWED_GROSS = [
   /formatCents\(e\.amountCents\)/, // advisor/ask: one document row shown as-is
   /amountCents: e\.amountCents,/, // cpa-portal recentExpenses: per-document display
-  /amount: money\(r\.amountCents/, // read-tools list rows: per-document display
+  /amount: money\(r\.amountCents/, // read-tools list rows: per-document display (documents, not totals)
+  /cur\.amountCents \+= deductibleCents/, // cpa-portal: local accumulator write, value already deductible
   /last30dByCategory\.reduce/, // cpa-portal: re-sums the already-deductible breakdown
   /inv\.amountCents|i\.amountCents|b\.amountCents|p\.amountCents|\.payments/, // AR/AP/payments
+  /(unpaid|overdue|turnover)\._sum\./, // invoice aggregates (not AbExpense)
 ];
+
+/** Returns violations for one source string. Exported shape lets tests feed synthetic sources. */
+export function checkDeductibleSource(src: string): string[] {
+  const out: string[] = [];
+  const lines = src.split('\n');
+  // (a) any `.amountCents` read must go through the accessor or be an explicit exception.
+  for (const l of lines) {
+    if (/^\s*(\/\/|\*)/.test(l)) continue;
+    if (!/\.amountCents\b/.test(l)) continue;
+    if (/(deductibleCents|sumDeductibleCents)\([^)]*\.(_sum\.)?amountCents/.test(l)) continue;
+    if (ALLOWED_GROSS.some((re) => re.test(l))) continue;
+    out.push(`gross read: ${l.trim()}`);
+  }
+  // (b) every AbExpense query that names amountCents must also name recoverableTaxCents.
+  const code = src.split('\n').filter((l) => !/^\s*(\/\/|\*)/.test(l)).join('\n');
+  const calls = [...code.matchAll(/\bdb\.(\w+)\./g)];
+  calls.forEach((m, idx) => {
+    if (m[1] !== 'abExpense') return;
+    const seg = code.slice(m.index!, calls[idx + 1]?.index ?? code.length);
+    if (/amountCents\s*:\s*true/.test(seg) && !/recoverableTaxCents\s*:\s*true/.test(seg)) {
+      out.push(`abExpense query names amountCents without recoverableTaxCents: ${seg.slice(0, 60).replace(/\n/g, ' ')}`);
+    }
+  });
+  return out;
+}
 
 describe('guard: no direct gross reads in deductible readers', () => {
   for (const rel of MIGRATED) {
     it(rel, () => {
       const src = readFileSync(resolve(__dirname, '../..', rel), 'utf8');
       expect(src).toMatch(/expense-amounts/);
-      // Direct gross read of an expense row / expense aggregate.
-      const GROSS_READ = /\b(e|g|exp|spend|r)\.(_sum\.)?amountCents\b/;
-      const bad = src.split('\n').filter(
-        (l) => !/^\s*(\/\/|\*)/.test(l) && GROSS_READ.test(l) && !ALLOWED_GROSS.some((re) => re.test(l)),
-      );
-      expect(bad).toEqual([]);
+      expect(checkDeductibleSource(src)).toEqual([]);
     });
   }
+  it('rule (a) catches a gross aggregate read', () => {
+    const v = checkDeductibleSource('const t = agg._sum.amountCents ?? 0;');
+    expect(v).toHaveLength(1);
+  });
+  it('rule (b) catches an AbExpense aggregate missing recoverableTaxCents', () => {
+    const v = checkDeductibleSource('await db.abExpense.aggregate({ where, _sum: { amountCents: true } });');
+    expect(v).toHaveLength(1);
+    expect(checkDeductibleSource('await db.abExpense.aggregate({ _sum: { amountCents: true, recoverableTaxCents: true } });')).toEqual([]);
+    expect(checkDeductibleSource('await db.abInvoice.aggregate({ _sum: { amountCents: true } });')).toEqual([]);
+  });
 });
