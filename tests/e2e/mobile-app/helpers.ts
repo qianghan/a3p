@@ -273,6 +273,13 @@ export function money(cents: number, currency: string, locale: string): string {
   return formatCurrencyCents(Math.round(cents), currency, locale);
 }
 
+/** The app's exact-cents money text (_kit/Money.tsx moneyTextExact), used where cents matter, e.g. tax amounts. */
+export function moneyExact(cents: number, currency: string, locale: string): string {
+  return new Intl.NumberFormat(locale || undefined, {
+    style: 'currency', currency: currency || 'USD', minimumFractionDigits: 2, maximumFractionDigits: 2,
+  }).format(Math.round(cents) / 100);
+}
+
 /** The app's "as of HH:MM" clock text for an instant (_kit/format.ts `time`): the viewer's zone, shell formatting locale. */
 export function clockTime(iso: string, locale: string): string {
   return formatDate(iso, locale, { hour: 'numeric', minute: '2-digit' });
