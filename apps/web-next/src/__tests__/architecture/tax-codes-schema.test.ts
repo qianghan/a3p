@@ -19,12 +19,15 @@ function field(model: string, f: string): string | undefined {
 describe('tax code schema columns (additive)', () => {
   const cases: Array<[string, string, string]> = [
     ['AbExpense', 'taxCode', 'String?'],
-    ['AbExpense', 'recoverableTaxCents', 'Int?'],
+    ['AbExpense', 'recoverableTaxCents', 'Int'],
     ['AbTenantConfig', 'qstRegistered', 'Boolean?'],
     ['AbTenantConfig', 'gstReportingBasis', 'String?'],
     ['AbVendor', 'defaultTaxCode', 'String?'],
   ];
   it.each(cases)('%s.%s is %s', (model, f, type) => {
     expect(field(model, f)).toBe(type);
+  });
+  it('recoverableTaxCents defaults to 0', () => {
+    expect(modelBody('AbExpense')).toMatch(/recoverableTaxCents\s+Int\s+@default\(0\)/);
   });
 });
