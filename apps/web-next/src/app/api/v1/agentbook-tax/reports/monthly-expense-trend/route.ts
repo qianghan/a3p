@@ -8,6 +8,7 @@ import { prisma as db } from '@naap/database';
 import { safeResolveAgentbookTenant } from '@/lib/agentbook-tenant';
 import { publicErrorMessage } from '@/lib/api-error';
 import { deductibleCents } from '@/lib/expense-amounts';
+import { liveExpenseWhere } from '@/lib/agentbook-live-expense';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -25,7 +26,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       const start = new Date(now.getFullYear(), now.getMonth() - i, 1);
       const end = new Date(now.getFullYear(), now.getMonth() - i + 1, 0);
       const expenses = await db.abExpense.findMany({
-        where: { tenantId, isPersonal: false, date: { gte: start, lte: end } },
+        where: { tenantId, isPersonal: false, ...liveExpenseWhere(), date: { gte: start, lte: end } },
         select: { amountCents: true, recoverableTaxCents: true },
       });
       months.push({
