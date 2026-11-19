@@ -50,8 +50,8 @@ export function applyTaxPhrase(params: Record<string, unknown>, text: string): v
 
 /** "GST $10.00 claimable" for a created expense with a recoverable split; '' otherwise. */
 export function taxSplitLine(
-  data: { taxCode?: string | null; recoverableTaxCents?: number | null },
-  t: (key: string, params?: Record<string, unknown>) => string,
+  data: { taxCode?: string | null; recoverableTaxCents?: number | null; [k: string]: unknown },
+  t: (key: string, params?: Record<string, string | number>) => string,
   fmt: (cents: number) => string,
 ): string {
   const cents = data?.recoverableTaxCents ?? 0;

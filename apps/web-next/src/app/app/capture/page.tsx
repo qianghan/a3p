@@ -80,7 +80,6 @@ export default function MobileCapture() {
   const [taxCode, setTaxCode] = useState<string | null>(null);
   const [taxMode, setTaxMode] = useState<TaxMode>('inclusive');
   const [printedTax, setPrintedTax] = useState<{ cents: number | null; label: string | null } | null>(null);
-  const taxTouched = useRef(false);
 
   useEffect(() => { setRecents(getRecentCategories()); }, []);
   useEffect(() => () => { if (preview && typeof URL.revokeObjectURL === 'function') URL.revokeObjectURL(preview); }, [preview]);
@@ -124,7 +123,7 @@ export default function MobileCapture() {
 
   function reset(focusSnap: boolean) {
     userPicked.current = false; suggestedId.current = null;
-    taxTouched.current = false; setTaxView(null); setTaxCode(null); setTaxMode('inclusive'); setPrintedTax(null);
+    setTaxView(null); setTaxCode(null); setTaxMode('inclusive'); setPrintedTax(null);
     setStage('idle'); setSource('manual'); setFile(null); setPreview(null); setAttemptKey(null);
     setDoc(null); setAiGuess(null); setDraft(emptyDraft()); setErrorKind(null); setAmbiguous('');
     setRecents(getRecentCategories());
@@ -198,7 +197,9 @@ export default function MobileCapture() {
     if (f.vendor && f.vendor !== (d.vendorName ?? '')) patch.vendor = f.vendor;
     if (f.date && f.date !== (d.date ?? '').slice(0, 10)) patch.date = f.date;
     if (f.isPersonal !== d.isPersonal) patch.isPersonal = f.isPersonal;
-    if (f.taxCode && taxTouched.current) patch.taxCode = f.taxCode;
+    // Always the code the chip shows: the server may have stored a vendor
+    // default the user never saw, so "untouched" is not "agreed with the server".
+    if (f.taxCode && f.taxCode !== (d as { taxCode?: string | null }).taxCode) patch.taxCode = f.taxCode;
     let latest = d;
     if (Object.keys(patch).length) latest = await patchDoc(d.id, patch);
     if (f.categoryId && f.categoryId !== latest.categoryId) latest = await categorizeDoc(d.id, f.categoryId);
@@ -389,8 +390,8 @@ export default function MobileCapture() {
             </div>
             {taxView && (
               <TaxRow view={taxView} code={taxCode} mode={taxMode} currency={currency} printed={printedTax}
-                onCode={(c) => { taxTouched.current = true; setTaxCode(c); }}
-                onMode={(m) => { taxTouched.current = true; setTaxMode(m); }} />
+                onCode={(c) => setTaxCode(c)}
+                onMode={(m) => setTaxMode(m)} />
             )}
             <div role="radiogroup" aria-label={t('mobile.capture.kind_label')} style={{ display: 'flex', gap: 8 }}>
               {[false, true].map((p) => (

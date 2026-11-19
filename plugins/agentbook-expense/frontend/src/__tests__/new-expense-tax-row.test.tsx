@@ -17,6 +17,7 @@ const QC: View = { visible: true, codes: ['GST_QST', 'GST', 'ZERO'].map((code) =
 
 let view: View;
 let taxFails: boolean;
+let taxServerError: string | null;
 type Call = { url: string; method: string; body?: Record<string, unknown> };
 let calls: Call[];
 
@@ -31,13 +32,14 @@ function auPreview(u: URL) {
 }
 
 beforeEach(() => {
-  view = HIDDEN; taxFails = false; calls = [];
+  view = HIDDEN; taxFails = false; taxServerError = null; calls = [];
   vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
     const method = init?.method ?? 'GET';
     calls.push({ url, method, body: init?.body ? JSON.parse(String(init.body)) : undefined });
     const ok = (data: unknown) => ({ ok: true, status: 200, json: async () => ({ success: true, data }) });
     if (url.includes('/tax-codes')) {
       if (taxFails) throw new Error('offline');
+      if (taxServerError) return { ok: false, status: 400, json: async () => ({ success: false, code: 'invalid_tax_code', error: taxServerError }) };
       const u = new URL(url, 'http://x');
       return ok({ ...view, preview: view.visible && view === AU ? auPreview(u) : null });
     }
@@ -129,6 +131,17 @@ describe('NewExpense — tax row saving', () => {
     taxFails = true;
     submit();
     expect(await screen.findByRole('alert')).toBeTruthy();
+    expect(post()).toBeUndefined();
+  });
+  it("the tax endpoint answers an error: shows the server's message and does not POST (T6a minor 4)", async () => {
+    view = AU;
+    renderPage();
+    amount('110');
+    await screen.findByTestId('new-expense-tax-amount');
+    taxServerError = 'taxCode is not a valid tax code for your jurisdiction and region';
+    submit();
+    const alert = await screen.findByRole('alert');
+    expect(alert.textContent).toContain('taxCode is not a valid tax code for your jurisdiction and region');
     expect(post()).toBeUndefined();
   });
 });

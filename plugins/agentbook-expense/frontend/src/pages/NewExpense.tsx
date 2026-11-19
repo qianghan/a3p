@@ -22,14 +22,20 @@ interface TaxRowView {
 }
 type TaxMode = 'inclusive' | 'exclusive';
 
+class TaxRowError extends Error {
+  constructor(public readonly serverMessage: string | null) { super(serverMessage ?? 'tax row unavailable'); }
+}
+
 async function fetchTaxRow(q: { amountCents?: number; inclusive: boolean; taxCode?: string | null }): Promise<TaxRowView | null> {
   const qs = new URLSearchParams();
   if (q.amountCents && q.amountCents > 0) qs.set('amountCents', String(q.amountCents));
   qs.set('inclusive', String(q.inclusive));
   if (q.taxCode) qs.set('taxCode', q.taxCode);
   const r = await fetch(`${API_BASE}/tax-codes?${qs.toString()}`);
-  const d = await r.json();
-  const v = d?.success ? (d.data as TaxRowView) : null;
+  const d = await r.json().catch(() => null);
+  // A server refusal is not "no tax row": surface its message (T6a review minor 4).
+  if (!r.ok || !d?.success) throw new TaxRowError(typeof d?.error === 'string' ? d.error : null);
+  const v = d.data as TaxRowView;
   return v && v.visible === true && Array.isArray(v.codes) ? v : null;
 }
 
@@ -255,7 +261,16 @@ export const NewExpensePage: React.FC = () => {
       let amountCents = parseAmount(amount).cents;
       let tax: { taxCode?: string; taxAmountCents?: number } = {};
       if (taxView && taxCode && !isPersonal) {
-        const v = await fetchTaxRow({ amountCents, inclusive: taxMode === 'inclusive', taxCode }).catch(() => null);
+        let v: TaxRowView | null = null;
+        try {
+          v = await fetchTaxRow({ amountCents, inclusive: taxMode === 'inclusive', taxCode });
+        } catch (err) {
+          if (err instanceof TaxRowError && err.serverMessage) {
+            setSubmitError(err.serverMessage);
+            return;
+          }
+          v = null; // offline: an inclusive entry still saves (the server resolves tax)
+        }
         if (v?.preview) {
           amountCents = v.preview.grossCents;
           tax = { taxCode: v.preview.taxCode, taxAmountCents: v.preview.taxCents };

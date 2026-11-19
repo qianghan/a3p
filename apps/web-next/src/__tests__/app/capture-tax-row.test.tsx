@@ -7,7 +7,7 @@ import 'fake-indexeddb/auto';
 import { IDBFactory } from 'fake-indexeddb';
 import React from 'react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor, fireEvent } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent, act } from '@testing-library/react';
 import type { TaxRow } from '@/app/app/_lib/api';
 import { ToastHost } from '@/app/app/_kit';
 import { buildTaxRowView } from '@/lib/expense-tax-row';
@@ -133,5 +133,26 @@ describe('capture tax row — saving', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Save', exact: true }));
     expect(await screen.findByTestId('capture-error')).toBeInTheDocument();
     expect(extra.createExpense).not.toHaveBeenCalled();
+  });
+});
+
+describe('capture tax row — uploaded receipt (T6a review minor 2)', () => {
+  it('the PATCH carries the code the chip shows even when the user never touched the row', async () => {
+    serve(AU);
+    // Server stored a different (vendor-default) code; the chip shows GST.
+    api.uploadReceipt.mockResolvedValue({
+      doc: { id: 'd1', date: '2026-10-01', amountCents: 11000, vendorName: 'Officeworks', description: null, categoryId: null, categoryName: null,
+        categorySource: null, confidence: null, status: 'confirmed', isPersonal: false, receiptUrl: null, receiptStatus: 'attached', archivedAt: null, suggestion: null, taxCode: 'FRE' },
+      duplicate: false, ocr: { amountCents: 11000, vendor: 'Officeworks', date: '2026-10-01' },
+    });
+    api.patchDoc.mockImplementation(async (_id: string, p: object) => ({ id: 'd1', amountCents: 11000, status: 'confirmed', isPersonal: false, categoryId: null, ...p }));
+    render(<ToastHost><MobileCapture /></ToastHost>);
+    const input = document.querySelector('input[type="file"]') as HTMLInputElement;
+    Object.defineProperty(input, 'files', { value: [new File(['x'], 'r.jpg', { type: 'image/jpeg' })], configurable: true });
+    await act(async () => { fireEvent.change(input); });
+    expect(await screen.findByTestId('capture-tax-code-GST')).toHaveAttribute('aria-pressed', 'true');
+    fireEvent.click(screen.getByRole('button', { name: 'Save', exact: true }));
+    await waitFor(() => expect(api.patchDoc).toHaveBeenCalled());
+    expect(api.patchDoc.mock.calls[0][1]).toMatchObject({ taxCode: 'GST' });
   });
 });

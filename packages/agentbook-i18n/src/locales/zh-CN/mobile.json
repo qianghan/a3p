@@ -344,7 +344,7 @@
     "tax_exclusive": "税额另加",
     "tax_amount": "税额 {tax} · 合计 {total}",
     "tax_printed": "收据上：{label} {amount}",
-    "tax_registration_prompt": "您是否已注册 GST？告诉我们，以便申报进项税抵免。",
+    "tax_registration_prompt": "请告诉我们您是否已办理销售税登记，以便申报采购所付的税款。",
     "tax_registration_link": "打开企业资料",
     "tax_code_gst_free": "免 GST",
     "tax_code_input_taxed": "进项课税",
