@@ -10,7 +10,6 @@ import {
   getHome,
   getUpcoming,
   listDocs,
-  listBillRows,
   getDoc,
   patchDoc,
   categorizeDoc,
@@ -23,6 +22,7 @@ import {
   uploadReceipt,
   remindInvoice,
 } from '@/app/app/_lib/api';
+import { listBillRows } from '@/app/app/docs/_lib/bills';
 import { RECEIPT_MAX_BYTES } from '@/lib/mobile/receipt-limits';
 import { jsonResponse, textResponse, routeFetch } from './test-utils';
 

@@ -21,7 +21,6 @@ import type {
   ReviewResult,
   FromReceiptResult,
 } from '@/lib/mobile/types';
-import type { PurchaseRow } from '@/lib/purchases-view';
 import { DOC_FILTER_PARAMS } from '@/lib/mobile/doc-filters';
 import { toMobileDoc } from '@/lib/mobile/doc-mapper';
 import { RECEIPT_MAX_BYTES, IDEMPOTENCY_KEY_RE, MAX_AMOUNT_CENTS } from '@/lib/mobile/receipt-limits';
@@ -51,7 +50,7 @@ interface Envelope<T> {
 }
 
 const CORE = '/api/v1/agentbook-core';
-const EXPENSE = '/api/v1/agentbook-expense';
+export const EXPENSE = '/api/v1/agentbook-expense';
 const JSON_HEADERS = { 'content-type': 'application/json' };
 /** A server `code` / `error` that looks like a machine code (e.g. 'rate_limited'), not a sentence. */
 const CODE_SHAPE = /^[a-z][a-z0-9_]{0,40}$/;
@@ -68,7 +67,7 @@ function retryAfterOf(body: Envelope<unknown> | null, res: Response): number | u
   return Number.isFinite(header) && header > 0 ? header * 1000 : undefined;
 }
 
-async function call<T>(path: string, init?: RequestInit): Promise<Envelope<T>> {
+export async function call<T>(path: string, init?: RequestInit): Promise<Envelope<T>> {
   let res: Response;
   try {
     res = await fetch(path, { credentials: 'same-origin', ...init });
@@ -254,31 +253,6 @@ export async function listDocs(p: { filter?: DocFilter; q?: string; cursor?: str
     counts: isCounts(meta.counts) ? meta.counts : null,
     total: typeof meta.total === 'number' && Number.isInteger(meta.total) && meta.total >= 0 ? meta.total : null,
   };
-}
-
-/**
- * Bill rows for the Docs list (PR 3bc.7). Rows the server sent malformed are
- * dropped rather than rendered: a bill row needs a string id, ISO date, integer
- * total and a due|paid badge.
- */
-export async function listBillRows(): Promise<PurchaseRow[]> {
-  const PAGE = 100;
-  const MAX_PAGES = 10; // 1,000 bills — the route's own ceiling
-  const out: PurchaseRow[] = [];
-  for (let page = 0; page < MAX_PAGES; page++) {
-    const qs = new URLSearchParams({ kind: 'bill', limit: String(PAGE) });
-    if (page > 0) qs.set('offset', String(page * PAGE));
-    const env = await call<PurchaseRow[]>(`${EXPENSE}/purchases?${qs.toString()}`);
-    const raw = Array.isArray(env.data) ? env.data : [];
-    for (const r of raw) {
-      if (
-        r && r.kind === 'bill' && typeof r.id === 'string' && typeof r.date === 'string' && !isNaN(Date.parse(r.date)) &&
-        Number.isInteger(r.amountCents) && (r.status === 'due' || r.status === 'paid')
-      ) out.push(r);
-    }
-    if (raw.length < PAGE) break;
-  }
-  return out;
 }
 
 export async function getDoc(id: string): Promise<MobileDoc> {

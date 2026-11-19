@@ -3,10 +3,11 @@
 import React, { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
+import dynamic from 'next/dynamic';
 import { LayoutGrid, List as ListIcon, Search } from 'lucide-react';
 import { useT, useShellLocale } from '@/hooks/use-t';
 import type { DocCounts, DocFilter, DocList, MobileDoc } from '@/lib/mobile/types';
-import { ApiError, listBillRows, listDocs } from '../_lib/api';
+import { ApiError, listDocs } from '../_lib/api';
 import type { PurchaseRow } from '@/lib/purchases-view';
 import { useMobileData } from '../_lib/useMobileData';
 import { useOnlineStatus } from '../_lib/useOnlineStatus';
@@ -19,8 +20,10 @@ import { Skeleton, EmptyState, buttonStyle, iconButtonStyle, tokens, TOUCH, visu
 import { TAB_BAR_CLEARANCE } from '../_shell/MobileShell';
 import { FilterChips } from './_components/FilterChips';
 import { DocItem } from './_components/DocItem';
-import { BillItem } from './_components/BillItem';
-import { AiBanner } from './_components/AiBanner';
+// Bills only appear after their own fetch resolves, so their row code stays out of First Load JS (perf budget).
+// The AI banner appears only after its own fetch resolves (and renders nothing when there is nothing to say), so it is split out too.
+const AiBanner = dynamic(() => import('./_components/AiBanner').then((m) => m.AiBanner), { ssr: false });
+const BillItem = dynamic(() => import('./_components/BillItem').then((m) => m.BillItem), { ssr: false });
 
 const VIEW_KEY = 'ab:mobile:docs:view';
 const PAGE_SIZE = 30;
@@ -239,6 +242,7 @@ function DocsList({ filter, q, view, currency, online, refreshToken, onCounts, o
   // Bills (PR 3bc.7) sit among the "All" documents only: a bill is not a receipt, so a review / category /
   // receipt filter, a search, or the archive must not show one. Best effort — a failure never breaks the list.
   const [bills, setBills] = useState<PurchaseRow[]>([]);
+  const [merge, setMerge] = useState<null | typeof import('./_lib/bills').interleaveBills>(null);
   const loadingRef = useRef(false);
   // Bumped whenever the first page is replaced: a "load more" still in flight belongs to the old list and must not append to the new one.
   const generation = useRef(0);
@@ -268,7 +272,7 @@ function DocsList({ filter, q, view, currency, online, refreshToken, onCounts, o
   useEffect(() => {
     if (!data || filter !== 'all' || q) { setBills([]); return; }
     let live = true;
-    listBillRows().then((b) => { if (live) setBills(b); }).catch(() => { if (live) setBills([]); });
+    import('./_lib/bills').then(async (m) => { const b = await m.listBillRows(); if (live) { setBills(b); setMerge(() => m.interleaveBills); } }).catch(() => { if (live) setBills([]); });
     return () => { live = false; };
   }, [data, filter, q]);
 
@@ -279,15 +283,10 @@ function DocsList({ filter, q, view, currency, online, refreshToken, onCounts, o
 
   // Bills among the documents, newest first. The documents page by cursor, so a bill older than the oldest
   // document loaded so far waits until scrolling reaches its date (or the documents run out).
-  const rows = useMemo(() => {
-    const oldest = items.length ? Date.parse(items[items.length - 1].date) : Infinity;
-    const shown = bills.filter((b) => !cursor || Date.parse(b.date) >= oldest);
-    if (shown.length === 0) return items.map((d) => ({ doc: d, bill: null as PurchaseRow | null }));
-    return [
-      ...items.map((d) => ({ doc: d as (typeof items)[number] | null, bill: null as PurchaseRow | null, at: Date.parse(d.date) })),
-      ...shown.map((b) => ({ doc: null, bill: b, at: Date.parse(b.date) })),
-    ].sort((a, b) => b.at - a.at);
-  }, [items, bills, cursor]);
+  const rows = useMemo(
+    () => (merge && bills.length ? merge(items, bills, cursor) : items.map((doc) => ({ doc, bill: null as PurchaseRow | null }))),
+    [merge, items, bills, cursor],
+  );
 
   // The viewer's prev/next walks exactly what this list shows.
   useEffect(() => {
