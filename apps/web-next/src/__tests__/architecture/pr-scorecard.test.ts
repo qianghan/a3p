@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  summarizeVitest, strictStatus, goalGate, regressionGate, touchedGate, ciGate, checklistStatus,
+  summarizeVitest, strictStatus, goalGate, regressionGate, touchedGate, docsGate, ciGate, checklistStatus,
   validateManifest, verdict, parseTsc, tscGate, renderReport, type Gate, type Manifest,
 } from '../../../../../tests/scorecard/lib';
 
@@ -129,6 +129,21 @@ describe('validateManifest', () => {
     expect(e).toContain('rollback');
     expect(e).toContain('docs');
     expect(e).toContain('prodPlaywright');
+  });
+  const reason = 'Schema-only PR: no docs changed at all.';
+  it('accepts docsNone with a reason in place of docs', () => {
+    expect(validateManifest({ ...ok, launch: { docsNone: reason, rollback: 'r', prodPlaywright: ['e/prod.spec.ts'] } }, all)).toEqual([]);
+  });
+  it('rejects both docs and docsNone, neither, and a short reason', () => {
+    const l = { rollback: 'r', prodPlaywright: ['e/prod.spec.ts'] };
+    expect(validateManifest({ ...ok, launch: { ...l, docs: ['CLAUDE.md'], docsNone: reason } }, all).join('|')).toContain('mutually exclusive');
+    expect(validateManifest({ ...ok, launch: { ...l } }, all).join('|')).toContain('launch.docs');
+    expect(validateManifest({ ...ok, launch: { ...l, docsNone: 'too short' } }, all).join('|')).toContain('20 characters');
+  });
+  it('docsGate passes docsNone with the reason as evidence', () => {
+    const g = docsGate([], { docsNone: reason, rollback: 'r', prodPlaywright: [] });
+    expect(g.status).toBe('pass');
+    expect(g.evidence).toBe(`no docs changed: ${reason}`);
   });
 });
 

@@ -1,6 +1,6 @@
 {
   "id": "pr4a-employee-schema",
-  "title": "PR 4a \u2014 additive employee/payroll schema",
+  "title": "PR 4a — additive employee/payroll schema",
   "goals": [
     {
       "id": "G1-employee-columns",
@@ -35,9 +35,7 @@
     "postChecklist": "docs/superpowers/scorecards/pr4a-employee-schema-ux-postdeploy.md"
   },
   "launch": {
-    "docs": [
-      "agentbook/skills/architecture.md"
-    ],
+    "docsNone": "Schema-only PR: no user-facing or developer docs changed; bills/employee docs landed with PRs 3bc/4b and #645.",
     "rollback": "Revert the PR. The added columns and tables are additive and optional; they stay in the database unused.",
     "prodPlaywright": [
       "tests/e2e/mobile-app/employee-privacy.spec.ts"

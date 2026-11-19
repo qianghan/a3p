@@ -16,7 +16,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, relative, resolve } from 'node:path';
 import { runPlaywright as playwright, runVitest as vitest, sh as shell } from './exec';
 import {
-  checklistStatus, ciGate, goalGate, parseTsc, tscGate, regressionGate, renderReport, strictStatus, summarizeVitest, touchedGate,
+  checklistStatus, ciGate, goalGate, parseTsc, tscGate, regressionGate, renderReport, strictStatus, summarizeVitest, touchedGate, docsGate,
   validateManifest, verdict, type Gate, type Group, type Manifest, type Phase, type VitestSummary,
 } from './lib';
 
@@ -92,7 +92,7 @@ if (PHASE === 'pre') {
     add('L1', 'L', 'pre', 'CI checks', 'Quality Gates, CodeQL and Shell Tests (DB-backed full suite) are green on the PR', rows.length ? ciGate(rows) : { status: 'fail', evidence: tail(r.out) });
   } else add('L1', 'L', 'pre', 'CI checks', 'Quality Gates, CodeQL and Shell Tests (DB-backed full suite) are green on the PR', { status: 'pending', evidence: 'no --pr given' });
   const changed = sh('git', ['diff', '--name-only', 'origin/main...HEAD']).out.split('\n').filter(Boolean);
-  add('L2', 'L', 'pre', 'Docs updated', 'the PR updates the docs it declares', touchedGate(changed, manifest.launch.docs));
+  add('L2', 'L', 'pre', 'Docs updated', 'the PR updates the docs it declares', docsGate(changed, manifest.launch));
   add('L3', 'L', 'pre', 'Rollback stated', 'how this PR is undone is written down', { status: 'pass', evidence: manifest.launch.rollback });
   writeFileSync(join(RESULTS, `${manifest.id}.pre.json`), JSON.stringify(gates, null, 2));
 } else {
