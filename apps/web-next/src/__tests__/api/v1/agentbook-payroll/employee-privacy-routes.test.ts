@@ -29,6 +29,11 @@ const db = {
   },
   abEmployeeSensitive: {
     findUnique: vi.fn(async ({ where }: any) => store.sensitive.find((s) => matches(s, where)) ?? null),
+    deleteMany: vi.fn(async ({ where }: any) => {
+      const n = store.sensitive.length;
+      store.sensitive = store.sensitive.filter((r) => !matches(r, where));
+      return { count: n - store.sensitive.length };
+    }),
     upsert: vi.fn(async ({ where, create, update }: any) => {
       const s = store.sensitive.find((r) => matches(r, where));
       if (s) { Object.assign(s, update); return s; }
@@ -52,7 +57,7 @@ const reportError = vi.fn();
 vi.mock('@/lib/logger', () => ({ reportError: (...a: unknown[]) => reportError(...a) }));
 
 import { NextRequest } from 'next/server';
-import { GET, PUT } from '@/app/api/v1/agentbook-payroll/employees/[id]/route';
+import { GET, PUT, DELETE } from '@/app/api/v1/agentbook-payroll/employees/[id]/route';
 import { POST as REVEAL } from '@/app/api/v1/agentbook-payroll/employees/[id]/reveal/route';
 import { encryptPii } from '@/lib/agentbook-employee-pii';
 
@@ -353,5 +358,23 @@ describe('POST employees/[id]/reveal', () => {
     store.sensitive[0].bankAccountEnc = encryptPii(BANK);
     const res = await REVEAL(req('POST', 'e-us', { field: 'bankAccount' }), ctx('e-us'));
     expect((await res.json()).data.value).toBe(BANK);
+  });
+});
+
+describe('DELETE employees/[id] — purges sensitive data', () => {
+  it('soft-deletes the employee, hard-deletes the sensitive row, audits field names only; GET is then 404', async () => {
+    const put = await PUT(req('PUT', 'e-au', { taxId: TFN, bankAccount: BANK, superMemberNumber: MEMBER }), ctx('e-au'));
+    expect(put.status).toBe(200);
+    expect(store.sensitive.some((r) => r.employeeId === 'e-au')).toBe(true);
+    const res = await DELETE(req('DELETE', 'e-au'), ctx('e-au'));
+    expect(res.status, logged).toBe(200);
+    expectNoSecrets(await res.text());
+    expect(store.employees.find((e) => e.id === 'e-au')!.isActive).toBe(false);
+    expect(store.sensitive.some((r) => r.employeeId === 'e-au')).toBe(false);
+    const audit = store.changes.find((c) => c.action === 'sensitive_purged')!;
+    expect(audit.fields).toEqual(expect.arrayContaining(['taxId', 'bankAccount', 'superMemberNumber']));
+    expect(JSON.stringify(audit)).not.toContain(TFN);
+    expect((await GET(req('GET', 'e-au'), ctx('e-au'))).status).toBe(404);
+    expect((await REVEAL(req('POST', 'e-au', { field: 'taxId' }), ctx('e-au'))).status).toBe(404);
   });
 });

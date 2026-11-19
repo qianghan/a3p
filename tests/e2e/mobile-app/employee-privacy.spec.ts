@@ -51,6 +51,10 @@ async function cleanup(page: Page, tag: string, ids: string[]) {
   for (const id of ids) {
     const res = await api(page).delete(`${PAYROLL}/employees/${id}`);
     expect([200, 404], `delete fixture ${id}`).toContain(res.status);
+    // Deleting purges the encrypted identifiers: the profile is gone and there is nothing left to reveal.
+    expect((await api(page).get(`${PAYROLL}/employees/${id}`)).status, 'deleted employee is 404').toBe(404);
+    const rev = await api(page).post(`${PAYROLL}/employees/${id}/reveal`, { field: 'taxId' });
+    expect(rev.status, 'sensitive data purged: reveal finds nothing').toBe(404);
   }
   expect(await activeTagged(page, tag), `nothing tagged ${tag} remains`).toEqual([]);
 }

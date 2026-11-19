@@ -46,7 +46,7 @@ export async function GET(request: NextRequest, ctx: RouteCtx): Promise<NextResp
     if ('response' in resolved) return resolved.response;
     const { tenantId } = resolved;
     const { id } = await ctx.params;
-    const employee = await db.abEmployee.findFirst({ where: { id, tenantId }, include: { sensitive: true } });
+    const employee = await db.abEmployee.findFirst({ where: { id, tenantId, isActive: true }, include: { sensitive: true } });
     if (!employee) return notFound();
     return NextResponse.json({ success: true, data: maskEmployee(employee) });
   } catch (err) {
@@ -160,7 +160,19 @@ export async function DELETE(request: NextRequest, ctx: RouteCtx): Promise<NextR
     const { id } = await ctx.params;
     const existing = await db.abEmployee.findFirst({ where: { id, tenantId } });
     if (!existing) return notFound();
-    await db.abEmployee.updateMany({ where: { id, tenantId }, data: { isActive: false } });
+    // Soft delete the profile, hard delete the encrypted identifiers in the same transaction.
+    const sensitive = await db.abEmployeeSensitive.findUnique({ where: { employeeId: id } });
+    const owned = sensitive && sensitive.tenantId === tenantId ? sensitive : null;
+    const purged = owned
+      ? ([['taxId', owned.taxIdEnc], ['bankAccount', owned.bankAccountEnc], ['superMemberNumber', owned.superMemberNumberEnc], ['bankRoutingLabel', owned.bankRoutingLabel], ['superFundUsi', owned.superFundUsi], ['superFundName', owned.superFundName]] as const)
+          .filter(([, v]) => v).map(([k]) => k)
+      : [];
+    const actorId = (await resolveSessionUserId(request)) ?? 'service';
+    await db.$transaction(async (tx) => {
+      await tx.abEmployee.updateMany({ where: { id, tenantId }, data: { isActive: false } });
+      await tx.abEmployeeSensitive.deleteMany({ where: { employeeId: id, tenantId } });
+      if (owned) await tx.abEmployeeChange.create({ data: { tenantId, employeeId: id, actorId, action: 'sensitive_purged', fields: purged } });
+    });
     return NextResponse.json({ success: true, data: maskEmployee({ ...existing, isActive: false }) });
   } catch (err) {
     logFailure('DELETE', err);
