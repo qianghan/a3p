@@ -100,3 +100,7 @@ Telegram → chat ID → CHAT_TO_TENANT mapping → same x-tenant-id flow
 ### Bills and employee schema (PRs 3a, 4a)
 
 Bill schema is additive (`AbBillLine`, `AbBillPayment`, `postingMode`); posting behaviour is described under Bills above (PR 3bc). Employee schema adds optional profile columns, `AbEmployeeSensitive` (encrypted, never exported) and `AbEmployeeChange` (audit, no values); all are in the tenant export/deletion registry (`agentbook-tenant-data-models.ts`).
+
+## Employee API & privacy (PR 4b)
+
+`agentbook-payroll/employees/[id]` (GET masked, PUT strict, DELETE) and `employees/[id]/reveal` (POST). Every response goes through `maskEmployee` (`lib/agentbook-employee-profile.ts`): last4, labels and presence flags only, never ciphertext. Tax id (TFN/SIN/SSN), bank account and super member number are AES-256-GCM encrypted (`lib/agentbook-employee-pii.ts`) into `AbEmployeeSensitive` using `EMPLOYEE_PII_ENCRYPTION_KEY` (64 hex, read lazily). In production/preview without the key, sensitive writes and reveal return 503 `pii_key_unconfigured` and nothing is written; non-sensitive edits still work. Reveal is owner-only (session user id === tenantId), rate-limited per tenant (5/min, 50/day), and writes an `AbEmployeeChange` audit row before returning the value. The tenant export never reads `AbEmployeeSensitive`; the observability scrubber redacts the sensitive field names.

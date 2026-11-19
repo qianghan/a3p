@@ -1,0 +1,45 @@
+{
+  "id": "pr4b-employee-api",
+  "title": "PR 4b — employee API + privacy (masked GET, strict PUT, audited reveal, PII encryption)",
+  "goals": [
+    {
+      "id": "G1-profile-api",
+      "covers": ["R-EMP-1"],
+      "text": "GET employees/[id] returns the masked profile; PUT is a strict schema (unknown keys 400) with per-market tax-id (TFN/SIN/SSN), account-number-only bank and routing-label validation, masked echoes never overwrite stored values, and a jurisdiction change with a stored tax id requires re-entry; every change writes an audit row of field names only.",
+      "tests": [
+        "apps/web-next/src/__tests__/api/v1/agentbook-payroll/employee-privacy-routes.test.ts"
+      ]
+    },
+    {
+      "id": "G2-pii-privacy",
+      "covers": ["R-EMP-2"],
+      "text": "TFN/SIN/SSN, bank and super member numbers are AES-256-GCM encrypted and fail closed (503 pii_key_unconfigured, nothing written) without a key in production/preview; responses and the tenant export carry last4/flags only, never ciphertext; the observability scrubber redacts the new fields; reveal is owner-only, rate-limited, tenant-scoped and writes its audit row before the value leaves.",
+      "tests": [
+        "apps/web-next/src/lib/__tests__/agentbook-employee-pii.test.ts",
+        "apps/web-next/src/__tests__/api/v1/agentbook-payroll/employee-privacy-routes.test.ts",
+        "apps/web-next/src/__tests__/api/v1/agentbook/me-export-employee-pii.test.ts",
+        "apps/web-next/src/lib/observability/__tests__/scrub.test.ts"
+      ]
+    }
+  ],
+  "regression": {
+    "vitest": []
+  },
+  "ux": {
+    "vitest": [],
+    "playwright": [],
+    "checklist": "docs/superpowers/scorecards/pr4b-employee-api-ux-checklist.md",
+    "postChecklist": "docs/superpowers/scorecards/pr4b-employee-api-ux-postdeploy.md"
+  },
+  "launch": {
+    "docs": [
+      "agentbook/skills/architecture.md",
+      "agentbook/skills/workflows.md"
+    ],
+    "rollback": "Revert the PR. The 4a schema (AbEmployeeSensitive, AbEmployeeChange, profile columns) is additive and stays, unused. Sensitive values already written stay encrypted in AbEmployeeSensitive and are never returned; GET/PUT employees/[id] go back to the previous unmasked, unvalidated behaviour and the reveal route disappears. No caller sent PUT before this PR.",
+    "prodPlaywright": [
+      "tests/e2e/mobile-app/employee-privacy.spec.ts"
+    ],
+    "playwrightConfig": "tests/e2e/mobile-app/playwright.config.ts"
+  }
+}
