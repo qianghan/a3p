@@ -151,5 +151,10 @@
   "tax_code_zero_rated": "零税率",
   "tax_code_exempt": "免税",
   "tax_code_out_of_scope": "不在征税范围",
+  "tax_code_ca_gst": "商品及服务税（GST）",
+  "tax_code_ca_hst": "统一销售税（HST）",
+  "tax_code_ca_gst_pst": "GST + 省销售税（PST）",
+  "tax_code_ca_gst_qst": "GST + 魁北克销售税（QST）",
+  "tax_code_au_gst": "商品服务税（GST）",
   "tax_preview_failed": "无法计算含税总额。请检查网络连接后重试。"
 }

@@ -3,14 +3,25 @@
 import React from 'react';
 import { useT, useShellLocale } from '@/hooks/use-t';
 import type { TaxRow as TaxRowView } from '../../_lib/api';
-import { Chip, moneyText, tokens } from '../../_kit';
+import { Chip, moneyTextExact, tokens } from '../../_kit';
 
 export type TaxMode = 'inclusive' | 'exclusive';
 
 /** Rate codes are acronyms (GST, HST, GST + QST); the worded ones are translated. */
-export function useTaxCodeLabel(): (code: string) => string {
+export function useTaxCodeLabel(jurisdiction?: 'au' | 'ca' | null): (code: string) => string {
   const t = useT();
   return (code: string) => {
+    // 'GST' means a different tax in au and ca (fr-CA: TPS vs GST), so key by both.
+    if (jurisdiction === 'ca') {
+      switch (code) {
+        case 'GST': return t('mobile.capture.tax_code_ca_gst');
+        case 'HST': return t('mobile.capture.tax_code_ca_hst');
+        case 'GST_PST': return t('mobile.capture.tax_code_ca_gst_pst');
+        case 'GST_QST': return t('mobile.capture.tax_code_ca_gst_qst');
+      }
+    } else if (jurisdiction === 'au' && code === 'GST') {
+      return t('mobile.capture.tax_code_au_gst');
+    }
     switch (code) {
       case 'FRE': return t('mobile.capture.tax_code_gst_free');
       case 'INP': return t('mobile.capture.tax_code_input_taxed');
@@ -45,9 +56,9 @@ export interface TaxRowProps {
 export function TaxRow({ view, code, mode, currency, printed, onCode, onMode }: TaxRowProps) {
   const t = useT();
   const locale = useShellLocale();
-  const labelOf = useTaxCodeLabel();
+  const labelOf = useTaxCodeLabel(view.jurisdiction);
   const p = view.preview;
-  const money = (c: number) => (currency ? moneyText(c, currency, locale) : (c / 100).toFixed(2));
+  const money = (c: number) => (currency ? moneyTextExact(c, currency, locale) : (c / 100).toFixed(2));
   return (
     <div data-testid="capture-tax-row" style={{ display: 'grid', gap: 8 }}>
       <div role="group" aria-label={t('mobile.capture.tax_code_label')} style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>

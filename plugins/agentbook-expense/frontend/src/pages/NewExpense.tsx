@@ -21,6 +21,7 @@ interface TaxRowView {
   preview: { taxCode: string; inclusive: boolean; grossCents: number; netCents: number; taxCents: number } | null;
   /** Tenant currency; the preview amounts are in it. */
   currency: string | null;
+  jurisdiction?: 'au' | 'ca' | null;
 }
 type TaxMode = 'inclusive' | 'exclusive';
 
@@ -151,6 +152,17 @@ export const NewExpensePage: React.FC = () => {
   }, [amount, taxCode, taxMode, isPersonal]);
 
   const taxCodeLabel = (code: string): string => {
+    // 'GST' means a different tax in au and ca (fr-CA: TPS vs GST), so key by both.
+    if (taxView?.jurisdiction === 'ca') {
+      switch (code) {
+        case 'GST': return t('expenses_ui.tax_code_ca_gst');
+        case 'HST': return t('expenses_ui.tax_code_ca_hst');
+        case 'GST_PST': return t('expenses_ui.tax_code_ca_gst_pst');
+        case 'GST_QST': return t('expenses_ui.tax_code_ca_gst_qst');
+      }
+    } else if (taxView?.jurisdiction === 'au' && code === 'GST') {
+      return t('expenses_ui.tax_code_au_gst');
+    }
     switch (code) {
       case 'FRE': return t('expenses_ui.tax_code_gst_free');
       case 'INP': return t('expenses_ui.tax_code_input_taxed');

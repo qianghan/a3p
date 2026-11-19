@@ -64,7 +64,7 @@ describe('capture tax row — visibility', () => {
     typeAmount('110');
     const gst = await screen.findByTestId('capture-tax-code-GST');
     expect(gst).toHaveAttribute('aria-pressed', 'true');
-    await waitFor(() => expect(screen.getByTestId('capture-tax-amount')).toHaveTextContent('Tax A$10 · total A$110'));
+    await waitFor(() => expect(screen.getByTestId('capture-tax-amount')).toHaveTextContent('Tax A$10.00 · total A$110.00'));
   });
   it('AU gstRegistered false: hidden', async () => {
     serve({ ...AU, gstRegistered: false });
@@ -100,7 +100,7 @@ describe('capture tax row — saving', () => {
     renderManual();
     typeAmount('100');
     fireEvent.click(await screen.findByTestId('capture-tax-mode-exclusive'));
-    await waitFor(() => expect(screen.getByTestId('capture-tax-amount')).toHaveTextContent('Tax A$10 · total A$110'));
+    await waitFor(() => expect(screen.getByTestId('capture-tax-amount')).toHaveTextContent('Tax A$10.00 · total A$110.00'));
     fireEvent.click(screen.getByRole('button', { name: 'Save', exact: true }));
     await waitFor(() => expect(extra.createExpense).toHaveBeenCalled());
     expect(extra.createExpense.mock.calls[0][0]).toMatchObject({ amountCents: 11000, taxCode: 'GST', taxAmountCents: 1000 });

@@ -316,7 +316,7 @@
   "filters": "筛选",
   "back_to_settings": "返回设置",
   "remove": "移除",
-  "gst_registered_label": "已注册澳大利亚商品服务税（GST）？",
+  "gst_registered_label": "已注册商品服务税（GST）？",
   "gst_registered_au_hint": "（澳大利亚）",
   "gst_not_answered": "尚未填写",
   "gst_registered_yes": "是 — 已注册",
@@ -332,5 +332,6 @@
   "gst_basis_accrual": "权责发生制 — 开票时",
   "gst_basis_cash": "现金制 — 付款时",
   "gst_basis_help": "决定采购的税款抵免计入 GST 申报的哪个期间。",
-  "gst_registered_label_ca": "已注册商品及服务税/统一销售税（GST/HST）？"
+  "gst_registered_label_ca": "已注册商品及服务税/统一销售税（GST/HST）？",
+  "gst_basis_label_ca": "GST/HST 申报基础"
 }

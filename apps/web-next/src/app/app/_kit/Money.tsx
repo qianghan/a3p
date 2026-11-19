@@ -10,6 +10,21 @@ export function moneyText(cents: number, currency: string, locale: string): stri
   return formatCurrencyCents(Math.round(cents), currency, locale);
 }
 
+/**
+ * Exact amount, always two decimals. For tax and other figures where dropping
+ * cents misstates the number ($12.11 must not read "12 $"); KPIs keep moneyText.
+ */
+export function moneyTextExact(cents: number, currency: string, locale: string): string {
+  const ccy = currency || 'USD';
+  try {
+    return new Intl.NumberFormat(locale || undefined, {
+      style: 'currency', currency: ccy, minimumFractionDigits: 2, maximumFractionDigits: 2,
+    }).format(Math.round(cents) / 100);
+  } catch {
+    return `${ccy} ${(Math.round(cents) / 100).toFixed(2)}`;
+  }
+}
+
 export interface MoneyProps {
   cents: number | null;
   currency: string;

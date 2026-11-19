@@ -354,6 +354,11 @@
     "tax_code_zero_rated": "Détaxé",
     "tax_code_exempt": "Exonéré",
     "tax_code_out_of_scope": "Hors champ",
+    "tax_code_ca_gst": "TPS",
+    "tax_code_ca_hst": "TVH",
+    "tax_code_ca_gst_pst": "TPS + TVP",
+    "tax_code_ca_gst_qst": "TPS + TVQ",
+    "tax_code_au_gst": "GST (Australie)",
     "period_closed": "Cette dépense est datée dans une période fermée et ne peut pas être comptabilisée. Rouvrez la période ou changez la date."
   },
   "chat": {

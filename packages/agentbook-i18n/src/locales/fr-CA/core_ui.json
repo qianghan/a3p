@@ -316,7 +316,7 @@
   "filters": "Filtres",
   "back_to_settings": "Retour aux paramètres",
   "remove": "Retirer",
-  "gst_registered_label": "Inscrit à la TPS australienne (GST)?",
+  "gst_registered_label": "Inscrit à la GST?",
   "gst_registered_au_hint": "(Australie)",
   "gst_not_answered": "Pas encore répondu",
   "gst_registered_yes": "Oui — inscrit",
@@ -328,9 +328,10 @@
   "qst_registered_label": "Inscrit à la TVQ? (Québec)",
   "qst_help_registered": "La TVQ payée sur les achats est récupérée en crédit de taxe sur les intrants.",
   "qst_help_other": "La TVQ payée sur les achats reste incluse dans la dépense.",
-  "gst_basis_label": "Méthode de déclaration de la TPS/GST",
+  "gst_basis_label": "Méthode de déclaration de la GST",
   "gst_basis_accrual": "Comptabilité d’exercice — à la facturation",
   "gst_basis_cash": "Comptabilité de caisse — au paiement",
   "gst_basis_help": "Détermine la période de votre déclaration où le crédit de taxe d’un achat est compté.",
-  "gst_registered_label_ca": "Inscrit à la TPS/TVH?"
+  "gst_registered_label_ca": "Inscrit à la TPS/TVH?",
+  "gst_basis_label_ca": "Méthode de déclaration de la TPS/TVH"
 }

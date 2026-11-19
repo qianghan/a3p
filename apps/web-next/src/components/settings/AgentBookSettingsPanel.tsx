@@ -2185,7 +2185,7 @@ export function AgentBookSettingsPanel({ initialTab }: { initialTab?: string }):
               )}
               {(form.jurisdiction === 'au' || form.jurisdiction === 'ca') && (
                 <div data-testid="reg-basis">
-                  <label className="block text-sm font-medium text-foreground">{t('core_ui.gst_basis_label')}</label>
+                  <label className="block text-sm font-medium text-foreground">{form.jurisdiction === 'ca' ? t('core_ui.gst_basis_label_ca') : t('core_ui.gst_basis_label')}</label>
                   <select
                     data-testid="reg-basis-select"
                     value={form.gstReportingBasis ?? 'accrual'}
