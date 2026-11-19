@@ -3,6 +3,7 @@
  * Every financial action produces a balanced journal entry.
  * The constraint engine is code, not LLM prompts.
  */
+import { applyTaxPhrase, taxSplitLine } from './expense-tax-phrase';
 import 'dotenv/config';
 import crypto from 'node:crypto';
 import { readFileSync } from 'node:fs';
@@ -3860,6 +3861,10 @@ async function _executeClassificationCore(
     }
   }
 
+  // PR 2b.8: "$110 incl GST" / "$100 + GST" → taxCode + taxInclusive; the
+  // expenses route resolves the split through resolveExpenseTax.
+  if (selectedSkill.name === 'record-expense') applyTaxPhrase(extractedParams, text || '');
+
   // Special pre-processing for record-expense: auto-categorize from description/vendor
   if (selectedSkill.name === 'record-expense' && !extractedParams.categoryId) {
     try {
@@ -6685,6 +6690,8 @@ Only include chartData if visualization adds value. Keep the answer under 200 wo
         description: data.description || data.number || t('skill.not_available'),
         category: catLabel,
       });
+      const taxLine = taxSplitLine(data, t, (c) => fmtCurrency(c, data.currency, replyLocale));
+      if (taxLine) message += ` (${taxLine})`;
       // The Telegram adapter used to decide whether to attach the
       // Category/Personal keyboard by testing `message.includes('Recorded')`,
       // so the buttons were coupled to one English word in this template.

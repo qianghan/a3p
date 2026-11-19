@@ -71,7 +71,7 @@ describe('every skill.* key the reply path asks for exists', () => {
   // tests stub — so a key typo'd there resolves happily in unit tests and
   // ships to the user as the raw string "skill.scenario_runway". Every file
   // that composes user-visible reply text belongs in this scan.
-  const REPLY_SOURCES = ['../server.ts', '../scenario-simulation.ts', '../categorize-expenses.ts'];
+  const REPLY_SOURCES = ['../server.ts', '../scenario-simulation.ts', '../categorize-expenses.ts', '../expense-tax-phrase.ts'];
   const REPLY_SRC = REPLY_SOURCES
     .map((f) => readFileSync(join(__dirname, f), 'utf8'))
     .join('\n');

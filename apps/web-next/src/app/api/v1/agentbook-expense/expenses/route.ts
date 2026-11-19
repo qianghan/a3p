@@ -24,7 +24,7 @@ import { parseExpenseListQuery, encodeCursor, countDocFilters } from '@/lib/agen
 import { deriveCategorySource, suggestionFromPending } from '@/lib/mobile/doc-mapper';
 import { appendBalancedEntry, assertPeriodOpen, LedgerPeriodClosedError } from '@/lib/ledger-writer';
 import { resolveExpenseTax, isMealsAccount, type ResolvedExpenseTax } from '@/lib/expense-tax';
-import { TaxCodeError } from '@/lib/tax-codes';
+import { TaxCodeError, computeTenantLineTax, tenantDefaultTaxCode } from '@/lib/tax-codes';
 import type { Prisma } from '@naap/database';
 
 /**
@@ -89,6 +89,10 @@ interface CreateExpenseBody {
   categorySource?: string;
   /** PR 2b: tax code (AU GST/CAP/FRE/INP/NTR, CA GST/HST/GST_PST/GST_QST/…, US SALES_TAX/NONE); null = untyped. */
   taxCode?: string | null;
+  /** PR 2b.8: false = amountCents is NET of `taxCode` ("$100 + GST"); the route grosses it up. Default true. */
+  taxInclusive?: boolean;
+  /** PR 2b.8: taxCode came from chat phrasing — an inapplicable code falls back to the tenant default instead of 400. */
+  taxCodeIsHint?: boolean;
 }
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
@@ -110,10 +114,11 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
           body = {};
         }
         const {
-          amountCents, vendor, categoryId, date, description, receiptUrl, confidence, isPersonal,
+          amountCents: rawAmountCents, vendor, categoryId, date, description, receiptUrl, confidence, isPersonal,
           taxAmountCents, tipAmountCents, paymentMethod, currency, notes, tags, isBillable, clientId, source, status, categorySource,
-          taxCode,
+          taxCode, taxInclusive, taxCodeIsHint,
         } = body;
+        let amountCents = rawAmountCents;
 
         if (!amountCents || amountCents <= 0) {
           return { status: 400, body: { success: false, error: 'amountCents must be a positive integer' } };
@@ -241,15 +246,37 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
           const catAcct = resolvedCategoryId
             ? await db.abAccount.findFirst({ where: { id: resolvedCategoryId, tenantId }, select: { name: true, taxCategory: true } })
             : null;
-          try {
-            tax = resolveExpenseTax({
+          const isMeal = isMealsAccount(catAcct);
+          const resolveWith = (code: string | null | undefined) => {
+            let amt = rawAmountCents as number;
+            // "$100 + GST": the caller gave the net; book the gross the table implies.
+            const exCode = typeof code === 'string' && code.trim() ? code.trim().toUpperCase() : (code === undefined && cfg?.gstRegistered === true ? tenantDefaultTaxCode(cfg) : null);
+            if (taxInclusive === false && exCode && cfg) {
+              const ex = computeTenantLineTax(cfg, { taxCode: exCode, amountCents: amt, inclusive: false, isMeal });
+              if (ex) amt = ex.grossCents;
+            }
+            const resolved = resolveExpenseTax({
               tenant: cfg,
-              taxCode,
+              taxCode: code,
               vendorDefaultTaxCode: vendorRecord?.defaultTaxCode ?? null,
-              amountCents,
-              isMeal: isMealsAccount(catAcct),
+              amountCents: amt,
+              isMeal,
               printedTaxCents: typeof taxAmountCents === 'number' && taxAmountCents > 0 ? taxAmountCents : null,
             });
+            return { amt, resolved };
+          };
+          try {
+            let r;
+            try {
+              r = resolveWith(taxCode);
+            } catch (err) {
+              // Chat's "incl GST" is a phrase, not a chosen chip: an Ontario
+              // tenant saying GST means their HST. Fall back to the tenant default.
+              if (!(err instanceof TaxCodeError) || !taxCodeIsHint) throw err;
+              r = resolveWith(undefined);
+            }
+            amountCents = r.amt;
+            tax = r.resolved;
           } catch (err) {
             if (err instanceof TaxCodeError) {
               return { status: 400, body: { success: false, code: 'invalid_tax_code', error: 'taxCode is not a valid tax code for your jurisdiction and region' } };

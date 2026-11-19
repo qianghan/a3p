@@ -87,6 +87,36 @@ describe('POST /expenses — typed purchases', () => {
     expect(row(r.body.data.id)).toMatchObject({ taxCode: 'GST', taxAmountCents: 1000, recoverableTaxCents: 1000 });
   });
 
+  it('chat "$110 incl GST" params (taxCode GST, taxInclusive true) → gross 11000, recoverable 1000, 3 lines', async () => {
+    const r = await create({ amountCents: 11000, vendor: 'Officeworks', taxCode: 'GST', taxInclusive: true, categoryId: 'acc-office' });
+    expect(r.status).toBe(201);
+    expect(row(r.body.data.id)).toMatchObject({ amountCents: 11000, taxCode: 'GST', recoverableTaxCents: 1000 });
+    expect(r.body.data).toMatchObject({ taxCode: 'GST', recoverableTaxCents: 1000 });
+    expect(linesOf(r.body.data.id)).toEqual({ 'acc-office': [10000, 0], 'acc-gst': [1000, 0], 'acc-cash': [0, 11000] });
+  });
+
+  it('chat "$100 + GST" (taxInclusive false) grosses up: stored 11000, recoverable 1000', async () => {
+    const r = await create({ amountCents: 10000, taxCode: 'GST', taxInclusive: false, categoryId: 'acc-office' });
+    expect(r.status).toBe(201);
+    expect(row(r.body.data.id)).toMatchObject({ amountCents: 11000, taxAmountCents: 1000, recoverableTaxCents: 1000 });
+    expect(linesOf(r.body.data.id)).toEqual({ 'acc-office': [10000, 0], 'acc-gst': [1000, 0], 'acc-cash': [0, 11000] });
+  });
+
+  it('CA ON "$100 + HST" grosses up to 11300', async () => {
+    seed({ jurisdiction: 'ca', region: 'ON', gstRegistered: true, currency: 'CAD' });
+    const r = await create({ amountCents: 10000, taxCode: 'HST', taxInclusive: false, categoryId: 'acc-office' });
+    expect(linesOf(r.body.data.id)).toEqual({ 'acc-office': [10000, 0], 'acc-gst': [1300, 0], 'acc-cash': [0, 11300] });
+  });
+
+  it('chat hint "incl GST" from an Ontario tenant falls back to HST instead of a 400', async () => {
+    seed({ jurisdiction: 'ca', region: 'ON', gstRegistered: true, currency: 'CAD' });
+    const r = await create({ amountCents: 11300, taxCode: 'GST', taxInclusive: true, taxCodeIsHint: true, categoryId: 'acc-office' });
+    expect(r.status).toBe(201);
+    expect(row(r.body.data.id)).toMatchObject({ taxCode: 'HST', recoverableTaxCents: 1300 });
+    const strict = await create({ amountCents: 11300, taxCode: 'GST', categoryId: 'acc-office' });
+    expect(strict.status).toBe(400);
+  });
+
   it('AU registrant with no code gets the jurisdiction default (GST)', async () => {
     const r = await create({ amountCents: 11000, categoryId: 'acc-office' });
     expect(linesOf(r.body.data.id)).toEqual({ 'acc-office': [10000, 0], 'acc-gst': [1000, 0], 'acc-cash': [0, 11000] });
