@@ -75,6 +75,19 @@ beforeEach(() => {
   ocr.mockReset();
 });
 
+describe('from-receipt — OCR tax fields reach the client (PR 2b.8)', () => {
+  it('returns the printed tax and its label beside the amount', async () => {
+    ocr.mockResolvedValue({ ...read(1000), tax_label: 'GST' });
+    const { body } = await send('key-tax-label1');
+    expect(body.data.ocr).toMatchObject({ amountCents: 11000, taxCents: 1000, taxLabel: 'GST' });
+  });
+  it('no printed tax: taxCents and taxLabel are null', async () => {
+    ocr.mockResolvedValue(read(0));
+    const { body } = await send('key-tax-label2');
+    expect(body.data.ocr).toMatchObject({ taxCents: null, taxLabel: null });
+  });
+});
+
 describe('from-receipt — tax-typed posting', () => {
   it('AU registrant, printed GST equals computed: confirmed, DR 10000 | DR 2100 1000 | CR 11000', async () => {
     ocr.mockResolvedValue(read(1000));

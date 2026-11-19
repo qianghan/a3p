@@ -66,7 +66,7 @@ describe('POST /expenses/from-receipt — creating the expense', () => {
     const { status, body } = await send(receiptForm({ idempotencyKey: 'key-confident-1' }));
     expect(status).toBe(201);
     expect(body.data.duplicate).toBe(false);
-    expect(body.data.ocr).toEqual({ amountCents: 4599, vendor: 'Shell', date: '2026-06-19' });
+    expect(body.data.ocr).toEqual({ amountCents: 4599, vendor: 'Shell', date: '2026-06-19', taxCents: null, taxLabel: null });
     expect(body.data.doc).toMatchObject({
       amountCents: 4599, vendorName: 'Shell', categoryId: 'acc-fuel', categoryName: 'Fuel',
       status: 'confirmed', receiptStatus: 'attached', date: '2026-06-19', isPersonal: false, archivedAt: null,
@@ -95,7 +95,7 @@ describe('POST /expenses/from-receipt — creating the expense', () => {
     const { status, body } = await send(receiptForm({ idempotencyKey: 'key-unread-1' }));
     expect(status).toBe(201);
     expect(body.data.doc).toMatchObject({ amountCents: 0, vendorName: null, categoryId: null, status: 'pending_review' });
-    expect(body.data.ocr).toEqual({ amountCents: null, vendor: null, date: null });
+    expect(body.data.ocr).toEqual({ amountCents: null, vendor: null, date: null, taxCents: null, taxLabel: null });
   });
 
   it('over quota: no OCR call, and human-entered fields confirm it', async () => {
@@ -240,7 +240,7 @@ describe('POST /expenses/from-receipt — OCR output is untrusted', () => {
     vi.spyOn(console, 'warn').mockImplementation(() => {});
     const { status, body } = await send(receiptForm({ idempotencyKey: 'key-ocrtime-01' }));
     expect(status).toBe(201);
-    expect(body.data.ocr).toEqual({ amountCents: null, vendor: null, date: null });
+    expect(body.data.ocr).toEqual({ amountCents: null, vendor: null, date: null, taxCents: null, taxLabel: null });
     expect(body.data.doc).toMatchObject({ amountCents: 0, status: 'pending_review', receiptStatus: 'attached' });
     expect(body.data.doc.receiptUrl).toMatch(/^https:\/\/blob\.test\/receipts\/t1\//);
   });

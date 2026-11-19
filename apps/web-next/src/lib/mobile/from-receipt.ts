@@ -84,6 +84,7 @@ interface OcrRead {
   taxCents: number;
   /** tax_cents as printed; null when the read had none (0 counts as none: models emit 0 for "not found"). */
   printedTaxCents: number | null;
+  taxLabel: string | null;
   tipCents: number;
   vendor: string | null;
   date: string | null;
@@ -99,6 +100,7 @@ function readOcr(ocr: ReceiptOcrBytesResult | null): OcrRead | null {
     amountCents: ocrCents(ocr.amount_cents, false),
     taxCents: ocrCents(ocr.tax_cents, true) ?? 0,
     printedTaxCents: ocrCents(ocr.tax_cents, false),
+    taxLabel: typeof ocr.tax_label === 'string' ? ocr.tax_label : null,
     tipCents: ocrCents(ocr.tip_cents, true) ?? 0,
     vendor: ocrText(ocr.vendor),
     date: ocr.dateFound && typeof ocr.date === 'string' && isIsoCalendarDate(ocr.date) ? ocr.date : null,
@@ -422,7 +424,7 @@ export async function createExpenseFromReceipt(input: {
       result: {
         doc: loaded.doc,
         duplicate: false,
-        ocr: { amountCents: ocrAmount, vendor: ocrVendor, date: ocrDate },
+        ocr: { amountCents: ocrAmount, vendor: ocrVendor, date: ocrDate, taxCents: ocr?.printedTaxCents ?? null, taxLabel: ocr?.taxLabel ?? null },
         ...(tax?.registrationPrompt ? { taxRegistrationPrompt: true as const } : {}),
         ...(tax?.taxReview ? { taxReview: true as const } : {}),
       },

@@ -86,7 +86,7 @@ export interface ReviewResult { expenseId: string; ok: boolean; error?: ReviewEr
 export interface FromReceiptResult {
   doc: MobileDoc;
   duplicate: boolean;
-  ocr: { amountCents: number | null; vendor: string | null; date: string | null };
+  ocr: { amountCents: number | null; vendor: string | null; date: string | null; taxCents?: number | null; taxLabel?: string | null };
   deleted?: true;                      // replay of a key whose expense was since deleted (nothing is re-created)
   taxRegistrationPrompt?: true;        // AU/CA tenant with unknown GST registration: posted gross, ask them (PR 2b)
   taxReview?: true;                    // printed tax was > 2¢ off the computed tax: held in review (PR 2b)
