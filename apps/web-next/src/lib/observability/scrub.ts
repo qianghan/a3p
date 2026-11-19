@@ -38,6 +38,10 @@ const SENSITIVE_SUBSTRINGS = [
   'sortcode', 'cvv', 'taxid', 'taxfilenumber', 'socialinsurance',
   'socialsecurity', 'birth', 'address', 'phone', 'email', 'authorization',
   'authtoken', 'bearer',
+  // PR 4b — employee PII (spec §5.5): super fund/member ids, encrypted tax id
+  // and bank account, CA TD1 claim amounts. `taxid` and `routing` above already
+  // cover taxIdEnc and routingLabel.
+  'superfund', 'supermember', 'bankaccount', 'banklast', 'td1',
 ];
 
 /** Matched only as a complete word — see the note above. */

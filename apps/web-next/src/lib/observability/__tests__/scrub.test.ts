@@ -34,6 +34,23 @@ describe('isSensitiveKey', () => {
     '%s is sensitive as a whole word',
     (k) => expect(isSensitiveKey(k)).toBe(true),
   );
+
+  // PR 4b — employee PII field names (spec §5.5 privacy plumbing).
+  it.each([
+    'superFundUsi', 'superMemberNumber', 'superMemberNumberEnc', 'taxIdEnc', 'taxIdLast4',
+    'bankAccountEnc', 'bankAccount', 'bankLast4', 'td1Federal', 'td1Provincial',
+    'bankRoutingLabel', 'routingLabel',
+  ])('employee PII field %s is sensitive', (k) => expect(isSensitiveKey(k)).toBe(true));
+
+  it('scrubContext removes every employee PII value', () => {
+    const out = JSON.stringify(scrubContext({
+      employee: { superFundUsi: 'USI-123', superMemberNumber: 'MEM-987', taxIdEnc: 'CIPHER',
+        bankAccountEnc: 'BANKCIPHER', td1Federal: 1612900, td1Provincial: 1200000, routingLabel: 'BSB 062-000' },
+    }));
+    for (const v of ['USI-123', 'MEM-987', 'CIPHER', 'BANKCIPHER', '1612900', '1200000', '062-000']) {
+      expect(out).not.toContain(v);
+    }
+  });
 });
 
 describe('scrubUrl', () => {
