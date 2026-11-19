@@ -113,8 +113,9 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     // PR 3bc: accrual tenants post AP at entry — behind `purchases_at_entry` (off).
     if (await isPurchasesAtEntryEnabled()) {
       if (cfg && cfg.accountingBasis !== 'cash') {
-        const billDate = body.billDate ? new Date(body.billDate) : new Date();
-        if (isNaN(billDate.getTime())) {
+        // Omitted → the engine dates it today; a replay then ignores the date.
+        const billDate = body.billDate ? new Date(body.billDate) : undefined;
+        if (billDate && isNaN(billDate.getTime())) {
           return NextResponse.json({ success: false, error: 'invalid billDate' }, { status: 400 });
         }
         const category = body.categoryCode

@@ -79,7 +79,8 @@ export interface BillInput {
   vendorId?: string | null;
   billNumber?: string | null;
   description?: string | null;
-  billDate: Date;
+  /** Omitted → today. A replay only compares it when the caller supplied it. */
+  billDate?: Date;
   dueDate: Date;
   currency?: string | null;
   lines: BillLineInput[];
@@ -234,7 +235,9 @@ async function withRetry<T>(step: () => Promise<T | StaleWrite>): Promise<T> {
 
 /* ----------------------------------------------------------------- postBill */
 
-export async function postBill(db: PurchasesDb, tenantId: string, input: BillInput): Promise<{ bill: Row; replayed: boolean }> {
+export async function postBill(db: PurchasesDb, tenantId: string, rawInput: BillInput): Promise<{ bill: Row; replayed: boolean }> {
+  const billDateSupplied = rawInput.billDate !== undefined;
+  const input = { ...rawInput, billDate: rawInput.billDate ?? new Date() };
   if (!input.vendorName) throw new PurchaseError(400, 'vendor_required');
   if (!(input.billDate instanceof Date) || isNaN(input.billDate.getTime())) throw new PurchaseError(400, 'invalid_bill_date');
   if (!(input.dueDate instanceof Date) || isNaN(input.dueDate.getTime())) throw new PurchaseError(400, 'invalid_due_date');
@@ -246,7 +249,7 @@ export async function postBill(db: PurchasesDb, tenantId: string, input: BillInp
     const same =
       hit.vendorName === input.vendorName &&
       hit.amountCents === grossOf(input.lines) &&
-      (hit.billDate as Date | null)?.getTime() === input.billDate.getTime() &&
+      (!billDateSupplied || (hit.billDate as Date | null)?.getTime() === input.billDate.getTime()) &&
       (hit.dueDate as Date).getTime() === input.dueDate.getTime();
     if (!same) throw new PurchaseError(409, 'idempotency_key_conflict', 'This idempotency key was used for a different bill');
     return { bill: hit, replayed: true };

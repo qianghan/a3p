@@ -102,8 +102,9 @@ export async function POST(request: NextRequest, ctx: RouteCtx): Promise<NextRes
     const body = (await request.json().catch(() => ({}))) as {
       paidDate?: string; amountCents?: number; method?: string; idempotencyKey?: string;
     };
-    const paidDate = body.paidDate ? new Date(body.paidDate) : new Date();
-    if (isNaN(paidDate.getTime())) {
+    // Omitted → the engine uses now; a keyed replay then ignores the date.
+    const paidDate = body.paidDate ? new Date(body.paidDate) : undefined;
+    if (paidDate && isNaN(paidDate.getTime())) {
       return NextResponse.json({ success: false, error: 'invalid paidDate' }, { status: 400 });
     }
     const { bill } = await payBill(db, tenantId, id, {

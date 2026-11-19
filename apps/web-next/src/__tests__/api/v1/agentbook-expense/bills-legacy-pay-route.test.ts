@@ -163,6 +163,42 @@ describe('POST bills — flag purchases_at_entry', () => {
     const e = entries().find((x) => x.sourceType === 'bill' && x.sourceId === bill.id)!;
     expect(linesOf(e.id)).toEqual({ 'acc-phone': [10000, 0], 'acc-gst': [1000, 0], 'acc-ap': [0, 11000] });
   });
+  it('on: same key, no billDate, replayed later → same bill, 200 (no false conflict)', async () => {
+    flagRow = { enabled: true };
+    seed([]);
+    const { billDate: _omit, ...noDate } = body;
+    const req = () => CREATE(tenantReq('/api/v1/agentbook-expense/bills', 't1', { method: 'POST', body: { ...noDate, idempotencyKey: 'q1' } }));
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-11-02T23:59:59.900Z'));
+    const first = await req();
+    vi.setSystemTime(new Date('2026-11-03T00:00:01.000Z')); // across midnight
+    const second = await req();
+    vi.useRealTimers();
+    expect(first.status).toBe(201);
+    expect(second.status).toBe(200);
+    expect((await json<{ data: Row }>(second)).data.id).toBe((await json<{ data: Row }>(first)).data.id);
+    expect(memDb.table('abBill').rows).toHaveLength(1);
+  });
+  it('on: same key + a different supplied billDate → 409 idempotency_key_conflict', async () => {
+    flagRow = { enabled: true };
+    seed([]);
+    await CREATE(tenantReq('/api/v1/agentbook-expense/bills', 't1', { method: 'POST', body: { ...body, idempotencyKey: 'q2' } }));
+    const res = await CREATE(tenantReq('/api/v1/agentbook-expense/bills', 't1', { method: 'POST', body: { ...body, billDate: '2026-11-09', idempotencyKey: 'q2' } }));
+    expect(res.status).toBe(409);
+  });
+  it('pay: same key, no paidDate, replayed later → same payment, 200', async () => {
+    seed([legacy()]);
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-11-15T10:00:00Z'));
+    const a = await pay('b1', { idempotencyKey: 'pk1' });
+    vi.setSystemTime(new Date('2026-11-16T10:00:00Z'));
+    const b = await pay('b1', { idempotencyKey: 'pk1' });
+    vi.useRealTimers();
+    expect(a.status).toBe(200);
+    expect(b.status).toBe(200);
+    expect(memDb.table('abBillPayment').rows).toHaveLength(1);
+    expect(entries()).toHaveLength(1);
+  });
   it('on, cash-basis tenant: stays at_payment', async () => {
     flagRow = { enabled: true };
     seed([], { abTenantConfig: [{ userId: 't1', currency: 'AUD', accountingBasis: 'cash' }] });
