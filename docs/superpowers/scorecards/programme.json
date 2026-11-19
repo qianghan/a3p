@@ -94,11 +94,11 @@
     { "id": "J-inventory-sale", "spec": "tests/e2e/programme/inventory-sale.spec.ts", "personas": ["maya", "alex", "sydney"], "requirements": ["R-INV-2"] }
   ],
   "ownerCalls": [
-    { "id": "O1", "text": "Payroll journal stays on periodEnd while statutory reports use payDate", "confirmed": false },
-    { "id": "O2", "text": "Restatement is opt-in per tax year and skips closed periods", "confirmed": false },
-    { "id": "O3", "text": "COGS 5990 / shrinkage 5995 on US/CA, existing 5000 on AU/UK", "confirmed": false },
-    { "id": "O4", "text": "gstRegistered = null posts gross and prompts", "confirmed": false },
-    { "id": "O5", "text": "Legacy balance-sheet dates do not move; billDate applies to new bills only", "confirmed": false },
-    { "id": "O6", "text": "Foreign-currency bills rejected in v1; cash-basis P&L view of at-entry bills deferred", "confirmed": false }
+    { "id": "O1", "text": "Payroll journal stays on periodEnd while statutory reports use payDate", "confirmed": true, "confirmedOn": "2026-11-18", "confirmedBy": "owner (chat)" },
+    { "id": "O2", "text": "Restatement is opt-in per tax year and skips closed periods", "confirmed": true, "confirmedOn": "2026-11-18", "confirmedBy": "owner (chat)" },
+    { "id": "O3", "text": "COGS 5990 / shrinkage 5995 on US/CA, existing 5000 on AU/UK", "confirmed": true, "confirmedOn": "2026-11-18", "confirmedBy": "owner (chat)" },
+    { "id": "O4", "text": "gstRegistered = null posts gross and prompts", "confirmed": true, "confirmedOn": "2026-11-18", "confirmedBy": "owner (chat)" },
+    { "id": "O5", "text": "Legacy balance-sheet dates do not move; billDate applies to new bills only", "confirmed": true, "confirmedOn": "2026-11-18", "confirmedBy": "owner (chat)" },
+    { "id": "O6", "text": "Foreign-currency bills rejected in v1; cash-basis P&L view of at-entry bills deferred", "confirmed": true, "confirmedOn": "2026-11-18", "confirmedBy": "owner (chat)" }
   ]
 }

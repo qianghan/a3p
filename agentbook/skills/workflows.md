@@ -98,6 +98,9 @@ An entry form saves the expense ONCE, on its real category — never "save, then
 - Desktop: `plugins/agentbook-expense/frontend/src/pages/NewExpense.tsx` (category select, prefilled, required for business expenses). Mobile: `app/app/capture/page.tsx` (suggestion chip with the AI pill; a category the person picked is never replaced). Client fetch: `suggestCategoryFor` in `app/app/_lib/api-extra.ts` (any failure → `null`).
 - Remember to rebuild + COMMIT the plugin UMD bundle after changing `NewExpense.tsx` (see "Building Plugin Frontends" in CLAUDE.md).
 
+### Ledger writer
+Every journal posting goes through `apps/web-next/src/lib/ledger-writer.ts`: `appendBalancedEntry(client, tenantId, header, lines)` refuses unbalanced entries (`LedgerUnbalancedError`), and on a `(tenantId, sourceType, sourceId)` collision returns the existing entry when the payload (date + account/debit/credit lines) matches, else throws `LedgerKeyConflict` (carries `code: 'P2002'`; inside an aborted Postgres transaction it always throws). `assertPeriodOpen(client, tenantId, date)` is the closed-period gate, month derived in **UTC** (`LedgerPeriodClosedError`, re-exported as `ExpenseLedgerPeriodClosedError`). Expense edits of a tax-typed row (`taxCode` set) re-post as `DR category (amount − recoverableTaxCents) | DR 2100 (recoverable) | CR original credit (gross)`; untyped rows keep the legacy path. Pass the transaction client when you have one.
+
 ### Bank Reconciliation
 1. Plaid Link → `POST /plaid/create-link-token` → `POST /plaid/exchange-token`
 2. `POST /bank-sync` → fetch transactions from Plaid API (last 30 days)
