@@ -78,6 +78,12 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     agentConfig,
     agentPersonality,
     telegramBot,
+    bills,
+    billLines,
+    billPayments,
+    employees,
+    payRuns,
+    payStubs,
   ] = await Promise.all([
     db.abTenantConfig.findFirst({ where: { userId: tenantId } }),
     db.abAccount.findMany({ where }),
@@ -129,6 +135,12 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     db.abAgentConfig.findFirst({ where }),
     db.abAgentPersonality.findFirst({ where }),
     db.abTelegramBot.findFirst({ where, select: { id: true, tenantId: true, botUsername: true, chatIds: true, createdAt: true } }),
+    db.abBill.findMany({ where }),
+    db.abBillLine.findMany({ where }),
+    db.abBillPayment.findMany({ where }),
+    db.abEmployee.findMany({ where }),
+    db.abPayRun.findMany({ where }),
+    db.abPayStub.findMany({ where }),
   ]);
 
   // Record the export in the audit trail. Best-effort — never fail the
@@ -201,6 +213,8 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     agentConfig,
     agentPersonality,
     telegramBot,
+    bills: { headers: bills, lines: billLines, payments: billPayments },
+    payroll: { employees, payRuns, payStubs },
   };
 
   const filename = `agentbook-export-${tenantId}-${exportedAt.slice(0, 10)}.json`;

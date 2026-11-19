@@ -2031,6 +2031,7 @@ model AbBankTransaction {
   pending            Boolean       @default(false)
   matchedExpenseId   String? // matched to AbExpense
   matchedInvoiceId   String? // matched to AbInvoice (for payments)
+  matchedBillId      String? // matched to AbBill (payment of a bill)
   matchStatus        String        @default("pending") // pending | matched | exception | ignored
   idempotencyKey     String?       @unique // prevent duplicate imports
   createdAt          DateTime      @default(now())
@@ -2219,8 +2220,69 @@ model AbBill {
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
 
+  // PR 3a — additive AP columns (all nullable or defaulted; legacy rows stay valid)
+  vendorId            String?
+  billNumber          String?
+  billDate            DateTime?
+  subtotalCents       Int?
+  taxCents            Int?
+  recoverableTaxCents Int             @default(0)
+  paidCents           Int             @default(0)
+  currency            String?
+  postingMode         String          @default("at_payment") // at_payment | at_entry
+  revision            Int             @default(0)
+  idempotencyKey      String?
+  receiptUrl          String?
+  deletedAt           DateTime?
+  lines               AbBillLine[]
+  payments            AbBillPayment[]
+
+  @@index([tenantId, idempotencyKey])
   @@index([tenantId, status])
   @@index([tenantId, dueDate])
+  @@index([tenantId, status, dueDate])
+  @@index([tenantId, billDate])
+  @@index([tenantId, deletedAt])
+  @@schema("plugin_agentbook_expense")
+}
+
+model AbBillLine {
+  id                  String   @id @default(uuid())
+  billId              String
+  bill                AbBill   @relation(fields: [billId], references: [id], onDelete: Cascade)
+  tenantId            String
+  description         String
+  categoryId          String?
+  itemId              String?
+  qty                 Float    @default(1)
+  unitCostCents       Int      @default(0)
+  amountCents         Int
+  taxCode             String?
+  taxCents            Int      @default(0)
+  recoverableTaxCents Int      @default(0)
+  createdAt           DateTime @default(now())
+
+  @@index([billId])
+  @@index([tenantId])
+  @@schema("plugin_agentbook_expense")
+}
+
+model AbBillPayment {
+  id             String    @id @default(uuid())
+  billId         String
+  bill           AbBill    @relation(fields: [billId], references: [id], onDelete: Cascade)
+  tenantId       String
+  date           DateTime
+  amountCents    Int
+  method         String    @default("manual")
+  journalEntryId String?
+  idempotencyKey String?
+  voidedAt       DateTime?
+  createdAt      DateTime  @default(now())
+
+  @@index([tenantId, idempotencyKey])
+  @@index([billId])
+  @@index([tenantId, date])
   @@schema("plugin_agentbook_expense")
 }
 
